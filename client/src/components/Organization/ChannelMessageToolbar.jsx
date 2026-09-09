@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Forward, MoreHorizontal, Pencil, Reply, SmilePlus } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { shellNavRailBackdrop } from '../../theme/shellTheme';
+import {
+  EST_EMOJI_PANEL_PX,
+  GAP_PX,
+  ensureMessageToolbarRoom,
+  shouldPlaceEmojiPanelBelow,
+} from '../../utils/messageToolbarPlacement';
 
 const DEFAULT_STORAGE_KEY = 'vh_org_recent_reactions';
 
@@ -55,6 +61,8 @@ export default function ChannelMessageToolbar({
   const location = useLocation();
   const [recent, setRecent] = useState(() => loadRecent(recentReactionsStorageKey));
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [emojiBelow, setEmojiBelow] = useState(false);
+  const toolbarRef = useRef(null);
 
   useEffect(() => {
     setRecent(loadRecent(recentReactionsStorageKey));
@@ -70,6 +78,16 @@ export default function ChannelMessageToolbar({
     },
     []
   );
+
+  useEffect(() => {
+    if (!emojiOpen || !toolbarRef.current) return;
+    const placeBelow = shouldPlaceEmojiPanelBelow(toolbarRef.current);
+    setEmojiBelow(placeBelow);
+    ensureMessageToolbarRoom(toolbarRef.current, {
+      needPx: EST_EMOJI_PANEL_PX + GAP_PX,
+      place: placeBelow ? 'below' : 'above',
+    });
+  }, [emojiOpen]);
 
   const pushRecent = useCallback(
     (emoji) => {
@@ -102,12 +120,16 @@ export default function ChannelMessageToolbar({
     ? `flex ${iconSz} items-center justify-center rounded-md text-[#b8bcc8] transition hover:bg-white/10 hover:text-white`
     : `flex ${iconSz} items-center justify-center rounded-md text-slate-600 transition hover:bg-slate-100`;
   const emojiPanel = isDarkMode
-    ? 'absolute bottom-full right-0 z-[70] mb-1 grid max-h-48 w-44 grid-cols-5 gap-1 rounded-xl border border-white/15 bg-[#1e1f22] p-2 shadow-xl'
-    : 'absolute bottom-full right-0 z-[70] mb-1 grid max-h-48 w-44 grid-cols-5 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl';
+    ? `absolute z-[70] grid max-h-48 w-44 grid-cols-5 gap-1 rounded-xl border border-white/15 bg-[#1e1f22] p-2 shadow-xl ${
+        emojiBelow ? 'left-0 top-full mt-1' : 'bottom-full right-0 mb-1'
+      }`
+    : `absolute z-[70] grid max-h-48 w-44 grid-cols-5 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl ${
+        emojiBelow ? 'left-0 top-full mt-1' : 'bottom-full right-0 mb-1'
+      }`;
   const iconClass = compact ? 'h-3.5 w-3.5' : 'h-4 w-4';
 
   return (
-    <div className={bar} onClick={(e) => e.stopPropagation()}>
+    <div ref={toolbarRef} className={bar} onClick={(e) => e.stopPropagation()}>
       <div className={`flex items-center gap-0.5 ${compact ? 'pr-1' : 'pr-1.5'} ${sep}`}>
         {recentSlots.map((em) => (
           <button
@@ -154,7 +176,9 @@ export default function ChannelMessageToolbar({
                   className={`flex h-9 items-center justify-center rounded-lg text-lg ${
                     isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'
                   }`}
-                  onClick={() => {
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     pushRecent(em);
                     onQuickReact?.(em);
                     onOpenEmojiPicker?.(em);

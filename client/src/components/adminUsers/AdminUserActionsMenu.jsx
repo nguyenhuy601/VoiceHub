@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { MoreHorizontal } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import { memberUserId } from '../../utils/adminUserUtils';
+import { adminUserHubLink } from '../../utils/adminHubLinks';
 
 const MENU_WIDTH = 220;
 const GAP = 4;
@@ -56,12 +57,14 @@ function computeMenuPos(btnRect, menuH, menuW = MENU_WIDTH) {
 
 /**
  * Menu "..." gom thao tác admin theo nhóm.
+ * variant `user` = list nhân sự; `account` = list tài khoản (chỉ route /accounts/*, Khóa cuối).
  */
 export default function AdminUserActionsMenu({
   member,
   onViewDetail,
   onRequestDelete,
   disableDelete = false,
+  variant = 'user',
 }) {
   const { t } = useAppStrings();
   const userId = memberUserId(member);
@@ -204,36 +207,76 @@ export default function AdminUserActionsMenu({
                 pointerEvents: ready ? 'auto' : 'none',
               }}
             >
-              <Group label={t('adminUsers.menuGroupInfo')}>
-                <ItemButton onClick={() => onViewDetail?.(member)}>{t('adminUsers.viewDetail')}</ItemButton>
-                <ItemLink to={`/app/admin/users/edit${q}`}>{t('adminUsers.editInfo')}</ItemLink>
-              </Group>
-              <Group label={t('adminUsers.menuGroupAccount')}>
-                <ItemLink to={`/app/admin/accounts/detail${q}`}>{t('adminDomains.accounts.detail')}</ItemLink>
-                <ItemLink to={`/app/admin/accounts/lock${q}`}>{t('adminDomains.accounts.lock')}</ItemLink>
-                <ItemLink to={`/app/admin/accounts/reset-password${q}`}>
-                  {t('adminDomains.accounts.resetPassword')}
-                </ItemLink>
-                <ItemLink to={`/app/admin/accounts/force-password${q}`}>
-                  {t('adminDomains.accounts.forcePassword')}
-                </ItemLink>
-              </Group>
-              <Group label={t('adminUsers.menuGroupAccess')}>
-                <ItemLink to={`/app/admin/rbac/assign${q}`}>{t('adminUsers.assignRole')}</ItemLink>
-                <ItemLink to={`/app/admin/users/assign-org${q}`}>
-                  {t('adminDomains.users.assignOrg')}
-                </ItemLink>
-              </Group>
-              <Group label={t('adminUsers.menuGroupSecurity')}>
-                <ItemLink to={`/app/admin/accounts/login-history${q}`}>
-                  {t('adminDomains.accounts.loginHistory')}
-                </ItemLink>
-              </Group>
-              <Group label={t('adminUsers.menuGroupDanger')}>
-                <ItemButton danger disabled={disableDelete} onClick={() => onRequestDelete?.(member)}>
-                  {t('adminDomains.users.delete')}
-                </ItemButton>
-              </Group>
+              {variant === 'account' ? (
+                <>
+                  <Group label={t('adminUsers.menuGroupInfo')}>
+                    <ItemLink to={`/app/admin/accounts/detail${q}`}>{t('adminDomains.accounts.detail')}</ItemLink>
+                    <ItemLink to={`/app/admin/accounts/login-history${q}`}>
+                      {t('adminDomains.accounts.loginHistory')}
+                    </ItemLink>
+                  </Group>
+                  <Group label={t('adminUsers.menuGroupAccount')}>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/verification', userId, 'resend')}>
+                      {t('adminDomains.accounts.resendVerification')}
+                    </ItemLink>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/access', userId, 'activate')}>
+                      {t('adminDomains.accounts.activate')}
+                    </ItemLink>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'reset')}>
+                      {t('adminDomains.accounts.resetPassword')}
+                    </ItemLink>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'force')}>
+                      {t('adminDomains.accounts.forcePassword')}
+                    </ItemLink>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'set')}>
+                      {t('adminDomains.accounts.setPassword')}
+                    </ItemLink>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/access', userId, 'revoke')}>
+                      {t('adminDomains.accounts.revokeSessions')}
+                    </ItemLink>
+                  </Group>
+                  <Group label={t('adminUsers.menuGroupDanger')}>
+                    <ItemLink danger to={adminUserHubLink('/app/admin/accounts/access', userId, 'lock')}>
+                      {t('adminDomains.accounts.lock')}
+                    </ItemLink>
+                  </Group>
+                </>
+              ) : (
+                <>
+                  <Group label={t('adminUsers.menuGroupInfo')}>
+                    <ItemButton onClick={() => onViewDetail?.(member)}>{t('adminUsers.viewDetail')}</ItemButton>
+                    <ItemLink to={adminUserHubLink('/app/admin/users/people-ops', userId, 'edit')}>{t('adminUsers.editInfo')}</ItemLink>
+                  </Group>
+                  <Group label={t('adminUsers.menuGroupAccount')}>
+                    <ItemLink to={`/app/admin/accounts/detail${q}`}>{t('adminDomains.accounts.detail')}</ItemLink>
+                    <ItemLink danger to={adminUserHubLink('/app/admin/accounts/access', userId, 'lock')}>
+                      {t('adminDomains.accounts.lock')}
+                    </ItemLink>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'reset')}>
+                      {t('adminDomains.accounts.resetPassword')}
+                    </ItemLink>
+                    <ItemLink to={adminUserHubLink('/app/admin/accounts/password', userId, 'force')}>
+                      {t('adminDomains.accounts.forcePassword')}
+                    </ItemLink>
+                  </Group>
+                  <Group label={t('adminUsers.menuGroupAccess')}>
+                    <ItemLink to={`/app/admin/rbac/assign${q}`}>{t('adminUsers.assignRole')}</ItemLink>
+                    <ItemLink to={adminUserHubLink('/app/admin/users/people-ops', userId, 'assign-org')}>
+                      {t('adminDomains.users.assignOrg')}
+                    </ItemLink>
+                  </Group>
+                  <Group label={t('adminUsers.menuGroupSecurity')}>
+                    <ItemLink to={`/app/admin/accounts/login-history${q}`}>
+                      {t('adminDomains.accounts.loginHistory')}
+                    </ItemLink>
+                  </Group>
+                  <Group label={t('adminUsers.menuGroupDanger')}>
+                    <ItemButton danger disabled={disableDelete} onClick={() => onRequestDelete?.(member)}>
+                      {t('adminDomains.users.delete')}
+                    </ItemButton>
+                  </Group>
+                </>
+              )}
             </div>,
             document.body
           )

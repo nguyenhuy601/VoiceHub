@@ -5,6 +5,16 @@ from src.utils.notification_client import send_notification, send_bulk_notificat
 logger = logging.getLogger(__name__)
 
 
+def _document_action_url(document_id: str, organization_id: str = None) -> str:
+    params = []
+    if organization_id:
+        params.append(f"organizationId={organization_id}")
+    if document_id:
+        params.append(f"documentId={document_id}")
+    qs = "&".join(params)
+    return f"/app/collaborate/documents?{qs}" if qs else "/app/collaborate/documents"
+
+
 async def handle_document_uploaded(data: Dict):
     """Handle document uploaded event"""
     try:
@@ -27,9 +37,10 @@ async def handle_document_uploaded(data: Dict):
                     "documentName": document_name,
                     "uploadedBy": uploaded_by,
                     "organizationId": organization_id,
-                    "serverId": server_id
+                    "serverId": server_id,
+                    "kind": "document_shared",
                 },
-                action_url=f"/documents/{document_id}"
+                action_url=_document_action_url(document_id, organization_id)
             )
         
         logger.info(f"Document uploaded notification sent: {document_id}")
@@ -60,9 +71,10 @@ async def handle_document_updated(data: Dict):
                     "documentName": document_name,
                     "updatedBy": updated_by,
                     "organizationId": organization_id,
-                    "serverId": server_id
+                    "serverId": server_id,
+                    "kind": "document_shared",
                 },
-                action_url=f"/documents/{document_id}"
+                action_url=_document_action_url(document_id, organization_id)
             )
         
         logger.info(f"Document updated notification sent: {document_id}")
@@ -93,15 +105,13 @@ async def handle_document_shared(data: Dict):
                     "documentName": document_name,
                     "sharedBy": shared_by,
                     "organizationId": organization_id,
-                    "serverId": server_id
+                    "serverId": server_id,
+                    "kind": "document_shared",
                 },
-                action_url=f"/documents/{document_id}"
+                action_url=_document_action_url(document_id, organization_id)
             )
         
         logger.info(f"Document shared notification sent: {document_id}")
     except Exception as e:
         logger.error(f"Error handling document shared: {str(e)}")
         raise
-
-
-

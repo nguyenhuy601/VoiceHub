@@ -27,7 +27,7 @@ import {
 export default function RbacOrgRoleDirectoryPanel({ orgId }) {
   const { t } = useAppStrings();
   const { departments, teams, loading: structureLoading } = useAdminOrgStructure(orgId);
-  const { membersByIdAll, loading: membersLoading } = useAdminMembers(orgId);
+  const { membersByIdAll, loading: membersLoading } = useAdminMembers(orgId, { view: 'directory' });
   const [query, setQuery] = useState('');
   const [manualAssignments, setManualAssignments] = useState([]);
   const [assignLoading, setAssignLoading] = useState(false);

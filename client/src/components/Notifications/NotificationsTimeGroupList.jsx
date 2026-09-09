@@ -28,7 +28,7 @@ export default function NotificationsTimeGroupList({
                 notif={notif}
                 actionKind={getActionKind?.(notif) || 'none'}
                 acting={actingNotifId === notif.id}
-                onOpen={onMarkRead}
+                onOpen={onOpen}
                 onMarkRead={onMarkRead}
                 onDelete={onDelete}
                 onAcceptFriend={onAcceptFriend}

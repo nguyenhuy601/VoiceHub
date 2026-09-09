@@ -8,6 +8,7 @@ import {
   ChevronsRight,
   ClipboardList,
   FileText,
+  FileSpreadsheet,
   LayoutDashboard,
   MessageCircle,
   Mic,
@@ -30,10 +31,14 @@ import { useWorkspaceSuite, SUITE } from '../../context/WorkspaceSuiteContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { useFriendPending, useNotificationBadge } from '../../hooks/queries';
 import {
+  buildCollaborateCalendarPath,
   buildCollaborateDocumentsPath,
+  buildCollaborateRequirementsPath,
   buildCollaborateTasksPath,
   getDefaultPathForSuite,
 } from '../../utils/suitePathUtils';
+import { useAuth } from '../../context/AuthContext';
+import { shouldShowCollaborateRequirementsNavForUser } from '../../utils/collaborateRequirementsNav';
 import VoiceHubAIPanel from './VoiceHubAIPanel';
 import {
   FIGMA_SIDEBAR,
@@ -260,6 +265,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
     if (next) setShowSuitePicker(false);
   };
 
+  const { user } = useAuth();
   const { role, meta } = useUiRole();
   const isSingleCompany = singleOrgMode || readSingleOrgModeFlag();
   const { canAccessHub, isSystemAdmin, myOrgRole } = useCompanyAdminAccess();
@@ -267,6 +273,9 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   const showAdminSuite = canAccessHub && !isSystemAdmin;
   // Approvers include IC project roles (TL/QA) — inbox ACL is server-side (canAct / requester)
   const showApprovalInbox = suiteProp === 'collaborate';
+  // Menu theo Position (jobTitle); quyền thao tác vẫn qua access API trên trang.
+  const showRequirementsNav =
+    suiteProp === 'collaborate' && shouldShowCollaborateRequirementsNavForUser(user);
   const myStructureRole = String(
     company?.myStructureRole || activeWorkspace?.myStructureRole || ''
   ).toLowerCase();
@@ -364,14 +373,25 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           path: buildCollaborateDocumentsPath(activeOrgId),
           badge: 0,
         },
+      ];
+      if (showRequirementsNav) {
+        items.push({
+          key: 'requirements',
+          icon: FileSpreadsheet,
+          label: t('nav.requirements'),
+          path: buildCollaborateRequirementsPath(activeOrgId),
+          badge: 0,
+        });
+      }
+      items.push(
         {
           key: 'calendar',
           icon: Calendar,
           label: t('nav.calendar'),
-          path: '/app/me/calendar',
+          path: buildCollaborateCalendarPath(activeOrgId),
           badge: 0,
-        },
-      ];
+        }
+      );
       if (showApprovalInbox) {
         items.push({
           key: 'approvals',
@@ -417,7 +437,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         badge: 0,
       },
     ];
-  }, [suiteProp, t, landingDemo, unreadCount, pendingCount, activeOrgId, isSingleCompany, showApprovalInbox, showAdminSuite, navigate]);
+  }, [suiteProp, t, landingDemo, unreadCount, pendingCount, activeOrgId, isSingleCompany, showApprovalInbox, showRequirementsNav, showAdminSuite, navigate]);
 
   const visibleNavItems = useMemo(
     () => filterNavForRole(navItems, role, suiteProp),
@@ -431,6 +451,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
     if (base === '/app/collaborate/overview') return location.pathname === '/app/collaborate/overview';
     if (base === '/app/admin') return location.pathname === '/app/admin' || location.pathname.startsWith('/app/admin/');
     if (base === '/app/collaborate/approvals') return location.pathname === '/app/collaborate/approvals';
+    if (base === '/app/collaborate/requirements') return location.pathname === '/app/collaborate/requirements';
     if (base === '/app/me/dashboard') return location.pathname === '/app/me/dashboard';
     if (base === '/app/me/settings') return location.pathname === '/app/me/settings';
     if (base === '/app/collaborate/workspaces') {
@@ -452,10 +473,16 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
       }
       if (item.key === 'tasks') {
         return (
-          path === '/app/collaborate/tasks' || path.startsWith('/app/collaborate/tasks')
+          path === '/app/collaborate/projects' ||
+          (path.startsWith('/app/collaborate/projects/') &&
+            !path.startsWith('/app/collaborate/projects/new')) ||
+          path === '/app/collaborate/tasks' ||
+          path.startsWith('/app/collaborate/tasks')
         );
       }
       if (item.key === 'documents') return path === '/app/collaborate/documents';
+      if (item.key === 'requirements') return path === '/app/collaborate/requirements';
+      if (item.key === 'calendar') return path === '/app/collaborate/calendar';
       return isActivePath(item.path);
     }
     return isActivePath(item.path);
@@ -486,8 +513,8 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
     if (showAdminSuite) return ['communicate', 'collaborate', 'admin', 'me'];
     return base;
   }, [showAdminSuite]);
-  const widthClass =
-    mobileNavOpen || !collapsed ? FIGMA_SIDEBAR_EXPANDED : FIGMA_SIDEBAR_COLLAPSED;
+  const railCollapsed = collapsed && !mobileNavOpen;
+  const widthClass = railCollapsed ? FIGMA_SIDEBAR_COLLAPSED : FIGMA_SIDEBAR_EXPANDED;
   const sidebarTranslate = mobileNavOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0';
 
   return (
@@ -501,13 +528,17 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         />
       ) : null}
       <div
+        id="voicehub-mobile-nav"
+        role={mobileNavOpen ? 'dialog' : undefined}
+        aria-modal={mobileNavOpen ? true : undefined}
+        aria-label={t('nav.mainMenu')}
         className={`${FIGMA_SIDEBAR} ${widthClass} fixed inset-y-0 left-0 z-[250] transform transition-transform duration-200 ease-enterprise lg:relative lg:z-30 lg:translate-x-0 ${sidebarTranslate}`}
       >
       <div className={`relative ${FIGMA_SIDEBAR_SUITE_STRIP}`}>
         <div
-          className={`flex w-full items-center gap-1.5 ${collapsed ? 'justify-center px-0 py-2.5' : 'px-2.5 py-2'}`}
+          className={`flex w-full items-center gap-1.5 ${railCollapsed ? 'justify-center px-0 py-2.5' : 'px-2.5 py-2'}`}
         >
-          {!collapsed ? (
+          {!railCollapsed ? (
             <>
               <button
                 type="button"
@@ -535,7 +566,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
               <button
                 type="button"
                 onClick={toggleCollapsed}
-                className="shrink-0 rounded-[5px] border-none bg-transparent p-0.5 text-white/30 transition hover:text-white/70"
+                className="hidden shrink-0 rounded-[5px] border-none bg-transparent p-0.5 text-white/30 transition hover:text-white/70 lg:inline-flex"
                 title={t('nav.collapseSidebar')}
                 aria-label={t('nav.collapseSidebar')}
               >
@@ -560,7 +591,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           )}
         </div>
 
-        {showSuitePicker && !collapsed && (
+        {showSuitePicker && !railCollapsed && (
           <div className="absolute left-2 right-2 top-[calc(100%+4px)] z-[200] animate-scale-in overflow-hidden rounded-xl border border-white/10 bg-[#0D0D1A] shadow-2xl">
             <div className="px-2.5 pb-1 pt-2 text-[0.575rem] font-bold uppercase tracking-widest text-white/25">
               {t('nav.chooseSpace')}
@@ -617,20 +648,20 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         )}
       </div>
 
-      {!collapsed && <div className={FIGMA_SIDEBAR_SECTION_LABEL}>{t('nav.mainMenu')}</div>}
+      {!railCollapsed && <div className={FIGMA_SIDEBAR_SECTION_LABEL}>{t('nav.mainMenu')}</div>}
 
       <nav className={FIGMA_SIDEBAR_NAV}>
         {visibleNavItems.map((item) => (
           <NavItem
             key={item.key}
             item={item}
-            collapsed={collapsed}
+            collapsed={railCollapsed}
             suiteColor={suiteColor}
             isActive={isActiveNavItem(item)}
           />
         ))}
 
-        {suiteProp === 'communicate' && !collapsed && (
+        {suiteProp === 'communicate' && !railCollapsed && (
           <div className="mt-2.5">
             <div className="px-1 pb-1 text-[0.5875rem] font-bold uppercase tracking-[0.1em] text-white/20">
               {t('nav.aiAssistant')}
@@ -666,7 +697,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         <VoiceHubAIPanel
           onClose={() => setShowAIPanel(false)}
           anchorRef={aiButtonRef}
-          collapsed={collapsed}
+          collapsed={railCollapsed}
         />
       ) : null}
     </div>

@@ -2,7 +2,7 @@ const ProjectMember = require('../models/ProjectMember');
 const {
   normalizeAllocationSegments,
   computeAllocationStatus,
-} = require('../utils/allocationOverlap');
+} = require('../utils/staffing/allocationOverlap');
 
 function asOid(raw) {
   return String(raw || '').trim();
@@ -131,6 +131,18 @@ async function upsertProjectMemberAllocation({
       { $set: { allocationStatus: status } }
     );
     saved.allocationStatus = status;
+  }
+
+  try {
+    const { emitProjectMemberChangedBestEffort } = require('../clients/projectChatPublisher.client');
+    emitProjectMemberChangedBestEffort({
+      organizationId: orgId,
+      projectId: pid,
+      userId: uid,
+      status: saved.status || nextDoc.status || 'active',
+    });
+  } catch {
+    /* best-effort */
   }
 
   return saved;

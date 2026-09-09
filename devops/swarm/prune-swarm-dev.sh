@@ -12,8 +12,6 @@ docker images voicehub-* -q 2>/dev/null | wc -l | xargs -I{} echo "voicehub imag
 echo ""
 echo "=== Scale tạm service nặng / worker (dev) ==="
 docker service scale \
-  voicehub_ollama=0 \
-  voicehub_paddleocr-service=0 \
   voicehub_notification-dispatch-worker=0 \
   voicehub_project-worker=0 \
   voicehub_ai-task-extract-worker=0 \

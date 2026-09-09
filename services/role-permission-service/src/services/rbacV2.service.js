@@ -10,7 +10,10 @@ const {
   MASTER_PERMISSIONS,
   TEMPLATE_DEFINITIONS,
   SPECIALIZATIONS,
+  PROJECT_PACK_TEMPLATE_KEYS,
   isValidMasterPermission,
+  isProjectMasterPermission,
+  stripProjectGrantsUnlessProjectPack,
   getTemplateDefinition,
   assertCatalogIntegrity,
   materializeLegacyPermissions,
@@ -123,6 +126,7 @@ class RbacV2Service {
       modules: MODULES,
       masterPermissions: MASTER_PERMISSIONS,
       specializations: SPECIALIZATIONS,
+      projectPackTemplateKeys: [...PROJECT_PACK_TEMPLATE_KEYS],
       tree: buildCatalogTree(),
       templates:
         templates.length > 0
@@ -179,12 +183,16 @@ class RbacV2Service {
 
     const actor =
       actorUserId && mongoose.Types.ObjectId.isValid(String(actorUserId)) ? actorUserId : null;
+    const grants = stripProjectGrantsUnlessProjectPack(
+      uniqueStrings(template.grants).filter(isValidMasterPermission),
+      template.key
+    );
     const doc = await OrganizationPermissionGroup.create({
       organizationId: oid,
       templateKey: template.key,
       specialization: normalizeSpecialization(specialization),
       name,
-      grants: uniqueStrings(template.grants).filter(isValidMasterPermission),
+      grants,
       createdBy: actor,
       updatedBy: actor,
     });
@@ -255,7 +263,17 @@ class RbacV2Service {
       );
     }
 
-    group.grants = normalized;
+    const nextGrants = stripProjectGrantsUnlessProjectPack(normalized, group.templateKey);
+    const stripped = normalized.filter((g) => isProjectMasterPermission(g) && !nextGrants.includes(g));
+    if (stripped.length) {
+      logger.info('[rbacV2] stripped project.* grants from org permission pack', {
+        groupId: gid,
+        templateKey: group.templateKey,
+        stripped,
+      });
+    }
+
+    group.grants = nextGrants;
     group.updatedBy =
       actorUserId && mongoose.Types.ObjectId.isValid(String(actorUserId)) ? actorUserId : null;
     await group.save();

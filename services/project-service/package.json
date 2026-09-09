@@ -10,15 +10,19 @@
     "postinstall": "node ../../shared/postinstall-link.cjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1114.0",
     "amqplib": "^0.10.4",
-    "firebase-admin": "^12.7.0",
     "axios": "^1.7.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "firebase-admin": "^12.7.0",
     "ioredis": "^5.9.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^9.1.4"
+    "mongoose": "^9.1.4",
+    "multer": "^2.2.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"

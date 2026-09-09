@@ -4,27 +4,40 @@ import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
   AdminUserPanelShell,
   adminInputClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId, unitName, unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
+import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 
+const BRANCH_MANAGE_HUB = '/app/admin/org-structure/branches/manage';
 const ACTION_LINKS = [
-  { path: '/app/admin/org-structure/branches/edit', labelKey: 'adminDomains.orgStructure.branchEdit' },
-  { path: '/app/admin/org-structure/branches/disable', labelKey: 'adminDomains.orgStructure.branchDisable' },
-  { path: '/app/admin/org-structure/branches/departments', labelKey: 'adminDomains.orgStructure.branchDept' },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.branchEdit', grant: RBAC_GRANT.BRANCH_UPDATE },
+  { tab: 'disable', labelKey: 'adminDomains.orgStructure.branchDisable', grant: RBAC_GRANT.BRANCH_UPDATE },
+  { tab: 'departments', labelKey: 'adminDomains.orgStructure.branchDept', grant: RBAC_GRANT.BRANCH_UPDATE },
 ];
 
 export default function BranchListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { branches: structureBranches, loading: structureLoading } = useAdminOrgStructure(orgId);
+  const { branches: structureBranches, loading: structureLoading, loadStructure } =
+    useAdminOrgStructure(orgId);
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateBranch = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.BRANCH_CREATE);
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -32,6 +45,7 @@ export default function BranchListPanel({ orgId }) {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadError('');
       try {
         const res = await organizationAPI.getBranches(orgId, { includeInactive: true });
         const data = unwrapOrgApi(res);
@@ -40,7 +54,9 @@ export default function BranchListPanel({ orgId }) {
       } catch (error) {
         if (!cancelled) {
           setBranches([]);
-          toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') }));
+          const msg = resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') });
+          setLoadError(msg);
+          toast.error(msg);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -49,9 +65,9 @@ export default function BranchListPanel({ orgId }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, t]);
+  }, [orgId, t, reloadTick]);
 
-  const rows = branches.length ? branches : structureBranches;
+  const rows = loadError ? [] : branches.length ? branches : structureBranches;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -66,7 +82,8 @@ export default function BranchListPanel({ orgId }) {
     });
   }, [rows, query]);
 
-  const busy = loading || structureLoading;
+  const busy = loading || (!loadError && !branches.length && structureLoading);
+  const listError = loadError;
 
   return (
     <AdminUserPanelShell
@@ -74,10 +91,12 @@ export default function BranchListPanel({ orgId }) {
       hint={t('adminOrg.branchListHint')}
       wide
       actions={
-        <Link to="/app/admin/org-structure/branches/create" className={adminPrimaryBtnClass()}>
-          <Plus className="h-4 w-4" />
-          {t('adminDomains.orgStructure.branchCreate')}
-        </Link>
+        canCreateBranch ? (
+          <Link to="/app/admin/org-structure/branches/create" className={adminPrimaryBtnClass()}>
+            <Plus className="h-4 w-4" />
+            {t('adminDomains.orgStructure.branchCreate')}
+          </Link>
+        ) : null
       }
     >
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -93,14 +112,28 @@ export default function BranchListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <AdminDenseTableCard>
         {busy ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : listError ? (
+          <div className="space-y-3 px-4 py-6">
+            <p className="text-sm text-destructive">{listError}</p>
+            <button
+              type="button"
+              className={adminPrimaryBtnClass()}
+              onClick={() => {
+                setReloadTick((n) => n + 1);
+                loadStructure();
+              }}
+            >
+              {t('adminRbac.retry')}
+            </button>
+          </div>
         ) : (
-          <div className="overflow-x-auto">
+          <AdminDenseTableScroll>
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="sticky top-0 border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                   <th className="px-4 py-3">{t('adminOrg.colName')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colLocation')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colStatus')}</th>
@@ -128,10 +161,12 @@ export default function BranchListPanel({ orgId }) {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
-                          {ACTION_LINKS.map((link) => (
+                          {ACTION_LINKS.filter((link) =>
+                            canActWithGrant(isFullAccess, hasGrant, link.grant)
+                          ).map((link) => (
                             <Link
-                              key={link.path}
-                              to={`${link.path}?unitId=${encodeURIComponent(id)}`}
+                              key={link.tab}
+                              to={adminOrgUnitHubLink(BRANCH_MANAGE_HUB, id, link.tab)}
                               className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
                             >
                               {t(link.labelKey)}
@@ -149,9 +184,9 @@ export default function BranchListPanel({ orgId }) {
                 {t('adminOrg.noBranches')}
               </p>
             ) : null}
-          </div>
+          </AdminDenseTableScroll>
         )}
-      </div>
+      </AdminDenseTableCard>
     </AdminUserPanelShell>
   );
 }

@@ -128,6 +128,8 @@ export const DEFAULT_RBAC_MATRIX = {
 export function getSettingsTabs(t) {
   return [
     { id: 'profile', label: t('settingsPage.figmaTabProfile') },
+    { id: 'overview', label: t('settingsPage.figmaTabOverview') },
+    { id: 'capability', label: t('settingsPage.figmaTabCapability') },
     { id: 'security', label: t('settingsPage.figmaTabSecurity') },
     { id: 'notifications', label: t('settingsPage.figmaTabNotifications') },
     { id: 'api', label: t('settingsPage.figmaTabApi'), capability: 'apiKeys' },

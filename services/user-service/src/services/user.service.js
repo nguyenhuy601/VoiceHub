@@ -17,6 +17,7 @@ const {
   mergeClosedBoardExperience,
 } = require('./capabilityProfile.service');
 const { parseCvFileToFields } = require('./cvParse.service');
+const { coalesceJobTitle, normalizeJobTitleForSave } = require('../utils/jobTitleProfile');
 const path = require('path');
 const fs = require('fs');
 
@@ -27,10 +28,9 @@ function serviceError(message, statusCode = 400, errorCode = 'USER_VALIDATION') 
   return err;
 }
 
-/** Position SoT — Admin Position / first-login ghi preferences.jobTitle (alias top-level jobTitle). */
+/** Position SoT — prefs.jobTitle có key thì không fallback top-level. */
 function resolveJobTitle(profile) {
-  if (!profile || typeof profile !== 'object') return '';
-  return String(profile.preferences?.jobTitle || profile.jobTitle || '').trim();
+  return coalesceJobTitle(profile);
 }
 
 class UserService {
@@ -259,7 +259,7 @@ class UserService {
   }
 
   // Cập nhật user profile
-  // options.capabilityMode: 'self' (PATCH /me) | 'admin' (PATCH /admin/:id)
+  // options.capabilityMode: 'self' (PATCH /me hoặc self /:id) | 'admin' (HR/company admin PATCH /:id)
   async updateUserProfile(userId, updateData, options = {}) {
     try {
       const allowedFields = ['displayName', 'avatar', 'isInvisible', 'status'];
@@ -293,10 +293,12 @@ class UserService {
             : {};
         const next = { ...prev, ...patch };
         if (updateData.jobTitle !== undefined) {
-          next.jobTitle = String(updateData.jobTitle || '').trim().slice(0, 120);
+          const title = normalizeJobTitleForSave(updateData.jobTitle);
+          next.jobTitle = title;
+          updateFields.jobTitle = title;
         }
-        if (next.jobTitle !== undefined) {
-          next.jobTitle = String(next.jobTitle || '').trim().slice(0, 120);
+        if (next.jobTitle !== undefined && updateData.jobTitle === undefined) {
+          next.jobTitle = normalizeJobTitleForSave(next.jobTitle);
         }
         if (next.profileCompletedAt !== undefined) {
           next.profileCompletedAt = String(next.profileCompletedAt || '').trim();
@@ -313,15 +315,13 @@ class UserService {
           typeof updateData.orgNicknames === 'object' ? updateData.orgNicknames : {};
         updateFields.orgNicknames = { ...prev, ...patch };
       }
-      Object.assign(
-        updateFields,
-        writePiiPatch({
-          bio: updateData.bio,
-          phone: updateData.phone,
-          location: updateData.location,
-          dateOfBirth: updateData.dateOfBirth,
-        })
-      );
+      const pii = writePiiPatch({
+        bio: updateData.bio,
+        phone: updateData.phone,
+        location: updateData.location,
+        dateOfBirth: updateData.dateOfBirth,
+      });
+      Object.assign(updateFields, pii.patch || {});
 
       const capabilityIntent = resolveCapabilityIntent(updateData, capabilityMode);
       if (capabilityIntent) {
@@ -346,11 +346,19 @@ class UserService {
         updateFields.capability = applied.capability;
       }
 
-      if (Object.keys(updateFields).length === 0) {
+      if (Object.keys(updateFields).length === 0 && !(pii.unset || []).length) {
         if (!existingProfile) {
           throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
         }
         return existingProfile;
+      }
+
+      const updateOp = {};
+      if (Object.keys(updateFields).length > 0) {
+        updateOp.$set = updateFields;
+      }
+      if ((pii.unset || []).length) {
+        updateOp.$unset = Object.fromEntries(pii.unset.map((k) => [k, 1]));
       }
 
       const userProfile = await UserProfile.findOneAndUpdate(
@@ -408,6 +416,57 @@ class UserService {
           .filter(Boolean)
       ),
     ];
+  }
+
+  /**
+   * Internal — SĐT nào trong danh sách đã gắn UserProfile (kể cả isActive:false).
+   * Precheck Excel import; chỉ trả SĐT đã chuẩn hóa đã tồn tại (không trả profile).
+   * @param {string[]} phones
+   * @returns {Promise<string[]>}
+   */
+  async findTakenPhones(phones) {
+    const normalized = [
+      ...new Set(
+        (Array.isArray(phones) ? phones : [])
+          .map((p) => String(p || '').trim())
+          .filter(Boolean)
+      ),
+    ];
+    if (!normalized.length) return [];
+
+    const blindToPhone = new Map();
+    const blinds = [];
+    for (const phone of normalized) {
+      const blind = phoneBlindIndex(phone);
+      if (blind) {
+        blinds.push(blind);
+        blindToPhone.set(blind, phone);
+      }
+    }
+
+    const orClauses = [];
+    if (blinds.length) {
+      orClauses.push({ phoneBlindIndex: { $in: blinds } });
+    }
+    // Legacy plaintext (chưa có phoneBlindIndex)
+    orClauses.push({ phone: { $in: normalized } });
+
+    const rows = await UserProfile.find({ $or: orClauses })
+      .select('phone phoneBlindIndex')
+      .lean();
+
+    const taken = new Set();
+    for (const row of rows) {
+      const blind = String(row.phoneBlindIndex || '').trim();
+      if (blind && blindToPhone.has(blind)) {
+        taken.add(blindToPhone.get(blind));
+      }
+      const plain = String(row.phone || '').trim();
+      if (plain && !plain.startsWith('enc:v1:') && normalized.includes(plain)) {
+        taken.add(plain);
+      }
+    }
+    return [...taken];
   }
 
   /**
@@ -613,7 +672,10 @@ class UserService {
 
     const setFields = {};
     if (employeeCode) setFields.employeeCode = employeeCode;
-    if (body.jobTitle != null) setFields['preferences.jobTitle'] = jobTitle;
+    if (body.jobTitle != null) {
+      setFields['preferences.jobTitle'] = jobTitle;
+      setFields.jobTitle = jobTitle;
+    }
     if (displayName) setFields.displayName = displayName;
 
     if (!structureOnly) {

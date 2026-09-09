@@ -1,11 +1,18 @@
 const mongoose = require('../db');
 const PlanningItem = require('../models/PlanningItem');
-const { PLANNING_ITEM_TYPES, PLANNING_ITEM_STATUSES } = require('../utils/planningItemTypes');
+const {
+  PLANNING_ITEM_TYPES,
+  normalizePlanningStatus,
+  normalizePlanningPriority,
+} = require('../utils/work/planningItemTypes');
 const Task = require('../models/Task');
 const projectService = require('./project.service');
 const { assertUserProjectPermission, assertUserAnyProjectPermission } = require('./projectAccess.service');
-const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
-const { planningWritePermission } = require('../utils/projectIssueTypePerms');
+const { assertProjectWritable } = require('../utils/project/projectCloseGate');
+const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
+const { planningWritePermission } = require('../utils/project/projectIssueTypePerms');
+const { buildPlanningListFilter } = require('../utils/work/listLazyQuery');
+const { enrichAssignableProfiles } = require('../utils/common/userProfileLabels');
 
 function validOid(id) {
   return mongoose.isValidObjectId(String(id || ''));
@@ -25,6 +32,7 @@ async function assertPlanningManage(userId, projectId, { type, action } = {}) {
       err.statusCode = 403;
       throw err;
     }
+    assertProjectWritable(project);
     return project;
   }
   const permission = planningWritePermission(type, action || 'update');
@@ -34,7 +42,9 @@ async function assertPlanningManage(userId, projectId, { type, action } = {}) {
     permission,
     message: `Không có quyền quản lý planning (${permission})`,
   });
-  return projectService.getProject({ userId, projectId });
+  const project = await projectService.getProject({ userId, projectId });
+  assertProjectWritable(project);
+  return project;
 }
 
 async function assertPlanningPrioritizeOrWrite(userId, projectId, type) {
@@ -49,7 +59,9 @@ async function assertPlanningPrioritizeOrWrite(userId, projectId, type) {
     permissions: ['backlog:prioritize', writeKey],
     message: `Không có quyền sắp xếp backlog (${writeKey} / backlog:prioritize)`,
   });
-  return projectService.getProject({ userId, projectId });
+  const project = await projectService.getProject({ userId, projectId });
+  assertProjectWritable(project);
+  return project;
 }
 
 /** @deprecated use assertPlanningManage */
@@ -62,12 +74,87 @@ function normalizeType(raw) {
   return PLANNING_ITEM_TYPES.includes(t) ? t : null;
 }
 
-function normalizeStatus(raw, fallback = 'planned') {
-  const s = String(raw || '').trim().toLowerCase();
-  return PLANNING_ITEM_STATUSES.includes(s) ? s : fallback;
+function profileLabel(profile) {
+  if (!profile) return { name: '', avatar: '' };
+  return {
+    name: profile.displayName || profile.username || '',
+    avatar: profile.avatar || '',
+  };
 }
 
-async function listPlanningItems({ userId, projectId, type }) {
+async function profileMapForRows(rows, userId) {
+  const ids = [
+    ...new Set(
+      (rows || [])
+        .flatMap((r) => [r?.createdBy, r?.assigneeId])
+        .map((id) => String(id || ''))
+        .filter(Boolean)
+    ),
+  ];
+  if (!ids.length) return new Map();
+  try {
+    const profiles = await enrichAssignableProfiles(ids, userId);
+    return new Map((profiles || []).map((row) => [String(row.userId), row]));
+  } catch {
+    return new Map();
+  }
+}
+
+function withActorLabels(row, profileMap) {
+  const creator = row.createdBy ? profileMap.get(String(row.createdBy)) : null;
+  const assignee = row.assigneeId ? profileMap.get(String(row.assigneeId)) : null;
+  const assigneeMeta = profileLabel(assignee);
+  return {
+    ...row,
+    createdByName: profileLabel(creator).name,
+    createdByAvatar: profileLabel(creator).avatar,
+    assigneeName: assigneeMeta.name,
+    assigneeAvatar: assigneeMeta.avatar,
+  };
+}
+
+async function resolveProjectBoardId(projectId) {
+  if (!validOid(projectId)) return '';
+  const board = await TaskBoard.findOne({ projectId, isActive: true })
+    .sort({ createdAt: 1 })
+    .select('_id')
+    .lean();
+  return board?._id ? String(board._id) : '';
+}
+
+function notifyPlanningAssignedBestEffort({ actorId, item }) {
+  const assigneeId = String(item?.assigneeId || '').trim();
+  if (!assigneeId) return;
+  void (async () => {
+    const boardId = await resolveProjectBoardId(item.projectId);
+    await notifyTaskAssigned({
+      actorId,
+      assigneeId,
+      task: item,
+      board: {
+        _id: boardId,
+        projectId: item.projectId,
+        organizationId: item.organizationId,
+      },
+      workLabel: planningWorkLabel(item.type),
+      extraData: { planningItemId: String(item._id || '') },
+    });
+  })().catch((err) =>
+    logger.warn('[planning] notify assignee failed: %s', err?.message || err)
+  );
+}
+
+function parseAssigneeId(raw) {
+  if (raw === null || raw === '') return null;
+  if (!validOid(raw)) {
+    const err = new Error('assigneeId không hợp lệ');
+    err.statusCode = 400;
+    throw err;
+  }
+  return raw;
+}
+
+async function listPlanningItems({ userId, projectId, type, parentId }) {
   await assertProjectAccess(userId, projectId);
   if (isProjectRbacV2Enabled()) {
     await assertUserProjectPermission({
@@ -77,15 +164,13 @@ async function listPlanningItems({ userId, projectId, type }) {
       message: 'Không có quyền xem planning (backlog:view)',
     });
   }
-  const filter = { projectId, isActive: true };
-  const t = type ? normalizeType(type) : null;
-  if (type && !t) {
-    const err = new Error('type không hợp lệ');
-    err.statusCode = 400;
-    throw err;
-  }
-  if (t) filter.type = t;
-  return PlanningItem.find(filter).sort({ sortOrder: 1, createdAt: 1 }).lean();
+  const filter = buildPlanningListFilter(
+    { projectId, type, parentId },
+    { isValidOid: validOid }
+  );
+  const rows = await PlanningItem.find(filter).sort({ sortOrder: 1, createdAt: 1 }).lean();
+  const profileMap = await profileMapForRows(rows, userId);
+  return rows.map((row) => withActorLabels(row, profileMap));
 }
 
 async function createPlanningItem({
@@ -98,6 +183,10 @@ async function createPlanningItem({
   targetDate,
   status,
   sortOrder,
+  assigneeId,
+  priority,
+  startDate,
+  dueDate,
 }) {
   const itemType = normalizeType(type);
   if (!itemType) {
@@ -153,7 +242,11 @@ async function createPlanningItem({
     description: String(description || '').trim().slice(0, 4000),
     parentId: parentOid,
     targetDate: targetDate ? new Date(targetDate) : null,
-    status: normalizeStatus(status),
+    startDate: startDate ? new Date(startDate) : null,
+    dueDate: dueDate ? new Date(dueDate) : null,
+    status: normalizePlanningStatus(status),
+    assigneeId: assigneeId !== undefined ? parseAssigneeId(assigneeId) : null,
+    priority: normalizePlanningPriority(priority),
     sortOrder: nextOrder,
     createdBy: userId,
   });
@@ -166,6 +259,9 @@ async function createPlanningItem({
     actorId: userId,
     changes: [{ field: 'issue', from: null, to: created.title }],
   });
+  if (assigneeIdChanged(null, created.assigneeId)) {
+    notifyPlanningAssignedBestEffort({ actorId: userId, item: created });
+  }
   return created;
 }
 
@@ -199,10 +295,22 @@ async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
     item.type = t;
   }
   if (patch.status !== undefined) {
-    item.status = normalizeStatus(patch.status, item.status);
+    item.status = normalizePlanningStatus(patch.status, item.status);
+  }
+  if (patch.priority !== undefined) {
+    item.priority = normalizePlanningPriority(patch.priority, item.priority);
+  }
+  if (patch.assigneeId !== undefined) {
+    item.assigneeId = parseAssigneeId(patch.assigneeId);
   }
   if (patch.targetDate !== undefined) {
     item.targetDate = patch.targetDate ? new Date(patch.targetDate) : null;
+  }
+  if (patch.startDate !== undefined) {
+    item.startDate = patch.startDate ? new Date(patch.startDate) : null;
+  }
+  if (patch.dueDate !== undefined) {
+    item.dueDate = patch.dueDate ? new Date(patch.dueDate) : null;
   }
   if (patch.sortOrder !== undefined && Number.isFinite(Number(patch.sortOrder))) {
     item.sortOrder = Number(patch.sortOrder);
@@ -232,7 +340,7 @@ async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
   }
   await item.save();
   const afterDoc = item.toObject();
-  const { diffPlanningFields } = require('../utils/workHistoryDiff');
+  const { diffPlanningFields } = require('../utils/work/workHistoryDiff');
   const { appendFieldChanges } = require('./workHistory.service');
   await appendFieldChanges({
     organizationId: item.organizationId,
@@ -241,7 +349,11 @@ async function patchPlanningItem({ userId, projectId, itemId, patch = {} }) {
     actorId: userId,
     changes: diffPlanningFields(beforeDoc, afterDoc),
   });
-  return afterDoc;
+  const profileMap = await profileMapForRows([afterDoc], userId);
+  if (assigneeIdChanged(beforeDoc.assigneeId, afterDoc.assigneeId)) {
+    notifyPlanningAssignedBestEffort({ actorId: userId, item: afterDoc });
+  }
+  return withActorLabels(afterDoc, profileMap);
 }
 
 async function deletePlanningItem({ userId, projectId, itemId }) {

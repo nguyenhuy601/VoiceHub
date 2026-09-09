@@ -19,7 +19,7 @@ import {
   looksLikeOrgStructureForProjectRole,
   normalizeLayerLabel,
 } from '../../utils/roleLayerNaming';
-import { projectRoleAdminAPI } from '../../services/api/projectRoleAdminAPI';
+import { projectRolesAPI } from '../../services/api/projectRolesAPI';
 
 export default function ProjectRoleCreatePanel({ orgId }) {
   const { t } = useAppStrings();
@@ -43,7 +43,7 @@ export default function ProjectRoleCreatePanel({ orgId }) {
     (async () => {
       setRolesLoading(true);
       try {
-        const res = await projectRoleAdminAPI.listRoles(orgId);
+        const res = await projectRolesAPI.listRoles(orgId);
         const list = res?.data?.data || res?.data?.roles || res?.data || [];
         if (!cancelled) {
           setRoles(
@@ -71,7 +71,7 @@ export default function ProjectRoleCreatePanel({ orgId }) {
     if (!suffix.trim()) return;
     setBusy(true);
     try {
-      await projectRoleAdminAPI.createRole(orgId, {
+      await projectRolesAPI.createRole(orgId, {
         label: normalizeLayerLabel(suffix, 'project'),
         canAssign,
         key: keyPreview,

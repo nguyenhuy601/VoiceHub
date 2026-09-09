@@ -63,8 +63,9 @@ const taskCardSchema = new mongoose.Schema(
     },
     priority: {
       type: String,
-      enum: ['low', 'medium', 'high', 'urgent'],
+      trim: true,
       default: 'medium',
+      maxlength: 32,
     },
     dueDate: {
       type: Date,

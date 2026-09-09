@@ -20,7 +20,6 @@ router.post(
 
 // Lấy notifications của user (bắt buộc JWT qua gateway)
 router.get('/', requireUser, notificationController.getUserNotifications.bind(notificationController));
-router.get('/user/:userId', requireUser, notificationController.getUserNotifications.bind(notificationController));
 
 // Đánh dấu đã đọc thông báo kết bạn theo counterparty (đặt trước /:notificationId/read)
 router.patch(

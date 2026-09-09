@@ -1,0 +1,28 @@
+---
+description: Điều phối luật theo vai trò trong prompt/plan — đọc mỗi prompt; chọn đúng role-*.mdc và Subagent (nếu có)
+alwaysApply: true
+---
+
+# Điều phối vai trò (plan / prompt)
+
+Khi user hoặc plan ghi **Vai trò:** (hoặc “Bạn là Senior …”), **bắt buộc** áp đúng file luật vai trò dưới đây. Không trộn ràng buộc của vai trò khác trừ khi user liệt kê nhiều vai trò.
+
+Khi task đủ lớn để cần context isolation, Main Agent **ưu tiên** Subagent tương ứng (cột Subagent). Role không có Subagent → Main + đọc `role-*.mdc` + Skill liên quan.
+
+| Vai trò trong prompt/plan | File luật | Subagent (`.cursor/agents/`) |
+|---------------------------|-----------|------------------------------|
+| Senior React Native Developer | `.cursor/rules/role-react-native.mdc` | — (rule-only) |
+| Senior Solution Architect | `.cursor/rules/role-solution-architect.mdc` | `solution-architect` |
+| Senior Frontend Developer | `.cursor/rules/role-frontend.mdc` | `frontend-dev` |
+| Senior Backend Developer | `.cursor/rules/role-backend.mdc` | `backend-dev` |
+| Senior API Developer | `.cursor/rules/role-api.mdc` | — (Skill `api-design` + backend-dev / architect) |
+| Senior Database Engineer | `.cursor/rules/role-database.mdc` | — (Skill `migration` / `database-design` + backend-dev) |
+| Senior Code Reviewer | `.cursor/rules/role-code-reviewer.mdc` | `code-reviewer` |
+| Senior QA Engineer | `.cursor/rules/role-qa.mdc` | `qa-engineer` |
+| Senior RBAC & Permission Architect | `.cursor/rules/role-rbac.mdc` | — (Skill `authorization-analysis` / `security-review` + architect/reviewer) |
+
+Nhiều vai trò (vd. FE + BE): tuân **cả** các file tương ứng; xung đột → ưu tiên ràng buộc chặt hơn (không đụng service/DB/API ngoài scope). Có thể spawn song song `backend-dev` ∥ `frontend-dev`.
+
+Không ghi vai trò: giữ `senior-dev-engineering.mdc` + `voicehub-constraints.mdc` (không giả định một role chuyên biệt). Task nhỏ (≤ ~3 file, rõ ràng) → Main tự làm, **không** over-delegate.
+
+Skills: `.cursor/skills/*/SKILL.md` — Plan Standard qua `plan-authoring`; đóng plan qua `regression-testing`.

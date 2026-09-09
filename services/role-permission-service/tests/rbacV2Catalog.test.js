@@ -8,6 +8,10 @@ const {
   CATEGORIES,
   MODULES,
   isValidMasterPermission,
+  isProjectMasterPermission,
+  isProjectPackTemplateKey,
+  PROJECT_PACK_TEMPLATE_KEYS,
+  stripProjectGrantsUnlessProjectPack,
   materializeLegacyPermissions,
   resolveMasterKeysForLegacyAction,
   buildCatalogTree,
@@ -36,6 +40,64 @@ test('T1 catalog integrity — no duplicate keys, templates subset of master', (
   assert.ok(tree.some((c) => c.key === 'system'));
   assert.ok(tree.some((c) => c.key === 'organization'));
   assert.ok(tree.some((c) => c.key === 'project'));
+  assert.ok(tree.some((c) => c.key === 'organization' && c.modules?.some((m) => m.key === 'organization.position')));
+  assert.ok(tree.some((c) => c.key === 'organization' && c.modules?.some((m) => m.key === 'organization.organization_role')));
+  assert.equal(
+    tree.some((c) => c.key === 'organization' && c.modules?.some((m) => m.key === 'organization.skill_registry')),
+    false
+  );
+  assert.equal(isValidMasterPermission('organization.skill_registry.review'), false);
+});
+
+test('skill registry grants removed from delivery templates', () => {
+  const orgAdmin = getTemplateDefinition('organization_admin');
+  assert.equal(orgAdmin.grants.includes('organization.skill_registry.review'), false);
+  assert.equal(orgAdmin.grants.includes('organization.skill_registry.view'), false);
+
+  const pm = getTemplateDefinition('project_manager');
+  assert.equal(pm.grants.includes('organization.skill_registry.review'), false);
+
+  const po = getTemplateDefinition('product_owner');
+  assert.equal(po.grants.includes('organization.skill_registry.review'), false);
+});
+
+test('T4b org permission pack templates omit project.*; project_admin keeps them', () => {
+  for (const key of ['organization_admin', 'department_manager', 'viewer']) {
+    const tpl = getTemplateDefinition(key);
+    assert.ok(tpl, key);
+    assert.equal(isProjectPackTemplateKey(key), false);
+    assert.equal(
+      tpl.grants.some(isProjectMasterPermission),
+      false,
+      `${key} must not grant project.*`
+    );
+  }
+
+  const projectAdmin = getTemplateDefinition('project_admin');
+  assert.ok(projectAdmin);
+  assert.equal(isProjectPackTemplateKey('project_admin'), true);
+  assert.ok(projectAdmin.grants.some((k) => k === 'project.task.view'));
+  assert.ok(projectAdmin.grants.some((k) => k === 'project.change_request.view'));
+  assert.ok(projectAdmin.grants.some((k) => k.startsWith('project.')));
+
+  const pm = getTemplateDefinition('project_manager');
+  assert.ok(pm.grants.includes('project.task.view'));
+});
+
+test('T5 stripProjectGrantsUnlessProjectPack — org pack drops project.task.view; project_admin keeps it', () => {
+  const mixed = ['organization.employee.view', 'project.task.view', 'communication.chat.send'];
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'organization_admin').sort(), [
+    'communication.chat.send',
+    'organization.employee.view',
+  ]);
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'department_manager').sort(), [
+    'communication.chat.send',
+    'organization.employee.view',
+  ]);
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'project_admin').sort(), mixed.sort());
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'developer').sort(), mixed.sort());
+  assert.equal(isProjectMasterPermission('project.task.view'), true);
+  assert.equal(isProjectMasterPermission('organization.position.view'), false);
 });
 
 test('T2 clone naming — specialization + template; Other requires custom name', () => {
@@ -102,4 +164,24 @@ test('T4 permission evaluation helpers — legacy action maps to master; materia
   const g2 = ['communication.chat.send'];
   const union = [...new Set([...g1, ...g2])];
   assert.deepEqual(union.sort(), ['communication.chat.send', 'project.task.view'].sort());
+});
+
+test('org structure/branch/division/policy keys exist and department_manager has invite', () => {
+  for (const key of [
+    'organization.structure.view',
+    'organization.structure.update',
+    'organization.branch.create',
+    'organization.division.update',
+    'organization.master_data.update',
+    'organization.policy.update',
+  ]) {
+    assert.equal(isValidMasterPermission(key), true, key);
+  }
+  const dm = getTemplateDefinition('department_manager');
+  assert.ok(dm.grants.includes('organization.employee.invite'));
+  const tree = buildCatalogTree();
+  const org = tree.find((c) => c.key === 'organization');
+  assert.ok(org.modules.some((m) => m.key === 'organization.branch'));
+  assert.ok(org.modules.some((m) => m.key === 'organization.structure'));
+  assert.ok(PROJECT_PACK_TEMPLATE_KEYS.includes('project_admin'));
 });

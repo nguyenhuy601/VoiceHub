@@ -33,6 +33,8 @@ export default function TasksWorkflowPanel({ orgId }) {
   const [fromKey, setFromKey] = useState('todo');
   const [toKey, setToKey] = useState('in_progress');
   const [conditionRoleKey, setConditionRoleKey] = useState('');
+  const [newStateKey, setNewStateKey] = useState('');
+  const [newStateLabel, setNewStateLabel] = useState('');
 
 
   const setBoardId = (id) => {
@@ -189,6 +191,37 @@ export default function TasksWorkflowPanel({ orgId }) {
     }
   };
 
+  const updateStateLabel = async (key, label) => {
+    if (!workflow) return;
+    const states = (workflow.states || []).map((s) =>
+      s.key === key ? { ...s, label: String(label || s.key).trim() || s.key } : s
+    );
+    try {
+      await persistWorkflow({ ...workflow, states });
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.workflowSaveFail') }));
+    }
+  };
+
+  const removeState = async (key) => {
+    if (!workflow) return;
+    const states = (workflow.states || []).filter((s) => s.key !== key);
+    if (!states.length) {
+      toast.error(t('adminTasks.catalogNeedOneStatus'));
+      return;
+    }
+    const keys = new Set(states.map((s) => s.key));
+    const transitions = (workflow.transitions || []).filter(
+      (tr) => keys.has(tr.fromKey) && keys.has(tr.toKey)
+    );
+    try {
+      await persistWorkflow({ ...workflow, states, transitions });
+      toast.success(t('adminTasks.workflowSaved'));
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.workflowSaveFail') }));
+    }
+  };
+
   const states = workflow?.states || [];
 
   return (
@@ -256,15 +289,42 @@ export default function TasksWorkflowPanel({ orgId }) {
               <AdminUserFormCard title={t('adminTasks.workflowStates')}>
                 <ul className="mb-3 space-y-2 text-sm">
                   {states.map((s) => (
-                    <li key={s.key} className="rounded-lg border border-border px-3 py-2">
-                      <span className="font-mono font-medium">{s.key}</span>
-                      <span className="text-muted-foreground"> — {s.label}</span>
+                    <li key={s.key} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
+                      <span className="w-24 shrink-0 font-mono font-medium">{s.key}</span>
+                      <input
+                        className={adminInputClass()}
+                        value={s.label || ''}
+                        onBlur={(e) => {
+                          const next = e.target.value.trim();
+                          if (next && next !== s.label) void updateStateLabel(s.key, next);
+                        }}
+                        onChange={(e) => {
+                          setWorkflow((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  states: (prev.states || []).map((row) =>
+                                    row.key === s.key ? { ...row, label: e.target.value } : row
+                                  ),
+                                }
+                              : prev
+                          );
+                        }}
+                      />
                       {s.isInitial ? (
-                        <span className="ml-2 text-xs text-emerald-600">initial</span>
+                        <span className="text-xs text-emerald-600">initial</span>
                       ) : null}
                       {s.isFinal ? (
-                        <span className="ml-2 text-xs text-muted-foreground">final</span>
+                        <span className="text-xs text-muted-foreground">final</span>
                       ) : null}
+                      <button
+                        type="button"
+                        className={adminDangerBtnClass()}
+                        disabled={states.length <= 1}
+                        onClick={() => void removeState(s.key)}
+                      >
+                        ×
+                      </button>
                     </li>
                   ))}
                 </ul>

@@ -13,7 +13,7 @@ import {
   normalizeRoleDisplayName,
 } from '../../utils/adminRbacUtils';
 
-export default function RoleDeletePanel({ orgId }) {
+export default function RoleDeletePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams, setSearchParams] = useSearchParams();
   const roleId = String(searchParams.get('roleId') || '').trim();
@@ -40,9 +40,8 @@ export default function RoleDeletePanel({ orgId }) {
     }
   };
 
-  return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <AdminRolePicker orgId={orgId} selectedRoleId={roleId} hint={t('adminRbac.deletePickerHint')} />
+  const body = (
+    <>
       <div className="rounded-xl border border-border bg-card/40 p-4">
         <h2 className="text-lg font-semibold">{t('adminDomains.rbac.delete')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">{t('adminRbac.deleteHint')}</p>
@@ -67,6 +66,15 @@ export default function RoleDeletePanel({ orgId }) {
         confirmText={t('adminDomains.rbac.delete')}
         cancelText={t('common.cancel')}
       />
+    </>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <AdminRolePicker orgId={orgId} selectedRoleId={roleId} hint={t('adminRbac.deletePickerHint')} />
+      {body}
     </div>
   );
 }

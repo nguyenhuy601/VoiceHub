@@ -13,8 +13,11 @@ const userService = {
 
   // Lấy profile của 1 user - GET /users/:userId
   // Dùng khi: xem profile người khác, click vào avatar
-  getProfile: async (userId) => {
-    return await api.get(`/users/${userId}`);
+  getProfile: async (userId, config = {}) => {
+    return await api.get(`/users/${userId}`, {
+      skipGlobalErrorHandling: true,
+      ...config,
+    });
   },
 
   // Cập nhật profile của mình — PATCH /users/me (user-service user.routes.js)

@@ -67,7 +67,7 @@ webhook-service/
 ### 1. Gửi webhook từ Node.js service
 
 ```javascript
-// Outbound webhooks: friend-service / task-service gọi webhook-service qua clients/webhook.client.js
+// Outbound webhooks: friend-service / project-service gọi webhook-service qua clients/webhook.client.js
 
 // Gửi friend request accepted webhook
 await friendWebhook.requestAccepted(userId, friendId, friendName);

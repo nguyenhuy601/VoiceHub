@@ -36,7 +36,7 @@ export default function BackupOpsPanel() {
 /**
  * Wave C — MFA / SSO / IP stubs (no auth flow change).
  */
-export function SecurityWaveCStubPanel({ orgId }) {
+export function SecurityWaveCStubPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [flags, setFlags] = useState(null);
 
@@ -59,12 +59,7 @@ export function SecurityWaveCStubPanel({ orgId }) {
     load();
   }, [load]);
 
-  return (
-    <AdminUserPanelShell
-      title={t('adminTasks.securityWaveCTitle')}
-      hint={t('adminTasks.securityWaveCHint')}
-      wide
-    >
+  const body = (
       <AdminUserFormCard title={t('adminTasks.securityFlagsTitle')}>
         <p className="mb-3 text-sm text-muted-foreground">
           {flags?.note || t('adminTasks.securityWaveCNote')}
@@ -91,6 +86,17 @@ export function SecurityWaveCStubPanel({ orgId }) {
           <p className="mt-2 text-[10px] text-muted-foreground">org: {orgId}</p>
         ) : null}
       </AdminUserFormCard>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <AdminUserPanelShell
+      title={t('adminTasks.securityWaveCTitle')}
+      hint={t('adminTasks.securityWaveCHint')}
+      wide
+    >
+      {body}
     </AdminUserPanelShell>
   );
 }

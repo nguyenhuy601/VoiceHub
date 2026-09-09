@@ -18,6 +18,7 @@ import { PREFIX_TO_KEY, pushSearchHistory, serializeQueryState } from '../search
 import { fetchOrgMessageSearch, formatOrgMessageSearchError } from '../orgChatSearchConfig';
 import { organizationAPI } from '../../../services/api/organizationAPI';
 import { enrichMembershipsForSearch } from '../enrichOrgMembers';
+import { filterMembersForTeam } from '../../../utils/filterTeamMembers';
 
 function unwrap(payload) {
   return payload?.data ?? payload;
@@ -51,9 +52,18 @@ export default function OrgWorkspaceSearchSidebar({
   isDarkMode,
   onJumpToResult,
   onClose,
+  selectedTeamId = '',
+  teams = [],
 }) {
   const { t } = useAppStrings();
   const scopeKey = useMemo(() => `org-chat:${organizationId || 'none'}`, [organizationId]);
+  const selectedTeam = useMemo(
+    () =>
+      (Array.isArray(teams) ? teams : []).find(
+        (row) => String(row?._id || row?.id || '') === String(selectedTeamId || '')
+      ) || null,
+    [teams, selectedTeamId]
+  );
 
   const [menuMode, setMenuMode] = useState(null);
   const [inputValue, setInputValue] = useState('');
@@ -163,11 +173,12 @@ export default function OrgWorkspaceSearchSidebar({
   const filteredMembers = useMemo(() => {
     const det = detectPrefix(inputValue);
     const q = (det?.key === 'from' || det?.key === 'mentions' ? det.rest : inputValue).trim().toLowerCase();
-    return memberRows.filter((m) => {
+    const scoped = filterMembersForTeam(memberRows, selectedTeamId, selectedTeam);
+    return scoped.filter((m) => {
       const name = `${m.displayName || ''} ${m.username || ''}`.toLowerCase();
       return !q || name.includes(q);
     });
-  }, [memberRows, inputValue]);
+  }, [memberRows, inputValue, selectedTeamId, selectedTeam]);
 
   const handleJump = (payload) => {
     onJumpToResult?.(payload);

@@ -7,8 +7,7 @@ import { useSocket } from '../../context/SocketContext';
 import { queryKeys } from '../../lib/queryKeys';
 
 import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
-
-
+import { RBAC_GRANTS_CHANGED_EVENT } from '../../utils/rbacV2Ui';
 
 /**
 
@@ -22,8 +21,6 @@ export default function QueryRealtimeSync() {
 
   const { on, off, connected } = useSocket();
 
-
-
   useEffect(() => {
 
     const onWindowRefresh = () => {
@@ -32,16 +29,16 @@ export default function QueryRealtimeSync() {
 
     };
 
-
+    const onRbacGrantsChanged = () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.rbac.all });
+    };
 
     window.addEventListener(NOTIFICATIONS_REFRESH_EVENT, onWindowRefresh);
-
-
+    window.addEventListener(RBAC_GRANTS_CHANGED_EVENT, onRbacGrantsChanged);
 
     return () => {
-
       window.removeEventListener(NOTIFICATIONS_REFRESH_EVENT, onWindowRefresh);
-
+      window.removeEventListener(RBAC_GRANTS_CHANGED_EVENT, onRbacGrantsChanged);
     };
 
   }, [queryClient]);

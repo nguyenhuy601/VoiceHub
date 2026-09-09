@@ -1,7 +1,12 @@
 const Task = require('../models/Task');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { taskWebhook } = require('../clients/webhook.client');
-const { emitTaskFactBestEffort } = require('../clients/analyticsPublisher.client');
+const { emitTaskFactBestEffort, emitStatusTransitionFactBestEffort } = require('../clients/analyticsPublisher.client');
+const {
+  isDoneLikeStatus,
+  isInProgressLikeStatus,
+  maybeFirstInProgressPatch,
+} = require('../utils/task/taskCycleTime');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const {
@@ -9,8 +14,17 @@ const {
   userCanAccessTask,
 } = require('./taskWorkspaceScope');
 const axios = require('axios');
-const { writeTaskPayload, encryptTextIfEnabled } = require('../utils/taskPii');
-const { toClientTask, toClientTaskList } = require('../utils/taskDto');
+const { writeTaskPayload, encryptTextIfEnabled } = require('../utils/task/taskPii');
+const { toClientTask, toClientTaskList } = require('../utils/task/taskDto');
+const {
+  CALENDAR_TASK_SELECT,
+  pickCalendarTaskFields,
+  toDateKeyUTC,
+} = require('../utils/task/taskCalendarQuery');
+const {
+  taskCalendarFeedCacheKey,
+  DEFAULT_TASK_CALENDAR_CACHE_TTL_SEC,
+} = require('@enterprise/shared/cache/taskCalendarCacheKeys');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -206,6 +220,83 @@ class TaskService {
     }
   }
 
+  /**
+   * Calendar feed: lean projection, no user-label enrich, Redis TTL cache (fail-open).
+   * @param {object} filter
+   * @param {{ userId: string, from: Date, to: Date, organizationId?: string|null, page?: number, limit?: number }} options
+   */
+  async getCalendarTasks(filter, options = {}) {
+    const userId = String(options.userId || '').trim();
+    const from = options.from;
+    const to = options.to;
+    const organizationId = options.organizationId ? String(options.organizationId) : '';
+    const page = Math.max(1, parseInt(options.page, 10) || 1);
+    const limit = Math.min(500, Math.max(1, parseInt(options.limit, 10) || 200));
+    const fromDay = toDateKeyUTC(from);
+    const toDay = toDateKeyUTC(to);
+    const cacheKey = taskCalendarFeedCacheKey({
+      userId,
+      fromDay,
+      toDay,
+      orgScope: organizationId || 'me',
+    });
+
+    try {
+      const redis = getRedisClient();
+      if (redis) {
+        const hit = await redis.get(cacheKey);
+        if (hit) {
+          const parsed = JSON.parse(hit);
+          if (parsed && Array.isArray(parsed.tasks)) {
+            return parsed;
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn('[getCalendarTasks] Redis get failed (fail-open):', err?.message || err);
+    }
+
+    try {
+      const tasks = await Task.find(filter)
+        .select(CALENDAR_TASK_SELECT)
+        .sort({ dueDate: 1, startDate: 1 })
+        .limit(limit)
+        .skip((page - 1) * limit)
+        .lean();
+
+      const total = await Task.countDocuments(filter);
+      const decrypted = await toClientTaskList(tasks);
+      const slim = decrypted.map(pickCalendarTaskFields);
+
+      const result = {
+        tasks: slim,
+        totalPages: Math.ceil(total / Math.max(limit, 1)) || 1,
+        currentPage: page,
+        total,
+        view: 'calendar',
+      };
+
+      try {
+        const redis = getRedisClient();
+        if (redis) {
+          await redis.set(
+            cacheKey,
+            JSON.stringify(result),
+            'EX',
+            DEFAULT_TASK_CALENDAR_CACHE_TTL_SEC
+          );
+        }
+      } catch (err) {
+        logger.warn('[getCalendarTasks] Redis set failed (fail-open):', err?.message || err);
+      }
+
+      return result;
+    } catch (error) {
+      logger.error('Error getting calendar tasks:', error);
+      throw new Error(`Error getting calendar tasks: ${error.message}`);
+    }
+  }
+
   // Cập nhật task
   async updateTask(taskId, updateData, userId) {
     try {
@@ -248,7 +339,7 @@ class TaskService {
           : Number(task.estimateHours);
 
       if (updateFields.estimateHours !== undefined) {
-        const { normalizeEstimateHours } = require('../utils/timeTracking');
+        const { normalizeEstimateHours } = require('../utils/task/timeTracking');
         updateFields.estimateHours = normalizeEstimateHours(updateFields.estimateHours);
       }
 
@@ -268,8 +359,17 @@ class TaskService {
         updateFields.completedAt = null;
       }
 
+      if (updateFields.status !== undefined && updateFields.status !== task.status) {
+        const cyclePatch = maybeFirstInProgressPatch(task, updateFields.status);
+        if (cyclePatch) {
+          Object.assign(updateFields, cyclePatch);
+        }
+      }
+
       const becameDone = updateFields.status === 'done' && task.status !== 'done';
       const leftDone = updateFields.status && updateFields.status !== 'done' && task.status === 'done';
+      const statusChanged =
+        updateFields.status !== undefined && String(updateFields.status) !== String(task.status);
 
       const encryptedUpdate = writeTaskPayload(updateFields);
       const updated = await Task.findByIdAndUpdate(
@@ -282,10 +382,34 @@ class TaskService {
         emitTaskFactBestEffort({
           taskId,
           organizationId: task.organizationId,
+          projectId: task.projectId,
           createdBy: task.createdBy,
           assigneeId: updated?.assigneeId || task.assigneeId,
           status: updated?.status || updateFields.status,
           doneDelta: becameDone ? 1 : -1,
+          estimateHours: updated?.estimateHours ?? task.estimateHours,
+          issueType: updated?.issueType || task.issueType,
+          completedAt: updated?.completedAt,
+          firstInProgressAt: updated?.firstInProgressAt || task.firstInProgressAt,
+        });
+      }
+
+      if (statusChanged) {
+        const from = String(task.status || '');
+        const to = String(updateFields.status || '');
+        const isReopen = isDoneLikeStatus(from) && !isDoneLikeStatus(to);
+        const isRework =
+          /review/i.test(from) && isInProgressLikeStatus(to) && !isDoneLikeStatus(to);
+        emitStatusTransitionFactBestEffort({
+          taskId,
+          organizationId: task.organizationId,
+          projectId: task.projectId,
+          assigneeId: updated?.assigneeId || task.assigneeId,
+          fromStatus: from,
+          toStatus: to,
+          isRework,
+          isReopen,
+          firstInProgressAt: updated?.firstInProgressAt || task.firstInProgressAt,
         });
       }
 

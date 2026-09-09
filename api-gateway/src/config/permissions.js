@@ -10,11 +10,6 @@ const routeActionMap = {
   'POST /api/messages/storage/signed-upload': 'chat:write',
   'PATCH /api/messages': 'chat:write',
   'DELETE /api/messages': 'chat:delete',
-  'GET /api/chat/messages': 'chat:read',
-  'POST /api/chat/messages': 'chat:write',
-  'POST /api/chat/messages/storage/signed-upload': 'chat:write',
-  'PATCH /api/chat/messages': 'chat:write',
-  'DELETE /api/chat/messages': 'chat:delete',
 
   // Task Service
   'GET /api/tasks': 'task:read',
@@ -27,8 +22,6 @@ const routeActionMap = {
   'GET /api/tasks/project-briefs/:briefId': 'task:read',
   'POST /api/tasks/project-briefs/:briefId/accept': 'task:write',
   'POST /api/tasks/project-briefs/:briefId/cancel': 'task:write',
-  'GET /api/work': 'task:read',
-  'POST /api/work': 'task:write',
 
   // AI Task Service
   'POST /api/ai/tasks/extract': 'task:write',
@@ -134,6 +127,11 @@ const routeActionMap = {
   // Organization BFF (sau permission middleware — org-service kiểm tra membership)
   'GET /api/organizations/:orgId/shell': 'organization:read',
   'GET /api/organizations/:orgId/documents-overview': 'organization:read',
+
+  // Historical Performance (report-service / project-service C2)
+  'GET /api/reports/v1/performance': 'task:read',
+  'GET /api/reports/v1/performance/users/:userId': 'task:read',
+  'GET /api/reports/v1/performance/estimate-hints': 'task:read',
 };
 
 /**
@@ -144,17 +142,15 @@ const DOWNSTREAM_AUTH_PREFIXES = [
   '/api/voice',
   '/api/meetings',
   '/api/organizations',
-  '/api/channels',
   '/api/tasks',
-  '/api/work',
   '/api/projects',
   '/api/ai/tasks',
   '/api/workspaces',
+  '/api/reports',
 ];
 
 const TASK_AUTH_BYPASS_PREFIXES = [
   '/api/tasks',
-  '/api/work',
   '/api/projects',
   '/api/ai/tasks',
 ];
@@ -165,10 +161,7 @@ const TASK_AUTH_BYPASS_REGEX = /^\/api\/workspaces\/[^/]+\/task-boards(\/|$)/;
  * Admin user management — auth/user-service tự `companyAdminAuth`; gateway chỉ cần JWT.
  */
 const ADMIN_SERVICE_AUTH_PREFIXES = [
-  '/api/auth/admin',
-  '/api/users/admin',
-  '/api/tasks/admin',
-  '/api/projects/admin',
+  '/api/auth/users',
 ];
 
 /**
@@ -197,6 +190,10 @@ const noPermissionRoutes = [
   '/api/notifications',
   '/api/organizations/my',
   '/api/organizations/company-invites',
+  // Signed upload: JWT + chat-service authenticate; dùng cho chat và task attachment (không ép chat:write).
+  '/api/messages/storage/signed-upload',
+  '/api/messages/storage/upload',
+  '/api/messages/storage/object',
 ];
 
 /**
@@ -213,6 +210,109 @@ const ORG_SCOPED_ACTION_BY_METHOD = {
   PATCH: 'organization:write',
   DELETE: 'organization:delete',
 };
+
+/** Route org cụ thể → master key V2 (trước fallback organization:write). */
+const ORG_MASTER_ROUTE_ACTIONS = [
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/departments\/[^/]+\/teams\/?$/,
+    action: 'organization.team.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/divisions\/[^/]+\/teams\/?$/,
+    action: 'organization.team.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/teams\/?$/,
+    action: 'organization.team.create',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/teams\/[^/]+\/?$/,
+    action: 'organization.team.update',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/departments\/[^/]+\/teams\/?$/,
+    action: 'organization.team.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/teams\/?$/,
+    action: 'organization.team.create',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/teams\/[^/]+\/?$/,
+    action: 'organization.team.update',
+  },
+  {
+    method: 'DELETE',
+    regex: /^\/api\/organizations\/[^/]+\/teams\/[^/]+\/?$/,
+    action: 'organization.team.delete',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/divisions\/[^/]+\/departments\/?$/,
+    action: 'organization.department.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/departments\/?$/,
+    action: 'organization.department.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/departments\/?$/,
+    action: 'organization.department.create',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/departments\/[^/]+\/?$/,
+    action: 'organization.department.update',
+  },
+  {
+    method: 'DELETE',
+    regex: /^\/api\/organizations\/[^/]+\/departments\/[^/]+\/?$/,
+    action: 'organization.department.delete',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/teams\/[^/]+\/channels\/?$/,
+    action: 'communication.channel.create',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/channels\/?$/,
+    action: 'communication.channel.create',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/teams\/[^/]+\/channels\/[^/]+\/?$/,
+    action: 'communication.channel.update',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/channels\/[^/]+\/?$/,
+    action: 'communication.channel.update',
+  },
+  {
+    method: 'DELETE',
+    regex: /^\/api\/organizations\/[^/]+\/hierarchy\/channels\/[^/]+\/?$/,
+    action: 'communication.channel.delete',
+  },
+];
+
+function matchOrgMasterAction(method, apiPath) {
+  const m = String(method || '').toUpperCase();
+  const path = String(apiPath || '');
+  for (const row of ORG_MASTER_ROUTE_ACTIONS) {
+    if (row.method === m && row.regex.test(path)) return row.action;
+  }
+  return null;
+}
 
 const normalizeToApiPath = (path = '') => {
   const sanitized = String(path || '').split('?')[0] || '/';
@@ -284,6 +384,10 @@ const getAction = (method, path) => {
   ) {
     return null;
   }
+
+  // Org fine-grained (team/dept/channel) trước fallback organization:write
+  const orgMaster = matchOrgMasterAction(method, apiPath);
+  if (orgMaster) return orgMaster;
 
   // Mọi route /api/organizations/:orgId/... (trừ /my) — organization-service tự kiểm tra membership/RBAC
   const orgScoped = apiPath.match(/^\/api\/organizations\/([^/]+)(?:\/|$)/);
@@ -465,6 +569,7 @@ const AUDITED_CLIENT_API_PATHS = [
   ['GET', '/api/organizations/org1/shell'],
   ['GET', '/api/organizations/org1/structure'],
   ['GET', '/api/tasks'],
+  ['GET', '/api/projects/roles'],
   ['POST', '/api/ai/tasks/extract'],
   ['POST', '/api/ai/summaries'],
   ['GET', '/api/ai/summaries/sum1'],
@@ -483,17 +588,16 @@ const AUDITED_CLIENT_API_PATHS = [
   ['GET', '/api/organizations/org1/members/import/batch1'],
   ['DELETE', '/api/organizations/org1/members/user1'],
   ['PUT', '/api/organizations/org1/members/user1/role'],
-  ['GET', '/api/auth/admin/users/user1/summary'],
-  ['POST', '/api/auth/admin/users/user1/lock'],
-  ['POST', '/api/auth/admin/users/user1/force-password'],
-  ['POST', '/api/auth/admin/users/user1/reset-password'],
-  ['POST', '/api/auth/admin/users/user1/revoke-sessions'],
-  ['POST', '/api/auth/admin/users/user1/set-password'],
-  ['POST', '/api/auth/admin/users/user1/activate'],
-  ['POST', '/api/auth/admin/users/user1/resend-verification'],
-  ['GET', '/api/auth/admin/users/user1/login-events'],
-  ['GET', '/api/users/admin/user1'],
-  ['PATCH', '/api/users/admin/user1'],
+  ['GET', '/api/auth/users/user1/summary'],
+  ['POST', '/api/auth/users/user1/lock'],
+  ['POST', '/api/auth/users/user1/force-password'],
+  ['POST', '/api/auth/users/user1/reset-password'],
+  ['POST', '/api/auth/users/user1/revoke-sessions'],
+  ['POST', '/api/auth/users/user1/set-password'],
+  ['POST', '/api/auth/users/user1/activate'],
+  ['POST', '/api/auth/users/user1/resend-verification'],
+  ['GET', '/api/auth/users/user1/login-events'],
+  ['PATCH', '/api/users/user1'],
   ['POST', '/api/roles/assign'],
   ['POST', '/api/roles/remove'],
   ['POST', '/api/roles'],

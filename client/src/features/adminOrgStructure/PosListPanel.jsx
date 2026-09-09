@@ -4,9 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
   AdminUserFormCard,
   AdminUserPanelShell,
   adminInputClass,
+  adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminMembers from '../../hooks/useAdminMembers';
@@ -14,26 +17,31 @@ import { useAppStrings } from '../../locales/appStrings';
 import { DEFAULT_HR_ROLE_KEYS, DEFAULT_HR_ROLE_LABELS, ROLE_KIND } from '../../utils/roleTaxonomy';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { adminQueryHubLink } from '../../utils/adminHubLinks';
+import { memberJobTitle } from '../../utils/userTaxonomyUtils';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 
+const RBAC_POS_MANAGE_HUB = '/app/admin/rbac/positions/manage';
 const RBAC_POS_BASE = '/app/admin/rbac/positions';
 
-function memberJobTitle(member) {
-  return String(member?.jobTitle || member?.preferences?.jobTitle || '').trim();
-}
-
 const ACTION_LINKS = [
-  { path: `${RBAC_POS_BASE}/assign`, labelKey: 'adminDomains.rbac.posAssign' },
-  { path: `${RBAC_POS_BASE}/edit`, labelKey: 'adminDomains.rbac.posEdit' },
-  { path: `${RBAC_POS_BASE}/disable`, labelKey: 'adminDomains.rbac.posDisable' },
+  { tab: 'assign', labelKey: 'adminDomains.rbac.posAssign', grant: RBAC_GRANT.EMPLOYEE_UPDATE },
+  { tab: 'edit', labelKey: 'adminDomains.rbac.posEdit', grant: RBAC_GRANT.POSITION_UPDATE },
+  { tab: 'disable', labelKey: 'adminDomains.rbac.posDisable', grant: RBAC_GRANT.POSITION_UPDATE },
 ];
 
 export default function PosListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { members, loading } = useAdminMembers(orgId);
+  const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId, { view: 'directory' });
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
   const [query, setQuery] = useState('');
   const [hrPositions, setHrPositions] = useState([]);
   const [hrPositionsLoading, setHrPositionsLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     if (!orgId) return;
@@ -63,7 +71,7 @@ export default function PosListPanel({ orgId }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, t]);
+  }, [orgId, t, reloadTick]);
 
   const memberCountByTitle = useMemo(() => {
     const map = new Map();
@@ -149,10 +157,26 @@ export default function PosListPanel({ orgId }) {
         {t('adminRbac.positionCatalogZeroPerm')} {t('adminRbac.posListMasterHint')}
       </p>
 
-      {loadError ? (
-        <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
-          {loadError}
-        </p>
+      {loadError || membersError ? (
+        <div className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+          <p className="text-sm text-destructive">
+            {loadError ||
+              resolveApiErrorMessage(membersError, {
+                t,
+                fallback: t('companyAdmin.loadMembersFail'),
+              })}
+          </p>
+          <button
+            type="button"
+            className={adminPrimaryBtnClass()}
+            onClick={async () => {
+              await loadMembers();
+              setReloadTick((n) => n + 1);
+            }}
+          >
+            {t('adminRbac.retry')}
+          </button>
+        </div>
       ) : null}
 
       <AdminUserFormCard title={t('adminRbac.posSuggestedTitles')}>
@@ -187,14 +211,14 @@ export default function PosListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <AdminDenseTableCard>
         {loading || hrPositionsLoading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : (
-          <div className="overflow-x-auto">
+          <AdminDenseTableScroll>
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="sticky top-0 border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                   <th className="px-4 py-3">{t('adminOrg.colTitle')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colCount')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colActions')}</th>
@@ -217,10 +241,12 @@ export default function PosListPanel({ orgId }) {
                     <td className="px-4 py-3 text-muted-foreground">{row.count}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
-                        {ACTION_LINKS.map((link) => (
+                        {ACTION_LINKS.filter((link) =>
+                          canActWithGrant(isFullAccess, hasGrant, link.grant)
+                        ).map((link) => (
                           <Link
-                            key={link.path}
-                            to={`${link.path}?title=${encodeURIComponent(row.title)}`}
+                            key={link.tab}
+                            to={adminQueryHubLink(RBAC_POS_MANAGE_HUB, { title: row.title }, link.tab)}
                             className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
                           >
                             {t(link.labelKey)}
@@ -237,9 +263,9 @@ export default function PosListPanel({ orgId }) {
                 {t('adminRbac.posCatalogEmptyEnable')}
               </p>
             ) : null}
-          </div>
+          </AdminDenseTableScroll>
         )}
-      </div>
+      </AdminDenseTableCard>
     </AdminUserPanelShell>
   );
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Bell,
@@ -22,11 +23,16 @@ import {
   FIGMA_TAB_ACTIVE,
   FIGMA_TAB_INACTIVE,
 } from '../Layout/figmaPageClasses';
-import OrganizationSettingsFigmaLayout from '../Workspace/OrganizationSettingsFigmaLayout';
+import OrganizationSettingsFigmaLayout from './OrganizationSettingsFigmaLayout';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { organizationAPI } from '../../services/api/organizationAPI';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { fetchOrganizationDetail } from '../../hooks/useOrganizationDetail';
+import { queryKeys } from '../../lib/queryKeys';
+import { STALE_TIME_ORG_DETAIL_MS } from '../../lib/queryClient';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import OrganizationRbacSettings from './OrganizationRbacSettings';
 import { hasBackendCapability } from '../../config/backendCapabilities';
 import {
@@ -160,14 +166,18 @@ function OrganizationSettingsPanel({
   hideBranchUi = false,
 }) {
   const { t } = useAppStrings();
+  const queryClient = useQueryClient();
   const { user, updateUser } = useAuth();
   const orgId = organization?._id || organization?.id;
   const myRole = String(organization?.myRole || 'member').toLowerCase();
 
-  const isFullAccess = useMemo(
+  const isOrgOwnerOrAdmin = useMemo(
     () => myRole === 'owner' || myRole === 'admin',
     [myRole]
   );
+  const isFullAccess = isOrgOwnerOrAdmin;
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('general');
@@ -280,9 +290,11 @@ function OrganizationSettingsPanel({
     if (!orgId) return;
     setLoadingOrg(true);
     try {
-      const payload = await organizationAPI.getOrganization(orgId);
-      const data = unwrap(payload);
-      const o = data?.data ?? data;
+      const o = await queryClient.fetchQuery({
+        queryKey: queryKeys.org.detail(String(orgId)),
+        queryFn: () => fetchOrganizationDetail(orgId),
+        staleTime: STALE_TIME_ORG_DETAIL_MS,
+      });
       const n = o?.name || organization?.name || '';
       setServerOrgName(n);
       setOrganizationForm({
@@ -300,7 +312,7 @@ function OrganizationSettingsPanel({
     } finally {
       setLoadingOrg(false);
     }
-  }, [orgId, organization?.name]);
+  }, [orgId, organization?.name, queryClient]);
 
   const loadJoinWorkspace = useCallback(async () => {
     if (!orgId || !isFullAccess) return;
@@ -603,6 +615,10 @@ function OrganizationSettingsPanel({
   };
 
   const openCreateTeamModal = () => {
+    if (!canCreateTeam) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     const fallbackBranchId =
       manageBranchId || (structureBranches[0]?._id ? String(structureBranches[0]._id) : '');
     const branch = resolveBranchById(fallbackBranchId);
@@ -624,6 +640,10 @@ function OrganizationSettingsPanel({
   };
 
   const handleCreateTeam = async () => {
+    if (!canCreateTeam) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     if (!orgId || !createTeamDepartmentId || !createTeamName.trim()) return;
     try {
       await organizationAPI.createTeamByDepartment(orgId, createTeamDepartmentId, {
@@ -1053,6 +1073,7 @@ function OrganizationSettingsPanel({
                           {t('organizationSettings.createDepartmentBtn')}
                         </button>
                       </div>
+                      {canCreateTeam ? (
                       <div className="rounded-xl border border-border bg-muted p-3">
                         <button
                           type="button"
@@ -1062,6 +1083,7 @@ function OrganizationSettingsPanel({
                           {t('organizationSettings.openCreateTeamForm')}
                         </button>
                       </div>
+                      ) : null}
                       <div className="rounded-xl border border-border bg-muted p-3">
                         <button
                           type="button"

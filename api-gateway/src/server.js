@@ -32,8 +32,10 @@ const VOICE_SIGNAL_PATH = process.env.VOICE_SIGNAL_PATH || '/voice-socket';
 
 const server = http.createServer(app);
 server.headersTimeout = Number(process.env.GATEWAY_HEADERS_TIMEOUT_MS || 15000);
-// >= BFF documents-overview (45s) + buffer; tránh đóng client trước khi aggregate xong.
-server.requestTimeout = Number(process.env.GATEWAY_REQUEST_TIMEOUT_MS || 60000);
+// AI planning/enrich có thể >60s — đồng bộ GATEWAY_PROXY_TIMEOUT_MS (mặc định 300s).
+server.requestTimeout = Number(
+  process.env.GATEWAY_REQUEST_TIMEOUT_MS || process.env.GATEWAY_PROXY_TIMEOUT_MS || 300000
+);
 server.keepAliveTimeout = Number(process.env.GATEWAY_KEEPALIVE_TIMEOUT_MS || 5000);
 
 /** WS upgrade — không dùng timeout HTTP ngắn của API proxy. 0 = không cắt sớm. */
@@ -96,7 +98,7 @@ server.listen(PORT, () => {
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   if (!String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim()) {
     console.warn(
-      '[API-Gateway] GATEWAY_INTERNAL_TOKEN chưa đặt — các service downstream có thể từ chối x-user-id. Thêm vào .env (trùng với user-service, task-service, …).'
+      '[API-Gateway] GATEWAY_INTERNAL_TOKEN chưa đặt — các service downstream có thể từ chối x-user-id. Thêm vào .env (trùng với user-service, project-service, …).'
     );
   }
   console.log(`Socket proxy upstream: ${services.socket.url}`);

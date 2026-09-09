@@ -8,15 +8,18 @@ const Task = require('../models/Task');
 const ProjectMembership = require('../models/ProjectMembership');
 const ProjectRole = require('../models/ProjectRole');
 const { logger } = require('@enterprise/shared');
+const { repairUtf8Mojibake } = require('@enterprise/shared/utils/utf8Mojibake');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
-const { enrichAssignableProfiles } = require('../utils/userProfileLabels');
+const { enrichAssignableProfiles } = require('../utils/common/userProfileLabels');
 const {
   fetchTaskWorkspaceScope,
   canCreateTaskInScope,
   canAssignUser,
 } = require('./taskWorkspaceScope');
 const { canAssignOwnerTeam, normalizeOwnerTeamId } = require('./ownerTeamId');
+const { emitTeamChannelProvisionIfNeeded } = require('../utils/project/projectTeamChannelProvision');
 const { isDoneListTitle, buildBoardCapabilities } = require('./boardCapabilities');
+const { assertProjectWritable } = require('../utils/project/projectCloseGate');
 const { assertCanSetCardAssignee } = require('./goldenAssignPolicy');
 const {
   assertCanAssign,
@@ -28,22 +31,22 @@ const {
   setUserProjectRoles,
 } = require('./projectTeam.service');
 const { applyDelegationTemplate } = require('./delegation.service');
-const { syncPrimaryAssignment, normalizeAssignmentsPayload } = require('../utils/taskAssignments');
+const { syncPrimaryAssignment, normalizeAssignmentsPayload } = require('../utils/task/taskAssignments');
 const { DEFAULT_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
 const {
   isProjectVisibilityV2Enabled,
   resolveProjectAccess,
-} = require('../utils/projectVisibility');
+} = require('../utils/project/projectVisibility');
 const {
   isOrgElevatedMembershipRole,
   memberScopedProjectFilter,
-} = require('../utils/projectListMembershipScope');
+} = require('../utils/project/projectListMembershipScope');
 const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
 const {
   isCreateBoardSeedEnabled,
   normalizeDelegationTemplateId,
   normalizeSeedMembers,
-} = require('../utils/createBoardSeed');
+} = require('../utils/project/createBoardSeed');
 const {
   buildProjectCodeBase,
   allocateUniqueProjectCode,
@@ -54,6 +57,25 @@ const {
   hoursFieldsTouched,
   assertHoursCapacityOrThrow,
 } = require('./hoursCapacityGuard.service');
+const {
+  parseIncludeCardsFlag,
+  buildBoardCardMongoFilter,
+} = require('../utils/work/listLazyQuery');
+const {
+  isDoneLikeStatus,
+  isInProgressLikeStatus,
+  maybeFirstInProgressPatch,
+} = require('../utils/task/taskCycleTime');
+const {
+  emitTaskFactBestEffort,
+  emitStatusTransitionFactBestEffort,
+} = require('../clients/analyticsPublisher.client');
+const {
+  notifySystemKind,
+  notifyTaskAssigned,
+  notifyTaskCompletedToCreator,
+  projectHubActionUrl,
+} = require('../clients/notification.client');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -62,6 +84,42 @@ if (!NOTIFICATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: N
 
 function escapeRegex(s) {
   return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function oidToStr(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'object' && v._id) return String(v._id);
+  return String(v);
+}
+
+/** Gắn subtasks[] trên card cha từ cùng list (không N+1). */
+function attachSubtasksToSanitizedCards(cards = []) {
+  const list = Array.isArray(cards) ? cards : [];
+  const byParent = new Map();
+  for (const c of list) {
+    const pid = oidToStr(c.parentTaskId);
+    if (!pid) continue;
+    if (!byParent.has(pid)) byParent.set(pid, []);
+    byParent.get(pid).push({
+      _id: oidToStr(c._id),
+      title: c.title,
+      status: c.status || null,
+      listId: oidToStr(c.listId),
+      assigneeId: oidToStr(c.assigneeId),
+    });
+  }
+  return list.map((c) => ({
+    ...c,
+    _id: oidToStr(c._id) || c._id,
+    boardId: oidToStr(c.boardId) || c.boardId,
+    listId: oidToStr(c.listId) || c.listId,
+    parentTaskId: oidToStr(c.parentTaskId),
+    epicId: oidToStr(c.epicId),
+    featureId: oidToStr(c.featureId),
+    projectId: oidToStr(c.projectId) || c.projectId,
+    sprintId: oidToStr(c.sprintId),
+    subtasks: byParent.get(String(oidToStr(c._id) || c._id || '')) || [],
+  }));
 }
 
 /**
@@ -82,7 +140,6 @@ async function ensureUniqueProjectCode(organizationId, preferred) {
   const existing = rows.map((r) => String(r.projectCode || '').trim()).filter(Boolean);
   return allocateUniqueProjectCode(base, existing);
 }
-const NOTIFICATION_INTERNAL_TOKEN = String(process.env.NOTIFICATION_INTERNAL_TOKEN || '').trim();
 
 function hasScopeRolePermission(permissions) {
   const p = permissions || {};
@@ -167,7 +224,6 @@ async function reindexListOrders(boardOid, orderedIds) {
 }
 
 async function notifyListWatchers({ listId, board, actorId, title, content }) {
-  if (!NOTIFICATION_INTERNAL_TOKEN) return;
   const listOid = toOid(listId);
   if (!listOid) return;
   const rows = await TaskBoardListWatcher.find({ listId: listOid }).select('userId').lean();
@@ -180,29 +236,25 @@ async function notifyListWatchers({ listId, board, actorId, title, content }) {
   ];
   if (!userIds.length) return;
   const orgId = board?.organizationId ? String(board.organizationId) : '';
-  try {
-    await axios.post(
-      `${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`,
-      {
-        userIds,
-        type: 'task_board_list',
-        title,
-        content,
-        data: {
-          organizationId: orgId,
-          boardId: String(board?._id || ''),
-          listId: String(listId),
-        },
-      },
-      {
-        headers: { 'x-internal-notification-token': NOTIFICATION_INTERNAL_TOKEN },
-        timeout: 8000,
-        validateStatus: () => true,
-      }
-    );
-  } catch (err) {
-    logger.warn('[task-board] notify watchers failed: %s', err.message);
-  }
+  const projectId = board?.projectId ? String(board.projectId) : '';
+  await notifySystemKind({
+    userIds,
+    kind: 'task_board_list',
+    title,
+    content,
+    data: {
+      organizationId: orgId,
+      projectId,
+      boardId: String(board?._id || ''),
+      listId: String(listId),
+    },
+    actionUrl: projectHubActionUrl({
+      projectId,
+      boardId: board?._id,
+      organizationId: orgId,
+    }),
+    excludeUserId: actorId,
+  });
 }
 
 const PROJECT_BOARD_ADMIN_KEYS = new Set([
@@ -227,7 +279,7 @@ async function projectMembershipBoardCaps(userId, board) {
     isProjectRbacV2Enabled,
     unionPermissionsFromRoles,
     hasPermission,
-  } = require('../utils/projectPermissionMatrix');
+  } = require('../utils/project/projectPermissionMatrix');
 
   const rows = await ProjectMembership.find({
     projectId: board.projectId,
@@ -306,7 +358,7 @@ async function resolveBoardCapabilities(userId, board) {
   if (!userId || !board) {
     return buildBoardCapabilities({});
   }
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     try {
       const { resolveUserProjectPermissions } = require('./projectAccess.service');
@@ -553,6 +605,13 @@ async function userMatchesWorkspaceBoardScope(board, userId) {
   return false;
 }
 
+async function assertBoardProjectWritable(board) {
+  if (!board?.projectId) return;
+  const Project = require('../models/Project');
+  const project = await Project.findById(board.projectId).select('status').lean();
+  if (project) assertProjectWritable(project);
+}
+
 async function ensureBoardViewAccess(boardId, userId) {
   const board = await TaskBoard.findById(boardId).lean();
   if (!board || !board.isActive) return null;
@@ -578,7 +637,7 @@ async function ensureBoardViewAccess(boardId, userId) {
 async function ensureBoardEditAccess(boardId, userId) {
   const board = await TaskBoard.findById(boardId).lean();
   if (!board || !board.isActive) return null;
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
@@ -598,11 +657,13 @@ async function ensureBoardEditAccess(boardId, userId) {
       hasPermission(resolved.permissions, 'backlog:prioritize') ||
       hasPermission(resolved.permissions, 'project:edit');
     if (!ok) return null;
+    await assertBoardProjectWritable(board);
     return board;
   }
   const caps = await resolveBoardCapabilities(userId, board);
   // Edit “nặng” (tạo thẻ/list/sửa) — không còn workspace-scope = full edit
   if (caps.canCreateCards || caps.canManageLists || caps.canEditCards || caps.canManageBoard) {
+    await assertBoardProjectWritable(board);
     return board;
   }
   return null;
@@ -613,13 +674,14 @@ async function ensureBoardManageLists(boardId, userId) {
   if (!board || !board.isActive) return null;
   const caps = await resolveBoardCapabilities(userId, board);
   if (!caps.canManageLists) return null;
+  await assertBoardProjectWritable(board);
   return board;
 }
 
 async function ensureBoardCreateCards(boardId, userId) {
   const board = await TaskBoard.findById(boardId).lean();
   if (!board || !board.isActive) return null;
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
@@ -634,15 +696,17 @@ async function ensureBoardCreateCards(boardId, userId) {
     ) {
       return null;
     }
+    await assertBoardProjectWritable(board);
     return board;
   }
   const caps = await resolveBoardCapabilities(userId, board);
   if (!caps.canCreateCards) return null;
+  await assertBoardProjectWritable(board);
   return board;
 }
 
 function resolveBoardScope({ scopeType, scopeId, teamId, organizationId }) {
-  return require('../utils/boardIdentityPatch').resolveBoardScope({
+  return require('../utils/project/boardIdentityPatch').resolveBoardScope({
     scopeType,
     scopeId,
     teamId,
@@ -745,7 +809,7 @@ async function listBoards({ userId, organizationId, teamId, scopeType, scopeId }
   return boards;
 }
 
-async function getBoardDetail({ userId, boardId }) {
+async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId, parentTaskId }) {
   const board = await ensureBoardViewAccess(boardId, userId);
   if (!board) throw new Error('Không có quyền xem board này');
   const boardOid = board._id;
@@ -764,19 +828,87 @@ async function getBoardDetail({ userId, boardId }) {
     watcherCountByList.set(lid, (watcherCountByList.get(lid) || 0) + 1);
     if (userOid && String(row.userId) === String(userOid)) watchingSet.add(lid);
   }
-  const cards = await Task.find({ boardId: boardOid, isActive: true })
-    .sort({ listId: 1, position: 1, createdAt: 1 })
-    .lean();
+  const wantCards = parseIncludeCardsFlag(includeCards);
+  const scopedCardQuery = Boolean(epicId || featureId || parentTaskId);
+  const cardFilter = wantCards
+    ? buildBoardCardMongoFilter(
+        { boardId: boardOid, epicId, featureId, parentTaskId },
+        { isValidOid: (id) => mongoose.Types.ObjectId.isValid(String(id)), toOid }
+      )
+    : null;
+  const cards = wantCards
+    ? await Task.find(cardFilter).sort({ listId: 1, position: 1, createdAt: 1 }).lean()
+    : [];
+
+  /** Feature (PlanningItem) — union lên Kanban khi xem full board (không scope epic/feature/parent). */
+  let featureItems = [];
+  if (wantCards && !scopedCardQuery && board.projectId) {
+    const PlanningItem = require('../models/PlanningItem');
+    featureItems = await PlanningItem.find({
+      projectId: board.projectId,
+      type: 'feature',
+      isActive: true,
+    })
+      .sort({ sortOrder: 1, createdAt: 1 })
+      .lean();
+  }
 
   const canAdmin = await userCanAdminBoard(userId, board);
   const capabilities = await resolveBoardCapabilities(userId, board);
   const activeListCount = lists.length;
+  const listsWithStatusKey = lists.map((l) => {
+    const statusKey =
+      String(l.statusKey || '').trim() ||
+      require('./workflow.service').inferStatusKeyFromTitle(l.title) ||
+      '';
+    return { ...l, statusKey };
+  });
+  const { resolveFeatureBoardListId, resolveFeatureDisplaySprintId } =
+    require('../utils/work/planningBoardStatus');
+  const featureListIds = featureItems.map((f) =>
+    resolveFeatureBoardListId(f.status, listsWithStatusKey)
+  );
   const cardCountByList = new Map();
-  for (const c of cards) {
-    const lid = String(c.listId || '');
-    cardCountByList.set(lid, (cardCountByList.get(lid) || 0) + 1);
+  if (wantCards) {
+    for (const c of cards) {
+      const lid = String(c.listId || '');
+      cardCountByList.set(lid, (cardCountByList.get(lid) || 0) + 1);
+    }
+    for (const lid of featureListIds) {
+      if (!lid) continue;
+      cardCountByList.set(lid, (cardCountByList.get(lid) || 0) + 1);
+    }
+  } else if (listIds.length) {
+    const taskCounts = await Task.aggregate([
+      {
+        $match: {
+          boardId: boardOid,
+          isActive: true,
+          listId: { $in: listIds },
+        },
+      },
+      { $group: { _id: '$listId', count: { $sum: 1 } } },
+    ]);
+    for (const row of taskCounts) {
+      if (row?._id) cardCountByList.set(String(row._id), Number(row.count) || 0);
+    }
+    if (!scopedCardQuery && board.projectId) {
+      const PlanningItem = require('../models/PlanningItem');
+      const featureStatusRows = await PlanningItem.find({
+        projectId: board.projectId,
+        type: 'feature',
+        isActive: true,
+      })
+        .select('status')
+        .lean();
+      for (const f of featureStatusRows) {
+        const lid = resolveFeatureBoardListId(f.status, listsWithStatusKey);
+        if (!lid) continue;
+        cardCountByList.set(lid, (cardCountByList.get(lid) || 0) + 1);
+      }
+    }
   }
-  const listsEnriched = lists.map((l) => {
+  const listsEnriched = listsWithStatusKey.map((l) => {
     const cardCount = cardCountByList.get(String(l._id)) || 0;
     const policy = resolveListArchivePolicy({
       list: l,
@@ -784,13 +916,9 @@ async function getBoardDetail({ userId, boardId }) {
       activeListCount,
       canAdmin,
     });
-    const statusKey =
-      String(l.statusKey || '').trim() ||
-      require('./workflow.service').inferStatusKeyFromTitle(l.title) ||
-      '';
     return {
       ...l,
-      statusKey,
+      title: repairUtf8Mojibake(l.title),
       cardCount,
       watcherCount: watcherCountByList.get(String(l._id)) || 0,
       isWatching: watchingSet.has(String(l._id)),
@@ -818,7 +946,10 @@ async function getBoardDetail({ userId, boardId }) {
         _id: wf._id,
         name: wf.name,
         templateKey: wf.templateKey || '',
-        states: wf.states || [],
+        states: (wf.states || []).map((s) => ({
+          ...s,
+          label: repairUtf8Mojibake(s?.label),
+        })),
         transitions: wf.transitions || [],
         transitionsByFrom,
       };
@@ -829,33 +960,44 @@ async function getBoardDetail({ userId, boardId }) {
 
   const assigneeIds = [
     ...new Set(
-      cards
-        .flatMap((c) => {
+      [
+        ...cards.flatMap((c) => {
           const ids = [];
           if (c?.assigneeId) ids.push(String(c.assigneeId));
+          if (c?.createdBy) ids.push(String(c.createdBy));
           for (const a of c.assignments || []) {
             if (a?.userId) ids.push(String(a.userId));
           }
           return ids;
-        })
-        .filter(Boolean)
+        }),
+        ...featureItems.flatMap((f) => {
+          const ids = [];
+          if (f?.assigneeId) ids.push(String(f.assigneeId));
+          if (f?.createdBy) ids.push(String(f.createdBy));
+          return ids;
+        }),
+      ].filter(Boolean)
     ),
   ];
   const assigneeRows = assigneeIds.length ? await enrichAssignableProfiles(assigneeIds, userId) : [];
   const assigneeMap = new Map(assigneeRows.map((row) => [String(row.userId), row]));
-  const { normalizeIssueType } = require('../utils/projectIssueTypePerms');
+  const { normalizeIssueType } = require('../utils/project/projectIssueTypePerms');
 
   // Keep only fields needed by FE (avoid large docs)
   const sanitizedCards = cards.map((c) => ({
     _id: c._id,
+    kind: 'task',
     boardId: c.boardId,
     listId: c.listId,
     ownerTeamId: c.ownerTeamId || null,
+    workGroupChannelId: c.workGroupChannelId || null,
     title: c.title,
     description: c.description,
     summary: c.summary,
     priority: c.priority,
     dueDate: c.dueDate,
+    startDate: c.startDate || null,
+    estimateHours: c.estimateHours ?? null,
     assigneeId: c.assigneeId,
     assigneeName: c.assigneeId
       ? assigneeMap.get(String(c.assigneeId))?.displayName ||
@@ -899,11 +1041,19 @@ async function getBoardDetail({ userId, boardId }) {
             },
           ]
         : [],
+    createdBy: c.createdBy || null,
+    reporterName: c.createdBy
+      ? assigneeMap.get(String(c.createdBy))?.displayName ||
+        assigneeMap.get(String(c.createdBy))?.username ||
+        ''
+      : '',
+    reporterAvatar: c.createdBy ? assigneeMap.get(String(c.createdBy))?.avatar || '' : '',
     tags: Array.isArray(c.tags) ? c.tags : [],
     attachments: Array.isArray(c.attachments) ? c.attachments : [],
     checklists: Array.isArray(c.checklists) ? c.checklists : [],
     parentTaskId: c.parentTaskId || null,
     epicId: c.epicId || null,
+    featureId: c.featureId || null,
     issueType: normalizeIssueType(c.issueType),
     projectId: c.projectId || board.projectId || null,
     sprintId: c.sprintId || null,
@@ -912,6 +1062,9 @@ async function getBoardDetail({ userId, boardId }) {
     position: c.position,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
+    changeRequestIds: Array.isArray(c.changeRequestIds)
+      ? c.changeRequestIds.map((id) => String(id))
+      : [],
     comments: Array.isArray(c.comments)
       ? c.comments.map((cm) => ({
           userId: cm.userId,
@@ -921,13 +1074,100 @@ async function getBoardDetail({ userId, boardId }) {
       : [],
   }));
 
+  const featureCards = featureItems.map((f, idx) => {
+    const listId =
+      featureListIds[idx] ||
+      resolveFeatureBoardListId(f.status, listsEnriched) ||
+      null;
+    const assigneeId = oidToStr(f.assigneeId);
+    const parentId = oidToStr(f.parentId);
+    const displaySprintId = resolveFeatureDisplaySprintId(f.sprintId, f._id, cards);
+    return {
+      _id: f._id,
+      kind: 'planning',
+      type: 'feature',
+      issueType: 'feature',
+      boardId: board._id,
+      listId,
+      title: f.title,
+      description: f.description || '',
+      summary: '',
+      priority: f.priority || 'medium',
+      dueDate: f.dueDate || f.targetDate || null,
+      startDate: f.startDate || null,
+      estimateHours: null,
+      assigneeId,
+      assigneeName: assigneeId
+        ? assigneeMap.get(String(assigneeId))?.displayName ||
+          assigneeMap.get(String(assigneeId))?.username ||
+          ''
+        : '',
+      assignees: assigneeId
+        ? [
+            {
+              userId: String(assigneeId),
+              displayName:
+                assigneeMap.get(String(assigneeId))?.displayName ||
+                assigneeMap.get(String(assigneeId))?.username ||
+                '',
+              avatar: assigneeMap.get(String(assigneeId))?.avatar || '',
+            },
+          ]
+        : [],
+      assignments: assigneeId
+        ? [
+            {
+              userId: String(assigneeId),
+              slot: 'primary',
+              projectRoleId: null,
+              displayName:
+                assigneeMap.get(String(assigneeId))?.displayName ||
+                assigneeMap.get(String(assigneeId))?.username ||
+                '',
+              avatar: assigneeMap.get(String(assigneeId))?.avatar || '',
+            },
+          ]
+        : [],
+      createdBy: oidToStr(f.createdBy),
+      reporterName: f.createdBy
+        ? assigneeMap.get(String(f.createdBy))?.displayName ||
+          assigneeMap.get(String(f.createdBy))?.username ||
+          ''
+        : '',
+      reporterAvatar: f.createdBy ? assigneeMap.get(String(f.createdBy))?.avatar || '' : '',
+      tags: [],
+      attachments: [],
+      checklists: [],
+      parentTaskId: null,
+      parentId,
+      epicId: parentId,
+      featureId: null,
+      projectId: oidToStr(f.projectId) || oidToStr(board.projectId) || null,
+      sprintId: displaySprintId,
+      status: f.status,
+      completedAt: null,
+      position: Number(f.sortOrder) || idx + 1,
+      workGroupChannelId: oidToStr(f.workGroupChannelId),
+      ownerTeamId: null,
+      createdAt: f.createdAt,
+      updatedAt: f.updatedAt,
+      changeRequestIds: [],
+      comments: [],
+    };
+  });
+
+  const mergedSanitized = [...sanitizedCards, ...featureCards];
+
+  const changeRequestService = require('./changeRequest.service');
+  const cardsWithCr = await changeRequestService.enrichTasksWithChangeRequests(mergedSanitized);
+
   const { attachProjectIdentityToBoard } = require('./project.service');
   const boardWithProject = await attachProjectIdentityToBoard(board);
 
   return {
     board: boardWithProject,
     lists: listsEnriched,
-    cards: sanitizedCards,
+    cards: scopedCardQuery ? cardsWithCr : attachSubtasksToSanitizedCards(cardsWithCr),
     capabilities,
     workflow: workflowPayload,
   };
@@ -968,6 +1208,7 @@ async function createCard({
   parentTaskId,
   checklists,
   epicId,
+  featureId,
   issueType,
   sprintId,
   estimateHours,
@@ -981,9 +1222,9 @@ async function createCard({
     err.statusCode = 403;
     throw err;
   }
-  const { isProjectRbacV2Enabled: rbacV2On } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled: rbacV2On } = require('../utils/project/projectPermissionMatrix');
   if (rbacV2On() && board.projectId) {
-    const { createPermissionForIssueType } = require('../utils/projectIssueTypePerms');
+    const { createPermissionForIssueType } = require('../utils/project/projectIssueTypePerms');
     const { assertUserProjectPermission } = require('./projectAccess.service');
     const createKey = createPermissionForIssueType(issueType, { parentTaskId });
     await assertUserProjectPermission({
@@ -1033,6 +1274,9 @@ async function createCard({
     });
   }
 
+  const { normalizeIssueType } = require('../utils/project/projectIssueTypePerms');
+  const normalizedIssueType = normalizeIssueType(issueType);
+
   let parentOid = null;
   if (parentTaskId) {
     const parent = await Task.findOne({
@@ -1042,20 +1286,31 @@ async function createCard({
     }).lean();
     if (!parent) throw new Error('parentTaskId không hợp lệ');
     parentOid = parent._id;
-    const { normalizeIssueType } = require('../utils/projectIssueTypePerms');
     const { assertTaskParentNest } = require('./workTypeNest.service');
     await assertTaskParentNest({
       projectId: board.projectId,
-      childCard: { issueType: normalizeIssueType(issueType) },
+      childCard: { issueType: normalizedIssueType },
       parentCard: parent,
     });
+  }
+
+  let featureOid = null;
+  let nextEpicId = epicId || null;
+  if (featureId) {
+    const { assertTaskFeatureNest } = require('./workTypeNest.service');
+    const feature = await assertTaskFeatureNest({
+      projectId: board.projectId,
+      childCard: { issueType: normalizedIssueType },
+      featureId,
+    });
+    featureOid = feature._id;
+    if (!nextEpicId && feature.parentId) nextEpicId = feature.parentId;
   }
 
   const last = await Task.findOne({ boardId, listId, isActive: true })
     .sort({ position: -1 })
     .lean();
   const nextPos = (Number(last?.position) || 0) + 1000;
-  const { normalizeIssueType } = require('../utils/projectIssueTypePerms');
 
   const nextEstimateHours =
     estimateHours !== undefined ? normalizeHoursEstimate(estimateHours) : null;
@@ -1098,8 +1353,9 @@ async function createCard({
     position: nextPos,
     tags: Array.isArray(tags) ? tags : [],
     checklists: Array.isArray(checklists) ? checklists : [],
-    epicId: epicId || null,
-    issueType: normalizeIssueType(issueType),
+    epicId: nextEpicId || null,
+    featureId: featureOid,
+    issueType: normalizedIssueType,
     sprintId: sprintId || null,
     attachments: Array.isArray(attachments)
       ? attachments
@@ -1120,6 +1376,14 @@ async function createCard({
     actorId: userId,
   });
   const created = row.toObject();
+  if (board.projectId && nextOwnerTeamId) {
+    void emitTeamChannelProvisionIfNeeded({
+      organizationId: board.organizationId,
+      projectId: board.projectId,
+      teamId: nextOwnerTeamId,
+      actorUserId: userId,
+    });
+  }
   void notifyListWatchers({
     listId,
     board,
@@ -1127,6 +1391,14 @@ async function createCard({
     title: 'Thẻ mới trong danh sách',
     content: `Thẻ "${created.title}" vừa được thêm`,
   }).catch((err) => logger.warn('[task-board] notify watchers failed: %s', err.message));
+  if (nextAssigneeId) {
+    void notifyTaskAssigned({
+      actorId: userId,
+      assigneeId: nextAssigneeId,
+      task: created,
+      board,
+    }).catch((err) => logger.warn('[task-board] notify assignee failed: %s', err.message));
+  }
   if (board.projectId) {
     const { logActivity } = require('./project.service');
     void logActivity({
@@ -1174,14 +1446,142 @@ function computeCardInsertPosition(siblings, index) {
   return (prev + next) / 2;
 }
 
+function scheduleCrWorkStatusSync(card) {
+  const ids = Array.isArray(card?.changeRequestIds) ? card.changeRequestIds : [];
+  if (!ids.length) return;
+  setImmediate(() => {
+    void (async () => {
+      try {
+        const changeRequestService = require('./changeRequest.service');
+        await changeRequestService.syncChangeRequestWorkStatus(ids);
+      } catch (err) {
+        logger.warn('[task-board] CR workStatus sync failed: %s', err?.message || err);
+      }
+    })();
+  });
+}
+
 async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId }) {
   const card = await Task.findById(cardId);
-  if (!card || !card.boardId) throw new Error('Card không tồn tại');
+  if (card && card.boardId) {
+    return moveTaskCard({ userId, card, cardId, toListId, position, index, ownerTeamId });
+  }
+  return movePlanningFeatureCard({ userId, cardId, toListId, position, index });
+}
+
+/**
+ * Kéo Feature (PlanningItem) trên board — SSOT = status; listId derive lúc đọc.
+ */
+async function movePlanningFeatureCard({ userId, cardId, toListId, position, index }) {
+  const PlanningItem = require('../models/PlanningItem');
+  const { normalizePlanningStatus } = require('../utils/work/planningItemTypes');
+  const { listIdToPlanningStatus } = require('../utils/work/planningBoardStatus');
+  const { resolveListStatusKey } = require('./workflow.service');
+
+  const feature = await PlanningItem.findOne({
+    _id: cardId,
+    type: 'feature',
+    isActive: true,
+  });
+  if (!feature) throw new Error('Card không tồn tại');
+
+  const list = await TaskBoardList.findOne({
+    _id: toListId,
+    isArchived: false,
+  }).lean();
+  if (!list) throw new Error('List đích không hợp lệ');
+
+  const board = await ensureBoardViewAccess(list.boardId, userId);
+  if (!board) throw new Error('Không có quyền xem board này');
+  if (
+    board.projectId &&
+    feature.projectId &&
+    String(board.projectId) !== String(feature.projectId)
+  ) {
+    throw new Error('List đích không hợp lệ');
+  }
+
+  const caps = await resolveBoardCapabilities(userId, board);
+  if (!caps.canMoveCards) throw new Error('Không có quyền kéo thẻ trên board này');
+
+  const movingToDone = isDoneListTitle(list.title);
+  if (movingToDone && !caps.canMoveToDone) {
+    throw new Error('Chỉ PM/TL/Admin mới được kéo thẻ sang cột Xong (duyệt)');
+  }
+
+  const isAssignee = feature.assigneeId && String(feature.assigneeId) === String(userId);
+  const canFreelyMove = caps.canCreateCards || caps.canEditCards || caps.canManageBoard;
+  if (!canFreelyMove && !isAssignee) {
+    throw new Error('Bạn chỉ được kéo thẻ được gán cho mình');
+  }
+
+  const listWithKey = {
+    ...list,
+    statusKey:
+      String(list.statusKey || '').trim() ||
+      resolveListStatusKey(list) ||
+      '',
+  };
+  const toStatusKey =
+    resolveListStatusKey(listWithKey) ||
+    listIdToPlanningStatus(toListId, [listWithKey]) ||
+    'todo';
+
+  feature.status = normalizePlanningStatus(toStatusKey, 'todo');
+  if (index != null && Number.isFinite(Number(index))) {
+    feature.sortOrder = (Number(index) + 1) * 1000;
+  } else if (position != null && Number.isFinite(Number(position))) {
+    feature.sortOrder = Number(position);
+  }
+  await feature.save();
+
+  const assigneeId = feature.assigneeId || null;
+  let assigneeName = '';
+  let avatar = '';
+  if (assigneeId) {
+    const rows = await enrichAssignableProfiles([String(assigneeId)], userId);
+    const row = rows[0];
+    assigneeName = row?.displayName || row?.username || '';
+    avatar = row?.avatar || '';
+  }
+
+  return {
+    _id: feature._id,
+    kind: 'planning',
+    type: 'feature',
+    issueType: 'feature',
+    boardId: board._id,
+    listId: toListId,
+    title: feature.title,
+    description: feature.description || '',
+    dueDate: feature.dueDate || null,
+    startDate: feature.startDate || null,
+    assigneeId,
+    assigneeName,
+    assignees: assigneeId
+      ? [{ userId: String(assigneeId), displayName: assigneeName, avatar }]
+      : [],
+    parentId: feature.parentId || null,
+    epicId: feature.parentId || null,
+    featureId: null,
+    parentTaskId: null,
+    projectId: feature.projectId || board.projectId || null,
+    sprintId: feature.sprintId || null,
+    status: feature.status,
+    position: Number(feature.sortOrder) || 0,
+    workGroupChannelId: feature.workGroupChannelId || null,
+    createdAt: feature.createdAt,
+    updatedAt: feature.updatedAt,
+  };
+}
+
+async function moveTaskCard({ userId, card, cardId, toListId, position, index, ownerTeamId }) {
   const board = await ensureBoardViewAccess(card.boardId, userId);
   if (!board) throw new Error('Không có quyền xem board này');
   const beforeMove = {
     listId: card.listId,
     status: card.status,
+    ownerTeamId: card.ownerTeamId,
   };
 
   const caps = await resolveBoardCapabilities(userId, board);
@@ -1225,18 +1625,10 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
     toStatusKey &&
     fromStatusKey !== toStatusKey
   ) {
-    let actorPermissions = caps.permissions || [];
+    const actorPermissions = Array.isArray(caps.permissions) ? caps.permissions : [];
     let actorProjectRoleKeys = [];
-    let isElevated = Boolean(caps.canManageBoard);
+    const isElevated = Boolean(caps.canManageBoard);
     try {
-      const { resolveUserProjectPermissions } = require('./projectAccess.service');
-      const resolved = await resolveUserProjectPermissions({
-        userId,
-        projectId: board.projectId,
-        boardId: board._id,
-      });
-      actorPermissions = resolved.permissions || actorPermissions;
-      isElevated = isElevated || resolved.isOrgAdmin || resolved.isCreator;
       const ProjectMembership = require('../models/ProjectMembership');
       const ProjectRole = require('../models/ProjectRole');
       const mems = await ProjectMembership.find({
@@ -1282,6 +1674,7 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
         const refreshed = await Task.findById(card._id).lean();
         return {
           ...refreshed,
+          kind: 'task',
           approvalRequest: gate.request,
           approvalPending: true,
         };
@@ -1304,6 +1697,7 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
         const refreshed = await Task.findById(card._id).lean();
         return {
           ...refreshed,
+          kind: 'task',
           approvalRequest: gate.request,
           approvalPending: true,
         };
@@ -1362,6 +1756,8 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
     } else if (cat !== 'done' && toStatusKey !== 'done') {
       if (String(fromStatusKey) === 'done') card.completedAt = null;
     }
+    const cyclePatch = maybeFirstInProgressPatch(card, toStatusKey, { category: cat });
+    if (cyclePatch) Object.assign(card, cyclePatch);
   } else if (movingToDone) {
     const transition = await assertCanTransition(board, card.status, 'done', {
       card: card.toObject ? card.toObject() : card,
@@ -1376,29 +1772,89 @@ async function moveCard({ userId, cardId, toListId, position, index, ownerTeamId
     if (!transition.ok) throw new Error(transition.message || 'Không chuyển được khỏi Done');
     card.status = 'todo';
     card.completedAt = null;
+  } else if (toStatusKey && fromStatusKey !== toStatusKey) {
+    const cyclePatch = maybeFirstInProgressPatch(card, toStatusKey);
+    if (cyclePatch) Object.assign(card, cyclePatch);
   }
   await card.save();
   const moved = card.toObject();
-  await notifyListWatchers({
+  const becameDoneOnMove =
+    isDoneLikeStatus(moved.status) && !isDoneLikeStatus(fromStatusKey);
+  if (becameDoneOnMove) {
+    void notifyTaskCompletedToCreator({
+      actorId: userId,
+      task: moved,
+      board,
+    }).catch((err) => logger.warn('[task-board] notify completed failed: %s', err.message));
+  }
+  if (String(fromStatusKey) !== String(moved.status || '')) {
+    const isReopen = isDoneLikeStatus(fromStatusKey) && !isDoneLikeStatus(moved.status);
+    const isRework =
+      /review/i.test(String(fromStatusKey || '')) &&
+      isInProgressLikeStatus(moved.status) &&
+      !isDoneLikeStatus(moved.status);
+    emitStatusTransitionFactBestEffort({
+      taskId: cardId,
+      organizationId: board.organizationId,
+      projectId: board.projectId,
+      assigneeId: moved.assigneeId,
+      fromStatus: fromStatusKey,
+      toStatus: moved.status,
+      isRework,
+      isReopen,
+      firstInProgressAt: moved.firstInProgressAt,
+    });
+    const becameDone = isDoneLikeStatus(moved.status) && !isDoneLikeStatus(fromStatusKey);
+    const leftDone = !isDoneLikeStatus(moved.status) && isDoneLikeStatus(fromStatusKey);
+    if (becameDone || leftDone) {
+      emitTaskFactBestEffort({
+        taskId: cardId,
+        organizationId: board.organizationId,
+        projectId: board.projectId,
+        createdBy: moved.createdBy,
+        assigneeId: moved.assigneeId,
+        status: moved.status,
+        doneDelta: becameDone ? 1 : -1,
+        estimateHours: moved.estimateHours,
+        issueType: moved.issueType,
+        completedAt: moved.completedAt,
+        firstInProgressAt: moved.firstInProgressAt,
+      });
+    }
+  }
+  if (board.projectId && ownerTeamId !== undefined) {
+    const prevTeam = normalizeOwnerTeamId(beforeMove.ownerTeamId);
+    const nextTeam = normalizeOwnerTeamId(moved.ownerTeamId);
+    if (nextTeam && nextTeam !== prevTeam) {
+      emitTeamChannelProvisionIfNeeded({
+        projectId: board.projectId,
+        organizationId: board.organizationId,
+        teamId: nextTeam,
+        actorUserId: userId,
+      });
+    }
+  }
+  scheduleCrWorkStatusSync(moved);
+  void notifyListWatchers({
     listId: toListId,
     board,
     actorId: userId,
     title: 'Thẻ được chuyển',
     content: `Thẻ "${moved.title}" vừa được chuyển vào danh sách`,
-  });
+  }).catch((err) => logger.warn('[task-board] notify watchers failed: %s', err.message));
   if (board.projectId) {
-    const { diffTaskFields } = require('../utils/workHistoryDiff');
+    const { diffTaskFields } = require('../utils/work/workHistoryDiff');
     const { appendFieldChanges } = require('./workHistory.service');
-    await appendFieldChanges({
+    void appendFieldChanges({
       organizationId: board.organizationId,
       projectId: board.projectId,
       boardId: board._id,
       taskId: cardId,
       actorId: userId,
       changes: diffTaskFields(beforeMove, { listId: moved.listId, status: moved.status }),
-    });
+    }).catch((err) => logger.warn('[task-board] work history failed: %s', err.message));
   }
-  return moved;
+  return { ...moved, kind: 'task' };
 }
 
 async function updateCard({
@@ -1419,6 +1875,7 @@ async function updateCard({
   checklists,
   parentTaskId,
   epicId,
+  featureId,
   issueType,
   estimateHours,
   startDate,
@@ -1430,22 +1887,29 @@ async function updateCard({
   const board = await ensureBoardEditAccess(card.boardId, userId);
   if (!board) throw new Error('Không có quyền sửa card này');
   const caps = await resolveBoardCapabilities(userId, board);
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
 
   const next = {};
   if (title !== undefined) next.title = String(title).trim();
   if (description !== undefined) next.description = String(description).trim();
   if (summary !== undefined) next.summary = String(summary).trim();
   if (priority !== undefined) next.priority = priority || 'medium';
-  if (dueDate !== undefined) next.dueDate = dueDate ? new Date(dueDate) : null;
+  if (dueDate !== undefined) {
+    next.dueDate = dueDate ? new Date(dueDate) : null;
+    const { dueDatesEqual } = require('../utils/task/taskDueReminder');
+    if (!dueDatesEqual(card.dueDate, next.dueDate)) {
+      next.dueSoonNotifiedAt = null;
+      next.overdueNotifiedAt = null;
+    }
+  }
   if (startDate !== undefined) next.startDate = startDate ? parseStartDate(startDate) : null;
   if (estimateHours !== undefined) {
-    const { normalizeEstimateHours } = require('../utils/timeTracking');
+    const { normalizeEstimateHours } = require('../utils/task/timeTracking');
     next.estimateHours = normalizeEstimateHours(estimateHours);
   }
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { assertUserProjectPermission } = require('./projectAccess.service');
-    const { updatePermissionForIssueType } = require('../utils/projectIssueTypePerms');
+    const { updatePermissionForIssueType } = require('../utils/project/projectIssueTypePerms');
     if (estimateHours !== undefined) {
       await assertUserProjectPermission({
         userId,
@@ -1509,30 +1973,37 @@ async function updateCard({
   if (epicId !== undefined) {
     next.epicId = epicId || null;
   }
+  if (featureId !== undefined) {
+    if (!featureId) {
+      next.featureId = null;
+    } else if (board.projectId) {
+      const { assertTaskFeatureNest } = require('./workTypeNest.service');
+      const feature = await assertTaskFeatureNest({
+        projectId: board.projectId,
+        childCard: { issueType: issueType !== undefined ? issueType : card.issueType },
+        featureId,
+      });
+      next.featureId = feature._id;
+      if (next.epicId === undefined && !card.epicId && feature.parentId) {
+        next.epicId = feature.parentId;
+      }
+    } else {
+      next.featureId = featureId;
+    }
+  }
   if (issueType !== undefined) {
     const raw = String(issueType || '').trim().toLowerCase();
     if (raw && !['task', 'bug', 'story'].includes(raw)) {
       throw new Error('issueType phải là task|bug|story');
     }
-    next.issueType = require('../utils/projectIssueTypePerms').normalizeIssueType(issueType);
+    next.issueType = require('../utils/project/projectIssueTypePerms').normalizeIssueType(issueType);
   }
   if (status !== undefined) {
     const st = String(status || '').trim();
     const { assertCanTransition } = require('./workflow.service');
-    let actorPermissions = caps.permissions || [];
-    let isElevated = Boolean(caps.canManageBoard);
-    try {
-      const { resolveUserProjectPermissions } = require('./projectAccess.service');
-      const resolved = await resolveUserProjectPermissions({
-        userId,
-        projectId: board.projectId,
-        boardId: board._id,
-      });
-      actorPermissions = resolved.permissions || actorPermissions;
-      isElevated = isElevated || resolved.isOrgAdmin || resolved.isCreator;
-    } catch {
-      /* optional */
-    }
+    // caps đã có permissions từ resolveBoardCapabilities (TTL cache share với ensureBoardEditAccess)
+    const actorPermissions = Array.isArray(caps.permissions) ? caps.permissions : [];
+    const isElevated = Boolean(caps.canManageBoard);
     const transition = await assertCanTransition(board, card.status, st, {
       card: { ...card.toObject(), ...next },
       actorPermissions,
@@ -1574,6 +2045,8 @@ async function updateCard({
     } else if (card.status === 'done') {
       next.completedAt = null;
     }
+    const cyclePatch = maybeFirstInProgressPatch(card, st);
+    if (cyclePatch) Object.assign(next, cyclePatch);
   }
   if (tags !== undefined) next.tags = Array.isArray(tags) ? tags : [];
   if (attachments !== undefined) {
@@ -1672,6 +2145,83 @@ async function updateCard({
     { new: true, runValidators: true }
   );
   const out = updated?.toObject ? updated.toObject() : updated;
+
+  if (assigneeChanged && board.projectId) {
+    try {
+      await syncWorkGroupMembers({ card: out || card, board, userId });
+    } catch (syncErr) {
+      await Task.findByIdAndUpdate(cardId, { $set: { assigneeId: card.assigneeId, assignments: card.assignments || [] } });
+      const err = new Error('Đồng bộ nhóm làm việc thất bại — đã khôi phục assignee');
+      err.statusCode = 409;
+      throw err;
+    }
+  }
+  if (assigneeChanged && effectiveAssignee) {
+    void notifyTaskAssigned({
+      actorId: userId,
+      assigneeId: effectiveAssignee,
+      task: out || card,
+      board,
+    }).catch((err) => logger.warn('[task-board] notify assignee failed: %s', err.message));
+  }
+
+  if (board.projectId && next.ownerTeamId !== undefined) {
+    const prevTeam = normalizeOwnerTeamId(card.ownerTeamId);
+    const nextTeam = normalizeOwnerTeamId(next.ownerTeamId);
+    if (nextTeam && nextTeam !== prevTeam) {
+      void emitTeamChannelProvisionIfNeeded({
+        organizationId: board.organizationId,
+        projectId: board.projectId,
+        teamId: nextTeam,
+        actorUserId: userId,
+      });
+    }
+  }
+  const statusChanged =
+    next.status !== undefined && String(next.status || '') !== String(card.status || '');
+  if (statusChanged) {
+    scheduleCrWorkStatusSync(out || card);
+    const from = String(card.status || '');
+    const to = String(next.status || '');
+    const isReopen = isDoneLikeStatus(from) && !isDoneLikeStatus(to);
+    const isRework =
+      /review/i.test(from) && isInProgressLikeStatus(to) && !isDoneLikeStatus(to);
+    emitStatusTransitionFactBestEffort({
+      taskId: cardId,
+      organizationId: board.organizationId,
+      projectId: board.projectId,
+      assigneeId: out?.assigneeId || card.assigneeId,
+      fromStatus: from,
+      toStatus: to,
+      isRework,
+      isReopen,
+      firstInProgressAt: out?.firstInProgressAt || card.firstInProgressAt,
+    });
+    const becameDone = isDoneLikeStatus(to) && !isDoneLikeStatus(from);
+    const leftDone = !isDoneLikeStatus(to) && isDoneLikeStatus(from);
+    if (becameDone) {
+      void notifyTaskCompletedToCreator({
+        actorId: userId,
+        task: out || card,
+        board,
+      }).catch((err) => logger.warn('[task-board] notify completed failed: %s', err.message));
+    }
+    if (becameDone || leftDone) {
+      emitTaskFactBestEffort({
+        taskId: cardId,
+        organizationId: board.organizationId,
+        projectId: board.projectId,
+        createdBy: out?.createdBy || card.createdBy,
+        assigneeId: out?.assigneeId || card.assigneeId,
+        status: to,
+        doneDelta: becameDone ? 1 : -1,
+        estimateHours: out?.estimateHours ?? card.estimateHours,
+        issueType: out?.issueType || card.issueType,
+        completedAt: out?.completedAt,
+        firstInProgressAt: out?.firstInProgressAt || card.firstInProgressAt,
+      });
+    }
+  }
   if (card.listId) {
     void notifyListWatchers({
       listId: card.listId,
@@ -1726,7 +2276,7 @@ async function updateCard({
         meta: { projectId: String(board.projectId), boardId: String(board._id) },
       })
       .catch((err) => logger.warn('[task-board] audit failed: %s', err.message));
-    const { diffTaskPatch } = require('../utils/workHistoryDiff');
+    const { diffTaskPatch } = require('../utils/work/workHistoryDiff');
     const { appendFieldChanges } = require('./workHistory.service');
     void appendFieldChanges({
       organizationId: board.organizationId,
@@ -1740,6 +2290,99 @@ async function updateCard({
   return out;
 }
 
+/**
+ * Create a workgroup channel for a Feature (PlanningItem) and set workGroupChannelId.
+ * S2S call to organization-service provision endpoint.
+ */
+async function createWorkGroup({ userId, featureId }) {
+  const PlanningItem = require('../models/PlanningItem');
+  const feature = await PlanningItem.findById(featureId);
+  if (!feature || !feature.isActive) throw new Error('Feature không tồn tại');
+  if (!feature.projectId) throw new Error('Feature không thuộc project');
+  if (feature.workGroupChannelId) {
+    return { workGroupChannelId: String(feature.workGroupChannelId), alreadyExists: true };
+  }
+
+  const Board = require('../models/TaskBoard');
+  const board = await Board.findOne({ projectId: feature.projectId, isActive: true }).lean();
+  if (!board) throw new Error('Không tìm thấy board');
+  await ensureBoardEditAccess(board._id, userId);
+
+  const orgId = String(feature.organizationId);
+  const projectId = String(feature.projectId);
+  const parentTaskId = String(feature._id);
+  const channelName = String(feature.title || '').trim() || 'workgroup';
+
+  try {
+    const res = await axios.post(
+      `${ORGANIZATION_SERVICE_URL}/api/organizations/internal/project-workgroup-channel`,
+      { organizationId: orgId, projectId, parentTaskId, channelName },
+      {
+        headers: buildTrustedGatewayHeaders(userId),
+        timeout: 15000,
+        validateStatus: () => true,
+      }
+    );
+    if (res.status >= 400) {
+      throw new Error(res.data?.message || `Org-service returned ${res.status}`);
+    }
+    const channel = res.data?.data;
+    const channelId = channel?._id || channel?.id;
+    if (!channelId) throw new Error('Không nhận được channelId từ org-service');
+
+    await PlanningItem.findByIdAndUpdate(featureId, { $set: { workGroupChannelId: channelId } });
+    return { workGroupChannelId: String(channelId), alreadyExists: false };
+  } catch (err) {
+    logger.error('[task-board] createWorkGroup S2S failed: %s', err?.message || err);
+    throw new Error('Không thể tạo nhóm làm việc: ' + (err?.message || 'unknown'));
+  }
+}
+
+/**
+ * Sync Channel.members = union of assigneeIds for all active cards under a feature with workGroupChannelId.
+ */
+async function syncWorkGroupMembers({ card, board, userId }) {
+  const fId = card.featureId;
+  if (!fId) return;
+  const PlanningItem = require('../models/PlanningItem');
+  const feature = await PlanningItem.findById(fId).select('workGroupChannelId').lean();
+  if (!feature?.workGroupChannelId) return;
+
+  const channelId = String(feature.workGroupChannelId);
+  const orgId = String(board.organizationId);
+
+  const siblings = await Task.find({
+    featureId: fId,
+    boardId: board._id,
+    isActive: true,
+  })
+    .select('assigneeId')
+    .lean();
+
+  const memberIds = [...new Set(
+    siblings.map((s) => String(s.assigneeId || '')).filter((id) => id && mongoose.Types.ObjectId.isValid(id))
+  )];
+
+  try {
+    const res = await axios.put(
+      `${ORGANIZATION_SERVICE_URL}/api/organizations/internal/project-workgroup-channel/${encodeURIComponent(channelId)}/members`,
+      { members: memberIds },
+      {
+        headers: buildTrustedGatewayHeaders(userId),
+        timeout: 15000,
+        validateStatus: () => true,
+      }
+    );
+    if (res.status >= 400) {
+      logger.warn('[task-board] syncWorkGroupMembers failed: status=%d', res.status);
+      throw new Error('Sync work group members failed');
+    }
+  } catch (err) {
+    logger.warn('[task-board] syncWorkGroupMembers S2S error: %s', err?.message || err);
+    throw err;
+  }
+}
+
 async function addCardComment({ userId, cardId, content }) {
   const text = String(content || '').trim();
   if (!text) throw new Error('Nội dung bình luận không được để trống');
@@ -1747,7 +2390,7 @@ async function addCardComment({ userId, cardId, content }) {
   if (!card || !card.boardId || !card.isActive) throw new Error('Card không tồn tại');
   const board = await ensureBoardEditAccess(card.boardId, userId);
   if (!board) throw new Error('Không có quyền sửa card này');
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { assertUserProjectPermission } = require('./projectAccess.service');
     await assertUserProjectPermission({
@@ -1851,7 +2494,7 @@ async function archiveCard({ userId, cardId }) {
   if (!card || !card.boardId || !card.isActive) throw new Error('Card không tồn tại');
   const board = await ensureBoardEditAccess(card.boardId, userId);
   if (!board) throw new Error('Không có quyền sửa board này');
-  const { isProjectRbacV2Enabled, hasPermission, assertPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission, assertPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled() && board.projectId) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
@@ -2041,6 +2684,7 @@ async function archiveBoard({ userId, boardId }) {
   }
   const canAdmin = await userCanAdminBoard(userId, board);
   if (!canAdmin) throw new Error('Chỉ Owner/Admin board hoặc tổ chức mới được đóng dự án');
+  const { persistClosedBoardExperiences } = require('./closedBoardExperience.service');
   await persistClosedBoardExperiences(board);
   board.isActive = false;
   await board.save();
@@ -2050,7 +2694,7 @@ async function archiveBoard({ userId, boardId }) {
 const {
   BOARD_IDENTITY_PATCH_KEYS,
   buildBoardIdentityPatch,
-} = require('../utils/boardIdentityPatch');
+} = require('../utils/project/boardIdentityPatch');
 
 /** Project Settings — PATCH identity trên Project khi board có projectId. */
 async function patchBoard({ userId, boardId, patch }) {
@@ -2225,4 +2869,5 @@ module.exports = {
   ensureBoardViewAccess,
   ensureBoardEditAccess,
   ensureAssigneeBoardAccess,
+  createWorkGroup,
 };

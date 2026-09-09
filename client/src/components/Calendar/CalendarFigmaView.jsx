@@ -49,6 +49,8 @@ export default function CalendarFigmaView({
   selectedDateEvents = [],
   upcomingMonthEvents = [],
   onUpcomingClick,
+  loading = false,
+  error = null,
 }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -214,12 +216,24 @@ export default function CalendarFigmaView({
         </header>
 
         <div className={FIGMA_CAL_GRID_WRAP}>
+          {loading ? (
+            <p className="m-0 mb-3 text-sm text-muted-foreground">
+              {t ? t('calendar.feedLoading') : 'Loading…'}
+            </p>
+          ) : null}
+          {error ? (
+            <p className="m-0 mb-3 text-sm text-error" role="alert">
+              {error}
+            </p>
+          ) : null}
           {viewMode === 'month' && renderMonthGrid()}
           {viewMode === 'week' && (
             <CalendarWeekView
               events={events}
               selectedDate={selectedDate}
               onSelectDate={onSelectDate}
+              onSelectEvent={onSelectEvent}
+              selectedEvent={selectedEvent}
               locale={locale}
               t={t}
             />

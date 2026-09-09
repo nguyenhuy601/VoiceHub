@@ -96,6 +96,11 @@ function setRefreshCookie(res, refreshTokenRaw, req) {
   });
 }
 
+/** Chỉ xóa cookie khi refresh bị từ chối vì token thiếu/hết hạn — không xóa khi DB 503. */
+function shouldClearCookiesOnRefreshFailure(error) {
+  return String(error?.errorCode || '').trim() === 'AUTH_REFRESH_INVALID';
+}
+
 function clearRefreshCookie(res, req) {
   const sec = cookieSecurityOptions(req);
 
@@ -129,4 +134,5 @@ module.exports = {
   readRefreshTokenFromReq,
   setRefreshCookie,
   clearRefreshCookie,
+  shouldClearCookiesOnRefreshFailure,
 };

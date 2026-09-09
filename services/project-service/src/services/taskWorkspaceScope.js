@@ -2,13 +2,20 @@ const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || 
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
 
 const { canAssignOwnerTeam, normalizeOwnerTeamId } = require('./ownerTeamId');
+const { createTtlCoalesceCache } = require('../utils/ttlCoalesceCache');
 
-async function fetchTaskWorkspaceScope(userId, organizationId) {
-  if (!userId || !organizationId) return null;
+const SCOPE_CACHE_TTL_MS = 15_000;
+const scopeCache = createTtlCoalesceCache({ ttlMs: SCOPE_CACHE_TTL_MS });
+
+/** @type {null | ((url: string, opts: object) => Promise<{ status: number, data?: unknown }>)} */
+let scopeHttpGetForTests = null;
+
+async function fetchTaskWorkspaceScopeUncached(userId, organizationId) {
   try {
     const axios = require('axios');
     const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
-    const res = await axios.get(
+    const httpGet = scopeHttpGetForTests || ((url, opts) => axios.get(url, opts));
+    const res = await httpGet(
       `${ORGANIZATION_SERVICE_URL}/api/organizations/${encodeURIComponent(String(organizationId))}/task-workspace-scope`,
       {
         headers: buildTrustedGatewayHeaders(userId),
@@ -22,6 +29,24 @@ async function fetchTaskWorkspaceScope(userId, organizationId) {
   } catch {
     return null;
   }
+}
+
+async function fetchTaskWorkspaceScope(userId, organizationId) {
+  if (!userId || !organizationId) return null;
+  const key = `${String(userId)}|${String(organizationId)}`;
+  return scopeCache.getOrLoad(key, () => fetchTaskWorkspaceScopeUncached(userId, organizationId));
+}
+
+function _clearTaskWorkspaceScopeCacheForTests() {
+  scopeCache.clear();
+}
+
+function _setTaskWorkspaceScopeCacheTtlForTests(ttlMs) {
+  scopeCache.setTtlMs(ttlMs);
+}
+
+function _setTaskWorkspaceScopeHttpGetForTests(fn) {
+  scopeHttpGetForTests = typeof fn === 'function' ? fn : null;
 }
 
 function buildTaskVisibilityFilter(scope, userId) {
@@ -148,4 +173,7 @@ module.exports = {
   canAssignOwnerTeam,
   normalizeOwnerTeamId,
   userCanAccessTask,
+  _clearTaskWorkspaceScopeCacheForTests,
+  _setTaskWorkspaceScopeCacheTtlForTests,
+  _setTaskWorkspaceScopeHttpGetForTests,
 };

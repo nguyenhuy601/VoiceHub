@@ -1,15 +1,29 @@
+/**
+ * Project chat channels — tách khỏi cây org structure.
+ */
+
+export function isProjectScopedChannel(channel) {
+  return Boolean(channel?.projectId);
+}
+
+export function isOrgStructureChannel(channel) {
+  return !isProjectScopedChannel(channel);
+}
+
 export function isProtectedDefaultChannel(channel) {
   if (!channel) return true;
+  if (isProjectScopedChannel(channel)) return false;
   const name = String(channel.name || '').trim().toLowerCase();
   const type = String(channel.type || 'chat').trim().toLowerCase();
   if (type === 'voice') return name === 'voice';
   return name === 'general';
 }
 
-/** Kênh gắn team cụ thể (dedupe theo `_id`) */
+/** Kênh gắn team cụ thể (dedupe theo `_id`) — chỉ org structure team channels. */
 export function channelsForTeam(channels, teamId) {
   const seen = new Set();
   return (channels || []).filter((ch) => {
+    if (isProjectScopedChannel(ch)) return false;
     if (String(ch.team || '') !== String(teamId)) return false;
     const id = String(ch._id || '');
     if (!id || seen.has(id)) return false;
@@ -22,6 +36,7 @@ export function channelsForTeam(channels, teamId) {
 export function channelsForDepartment(channels, departmentId) {
   const seen = new Set();
   return (channels || []).filter((ch) => {
+    if (isProjectScopedChannel(ch)) return false;
     if (
       String(ch.department || '') !== String(departmentId) ||
       String(ch.team || '')
@@ -36,19 +51,17 @@ export function channelsForDepartment(channels, departmentId) {
 }
 
 export function isDeptOnlyChannel(channel) {
-  return Boolean(channel?.department) && !String(channel?.team || '');
+  return Boolean(channel?.department) && !String(channel?.team || '') && !isProjectScopedChannel(channel);
 }
 
 /**
- * Kênh theo ngữ cảnh workspace.
- * Khi chọn team: chỉ kênh của team (không lẫn kênh phòng cùng tên general/voice).
- * departmentOnly / chỉ dept: kênh chung phòng (team null).
+ * Kênh theo ngữ cảnh workspace org (loại project channels).
  */
 export function resolveScopedWorkspaceChannels(
   channels,
   { teamId = '', departmentId = '', departmentOnly = false } = {}
 ) {
-  const list = Array.isArray(channels) ? channels : [];
+  const list = (Array.isArray(channels) ? channels : []).filter(isOrgStructureChannel);
   const team = String(teamId || '');
   const dept = String(departmentId || '');
   if (team && !departmentOnly) {
@@ -62,6 +75,7 @@ export function resolveScopedWorkspaceChannels(
 export function channelsForDivision(channels, divisionId) {
   return (channels || []).filter(
     (ch) =>
+      isOrgStructureChannel(ch) &&
       String(ch.division || '') === String(divisionId) &&
       !String(ch.department || '') &&
       !String(ch.team || '')
@@ -76,17 +90,51 @@ export function splitChatVoiceChannels(list) {
   };
 }
 
-/** Gộp danh sách kênh theo _id (ưu tiên bản đầu) */
-export function mergeChannelsById(...lists) {
-  const map = new Map();
-  for (const list of lists) {
-    for (const ch of list || []) {
-      const id = ch?._id;
-      if (!id) continue;
-      if (!map.has(String(id))) map.set(String(id), ch);
-    }
+const PROJECT_KIND_ORDER = Object.freeze({
+  general: 0,
+  announcement: 1,
+  cross_team: 2,
+  team: 3,
+});
+
+export function projectChannelDisplayLabel(channel, t) {
+  const kind = String(channel?.projectChannelKind || '').trim();
+  if (kind === 'general') return t('orgPanel.projectChannelGeneral');
+  if (kind === 'announcement') return t('orgPanel.projectChannelAnnouncement');
+  if (kind === 'cross_team') return t('orgPanel.projectChannelCrossTeam');
+  if (kind === 'team') {
+    const teamName = String(channel?.projectTeamName || channel?.name || '').trim();
+    return teamName || t('orgPanel.projectChannelTeam');
   }
-  return [...map.values()];
+  return String(channel?.name || '');
+}
+
+export function groupProjectChannelsByProject(channels) {
+  const map = new Map();
+  for (const ch of channels || []) {
+    if (!isProjectScopedChannel(ch)) continue;
+    const pid = String(ch.projectId || '');
+    if (!pid) continue;
+    if (!map.has(pid)) {
+      map.set(pid, {
+        projectId: pid,
+        projectName: String(ch.projectName || pid),
+        channels: [],
+      });
+    }
+    map.get(pid).channels.push(ch);
+  }
+  const groups = [...map.values()];
+  for (const group of groups) {
+    group.channels.sort((a, b) => {
+      const ka = PROJECT_KIND_ORDER[String(a.projectChannelKind || '')] ?? 9;
+      const kb = PROJECT_KIND_ORDER[String(b.projectChannelKind || '')] ?? 9;
+      if (ka !== kb) return ka - kb;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+  }
+  groups.sort((a, b) => String(a.projectName || '').localeCompare(String(b.projectName || '')));
+  return groups;
 }
 
 /**
@@ -159,14 +207,76 @@ export function filterWorkspaceStructureByScope(branches, scope) {
     .filter(Boolean);
 }
 
-/** Lấy kênh cấp khối từ cây workspace structure */
-export function divisionChannelsFromStructure(branches, divisionId) {
-  const out = [];
-  for (const branch of branches || []) {
-    for (const division of branch?.divisions || []) {
-      if (divisionId && String(division._id) !== String(divisionId)) continue;
-      if (Array.isArray(division.channels)) out.push(...division.channels);
+/** Gộp danh sách kênh theo _id (ưu tiên bản đầu) */
+export function mergeChannelsById(...lists) {
+  const byId = new Map();
+  for (const list of lists) {
+    for (const ch of list || []) {
+      const id = String(ch?._id || ch?.id || '');
+      if (!id || byId.has(id)) continue;
+      byId.set(id, ch);
     }
   }
-  return out;
+  return [...byId.values()];
+}
+
+export function preferDefaultTextChannelId(
+  channels,
+  teamId,
+  matrix,
+  departmentId,
+  departmentOnly = false
+) {
+  const scoped = resolveScopedWorkspaceChannels(channels, {
+    teamId,
+    departmentId,
+    departmentOnly,
+  });
+  const matrixReady = matrix && Object.keys(matrix).length > 0;
+  const readable = scoped.filter((ch) => {
+    if (String(ch.type || '').toLowerCase() === 'voice') return false;
+    if (!matrixReady) return true;
+    const perm = matrix[String(ch._id)] || {};
+    return Boolean(perm.canSee || perm.canRead);
+  });
+  const general = readable.find((ch) => /^general$/i.test(String(ch.name || '')));
+  if (general?._id) return String(general._id);
+  const first = readable[0];
+  return first?._id ? String(first._id) : '';
+}
+
+export function divisionChannelsFromStructure(branches, divisionId) {
+  const divId = String(divisionId || '');
+  if (!divId || !Array.isArray(branches)) return [];
+  for (const branch of branches) {
+    for (const division of branch?.divisions || []) {
+      if (String(division._id) === divId) {
+        return (division.channels || []).filter(isOrgStructureChannel);
+      }
+    }
+  }
+  return [];
+}
+
+export function findDeptChannelByType(channels, deptId, type) {
+  const t = String(type || '').toLowerCase();
+  return (channels || []).find(
+    (ch) =>
+      isOrgStructureChannel(ch) &&
+      String(ch.department || '') === String(deptId) &&
+      !String(ch.team || '') &&
+      String(ch.type || 'chat').toLowerCase() === t
+  );
+}
+
+export function resolveDeptAnnouncementChannelId(channels, deptId, matrix) {
+  const announcement = findDeptChannelByType(channels, deptId, 'announcement');
+  if (announcement?._id) return String(announcement._id);
+  const general = findDeptChannelByType(channels, deptId, 'chat');
+  if (general?._id) {
+    const perm = matrix?.[String(general._id)];
+    const matrixReady = matrix && Object.keys(matrix).length > 0;
+    if (!matrixReady || perm?.canRead || perm?.canSee) return String(general._id);
+  }
+  return '';
 }

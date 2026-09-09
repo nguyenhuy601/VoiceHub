@@ -223,75 +223,12 @@ class AuthService {
 
       await userAuth.save();
 
-      // Gửi email verification trong background (không block response)
-      // Để tránh timeout, không await email sending
-      console.log('[AuthService] 🔍 Checking email service availability...');
-      console.log('[AuthService] emailService.isAvailable():', emailService.isAvailable());
-      console.log('[AuthService] EMAIL_USER:', process.env.EMAIL_USER ? 'SET (' + process.env.EMAIL_USER + ')' : 'NOT SET');
-      console.log('[AuthService] EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? 'SET' : 'NOT SET');
-      
-      if (emailService.isAvailable()) {
-        console.log('[AuthService] 📧 Email service is available, scheduling verification email to:', normalizedEmail);
-        console.log('[AuthService] Verification token: REDACTED');
-        console.log('[AuthService] Email will be sent in background to avoid timeout');
-        
-        // Gửi email trong background - không await
-        const emailPromise = emailService.sendVerificationEmail(
-          normalizedEmail,
-          emailVerificationToken,
-          frontendUrl
-        );
-        console.log('[AuthService] Email promise created, waiting for result...');
-        
-        emailPromise
-          .then((result) => {
-            console.log('[AuthService] 📬 Email promise resolved');
-            console.log('[AuthService] Result:', result ? 'Has result' : 'Null result');
-            if (result && result.messageId) {
-              console.log('[AuthService] ✅ Verification email sent successfully to:', normalizedEmail);
-              console.log('[AuthService] Email messageId:', result.messageId);
-              console.log('[AuthService] Email response:', result.response);
-            } else {
-              console.warn('[AuthService] ❌ Email service returned null');
-              console.warn('[AuthService] Result type:', typeof result);
-              console.warn('[AuthService] Result value:', result);
-              console.warn('[AuthService] Check email service configuration and logs above');
-            }
-          })
-          .catch((error) => {
-            console.error('[AuthService] ❌ Email promise rejected (error occurred)');
-            console.error('[AuthService] Error type:', typeof error);
-            console.error('[AuthService] Error message:', error.message || error);
-            console.error('[AuthService] Error code:', error.code);
-            console.error('[AuthService] Error command:', error.command);
-            console.error('[AuthService] Error response:', error.response);
-            console.error('[AuthService] Error responseCode:', error.responseCode);
-            if (error.stack) {
-              console.error('[AuthService] Error stack:', error.stack);
-            }
-            
-            // Nếu là lỗi authentication
-            if (error.code === 'EAUTH' || error.responseCode === 535) {
-              console.error('[AuthService] ⚠️ Gmail authentication failed!');
-              console.error('[AuthService] Please check:');
-              console.error('[AuthService] 1. EMAIL_USER is correct');
-              console.error('[AuthService] 2. EMAIL_PASSWORD is an App Password (not regular password)');
-              console.error('[AuthService] 3. 2-Step Verification is enabled');
-            }
-          });
-        
-        console.log('[AuthService] Email sending initiated, continuing with registration response...');
-      } else {
-        console.warn('[AuthService] ⚠️ Email service NOT available, skipping email send');
-        console.warn('[AuthService] EMAIL_USER:', process.env.EMAIL_USER ? 'SET' : 'NOT SET');
-        console.warn('[AuthService] EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? 'SET' : 'NOT SET');
-        console.warn('[AuthService] transporter:', emailService.transporter ? 'EXISTS' : 'NULL');
-      }
-
+      // Mail xác thực chỉ gửi khi user/admin gọi resend — không auto-send lúc register.
       return {
         userAuth,
-        emailVerificationToken: emailService.isAvailable() ? undefined : emailVerificationToken, // Chỉ trả về token nếu không gửi email
-        emailScheduled: emailService.isAvailable(), // Email đã được lên lịch gửi (không chờ kết quả)
+        // Dev fallback: trả token khi SMTP tắt để test local (không gửi mail ở bước này).
+        emailVerificationToken: emailService.isAvailable() ? undefined : emailVerificationToken,
+        emailScheduled: false,
       };
     } catch (error) {
       throw error;

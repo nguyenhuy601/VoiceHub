@@ -67,7 +67,7 @@ const permissionMiddleware = async (req, res, next) => {
       return next();
     }
 
-    // Task / Work / AI-task / workspace boards — task-service tự authorize.
+    // Task / Work / AI-task / workspace boards — project-service tự authorize.
     if (isTaskAuthBypassRoute(apiPath) || isTaskAuthBypassRoute(pathOnly)) {
       return next();
     }
@@ -100,7 +100,8 @@ const permissionMiddleware = async (req, res, next) => {
 
     // Organization permissions được kiểm tra tại organization-service theo membership thực tế.
     // Bỏ qua check role-service ở gateway để tránh false deny do khác ngữ cảnh serverId.
-    if (action.startsWith('organization:')) {
+    // Cả organization:write (legacy) lẫn organization.team.create (master V2).
+    if (action.startsWith('organization:') || action.startsWith('organization.')) {
       return next();
     }
 
@@ -133,15 +134,11 @@ const permissionMiddleware = async (req, res, next) => {
     // Extract serverId từ request
     const serverId = extractServerId(req);
 
-    // Phân biệt 2 loại chat:
-    // - Chat bạn bè (DM): dùng /api/messages (hoặc /messages) → KHÔNG cần serverId/organizationId
-    // - Chat doanh nghiệp: dùng /api/chat/... → cần serverId/organizationId để check role
-    // Dựa cả vào action mapping và path thực tế để tránh lệch config
+    // Phân biệt 2 loại chat trên /api/messages:
+    // - DM: không có serverId/organizationId → bỏ qua permission context
+    // - Org: có organizationId/serverId → check role
     const isMessagesPath =
-      req.path.startsWith('/api/messages') ||
-      req.path.startsWith('/messages') ||
-      req.path.startsWith('/api/chat/messages') ||
-      req.path.startsWith('/chat/messages');
+      req.path.startsWith('/api/messages') || req.path.startsWith('/messages');
     const isChatRoute = action.startsWith('chat:') || isMessagesPath;
     const hasOrgOrServer =
       req.query?.organizationId ||

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Bật profile dev đầy đủ trên Docker Desktop (~9.5GB VM):
-# - Deploy / refresh stack app (docker-stack.yml)
-# - Scale Swarm ollama + paddleocr về 0 (chạy bản Compose extra thay thế)
+# - Deploy / refresh stack app (docker-stack.yml) — không gồm ollama/paddleocr
+# - Gỡ leftover Swarm ollama + paddleocr (nếu còn từ stack cũ)
 # - Compose extra: ollama, paddleocr, minio, meilisearch, voice-recording-worker
 #
 # Usage:
 #   bash devops/swarm/dev-enable-profile.sh
-#   bash devops/swarm/dev-enable-profile.sh --skip-deploy   # chỉ scale + compose
+#   bash devops/swarm/dev-enable-profile.sh --skip-deploy   # chỉ gỡ leftover + compose
 #   bash devops/swarm/dev-enable-profile.sh --ai-only       # chỉ ollama + paddle (compose)
 set -euo pipefail
 
@@ -37,7 +37,7 @@ if [[ -n "$NODE_ID" ]]; then
 fi
 
 if [[ "$SKIP_DEPLOY" != "1" ]]; then
-  echo "[2/6] Deploy stack app (ollama/paddle vẫn trong file nhưng sẽ scale 0)..."
+  echo "[2/6] Deploy stack app (ollama/paddleocr chỉ chạy Compose extra)..."
   SWARM_USE_LOCAL_IMAGES="${SWARM_USE_LOCAL_IMAGES:-1}" \
     STACK_FILE="${STACK_FILE:-docker-stack.yml}" \
     bash "$ROOT/devops/swarm/deploy-stack.sh"
@@ -45,8 +45,8 @@ else
   echo "[2/6] Bỏ qua deploy (--skip-deploy)"
 fi
 
-echo "[3/6] Tắt ollama + paddleocr trên Swarm (dùng Compose extra, tránh trùng DNS)..."
-docker service scale "${STACK}_ollama=0" "${STACK}_paddleocr-service=0" 2>/dev/null || true
+echo "[3/6] Gỡ leftover Swarm ollama + paddleocr (nếu còn từ stack cũ)..."
+docker service rm "${STACK}_ollama" "${STACK}_paddleocr-service" 2>/dev/null || true
 
 NET="${ENTERPRISE_NETWORK_NAME:-voicehub_enterprise-network}"
 if ! docker network inspect "$NET" >/dev/null 2>&1; then
@@ -75,7 +75,7 @@ else
 fi
 
 echo ""
-echo "=== Swarm replicas (ollama/paddle nên 0/0) ==="
+echo "=== Swarm replicas ==="
 docker service ls --filter "name=${STACK}_" --format "{{.Name}} {{.Replicas}}" 2>/dev/null | sort
 echo ""
 echo "=== Compose extra ==="
@@ -85,6 +85,5 @@ echo "=== Container memory (top) ==="
 docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}" 2>/dev/null | head -45
 echo ""
 echo "[OK] Profile dev đã bật."
-echo "  Ollama/Paddle: Compose voicehub-extra (không dùng Swarm ${STACK}_ollama)."
+echo "  Ollama/Paddle: Compose voicehub-extra (không nằm trong Swarm)."
 echo "  Tắt OCR khi thiếu RAM: docker compose -f docker-compose.swarm-extra.yml stop paddleocr-service"
-echo "  Bật lại Swarm AI (không khuyến nghị dev): docker service scale ${STACK}_ollama=1 && compose stop ollama"

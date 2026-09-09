@@ -3,12 +3,12 @@
 export const FIGMA_PAGE_SHELL =
   'h-full min-w-0 overflow-y-auto overflow-x-hidden bg-background/75 backdrop-blur-sm dark:bg-background/65';
 
-export const FIGMA_PAGE_INNER = 'flex min-h-full flex-col gap-5 px-6 py-5';
+export const FIGMA_PAGE_INNER = 'flex min-h-full flex-col gap-5 px-4 py-4 sm:px-6 sm:py-5';
 
 export const FIGMA_PAGE_HEADER = 'mb-1';
 
 export const FIGMA_PAGE_TITLE =
-  'font-display text-2xl font-bold tracking-[-0.025em] text-foreground';
+  'break-words font-display text-2xl font-bold tracking-[-0.025em] text-foreground';
 
 export const FIGMA_PAGE_SUBTITLE = 'text-sm text-muted-foreground';
 

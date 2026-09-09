@@ -103,6 +103,21 @@ describe('resourceImportValidator', () => {
     assert.equal(plus.normalizedRows[0].phone, '0901234567');
   });
 
+  it('rejects duplicate phone in same file (after normalize)', () => {
+    const out = validateResourceImportRows([
+      baseRow({ phone: '0901234567', email: 'a@voicehub.net', rowNumber: 2 }),
+      baseRow({
+        phone: '+84901234567',
+        email: 'b@voicehub.net',
+        rowNumber: 3,
+        fullName: 'Nguyễn An',
+        employeeCode: 'VH-002',
+      }),
+    ]);
+    assert.equal(out.ok, false);
+    assert.equal(out.details?.[0]?.errorCode, 'VALIDATION_PHONE_DUPLICATE');
+  });
+
   it('rejects when jobTitle is missing', () => {
     const out = validateResourceImportRows([baseRow({ jobTitle: '' })]);
     assert.equal(out.ok, false);
@@ -209,14 +224,16 @@ describe('resourceImportValidator skills catalog', () => {
     assert.deepEqual([...SKILL_WHITELIST], [...userCat.SKILL_WHITELIST]);
   });
 
-  it('accepts Frontend + Node.js, mongo and rejects unknown skill', () => {
+  it('accepts Frontend + Node.js, mongo from whitelist', () => {
     const ok = validateResourceImportRows([
       baseRow({ primaryDomain: 'Frontend', skills: 'Node.js, mongo, REST API' }),
     ]);
     assert.equal(ok.ok, true, JSON.stringify(ok.details || []));
     assert.equal(ok.normalizedRows[0].primaryDomain, 'fe');
     assert.deepEqual(ok.normalizedRows[0].skills, ['Node.js', 'MongoDB', 'REST API']);
+  });
 
+  it('rejects unknown skill not in whitelist', () => {
     const bad = validateResourceImportRows([baseRow({ skills: 'Jira, FooLang' })]);
     assert.equal(bad.ok, false);
     assert.equal(bad.details?.[0]?.errorCode, 'VALIDATION_SKILL_NOT_IN_CATALOG');

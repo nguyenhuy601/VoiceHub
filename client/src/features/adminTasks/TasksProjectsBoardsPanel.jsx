@@ -19,11 +19,33 @@ import useAdminOrgBoards, {
   boardTitleOf,
 } from './useAdminOrgBoards';
 
-function scopeLabel(board) {
-  const type = String(board?.scopeType || '').trim();
-  const id = String(board?.scopeId || board?.teamId || '').trim();
+const SCOPE_TYPE_I18N = {
+  organization: 'adminTasks.scopeCompany',
+  department: 'adminTasks.scopeDepartment',
+  team: 'adminTasks.scopeTeam',
+  division: 'adminTasks.scopeDivision',
+};
+
+function boardScopeId(board) {
+  return String(board?.scopeId || board?.teamId || '').trim();
+}
+
+function scopeLabel(board, t) {
+  const type = String(board?.scopeType || '').trim().toLowerCase();
   if (!type) return '—';
-  return id ? `${type}:${id.slice(-6)}` : type;
+  if (type === 'organization') {
+    const translated = t(SCOPE_TYPE_I18N.organization);
+    if (translated && translated !== SCOPE_TYPE_I18N.organization) return translated;
+    return type;
+  }
+  const named = String(board?.scopeName || board?.departmentName || board?.teamName || '').trim();
+  if (named) return named;
+  const key = SCOPE_TYPE_I18N[type];
+  if (key) {
+    const translated = t(key);
+    if (translated && translated !== key) return translated;
+  }
+  return type;
 }
 
 export default function TasksProjectsBoardsPanel({ orgId }) {
@@ -117,7 +139,12 @@ export default function TasksProjectsBoardsPanel({ orgId }) {
                           <tr key={id} className="border-b border-border/50 transition hover:bg-muted/20">
                             <td className="px-4 py-3 font-medium text-foreground">{boardTitleOf(board)}</td>
                             <td className="px-4 py-3 text-muted-foreground">{boardCodeOf(board) || '—'}</td>
-                            <td className="px-4 py-3 text-muted-foreground">{scopeLabel(board)}</td>
+                            <td
+                              className="px-4 py-3 text-muted-foreground"
+                              title={boardScopeId(board) || undefined}
+                            >
+                              {scopeLabel(board, t)}
+                            </td>
                             <td className="px-4 py-3">
                               <div className="flex flex-wrap gap-2">
                                 <Link
@@ -163,7 +190,8 @@ export default function TasksProjectsBoardsPanel({ orgId }) {
                       <div key={id} className="rounded-lg border border-border p-3">
                         <div className="font-medium">{boardTitleOf(board)}</div>
                         <div className="mt-1 text-xs text-muted-foreground">
-                          {boardCodeOf(board) || '—'} · {scopeLabel(board)}
+                          {boardCodeOf(board) || '—'} ·{' '}
+                          <span title={boardScopeId(board) || undefined}>{scopeLabel(board, t)}</span>
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <Link

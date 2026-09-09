@@ -29,6 +29,9 @@ const {
   splitLayerLabel,
 } = require('@enterprise/shared/utils/roleLayerNaming');
 const {
+  validateAssignmentRoleKeys,
+} = require('../utils/orgRoleAssignPolicy');
+const {
   sortOrderFromIndex,
   nextAppendSortOrder,
   validateOrderedIdsPermutation,
@@ -326,12 +329,9 @@ async function setAssignments(req, res) {
     const roles = await OrgRoleCatalog.find({ organizationId: oid, key: { $in: keys } }).lean();
     const roleByKey = new Map((roles || []).map((r) => [r.key, r]));
 
-    for (const k of keys) {
-      const r = roleByKey.get(k);
-      if (!r) return orgNotFound(res, `Org role không tồn tại: ${k}`);
-      if (r.isSystem) {
-        return orgConflict(res, 'Không thể gán role system mặc định', 'ORG_ROLE_SYSTEM_ASSIGN');
-      }
+    const validation = validateAssignmentRoleKeys(keys, roleByKey);
+    if (!validation.ok) {
+      return orgNotFound(res, `Org role không tồn tại: ${validation.key}`);
     }
 
     // Reset assignment cho user.

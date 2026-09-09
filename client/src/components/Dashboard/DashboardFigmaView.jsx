@@ -99,7 +99,11 @@ export default function DashboardFigmaView({
             >
               <DashboardOverdueList items={overdueItems} onItemClick={onOverdueClick} />
               {boardHealth?.length > 0 ? (
-                <DashboardBoardHealth boards={boardHealth} onBoardClick={onBoardClick} />
+                <DashboardBoardHealth
+                  boards={boardHealth}
+                  onBoardClick={onBoardClick}
+                  onViewAll={() => onNavigate('/app/collaborate/projects')}
+                />
               ) : null}
             </div>
           )}

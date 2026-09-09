@@ -30,6 +30,7 @@ async function listItems(req, res) {
       userId,
       projectId,
       type: req.query?.type,
+      parentId: req.query?.parentId,
     });
     return res.json({ success: true, data });
   } catch (err) {

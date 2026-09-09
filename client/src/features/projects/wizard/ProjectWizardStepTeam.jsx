@@ -16,6 +16,7 @@ import { projectAPI } from '../../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { WIZARD_DEFAULT_MEMBER_ROLE } from './projectWizardConstants';
 import { collectWizardRosterKeys, deliveryRosterStatus } from './projectDeliveryRoster';
+import { pickNamedMember, resolveWizardMemberLabel } from './projectWizardMemberLabel';
 import { wizardUi } from './projectWizardUi';
 
 function unwrap(res) {
@@ -160,9 +161,10 @@ export default function ProjectWizardStepTeam({
     const byId = new Map();
     const push = (row) => {
       const id = memberUserId(row);
-      if (!id || byId.has(id)) return;
+      if (!id) return;
       const named = membersByIdAll?.get?.(id);
-      byId.set(id, named || row);
+      const next = pickNamedMember(row, named, byId.get(id));
+      byId.set(id, next || row);
     };
     for (const m of deptRoster) push(m);
     for (const m of filteredByStructure) push(m);
@@ -181,14 +183,10 @@ export default function ProjectWizardStepTeam({
     return name;
   };
 
-  const memberName = useMemo(() => {
-    const map = new Map();
-    for (const m of members || []) {
-      const id = memberUserId(m);
-      if (id) map.set(id, memberDisplayName(m));
-    }
-    return (id) => map.get(String(id)) || String(id).slice(-6);
-  }, [members]);
+  const memberName = useMemo(
+    () => (id) => resolveWizardMemberLabel(id, [viewMembers, deptRoster, membersByIdAll, members]),
+    [viewMembers, deptRoster, membersByIdAll, members]
+  );
 
   const roleOptions = (catalogRoles || []).length
     ? catalogRoles

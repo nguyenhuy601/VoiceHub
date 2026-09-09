@@ -7,6 +7,8 @@ import { writeBootstrapCompanyFlags } from '../utils/singleCompanyMode';
 
 let inflightBootstrap = null;
 let inflightBootstrapKey = '';
+/** Last successful shell bootstrap (no suite) — Sync apply without 2nd HTTP. */
+let lastShellBootstrapPayload = null;
 
 /**
  * GET /api/bootstrap — shell gom user, orgs, badges (gateway BFF).
@@ -59,9 +61,18 @@ export function hydrateBootstrapCache(payload) {
   }
 }
 
-/** Gọi bootstrap và hydrate cache (sau auth/me). */
+/** Payload shell gần nhất (sau loadBootstrapShell không suite). */
+export function getLastBootstrapShellPayload() {
+  return lastShellBootstrapPayload;
+}
+
+/** Gọi bootstrap và hydrate cache (sau auth/me). Auth path: không truyền suite. */
 export async function loadBootstrapShell(options = {}) {
   const data = await fetchBootstrap(options);
   hydrateBootstrapCache(data);
+  const suiteKey = options?.suite ? suiteToSegment(normalizeSuite(options.suite)) : 'default';
+  if (suiteKey === 'default' && data && typeof data === 'object') {
+    lastShellBootstrapPayload = data;
+  }
   return data;
 }

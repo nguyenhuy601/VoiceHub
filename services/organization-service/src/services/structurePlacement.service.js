@@ -211,8 +211,15 @@ async function attachPlacementFromStructure(orgId, members) {
 }
 
 /**
- * Department roster for capacity / planner (People Graph: dept.members + team inherit).
- * @returns {Promise<Array<{ departmentId: string, name: string, headId: string|null, memberIds: string[] }>>}
+ * Department roster for capacity / planner / pool (People Graph: dept.members + team inherit).
+ * Additive `teams[]` so pool can fill placement.teamId/teamName without a new route.
+ * @returns {Promise<Array<{
+ *   departmentId: string,
+ *   name: string,
+ *   headId: string|null,
+ *   memberIds: string[],
+ *   teams: Array<{ teamId: string, name: string, memberIds: string[] }>
+ * }>>}
  */
 async function buildDepartmentRoster(organizationId, { departmentIds } = {}) {
   const orgId = normalizeId(organizationId);
@@ -236,11 +243,16 @@ async function buildDepartmentRoster(organizationId, { departmentIds } = {}) {
   const { deptByUser } = buildPlacementMaps(departments, teams);
   /** @type {Map<string, Set<string>>} */
   const membersByDept = new Map();
+  /** @type {Map<string, Array<{ teamId: string, name: string, memberIds: string[] }>>} */
+  const teamsByDept = new Map();
+
   for (const dep of departments) {
     const depId = normalizeId(dep._id);
     if (!depId) continue;
     membersByDept.set(depId, new Set());
+    teamsByDept.set(depId, []);
   }
+
   for (const [uid, place] of deptByUser.entries()) {
     const depId = place?.departmentId;
     if (!depId || !membersByDept.has(depId)) continue;
@@ -255,6 +267,18 @@ async function buildDepartmentRoster(organizationId, { departmentIds } = {}) {
     }
   }
 
+  for (const team of teams || []) {
+    const teamId = normalizeId(team._id);
+    const departmentId = team.department ? normalizeId(team.department) : null;
+    if (!teamId || !departmentId || !teamsByDept.has(departmentId)) continue;
+    const memberIds = [...new Set((team.members || []).map(normalizeId).filter(Boolean))];
+    teamsByDept.get(departmentId).push({
+      teamId,
+      name: String(team.name || '').trim(),
+      memberIds,
+    });
+  }
+
   return departments.map((dep) => {
     const departmentId = normalizeId(dep._id);
     return {
@@ -262,6 +286,7 @@ async function buildDepartmentRoster(organizationId, { departmentIds } = {}) {
       name: String(dep.name || '').trim(),
       headId: dep.head ? normalizeId(dep.head) : null,
       memberIds: [...(membersByDept.get(departmentId) || [])],
+      teams: teamsByDept.get(departmentId) || [],
     };
   });
 }

@@ -4,7 +4,7 @@ const {
   buildBeforeAfter,
   pickAuditFields,
   createAppendOnlyDeleteError,
-} = require('../utils/auditSnapshot');
+} = require('../utils/common/auditSnapshot');
 const { assertCanViewGovernanceReports } = require('./governanceAccess.service');
 const { logger } = require('@enterprise/shared');
 

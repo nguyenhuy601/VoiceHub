@@ -90,6 +90,11 @@ const taskSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Work-group chat channel (kind 'workgroup'). Set on level-2 parent only. */
+    workGroupChannelId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
     boardId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'TaskBoard',
@@ -124,10 +129,22 @@ const taskSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Feature (PlanningItem type=feature) — parent planning, additive. */
+    featureId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PlanningItem',
+      default: null,
+      index: true,
+    },
     issueType: {
       type: String,
       enum: ['task', 'bug', 'story'],
       default: 'task',
+      index: true,
+    },
+    changeRequestIds: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ChangeRequest' }],
+      default: [],
       index: true,
     },
     checklists: {
@@ -179,10 +196,20 @@ const taskSchema = new mongoose.Schema(
     },
     priority: {
       type: String,
-      enum: ['low', 'medium', 'high', 'urgent'],
+      trim: true,
       default: 'medium',
+      maxlength: 32,
     },
     dueDate: {
+      type: Date,
+      default: null,
+    },
+    /** Job hạn: đã gửi bell sắp đến hạn / quá hạn (idempotent). */
+    dueSoonNotifiedAt: {
+      type: Date,
+      default: null,
+    },
+    overdueNotifiedAt: {
       type: Date,
       default: null,
     },
@@ -201,6 +228,24 @@ const taskSchema = new mongoose.Schema(
       default: null,
     },
     completedAt: {
+      type: Date,
+      default: null,
+    },
+    /**
+     * Lần đầu chuyển sang trạng thái in-progress (cycle time = completedAt − firstInProgressAt).
+     * Không ghi đè sau khi đã set.
+     */
+    firstInProgressAt: {
+      type: Date,
+      default: null,
+    },
+    /** Idempotent due-soon reminder (taskDueReminders job). Cleared when dueDate changes. */
+    dueSoonNotifiedAt: {
+      type: Date,
+      default: null,
+    },
+    /** Idempotent overdue reminder. Cleared when dueDate changes. */
+    overdueNotifiedAt: {
       type: Date,
       default: null,
     },
@@ -267,10 +312,12 @@ taskSchema.index({ boardId: 1, status: 1, createdAt: -1 });
 taskSchema.index({ projectId: 1, isActive: 1, createdAt: -1 });
 taskSchema.index({ projectId: 1, sprintId: 1, isActive: 1 });
 taskSchema.index({ projectId: 1, epicId: 1, isActive: 1 });
+taskSchema.index({ projectId: 1, featureId: 1, isActive: 1 });
 taskSchema.index({ parentTaskId: 1, isActive: 1 });
 taskSchema.index({ serverId: 1 });
 taskSchema.index({ createdBy: 1 });
 taskSchema.index({ dueDate: 1 });
+taskSchema.index({ isActive: 1, status: 1, dueDate: 1, assigneeId: 1 });
 taskSchema.index({ priority: 1, status: 1 });
 
 const Task = mongoose.model('Task', taskSchema);

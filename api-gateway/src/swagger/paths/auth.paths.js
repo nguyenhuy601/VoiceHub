@@ -179,12 +179,12 @@ module.exports = {
       successExample: { success: true, message: 'Email verified' },
     }),
   },
-  '/api/auth/admin/users/{userId}/summary': {
+  '/api/auth/users/{userId}/summary': {
     get: buildOperation({
-      operationId: 'getAdminUserSummary',
+      operationId: 'getAuthUserSummary',
       tags: ['Auth'],
       summary: 'Company admin — user account summary',
-      description: 'Tóm tắt tài khoản user (lock, verify…). Yêu cầu org admin.',
+      description: 'Tóm tắt tài khoản (lock, verify…). Yêu cầu org admin.',
       parameters: [pathParam('userId', 'User id')],
       successExample: { success: true, data: { userId: '507f1f77bcf86cd799439011', locked: false } },
     }),

@@ -30,10 +30,11 @@ import {
   getResolvedBearerToken,
 } from '../utils/tokenStorage';
 import { isAutoLogoutDisabled } from '../utils/devAuth';
-import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
+import { resolveApiErrorMessage, extractApiErrorMeta } from '../utils/resolveApiErrorMessage';
 import { resolveApiBaseUrl } from '../utils/browserOrigin';
 import { applyUiRoleOverlay, clearStoredUiRole } from '../utils/uiRoleUtils';
 import { useAppStrings } from '../locales/appStrings';
+import { notifyWorkspaceClearedOnLogout } from './WorkspaceContext';
 /* ========================================
    CONTEXT: đối tượng React Context được tạo trong ./auth-context.js (tách file để HMR ổn định).
 ======================================== */
@@ -168,15 +169,13 @@ function AuthProvider({ children }) {
       // Hiển thị toast notification thành công
       toast.success(t('authSession.loginSuccess'));
       
-      // Return true để component biết login OK
-      return true;
+      return { ok: true };
     } catch (error) {
       // Nếu có lỗi (sai password, user không tồn tại, etc.)
       // Hiển thị error message từ API hoặc message mặc định
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('authSession.loginFailed') }));
-      
-      // Return false để component biết login failed
-      return false;
+      const meta = extractApiErrorMeta(error);
+      return { ok: false, errorCode: meta.errorCode || '' };
     }
   }, [t]);
 
@@ -247,20 +246,9 @@ function AuthProvider({ children }) {
         return false;
       }
       
-      // Hiển thị thông báo NGAY LẬP TỨC dựa trên response
-      // Nếu email được gửi thành công → báo thành công ngay
+      // Hiển thị toast đăng ký — mail xác thực chỉ gửi khi user bấm gửi lại
       if (response.success === true) {
-        if (response.data?.emailScheduled === true) {
-          // Email đã được lên lịch gửi thành công
-          toast.success(t('authSession.registerSuccessEmail'));
-          console.log('[AuthContext] ✅ Email verification scheduled successfully');
-        } else if (response.data?.emailScheduled === false) {
-          toast.success(response.message || t('authSession.registerSuccessNoEmail'));
-          console.log('[AuthContext] Registration successful, email service not configured');
-        } else {
-          toast.success(response.message || t('authSession.registerSuccess'));
-          console.log('[AuthContext] Registration successful');
-        }
+        toast.success(response.message || t('authSession.registerSuccess'));
       }
       
       return true;

@@ -3,6 +3,8 @@ import { describe, it } from 'node:test';
 import {
   channelsForTeam,
   resolveScopedWorkspaceChannels,
+  isProjectScopedChannel,
+  groupProjectChannelsByProject,
 } from './orgChannelScope.js';
 
 describe('channelsForTeam', () => {
@@ -50,5 +52,26 @@ describe('resolveScopedWorkspaceChannels', () => {
     });
     assert.equal(scoped.length, 1);
     assert.equal(scoped[0]._id, 'dept-g');
+  });
+
+  it('excludes project channels from org workspace scope', () => {
+    const channels = [
+      { _id: 'team-g', department: 'd1', team: 't1', name: 'general' },
+      { _id: 'pj-g', projectId: 'p1', projectChannelKind: 'general', name: 'general' },
+    ];
+    const scoped = resolveScopedWorkspaceChannels(channels, { teamId: 't1', departmentId: 'd1' });
+    assert.equal(scoped.length, 1);
+    assert.equal(scoped[0]._id, 'team-g');
+    assert.equal(isProjectScopedChannel({ projectId: 'p1' }), true);
+  });
+
+  it('groups project channels by projectId', () => {
+    const groups = groupProjectChannelsByProject([
+      { _id: 'c2', projectId: 'p1', projectChannelKind: 'announcement', projectName: 'Coffee' },
+      { _id: 'c1', projectId: 'p1', projectChannelKind: 'general', projectName: 'Coffee' },
+    ]);
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].projectName, 'Coffee');
+    assert.equal(groups[0].channels[0].projectChannelKind, 'general');
   });
 });

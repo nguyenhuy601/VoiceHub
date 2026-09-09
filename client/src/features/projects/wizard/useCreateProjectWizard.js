@@ -25,7 +25,7 @@ import {
   firstSeedMemberWithRole,
 } from './projectWizardConstants';
 import { collectWizardRosterKeys, deliveryRosterStatus } from './projectDeliveryRoster';
-import { isProjectDateRangeInvalid } from '../../../components/Organization/ProjectHub/projectHubUtils';
+import { isProjectDateRangeInvalid } from '../hub/projectHubUtils';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;

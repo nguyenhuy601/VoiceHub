@@ -3,10 +3,31 @@ const Role = require('../models/Role');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const { isTestUnlockEnabled } = require('../utils/rbacTestUnlock');
 const {
+  MASTER_PERMISSIONS,
   materializeLegacyPermissions,
   resolveMasterKeysForLegacyAction,
   isValidMasterPermission,
 } = require('../config/rbacV2Catalog');
+
+/**
+ * GET user permissions payload: legacy Role.permissions + V2 masterGrants.
+ * `data` trên HTTP vẫn là mảng legacy (RoleAssignPanel); masterGrants đi field sibling.
+ */
+function packUserPermissions(masterGrants, fallbackLegacy) {
+  const grants = Array.isArray(masterGrants)
+    ? [...new Set(masterGrants.map((k) => String(k || '').trim()).filter(isValidMasterPermission))]
+    : [];
+  if (grants.length) {
+    return {
+      permissions: materializeLegacyPermissions(grants),
+      masterGrants: grants,
+    };
+  }
+  return {
+    permissions: Array.isArray(fallbackLegacy) ? fallbackLegacy : [],
+    masterGrants: [],
+  };
+}
 
 let rbacV2Service;
 function getRbacV2() {
@@ -157,7 +178,7 @@ class PermissionService {
   async getUserPermissions(userId, serverId) {
     try {
       if (isTestUnlockEnabled()) {
-        return [{ resource: '*', actions: ['*'] }];
+        return packUserPermissions(MASTER_PERMISSIONS, [{ resource: '*', actions: ['*'] }]);
       }
 
       let masterGrants = [];
@@ -167,7 +188,7 @@ class PermissionService {
         /* ignore */
       }
       if (masterGrants.length) {
-        return materializeLegacyPermissions(masterGrants);
+        return packUserPermissions(masterGrants, []);
       }
 
       const userRoles = await UserRole.find({
@@ -184,7 +205,7 @@ class PermissionService {
         }
       }
 
-      return allPermissions;
+      return packUserPermissions([], allPermissions);
     } catch (error) {
       logger.error('Error getting user permissions:', error);
       throw new Error(`Error getting user permissions: ${error.message}`);
@@ -226,3 +247,4 @@ class PermissionService {
 }
 
 module.exports = new PermissionService();
+module.exports.packUserPermissions = packUserPermissions;

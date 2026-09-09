@@ -5,13 +5,16 @@
 const express = require('express');
 const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 const catalog = require('../controllers/projectRoleCatalog.controller');
-const projectRoleAdminRoutes = require('./projectRoleAdmin.routes');
+const projectRolesRoutes = require('./projectRoles.routes');
 const controller = require('../controllers/project.controller');
 const planning = require('../controllers/planning.controller');
+const changeRequest = require('../controllers/changeRequest.controller');
 const resource = require('../controllers/resource.controller');
+const workPreview = require('../controllers/workPreview.controller');
 const workflowTemplates = require('../controllers/workflowTemplate.controller');
 const approval = require('../controllers/approval.controller');
 const governance = require('../controllers/governance.controller');
+const projectScopedRoles = require('../controllers/projectScopedRoles.controller');
 
 const router = express.Router();
 
@@ -46,13 +49,18 @@ const router = express.Router();
  *         $ref: '#/components/responses/InternalError'
  */
 router.get('/role-catalog', catalog.listRoleCatalog);
-router.use('/admin/roles', projectRoleAdminRoutes);
+router.use('/roles', projectRolesRoutes);
 
 /** Resource Management (Phase 3 / 3b) — trước /:projectId */
 router.get('/resources/capacity', resource.getCapacity);
 router.get('/resources/planner', resource.getPlanner);
+router.get('/resources/pool', resource.getOrgResourcePool);
 router.get('/resources/utilization', resource.getUtilization);
+router.get('/resources/performance', resource.listUserPerformance);
+router.get('/resources/performance/users/:userId', resource.getUserPerformance);
+router.get('/resources/estimate-hints', resource.getEstimateHints);
 router.get('/resources/users/:userId/allocations', resource.getUserAllocations);
+router.get('/resources/employees/:userId/profile', resource.getEmployeeResourceProfile);
 
 /** Phase 4 — Workflow template catalog */
 router.get('/workflow-templates', workflowTemplates.listTemplates);
@@ -77,7 +85,13 @@ router.get('/governance/director-health', governance.directorHealth);
 router.get('/governance/retention', governance.getRetention);
 router.put('/governance/retention', governance.putRetention);
 router.post('/governance/retention/run-stub', governance.runRetentionStub);
+router.get('/governance/working-calendar', governance.getWorkingCalendar);
+router.put('/governance/working-calendar', governance.putWorkingCalendar);
 router.get('/governance/security-flags', governance.securityFlags);
+
+/** Requirement Template Management — org-scoped packs (trước /:projectId) */
+const requirementRoutes = require('./requirement.routes');
+router.use('/requirements', requirementRoutes);
 
 router.post('/', controller.createProject);
 
@@ -114,6 +128,7 @@ router.get('/', controller.listProjects);
 router.get('/:projectId/overview', controller.getOverview);
 router.get('/:projectId/activity', controller.getActivity);
 router.get('/:projectId/files', controller.getFiles);
+router.get('/:projectId/work-preview', workPreview.getWorkPreview);
 
 /**
  * @openapi
@@ -147,6 +162,12 @@ router.get('/:projectId/files', controller.getFiles);
  */
 router.get('/:projectId/members', controller.listMembers);
 router.get('/:projectId/member-candidates', controller.listMemberCandidatesController);
+router.get('/:projectId/roles', projectScopedRoles.listProjectScopedRoles);
+router.patch('/:projectId/roles/:roleId', projectScopedRoles.updateProjectScopedRole);
+router.post(
+  '/:projectId/roles/:roleId/reset-default',
+  projectScopedRoles.resetProjectScopedRoleDefault
+);
 router.get('/:projectId/resources/planner', resource.getPlanner);
 router.post('/:projectId/workflow/apply', workflowTemplates.applyToProject);
 router.put('/:projectId/approval-policy', approval.bindProjectPolicy);
@@ -209,12 +230,20 @@ router.post('/:projectId/boards', controller.createBoard);
 router.get('/:projectId/sprints', controller.listSprints);
 router.post('/:projectId/sprints', controller.createSprint);
 router.patch('/:projectId/sprints/:sprintId', controller.patchSprint);
+router.delete('/:projectId/sprints/:sprintId', controller.deleteSprint);
 router.get('/:projectId/sprints/:sprintId/complete-preview', controller.completeSprintPreview);
 router.post('/:projectId/sprints/:sprintId/complete', controller.completeSprint);
 router.get(
   '/:projectId/sprints/:sprintId/time-summary',
   require('../controllers/worklog.controller').getSprintTimeSummaryController
 );
+
+router.get('/:projectId/change-requests', changeRequest.listItems);
+router.post('/:projectId/change-requests', changeRequest.createItem);
+router.get('/:projectId/change-requests/:crId', changeRequest.getItem);
+router.patch('/:projectId/change-requests/:crId', changeRequest.patchItem);
+router.post('/:projectId/change-requests/:crId/submit-approval', changeRequest.submitApproval);
+router.delete('/:projectId/change-requests/:crId', changeRequest.deleteItem);
 
 router.get('/:projectId/planning-items', planning.listItems);
 router.post('/:projectId/planning-items', planning.createItem);
@@ -227,6 +256,8 @@ router.delete('/:projectId/planning-items/:itemId', planning.deleteItem);
 router.get('/:projectId/backlog', planning.listBacklog);
 router.patch('/:projectId/tasks/:taskId/planning', planning.linkTaskEpic);
 
+router.get('/:projectId/complete-preview', controller.completeProjectPreview);
+router.post('/:projectId/complete', controller.completeProject);
 router.post('/:projectId/archive', controller.archiveProject);
 router.patch('/:projectId', controller.patchProject);
 router.get('/:projectId', controller.getProject);

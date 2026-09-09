@@ -17,7 +17,7 @@
 
 ```bash
 bash devops/swarm/scale-workers.sh down
-docker service scale voicehub_ollama=0 voicehub_paddleocr-service=0
+docker compose -f docker-compose.swarm-extra.yml stop ollama paddleocr-service
 docker service update --force voicehub_voice-service
 docker service ps voicehub_voice-service
 ```

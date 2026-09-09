@@ -1,6 +1,7 @@
 import {
   Bell,
   Building2,
+  BarChart3,
   Key,
   Palette,
   Shield,
@@ -23,6 +24,8 @@ import { useAppStrings } from '../../locales/appStrings';
 
 const TAB_ICONS = {
   profile: User,
+  overview: BarChart3,
+  capability: User,
   security: Shield,
   notifications: Bell,
   api: Key,

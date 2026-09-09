@@ -10,7 +10,7 @@ const {
   isWorkflowEngineV2Enabled,
   suggestedTemplateKeyForCompanySize,
   getBuiltinTemplateByKey,
-} = require('../utils/workflowTemplates.defaults');
+} = require('../utils/work/workflowTemplates.defaults');
 const {
   LEGACY_STATUSES,
   assertTransitionAllowed,
@@ -19,7 +19,7 @@ const {
   statesToBoardShape,
   transitionsToBoardShape,
   validateTransitionRoleKeys,
-} = require('../utils/workflowTransition');
+} = require('../utils/work/workflowTransition');
 
 const DEFAULT_STATES = Object.freeze(statesToBoardShape(DEFAULT_BOARD_TEMPLATE.statuses));
 const DEFAULT_TRANSITIONS = Object.freeze(
@@ -135,12 +135,17 @@ async function upsertWorkflowTemplate({
   description,
   statuses,
   transitions,
+  priorities,
 }) {
   await requireOrgAdmin(organizationId, userId);
   await ensureOrgWorkflowTemplates(organizationId);
 
   const nextStatuses = Array.isArray(statuses) ? statuses : [];
   const nextTransitions = transitionsToBoardShape(Array.isArray(transitions) ? transitions : []);
+  const { normalizePriorityConfig } = require('../utils/project/priorityConfig');
+  const nextPriorities = Array.isArray(priorities)
+    ? normalizePriorityConfig({ items: priorities }).items
+    : undefined;
   if (!nextStatuses.length) {
     const err = new Error('statuses bắt buộc');
     err.statusCode = 400;
@@ -176,6 +181,7 @@ async function upsertWorkflowTemplate({
       existing.description = String(description ?? existing.description ?? '').trim();
       existing.statuses = nextStatuses;
       existing.transitions = nextTransitions;
+      if (nextPriorities) existing.priorities = nextPriorities;
       await existing.save();
       return existing.toObject();
     }
@@ -184,6 +190,7 @@ async function upsertWorkflowTemplate({
     existing.description = String(description ?? existing.description ?? '').trim();
     existing.statuses = nextStatuses;
     existing.transitions = nextTransitions;
+    if (nextPriorities) existing.priorities = nextPriorities;
     await existing.save();
     return existing.toObject();
   }
@@ -206,6 +213,7 @@ async function upsertWorkflowTemplate({
     isBuiltin: false,
     statuses: nextStatuses,
     transitions: nextTransitions,
+    ...(nextPriorities ? { priorities: nextPriorities } : {}),
   });
   return doc.toObject();
 }
@@ -357,10 +365,12 @@ async function applyTemplateToBoard({ userId, boardId, templateId, templateKey }
   });
 
   if (board.projectId) {
-    await Project.updateOne(
-      { _id: board.projectId },
-      { $set: { workflowTemplateId: template._id } }
-    );
+    const $set = { workflowTemplateId: template._id };
+    if (Array.isArray(template.priorities) && template.priorities.length) {
+      const { normalizePriorityConfig } = require('../utils/project/priorityConfig');
+      $set.priorityConfig = normalizePriorityConfig({ items: template.priorities });
+    }
+    await Project.updateOne({ _id: board.projectId }, { $set });
   }
 
   return { workflow: wf, template };
@@ -373,7 +383,7 @@ async function applyTemplateToProject({ userId, projectId, templateId, templateK
     err.statusCode = 404;
     throw err;
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -416,7 +426,12 @@ async function applyTemplateToProject({ userId, projectId, templateId, templateK
     throw err;
   }
 
-  await Project.updateOne({ _id: projectId }, { $set: { workflowTemplateId: template._id } });
+  const projectSet = { workflowTemplateId: template._id };
+  if (Array.isArray(template.priorities) && template.priorities.length) {
+    const { normalizePriorityConfig } = require('../utils/project/priorityConfig');
+    projectSet.priorityConfig = normalizePriorityConfig({ items: template.priorities });
+  }
+  await Project.updateOne({ _id: projectId }, { $set: projectSet });
 
   const boards = await TaskBoard.find({ projectId, isActive: true }).select('_id').lean();
   const applied = [];
@@ -461,18 +476,32 @@ function resolveListStatusKey(list) {
 }
 
 /**
- * Allowed toKeys from a status for FE drag hints.
+ * Allowed toKeys from a status for FE drag hints (gồm alias doing ↔ in_progress).
  */
 function allowedTransitionsFrom(workflow, fromStatus) {
   const from = String(fromStatus || '').trim();
   if (!workflow?.transitions?.length) return [];
-  return (workflow.transitions || [])
-    .filter((t) => String(t.fromKey) === from)
-    .map((t) => ({
-      toKey: t.toKey,
-      name: t.name || `${from}→${t.toKey}`,
-      requiredPermission: t.requiredPermission || '',
-    }));
+  const {
+    statusKeysMatch,
+    statusKeyEquivalents,
+  } = require('../utils/work/workflowTransition');
+  const seen = new Set();
+  const out = [];
+  for (const t of workflow.transitions || []) {
+    if (!statusKeysMatch(t.fromKey, from)) continue;
+    const toKey = String(t.toKey || '').trim();
+    if (!toKey) continue;
+    for (const alias of statusKeyEquivalents(toKey)) {
+      if (seen.has(alias)) continue;
+      seen.add(alias);
+      out.push({
+        toKey: alias,
+        name: t.name || `${from}→${alias}`,
+        requiredPermission: t.requiredPermission || '',
+      });
+    }
+  }
+  return out;
 }
 
 async function loadBoardWorkflowLean(board) {

@@ -3,6 +3,7 @@ const { emitToRoom, emitToUser } = require('./realtimeHub');
 const { publishFriendDm } = require('../messaging/rabbitPublisher');
 const redisPresence = require('../presence/redisPresence');
 const redisFriendChatFocus = require('../presence/redisFriendChatFocus');
+const redisProjectRoomFocus = require('../presence/redisProjectRoomFocus');
 
 const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!CHAT_SERVICE_URL) throw new Error('Thiếu biến môi trường: CHAT_SERVICE_URL');
@@ -278,6 +279,18 @@ module.exports = function registerChatNamespace(io) {
       }
     });
 
+    socket.on('room:chat_focus', async ({ roomId, active } = {}) => {
+      if (!userId) return;
+      const rid = String(roomId || '').trim();
+      if (!rid) return;
+      const key = String(userId);
+      if (active) {
+        await redisProjectRoomFocus.setActive(key, rid);
+      } else {
+        await redisProjectRoomFocus.clear(key, rid);
+      }
+    });
+
     socket.on('room:join', async ({ roomId, organizationId } = {}) => {
       if (!roomId) return;
       const orgId = String(organizationId || '').trim();
@@ -370,6 +383,7 @@ module.exports = function registerChatNamespace(io) {
       if (userId) {
         const key = String(userId);
         redisFriendChatFocus.clear(key).catch(() => null);
+        redisProjectRoomFocus.clear(key).catch(() => null);
         const current = onlineUserSockets.get(key) || 0;
         if (current <= 1) {
           onlineUserSockets.delete(key);

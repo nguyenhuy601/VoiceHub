@@ -121,7 +121,11 @@ export const organizationAPI = {
   },
 
   createTeamByDepartment: async (orgId, deptId, data) => {
-    const response = await apiClient.post(`/organizations/${orgId}/hierarchy/departments/${deptId}/teams`, data);
+    const response = await apiClient.post(
+      `/organizations/${orgId}/hierarchy/departments/${deptId}/teams`,
+      data,
+      { skipPermissionDeniedToast: true }
+    );
     return response;
   },
   createTeamByDivision: async (orgId, divisionId, data) =>
@@ -273,6 +277,18 @@ export const organizationAPI = {
     return response;
   },
 
+  getRequirementAccessPolicy: async (orgId) => {
+    const response = await apiClient.get(`/organizations/${orgId}/requirement-access-policy`);
+    return response;
+  },
+
+  putRequirementAccessPolicy: async (orgId, policy) => {
+    const response = await apiClient.put(`/organizations/${orgId}/requirement-access-policy`, {
+      policy,
+    });
+    return response;
+  },
+
   getMasterData: async (orgId) => {
     const response = await apiClient.get(`/organizations/${orgId}/master-data`);
     return response;
@@ -313,10 +329,14 @@ export const organizationAPI = {
 
   getMembersWithRoles: async (orgId, params = {}) => {
     const departmentId = String(params.departmentId || '').trim();
+    const view = String(params.view || '').trim();
+    const query = {};
+    if (departmentId) query.departmentId = departmentId;
+    if (view) query.view = view;
     const response = await apiClient.get(`/organizations/${orgId}/members/with-roles`, {
       skipPermissionDeniedToast: true,
       skipGlobalErrorHandling: true,
-      params: departmentId ? { departmentId } : undefined,
+      params: Object.keys(query).length ? query : undefined,
     });
     return response;
   },

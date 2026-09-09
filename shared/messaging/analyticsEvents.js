@@ -12,18 +12,19 @@ const ANALYTICS_EVENT_TYPES = {
   PROJECT_FACT: 'analytics.v1.project_fact',
   MEMBERSHIP_FACT: 'analytics.v1.membership_fact',
   UTILIZATION_SNAPSHOT: 'analytics.v1.utilization_snapshot',
+  STATUS_TRANSITION_FACT: 'analytics.v1.status_transition_fact',
 };
 
 const CATALOG = [
   {
     type: ANALYTICS_EVENT_TYPES.TASK_FACT,
-    publisher: 'task-service',
+    publisher: 'project-service',
     consumers: ['report-etl'],
     description: 'Denormalized task fact cho warehouse.',
   },
   {
     type: ANALYTICS_EVENT_TYPES.WORKLOG_FACT,
-    publisher: 'task-service',
+    publisher: 'project-service',
     consumers: ['report-etl'],
     description: 'Worklog hours fact.',
   },
@@ -44,6 +45,12 @@ const CATALOG = [
     publisher: 'report-etl',
     consumers: ['report-service'],
     description: 'Snapshot đã materialize — report-service đọc DB warehouse, event optional notify.',
+  },
+  {
+    type: ANALYTICS_EVENT_TYPES.STATUS_TRANSITION_FACT,
+    publisher: 'project-service',
+    consumers: ['report-etl'],
+    description: 'Task status transition (rework/reopen/cycle-time inputs).',
   },
 ];
 

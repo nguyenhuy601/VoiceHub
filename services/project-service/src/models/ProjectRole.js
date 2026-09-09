@@ -1,7 +1,9 @@
 const mongoose = require('../db');
 
 /**
- * Project Role catalog (per organization). Nút Delegation Graph — không phải HR/Organization Role.
+ * Project Role:
+ * - projectId null → org default template (Admin matrix)
+ * - projectId set → bản roles/permissions của một dự án (Hub Settings)
  */
 const projectRoleSchema = new mongoose.Schema(
   {
@@ -9,6 +11,13 @@ const projectRoleSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       required: true,
       index: true,
+    },
+    /** null = org default; ObjectId = bản clone theo dự án */
+    projectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+      ref: 'Project',
     },
     key: {
       type: String,
@@ -44,6 +53,13 @@ const projectRoleSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-projectRoleSchema.index({ organizationId: 1, key: 1 }, { unique: true });
+projectRoleSchema.index(
+  { organizationId: 1, key: 1 },
+  { unique: true, partialFilterExpression: { projectId: null } }
+);
+projectRoleSchema.index(
+  { projectId: 1, key: 1 },
+  { unique: true, partialFilterExpression: { projectId: { $type: 'objectId' } } }
+);
 
 module.exports = mongoose.model('ProjectRole', projectRoleSchema);

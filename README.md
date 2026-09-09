@@ -75,11 +75,10 @@ Chi tiết: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`MIGRATION.md`](MIGRATION.md)
 | Edge / identity | `api-gateway`, `auth-service`, `user-service` |
 | Org / social | `organization-service`, `friend-service`, `role-permission-service` |
 | Chat / realtime | `chat-service`, `socket-service` |
-| Work | `task-service`, `task-worker`, `document-service` |
+| Work | `project-service`, `project-worker`, `document-service` |
 | Voice | `voice-service` (mediasoup; UDP media publish ra host) |
 | AI / summary | `ai-task-service`, `ai-task-worker`, `ai-task-extract-worker`, `ai-task-sync-worker`, `summary-service`, `summary-worker` |
 | Notify / webhook | `notification-service`, `notification-dispatch-worker`, `webhook-service`, `webhook-delivery-worker` |
-| Tuỳ stack | `ollama`, `paddleocr-service` (có thể scale 0 khi chuyển sang Compose extra) |
 
 ### Compose extra (AI / storage / STT)
 
@@ -129,7 +128,7 @@ VoiceHub/
     voice-service/
     voice-recording-worker/
     voice-stt-worker/
-    task-service/
+    project-service/
     document-service/
     notification-service/
     webhook-service/
@@ -157,11 +156,11 @@ Cây chi tiết: [`STRUCTURE.md`](STRUCTURE.md) (một số tên worker mới c�
 | `/api/auth` | auth-service |
 | `/api/users` | user-service |
 | `/api/friends` | friend-service |
-| `/api/organizations`, `/api/channels` | organization-service |
+| `/api/organizations` | organization-service |
 | `/api/roles`, `/api/permissions` | role-permission-service |
-| `/api/messages`, `/api/chat` | chat-service |
+| `/api/messages` | chat-service |
 | `/api/voice`, `/api/meetings` | voice-service |
-| `/api/tasks`, `/api/work` | task-service |
+| `/api/tasks` | project-service |
 | `/api/ai/tasks` | ai-task-service |
 | `/api/ai/summaries` | summary-service |
 | `/api/documents` | document-service |

@@ -51,7 +51,27 @@ describe('sanitizeCapabilityFields', () => {
       ],
     });
     assert.equal(r.ok, true);
-    assert.deepEqual(r.fields.skills, [{ name: 'React', level: 5 }]);
+    assert.equal(r.fields.skills.length, 1);
+    assert.equal(r.fields.skills[0].name, 'React');
+    assert.equal(r.fields.skills[0].level, 5);
+    assert.equal(r.fields.skills[0].rank, 1);
+    assert.equal(r.fields.skills[0].proficiencyTier, 'expert');
+  });
+
+  it('sanitizes businessDomains and seniorityBand', () => {
+    const r = sanitizeCapabilityFields({
+      seniorityBand: 'senior',
+      businessDomains: [{ name: 'Payment', rank: 1 }, { name: 'Banking' }],
+      certifications: [{ name: 'AWS SA', issuer: 'Amazon' }],
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.fields.seniorityBand, 'senior');
+    assert.deepEqual(r.fields.businessDomains, [
+      { name: 'Payment', rank: 1 },
+      { name: 'Banking', rank: 2 },
+    ]);
+    assert.equal(r.fields.certifications.length, 1);
+    assert.equal(r.fields.certifications[0].name, 'AWS SA');
   });
 
   it('ignores positionCode (Position SoT = jobTitle)', () => {

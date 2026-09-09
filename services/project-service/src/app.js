@@ -32,14 +32,12 @@ app.use('/api/projects', projectRoutes);
 const taskBoardRoutes = require('./routes/taskBoard.routes');
 const workspaceTaskBoardRoutes = require('./routes/workspaceTaskBoard.routes');
 app.use('/api/tasks/boards', taskBoardRoutes);
-app.use('/api/work/boards', taskBoardRoutes);
 // REST workspace facade — slug → organizationId, delegate cùng controller board
 app.use('/api/workspaces/:workspaceSlug/task-boards', workspaceTaskBoardRoutes);
 
 // Task routes
 const taskRoutes = require('./routes/task.routes');
 app.use('/api/tasks', taskRoutes);
-app.use('/api/work', taskRoutes); // Alias
 
 // 404
 app.use((req, res) => {

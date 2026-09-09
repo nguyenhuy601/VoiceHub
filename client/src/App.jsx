@@ -9,6 +9,7 @@ import AdminShellLayout from './components/Layout/AdminShellLayout';
 import ProfileSidebar from './components/Layout/ProfileSidebar';
 import SuiteRootRedirect from './components/Layout/SuiteRootRedirect';
 import LegacyWorkspaceRedirect from './components/Layout/LegacyWorkspaceRedirect';
+import LegacyTasksRedirect from './components/Layout/LegacyTasksRedirect';
 import LegacyPathRedirect from './components/Layout/LegacyPathRedirect';
 import RouteErrorBoundary from './components/Shared/RouteErrorBoundary';
 
@@ -30,8 +31,14 @@ const AdminHubPage = lazy(() => import('./pages/Admin/AdminHubPage'));
 const AdminDomainPage = lazy(() => import('./pages/Admin/AdminDomainPage'));
 const AdminLegacyRedirect = lazy(() => import('./components/Layout/AdminLegacyRedirect'));
 const ApprovalInboxPage = lazy(() => import('./features/approvals/ApprovalInboxPage'));
+const CollaborateRequirementsPage = lazy(() => import('./features/requirements/CollaborateRequirementsPage'));
 const JoinApplicationPage = lazy(() => import('./pages/Workspace/JoinApplicationPage'));
-const CreateProjectWizardPage = lazy(() => import('./pages/Workspace/CreateProjectWizardPage'));
+const CreateProjectWizardPage = lazy(() => import('./pages/Projects/CreateProjectWizardPage'));
+const CreateProjectAiWizardPage = lazy(() => import('./pages/Projects/CreateProjectAiWizardPage'));
+const ProjectsLandingPage = lazy(() => import('./pages/Projects/ProjectsLandingPage'));
+const ProjectChatPage = lazy(() => import('./pages/Projects/ProjectChatPage'));
+const ProjectsShellLayout = lazy(() => import('./pages/Projects/ProjectsShellLayout'));
+const ProjectHubPage = lazy(() => import('./pages/Projects/ProjectHubPage'));
 const NotificationsPage = lazy(() => import('./pages/Notifications/NotificationsPage'));
 const DocumentsPage = lazy(() => import('./pages/Documents/DocumentsPage'));
 const CalendarPage = lazy(() => import('./pages/Calendar/CalendarPage'));
@@ -97,6 +104,14 @@ function App() {
           }
         />
         <Route
+          path="/app/collaborate/projects/new-ai"
+          element={
+            <Protected>
+              <CreateProjectAiWizardPage />
+            </Protected>
+          }
+        />
+        <Route
           path="/app/admin/projects/create"
           element={
             <Protected>
@@ -121,10 +136,17 @@ function App() {
             element={<OrganizationsPage suiteMode="collaborate" suiteLayout />}
           />
           <Route
-            path="tasks"
-            element={<OrganizationsPage suiteMode="collaborate" workspaceTab="tasks" suiteLayout />}
-          />
+            path="projects"
+            element={<ProjectsShellLayout />}
+          >
+            <Route index element={<ProjectsLandingPage />} />
+            <Route path="chat" element={<ProjectChatPage />} />
+          </Route>
+          <Route path="projects/:projectId" element={<ProjectHubPage />} />
+          <Route path="tasks" element={<LegacyTasksRedirect />} />
           <Route path="documents" element={<DocumentsPage suiteLayout />} />
+          <Route path="calendar" element={<CalendarPage suiteLayout />} />
+          <Route path="requirements" element={<CollaborateRequirementsPage />} />
           <Route
             path="notifications"
             element={<NotificationsPage orgScope suiteLayout />}
@@ -150,7 +172,7 @@ function App() {
             <Route path="people" element={<Navigate to="/app/admin/users" replace />} />
             <Route path="approvals" element={<Navigate to="/app/admin/users" replace />} />
             <Route path="general" element={<Navigate to="/app/admin/system-config" replace />} />
-            <Route path="structure" element={<Navigate to="/app/admin/system-config/structure" replace />} />
+            <Route path="structure" element={<Navigate to="/app/admin/system-config?tab=structure" replace />} />
             <Route path="roles" element={<Navigate to="/app/admin/rbac/roles" replace />} />
             <Route path="policy" element={<Navigate to="/app/admin/system-config/policy" replace />} />
             <Route path=":domain/*" element={<AdminDomainPage />} />

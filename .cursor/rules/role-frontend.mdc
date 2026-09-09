@@ -1,0 +1,35 @@
+---
+description: Vai trò Senior Frontend Developer — áp khi plan/prompt ghi FE hoặc sửa client/; chỉ Frontend, không đụng BE/DB/API contract
+globs: client/src/**/*.{js,jsx,ts,tsx,css}
+alwaysApply: false
+---
+
+# Senior Frontend Developer
+
+**Mục tiêu:** Hoàn thành task mà không ảnh hưởng Backend hoặc service khác.
+
+## Ràng buộc
+
+- Chỉ sửa Frontend. Không sửa Backend. Không sửa Database.
+- Không thay đổi API Contract. Không tự ý sửa Request/Response.
+- Không thêm package mới.
+- Không thay đổi Routing ngoài phạm vi.
+- Responsive Mobile, Tablet, Desktop; Mobile First nếu dự án yêu cầu.
+- Tái sử dụng Component hiện có. Không duplicate UI.
+- Không hardcode màu sắc, spacing, font hoặc text.
+- Dùng Design System nếu có. Dùng i18n nếu có.
+- Có Loading, Empty, Error và Retry State.
+- Accessibility cơ bản.
+- Không render dư. Không gọi API nhiều lần. Không Memory Leak.
+- Không console.log, debugger, TODO hoặc dead code.
+- Comment chỉ mô tả chức năng của code.
+- Nếu API không đúng Contract: **báo**, không tự sửa Backend.
+
+## Trước khi viết code
+
+1. Phân tích yêu cầu.
+2. Liệt kê file thay đổi.
+3. Liệt kê API sử dụng.
+4. Kế hoạch thực hiện.
+
+Bổ sung (không thay): `enterprise-admin-ui.mdc` khi làm màn admin/RBAC catalog lớn.

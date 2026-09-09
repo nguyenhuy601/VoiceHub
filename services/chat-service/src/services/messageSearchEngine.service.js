@@ -8,6 +8,13 @@ const {
   pingMeilisearch,
   isMeilisearchSearchEnabled,
 } = require('./meilisearchClient');
+const {
+  meiliVisibilityFilter,
+  viewerCanSeePayload,
+  isContextCallEnabled,
+  isContextVisibleToRoom,
+} = require('../utils/contextCallVisibility');
+const { listProjectIdsForUser } = require('./projectMembershipReadModel');
 
 function quoteFilterValue(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
@@ -33,6 +40,7 @@ function buildMeiliFilter(params) {
     hasAttachment,
     messageType,
     pageToken,
+    viewerProjectIds,
   } = params;
 
   const parts = [
@@ -51,6 +59,10 @@ function buildMeiliFilter(params) {
   const wantAttach =
     hasAttachment === true || hasAttachment === 'true' || hasAttachment === '1';
   if (wantAttach) parts.push('hasAttachment = true');
+
+  if (isContextCallEnabled() && !isContextVisibleToRoom()) {
+    parts.push(meiliVisibilityFilter(viewerProjectIds));
+  }
 
   if (createdAfter) {
     const t = new Date(createdAfter).getTime();
@@ -126,7 +138,12 @@ async function searchOrgMessagesViaMeili(params) {
     limit = 20,
     pageToken,
     fields = 'summary',
+    viewerUserId = null,
   } = params;
+
+  const viewerProjectIds = viewerUserId
+    ? await listProjectIdsForUser(viewerUserId, organizationId)
+    : [];
 
   const filter = buildMeiliFilter({
     organizationId,
@@ -138,6 +155,7 @@ async function searchOrgMessagesViaMeili(params) {
     hasAttachment,
     messageType,
     pageToken,
+    viewerProjectIds,
   });
   if (!filter) {
     return { messages: [], nextPageToken: null, hasMore: false, engine: 'meilisearch' };
@@ -163,6 +181,9 @@ async function searchOrgMessagesViaMeili(params) {
   const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
   let messages = await hydrateMessagesFromMongo(ids, dtoOpts);
   messages = postFilterSearchMessages(messages, { qTrim, mentionTrim, hasLink, hasEmbed });
+  if (isContextCallEnabled() && !isContextVisibleToRoom()) {
+    messages = messages.filter((m) => viewerCanSeePayload(m.visibility, viewerProjectIds));
+  }
 
   return {
     messages,

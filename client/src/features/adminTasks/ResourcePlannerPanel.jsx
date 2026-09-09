@@ -14,10 +14,23 @@ function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
-function availabilityBadgeClass(availability) {
-  if (availability === 'available') return 'bg-emerald-500/15 text-emerald-700';
-  if (availability === 'partial') return 'bg-amber-500/15 text-amber-800';
-  return 'bg-red-500/15 text-red-700';
+function availabilityBadgeClass(availability, isDarkMode) {
+  if (availability === 'available') {
+    return isDarkMode
+      ? 'bg-emerald-500/20 text-emerald-300'
+      : 'bg-emerald-500/15 text-emerald-700';
+  }
+  if (availability === 'partial') {
+    return isDarkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-500/15 text-amber-800';
+  }
+  return isDarkMode ? 'bg-red-500/20 text-red-300' : 'bg-red-500/15 text-red-700';
+}
+
+function availabilityLabel(availability, t) {
+  if (availability === 'available') return t('adminTasks.plannerAvailAvailable');
+  if (availability === 'partial') return t('adminTasks.plannerAvailPartial');
+  if (availability === 'overallocated') return t('adminTasks.plannerAvailOver');
+  return String(availability || '—');
 }
 
 /**
@@ -42,7 +55,11 @@ export default function ResourcePlannerPanel({
   const [addRoleKey, setAddRoleKey] = useState('');
   const [busyUserId, setBusyUserId] = useState('');
 
-  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
+  const muted = isDarkMode ? 'text-slate-300' : 'text-muted-foreground';
+  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const inputCls = isDarkMode
+    ? 'mt-1 block min-w-[10rem] rounded-lg border border-slate-600 bg-[#1A1A1C] px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-primary [color-scheme:dark]'
+    : 'mt-1 block min-w-[10rem] rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary';
 
   useEffect(() => {
     if (projectIdProp) setProjectId(String(projectIdProp));
@@ -148,7 +165,7 @@ export default function ResourcePlannerPanel({
           <label className="block text-xs">
             <span className={muted}>{t('adminTasks.plannerProject')}</span>
             <select
-              className="mt-1 block min-w-[14rem] rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
+              className={`${inputCls} min-w-[14rem]`}
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
             >
@@ -169,7 +186,7 @@ export default function ResourcePlannerPanel({
           <span className={muted}>{t('adminTasks.plannerAsOf')}</span>
           <input
             type="date"
-            className="mt-1 block rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
+            className={inputCls}
             value={asOf}
             onChange={(e) => setAsOf(e.target.value)}
           />
@@ -178,7 +195,7 @@ export default function ResourcePlannerPanel({
           <label className="block text-xs">
             <span className={muted}>{t('adminTasks.plannerAddRole')}</span>
             <select
-              className="mt-1 block min-w-[10rem] rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
+              className={inputCls}
               value={addRoleKey}
               onChange={(e) => setAddRoleKey(e.target.value)}
             >
@@ -190,14 +207,19 @@ export default function ResourcePlannerPanel({
             </select>
           </label>
         ) : null}
-        <button type="button" className={adminSecondaryBtnClass()} onClick={load} disabled={loading}>
-          {loading ? t('common.loading') : t('common.refresh') || 'Refresh'}
+        <button
+          type="button"
+          className={adminSecondaryBtnClass('', isDarkMode)}
+          onClick={load}
+          disabled={loading}
+        >
+          {loading ? t('common.loading') : t('common.refresh')}
         </button>
       </div>
 
       {relatedHint ? <p className={`mb-3 text-xs ${muted}`}>{relatedHint}</p> : null}
 
-      <AdminUserFormCard title={t('adminTasks.plannerPeople')}>
+      <AdminUserFormCard title={t('adminTasks.plannerPeople')} isDarkMode={isDarkMode}>
         {loading && !items.length ? (
           <p className={`text-sm ${muted}`}>{t('common.loading')}</p>
         ) : !items.length ? (
@@ -207,26 +229,41 @@ export default function ResourcePlannerPanel({
             {items.map((row) => (
               <li
                 key={row.userId}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 ${
+                  isDarkMode ? 'border-slate-600 bg-[#1A1A1C]' : 'border-border'
+                }`}
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="truncate text-sm font-semibold">{row.displayName}</span>
+                    <span className={`truncate text-sm font-semibold ${titleCls}`}>
+                      {row.displayName}
+                    </span>
                     <span
                       className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${availabilityBadgeClass(
-                        row.availability
+                        row.availability,
+                        isDarkMode
                       )}`}
                     >
-                      {row.availability}
+                      {availabilityLabel(row.availability, t)}
                     </span>
                     {row.alreadyMember ? (
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] ${
+                          isDarkMode
+                            ? 'bg-slate-700 text-slate-300'
+                            : 'bg-muted text-muted-foreground'
+                        }`}
+                      >
                         {t('adminTasks.plannerAlreadyMember')}
                       </span>
                     ) : null}
                   </div>
                   <p className={`mt-0.5 text-[11px] ${muted}`}>
-                    {row.departmentName || '—'} · alloc {row.allocatedPct}% · free {row.availablePct}%
+                    {t('adminTasks.plannerAllocLine', {
+                      dept: row.departmentName || '—',
+                      alloc: row.allocatedPct ?? 0,
+                      free: row.availablePct ?? 0,
+                    })}
                   </p>
                 </div>
                 {canManage && projectId && !row.alreadyMember ? (

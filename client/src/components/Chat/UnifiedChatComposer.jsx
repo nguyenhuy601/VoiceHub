@@ -338,9 +338,9 @@ function UnifiedChatComposer({
               {t('chat.mentionSuggestions')}
             </div>
             <div className="max-h-56 overflow-y-auto">
-              {filteredMentionItems.map((item) => (
+              {filteredMentionItems.map((item, index) => (
                 <button
-                  key={String(item.value || item.label)}
+                  key={String(item.userId || item.value || item.username || item.label || index)}
                   type="button"
                   onClick={() => insertMention(item.label)}
                   className={composerDark
@@ -423,6 +423,7 @@ function UnifiedChatComposer({
             value={value}
             onChange={(event) => handleInputChange(event.target.value)}
             onKeyDown={handleInputKeyDown}
+            onPaste={onPaste}
             disabled={disabled}
             placeholder={resolvedPlaceholder}
             className={inputClass}
@@ -435,6 +436,7 @@ function UnifiedChatComposer({
             rows={1}
             onChange={(event) => handleInputChange(event.target.value)}
             onKeyDown={handleInputKeyDown}
+            onPaste={onPaste}
             disabled={disabled}
             placeholder={resolvedPlaceholder}
             className={textareaClass}

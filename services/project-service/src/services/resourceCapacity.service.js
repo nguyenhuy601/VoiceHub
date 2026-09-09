@@ -14,7 +14,8 @@ const {
   classifyAvailability,
   computeDepartmentCapacityRow,
   computeAllocationStatus,
-} = require('../utils/allocationOverlap');
+} = require('../utils/staffing/allocationOverlap');
+const { coalesceJobTitle } = require('../utils/common/jobTitleProfile');
 
 function asOid(id) {
   const s = String(id || '').trim();
@@ -99,9 +100,7 @@ async function enrichProfiles(userIds = []) {
           profile?.username ||
           profile?.email?.split('@')[0] ||
           displayName;
-        jobTitle = String(
-          profile?.jobTitle || profile?.preferences?.jobTitle || ''
-        ).trim();
+        jobTitle = coalesceJobTitle(profile);
       } catch {
         /* optional */
       }
@@ -438,9 +437,11 @@ module.exports = {
   getDepartmentCapacity,
   getResourcePlanner,
   getUserAllocationTimeline,
+  assertOrgMember,
   assertCanViewOrgCapacity,
+  loadAllocationRowsByUser,
   computeDepartmentCapacityRow,
   allocatedPctOnDay,
   classifyAvailability,
-  filterUsersToRelatedDepartments: require('../utils/allocationOverlap').filterUsersToRelatedDepartments,
+  filterUsersToRelatedDepartments: require('../utils/staffing/allocationOverlap').filterUsersToRelatedDepartments,
 };

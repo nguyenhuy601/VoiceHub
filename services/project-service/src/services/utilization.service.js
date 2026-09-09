@@ -4,14 +4,15 @@ const Worklog = require('../models/Worklog');
 const {
   assertTimeTrackingEnabled,
   DEFAULT_HOURS_PER_DAY,
-} = require('../utils/timeTracking');
-const { toDayMs, flattenSegments } = require('../utils/allocationOverlap');
+} = require('../utils/task/timeTracking');
+const { toDayMs, flattenSegments } = require('../utils/staffing/allocationOverlap');
 const {
   plannedAvailableHoursInRange,
   utilizationPct,
   DAY_MS,
-} = require('../utils/utilizationMath');
+} = require('../utils/staffing/utilizationMath');
 const { assertCanViewOrgCapacity } = require('./resourceCapacity.service');
+const { fetchOrgWorkingCalendar } = require('./governance.service');
 
 /**
  * Org-wide utilization: planned (P3 allocations) ∩ actual (worklogs).
@@ -35,6 +36,15 @@ async function getUtilizationReport({
   }
 
   await assertCanViewOrgCapacity(actorUserId, orgId);
+
+  const { workingCalendar, holidays } = await fetchOrgWorkingCalendar(orgId).catch(() => ({
+    workingCalendar: null,
+    holidays: [],
+  }));
+  const effectiveHoursPerDay =
+    Number(workingCalendar?.hoursPerDay) > 0
+      ? Number(workingCalendar.hoursPerDay)
+      : Number(hoursPerDay) || DEFAULT_HOURS_PER_DAY;
 
   const fromMs = toDayMs(from);
   const toMs = toDayMs(to);
@@ -98,7 +108,9 @@ async function getUtilizationReport({
       flatSegments: flat,
       fromMs,
       toMs,
-      hoursPerDay,
+      hoursPerDay: effectiveHoursPerDay,
+      calendar: workingCalendar,
+      holidays,
     });
     const actualHours = Math.round((actualByUser.get(uid) || 0) * 100) / 100;
     const util = utilizationPct(actualHours, plannedAvailableHours);
@@ -117,7 +129,8 @@ async function getUtilizationReport({
     organizationId: orgId,
     from: new Date(fromMs).toISOString().slice(0, 10),
     to: new Date(toMs).toISOString().slice(0, 10),
-    hoursPerDay: Number(hoursPerDay) || DEFAULT_HOURS_PER_DAY,
+    hoursPerDay: effectiveHoursPerDay,
+    calendarApplied: Boolean(workingCalendar),
     approx: true,
     metric: 'planned_vs_actual_hours',
     items,

@@ -6,6 +6,7 @@ import { useAppStrings } from '../../locales/appStrings';
 import {
   AdminUserFormCard,
   adminInputClass,
+  adminPrimaryBtnClass,
 } from '../adminUsers/adminUserPanelUi';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 
@@ -16,6 +17,8 @@ import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 export default function AdminOrgUnitPicker({
   items,
   loading,
+  error = '',
+  onRetry,
   selectedId,
   onSelect,
   title,
@@ -63,6 +66,17 @@ export default function AdminOrgUnitPicker({
       </div>
       {loading ? (
         <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      ) : error ? (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3">
+          <p className="text-sm text-destructive">{error}</p>
+          {typeof onRetry === 'function' ? (
+            <div className="mt-3">
+              <button type="button" className={adminPrimaryBtnClass()} onClick={() => onRetry()}>
+                {t('adminRbac.retry')}
+              </button>
+            </div>
+          ) : null}
+        </div>
       ) : (
         <div className="max-h-[420px] overflow-auto rounded-xl border border-border/70">
           <ul className="divide-y divide-border/50">

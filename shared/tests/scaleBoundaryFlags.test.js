@@ -1,58 +1,6 @@
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 
-describe('taskServiceStrangler', () => {
-  const saved = {};
-
-  beforeEach(() => {
-    for (const key of [
-      'TASK_SERVICE_STRANGLER_MODE',
-      'TASK_SERVICE_URL',
-      'PROJECT_SERVICE_URL',
-    ]) {
-      saved[key] = process.env[key];
-    }
-  });
-
-  afterEach(() => {
-    for (const [key, value] of Object.entries(saved)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    delete require.cache[require.resolve('../config/taskServiceStrangler')];
-  });
-
-  function load() {
-    delete require.cache[require.resolve('../config/taskServiceStrangler')];
-    return require('../config/taskServiceStrangler');
-  }
-
-  it('defaults to off', () => {
-    delete process.env.TASK_SERVICE_STRANGLER_MODE;
-    const { getTaskServiceStranglerMode, isTaskServiceCutover } = load();
-    assert.equal(getTaskServiceStranglerMode(), 'off');
-    assert.equal(isTaskServiceCutover(), false);
-  });
-
-  it('resolves task url preferring TASK_SERVICE_URL', () => {
-    const { resolveTaskProxyUrl, resolveProjectProxyUrl } = load();
-    assert.equal(
-      resolveTaskProxyUrl({
-        taskServiceUrl: 'http://task-service:3019',
-        projectServiceUrl: 'http://project-service:3009',
-      }),
-      'http://task-service:3019'
-    );
-    assert.equal(
-      resolveProjectProxyUrl({
-        taskServiceUrl: 'http://task-service:3019',
-        projectServiceUrl: 'http://project-service:3009',
-      }),
-      'http://project-service:3009'
-    );
-  });
-});
-
 describe('reportServiceFlags', () => {
   const saved = {};
 

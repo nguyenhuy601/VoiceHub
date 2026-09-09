@@ -23,6 +23,8 @@ const {
   syncAfterUpdate,
   syncAfterDelete,
 } = require('../search/messageSearchSync');
+const { mergeMongoFilter } = require('../utils/contextCallVisibility');
+const { visibilityMongoClauseForViewer } = require('./projectMembershipReadModel');
 
 const MONGO_UNAVAILABLE_MSG = 'Service temporarily unavailable. Please try again later.';
 
@@ -248,8 +250,7 @@ class MessageService {
   }
 
   /**
-   * Tin nhắn kênh tổ chức (có roomId + organizationId) chưa đọc, không phải do user gửi.
-   * Lưu ý: isRead hiện là cờ đơn (phù hợp DM); với kênh nhiều người có thể cần mở rộng sau.
+   * Tin nhắn kênh tổ chức chưa đọc theo RoomReadCursor (watermark), không dùng Message.isRead.
    */
   async findUnreadOrgRoomMessages(userId, limit = 30, allowedRoomIds = null) {
     try {
@@ -261,6 +262,7 @@ class MessageService {
       const cap = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
 
       const roomFilter = { $exists: true, $ne: null };
+      let allowedOids = null;
       if (Array.isArray(allowedRoomIds)) {
         const ids = allowedRoomIds
           .map((id) => String(id || '').trim())
@@ -268,26 +270,51 @@ class MessageService {
         if (!ids.length) {
           return [];
         }
-        roomFilter.$in = ids.map((id) => new mongoose.Types.ObjectId(id));
+        allowedOids = ids.map((id) => new mongoose.Types.ObjectId(id));
+        roomFilter.$in = allowedOids;
       }
 
-      const messages = await Message.find({
+      const unreadFilter = {
         roomId: roomFilter,
         organizationId: { $exists: true, $ne: null },
         senderId: { $ne: uid },
-        isRead: false,
         isDeleted: { $ne: true },
         isRecalled: { $ne: true },
-      })
+      };
+      const visClause = await visibilityMongoClauseForViewer(userId, null);
+      const queryFilter = visClause ? mergeMongoFilter(unreadFilter, visClause) : unreadFilter;
+
+      // Lấy dư để lọc theo cursor (isRead boolean không đúng multi-reader).
+      const fetchCap = Math.min(cap * 4, 200);
+      const messages = await Message.find(queryFilter)
         .sort({ createdAt: -1 })
-        .limit(cap)
+        .limit(fetchCap)
         .exec();
 
+      const roomIdsForCursor = [
+        ...new Set(
+          messages
+            .map((m) => String(m.roomId || '').trim())
+            .filter((id) => mongoose.Types.ObjectId.isValid(id))
+        ),
+      ];
+      const {
+        getCursorMapForUserRooms,
+      } = require('./roomReadCursor.service');
+      const { isMessageSeenByCursor } = require('../utils/roomReadCursorLogic');
+      const cursorMap = await getCursorMapForUserRooms(userId, roomIdsForCursor);
+
+      const unread = [];
       for (const m of messages) {
+        const rid = String(m.roomId || '');
+        const cursor = cursorMap.get(rid);
+        if (isMessageSeenByCursor(String(m._id), cursor?.lastReadMessageId)) continue;
         await maybeMigrateMessageContent(m);
+        unread.push(toClientMessage(m));
+        if (unread.length >= cap) break;
       }
 
-      return messages.map((m) => toClientMessage(m));
+      return unread;
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error listing unread org room messages: ${err.message}`);
@@ -304,16 +331,27 @@ class MessageService {
         dmCacheKey,
         pageToken,
         fields = 'summary',
+        viewerUserId = null,
+        viewerOrganizationId = null,
       } = options;
       const lim = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
       const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
+
+      let queryFilter = filter;
+      if (viewerUserId) {
+        const visClause = await visibilityMongoClauseForViewer(
+          viewerUserId,
+          viewerOrganizationId || filter.organizationId
+        );
+        if (visClause) queryFilter = mergeMongoFilter(filter, visClause);
+      }
 
       if (pageToken) {
         const tokPart = pageTokenFilter(pageToken);
         if (!tokPart) {
           return { messages: [], nextPageToken: null, hasMore: false };
         }
-        const combined = { $and: [filter, tokPart] };
+        const combined = { $and: [queryFilter, tokPart] };
         const batch = await Message.find(combined)
           .sort(sort)
           .limit(lim + 1)
@@ -348,7 +386,7 @@ class MessageService {
         }
       }
 
-      const messages = await Message.find(filter)
+      const messages = await Message.find(queryFilter)
         .sort(sort)
         .limit(lim)
         .skip((pageNum - 1) * lim);
@@ -357,7 +395,7 @@ class MessageService {
         await maybeMigrateMessageContent(m);
       }
 
-      const total = await Message.countDocuments(filter);
+      const total = await Message.countDocuments(queryFilter);
 
       const mapped = messages.map((m) => toClientMessage(m, dtoOpts));
       const hasMore = pageNum * lim < total;
@@ -510,11 +548,15 @@ class MessageService {
       const msg = await Message.findById(messageId);
       if (!msg || msg.isDeleted || msg.isRecalled) return null;
 
+      const me = String(uid);
       const sender = String(msg.senderId);
       const receiver = String(msg.receiverId || '');
-      const me = String(uid);
-      if (me !== sender && me !== receiver) {
-        throw new Error('Unauthorized');
+      const isOrgRoom = Boolean(msg.roomId && msg.organizationId);
+      // DM: chỉ sender/receiver. Kênh org: controller đã assertCanAccessMessage (canRead).
+      if (!isOrgRoom && me !== sender && me !== receiver) {
+        const err = new Error('Unauthorized');
+        err.statusCode = 403;
+        throw err;
       }
 
       const reactions = Array.isArray(msg.reactions) ? [...msg.reactions] : [];
@@ -558,8 +600,11 @@ class MessageService {
 
       const sender = String(msg.senderId);
       const receiver = String(msg.receiverId || '');
-      if (me !== sender && me !== receiver) {
-        throw new Error('Unauthorized');
+      const isOrgRoom = Boolean(msg.roomId && msg.organizationId);
+      if (!isOrgRoom && me !== sender && me !== receiver) {
+        const err = new Error('Unauthorized');
+        err.statusCode = 403;
+        throw err;
       }
 
       const reactions = (Array.isArray(msg.reactions) ? msg.reactions : []).filter(
@@ -798,6 +843,7 @@ class MessageService {
         limit = 20,
         pageToken,
         fields = 'summary',
+        viewerUserId = null,
       } = params;
       const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
 
@@ -834,6 +880,11 @@ class MessageService {
         parts.push({ createdAt: r });
       }
       if (messageType) parts.push({ messageType });
+
+      if (viewerUserId) {
+        const visClause = await visibilityMongoClauseForViewer(viewerUserId, organizationId);
+        if (visClause) parts.push(visClause);
+      }
 
       const wantAttach =
         hasAttachment === true || hasAttachment === 'true' || hasAttachment === '1';

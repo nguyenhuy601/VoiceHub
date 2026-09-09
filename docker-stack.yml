@@ -158,6 +158,16 @@ services:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - FRIEND_DM_USE_QUEUE=${FRIEND_DM_USE_QUEUE}
       - REALTIME_INTERNAL_TOKEN=${REALTIME_INTERNAL_TOKEN}
+      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL}
+      - ORGANIZATION_SERVICE_URL=${ORGANIZATION_SERVICE_URL}
+      - CHAT_UPLOAD_STORAGE=${CHAT_UPLOAD_STORAGE:-auto}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET=${MINIO_BUCKET}
+      - MINIO_REGION=${MINIO_REGION}
+      - MINIO_USE_SSL=${MINIO_USE_SSL}
     networks:
       - enterprise-network
     deploy:
@@ -187,7 +197,7 @@ services:
     networks:
       - enterprise-network
     deploy:
-      replicas: ${TASK_SERVICE_REPLICAS:-1}
+      replicas: ${PROJECT_SERVICE_REPLICAS:-1}
       restart_policy:
         condition: on-failure
       resources:
@@ -237,7 +247,6 @@ services:
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - PROJECT_SERVICE_URL=http://project-service:3009
-      - TASK_SERVICE_URL=http://project-service:3009
     networks:
       - enterprise-network
     deploy:
@@ -264,9 +273,11 @@ services:
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
       - PROJECT_SERVICE_URL=http://project-service:3009
-      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
+      - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL}
+      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - AI_PROPOSAL_NOTIFY=${AI_PROPOSAL_NOTIFY:-true}
       - AI_TASK_WORKER_MODE=both
     networks:
       - enterprise-network
@@ -344,9 +355,11 @@ services:
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
       - PROJECT_SERVICE_URL=http://project-service:3009
-      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
+      - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL}
+      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - AI_PROPOSAL_NOTIFY=${AI_PROPOSAL_NOTIFY:-true}
       - AI_TASK_WORKER_MODE=extract
     networks:
       - enterprise-network
@@ -381,9 +394,11 @@ services:
       - USER_SERVICE_URL=${USER_SERVICE_URL}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
       - PROJECT_SERVICE_URL=http://project-service:3009
-      - TASK_SERVICE_URL=http://project-service:3009
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - PADDLEOCR_BASE_URL=${PADDLEOCR_BASE_URL}
+      - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL}
+      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - AI_PROPOSAL_NOTIFY=${AI_PROPOSAL_NOTIFY:-true}
       - AI_TASK_WORKER_MODE=sync
     networks:
       - enterprise-network
@@ -411,6 +426,10 @@ services:
     env_file:
       - .env
       - ./services/document-service/.env
+    environment:
+      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL}
+      - ORGANIZATION_SERVICE_URL=${ORGANIZATION_SERVICE_URL}
     networks:
       - enterprise-network
     deploy:
@@ -922,48 +941,6 @@ services:
           cpus: "0.20"
           memory: 96M
 
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "4.00"
-          memory: 3G
-        reservations:
-          cpus: "1.00"
-          memory: 768M
-      placement:
-        constraints:
-          - node.labels.ai == true
-
-  paddleocr-service:
-    image: blazordevlab/paddleocrapi:latest
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "2.00"
-          memory: 512M
-        reservations:
-          cpus: "0.50"
-          memory: 192M
-      placement:
-        constraints:
-          - node.labels.ai == true
-
-volumes:
-  ollama_data:
 networks:
   enterprise-network:
     driver: overlay

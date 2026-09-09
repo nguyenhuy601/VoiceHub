@@ -15,7 +15,9 @@ import {
 } from '../../utils/calendarUtils';
 import { useAppStrings } from '../../locales/appStrings';
 import { useLocale } from '../../context/LocaleContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { LOCAL_CUSTOM_KEY } from '../../utils/dmCalendarReminders';
+import { buildCollaborateProjectHubPath } from '../../utils/suitePathUtils';
 import {
   FIGMA_PAGE_CARD_PAD,
   FIGMA_PAGE_SHELL,
@@ -81,7 +83,22 @@ function CalendarPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const organizationId = searchParams.get('organizationId') || '';
+  const { activeWorkspace, company } = useWorkspace();
+  const organizationId = useMemo(() => {
+    const fromQuery = String(searchParams.get('organizationId') || '').trim();
+    if (fromQuery) return fromQuery;
+    const onCollaborate = String(location.pathname || '').startsWith('/app/collaborate');
+    if (!onCollaborate) return '';
+    return String(
+      activeWorkspace?._id ||
+        activeWorkspace?.id ||
+        activeWorkspace?.organizationId ||
+        company?.id ||
+        company?._id ||
+        company?.organizationId ||
+        ''
+    ).trim();
+  }, [searchParams, location.pathname, activeWorkspace, company]);
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const { locale } = useLocale();
@@ -118,6 +135,8 @@ function CalendarPage() {
     tasksForAlerts,
     reloadLocal,
     refetch,
+    loading: feedLoading,
+    error: feedError,
   } = useCalendarFeed(selectedDate, organizationId);
 
   useTaskDueAlerts(tasksForAlerts, {
@@ -131,7 +150,14 @@ function CalendarPage() {
     if (calendarKindFilter === 'all') return events;
     return events.filter((e) => {
       if (calendarKindFilter === 'meeting') return e.kind === 'meeting' || e.type === 'meeting';
-      if (calendarKindFilter === 'deadline') return e.kind === 'task' || e.type === 'deadline';
+      if (calendarKindFilter === 'deadline') {
+        return (
+          e.kind === 'task' ||
+          e.kind === 'work' ||
+          e.type === 'deadline' ||
+          e.type === 'work'
+        );
+      }
       if (calendarKindFilter === 'local') return e.kind === 'local' || e.source === 'local';
       return true;
     });
@@ -513,7 +539,21 @@ function CalendarPage() {
       toast(t('calendar.toastLocalEvent'), { icon: 'ℹ️' });
       return;
     }
-    if (eventData.kind === 'task' || eventData.type === 'deadline') {
+    if (eventData.kind === 'task' || eventData.kind === 'work' || eventData.type === 'deadline' || eventData.type === 'work') {
+      const projectId = String(eventData.projectId || eventData.raw?.projectId || '').trim();
+      const boardId = String(eventData.boardId || eventData.raw?.boardId || '').trim();
+      const orgId = String(
+        eventData.organizationId || eventData.raw?.organizationId || organizationId || ''
+      ).trim();
+      if (projectId) {
+        navigate(
+          buildCollaborateProjectHubPath(projectId, {
+            organizationId: orgId,
+            boardId,
+          })
+        );
+        return;
+      }
       toast(t('calendar.toastOpenTasks'), { icon: 'ℹ️' });
       return;
     }
@@ -605,6 +645,8 @@ function CalendarPage() {
       selectedDateEvents={selectedDateEvents}
       upcomingMonthEvents={upcomingMonthEvents}
       onUpcomingClick={handleUpcomingClick}
+      loading={feedLoading}
+      error={feedError}
     />
   );
 

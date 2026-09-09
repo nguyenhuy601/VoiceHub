@@ -69,6 +69,7 @@ async function upsertTemplate(req, res) {
       description: body.description,
       statuses: body.statuses || body.states,
       transitions: body.transitions,
+      priorities: body.priorities,
     });
     return res.json({ success: true, data });
   } catch (err) {

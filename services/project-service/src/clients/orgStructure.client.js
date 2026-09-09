@@ -6,8 +6,9 @@ const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || 
   .replace(/\/+$/, '');
 
 /**
- * S2S: department roster (memberIds + head) cho capacity / planner.
+ * S2S: department roster (memberIds + head) cho capacity / planner / pool.
  * Degrade → [] nếu org-service lỗi.
+ * Không truyền departmentIds → toàn org (elevated callers).
  */
 async function fetchDepartmentRoster(organizationId, { departmentIds, actorUserId } = {}) {
   if (!ORGANIZATION_SERVICE_URL || !organizationId) return [];
@@ -34,4 +35,24 @@ async function fetchDepartmentRoster(organizationId, { departmentIds, actorUserI
   }
 }
 
-module.exports = { fetchDepartmentRoster };
+async function fetchUserPlacement(organizationId, userId, actorUserId) {
+  if (!ORGANIZATION_SERVICE_URL || !organizationId || !userId) return null;
+  try {
+    const res = await axios.get(
+      `${ORGANIZATION_SERVICE_URL}/api/organizations/internal/organizations/${encodeURIComponent(
+        String(organizationId)
+      )}/users/${encodeURIComponent(String(userId))}/placement`,
+      {
+        headers: buildTrustedGatewayHeaders(actorUserId || 'system'),
+        timeout: 12000,
+        validateStatus: () => true,
+      }
+    );
+    if (res.status !== 200) return null;
+    return res.data?.data?.placement || null;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { fetchDepartmentRoster, fetchUserPlacement };

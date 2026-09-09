@@ -15,10 +15,6 @@ import {
   permissionEntriesFromState,
   summarizePermissions,
 } from './roleRbacUtils';
-import {
-  ADMIN_RBAC_PERMISSION_GROUPS,
-  toLegacyPermissionGroups,
-} from '../../config/adminRbacCatalog';
 
 // useAppStrings (marker for strict i18n scanner)
 
@@ -52,27 +48,9 @@ export function membershipRoleLabel(t) {
   };
 }
 
-/** Nhóm quyền hiển thị — catalog admin RBAC (fine-grained). */
-export function rbacPermissionGroups(t) {
-  void t;
-  return toLegacyPermissionGroups(ADMIN_RBAC_PERMISSION_GROUPS, 'vi');
-}
-
-// Backward-compatible constants for existing imports.
+/** Nhóm quyền hiển thị — catalog V2 lấy từ GET /permissions/catalog. */
 export const MEMBERSHIP_ROLE_LABEL = membershipRoleLabel();
-export const RBAC_PERMISSION_GROUPS = rbacPermissionGroups();
 export const ACTION_LABEL = actionLabelMap();
-
-export function totalPermissionSlotCount() {
-  return rbacPermissionGroups().reduce(
-    (sum, g) => sum + g.resources.reduce((s, r) => s + r.actions.length, 0),
-    0
-  );
-}
-
-export function grantedPermissionCount(permissions) {
-  return normalizePermissionEntries(permissions).reduce((acc, p) => acc + p.actions.length, 0);
-}
 
 export function isStructuralRole(role) {
   return Boolean(structuralTierFromRoleName(role?.name));
@@ -100,7 +78,20 @@ export function isProtectedDefaultRole(role) {
 }
 
 export function normalizeRoleId(role) {
-  return String(role?.id || role?._id || '').trim();
+  if (role == null || role === '') return '';
+  if (typeof role === 'string' || typeof role === 'number') {
+    const id = String(role).trim();
+    if (!id || id === 'null' || id === 'undefined') return '';
+    return id;
+  }
+  if (typeof role === 'object') {
+    const nested = role.id || role._id || role.roleId;
+    if (nested && nested !== role) return normalizeRoleId(nested);
+    if (typeof role.toHexString === 'function') return role.toHexString();
+    const asString = String(role).trim();
+    if (asString && asString !== '[object Object]') return asString;
+  }
+  return '';
 }
 
 export function unwrapList(payload) {

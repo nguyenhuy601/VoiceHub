@@ -65,16 +65,22 @@ async function publishAnalyticsEventFireAndForget(partial) {
 function emitTaskFactBestEffort({
   taskId,
   organizationId,
+  projectId,
   createdBy,
   assigneeId,
   status,
   doneDelta,
+  estimateHours,
+  issueType,
+  completedAt,
+  firstInProgressAt,
 }) {
   const userIds = [createdBy, assigneeId].filter(Boolean).map(String);
   publishAnalyticsEventFireAndForget({
     type: ANALYTICS_EVENT_TYPES.TASK_FACT,
     eventId: crypto.randomUUID(),
     organizationId: organizationId || undefined,
+    projectId: projectId || undefined,
     payload: {
       taskId: taskId ? String(taskId) : undefined,
       status: status || undefined,
@@ -82,6 +88,71 @@ function emitTaskFactBestEffort({
       assigneeId: assigneeId ? String(assigneeId) : undefined,
       userIds,
       doneDelta,
+      estimateHours:
+        estimateHours === undefined || estimateHours === null ? undefined : Number(estimateHours),
+      issueType: issueType || undefined,
+      completedAt: completedAt ? new Date(completedAt).toISOString() : undefined,
+      firstInProgressAt: firstInProgressAt
+        ? new Date(firstInProgressAt).toISOString()
+        : undefined,
+    },
+  }).catch(() => null);
+}
+
+function emitWorklogFactBestEffort({
+  worklogId,
+  organizationId,
+  projectId,
+  taskId,
+  userId,
+  hours,
+  workDate,
+  sprintId,
+}) {
+  publishAnalyticsEventFireAndForget({
+    type: ANALYTICS_EVENT_TYPES.WORKLOG_FACT,
+    eventId: crypto.randomUUID(),
+    organizationId: organizationId || undefined,
+    projectId: projectId || undefined,
+    payload: {
+      worklogId: worklogId ? String(worklogId) : undefined,
+      taskId: taskId ? String(taskId) : undefined,
+      userId: userId ? String(userId) : undefined,
+      hours: hours != null ? Number(hours) : undefined,
+      workDate: workDate ? new Date(workDate).toISOString() : undefined,
+      sprintId: sprintId ? String(sprintId) : undefined,
+      userIds: userId ? [String(userId)] : [],
+    },
+  }).catch(() => null);
+}
+
+function emitStatusTransitionFactBestEffort({
+  taskId,
+  organizationId,
+  projectId,
+  assigneeId,
+  fromStatus,
+  toStatus,
+  isRework,
+  isReopen,
+  firstInProgressAt,
+}) {
+  publishAnalyticsEventFireAndForget({
+    type: ANALYTICS_EVENT_TYPES.STATUS_TRANSITION_FACT,
+    eventId: crypto.randomUUID(),
+    organizationId: organizationId || undefined,
+    projectId: projectId || undefined,
+    payload: {
+      taskId: taskId ? String(taskId) : undefined,
+      assigneeId: assigneeId ? String(assigneeId) : undefined,
+      fromStatus: fromStatus != null ? String(fromStatus) : undefined,
+      toStatus: toStatus != null ? String(toStatus) : undefined,
+      isRework: Boolean(isRework),
+      isReopen: Boolean(isReopen),
+      firstInProgressAt: firstInProgressAt
+        ? new Date(firstInProgressAt).toISOString()
+        : undefined,
+      userIds: assigneeId ? [String(assigneeId)] : [],
     },
   }).catch(() => null);
 }
@@ -91,5 +162,7 @@ module.exports = {
   publishAnalyticsEvent,
   publishAnalyticsEventFireAndForget,
   emitTaskFactBestEffort,
+  emitWorklogFactBestEffort,
+  emitStatusTransitionFactBestEffort,
   isPublishEnabled,
 };

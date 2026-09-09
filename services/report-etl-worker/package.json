@@ -1,0 +1,17 @@
+{
+  "name": "report-etl-worker",
+  "version": "0.1.0",
+  "description": "Thin entry for ADR-003 analytics ETL (reuses report-service consumer)",
+  "main": "src/worker.js",
+  "scripts": {
+    "start": "node src/worker.js",
+    "dev": "node src/worker.js",
+    "postinstall": "node ../../shared/postinstall-link.cjs"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.4",
+    "dotenv": "^17.2.3",
+    "mongoose": "^9.1.4"
+  },
+  "license": "ISC"
+}

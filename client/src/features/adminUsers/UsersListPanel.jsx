@@ -1,18 +1,17 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Search, UserPlus } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Search, SlidersHorizontal, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConfirmDialog } from '../../components/Shared';
 import AdminUserActionsMenu from '../../components/adminUsers/AdminUserActionsMenu';
 import AdminUserDetailDrawer from '../../components/adminUsers/AdminUserDetailDrawer';
 import { useCompanyAdminContext } from '../../pages/Admin/CompanyAdminLayout';
 import { organizationAPI } from '../../services/api/organizationAPI';
-import roleAPI from '../../services/api/roleAPI';
-import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { getInitials } from '../../utils/helpers';
 import useAdminMembers from '../../hooks/useAdminMembers';
-import { normalizeRoleDisplayName, unwrapList } from '../../utils/adminRbacUtils';
+import { useDebouncedValue } from '../search/useDebouncedValue';
+import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
 import {
   compareMembersForAdminList,
   formatRbacRoleLabels,
@@ -25,9 +24,9 @@ import {
   memberStatusLabel,
   memberTeamId,
   memberUserId,
-  unwrapApi,
 } from '../../utils/adminUserUtils';
 import { buildOrgRoleRowsByUserId, memberJobTitle } from '../../utils/userTaxonomyUtils';
+import { adminUserHubLink } from '../../utils/adminHubLinks';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 
 /** Số dòng mỗi trang trên danh sách admin users. */
@@ -50,20 +49,6 @@ function CapabilityStatusBadge({ status, t }) {
   );
 }
 
-async function mapPool(items, concurrency, mapper) {
-  const results = new Array(items.length);
-  let idx = 0;
-  async function worker() {
-    while (idx < items.length) {
-      const i = idx;
-      idx += 1;
-      results[i] = await mapper(items[i], i);
-    }
-  }
-  const n = Math.min(concurrency, Math.max(1, items.length));
-  await Promise.all(Array.from({ length: n }, () => worker()));
-  return results;
-}
 function StatusBadge({ member, t }) {
   const key = memberStatusKey(member);
   const styles = {
@@ -81,7 +66,27 @@ function StatusBadge({ member, t }) {
   );
 }
 
-function AccountRoleBadge({ role }) {
+function accountRoleLabel(role, t) {
+  const r = String(role || 'member').toLowerCase();
+  if (r === 'owner') return t('organizations.roleOwner');
+  if (r === 'admin') return t('adminUsers.roleAdmin');
+  if (r === 'hr') return t('adminUsers.roleHr');
+  return t('adminUsers.roleMember');
+}
+
+function UsersTableSkeletonRows({ rows = USERS_LIST_PAGE_SIZE }) {
+  return Array.from({ length: rows }, (_, rowIdx) => (
+    <tr key={`sk-${rowIdx}`} className="border-b border-border/50">
+      {Array.from({ length: 12 }, (_, colIdx) => (
+        <td key={colIdx} className="px-4 py-3">
+          <span className="inline-block h-4 w-full max-w-[7rem] animate-pulse rounded bg-muted" />
+        </td>
+      ))}
+    </tr>
+  ));
+}
+
+function AccountRoleBadge({ role, t }) {
   const r = String(role || 'member').toLowerCase();
   const color =
     r === 'owner' || r === 'admin'
@@ -90,8 +95,8 @@ function AccountRoleBadge({ role }) {
         ? 'bg-cyan-500/12 text-cyan-800 ring-1 ring-cyan-500/20 dark:text-cyan-200'
         : 'bg-slate-500/10 text-slate-700 ring-1 ring-slate-500/15 dark:text-slate-300';
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize ${color}`}>
-      {r}
+    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${color}`}>
+      {accountRoleLabel(role, t)}
     </span>
   );
 }
@@ -191,9 +196,12 @@ export default function UsersListPanel({ orgId }) {
   const { t, locale } = useAppStrings();
   const navigate = useNavigate();
   const { organization } = useCompanyAdminContext();
-  const { members, loading } = useAdminMembers(orgId);
+  const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId, {
+    view: 'admin_table',
+  });
 
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(query, 300);
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [capabilityFilter, setCapabilityFilter] = useState('');
@@ -201,17 +209,65 @@ export default function UsersListPanel({ orgId }) {
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [page, setPage] = useState(1);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersRef = useRef(null);
   const [structureMaps, setStructureMaps] = useState({ departments: new Map(), teams: new Map() });
   const [structureRaw, setStructureRaw] = useState(null);
   const [orgRoleByUser, setOrgRoleByUser] = useState({});
-  const [rbacByUser, setRbacByUser] = useState({});
-  const [capabilityByUser, setCapabilityByUser] = useState({});
+  const [capabilityOverrides, setCapabilityOverrides] = useState({});
   const [detailMember, setDetailMember] = useState(null);
   const [deleteMember, setDeleteMember] = useState(null);
 
+  const rbacByUser = useMemo(() => {
+    const map = {};
+    for (const m of members) {
+      const id = memberUserId(m);
+      if (id) map[id] = Array.isArray(m.rbacRoles) ? m.rbacRoles : [];
+    }
+    return map;
+  }, [members]);
+
+  const capabilityByUser = useMemo(() => {
+    const map = {};
+    for (const m of members) {
+      const id = memberUserId(m);
+      if (!id) continue;
+      if (Object.prototype.hasOwnProperty.call(capabilityOverrides, id)) {
+        map[id] = capabilityOverrides[id];
+      } else {
+        map[id] = String(m.capabilityStatus || 'draft').trim() || 'draft';
+      }
+    }
+    return map;
+  }, [members, capabilityOverrides]);
+
+  const activeFilterCount = [roleFilter, statusFilter, capabilityFilter, scopeFilter].filter(Boolean).length;
+
   useEffect(() => {
     setPage(1);
-  }, [orgId, query, roleFilter, statusFilter, capabilityFilter, scopeFilter, sortKey, sortDir]);
+  }, [orgId, debouncedQuery, roleFilter, statusFilter, capabilityFilter, scopeFilter, sortKey, sortDir]);
+
+  useEffect(() => {
+    setCapabilityOverrides({});
+  }, [orgId]);
+
+  useEffect(() => {
+    if (!filtersOpen) return undefined;
+    const onDoc = (e) => {
+      if (filtersRef.current && !filtersRef.current.contains(e.target)) {
+        setFiltersOpen(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setFiltersOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [filtersOpen]);
 
   useEffect(() => {
     if (!orgId) return undefined;
@@ -270,7 +326,7 @@ export default function UsersListPanel({ orgId }) {
   }, [structureMaps]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     return members.filter((m) => {
       if (roleFilter && memberOrgRole(m) !== roleFilter) return false;
       if (statusFilter && memberStatusKey(m) !== statusFilter) return false;
@@ -297,10 +353,12 @@ export default function UsersListPanel({ orgId }) {
       );
       const jobTitle = memberJobTitle(m).toLowerCase();
       const code = memberEmployeeCode(m).toLowerCase();
+      const roleLabel = accountRoleLabel(memberOrgRole(m), t).toLowerCase();
       return (
         memberDisplayName(m).toLowerCase().includes(q) ||
         memberEmail(m).toLowerCase().includes(q) ||
         memberOrgRole(m).includes(q) ||
+        roleLabel.includes(q) ||
         jobTitle.includes(q) ||
         rbacLabels.some((label) => label.toLowerCase().includes(q)) ||
         dep.toLowerCase().includes(q) ||
@@ -311,7 +369,7 @@ export default function UsersListPanel({ orgId }) {
     });
   }, [
     members,
-    query,
+    debouncedQuery,
     roleFilter,
     statusFilter,
     capabilityFilter,
@@ -319,6 +377,7 @@ export default function UsersListPanel({ orgId }) {
     structureMaps,
     rbacByUser,
     capabilityByUser,
+    t,
   ]);
 
   const sorted = useMemo(
@@ -335,66 +394,6 @@ export default function UsersListPanel({ orgId }) {
     return sorted.slice(start, start + USERS_LIST_PAGE_SIZE);
   }, [sorted, safePage]);
 
-  useEffect(() => {
-    if (page !== safePage) setPage(safePage);
-  }, [page, safePage]);
-
-  useEffect(() => {
-    if (!orgId || !members.length) {
-      setRbacByUser({});
-      return undefined;
-    }
-    let cancelled = false;
-    (async () => {
-      const entries = await Promise.all(
-        members.map(async (m) => {
-          const uid = memberUserId(m);
-          if (!uid) return ['', []];
-          try {
-            const res = await roleAPI.getUserRoles(uid, orgId);
-            return [uid, unwrapList(res)];
-          } catch {
-            return [uid, []];
-          }
-        })
-      );
-      if (!cancelled) {
-        setRbacByUser(Object.fromEntries(entries.filter(([uid]) => uid)));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, members]);
-
-  useEffect(() => {
-    if (!orgId || !members.length) {
-      setCapabilityByUser({});
-      return undefined;
-    }
-    let cancelled = false;
-    (async () => {
-      const rows = await mapPool(members, 5, async (m) => {
-        const uid = memberUserId(m);
-        if (!uid) return ['', 'draft'];
-        try {
-          const res = await adminUserAPI.getProfile(orgId, uid);
-          const data = unwrapApi(res)?.data ?? unwrapApi(res);
-          const status = String(data?.capability?.verificationStatus || 'draft').trim() || 'draft';
-          return [uid, status];
-        } catch {
-          return [uid, 'draft'];
-        }
-      });
-      if (!cancelled) {
-        setCapabilityByUser(Object.fromEntries(rows.filter(([uid]) => uid)));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, members]);
-
   const handleSortColumn = (columnKey) => {
     if (sortKey === columnKey) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -403,6 +402,17 @@ export default function UsersListPanel({ orgId }) {
     setSortKey(columnKey);
     setSortDir('asc');
   };
+
+  const clearListFilters = () => {
+    setRoleFilter('');
+    setStatusFilter('');
+    setCapabilityFilter('');
+    setScopeFilter('');
+  };
+
+  const showMembersError = Boolean(membersError) && !members.length && !loading;
+  const showMembersSkeleton = loading && !members.length;
+  const showTableBody = !showMembersError && !showMembersSkeleton;
 
   const confirmDelete = () => {
     const id = memberUserId(deleteMember);
@@ -413,12 +423,12 @@ export default function UsersListPanel({ orgId }) {
       return;
     }
     setDeleteMember(null);
-    navigate(`/app/admin/users/delete?userId=${encodeURIComponent(id)}`);
+    navigate(adminUserHubLink('/app/admin/users/people-ops', id, 'delete'));
   };
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="mx-auto flex max-h-[calc(100dvh-7.5rem)] min-h-0 max-w-[1400px] flex-col gap-4">
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-foreground">
             {t('adminDomains.users.list')}
@@ -441,7 +451,7 @@ export default function UsersListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="shrink-0 rounded-xl border border-border bg-card p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -453,215 +463,265 @@ export default function UsersListPanel({ orgId }) {
               className="w-full rounded-xl border border-border bg-background py-2.5 pl-9 pr-3 text-sm outline-none ring-red-500/30 focus:ring-2"
             />
           </div>
-          <div className="flex flex-wrap gap-2">
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-            >
-              <option value="">{t('adminUsers.filterAllRoles')}</option>
-              <option value="owner">owner</option>
-              <option value="admin">admin</option>
-              <option value="hr">hr</option>
-              <option value="member">member</option>
-            </select>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-            >
-              <option value="">{t('adminUsers.filterAllStatus')}</option>
-              <option value="active">{t('adminUsers.statusActive')}</option>
-              <option value="locked">{t('adminUsers.statusLocked')}</option>
-              <option value="inactive">{t('adminUsers.statusInactive')}</option>
-              <option value="mustChangePassword">{t('adminUsers.statusMustChangePassword')}</option>
-            </select>
-            <select
-              value={capabilityFilter}
-              onChange={(e) => setCapabilityFilter(e.target.value)}
-              className="rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-              aria-label={t('adminUsers.filterCapability')}
-            >
-              <option value="">{t('adminUsers.filterAllCapability')}</option>
-              <option value="pending_hr">{t('adminUsers.filterCapPending')}</option>
-              <option value="verified">{t('adminUsers.filterCapVerified')}</option>
-              <option value="rejected">{t('adminUsers.filterCapRejected')}</option>
-              <option value="draft">{t('adminUsers.filterCapDraft')}</option>
-            </select>
-            <select
-              value={scopeFilter}
-              onChange={(e) => setScopeFilter(e.target.value)}
-              className="min-w-[160px] rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-            >
-              <option value="">{t('adminUsers.filterAllScopes')}</option>
-              {scopeOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.type === 'team' ? `Team · ${opt.label}` : opt.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={`${sortKey}:${sortDir}`}
-              onChange={(e) => {
-                const [k, d] = String(e.target.value || 'name:asc').split(':');
-                setSortKey(k === 'employeeCode' || k === 'email' ? k : 'name');
-                setSortDir(d === 'desc' ? 'desc' : 'asc');
-              }}
-              className="rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-              aria-label={t('adminUsers.sortBy')}
-            >
-              <option value="name:asc">{t('adminUsers.sortNameAz')}</option>
-              <option value="name:desc">{t('adminUsers.sortNameZa')}</option>
-              <option value="employeeCode:asc">{t('adminUsers.sortCodeAz')}</option>
-              <option value="employeeCode:desc">{t('adminUsers.sortCodeZa')}</option>
-            </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative" ref={filtersRef}>
+              <button
+                type="button"
+                aria-expanded={filtersOpen}
+                aria-controls="users-list-filters"
+                onClick={() => setFiltersOpen((open) => !open)}
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted/40"
+              >
+                <SlidersHorizontal className="h-4 w-4" aria-hidden />
+                {t('adminUsers.filters')}
+                {activeFilterCount ? (
+                  <span
+                    className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+                    title={t('adminUsers.filtersActive', { n: activeFilterCount })}
+                  >
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+              </button>
+              {filtersOpen ? (
+                <div
+                  id="users-list-filters"
+                  className="absolute right-0 z-20 mt-2 w-[min(calc(100vw-2rem),20rem)] space-y-2 rounded-xl border border-border bg-card p-3 shadow-lg"
+                >
+                  <select
+                    value={roleFilter}
+                    onChange={(e) => setRoleFilter(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                  >
+                    <option value="">{t('adminUsers.filterAllRoles')}</option>
+                    <option value="owner">{t('organizations.roleOwner')}</option>
+                    <option value="admin">{t('adminUsers.roleAdmin')}</option>
+                    <option value="hr">{t('adminUsers.roleHr')}</option>
+                    <option value="member">{t('adminUsers.roleMember')}</option>
+                  </select>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                  >
+                    <option value="">{t('adminUsers.filterAllStatus')}</option>
+                    <option value="active">{t('adminUsers.statusActive')}</option>
+                    <option value="locked">{t('adminUsers.statusLocked')}</option>
+                    <option value="inactive">{t('adminUsers.statusInactive')}</option>
+                    <option value="mustChangePassword">{t('adminUsers.statusMustChangePassword')}</option>
+                  </select>
+                  <select
+                    value={capabilityFilter}
+                    onChange={(e) => setCapabilityFilter(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                    aria-label={t('adminUsers.filterCapability')}
+                  >
+                    <option value="">{t('adminUsers.filterAllCapability')}</option>
+                    <option value="pending_hr">{t('adminUsers.filterCapPending')}</option>
+                    <option value="verified">{t('adminUsers.filterCapVerified')}</option>
+                    <option value="rejected">{t('adminUsers.filterCapRejected')}</option>
+                    <option value="draft">{t('adminUsers.filterCapDraft')}</option>
+                  </select>
+                  <select
+                    value={scopeFilter}
+                    onChange={(e) => setScopeFilter(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                  >
+                    <option value="">{t('adminUsers.filterAllScopes')}</option>
+                    {scopeOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.type === 'team' ? `${t('adminUsers.colTeam')} · ${opt.label}` : opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={`${sortKey}:${sortDir}`}
+                    onChange={(e) => {
+                      const [k, d] = String(e.target.value || 'name:asc').split(':');
+                      setSortKey(k === 'employeeCode' || k === 'email' ? k : 'name');
+                      setSortDir(d === 'desc' ? 'desc' : 'asc');
+                    }}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                    aria-label={t('adminUsers.sortBy')}
+                  >
+                    <option value="name:asc">{t('adminUsers.sortNameAz')}</option>
+                    <option value="name:desc">{t('adminUsers.sortNameZa')}</option>
+                    <option value="employeeCode:asc">{t('adminUsers.sortCodeAz')}</option>
+                    <option value="employeeCode:desc">{t('adminUsers.sortCodeZa')}</option>
+                  </select>
+                  {activeFilterCount ? (
+                    <button
+                      type="button"
+                      onClick={clearListFilters}
+                      className="w-full rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
+                    >
+                      {t('adminUsers.filtersClear')}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        {loading ? (
-          <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        {showMembersError ? (
+          <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+            <p className="text-sm text-muted-foreground">{t('companyAdmin.loadMembersFail')}</p>
+            <button
+              type="button"
+              onClick={() => loadMembers()}
+              className="rounded-xl bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-500"
+            >
+              {t('adminUsers.listRetry')}
+            </button>
+          </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  <SortableTh
-                    label={t('adminUsers.colUser')}
-                    columnKey="name"
-                    activeKey={sortKey}
-                    dir={sortDir}
-                    onSort={handleSortColumn}
-                  />
-                  <SortableTh
-                    label={t('adminUsers.colEmployeeCode')}
-                    columnKey="employeeCode"
-                    activeKey={sortKey}
-                    dir={sortDir}
-                    onSort={handleSortColumn}
-                  />
-                  <SortableTh
-                    label={t('companyAdmin.colEmail')}
-                    columnKey="email"
-                    activeKey={sortKey}
-                    dir={sortDir}
-                    onSort={handleSortColumn}
-                  />
-                  <th className="px-4 py-3">{t('adminUsers.colAccountRole')}</th>
-                  <th className="px-4 py-3" title={t('adminUsers.colUserRoleHint')}>
-                    {t('adminUsers.colUserRole')}
-                  </th>
-                  <th className="px-4 py-3">{t('adminUsers.colPosition')}</th>
-                  <th className="px-4 py-3" title={t('adminUsers.colOrgRoleHint')}>
-                    {t('adminUsers.colOrgRole')}
-                  </th>
-                  <th className="px-4 py-3">{t('adminUsers.colDepartment')}</th>
-                  <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>
-                  <th className="px-4 py-3">{t('adminUsers.colCapability')}</th>
-                  <th className="px-4 py-3">{t('adminUsers.colLastLogin')}</th>
-                  <th className="w-12 px-2 py-3 text-center">
-                    <span className="sr-only">{t('adminUsers.colActions')}</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageItems.map((m) => {
-                  const id = memberUserId(m);
-                  const name = memberDisplayName(m);
-                  const code = memberEmployeeCode(m);
-                  const isSystemAdmin = isSystemAdminMember(m);
-                  const depId = memberDepartmentId(m);
-                  const teamId = memberTeamId(m);
-                  const depName = structureMaps.departments.get(depId);
-                  const teamName = structureMaps.teams.get(teamId);
-                  const rbacLabels = formatRbacRoleLabels(rbacByUser[id] || [], (row) =>
-                    normalizeRoleDisplayName(row?.name || row?.role?.name)
-                  );
-                  return (
-                    <tr
-                      key={id}
-                      className="border-b border-border/50 transition hover:bg-muted/20"
-                    >
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          className="flex max-w-[240px] items-center gap-3 text-left"
-                          onClick={() => setDetailMember(m)}
-                        >
-                          {m.avatar ? (
-                            <img src={m.avatar} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
-                          ) : (
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-500 to-slate-700 text-[11px] font-bold text-white">
-                              {getInitials(name)}
-                            </div>
-                          )}
-                          <span className="min-w-0">
-                            <span className="truncate font-medium text-foreground hover:underline">{name}</span>
-                            {isSystemAdmin ? (
-                              <span className="mt-0.5 block text-[10px] font-semibold text-violet-600 dark:text-violet-300">
-                                {t('adminNav.systemRoleBadge')}
-                              </span>
+          <>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead className="sticky top-0 z-10">
+                  <tr className="border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                    <SortableTh
+                      label={t('adminUsers.colUser')}
+                      columnKey="name"
+                      activeKey={sortKey}
+                      dir={sortDir}
+                      onSort={handleSortColumn}
+                    />
+                    <SortableTh
+                      label={t('adminUsers.colEmployeeCode')}
+                      columnKey="employeeCode"
+                      activeKey={sortKey}
+                      dir={sortDir}
+                      onSort={handleSortColumn}
+                    />
+                    <SortableTh
+                      label={t('companyAdmin.colEmail')}
+                      columnKey="email"
+                      activeKey={sortKey}
+                      dir={sortDir}
+                      onSort={handleSortColumn}
+                    />
+                    <th className="px-4 py-3">{t('adminUsers.colAccountRole')}</th>
+                    <th className="px-4 py-3" title={t('adminUsers.colUserRoleHint')}>
+                      {t('adminUsers.colUserRole')}
+                    </th>
+                    <th className="px-4 py-3">{t('adminUsers.colPosition')}</th>
+                    <th className="px-4 py-3" title={t('adminUsers.colOrgRoleHint')}>
+                      {t('adminUsers.colOrgRole')}
+                    </th>
+                    <th className="px-4 py-3">{t('adminUsers.colDepartment')}</th>
+                    <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>
+                    <th className="px-4 py-3">{t('adminUsers.colCapability')}</th>
+                    <th className="px-4 py-3">{t('adminUsers.colLastLogin')}</th>
+                    <th className="w-12 px-2 py-3 text-center">
+                      <span className="sr-only">{t('adminUsers.colActions')}</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {showMembersSkeleton ? <UsersTableSkeletonRows /> : null}
+                  {showTableBody
+                    ? pageItems.map((m) => {
+                    const id = memberUserId(m);
+                    const name = memberDisplayName(m);
+                    const code = memberEmployeeCode(m);
+                    const isSystemAdmin = isSystemAdminMember(m);
+                    const depId = memberDepartmentId(m);
+                    const teamId = memberTeamId(m);
+                    const depName = structureMaps.departments.get(depId);
+                    const teamName = structureMaps.teams.get(teamId);
+                    const rbacLabels = formatRbacRoleLabels(rbacByUser[id] || [], (row) =>
+                      normalizeRoleDisplayName(row?.name || row?.role?.name)
+                    );
+                    return (
+                      <tr
+                        key={id}
+                        className="border-b border-border/50 transition hover:bg-muted/20"
+                      >
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            className="flex max-w-[240px] items-center gap-3 text-left"
+                            onClick={() => setDetailMember(m)}
+                          >
+                            {m.avatar ? (
+                              <img src={m.avatar} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+                            ) : (
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-500 to-slate-700 text-[11px] font-bold text-white">
+                                {getInitials(name)}
+                              </div>
+                            )}
+                            <span className="min-w-0">
+                              <span className="truncate font-medium text-foreground hover:underline">{name}</span>
+                              {isSystemAdmin ? (
+                                <span className="mt-0.5 block text-[10px] font-semibold text-violet-600 dark:text-violet-300">
+                                  {t('adminNav.systemRoleBadge')}
+                                </span>
+                              ) : null}
+                            </span>
+                          </button>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted-foreground">
+                          {code || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{memberEmail(m)}</td>
+                        <td className="px-4 py-3">
+                          <AccountRoleBadge role={memberOrgRole(m)} t={t} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <UserRoleCell labels={rbacLabels} emptyLabel={t('adminUsers.userRoleNone')} />
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          <div className="max-w-[140px] truncate">{memberJobTitle(m) || '—'}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <OrgRoleCell
+                            rows={orgRoleByUser[id]}
+                            emptyLabel={t('adminUsers.orgRoleNone')}
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          <div className="max-w-[160px] truncate">
+                            {depName || teamName || '—'}
+                            {depName && teamName ? (
+                              <span className="block truncate text-[11px] opacity-70">{teamName}</span>
                             ) : null}
-                          </span>
-                        </button>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted-foreground">
-                        {code || '—'}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">{memberEmail(m)}</td>
-                      <td className="px-4 py-3">
-                        <AccountRoleBadge role={memberOrgRole(m)} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <UserRoleCell labels={rbacLabels} emptyLabel={t('adminUsers.userRoleNone')} />
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        <div className="max-w-[140px] truncate">{memberJobTitle(m) || '—'}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <OrgRoleCell
-                          rows={orgRoleByUser[id]}
-                          emptyLabel={t('adminUsers.orgRoleNone')}
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        <div className="max-w-[160px] truncate">
-                          {depName || teamName || '—'}
-                          {depName && teamName ? (
-                            <span className="block truncate text-[11px] opacity-70">{teamName}</span>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge member={m} t={t} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <CapabilityStatusBadge status={capabilityByUser[id] || 'draft'} t={t} />
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                        {formatWhen(m.lastLoginAt)}
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        <AdminUserActionsMenu
-                          member={m}
-                          onViewDetail={setDetailMember}
-                          onRequestDelete={setDeleteMember}
-                          disableDelete={isSystemAdmin}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {!sorted.length ? (
-              <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-                {t('adminUsers.noUsers')}
-              </p>
-            ) : null}
-            {sorted.length > 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3">
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge member={m} t={t} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <CapabilityStatusBadge status={capabilityByUser[id] || 'draft'} t={t} />
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                          {formatWhen(m.lastLoginAt)}
+                        </td>
+                        <td className="px-2 py-3 text-center">
+                          <AdminUserActionsMenu
+                            member={m}
+                            onViewDetail={setDetailMember}
+                            onRequestDelete={setDeleteMember}
+                            disableDelete={isSystemAdmin}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })
+                  : null}
+                </tbody>
+              </table>
+              {showTableBody && !sorted.length ? (
+                <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  {t('adminUsers.noUsers')}
+                </p>
+              ) : null}
+            </div>
+            {showTableBody && sorted.length > 0 ? (
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3">
                 <button
                   type="button"
                   disabled={safePage <= 1}
@@ -687,7 +747,7 @@ export default function UsersListPanel({ orgId }) {
                 </button>
               </div>
             ) : null}
-          </div>
+          </>
         )}
       </div>
 
@@ -709,7 +769,7 @@ export default function UsersListPanel({ orgId }) {
         }
         formatWhen={formatWhen}
         onCapabilityStatusChange={(userId, status) => {
-          setCapabilityByUser((prev) => ({ ...prev, [userId]: status }));
+          setCapabilityOverrides((prev) => ({ ...prev, [userId]: status }));
         }}
       />
 

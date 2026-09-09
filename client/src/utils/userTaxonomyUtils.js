@@ -9,9 +9,10 @@ import {
   ORGANIZATION_ROLE_KEYS,
   ORGANIZATION_ROLE_LABELS,
 } from './roleTaxonomy';
+import { coalesceJobTitle } from './jobTitleProfile';
 
 export function memberJobTitle(member) {
-  return String(member?.jobTitle || member?.preferences?.jobTitle || '').trim();
+  return coalesceJobTitle(member);
 }
 
 export function resolveOrgRolesForUser(userId, departments, teams) {

@@ -32,7 +32,9 @@ async function runWithReconnect(label, startFn, options = {}) {
         return;
       }
     } catch (err) {
-      console.error(`[${label}] session error:`, err?.message || err);
+      const code = err?.code || err?.errors?.[0]?.code || '';
+      const msg = err?.message || String(err);
+      console.error(`[${label}] session error: ${code ? `${code} ` : ''}${msg}`);
     }
     if (!shouldRun()) {
       break;

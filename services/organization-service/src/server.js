@@ -4,6 +4,7 @@ const { connectDB, connectRedis, disconnectDB, logger } = require('@enterprise/s
 
 const PORT = process.env.PORT || 3013;
 let memberImportConsumer = null;
+let projectChatConsumerLoop = null;
 
 // Kết nối MongoDB
 connectDB()
@@ -22,6 +23,12 @@ connectDB()
       } catch (e) {
         logger.warn('[memberImport] consumer start failed (inline fallback still OK)', e?.message || e);
       }
+      try {
+        const { runProjectChatEventsConsumerLoop } = require('./messaging/projectChatEvents.consumer');
+        projectChatConsumerLoop = runProjectChatEventsConsumerLoop();
+      } catch (e) {
+        logger.warn('[projectChatEvents] consumer start failed', e?.message || e);
+      }
     });
   })
   .catch((error) => {
@@ -34,6 +41,12 @@ process.on('SIGTERM', async () => {
   logger.info('SIGTERM signal received: closing HTTP server');
   try {
     if (memberImportConsumer?.stop) await memberImportConsumer.stop();
+  } catch {
+    /* ignore */
+  }
+  try {
+    const { stopProjectChatEventsConsumer } = require('./messaging/projectChatEvents.consumer');
+    await stopProjectChatEventsConsumer();
   } catch {
     /* ignore */
   }

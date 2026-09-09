@@ -32,7 +32,8 @@ function getStore(orgId) {
   if (!stores.has(key)) {
     const store = {
       roles: [],
-      loading: false,
+      // First paint must show loading, not an empty catalog.
+      loading: true,
       version: 0,
       error: null,
       listeners: new Set(),

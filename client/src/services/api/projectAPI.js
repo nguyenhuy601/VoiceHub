@@ -50,6 +50,31 @@ export function mapProjectsToBoardPickerRows(projects = []) {
     .filter(Boolean);
 }
 
+/** Map GET /projects/:id/boards → rows picker (._id = boardId). */
+export function mapBoardsToPickerRows(boards = [], projectMeta = {}) {
+  const projectId = String(projectMeta?.projectId || '').trim();
+  const fallbackTitle = String(projectMeta?.title || '').trim();
+  return (Array.isArray(boards) ? boards : [])
+    .map((b) => {
+      const boardId = String(b?._id || b?.id || '').trim();
+      if (!boardId) return null;
+      return {
+        ...b,
+        _id: boardId,
+        projectId: String(b?.projectId || projectId || '').trim(),
+        title: b?.title || fallbackTitle || '',
+        projectCode: b?.projectCode || projectMeta?.projectCode || '',
+        description: b?.description ?? projectMeta?.description,
+        dueDate: b?.dueDate ?? projectMeta?.dueDate,
+        visibility: b?.visibility ?? projectMeta?.visibility,
+        background: b?.background ?? projectMeta?.background,
+        status: b?.status ?? projectMeta?.status,
+        defaultBoardId: boardId,
+      };
+    })
+    .filter(Boolean);
+}
+
 /**
  * Canonical Project API (`/api/projects`).
  * projectId ≠ boardId (defaultBoardId trên response create/list).
@@ -78,14 +103,27 @@ export const projectAPI = {
   getOverview: (projectId) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/overview`),
 
-  getActivity: (projectId, params = {}) =>
-    apiClient.get(`/projects/${encodeURIComponent(projectId)}/activity`, { params }),
+  getActivity: (projectId, params = {}, config = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/activity`, {
+      params,
+      skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+    }),
 
   getFiles: (projectId) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/files`),
 
-  listMembers: (projectId) =>
-    apiClient.get(`/projects/${encodeURIComponent(projectId)}/members`),
+  getWorkPreview: (projectId, params = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/work-preview`, {
+      params: {
+        kind: params.kind || undefined,
+        id: params.id || undefined,
+      },
+    }),
+
+  listMembers: (projectId, config = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/members`, {
+      skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+    }),
 
   listMemberCandidates: (projectId, projectRoleKey) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/member-candidates`, {
@@ -142,6 +180,11 @@ export const projectAPI = {
       body
     ),
 
+  deleteSprint: (projectId, sprintId) =>
+    apiClient.delete(
+      `/projects/${encodeURIComponent(projectId)}/sprints/${encodeURIComponent(sprintId)}`
+    ),
+
   completeSprintPreview: (projectId, sprintId) =>
     apiClient.get(
       `/projects/${encodeURIComponent(projectId)}/sprints/${encodeURIComponent(sprintId)}/complete-preview`
@@ -151,6 +194,65 @@ export const projectAPI = {
     apiClient.post(
       `/projects/${encodeURIComponent(projectId)}/sprints/${encodeURIComponent(sprintId)}/complete`,
       body
+    ),
+
+  completeProjectPreview: (projectId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/complete-preview`),
+
+  completeProject: (projectId, body = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/complete`, body),
+
+  listChangeRequests: (projectId, params = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/change-requests`, {
+      params: {
+        q: params.q || undefined,
+        type: params.type || undefined,
+        status: params.status || undefined,
+        priority: params.priority || undefined,
+        sort: params.sort || undefined,
+        page: params.page,
+        size: params.size,
+      },
+    }),
+
+  getChangeRequest: (projectId, crId) =>
+    apiClient.get(
+      `/projects/${encodeURIComponent(projectId)}/change-requests/${encodeURIComponent(crId)}`
+    ),
+
+  createChangeRequest: (projectId, body = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/change-requests`, {
+      title: body.title,
+      description: body.description,
+      type: body.type,
+      priority: body.priority,
+      reason: body.reason,
+      current: body.current,
+      requestedChange: body.requestedChange,
+    }),
+
+  patchChangeRequest: (projectId, crId, body = {}) => {
+    const payload = {};
+    if (body.title !== undefined) payload.title = body.title;
+    if (body.description !== undefined) payload.description = body.description;
+    if (body.type !== undefined) payload.type = body.type;
+    if (body.priority !== undefined) payload.priority = body.priority;
+    if (body.reason !== undefined) payload.reason = body.reason;
+    if (body.current !== undefined) payload.current = body.current;
+    if (body.requestedChange !== undefined) payload.requestedChange = body.requestedChange;
+    if (body.status !== undefined) payload.status = body.status;
+    if (body.impact !== undefined) payload.impact = body.impact;
+    if (body.linkWorkItemId !== undefined) payload.linkWorkItemId = body.linkWorkItemId;
+    if (body.unlinkWorkItemId !== undefined) payload.unlinkWorkItemId = body.unlinkWorkItemId;
+    return apiClient.patch(
+      `/projects/${encodeURIComponent(projectId)}/change-requests/${encodeURIComponent(crId)}`,
+      payload
+    );
+  },
+
+  deleteChangeRequest: (projectId, crId) =>
+    apiClient.delete(
+      `/projects/${encodeURIComponent(projectId)}/change-requests/${encodeURIComponent(crId)}`
     ),
 
   listPlanningItems: (projectId, params = {}) =>
@@ -186,11 +288,27 @@ export const projectAPI = {
     ),
 
   /**
-   * Member-readable role catalog (seed UI). Không dùng /admin.
+   * Member-readable role catalog (org defaults / Master Data seed UI).
+   * Hub Settings/Members dùng listProjectRoles(projectId) thay vì endpoint này.
    * @param {string} organizationId
    */
   listRoleCatalog: (organizationId) =>
     apiClient.get('/projects/role-catalog', withOrg(organizationId, { params: { organizationId } })),
+
+  /** Bản Project Role + permissions theo dự án */
+  listProjectRoles: (projectId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/roles`),
+
+  updateProjectScopedRole: (projectId, roleId, body = {}) =>
+    apiClient.patch(
+      `/projects/${encodeURIComponent(projectId)}/roles/${encodeURIComponent(roleId)}`,
+      body
+    ),
+
+  resetProjectScopedRoleDefault: (projectId, roleId) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/roles/${encodeURIComponent(roleId)}/reset-default`
+    ),
 
   /** Phase 3 — Department Capacity */
   getDepartmentCapacity: (organizationId, params = {}) =>
@@ -203,6 +321,20 @@ export const projectAPI = {
   getResourcePlanner: (organizationId, params = {}, config = {}) =>
     apiClient.get(
       '/projects/resources/planner',
+      withOrg(organizationId, {
+        params: { ...params, organizationId },
+        skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      })
+    ),
+
+  /**
+   * Phase 2/3 — org-wide employee resource pool (admin / resource_manager).
+   * params: asOf, verifiedOnly, departmentId, limit,
+   *         fromDate, toDate | requirementPackId (Phase 3 capacityRange).
+   */
+  listOrgResourcePool: (organizationId, params = {}, config = {}) =>
+    apiClient.get(
+      '/projects/resources/pool',
       withOrg(organizationId, {
         params: { ...params, organizationId },
         skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
@@ -226,10 +358,41 @@ export const projectAPI = {
       })
     ),
 
+  /** Employee Resource Profile aggregate (self OK; others need RM/admin). */
+  getEmployeeResourceProfile: (organizationId, userId, params = {}, config = {}) =>
+    apiClient.get(
+      `/projects/resources/employees/${encodeURIComponent(userId)}/profile`,
+      withOrg(organizationId, {
+        params: { organizationId, ...params },
+        skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      })
+    ),
+
   /** Phase 3b — Utilization (planned ∩ actual hours) */
   getUtilization: (organizationId, params = {}) =>
     apiClient.get(
       '/projects/resources/utilization',
+      withOrg(organizationId, { params: { ...params, organizationId } })
+    ),
+
+  /** Historical Performance — list (admin) */
+  listUserPerformance: (organizationId, params = {}) =>
+    apiClient.get(
+      '/projects/resources/performance',
+      withOrg(organizationId, { params: { ...params, organizationId } })
+    ),
+
+  /** Historical Performance — user detail */
+  getUserPerformance: (organizationId, userId, params = {}) =>
+    apiClient.get(
+      `/projects/resources/performance/users/${encodeURIComponent(userId)}`,
+      withOrg(organizationId, { params: { ...params, organizationId } })
+    ),
+
+  /** AI / estimate calibration hints */
+  getEstimateHints: (organizationId, params = {}) =>
+    apiClient.get(
+      '/projects/resources/estimate-hints',
       withOrg(organizationId, { params: { ...params, organizationId } })
     ),
 
@@ -276,10 +439,17 @@ export const projectAPI = {
   startStubApproval: (organizationId, payload = {}) =>
     apiClient.post('/projects/approvals/stub', { ...payload, organizationId }),
 
-  bindProjectApprovalPolicy: (projectId, policyId) =>
-    apiClient.put(`/projects/${encodeURIComponent(projectId)}/approval-policy`, {
-      policyId: policyId || null,
-    }),
+  bindProjectApprovalPolicy: (projectId, policyId, { changeRequestPolicyId } = {}) => {
+    const body = {};
+    if (policyId !== undefined) body.policyId = policyId || null;
+    if (changeRequestPolicyId !== undefined) body.changeRequestPolicyId = changeRequestPolicyId || null;
+    return apiClient.put(`/projects/${encodeURIComponent(projectId)}/approval-policy`, body);
+  },
+
+  submitChangeRequestApproval: (projectId, crId) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/change-requests/${encodeURIComponent(crId)}/submit-approval`
+    ),
 
   /** Phase 6 — Governance */
   listAuditEvents: (organizationId, params = {}) =>

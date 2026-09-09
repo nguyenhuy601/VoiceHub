@@ -1,29 +1,37 @@
 /** Huy: Domain Cơ cấu tổ chức — admin org-structure */
-import { Link } from 'react-router-dom';
-import { useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  AdminUserPanelShell,
-  adminInputClass,
-  adminPrimaryBtnClass,
+    AdminUserPanelShell,
+    adminInputClass,
+    adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
-import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { useAppStrings } from '../../locales/appStrings';
+import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 import { teamLeaderId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { memberLabelById } from '../../utils/adminUserUtils';
 
+const TEAM_MANAGE_HUB = '/app/admin/org-structure/teams/manage';
 const ACTION_LINKS = [
-  { path: '/app/admin/org-structure/teams/edit', labelKey: 'adminDomains.orgStructure.teamEdit' },
-  { path: '/app/admin/org-structure/teams/members', labelKey: 'adminDomains.orgStructure.teamMembers' },
-  { path: '/app/admin/org-structure/teams/leader', labelKey: 'adminDomains.orgStructure.teamLeader' },
-  { path: '/app/admin/org-structure/teams/archive', labelKey: 'adminDomains.orgStructure.teamArchive' },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.teamEdit', grant: RBAC_GRANT.TEAM_UPDATE },
+  { tab: 'members', labelKey: 'adminDomains.orgStructure.teamMembers', grant: RBAC_GRANT.TEAM_UPDATE },
+  { tab: 'leader', labelKey: 'adminDomains.orgStructure.teamLeader', grant: RBAC_GRANT.TEAM_UPDATE },
+  { tab: 'archive', labelKey: 'adminDomains.orgStructure.teamArchive', grant: RBAC_GRANT.TEAM_UPDATE },
 ];
 
 export default function TeamListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { teams, loading } = useAdminOrgStructure(orgId);
+  const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const { membersByIdAll } = useAdminMembers(orgId);
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -48,10 +56,12 @@ export default function TeamListPanel({ orgId }) {
       hint={t('adminOrg.teamListHint')}
       wide
       actions={
-        <Link to="/app/admin/org-structure/teams/create" className={adminPrimaryBtnClass()}>
-          <Plus className="h-4 w-4" />
-          {t('adminDomains.orgStructure.teamCreate')}
-        </Link>
+        canCreateTeam ? (
+          <Link to="/app/admin/org-structure/teams/create" className={adminPrimaryBtnClass()}>
+            <Plus className="h-4 w-4" />
+            {t('adminDomains.orgStructure.teamCreate')}
+          </Link>
+        ) : null
       }
     >
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -70,6 +80,13 @@ export default function TeamListPanel({ orgId }) {
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {loading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : structureError ? (
+          <div className="space-y-3 px-4 py-6">
+            <p className="text-sm text-destructive">{structureError}</p>
+            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
+              {t('adminRbac.retry')}
+            </button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -110,10 +127,12 @@ export default function TeamListPanel({ orgId }) {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
-                          {ACTION_LINKS.map((link) => (
+                          {ACTION_LINKS.filter((link) =>
+                            canActWithGrant(isFullAccess, hasGrant, link.grant)
+                          ).map((link) => (
                             <Link
-                              key={link.path}
-                              to={`${link.path}?unitId=${encodeURIComponent(id)}`}
+                              key={link.tab}
+                              to={adminOrgUnitHubLink(TEAM_MANAGE_HUB, id, link.tab)}
                               className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
                             >
                               {t(link.labelKey)}

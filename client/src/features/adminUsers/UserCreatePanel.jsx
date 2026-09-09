@@ -67,8 +67,9 @@ function buildJobTitleOptions(memberTitles = []) {
 export default function UserCreatePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const { refreshStats } = useCompanyAdminContext();
-  const { loadMembers, members } = useAdminMembers(orgId);
+  const { loadMembers, members } = useAdminMembers(orgId, { view: 'directory' });
   const { departments, loading: depsLoading } = useAdminOrgStructure(orgId);
+  const skillWhitelist = SKILL_WHITELIST;
   const [saving, setSaving] = useState(false);
   const [manualInviteUrl, setManualInviteUrl] = useState('');
   const [previewCode, setPreviewCode] = useState('');
@@ -91,8 +92,8 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
 
   const availableSkills = useMemo(() => {
     const taken = new Set((form.skills || []).map((n) => String(n)));
-    return SKILL_WHITELIST.filter((name) => !taken.has(name));
-  }, [form.skills]);
+    return skillWhitelist.filter((name) => !taken.has(name));
+  }, [form.skills, skillWhitelist]);
 
   const jobTitleOptions = useMemo(() => {
     const fromMembers = (members || [])
@@ -404,7 +405,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
                   className={adminPrimaryBtnClass()}
                   onClick={() => {
                     const name = String(skillToAdd || '').trim();
-                    if (!name || !SKILL_WHITELIST.includes(name)) return;
+                    if (!name || !skillWhitelist.includes(name)) return;
                     setForm((f) => {
                       if (f.skills.includes(name)) return f;
                       if (f.skills.length >= HIRE_SKILLS_MAX) {

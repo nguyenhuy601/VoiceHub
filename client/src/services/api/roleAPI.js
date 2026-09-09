@@ -92,12 +92,22 @@ export const roleAPI = {
      Return: [{ roleId, ... }] hoặc [{ id/_id, ... }]
   */
   getUserRoles: (userId, serverId) => {
-    return apiClient.get(`/roles/user/${encodeURIComponent(userId)}/server/${encodeURIComponent(serverId)}`);
+    return apiClient.get(
+      `/roles/user/${encodeURIComponent(userId)}/server/${encodeURIComponent(serverId)}`,
+      {
+        skipGlobalErrorHandling: true,
+        headers: { 'Cache-Control': 'no-store, no-cache', Pragma: 'no-cache' },
+      }
+    );
   },
 
   getUserPermissions: (userId, serverId) => {
     return apiClient.get(
-      `/permissions/user/${encodeURIComponent(userId)}/server/${encodeURIComponent(serverId)}`
+      `/permissions/user/${encodeURIComponent(userId)}/server/${encodeURIComponent(serverId)}`,
+      {
+        skipGlobalErrorHandling: true,
+        headers: { 'Cache-Control': 'no-store, no-cache', Pragma: 'no-cache' },
+      }
     );
   },
 

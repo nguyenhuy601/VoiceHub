@@ -2,6 +2,14 @@ require('dotenv').config();
 const app = require('./app');
 const { connectDB, connectRedis, disconnectDB, disconnectRedis, logger } = require('@enterprise/shared');
 const { runTaskFromFileWorkerLoop, stopTaskFromFileWorker } = require('./workers/taskFromFileWorker');
+const {
+  startSprintAutoCompleteRemindersJob,
+  stopSprintAutoCompleteRemindersJob,
+} = require('./jobs/sprintAutoCompleteReminders.job');
+const {
+  startTaskDueRemindersJob,
+  stopTaskDueRemindersJob,
+} = require('./jobs/taskDueReminders.job');
 
 const PORT = process.env.PORT || 3009;
 
@@ -12,6 +20,8 @@ connectDB()
     connectRedis();
 
     runTaskFromFileWorkerLoop();
+    startSprintAutoCompleteRemindersJob();
+    startTaskDueRemindersJob();
 
     // Khởi động server
     const server = app.listen(PORT, () => {
@@ -21,6 +31,16 @@ connectDB()
     process.on('SIGTERM', async () => {
       logger.info('SIGTERM signal received: closing HTTP server');
       server.close(async () => {
+        try {
+          stopSprintAutoCompleteRemindersJob();
+        } catch (e) {
+          logger.error('stopSprintAutoCompleteRemindersJob', e.message);
+        }
+        try {
+          stopTaskDueRemindersJob();
+        } catch (e) {
+          logger.error('stopTaskDueRemindersJob', e.message);
+        }
         try {
           await stopTaskFromFileWorker();
         } catch (e) {

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAppStrings } from '../../locales/appStrings';
 import useAdminMeetings from '../../hooks/useAdminMeetings';
+import { adminPrimaryBtnClass } from '../adminUsers/adminUserPanelUi';
 import {
   formatMeetingWhen,
   isActiveMeeting,
@@ -20,7 +21,7 @@ export default function AdminMeetingPicker({
   const { t, locale } = useAppStrings();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
-  const { meetings, loading } = useAdminMeetings(orgId, { status: statusFilter });
+  const { meetings, loading, error, loadMeetings } = useAdminMeetings(orgId, { status: statusFilter });
 
   const activeId = String(selectedMeetingId || searchParams.get('meetingId') || '').trim();
 
@@ -56,6 +57,15 @@ export default function AdminMeetingPicker({
       />
       {loading ? (
         <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      ) : error ? (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3">
+          <p className="text-sm text-destructive">{error}</p>
+          <div className="mt-3">
+            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadMeetings()}>
+              {t('adminRbac.retry')}
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="max-h-72 overflow-auto rounded-lg border border-border/70">
           <table className="min-w-full text-sm">

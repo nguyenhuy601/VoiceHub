@@ -17,6 +17,7 @@ import roleAPI from '../../services/api/roleAPI';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
 import {
   TIER_ORDER,
   groupRolesByPriority,
@@ -78,7 +79,7 @@ function RoleCardBody({ role }) {
 
 export default function RolesHierarchyPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { systemRoles, loading, loadRoles } = useAdminRoles(orgId);
+  const { systemRoles, loading, error, loadRoles } = useAdminRoles(orgId);
   const [columns, setColumns] = useState(() => groupRolesByPriority([]));
   const [activeRole, setActiveRole] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -166,7 +167,16 @@ export default function RolesHierarchyPanel({ orgId }) {
         <p className="text-xs text-muted-foreground">{t('common.saving')}</p>
       ) : null}
 
-      {loading && !systemRoles.length ? (
+      {error ? (
+        <div className="space-y-3">
+          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+          <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadRoles()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : loading && !systemRoles.length ? (
         <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
       ) : (
         <DndContext

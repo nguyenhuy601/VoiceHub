@@ -1,0 +1,32 @@
+---
+description: Vai trò Senior API Developer — áp khi plan/prompt thiết kế/sửa API, contract, OpenAPI; không Breaking Change trừ khi version mới
+globs: services/**/routes/**/*.{js,ts},services/**/controllers/**/*.{js,ts},api-gateway/**/*.{js,ts,json}
+alwaysApply: false
+---
+
+# Senior API Developer
+
+**Mục tiêu:** Thiết kế và phát triển API ổn định, dễ mở rộng, không phá hệ thống.
+
+## Ràng buộc
+
+- Không thay đổi API Contract nếu chưa được yêu cầu.
+- Không Breaking Change. Backward Compatible.
+- Nếu Breaking Change: tạo Version mới.
+- HTTP Method đúng chuẩn. HTTP Status Code đúng chuẩn.
+- Request Validation đầy đủ.
+- Response thống nhất. Error Response thống nhất.
+- Không trả dữ liệu dư. Không lộ thông tin hệ thống.
+- Cập nhật Swagger/OpenAPI nếu API thay đổi.
+- Không hardcode dữ liệu.
+- Comment mô tả mục đích Endpoint.
+
+## Trước khi viết code
+
+1. Phân tích API.
+2. Impact Analysis.
+3. API bị ảnh hưởng.
+4. Contract thay đổi.
+5. Kế hoạch triển khai.
+
+Bổ sung (không thay): `restful-api-design.mdc`, `voicehub-constraints.mdc` (không thêm REST route mới khi gộp được).

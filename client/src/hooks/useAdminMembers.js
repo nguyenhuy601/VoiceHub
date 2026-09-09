@@ -6,12 +6,18 @@ import {
   getAdminMembersSnapshot,
   removeAdminMember,
   subscribeAdminMembers,
+  VIEW_ADMIN_TABLE,
 } from '../stores/adminMembersStore';
 
-export function useAdminMembers(orgId) {
+/**
+ * @param {string} orgId
+ * @param {{ view?: 'directory'|'admin_table' }} [options]
+ */
+export function useAdminMembers(orgId, options = {}) {
   const { t } = useAppStrings();
   const tRef = useRef(t);
   tRef.current = t;
+  const view = options.view === 'directory' ? 'directory' : VIEW_ADMIN_TABLE;
 
   const getSnapshot = useCallback(() => getAdminMembersSnapshot(orgId), [orgId]);
 
@@ -22,15 +28,15 @@ export function useAdminMembers(orgId) {
   );
 
   const loadMembers = useCallback(
-    () => fetchAdminMembers(orgId, { t: tRef.current }),
-    [orgId]
+    () => fetchAdminMembers(orgId, { t: tRef.current, force: true, view }),
+    [orgId, view]
   );
 
   useEffect(() => {
     if (!orgId) return undefined;
-    fetchAdminMembers(orgId, { t: tRef.current });
+    fetchAdminMembers(orgId, { t: tRef.current, force: false, view });
     return undefined;
-  }, [orgId]);
+  }, [orgId, view]);
 
   const membersById = useMemo(() => {
     const map = new Map();
@@ -52,11 +58,13 @@ export function useAdminMembers(orgId) {
     members: snapshot.members,
     roles: snapshot.roles,
     loading: snapshot.loading,
+    error: snapshot.error,
     loadMembers,
     removeMemberLocally,
     membersById,
     /** Lookup tên (gồm system admin) — dùng cột Trưởng phòng / Trưởng nhóm. */
     membersByIdAll: snapshot.membersByIdAll,
+    hydratedView: snapshot.hydratedView,
   };
 }
 

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, Mic, MicOff, Settings, Volume2, VolumeX } from 'lucide-react';
 import { loadVoiceAudioPrefs, saveVoiceAudioPrefs } from '../../pages/Voice/voiceAudioPrefs';
 
@@ -47,6 +48,7 @@ function SplitAudioButton({
         type="button"
         disabled={disabled}
         title={mainTitle}
+        aria-label={mainTitle}
         onClick={onMainClick}
         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition disabled:opacity-40 ${mainCls}`}
       >
@@ -55,6 +57,9 @@ function SplitAudioButton({
       <button
         type="button"
         title={menuTitle}
+        aria-label={menuTitle}
+        aria-expanded={menuOpen}
+        aria-haspopup="dialog"
         onClick={onMenuClick}
         className={`flex h-8 w-7 shrink-0 items-center justify-center rounded-md transition ${menuCls}`}
       >
@@ -76,13 +81,15 @@ function RadioDeviceRow({ selected, label, sub, onSelect, isDarkMode }) {
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{label}</div>
         {sub ? (
-          <div className={`truncate text-xs ${isDarkMode ? 'text-muted-foreground' : 'text-slate-500'}`}>{sub}</div>
+          <div className={`truncate text-xs ${isDarkMode ? 'text-muted-foreground' : 'text-slate-500'}`}>
+            {sub}
+          </div>
         ) : null}
       </div>
       <span
         className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
           selected
-            ? 'border-[#5865F2] bg-[#5865F2]'
+            ? 'border-primary bg-primary'
             : isDarkMode
               ? 'border-[#4e5058]'
               : 'border-slate-300'
@@ -121,6 +128,8 @@ export default function OrganizationSidebarAudioBar({
   const [audioOutputs, setAudioOutputs] = useState([]);
   const [quickMenu, setQuickMenu] = useState(null);
   const [deviceSubmenu, setDeviceSubmenu] = useState(null);
+  const [permissionDenied, setPermissionDenied] = useState(false);
+  const [popoverPos, setPopoverPos] = useState({ bottom: 72, left: 12 });
 
   const rootRef = useRef(null);
   const popoverRef = useRef(null);
@@ -175,33 +184,58 @@ export default function OrganizationSidebarAudioBar({
       const list = await navigator.mediaDevices.enumerateDevices();
       setAudioInputs(list.filter((d) => d.kind === 'audioinput'));
       setAudioOutputs(list.filter((d) => d.kind === 'audiooutput'));
-    } catch (e) {
-      console.warn(e);
+    } catch {
+      /* ignore */
     }
   }, []);
 
   const ensurePermission = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setPermissionDenied(true);
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((tr) => tr.stop());
+      setPermissionDenied(false);
       await refreshDevices();
-    } catch (e) {
-      console.warn(e);
+    } catch {
+      setPermissionDenied(true);
+      await refreshDevices();
     }
   }, [refreshDevices]);
+
+  useLayoutEffect(() => {
+    if (!quickMenu || !rootRef.current) return;
+    const rect = rootRef.current.getBoundingClientRect();
+    setPopoverPos({
+      bottom: Math.max(8, window.innerHeight - rect.top + 8),
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 320)),
+    });
+  }, [quickMenu]);
 
   useEffect(() => {
     if (!quickMenu) return undefined;
     ensurePermission();
     const onDoc = (e) => {
       const root = rootRef.current;
-      if (!root?.contains(e.target)) {
+      const pop = popoverRef.current;
+      if (root?.contains(e.target) || pop?.contains(e.target)) return;
+      setQuickMenu(null);
+      setDeviceSubmenu(null);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
         setQuickMenu(null);
         setDeviceSubmenu(null);
       }
     };
     document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [quickMenu, ensurePermission]);
 
   const selectedMic = audioInputs.find((d) => d.deviceId === micId) || null;
@@ -211,26 +245,28 @@ export default function OrganizationSidebarAudioBar({
 
   const pickMic = (id) => {
     setMicId(id);
-    saveVoiceAudioPrefs({ micDeviceId: id });
+    saveVoiceAudioPrefs({ micDeviceId: id }, voiceUserId);
+    onAudioPrefChange?.({ micDeviceId: id });
     setDeviceSubmenu(null);
   };
 
   const pickSpeaker = (id) => {
     setSpeakerId(id);
-    saveVoiceAudioPrefs({ speakerDeviceId: id });
+    saveVoiceAudioPrefs({ speakerDeviceId: id }, voiceUserId);
+    onAudioPrefChange?.({ speakerDeviceId: id });
     setDeviceSubmenu(null);
   };
 
   const onMicVolume = (v) => {
     const n = clampVolume(v);
     setMicVolume(n);
-    saveVoiceAudioPrefs({ micVolume: n });
+    saveVoiceAudioPrefs({ micVolume: n }, voiceUserId);
   };
 
   const onSpeakerVolume = (v) => {
     const n = clampVolume(v);
     setSpeakerVolume(n);
-    saveVoiceAudioPrefs({ speakerVolume: n });
+    saveVoiceAudioPrefs({ speakerVolume: n }, voiceUserId);
   };
 
   const toggleQuickMenu = (kind) => {
@@ -257,9 +293,12 @@ export default function OrganizationSidebarAudioBar({
 
     return (
       <div
-        className={`absolute bottom-0 left-full z-50 ml-1 w-[min(280px,calc(100vw-2rem))] py-1 ${popoverShell}`}
+        className={`absolute bottom-0 left-full z-[60] ml-1 w-[min(280px,calc(100vw-2rem))] py-1 ${popoverShell}`}
         role="menu"
       >
+        {permissionDenied && list.length === 0 ? (
+          <p className={`px-3 py-3 text-xs ${subText}`}>{t('orgPanel.audioPermissionFail')}</p>
+        ) : null}
         <RadioDeviceRow
           selected={!selectedId}
           label={t('orgPanel.quickWindowsDefault')}
@@ -271,26 +310,38 @@ export default function OrganizationSidebarAudioBar({
           <RadioDeviceRow
             key={d.deviceId}
             selected={selectedId === d.deviceId}
-            label={deviceLabel(d, isMic ? t('orgPanel.quickMicFallback') : t('orgPanel.quickSpeakerFallback'))}
+            label={deviceLabel(
+              d,
+              isMic ? t('orgPanel.quickMicFallback') : t('orgPanel.quickSpeakerFallback')
+            )}
             onSelect={() => onPick(d.deviceId)}
             isDarkMode={isDarkMode}
           />
         ))}
+        {list.length === 0 && !permissionDenied ? (
+          <p className={`px-3 py-2 text-xs ${subText}`}>{t('orgPanel.audioPermissionFail')}</p>
+        ) : null}
       </div>
     );
   };
 
   const renderQuickPopover = () => {
-    if (!quickMenu) return null;
+    if (!quickMenu || typeof document === 'undefined') return null;
     const isMic = quickMenu === 'mic';
 
-    return (
+    return createPortal(
       <div
         ref={popoverRef}
-        className={`absolute bottom-full left-0 z-40 mb-2 w-[min(300px,calc(100vw-2rem))] py-1 ${popoverShell}`}
+        className={`fixed z-[80] w-[min(300px,calc(100vw-2rem))] py-1 ${popoverShell}`}
+        style={{ bottom: popoverPos.bottom, left: popoverPos.left }}
         role="dialog"
         aria-label={isMic ? t('orgPanel.quickInputDevice') : t('orgPanel.quickOutputDevice')}
       >
+        {permissionDenied ? (
+          <p className={`border-b px-3 py-2 text-xs ${isDarkMode ? 'border-white/10 text-amber-200/90' : 'border-slate-200 text-amber-800'}`}>
+            {t('orgPanel.audioPermissionFail')}
+          </p>
+        ) : null}
         <button
           type="button"
           className={`flex w-full items-center gap-2 px-3 py-2.5 text-left transition ${rowBtn}`}
@@ -319,7 +370,7 @@ export default function OrganizationSidebarAudioBar({
             max={100}
             value={isMic ? micVolume : speakerVolume}
             onChange={(e) => (isMic ? onMicVolume(e.target.value) : onSpeakerVolume(e.target.value))}
-            className="w-full accent-[#5865F2]"
+            className="w-full accent-primary"
           />
         </div>
 
@@ -336,11 +387,15 @@ export default function OrganizationSidebarAudioBar({
             <span>{t('orgPanel.quickPushToTalk')}</span>
             <span
               className={`flex h-[18px] w-[18px] items-center justify-center rounded ${
-                pushToTalk ? 'bg-[#5865F2] text-white' : isDarkMode ? 'border border-[#4e5058]' : 'border border-slate-300'
+                pushToTalk
+                  ? 'bg-primary text-primary-foreground'
+                  : isDarkMode
+                    ? 'border border-[#4e5058]'
+                    : 'border border-slate-300'
               }`}
             >
               {pushToTalk ? (
-                <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor">
+                <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor" aria-hidden>
                   <path d="M12.207 4.793a1 1 0 0 1 0 1.414l-5 5a1 1 0 0 1-1.414 0l-2-2a1 1 0 1 1 1.414-1.414L6.5 9.086l4.293-4.293a1 1 0 0 1 1.414 0z" />
                 </svg>
               ) : null}
@@ -364,11 +419,19 @@ export default function OrganizationSidebarAudioBar({
         </button>
 
         {renderDeviceSubmenu()}
-      </div>
+      </div>,
+      document.body
     );
   };
 
   const barBorder = isDarkMode ? 'border-white/[0.06]' : 'border-sky-200/70';
+  const micMainTitle = !voiceInChannel
+    ? isMuted
+      ? t('orgPanel.voiceUnmute')
+      : `${t('orgPanel.voiceMute')} (${t('orgPanel.quickPrefOnlyHint')})`
+    : isMuted
+      ? t('orgPanel.voiceUnmute')
+      : t('orgPanel.voiceMute');
 
   return (
     <div
@@ -382,7 +445,7 @@ export default function OrganizationSidebarAudioBar({
         onMainClick={handleMicMainClick}
         onMenuClick={() => toggleQuickMenu('mic')}
         menuOpen={quickMenu === 'mic'}
-        mainTitle={isMuted ? t('orgPanel.voiceUnmute') : t('orgPanel.voiceMute')}
+        mainTitle={micMainTitle}
         menuTitle={t('orgPanel.quickMicMenu')}
         mainIcon={<Mic className="h-4 w-4" />}
         mutedIcon={<MicOff className="h-4 w-4" />}
@@ -406,7 +469,7 @@ export default function OrganizationSidebarAudioBar({
         }`}
         aria-label={t('orgPanel.orgSettingsAria')}
         title={t('orgPanel.orgSettingsAria')}
-        onClick={onOpenOrganizationSettings}
+        onClick={() => onOpenOrganizationSettings?.()}
       >
         <Settings className="h-4 w-4" />
       </button>

@@ -1,12 +1,13 @@
 const { unwrapPlaintext } = require('@enterprise/shared');
 
-function slimFileMeta(fileMeta, { includeStoragePath = false } = {}) {
+function slimFileMeta(fileMeta) {
   if (!fileMeta || typeof fileMeta !== 'object') return undefined;
   const out = {};
   if (fileMeta.originalName) out.originalName = fileMeta.originalName;
   if (fileMeta.mimeType) out.mimeType = fileMeta.mimeType;
   if (fileMeta.byteSize != null) out.byteSize = fileMeta.byteSize;
-  if (includeStoragePath && fileMeta.storagePath) out.storagePath = fileMeta.storagePath;
+  // Client cần storagePath để tải qua GET /messages/storage/object (MinIO) hoặc attach signed URL (Firebase).
+  if (fileMeta.storagePath) out.storagePath = fileMeta.storagePath;
   return Object.keys(out).length ? out : undefined;
 }
 
@@ -14,7 +15,8 @@ const CLIENT_MESSAGE_FULL_FIELDS = [
   '_id', 'senderId', 'senderDisplayName', 'content', 'originalContent', 'messageType',
   'roomId', 'organizationId', 'receiverId', 'conversationId', 'createdAt', 'updatedAt',
   'isRead', 'readAt', 'replyToMessageId', 'isDeleted', 'isRecalled', 'editedAt',
-  'reactions', 'fileMeta', 'signedReadUrl', 'mentions', 'embeds', 'links',
+  'reactions', 'fileMeta', 'signedReadUrl', 'mentions', 'embeds', 'links', 'visibility', 'refs',
+  'activityEventId',
 ];
 
 function pickClientFullMessage(o, senderId) {
@@ -23,7 +25,7 @@ function pickClientFullMessage(o, senderId) {
     if (o[key] !== undefined) picked[key] = o[key];
   }
   if (picked.fileMeta) {
-    picked.fileMeta = slimFileMeta(picked.fileMeta, { includeStoragePath: false });
+    picked.fileMeta = slimFileMeta(picked.fileMeta);
   }
   return picked;
 }
@@ -71,6 +73,22 @@ function toClientMessage(doc, opts = {}) {
         }))
       : [],
   };
+  if (o.visibility && o.visibility.mode) {
+    summary.visibility = {
+      mode: o.visibility.mode,
+      projectId: o.visibility.projectId,
+      ...(o.visibility.projectName ? { projectName: o.visibility.projectName } : {}),
+    };
+  }
+  if (Array.isArray(o.refs) && o.refs.length) {
+    summary.refs = o.refs.map((r) => ({
+      kind: r.kind,
+      id: r.id,
+      projectId: r.projectId,
+      ...(r.label ? { label: r.label } : {}),
+    }));
+  }
+  if (o.activityEventId) summary.activityEventId = String(o.activityEventId);
   const fm = slimFileMeta(o.fileMeta);
   if (fm) summary.fileMeta = fm;
   if (o.signedReadUrl) summary.signedReadUrl = o.signedReadUrl;

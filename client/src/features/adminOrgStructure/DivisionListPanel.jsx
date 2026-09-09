@@ -3,23 +3,33 @@ import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import {
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
   AdminUserPanelShell,
   adminInputClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
+import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 
+const DIVISION_MANAGE_HUB = '/app/admin/org-structure/divisions/manage';
 const ACTION_LINKS = [
-  { path: '/app/admin/org-structure/divisions/edit', labelKey: 'adminDomains.orgStructure.divisionEdit' },
-  { path: '/app/admin/org-structure/divisions/disable', labelKey: 'adminDomains.orgStructure.divisionDisable' },
-  { path: '/app/admin/org-structure/divisions/departments', labelKey: 'adminDomains.orgStructure.divisionDept' },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.divisionEdit', grant: RBAC_GRANT.DIVISION_UPDATE },
+  { tab: 'disable', labelKey: 'adminDomains.orgStructure.divisionDisable', grant: RBAC_GRANT.DIVISION_UPDATE },
+  { tab: 'departments', labelKey: 'adminDomains.orgStructure.divisionDept', grant: RBAC_GRANT.DIVISION_UPDATE },
 ];
 
 export default function DivisionListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { divisions, loading } = useAdminOrgStructure(orgId);
+  const { divisions, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateDivision = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DIVISION_CREATE);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -41,10 +51,12 @@ export default function DivisionListPanel({ orgId }) {
       hint={t('adminOrg.divisionListHint')}
       wide
       actions={
-        <Link to="/app/admin/org-structure/divisions/create" className={adminPrimaryBtnClass()}>
-          <Plus className="h-4 w-4" />
-          {t('adminDomains.orgStructure.divisionCreate')}
-        </Link>
+        canCreateDivision ? (
+          <Link to="/app/admin/org-structure/divisions/create" className={adminPrimaryBtnClass()}>
+            <Plus className="h-4 w-4" />
+            {t('adminDomains.orgStructure.divisionCreate')}
+          </Link>
+        ) : null
       }
     >
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -60,14 +72,21 @@ export default function DivisionListPanel({ orgId }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <AdminDenseTableCard>
         {loading ? (
           <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : structureError ? (
+          <div className="space-y-3 px-4 py-6">
+            <p className="text-sm text-destructive">{structureError}</p>
+            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
+              {t('adminRbac.retry')}
+            </button>
+          </div>
         ) : (
-          <div className="overflow-x-auto">
+          <AdminDenseTableScroll>
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="sticky top-0 border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                   <th className="px-4 py-3">{t('adminOrg.colName')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colBranch')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colStatus')}</th>
@@ -95,10 +114,12 @@ export default function DivisionListPanel({ orgId }) {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
-                          {ACTION_LINKS.map((link) => (
+                          {ACTION_LINKS.filter((link) =>
+                            canActWithGrant(isFullAccess, hasGrant, link.grant)
+                          ).map((link) => (
                             <Link
-                              key={link.path}
-                              to={`${link.path}?unitId=${encodeURIComponent(id)}`}
+                              key={link.tab}
+                              to={adminOrgUnitHubLink(DIVISION_MANAGE_HUB, id, link.tab)}
                               className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
                             >
                               {t(link.labelKey)}
@@ -116,9 +137,9 @@ export default function DivisionListPanel({ orgId }) {
                 {t('adminOrg.noDivisions')}
               </p>
             ) : null}
-          </div>
+          </AdminDenseTableScroll>
         )}
-      </div>
+      </AdminDenseTableCard>
     </AdminUserPanelShell>
   );
 }

@@ -3,7 +3,7 @@ const router = express.Router();
 const organizationController = require('../controllers/organizationController');
 const memberController = require('../controllers/memberController');
 const hrPositionController = require('../controllers/hrPositionController');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, authorizeOrGrant } = require('../middleware/auth');
 
 router.use(protect); // All routes require authentication
 
@@ -41,22 +41,22 @@ router.get('/:orgId/structure', organizationController.getOrganizationStructure)
 // Huy: Dynamic Organizational Structure API
 const structureController = require('../controllers/structureController');
 router.get('/:orgId/structure/templates', structureController.listTemplates);
-router.get('/:orgId/structure/levels', authorize(['owner', 'admin']), structureController.getLevels);
-router.put('/:orgId/structure/levels', authorize(['owner', 'admin']), structureController.putLevels);
-router.get('/:orgId/structure/units', authorize(['owner', 'admin']), structureController.listUnits);
-router.post('/:orgId/structure/units', authorize(['owner', 'admin']), structureController.createUnitHandler);
-router.put('/:orgId/structure/units/:unitId', authorize(['owner', 'admin']), structureController.updateUnitHandler);
-router.delete('/:orgId/structure/units/:unitId', authorize(['owner', 'admin']), structureController.deleteUnitHandler);
-router.post('/:orgId/structure/apply-template', authorize(['owner', 'admin']), structureController.applyTemplate);
-router.post('/:orgId/structure/backfill', authorize(['owner', 'admin']), structureController.backfill);
+router.get('/:orgId/structure/levels', authorizeOrGrant(['owner', 'admin'], 'organization.structure.view'), structureController.getLevels);
+router.put('/:orgId/structure/levels', authorizeOrGrant(['owner', 'admin'], 'organization.structure.update'), structureController.putLevels);
+router.get('/:orgId/structure/units', authorizeOrGrant(['owner', 'admin'], 'organization.structure.view'), structureController.listUnits);
+router.post('/:orgId/structure/units', authorizeOrGrant(['owner', 'admin'], 'organization.structure.update'), structureController.createUnitHandler);
+router.put('/:orgId/structure/units/:unitId', authorizeOrGrant(['owner', 'admin'], 'organization.structure.update'), structureController.updateUnitHandler);
+router.delete('/:orgId/structure/units/:unitId', authorizeOrGrant(['owner', 'admin'], 'organization.structure.update'), structureController.deleteUnitHandler);
+router.post('/:orgId/structure/apply-template', authorizeOrGrant(['owner', 'admin'], 'organization.structure.update'), structureController.applyTemplate);
+router.post('/:orgId/structure/backfill', authorizeOrGrant(['owner', 'admin'], 'organization.structure.update'), structureController.backfill);
 router.get(
   '/:orgId/structure/units/:unitId/members',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.structure.view'),
   structureController.listUnitMembers
 );
 router.put(
   '/:orgId/structure/units/:unitId/members',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.structure.update'),
   structureController.setUnitMembers
 );
 
@@ -99,38 +99,38 @@ const orgRoleAdminController = require('../controllers/orgRoleAdmin.controller')
  */
 router.get(
   '/:orgId/org-roles',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.view'),
   orgRoleAdminController.listCatalog
 );
 router.post(
   '/:orgId/org-roles',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRoleAdminController.createCatalog
 );
 router.put(
   '/:orgId/org-roles/reorder',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRoleAdminController.reorderCatalog
 );
 router.patch(
   '/:orgId/org-roles/:roleId',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRoleAdminController.updateCatalog
 );
 router.delete(
   '/:orgId/org-roles/:roleId',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRoleAdminController.deleteCatalog
 );
 
 router.get(
   '/:orgId/org-role-assignments',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.view'),
   orgRoleAdminController.listAssignments
 );
 router.put(
   '/:orgId/org-role-assignments',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRoleAdminController.setAssignments
 );
 
@@ -164,68 +164,68 @@ router.put(
  */
 router.get(
   '/:orgId/hr-positions',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.position.view'),
   hrPositionController.listCatalog
 );
 router.post(
   '/:orgId/hr-positions',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.position.create'),
   hrPositionController.createCatalog
 );
 
 router.get(
   '/:orgId/channels/:channelId/access',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'communication.channel.view'),
   organizationController.listChannelAccess
 );
 router.post(
   '/:orgId/channels/:channelId/access/grant',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'communication.channel.update'),
   organizationController.grantChannelAccess
 );
 router.post(
   '/:orgId/channels/:channelId/access/revoke',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'communication.channel.update'),
   organizationController.revokeChannelAccess
 );
 router.get(
   '/:orgId/channels/:channelId/role-access',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'communication.channel.view'),
   organizationController.listChannelRoleAccess
 );
 router.put(
   '/:orgId/channels/:channelId/role-access',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'communication.channel.update'),
   organizationController.saveChannelRoleAccess
 );
 router.get(
   '/:orgId/divisions/:divisionId/role-access',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.division.view'),
   organizationController.listDivisionRoleAccess
 );
 router.put(
   '/:orgId/divisions/:divisionId/role-access',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.division.update'),
   organizationController.saveDivisionRoleAccess
 );
 router.get(
   '/:orgId/departments/:departmentId/role-access',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.department.view'),
   organizationController.listDepartmentRoleAccess
 );
 router.put(
   '/:orgId/departments/:departmentId/role-access',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.department.update'),
   organizationController.saveDepartmentRoleAccess
 );
 router.get(
   '/:orgId/teams/:teamId/role-access',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.team.view'),
   organizationController.listTeamRoleAccess
 );
 router.put(
   '/:orgId/teams/:teamId/role-access',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.team.update'),
   organizationController.saveTeamRoleAccess
 );
 
@@ -238,8 +238,20 @@ router.get(
 );
 router.put(
   '/:orgId/project-visibility-policy',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.policy.update'),
   projectVisibilityPolicyController.putProjectVisibilityPolicy
+);
+
+const requirementAccessPolicyController = require('../controllers/requirementAccessPolicy.controller');
+router.get(
+  '/:orgId/requirement-access-policy',
+  authorize(['owner', 'admin', 'hr', 'member']),
+  requirementAccessPolicyController.getRequirementAccessPolicy
+);
+router.put(
+  '/:orgId/requirement-access-policy',
+  authorizeOrGrant(['owner', 'admin'], 'organization.policy.update'),
+  requirementAccessPolicyController.putRequirementAccessPolicy
 );
 
 /**
@@ -274,7 +286,7 @@ router.put(
  */
 router.get(
   '/:orgId/master-data',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.master_data.view'),
   orgMasterDataController.getMasterData
 );
 
@@ -330,7 +342,7 @@ router.get(
  */
 router.patch(
   '/:orgId/master-data/enabled',
-  authorize(['owner', 'admin']),
+  authorizeOrGrant(['owner', 'admin'], 'organization.master_data.update'),
   orgMasterDataController.patchMasterDataEnabled
 );
 

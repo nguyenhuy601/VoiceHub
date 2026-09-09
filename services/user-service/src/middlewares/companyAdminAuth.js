@@ -9,6 +9,28 @@ function readOrganizationId(req) {
   ).trim();
 }
 
+/**
+ * Gắn req.companyAdmin khi có org + actor là owner/admin/hr.
+ * Không 403 — GET peer/chat không gửi org thì giữ peer/self shape.
+ */
+function attachCompanyAdminIfPresent(req, res, next) {
+  const organizationId = readOrganizationId(req);
+  if (!organizationId) return next();
+
+  return resolveCompanyAdminLevel(req.user, organizationId)
+    .then((level) => {
+      if (level) req.companyAdmin = { organizationId, level };
+      return next();
+    })
+    .catch((error) => {
+      return res.status(500).json({
+        success: false,
+        message: error?.message || 'admin check failed',
+        errorCode: 'ORG_ADMIN_CHECK_FAILED',
+      });
+    });
+}
+
 function companyAdminAuth(options = {}) {
   const { requireFullAccess = false } = options;
 
@@ -54,5 +76,6 @@ function companyAdminAuth(options = {}) {
 
 module.exports = {
   companyAdminAuth,
+  attachCompanyAdminIfPresent,
   readOrganizationId,
 };

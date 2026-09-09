@@ -15,16 +15,13 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { memberUserId } from '../../utils/adminUserUtils';
+import { memberJobTitle } from '../../utils/userTaxonomyUtils';
 
-function memberJobTitle(member) {
-  return String(member?.jobTitle || member?.preferences?.jobTitle || '').trim();
-}
-
-export default function PosDisablePanel({ orgId }) {
+export default function PosDisablePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const titleParam = String(searchParams.get('title') || '').trim();
-  const { members, loading, loadMembers } = useAdminMembers(orgId);
+  const { members, loading, loadMembers, error: membersError } = useAdminMembers(orgId, { view: 'directory' });
   const [title, setTitle] = useState(titleParam);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -61,13 +58,24 @@ export default function PosDisablePanel({ orgId }) {
     }
   };
 
-  return (
-    <AdminUserPanelShell
-      title={t('adminDomains.rbac.posDisable')}
-      hint={t('adminOrg.posDisableHint')}
-    >
+  const body = (
+    <>
       <AdminUserFormCard danger>
-        {loading ? (
+        {membersError ? (
+          <div className="space-y-3">
+            <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {resolveApiErrorMessage(membersError, { t, fallback: t('companyAdmin.loadMembersFail') })}
+            </p>
+            <button
+              type="button"
+              className={adminDangerBtnClass()}
+              disabled={busy}
+              onClick={() => loadMembers()}
+            >
+              {t('adminRbac.retry')}
+            </button>
+          </div>
+        ) : loading ? (
           <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : (
           <div className="mx-auto max-w-lg space-y-4">
@@ -106,6 +114,17 @@ export default function PosDisablePanel({ orgId }) {
         confirmText={t('adminOrg.posDisableAction')}
         cancelText={t('common.cancel')}
       />
+    </>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <AdminUserPanelShell
+      title={t('adminDomains.rbac.posDisable')}
+      hint={t('adminOrg.posDisableHint')}
+    >
+      {body}
     </AdminUserPanelShell>
   );
 }

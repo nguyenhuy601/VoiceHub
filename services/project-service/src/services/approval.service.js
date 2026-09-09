@@ -15,7 +15,7 @@ const {
   isApprovalSystemV2Enabled,
   isApprovalMrReleaseStubEnabled,
   canonicalizeStepRoleKey,
-} = require('../utils/approvalChain');
+} = require('../utils/work/approvalChain');
 const { resolveCanonicalProjectRoleKey } = require('@enterprise/shared/config/masterData');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
@@ -241,15 +241,22 @@ async function notifyApprovers({ userIds, title, content, data }) {
   if (!NOTIFICATION_INTERNAL_TOKEN || !NOTIFICATION_SERVICE_URL) return;
   const ids = [...new Set((userIds || []).map(String).filter(Boolean))];
   if (!ids.length) return;
+  const { projectHubActionUrl } = require('../utils/notificationTargets');
+  const actionUrl = projectHubActionUrl({
+    projectId: data?.projectId,
+    boardId: data?.boardId,
+    organizationId: data?.organizationId,
+  });
   try {
     await axios.post(
       `${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`,
       {
         userIds: ids,
-        type: 'project_approval',
+        type: 'system',
         title,
         content,
-        data: data || {},
+        data: { ...(data || {}), kind: 'project_approval' },
+        actionUrl,
       },
       {
         headers: { 'x-internal-notification-token': NOTIFICATION_INTERNAL_TOKEN },
@@ -373,7 +380,7 @@ async function maybeStartTaskApproval({
   });
   if (!policy) return { blocked: false };
 
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { assertUserProjectPermission } = require('./projectAccess.service');
     await assertUserProjectPermission({
@@ -518,7 +525,7 @@ async function decideRequest({
 
   const actor = await resolveActorContext(userId, request.projectId, request.organizationId);
   if (request.projectId) {
-    const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+    const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
     if (isProjectRbacV2Enabled()) {
       const { assertUserProjectPermission } = require('./projectAccess.service');
       await assertUserProjectPermission({
@@ -598,6 +605,33 @@ async function decideRequest({
           projectId: String(request.projectId),
           requestId: String(request._id),
           taskId: request.entityId,
+        },
+      });
+    }
+  } else if (request.entityType === 'change_request') {
+    if (request.status === 'approved' || request.status === 'rejected') {
+      const changeRequestService = require('./changeRequest.service');
+      await changeRequestService.applyChangeRequestApprovalResult({
+        request,
+        actorId: userId,
+      });
+    } else if (request.status === 'pending' && !result.awaitingQuorum) {
+      const step = (request.stepsSnapshot || [])[request.currentStep];
+      const approverIds = await resolveApproverUserIds(
+        request.projectId,
+        request.organizationId,
+        step
+      );
+      await notifyApprovers({
+        userIds: approverIds,
+        title: 'Bước duyệt Change Request tiếp theo',
+        content: `Approval ${request.policyKey} — bước ${request.currentStep + 1}`,
+        data: {
+          organizationId: String(request.organizationId),
+          projectId: String(request.projectId),
+          requestId: String(request._id),
+          changeRequestId: request.entityId,
+          type: 'project_approval',
         },
       });
     }
@@ -690,7 +724,7 @@ async function listInbox({ userId, organizationId, status = 'pending' }) {
     const step = (row.stepsSnapshot || [])[row.currentStep];
     const canAct =
       row.status === 'pending' &&
-      require('../utils/approvalChain').actorCanDecideStep(step, actor);
+      require('../utils/work/approvalChain').actorCanDecideStep(step, actor);
     const isRequester = String(row.requestedBy) === String(userId);
     if (canAct || isRequester || actor.isOrgAdmin) {
       enriched.push({ ...row, canAct, isRequester });
@@ -732,7 +766,7 @@ async function startStubEntityApproval({
   }
   await ensureOrgApprovalPolicies(organizationId, userId);
   if (projectId) {
-    const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+    const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
     if (isProjectRbacV2Enabled()) {
       const { assertUserProjectPermission } = require('./projectAccess.service');
       await assertUserProjectPermission({
@@ -786,14 +820,14 @@ async function startStubEntityApproval({
   return request.toObject();
 }
 
-async function bindProjectTaskDonePolicy({ userId, projectId, policyId }) {
+async function bindProjectTaskDonePolicy({ userId, projectId, policyId, changeRequestPolicyId }) {
   const project = await Project.findById(projectId);
   if (!project || project.isActive === false) {
     const err = new Error('Project không tồn tại');
     err.statusCode = 404;
     throw err;
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -815,20 +849,39 @@ async function bindProjectTaskDonePolicy({ userId, projectId, policyId }) {
       throw err;
     }
   }
-  if (policyId) {
-    await ensureOrgApprovalPolicies(project.organizationId, userId);
-    const p = await ApprovalPolicy.findOne({
-      _id: policyId,
-      organizationId: project.organizationId,
-    }).lean();
-    if (!p) {
-      const err = new Error('Policy không tồn tại');
-      err.statusCode = 404;
-      throw err;
+  if (policyId !== undefined) {
+    if (policyId) {
+      await ensureOrgApprovalPolicies(project.organizationId, userId);
+      const p = await ApprovalPolicy.findOne({
+        _id: policyId,
+        organizationId: project.organizationId,
+      }).lean();
+      if (!p) {
+        const err = new Error('Policy không tồn tại');
+        err.statusCode = 404;
+        throw err;
+      }
+      project.defaultTaskDoneApprovalPolicyId = p._id;
+    } else {
+      project.defaultTaskDoneApprovalPolicyId = null;
     }
-    project.defaultTaskDoneApprovalPolicyId = p._id;
-  } else {
-    project.defaultTaskDoneApprovalPolicyId = null;
+  }
+  if (changeRequestPolicyId !== undefined) {
+    if (changeRequestPolicyId) {
+      await ensureOrgApprovalPolicies(project.organizationId, userId);
+      const p = await ApprovalPolicy.findOne({
+        _id: changeRequestPolicyId,
+        organizationId: project.organizationId,
+      }).lean();
+      if (!p) {
+        const err = new Error('Change Request Policy không tồn tại');
+        err.statusCode = 404;
+        throw err;
+      }
+      project.changeRequestApprovalPolicyId = p._id;
+    } else {
+      project.changeRequestApprovalPolicyId = null;
+    }
   }
   await project.save();
   return project.toObject();

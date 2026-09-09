@@ -41,6 +41,12 @@ const {
   hasAnyRoleChannelPermission,
   hasExecutiveRbacRole,
 } = require('../utils/orgChannelAclHelpers');
+const { listProjectIdsForUser } = require('./projectMembershipReadModel');
+const {
+  isProjectScopedChannel,
+  resolveProjectChannelPermissions,
+  serializeProjectChannel,
+} = require('../utils/projectChannelAcl');
 
 const STRUCTURE_PROVISION = {
   PENDING: 'pending',
@@ -182,7 +188,7 @@ async function buildOrganizationStructureData(orgId, { includeInactive = false }
     teamFilter.isActive = true;
   }
 
-  const [branches, divisions, departments, teams, channels, organization] = await Promise.all([
+  const [branches, divisions, departments, teams, channelsRaw, organization] = await Promise.all([
     Branch.find(branchFilter).sort({ createdAt: 1 }).lean(),
     Division.find(divisionFilter).sort({ createdAt: 1 }).lean(),
     Department.find(departmentFilter).sort({ createdAt: 1 }).lean(),
@@ -190,6 +196,19 @@ async function buildOrganizationStructureData(orgId, { includeInactive = false }
     Channel.find({ organization: orgId, isActive: true }).sort({ createdAt: 1 }).lean(),
     Organization.findById(orgId).select('provisioning.structure').lean(),
   ]);
+
+  // Soft-deactivate announce trùng (seed race / re-provision) — fail-soft.
+  let channels = channelsRaw;
+  try {
+    const { deactivateDuplicateDepartmentAnnounceChannels } = require('./departmentChannelProvision.service');
+    const { deactivatedIds } = await deactivateDuplicateDepartmentAnnounceChannels(orgId, channelsRaw);
+    if (deactivatedIds?.length) {
+      const drop = new Set(deactivatedIds.map(String));
+      channels = channelsRaw.filter((ch) => !drop.has(String(ch._id)));
+    }
+  } catch (e) {
+    console.warn('[orgShellData] deactivateDuplicateDepartmentAnnounceChannels:', e.message);
+  }
 
   // Huy: đơn vị tạo qua hierarchy trước khi có reverse DW — sync sang OU rồi đọc lại tree
   if (isDynamicStructureEnabled() && levels?.length) {
@@ -231,6 +250,7 @@ async function buildOrganizationStructureData(orgId, { includeInactive = false }
   const channelsByDepartment = new Map();
   const channelsByDivision = new Map();
   for (const channel of channels) {
+    if (channel.projectId) continue;
     const teamKey = String(channel.team || '');
     const departmentKey = String(channel.department || '');
     const divisionKey = String(channel.division || '');
@@ -297,16 +317,32 @@ async function buildAccessibleChannelData(userId, orgId, access) {
     ({
       role: 'member',
     });
-  const [channels, divisions, departments, teams] = await Promise.all([
+  const [channelsRaw, divisions, departments, teams, userProjectIds] = await Promise.all([
     Channel.find({ organization: orgId, isActive: true })
-      .select('_id members team division department type')
+      .select(
+        '_id members team division department type leader projectId projectChannelKind projectName projectTeamName name createdAt isActive'
+      )
       .lean(),
     Division.find({ organization: orgId, isActive: true }).select('_id name branch').lean(),
     Department.find({ organization: orgId }).select('_id name branch division head').lean(),
     Team.find({ organization: orgId, isActive: true })
       .select('_id name branch division department')
       .lean(),
+    listProjectIdsForUser(userId, orgId),
   ]);
+
+  let channels = channelsRaw;
+  try {
+    const { deactivateDuplicateDepartmentAnnounceChannels } = require('./departmentChannelProvision.service');
+    const { deactivatedIds } = await deactivateDuplicateDepartmentAnnounceChannels(orgId, channelsRaw);
+    if (deactivatedIds?.length) {
+      const drop = new Set(deactivatedIds.map(String));
+      channels = channelsRaw.filter((ch) => !drop.has(String(ch._id)));
+    }
+  } catch (e) {
+    console.warn('[orgShellData] accessible deactivateDuplicateAnnounce:', e.message);
+  }
+  const userProjectIdSet = new Set(userProjectIds.map(String));
   const aclRows = await ChannelAccess.find({
     organization: orgId,
     user: toObjectId(userId) || userId,
@@ -355,6 +391,7 @@ async function buildAccessibleChannelData(userId, orgId, access) {
   const uid = String(userId);
   const permissionsByChannelId = {};
   const channelIds = [];
+  const projectChannels = [];
   const scopedFromVisibleChannels = {
     divisionIds: new Set(),
     departmentIds: new Set(),
@@ -406,6 +443,25 @@ async function buildAccessibleChannelData(userId, orgId, access) {
 
   for (const ch of channels) {
     const channelId = String(ch._id);
+
+    if (isProjectScopedChannel(ch)) {
+      const projectId = String(ch.projectId || '');
+      const teamId = ch.team ? String(ch.team) : '';
+      const projectPerms = resolveProjectChannelPermissions({
+        channel: ch,
+        userId: uid,
+        isProjectMember: userProjectIdSet.has(projectId),
+        isInOrgTeam: teamId ? structureVisibility.teamIds?.has(teamId) : true,
+      });
+      permissionsByChannelId[channelId] = projectPerms;
+      if (projectPerms.canRead) {
+        channelIds.push(channelId);
+        const serialized = serializeProjectChannel(ch);
+        if (serialized) projectChannels.push(serialized);
+      }
+      continue;
+    }
+
     const channelType = String(ch.type || 'chat').toLowerCase();
     const isDeptGeneralChat =
       isDeptOnlyChannel(ch) &&
@@ -613,9 +669,20 @@ async function buildAccessibleChannelData(userId, orgId, access) {
   const scopeDepartmentId = rolePlacement.departmentId || null;
   const scopeTeamId = rolePlacement.teamId || null;
 
+  projectChannels.sort((a, b) => {
+    const pa = String(a.projectName || a.projectId || '');
+    const pb = String(b.projectName || b.projectId || '');
+    if (pa !== pb) return pa.localeCompare(pb);
+    const ka = String(a.projectChannelKind || '');
+    const kb = String(b.projectChannelKind || '');
+    if (ka !== kb) return ka.localeCompare(kb);
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+
   return {
     channelIds,
     permissionsByChannelId,
+    projectChannels,
     scope: {
       branchId: scopeBranchId,
       divisionId: scopeDivisionId,

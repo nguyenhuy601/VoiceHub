@@ -14,6 +14,7 @@ import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId, unitName, unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
+import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
 
 function flattenTree(nodes, depth = 0, acc = []) {
   for (const n of nodes || []) {
@@ -26,9 +27,9 @@ function flattenTree(nodes, depth = 0, acc = []) {
 export default function OrgUnitTreePanel({ orgId }) {
   const { t } = useAppStrings();
   const [tree, setTree] = useState([]);
-  const [levels, setLevels] = useState([]);
   const [selectedId, setSelectedId] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loadingUnits, setLoadingUnits] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     name: '',
@@ -38,35 +39,41 @@ export default function OrgUnitTreePanel({ orgId }) {
     parentUnitId: '',
   });
 
+  const { levels, loading: levelsLoading, reload: reloadLevels } = useOrgStructureLevels(orgId);
+
   const flat = useMemo(() => flattenTree(tree), [tree]);
   const selected = useMemo(
     () => flat.find((u) => unitId(u) === selectedId) || null,
     [flat, selectedId]
   );
 
-  const load = useCallback(async () => {
+  const loadUnits = useCallback(async () => {
     if (!orgId) return;
-    setLoading(true);
+    setLoadingUnits(true);
+    setLoadError('');
     try {
-      const [unitsRes, lvlRes] = await Promise.all([
-        organizationAPI.listStructureUnits(orgId),
-        organizationAPI.getStructureLevels(orgId),
-      ]);
+      const unitsRes = await organizationAPI.listStructureUnits(orgId);
       const unitsData = unwrapOrgApi(unitsRes);
-      const schema = unwrapOrgApi(lvlRes);
       setTree(Array.isArray(unitsData?.unitsTree) ? unitsData.unitsTree : []);
-      const lvls = Array.isArray(schema?.levels) ? schema.levels.filter((l) => l.enabled !== false) : [];
-      setLevels(lvls);
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') }));
+      const msg = resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') });
+      toast.error(msg);
+      setLoadError(msg);
+      setTree([]);
     } finally {
-      setLoading(false);
+      setLoadingUnits(false);
     }
   }, [orgId, t]);
 
+  const load = useCallback(async () => {
+    await Promise.all([loadUnits(), reloadLevels()]);
+  }, [loadUnits, reloadLevels]);
+
   useEffect(() => {
-    load();
-  }, [load]);
+    loadUnits();
+  }, [loadUnits]);
+
+  const loading = loadingUnits || levelsLoading;
 
   useEffect(() => {
     if (!selected) return;
@@ -148,6 +155,14 @@ export default function OrgUnitTreePanel({ orgId }) {
 
   return (
     <AdminUserPanelShell title={t('adminDomains.orgStructure.unitTree')} hint={t('adminOrg.unitTreeHint')} wide>
+      {loadError ? (
+        <div className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-4">
+          <p className="text-sm text-destructive">{loadError}</p>
+          <button type="button" className={adminPrimaryBtnClass()} onClick={() => load()}>
+            {t('adminRbac.retry')}
+          </button>
+        </div>
+      ) : (
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
         <AdminUserFormCard title={t('adminOrg.unitTreeTitle')}>
           {loading ? (
@@ -252,6 +267,7 @@ export default function OrgUnitTreePanel({ orgId }) {
           </AdminUserFormCard>
         </div>
       </div>
+      )}
     </AdminUserPanelShell>
   );
 }

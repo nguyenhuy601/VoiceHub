@@ -8,7 +8,11 @@ const EMPTY_MEMBERS_SNAPSHOT = Object.freeze({
   loading: false,
   version: 0,
   error: null,
+  hydratedView: null,
 });
+
+const VIEW_DIRECTORY = 'directory';
+const VIEW_ADMIN_TABLE = 'admin_table';
 
 /** @type {Map<string, object>} */
 const stores = new Map();
@@ -17,6 +21,15 @@ const invalidateTimers = new Map();
 
 function normalizeOrgId(orgId) {
   return String(orgId || '').trim();
+}
+
+function normalizeView(view) {
+  const v = String(view || '').trim().toLowerCase();
+  return v === VIEW_DIRECTORY ? VIEW_DIRECTORY : VIEW_ADMIN_TABLE;
+}
+
+function viewRank(view) {
+  return normalizeView(view) === VIEW_ADMIN_TABLE ? 2 : 1;
 }
 
 function buildMembersByIdAll(all) {
@@ -44,6 +57,7 @@ function rebuildSnapshot(store) {
     loading: store.loading,
     version: store.version,
     error: store.error,
+    hydratedView: store.hydratedView,
   };
 }
 
@@ -56,6 +70,8 @@ function getStore(orgId) {
       roles: [],
       membersByIdAll: new Map(),
       loading: false,
+      hydrated: false,
+      hydratedView: null,
       version: 0,
       error: null,
       listeners: new Set(),
@@ -91,13 +107,35 @@ export function getAdminMembersSnapshot(orgId) {
   return store.cachedSnapshot;
 }
 
-export async function fetchAdminMembers(orgId, { t, showError = true } = {}) {
+/**
+ * @param {string} orgId
+ * @param {{ t?: Function, showError?: boolean, force?: boolean, view?: 'directory'|'admin_table' }} [options]
+ */
+export async function fetchAdminMembers(
+  orgId,
+  { t, showError = true, force = false, view = VIEW_ADMIN_TABLE } = {}
+) {
   const key = normalizeOrgId(orgId);
   const store = getStore(key);
   if (!store) return;
 
+  const requestedRaw = normalizeView(view);
+  // Không hạ cấp admin_table → directory khi layout/realtime force refresh count-only.
+  let requested = requestedRaw;
+  if (
+    force &&
+    store.hydrated &&
+    viewRank(store.hydratedView) > viewRank(requestedRaw)
+  ) {
+    requested = normalizeView(store.hydratedView);
+  }
+
   if (store.fetchPromise) {
     await store.fetchPromise;
+  }
+
+  // Cache hit: admin_table phục vụ được directory; directory không đủ cho admin_table.
+  if (!force && store.hydrated && viewRank(store.hydratedView) >= viewRank(requested)) {
     return;
   }
 
@@ -107,15 +145,19 @@ export async function fetchAdminMembers(orgId, { t, showError = true } = {}) {
 
   store.fetchPromise = (async () => {
     try {
-      const res = await organizationAPI.getMembersWithRoles(key);
+      const res = await organizationAPI.getMembersWithRoles(key, { view: requested });
       const data = unwrapApi(res);
       const bundle = data?.data ?? data;
       applyMembersPayload(store, bundle);
+      store.hydrated = true;
+      store.hydratedView = requested;
     } catch (error) {
       store.error = error;
       store.members = [];
       store.roles = [];
       store.membersByIdAll = new Map();
+      store.hydrated = false;
+      store.hydratedView = null;
       if (showError && t) {
         const { resolveApiErrorMessage } = await import('../utils/resolveApiErrorMessage');
         const toast = (await import('react-hot-toast')).default;
@@ -160,7 +202,7 @@ export function removeAdminMember(orgId, userId) {
   });
 }
 
-export function invalidateAdminMembers(orgId, { debounceMs = 300 } = {}) {
+export function invalidateAdminMembers(orgId, { debounceMs = 300, view } = {}) {
   const key = normalizeOrgId(orgId);
   if (!key) return;
 
@@ -171,7 +213,12 @@ export function invalidateAdminMembers(orgId, { debounceMs = 300 } = {}) {
     key,
     setTimeout(() => {
       invalidateTimers.delete(key);
-      fetchAdminMembers(key, { showError: false }).catch(() => null);
+      const store = getStore(key);
+      // Giữ rank đã hydrate (admin_table nếu từng cần RBAC); mặc định directory.
+      const refreshView = normalizeView(
+        view || store?.hydratedView || VIEW_DIRECTORY
+      );
+      fetchAdminMembers(key, { showError: false, force: true, view: refreshView }).catch(() => null);
     }, debounceMs)
   );
 }
@@ -181,3 +228,5 @@ export function getAdminMembersCount(orgId) {
   if (!store) return 0;
   return store.members.length;
 }
+
+export { VIEW_ADMIN_TABLE, VIEW_DIRECTORY };

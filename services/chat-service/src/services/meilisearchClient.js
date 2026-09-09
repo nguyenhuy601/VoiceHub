@@ -59,6 +59,8 @@ async function ensureOrgMessagesIndex() {
       'isDeleted',
       'isRecalled',
       'createdAt',
+      'visibilityMode',
+      'visibilityProjectId',
     ],
     sortableAttributes: ['createdAt', 'messageId'],
   });

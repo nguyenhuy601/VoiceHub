@@ -6,6 +6,7 @@ const { resolveAllowedEmailDomains } = require('../utils/emailDomainPolicy');
 const { provisionUserByAdmin } = require('../clients/authProvision.client');
 const { bulkUpdateUserProfileFields } = require('../clients/userProfileBulkImport.client');
 const { findTakenEmployeeCodes } = require('../clients/employeeCodeLookup.client');
+const { findTakenPhones } = require('../clients/phoneLookup.client');
 const {
   allocateEmployeeCodesBatch,
   findPendingInviteCodes,
@@ -114,7 +115,7 @@ async function provisionRow({ row, organizationId, uploadedBy }) {
   }
 
   const primaryDomain = row.primaryDomain || guessPrimaryDomainFromJobTitle(row.jobTitle);
-  const skills = (Array.isArray(row.skills) ? row.skills : []).map((s) => String(s)).filter(Boolean);
+  const skillTokens = (Array.isArray(row.skills) ? row.skills : []).map((s) => String(s)).filter(Boolean);
 
   const tProfile = nowMs();
   await bulkUpdateUserProfileFields(userId, {
@@ -126,7 +127,7 @@ async function provisionRow({ row, organizationId, uploadedBy }) {
     uploadedBy,
     capability: {
       primaryDomain,
-      skills: skills.map((name) => ({ name, level: 3 })),
+      skills: skillTokens.map((name) => ({ name, level: 3 })),
       yearsExperience: row.yearsExperience,
       availability: 'available',
       summary: '',
@@ -307,6 +308,20 @@ async function validateExcelForPreview({ organizationId, fileBuffer }) {
       errorCode: 'VALIDATION_EMAIL_ALREADY_MEMBER',
       details: emailConflicts,
     };
+  }
+
+  const phonesToCheck = validation.normalizedRows.map((r) => r.phone).filter(Boolean);
+  const takenPhones = await findTakenPhones(phonesToCheck);
+  const takenPhoneSet = new Set(takenPhones.map((p) => String(p || '').trim()).filter(Boolean));
+  if (takenPhoneSet.size) {
+    const details = validation.normalizedRows
+      .filter((r) => r.phone && takenPhoneSet.has(r.phone))
+      .map((r) => ({
+        rowNumber: r.rowNumber,
+        message: `Số điện thoại đã được dùng bởi hồ sơ khác: ${r.phone}`,
+        errorCode: 'VALIDATION_PHONE_TAKEN',
+      }));
+    return { ok: false, errorCode: 'VALIDATION_ERROR', details };
   }
 
   return {
@@ -495,6 +510,53 @@ async function processImportBatch({ organizationId, batchId }) {
       }
     );
     return { ok: false, reason: 'email_already_member', details: emailConflicts };
+  }
+
+  // Confirm-time: chặn SĐT đã gắn profile khác (race sau preview).
+  const phonesToCheck = previewRows.map((r) => r.phone).filter(Boolean);
+  let takenPhones = [];
+  try {
+    takenPhones = await findTakenPhones(phonesToCheck);
+  } catch (phoneErr) {
+    await ImportBatch.updateOne(
+      { _id: claimed._id },
+      {
+        $set: {
+          status: 'failed',
+          errorCode: phoneErr?.errorCode || 'PHONE_LOOKUP_FAILED',
+          errorMessage: String(phoneErr?.message || phoneErr).slice(0, 800),
+          completedAt: new Date(),
+        },
+      }
+    );
+    return { ok: false, reason: 'phone_lookup_failed' };
+  }
+  const takenPhoneSet = new Set(takenPhones.map((p) => String(p || '').trim()).filter(Boolean));
+  if (takenPhoneSet.size) {
+    const phoneConflicts = previewRows
+      .filter((r) => r.phone && takenPhoneSet.has(r.phone))
+      .map((r) => ({
+        rowNumber: r.rowNumber,
+        message: `Số điện thoại đã được dùng bởi hồ sơ khác: ${r.phone}`,
+        errorCode: 'VALIDATION_PHONE_TAKEN',
+      }));
+    await ImportBatch.updateOne(
+      { _id: claimed._id },
+      {
+        $set: {
+          status: 'failed',
+          errorCode: 'VALIDATION_PHONE_TAKEN',
+          errorMessage: phoneConflicts
+            .slice(0, 5)
+            .map((d) => d.message)
+            .join('; ')
+            .slice(0, 800),
+          validationDetails: phoneConflicts,
+          completedAt: new Date(),
+        },
+      }
+    );
+    return { ok: false, reason: 'phone_taken', details: phoneConflicts };
   }
 
   let rowsWithCodes;

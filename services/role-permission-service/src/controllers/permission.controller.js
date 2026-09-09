@@ -42,11 +42,14 @@ class PermissionController {
   async getUserPermissions(req, res) {
     try {
       const { userId, serverId } = req.params;
-      const permissions = await permissionService.getUserPermissions(userId, serverId);
+      const result = await permissionService.getUserPermissions(userId, serverId);
+      const permissions = Array.isArray(result) ? result : result?.permissions || [];
+      const masterGrants = Array.isArray(result) ? [] : result?.masterGrants || [];
 
       res.json({
         success: true,
         data: permissions,
+        masterGrants,
       });
     } catch (error) {
       logger.error('Get user permissions error:', error);

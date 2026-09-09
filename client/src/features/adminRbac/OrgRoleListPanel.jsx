@@ -6,6 +6,7 @@ import {
   AdminUserFormCard,
   AdminUserPanelShell,
   adminDangerBtnClass,
+  adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import AdminSortableRoleList, {
@@ -16,6 +17,12 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { reorderItemsByIds } from '../../utils/adminSortOrder';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 import { hasLayerPrefix } from '../../utils/roleLayerNaming';
+import { adminRoleHubLink } from '../../utils/adminHubLinks';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+
+const ORG_ROLE_MANAGE_HUB = '/app/admin/rbac/org-roles/manage';
 
 function SystemBadge({ isSystem }) {
   if (!isSystem) return null;
@@ -44,13 +51,18 @@ const actionBtn = '!px-2 !py-1 text-xs whitespace-nowrap';
 
 export default function OrgRoleListPanel({ orgId }) {
   const { t } = useAppStrings();
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canUpdateOrgRole = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.ORG_ROLE_UPDATE);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [reordering, setReordering] = useState(false);
 
   const load = async () => {
     if (!orgId) return;
     setLoading(true);
+    setLoadError('');
     try {
       const res = await orgRoleCatalogAPI.listCatalog(orgId);
       const list = res?.data?.roles || res?.data?.data?.roles || [];
@@ -58,7 +70,9 @@ export default function OrgRoleListPanel({ orgId }) {
         [...list].sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0))
       );
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
+      const msg = resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') });
+      toast.error(msg);
+      setLoadError(msg);
       setRoles([]);
     } finally {
       setLoading(false);
@@ -74,6 +88,10 @@ export default function OrgRoleListPanel({ orgId }) {
 
   const onReorder = async (orderedIds) => {
     if (!orgId || reordering) return;
+    if (!canUpdateOrgRole) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     const prev = roles;
     setRoles(reorderItemsByIds(roles, orderedIds));
     setReordering(true);
@@ -105,11 +123,20 @@ export default function OrgRoleListPanel({ orgId }) {
       <AdminUserFormCard title={t('adminDomains.rbac.orgRoleCatalog')}>
         {loading ? (
           <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        ) : loadError ? (
+          <div className="space-y-3">
+            <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {loadError}
+            </p>
+            <button type="button" className={adminPrimaryBtnClass()} onClick={() => load()}>
+              {t('adminRbac.retry')}
+            </button>
+          </div>
         ) : (
           <>
             <AdminSortableRoleList
               items={roles}
-              disabled={reordering}
+              disabled={reordering || !canUpdateOrgRole}
               emptyLabel={t('adminRbac.orgRoleDirectoryEmpty')}
               onReorder={onReorder}
               gridClassName={ADMIN_ROLE_LIST_GRID}
@@ -151,24 +178,30 @@ export default function OrgRoleListPanel({ orgId }) {
                   <div className="flex flex-wrap justify-end gap-1.5 self-center">
                     {!role.isSystem ? (
                       <>
-                        <Link
-                          to={`/app/admin/rbac/org-roles/edit?roleId=${encodeURIComponent(role._id || role.id)}`}
-                          className={adminSecondaryBtnClass(actionBtn)}
-                        >
-                          {t('adminRbac.edit')}
-                        </Link>
-                        <Link
-                          to={`/app/admin/rbac/org-roles/delete?roleId=${encodeURIComponent(role._id || role.id)}`}
-                          className={adminDangerBtnClass(actionBtn)}
-                        >
-                          {t('adminRbac.delete')}
-                        </Link>
-                        <Link
-                          to={`/app/admin/rbac/org-roles/assign?roleId=${encodeURIComponent(role._id || role.id)}`}
-                          className={adminSecondaryBtnClass(actionBtn)}
-                        >
-                          {t('adminRbac.roleActionAssign')}
-                        </Link>
+                        {canUpdateOrgRole ? (
+                          <Link
+                            to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'edit')}
+                            className={adminSecondaryBtnClass(actionBtn)}
+                          >
+                            {t('adminRbac.edit')}
+                          </Link>
+                        ) : null}
+                        {canUpdateOrgRole ? (
+                          <Link
+                            to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'delete')}
+                            className={adminDangerBtnClass(actionBtn)}
+                          >
+                            {t('adminRbac.delete')}
+                          </Link>
+                        ) : null}
+                        {canUpdateOrgRole ? (
+                          <Link
+                            to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'assign')}
+                            className={adminSecondaryBtnClass(actionBtn)}
+                          >
+                            {t('adminRbac.roleActionAssign')}
+                          </Link>
+                        ) : null}
                       </>
                     ) : (
                       <span className="text-xs text-muted-foreground">System</span>

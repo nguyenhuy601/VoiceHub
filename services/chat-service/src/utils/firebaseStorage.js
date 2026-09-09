@@ -80,13 +80,36 @@ async function getSignedUploadUrl(storagePath, contentType, ttlMinutes = DEFAULT
   const file = bucket.file(storagePath);
   const ttlMs = capSignedUrlTtlMs(ttlMinutes * 60 * 1000);
   const expires = Date.now() + ttlMs;
-  const [uploadUrl] = await file.getSignedUrl({
+  const signOpts = {
     version: 'v4',
     action: 'write',
     expires,
-    contentType: contentType || 'application/octet-stream',
-  });
+  };
+  // Chỉ ràng buộc Content-Type khi có giá trị rõ — tránh 403 PUT từ browser khi lệch header.
+  const ct = String(contentType || '').trim();
+  if (ct && ct !== 'application/octet-stream') {
+    signOpts.contentType = ct;
+  }
+  const [uploadUrl] = await file.getSignedUrl(signOpts);
   return { uploadUrl, expires: new Date(expires) };
+}
+
+/**
+ * Upload buffer trực tiếp qua Admin SDK (proxy same-origin — tránh CORS/403 GCS từ browser).
+ */
+async function uploadObjectBuffer(storagePath, buffer, contentType) {
+  const bucket = getBucket();
+  if (!bucket) {
+    throw new Error('Firebase Storage is not configured');
+  }
+  const body = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  await bucket.file(storagePath).save(body, {
+    resumable: false,
+    metadata: {
+      contentType: String(contentType || 'application/octet-stream'),
+    },
+  });
+  return storagePath;
 }
 
 /**
@@ -155,6 +178,7 @@ module.exports = {
   getBucket,
   getSignedUploadUrl,
   getSignedReadUrl,
+  uploadObjectBuffer,
   deleteObject,
   copyObject,
   sanitizeFileName,

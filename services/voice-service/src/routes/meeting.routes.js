@@ -31,21 +31,11 @@ router.patch(
 
 router.use(authenticate);
 
-// Cuộc gọi 1-1 bạn bè — đặt trước route động `/:meetingId`
-const callRoutes = require('./call.routes');
-router.use(callRoutes);
-
 // Tạo meeting mới
 router.post('/', meetingController.createMeeting.bind(meetingController));
 
 // Lấy danh sách meetings
 router.get('/', meetingController.getMeetings.bind(meetingController));
-
-// Bootstrap dữ liệu room cho WebRTC client (đặt trước dynamic route để tránh shadow route)
-router.get('/rooms/:roomId/bootstrap', meetingController.bootstrapRoom.bind(meetingController));
-
-const voiceRoomRoutes = require('./voiceRoom.routes');
-router.use('/rooms/:roomId', voiceRoomRoutes);
 
 const meetingRecordingRoutes = require('./meetingRecording.routes');
 router.use('/:meetingId/recording', meetingRecordingRoutes);

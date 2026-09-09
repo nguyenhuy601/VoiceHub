@@ -9,6 +9,7 @@ const {
   readRefreshTokenFromReq,
   setRefreshCookie,
   clearRefreshCookie,
+  shouldClearCookiesOnRefreshFailure,
 } = require('../utils/refreshCookie');
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
@@ -94,24 +95,16 @@ class AuthController {
 
       const responseData = {
         email: readEmailFromStored(result.userAuth?.email),
-        message: 'Registration successful. Please check your email to verify your account.',
+        emailScheduled: false,
+        message:
+          'Đăng ký thành công. Vui lòng dùng chức năng gửi lại email xác thực để nhận liên kết kích hoạt tài khoản.',
       };
 
-      // Thêm thông tin về email verification
-      if (result.emailScheduled) {
-        responseData.emailScheduled = true;
-        responseData.message = 'Đăng ký thành công! Email xác thực đang được gửi. Vui lòng kiểm tra hộp thư của bạn (có thể mất vài phút).';
-        console.log('[AuthController] ✅ Email verification scheduled (check logs for sending status)');
-      } else {
-        responseData.emailScheduled = false;
-        console.warn('[AuthController] ⚠️ Email service not configured');
-        responseData.message = 'Đăng ký thành công. Email service chưa được cấu hình.';
-      }
-
-      // Chỉ trả về token nếu email service chưa được cấu hình (development mode)
+      // Dev fallback: trả token khi SMTP tắt (không auto-gửi mail lúc register)
       if (result.emailVerificationToken) {
         responseData.emailVerificationToken = result.emailVerificationToken;
-        responseData.message = 'Registration successful. Please verify your email using the token below (development mode).';
+        responseData.message =
+          'Registration successful. Request a verification email resend, or use the token below (development mode).';
       }
 
       console.log('[AuthController] Sending response:', {
@@ -199,6 +192,8 @@ class AuthController {
     try {
       const refreshTokenRaw = readRefreshTokenFromReq(req);
       if (!refreshTokenRaw) {
+        // Marker vh_has_session có thể còn sau phiên chết — xóa để FE không spam refresh mỗi reload.
+        clearRefreshCookie(res, req);
         return sendServiceError(res, 401, {
           errorCode: 'AUTH_REFRESH_INVALID',
           messageUser: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.',
@@ -219,6 +214,9 @@ class AuthController {
         data: safeData,
       });
     } catch (error) {
+      if (shouldClearCookiesOnRefreshFailure(error)) {
+        clearRefreshCookie(res, req);
+      }
       return sendError(res, error, 401, 'Làm mới phiên thất bại', 'AUTH_REFRESH_FAILED');
     }
   }

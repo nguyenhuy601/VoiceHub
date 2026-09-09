@@ -21,7 +21,7 @@ export default function PosCreatePanel({ orgId }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
-  const { loadMembers } = useAdminMembers(orgId);
+  const { loadMembers } = useAdminMembers(orgId, { view: 'directory' });
   const [title, setTitle] = useState('');
   const [saving, setSaving] = useState(false);
 

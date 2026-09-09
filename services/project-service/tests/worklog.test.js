@@ -1,85 +1,117 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const { isTaskAssignee, collectTaskAssigneeIds } = require('../src/utils/task/taskAssignee');
 const {
-  normalizeEstimateHours,
+  isTimeTrackingV1Enabled,
+  assertTimeTrackingEnabled,
   normalizeWorklogHours,
   normalizeWorkDate,
   varianceHours,
   sumWorklogHours,
-} = require('../src/utils/timeTracking');
-const fs = require('fs');
-const path = require('path');
+} = require('../src/utils/task/timeTracking');
 
-describe('estimateHours validate', () => {
-  it('accepts >= 0', () => {
-    assert.equal(normalizeEstimateHours(8), 8);
-    assert.equal(normalizeEstimateHours(0), 0);
-    assert.equal(normalizeEstimateHours(null), null);
+describe('isTaskAssignee', () => {
+  it('matches primary assigneeId', () => {
+    assert.equal(isTaskAssignee({ assigneeId: '507f1f77bcf86cd799439011' }, '507f1f77bcf86cd799439011'), true);
+    assert.equal(isTaskAssignee({ assigneeId: '507f1f77bcf86cd799439011' }, '507f1f77bcf86cd799439099'), false);
   });
 
-  it('rejects negative', () => {
-    assert.throws(() => normalizeEstimateHours(-1), /estimateHours/);
+  it('matches assignments[].userId', () => {
+    const task = {
+      assigneeId: null,
+      assignments: [{ userId: '507f1f77bcf86cd799439022' }],
+    };
+    assert.equal(isTaskAssignee(task, '507f1f77bcf86cd799439022'), true);
+    assert.equal(isTaskAssignee(task, '507f1f77bcf86cd799439011'), false);
+  });
+
+  it('collectTaskAssigneeIds unions primary + slots', () => {
+    const ids = collectTaskAssigneeIds({
+      assigneeId: 'a1',
+      assignments: [{ userId: 'a2' }, { userId: 'a1' }],
+    });
+    assert.equal(ids.size, 2);
+    assert.ok(ids.has('a1'));
+    assert.ok(ids.has('a2'));
   });
 });
 
-describe('worklog hours / date (W1 helpers)', () => {
-  it('normalizes hours in range', () => {
-    assert.equal(normalizeWorklogHours(3), 3);
+describe('timeTracking validators', () => {
+  it('normalizeWorklogHours accepts 0.25–24', () => {
+    assert.equal(normalizeWorklogHours(1), 1);
     assert.equal(normalizeWorklogHours(0.25), 0.25);
+    assert.equal(normalizeWorklogHours(24), 24);
+    assert.throws(() => normalizeWorklogHours(0), /hours/);
+    assert.throws(() => normalizeWorklogHours(25), /hours/);
   });
 
-  it('rejects out of range', () => {
-    assert.throws(() => normalizeWorklogHours(0.1));
-    assert.throws(() => normalizeWorklogHours(25));
+  it('normalizeWorkDate requires YYYY-MM-DD', () => {
+    const d = normalizeWorkDate('2026-09-07');
+    assert.equal(d.toISOString().slice(0, 10), '2026-09-07');
+    assert.throws(() => normalizeWorkDate(''), /workDate/);
+    assert.throws(() => normalizeWorkDate('not-a-date'), /workDate/);
   });
 
-  it('normalizes workDate to UTC day', () => {
-    const d = normalizeWorkDate('2026-08-06');
-    assert.equal(d.toISOString().slice(0, 10), '2026-08-06');
+  it('varianceHours = actual − estimate', () => {
+    assert.deepEqual(varianceHours(8, 10), {
+      estimateHours: 8,
+      actualHours: 10,
+      varianceHours: 2,
+    });
+    assert.deepEqual(varianceHours(null, 3), {
+      estimateHours: null,
+      actualHours: 3,
+      varianceHours: null,
+    });
+  });
+
+  it('sumWorklogHours totals rows', () => {
+    assert.equal(sumWorklogHours([{ hours: 1 }, { hours: 2.5 }]), 3.5);
+  });
+
+  it('flag off throws TIME_TRACKING_DISABLED', () => {
+    const prev = process.env.TIME_TRACKING_V1;
+    process.env.TIME_TRACKING_V1 = '0';
+    try {
+      assert.equal(isTimeTrackingV1Enabled(), false);
+      assert.throws(() => assertTimeTrackingEnabled(), (err) => {
+        assert.equal(err.errorCode, 'TIME_TRACKING_DISABLED');
+        assert.equal(err.statusCode, 404);
+        return true;
+      });
+    } finally {
+      if (prev === undefined) delete process.env.TIME_TRACKING_V1;
+      else process.env.TIME_TRACKING_V1 = prev;
+    }
   });
 });
 
-describe('sum / variance (W2 W3)', () => {
-  it('sums worklog hours for sprint fixture', () => {
-    assert.equal(sumWorklogHours([{ hours: 3 }, { hours: 2 }, { hours: 1.5 }]), 6.5);
+describe('worklog source contracts', () => {
+  it('controller ignores body.userId proxy', () => {
+    const src = fs.readFileSync(
+      path.join(__dirname, '../src/controllers/worklog.controller.js'),
+      'utf8'
+    );
+    assert.ok(src.includes('Self-log only'));
+    assert.equal(/userId:\s*body\.userId/.test(src), false);
   });
 
-  it('estimate 8 vs actual 5 → variance -3', () => {
-    const v = varianceHours(8, sumWorklogHours([{ hours: 3 }, { hours: 2 }]));
-    assert.equal(v.estimateHours, 8);
-    assert.equal(v.actualHours, 5);
-    assert.equal(v.varianceHours, -3);
+  it('model has unique (taskId, userId, workDate)', () => {
+    const src = fs.readFileSync(path.join(__dirname, '../src/models/Worklog.js'), 'utf8');
+    assert.ok(src.includes("unique: true"));
+    assert.ok(src.includes('taskId: 1, userId: 1, workDate: 1'));
   });
-});
 
-describe('W4 — worklog service does not write ProjectMember', () => {
-  it('source has no ProjectMember import/write', () => {
+  it('service enforces WORKLOG_ASSIGNEE_ONLY', () => {
     const src = fs.readFileSync(
       path.join(__dirname, '../src/services/worklog.service.js'),
       'utf8'
     );
-    assert.equal(src.includes("require('../models/ProjectMember')"), false);
-    assert.equal(src.includes('ProjectMember.'), false);
-  });
-});
-
-describe('W7 — permission gates on worklog/estimate paths', () => {
-  it('create/list worklog require task:update / task:view', () => {
-    const src = fs.readFileSync(
-      path.join(__dirname, '../src/services/worklog.service.js'),
-      'utf8'
-    );
-    assert.match(src, /permission:\s*'task:update'/);
-    assert.match(src, /permission:\s*'task:view'/);
-    assert.match(src, /assertUserProjectPermission/);
-  });
-
-  it('task update whitelist includes estimateHours', () => {
-    const src = fs.readFileSync(
-      path.join(__dirname, '../src/services/task.service.js'),
-      'utf8'
-    );
-    assert.match(src, /'estimateHours'/);
-    assert.match(src, /estimate_updated/);
+    assert.ok(src.includes('WORKLOG_ASSIGNEE_ONLY'));
+    assert.ok(src.includes('findOneAndUpdate'));
+    assert.ok(src.includes('isTaskAssignee'));
   });
 });

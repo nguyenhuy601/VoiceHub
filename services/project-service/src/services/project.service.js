@@ -16,6 +16,7 @@ const {
   ensureOrgProjectRoles,
   ensureProjectMembership,
   setUserProjectRoles,
+  cloneOrgRolesToProject,
 } = require('./projectTeam.service');
 const { applyDelegationTemplate } = require('./delegation.service');
 const { DEFAULT_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
@@ -23,19 +24,25 @@ const {
   isCreateBoardSeedEnabled,
   normalizeDelegationTemplateId,
   normalizeSeedMembers,
-} = require('../utils/createBoardSeed');
+} = require('../utils/project/createBoardSeed');
 const {
   buildProjectCodeBase,
   allocateUniqueProjectCode,
 } = require('@enterprise/shared/utils/projectCodeGenerate');
-const { buildBoardIdentityPatch, resolveBoardScope } = require('../utils/boardIdentityPatch');
-const { buildProjectInitFields } = require('../utils/projectInitFields');
+const { buildBoardIdentityPatch, resolveBoardScope } = require('../utils/project/boardIdentityPatch');
+const { buildProjectInitFields, coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
+const {
+  assertPatchDoesNotCloseActiveSprint,
+  assertProjectWritable,
+  assertMustCompleteBeforeArchive,
+  assertPatchDoesNotCloseProject,
+} = require('../utils/project/projectCloseGate');
 const {
   assertDeliveryRoster,
   collectCreateProjectRoleKeys,
   normalizeRoleKeys,
-} = require('../utils/projectDeliveryRoster');
-const { normalizeRequiredProjectRoles } = require('../utils/requiredProjectRoles');
+} = require('../utils/project/projectDeliveryRoster');
+const { normalizeRequiredProjectRoles } = require('../utils/project/requiredProjectRoles');
 const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
 const {
   isProjectVisibilityV2Enabled,
@@ -45,11 +52,11 @@ const {
   normalizeInformationLevelOverrides,
   normalizeProjectVisibilityPolicy,
   assertCanUseCustomProjectVisibility,
-} = require('../utils/projectVisibility');
+} = require('../utils/project/projectVisibility');
 const {
   isOrgElevatedMembershipRole,
   memberScopedProjectFilter,
-} = require('../utils/projectListMembershipScope');
+} = require('../utils/project/projectListMembershipScope');
 
 const DEFAULT_BOARD_TITLE = 'Main';
 const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Done']);
@@ -126,6 +133,20 @@ async function seedDefaultLists(boardId) {
  * Create Project + default Board (Main) + lists + PM ownership (status ready_for_planning).
  * projectId !== boardId.
  */
+function normalizeBudgetStub(raw) {
+  if (raw == null) return null;
+  if (typeof raw !== 'object') return null;
+  const amountRaw = raw.amount;
+  const amount =
+    amountRaw === null || amountRaw === undefined || amountRaw === ''
+      ? null
+      : Number(amountRaw);
+  if (amount !== null && !Number.isFinite(amount)) return null;
+  const currency = String(raw.currency || 'VND').trim().slice(0, 8) || 'VND';
+  const note = String(raw.note || '').trim().slice(0, 240);
+  return { amount, currency, note };
+}
+
 async function createProject({
   userId,
   organizationId,
@@ -163,6 +184,8 @@ async function createProject({
   visibilityPolicy,
   informationLevelOverrides,
   relatedDepartmentIds,
+  requiredProjectRoles,
+  budgetStub,
 }) {
   const scope = await fetchTaskWorkspaceScope(userId, organizationId);
   if (!scope || !canCreateTaskInScope(scope)) {
@@ -238,6 +261,13 @@ async function createProject({
     assertCanUseCustomProjectVisibility(ctx, userId);
   }
 
+  const normalizedRoles =
+    requiredProjectRoles !== undefined
+      ? normalizeRequiredProjectRoles(requiredProjectRoles)
+      : undefined;
+  const normalizedBudget =
+    budgetStub !== undefined ? normalizeBudgetStub(budgetStub) : undefined;
+
   const project = await Project.create({
     organizationId,
     teamId: null,
@@ -258,6 +288,8 @@ async function createProject({
     isActive: true,
     ...init.fields,
     dueDate: init.fields.dueDate !== undefined ? init.fields.dueDate : due,
+    ...(normalizedRoles !== undefined ? { requiredProjectRoles: normalizedRoles } : {}),
+    ...(normalizedBudget !== undefined ? { budgetStub: normalizedBudget } : {}),
   });
 
   const board = await TaskBoard.create({
@@ -305,7 +337,7 @@ async function createProject({
 
   // Creator mặc định: Product Owner (+ role kiêm nhiệm nếu gửi trong members).
   try {
-    await ensureOrgProjectRoles(organizationId);
+    await cloneOrgRolesToProject(project._id, organizationId);
     const creatorSeed = (Array.isArray(members) ? members : []).find(
       (m) => String(m?.userId || m?.id || '') === String(userId)
     );
@@ -429,6 +461,26 @@ async function createProject({
     /* best-effort */
   }
 
+  try {
+    const { emitProjectCoreChannelsProvisionBestEffort } = require('../clients/projectChatPublisher.client');
+    const writerUserIds = [
+      ownerUserId,
+      userId,
+      toValidUserId(productOwnerId),
+      toValidUserId(scrumMasterId),
+      toValidUserId(techLeadId),
+    ].filter(Boolean);
+    emitProjectCoreChannelsProvisionBestEffort({
+      organizationId,
+      projectId: String(project._id),
+      projectTitle: titleTrim,
+      createdBy: userId,
+      writerUserIds,
+    });
+  } catch {
+    /* best-effort */
+  }
+
   const projectObj = project.toObject();
   const boardObj = board.toObject();
   return {
@@ -455,6 +507,7 @@ async function listProjects({
   scopeType,
   scopeId,
   includeArchived = false,
+  excludeClosed = false,
 }) {
   const userOid = mongoose.Types.ObjectId.isValid(userId)
     ? new mongoose.Types.ObjectId(String(userId))
@@ -477,6 +530,9 @@ async function listProjects({
 
   const base = { organizationId: orgOid };
   if (!allowArchived) base.isActive = true;
+  if (excludeClosed) {
+    base.status = { $nin: ['closed', 'cancelled', 'canceled', 'completed', 'archived'] };
+  }
   const st = String(scopeType || '').toLowerCase();
   if (st === 'organization' && scopeId && mongoose.Types.ObjectId.isValid(scopeId)) {
     base.scopeType = 'organization';
@@ -749,11 +805,14 @@ async function getProject({ userId, projectId }) {
 async function attachProjectCapabilities(payload, userId, projectId) {
   if (payload && typeof payload === 'object') {
     delete payload.technicalSetup;
-    payload.workTypeConfig = require('../utils/workTypeConfig').serializeWorkTypeConfig(
+    payload.workTypeConfig = require('../utils/project/workTypeConfig').serializeWorkTypeConfig(
       payload.workTypeConfig
     );
+    payload.priorityConfig = require('../utils/project/priorityConfig').serializePriorityConfig(
+      payload.priorityConfig
+    );
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (!isProjectRbacV2Enabled()) {
     return payload;
   }
@@ -774,7 +833,11 @@ async function attachProjectCapabilities(payload, userId, projectId) {
         hasPermission(perms, 'members:manage'),
       canManageSettings: bypass || hasPermission(perms, 'settings:update'),
       canManageSprints:
-        bypass || hasPermission(perms, 'sprint:create') || hasPermission(perms, 'sprint:close'),
+        bypass ||
+        hasPermission(perms, 'sprint:create') ||
+        hasPermission(perms, 'sprint:start') ||
+        hasPermission(perms, 'sprint:close'),
+      canDeleteSprint: bypass || hasPermission(perms, 'sprint:delete'),
       canCreateEpic: bypass || hasPermission(perms, 'epic:create'),
       canUpdateEpic: bypass || hasPermission(perms, 'epic:update'),
       canDeleteEpic: bypass || hasPermission(perms, 'epic:delete'),
@@ -791,7 +854,7 @@ async function attachProjectCapabilities(payload, userId, projectId) {
 
 async function listProjectMembersForUser({ userId, projectId }) {
   await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
     await assertUserAnyProjectPermission({
@@ -817,7 +880,7 @@ async function userCanAdminProject(userId, project) {
 }
 
 async function assertProjectMatrixOrAdmin(userId, project, permissions, message) {
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
     await assertUserAnyProjectPermission({
@@ -839,7 +902,11 @@ async function assertProjectMatrixOrAdmin(userId, project, permissions, message)
 async function patchProject({ userId, projectId, patch }) {
   const project = await Project.findById(projectId);
   if (!project || project.isActive === false) throw new Error('Project không tồn tại');
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  assertProjectWritable(project);
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'status')) {
+    assertPatchDoesNotCloseProject(project.status, patch.status);
+  }
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -862,13 +929,14 @@ async function patchProject({ userId, projectId, patch }) {
   const init = buildProjectInitFields(patch, { partial: true });
   const hasStaffingPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'requiredProjectRoles');
   const hasWorkTypeConfigPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'workTypeConfig');
+  const hasPriorityConfigPatch = Object.prototype.hasOwnProperty.call(patch || {}, 'priorityConfig');
   const hasVisibilityPatch = [
     'visibilityMode',
     'visibilityPolicy',
     'informationLevelOverrides',
     'relatedDepartmentIds',
   ].some((k) => Object.prototype.hasOwnProperty.call(patch || {}, k));
-  if (!built.ok && !init.ok && !hasStaffingPatch && !hasVisibilityPatch && !hasWorkTypeConfigPatch) {
+  if (!built.ok && !init.ok && !hasStaffingPatch && !hasVisibilityPatch && !hasWorkTypeConfigPatch && !hasPriorityConfigPatch) {
     const err = new Error(built.message || init.message || 'Không có field hợp lệ');
     err.statusCode = 400;
     throw err;
@@ -908,8 +976,12 @@ async function patchProject({ userId, projectId, patch }) {
     $set.relatedDepartmentIds = normalizeRelatedDepartmentIds(patch.relatedDepartmentIds);
   }
   if (hasWorkTypeConfigPatch) {
-    const { normalizeWorkTypeConfig } = require('../utils/workTypeConfig');
+    const { normalizeWorkTypeConfig } = require('../utils/project/workTypeConfig');
     $set.workTypeConfig = normalizeWorkTypeConfig(patch.workTypeConfig);
+  }
+  if (hasPriorityConfigPatch) {
+    const { normalizePriorityConfig } = require('../utils/project/priorityConfig');
+    $set.priorityConfig = normalizePriorityConfig(patch.priorityConfig);
   }
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'informationLevelOverrides')) {
     $set.informationLevelOverrides = normalizeInformationLevelOverrides(
@@ -1008,14 +1080,43 @@ async function patchProject({ userId, projectId, patch }) {
 async function archiveProject({ userId, projectId }) {
   const project = await Project.findById(projectId);
   if (!project || project.isActive === false) throw new Error('Project không tồn tại');
-  await assertProjectMatrixOrAdmin(
-    userId,
-    project.toObject(),
-    ['project:archive'],
-    'Không có quyền đóng dự án (project:archive)'
-  );
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
+  const { canSkipCompleteGateBeforeArchive } = require('../utils/project/projectCloseGate');
+  let skipCompleteGate = false;
+  if (isProjectRbacV2Enabled()) {
+    const { assertUserAnyProjectPermission } = require('./projectAccess.service');
+    const resolved = await assertUserAnyProjectPermission({
+      userId,
+      projectId,
+      permissions: ['project:archive', 'project:delete'],
+      message: 'Không có quyền đóng dự án (project:archive)',
+    });
+    skipCompleteGate = canSkipCompleteGateBeforeArchive({
+      isOrgAdmin: resolved.isOrgAdmin,
+      isCreator: resolved.isCreator,
+      permissions: resolved.permissions,
+    });
+  } else {
+    await assertProjectMatrixOrAdmin(
+      userId,
+      project.toObject(),
+      ['project:archive'],
+      'Không có quyền đóng dự án (project:archive)'
+    );
+    skipCompleteGate = canSkipCompleteGateBeforeArchive({
+      legacyOrgAdmin: await userCanAdminProject(userId, project.toObject()),
+    });
+  }
+  if (!skipCompleteGate) {
+    assertMustCompleteBeforeArchive(project);
+  }
   const beforeSnap = project.toObject();
   const now = new Date();
+  // Legacy docs may still have status=cancelled (pre-enum); coerce so save() validates.
+  const coercedStatus = coerceProjectLifecycleStatus(project.status);
+  if (coercedStatus && coercedStatus !== project.status) {
+    project.status = coercedStatus;
+  }
   project.isActive = false;
   project.archivedAt = now;
   let retentionDays = project.retentionDays;
@@ -1048,7 +1149,7 @@ async function archiveProject({ userId, projectId }) {
       resourceId: String(project._id),
       beforeDoc: beforeSnap,
       afterDoc: project.toObject(),
-      keys: ['isActive', 'archivedAt', 'retentionUntil', 'status'],
+      keys: ['isActive', 'archivedAt', 'retentionUntil'],
     });
   } catch {
     /* best-effort */
@@ -1069,6 +1170,7 @@ async function createBoardInProject({
 }) {
   const project = await Project.findById(projectId).lean();
   if (!project || project.isActive === false) throw new Error('Project không tồn tại');
+  assertProjectWritable(project);
   await assertProjectMatrixOrAdmin(
     userId,
     project,
@@ -1099,36 +1201,121 @@ async function createBoardInProject({
   return board.toObject();
 }
 
+async function countPlanningByType({ projectId }) {
+  const PlanningItem = require('../models/PlanningItem');
+  const pid = mongoose.Types.ObjectId.isValid(String(projectId))
+    ? new mongoose.Types.ObjectId(String(projectId))
+    : projectId;
+  const rows = await PlanningItem.aggregate([
+    { $match: { projectId: pid, isActive: true, type: { $in: ['epic', 'feature'] } } },
+    { $group: { _id: '$type', count: { $sum: 1 } } },
+  ]);
+  let epic = 0;
+  let feature = 0;
+  for (const row of rows || []) {
+    const t = String(row?._id || '').toLowerCase();
+    if (t === 'epic') epic = Number(row.count) || 0;
+    else if (t === 'feature') feature = Number(row.count) || 0;
+  }
+  return { epic, feature };
+}
+
 async function getProjectOverview({ userId, projectId }) {
   const project = await getProject({ userId, projectId });
-  const boardIds = (project.boards || []).map((b) => b._id);
-  const cards = boardIds.length
-    ? await Task.find({ boardId: { $in: boardIds }, isActive: true, parentTaskId: null })
-        .select('title status dueDate assigneeId listId boardId completedAt')
-        .lean()
-    : [];
-  const now = Date.now();
-  let done = 0;
-  let overdue = 0;
-  for (const c of cards) {
-    const st = String(c.status || '').toLowerCase();
-    if (st.includes('done') || st.includes('complete') || c.completedAt) done += 1;
-    else if (c.dueDate && new Date(c.dueDate).getTime() < now) overdue += 1;
+  const informationLevel = String(project.access?.informationLevel || 'details').toLowerCase();
+  const {
+    buildProjectOverviewAggregate,
+    slimOverviewProject,
+  } = require('../utils/project/projectOverviewAggregate');
+  const { resolveFeatureBoardListId } = require('../utils/work/planningBoardStatus');
+  const { serializePriorityConfig } = require('../utils/project/priorityConfig');
+
+  const defaultBoardId = String(
+    project.defaultBoardId || project.boards?.[0]?._id || ''
+  ).trim();
+  let lists = [];
+  let cards = [];
+  let sprints = [];
+  let planningPulse = { epic: 0, feature: 0 };
+
+  if (informationLevel !== 'summary') {
+    planningPulse = await countPlanningByType({ projectId });
+    sprints = await Sprint.find({ projectId }).sort({ createdAt: -1 }).lean();
+
+    if (defaultBoardId && mongoose.Types.ObjectId.isValid(defaultBoardId)) {
+      const boardOid = new mongoose.Types.ObjectId(defaultBoardId);
+      lists = await TaskBoardList.find({ boardId: boardOid, isActive: true })
+        .sort({ order: 1 })
+        .lean();
+      const listsWithStatusKey = lists.map((l) => ({
+        ...l,
+        statusKey:
+          String(l.statusKey || '').trim() ||
+          require('./workflow.service').inferStatusKeyFromTitle(l.title) ||
+          '',
+      }));
+
+      const tasks = await Task.find({ boardId: boardOid, isActive: true })
+        .select(
+          'title status dueDate assigneeId listId priority issueType sprintId estimateHours targetDate completedAt type'
+        )
+        .sort({ listId: 1, position: 1, createdAt: 1 })
+        .lean();
+
+      const PlanningItem = require('../models/PlanningItem');
+      const featureItems = await PlanningItem.find({
+        projectId,
+        type: 'feature',
+        isActive: true,
+      })
+        .select('title status assigneeId priority dueDate targetDate sprintId')
+        .lean();
+
+      const featureCards = featureItems.map((f) => ({
+        _id: f._id,
+        kind: 'planning',
+        issueType: 'feature',
+        listId: resolveFeatureBoardListId(f.status, listsWithStatusKey),
+        title: f.title,
+        status: f.status,
+        assigneeId: f.assigneeId,
+        priority: f.priority,
+        dueDate: f.dueDate || f.targetDate || null,
+        sprintId: f.sprintId || null,
+      }));
+
+      cards = [
+        ...tasks.map((t) => ({
+          ...t,
+          issueType: t.issueType || t.type || 'task',
+        })),
+        ...featureCards,
+      ];
+    }
   }
+
+  const priorityConfig = serializePriorityConfig(project.priorityConfig);
+  const aggregate = buildProjectOverviewAggregate({
+    cards,
+    lists,
+    priorityConfig,
+    members: [],
+    projectCode: project.projectCode || '',
+    sprints,
+    planningRows: [],
+    informationLevel,
+  });
+  aggregate.planningPulse = planningPulse;
+
   return {
-    project,
-    summary: {
-      total: cards.length,
-      done,
-      overdue,
-      donePercent: cards.length ? Math.round((done / cards.length) * 100) : 0,
-    },
+    project: slimOverviewProject({ ...project, priorityConfig }),
+    ...aggregate,
   };
 }
 
 async function getProjectActivity({ userId, projectId, limit = 50 }) {
   const project = await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -1149,15 +1336,77 @@ async function getProjectActivity({ userId, projectId, limit = 50 }) {
     return [];
   }
   const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
-  return TaskActivityLog.find({ projectId })
+  const logs = await TaskActivityLog.find({ projectId })
     .sort({ createdAt: -1 })
     .limit(lim)
     .lean();
+
+  const FIELD_TITLE_KEYS = new Set([
+    'status',
+    'listId',
+    'assigneeId',
+    'priority',
+    'dueDate',
+    'sprintId',
+    'issue',
+    'title',
+    'estimateHours',
+    'parentTaskId',
+    'epicId',
+    'comment',
+    'worklog',
+  ]);
+
+  const taskIds = [
+    ...new Set(
+      (logs || [])
+        .map((l) => (l?.taskId ? String(l.taskId) : ''))
+        .filter((id) => mongoose.isValidObjectId(id))
+    ),
+  ];
+  const titleByTaskId = new Map();
+  if (taskIds.length) {
+    const tasks = await Task.find({ _id: { $in: taskIds } })
+      .select('title')
+      .lean();
+    for (const task of tasks || []) {
+      const id = task?._id ? String(task._id) : '';
+      if (id) titleByTaskId.set(id, String(task.title || '').trim());
+    }
+  }
+
+  const hydrated = (logs || []).map((log) => {
+    const tid = log?.taskId ? String(log.taskId) : '';
+    const rawTitle = String(log?.title || '').trim();
+    const workTitle =
+      (tid && titleByTaskId.get(tid)) ||
+      (rawTitle && !FIELD_TITLE_KEYS.has(rawTitle) ? rawTitle : '');
+    return workTitle && workTitle !== rawTitle ? { ...log, title: workTitle } : { ...log, title: workTitle || rawTitle };
+  });
+
+  // Cùng mutation thường ghi status + listId — Overview chỉ cần status (giống #announcement).
+  const statusTwinKeys = new Set();
+  for (const log of hydrated) {
+    const field = String(log?.payload?.field || '').trim();
+    if (field !== 'status') continue;
+    const tid = log?.taskId ? String(log.taskId) : '';
+    const at = log?.createdAt ? new Date(log.createdAt).getTime() : 0;
+    if (!tid || !Number.isFinite(at)) continue;
+    statusTwinKeys.add(`${tid}:${Math.round(at / 3000)}`);
+  }
+  return hydrated.filter((log) => {
+    const field = String(log?.payload?.field || '').trim();
+    if (field !== 'listId') return true;
+    const tid = log?.taskId ? String(log.taskId) : '';
+    const at = log?.createdAt ? new Date(log.createdAt).getTime() : 0;
+    if (!tid || !Number.isFinite(at)) return true;
+    return !statusTwinKeys.has(`${tid}:${Math.round(at / 3000)}`);
+  });
 }
 
 async function getProjectFiles({ userId, projectId }) {
   const project = await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -1197,7 +1446,7 @@ async function getProjectFiles({ userId, projectId }) {
 
 async function listProjectSprints({ userId, projectId }) {
   await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled } = require('../utils/projectPermissionMatrix');
+  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
     await assertUserAnyProjectPermission({
@@ -1219,8 +1468,10 @@ async function createProjectSprint({
   endDate,
   status,
   boardId,
+  autoComplete,
 }) {
   const project = await getProject({ userId, projectId });
+  assertProjectWritable(project);
   await assertProjectMatrixOrAdmin(
     userId,
     project,
@@ -1242,6 +1493,7 @@ async function createProjectSprint({
     startDate: startDate ? new Date(startDate) : null,
     endDate: endDate ? new Date(endDate) : null,
     status: st,
+    autoComplete: Boolean(autoComplete),
     createdBy: userId,
   });
   return row.toObject();
@@ -1249,6 +1501,7 @@ async function createProjectSprint({
 
 async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
   const project = await getProject({ userId, projectId });
+  assertProjectWritable(project);
   const statusNext = patch.status !== undefined ? String(patch.status || '').trim() : '';
   const sprintPerms =
     statusNext === 'closed'
@@ -1276,11 +1529,15 @@ async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
   if (patch.goal !== undefined) sprint.goal = String(patch.goal || '').trim().slice(0, 2000);
   if (patch.startDate !== undefined) sprint.startDate = patch.startDate ? new Date(patch.startDate) : null;
   if (patch.endDate !== undefined) sprint.endDate = patch.endDate ? new Date(patch.endDate) : null;
+  if (patch.autoComplete !== undefined) {
+    sprint.autoComplete = Boolean(patch.autoComplete);
+  }
   if (patch.status !== undefined) {
     const st = String(patch.status || '').trim();
     if (!['planned', 'active', 'closed'].includes(st)) throw new Error('status sprint không hợp lệ');
+    assertPatchDoesNotCloseActiveSprint(sprint.status, st);
     if (st === 'active' && String(sprint.status || '').toLowerCase() !== 'active') {
-      const { assertNoMemberOverlapWithActiveSprints } = require('../utils/sprintMemberOverlap');
+      const { assertNoMemberOverlapWithActiveSprints } = require('../utils/task/sprintMemberOverlap');
       await assertNoMemberOverlapWithActiveSprints({
         projectId,
         sprintId,
@@ -1293,6 +1550,37 @@ async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
   }
   await sprint.save();
   return sprint.toObject();
+}
+
+async function deleteProjectSprint({ userId, projectId, sprintId }) {
+  const project = await getProject({ userId, projectId });
+  assertProjectWritable(project);
+  await assertProjectMatrixOrAdmin(
+    userId,
+    project,
+    ['sprint:delete', 'project:edit'],
+    'Không có quyền xóa sprint (sprint:delete)'
+  );
+  const sprint = await Sprint.findOne({ _id: sprintId, projectId });
+  if (!sprint) {
+    const err = new Error('Sprint không tồn tại');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (String(sprint.status || '').toLowerCase() !== 'planned') {
+    const err = new Error('Chỉ xóa được sprint planned. Sprint đang chạy hãy Complete Sprint.');
+    err.statusCode = 409;
+    err.errorCode = 'SPRINT_DELETE_NOT_PLANNED';
+    throw err;
+  }
+  const boardId = sprint.boardId;
+  await Sprint.deleteOne({ _id: sprintId });
+  if (boardId) {
+    await Task.updateMany({ boardId, sprintId }, { $set: { sprintId: null } });
+  } else {
+    await Task.updateMany({ projectId, sprintId }, { $set: { sprintId: null } });
+  }
+  return { deleted: true, sprintId: String(sprintId) };
 }
 
 /**
@@ -1321,6 +1609,9 @@ async function attachProjectIdentityToBoard(board) {
     defaultTaskDoneApprovalPolicyId: project.defaultTaskDoneApprovalPolicyId
       ? String(project.defaultTaskDoneApprovalPolicyId)
       : '',
+    changeRequestApprovalPolicyId: project.changeRequestApprovalPolicyId
+      ? String(project.changeRequestApprovalPolicyId)
+      : '',
     scopeType: project.scopeType,
     scopeId: project.scopeId,
     teamId: project.teamId,
@@ -1337,7 +1628,8 @@ async function attachProjectIdentityToBoard(board) {
     methodology: project.methodology,
     methodologySettings: project.methodologySettings,
     customer: project.customer,
-    workTypeConfig: require('../utils/workTypeConfig').serializeWorkTypeConfig(project.workTypeConfig),
+    workTypeConfig: require('../utils/project/workTypeConfig').serializeWorkTypeConfig(project.workTypeConfig),
+    priorityConfig: require('../utils/project/priorityConfig').serializePriorityConfig(project.priorityConfig),
   };
 }
 
@@ -1358,6 +1650,7 @@ module.exports = {
   listProjectSprints,
   createProjectSprint,
   patchProjectSprint,
+  deleteProjectSprint,
   userCanAdminProject,
   attachProjectIdentityToBoard,
   logActivity,

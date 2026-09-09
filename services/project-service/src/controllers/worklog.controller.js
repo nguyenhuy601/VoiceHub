@@ -56,22 +56,22 @@ async function createTaskWorklog(req, res) {
       });
     }
     const body = req.body || {};
-    const data = await createWorklog({
+    // Self-log only: ignore body.userId — always log for the authenticated actor.
+    const { worklog, created } = await createWorklog({
       taskId,
       actorUserId: userId,
-      userId: body.userId,
       workDate: body.workDate,
       hours: body.hours,
       note: body.note,
     });
-    return res.status(201).json({ success: true, data });
+    return res.status(created ? 201 : 200).json({ success: true, data: worklog });
   } catch (err) {
     return sendErrorFromCatch(
       res,
       err,
       err.statusCode || 400,
       'Không thể tạo worklog',
-      'WORKLOG_CREATE_FAILED'
+      err.errorCode || 'WORKLOG_CREATE_FAILED'
     );
   }
 }

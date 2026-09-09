@@ -179,6 +179,48 @@ async function runRetentionStub(req, res) {
   }
 }
 
+async function getWorkingCalendar(req, res) {
+  try {
+    const userId = asUserId(req);
+    if (!userId) return unauthorized(res);
+    const organizationId = orgIdOf(req);
+    if (!mongoose.isValidObjectId(organizationId)) {
+      return sendServiceError(res, 400, {
+        errorCode: 'VALIDATION_REQUIRED',
+        messageUser: 'organizationId là bắt buộc',
+        message: 'organizationId required',
+      });
+    }
+    const data = await governanceService.getWorkingCalendarPolicy({ userId, organizationId });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'WORKING_CALENDAR_GET_FAILED');
+  }
+}
+
+async function putWorkingCalendar(req, res) {
+  try {
+    const userId = asUserId(req);
+    if (!userId) return unauthorized(res);
+    const organizationId = orgIdOf(req);
+    if (!mongoose.isValidObjectId(organizationId)) {
+      return sendServiceError(res, 400, {
+        errorCode: 'VALIDATION_REQUIRED',
+        messageUser: 'organizationId là bắt buộc',
+        message: 'organizationId required',
+      });
+    }
+    const data = await governanceService.updateWorkingCalendarPolicy({
+      userId,
+      organizationId,
+      patch: req.body || {},
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'WORKING_CALENDAR_PUT_FAILED');
+  }
+}
+
 async function securityFlags(req, res) {
   try {
     const userId = asUserId(req);
@@ -197,5 +239,7 @@ module.exports = {
   getRetention,
   putRetention,
   runRetentionStub,
+  getWorkingCalendar,
+  putWorkingCalendar,
   securityFlags,
 };

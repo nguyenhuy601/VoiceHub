@@ -1,30 +1,57 @@
 /**
+ * Khung bảng/list admin dày — scroll trong card (sticky thead bên trong children).
+ */
+export function AdminDenseTableCard({ children, className = '' }) {
+  return (
+    <div
+      className={`flex max-h-[calc(100dvh-12rem)] min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm ${className}`.trim()}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Vùng cuộn dọc (+ ngang nếu bảng rộng) trong AdminDenseTableCard. */
+export function AdminDenseTableScroll({ children, className = '' }) {
+  return <div className={`min-h-0 flex-1 overflow-auto ${className}`.trim()}>{children}</div>;
+}
+
+/**
  * Shell + form card dùng chung cho các màn admin Users (enterprise).
  */
-export function AdminUserPanelShell({ title, hint, actions, children, wide = false }) {
+export function AdminUserPanelShell({ title, hint, actions, children, wide = false, fillHeight = false }) {
   return (
-    <div className={`mx-auto space-y-5 ${wide ? 'max-w-[1400px]' : 'max-w-5xl'}`}>
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div
+      className={`mx-auto flex w-full flex-col ${fillHeight ? 'min-h-0 flex-1' : ''} ${
+        wide ? 'max-w-[1400px]' : 'max-w-5xl'
+      } ${fillHeight ? 'gap-4' : 'space-y-5'}`}
+    >
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-foreground">{title}</h2>
           {hint ? <p className="mt-1 text-sm text-muted-foreground">{hint}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
       </div>
-      {children}
+      <div className={fillHeight ? 'min-h-0 flex-1' : undefined}>{children}</div>
     </div>
   );
 }
 
-export function AdminUserFormCard({ title, hint, children, danger = false }) {
+export function AdminUserFormCard({ title, hint, children, danger = false, isDarkMode = false }) {
+  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const muted = isDarkMode ? 'text-slate-300' : 'text-muted-foreground';
+  const cardCls = isDarkMode
+    ? danger
+      ? 'border-red-500/40 bg-[#11141C]'
+      : 'border-slate-700 bg-[#11141C]'
+    : danger
+      ? 'border-red-500/30 bg-card'
+      : 'border-border bg-card';
   return (
-    <div
-      className={`rounded-xl border bg-card p-5 shadow-sm ${
-        danger ? 'border-red-500/30' : 'border-border'
-      }`}
-    >
-      {title ? <h3 className="text-base font-semibold text-foreground">{title}</h3> : null}
-      {hint ? <p className="mt-1 text-sm text-muted-foreground">{hint}</p> : null}
+    <div className={`rounded-xl border p-5 shadow-sm ${cardCls}`}>
+      {title ? <h3 className={`text-base font-semibold ${titleCls}`}>{title}</h3> : null}
+      {hint ? <p className={`mt-1 text-sm ${muted}`}>{hint}</p> : null}
       <div className={title || hint ? 'mt-4' : ''}>{children}</div>
     </div>
   );
@@ -34,8 +61,11 @@ export function adminPrimaryBtnClass(extra = '') {
   return `inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50 ${extra}`;
 }
 
-export function adminSecondaryBtnClass(extra = '') {
-  return `inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-50 ${extra}`;
+export function adminSecondaryBtnClass(extra = '', isDarkMode = false) {
+  const tone = isDarkMode
+    ? 'border-slate-600 bg-[#1A1A1C] text-slate-100 hover:bg-slate-800/80'
+    : 'border-border bg-card text-foreground hover:bg-muted/40';
+  return `inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${tone} ${extra}`;
 }
 
 export function adminDangerBtnClass(extra = '') {

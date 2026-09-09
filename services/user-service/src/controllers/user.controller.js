@@ -4,6 +4,7 @@ const userService = require('../services/user.service');
 const { logger, getRedisClient } = require('@enterprise/shared');
 const { isEncryptionEnabled } = require('@enterprise/shared/utils/fieldCrypto');
 const { readPiiFromProfile } = require('../utils/profilePii');
+const { authEmailFromReq, withAuthEmailFallback } = require('../utils/withAuthEmailFallback');
 const { uploadsDir } = require('../config/uploadsPath');
 const {
   fetchAuthSummaryByUserId,
@@ -15,6 +16,11 @@ const {
   emptyCapability,
   assertHrOnlyCapabilityReview,
 } = require('../services/capabilityProfile.service');
+const { coalesceJobTitle } = require('../utils/jobTitleProfile');
+const {
+  resolveProfileViewMode,
+  resolveProfilePatchMode,
+} = require('../utils/profileAccessMode');
 
 /** Định danh người gọi (chỉ từ userContext sau khi header gateway đã được tin cậy). */
 function actorUserId(req) {
@@ -38,6 +44,7 @@ function safeProfilePayload(profile) {
 function shapeProfilePayload(profile, { isSelf = false, isCompanyAdmin = false } = {}) {
   const payload = safeProfilePayload(profile);
   if (!payload || typeof payload !== 'object') return payload;
+  payload.jobTitle = coalesceJobTitle(payload);
   if (isSelf || isCompanyAdmin) {
     if (!payload.capability) {
       payload.capability = emptyCapability();
@@ -46,12 +53,6 @@ function shapeProfilePayload(profile, { isSelf = false, isCompanyAdmin = false }
   }
   payload.capability = toPublicVerifiedCapability(payload.capability);
   return payload;
-}
-
-function authEmailFromReq(req) {
-  return String(req.headers['x-user-email'] || req.user?.email || '')
-    .trim()
-    .toLowerCase();
 }
 
 function isSelfProfileRequest(req, targetUserId) {
@@ -101,18 +102,6 @@ async function reconcileProfileEmail(req, userId, userProfile) {
   return userProfile;
 }
 
-function withAuthEmailFallback(req, payload, authSummary = null) {
-  if (!payload || typeof payload !== 'object') return payload;
-  const authEmail =
-    String(payload.email || '').trim() ||
-    String(authSummary?.email || '').trim() ||
-    authEmailFromReq(req);
-  if (!String(payload.email || '').trim() && authEmail) {
-    return { ...payload, email: authEmail };
-  }
-  return payload;
-}
-
 async function enrichPayloadEmailFromAuth(userId, payload, authSummary = null) {
   if (!payload || typeof payload !== 'object') return payload;
   if (String(payload.email || '').trim()) return payload;
@@ -130,6 +119,81 @@ function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
     ...(errorCode ? { errorCode } : {}),
     messageUser: message,
   });
+}
+
+/** Admin HR — bootstrap profile tối thiểu khi auth có nhưng UserProfile chưa tạo (invite chưa login). */
+async function resolveAdminUserProfile(userId) {
+  const uid = String(userId || '').trim();
+  if (!uid) return null;
+
+  let profile = await userService.getUserProfileById(uid);
+  if (profile) return profile;
+
+  const authSummary = await fetchAuthSummaryByUserId(uid);
+  const email = String(authSummary?.email || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) return null;
+
+  try {
+    profile = await userService.ensureUserProfile(uid, {
+      email,
+      displayName: String(authSummary?.displayName || '').trim() || email.split('@')[0],
+    });
+    if (profile) {
+      logger.info(`Admin lazy profile ensured for ${uid}`);
+    }
+  } catch (bootstrapErr) {
+    logger.warn('Admin lazy profile bootstrap failed:', bootstrapErr.message);
+    profile = await userService.getUserProfileById(uid);
+  }
+  return profile;
+}
+
+function systemBotUserId() {
+  return String(process.env.SYSTEM_BOT_USER_ID || '6a0000000000000000000001').trim();
+}
+
+function isSystemBotUserId(userId) {
+  const uid = String(userId || '').trim();
+  return Boolean(uid && uid === systemBotUserId());
+}
+
+function buildSystemBotProfilePayload(userId) {
+  const uid = String(userId || '').trim();
+  return {
+    userId: uid,
+    username: 'voicehub_bot',
+    displayName: 'VoiceHub',
+    avatar: null,
+    status: 'offline',
+    bio: '',
+    capability: emptyCapability(),
+  };
+}
+
+/** Bootstrap profile khi user xem/sửa hồ sơ của chính mình (GET /users/me, GET /users/:id self). */
+async function ensureSelfUserProfile(req, userId) {
+  const uid = String(userId || '').trim();
+  if (!uid || !isSelfProfileRequest(req, uid)) return null;
+
+  let profile = await userService.getUserProfileById(uid);
+  if (profile) return profile;
+
+  const authEmail = authEmailFromReq(req);
+  if (!authEmail) return null;
+
+  try {
+    profile = await userService.ensureUserProfile(uid, {
+      email: authEmail,
+      displayName: authEmail.split('@')[0],
+    });
+    if (profile) {
+      logger.info(`Lazy user profile ensured for ${uid}`);
+    }
+  } catch (bootstrapErr) {
+    logger.warn('Lazy profile bootstrap failed:', bootstrapErr.message);
+    profile = await userService.getUserProfileById(uid);
+  }
+  return profile;
 }
 
 class UserController {
@@ -183,7 +247,7 @@ class UserController {
     }
   }
 
-  // Lấy user profile theo ID
+  // Lấy user profile theo ID — peer/self; company admin (org) → admin shape
   async getUserProfileById(req, res) {
     try {
       const { userId } = req.params;
@@ -193,27 +257,63 @@ class UserController {
           message: 'userId is required',
         });
       }
-      let userProfile = await userService.getUserProfileById(userId);
+      const uid = String(userId).trim();
+      const viewMode = resolveProfileViewMode({
+        actorId: actorUserId(req),
+        targetUserId: uid,
+        companyAdmin: req.companyAdmin,
+      });
+
+      if (viewMode === 'admin') {
+        const profile = await resolveAdminUserProfile(uid);
+        if (!profile) {
+          return res.status(404).json({
+            success: false,
+            message: 'User profile not found',
+            errorCode: 'USER_PROFILE_NOT_FOUND',
+          });
+        }
+        const authSummary = await fetchAuthSummaryByUserId(uid);
+        const payload = await enrichPayloadEmailFromAuth(
+          uid,
+          shapeProfilePayload(profile, { isCompanyAdmin: true }),
+          authSummary
+        );
+        return res.json({ success: true, data: payload });
+      }
+
+      let userProfile =
+        (await ensureSelfUserProfile(req, uid)) || (await userService.getUserProfileById(uid));
+
+      if (!userProfile && isSystemBotUserId(uid)) {
+        return res.json({
+          success: true,
+          data: buildSystemBotProfilePayload(uid),
+        });
+      }
 
       if (!userProfile) {
         return res.status(404).json({
           success: false,
           message: 'User profile not found',
+          errorCode: 'USER_PROFILE_NOT_FOUND',
         });
       }
 
-      userProfile = await reconcileProfileEmail(req, userId, userProfile);
+      userProfile = await reconcileProfileEmail(req, uid, userProfile);
+
+      const isSelf = isSelfProfileRequest(req, uid);
+      const payload = shapeProfilePayload(userProfile, {
+        isSelf,
+        isCompanyAdmin: false,
+      });
+      const data = isSelf
+        ? withAuthEmailFallback(req, payload, null, { allowCallerEmail: true })
+        : await enrichPayloadEmailFromAuth(uid, payload);
 
       res.json({
         success: true,
-        data: withAuthEmailFallback(
-          req,
-          shapeProfilePayload(userProfile, {
-            isSelf: isSelfProfileRequest(req, userId),
-            isCompanyAdmin: false,
-          }),
-          userId
-        ),
+        data,
       });
     } catch (error) {
       logger.error('Get user profile error:', error);
@@ -293,22 +393,7 @@ class UserController {
         });
       }
 
-      const authEmail = authEmailFromReq(req);
-      let userProfile = await userService.getUserProfileById(userId);
-
-      if (!userProfile && authEmail) {
-        try {
-          userProfile = await userService.ensureUserProfile(userId, {
-            email: authEmail,
-            displayName: authEmail.split('@')[0],
-          });
-          if (userProfile) {
-            logger.info(`Lazy user profile ensured for ${userId}`);
-          }
-        } catch (bootstrapErr) {
-          logger.warn('Lazy profile bootstrap failed:', bootstrapErr.message);
-        }
-      }
+      let userProfile = await ensureSelfUserProfile(req, userId);
 
       if (userProfile) {
         try {
@@ -336,7 +421,8 @@ class UserController {
         data: withAuthEmailFallback(
           req,
           shapeProfilePayload(userProfile, { isSelf: true }),
-          userId
+          null,
+          { allowCallerEmail: true }
         ),
       });
     } catch (error) {
@@ -663,32 +749,41 @@ class UserController {
     }
   }
 
-  async adminGetProfile(req, res) {
+  /** PATCH /users/:userId — self hoặc company admin (HR capability gate). */
+  async patchUserById(req, res) {
     try {
       const userId = String(req.params.userId || '').trim();
-      const profile = await userService.getUserProfileById(userId);
-      if (!profile) {
-        return res.status(404).json({ success: false, message: 'User profile not found' });
-      }
-      const authSummary = await fetchAuthSummaryByUserId(userId);
-      const payload = await enrichPayloadEmailFromAuth(
-        userId,
-        shapeProfilePayload(profile, { isCompanyAdmin: true }),
-        authSummary
-      );
-      return res.json({ success: true, data: payload });
-    } catch (error) {
-      logger.error('adminGetProfile error:', error);
-      return sendError(res, error, 500, 'Không thể tải hồ sơ', 'USER_GET_FAILED');
-    }
-  }
-
-  async adminPatchProfile(req, res) {
-    try {
-      const userId = String(req.params.userId || '').trim();
-      const body = req.body && typeof req.body === 'object' ? req.body : {};
       const actorId = actorUserId(req);
-      // Chuẩn vàng (1)+(a): chỉ orgRole HR được verify/reject năng lực — Owner/Admin không.
+      if (!actorId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'userId is required',
+        });
+      }
+
+      const mode = resolveProfilePatchMode({
+        actorId,
+        targetUserId: userId,
+        companyAdmin: req.companyAdmin,
+      });
+      if (mode === 'forbidden') {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden',
+          errorCode: 'USER_PATCH_FORBIDDEN',
+        });
+      }
+      if (mode === 'self') {
+        return this.updateUserProfile(req, res);
+      }
+
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
       const capabilityAction = String(body.capabilityAction || '').trim();
       const hrGate = assertHrOnlyCapabilityReview(req.companyAdmin?.level, capabilityAction);
       if (!hrGate.ok) {
@@ -699,6 +794,7 @@ class UserController {
           messageUser: hrGate.messageUser,
         });
       }
+      await resolveAdminUserProfile(userId);
       const userProfile = await userService.updateUserProfile(userId, body, {
         capabilityMode: 'admin',
         actorUserId: actorId,
@@ -708,7 +804,7 @@ class UserController {
         data: shapeProfilePayload(userProfile, { isCompanyAdmin: true }),
       });
     } catch (error) {
-      logger.error('adminPatchProfile error:', error);
+      logger.error('patchUserById error:', error);
       return sendError(res, error, 400, 'Không thể cập nhật hồ sơ', 'USER_UPDATE_FAILED');
     }
   }
@@ -745,6 +841,30 @@ class UserController {
     } catch (error) {
       logger.error('Delete user profile error:', error);
       return sendError(res, error, 400, 'Không thể xóa hồ sơ người dùng', 'USER_DELETE_FAILED');
+    }
+  }
+
+  /**
+   * S2S — precheck Excel: SĐT nào đã tồn tại (chỉ trả taken[], không profile).
+   * Body: { phones: string[] }
+   */
+  async internalFindTakenPhones(req, res) {
+    try {
+      const phones = Array.isArray(req.body?.phones) ? req.body.phones : [];
+      const taken = await userService.findTakenPhones(phones);
+      return res.status(200).json({
+        success: true,
+        data: { taken },
+      });
+    } catch (error) {
+      logger.error('internalFindTakenPhones error:', error);
+      return sendError(
+        res,
+        error,
+        error.statusCode || 500,
+        error.message || 'Phone lookup failed',
+        error.errorCode || 'PHONE_LOOKUP_FAILED'
+      );
     }
   }
 

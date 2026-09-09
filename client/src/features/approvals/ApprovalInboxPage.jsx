@@ -134,11 +134,11 @@ export default function ApprovalInboxPage() {
                           </p>
                         </div>
                         {row.canAct ? (
-                          <div className="flex gap-2">
+                          <div className="flex w-full gap-2 sm:w-auto">
                             <button
                               type="button"
                               disabled={Boolean(busyId)}
-                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                              className="inline-flex min-h-11 flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50 sm:flex-none"
                               onClick={() => decide(id, 'approve')}
                             >
                               <Check size={14} />
@@ -147,7 +147,7 @@ export default function ApprovalInboxPage() {
                             <button
                               type="button"
                               disabled={Boolean(busyId)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50"
+                              className="inline-flex min-h-11 flex-1 items-center justify-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50 sm:flex-none"
                               onClick={() => decide(id, 'reject')}
                             >
                               <X size={14} />
@@ -174,7 +174,7 @@ export default function ApprovalInboxPage() {
             </div>
             <p className="text-sm text-muted-foreground">{t('approvals.aiDraftsHint')}</p>
             <Link
-              to="/app/collaborate/tasks"
+              to="/app/collaborate/projects"
               className="mt-3 inline-block text-sm text-primary hover:underline"
             >
               {t('approvals.openProjects')}

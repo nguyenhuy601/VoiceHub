@@ -1,4 +1,7 @@
 import userService from '../../services/userService';
+import { resolveEnrichedMemberContact } from './enrichOrgMembersContact';
+
+export { resolveEnrichedMemberContact } from './enrichOrgMembersContact';
 
 const unwrapBody = (payload) => payload?.data ?? payload;
 
@@ -26,37 +29,29 @@ export async function enrichMembershipsWithProfiles(members, options = {}) {
   return Promise.all(
     slice.map(async (m) => {
       const uid = memberUserId(m);
-      let displayName = uid ? uid.slice(-6) : fallback;
-      let email = '';
-      let avatar = null;
-      let username = null;
+      let profile = null;
       if (uid) {
         try {
-          const profile = unwrapProfile(await userService.getProfile(uid));
-          displayName =
-            profile?.displayName ||
-            profile?.fullName ||
-            profile?.username ||
-            (profile?.email ? String(profile.email).split('@')[0] : '') ||
-            displayName;
-          email = String(profile?.email || '').trim();
-          avatar = profile?.avatar || null;
-          username = profile?.username || null;
+          profile = unwrapProfile(await userService.getProfile(uid));
         } catch {
-          /* giữ fallback */
+          /* giữ membership / fallback */
         }
       }
+      const contact = resolveEnrichedMemberContact(profile, m, {
+        fallback,
+        userId: uid,
+      });
       return {
         membershipId: String(m?._id || m?.id || ''),
         userId: uid,
         role: String(m?.role || 'member').toLowerCase(),
         divisionId: m?.division ? String(m.division) : '',
-        departmentId: m?.department ? String(m.department) : '',
-        teamId: m?.team ? String(m.team) : '',
-        displayName,
-        email,
-        username,
-        avatar,
+        departmentId: String(m?.departmentId || m?.department || '').trim(),
+        teamId: String(m?.teamId || m?.team || '').trim(),
+        displayName: contact.displayName,
+        email: contact.email,
+        username: contact.username,
+        avatar: contact.avatar,
         raw: m,
       };
     })

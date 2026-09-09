@@ -34,7 +34,6 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
     displayName: '',
     email: '',
     phone: '',
-    jobTitle: '',
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
@@ -51,14 +50,12 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
       displayName: resolvePrefillDisplayName(user) || prev.displayName,
       email: String(user.email || '').trim() || prev.email,
       phone: String(user.phone || user.phoneNumber || '').trim() || prev.phone,
-      jobTitle: String(user.jobTitle || user?.preferences?.jobTitle || '').trim() || prev.jobTitle,
     }));
   }, [open, user]);
 
   const canSubmit = useMemo(() => {
     if (!String(form.displayName || '').trim()) return false;
     if (!String(form.phone || '').trim()) return false;
-    if (!String(form.jobTitle || '').trim()) return false;
     if (needsPassword) {
       if (!form.currentPassword || !form.newPassword || form.newPassword !== form.confirmPassword) {
         return false;
@@ -90,10 +87,8 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
       const patch = {
         displayName: String(form.displayName).trim(),
         phone: String(form.phone).trim(),
-        jobTitle: String(form.jobTitle).trim(),
         preferences: {
           ...(user?.preferences && typeof user.preferences === 'object' ? user.preferences : {}),
-          jobTitle: String(form.jobTitle).trim(),
           profileCompletedAt: new Date().toISOString(),
         },
       };
@@ -106,7 +101,6 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
           mustChangePassword: false,
           displayName: profile?.displayName || patch.displayName,
           phone: profile?.phone || patch.phone,
-          jobTitle: profile?.jobTitle || patch.jobTitle,
           preferences: {
             ...(profile?.preferences && typeof profile.preferences === 'object'
               ? profile.preferences
@@ -168,16 +162,6 @@ export default function FirstLoginProfileModal({ open, mustChangePassword, onCom
             className={inputClass}
             value={form.phone}
             onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-          />
-        </label>
-        <label className="block text-xs font-semibold text-muted-foreground">
-          {t('firstLogin.jobTitle')}
-          <input
-            required
-            className={inputClass}
-            value={form.jobTitle}
-            onChange={(e) => setForm((f) => ({ ...f, jobTitle: e.target.value }))}
-            placeholder={t('firstLogin.jobTitlePlaceholder')}
           />
         </label>
         {needsPassword ? (

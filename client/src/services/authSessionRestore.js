@@ -2,28 +2,10 @@ import authService from './authService';
 import { getJwtEmail, getJwtSystemRole, getToken } from '../utils/tokenStorage';
 import { mergeAuthUserFromProfile, unwrapApiData } from '../utils/helpers';
 import { loadBootstrapShell } from './bootstrapService';
-import { readStoredSuite } from '../utils/suitePathUtils';
 import { isAuthRefreshDisabled, refreshAccessTokenSingleFlight } from '../utils/authRefresh';
+import { hasSessionMarkerCookie } from '../utils/sessionMarkerCookie';
 
 let inflightRestore = null;
-
-const SESSION_MARKER_COOKIE = 'vh_has_session';
-
-/** True when non-HttpOnly marker cookie is present (set alongside refresh HttpOnly cookie). */
-function hasSessionMarkerCookie() {
-  if (typeof document === 'undefined') return false;
-  try {
-    const raw = String(document.cookie || '');
-    return raw.split(';').some((part) => {
-      const [name, ...rest] = part.trim().split('=');
-      if (String(name || '').trim() !== SESSION_MARKER_COOKIE) return false;
-      const value = decodeURIComponent(rest.join('=').trim());
-      return value === '1' || value === 'true';
-    });
-  } catch {
-    return false;
-  }
-}
 
 function sessionBaseFromJwt(extra = {}) {
   const systemRole = getJwtSystemRole();
@@ -36,7 +18,7 @@ function sessionBaseFromJwt(extra = {}) {
 
 /**
  * Khôi phục phiên sau reload — một flight (StrictMode / tab song song).
- * Ưu tiên GET /api/bootstrap (đã gồm user + orgs + badges); fallback getCurrentUser.
+ * Shell-only GET /api/bootstrap (không suite) — không chờ task-stats enrichment.
  */
 export async function restoreAuthSession() {
   let token = getToken();
@@ -59,7 +41,7 @@ export async function restoreAuthSession() {
 
   inflightRestore = (async () => {
     try {
-      const boot = await loadBootstrapShell({ suite: readStoredSuite() });
+      const boot = await loadBootstrapShell();
       if (boot?.user) {
         return {
           user: mergeAuthUserFromProfile(sessionBaseFromJwt(), boot.user),
@@ -88,7 +70,7 @@ export async function restoreAuthSession() {
 export async function restoreAuthSessionAfterLogin(loginUser) {
   const base = mergeAuthUserFromProfile(sessionBaseFromJwt(), loginUser || {});
   try {
-    const boot = await loadBootstrapShell({ suite: readStoredSuite() });
+    const boot = await loadBootstrapShell();
     if (boot?.user) {
       return mergeAuthUserFromProfile(base, boot.user);
     }

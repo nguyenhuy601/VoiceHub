@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAppStrings } from '../locales/appStrings';
 import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
-import { taskAPI } from '../services/api/taskAPI';
+import { taskAPI, unwrapTaskApiPayload } from '../services/api/taskAPI';
 import { meetingAPI } from '../services/api/meetingAPI';
+import { queryKeys } from '../lib/queryKeys';
+import { STALE_TIME_CALENDAR_MS } from '../lib/queryClient';
 import {
   endOfMonth,
   mapMeetingToCalendarEvent,
   mapTaskToCalendarEvent,
+  mapTasksToWorkCalendarEvents,
   mergeAndSortCalendarEvents,
   startOfMonth,
   toDateKey,
@@ -45,17 +49,36 @@ function loadLocalCustomEvents() {
   }
 }
 
+function unwrapMeetingsPayload(res) {
+  const payload = unwrapTaskApiPayload(res) ?? res;
+  if (Array.isArray(payload?.meetings)) return payload.meetings;
+  if (Array.isArray(payload?.data?.meetings)) return payload.data.meetings;
+  if (Array.isArray(payload)) return payload;
+  return [];
+}
+
+function unwrapTasksPayload(res) {
+  const payload = unwrapTaskApiPayload(res) ?? res;
+  if (Array.isArray(payload?.tasks)) return payload.tasks;
+  if (Array.isArray(payload?.data?.tasks)) return payload.data.tasks;
+  if (Array.isArray(payload)) return payload;
+  return [];
+}
+
+function yearMonthKey(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 /**
  * Feed lịch: task + meeting (API) trong tháng của selectedDate, + sự kiện local (merge).
- * Support lọc theo organizationId nếu cần.
+ * TanStack Query — staleTime 45s; không refetch on window focus.
  */
 export function useCalendarFeed(selectedDate, organizationId = '') {
   const { t } = useAppStrings();
-  const [apiEvents, setApiEvents] = useState([]);
   const [localEvents, setLocalEvents] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
 
+  const ym = yearMonthKey(selectedDate);
   const range = useMemo(() => {
     const from = startOfMonth(selectedDate);
     const to = endOfMonth(selectedDate);
@@ -66,76 +89,83 @@ export function useCalendarFeed(selectedDate, organizationId = '') {
     setLocalEvents(loadLocalCustomEvents());
   }, []);
 
-  const fetchApi = useCallback(async () => {
-    const dueFrom = range.from.toISOString();
-    const dueTo = range.to.toISOString();
-    const filters = { dueFrom, dueTo };
-    if (organizationId) filters.organizationId = organizationId;
-    
-    const [tRes, mRes] = await Promise.all([
-      taskAPI.getTasks(filters),
-      meetingAPI.getMeetings({ startFrom: dueFrom, startTo: dueTo, ...(organizationId ? { organizationId } : {}) }),
-    ]);
+  const query = useQuery({
+    queryKey: queryKeys.calendar.feed(ym, organizationId || ''),
+    queryFn: async () => {
+      const dueFrom = range.from.toISOString();
+      const dueTo = range.to.toISOString();
+      const filters = {
+        dueFrom,
+        dueTo,
+        view: 'calendar',
+        limit: 200,
+      };
+      if (organizationId) filters.organizationId = organizationId;
 
-    const taskPayload = tRes.data?.data;
-    const tasks = taskPayload?.tasks ?? [];
-    const meetingPayload = mRes.data?.data;
-    const meetings = meetingPayload?.meetings ?? [];
+      const [tRes, mRes] = await Promise.all([
+        taskAPI.getTasks(filters),
+        meetingAPI.getMeetings({
+          startFrom: dueFrom,
+          startTo: dueTo,
+          ...(organizationId ? { organizationId } : {}),
+        }),
+      ]);
 
-    const mapped = [];
-    for (const t of tasks) {
-      const ev = mapTaskToCalendarEvent(t);
-      if (ev) mapped.push(ev);
-    }
-    for (const m of meetings) {
-      const ev = mapMeetingToCalendarEvent(m);
-      if (ev) mapped.push(ev);
-    }
-    return mergeAndSortCalendarEvents(mapped);
-  }, [range.from, range.to, organizationId]);
+      const tasks = unwrapTasksPayload(tRes);
+      const meetings = unwrapMeetingsPayload(mRes);
 
-  const refetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const merged = await fetchApi();
-      setApiEvents(merged);
-    } catch (e) {
-      setError(resolveApiErrorMessage(e, { t, fallback: t('errors.generic') }));
-      setApiEvents([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchApi, t]);
-
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
+      const mapped = [];
+      const withEstimate = [];
+      const withoutEstimate = [];
+      for (const task of tasks) {
+        const hours = Number(task?.estimateHours);
+        if (Number.isFinite(hours) && hours > 0) withEstimate.push(task);
+        else withoutEstimate.push(task);
+      }
+      mapped.push(...mapTasksToWorkCalendarEvents(withEstimate));
+      for (const task of withoutEstimate) {
+        const ev = mapTaskToCalendarEvent(task);
+        if (ev) mapped.push(ev);
+      }
+      for (const m of meetings) {
+        const ev = mapMeetingToCalendarEvent(m);
+        if (ev) mapped.push(ev);
+      }
+      return mergeAndSortCalendarEvents(mapped);
+    },
+    staleTime: STALE_TIME_CALENDAR_MS,
+    retry: 1,
+  });
 
   useEffect(() => {
     loadLocal();
   }, [loadLocal]);
 
-  useEffect(() => {
-    const onFocus = () => refetch();
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [refetch]);
+  const apiEvents = query.data || [];
+  const error = query.error
+    ? resolveApiErrorMessage(query.error, { t, fallback: t('errors.generic') })
+    : null;
 
   const events = useMemo(() => {
-    const ym = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}`;
     const localInMonth = localEvents.filter((e) => e.date && String(e.date).startsWith(ym));
     return mergeAndSortCalendarEvents([...apiEvents, ...localInMonth]);
-  }, [apiEvents, localEvents, selectedDate]);
+  }, [apiEvents, localEvents, ym]);
 
-  const tasksForAlerts = useMemo(() => apiEvents.filter((e) => e.kind === 'task' && e.raw), [apiEvents]);
+  const tasksForAlerts = useMemo(
+    () => apiEvents.filter((e) => (e.kind === 'task' || e.kind === 'work') && e.raw),
+    [apiEvents]
+  );
+
+  const refetch = useCallback(async () => {
+    await query.refetch();
+  }, [query]);
 
   return {
     events,
     apiEvents,
     localEvents,
     tasksForAlerts,
-    loading,
+    loading: query.isPending || (query.isFetching && !query.data),
     error,
     refetch,
     reloadLocal: loadLocal,

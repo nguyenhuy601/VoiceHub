@@ -1,31 +1,40 @@
 /** Huy: Domain Cơ cấu tổ chức — admin org-structure */
-import { Link } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  AdminUserPanelShell,
-  adminInputClass,
-  adminPrimaryBtnClass,
-  adminSecondaryBtnClass,
+    AdminUserPanelShell,
+    adminInputClass,
+    adminPrimaryBtnClass,
+    adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
-import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { useAppStrings } from '../../locales/appStrings';
+import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 import { departmentHeadId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { memberLabelById } from '../../utils/adminUserUtils';
 
+const DEPT_MANAGE_HUB = '/app/admin/org-structure/departments/manage';
 const ACTION_LINKS = [
-  { path: '/app/admin/org-structure/departments/members', labelKey: 'adminDomains.orgStructure.deptMembers' },
-  { path: '/app/admin/org-structure/departments/edit', labelKey: 'adminDomains.orgStructure.deptEdit' },
-  { path: '/app/admin/org-structure/departments/head', labelKey: 'adminDomains.orgStructure.deptHead' },
-  { path: '/app/admin/org-structure/departments/org-roles', labelKey: 'adminDomains.orgStructure.deptOrgRoles' },
-  { path: '/app/admin/org-structure/departments/disable', labelKey: 'adminDomains.orgStructure.deptDisable' },
+  { tab: 'members', labelKey: 'adminDomains.orgStructure.deptMembers', grant: RBAC_GRANT.DEPT_UPDATE },
+  { tab: 'edit', labelKey: 'adminDomains.orgStructure.deptEdit', grant: RBAC_GRANT.DEPT_UPDATE },
+  { tab: 'head', labelKey: 'adminDomains.orgStructure.deptHead', grant: RBAC_GRANT.DEPT_UPDATE },
+  { tab: 'org-roles', labelKey: 'adminDomains.orgStructure.deptOrgRoles', grant: RBAC_GRANT.DEPT_UPDATE },
+  { tab: 'disable', labelKey: 'adminDomains.orgStructure.deptDisable', grant: RBAC_GRANT.DEPT_UPDATE },
 ];
 
 export default function DeptListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { departments, loading, loadStructure } = useAdminOrgStructure(orgId);
   const { membersByIdAll } = useAdminMembers(orgId);
+  const { isFullAccess } = useCompanyAdminAccess();
+  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canCreateDept = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_CREATE);
+  const canUpdateDept = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_UPDATE);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -65,16 +74,22 @@ export default function DeptListPanel({ orgId }) {
       wide
       actions={
         <>
-          <Link to="/app/admin/org-structure/departments/create" className={adminPrimaryBtnClass()}>
-            <Plus className="h-4 w-4" />
-            {t('adminDomains.orgStructure.deptCreate')}
-          </Link>
-          <Link to="/app/admin/org-structure/departments/members" className={adminSecondaryBtnClass()}>
-            {t('adminDomains.orgStructure.deptMembers')}
-          </Link>
-          <Link to="/app/admin/org-structure/departments/transfer" className={adminSecondaryBtnClass()}>
-            {t('adminDomains.orgStructure.deptTransfer')}
-          </Link>
+          {canCreateDept ? (
+            <Link to="/app/admin/org-structure/departments/create" className={adminPrimaryBtnClass()}>
+              <Plus className="h-4 w-4" />
+              {t('adminDomains.orgStructure.deptCreate')}
+            </Link>
+          ) : null}
+          {canUpdateDept ? (
+            <Link to={adminOrgUnitHubLink(DEPT_MANAGE_HUB, null, 'members')} className={adminSecondaryBtnClass()}>
+              {t('adminDomains.orgStructure.deptMembers')}
+            </Link>
+          ) : null}
+          {canUpdateDept ? (
+            <Link to="/app/admin/org-structure/departments/transfer" className={adminSecondaryBtnClass()}>
+              {t('adminDomains.orgStructure.deptTransfer')}
+            </Link>
+          ) : null}
         </>
       }
     >
@@ -123,10 +138,12 @@ export default function DeptListPanel({ orgId }) {
                       <td className="px-4 py-3 text-muted-foreground">{(row.memberIds || []).length}</td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
-                          {ACTION_LINKS.map((link) => (
+                          {ACTION_LINKS.filter((link) =>
+                            canActWithGrant(isFullAccess, hasGrant, link.grant)
+                          ).map((link) => (
                             <Link
-                              key={link.path}
-                              to={`${link.path}?unitId=${encodeURIComponent(id)}`}
+                              key={link.tab}
+                              to={adminOrgUnitHubLink(DEPT_MANAGE_HUB, id, link.tab)}
                               className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
                             >
                               {t(link.labelKey)}
