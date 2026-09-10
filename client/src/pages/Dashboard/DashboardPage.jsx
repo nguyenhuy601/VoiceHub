@@ -1,6 +1,5 @@
 import {
   Bell,
-  Bot,
   Building2,
   Calendar,
   CheckCircle2,
@@ -50,10 +49,13 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { useLocale } from '../../context/LocaleContext';
 import {
+  buildCollaborateProjectHubPath,
   buildCollaborateTasksPath,
   buildCommunicateChannelsPath,
   buildProjectsPickerPath,
 } from '../../utils/suitePathUtils';
+import useOrgProjectsList from '../../hooks/useOrgProjectsList';
+import useBoardHealthEnrichment from '../../hooks/useBoardHealthEnrichment';
 import DashboardGlobalSearchModal from '../../components/Dashboard/DashboardGlobalSearchModal';
 import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
 import { LOCAL_CUSTOM_KEY } from '../../utils/dmCalendarReminders';
@@ -63,13 +65,6 @@ import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { dashPersonaShowsOrgHealth, resolveDashPersona } from '../../utils/dashboardPersona';
 import { extractOrganizationRoleKeys } from '../../utils/organizationRoleKeys';
-
-function truncateText(value, maxLength = 56) {
-  const text = String(value || '').trim();
-  if (!text) return '';
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
-}
 
 function isValidObjectId(value) {
   return /^[a-f\d]{24}$/i.test(String(value || '').trim());
@@ -278,8 +273,6 @@ function DashboardPage({
   /** Map yyyy-mm-dd -> { tasks, messages } để heatmap đóng góp theo năm */
   const [activityDailyMap, setActivityDailyMap] = useState({});
   const [activityYear, setActivityYear] = useState(() => new Date().getFullYear());
-  const [weeklyActivityDays, setWeeklyActivityDays] = useState([]);
-  const [, setWeeklyActivityNotes] = useState([]);
   const [weeklyDayModal, setWeeklyDayModal] = useState(null);
   const [recentDmContacts, setRecentDmContacts] = useState([]);
   const [recentNotifications, setRecentNotifications] = useState([]);
@@ -480,8 +473,6 @@ function DashboardPage({
       setUpcomingMeetings([]);
       setWorkspaceEntries([]);
       setActivityDailyMap({});
-      setWeeklyActivityDays([]);
-      setWeeklyActivityNotes([]);
       setRecentDmContacts([]);
       setRecentNotifications([]);
       return;
@@ -750,39 +741,6 @@ function DashboardPage({
           if (currentUserKey && senderId !== currentUserKey) return;
           const key = dayKey(msg.createdAt);
           if (key) daily[key] = { tasks: daily[key]?.tasks || 0, messages: (daily[key]?.messages || 0) + 1 };
-          const messageType = String(msg.messageType || 'text');
-          const previewText = truncateText(
-            formatMessagePreview(msg, t, { currentUserId: currentUserKey }) || t('dashboard.messageFallback'),
-            48
-          );
-          const detail =
-            messageType === 'file'
-              ? t('dashboard.msgSentFile', { preview: previewText })
-              : messageType === 'image'
-                ? t('dashboard.msgSentImage', { preview: previewText })
-                : messageType === 'business_card'
-                  ? t('dashboard.msgSharedCard', { preview: previewText })
-                  : messageType === 'call_log'
-                    ? previewText
-                    : t('dashboard.msgSent', { preview: previewText });
-          if (msg.createdAt) {
-            const msgOrgId = getRowId(msg.organizationId);
-            registerWeekItem({
-              when: msg.createdAt,
-              kind: 'message',
-              icon:
-                messageType === 'file'
-                  ? '📎'
-                  : messageType === 'image'
-                    ? '🖼️'
-                    : messageType === 'call_log'
-                      ? '📞'
-                      : '💬',
-              title: previewText,
-              detail,
-              path: resolveWeeklyPath({ kind: 'message', organizationId: msgOrgId }),
-            });
-          }
         });
         const avgResponseMinutes = null;
         const communicationCount =
@@ -849,11 +807,6 @@ function DashboardPage({
           .slice(0, 3)
           .map((row) => ({ ...row, time: relDmTime(row.ts) }));
 
-        const weekActivityGrid = Array.from(weeklyDayMap.values()).map((day) => ({
-          ...day,
-          items: [...(day.items || [])].sort((a, b) => b.ts - a.ts),
-        }));
-
         if (!cancelled) {
           setMetrics({
             loading: false,
@@ -883,7 +836,6 @@ function DashboardPage({
           setActivityDailyMap({ ...daily });
           setRecentDmContacts(dashboardRecentDms);
           setRecentNotifications(dashboardRecentNotifications);
-          setWeeklyActivityDays(weekActivityGrid);
         }
       } catch {
         if (!cancelled) {
@@ -891,8 +843,6 @@ function DashboardPage({
           setPresenceFriends([]);
           setWorkspaceEntries([]);
           setUpcomingMeetings([]);
-          setWeeklyActivityDays([]);
-          setWeeklyActivityNotes([]);
           setActivityDailyMap({});
           setRecentDmContacts([]);
           setRecentNotifications([]);
@@ -1058,6 +1008,22 @@ function DashboardPage({
       company,
     ]
   );
+  const dashOrgId = useMemo(() => {
+    const fromSummary = String(summaryQuery.data?.primaryOrgId || '').trim();
+    if (fromSummary) return fromSummary;
+    const first = Array.isArray(orgsQuery.data) ? orgsQuery.data[0] : null;
+    return String(first?._id || first?.id || company?.id || company?._id || '').trim();
+  }, [summaryQuery.data?.primaryOrgId, orgsQuery.data, company]);
+  const showOrgBoardHealth = dashPersonaShowsOrgHealth(dashPersona);
+  const { projects: dashOrgProjects, loading: dashOrgProjectsLoading } = useOrgProjectsList(dashOrgId, {
+    excludeClosed: true,
+    enabled: showOrgBoardHealth && Boolean(dashOrgId),
+  });
+  const enrichedBoardHealth = useBoardHealthEnrichment(metrics.boards || [], dashOrgProjects, {
+    enabled: showOrgBoardHealth,
+    organizationId: dashOrgId,
+    projectsLoading: dashOrgProjectsLoading,
+  });
   const showWorkAnalytics = dashPersona !== 'guest' && dashPersona !== 'personal';
 
   const stats = useMemo(() => {
@@ -1289,26 +1255,6 @@ function DashboardPage({
       },
     ];
   }, [metrics, dashPersona, t]);
-
-  const twoWaySyncFeed = useMemo(() => {
-    const rows = [];
-    weeklyActivityDays.forEach((day) => {
-      (day.items || []).forEach((item) => {
-        const relTime = day.dayLabel || '';
-        rows.push({
-          icon: item.kind === 'task' ? CheckCircle2 : item.icon === '🤖' ? Bot : MessageCircle,
-          color: item.kind === 'task' ? '#10B981' : '#6366F1',
-          user: t('dashboard.syncYou'),
-          action: item.kind === 'task' ? t('dashboard.syncCompleted') : t('dashboard.syncSent'),
-          item: `"${item.title}"`,
-          workspace: item.channelName ? `#${item.channelName}` : '',
-          time: relTime,
-          path: item.path,
-        });
-      });
-    });
-    return rows.slice(0, 5);
-  }, [t, weeklyActivityDays]);
 
   const aiInsights = useMemo(() => {
     const lines = [];
@@ -1604,34 +1550,58 @@ function DashboardPage({
       roleTitle={t(`dashboard.personaTitle.${dashPersona}`)}
       roleHint={t(`dashboard.personaHint.${dashPersona}`)}
       showWorkAnalytics={showWorkAnalytics}
-      boardHealth={dashPersonaShowsOrgHealth(dashPersona) ? metrics.boards || [] : []}
+      boardHealth={enrichedBoardHealth}
       overdueItems={showWorkAnalytics ? metrics.overdueItems || [] : []}
       onBoardClick={(board) => {
         const oid = String(board?.organizationId || dashOrgId || '').trim();
+        const boardId = String(board?.id || board?._id || '').trim();
+        const projectId = String(board?.projectId || '').trim();
+        if (projectId) {
+          navigate(
+            buildCollaborateProjectHubPath(projectId, {
+              organizationId: oid,
+              boardId,
+              tab: 'overview',
+            })
+          );
+          return;
+        }
+        toast(t('dashboard.boardHealthOpenFallback'), { icon: 'ℹ️' });
         navigate(
           oid
-            ? buildCollaborateTasksPath(oid, { boardId: board?.id })
+            ? buildCollaborateTasksPath(oid, { boardId })
             : buildProjectsPickerPath('')
         );
       }}
       onOverdueClick={(item) => {
         const oid = String(item?.organizationId || dashOrgId || '').trim();
+        const boardId = String(item?.boardId || '').trim();
+        const projectId = String(
+          enrichedBoardHealth.find((b) => String(b.id || b._id) === boardId)?.projectId || ''
+        ).trim();
+        if (projectId) {
+          navigate(
+            buildCollaborateProjectHubPath(projectId, {
+              organizationId: oid,
+              boardId,
+              tab: 'overview',
+            })
+          );
+          return;
+        }
         navigate(
           oid
-            ? buildCollaborateTasksPath(oid, { boardId: item?.boardId })
+            ? buildCollaborateTasksPath(oid, { boardId })
             : buildProjectsPickerPath('')
         );
       }}
       insightPreview={false}
-      syncFeedPreview={false}
       metricCards={metricCardsUi}
       onMetricCardClick={suiteLayout ? undefined : setSelectedStatKey}
       productivity30d={productivity30d}
       productivityTrends={productivityTrends}
       performanceStats={performanceStats}
       performanceMiniStats={performanceMiniStats}
-      syncFeed={twoWaySyncFeed}
-      onSyncItemClick={(item) => item.path && navigate(item.path)}
       quickNavItems={filteredQuickNav}
       quickNavCols={quickNavCols}
       onNavigate={navigate}

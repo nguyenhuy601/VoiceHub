@@ -38,8 +38,6 @@ export default function DashboardFigmaView({
   onMetricCardClick,
   performanceStats,
   performanceMiniStats,
-  syncFeed,
-  onSyncItemClick,
   quickNavItems,
   quickNavCols,
   hideRoleBanner = false,
@@ -51,7 +49,6 @@ export default function DashboardFigmaView({
   onBoardClick,
   onOverdueClick,
   insightPreview = false,
-  syncFeedPreview = false,
   onNavigate,
   pendingBannerLabel,
   onPendingClick,
@@ -113,9 +110,6 @@ export default function DashboardFigmaView({
             <DashboardAnalyticsRow
               performanceStats={performanceStats}
               miniStats={performanceMiniStats}
-              syncFeed={syncFeed}
-              onSyncItemClick={onSyncItemClick}
-              syncFeedPreview={syncFeedPreview}
             />
           )}
 

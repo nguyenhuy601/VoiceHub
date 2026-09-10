@@ -41,6 +41,16 @@ import { isHoursSoftWarning } from '../../utils/hoursSoftWarning';
 import useTaskWorkspaceScope from '../../hooks/useTaskWorkspaceScope';
 import { fetchOrgProjectsList } from '../../hooks/useOrgProjectsList';
 
+function hubErrorStatus(err) {
+  return Number(err?.response?.status || err?.status || 0) || 0;
+}
+
+/** 403/404 khi mở Hub từ portfolio — không spam toast.error. */
+function isSoftHubAccessError(err) {
+  const status = hubErrorStatus(err);
+  return status === 403 || status === 404;
+}
+
 export default function ProjectHubPage({
   controlledModule = null,
   hideTabBar = false,
@@ -185,7 +195,11 @@ export default function ProjectHubPage({
       applyBoardPickerList(list);
       return true;
     } catch (err) {
-      toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardFail')));
+      if (isSoftHubAccessError(err)) {
+        toast(t('dashboard.boardHealthHubAccessSoft'), { icon: 'ℹ️' });
+      } else {
+        toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardFail')));
+      }
       return false;
     } finally {
       setLoadingTaskBoards(false);
@@ -206,8 +220,13 @@ export default function ProjectHubPage({
 
   useEffect(() => {
     if (!boardDetailQuery.isError) return;
+    const err = boardDetailQuery.error;
+    if (isSoftHubAccessError(err)) {
+      toast(t('dashboard.boardHealthHubAccessSoft'), { icon: 'ℹ️' });
+      return;
+    }
     toast.error(
-      resolveApiErrorMessage(boardDetailQuery.error, t('taskBoard.loadBoardDetailFail'))
+      resolveApiErrorMessage(err, t('taskBoard.loadBoardDetailFail'))
     );
   }, [boardDetailQuery.isError, boardDetailQuery.error, t]);
 
@@ -284,7 +303,12 @@ export default function ProjectHubPage({
     taskAPI
       .listProjectBriefs(
         { organizationId: String(orgId), status: 'open' },
-        { timeout: 4000, skipPermissionDeniedToast: true }
+        {
+          timeout: 4000,
+          skipPermissionDeniedToast: true,
+          skipNotFoundToast: true,
+          skipGlobalErrorHandling: true,
+        }
       )
       .then((res) => {
         if (cancelled) return;

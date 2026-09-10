@@ -73,6 +73,8 @@ export async function fetchProjectHubBoardDetail(boardId, apiCtx, { includeCards
   const res = await taskAPI.getBoardDetail(bid, {
     ...(apiCtx || {}),
     ...(includeCards ? {} : { includeCards: false }),
+    skipPermissionDeniedToast: true,
+    skipNotFoundToast: true,
   });
   return unwrapTaskBoardDetailPayload(res);
 }
@@ -94,7 +96,10 @@ export async function fetchProjectHubPlanningItems(projectId) {
 export async function fetchProjectHubMembers(projectId) {
   const pid = String(projectId || '').trim();
   if (!pid) return [];
-  const res = await projectAPI.listMembers(pid, { skipPermissionDeniedToast: true });
+  const res = await projectAPI.listMembers(pid, {
+    skipPermissionDeniedToast: true,
+    skipNotFoundToast: true,
+  });
   return unwrapProjectMembersList(unwrapProjectPayload(res));
 }
 
