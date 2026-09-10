@@ -81,6 +81,9 @@ function mergeOrgDashboardStats(perOrg) {
           done: numOrZero(b.done),
           open: numOrZero(b.open),
           overdue: numOrZero(b.overdue),
+          projectId: b.projectId ? String(b.projectId) : '',
+          projectTitle: b.projectTitle != null ? String(b.projectTitle) : '',
+          projectCode: b.projectCode != null ? String(b.projectCode) : '',
         });
       });
     }

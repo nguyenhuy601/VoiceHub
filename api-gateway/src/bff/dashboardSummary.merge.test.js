@@ -25,7 +25,17 @@ describe('mergeOrgDashboardStats', () => {
         myDueThisWeek: 1,
         membershipRole: 'member',
         boards: [
-          { id: '1', name: 'Alpha', total: 10, done: 4, open: 6, overdue: 2 },
+          {
+            id: '1',
+            name: 'Alpha',
+            total: 10,
+            done: 4,
+            open: 6,
+            overdue: 2,
+            projectId: 'p1',
+            projectTitle: 'Proj Alpha',
+            projectCode: 'PA',
+          },
           { id: '2', name: 'Beta', total: 3, done: 1, open: 2, overdue: 0 },
         ],
         overdueItems: [
@@ -62,5 +72,13 @@ describe('mergeOrgDashboardStats', () => {
     assert.equal(out.overdueItems.length, 8);
     assert.equal(out.overdueItems[0].title, 'Gamma 0');
     assert.equal(out.overdueItems[0].organizationId, 'b'.repeat(24));
+    const alpha = out.boards.find((b) => b.id === '1');
+    assert.equal(alpha.projectId, 'p1');
+    assert.equal(alpha.projectTitle, 'Proj Alpha');
+    assert.equal(alpha.projectCode, 'PA');
+    const gamma = out.boards.find((b) => b.id === '3');
+    assert.equal(gamma.projectId, '');
+    assert.equal(gamma.projectTitle, '');
+    assert.equal(gamma.projectCode, '');
   });
 });
