@@ -13,7 +13,7 @@ const {
   assertPackReadyForAiRun,
   HEURISTIC_THRESHOLD,
   FULL_ENGINE_THRESHOLD,
-} = require('../src/utils/requirementPlanningReadiness');
+} = require('../src/utils/requirement/requirementPlanningReadiness');
 const { validateBusinessLayer } = require('../src/utils/requirementTemplateValidate');
 
 describe('requirementStaffingRollup', () => {

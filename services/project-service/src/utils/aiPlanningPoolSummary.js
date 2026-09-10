@@ -7,7 +7,7 @@ const TOP_ROLE_HEADCOUNT_MAX = 12;
 
 const {
   inferProjectRoleKeysFromJobTitle,
-} = require('./positionCandidateMatch');
+} = require('./staffing/positionCandidateMatch');
 
 function normalizeSkillName(raw) {
   return String(raw || '')

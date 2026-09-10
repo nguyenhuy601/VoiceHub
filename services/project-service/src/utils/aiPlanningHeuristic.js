@@ -3,9 +3,9 @@
  * No DB / HTTP — feed pack + pool items from orchestrator.
  */
 
-const { scoreVerifiedCapability } = require('./capabilityMatch');
-const { scoreHistoricalPerformance } = require('./performanceMatch');
-const { mapPackConstraintsToProject } = require('./mapPackConstraintsToProject');
+const { scoreVerifiedCapability } = require('./staffing/capabilityMatch');
+const { scoreHistoricalPerformance } = require('./staffing/performanceMatch');
+const { mapPackConstraintsToProject } = require('./requirement/mapPackConstraintsToProject');
 
 const ENGINE = 'heuristic_v1';
 const MIN_TOP_N = 5;

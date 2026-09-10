@@ -4,14 +4,14 @@ const { AI_PLANNING_ALLOWED_STATUSES } = require('../constants/requirementLifecy
 const {
   assertPackReadyForAiRun,
   attachPlanningReadiness,
-} = require('../utils/requirementPlanningReadiness');
+} = require('../utils/requirement/requirementPlanningReadiness');
 const { buildHeuristicOverlay } = require('../utils/aiPlanningHeuristic');
 const { buildLeafAssignments } = require('../utils/aiPlanningLeafAssign');
 const {
   proposeStaffingFromPack,
   enrichRankingRationales,
 } = require('../utils/aiPlanningLlm');
-const { ollamaModel } = require('../utils/ollamaClient');
+const { ollamaModel } = require('../utils/aiAnalysis/ollamaClient');
 const { buildStaffingBaselineFromPack } = require('../utils/aiPlanningStaffingBaseline');
 const {
   validateStaffingProposal,

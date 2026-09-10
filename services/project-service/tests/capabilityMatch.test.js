@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { scoreVerifiedCapability, scoreCapabilitySkills } = require('../src/utils/capabilityMatch');
+const { scoreVerifiedCapability, scoreCapabilitySkills } = require('../src/utils/staffing/capabilityMatch');
 
 describe('capabilityMatch', () => {
   const verified = {

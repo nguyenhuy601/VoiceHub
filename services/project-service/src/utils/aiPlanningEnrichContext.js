@@ -6,8 +6,8 @@ const {
   resolvePositionKeyFromJobTitle,
   preferredPositionsForProjectRole,
   scorePositionMatch,
-} = require('./positionCandidateMatch');
-const { compactProjectExperiencesForPool } = require('./verifiedCapabilityStrip');
+} = require('./staffing/positionCandidateMatch');
+const { compactProjectExperiencesForPool } = require('./staffing/verifiedCapabilityStrip');
 
 const MAX_ENRICH_BYTES = 8 * 1024;
 

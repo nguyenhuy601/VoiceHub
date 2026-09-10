@@ -3,9 +3,9 @@
  * FTE counts for AI heuristic — separate from rollup leaf-count semantics.
  */
 
-const { isFrExecutionLeaf } = require('./requirementFrLevel');
-const { buildStaffingPlanFromParsed } = require('./requirementStaffingRollup');
-const { normalizeRoleKey } = require('./requirementStaffingParse');
+const { isFrExecutionLeaf } = require('./requirement/requirementFrLevel');
+const { buildStaffingPlanFromParsed } = require('./requirement/requirementStaffingRollup');
+const { normalizeRoleKey } = require('./requirement/requirementStaffingParse');
 
 const DEFAULT_FTE_CAPACITY_HOURS = 160;
 const HOURS_PER_WORKING_DAY = 8;

@@ -2,8 +2,8 @@
  * Smart FR leaf selection for LLM staffing prompt.
  */
 
-const { listFrExecutionLeaves } = require('./requirementFrLevel');
-const { normalizeRoleKey } = require('./requirementStaffingParse');
+const { listFrExecutionLeaves } = require('./requirement/requirementFrLevel');
+const { normalizeRoleKey } = require('./requirement/requirementStaffingParse');
 
 function leafMissingStaffing(row) {
   const missing = [];

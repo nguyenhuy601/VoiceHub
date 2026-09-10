@@ -7,7 +7,7 @@ const {
   computeStaffingDelta,
   collectLeafRoleKeys,
 } = require('./aiPlanningStaffingBaseline');
-const { normalizeRoleKey } = require('./requirementStaffingParse');
+const { normalizeRoleKey } = require('./requirement/requirementStaffingParse');
 
 const HOURS_REJECT_PCT = 50;
 const HOURS_WARN_PCT = 25;

@@ -2,9 +2,9 @@
  * Per execution-leaf assignee suggestions (heuristic, no LLM).
  */
 
-const { scoreVerifiedCapability } = require('./capabilityMatch');
-const { scoreHistoricalPerformance } = require('./performanceMatch');
-const { listFrExecutionLeaves } = require('./requirementFrLevel');
+const { scoreVerifiedCapability } = require('./staffing/capabilityMatch');
+const { scoreHistoricalPerformance } = require('./staffing/performanceMatch');
+const { listFrExecutionLeaves } = require('./requirement/requirementFrLevel');
 
 const LEAF_SUGGESTION_TOP = 3;
 

@@ -8,16 +8,16 @@ const {
   isKnownSkill,
   normalizeRoleKey,
   isKnownProjectRole,
-} = require('./requirementStaffingParse');
+} = require('./requirement/requirementStaffingParse');
 const { isRegistryEnabled } = require('../clients/skillRegistry.client');
 const {
   generateJson,
   ollamaModel,
   isAiPlanningLlmEnabled,
   enrichTimeoutMs,
-} = require('./ollamaClient');
+} = require('./aiAnalysis/ollamaClient');
 const { selectLeavesForPrompt } = require('./aiPlanningPromptLeaves');
-const { listFrExecutionLeaves } = require('./requirementFrLevel');
+const { listFrExecutionLeaves } = require('./requirement/requirementFrLevel');
 const {
   buildPoolByUserId,
   buildEnrichCompactFromRoles,

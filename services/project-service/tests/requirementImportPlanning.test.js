@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   pickPlanningReadinessSummary,
   assertPreviewReadyForImport,
-} = require('../src/utils/requirementPlanningReadiness');
+} = require('../src/utils/requirement/requirementPlanningReadiness');
 
 function packPayload(functionalRequirements = [], overview = {}) {
   return {
