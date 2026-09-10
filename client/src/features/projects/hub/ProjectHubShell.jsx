@@ -1026,10 +1026,13 @@ export default function ProjectHubShell({
   currentUserId = '',
   onNeedFullBoardCards = null,
   boardCardsReady = true,
+  /** Tab Hub từ URL ?tab= (vd. overview từ board health). */
+  initialTab = 'overview',
 }) {
   const { t } = useAppStrings();
-  const [tab, setTab] = useState('overview');
-  const [visitedTabs, setVisitedTabs] = useState(() => ({ overview: true }));
+  const normalizedInitialTab = String(initialTab || 'overview').trim().toLowerCase() || 'overview';
+  const [tab, setTab] = useState(normalizedInitialTab);
+  const [visitedTabs, setVisitedTabs] = useState(() => ({ [normalizedInitialTab]: true }));
   const prevHubProjectIdRef = useRef('');
   const [membersEpoch, setMembersEpoch] = useState(0);
   const [apiActivity, setApiActivity] = useState(null);
@@ -1078,8 +1081,8 @@ export default function ProjectHubShell({
 
   if (prevHubProjectIdRef.current !== projectId) {
     prevHubProjectIdRef.current = projectId;
-    setTab('overview');
-    setVisitedTabs({ overview: true });
+    setTab(normalizedInitialTab);
+    setVisitedTabs({ [normalizedInitialTab]: true });
     setApiActivity(null);
     setActivityLoading(false);
     setActivityError(false);

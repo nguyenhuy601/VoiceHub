@@ -17,6 +17,15 @@ function withOrg(organizationId, config = {}) {
   };
 }
 
+/** Soft-fail Hub load: không spam toast 403/404 từ interceptor. */
+function withHubSoftErrorToasts(config = {}) {
+  return {
+    ...config,
+    skipPermissionDeniedToast: true,
+    skipNotFoundToast: true,
+  };
+}
+
 /** Fallback labels khi GET role-catalog lỗi mạng — mirror BE projectRoleDefaults. */
 export const DEFAULT_PROJECT_ROLES = Object.values(DEFAULT_PROJECT_ROLE_KEYS).map((key, index) => ({
   key,
@@ -93,15 +102,22 @@ export const projectAPI = {
     return apiClient.get('/projects', withOrg(organizationId, { params: rest }));
   },
 
-  get: (projectId) => apiClient.get(`/projects/${encodeURIComponent(projectId)}`),
+  get: (projectId, config = {}) =>
+    apiClient.get(
+      `/projects/${encodeURIComponent(projectId)}`,
+      withHubSoftErrorToasts(config)
+    ),
 
   patch: (projectId, body = {}) =>
     apiClient.patch(`/projects/${encodeURIComponent(projectId)}`, body),
 
   archive: (projectId) => apiClient.post(`/projects/${encodeURIComponent(projectId)}/archive`),
 
-  getOverview: (projectId) =>
-    apiClient.get(`/projects/${encodeURIComponent(projectId)}/overview`),
+  getOverview: (projectId, config = {}) =>
+    apiClient.get(
+      `/projects/${encodeURIComponent(projectId)}/overview`,
+      withHubSoftErrorToasts(config)
+    ),
 
   getActivity: (projectId, params = {}, config = {}) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/activity`, {
@@ -123,6 +139,7 @@ export const projectAPI = {
   listMembers: (projectId, config = {}) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/members`, {
       skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      skipNotFoundToast: Boolean(config.skipNotFoundToast),
     }),
 
   listMemberCandidates: (projectId, projectRoleKey) =>
@@ -159,17 +176,20 @@ export const projectAPI = {
     );
   },
 
-  listBoards: (projectId, organizationId) =>
+  listBoards: (projectId, organizationId, config = {}) =>
     apiClient.get(
       `/projects/${encodeURIComponent(projectId)}/boards`,
-      withOrg(organizationId)
+      withHubSoftErrorToasts(withOrg(organizationId, config))
     ),
 
   createBoard: (projectId, body = {}) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/boards`, body),
 
-  listSprints: (projectId) =>
-    apiClient.get(`/projects/${encodeURIComponent(projectId)}/sprints`),
+  listSprints: (projectId, config = {}) =>
+    apiClient.get(
+      `/projects/${encodeURIComponent(projectId)}/sprints`,
+      withHubSoftErrorToasts(config)
+    ),
 
   createSprint: (projectId, body = {}) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/sprints`, body),
@@ -255,8 +275,11 @@ export const projectAPI = {
       `/projects/${encodeURIComponent(projectId)}/change-requests/${encodeURIComponent(crId)}`
     ),
 
-  listPlanningItems: (projectId, params = {}) =>
-    apiClient.get(`/projects/${encodeURIComponent(projectId)}/planning-items`, { params }),
+  listPlanningItems: (projectId, params = {}, config = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/planning-items`, {
+      ...withHubSoftErrorToasts(config),
+      params,
+    }),
 
   createPlanningItem: (projectId, body = {}) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning-items`, body),
@@ -296,8 +319,11 @@ export const projectAPI = {
     apiClient.get('/projects/role-catalog', withOrg(organizationId, { params: { organizationId } })),
 
   /** Bản Project Role + permissions theo dự án */
-  listProjectRoles: (projectId) =>
-    apiClient.get(`/projects/${encodeURIComponent(projectId)}/roles`),
+  listProjectRoles: (projectId, config = {}) =>
+    apiClient.get(
+      `/projects/${encodeURIComponent(projectId)}/roles`,
+      withHubSoftErrorToasts(config)
+    ),
 
   updateProjectScopedRole: (projectId, roleId, body = {}) =>
     apiClient.patch(

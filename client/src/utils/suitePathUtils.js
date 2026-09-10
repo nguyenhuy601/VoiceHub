@@ -152,10 +152,12 @@ export function buildCollaborateProjectHubPath(projectId, query = {}) {
   const boardId = String(query?.boardId || '').trim();
   const deptId = String(query?.departmentId || '').trim();
   const teamId = String(query?.teamId || '').trim();
+  const tab = String(query?.tab || '').trim().toLowerCase();
   if (orgId) params.set('organizationId', orgId);
   if (boardId) params.set('boardId', boardId);
   if (deptId) params.set('departmentId', deptId);
   if (teamId) params.set('teamId', teamId);
+  if (tab) params.set('tab', tab);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }

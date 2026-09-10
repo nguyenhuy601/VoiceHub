@@ -16,6 +16,12 @@ const RAG_DOT = {
   green: 'bg-success',
 };
 
+const RAG_BAR = {
+  red: 'bg-destructive',
+  amber: 'bg-warning',
+  green: 'bg-primary',
+};
+
 const RAG_RANK = { red: 0, amber: 1, green: 2 };
 const MOBILE_BOARD_LIMIT = 3;
 
@@ -26,6 +32,28 @@ function sortBoardsByRag(rows) {
     if (ra !== rb) return ra - rb;
     return (Number(b.overdue) || 0) - (Number(a.overdue) || 0);
   });
+}
+
+/** Primary label: tên dự án (map FE/BE), tránh hiện «Main». */
+function resolveBoardHealthPrimaryTitle(board, labels) {
+  const projectTitle = String(board?.projectTitle || '').trim();
+  if (projectTitle) return projectTitle;
+  const name = String(board?.name || board?.title || '').trim();
+  if (name && !/^main$/i.test(name)) return name;
+  if (board?.enrichmentFailed) return labels.unresolved;
+  return labels.untitled;
+}
+
+function resolveBoardHealthMetaLine(board) {
+  const code = String(board?.projectCode || '').trim();
+  const boardName = String(board?.name || board?.title || '').trim();
+  const projectTitle = String(board?.projectTitle || '').trim();
+  const parts = [];
+  if (code) parts.push(code);
+  if (boardName && !/^main$/i.test(boardName) && boardName !== projectTitle) {
+    parts.push(boardName);
+  }
+  return parts.join(' · ');
 }
 
 export default function DashboardBoardHealth({ boards = [], onBoardClick, onViewAll }) {
@@ -41,12 +69,16 @@ export default function DashboardBoardHealth({ boards = [], onBoardClick, onView
   if (!rows.length) return null;
 
   const showViewAll = compact && rows.length > visible.length;
+  const untitledLabel = t('dashboard.boardHealthUntitled');
+  const unresolvedLabel = t('dashboard.boardHealthUnresolvedTitle');
+  const openHint = t('dashboard.boardHealthOpenHint');
+  const titleLabels = { untitled: untitledLabel, unresolved: unresolvedLabel };
 
   return (
     <div className={`${FIGMA_DASH_CARD} p-4 sm:p-5`}>
       <div className={FIGMA_DASH_SECTION_TITLE_ROW}>
         <div className={FIGMA_DASH_SECTION_TITLE}>
-          <LayoutDashboard size={15} className="text-primary" />
+          <LayoutDashboard size={15} className="text-primary" aria-hidden />
           {t('dashboard.boardHealthTitle')}
         </div>
         {showViewAll ? (
@@ -71,44 +103,64 @@ export default function DashboardBoardHealth({ boards = [], onBoardClick, onView
               : rag === 'amber'
                 ? t('dashboard.boardRagAmber')
                 : t('dashboard.boardRagGreen');
+          const primaryTitle = resolveBoardHealthPrimaryTitle(board, titleLabels);
+          const metaLine = resolveBoardHealthMetaLine(board);
+          const rowKey = String(board.id || board._id || board.projectId || primaryTitle);
+
           return (
-            <li key={board.id}>
+            <li key={rowKey}>
               <button
                 type="button"
+                title={openHint}
+                aria-label={`${openHint}: ${primaryTitle}`}
                 onClick={() => onBoardClick?.(board)}
-                className="w-full rounded-lg border border-border bg-background/60 px-3 py-2.5 text-left transition hover:border-primary/25 hover:bg-background"
+                className="w-full rounded-lg border border-border bg-background/60 px-3 py-2.5 text-left transition hover:border-primary/30 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
               >
-                <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-center gap-2">
+                <div className="mb-1.5 flex items-start justify-between gap-2">
+                  <span className="flex min-w-0 items-start gap-2">
                     <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${RAG_DOT[rag] || RAG_DOT.green}`}
+                      className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${RAG_DOT[rag] || RAG_DOT.green}`}
                       title={ragLabel}
                       aria-label={ragLabel}
                     />
-                    <span className="truncate text-[0.8125rem] font-semibold text-foreground">
-                      {board.name}
+                    <span className="min-w-0">
+                      <span className="block truncate text-[0.8125rem] font-semibold text-foreground">
+                        {primaryTitle}
+                      </span>
+                      {metaLine ? (
+                        <span className="mt-0.5 block truncate text-[0.625rem] text-muted-foreground">
+                          {metaLine}
+                        </span>
+                      ) : null}
                     </span>
                   </span>
                   {overdue > 0 ? (
                     <span className="inline-flex shrink-0 items-center gap-1 text-[0.6875rem] font-bold text-destructive">
-                      <AlertTriangle size={12} />
+                      <AlertTriangle size={12} aria-hidden />
                       {t('dashboard.boardHealthOverdue', { n: overdue })}
                     </span>
                   ) : (
-                    <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
+                    <span className="shrink-0 text-[0.6875rem] font-medium text-muted-foreground">
                       {rag === 'amber'
                         ? ragLabel
                         : t('dashboard.boardHealthDonePct', { n: donePct })}
                     </span>
                   )}
                 </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-2 overflow-hidden rounded-full bg-muted/80 ring-1 ring-border/60"
+                  role="progressbar"
+                  aria-valuenow={donePct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label={t('dashboard.boardHealthDonePct', { n: donePct })}
+                >
                   <div
-                    className="h-full rounded-full bg-primary"
+                    className={`h-full rounded-full transition-[width] ${RAG_BAR[rag] || RAG_BAR.green}`}
                     style={{ width: `${donePct}%` }}
                   />
                 </div>
-                <div className="mt-1 text-[0.625rem] text-muted-foreground">
+                <div className="mt-1.5 text-[0.625rem] text-muted-foreground">
                   {t('dashboard.boardHealthCounts', {
                     open: board.open ?? 0,
                     done: board.done ?? 0,
