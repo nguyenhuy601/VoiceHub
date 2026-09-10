@@ -5,6 +5,7 @@
 const mongoose = require('../db');
 const Task = require('../models/Task');
 const TaskBoard = require('../models/TaskBoard');
+const Project = require('../models/Project');
 const {
   DONE_STATUSES,
   formatStatusCounts,
@@ -14,6 +15,12 @@ const {
   OVERDUE_ITEMS_LIMIT,
   formatOverdueItems,
 } = require('./taskStatistics.helpers');
+const {
+  indexTaskBoardsForDashboard,
+  indexProjectsForBoardIdentity,
+  uniqueProjectIdsFromBoards,
+  mapBoardStatsRow,
+} = require('./taskStatistics.boardIdentity');
 
 function toOid(value) {
   const s = String(value || '').trim();
@@ -154,17 +161,22 @@ async function getDashboardStatistics({ orgOid, userId, scope }) {
     ...boardRows.map((row) => row._id),
     ...overdueRaw.map((row) => row.boardId),
   ].filter(Boolean);
+
   let titleById = new Map();
+  let projectIdByBoardId = new Map();
+  let projectById = new Map();
   if (boardIds.length) {
     const boards = await TaskBoard.find({ _id: { $in: boardIds } })
-      .select('title')
+      .select('title projectId')
       .lean();
-    titleById = new Map(
-      boards.map((b) => [
-        String(b._id),
-        String(b.title || '').trim() || String(b._id),
-      ])
-    );
+    ({ titleById, projectIdByBoardId } = indexTaskBoardsForDashboard(boards));
+    const projectIds = uniqueProjectIdsFromBoards(projectIdByBoardId);
+    if (projectIds.length) {
+      const projects = await Project.find({ _id: { $in: projectIds } })
+        .select('title projectCode')
+        .lean();
+      projectById = indexProjectsForBoardIdentity(projects);
+    }
   }
 
   const orgIdStr = String(orgOid);
@@ -176,14 +188,9 @@ async function getDashboardStatistics({ orgOid, userId, scope }) {
     myOpen: countFacet(facet?.myOpen),
     myOverdue: countFacet(facet?.myOverdue),
     myDueThisWeek: countFacet(facet?.myDueThisWeek),
-    boards: boardRows.map((row) => ({
-      id: String(row._id),
-      name: titleById.get(String(row._id)) || String(row._id),
-      total: Number(row.total) || 0,
-      done: Number(row.done) || 0,
-      open: Number(row.open) || 0,
-      overdue: Number(row.overdue) || 0,
-    })),
+    boards: boardRows.map((row) =>
+      mapBoardStatsRow(row, titleById, projectIdByBoardId, projectById)
+    ),
     overdueItems: formatOverdueItems(overdueRaw, titleById, orgIdStr),
     membershipRole: scope?.membershipRole ? String(scope.membershipRole) : null,
   };
