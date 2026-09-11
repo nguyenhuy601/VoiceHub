@@ -1,4 +1,4 @@
-/** Mirror BE projectDeliveryRoster — 3 band bắt buộc khi tạo dự án. */
+/** Mirror BE projectDeliveryRoster — Phase 1 create requires BA + PO. */
 
 export const PRODUCT_BAND = Object.freeze(['product_owner', 'business_analyst']);
 export const FACILITATE_BAND = Object.freeze(['scrum_master', 'project_manager']);
@@ -21,6 +21,8 @@ export const BUILD_BAND = Object.freeze([
 const PRODUCT_SET = new Set(PRODUCT_BAND);
 const FACILITATE_SET = new Set(FACILITATE_BAND);
 const BUILD_SET = new Set(BUILD_BAND);
+const BA_SET = new Set(['business_analyst']);
+const PO_SET = new Set(['product_owner']);
 
 export function normalizeRoleKeys(raw = []) {
   const input = Array.isArray(raw) ? raw : [raw];
@@ -41,10 +43,12 @@ export function deliveryRosterStatus(roleKeys = []) {
     hasProduct: keys.some((k) => PRODUCT_SET.has(k)),
     hasFacilitate: keys.some((k) => FACILITATE_SET.has(k)),
     hasBuild: keys.some((k) => BUILD_SET.has(k)),
+    hasBa: keys.some((k) => BA_SET.has(k)),
+    hasPo: keys.some((k) => PO_SET.has(k)),
   };
 }
 
-/** Creator luôn là PO ở BE — cộng seedMembers. */
+/** Creator mặc định PO; seedMembers bổ sung BA/PO/khác. */
 export function collectWizardRosterKeys(seedMembers = [], { creatorIsPo = true } = {}) {
   const keys = creatorIsPo ? ['product_owner'] : [];
   for (const row of Array.isArray(seedMembers) ? seedMembers : []) {

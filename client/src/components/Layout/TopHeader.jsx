@@ -53,6 +53,26 @@ function getSuiteMeta(t) {
       gradEnd: '#10B981',
       bgGlow: 'rgba(16,185,129,0.12)',
     },
+    [SUITE.COMPANY]: {
+      label: t('header.suiteCompanyLabel'),
+      shortLabel: t('header.suiteCompanyShort'),
+      sublabel: t('header.suiteCompanySub'),
+      Icon: ClipboardList,
+      color: '#10B981',
+      gradStart: '#059669',
+      gradEnd: '#10B981',
+      bgGlow: 'rgba(16,185,129,0.12)',
+    },
+    [SUITE.PROJECTS]: {
+      label: t('header.suiteProjectsLabel'),
+      shortLabel: t('header.suiteProjectsShort'),
+      sublabel: t('header.suiteProjectsSub'),
+      Icon: ClipboardList,
+      color: '#8B5CF6',
+      gradStart: '#7C3AED',
+      gradEnd: '#8B5CF6',
+      bgGlow: 'rgba(139,92,246,0.12)',
+    },
     [SUITE.ME]: {
       label: t('header.suiteMeLabel'),
       shortLabel: t('header.suiteMeShort'),
@@ -213,10 +233,12 @@ export default function TopHeader() {
   };
 
   const notifPath =
-    currentSuite === SUITE.COLLABORATE
-      ? '/app/collaborate/notifications'
+    currentSuite === SUITE.COLLABORATE || currentSuite === SUITE.COMPANY
+      ? '/app/company/notifications'
+      : currentSuite === SUITE.PROJECTS
+        ? '/app/company/notifications'
       : currentSuite === SUITE.ADMIN
-        ? '/app/collaborate/notifications'
+        ? '/app/company/notifications'
         : '/app/communicate/notifications';
 
   const suiteLabel = activeMeta.shortLabel;

@@ -25,6 +25,7 @@ const {
   hasDataHint,
 } = require('./aiAnalysisLocaleText');
 const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
+const { buildWallBudgetSkipMeta } = require('./aiAnalysisWallBudgetMeta');
 
 const GAP_TYPES = Object.freeze([
   'missing_requirement',
@@ -482,7 +483,9 @@ async function runGapAnalysis(pack, opts = {}) {
   let llmCalls = 0;
   let partial = false;
   let lastError = null;
+  let wallBudgetSkipMeta = null;
   const chunkTimeout = opts.chunkTimeoutMs ?? Math.min(analysisChunkTimeoutMs(), wallMs);
+  const countFrInputs = (c) => (Array.isArray(c) ? c.length : 0);
   const hintsMeta = {
     nfrPresent: hints.nfrPresent,
     nfrCount: hints.nfrCount,
@@ -496,6 +499,12 @@ async function runGapAnalysis(pack, opts = {}) {
     if (!canStartChunk(elapsed, wallMs, chunkTimeout)) {
       partial = true;
       lastError = 'wall_budget';
+      wallBudgetSkipMeta = buildWallBudgetSkipMeta({
+        chunks,
+        fromIndex: i,
+        countInputs: countFrInputs,
+        kind: 'fr',
+      });
       break;
     }
     const prompt = buildGapPrompt({
@@ -558,6 +567,7 @@ async function runGapAnalysis(pack, opts = {}) {
       elapsedMs: Date.now() - started,
       ...policy,
       doesNotOverwriteValidation: true,
+      ...(wallBudgetSkipMeta || {}),
     },
   };
 }

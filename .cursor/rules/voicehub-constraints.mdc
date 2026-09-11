@@ -62,7 +62,7 @@ Môi trường dev: máy khác trong WiFi truy cập qua **HTTPS + hostname** (N
 Khi tạo/cập nhật plan (CreatePlan / `.cursor/plans/*`), **luôn đủ 6 mục** theo thứ tự. Template đầy đủ: Skill [`plan-authoring`](../skills/plan-authoring/SKILL.md) và [`references/plan-template.md`](../skills/plan-authoring/references/plan-template.md). Blast radius: Skill `change-impact-analysis`.
 
 1. **Mục tiêu & phạm vi** — Objective (loại + business/technical reason + outcome); **Success Criteria đo được** (cấm “hoàn thành chức năng X”); In-Scope; **Out-of-Scope** (chống agent mở rộng).
-2. **Files Affected** — phân loại **CREATE / MODIFY / DELETE / DO NOT MODIFY** + **§2.5 Dependency/Impact** (blast radius).
+2. **Files Affected** — phân loại **CREATE / MODIFY / DELETE / DO NOT MODIFY** + **§2.5 Dependency/Impact** (blast radius) + **§2.6 Nguồn dữ liệu** (khi đụng API: origin field, payload, sinh req mới?; **khi sinh/đổi response:** whitelist/omit, `view=` opt-in, không nested dư — xem template plan-authoring).
 3. **Thiết kế & trách nhiệm module** — Architecture (Route→Controller→Service→Model); Responsibility từng layer; Data Flow (multi-module); Business Rules (`RULE-0n`); Constraints (API/schema/compat).
 4. **Thứ tự triển khai** — Steps có dependency + lý do; mỗi step: Objective/Files/Implementation/Expected/Validation; plan lớn: **Review Gate** (`Implement step N only. Stop for review.`).
 5. **Test plan** — Unit / Integration / Smoke / Regression; Mock/Fixture; **Commands cụ thể** (cấm chỉ “run tests”); Pass criteria checklist đo được. Đóng plan: Skill `regression-testing`.

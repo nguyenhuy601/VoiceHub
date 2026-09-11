@@ -6,6 +6,12 @@ const {
   runCapabilityAnalysis,
 } = require('../src/utils/aiAnalysis/aiAnalysisCapability');
 const { buildPackContentHash } = require('../src/utils/aiAnalysis/aiAnalysisCompactPolicy');
+const {
+  runHierarchyDecomposition,
+} = require('../src/utils/aiAnalysis/aiAnalysisHierarchy');
+const {
+  mergeHierarchyProposalsIntoFrList,
+} = require('../src/utils/aiAnalysis/aiAnalysisHierarchyMerge');
 
 const packModulesFeaturesOnly = {
   overview: { name: 'Demo', platform: 'web' },
@@ -92,5 +98,48 @@ describe('runCapabilityAnalysis hierarchy union', () => {
       hierarchy: acceptedHierarchy,
     });
     assert.notEqual(without, withHier);
+  });
+
+  it('Module-only → hierarchy cascade → merge → capability items ≥ 1', async () => {
+    const pack = {
+      overview: { name: 'Auth', platform: 'web' },
+      functionalRequirements: [
+        {
+          externalId: 'FR-001',
+          level: 'Module',
+          parentExternalId: '',
+          name: 'Authentication',
+          description: 'Login. Session. Password reset.',
+        },
+      ],
+    };
+
+    const prev = process.env.AI_PLANNING_LLM;
+    process.env.AI_PLANNING_LLM = '0';
+    try {
+      const hierarchy = await runHierarchyDecomposition(pack, { forceHeuristic: true });
+      assert.ok(hierarchy.proposedFeatures.length >= 1);
+      assert.ok(hierarchy.proposedRequirements.length >= 1);
+
+      const { frList: merged } = mergeHierarchyProposalsIntoFrList(
+        pack.functionalRequirements,
+        {
+          proposedFeatures: hierarchy.proposedFeatures,
+          proposedRequirements: hierarchy.proposedRequirements,
+        }
+      );
+      assert.ok(merged.some((r) => r.level === 'Feature'));
+      assert.ok(merged.some((r) => r.level === 'Requirement'));
+
+      const capability = await runCapabilityAnalysis(
+        { ...pack, functionalRequirements: merged },
+        { forceHeuristic: true }
+      );
+      assert.ok(capability.items.length >= 1);
+      assert.notEqual(capability.meta.source, 'empty');
+    } finally {
+      if (prev === undefined) delete process.env.AI_PLANNING_LLM;
+      else process.env.AI_PLANNING_LLM = prev;
+    }
   });
 });

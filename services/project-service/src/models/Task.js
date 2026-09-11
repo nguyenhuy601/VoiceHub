@@ -310,6 +310,8 @@ taskSchema.index({ boardId: 1, listId: 1, position: 1, isActive: 1 });
 taskSchema.index({ boardId: 1, ownerTeamId: 1, listId: 1, isActive: 1 });
 taskSchema.index({ boardId: 1, status: 1, createdAt: -1 });
 taskSchema.index({ projectId: 1, isActive: 1, createdAt: -1 });
+/** List card progress aggregate: $match organizationId + projectId $in + isActive */
+taskSchema.index({ organizationId: 1, projectId: 1, isActive: 1 });
 taskSchema.index({ projectId: 1, sprintId: 1, isActive: 1 });
 taskSchema.index({ projectId: 1, epicId: 1, isActive: 1 });
 taskSchema.index({ projectId: 1, featureId: 1, isActive: 1 });

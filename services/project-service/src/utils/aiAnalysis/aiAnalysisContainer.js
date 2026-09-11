@@ -17,6 +17,11 @@ const {
   migrateAiAnalysisJobsV1ToV2,
   needsJobMigration,
 } = require('./aiAnalysisMigrateJobs');
+const {
+  listFeatureRows,
+  buildFrChildrenByParent,
+} = require('../requirement/requirementFrLevel');
+const { normId } = require('../requirement/requirementTemplateTextNorm');
 
 function emptyJobMeta() {
   return {
@@ -123,6 +128,7 @@ function emptyResourceShell() {
     fte: [],
     recommendations: [],
     assignments: [],
+    assignmentsMeta: {},
     schedule: [],
   };
 }
@@ -157,6 +163,57 @@ function normalizeJobMeta(src) {
     durationMs: normalizeDurationMs(src.durationMs),
     error: src.error ?? null,
   };
+}
+
+/** Confirm gate: capability must have ≥1 item. */
+function assertCapabilityConfirmable(container) {
+  const items = container?.analyses?.capability?.items;
+  if (!Array.isArray(items) || items.length === 0) {
+    const err = new Error('Capability analysis has no items to confirm');
+    err.statusCode = 409;
+    err.errorCode = 'AI_ANALYSIS_CAPABILITY_EMPTY';
+    err.details = { job: 'capabilityAnalysis', itemCount: 0 };
+    throw err;
+  }
+}
+
+/** True when capability analysis has no items. */
+function capabilityItemsEmpty(container) {
+  const items = container?.analyses?.capability?.items;
+  return !Array.isArray(items) || items.length === 0;
+}
+
+/**
+ * ready + empty capability items (before Confirm) → stale so user can re-run.
+ * @returns {{ container: object, changed: boolean }}
+ */
+function normalizeEmptyCapabilityReady(container) {
+  if (!container || typeof container !== 'object') {
+    return { container, changed: false };
+  }
+  const jobMeta = container.jobs?.capabilityAnalysis;
+  if (!jobMeta || typeof jobMeta !== 'object') {
+    return { container, changed: false };
+  }
+  if (String(jobMeta.status || '') !== 'ready') {
+    return { container, changed: false };
+  }
+  if (!capabilityItemsEmpty(container)) {
+    return { container, changed: false };
+  }
+  const next = {
+    ...container,
+    jobs: {
+      ...container.jobs,
+      capabilityAnalysis: {
+        ...jobMeta,
+        status: 'stale',
+        confirmedAt: null,
+        error: jobMeta.error || 'empty_requirement_leaves',
+      },
+    },
+  };
+  return { container: next, changed: true };
 }
 
 function ensureAiAnalysisContainer(raw) {
@@ -203,7 +260,7 @@ function ensureAiAnalysisContainer(raw) {
   const planningSrc = working.planning && typeof working.planning === 'object' ? working.planning : {};
   const resourceSrc = working.resource && typeof working.resource === 'object' ? working.resource : {};
 
-  return {
+  const built = {
     schemaVersion: AI_ANALYSIS_SCHEMA_VERSION,
     generatedAt: working.generatedAt ?? null,
     currentJob: working.currentJob ?? null,
@@ -229,9 +286,15 @@ function ensureAiAnalysisContainer(raw) {
         ? resourceSrc.recommendations
         : [],
       assignments: Array.isArray(resourceSrc.assignments) ? resourceSrc.assignments : [],
+      assignmentsMeta:
+        resourceSrc.assignmentsMeta && typeof resourceSrc.assignmentsMeta === 'object'
+          ? resourceSrc.assignmentsMeta
+          : {},
       schedule: Array.isArray(resourceSrc.schedule) ? resourceSrc.schedule : [],
     },
   };
+
+  return normalizeEmptyCapabilityReady(built).container;
 }
 
 function assertSchemaVersionPresent(container) {
@@ -261,6 +324,39 @@ function assertPreviousJobConfirmed(container, job) {
     err.details = { job, previousJob: prev, previousStatus: status };
     throw err;
   }
+}
+
+/** True when any Feature row has no Requirement children (stuck hierarchy leaf gap). */
+function packHasFeatureWithoutRequirement(frList = []) {
+  const childrenByParent = buildFrChildrenByParent(frList || []);
+  for (const row of listFeatureRows(frList || [])) {
+    const rawId = String(row.externalId || '').trim();
+    const nid = normId(row.externalId);
+    const kids = [
+      ...(childrenByParent.get(rawId) || []),
+      ...(nid && nid !== rawId ? childrenByParent.get(nid) || [] : []),
+    ];
+    const hasRequirement = kids.some((c) => String(c.level || '').trim() === 'Requirement');
+    if (!hasRequirement) return true;
+  }
+  return false;
+}
+
+/** Confirmed jobs cannot be re-run (force does not bypass), except hierarchy stuck recovery. */
+function assertJobNotConfirmedForRerun(container, job, opts = {}) {
+  const status = getJobStatus(container, job);
+  if (status !== 'confirmed') return;
+  if (
+    String(job || '').trim() === 'hierarchyDecomposition' &&
+    packHasFeatureWithoutRequirement(opts.frList || opts.functionalRequirements || [])
+  ) {
+    return;
+  }
+  const err = new Error(`Job ${job} is already confirmed and cannot be re-run`);
+  err.statusCode = 409;
+  err.errorCode = 'AI_ANALYSIS_JOB_ALREADY_CONFIRMED';
+  err.details = { job, status };
+  throw err;
 }
 
 function markJobsStaleAfter(container, job) {
@@ -459,6 +555,11 @@ module.exports = {
   assertSchemaVersionPresent,
   getJobStatus,
   assertPreviousJobConfirmed,
+  assertJobNotConfirmedForRerun,
+  packHasFeatureWithoutRequirement,
+  capabilityItemsEmpty,
+  normalizeEmptyCapabilityReady,
+  assertCapabilityConfirmable,
   markJobsStaleAfter,
   summarizeAiAnalysis,
   buildWizardJobDto,

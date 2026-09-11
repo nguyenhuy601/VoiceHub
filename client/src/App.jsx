@@ -1,17 +1,30 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
 import BrandPageLoader from './components/Shared/BrandPageLoader';
 import SuiteShellLayout from './components/Layout/SuiteShellLayout';
 import CommunicateSidebar from './components/Layout/CommunicateSidebar';
-import CollaborateSidebar from './components/Layout/CollaborateSidebar';
+import CompanySuiteLayout from './components/Layout/CompanySuiteLayout';
+import ProjectsSidebar from './components/Layout/ProjectsSidebar';
 import AdminShellLayout from './components/Layout/AdminShellLayout';
 import ProfileSidebar from './components/Layout/ProfileSidebar';
 import SuiteRootRedirect from './components/Layout/SuiteRootRedirect';
 import LegacyWorkspaceRedirect from './components/Layout/LegacyWorkspaceRedirect';
-import LegacyTasksRedirect from './components/Layout/LegacyTasksRedirect';
 import LegacyPathRedirect from './components/Layout/LegacyPathRedirect';
+import CollaborateLegacyRedirect from './components/Layout/CollaborateLegacyRedirect';
 import RouteErrorBoundary from './components/Shared/RouteErrorBoundary';
+
+/** Keep search when redirecting /app/projects/:projectId → overview. */
+function ProjectIdToOverviewRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={`overview${search || ''}`} replace />;
+}
+
+/** Preserve query when mapping legacy collaborate create URLs. */
+function LegacyProjectsNewRedirect({ toBase }) {
+  const { search } = useLocation();
+  return <Navigate to={`${toBase}${search || ''}`} replace />;
+}
 
 const LoginPage = lazy(() => import('./pages/Auth/LoginPage'));
 const RegisterRedirect = lazy(() => import('./components/Auth/RegisterRedirect'));
@@ -22,6 +35,7 @@ const ResetPasswordPage = lazy(() => import('./pages/Auth/ResetPasswordPage'));
 const TermsOfServicePage = lazy(() => import('./pages/Auth/TermsOfServicePage'));
 const PrivacyPolicyPage = lazy(() => import('./pages/Auth/PrivacyPolicyPage'));
 const DashboardPage = lazy(() => import('./pages/Dashboard/DashboardPage'));
+const DepartmentHomePage = lazy(() => import('./features/companyHome/DepartmentHomePage'));
 const FriendChatPage = lazy(() => import('./pages/Chat/FriendChatPage'));
 const VoiceRoomPage = lazy(() => import('./pages/Voice/VoiceRoomPage'));
 const OrganizationsPage = lazy(() => import('./pages/Workspace/OrganizationsPage'));
@@ -35,17 +49,21 @@ const CollaborateRequirementsPage = lazy(() => import('./features/requirements/C
 const JoinApplicationPage = lazy(() => import('./pages/Workspace/JoinApplicationPage'));
 const CreateProjectWizardPage = lazy(() => import('./pages/Projects/CreateProjectWizardPage'));
 const CreateProjectAiWizardPage = lazy(() => import('./pages/Projects/CreateProjectAiWizardPage'));
-const ProjectsLandingPage = lazy(() => import('./pages/Projects/ProjectsLandingPage'));
-const ProjectChatPage = lazy(() => import('./pages/Projects/ProjectChatPage'));
-const ProjectsShellLayout = lazy(() => import('./pages/Projects/ProjectsShellLayout'));
-const ProjectHubPage = lazy(() => import('./pages/Projects/ProjectHubPage'));
+const ProjectPickerPage = lazy(() => import('./features/projects/picker/ProjectPickerPage'));
+const ProjectModuleRoute = lazy(() => import('./features/projects/hub/ProjectModuleRoute'));
 const NotificationsPage = lazy(() => import('./pages/Notifications/NotificationsPage'));
-const DocumentsPage = lazy(() => import('./pages/Documents/DocumentsPage'));
 const CalendarPage = lazy(() => import('./pages/Calendar/CalendarPage'));
 const SettingsPage = lazy(() => import('./pages/Settings/SettingsPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFound/NotFoundPage'));
+const SpaceChatModule = lazy(() => import('./features/spaceModules/SpaceChatModule'));
+const SpaceCalendarModule = lazy(() => import('./features/spaceModules/SpaceCalendarModule'));
+const SpaceDocumentsModule = lazy(() => import('./features/spaceModules/SpaceDocumentsModule'));
 
 const Protected = ({ children }) => <ProtectedRoute>{children}</ProtectedRoute>;
+
+function ProjectsSpaceTree() {
+  return <SuiteShellLayout sidebar={<ProjectsSidebar />} />;
+}
 
 function App() {
   return (
@@ -63,7 +81,6 @@ function App() {
         <Route path="/terms-of-service" element={<TermsOfServicePage />} />
         <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
 
-        {/* Suite root */}
         <Route
           path="/app"
           element={
@@ -94,9 +111,9 @@ function App() {
           <Route path="notifications" element={<NotificationsPage suiteLayout />} />
         </Route>
 
-        {/* Full-screen Project Setup Wizard — outside SuiteShell (no sidebar) */}
+        {/* Full-screen project wizards */}
         <Route
-          path="/app/collaborate/projects/new"
+          path="/app/projects/new"
           element={
             <Protected>
               <CreateProjectWizardPage />
@@ -104,7 +121,7 @@ function App() {
           }
         />
         <Route
-          path="/app/collaborate/projects/new-ai"
+          path="/app/projects/new-ai"
           element={
             <Protected>
               <CreateProjectAiWizardPage />
@@ -120,44 +137,73 @@ function App() {
           }
         />
 
-        {/* Collaborate suite */}
+        {/* Company Space suite */}
         <Route
-          path="/app/collaborate"
+          path="/app/company"
           element={
             <Protected>
-              <SuiteShellLayout sidebar={<CollaborateSidebar />} />
+              <CompanySuiteLayout />
             </Protected>
           }
         >
-          <Route index element={<Navigate to="overview" replace />} />
+          <Route index element={<Navigate to="home" replace />} />
+          <Route path="home" element={<DepartmentHomePage />} />
           <Route path="overview" element={<DashboardPage suiteLayout suiteScope="collaborate" />} />
           <Route
             path="workspaces"
             element={<OrganizationsPage suiteMode="collaborate" suiteLayout />}
           />
-          <Route
-            path="projects"
-            element={<ProjectsShellLayout />}
-          >
-            <Route index element={<ProjectsLandingPage />} />
-            <Route path="chat" element={<ProjectChatPage />} />
-          </Route>
-          <Route path="projects/:projectId" element={<ProjectHubPage />} />
-          <Route path="tasks" element={<LegacyTasksRedirect />} />
-          <Route path="documents" element={<DocumentsPage suiteLayout />} />
-          <Route path="calendar" element={<CalendarPage suiteLayout />} />
-          <Route path="requirements" element={<CollaborateRequirementsPage />} />
-          <Route
-            path="notifications"
-            element={<NotificationsPage orgScope suiteLayout />}
-          />
-          <Route path="organizations/:orgId/settings" element={<OrganizationSettingsPage suiteLayout />} />
-          <Route path="admin" element={<AdminLegacyRedirect />} />
+          <Route path="chat" element={<SpaceChatModule />} />
+          <Route path="documents" element={<SpaceDocumentsModule />} />
+          <Route path="calendar" element={<SpaceCalendarModule />} />
           <Route path="approvals" element={<ApprovalInboxPage suiteLayout />} />
+          <Route path="notifications" element={<NotificationsPage orgScope suiteLayout />} />
+          <Route path="organizations/:orgId/settings" element={<OrganizationSettingsPage suiteLayout />} />
           <Route path="join/:orgId" element={<JoinApplicationPage suiteLayout />} />
         </Route>
 
-        {/* Admin suite — menu quản lý tách khỏi collaborate */}
+        {/* Projects suite */}
+        <Route
+          path="/app/projects"
+          element={
+            <Protected>
+              <ProjectsSpaceTree />
+            </Protected>
+          }
+        >
+          <Route index element={<ProjectPickerPage />} />
+          <Route path="requirements" element={<CollaborateRequirementsPage />} />
+          <Route path=":projectId/:module" element={<ProjectModuleRoute />} />
+          <Route path=":projectId" element={<ProjectIdToOverviewRedirect />} />
+        </Route>
+
+        {/* Legacy Collaborate → dual suite */}
+        <Route
+          path="/app/collaborate/projects/new"
+          element={
+            <Protected>
+              <LegacyProjectsNewRedirect toBase="/app/projects/new" />
+            </Protected>
+          }
+        />
+        <Route
+          path="/app/collaborate/projects/new-ai"
+          element={
+            <Protected>
+              <LegacyProjectsNewRedirect toBase="/app/projects/new-ai" />
+            </Protected>
+          }
+        />
+        <Route
+          path="/app/collaborate/*"
+          element={
+            <Protected>
+              <CollaborateLegacyRedirect />
+            </Protected>
+          }
+        />
+
+        {/* Admin suite */}
         <Route
           path="/app/admin"
           element={
@@ -193,14 +239,14 @@ function App() {
           <Route path="settings" element={<SettingsPage suiteLayout />} />
         </Route>
 
-        {/* Legacy redirects — giữ URL cũ (/dashboard, /chat/friends, /w/:slug, …) trỏ sang /app/* suite */}
+        {/* Legacy redirects */}
         <Route path="/dashboard" element={<Navigate to="/app/communicate/overview" replace />} />
         <Route path="/calendar" element={<Navigate to="/app/me/calendar" replace />} />
         <Route path="/settings" element={<Navigate to="/app/me/settings" replace />} />
         <Route path="/profile" element={<Navigate to="/app/me/dashboard" replace />} />
         <Route path="/chat" element={<Navigate to="/app/communicate/chat/friends" replace />} />
         <Route path="/chat/friends" element={<Navigate to="/app/communicate/chat/friends" replace />} />
-        <Route path="/chat/organization" element={<Navigate to="/app/collaborate/workspaces" replace />} />
+        <Route path="/chat/organization" element={<Navigate to="/app/company/workspaces" replace />} />
         <Route path="/voice" element={<Navigate to="/app/communicate/voice" replace />} />
         <Route
           path="/voice/:roomId"
@@ -208,26 +254,26 @@ function App() {
         />
         <Route path="/friends" element={<Navigate to="/app/communicate/chat/friends" replace />} />
         <Route path="/notifications" element={<Navigate to="/app/communicate/notifications" replace />} />
-        <Route path="/notifications/organization" element={<Navigate to="/app/collaborate/notifications" replace />} />
-        <Route path="/documents" element={<Navigate to="/app/collaborate/documents" replace />} />
-        <Route path="/tasks" element={<Navigate to="/app/collaborate/tasks" replace />} />
-        <Route path="/organizations" element={<Navigate to="/app/collaborate/workspaces" replace />} />
-        <Route path="/workspaces" element={<Navigate to="/app/collaborate/workspaces" replace />} />
+        <Route path="/notifications/organization" element={<Navigate to="/app/company/notifications" replace />} />
+        <Route path="/documents" element={<Navigate to="/app/company/documents" replace />} />
+        <Route path="/tasks" element={<Navigate to="/app/projects" replace />} />
+        <Route path="/organizations" element={<Navigate to="/app/company/workspaces" replace />} />
+        <Route path="/workspaces" element={<Navigate to="/app/company/workspaces" replace />} />
         <Route
           path="/organizations/join/:orgId"
-          element={<LegacyPathRedirect toTemplate="/app/collaborate/join/:orgId" />}
+          element={<LegacyPathRedirect toTemplate="/app/company/join/:orgId" />}
         />
         <Route
           path="/organizations/:orgId/settings"
-          element={<LegacyPathRedirect toTemplate="/app/collaborate/organizations/:orgId/settings" />}
+          element={<LegacyPathRedirect toTemplate="/app/company/organizations/:orgId/settings" />}
         />
         <Route
           path="/workspaces/join/:orgId"
-          element={<LegacyPathRedirect toTemplate="/app/collaborate/join/:orgId" />}
+          element={<LegacyPathRedirect toTemplate="/app/company/join/:orgId" />}
         />
         <Route
           path="/workspaces/:orgId/settings"
-          element={<LegacyPathRedirect toTemplate="/app/collaborate/organizations/:orgId/settings" />}
+          element={<LegacyPathRedirect toTemplate="/app/company/organizations/:orgId/settings" />}
         />
         <Route
           path="/w/:slug/*"

@@ -21,7 +21,7 @@ const {
 } = require('../src/utils/aiAnalysis/aiAnalysisFrSlice');
 
 describe('aiAnalysisHierarchy', () => {
-  it('Module-only pack proposes Features (no Requirements yet)', async () => {
+  it('Module-only pack proposes Features and cascaded Requirements', async () => {
     const pack = {
       functionalRequirements: [
         {
@@ -50,7 +50,12 @@ describe('aiAnalysisHierarchy', () => {
     try {
       const result = await runHierarchyDecomposition(pack, { forceHeuristic: true });
       assert.ok(result.proposedFeatures.length >= 1);
-      assert.equal(result.proposedRequirements.length, 0);
+      assert.ok(result.proposedRequirements.length >= 1);
+      const featureIds = new Set(result.proposedFeatures.map((p) => p.proposalId));
+      assert.ok(
+        result.proposedRequirements.every((r) => featureIds.has(r.parentExternalId)),
+        'cascaded Requirements must parent to proposed Feature proposalIds'
+      );
     } finally {
       if (prev === undefined) delete process.env.AI_PLANNING_LLM;
       else process.env.AI_PLANNING_LLM = prev;
@@ -227,6 +232,8 @@ describe('aiAnalysisHierarchy', () => {
     assert.equal(result.meta.llmCalls, 1);
     assert.equal(result.meta.partial, true);
     assert.equal(result.meta.error, 'wall_budget');
+    assert.ok(result.meta.wallBudgetSkippedInputCount >= 1);
+    assert.equal(result.meta.wallBudgetSkippedInputKind, 'parent');
     assert.ok(result.proposedFeatures.length >= 1);
     assert.ok(result.proposedFeatures.some((p) => p.source === 'heuristic'));
     assert.ok(typeof result.meta.elapsedMs === 'number');

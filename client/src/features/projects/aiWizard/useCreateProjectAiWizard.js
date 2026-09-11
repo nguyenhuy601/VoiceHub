@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStrings } from '../../../locales/appStrings';
 import { requirementAPI } from '../../../services/api/requirementAPI';
+import { projectAPI } from '../../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import useRequirementAccess from '../../../hooks/useRequirementAccess';
 import useRequirementPacks from '../../../hooks/useRequirementPacks';
@@ -39,10 +40,14 @@ function emptyConfirmForm(pack) {
 
 export default function useCreateProjectAiWizard({
   organizationId,
+  existingProjectId = '',
+  initialPackId = '',
   onCreated,
 } = {}) {
   const { t } = useAppStrings();
   const orgId = String(organizationId || '').trim();
+  const phase2ProjectId = String(existingProjectId || '').trim();
+  const isPhase2Ai = Boolean(phase2ProjectId);
   const queryClient = useQueryClient();
   const { access, loading: accessLoading } = useRequirementAccess(orgId);
   /** Same gate as CreateProjectAiWizard no-access UI — avoid listPacks before access / without rights. */
@@ -54,7 +59,7 @@ export default function useCreateProjectAiWizard({
   const [busy, setBusy] = useState(false);
   const [pack, setPack] = useState(null);
   const [confirmForm, setConfirmForm] = useState(() => emptyConfirmForm(null));
-
+  const [initialPackHydrated, setInitialPackHydrated] = useState(false);
   const {
     packs: approvedPacks,
     loading: packsLoading,
@@ -89,6 +94,35 @@ export default function useCreateProjectAiWizard({
     if (!packsError) return;
     toast.error(t('aiCreateWizard.loadPacksFail'));
   }, [packsError, t]);
+
+  /** Prefill pack from Phase 2 gate (packId query). */
+  useEffect(() => {
+    const want = String(initialPackId || '').trim();
+    if (!want || !orgId || accessLoading || !canUseAiWizard || initialPackHydrated) return;
+    let cancelled = false;
+    (async () => {
+      setBusy(true);
+      try {
+        const res = await requirementAPI.getPack(orgId, want, { view: 'wizard' });
+        if (cancelled) return;
+        const next = unwrapRequirementPayload(res);
+        setPack(next);
+        setConfirmForm(emptyConfirmForm(next));
+        setInitialPackHydrated(true);
+        if (canRunAiOnPack(next)) {
+          setSlideDir('forward');
+          setStep(1);
+        }
+      } catch {
+        if (!cancelled) setInitialPackHydrated(true);
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialPackId, orgId, accessLoading, canUseAiWizard, initialPackHydrated]);
 
   useEffect(() => {
     if (pack) {
@@ -231,7 +265,7 @@ export default function useCreateProjectAiWizard({
   const createProject = useCallback(async () => {
     if (!orgId || !packId || busy) return;
     const title = String(confirmForm.title || '').trim();
-    if (!title) {
+    if (!title && !isPhase2Ai) {
       toast.error(t('aiCreateWizard.titleRequired'));
       return;
     }
@@ -242,13 +276,39 @@ export default function useCreateProjectAiWizard({
     setBusy(true);
     try {
       let current = pack;
-      if (current?.status !== 'approved') {
+      if (current?.status !== 'approved' && current?.status !== 'project_linked') {
         current = await ensureLifecycleForWizard(current);
       }
-      if (String(current?.status || '') !== 'approved') {
+      const st = String(current?.status || '');
+      if (st !== 'approved' && st !== 'project_linked') {
         toast.error(t('aiCreateWizard.needApprovedPack'));
         return;
       }
+
+      if (isPhase2Ai) {
+        const res = await projectAPI.advancePhase2(phase2ProjectId, {
+          mode: 'ai',
+          packId: String(current._id),
+          importWorkItems: true,
+          applyAssignees: true,
+        });
+        const data = res?.data?.data ?? res?.data ?? res;
+        toast.success(t('workspace.phase2AdvanceSuccess') || t('requirements.createProjectSuccess'));
+        await queryClient.invalidateQueries({
+          queryKey: [...queryKeys.requirements.all, 'packs', orgId],
+        });
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.projectHub.project(phase2ProjectId),
+        });
+        onCreated?.({
+          projectId: phase2ProjectId,
+          project: { _id: phase2ProjectId, ...(data || {}) },
+          ...data,
+          phase2: true,
+        });
+        return;
+      }
+
       const res = await requirementAPI.createProjectFromPack(orgId, String(current._id), {
         title,
         startDate: confirmForm.startDate || null,
@@ -264,7 +324,12 @@ export default function useCreateProjectAiWizard({
       onCreated?.(data);
     } catch (error) {
       toast.error(
-        resolveApiErrorMessage(error, { t, fallback: t('requirements.createProjectFail') })
+        resolveApiErrorMessage(error, {
+          t,
+          fallback: isPhase2Ai
+            ? t('workspace.phase2AdvanceFail') || t('requirements.createProjectFail')
+            : t('requirements.createProjectFail'),
+        })
       );
     } finally {
       setBusy(false);
@@ -275,10 +340,12 @@ export default function useCreateProjectAiWizard({
     confirmForm.startDate,
     confirmForm.title,
     ensureLifecycleForWizard,
+    isPhase2Ai,
     onCreated,
     orgId,
     pack,
     packId,
+    phase2ProjectId,
     queryClient,
     t,
   ]);
@@ -305,5 +372,7 @@ export default function useCreateProjectAiWizard({
     createProject,
     canRunAiOnPack: canRunAiOnPack(pack),
     analysisJobCount: AI_ANALYSIS_JOBS.length,
+    isPhase2Ai,
+    existingProjectId: phase2ProjectId,
   };
 }

@@ -33,7 +33,19 @@ import ProjectHubListRow, { LIST_TABLE_COLUMNS } from './ProjectHubListRow';
 import ResizableTableHeader from './ResizableTableHeader';
 import { useResizableTableColumns } from './useResizableTableColumns';
 import { childWorkStats } from './projectHubBacklogStats';
-import { canExpandListRow, flattenExpandedRows } from './projectHubListLazy';
+import {
+  addIdToSetRef,
+  canExpandListRow,
+  collectLoadedIdsFromTree,
+  flattenExpandedRows,
+  hasLocalChildCards,
+  isScrollNearBottom,
+  LIST_ROOT_PAGE_SIZE,
+  nextRootLimit,
+  removeIdFromSetRef,
+  shouldFetchListChildren,
+  sliceTreeRoots,
+} from './projectHubListLazy';
 import { unwrapPlanningEntity } from './projectHubUtils';
 import { listIdToPlanningStatus, planningStatusToListId } from './planningBoardStatus';
 import { buildWorkItemDatePatch } from './WorkItemDetail/workItemDetailUtils';
@@ -134,7 +146,7 @@ export default function ProjectHubListPanel({
   );
   const tableScrollRef = useRef(null);
   const { gridStyle, onResizeStart } = useResizableTableColumns({
-    storageKey: 'vh.hub.list.colWidths',
+    storageKey: 'vh.hub.list.colWidths.v2',
     columns: listColumns,
     containerRef: tableScrollRef,
   });
@@ -147,6 +159,7 @@ export default function ProjectHubListPanel({
   const [loadedIds, setLoadedIds] = useState(() => new Set());
   const [loadingIds, setLoadingIds] = useState(() => new Set());
   const [expandErrorIds, setExpandErrorIds] = useState(() => new Set());
+  const [visibleRootLimit, setVisibleRootLimit] = useState(LIST_ROOT_PAGE_SIZE);
   const [cardsLoading, setCardsLoading] = useState(false);
   const [cardsError, setCardsError] = useState(false);
   const loading = Boolean(shellPlanningLoading || cardsLoading);
@@ -177,15 +190,12 @@ export default function ProjectHubListPanel({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const cardsLoadedForRef = useRef('');
+  const listCardsRef = useRef(listCards);
   const loadedIdsRef = useRef(loadedIds);
   const loadingIdsRef = useRef(loadingIds);
+  listCardsRef.current = listCards;
   loadedIdsRef.current = loadedIds;
   loadingIdsRef.current = loadingIds;
-
-  const nestCreateCaps = useMemo(
-    () => ({ epic: true, feature: true, story: true, task: true, bug: true, subtask: true }),
-    []
-  );
 
   const canCreateEpic = Boolean(canManage || hubCaps?.canCreateEpic);
   const canDeleteEpic = Boolean(canManage || hubCaps?.canDeleteEpic);
@@ -271,6 +281,7 @@ export default function ProjectHubListPanel({
         setLoadedIds(new Set());
         setLoadingIds(new Set());
         setExpandErrorIds(new Set());
+        setVisibleRootLimit(LIST_ROOT_PAGE_SIZE);
       }
     },
     [projectId, listActive, boardId, apiCtx, parentBoardCards, queryClient]
@@ -317,8 +328,61 @@ export default function ProjectHubListPanel({
     [epics, features, listCards, workTypeConfig]
   );
 
-  const flatRows = useMemo(() => flattenExpandedRows(tree, expandedIds), [tree, expandedIds]);
+  // Seed full board/planning → node đã có con không cần refetch khi expand.
+  useEffect(() => {
+    const seeded = collectLoadedIdsFromTree(tree);
+    if (seeded.size === 0) return;
+    setLoadedIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of seeded) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tree]);
+
+  const visibleTree = useMemo(
+    () => sliceTreeRoots(tree, visibleRootLimit),
+    [tree, visibleRootLimit]
+  );
+  const flatRows = useMemo(
+    () => flattenExpandedRows(visibleTree, expandedIds),
+    [visibleTree, expandedIds]
+  );
   const rootCount = countRootNodes(tree);
+  const hasMoreRoots = visibleRootLimit < tree.length;
+
+  useEffect(() => {
+    setVisibleRootLimit(LIST_ROOT_PAGE_SIZE);
+  }, [projectId]);
+
+  // Scroll gần đáy → +5 root. Expand chỉ tăng scrollHeight, không đổi scrollTop → không load.
+  useEffect(() => {
+    if (!listActive) return undefined;
+    const el = tableScrollRef.current;
+    if (!el) return undefined;
+    const onScroll = () => {
+      if (!hasMoreRoots) return;
+      if (!isScrollNearBottom(el, 80)) return;
+      setVisibleRootLimit((prev) => nextRootLimit(prev, tree.length));
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [listActive, hasMoreRoots, tree.length]);
+
+  // Viewport cao hơn nội dung → không scroll được: reveal thêm trang đến khi đủ hoặc hết root.
+  useEffect(() => {
+    if (!listActive || !hasMoreRoots) return;
+    const el = tableScrollRef.current;
+    if (!el) return;
+    if (el.scrollHeight > el.clientHeight + 1) return;
+    setVisibleRootLimit((prev) => nextRootLimit(prev, tree.length));
+  }, [listActive, hasMoreRoots, tree.length, flatRows.length, visibleRootLimit]);
+
   const activeDragNode = activeDragId ? findNodeById(tree, activeDragId) : null;
   const dragOverNode = dragSession.overId ? findNodeById(tree, dragSession.overId) : null;
   const dragValid = Boolean(
@@ -370,10 +434,29 @@ export default function ProjectHubListPanel({
   };
 
   const loadNodeChildren = useCallback(
-    async (node) => {
+    async (node, { hadError = false } = {}) => {
       const id = String(node?.id || '');
       const rawId = String(node?.raw?._id || node?.raw?.id || '');
-      if (!id || !rawId || loadedIdsRef.current.has(id) || loadingIdsRef.current.has(id)) return;
+      if (!id || !rawId) return;
+      const treeHasChildren = Array.isArray(node?.children) && node.children.length > 0;
+      const localHasChildren =
+        treeHasChildren ||
+        hasLocalChildCards(listCardsRef.current, rawId, node.workType || node.kind);
+      if (
+        !shouldFetchListChildren({
+          loaded: loadedIdsRef.current.has(id),
+          loading: loadingIdsRef.current.has(id),
+          hasChildren: localHasChildren,
+          hadError,
+        })
+      ) {
+        if (localHasChildren && !loadedIdsRef.current.has(id)) {
+          setLoadedIds((prev) => new Set(prev).add(id));
+        }
+        return;
+      }
+      // Sync ref trước setState — chặn click/gọi chồng cùng tick.
+      addIdToSetRef(loadingIdsRef, id);
       setLoadingIds((prev) => new Set(prev).add(id));
       setExpandErrorIds((prev) => {
         const next = new Set(prev);
@@ -430,6 +513,7 @@ export default function ProjectHubListPanel({
       } catch {
         setExpandErrorIds((prev) => new Set(prev).add(id));
       } finally {
+        removeIdFromSetRef(loadingIdsRef, id);
         setLoadingIds((prev) => {
           const next = new Set(prev);
           next.delete(id);
@@ -446,7 +530,7 @@ export default function ProjectHubListPanel({
       if (!id) return;
       if (expandErrorIds.has(id)) {
         setExpandedIds((prev) => new Set(prev).add(id));
-        void loadNodeChildren(node);
+        void loadNodeChildren(node, { hadError: true });
         return;
       }
       setExpandedIds((prev) => {
@@ -1195,8 +1279,6 @@ export default function ProjectHubListPanel({
                   locale={locale}
                   expanded={expandedIds.has(node.id)}
                   canExpand={canExpandListRow({
-                    childTypes: childTypesForParent(node.workType, workTypeConfig, nestCreateCaps),
-                    loaded: loadedIds.has(node.id),
                     loading: loadingIds.has(node.id),
                     hasChildren: Array.isArray(node.children) && node.children.length > 0,
                   })}

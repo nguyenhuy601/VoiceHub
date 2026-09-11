@@ -13,6 +13,7 @@ const { normId, normKey, normProse } = require('../requirement/requirementTempla
 const { buildFrIdSet, truncate } = require('./aiAnalysisFrSlice');
 const { FR_LANGUAGE_CUE, inferAreaLocale } = require('./aiAnalysisLocaleText');
 const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
+const { buildWallBudgetSkipMeta } = require('./aiAnalysisWallBudgetMeta');
 
 const MAX_TASKS_PER_CAPABILITY = 6;
 const NAME_MAX = 160;
@@ -390,13 +391,21 @@ async function runWbsTaskGeneration(pack, container, opts = {}) {
   let llmCalls = 0;
   let partial = false;
   let lastError = null;
+  let wallBudgetSkipMeta = null;
   const chunkTimeout = opts.chunkTimeoutMs ?? Math.min(analysisChunkTimeoutMs(), wallMs);
+  const countCapInputs = (c) => (Array.isArray(c) ? c.length : 0);
 
   for (let i = 0; i < chunks.length; i += 1) {
     const elapsed = Date.now() - started;
     if (!canStartChunk(elapsed, wallMs, chunkTimeout)) {
       partial = true;
       lastError = 'wall_budget';
+      wallBudgetSkipMeta = buildWallBudgetSkipMeta({
+        chunks,
+        fromIndex: i,
+        countInputs: countCapInputs,
+        kind: 'capability',
+      });
       break;
     }
     const prompt = buildWbsPrompt({
@@ -458,6 +467,7 @@ async function runWbsTaskGeneration(pack, container, opts = {}) {
       partial,
       error: lastError || undefined,
       elapsedMs: Date.now() - started,
+      ...(wallBudgetSkipMeta || {}),
     },
   };
 }
@@ -468,9 +478,12 @@ function applyWbsToContainer(container, wbsResult) {
     planning: { ...container.planning },
   };
   next.planning.tasks = wbsResult.tasks || [];
-  next.planning.wbs = wbsResult.wbs || {
-    roots: [],
-    taskCount: (wbsResult.tasks || []).length,
+  next.planning.wbs = {
+    ...(wbsResult.wbs || {
+      roots: [],
+      taskCount: (wbsResult.tasks || []).length,
+    }),
+    meta: wbsResult.meta && typeof wbsResult.meta === 'object' ? wbsResult.meta : {},
   };
   return next;
 }

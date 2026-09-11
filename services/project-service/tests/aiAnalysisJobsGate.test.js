@@ -14,6 +14,7 @@ const {
 const {
   ensureAiAnalysisContainer,
   createEmptyAiAnalysisContainer,
+  assertJobNotConfirmedForRerun,
 } = require('../src/utils/aiAnalysis/aiAnalysisContainer');
 const {
   migrateAiAnalysisJobsV1ToV2,
@@ -170,5 +171,70 @@ describe('aiAnalysisJobsGate', () => {
     assert.equal(changed, true);
     assert.equal(container.jobs.hierarchyDecomposition.status, 'empty');
     assert.notEqual(container.analyses.hierarchy?.meta?.migratedSkip, true);
+  });
+
+  it('assertJobNotConfirmedForRerun rejects confirmed job', () => {
+    const container = ensureAiAnalysisContainer({
+      schemaVersion: 2,
+      jobs: {
+        requirementAnalysis: { status: 'confirmed' },
+      },
+    });
+    assert.throws(() => assertJobNotConfirmedForRerun(container, 'requirementAnalysis'), (err) => {
+      assert.equal(err.statusCode, 409);
+      assert.equal(err.errorCode, 'AI_ANALYSIS_JOB_ALREADY_CONFIRMED');
+      assert.equal(err.details?.status, 'confirmed');
+      return true;
+    });
+  });
+
+  it('assertJobNotConfirmedForRerun allows ready and stale', () => {
+    const ready = ensureAiAnalysisContainer({
+      schemaVersion: 2,
+      jobs: { requirementAnalysis: { status: 'ready' } },
+    });
+    assert.doesNotThrow(() => assertJobNotConfirmedForRerun(ready, 'requirementAnalysis'));
+
+    const stale = ensureAiAnalysisContainer({
+      schemaVersion: 2,
+      jobs: { requirementAnalysis: { status: 'stale' } },
+    });
+    assert.doesNotThrow(() => assertJobNotConfirmedForRerun(stale, 'requirementAnalysis'));
+  });
+
+  it('assertJobNotConfirmedForRerun allows confirmed hierarchy when Feature lacks Requirement', () => {
+    const container = ensureAiAnalysisContainer({
+      schemaVersion: 2,
+      jobs: { hierarchyDecomposition: { status: 'confirmed' } },
+    });
+    const frList = [
+      { externalId: 'FR-001', level: 'Module', name: 'Auth', parentExternalId: '' },
+      {
+        externalId: 'FR-002',
+        level: 'Feature',
+        name: 'Login',
+        parentExternalId: 'FR-001',
+      },
+    ];
+    assert.doesNotThrow(() =>
+      assertJobNotConfirmedForRerun(container, 'hierarchyDecomposition', { frList })
+    );
+
+    const withLeaf = [
+      ...frList,
+      {
+        externalId: 'FR-003',
+        level: 'Requirement',
+        name: 'Password',
+        parentExternalId: 'FR-002',
+      },
+    ];
+    assert.throws(
+      () =>
+        assertJobNotConfirmedForRerun(container, 'hierarchyDecomposition', {
+          frList: withLeaf,
+        }),
+      (err) => err.errorCode === 'AI_ANALYSIS_JOB_ALREADY_CONFIRMED'
+    );
   });
 });

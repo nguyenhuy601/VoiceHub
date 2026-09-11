@@ -1,27 +1,15 @@
 import { ArrowLeft } from 'lucide-react';
 import ProjectWizardStepName from './wizard/ProjectWizardStepName';
-import ProjectWizardStepSetup from './wizard/ProjectWizardStepSetup';
 import ProjectWizardStepTeam from './wizard/ProjectWizardStepTeam';
-import ProjectWizardPreview from './wizard/ProjectWizardPreview';
+import ProjectWizardStepConfirm from './wizard/ProjectWizardStepConfirm';
 import useCreateProjectWizard from './wizard/useCreateProjectWizard';
 import { PROJECT_WIZARD_STEPS } from './wizard/projectWizardConstants';
 import { wizardUi } from './wizard/projectWizardUi';
 import { useAppStrings } from '../../locales/appStrings';
+import { deliveryPhaseLabelKey } from '../../utils/projectPhaseNav';
 
 /**
- * Full-screen Project Setup Wizard — Name → Setup → Team (split form + live preview).
- * Colors follow ThemeContext (light/dark) via semantic tokens.
- *
- * @param {{
- *   organizationId: string,
- *   variant?: 'collaborate'|'admin',
- *   initialValues?: object,
- *   resetKey?: number|string,
- *   onCreated?: (result: object) => void,
- *   onCancel?: () => void,
- *   scopeLabel?: string,
- *   backLabel?: string,
- * }} props
+ * Full-screen Project Create Wizard — Identity → Roster → Confirm (Phase 1 intake).
  */
 export default function CreateProjectWizard({
   organizationId,
@@ -44,7 +32,6 @@ export default function CreateProjectWizard({
 
   const isLast = wizard.step >= PROJECT_WIZARD_STEPS.length - 1;
   const stepNum = wizard.step + 1;
-  const inSetupSub = Boolean(wizard.setupPanel);
 
   const headerBackLabel =
     backLabel ||
@@ -53,10 +40,6 @@ export default function CreateProjectWizard({
       : t('adminTasks.wizardBackToHub') || 'Back to workspaces');
 
   const onHeaderBack = () => {
-    if (inSetupSub) {
-      wizard.setSetupPanel('');
-      return;
-    }
     if (wizard.step > 0) {
       wizard.goBack();
       return;
@@ -68,6 +51,12 @@ export default function CreateProjectWizard({
     wizard.slideDir === 'forward'
       ? 'animate-[wizardSlideInRight_220ms_ease-out]'
       : 'animate-[wizardSlideInLeft_220ms_ease-out]';
+
+  const stepTitles = {
+    identity: t('adminTasks.wizardIdentityTitle') || 'Identity',
+    roster: t('adminTasks.wizardRosterTitle') || 'Roster',
+    confirm: t('adminTasks.wizardConfirmTitle') || 'Confirm',
+  };
 
   return (
     <div className={wizardUi.shell}>
@@ -87,29 +76,16 @@ export default function CreateProjectWizard({
           <header className="shrink-0 px-5 pt-5 sm:px-8 sm:pt-8">
             <button type="button" onClick={onHeaderBack} className={wizardUi.backLink}>
               <ArrowLeft className="h-4 w-4" />
-              {inSetupSub
-                ? t('adminTasks.wizardBackToSetup') || 'Back to setup'
-                : wizard.step > 0
-                  ? t('common.back') || 'Back'
-                  : headerBackLabel}
+              {wizard.step > 0 ? t('common.back') || 'Back' : headerBackLabel}
             </button>
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
-            <div key={`${wizard.step}-${wizard.setupPanel}-${wizard.slideDir}`} className={slideClass}>
-              {wizard.stepId === 'name' ? (
+            <div key={`${wizard.step}-${wizard.slideDir}`} className={slideClass}>
+              {wizard.stepId === 'identity' ? (
                 <ProjectWizardStepName form={wizard.form} patchForm={wizard.patchForm} t={t} />
               ) : null}
-              {wizard.stepId === 'setup' ? (
-                <ProjectWizardStepSetup
-                  form={wizard.form}
-                  patchForm={wizard.patchForm}
-                  setupPanel={wizard.setupPanel}
-                  setSetupPanel={wizard.setSetupPanel}
-                  t={t}
-                />
-              ) : null}
-              {wizard.stepId === 'team' ? (
+              {wizard.stepId === 'roster' ? (
                 <ProjectWizardStepTeam
                   orgId={organizationId}
                   form={wizard.form}
@@ -121,6 +97,13 @@ export default function CreateProjectWizard({
                   t={t}
                 />
               ) : null}
+              {wizard.stepId === 'confirm' ? (
+                <ProjectWizardStepConfirm
+                  form={wizard.form}
+                  t={t}
+                  creatorUserId={wizard.creatorUserId}
+                />
+              ) : null}
             </div>
           </div>
 
@@ -130,7 +113,7 @@ export default function CreateProjectWizard({
                 `Step ${stepNum} of ${PROJECT_WIZARD_STEPS.length}`}
             </p>
             <div className="flex gap-2">
-              {wizard.step > 0 || inSetupSub ? (
+              {wizard.step > 0 ? (
                 <button
                   type="button"
                   className={wizardUi.secondaryBtn}
@@ -149,16 +132,14 @@ export default function CreateProjectWizard({
                   {t('common.cancel')}
                 </button>
               ) : null}
-              {!isLast || inSetupSub ? (
+              {!isLast ? (
                 <button
                   type="button"
                   className={wizardUi.primaryBtn}
                   onClick={wizard.goNext}
                   disabled={wizard.busy}
                 >
-                  {inSetupSub
-                    ? t('adminTasks.wizardDoneSubpanel') || 'Done'
-                    : t('common.next') || 'Next'}
+                  {t('common.next') || 'Next'}
                 </button>
               ) : (
                 <button
@@ -176,23 +157,37 @@ export default function CreateProjectWizard({
 
         <div className={wizardUi.previewPane}>
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(56,189,248,0.08),transparent_50%)] dark:bg-[radial-gradient(ellipse_at_top_right,rgba(56,189,248,0.12),transparent_50%)]" />
-          <div className="relative mb-4">
+          <div className="relative mb-4 space-y-2">
             <p className={wizardUi.previewLabel}>
               {t('adminTasks.wizardPreviewLabel') || 'Preview'}
             </p>
             <p className={wizardUi.previewHint}>
-              {t('adminTasks.wizardPreviewHint') || 'Board cập nhật khi bạn đổi Statuses / Views.'}
+              {t('adminTasks.wizardPhase1PreviewHint') ||
+                'Intake Phase 1 — không cấu hình board tại bước tạo.'}
             </p>
+            <span className="inline-flex rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+              {t(deliveryPhaseLabelKey('requirement_analysis'))}
+            </span>
           </div>
-          <div className="relative min-h-0 flex-1">
-            <ProjectWizardPreview
-              title={wizard.form.title}
-              projectCode={wizard.form.projectCode}
-              columns={wizard.previewColumns}
-              enabledViews={wizard.form.enabledViews}
-              workTypes={wizard.form.workTypes}
-              t={t}
-            />
+          <div className="relative min-h-0 flex-1 rounded-xl border border-border bg-surface/80 p-4">
+            <p className="text-lg font-semibold text-foreground">
+              {wizard.form.title || t('workspace.projectHubUntitled')}
+            </p>
+            <p className="mt-1 font-mono text-xs text-muted-foreground">
+              {wizard.form.projectCode || '—'}
+            </p>
+            <ol className="mt-6 space-y-2 text-sm text-muted-foreground">
+              {PROJECT_WIZARD_STEPS.map((id, i) => (
+                <li
+                  key={id}
+                  className={
+                    i === wizard.step ? 'font-semibold text-foreground' : i < wizard.step ? 'opacity-70' : ''
+                  }
+                >
+                  {i + 1}. {stepTitles[id] || id}
+                </li>
+              ))}
+            </ol>
           </div>
         </div>
       </div>

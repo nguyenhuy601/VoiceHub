@@ -79,16 +79,26 @@ function parseTimeInputToDisplay(hhmm, loc) {
   return d.toLocaleTimeString(tag, { hour: '2-digit', minute: '2-digit' });
 }
 
-function CalendarPage() {
+function CalendarPage({
+  suiteLayout = false,
+  spaceOrganizationId = '',
+  spaceProjectId = '',
+} = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { activeWorkspace, company } = useWorkspace();
   const organizationId = useMemo(() => {
+    const fromSpace = String(spaceOrganizationId || '').trim();
+    if (fromSpace) return fromSpace;
     const fromQuery = String(searchParams.get('organizationId') || '').trim();
     if (fromQuery) return fromQuery;
-    const onCollaborate = String(location.pathname || '').startsWith('/app/collaborate');
-    if (!onCollaborate) return '';
+    const path = String(location.pathname || '');
+    const onOrgSuite =
+      path.startsWith('/app/collaborate') ||
+      path.startsWith('/app/company') ||
+      path.startsWith('/app/projects');
+    if (!onOrgSuite) return '';
     return String(
       activeWorkspace?._id ||
         activeWorkspace?.id ||
@@ -98,7 +108,8 @@ function CalendarPage() {
         company?.organizationId ||
         ''
     ).trim();
-  }, [searchParams, location.pathname, activeWorkspace, company]);
+  }, [searchParams, location.pathname, activeWorkspace, company, spaceOrganizationId]);
+  const projectIdFilter = String(spaceProjectId || searchParams.get('projectId') || '').trim();
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const { locale } = useLocale();
@@ -137,7 +148,7 @@ function CalendarPage() {
     refetch,
     loading: feedLoading,
     error: feedError,
-  } = useCalendarFeed(selectedDate, organizationId);
+  } = useCalendarFeed(selectedDate, organizationId, projectIdFilter);
 
   useTaskDueAlerts(tasksForAlerts, {
     enabled: true,

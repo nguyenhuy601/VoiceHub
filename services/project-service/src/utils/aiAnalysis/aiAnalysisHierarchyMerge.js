@@ -72,6 +72,8 @@ function proposalToFrRow(proposal, externalId, parentRow) {
 
 /**
  * Append accepted hierarchy proposals as FR rows.
+ * Feature proposals first; Requirement parents may be Feature proposalIds
+ * remapped to newly allocated externalIds.
  * @returns {{ frList: object[], addedCount: number, addedIds: string[] }}
  */
 function mergeHierarchyProposalsIntoFrList(
@@ -82,6 +84,7 @@ function mergeHierarchyProposalsIntoFrList(
   const list = Array.isArray(frList) ? frList.map((row) => ({ ...row })) : [];
   const existingIds = new Set(list.map((row) => normId(row.externalId)).filter(Boolean));
   const byId = new Map(list.map((row) => [normId(row.externalId), row]));
+  const proposalIdToExternalId = new Map();
   const addedIds = [];
 
   const queue = [
@@ -96,7 +99,10 @@ function mergeHierarchyProposalsIntoFrList(
     if (level !== 'Feature' && level !== 'Requirement') continue;
 
     const parentId = normId(proposal.parentExternalId);
-    const parentRow = byId.get(parentId);
+    let parentRow = byId.get(parentId);
+    if (!parentRow && proposalIdToExternalId.has(parentId)) {
+      parentRow = byId.get(normId(proposalIdToExternalId.get(parentId)));
+    }
     if (!parentRow) continue;
 
     const allowedParents = FR_VALID_PARENT_LEVELS[level] || [];
@@ -112,6 +118,11 @@ function mergeHierarchyProposalsIntoFrList(
     list.push(row);
     byId.set(normId(externalId), row);
     addedIds.push(externalId);
+
+    const proposalId = normId(proposal.proposalId);
+    if (level === 'Feature' && proposalId) {
+      proposalIdToExternalId.set(proposalId, externalId);
+    }
   }
 
   return {

@@ -30,7 +30,17 @@ function failStalePendingAiAnalysisJobs(container, { now = Date.now(), staleMs =
 function shouldSkipRerunBecauseReady(container, job, { force = false } = {}) {
   if (force) return false;
   const status = String(container?.jobs?.[job]?.status || '');
-  return status === 'ready' || status === 'confirmed';
+  if (status !== 'ready' && status !== 'confirmed') return false;
+  // ready + empty capability must be re-runnable without force
+  if (
+    String(job || '').trim() === 'capabilityAnalysis' &&
+    status === 'ready' &&
+    (!Array.isArray(container?.analyses?.capability?.items) ||
+      container.analyses.capability.items.length === 0)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 module.exports = {

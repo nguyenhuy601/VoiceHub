@@ -11,15 +11,17 @@ function unwrapProjectList(res) {
 
 /**
  * @param {string} organizationId
- * @param {{ excludeClosed?: boolean }} [params]
+ * @param {{ excludeClosed?: boolean, view?: string }} [params]
  */
 export async function fetchOrgProjectsList(organizationId, params = {}) {
   const orgId = String(organizationId || '').trim();
   if (!orgId) return [];
   const excludeClosed = Boolean(params.excludeClosed);
+  const view = String(params.view || '').trim();
   const res = await projectAPI.list({
     organizationId: orgId,
     ...(excludeClosed ? { excludeClosed: 1 } : {}),
+    ...(view ? { view } : {}),
   });
   return unwrapProjectList(res);
 }
@@ -27,17 +29,19 @@ export async function fetchOrgProjectsList(organizationId, params = {}) {
 /**
  * Shared React Query list for org projects (landing).
  * @param {string} organizationId
- * @param {{ excludeClosed?: boolean, enabled?: boolean }} [options]
+ * @param {{ excludeClosed?: boolean, view?: string, enabled?: boolean }} [options]
  */
 export default function useOrgProjectsList(organizationId, options = {}) {
   const orgId = String(organizationId || '').trim();
   const excludeClosed = Boolean(options.excludeClosed);
+  /** Landing/picker default to slim card projection. */
+  const view = String(options.view ?? 'card').trim();
   const enabled = options.enabled !== false && Boolean(orgId);
   const queryClient = useQueryClient();
 
   const query = useQuery({
-    queryKey: queryKeys.projects.list(orgId, { excludeClosed }),
-    queryFn: () => fetchOrgProjectsList(orgId, { excludeClosed }),
+    queryKey: queryKeys.projects.list(orgId, { excludeClosed, view }),
+    queryFn: () => fetchOrgProjectsList(orgId, { excludeClosed, view }),
     enabled,
     staleTime: STALE_TIME_PROJECTS_LIST_MS,
   });

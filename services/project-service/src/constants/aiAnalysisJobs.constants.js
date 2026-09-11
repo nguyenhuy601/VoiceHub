@@ -64,8 +64,8 @@ const AI_ANALYSIS_JOB_OUTPUT_MAP = Object.freeze({
   },
   employeeMatching: { resource: ['fte', 'recommendations'] },
   scheduleCapacity: {
-    resource: ['assignments', 'schedule'],
-    planning: ['completion'],
+    resource: ['assignments', 'assignmentsMeta', 'schedule'],
+    planning: ['completion', 'tasks'],
   },
   projectPlan: { planning: ['executionPlan'] },
 });

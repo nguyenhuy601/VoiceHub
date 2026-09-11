@@ -68,7 +68,6 @@ export function isP0Notification(notif) {
 
   const ui = String(notif.type || '').trim().toLowerCase();
   if (ui && P0_UI_TYPES.has(ui)) return true;
-  const kind = notificationKind(notif);
   if (kind.includes('capability') || kind.startsWith('hr_')) return true;
   if (raw === 'system' || ui === 'system') {
     if (!kind) return true;

@@ -17,6 +17,7 @@ import {
   AI_ANALYSIS_JOBS,
   AI_ANALYSIS_UI_STATUS,
   areAllAnalysisJobsConfirmed,
+  canConfirmJob,
   countConfirmedJobs,
   jobsByPhase,
   lockedReasonKey,
@@ -109,6 +110,7 @@ function ActionCell({
   onConfirm,
   onRetry,
   lockReason,
+  canConfirm = false,
 }) {
   if (status === AI_ANALYSIS_UI_STATUS.READY) {
     return (
@@ -153,7 +155,7 @@ function ActionCell({
         </button>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || !canConfirm}
           onClick={onConfirm}
           className="rounded-md bg-primary px-2.5 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
         >
@@ -164,25 +166,14 @@ function ActionCell({
   }
   if (status === AI_ANALYSIS_UI_STATUS.CONFIRMED) {
     return (
-      <div className="flex flex-wrap gap-1.5">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onView}
-          className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/50"
-        >
-          {t('requirements.aiAnalysisActionView')}
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onRetry}
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/50 disabled:opacity-40"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-          {t('requirements.aiAnalysisActionRunAgain')}
-        </button>
-      </div>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onView}
+        className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/50"
+      >
+        {t('requirements.aiAnalysisActionView')}
+      </button>
     );
   }
   if (status === AI_ANALYSIS_UI_STATUS.FAILED) {
@@ -553,6 +544,7 @@ export default function AiAnalysisBlueprintWizard({
                                 busy={busy}
                                 t={t}
                                 lockReason={lockReasonFor(j.id)}
+                                canConfirm={canConfirmJob(summary?.jobs, j.id)}
                                 onRun={() => handleRun(j.id)}
                                 onView={() => viewJobResult(j.id)}
                                 onConfirm={() => handleConfirm(j.id)}
@@ -677,12 +669,7 @@ export default function AiAnalysisBlueprintWizard({
                 ) : null}
                 <button
                   type="button"
-                  disabled={
-                    busy ||
-                    ![AI_ANALYSIS_UI_STATUS.NEEDS_REVIEW, AI_ANALYSIS_UI_STATUS.CONFIRMED].includes(
-                      activeUiStatus
-                    )
-                  }
+                  disabled={busy || !canConfirmJob(summary?.jobs, activeJob)}
                   onClick={() => handleConfirm()}
                   className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
                 >

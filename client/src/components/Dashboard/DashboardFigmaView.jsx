@@ -16,6 +16,7 @@ import {
   FIGMA_DASH_TWO_COL,
 } from './figmaDashboardClasses';
 import { useAppStrings } from '../../locales/appStrings';
+import { buildProjectsPickerPath } from '../../utils/suitePathUtils';
 
 /**
  * Blueprint 3 cấp theo thiết kế Figma:
@@ -102,7 +103,7 @@ export default function DashboardFigmaView({
                 <DashboardBoardHealth
                   boards={boardHealth}
                   onBoardClick={onBoardClick}
-                  onViewAll={() => onNavigate('/app/collaborate/projects')}
+                  onViewAll={() => onNavigate(buildProjectsPickerPath(''))}
                 />
               ) : null}
             </div>

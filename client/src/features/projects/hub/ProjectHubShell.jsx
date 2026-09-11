@@ -46,8 +46,9 @@ import {
   projectInitials,
   resolveViewerActiveSprint,
   sumOpenCardEstimateHours,
-  summarizeHubDeliveryMetrics,
 } from './projectHubUtils';
+import { coerceDeliveryPhase, deliveryPhaseLabelKey } from '../../../utils/projectPhaseNav';
+import Phase2GateBanner from '../phase/Phase2GateBanner';
 import {
   useInvalidateProjectHub,
   useProjectHubMembers,
@@ -192,6 +193,10 @@ function OverviewHealthTip({ items = [], totalCount = 0, heading, moreLabel, chi
 function OverviewPanel({
   board,
   projectStatus = '',
+  deliveryPhase = 'development',
+  projectId = '',
+  organizationId = '',
+  canChangeDeliveryPhase = false,
   summary,
   deliveryExtras = { unassigned: 0, estimateHours: 0 },
   dashboardCharts = null,
@@ -237,6 +242,7 @@ function OverviewPanel({
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
   const cardCls = 'rounded-xl border border-border bg-surface p-4';
   const statusLabel = formatHubProjectStatus(projectStatus, t);
+  const phaseLabel = t(deliveryPhaseLabelKey(deliveryPhase));
   const attention = hubAttentionState({ overdue: summary.overdue });
   const reviewPercent = summary.total
     ? Math.round(((Number(summary.inReview) || 0) / Number(summary.total)) * 100)
@@ -257,6 +263,12 @@ function OverviewPanel({
 
   return (
     <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
+      <Phase2GateBanner
+        projectId={projectId}
+        organizationId={organizationId}
+        deliveryPhase={deliveryPhase}
+        canChangePhase={canChangeDeliveryPhase}
+      />
       <header className="mb-4 rounded-xl border border-border bg-surface p-3 sm:p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 w-full">
@@ -277,6 +289,11 @@ function OverviewPanel({
               {statusLabel ? (
                 <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
                   {statusLabel}
+                </span>
+              ) : null}
+              {phaseLabel ? (
+                <span className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-primary">
+                  {phaseLabel}
                 </span>
               ) : null}
             </div>
@@ -735,148 +752,6 @@ function OverviewPanel({
   );
 }
 
-function formatReportHours(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return '0';
-  return String(Math.round(n * 10) / 10);
-}
-
-function ProjectHubReportPanel({
-  dashboardCharts = null,
-  overviewCards = [],
-  overviewLists = [],
-  overviewMembers = [],
-  chartWorkItemsLoading = false,
-  deliveryExtras = { estimateHours: 0 },
-  deliveryMetrics = null,
-  activeSprint = null,
-  boardLoading = false,
-  sprintContextLoading = false,
-  overviewVisibility = null,
-  isDarkMode = false,
-  onOpenCard,
-  t,
-}) {
-  const vis = overviewVisibility || {
-    canViewTaskMetrics: false,
-    canViewMemberBreakdown: false,
-    canViewSprintContext: false,
-  };
-  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
-  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
-  const cardCls = 'rounded-xl border border-border bg-surface p-4';
-  const estimateHours = Number(deliveryExtras.estimateHours) || 0;
-  const estimateLabel =
-    estimateHours % 1 === 0 ? String(estimateHours) : estimateHours.toFixed(1);
-  const metrics = deliveryMetrics || {};
-  const hasSprint =
-    Boolean(activeSprint?.name) || Number(metrics.sprintCommittedCards) > 0;
-  const hasCycle =
-    Number.isFinite(Number(metrics.cycleTimeHours)) &&
-    Number(metrics.cycleTimeHours) > 0 &&
-    Number(metrics.cycleTimeSample) > 0;
-  const showSprintCard = Boolean(vis.canViewSprintContext);
-  const reportBottomGridClass = showSprintCard
-    ? 'mt-3 grid gap-3 sm:grid-cols-2'
-    : 'mt-3 grid gap-3 grid-cols-1';
-
-  return (
-    <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
-      <header className="mb-4">
-        <h2 className={`text-lg font-bold sm:text-xl ${titleCls}`}>
-          {t('workspace.projectHubTabReport')}
-        </h2>
-        <p className={`mt-1 max-w-prose text-xs leading-relaxed ${muted}`}>
-          {t('workspace.projectHubReportHint')}
-        </p>
-      </header>
-
-      {estimateHours > 0 ? (
-        <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <div className="rounded-lg border border-dashed border-border bg-background px-2 py-2 text-center">
-            <div className={`text-sm font-bold ${titleCls}`}>{estimateLabel}</div>
-            <div className={`text-[10px] ${muted}`}>{t('workspace.projectHubStatEstimateTotal')}</div>
-          </div>
-        </div>
-      ) : null}
-
-      {boardLoading ? (
-        <OverviewContextSkeleton isDarkMode={isDarkMode} />
-      ) : vis.canViewTaskMetrics && dashboardCharts ? (
-        <ProjectHubOverviewCharts
-          charts={dashboardCharts}
-          cards={overviewCards}
-          lists={overviewLists}
-          members={overviewMembers}
-          cardsLoading={chartWorkItemsLoading}
-          showAssigneeChart={vis.canViewMemberBreakdown}
-          muted={muted}
-          titleCls={titleCls}
-          cardCls={cardCls}
-          t={t}
-          onOpenCard={onOpenCard}
-        />
-      ) : null}
-
-      <div className={reportBottomGridClass}>
-        {showSprintCard ? (
-        <section className={cardCls} aria-labelledby="hub-report-sprint">
-          <h3
-            id="hub-report-sprint"
-            className={`mb-2 text-xs font-semibold uppercase tracking-wide ${muted}`}
-          >
-            {t('workspace.projectHubOverviewActiveSprint')}
-          </h3>
-          {sprintContextLoading ? (
-            <div
-              className={`h-16 animate-pulse rounded-lg motion-reduce:animate-none ${
-                isDarkMode ? 'bg-white/10' : 'bg-muted'
-              }`}
-              aria-busy="true"
-              aria-label={t('common.loading')}
-            />
-          ) : hasSprint ? (
-            <div className="space-y-1">
-              {activeSprint?.name ? (
-                <p className={`text-sm font-semibold ${titleCls}`}>{activeSprint.name}</p>
-              ) : null}
-              <p className={`text-xs ${muted}`}>
-                {t('adminTasks.directorSprintCommit', {
-                  done: Number(metrics.sprintDoneCards) || 0,
-                  committed: Number(metrics.sprintCommittedCards) || 0,
-                  doneHours: formatReportHours(metrics.sprintCompletedHours),
-                  committedHours: formatReportHours(metrics.sprintCommittedHours),
-                })}
-              </p>
-            </div>
-          ) : (
-            <p className={`text-sm ${muted}`}>{t('adminTasks.directorNoSprint')}</p>
-          )}
-        </section>
-        ) : null}
-        <section className={cardCls} aria-labelledby="hub-report-cycle">
-          <h3
-            id="hub-report-cycle"
-            className={`mb-2 text-xs font-semibold uppercase tracking-wide ${muted}`}
-          >
-            {t('workspace.projectHubReportCycleTitle')}
-          </h3>
-          {hasCycle ? (
-            <p className={`text-sm ${titleCls}`}>
-              {t('adminTasks.directorCycle', {
-                hours: formatReportHours(metrics.cycleTimeHours),
-                n: Number(metrics.cycleTimeSample) || 0,
-              })}
-            </p>
-          ) : (
-            <p className={`text-sm ${muted}`}>{t('adminTasks.directorCycleUnavailable')}</p>
-          )}
-        </section>
-      </div>
-    </div>
-  );
-}
-
 function FilesPanel({ files, isDarkMode, t }) {
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
@@ -1026,9 +901,35 @@ export default function ProjectHubShell({
   currentUserId = '',
   onNeedFullBoardCards = null,
   boardCardsReady = true,
+  /** Controlled module from suite menu (hub tab id). */
+  activeModule = null,
+  /** Hide internal tab bar when suite sidebar owns navigation. */
+  hideTabBar = false,
+  /** Called instead of setTab when hideTabBar (navigate suite menu). */
+  onModuleChange = null,
 }) {
   const { t } = useAppStrings();
-  const [tab, setTab] = useState('overview');
+  const [tab, setTabState] = useState(() =>
+    activeModule && typeof activeModule === 'string' ? activeModule : 'overview'
+  );
+  const setTab = useCallback(
+    (next) => {
+      const id = String(next || 'overview').trim() || 'overview';
+      if (hideTabBar && typeof onModuleChange === 'function') {
+        onModuleChange(id);
+        return;
+      }
+      setTabState(id);
+    },
+    [hideTabBar, onModuleChange]
+  );
+
+  useEffect(() => {
+    if (!activeModule) return;
+    const id = String(activeModule).trim();
+    if (id && id !== tab) setTabState(id);
+  }, [activeModule]); // eslint-disable-line react-hooks/exhaustive-deps — sync from URL only
+
   const [visitedTabs, setVisitedTabs] = useState(() => ({ overview: true }));
   const prevHubProjectIdRef = useRef('');
   const [membersEpoch, setMembersEpoch] = useState(0);
@@ -1078,8 +979,18 @@ export default function ProjectHubShell({
 
   if (prevHubProjectIdRef.current !== projectId) {
     prevHubProjectIdRef.current = projectId;
-    setTab('overview');
-    setVisitedTabs({ overview: true });
+    // When hideTabBar, URL/activeModule is source of truth — do not call setTab
+    // (that would onModuleChange → navigate to overview and break deep-links).
+    const nextTab =
+      hideTabBar && activeModule && typeof activeModule === 'string'
+        ? String(activeModule).trim() || 'overview'
+        : 'overview';
+    if (hideTabBar) {
+      setTabState(nextTab);
+    } else {
+      setTab('overview');
+    }
+    setVisitedTabs({ [nextTab]: true, overview: true });
     setApiActivity(null);
     setActivityLoading(false);
     setActivityError(false);
@@ -1158,9 +1069,7 @@ export default function ProjectHubShell({
       (capsReady &&
         (overviewVisibility.canViewSprintContext || Boolean(hubCaps.canCompleteProject))));
 
-  const needsChartWorkItems =
-    (tab === 'overview' && overviewVisibility.canViewTaskMetrics) ||
-    (tab === 'report' && hubCaps.canViewReport);
+  const needsChartWorkItems = tab === 'overview' && overviewVisibility.canViewTaskMetrics;
   const chartWorkItemsLoading = needsChartWorkItems && !boardCardsReady;
 
   useEffect(() => {
@@ -1283,7 +1192,6 @@ export default function ProjectHubShell({
       if (item.id === 'planning' && !hubCaps.canViewBacklog) return false;
       if (item.id === 'timeline' && !hubCaps.canViewBacklog) return false;
       if ((item.id === 'list' || item.id === 'board') && !hubCaps.canViewWorkItems) return false;
-      if (item.id === 'report' && !hubCaps.canViewReport) return false;
       if (item.id === 'files' && !hubCaps.canViewFiles) return false;
       if (item.id === 'activity' && !hubCaps.canViewActivityTab) return false;
       if (item.id === 'chat' && !isProjectChatTabEnabled()) return false;
@@ -1355,6 +1263,7 @@ export default function ProjectHubShell({
     [overviewPayload?.summary, cards, lists]
   );
   const overviewProjectStatus = projectPayload?.status || resolvedBoard?.status || '';
+  const overviewDeliveryPhase = coerceDeliveryPhase(projectPayload?.deliveryPhase);
   const planningPulse = useMemo(
     () => overviewPayload?.planningPulse ?? countPlanningByType(planningItems),
     [overviewPayload?.planningPulse, planningItems]
@@ -1371,15 +1280,6 @@ export default function ProjectHubShell({
     }
     return activeSprint;
   }, [overviewPayload?.activeSprint, activeSprint]);
-  const hubDeliveryMetrics = useMemo(
-    () =>
-      summarizeHubDeliveryMetrics(
-        cards,
-        lists,
-        overviewActiveSprint?._id || overviewActiveSprint?.id || ''
-      ),
-    [cards, lists, overviewActiveSprint]
-  );
   const nextActions = useMemo(() => {
     if (Array.isArray(overviewPayload?.nextActions) && overviewPayload.nextActions.length) {
       return overviewPayload.nextActions;
@@ -1388,7 +1288,7 @@ export default function ProjectHubShell({
   }, [overviewPayload?.nextActions, cards, lists, resolvedBoard?.projectCode]);
   const sprintContextLoading =
     overviewVisibility.canViewSprintContext &&
-    (tab === 'overview' || tab === 'board' || tab === 'report') &&
+    (tab === 'overview' || tab === 'board') &&
     (sprintsFetching || !sprintsHydrated);
   const planningContextLoading = tab === 'overview' && planningLoading;
   const defaultListId = String(lists[0]?._id || '').trim();
@@ -1713,6 +1613,15 @@ export default function ProjectHubShell({
                     {formatHubMethodology(resolvedBoard.methodology, t)}
                   </span>
                 ) : null}
+                <span
+                  className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
+                    isDarkMode
+                      ? 'border-primary/40 bg-primary/20 text-primary'
+                      : 'border-primary/30 bg-primary/10 text-primary'
+                  }`}
+                >
+                  {t(deliveryPhaseLabelKey(overviewDeliveryPhase))}
+                </span>
                 <span className={`max-w-full text-[11px] leading-tight sm:truncate ${muted}`}>
                   {[
                     formatHubDate(resolvedBoard?.dueDate, locale) !== '—'
@@ -1732,7 +1641,8 @@ export default function ProjectHubShell({
           {toolbar}
         </div>
 
-        {/* Tab bar — underline style */}
+        {/* Tab bar — underline style (hidden when suite sidebar owns nav) */}
+        {!hideTabBar ? (
         <nav
           className="flex gap-0 overflow-x-auto overscroll-x-contain px-3 sm:px-4"
           aria-label={t('workspace.projectHubNavAria')}
@@ -1764,6 +1674,7 @@ export default function ProjectHubShell({
             );
           })}
         </nav>
+        ) : null}
       </header>
 
       {isSummaryOnly ? (
@@ -1777,6 +1688,18 @@ export default function ProjectHubShell({
           <OverviewPanel
             board={resolvedBoard}
             projectStatus={overviewProjectStatus}
+            deliveryPhase={overviewDeliveryPhase}
+            projectId={projectId}
+            organizationId={
+              String(projectPayload?.organizationId || resolvedBoard?.organizationId || organizationId || '').trim()
+            }
+            canChangeDeliveryPhase={Boolean(
+              hubCaps?.canChangeDeliveryPhase ||
+                (Array.isArray(hubCaps?.permissions) &&
+                  hubCaps.permissions.includes('delivery_phase:change')) ||
+                (Array.isArray(projectPayload?.capabilities?.permissions) &&
+                  projectPayload.capabilities.permissions.includes('delivery_phase:change'))
+            )}
             summary={summary}
             deliveryExtras={deliveryExtras}
             dashboardCharts={dashboardCharts}
@@ -1805,24 +1728,6 @@ export default function ProjectHubShell({
             onViewAllActivity={handleViewAllActivity}
             overviewVisibility={overviewVisibility}
             activityRestricted={activityRestricted}
-            t={t}
-          />
-        ) : null}
-        {tab === 'report' && hubCaps.canViewReport ? (
-          <ProjectHubReportPanel
-            dashboardCharts={dashboardCharts}
-            overviewCards={cards}
-            overviewLists={lists}
-            overviewMembers={chartMembers}
-            chartWorkItemsLoading={chartWorkItemsLoading}
-            deliveryExtras={deliveryExtras}
-            deliveryMetrics={hubDeliveryMetrics}
-            activeSprint={overviewActiveSprint}
-            boardLoading={loadingBoardDetail && !overviewPayload}
-            sprintContextLoading={sprintContextLoading}
-            overviewVisibility={overviewVisibility}
-            isDarkMode={isDarkMode}
-            onOpenCard={handleOpenNextAction}
             t={t}
           />
         ) : null}

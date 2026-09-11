@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
   Bot,
@@ -9,6 +9,7 @@ import {
   ClipboardList,
   FileText,
   FileSpreadsheet,
+  Home,
   LayoutDashboard,
   MessageCircle,
   Mic,
@@ -30,13 +31,22 @@ import { useShellLayout } from '../../context/ShellLayoutContext';
 import { useWorkspaceSuite, SUITE } from '../../context/WorkspaceSuiteContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { useFriendPending, useNotificationBadge } from '../../hooks/queries';
+import { useSpace } from '../../context/SpaceContext';
 import {
+  buildCompanyApprovalsPath,
+  buildCompanyCalendarPath,
+  buildCompanyChatPath,
+  buildCompanyDocumentsPath,
+  buildCompanyHomePath,
+  buildCompanyOverviewPath,
+  buildCompanyWorkspacePath,
   buildCollaborateCalendarPath,
   buildCollaborateDocumentsPath,
   buildCollaborateRequirementsPath,
   buildCollaborateTasksPath,
   getDefaultPathForSuite,
 } from '../../utils/suitePathUtils';
+import { COMPANY_SPACE_LEVEL } from '../../utils/companySpaceLevel';
 import { useAuth } from '../../context/AuthContext';
 import { shouldShowCollaborateRequirementsNavForUser } from '../../utils/collaborateRequirementsNav';
 import VoiceHubAIPanel from './VoiceHubAIPanel';
@@ -114,7 +124,7 @@ function filterNavForRole(items, roleKey, suiteProp) {
     return items.filter((item) => allowed.has(item.key));
   }
   if (roleKey === 'personal') {
-    if (suiteProp === 'collaborate') {
+    if (suiteProp === 'collaborate' || suiteProp === 'company') {
       return items.filter((item) => !['workspaces', 'tasks', 'documents'].includes(item.key));
     }
     if (suiteProp === 'communicate') {
@@ -209,12 +219,17 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
 
 function segmentFromProp(suiteProp) {
   if (suiteProp === 'communicate') return 'communicate';
-  if (suiteProp === 'collaborate') return 'collaborate';
+  if (suiteProp === 'collaborate' || suiteProp === 'company') return 'company';
+  if (suiteProp === 'projects') return 'projects';
   if (suiteProp === 'me') return 'me';
   return 'communicate';
 }
 
-export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate', landingDemo = false }) {
+export default function FigmaNavigationSidebar({
+  suite: suiteProp = 'communicate',
+  landingDemo = false,
+  contextSwitch = null,
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [showSuitePicker, setShowSuitePicker] = useState(false);
   const [showAIPanel, setShowAIPanel] = useState(false);
@@ -225,9 +240,21 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   const { navigateToSuite } = useWorkspaceSuite();
   const { activeWorkspace, singleOrgMode, company } = useWorkspace();
   const { mobileNavOpen, closeMobileNav } = useShellLayout();
+  const space = useSpace();
   const activeOrgId = String(
-    activeWorkspace?._id || activeWorkspace?.id || activeWorkspace?.organizationId || company?.id || company?._id || ''
+    activeWorkspace?._id ||
+      activeWorkspace?.id ||
+      activeWorkspace?.organizationId ||
+      company?.id ||
+      company?._id ||
+      space?.organizationId ||
+      ''
   ).trim();
+  const spaceDeptId = String(space?.departmentId || '').trim();
+  const spaceTeamId = String(space?.teamId || '').trim();
+  const spaceLevel = space?.level || COMPANY_SPACE_LEVEL.DEPARTMENT;
+  const isTeamLevel =
+    spaceLevel === COMPANY_SPACE_LEVEL.TEAM && Boolean(spaceTeamId);
 
   const suiteSegment = segmentFromProp(suiteProp);
   const suiteColor = SUITE_COLORS[suiteSegment] || SUITE_COLORS.communicate;
@@ -237,7 +264,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   };
 
   const { unreadCount } = useNotificationBadge({
-    scope: suiteProp === 'collaborate' ? 'organization' : 'personal',
+    scope: suiteProp === 'collaborate' || suiteProp === 'company' ? 'organization' : 'personal',
     organizationId: activeOrgId,
     enabled: !landingDemo,
   });
@@ -272,7 +299,7 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   // System admin dùng shell /app/admin riêng; sidebar nhân viên chỉ hiện hub cho owner|admin|hr org.
   const showAdminSuite = canAccessHub && !isSystemAdmin;
   // Approvers include IC project roles (TL/QA) — inbox ACL is server-side (canAct / requester)
-  const showApprovalInbox = suiteProp === 'collaborate';
+  const showApprovalInbox = suiteProp === 'collaborate' || suiteProp === 'company';
   // Menu theo Position (jobTitle); quyền thao tác vẫn qua access API trên trang.
   const showRequirementsNav =
     suiteProp === 'collaborate' && shouldShowCollaborateRequirementsNavForUser(user);
@@ -342,38 +369,121 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
       }
       return items;
     }
-    if (suiteProp === 'collaborate') {
+    if (suiteProp === 'collaborate' || suiteProp === 'company') {
+      const isCompany = suiteProp === 'company' || suiteProp === 'collaborate';
+      if (isCompany && suiteProp === 'company') {
+        const scopeQuery = {
+          departmentId: spaceDeptId,
+          teamId: isTeamLevel ? spaceTeamId : '',
+        };
+        const items = [
+          {
+            key: 'home',
+            icon: Home,
+            label: t('nav.companyHome'),
+            path: buildCompanyHomePath({
+              organizationId: activeOrgId,
+              departmentId: spaceDeptId,
+              teamId: isTeamLevel ? spaceTeamId : '',
+            }),
+            badge: 0,
+          },
+          {
+            key: 'chat',
+            icon: MessageCircle,
+            label: t('nav.messages'),
+            // Dept: announcement channel data; SpaceChatModule hides hub chrome → straight chat UI.
+            path: buildCompanyChatPath(activeOrgId, {
+              ...scopeQuery,
+              tab: isTeamLevel ? 'chat' : 'announcement',
+            }),
+            badge: 0,
+          },
+          {
+            key: 'documents',
+            icon: FileText,
+            label: t('nav.documents'),
+            path: buildCompanyDocumentsPath(activeOrgId, scopeQuery),
+            badge: 0,
+          },
+          {
+            key: 'calendar',
+            icon: Calendar,
+            label: t('nav.calendar'),
+            path: buildCompanyCalendarPath(activeOrgId, { departmentId: spaceDeptId }),
+            badge: 0,
+          },
+        ];
+        if (showApprovalInbox) {
+          items.push({
+            key: 'approvals',
+            icon: ClipboardList,
+            label: t('nav.approvals'),
+            path: buildCompanyApprovalsPath(activeOrgId),
+            badge: 0,
+          });
+        }
+        if (showAdminSuite) {
+          items.push({
+            key: 'company-admin',
+            icon: Shield,
+            label: t('nav.companyAdmin'),
+            externalNavigate: true,
+            onClick: () => navigate('/app/admin'),
+            path: '/app/admin',
+            badge: 0,
+          });
+        }
+        return items;
+      }
       const items = [
         {
           key: 'overview',
           icon: LayoutDashboard,
           label: t('nav.overview'),
-          path: '/app/collaborate/overview',
+          path: isCompany ? buildCompanyOverviewPath(activeOrgId) : '/app/collaborate/overview',
           badge: 0,
         },
         {
           key: 'workspaces',
           icon: Building2,
           label: isSingleCompany ? t('nav.companyWorkspaces') : t('nav.workspaces'),
-          path: '/app/collaborate/workspaces',
+          path: isCompany
+            ? buildCompanyWorkspacePath({ organizationId: activeOrgId })
+            : '/app/collaborate/workspaces',
           badge: 0,
         },
         {
-          key: 'tasks',
-          icon: ClipboardList,
-          label: isSingleCompany ? t('nav.projects') : t('nav.kanbanTasks'),
-          path: buildCollaborateTasksPath(activeOrgId),
-          tag: t('common.newBadge'),
+          key: 'chat',
+          icon: MessageCircle,
+          label: t('nav.messages'),
+          path: buildCompanyChatPath(activeOrgId),
           badge: 0,
         },
         {
           key: 'documents',
           icon: FileText,
           label: t('nav.documents'),
-          path: buildCollaborateDocumentsPath(activeOrgId),
+          path: buildCompanyDocumentsPath(activeOrgId),
+          badge: 0,
+        },
+        {
+          key: 'calendar',
+          icon: Calendar,
+          label: t('nav.calendar'),
+          path: buildCompanyCalendarPath(activeOrgId),
           badge: 0,
         },
       ];
+      if (showApprovalInbox) {
+        items.push({
+          key: 'approvals',
+          icon: ClipboardList,
+          label: t('nav.approvals'),
+          path: buildCompanyApprovalsPath(activeOrgId),
+          badge: 0,
+        });
+      }
       if (showRequirementsNav) {
         items.push({
           key: 'requirements',
@@ -383,21 +493,14 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           badge: 0,
         });
       }
-      items.push(
-        {
-          key: 'calendar',
-          icon: Calendar,
-          label: t('nav.calendar'),
-          path: buildCollaborateCalendarPath(activeOrgId),
-          badge: 0,
-        }
-      );
-      if (showApprovalInbox) {
-        items.push({
-          key: 'approvals',
+      // Legacy collaborate also exposed projects — company suite does not.
+      if (suiteProp === 'collaborate') {
+        items.splice(2, 0, {
+          key: 'tasks',
           icon: ClipboardList,
-          label: t('nav.approvals'),
-          path: '/app/collaborate/approvals',
+          label: isSingleCompany ? t('nav.projects') : t('nav.kanbanTasks'),
+          path: buildCollaborateTasksPath(activeOrgId),
+          tag: t('common.newBadge'),
           badge: 0,
         });
       }
@@ -437,7 +540,22 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
         badge: 0,
       },
     ];
-  }, [suiteProp, t, landingDemo, unreadCount, pendingCount, activeOrgId, isSingleCompany, showApprovalInbox, showRequirementsNav, showAdminSuite, navigate]);
+  }, [
+    suiteProp,
+    t,
+    landingDemo,
+    unreadCount,
+    pendingCount,
+    activeOrgId,
+    spaceDeptId,
+    spaceTeamId,
+    isTeamLevel,
+    isSingleCompany,
+    showApprovalInbox,
+    showRequirementsNav,
+    showAdminSuite,
+    navigate,
+  ]);
 
   const visibleNavItems = useMemo(
     () => filterNavForRole(navItems, role, suiteProp),
@@ -448,41 +566,71 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
     if (!path) return false;
     const base = path.split('?')[0];
     if (base === '/app/communicate/overview') return location.pathname === '/app/communicate/overview';
-    if (base === '/app/collaborate/overview') return location.pathname === '/app/collaborate/overview';
+    if (base === '/app/collaborate/overview' || base === '/app/company/overview') {
+      return (
+        location.pathname === '/app/collaborate/overview' ||
+        location.pathname === '/app/company/overview'
+      );
+    }
     if (base === '/app/admin') return location.pathname === '/app/admin' || location.pathname.startsWith('/app/admin/');
-    if (base === '/app/collaborate/approvals') return location.pathname === '/app/collaborate/approvals';
-    if (base === '/app/collaborate/requirements') return location.pathname === '/app/collaborate/requirements';
+    if (base === '/app/collaborate/approvals' || base === '/app/company/approvals') {
+      return (
+        location.pathname === '/app/collaborate/approvals' ||
+        location.pathname === '/app/company/approvals'
+      );
+    }
     if (base === '/app/me/dashboard') return location.pathname === '/app/me/dashboard';
     if (base === '/app/me/settings') return location.pathname === '/app/me/settings';
-    if (base === '/app/collaborate/workspaces') {
-      return location.pathname === '/app/collaborate/workspaces';
+    if (base === '/app/collaborate/workspaces' || base === '/app/company/workspaces') {
+      return (
+        location.pathname === '/app/collaborate/workspaces' ||
+        location.pathname === '/app/company/workspaces'
+      );
     }
     return location.pathname === base || location.pathname.startsWith(`${base}/`);
   };
 
   const isActiveNavItem = (item) => {
     const path = location.pathname;
-    if (suiteProp === 'collaborate') {
-      if (item.key === 'overview') return path === '/app/collaborate/overview';
+    if (suiteProp === 'collaborate' || suiteProp === 'company') {
+      if (item.key === 'home') {
+        return path === '/app/company/home' || path.startsWith('/app/company/home/');
+      }
+      if (item.key === 'overview') {
+        return path === '/app/collaborate/overview' || path === '/app/company/overview';
+      }
       if (item.key === 'workspaces') {
         return (
           path === '/app/collaborate/workspaces' ||
+          path === '/app/company/workspaces' ||
           path.startsWith('/app/collaborate/organizations') ||
-          path.startsWith('/app/collaborate/join')
+          path.startsWith('/app/company/organizations') ||
+          path.startsWith('/app/collaborate/join') ||
+          path.startsWith('/app/company/join')
         );
+      }
+      if (item.key === 'chat') {
+        return path === '/app/company/chat' || path.startsWith('/app/company/chat');
       }
       if (item.key === 'tasks') {
         return (
           path === '/app/collaborate/projects' ||
-          (path.startsWith('/app/collaborate/projects/') &&
-            !path.startsWith('/app/collaborate/projects/new')) ||
-          path === '/app/collaborate/tasks' ||
-          path.startsWith('/app/collaborate/tasks')
+          path.startsWith('/app/collaborate/projects/') ||
+          path.startsWith('/app/projects')
         );
       }
-      if (item.key === 'documents') return path === '/app/collaborate/documents';
-      if (item.key === 'requirements') return path === '/app/collaborate/requirements';
-      if (item.key === 'calendar') return path === '/app/collaborate/calendar';
+      if (item.key === 'documents') {
+        return path === '/app/collaborate/documents' || path === '/app/company/documents';
+      }
+      if (item.key === 'requirements') {
+        return path.includes('/requirements');
+      }
+      if (item.key === 'calendar') {
+        return path === '/app/collaborate/calendar' || path === '/app/company/calendar';
+      }
+      if (item.key === 'approvals') {
+        return path === '/app/collaborate/approvals' || path === '/app/company/approvals';
+      }
       return isActivePath(item.path);
     }
     return isActivePath(item.path);
@@ -509,8 +657,8 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
   };
 
   const allowedSuites = useMemo(() => {
-    const base = ['communicate', 'collaborate', 'me'];
-    if (showAdminSuite) return ['communicate', 'collaborate', 'admin', 'me'];
+    const base = ['communicate', 'company', 'projects', 'me'];
+    if (showAdminSuite) return ['communicate', 'company', 'projects', 'admin', 'me'];
     return base;
   }, [showAdminSuite]);
   const railCollapsed = collapsed && !mobileNavOpen;
@@ -610,7 +758,9 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
                   onClick={() => {
                     const suiteMap = {
                       communicate: SUITE.COMMUNICATE,
-                      collaborate: SUITE.COLLABORATE,
+                      company: SUITE.COMPANY,
+                      projects: SUITE.PROJECTS,
+                      collaborate: SUITE.COMPANY,
                       me: SUITE.ME,
                       admin: SUITE.ADMIN,
                     };
@@ -647,6 +797,12 @@ export default function FigmaNavigationSidebar({ suite: suiteProp = 'communicate
           </div>
         )}
       </div>
+
+      {contextSwitch
+        ? isValidElement(contextSwitch)
+          ? cloneElement(contextSwitch, { collapsed: railCollapsed })
+          : contextSwitch
+        : null}
 
       {!railCollapsed && <div className={FIGMA_SIDEBAR_SECTION_LABEL}>{t('nav.mainMenu')}</div>}
 

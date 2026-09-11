@@ -486,6 +486,14 @@ export const projectAPI = {
     }),
 
   getSecurityFlags: () => apiClient.get('/projects/governance/security-flags'),
+
+  /** Phase 1 analysis gaps + readyForPhase2 */
+  getAnalysisGaps: (projectId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/analysis-gaps`),
+
+  /** Confirm Phase 1 → Phase 2 (manual | ai) */
+  advancePhase2: (projectId, body = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/phase2/advance`, body),
 };
 
 export default projectAPI;

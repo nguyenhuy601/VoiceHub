@@ -30,6 +30,26 @@ function formatPersonLabel(row) {
   return name || id || '?';
 }
 
+/**
+ * Prefer explicit startDate/dueDate; else min/max days[].dateKey (legacy packs).
+ * @returns {{ start: string|null, due: string|null }}
+ */
+function resolveWorkRowDates(row) {
+  const start = row?.startDate ? String(row.startDate).trim() : '';
+  const due = row?.dueDate ? String(row.dueDate).trim() : '';
+  if (start && due) return { start, due };
+  const keys = asArray(row?.days)
+    .map((d) => String(d?.dateKey || '').trim())
+    .filter(Boolean)
+    .sort();
+  const fromDaysStart = keys[0] || null;
+  const fromDaysDue = keys.length ? keys[keys.length - 1] : null;
+  return {
+    start: start || fromDaysStart,
+    due: due || fromDaysDue,
+  };
+}
+
 function formatShortlist(shortlist) {
   const rows = asArray(shortlist);
   if (!rows.length) return '—';
@@ -45,6 +65,25 @@ function formatShortlist(shortlist) {
 
 function EmptyHint({ t }) {
   return <p className="text-sm text-muted-foreground">{t('requirements.aiAnalysisPreviewEmpty')}</p>;
+}
+
+function wallBudgetSkippedCount(meta) {
+  const n = Number(meta?.wallBudgetSkippedInputCount);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+function WallBudgetSkipBanner({ meta, t }) {
+  const count = wallBudgetSkippedCount(meta);
+  if (!count) return null;
+  return (
+    <p className="text-sm text-amber-800 dark:text-amber-200">
+      {t('requirements.aiAnalysisPreviewWallBudgetSkipped', { count })}
+    </p>
+  );
+}
+
+function sumWallBudgetSkipped(...metas) {
+  return metas.reduce((sum, meta) => sum + wallBudgetSkippedCount(meta), 0);
 }
 
 function SimpleTable({ columns, rows, emptyLabel, onRowClick, selectedId }) {
@@ -103,13 +142,26 @@ function PreviewRequirementAnalysis({ dto, t, onRowClick, selectedId }) {
   const entities = asArray(dto?.analyses?.data?.entities);
   const flows = asArray(dto?.analyses?.data?.dataFlows);
   const empty = t('requirements.aiAnalysisPreviewEmpty');
+  const skippedTotal = sumWallBudgetSkipped(dto?.analyses?.gap?.meta, dto?.analyses?.data?.meta);
 
   if (!findings.length && !entities.length && !flows.length) {
+    if (skippedTotal > 0) {
+      return (
+        <p className="text-sm text-amber-800 dark:text-amber-200">
+          {t('requirements.aiAnalysisPreviewWallBudgetSkipped', { count: skippedTotal })}
+        </p>
+      );
+    }
     return <EmptyHint t={t} />;
   }
 
   return (
     <div className="space-y-5">
+      {skippedTotal > 0 ? (
+        <p className="text-sm text-amber-800 dark:text-amber-200">
+          {t('requirements.aiAnalysisPreviewWallBudgetSkipped', { count: skippedTotal })}
+        </p>
+      ) : null}
       {findings.length ? (
         <Section title={t('requirements.aiAnalysisPreviewGaps')}>
           <SimpleTable
@@ -211,8 +263,12 @@ function PreviewHierarchy({ dto, t }) {
   const features = asArray(hierarchy.proposedFeatures);
   const requirements = asArray(hierarchy.proposedRequirements);
   const empty = t('requirements.aiAnalysisPreviewEmpty');
+  const skipped = wallBudgetSkippedCount(hierarchy.meta);
 
-  if (!features.length && !requirements.length) return <EmptyHint t={t} />;
+  if (!features.length && !requirements.length) {
+    if (skipped > 0) return <WallBudgetSkipBanner meta={hierarchy.meta} t={t} />;
+    return <EmptyHint t={t} />;
+  }
 
   const proposalColumns = [
     {
@@ -249,6 +305,7 @@ function PreviewHierarchy({ dto, t }) {
 
   return (
     <div className="space-y-5">
+      <WallBudgetSkipBanner meta={hierarchy.meta} t={t} />
       <p className="text-sm text-muted-foreground">
         {t('requirements.aiAnalysisHierarchyAgileEpicHint')}
       </p>
@@ -273,84 +330,100 @@ function PreviewHierarchy({ dto, t }) {
 function PreviewCapability({ dto, t }) {
   const caps = asArray(dto?.analyses?.capability?.items);
   const empty = t('requirements.aiAnalysisPreviewEmpty');
-  if (!caps.length) return <EmptyHint t={t} />;
+  const capMeta = dto?.analyses?.capability?.meta;
+  const skipped = wallBudgetSkippedCount(capMeta);
+  if (!caps.length) {
+    if (skipped > 0) return <WallBudgetSkipBanner meta={capMeta} t={t} />;
+    return <EmptyHint t={t} />;
+  }
 
   return (
-    <Section title={t('requirements.aiAnalysisPreviewCapabilities')}>
-      <SimpleTable
-        emptyLabel={empty}
-        columns={[
-          {
-            key: 'id',
-            label: t('requirements.aiAnalysisPreviewColId'),
-            render: (r) => r.capabilityId || '—',
-          },
-          {
-            key: 'name',
-            label: t('requirements.aiAnalysisPreviewColName'),
-            render: (r) => r.name || '—',
-          },
-          {
-            key: 'module',
-            label: t('requirements.aiAnalysisPreviewColModule'),
-            render: (r) => r.module || '—',
-          },
-          {
-            key: 'fr',
-            label: t('requirements.aiAnalysisPreviewColFrCount'),
-            render: (r) => asArray(r.sourceFrIds).length,
-          },
-          {
-            key: 'cx',
-            label: t('requirements.aiAnalysisPreviewColComplexity'),
-            render: (r) => r.complexity || '—',
-          },
-        ]}
-        rows={caps.map((c, i) => ({ ...c, _key: c.capabilityId || i }))}
-      />
-    </Section>
+    <div className="space-y-5">
+      <WallBudgetSkipBanner meta={capMeta} t={t} />
+      <Section title={t('requirements.aiAnalysisPreviewCapabilities')}>
+        <SimpleTable
+          emptyLabel={empty}
+          columns={[
+            {
+              key: 'id',
+              label: t('requirements.aiAnalysisPreviewColId'),
+              render: (r) => r.capabilityId || '—',
+            },
+            {
+              key: 'name',
+              label: t('requirements.aiAnalysisPreviewColName'),
+              render: (r) => r.name || '—',
+            },
+            {
+              key: 'module',
+              label: t('requirements.aiAnalysisPreviewColModule'),
+              render: (r) => r.module || '—',
+            },
+            {
+              key: 'fr',
+              label: t('requirements.aiAnalysisPreviewColFrCount'),
+              render: (r) => asArray(r.sourceFrIds).length,
+            },
+            {
+              key: 'cx',
+              label: t('requirements.aiAnalysisPreviewColComplexity'),
+              render: (r) => r.complexity || '—',
+            },
+          ]}
+          rows={caps.map((c, i) => ({ ...c, _key: c.capabilityId || i }))}
+        />
+      </Section>
+    </div>
   );
 }
 
 function PreviewWbs({ dto, t }) {
   const tasks = asArray(dto?.planning?.tasks);
   const empty = t('requirements.aiAnalysisPreviewEmpty');
-  if (!tasks.length) return <EmptyHint t={t} />;
+  const wbsMeta = dto?.planning?.wbs?.meta;
+  const skipped = wallBudgetSkippedCount(wbsMeta);
+  if (!tasks.length) {
+    if (skipped > 0) return <WallBudgetSkipBanner meta={wbsMeta} t={t} />;
+    return <EmptyHint t={t} />;
+  }
 
   return (
-    <Section title={t('requirements.aiAnalysisPreviewTasks')}>
-      <SimpleTable
-        emptyLabel={empty}
-        columns={[
-          {
-            key: 'id',
-            label: t('requirements.aiAnalysisPreviewColId'),
-            render: (r) => r.id || '—',
-          },
-          {
-            key: 'name',
-            label: t('requirements.aiAnalysisPreviewColName'),
-            render: (r) => r.name || '—',
-          },
-          {
-            key: 'parent',
-            label: t('requirements.aiAnalysisPreviewColFrom'),
-            render: (r) => r.parentId || '—',
-          },
-          {
-            key: 'area',
-            label: t('requirements.aiAnalysisPreviewColArea'),
-            render: (r) => r.area || '—',
-          },
-          {
-            key: 'role',
-            label: t('requirements.aiAnalysisPreviewColRole'),
-            render: (r) => r.suggestedRoleKey || '—',
-          },
-        ]}
-        rows={tasks.map((task, i) => ({ ...task, _key: task.id || i }))}
-      />
-    </Section>
+    <div className="space-y-5">
+      <WallBudgetSkipBanner meta={wbsMeta} t={t} />
+      <Section title={t('requirements.aiAnalysisPreviewTasks')}>
+        <SimpleTable
+          emptyLabel={empty}
+          columns={[
+            {
+              key: 'id',
+              label: t('requirements.aiAnalysisPreviewColId'),
+              render: (r) => r.id || '—',
+            },
+            {
+              key: 'name',
+              label: t('requirements.aiAnalysisPreviewColName'),
+              render: (r) => r.name || '—',
+            },
+            {
+              key: 'parent',
+              label: t('requirements.aiAnalysisPreviewColFrom'),
+              render: (r) => r.parentId || '—',
+            },
+            {
+              key: 'area',
+              label: t('requirements.aiAnalysisPreviewColArea'),
+              render: (r) => r.area || '—',
+            },
+            {
+              key: 'role',
+              label: t('requirements.aiAnalysisPreviewColRole'),
+              render: (r) => r.suggestedRoleKey || '—',
+            },
+          ]}
+          rows={tasks.map((task, i) => ({ ...task, _key: task.id || i }))}
+        />
+      </Section>
+    </div>
   );
 }
 
@@ -639,6 +712,7 @@ function PreviewScheduleCapacity({ dto, t }) {
   const assignments = asArray(dto?.resource?.assignments);
   const schedule = asArray(dto?.resource?.schedule);
   const completion = dto?.planning?.completion || {};
+  const assignMeta = dto?.resource?.assignmentsMeta;
   const empty = assignmentEmptyMessage(dto, t);
 
   if (!assignments.length && !schedule.length) {
@@ -647,6 +721,7 @@ function PreviewScheduleCapacity({ dto, t }) {
 
   return (
     <div className="space-y-5">
+      <WallBudgetSkipBanner meta={assignMeta} t={t} />
       <Section title={t('requirements.aiAnalysisPreviewCompletion')}>
         <div className="space-y-1 rounded-md border border-border bg-muted/30 px-3 py-3 text-sm">
           <p>
@@ -686,6 +761,36 @@ function PreviewScheduleCapacity({ dto, t }) {
             },
           ]}
           rows={assignments.map((r, i) => ({ ...r, _key: `${r.taskId}-${r.userId}-${i}` }))}
+        />
+      </Section>
+      <Section title={t('requirements.aiAnalysisPreviewTasks')}>
+        <SimpleTable
+          emptyLabel={empty}
+          columns={[
+            {
+              key: 'task',
+              label: t('requirements.aiAnalysisPreviewColTask'),
+              render: (r) => r.id || r.taskId || '—',
+            },
+            {
+              key: 'start',
+              label: t('requirements.aiAnalysisPreviewColStart'),
+              render: (r) => r.startDate || '—',
+            },
+            {
+              key: 'due',
+              label: t('requirements.aiAnalysisPreviewColDue'),
+              render: (r) => r.dueDate || '—',
+            },
+            {
+              key: 'hours',
+              label: t('requirements.aiAnalysisPreviewColHours'),
+              render: (r) => r.effortHours ?? '—',
+            },
+          ]}
+          rows={asArray(dto?.planning?.tasks)
+            .filter((t) => t?.startDate || t?.dueDate)
+            .map((t, i) => ({ ...t, _key: t.id || t.taskId || i }))}
         />
       </Section>
       <Section title={t('requirements.aiAnalysisPreviewScheduleDays')}>
@@ -783,6 +888,16 @@ function PreviewProjectPlan({ dto, t }) {
               render: (r) => formatPersonLabel(r),
             },
             {
+              key: 'start',
+              label: t('requirements.aiAnalysisPreviewColStart'),
+              render: (r) => resolveWorkRowDates(r).start || '—',
+            },
+            {
+              key: 'due',
+              label: t('requirements.aiAnalysisPreviewColDue'),
+              render: (r) => resolveWorkRowDates(r).due || '—',
+            },
+            {
               key: 'days',
               label: t('requirements.aiAnalysisPreviewColDate'),
               render: (r) =>
@@ -872,6 +987,7 @@ function assignmentEmptyMessage(dto, t) {
     .toLowerCase();
   const hasRun =
     Boolean(dto?.generatedAt) || ['ready', 'confirmed', 'failed', 'stale'].includes(status);
+  const skipped = wallBudgetSkippedCount(dto?.resource?.assignmentsMeta);
 
   if (!dto || status === 'empty' || !hasRun) {
     return t('requirements.aiAnalysisPreviewEmpty');
@@ -882,7 +998,10 @@ function assignmentEmptyMessage(dto, t) {
   if (err === 'empty_recommendations' || err.includes('empty_recommendations')) {
     return t('requirements.aiAnalysisPreviewEmptyRecommendations');
   }
-  if (err === 'wall_budget' || err.includes('wall_budget')) {
+  if (err === 'wall_budget' || err.includes('wall_budget') || skipped > 0) {
+    if (skipped > 0) {
+      return t('requirements.aiAnalysisPreviewEmptyWallBudgetCount', { count: skipped });
+    }
     return t('requirements.aiAnalysisPreviewEmptyWallBudget');
   }
   return t('requirements.aiAnalysisPreviewEmptyAssignments');

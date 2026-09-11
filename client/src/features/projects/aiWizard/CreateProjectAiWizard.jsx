@@ -14,12 +14,19 @@ import AiWizardStepConfirm from './AiWizardStepConfirm';
  */
 export default function CreateProjectAiWizard({
   organizationId,
+  existingProjectId = '',
+  initialPackId = '',
   onCreated,
   onCancel,
   backLabel = '',
 }) {
   const { t } = useAppStrings();
-  const wizard = useCreateProjectAiWizard({ organizationId, onCreated });
+  const wizard = useCreateProjectAiWizard({
+    organizationId,
+    existingProjectId,
+    initialPackId,
+    onCreated,
+  });
   const analysisEnabled =
     Boolean(wizard.packId) && (wizard.stepId === 'analysis' || wizard.stepId === 'confirm');
   const analysis = useAiAnalysisBlueprintWizard({
@@ -36,6 +43,12 @@ export default function CreateProjectAiWizard({
   const anyBusy = wizard.busy || analysis.busy;
   const sourceBlocksNext = wizard.stepId === 'source' && !wizard.packId;
   const headerBackLabel = backLabel || t('adminTasks.wizardBackToHub') || 'Back';
+  const confirmCta = wizard.isPhase2Ai
+    ? t('workspace.phase2ConfirmAiCta') || t('aiCreateWizard.createCta')
+    : t('aiCreateWizard.createCta');
+  const confirmBusyLabel = wizard.isPhase2Ai
+    ? t('workspace.phase2ConfirmAiBusy') || t('aiCreateWizard.createProjectImporting')
+    : t('aiCreateWizard.createProjectImporting');
 
   const onHeaderBack = () => {
     if (wizard.step > 0) {
@@ -85,7 +98,7 @@ export default function CreateProjectAiWizard({
       `}</style>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className={`${wizardUi.formPane} lg:border-r-0`}>
+        <div className={`${wizardUi.formPane} min-h-0 flex-1 border-b-0 lg:border-r-0`}>
           <header className="shrink-0 px-5 pt-5 sm:px-8 sm:pt-8">
             <button type="button" onClick={onHeaderBack} className={wizardUi.backLink}>
               <ArrowLeft className="h-4 w-4" />
@@ -176,9 +189,7 @@ export default function CreateProjectAiWizard({
                     )
                   }
                 >
-                  {wizard.busy
-                    ? t('aiCreateWizard.createProjectImporting')
-                    : t('aiCreateWizard.createCta')}
+                  {wizard.busy ? confirmBusyLabel : confirmCta}
                 </button>
               )}
             </div>

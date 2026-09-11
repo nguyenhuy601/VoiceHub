@@ -10,6 +10,7 @@ import {
   FileDown,
   FolderPlus,
   Send,
+  SlidersHorizontal,
   Trash2,
   Upload,
   X,
@@ -30,7 +31,7 @@ import {
 } from '../../components/Layout/figmaPageClasses';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { buildCollaborateProjectHubPath } from '../../utils/suitePathUtils';
+import { buildProjectsNewAiPath } from '../../utils/suitePathUtils';
 import { requirementAPI } from '../../services/api/requirementAPI';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
 import RequirementPackReviewDrawer from './RequirementPackReviewDrawer';
@@ -133,12 +134,14 @@ export default function RequirementImportWorkspace({
   const sk = (suffix) => stringKey(variant, suffix);
   const showImportSection = isAdmin || canSubmit;
   const fileInputRef = useRef(null);
+  const filtersRef = useRef(null);
 
   const [busy, setBusy] = useState(false);
   const [actionPackId, setActionPackId] = useState('');
   const [preview, setPreview] = useState(null);
   const [reviewPackId, setReviewPackId] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
@@ -248,6 +251,24 @@ export default function RequirementImportWorkspace({
     if (page !== safePage) setPage(safePage);
   }, [page, safePage]);
 
+  useEffect(() => {
+    if (!filtersOpen) return undefined;
+    const onDoc = (e) => {
+      if (filtersRef.current && !filtersRef.current.contains(e.target)) {
+        setFiltersOpen(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setFiltersOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [filtersOpen]);
+
   const confirmImport = async () => {
     if (!orgId || !preview?.sessionId || busy || !canConfirmRequirementImport(preview)) return;
     setBusy(true);
@@ -324,30 +345,26 @@ export default function RequirementImportWorkspace({
     }
   };
 
-  const createProjectFromPack = async (packId) => {
+  const createProjectFromPack = async (pack) => {
+    const packId = String(pack?._id || pack || '').trim();
     if (!orgId || !packId || actionPackId) return;
-    setActionPackId(packId);
-    try {
-      const res = await requirementAPI.createProjectFromPack(orgId, packId, {
-        importWorkItems: true,
-        applyAssignees: true,
-      });
-      const data = unwrap(res);
-      toast.success(t('requirements.createProjectSuccess'));
-      await loadPacks();
-      const projectId = String(data?.project?._id || data?.project?.projectId || '').trim();
-      if (projectId) {
-        navigate(
-          buildCollaborateProjectHubPath(projectId, { organizationId: orgId })
-        );
-      }
-    } catch (error) {
-      toast.error(
-        resolveApiErrorMessage(error, { t, fallback: t('requirements.createProjectFail') })
+    const linkedProjectId = String(
+      (typeof pack === 'object' ? pack?.projectId : '') || ''
+    ).trim();
+    if (!linkedProjectId) {
+      toast(
+        t('workspace.phase2AiNeedsLinkedProject') ||
+          'Pack = SRS. Gắn pack với dự án Phase 1 đã sẵn sàng gate, rồi dùng AI Phase 2 trên Overview.'
       );
-    } finally {
-      setActionPackId('');
+      return;
     }
+    navigate(
+      buildProjectsNewAiPath(orgId, {
+        projectId: linkedProjectId,
+        packId,
+        from: 'requirements',
+      })
+    );
   };
 
   const canConfirmPreview = canConfirmRequirementImport(preview);
@@ -516,28 +533,58 @@ export default function RequirementImportWorkspace({
     setHeaderActions?.(headerActions);
   }, [headerActions, setHeaderActions]);
 
+  const activeFilterCount = statusFilter ? 1 : 0;
+
   const statusFilterBar = (
-    <div className="flex flex-wrap gap-2" role="tablist" aria-label={t('requirements.filterByStatus')}>
-      {PACK_STATUS_FILTERS.map((key) => {
-        const active = statusFilter === key;
-        const label = key ? t(`requirements.status.${key}`) : t('requirements.filterAllStatus');
-        return (
-          <button
-            key={key || 'all'}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => setStatusFilter(key)}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-              active
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'border border-border bg-background text-muted-foreground hover:bg-muted/40'
-            }`}
+    <div className="flex justify-end">
+      <div className="relative shrink-0" ref={filtersRef}>
+        <button
+          type="button"
+          aria-expanded={filtersOpen}
+          aria-controls="requirements-pack-filters"
+          onClick={() => setFiltersOpen((open) => !open)}
+          className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/40"
+        >
+          <SlidersHorizontal className="h-4 w-4" aria-hidden />
+          {t('requirements.filters')}
+          {activeFilterCount ? (
+            <span
+              className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+              title={t('requirements.filtersActive', { n: activeFilterCount })}
+            >
+              {activeFilterCount}
+            </span>
+          ) : null}
+        </button>
+        {filtersOpen ? (
+          <div
+            id="requirements-pack-filters"
+            className="absolute right-0 z-20 mt-2 w-[min(calc(100vw-2rem),16rem)] space-y-2 rounded-xl border border-border bg-card p-3 shadow-lg"
           >
-            {label}
-          </button>
-        );
-      })}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+              aria-label={t('requirements.filterByStatus')}
+            >
+              {PACK_STATUS_FILTERS.map((key) => (
+                <option key={key || 'all'} value={key}>
+                  {key ? t(`requirements.status.${key}`) : t('requirements.filterAllStatus')}
+                </option>
+              ))}
+            </select>
+            {activeFilterCount ? (
+              <button
+                type="button"
+                onClick={() => setStatusFilter('')}
+                className="w-full rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
+              >
+                {t('requirements.filtersClear')}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 
@@ -640,11 +687,11 @@ export default function RequirementImportWorkspace({
           <PackRowActionButton
             variant="success"
             disabled={actionPackId === pack._id}
-            onClick={() => createProjectFromPack(pack._id)}
-            title={t('requirements.createProject')}
+            onClick={() => createProjectFromPack(pack)}
+            title={t('workspace.phase2OptionAi') || t('requirements.createProject')}
           >
             <FolderPlus className="h-3 w-3 shrink-0" aria-hidden />
-            {t('requirements.createProject')}
+            {t('workspace.phase2OptionAi') || t('requirements.createProject')}
           </PackRowActionButton>
         ) : null}
         {canApprove && pack.status === 'approved' ? (
@@ -713,9 +760,9 @@ export default function RequirementImportWorkspace({
         </AdminUserFormCard>
       ) : (
         <div
-          className={`${FIGMA_PAGE_CARD} flex min-h-0 flex-1 flex-col overflow-hidden p-4`}
+          className={`${FIGMA_PAGE_CARD} flex min-h-0 flex-1 flex-col p-4`}
         >
-          <div className="mb-4 shrink-0">{statusFilterBar}</div>
+          <div className="relative z-10 mb-4 shrink-0">{statusFilterBar}</div>
           {listBody}
         </div>
       )}

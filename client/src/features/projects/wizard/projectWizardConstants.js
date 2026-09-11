@@ -1,8 +1,9 @@
 import { DEFAULT_PROJECT_ROLE_KEYS } from '../../../utils/roleTaxonomy.js';
 
-/** Full-screen wizard: Name → Setup → Team */
-export const PROJECT_WIZARD_STEPS = Object.freeze(['name', 'setup', 'team']);
+/** Phase 1 intake: Identity → Roster → Confirm (no board setup). */
+export const PROJECT_WIZARD_STEPS = Object.freeze(['identity', 'roster', 'confirm']);
 
+/** @deprecated kept for tests / legacy panels */
 export const PROJECT_WORK_TYPES = Object.freeze([
   { id: 'task', labelKey: 'adminTasks.wizardWorkTypeTask', labelFallback: 'Task', defaultOn: true },
   { id: 'bug', labelKey: 'adminTasks.wizardWorkTypeBug', labelFallback: 'Bug', defaultOn: true },
@@ -10,7 +11,7 @@ export const PROJECT_WORK_TYPES = Object.freeze([
   { id: 'epic', labelKey: 'adminTasks.wizardWorkTypeEpic', labelFallback: 'Epic', defaultOn: true },
 ]);
 
-/** Hub tabs VoiceHub (not Jira List/Timeline/Forms). */
+/** @deprecated */
 export const PROJECT_HUB_VIEW_OPTIONS = Object.freeze([
   { id: 'overview', labelKey: 'adminTasks.wizardViewOverview', labelFallback: 'Overview', defaultOn: true },
   { id: 'planning', labelKey: 'adminTasks.wizardViewPlanning', labelFallback: 'Planning', defaultOn: true },
@@ -20,9 +21,7 @@ export const PROJECT_HUB_VIEW_OPTIONS = Object.freeze([
   { id: 'activity', labelKey: 'adminTasks.wizardViewActivity', labelFallback: 'Activity', defaultOn: false },
 ]);
 
-/**
- * Step Setup — Statuses cards → methodology + workflow template.
- */
+/** @deprecated board setup moved to Phase 2 */
 export const PROJECT_WORKFLOW_CARDS = Object.freeze([
   {
     id: 'agile',
@@ -71,7 +70,7 @@ export function mapWorkflowCardToBackend(cardId) {
 
 export function defaultWorkTypesEnabled() {
   const out = {};
-  for (const wt of PROJECT_WORK_TYPES) out[wt.id] = Boolean(wt.defaultOn);
+  for (const w of PROJECT_WORK_TYPES) out[w.id] = Boolean(w.defaultOn);
   return out;
 }
 
@@ -82,22 +81,26 @@ export function defaultViewsEnabled() {
 }
 
 export function previewColumnsForCard(cardId) {
-  return [...(resolveWorkflowCard(cardId).columns || ['To Do', 'In Progress', 'Done'])];
+  return [...(resolveWorkflowCard(cardId).columns || [])];
 }
 
-export const WIZARD_DEFAULT_MEMBER_ROLE = DEFAULT_PROJECT_ROLE_KEYS.DEVELOPER || 'developer';
 export const WIZARD_PM_ROLE = DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER;
 export const WIZARD_SM_ROLE = DEFAULT_PROJECT_ROLE_KEYS.SCRUM_MASTER;
+export const WIZARD_PO_ROLE = DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER;
+export const WIZARD_BA_ROLE = DEFAULT_PROJECT_ROLE_KEYS.BUSINESS_ANALYST;
+export const WIZARD_DEFAULT_MEMBER_ROLE = DEFAULT_PROJECT_ROLE_KEYS.BUSINESS_ANALYST;
 
-/** userId đầu tiên trong seedMembers có Project Role `roleKey`. */
 export function firstSeedMemberWithRole(seedMembers, roleKey) {
-  const want = String(roleKey || '').trim().toLowerCase();
-  if (!want) return '';
-  for (const m of Array.isArray(seedMembers) ? seedMembers : []) {
-    const keys = (m.projectRoleKeys || []).map((k) => String(k || '').trim().toLowerCase());
-    if (keys.includes(want)) return String(m.userId || '').trim();
+  const want = String(roleKey || '')
+    .trim()
+    .toLowerCase();
+  for (const row of Array.isArray(seedMembers) ? seedMembers : []) {
+    const keys = (Array.isArray(row?.projectRoleKeys) ? row.projectRoleKeys : []).map((k) =>
+      String(k || '')
+        .trim()
+        .toLowerCase()
+    );
+    if (keys.includes(want)) return row;
   }
-  return '';
+  return null;
 }
-
-export const SETUP_SUBPANELS = Object.freeze(['', 'workTypes', 'statuses', 'views']);

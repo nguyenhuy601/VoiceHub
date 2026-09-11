@@ -3,6 +3,8 @@
 export const SUITE_COLORS = {
   communicate: '#3B82F6',
   collaborate: '#10B981',
+  company: '#10B981',
+  projects: '#8B5CF6',
   me: '#F59E0B',
   admin: '#DC2626',
 };
@@ -10,6 +12,8 @@ export const SUITE_COLORS = {
 export const SUITE_SEGMENT = {
   communicate: 'communicate',
   collaborate: 'collaborate',
+  company: 'company',
+  projects: 'projects',
   me: 'me',
   admin: 'admin',
 };

@@ -319,10 +319,14 @@ export const organizationAPI = {
     return response;
   },
 
-  // Get organization members
-  getMembers: async (orgId) => {
+  // Get organization members (optional departmentId → dept roster; BE listMembersForOrg)
+  getMembers: async (orgId, params = {}) => {
+    const departmentId = String(params.departmentId || '').trim();
+    const query = {};
+    if (departmentId) query.departmentId = departmentId;
     const response = await apiClient.get(`/organizations/${orgId}/members`, {
       skipPermissionDeniedToast: true,
+      params: Object.keys(query).length ? query : undefined,
     });
     return response;
   },

@@ -316,10 +316,28 @@ async function createProjectFromRequirementPack({
     throw err;
   }
 
+  let analysisSeed = null;
+  try {
+    const { seedArtifactsFromRequirementPack } = require('./analysis.service');
+    analysisSeed = await seedArtifactsFromRequirementPack({
+      userId,
+      projectId,
+      pack: linked.toObject(),
+    });
+  } catch (seedErr) {
+    logger.warn(
+      '[requirement] analysis artifact seed failed project=%s pack=%s: %s',
+      String(projectId),
+      String(packId),
+      seedErr?.message || seedErr
+    );
+  }
+
   return {
     pack: attachPlanningReadiness(linked.toObject()),
     project,
     importStats,
+    analysisSeed,
   };
 }
 

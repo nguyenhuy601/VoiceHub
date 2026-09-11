@@ -809,10 +809,181 @@ async function listBoards({ userId, organizationId, teamId, scopeType, scopeId }
   return boards;
 }
 
+async function getBoardDetailScopedCards({ userId, board, boardOid, epicId, featureId, parentTaskId }) {
+  const cardFilter = buildBoardCardMongoFilter(
+    { boardId: boardOid, epicId, featureId, parentTaskId },
+    { isValidOid: (id) => mongoose.Types.ObjectId.isValid(String(id)), toOid }
+  );
+  const LIST_EXPAND_CARD_SELECT = [
+    '_id',
+    'boardId',
+    'listId',
+    'ownerTeamId',
+    'workGroupChannelId',
+    'title',
+    'summary',
+    'priority',
+    'dueDate',
+    'startDate',
+    'estimateHours',
+    'assigneeId',
+    'assignments',
+    'createdBy',
+    'tags',
+    'parentTaskId',
+    'epicId',
+    'featureId',
+    'issueType',
+    'projectId',
+    'sprintId',
+    'status',
+    'completedAt',
+    'position',
+    'createdAt',
+    'updatedAt',
+    'changeRequestIds',
+  ].join(' ');
+
+  const cards = await Task.find(cardFilter)
+    .select(LIST_EXPAND_CARD_SELECT)
+    .sort({ listId: 1, position: 1, createdAt: 1 })
+    .lean();
+
+  const assigneeIds = [
+    ...new Set(
+      cards.flatMap((c) => {
+        const ids = [];
+        if (c?.assigneeId) ids.push(String(c.assigneeId));
+        if (c?.createdBy) ids.push(String(c.createdBy));
+        for (const a of c.assignments || []) {
+          if (a?.userId) ids.push(String(a.userId));
+        }
+        return ids;
+      }).filter(Boolean)
+    ),
+  ];
+  const assigneeRows = assigneeIds.length ? await enrichAssignableProfiles(assigneeIds, userId) : [];
+  const assigneeMap = new Map(assigneeRows.map((row) => [String(row.userId), row]));
+  const { normalizeIssueType } = require('../utils/project/projectIssueTypePerms');
+
+  const sanitizedCards = cards.map((c) => ({
+    _id: c._id,
+    kind: 'task',
+    boardId: c.boardId,
+    listId: c.listId,
+    ownerTeamId: c.ownerTeamId || null,
+    workGroupChannelId: c.workGroupChannelId || null,
+    title: c.title,
+    description: '',
+    summary: c.summary || '',
+    priority: c.priority,
+    dueDate: c.dueDate,
+    startDate: c.startDate || null,
+    estimateHours: c.estimateHours ?? null,
+    assigneeId: c.assigneeId,
+    assigneeName: c.assigneeId
+      ? assigneeMap.get(String(c.assigneeId))?.displayName ||
+        assigneeMap.get(String(c.assigneeId))?.username ||
+        ''
+      : '',
+    assignees: c.assigneeId
+      ? [
+          {
+            userId: String(c.assigneeId),
+            displayName:
+              assigneeMap.get(String(c.assigneeId))?.displayName ||
+              assigneeMap.get(String(c.assigneeId))?.username ||
+              '',
+            avatar: assigneeMap.get(String(c.assigneeId))?.avatar || '',
+          },
+        ]
+      : [],
+    assignments: Array.isArray(c.assignments)
+      ? c.assignments.map((a) => ({
+          userId: String(a.userId),
+          slot: a.slot || 'primary',
+          projectRoleId: a.projectRoleId || null,
+          displayName:
+            assigneeMap.get(String(a.userId))?.displayName ||
+            assigneeMap.get(String(a.userId))?.username ||
+            '',
+          avatar: assigneeMap.get(String(a.userId))?.avatar || '',
+        }))
+      : c.assigneeId
+        ? [
+            {
+              userId: String(c.assigneeId),
+              slot: 'primary',
+              projectRoleId: null,
+              displayName:
+                assigneeMap.get(String(c.assigneeId))?.displayName ||
+                assigneeMap.get(String(c.assigneeId))?.username ||
+                '',
+              avatar: assigneeMap.get(String(c.assigneeId))?.avatar || '',
+            },
+          ]
+        : [],
+    createdBy: c.createdBy || null,
+    reporterName: c.createdBy
+      ? assigneeMap.get(String(c.createdBy))?.displayName ||
+        assigneeMap.get(String(c.createdBy))?.username ||
+        ''
+      : '',
+    reporterAvatar: c.createdBy ? assigneeMap.get(String(c.createdBy))?.avatar || '' : '',
+    tags: Array.isArray(c.tags) ? c.tags : [],
+    attachments: [],
+    checklists: [],
+    parentTaskId: c.parentTaskId || null,
+    epicId: c.epicId || null,
+    featureId: c.featureId || null,
+    issueType: normalizeIssueType(c.issueType),
+    projectId: c.projectId || board.projectId || null,
+    sprintId: c.sprintId || null,
+    status: c.status,
+    completedAt: c.completedAt,
+    position: c.position,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    changeRequestIds: Array.isArray(c.changeRequestIds)
+      ? c.changeRequestIds.map((id) => String(id))
+      : [],
+    comments: [],
+  }));
+
+  const changeRequestService = require('./changeRequest.service');
+  const cardsWithCr = await changeRequestService.enrichTasksWithChangeRequests(sanitizedCards);
+
+  return {
+    board: {
+      _id: board._id,
+      projectId: board.projectId || null,
+    },
+    lists: [],
+    cards: cardsWithCr,
+    capabilities: null,
+    workflow: null,
+  };
+}
+
 async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId, parentTaskId }) {
   const board = await ensureBoardViewAccess(boardId, userId);
   if (!board) throw new Error('Không có quyền xem board này');
   const boardOid = board._id;
+  const wantCards = parseIncludeCardsFlag(includeCards);
+  const scopedCardQuery = Boolean(epicId || featureId || parentTaskId);
+
+  // List expand: chỉ cần cards theo scope — bỏ updateMany/lists/workflow/caps/identity.
+  if (wantCards && scopedCardQuery) {
+    return getBoardDetailScopedCards({
+      userId,
+      board,
+      boardOid,
+      epicId,
+      featureId,
+      parentTaskId,
+    });
+  }
+
   // Board cũ: bỏ cờ isDefault (không còn list hệ thống bảo vệ)
   await TaskBoardList.updateMany({ boardId: boardOid, isDefault: true }, { $set: { isDefault: false } });
   const lists = await fetchActiveLists(boardOid);
@@ -828,8 +999,6 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
     watcherCountByList.set(lid, (watcherCountByList.get(lid) || 0) + 1);
     if (userOid && String(row.userId) === String(userOid)) watchingSet.add(lid);
   }
-  const wantCards = parseIncludeCardsFlag(includeCards);
-  const scopedCardQuery = Boolean(epicId || featureId || parentTaskId);
   const cardFilter = wantCards
     ? buildBoardCardMongoFilter(
         { boardId: boardOid, epicId, featureId, parentTaskId },

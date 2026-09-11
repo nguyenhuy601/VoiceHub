@@ -32,11 +32,11 @@ export const LIST_TABLE_COLUMNS = [
   { id: 'reporter', minPx: 88, defaultPx: 112 },
   { id: 'priority', minPx: 72, defaultPx: 96 },
   { id: 'status', minPx: 88, defaultPx: 120 },
-  { id: 'resolution', minPx: 72, defaultPx: 88 },
-  { id: 'created', minPx: 96, defaultPx: 120 },
-  { id: 'updated', minPx: 96, defaultPx: 120 },
-  { id: 'start', minPx: 80, defaultPx: 96 },
-  { id: 'due', minPx: 80, defaultPx: 96 },
+  { id: 'resolution', minPx: 96, defaultPx: 120 },
+  { id: 'created', minPx: 148, defaultPx: 176 },
+  { id: 'updated', minPx: 148, defaultPx: 176 },
+  { id: 'start', minPx: 120, defaultPx: 148 },
+  { id: 'due', minPx: 120, defaultPx: 148 },
   { id: 'actions', minPx: 36, defaultPx: 36, resizable: false },
 ];
 

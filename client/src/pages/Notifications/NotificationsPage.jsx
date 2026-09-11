@@ -23,6 +23,7 @@ import {
   buildCollaborateDocumentsPath,
   buildCollaborateTasksPath,
   buildCommunicateChannelsPath,
+  buildProjectsPickerPath,
 } from '../../utils/suitePathUtils';
 import {
   isVoiceRoomInviteNotification,
@@ -621,7 +622,7 @@ function NotificationsPage({ orgScope = false } = {}) {
           navigate(dueUrl);
         } else {
           navigate(
-            orgId ? buildCollaborateTasksPath(orgId) : '/app/collaborate/projects'
+            orgId ? buildCollaborateTasksPath(orgId) : buildProjectsPickerPath('')
           );
         }
         toast(t('notifications.toastOpenTasks'), { icon: notif.type === 'deadline' ? '⏰' : '✅' });

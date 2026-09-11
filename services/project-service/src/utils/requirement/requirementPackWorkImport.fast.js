@@ -38,6 +38,16 @@ const {
 const IMPORT_HOURS_RATIONALE = 'requirement_pack_import';
 const LARGE_PACK_WARN_ROWS = 200;
 
+/** Blueprint dateKey (YYYY-MM-DD) or Date → Mongo Date (UTC noon). */
+function toImportTaskDate(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  const key = String(value).trim().match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+  if (key) return new Date(`${key}T12:00:00.000Z`);
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function sortFrRows(frList = []) {
   return [...frList].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
@@ -295,6 +305,8 @@ async function createCardFast(ctx, {
   estimateHours,
   assigneeId,
   parentTaskMeta,
+  startDate,
+  dueDate,
 }) {
   assertCardNest(ctx, {
     issueType,
@@ -312,6 +324,8 @@ async function createCardFast(ctx, {
 
   const assigneeOid = parseOid(assigneeId);
   const synced = syncPrimaryAssignment(assigneeOid ? String(assigneeOid) : null, []);
+  const nextStartDate = toImportTaskDate(startDate);
+  const nextDueDate = toImportTaskDate(dueDate);
 
   const row = await Task.create({
     boardId: ctx.board._id,
@@ -329,6 +343,8 @@ async function createCardFast(ctx, {
     createdBy: userId,
     priority: 'medium',
     estimateHours: nextEstimateHours,
+    startDate: nextStartDate,
+    dueDate: nextDueDate,
     position: nextPos,
     epicId: parseOid(epicId),
     featureId: parseOid(featureId),
@@ -627,6 +643,8 @@ async function importBlueprintWorkItemsFast(input) {
         featureId: null,
         estimateHours,
         assigneeId,
+        startDate: row.startDate || null,
+        dueDate: row.dueDate || null,
         parentTaskMeta: parentRef?.kind === 'card' ? { id: parentRef.id, issueType: parentRef.issueType } : null,
       });
       idMap.set(blueprintTaskId, {
