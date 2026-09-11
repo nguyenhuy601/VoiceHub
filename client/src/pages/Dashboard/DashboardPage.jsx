@@ -1,6 +1,6 @@
-import { useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
+  Bot,
   Building2,
   Calendar,
   CheckCircle2,
@@ -34,16 +34,15 @@ import { useAuth } from '../../context/AuthContext';
 import useUiRole from '../../hooks/useUiRole';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
+import api from '../../services/api';
+import { meetingAPI } from '../../services/api/meetingAPI';
 import {
-  useDashboardActiveMeetings,
-  useDashboardMessagesSummary,
   useDashboardSummary,
   useFriendPending,
   useFriendsList,
   useNotificationsPreview,
   useOrganizationsMy,
 } from '../../hooks/queries';
-import { queryKeys } from '../../lib/queryKeys';
 import { appShellBg } from '../../theme/shellTheme';
 import { useLandingSafeNavigate } from '../../hooks/useLandingSafeNavigate';
 import { useLocation } from 'react-router-dom';
@@ -51,20 +50,26 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { useLocale } from '../../context/LocaleContext';
 import {
-  buildCollaborateProjectHubPath,
   buildCollaborateTasksPath,
   buildCommunicateChannelsPath,
+  buildProjectsPickerPath,
 } from '../../utils/suitePathUtils';
-import useOrgProjectsList from '../../hooks/useOrgProjectsList';
-import useBoardHealthEnrichment from '../../hooks/useBoardHealthEnrichment';
 import DashboardGlobalSearchModal from '../../components/Dashboard/DashboardGlobalSearchModal';
 import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
 import { LOCAL_CUSTOM_KEY } from '../../utils/dmCalendarReminders';
 import { formatMessagePreview } from '../../features/search/formatMessagePreview';
+import { parseMessageListPage } from '../../lib/parseMessageListPage';
 import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { dashPersonaShowsOrgHealth, resolveDashPersona } from '../../utils/dashboardPersona';
 import { extractOrganizationRoleKeys } from '../../utils/organizationRoleKeys';
+
+function truncateText(value, maxLength = 56) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
 
 function isValidObjectId(value) {
   return /^[a-f\d]{24}$/i.test(String(value || '').trim());
@@ -109,6 +114,24 @@ function dayKeyFromDate(value) {
   const d = value ? new Date(value) : null;
   if (!d || Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function fetchMessagesForDashboardPaged(api, { maxPages = 1, limit = 30 } = {}) {
+  const rows = [];
+  let pageToken;
+  for (let i = 0; i < maxPages; i += 1) {
+    const params = { limit, fields: 'summary' };
+    if (pageToken) params.pageToken = pageToken;
+    const msgRes = await api.get('/messages', { params, skipGlobalErrorHandling: true }).catch(() => null);
+    if (!msgRes) break;
+    const page = parseMessageListPage(msgRes);
+    const batch = page.messages || [];
+    if (!batch.length) break;
+    rows.push(...batch);
+    if (!page.hasMore || !page.nextPageToken) break;
+    pageToken = page.nextPageToken;
+  }
+  return rows;
 }
 
 /**
@@ -255,6 +278,8 @@ function DashboardPage({
   /** Map yyyy-mm-dd -> { tasks, messages } để heatmap đóng góp theo năm */
   const [activityDailyMap, setActivityDailyMap] = useState({});
   const [activityYear, setActivityYear] = useState(() => new Date().getFullYear());
+  const [weeklyActivityDays, setWeeklyActivityDays] = useState([]);
+  const [, setWeeklyActivityNotes] = useState([]);
   const [weeklyDayModal, setWeeklyDayModal] = useState(null);
   const [recentDmContacts, setRecentDmContacts] = useState([]);
   const [recentNotifications, setRecentNotifications] = useState([]);
@@ -283,16 +308,6 @@ function DashboardPage({
     limit: 8,
     enabled: communicateEnabled,
   });
-  const summaryActiveVoice = summaryQuery.data?.activeVoiceMeetings;
-  const activeMeetingsQuery = useDashboardActiveMeetings({
-    enabled: communicateEnabled && summaryQuery.isSuccess,
-    summaryActiveVoiceMeetings: summaryActiveVoice,
-  });
-  const messagesQuery = useDashboardMessagesSummary({
-    enabled: communicateEnabled,
-    userId: currentUserKey,
-  });
-  const queryClient = useQueryClient();
   const refetchSummary = summaryQuery.refetch;
   const refetchFriends = friendsQuery.refetch;
   const refetchPending = pendingQuery.refetch;
@@ -348,10 +363,6 @@ function DashboardPage({
       refetchFriends?.();
       refetchPending?.();
       refetchNotifications?.();
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.meetingsActive() });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.dashboard.messagesSummary(currentUserKey),
-      });
       setMetricsTick((v) => v + 1);
     };
 
@@ -402,8 +413,6 @@ function DashboardPage({
     refetchFriends,
     refetchPending,
     refetchNotifications,
-    queryClient,
-    currentUserKey,
   ]);
 
   const displayName =
@@ -471,6 +480,8 @@ function DashboardPage({
       setUpcomingMeetings([]);
       setWorkspaceEntries([]);
       setActivityDailyMap({});
+      setWeeklyActivityDays([]);
+      setWeeklyActivityNotes([]);
       setRecentDmContacts([]);
       setRecentNotifications([]);
       return;
@@ -565,36 +576,75 @@ function DashboardPage({
         });
         setPresenceFriends(presence);
 
-        const activeVoiceMeetings = Number.isFinite(Number(summary?.activeVoiceMeetings))
-          ? Number(summary.activeVoiceMeetings)
-          : Number.isFinite(Number(activeMeetingsQuery.data))
-            ? Number(activeMeetingsQuery.data)
-            : activeMeetingsQuery.isLoading
-              ? null
-              : 0;
+        let activeVoiceMeetings = summary?.activeVoiceMeetings ?? null;
+        if (activeVoiceMeetings == null) {
+          const activeMeetingRes = await meetingAPI
+            .getMeetings({ status: 'active', limit: 50 })
+            .catch(() => null);
+          const activeBody = activeMeetingRes?.data ?? activeMeetingRes;
+          const activeInner = activeBody?.data ?? activeBody;
+          const activeRows = activeInner?.meetings ?? activeInner?.data?.meetings ?? activeInner?.items;
+          activeVoiceMeetings = Array.isArray(activeRows) ? activeRows.length : 0;
+        }
 
         let meetingsUi = [];
-        // BFF luôn trả upcomingMeetings (có thể []); không fallback GET /meetings range → tránh trùng Network
         const summaryMeetings = Array.isArray(summary?.upcomingMeetings)
           ? summary.upcomingMeetings
           : [];
-        meetingsUi = summaryMeetings.map((m) => {
-          const startDt = m.startTime ? new Date(m.startTime) : null;
-          const timeStr =
-            startDt && !Number.isNaN(startDt.getTime())
-              ? startDt.toLocaleTimeString(locale === 'en' ? 'en-US' : 'vi-VN', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })
-              : '—';
-          return {
-            id: m.id || m._id,
-            title: m.title || t('dashboard.meetingFallback'),
-            time: timeStr,
-            attendees: Number(m.participants) || 1,
-            startTime: m.startTime,
-          };
-        });
+        if (summaryMeetings.length > 0) {
+          meetingsUi = summaryMeetings.map((m) => {
+            const startDt = m.startTime ? new Date(m.startTime) : null;
+            const timeStr =
+              startDt && !Number.isNaN(startDt.getTime())
+                ? startDt.toLocaleTimeString(locale === 'en' ? 'en-US' : 'vi-VN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : '—';
+            return {
+              id: m.id || m._id,
+              title: m.title || t('dashboard.meetingFallback'),
+              time: timeStr,
+              attendees: Number(m.participants) || 1,
+              startTime: m.startTime,
+            };
+          });
+        } else {
+          const startFrom = new Date();
+          const startTo = new Date(startFrom.getTime() + 7 * 24 * 60 * 60 * 1000);
+          const meetingRes = await meetingAPI
+            .getMeetings({
+              startFrom: startFrom.toISOString(),
+              startTo: startTo.toISOString(),
+              limit: 8,
+            })
+            .catch(() => null);
+          if (meetingRes) {
+            const body = meetingRes?.data ?? meetingRes;
+            const inner = body?.data ?? body;
+            const meetings = inner?.meetings ?? inner?.data?.meetings;
+            if (Array.isArray(meetings)) {
+              meetingsUi = meetings.slice(0, 5).map((m) => {
+                const startDt = m.startTime ? new Date(m.startTime) : null;
+                const timeStr =
+                  startDt && !Number.isNaN(startDt.getTime())
+                    ? startDt.toLocaleTimeString(locale === 'en' ? 'en-US' : 'vi-VN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : '—';
+                const parts = Array.isArray(m.participants) ? m.participants.length : 0;
+                return {
+                  id: m._id,
+                  title: m.title || t('dashboard.meetingFallback'),
+                  time: timeStr,
+                  attendees: parts || 1,
+                  startTime: m.startTime,
+                };
+              });
+            }
+          }
+        }
         const startFrom = new Date();
         startFrom.setHours(0, 0, 0, 0);
         const startTo = new Date(startFrom.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -631,16 +681,108 @@ function DashboardPage({
 
         const dayKey = dayKeyFromDate;
         const getRowId = (value) => String(value?._id || value?.id || value || '').trim();
+        const resolveWeeklyPath = ({ kind, organizationId }) => {
+          const orgId = String(organizationId || '').trim();
+          if (orgId) {
+            return kind === 'task'
+              ? buildCollaborateTasksPath(orgId)
+              : `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`;
+          }
+          return kind === 'task' ? buildProjectsPickerPath('') : '/app/communicate/chat/friends';
+        };
+        const weekDayLabels = [
+          t('dashboard.weekDaySun'),
+          t('dashboard.weekDayMon'),
+          t('dashboard.weekDayTue'),
+          t('dashboard.weekDayWed'),
+          t('dashboard.weekDayThu'),
+          t('dashboard.weekDayFri'),
+          t('dashboard.weekDaySat'),
+        ];
         const daily = {};
         const onTimeRate = Number.isFinite(Number(summary?.onTimeRate))
           ? Number(summary.onTimeRate)
           : null;
-        const msgRows = Array.isArray(messagesQuery.data) ? messagesQuery.data : [];
+        const weeklyDayMap = new Map();
+        const weekStart = new Date();
+        weekStart.setHours(0, 0, 0, 0);
+        weekStart.setDate(weekStart.getDate() - 6);
+        const weekStartTs = weekStart.getTime();
+        Array.from({ length: 7 }, (_, index) => {
+          const dayDate = new Date(weekStart);
+          dayDate.setDate(weekStart.getDate() + index);
+          const key = dayKey(dayDate);
+          const weekday = dayDate.getDay();
+          const entry = {
+            key,
+            dayLabel: weekDayLabels[weekday] || '',
+            date: dayDate,
+            tasks: 0,
+            messages: 0,
+            total: 0,
+            items: [],
+          };
+          weeklyDayMap.set(key, entry);
+          return entry;
+        });
+        const registerWeekItem = ({ when, kind, icon, title, detail, path }) => {
+          const ts = new Date(when).getTime();
+          if (!Number.isFinite(ts) || ts < weekStartTs) return;
+          const key = dayKey(when);
+          const day = weeklyDayMap.get(key);
+          if (!day) return;
+          if (kind === 'task') day.tasks += 1;
+          else day.messages += 1;
+          day.total += 1;
+          day.items.push({
+            key: `${kind}:${ts}:${title}`,
+            ts,
+            icon,
+            title,
+            detail,
+            path,
+            kind,
+          });
+        };
+        const msgRows = await fetchMessagesForDashboardPaged(api, { maxPages: 1, limit: 30 }).catch(() => []);
         msgRows.forEach((msg) => {
           const senderId = getRowId(msg.senderId);
           if (currentUserKey && senderId !== currentUserKey) return;
           const key = dayKey(msg.createdAt);
           if (key) daily[key] = { tasks: daily[key]?.tasks || 0, messages: (daily[key]?.messages || 0) + 1 };
+          const messageType = String(msg.messageType || 'text');
+          const previewText = truncateText(
+            formatMessagePreview(msg, t, { currentUserId: currentUserKey }) || t('dashboard.messageFallback'),
+            48
+          );
+          const detail =
+            messageType === 'file'
+              ? t('dashboard.msgSentFile', { preview: previewText })
+              : messageType === 'image'
+                ? t('dashboard.msgSentImage', { preview: previewText })
+                : messageType === 'business_card'
+                  ? t('dashboard.msgSharedCard', { preview: previewText })
+                  : messageType === 'call_log'
+                    ? previewText
+                    : t('dashboard.msgSent', { preview: previewText });
+          if (msg.createdAt) {
+            const msgOrgId = getRowId(msg.organizationId);
+            registerWeekItem({
+              when: msg.createdAt,
+              kind: 'message',
+              icon:
+                messageType === 'file'
+                  ? '📎'
+                  : messageType === 'image'
+                    ? '🖼️'
+                    : messageType === 'call_log'
+                      ? '📞'
+                      : '💬',
+              title: previewText,
+              detail,
+              path: resolveWeeklyPath({ kind: 'message', organizationId: msgOrgId }),
+            });
+          }
         });
         const avgResponseMinutes = null;
         const communicationCount =
@@ -707,6 +849,11 @@ function DashboardPage({
           .slice(0, 3)
           .map((row) => ({ ...row, time: relDmTime(row.ts) }));
 
+        const weekActivityGrid = Array.from(weeklyDayMap.values()).map((day) => ({
+          ...day,
+          items: [...(day.items || [])].sort((a, b) => b.ts - a.ts),
+        }));
+
         if (!cancelled) {
           setMetrics({
             loading: false,
@@ -736,6 +883,7 @@ function DashboardPage({
           setActivityDailyMap({ ...daily });
           setRecentDmContacts(dashboardRecentDms);
           setRecentNotifications(dashboardRecentNotifications);
+          setWeeklyActivityDays(weekActivityGrid);
         }
       } catch {
         if (!cancelled) {
@@ -743,6 +891,8 @@ function DashboardPage({
           setPresenceFriends([]);
           setWorkspaceEntries([]);
           setUpcomingMeetings([]);
+          setWeeklyActivityDays([]);
+          setWeeklyActivityNotes([]);
           setActivityDailyMap({});
           setRecentDmContacts([]);
           setRecentNotifications([]);
@@ -765,9 +915,6 @@ function DashboardPage({
     friendsQuery.data,
     pendingQuery.pendingCount,
     notificationsQuery.data,
-    activeMeetingsQuery.data,
-    activeMeetingsQuery.isLoading,
-    messagesQuery.data,
     company,
   ]);
 
@@ -911,22 +1058,6 @@ function DashboardPage({
       company,
     ]
   );
-  const dashOrgId = useMemo(() => {
-    const fromSummary = String(summaryQuery.data?.primaryOrgId || '').trim();
-    if (fromSummary) return fromSummary;
-    const first = Array.isArray(orgsQuery.data) ? orgsQuery.data[0] : null;
-    return String(first?._id || first?.id || company?.id || company?._id || '').trim();
-  }, [summaryQuery.data?.primaryOrgId, orgsQuery.data, company]);
-  const showOrgBoardHealth = dashPersonaShowsOrgHealth(dashPersona);
-  const { projects: dashOrgProjects, loading: dashOrgProjectsLoading } = useOrgProjectsList(dashOrgId, {
-    excludeClosed: true,
-    enabled: showOrgBoardHealth && Boolean(dashOrgId),
-  });
-  const enrichedBoardHealth = useBoardHealthEnrichment(metrics.boards || [], dashOrgProjects, {
-    enabled: showOrgBoardHealth,
-    organizationId: dashOrgId,
-    projectsLoading: dashOrgProjectsLoading,
-  });
   const showWorkAnalytics = dashPersona !== 'guest' && dashPersona !== 'personal';
 
   const stats = useMemo(() => {
@@ -1158,6 +1289,26 @@ function DashboardPage({
       },
     ];
   }, [metrics, dashPersona, t]);
+
+  const twoWaySyncFeed = useMemo(() => {
+    const rows = [];
+    weeklyActivityDays.forEach((day) => {
+      (day.items || []).forEach((item) => {
+        const relTime = day.dayLabel || '';
+        rows.push({
+          icon: item.kind === 'task' ? CheckCircle2 : item.icon === '🤖' ? Bot : MessageCircle,
+          color: item.kind === 'task' ? '#10B981' : '#6366F1',
+          user: t('dashboard.syncYou'),
+          action: item.kind === 'task' ? t('dashboard.syncCompleted') : t('dashboard.syncSent'),
+          item: `"${item.title}"`,
+          workspace: item.channelName ? `#${item.channelName}` : '',
+          time: relTime,
+          path: item.path,
+        });
+      });
+    });
+    return rows.slice(0, 5);
+  }, [t, weeklyActivityDays]);
 
   const aiInsights = useMemo(() => {
     const lines = [];
@@ -1395,7 +1546,7 @@ function DashboardPage({
       case 'overdue':
       case 'dueWeek':
       case 'open':
-        return { path: '/app/collaborate/projects', cta: t('dashboard.statOpenTasks') };
+        return { path: buildProjectsPickerPath(''), cta: t('dashboard.statOpenTasks') };
       case 'friends':
         return { path: '/app/communicate/chat/friends', cta: t('dashboard.statOpenFriends') };
       case 'notify':
@@ -1406,7 +1557,7 @@ function DashboardPage({
   };
 
   const navigateFromActivityType = (type) => {
-    if (type === 'task') navigate('/app/collaborate/projects');
+    if (type === 'task') navigate(buildProjectsPickerPath(''));
     else if (type === 'file') navigate('/app/collaborate/documents');
     else if (type === 'message') navigate('/app/communicate/chat/friends');
     else navigate('/app/communicate/notifications');
@@ -1453,58 +1604,34 @@ function DashboardPage({
       roleTitle={t(`dashboard.personaTitle.${dashPersona}`)}
       roleHint={t(`dashboard.personaHint.${dashPersona}`)}
       showWorkAnalytics={showWorkAnalytics}
-      boardHealth={enrichedBoardHealth}
+      boardHealth={dashPersonaShowsOrgHealth(dashPersona) ? metrics.boards || [] : []}
       overdueItems={showWorkAnalytics ? metrics.overdueItems || [] : []}
       onBoardClick={(board) => {
         const oid = String(board?.organizationId || dashOrgId || '').trim();
-        const boardId = String(board?.id || board?._id || '').trim();
-        const projectId = String(board?.projectId || '').trim();
-        if (projectId) {
-          navigate(
-            buildCollaborateProjectHubPath(projectId, {
-              organizationId: oid,
-              boardId,
-              tab: 'overview',
-            })
-          );
-          return;
-        }
-        toast(t('dashboard.boardHealthOpenFallback'), { icon: 'ℹ️' });
         navigate(
           oid
-            ? buildCollaborateTasksPath(oid, { boardId })
-            : '/app/collaborate/projects'
+            ? buildCollaborateTasksPath(oid, { boardId: board?.id })
+            : buildProjectsPickerPath('')
         );
       }}
       onOverdueClick={(item) => {
         const oid = String(item?.organizationId || dashOrgId || '').trim();
-        const boardId = String(item?.boardId || '').trim();
-        const projectId = String(
-          enrichedBoardHealth.find((b) => String(b.id || b._id) === boardId)?.projectId || ''
-        ).trim();
-        if (projectId) {
-          navigate(
-            buildCollaborateProjectHubPath(projectId, {
-              organizationId: oid,
-              boardId,
-              tab: 'overview',
-            })
-          );
-          return;
-        }
         navigate(
           oid
-            ? buildCollaborateTasksPath(oid, { boardId })
-            : '/app/collaborate/projects'
+            ? buildCollaborateTasksPath(oid, { boardId: item?.boardId })
+            : buildProjectsPickerPath('')
         );
       }}
       insightPreview={false}
+      syncFeedPreview={false}
       metricCards={metricCardsUi}
       onMetricCardClick={suiteLayout ? undefined : setSelectedStatKey}
       productivity30d={productivity30d}
       productivityTrends={productivityTrends}
       performanceStats={performanceStats}
       performanceMiniStats={performanceMiniStats}
+      syncFeed={twoWaySyncFeed}
+      onSyncItemClick={(item) => item.path && navigate(item.path)}
       quickNavItems={filteredQuickNav}
       quickNavCols={quickNavCols}
       onNavigate={navigate}

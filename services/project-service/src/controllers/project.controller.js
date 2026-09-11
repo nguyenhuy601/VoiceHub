@@ -120,7 +120,7 @@ async function listProjects(req, res) {
       return res.status(503).json({ success: false, message: 'Database unavailable' });
     }
     const userId = asUserId(req);
-    const { organizationId, teamId, scopeType, scopeId, includeArchived, excludeClosed } =
+    const { organizationId, teamId, scopeType, scopeId, includeArchived, excludeClosed, view } =
       req.query || {};
     if (!userId) return unauthorized(res);
     if (!validOid(organizationId)) {
@@ -142,6 +142,7 @@ async function listProjects(req, res) {
       excludeClosed:
         String(excludeClosed || '').trim() === '1' ||
         String(excludeClosed || '').toLowerCase() === 'true',
+      view: String(view || '').trim(),
     });
     return res.json({ success: true, data });
   } catch (err) {

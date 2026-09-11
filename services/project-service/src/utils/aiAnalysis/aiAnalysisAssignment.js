@@ -11,6 +11,7 @@ const {
 } = require('./ollamaClient');
 const { truncate } = require('./aiAnalysisFrSlice');
 const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
+const { buildWallBudgetSkipMeta } = require('./aiAnalysisWallBudgetMeta');
 
 const ASSIGN_WALL_MS = resolveJobWallMs('scheduleCapacity');
 const ASSIGN_NUM_PREDICT = 512;
@@ -238,6 +239,8 @@ async function runEmployeeAssignment(pack, container, opts = {}) {
         llmCalls: 0,
         partial: false,
         elapsedMs: nowFn() - started,
+        wallBudgetSkippedInputCount: recommendations.length,
+        wallBudgetSkippedInputKind: 'recommendation',
       },
     };
   }
@@ -256,13 +259,21 @@ async function runEmployeeAssignment(pack, container, opts = {}) {
   let llmCalls = 0;
   let partial = false;
   let lastError = null;
+  let wallBudgetSkipMeta = null;
   const shortlistByTask = shortlistMapFromRecommendations(recommendations);
+  const countRecommendationInputs = (c) => (Array.isArray(c) ? c.length : 0);
 
   for (let i = 0; i < chunks.length; i += 1) {
     const elapsed = nowFn() - started;
     const remaining = wallMs - elapsed;
     if (remaining < ASSIGN_LLM_MIN_MS) {
       partial = true;
+      wallBudgetSkipMeta = buildWallBudgetSkipMeta({
+        chunks,
+        fromIndex: i,
+        countInputs: countRecommendationInputs,
+        kind: 'recommendation',
+      });
       if (!greedy.length && !collected.length) lastError = 'wall_budget';
       break;
     }
@@ -272,6 +283,12 @@ async function runEmployeeAssignment(pack, container, opts = {}) {
     );
     if (!canStartAssignChunk(elapsed, wallMs, chunkTimeout)) {
       partial = true;
+      wallBudgetSkipMeta = buildWallBudgetSkipMeta({
+        chunks,
+        fromIndex: i,
+        countInputs: countRecommendationInputs,
+        kind: 'recommendation',
+      });
       if (!greedy.length && !collected.length) lastError = 'wall_budget';
       break;
     }
@@ -314,6 +331,7 @@ async function runEmployeeAssignment(pack, container, opts = {}) {
       partial: Boolean(partial || (collected.length && greedy.length)),
       error,
       elapsedMs: nowFn() - started,
+      ...(wallBudgetSkipMeta || {}),
     },
   };
 }
@@ -324,6 +342,8 @@ function applyAssignmentToContainer(container, assignResult) {
     resource: { ...container.resource },
   };
   next.resource.assignments = assignResult.assignments || [];
+  next.resource.assignmentsMeta =
+    assignResult.meta && typeof assignResult.meta === 'object' ? assignResult.meta : {};
   return next;
 }
 

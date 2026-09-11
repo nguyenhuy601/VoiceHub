@@ -38,6 +38,16 @@ const {
 const IMPORT_HOURS_RATIONALE = 'requirement_pack_import';
 const LARGE_PACK_WARN_ROWS = 200;
 
+/** Blueprint dateKey (YYYY-MM-DD) or Date → Mongo Date (UTC noon). */
+function toImportTaskDate(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  const key = String(value).trim().match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+  if (key) return new Date(`${key}T12:00:00.000Z`);
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function sortFrRows(frList = []) {
   return [...frList].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
@@ -295,6 +305,8 @@ async function createCardFast(ctx, {
   estimateHours,
   assigneeId,
   parentTaskMeta,
+  startDate,
+  dueDate,
 }) {
   assertCardNest(ctx, {
     issueType,
@@ -312,6 +324,8 @@ async function createCardFast(ctx, {
 
   const assigneeOid = parseOid(assigneeId);
   const synced = syncPrimaryAssignment(assigneeOid ? String(assigneeOid) : null, []);
+  const nextStartDate = toImportTaskDate(startDate);
+  const nextDueDate = toImportTaskDate(dueDate);
 
   const row = await Task.create({
     boardId: ctx.board._id,
@@ -329,6 +343,8 @@ async function createCardFast(ctx, {
     createdBy: userId,
     priority: 'medium',
     estimateHours: nextEstimateHours,
+    startDate: nextStartDate,
+    dueDate: nextDueDate,
     position: nextPos,
     epicId: parseOid(epicId),
     featureId: parseOid(featureId),
@@ -391,8 +407,7 @@ async function importRequirementPackWorkItemsFast(input) {
     projectId,
   });
 
-  const overlayLeaves = pack?.aiPlanning?.overlay?.leafAssignments || [];
-  const assigneeMap = buildLeafAssigneeMap(leafAssignments, overlayLeaves);
+  const assigneeMap = buildLeafAssigneeMap(leafAssignments, []);
 
   const idMap = new Map();
   const stats = {
@@ -547,9 +562,141 @@ async function importRequirementPackWorkItemsFast(input) {
   return stats;
 }
 
+/**
+ * W9 — import Blueprint HOW tasks (not FR Excel rows) onto board.
+ * @param {{
+ *   userId: string,
+ *   pack: object,
+ *   project: object,
+ *   boardId: string,
+ *   listId?: string,
+ *   blueprintPlan: { rows: Array },
+ * }} input
+ */
+async function importBlueprintWorkItemsFast(input) {
+  const startMs = Date.now();
+  const { userId, pack, project, boardId, listId, blueprintPlan } = input;
+  const projectId = String(project?._id || project?.projectId || '').trim();
+  const boardIdStr = String(boardId || project?.defaultBoardId || '').trim();
+  if (!projectId || !boardIdStr) {
+    const err = new Error('projectId và boardId bắt buộc để import blueprint');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const rows = Array.isArray(blueprintPlan?.rows) ? blueprintPlan.rows : [];
+  const ctx = await preparePackImportContext({
+    userId,
+    boardId: boardIdStr,
+    listId,
+    projectId,
+  });
+
+  const idMap = new Map();
+  const stats = {
+    planningItems: 0,
+    cards: 0,
+    assigned: 0,
+    skipped: 0,
+    warnings: [],
+    durationMs: 0,
+    source: 'blueprint',
+  };
+
+  for (const row of rows) {
+    const blueprintTaskId = String(row.blueprintTaskId || '').trim();
+    if (!blueprintTaskId) {
+      stats.skipped += 1;
+      continue;
+    }
+    const parentRef = row.parentBlueprintTaskId
+      ? idMap.get(String(row.parentBlueprintTaskId))
+      : null;
+    const title = String(row.name || blueprintTaskId).trim().slice(0, 240);
+    const frNote =
+      Array.isArray(row.sourceFrIds) && row.sourceFrIds.length
+        ? `\n\nSource FR: ${row.sourceFrIds.join(', ')}`
+        : '';
+    const description = `Blueprint task ${blueprintTaskId}${frNote}`.slice(0, 4000);
+    const estimateHours =
+      row.effortHours != null && Number.isFinite(Number(row.effortHours))
+        ? Number(row.effortHours)
+        : null;
+    const assigneeId = row.assigneeUserId || null;
+
+    try {
+      const issueType = row.parentBlueprintTaskId ? 'task' : 'story';
+      if (assigneeId) {
+        await ensureAssigneeBoardAccessFast({
+          boardId: ctx.board._id,
+          assigneeId,
+          actorId: userId,
+        });
+      }
+      const card = await createCardFast(ctx, {
+        userId,
+        title,
+        description,
+        issueType,
+        parentTaskId: parentRef?.kind === 'card' ? parentRef.id : null,
+        epicId: null,
+        featureId: null,
+        estimateHours,
+        assigneeId,
+        startDate: row.startDate || null,
+        dueDate: row.dueDate || null,
+        parentTaskMeta: parentRef?.kind === 'card' ? { id: parentRef.id, issueType: parentRef.issueType } : null,
+      });
+      idMap.set(blueprintTaskId, {
+        kind: 'card',
+        id: card._id,
+        issueType,
+        blueprintTaskId,
+      });
+      stats.cards += 1;
+      if (assigneeId) stats.assigned += 1;
+    } catch (err) {
+      stats.skipped += 1;
+      stats.warnings.push({
+        blueprintTaskId,
+        message: err.message || 'import_failed',
+      });
+    }
+  }
+
+  stats.durationMs = Date.now() - startMs;
+  logger.info(
+    '[requirement] import blueprint pack=%s cards=%d assigned=%d skipped=%d ms=%d',
+    String(pack?._id || ''),
+    stats.cards,
+    stats.assigned,
+    stats.skipped,
+    stats.durationMs
+  );
+
+  await logPackImportActivity({
+    organizationId: ctx.project.organizationId,
+    projectId: ctx.project._id,
+    boardId: ctx.board._id,
+    actorId: userId,
+    title: `Import ${stats.cards} blueprint tasks`,
+    payload: {
+      packId: String(pack?._id || ''),
+      source: 'blueprint',
+      cards: stats.cards,
+      assigned: stats.assigned,
+      skipped: stats.skipped,
+      durationMs: stats.durationMs,
+    },
+  });
+
+  return stats;
+}
+
 module.exports = {
   IMPORT_HOURS_RATIONALE,
   LARGE_PACK_WARN_ROWS,
   importRequirementPackWorkItemsFast,
+  importBlueprintWorkItemsFast,
   preparePackImportContext,
 };

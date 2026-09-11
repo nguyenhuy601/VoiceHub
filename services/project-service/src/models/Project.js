@@ -187,6 +187,22 @@ const projectSchema = new mongoose.Schema(
       default: 'planning',
       index: true,
     },
+    /**
+     * Delivery gate (orthogonal to status). Missing on legacy docs → coerce to development at read.
+     * New creates default requirement_analysis via createProject / init fields.
+     */
+    deliveryPhase: {
+      type: String,
+      enum: [
+        'requirement_analysis',
+        'delivery_planning',
+        'development',
+        'qa_uat',
+        'release_handover',
+      ],
+      default: 'requirement_analysis',
+      index: true,
+    },
     projectType: {
       type: String,
       enum: ['software', 'integration', 'maintenance', 'research', 'other'],

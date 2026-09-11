@@ -259,6 +259,10 @@ router.patch('/:projectId/tasks/:taskId/planning', planning.linkTaskEpic);
 router.get('/:projectId/complete-preview', controller.completeProjectPreview);
 router.post('/:projectId/complete', controller.completeProject);
 router.post('/:projectId/archive', controller.archiveProject);
+
+const analysisRoutes = require('./analysis.routes');
+router.use('/:projectId', analysisRoutes);
+
 router.patch('/:projectId', controller.patchProject);
 router.get('/:projectId', controller.getProject);
 

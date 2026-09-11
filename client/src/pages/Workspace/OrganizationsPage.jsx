@@ -20,6 +20,7 @@ import {
 } from '../../features/search/businessCardDisplay';
 import { enrichMembershipsWithProfiles } from '../../features/search/enrichOrgMembers';
 import { useAuth } from '../../context/AuthContext';
+import { useSpace } from '../../context/SpaceContext';
 import { getResolvedBearerToken } from '../../utils/tokenStorage';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -37,6 +38,7 @@ import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { isOrgMemberAccessIncomplete } from '../../utils/orgMemberAccessGate';
+import { resolveCompanyMembersDepartmentId } from '../../utils/spaceContextUtils';
 import {
   isWideContentTab,
   loadOrgWorkspaceLayoutPrefs,
@@ -81,7 +83,9 @@ import {
   buildCollaborateOrgNotificationsPath,
   buildCollaborateTasksPath,
   buildCollaborateWorkspacePath,
+  buildCompanyChatPath,
   buildCommunicateChannelsPath,
+  isCompanyChatModulePath,
   orgQueryFromSearch,
   departmentQueryFromSearch,
   teamQueryFromSearch,
@@ -199,6 +203,11 @@ function OrganizationsPage({
   const { user, loading: authLoading, isAuthenticated, accessToken } = useAuth();
   const { setActiveWorkspace, lastWorkspaceSlug, setLastWorkspaceSlug, lastOrganizationId, singleOrgMode } =
     useWorkspace();
+  const space = useSpace();
+  const membersDepartmentId = useMemo(
+    () => resolveCompanyMembersDepartmentId(space),
+    [space?.kind, space?.departmentId]
+  );
   const { isDarkMode } = useTheme();
   const { on, off, onlineUsers, connected: socketConnected, joinRoom, leaveRoom } = useSocket();
   const navigate = useLandingSafeNavigate(landingDemo);
@@ -1665,9 +1674,22 @@ function OrganizationsPage({
 
       const mod = String(module || 'announcement').toLowerCase();
       const orgId = selectedOrganizationId ? String(selectedOrganizationId) : '';
+      const onChatModule = isCompanyChatModulePath(location.pathname);
 
       const syncWorkspaceUrl = (tab, channelId = '') => {
         if (!orgId || suiteMode !== 'collaborate') return;
+        const chatLike = tab === 'announcement' || tab === 'chat';
+        if (onChatModule && chatLike) {
+          navigate(
+            buildCompanyChatPath(orgId, {
+              departmentId: deptId,
+              tab: 'announcement',
+              channelId,
+            }),
+            { replace: true }
+          );
+          return;
+        }
         navigate(
           buildCollaborateWorkspacePath({
             organizationId: orgId,
@@ -1771,6 +1793,7 @@ function OrganizationsPage({
       reloadOrgShell,
       suiteMode,
       t,
+      location.pathname,
     ]
   );
 
@@ -1800,10 +1823,25 @@ function OrganizationsPage({
     setWorkspaceTabView(nextTab);
     if (!selectedOrganizationId || landingDemo) return;
     if (suiteMode === 'collaborate') {
+      const orgId = String(selectedOrganizationId);
+      const deptId =
+        selectedDepartmentId && !selectedTeamId ? String(selectedDepartmentId) : '';
+      if (isCompanyChatModulePath(location.pathname)) {
+        navigate(
+          buildCompanyChatPath(orgId, {
+            departmentId: deptId,
+            teamId: selectedTeamId ? String(selectedTeamId) : '',
+            tab: nextTab,
+            channelId: id,
+          }),
+          { replace: true }
+        );
+        return;
+      }
       navigate(
         buildCollaborateWorkspacePath({
-          organizationId: String(selectedOrganizationId),
-          departmentId: selectedDepartmentId && !selectedTeamId ? selectedDepartmentId : '',
+          organizationId: orgId,
+          departmentId: deptId,
           tab: nextTab,
           channelId: id,
         }),
@@ -3442,7 +3480,7 @@ function OrganizationsPage({
 
   useEffect(() => {
     if (landingDemo) return;
-    const fetchKey = `${selectedOrganizationId}|${friendsListKey}`;
+    const fetchKey = `${selectedOrganizationId}|${friendsListKey}|${membersDepartmentId}`;
     if (chatContactsFetchRef.current === fetchKey) return;
     chatContactsFetchRef.current = fetchKey;
 
@@ -3473,7 +3511,9 @@ function OrganizationsPage({
     setLoadingChatContacts(true);
     (async () => {
       try {
-        const memberPayload = await organizationAPI.getMembers(selectedOrganizationId);
+        const memberPayload = await organizationAPI.getMembers(selectedOrganizationId, {
+          ...(membersDepartmentId ? { departmentId: membersDepartmentId } : {}),
+        });
         if (cancelled) return;
         const memberData = unwrapData(memberPayload);
         const rawMemberList = Array.isArray(memberData?.data)
@@ -3542,7 +3582,7 @@ function OrganizationsPage({
     return () => {
       cancelled = true;
     };
-  }, [selectedOrganizationId, landingDemo, friendsListKey, t]);
+  }, [selectedOrganizationId, membersDepartmentId, landingDemo, friendsListKey, t]);
 
   useEffect(() => {
     if (!orgIdFromQuery || !organizationsLoaded) return;
@@ -3575,13 +3615,22 @@ function OrganizationsPage({
   useEffect(() => {
     if (landingDemo || !orgIdFromQuery || !organizationsLoaded) return;
     if (!departmentIdFromQuery && !teamIdFromQuery && !channelIdFromQuery) return;
-    const key = `${orgIdFromQuery}|${departmentIdFromQuery}|${teamIdFromQuery}|${channelIdFromQuery}|${workspaceTabProp || ''}|${tabFromQuery || ''}`;
+    const key = `${orgIdFromQuery}|${departmentIdFromQuery}|${teamIdFromQuery}|${channelIdFromQuery}|${workspaceTabProp || ''}|${tabFromQuery || ''}|${location.pathname}`;
     if (workspaceDeepLinkRef.current === key) return;
 
     // Chờ shell/structure load xong rồi mới restore — tránh F5 bỏ lỡ departmentId.
     if ((departmentIdFromQuery || teamIdFromQuery) && !findBranchAndDivisionForDepartment) return;
 
-    if (teamIdFromQuery && canSelectTeam(teamIdFromQuery)) {
+    // /app/company/calendar: luôn mở lịch phòng ban kể cả khi L2 đang team (giữ teamId trên URL).
+    const forceDepartmentCalendar =
+      suiteLayout &&
+      /\/app\/company\/calendar\/?$/.test(String(location.pathname || '')) &&
+      Boolean(departmentIdFromQuery);
+
+    if (forceDepartmentCalendar && canSelectDepartment(departmentIdFromQuery)) {
+      setSelectedTeamId('');
+      handleSelectDepartment(departmentIdFromQuery, { workspace: true });
+    } else if (teamIdFromQuery && canSelectTeam(teamIdFromQuery)) {
       const context = resolveTeamContext(teamIdFromQuery);
       if (context.branchId) setSelectedBranchId(context.branchId);
       if (context.divisionId) setSelectedDivisionId(context.divisionId);
@@ -3611,7 +3660,9 @@ function OrganizationsPage({
     const tabCandidate = workspaceTabProp || tabFromQuery;
     if (tabCandidate) {
       const normalized = normalizeWorkspaceTab(tabCandidate, {
-        departmentMode: Boolean(departmentIdFromQuery && !teamIdFromQuery),
+        departmentMode: Boolean(
+          forceDepartmentCalendar || (departmentIdFromQuery && !teamIdFromQuery)
+        ),
       });
       if (DEPT_WORKSPACE_TAB_VALUES.includes(normalized) || normalized === 'chat' || normalized === 'voice') {
         setWorkspaceTabView(normalized);
@@ -3635,6 +3686,8 @@ function OrganizationsPage({
     canSelectTeam,
     resolveTeamContext,
     findBranchAndDivisionForDepartment,
+    suiteLayout,
+    location.pathname,
   ]);
 
   // Giữ departmentId/teamId/boardId trên URL tab Task để F5 quay lại đúng chỗ.
@@ -4500,7 +4553,12 @@ function OrganizationsPage({
             selectedDepartmentId &&
             !selectedTeamId
         )}
-        hideChrome={false}
+        hideChrome={Boolean(
+          isCompanyChatModulePath(location.pathname) &&
+            departmentWorkspaceActive &&
+            selectedDepartmentId &&
+            !selectedTeamId
+        )}
         locale={locale}
         onBackFromSubView={handleBackFromSubView}
         onDeptTabChange={handleDepartmentModuleClick}
@@ -4622,6 +4680,7 @@ function OrganizationsPage({
             ) : (
             <OrganizationMemberSidebar
               organizationId={selectedOrganizationId}
+              departmentId={membersDepartmentId}
               workspaceSlug={String(selectedOrganization?.slug || '').trim()}
               organizationName={selectedOrganization?.name || ''}
               selectedTeamId={selectedTeamId}

@@ -59,9 +59,57 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'change_request:create',
   'change_request:update',
   'change_request:delete',
+  'analysis:view',
+  'analysis:document_upload',
+  'analysis:artifact_import',
+  'analysis:artifact_edit',
+  'analysis:submit_ba_review',
+  'analysis:ba_review',
+  'analysis:tech_review',
+  'analysis:po_review',
+  'analysis:manage_trace',
+  'analysis:cut_srs',
+  'delivery_phase:change',
 ]);
 
 const PERM_SET = new Set(PROJECT_PERMISSION_KEYS);
+
+const ANALYSIS_VIEW = Object.freeze(['analysis:view']);
+
+const ANALYSIS_BA_PERMS = Object.freeze([
+  ...ANALYSIS_VIEW,
+  'analysis:document_upload',
+  'analysis:artifact_import',
+  'analysis:artifact_edit',
+  'analysis:submit_ba_review',
+  'analysis:ba_review',
+  'analysis:manage_trace',
+]);
+
+const ANALYSIS_PO_PERMS = Object.freeze([
+  ...ANALYSIS_VIEW,
+  'analysis:document_upload',
+  'analysis:artifact_import',
+  'analysis:artifact_edit',
+  'analysis:po_review',
+  'analysis:manage_trace',
+  'analysis:cut_srs',
+]);
+
+const ANALYSIS_PM_PERMS = Object.freeze([
+  ...ANALYSIS_VIEW,
+  'analysis:document_upload',
+  'analysis:po_review',
+  'analysis:manage_trace',
+  'analysis:cut_srs',
+  'delivery_phase:change',
+]);
+
+const ANALYSIS_TECH_PERMS = Object.freeze([
+  ...ANALYSIS_VIEW,
+  'analysis:tech_review',
+  'analysis:manage_trace',
+]);
 
 const VIEW_ONLY = Object.freeze([
   'project:view',
@@ -77,6 +125,7 @@ const VIEW_ONLY = Object.freeze([
   'delivery:view',
   'report:view',
   'change_request:view',
+  ...ANALYSIS_VIEW,
 ]);
 
 const DEV_PERMS = Object.freeze([
@@ -102,6 +151,7 @@ const LEAD_PERMS = Object.freeze([
   'approval:decide',
   'change_request:update',
   'change_request:delete',
+  ...ANALYSIS_TECH_PERMS,
 ]);
 
 const PO_PERMS = Object.freeze([
@@ -116,6 +166,7 @@ const PO_PERMS = Object.freeze([
   'approval:request',
   'change_request:create',
   'change_request:update',
+  ...ANALYSIS_PO_PERMS,
 ]);
 
 const BA_PERMS = Object.freeze([
@@ -130,6 +181,7 @@ const BA_PERMS = Object.freeze([
   'approval:request',
   'change_request:create',
   'change_request:update',
+  ...ANALYSIS_BA_PERMS,
 ]);
 
 const SM_PERMS = Object.freeze([
@@ -150,6 +202,7 @@ const PM_PERMS = Object.freeze([
   'change_request:create',
   'change_request:update',
   'change_request:delete',
+  ...ANALYSIS_PM_PERMS,
 ]);
 
 const QA_PERMS = Object.freeze([
@@ -179,6 +232,7 @@ const ARCHITECT_PERMS = Object.freeze([
   'repository:merge',
   'wiki:edit',
   'files:upload',
+  ...ANALYSIS_TECH_PERMS,
 ]);
 
 /** Default matrix by role key */

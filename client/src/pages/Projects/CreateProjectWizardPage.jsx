@@ -4,14 +4,18 @@ import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import CreateProjectWizard from '../../features/projects/CreateProjectWizard';
 import { taskAPI } from '../../services/api/taskAPI';
-import { buildCollaborateProjectHubPath } from '../../utils/suitePathUtils';
+import {
+  buildCollaborateProjectHubPath,
+  buildProjectsModulePath,
+  buildProjectsPickerPath,
+} from '../../utils/suitePathUtils';
 import { useAppStrings } from '../../locales/appStrings';
 import { wizardUi } from '../../features/projects/wizard/projectWizardUi';
 import { queryKeys } from '../../lib/queryKeys';
 
 /**
  * Full-viewport create-project page (no suite sidebar).
- * Routes: /app/collaborate/projects/new?organizationId=
+ * Routes: /app/projects/new?organizationId=
  *         /app/admin/projects/create?organizationId=
  */
 export default function CreateProjectWizardPage() {
@@ -27,6 +31,8 @@ export default function CreateProjectWizardPage() {
   const isAdmin =
     fromParam === 'admin' || String(location.pathname || '').startsWith('/app/admin/projects/create');
 
+  const projectsPickerPath = buildProjectsPickerPath(organizationId);
+
   const initialValues = useMemo(() => {
     const title = String(params.get('title') || '').trim();
     const description = String(params.get('description') || '').trim();
@@ -35,11 +41,7 @@ export default function CreateProjectWizardPage() {
     return { title, description, projectCode, body: description };
   }, [params]);
 
-  const cancelTarget = isAdmin
-    ? '/app/admin/projects/boards'
-    : organizationId
-      ? `/app/collaborate/workspaces?organizationId=${encodeURIComponent(organizationId)}`
-      : '/app/collaborate/workspaces';
+  const cancelTarget = isAdmin ? '/app/admin/projects/boards' : projectsPickerPath;
 
   const onCancel = () => navigate(cancelTarget);
 
@@ -70,10 +72,15 @@ export default function CreateProjectWizardPage() {
       return;
     }
     if (organizationId) {
-      navigate(buildCollaborateProjectHubPath(projectId, { organizationId, boardId }));
+      navigate(
+        buildProjectsModulePath(projectId, 'overview', {
+          organizationId,
+          boardId,
+        })
+      );
       return;
     }
-    navigate('/app/collaborate/workspaces');
+    navigate(buildProjectsPickerPath(''));
   };
 
   if (!organizationId) {
@@ -83,7 +90,7 @@ export default function CreateProjectWizardPage() {
           {t('organizations.selectOrgFirst') || 'Chọn organization trước khi tạo dự án.'}
         </p>
         <Link
-          to={isAdmin ? '/app/admin/projects/boards' : '/app/collaborate/workspaces'}
+          to={isAdmin ? '/app/admin/projects/boards' : projectsPickerPath}
           className={wizardUi.link}
         >
           {isAdmin

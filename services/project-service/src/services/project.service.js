@@ -13,7 +13,6 @@ const {
   canCreateTaskInScope,
 } = require('./taskWorkspaceScope');
 const {
-  ensureOrgProjectRoles,
   ensureProjectMembership,
   setUserProjectRoles,
   cloneOrgRolesToProject,
@@ -57,6 +56,8 @@ const {
   isOrgElevatedMembershipRole,
   memberScopedProjectFilter,
 } = require('../utils/project/projectListMembershipScope');
+const { attachListProjectCardSummaries } = require('../utils/project/listProjectCardSummary');
+const { isCardListView, toProjectListCardItem, CARD_LIST_PROJECT_SELECT } = require('../utils/project/projectListCardView');
 
 const DEFAULT_BOARD_TITLE = 'Main';
 const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Done']);
@@ -223,6 +224,11 @@ async function createProject({
     customer,
   });
   if (!init.ok) throw new Error(init.message);
+  // RULE-W1: public create always starts Phase 1 Requirement Analysis
+  const {
+    DEFAULT_DELIVERY_PHASE_NEW,
+  } = require('../constants/projectDeliveryPhase');
+  init.fields.deliveryPhase = DEFAULT_DELIVERY_PHASE_NEW;
 
   let due = init.fields.dueDate || null;
   if (!due && dueDate !== undefined && dueDate !== null && String(dueDate).trim() !== '') {
@@ -508,7 +514,24 @@ async function listProjects({
   scopeId,
   includeArchived = false,
   excludeClosed = false,
+  view = '',
 }) {
+  const cardView = isCardListView(view);
+  const timingOn = String(process.env.LIST_PROJECTS_TIMING || '')
+    .trim()
+    .toLowerCase();
+  const wantTiming = timingOn === '1' || timingOn === 'true' || timingOn === 'on';
+  const tTotal = Date.now();
+  const timing = {
+    visibilityMs: 0,
+    projectQueryMs: 0,
+    boardMemberMs: 0,
+    healMs: 0,
+    progressMs: 0,
+    pmMs: 0,
+    profilesMs: 0,
+  };
+
   const userOid = mongoose.Types.ObjectId.isValid(userId)
     ? new mongoose.Types.ObjectId(String(userId))
     : null;
@@ -542,14 +565,23 @@ async function listProjects({
 
   const useV2 = isProjectVisibilityV2Enabled();
   let visibilityCtx = null;
+  let memberRows;
+  const tVis = Date.now();
   if (useV2) {
-    visibilityCtx = await fetchProjectVisibilityContext(organizationId, userId);
+    const [ctx, rows] = await Promise.all([
+      fetchProjectVisibilityContext(organizationId, userId),
+      ProjectMembership.find({ userId: userOid }).select('projectId projectRoleId').lean(),
+    ]);
+    visibilityCtx = ctx;
+    memberRows = rows || [];
     if (!visibilityCtx.isOrgMember) return [];
+  } else {
+    memberRows = await ProjectMembership.find({ userId: userOid })
+      .select('projectId projectRoleId')
+      .lean();
   }
+  timing.visibilityMs = Date.now() - tVis;
 
-  const memberRows = await ProjectMembership.find({ userId: userOid })
-    .select('projectId projectRoleId')
-    .lean();
   const roleIdsNeeded = [
     ...new Set(memberRows.map((r) => String(r.projectRoleId || '')).filter(Boolean)),
   ];
@@ -575,31 +607,37 @@ async function listProjects({
     useV2 && visibilityCtx
       ? isOrgElevatedMembershipRole(visibilityCtx.membershipRole)
       : false;
-  if (useV2 && elevated) {
-    projects = await Project.find(base).sort({ createdAt: -1 }).lean();
-  } else {
-    // Non-admin (V2 + legacy): chỉ project membership / creator — không workspace / phòng ban.
-    projects = await Project.find(
-      memberScopedProjectFilter(base, userOid, memberProjectIds)
-    )
-      .sort({ createdAt: -1 })
-      .lean();
+  const projectQuery =
+    useV2 && elevated
+      ? Project.find(base).sort({ createdAt: -1 })
+      : Project.find(memberScopedProjectFilter(base, userOid, memberProjectIds)).sort({
+          createdAt: -1,
+        });
+  if (cardView) {
+    projectQuery.select(CARD_LIST_PROJECT_SELECT);
   }
+  const tProj = Date.now();
+  projects = await projectQuery.lean();
+  timing.projectQueryMs = Date.now() - tProj;
 
   if (!projects.length) return [];
 
   const projectIds = projects.map((p) => p._id);
+  const boardQuery = TaskBoard.find({
+    projectId: { $in: projectIds },
+    isActive: true,
+  }).sort({ createdAt: 1 });
+  if (cardView) {
+    boardQuery.select('_id projectId');
+  }
+  const tBoard = Date.now();
   const [boards, membershipRows] = await Promise.all([
-    TaskBoard.find({
-      projectId: { $in: projectIds },
-      isActive: true,
-    })
-      .sort({ createdAt: 1 })
-      .lean(),
+    boardQuery.lean(),
     ProjectMembership.find({ projectId: { $in: projectIds } })
-      .select('projectId userId')
+      .select('projectId userId projectRoleId')
       .lean(),
   ]);
+  timing.boardMemberMs = Date.now() - tBoard;
 
   const boardsByProject = new Map();
   for (const b of boards) {
@@ -616,36 +654,8 @@ async function listProjects({
     if (uid) memberCountByProject.get(key).add(uid);
   }
 
-  const healJobs = [];
-  for (const p of projects) {
-    const key = String(p._id);
-    const users = memberCountByProject.get(key) || new Set();
-    const creatorId = String(p.createdBy || '').trim();
-    if (creatorId && !users.has(creatorId)) {
-      healJobs.push(
-        (async () => {
-          try {
-            await ensureOrgProjectRoles(p.organizationId);
-            await ensureProjectMembership({
-              projectId: p._id,
-              boardId: (boardsByProject.get(key) || [])[0]?._id || null,
-              userId: creatorId,
-              projectRoleKey: DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER,
-              addedBy: creatorId,
-              organizationId: p.organizationId,
-            });
-            users.add(creatorId);
-            memberCountByProject.set(key, users);
-            if (!roleKeysByProject.has(key)) roleKeysByProject.set(key, []);
-            roleKeysByProject.get(key).push(DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER);
-          } catch (err) {
-            logger.warn('[listProjects] creator membership heal failed project=%s: %s', key, err.message);
-          }
-        })()
-      );
-    }
-  }
-  if (healJobs.length) await Promise.all(healJobs);
+  // GET list must not heal membership / ensureOrgProjectRoles (write-path only).
+  timing.healMs = 0;
 
   const actor = visibilityCtx
     ? {
@@ -684,7 +694,11 @@ async function listProjects({
         ...p,
         projectId: key,
         defaultBoardId: defaultBoard ? String(defaultBoard._id) : null,
-        boards: access.informationLevel === 'summary' ? undefined : pBoards,
+        boards: cardView
+          ? undefined
+          : access.informationLevel === 'summary'
+            ? undefined
+            : pBoards,
         memberCount,
         membersCount: memberCount,
         access,
@@ -696,6 +710,43 @@ async function listProjects({
       access.informationLevel
     );
     result.push(payload);
+  }
+
+  try {
+    const summaryTiming = {};
+    await attachListProjectCardSummaries(result, String(organizationId), {
+      memberships: membershipRows,
+      progressMode: cardView ? 'card' : 'full',
+      organizationId: String(organizationId),
+      timingOut: wantTiming ? summaryTiming : undefined,
+    });
+    if (wantTiming) {
+      timing.progressMs = Number(summaryTiming.progressMs) || 0;
+      timing.pmMs = Number(summaryTiming.pmMs) || 0;
+      timing.profilesMs = Number(summaryTiming.profilesMs) || 0;
+    }
+  } catch (err) {
+    logger.warn('[listProjects] card summary attach failed: %s', err?.message || err);
+  }
+
+  if (wantTiming) {
+    logger.info(
+      '[listProjects] timing view=%s projects=%s visibilityMs=%s projectQueryMs=%s boardMemberMs=%s healMs=%s progressMs=%s pmMs=%s profilesMs=%s totalMs=%s',
+      cardView ? 'card' : 'full',
+      result.length,
+      timing.visibilityMs,
+      timing.projectQueryMs,
+      timing.boardMemberMs,
+      timing.healMs,
+      timing.progressMs,
+      timing.pmMs,
+      timing.profilesMs,
+      Date.now() - tTotal
+    );
+  }
+
+  if (cardView) {
+    return result.map((row) => toProjectListCardItem(row));
   }
   return result;
 }
@@ -805,6 +856,8 @@ async function getProject({ userId, projectId }) {
 async function attachProjectCapabilities(payload, userId, projectId) {
   if (payload && typeof payload === 'object') {
     delete payload.technicalSetup;
+    const { coerceDeliveryPhase } = require('../constants/projectDeliveryPhase');
+    payload.deliveryPhase = coerceDeliveryPhase(payload.deliveryPhase);
     payload.workTypeConfig = require('../utils/project/workTypeConfig').serializeWorkTypeConfig(
       payload.workTypeConfig
     );
@@ -848,6 +901,9 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       canPrioritizeBacklog: bypass || hasPermission(perms, 'backlog:prioritize'),
       canUpdateBacklog: bypass || hasPermission(perms, 'backlog:update'),
       canEstimate: bypass || hasPermission(perms, 'task:estimate'),
+      canViewAnalysis: bypass || hasPermission(perms, 'analysis:view'),
+      canChangeDeliveryPhase: bypass || hasPermission(perms, 'delivery_phase:change'),
+      canCutSrs: bypass || hasPermission(perms, 'analysis:cut_srs'),
     },
   };
 }
@@ -910,19 +966,59 @@ async function patchProject({ userId, projectId, patch }) {
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
+    const hasDeliveryPhasePatch = Object.prototype.hasOwnProperty.call(
+      patch || {},
+      'deliveryPhase'
+    );
+    if (hasDeliveryPhasePatch) {
+      const canPhase =
+        hasPermission(resolved.permissions, 'delivery_phase:change') ||
+        resolved.isOrgAdmin ||
+        resolved.isCreator;
+      if (!canPhase) {
+        const err = new Error('Không có quyền đổi deliveryPhase (delivery_phase:change)');
+        err.statusCode = 403;
+        throw err;
+      }
+    }
     const canSettings =
       hasPermission(resolved.permissions, 'settings:update') ||
       hasPermission(resolved.permissions, 'project:edit') ||
       resolved.isOrgAdmin ||
       resolved.isCreator;
-    if (!canSettings) {
+    if (!canSettings && !hasDeliveryPhasePatch) {
       const err = new Error('Không có quyền sửa settings dự án (settings:update)');
       err.statusCode = 403;
       throw err;
     }
+    if (!canSettings && hasDeliveryPhasePatch) {
+      // PM may change only deliveryPhase without full settings:update
+      const onlyPhase =
+        Object.keys(patch || {}).filter((k) => patch[k] !== undefined).length === 1;
+      if (!onlyPhase) {
+        const err = new Error('Không có quyền sửa settings dự án (settings:update)');
+        err.statusCode = 403;
+        throw err;
+      }
+    }
   } else {
     const canAdmin = await userCanAdminProject(userId, project.toObject());
     if (!canAdmin) throw new Error('Không có quyền sửa settings dự án');
+  }
+
+  const {
+    canTransitionDeliveryPhase,
+    coerceDeliveryPhase: coercePhase,
+  } = require('../constants/projectDeliveryPhase');
+  if (Object.prototype.hasOwnProperty.call(patch || {}, 'deliveryPhase')) {
+    const from = coercePhase(project.deliveryPhase);
+    const to = coercePhase(patch.deliveryPhase, { missingAsExisting: false });
+    if (!to || !canTransitionDeliveryPhase(from, to)) {
+      const err = new Error('Chuyển deliveryPhase không được phép');
+      err.statusCode = 400;
+      err.errorCode = 'DELIVERY_PHASE_TRANSITION_DENIED';
+      throw err;
+    }
   }
 
   const built = buildBoardIdentityPatch(patch);
@@ -944,6 +1040,7 @@ async function patchProject({ userId, projectId, patch }) {
   if (init.ok === false && Object.keys(patch || {}).some((k) =>
     [
       'status',
+      'deliveryPhase',
       'projectType',
       'category',
       'priority',

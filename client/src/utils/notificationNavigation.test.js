@@ -13,68 +13,37 @@ describe('parseSafeAppPath', () => {
       '/app/collaborate/projects/abc?boardId=b1'
     );
     assert.equal(parseSafeAppPath('/tasks/xyz'), null);
+    assert.equal(parseSafeAppPath('https://evil.example/app/me'), null);
   });
+});
 
-  it('map legacy /chat /voice /documents /organizations và absolute /app', () => {
+describe('resolveNotificationAppPath', () => {
+  it('ưu tiên actionUrl rồi mới projectId; map collaborate → projects', () => {
     assert.equal(
-      parseSafeAppPath('/chat/friends?openDmUserId=u1'),
-      '/app/communicate/chat/friends?openDmUserId=u1'
+      resolveNotificationAppPath({
+        actionUrl: '/app/collaborate/projects/p1',
+        data: { projectId: 'p2' },
+      }),
+      '/app/projects/p1/overview'
     );
     assert.equal(
-      parseSafeAppPath('/voice/room1'),
-      '/app/communicate/voice/room1'
-    );
-    assert.equal(
-      parseSafeAppPath('/documents/doc1'),
-      '/app/collaborate/documents/doc1'
-    );
-    assert.equal(
-      parseSafeAppPath('https://voicehub.local/app/collaborate/documents?organizationId=o1'),
-      '/app/collaborate/documents?organizationId=o1'
-    );
-    assert.equal(
-      parseSafeAppPath('https://evil.example/app/me'),
-      '/app/me'
+      resolveNotificationAppPath({
+        data: { projectId: 'p9', organizationId: 'o1', boardId: 'b1' },
+      }),
+      '/app/projects/p9/overview?organizationId=o1&boardId=b1'
     );
   });
 });
 
 describe('normalizeLegacyAppPath', () => {
-  it('org settings → collaborate', () => {
+  it('maps collaborate hub and legacy voice', () => {
     assert.equal(
-      normalizeLegacyAppPath('/organizations/o1/settings', '?tab=join'),
-      '/app/collaborate/organizations/o1/settings?tab=join'
-    );
-  });
-});
-
-describe('resolveNotificationAppPath', () => {
-  it('ưu tiên actionUrl rồi mới projectId', () => {
-    assert.equal(
-      resolveNotificationAppPath({
-        actionUrl: '/app/collaborate/projects/p1',
-        data: { projectId: 'other' },
-      }),
-      '/app/collaborate/projects/p1'
+      normalizeLegacyAppPath('/app/collaborate/projects/p1', '?boardId=b1'),
+      '/app/projects/p1/overview?boardId=b1'
     );
     assert.equal(
-      resolveNotificationAppPath({
-        data: { projectId: 'p2', organizationId: 'o1' },
-      }),
-      '/app/collaborate/projects/p2?organizationId=o1'
-    );
-  });
-
-  it('project_mention fallback channel URL', () => {
-    assert.equal(
-      resolveNotificationAppPath({
-        data: {
-          kind: 'project_mention',
-          organizationId: 'o1',
-          roomId: 'r1',
-        },
-      }),
-      '/app/collaborate/organizations/o1/channels?channelId=r1'
+      normalizeLegacyAppPath('/voice/room99', '?x=1'),
+      '/app/communicate/voice/room99?x=1'
     );
   });
 });

@@ -25,7 +25,7 @@ const DOCUMENT_SHARE_ACL_ENABLED = hasBackendCapability('documentShareAcl');
 const DOCUMENT_COPY_MOVE_ENABLED = hasBackendCapability('documentCopyMove');
 const DOCUMENT_STAR_ENABLED = hasBackendCapability('documentStarred');
 
-function DocumentsPage() {
+function DocumentsPage({ suiteLayout = false, spaceOrganizationId = '' } = {}) {
   const { locale } = useLocale();
   const { t } = useAppStrings();
   const navigate = useNavigate();
@@ -33,7 +33,10 @@ function DocumentsPage() {
   const orgsQuery = useOrganizationsMy();
   const [searchParams] = useSearchParams();
   const organizationId = String(
-    searchParams.get('organizationId') || searchParams.get('orgId') || ''
+    spaceOrganizationId ||
+      searchParams.get('organizationId') ||
+      searchParams.get('orgId') ||
+      ''
   ).trim();
   const isOrgDocuments = Boolean(organizationId);
 

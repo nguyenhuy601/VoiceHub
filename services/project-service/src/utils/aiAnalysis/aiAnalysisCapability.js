@@ -17,6 +17,7 @@ const {
 } = require('./aiAnalysisFrSlice');
 const { FR_LANGUAGE_CUE, detectSkillHints } = require('./aiAnalysisLocaleText');
 const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
+const { buildWallBudgetSkipMeta } = require('./aiAnalysisWallBudgetMeta');
 
 const COMPLEXITY = Object.freeze(['low', 'medium', 'high']);
 const CONFIDENCE_LABELS = Object.freeze(['low', 'med', 'high']);
@@ -319,13 +320,21 @@ async function runCapabilityAnalysis(pack, opts = {}) {
   let llmCalls = 0;
   let partial = false;
   let lastError = null;
+  let wallBudgetSkipMeta = null;
   const chunkTimeout = opts.chunkTimeoutMs ?? Math.min(analysisChunkTimeoutMs(), wallMs);
+  const countFrInputs = (c) => (Array.isArray(c) ? c.length : 0);
 
   for (let i = 0; i < chunks.length; i += 1) {
     const elapsed = Date.now() - started;
     if (!canStartChunk(elapsed, wallMs, chunkTimeout)) {
       partial = true;
       lastError = 'wall_budget';
+      wallBudgetSkipMeta = buildWallBudgetSkipMeta({
+        chunks,
+        fromIndex: i,
+        countInputs: countFrInputs,
+        kind: 'fr',
+      });
       break;
     }
     const prompt = buildCapabilityPrompt({
@@ -392,6 +401,7 @@ async function runCapabilityAnalysis(pack, opts = {}) {
       partial,
       error: lastError || undefined,
       elapsedMs: Date.now() - started,
+      ...(wallBudgetSkipMeta || {}),
     },
   };
 }

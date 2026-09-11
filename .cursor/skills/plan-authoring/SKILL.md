@@ -49,6 +49,8 @@ A plan document with sections 1–6 (including 6.1–6.5 when applicable) ready 
 - [ ] §1.2 Success Criteria are measurable (status codes, commands, behaviors)
 - [ ] §1.4 Out-of-Scope present
 - [ ] §2 has CREATE/MODIFY/DO NOT MODIFY (+ DELETE if any) and §2.5 impact
+- [ ] §2.6 Nguồn dữ liệu khi đụng API/list/card (origin field, payload, sinh req mới?)
+- [ ] §2.6 Tối ưu response khi sinh/đổi payload (whitelist, omit nested, view opt-in, compat, FE cache key)
 - [ ] §3 has layers + responsibilities (+ business rules if domain logic)
 - [ ] §4 steps ordered with dependencies; Review Gate on large plans
 - [ ] §5 has unit/integration/smoke/regression + concrete commands + pass checklist
