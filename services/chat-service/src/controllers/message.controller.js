@@ -50,6 +50,7 @@ const {
 } = require('../services/projectMembershipReadModel');
 const { parseMessageRefs } = require('../utils/messageRefs');
 const { requireObjectId, requireUserId } = require('../utils/validateInput');
+const { assertDmCanSend, dmErrorToJson } = require('../utils/verifyDmRelationship');
 
 function chatUnauthorized(res) {
   return sendServiceError(res, 401, {
@@ -794,9 +795,21 @@ class MessageController {
             message: 'Invalid retentionContext',
           });
         }
+        const minioOn = Boolean(
+          process.env.MINIO_ENDPOINT &&
+            process.env.MINIO_ACCESS_KEY &&
+            process.env.MINIO_SECRET_KEY &&
+            process.env.MINIO_BUCKET
+        );
+        const uploadMode = String(process.env.CHAT_UPLOAD_STORAGE || 'auto')
+          .trim()
+          .toLowerCase();
+        const preferMinio = uploadMode === 'minio' || (uploadMode === 'auto' && minioOn);
         messageData.fileMeta = {
           storagePath: sp,
-          storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+          storageBucket: preferMinio
+            ? process.env.MINIO_BUCKET
+            : process.env.FIREBASE_STORAGE_BUCKET || process.env.MINIO_BUCKET,
           originalName: fileMeta.originalName || '',
           mimeType: fileMeta.mimeType || '',
           byteSize: fileMeta.byteSize,
@@ -808,8 +821,16 @@ class MessageController {
       }
 
       const message = await messageService.createMessage(messageData);
-      const payloadMessage =
-        (await attachSignedReadUrlToMessage(message)) || message;
+      let payloadMessage = message;
+      try {
+        payloadMessage = (await attachSignedReadUrlToMessage(message)) || message;
+      } catch (attachErr) {
+        console.warn(
+          '[createMessage] attachSignedReadUrl skipped:',
+          attachErr?.message || attachErr
+        );
+        payloadMessage = message;
+      }
 
       if (receiverId) {
         await Promise.all([
@@ -861,6 +882,11 @@ class MessageController {
         data: payloadMessage,
       });
     } catch (error) {
+      console.error(
+        '[createMessage] failed:',
+        error?.message || error,
+        error?.stack ? String(error.stack).slice(0, 500) : ''
+      );
       return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
