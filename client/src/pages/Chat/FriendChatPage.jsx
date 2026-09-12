@@ -12,6 +12,7 @@ import {
   Info,
   Paperclip,
   PanelLeft,
+  MoreHorizontal,
   Phone,
   Pin,
   Search,
@@ -37,6 +38,7 @@ import CreateTaskFromAiModal from '../../components/Chat/CreateTaskFromAiModal';
 import FriendChatRightPanel from '../../components/Chat/FriendChatRightPanel';
 import FriendPendingRequestsRail from '../../components/Friends/FriendPendingRequestsRail';
 import UserAvatar from '../../components/Shared/UserAvatar';
+import HoverTooltip from '../../components/Shared/HoverTooltip';
 import userService from '../../services/userService';
 import { buildFriendChatAttachments, findViewerIndex } from '../../utils/friendChatMedia';
 import {
@@ -92,12 +94,21 @@ import {
 } from '../../features/search';
 import dmMessageService from '../../services/dmMessageService';
 import { isOutgoing } from '../../utils/dmChatHelpers';
+import {
+  DM_INFO_MAX_W,
+  DM_INFO_MIN_W,
+  DM_LIST_MAX_W,
+  DM_LIST_MIN_W,
+  loadDmChatLayoutPrefs,
+  saveDmChatLayoutPrefs,
+} from '../../utils/dmChatLayoutPrefs';
 import { useFriendDmRealtime } from '../../hooks/useFriendDmRealtime';
 import { useFriendChatPageFocus } from '../../hooks/useFriendChatPageFocus';
 import FriendChatFigmaView from '../../components/Chat/FriendChatFigmaView';
 import {
   FIGMA_CHAT_ROOT,
   FIGMA_CHAT_SIDEBAR,
+  FIGMA_CHAT_SIDEBAR_FILL,
   FIGMA_CHAT_SIDEBAR_HEAD,
   FIGMA_CHAT_SIDEBAR_TITLE,
   FIGMA_CHAT_SIDEBAR_ARCHIVE_BTN,
@@ -145,7 +156,6 @@ import {
   FIGMA_CHAT_REPLY_BANNER,
   FIGMA_CHAT_EMPTY,
   FIGMA_CHAT_LOAD_OLDER,
-  FIGMA_CHAT_JUMP_BTN,
   figmaChatBubbleRow,
   figmaChatBubbleCol,
   figmaChatBubble,
@@ -251,6 +261,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const [conversationSearchOpen, setConversationSearchOpen] = useState(false);
   const [rightPanelDrawerOpen, setRightPanelDrawerOpen] = useState(false);
   const [sidebarDrawerOpen, setSidebarDrawerOpen] = useState(false);
+  const [dmLayout, setDmLayout] = useState(() => loadDmChatLayoutPrefs());
   /** null = không upload; 0–100 khi đang gửi file/ảnh */
   const [uploadProgress, setUploadProgress] = useState(null);
   const [editingMessageId, setEditingMessageId] = useState(null);
@@ -396,6 +407,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const currentUserAvatar = user?.avatar || null;
   const [friendProfiles, setFriendProfiles] = useState({});
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [headerMoreOpen, setHeaderMoreOpen] = useState(false);
   const [mediaViewer, setMediaViewer] = useState({ open: false, index: 0 });
   const currentFriendKey = selectedFriendId ? String(selectedFriendId) : '';
   const isCurrentFriendMuted = currentFriendKey ? mutedFriendIds.includes(currentFriendKey) : false;
@@ -1263,6 +1275,52 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     emit('friend:send', payload);
   };
 
+  const patchDmLayout = useCallback((patch) => {
+    setDmLayout((prev) => {
+      const saved = saveDmChatLayoutPrefs(patch);
+      return {
+        ...saved,
+        // RHS chỉ đổi khi patch chủ đích — resize width không đóng panel đang mở.
+        rightOpen:
+          patch.rightOpen !== undefined ? Boolean(patch.rightOpen) : prev.rightOpen,
+      };
+    });
+  }, []);
+
+  const toggleDmListPanel = useCallback(() => {
+    patchDmLayout({ leftOpen: !dmLayout.leftOpen });
+  }, [dmLayout.leftOpen, patchDmLayout]);
+
+  const toggleDmInfoPanel = useCallback(() => {
+    setDmLayout((prev) => {
+      const nextOpen = !prev.rightOpen;
+      const saved = saveDmChatLayoutPrefs({ rightOpen: nextOpen });
+      setRightPanelDrawerOpen(nextOpen);
+      return { ...saved, rightOpen: nextOpen };
+    });
+  }, []);
+
+  const closeDmInfoPanel = useCallback(() => {
+    setRightPanelDrawerOpen(false);
+    setDmLayout((prev) => {
+      const saved = saveDmChatLayoutPrefs({ rightOpen: false });
+      return { ...saved, rightOpen: false };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!headerMoreOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setHeaderMoreOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [headerMoreOpen]);
+
+  useEffect(() => {
+    setHeaderMoreOpen(false);
+  }, [selectedFriendId]);
+
   const openCalendarForFriend = useCallback(
     (opts = {}) => {
       if (!currentFriend?.id) return;
@@ -1323,7 +1381,8 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     return () => {
       cancelled = true;
     };
-  }, [selectedFriendId, landingDemo]);
+    // dataUpdatedAt: refetch friends → làm mới avatar peer đang mở chat
+  }, [selectedFriendId, landingDemo, acceptedFriendsQuery.dataUpdatedAt]);
 
   useEffect(() => {
     setMediaViewer({ open: false, index: 0 });
@@ -1480,11 +1539,16 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     });
   }, []);
 
+  const uploadAbortRef = useRef(null);
+
   const performFileUpload = useCallback(
     async (file) => {
       if (!file || !selectedFriendId) return;
       setFailedUpload(null);
       setUploadProgress(0);
+      uploadAbortRef.current?.abort();
+      const ac = new AbortController();
+      uploadAbortRef.current = ac;
       try {
         const normalized = await uploadChatFileAndCreateMessage(
           api,
@@ -1492,16 +1556,25 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
           {
             retentionContext: 'dm',
             receiverId: selectedFriendId,
+            signal: ac.signal,
           },
           (p) => setUploadProgress(p)
         );
         toast.success(t('friendChat.fileOk'));
         const id = normalized?._id || normalized?.id;
         setMessages((prev) => {
+          // Ưu tiên tin đã có từ friend:sent (có thể tới trước HTTP response).
           if (id && prev.some((x) => String(x._id || x.id) === String(id))) {
-            return prev;
+            return prev.map((x) =>
+              String(x._id || x.id) === String(id)
+                ? { ...x, ...normalized, _sendStatus: 'sent', _optimistic: false }
+                : x
+            );
           }
-          return [...prev, normalized];
+          return [
+            ...prev,
+            { ...normalized, _sendStatus: 'sent' },
+          ];
         });
         if (normalized) {
           setLastDmByFriendId((prev) =>
@@ -1509,18 +1582,36 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
           );
         }
       } catch (err) {
-        setFailedUpload({ file });
-        toast.error(resolveApiErrorMessage(err, { t, fallback: t('friendChat.fileFail') }));
+        const timedOut = err?.code === 'UPLOAD_TIMEOUT' || err?.name === 'AbortError';
+        if (!timedOut) {
+          setFailedUpload({ file });
+        }
+        toast.error(
+          resolveApiErrorMessage(err, {
+            t,
+            fallback: timedOut ? t('friendChat.uploadTimeout') : t('friendChat.fileFail'),
+          })
+        );
       } finally {
+        if (uploadAbortRef.current === ac) uploadAbortRef.current = null;
         setUploadProgress(null);
       }
     },
     [selectedFriendId, currentUserId, t, setBlockedByPeer]
   );
 
+  useEffect(
+    () => () => {
+      uploadAbortRef.current?.abort();
+    },
+    []
+  );
+
   const handlePickChatMedia = useCallback(
     async (item) => {
-      if (!item?.url || !selectedFriendId || uploadProgress != null) return false;
+      if ((!item?.url && !item?.phrase) || !selectedFriendId || uploadProgress != null) {
+        return false;
+      }
       setShowEmojiPicker(false);
       setEmojiSearch('');
       setMediaPickerSending(true);
@@ -1530,7 +1621,13 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
         await performFileUpload(file);
         return true;
       } catch (error) {
-        toast.error(resolveApiErrorMessage(error, { t, fallback: t('friendChat.fileFail') }));
+        const aborted = error?.name === 'AbortError';
+        toast.error(
+          resolveApiErrorMessage(error, {
+            t,
+            fallback: aborted ? t('friendChat.mediaFetchTimeout') : t('friendChat.fileFail'),
+          })
+        );
         return false;
       } finally {
         setMediaPickerSending(false);
@@ -1892,20 +1989,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     }
   };
 
-  const toggleArchiveCurrentFriend = useCallback(() => {
-    if (!currentFriendKey) return;
-    const next = archivedFriendIds.includes(currentFriendKey)
-      ? archivedFriendIds.filter((id) => id !== currentFriendKey)
-      : [...archivedFriendIds, currentFriendKey];
-    saveIdList(DM_ARCHIVE_STORAGE_KEY, next);
-    setArchivedFriendIds(next);
-    toast.success(
-      archivedFriendIds.includes(currentFriendKey)
-        ? t('friendChat.unarchiveOk')
-        : t('friendChat.archiveOk')
-    );
-  }, [archivedFriendIds, currentFriendKey, t]);
-
   const replyLabelForDm = (msg) => {
     if (!msg) return t('friendChat.friendDefault');
     const sid = msg.senderId?._id || msg.senderId;
@@ -1924,14 +2007,13 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const avatarTile = FIGMA_CHAT_HEADER_AVATAR;
   const replyBanner = FIGMA_CHAT_REPLY_BANNER;
   const composerWrap =
-    'shrink-0 rounded-[18px] border border-border bg-surface px-3 py-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.10)]';
-  const composerIconBtn =
-    'w-8 text-muted-foreground hover:bg-muted hover:text-primary';
+    'shrink-0 rounded-[18px] border border-border bg-surface px-2.5 py-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.10)]';
+  /** Chỉ token màu — kích thước/căn do UnifiedChatComposer flatInner thống nhất h-9×w-9. */
   const composerSendBtn =
-    'h-10 w-10 rounded-xl bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50';
+    'bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary disabled:bg-muted disabled:text-muted-foreground';
 
   const chatSidebar = (
-        <aside className={FIGMA_CHAT_SIDEBAR}>
+        <aside className={suiteLayout ? FIGMA_CHAT_SIDEBAR_FILL : FIGMA_CHAT_SIDEBAR}>
           <div className={FIGMA_CHAT_SIDEBAR_HEAD}>
             {suiteLayout ? (
               <>
@@ -2055,7 +2137,8 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                       size="md"
                       showOnline
                       status={f.status}
-                      ringClassName="border border-border bg-muted shadow-inner"
+                      cacheBust={f.avatar || undefined}
+                      ringClassName="border border-border shadow-inner"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
@@ -2180,12 +2263,20 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                     size="lg"
                     showOnline
                     status={currentFriend.status}
-                    onClick={() => setProfileModalOpen(true)}
+                    onClick={toggleDmInfoPanel}
+                    cacheBust={currentFriend.avatar || undefined}
                     ringClassName={`${avatarTile} cursor-pointer`}
-                    title={t('friendChat.profileTitle')}
+                    title={t('friendChat.toggleInfoPanel')}
                   />
                   <div className="min-w-0 flex-1">
-                    <h2 className={FIGMA_CHAT_HEADER_NAME}>{currentFriend.name}</h2>
+                    <button
+                      type="button"
+                      className={`${FIGMA_CHAT_HEADER_NAME} block max-w-full text-left hover:text-primary`}
+                      onClick={toggleDmInfoPanel}
+                      title={t('friendChat.toggleInfoPanel')}
+                    >
+                      {currentFriend.name}
+                    </button>
                     <div className={FIGMA_CHAT_HEADER_META} aria-live="polite">
                       {isCurrentFriendBlocked ? (
                         <span className={FIGMA_CHAT_HEADER_STATUS}>{t('friendChat.blockedRailLabel')}</span>
@@ -2207,73 +2298,162 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                     </div>
                   </div>
                   <div className={FIGMA_CHAT_HEADER_ACTIONS}>
-                    <button
-                      type="button"
-                      title={t('friendChat.openConversationList')}
-                      onClick={() => setSidebarDrawerOpen(true)}
-                      className={`${FIGMA_CHAT_ICON_BTN} lg:hidden`}
-                      aria-label={t('friendChat.openConversationList')}
-                    >
-                      <PanelLeft className="h-4 w-4" strokeWidth={2} />
-                    </button>
-                    <button
-                      type="button"
-                      title={t('friendChat.callAudio')}
-                      onClick={() => startFriendCall('audio')}
-                      disabled={Boolean(outboundRinging?.callId) || isDmComposerLocked}
-                      className={FIGMA_CHAT_ICON_BTN_PHONE}
-                    >
-                      <Phone className="h-4 w-4" strokeWidth={2} />
-                    </button>
-                    <button
-                      type="button"
-                      title={t('friendChat.callVideo')}
-                      onClick={() => startFriendCall('video')}
-                      disabled={Boolean(outboundRinging?.callId) || isDmComposerLocked}
-                      className={FIGMA_CHAT_ICON_BTN_VIDEO}
-                    >
-                      <Video className="h-4 w-4" strokeWidth={2} />
-                    </button>
-                    <button
-                      type="button"
-                      title={isCurrentFriendMuted ? t('friendChat.footerUnmute') : t('friendChat.convoNotif')}
-                      onClick={toggleMuteCurrentFriend}
-                      className={FIGMA_CHAT_ICON_BTN}
-                    >
-                      {isCurrentFriendMuted ? (
-                        <BellOff className="h-4 w-4" strokeWidth={2} />
-                      ) : (
-                        <Bell className="h-4 w-4" strokeWidth={2} />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      title={t('friendChat.viewPinnedMessages')}
-                      onClick={() => setPinnedMessagesModalOpen(true)}
-                      className={FIGMA_CHAT_ICON_BTN}
-                    >
-                      <Pin className="h-4 w-4" strokeWidth={2} />
-                    </button>
-                    <button
-                      type="button"
-                      title={t('friendChat.openConversationSearch')}
-                      onClick={() => setConversationSearchOpen((v) => !v)}
-                      className={
-                        conversationSearchOpen ? FIGMA_CHAT_ICON_BTN_ACTIVE : FIGMA_CHAT_ICON_BTN
-                      }
-                      aria-label={t('friendChat.openConversationSearch')}
-                    >
-                      <Search className="h-4 w-4" strokeWidth={2} />
-                    </button>
-                    <button
-                      type="button"
-                      title={t('friendChat.profileTitle')}
-                      onClick={() => setRightPanelDrawerOpen(true)}
-                      className={`${FIGMA_CHAT_ICON_BTN} lg:hidden`}
-                      aria-label={t('friendChat.profileTitle')}
-                    >
-                      <Info className="h-4 w-4" strokeWidth={2} />
-                    </button>
+                    <HoverTooltip label={t('friendChat.openConversationList')} placement="bottom">
+                      <button
+                        type="button"
+                        onClick={() => setSidebarDrawerOpen(true)}
+                        className={`${FIGMA_CHAT_ICON_BTN} lg:hidden`}
+                        aria-label={t('friendChat.openConversationList')}
+                      >
+                        <PanelLeft className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      </button>
+                    </HoverTooltip>
+                    {suiteLayout ? (
+                      <HoverTooltip label={t('friendChat.toggleListPanel')} placement="bottom">
+                        <button
+                          type="button"
+                          onClick={toggleDmListPanel}
+                          className={`${
+                            dmLayout.leftOpen ? FIGMA_CHAT_ICON_BTN_ACTIVE : FIGMA_CHAT_ICON_BTN
+                          } hidden lg:inline-flex`}
+                          aria-label={t('friendChat.toggleListPanel')}
+                          aria-expanded={dmLayout.leftOpen}
+                        >
+                          <PanelLeft className="h-4 w-4" strokeWidth={2} aria-hidden />
+                        </button>
+                      </HoverTooltip>
+                    ) : null}
+                    <HoverTooltip label={t('friendChat.callAudio')} placement="bottom">
+                      <button
+                        type="button"
+                        onClick={() => startFriendCall('audio')}
+                        disabled={Boolean(outboundRinging?.callId) || isDmComposerLocked}
+                        className={FIGMA_CHAT_ICON_BTN_PHONE}
+                        aria-label={t('friendChat.callAudio')}
+                      >
+                        <Phone className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      </button>
+                    </HoverTooltip>
+                    <HoverTooltip label={t('friendChat.callVideo')} placement="bottom">
+                      <button
+                        type="button"
+                        onClick={() => startFriendCall('video')}
+                        disabled={Boolean(outboundRinging?.callId) || isDmComposerLocked}
+                        className={FIGMA_CHAT_ICON_BTN_VIDEO}
+                        aria-label={t('friendChat.callVideo')}
+                      >
+                        <Video className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      </button>
+                    </HoverTooltip>
+                    <HoverTooltip label={t('friendChat.openConversationSearch')} placement="bottom">
+                      <button
+                        type="button"
+                        onClick={() => setConversationSearchOpen((v) => !v)}
+                        className={
+                          conversationSearchOpen ? FIGMA_CHAT_ICON_BTN_ACTIVE : FIGMA_CHAT_ICON_BTN
+                        }
+                        aria-label={t('friendChat.openConversationSearch')}
+                      >
+                        <Search className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      </button>
+                    </HoverTooltip>
+                    <div className="relative">
+                      <HoverTooltip label={t('friendChat.headerMoreActions')} placement="bottom">
+                        <button
+                          type="button"
+                          onClick={() => setHeaderMoreOpen((v) => !v)}
+                          className={headerMoreOpen ? FIGMA_CHAT_ICON_BTN_ACTIVE : FIGMA_CHAT_ICON_BTN}
+                          aria-label={t('friendChat.headerMoreActions')}
+                          aria-expanded={headerMoreOpen}
+                          aria-haspopup="menu"
+                        >
+                          <MoreHorizontal className="h-4 w-4" strokeWidth={2} aria-hidden />
+                        </button>
+                      </HoverTooltip>
+                      {headerMoreOpen ? (
+                        <>
+                          <button
+                            type="button"
+                            className="fixed inset-0 z-40 cursor-default bg-transparent"
+                            aria-label={t('friendChat.headerMoreClose')}
+                            onClick={() => setHeaderMoreOpen(false)}
+                          />
+                          <div
+                            role="menu"
+                            className="absolute right-0 top-full z-50 mt-1 min-w-[12.5rem] overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-lg"
+                          >
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-muted"
+                              onClick={() => {
+                                setHeaderMoreOpen(false);
+                                toggleMuteCurrentFriend();
+                              }}
+                            >
+                              {isCurrentFriendMuted ? (
+                                <BellOff className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              ) : (
+                                <Bell className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              )}
+                              {isCurrentFriendMuted
+                                ? t('friendChat.footerUnmute')
+                                : t('friendChat.convoNotif')}
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-muted"
+                              onClick={() => {
+                                setHeaderMoreOpen(false);
+                                setPinnedMessagesModalOpen(true);
+                              }}
+                            >
+                              <Pin className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              {t('friendChat.viewPinnedMessages')}
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-muted"
+                              onClick={() => {
+                                setHeaderMoreOpen(false);
+                                setProfileModalOpen(true);
+                              }}
+                            >
+                              <Info className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              {t('friendChat.viewPeerProfile')}
+                            </button>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                    <HoverTooltip label={t('friendChat.toggleInfoPanel')} placement="bottom">
+                      <button
+                        type="button"
+                        onClick={toggleDmInfoPanel}
+                        className={`${FIGMA_CHAT_ICON_BTN} lg:hidden`}
+                        aria-label={t('friendChat.toggleInfoPanel')}
+                        aria-expanded={rightPanelDrawerOpen}
+                      >
+                        <Info className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      </button>
+                    </HoverTooltip>
+                    {suiteLayout ? (
+                      <HoverTooltip label={t('friendChat.toggleInfoPanel')} placement="bottom">
+                        <button
+                          type="button"
+                          onClick={toggleDmInfoPanel}
+                          className={`${
+                            dmLayout.rightOpen ? FIGMA_CHAT_ICON_BTN_ACTIVE : FIGMA_CHAT_ICON_BTN
+                          } hidden lg:inline-flex`}
+                          aria-label={t('friendChat.toggleInfoPanel')}
+                          aria-expanded={dmLayout.rightOpen}
+                        >
+                          <Info className="h-4 w-4" strokeWidth={2} aria-hidden />
+                        </button>
+                      </HoverTooltip>
+                    ) : null}
                   </div>
                 </div>
                 {blockedByPeer && !isCurrentFriendBlocked && (
@@ -2400,44 +2580,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                           className={figmaChatBubbleRow(isMine, prevSame)}
                           onMouseEnter={(e) => handleMessageRowMouseEnter(mid, e)}
                         >
-                          {showToolbar && (
-                            <div
-                              className={`${FIGMA_CHAT_BUBBLE_TOOLBAR} ${
-                                isMine
-                                  ? FIGMA_CHAT_BUBBLE_TOOLBAR_MINE
-                                  : FIGMA_CHAT_BUBBLE_TOOLBAR_THEIRS
-                              } ${
-                                toolbarPlace === 'below'
-                                  ? 'top-full mt-1 translate-y-0'
-                                  : ''
-                              }`}
-                            >
-                              <ChannelMessageToolbar
-                                compact
-                                recentReactionsStorageKey="vh_dm_recent_reactions"
-                                isMine={isMine}
-                                showEdit={isMine && canEditDmMessage(m)}
-                                disabled={uploadProgress != null}
-                                onQuickReact={(emoji) => handleQuickReactMessage(m, emoji)}
-                                onOpenEmojiPicker={() => {}}
-                                onMiddleAction={() => {
-                                  if (isMine && canEditDmMessage(m)) {
-                                    setEditingMessageId(mid);
-                                    setEditDraft(String(m.content || ''));
-                                  } else {
-                                    setReplyingToMessage(m);
-                                  }
-                                }}
-                                onForward={() => handleForwardRequest(m)}
-                                onMore={(e) => {
-                                  const r = e?.currentTarget?.getBoundingClientRect?.();
-                                  if (r) {
-                                    setMoreMenu({ open: true, anchorRect: r, message: m });
-                                  }
-                                }}
-                              />
-                            </div>
-                          )}
                           {!isMine && (
                             <div
                               className={`${FIGMA_CHAT_BUBBLE_AVATAR_SLOT} ${
@@ -2449,11 +2591,50 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                                 userId={currentFriend?.id}
                                 name={currentFriend?.name}
                                 size="sm"
+                                cacheBust={currentFriend?.avatar || undefined}
                                 ringClassName="border border-border bg-muted text-foreground shadow-inner"
                               />
                             </div>
                           )}
                           <div className={figmaChatBubbleCol(isMine)}>
+                            {showToolbar && (
+                              <div
+                                className={`${FIGMA_CHAT_BUBBLE_TOOLBAR} ${
+                                  isMine
+                                    ? FIGMA_CHAT_BUBBLE_TOOLBAR_MINE
+                                    : FIGMA_CHAT_BUBBLE_TOOLBAR_THEIRS
+                                } ${
+                                  toolbarPlace === 'below'
+                                    ? 'top-full mt-1 translate-y-0'
+                                    : ''
+                                }`}
+                              >
+                                <ChannelMessageToolbar
+                                  compact
+                                  recentReactionsStorageKey="vh_dm_recent_reactions"
+                                  isMine={isMine}
+                                  showEdit={isMine && canEditDmMessage(m)}
+                                  disabled={uploadProgress != null}
+                                  onQuickReact={(emoji) => handleQuickReactMessage(m, emoji)}
+                                  onOpenEmojiPicker={() => {}}
+                                  onMiddleAction={() => {
+                                    if (isMine && canEditDmMessage(m)) {
+                                      setEditingMessageId(mid);
+                                      setEditDraft(String(m.content || ''));
+                                    } else {
+                                      setReplyingToMessage(m);
+                                    }
+                                  }}
+                                  onForward={() => handleForwardRequest(m)}
+                                  onMore={(e) => {
+                                    const r = e?.currentTarget?.getBoundingClientRect?.();
+                                    if (r) {
+                                      setMoreMenu({ open: true, anchorRect: r, message: m });
+                                    }
+                                  }}
+                                />
+                              </div>
+                            )}
                             <div className={figmaChatBubble(isMine)}>
                               {replyId && (
                                 <button
@@ -2553,7 +2734,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                               </div>
                             )}
                             {(sendPending || sendFailed) && (
-                              <div className={`text-[0.6875rem] ${emptyText}`}>
+                              <div className={`text-xs ${emptyText}`}>
                                 {sendPending && <span>{t('friendChat.sending')}</span>}
                                 {sendFailed && (
                                   <span className="text-destructive">
@@ -2593,15 +2774,20 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                   visibleChatMessages.length > 0 &&
                   !loadingMessages &&
                   currentFriend && (
-                    <button
-                      type="button"
-                      title={t('orgPanel.scrollToLatest')}
-                      aria-label={t('orgPanel.scrollToLatest')}
-                      onClick={() => scrollDmChatToLatest('smooth')}
-                      className={FIGMA_CHAT_JUMP_BTN}
+                    <HoverTooltip
+                      label={t('orgPanel.scrollToLatest')}
+                      placement="left"
+                      className="absolute bottom-4 right-4 z-20"
                     >
-                      <ChevronsDown className="h-5 w-5" strokeWidth={2.25} />
-                    </button>
+                      <button
+                        type="button"
+                        aria-label={t('orgPanel.scrollToLatest')}
+                        onClick={() => scrollDmChatToLatest('smooth')}
+                        className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-muted-foreground shadow-lg transition-all duration-200 hover:scale-105 hover:bg-muted hover:text-foreground active:scale-95"
+                      >
+                        <ChevronsDown className="h-5 w-5" strokeWidth={2.25} aria-hidden />
+                      </button>
+                    </HoverTooltip>
                   )}
                 {conversationSearchOpen && currentFriend && !resolvingDefaultChat && (
                   <div className="absolute bottom-0 right-0 top-0 z-40 flex w-[min(360px,92%)] border-l border-border bg-surface shadow-xl">
@@ -2666,7 +2852,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                 />
                 <UnifiedChatComposer
                   flatInner
-                  rowClassName="flex items-center gap-2"
+                  rowClassName="flex min-h-9 items-center gap-1.5"
                   showSendButton={false}
                   mentionItems={composerMentionItems}
                   wrapperClassName={composerWrap}
@@ -2723,22 +2909,19 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                     {
                       key: 'upload-file',
                       title: t('friendChat.uploadFile'),
-                      content: <Paperclip className="h-5 w-5" strokeWidth={2} />,
-                      className: composerIconBtn,
+                      content: <Paperclip className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />,
                       onClick: () => fileInputRef.current?.click(),
                     },
                     {
                       key: 'upload-image',
                       title: t('friendChat.uploadImage'),
-                      content: <ImageIcon className="h-5 w-5" strokeWidth={2} />,
-                      className: composerIconBtn,
+                      content: <ImageIcon className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />,
                       onClick: () => imageInputRef.current?.click(),
                     },
                     {
                       key: 'emoji',
                       title: t('friendChat.emojiTab'),
-                      content: <Smile className="h-5 w-5" strokeWidth={2} />,
-                      className: composerIconBtn,
+                      content: <Smile className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />,
                       onClick: () => {
                         setEmojiPickerTab('emoji');
                         setShowEmojiPicker((prev) => !prev);
@@ -2747,8 +2930,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                     {
                       key: 'mention',
                       title: t('friendChat.dmScopeMention'),
-                      content: <AtSign className="h-5 w-5" strokeWidth={2} />,
-                      className: composerIconBtn,
+                      content: <AtSign className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />,
                       onClick: () => {
                         setMessage((prev) => `${prev || ''}${prev && !/\s$/.test(prev) ? ' ' : ''}@`);
                         notifyTyping();
@@ -2759,16 +2941,13 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                     {
                       key: 'send',
                       title: t('friendChat.send'),
-                      content: <Send className="h-5 w-5" strokeWidth={2} />,
+                      content: <Send className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />,
                       disabled: !message.trim() || isDmComposerLocked || uploadProgress != null || !selectedFriendId,
                       className: composerSendBtn,
                       onClick: handleSend,
                     },
                   ]}
                 />
-                <p className="mt-2 text-center text-[11px] font-medium text-muted-foreground">
-                  Enter để gửi · Shift+Enter xuống dòng
-                </p>
               </div>
             </>
           )}
@@ -2881,20 +3060,11 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
         messages={messages}
         attachments={friendAttachments}
         currentUserId={currentUserId}
+        onClose={closeDmInfoPanel}
         onBlock={() => {
           if (isCurrentFriendBlocked) setUnblockConfirmOpen(true);
           else setBlockConfirmOpen(true);
         }}
-        onSchedule={() =>
-          openCalendarForFriend({
-            prefillType: 'meeting',
-            prefillTitle: t('friendChat.meetingPrefillTitle', {
-              name: currentFriend.name || t('friendChat.friendDefault'),
-            }),
-          })
-        }
-        onArchive={toggleArchiveCurrentFriend}
-        isArchived={archivedFriendIds.includes(String(currentFriend.id || ''))}
         isBlocked={isCurrentFriendBlocked}
         onOpenProfile={() => setProfileModalOpen(true)}
         onOpenMediaAt={openMediaViewerAtGrid}
@@ -2912,6 +3082,17 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
           sidebar={chatSidebar}
           main={chatMainColumn}
           rightPanel={chatRightPanel}
+          layout={dmLayout}
+          onLeftWidthChange={(w) => patchDmLayout({ leftWidth: w })}
+          onRightWidthChange={(w) => patchDmLayout({ rightWidth: w })}
+          leftResizeHint={t('friendChat.layoutResizeHint', {
+            min: DM_LIST_MIN_W,
+            max: DM_LIST_MAX_W,
+          })}
+          rightResizeHint={t('friendChat.layoutResizeHint', {
+            min: DM_INFO_MIN_W,
+            max: DM_INFO_MAX_W,
+          })}
           sidebarDrawerOpen={sidebarDrawerOpen}
           onSidebarDrawerClose={() => setSidebarDrawerOpen(false)}
           sidebarDrawerCloseLabel={t('common.close')}
@@ -2959,13 +3140,13 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
             type="button"
             aria-label={t('common.close')}
             className="absolute inset-0 h-full w-full cursor-default"
-            onClick={() => setRightPanelDrawerOpen(false)}
+            onClick={closeDmInfoPanel}
           />
-          <div className="absolute right-0 top-0 z-10 h-full max-w-full shadow-2xl">
+          <div className="absolute right-0 top-0 z-10 h-full w-[min(320px,88vw)] max-w-full shadow-2xl">
             <button
               type="button"
               aria-label={t('common.close')}
-              onClick={() => setRightPanelDrawerOpen(false)}
+              onClick={closeDmInfoPanel}
               className="absolute right-3 top-3 z-20 rounded-lg bg-muted p-2 text-muted-foreground shadow-sm transition hover:text-foreground"
             >
               <X className="h-4 w-4" strokeWidth={2} />

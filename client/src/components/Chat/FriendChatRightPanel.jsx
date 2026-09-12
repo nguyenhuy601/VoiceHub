@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Archive,
   Ban,
   Check,
   ChevronRight,
@@ -12,6 +11,7 @@ import {
   MoreHorizontal,
   Plus,
   Users,
+  X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useLocale } from '../../context/LocaleContext';
@@ -58,10 +58,8 @@ export default function FriendChatRightPanel({
   messages = [],
   attachments,
   currentUserId,
+  onClose,
   onBlock,
-  onSchedule,
-  onArchive,
-  isArchived = false,
   isBlocked = false,
   onOpenProfile,
   onOpenMediaAt,
@@ -184,11 +182,11 @@ export default function FriendChatRightPanel({
   };
 
   const shell =
-    'flex h-full min-h-0 w-[min(320px,88vw)] shrink-0 flex-col overflow-hidden border-l border-border bg-surface text-foreground lg:w-[320px] lg:max-w-[32vw]';
+    'flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-l border-border bg-surface text-foreground';
   const hairlineB = 'border-b border-border';
   const hairlineT = 'border-t border-border';
   const titleMain = 'text-foreground';
-  const labelMuted = 'text-muted-foreground';
+  const labelMuted = 'text-foreground-secondary';
   const sectionBtn =
     'flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-foreground transition hover:bg-muted/70';
   const thumbBg = 'bg-muted';
@@ -196,8 +194,6 @@ export default function FriendChatRightPanel({
     'flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground transition hover:bg-muted/70';
   const actionCircle =
     'flex flex-col items-center gap-1.5 rounded-xl p-2 text-[10px] text-muted-foreground transition hover:bg-muted hover:text-foreground';
-  const actionCircleDisabled =
-    'cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground';
 
   const renderFileRow = (f) => {
     const mime = f.fileMeta?.mimeType || '';
@@ -377,8 +373,19 @@ export default function FriendChatRightPanel({
 
   return (
     <aside className={shell}>
-      <div className={`shrink-0 px-4 py-3 text-center ${hairlineB}`}>
+      <div className={`relative shrink-0 px-4 py-3 text-center ${hairlineB}`}>
         <h3 className={`text-sm font-bold ${titleMain}`}>{t('friendChat.profileTitle')}</h3>
+        {typeof onClose === 'function' ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            aria-label={t('friendChat.toggleInfoPanel')}
+            title={t('friendChat.toggleInfoPanel')}
+          >
+            <X className="h-4 w-4" strokeWidth={2} aria-hidden />
+          </button>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-overlay">
@@ -391,7 +398,8 @@ export default function FriendChatRightPanel({
             onClick={onOpenProfile}
             showOnline
             status={friend.status}
-            ringClassName="bg-gradient-to-br from-cyan-600 to-teal-600 ring-4 ring-cyan-500/20 text-white shadow-lg"
+            cacheBust={friend.avatar || undefined}
+            ringClassName="ring-4 ring-cyan-500/20 shadow-lg"
             title={t('friendChat.profileTitle')}
           />
           <button
@@ -402,24 +410,10 @@ export default function FriendChatRightPanel({
             {friend.name}
           </button>
 
-          <div className="mt-4 grid w-full grid-cols-3 gap-1">
+          <div className="mt-4 flex w-full justify-center">
             <button type="button" onClick={onBlock} className={actionCircle}>
               <Ban className="h-5 w-5" />
               <span>{isBlocked ? t('friendChat.unblockUser') : t('friendChat.blockUser')}</span>
-            </button>
-            <button
-              type="button"
-              onClick={onSchedule}
-              disabled={isBlocked}
-              title={isBlocked ? 'Đã chặn người dùng, không thể đặt lịch' : t('friendChat.schedule')}
-              className={`${actionCircle} ${isBlocked ? actionCircleDisabled : ''}`}
-            >
-              <Clock className="h-5 w-5" />
-              <span>{t('friendChat.schedule')}</span>
-            </button>
-            <button type="button" onClick={onArchive} className={actionCircle}>
-              <Archive className="h-5 w-5" />
-              <span>{isArchived ? t('friendChat.showActiveChats') : t('friendChat.archiveConvo')}</span>
             </button>
           </div>
         </div>

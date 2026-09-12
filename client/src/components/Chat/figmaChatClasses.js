@@ -11,14 +11,18 @@ export const FIGMA_CHAT_ROOT =
 export const FIGMA_CHAT_SIDEBAR =
   'hidden h-full min-h-0 w-[min(280px,88vw)] shrink-0 flex-col overflow-hidden border-r border-border bg-surface text-foreground lg:flex';
 
+/** Suite + FriendChatFigmaView: width do parent resize; luôn flex trong wrapper. */
+export const FIGMA_CHAT_SIDEBAR_FILL =
+  'flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-r border-border bg-surface text-foreground';
+
 export const FIGMA_CHAT_SIDEBAR_HEAD =
   'shrink-0 space-y-2.5 border-b border-border px-3.5 pb-2.5 pt-3.5';
 
 export const FIGMA_CHAT_SIDEBAR_TITLE =
-  'text-[0.625rem] font-bold uppercase tracking-[0.08em] text-muted-foreground';
+  'text-xs font-bold uppercase tracking-[0.06em] text-foreground-secondary';
 
 export const FIGMA_CHAT_SIDEBAR_ARCHIVE_BTN =
-  'text-[0.625rem] font-semibold text-muted-foreground underline transition hover:text-primary';
+  'text-xs font-semibold text-foreground-secondary underline transition hover:text-primary';
 
 export const FIGMA_CHAT_SIDEBAR_LIST =
   'flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-0 py-2 scrollbar-overlay';
@@ -37,7 +41,7 @@ export const FIGMA_CHAT_RAIL_PREVIEW = 'min-w-0 truncate text-xs text-muted-fore
 export const FIGMA_CHAT_RAIL_PREVIEW_UNREAD =
   'min-w-0 truncate text-xs font-medium text-foreground-secondary';
 
-export const FIGMA_CHAT_RAIL_TIME = 'shrink-0 text-[0.6875rem] tabular-nums text-muted-foreground';
+export const FIGMA_CHAT_RAIL_TIME = 'shrink-0 text-xs tabular-nums text-foreground-secondary';
 
 export const FIGMA_CHAT_UNREAD_BADGE =
   'flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[0.625rem] font-bold tabular-nums text-primary-foreground';
@@ -53,14 +57,14 @@ export const FIGMA_CHAT_HEADER =
 export const FIGMA_CHAT_HEADER_ROW = 'flex h-[60px] items-center gap-3';
 
 export const FIGMA_CHAT_HEADER_AVATAR =
-  'flex h-[38px] w-[38px] shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-primary/10 text-xs font-bold text-primary';
+  'border border-border shadow-inner';
 
 export const FIGMA_CHAT_HEADER_NAME =
   'truncate text-[0.9375rem] font-semibold leading-snug text-foreground';
 
 export const FIGMA_CHAT_HEADER_META = 'mt-0.5 flex flex-wrap items-center gap-1.5';
 
-export const FIGMA_CHAT_HEADER_STATUS = 'text-xs text-muted-foreground';
+export const FIGMA_CHAT_HEADER_STATUS = 'text-xs text-foreground-secondary';
 
 export const FIGMA_CHAT_HEADER_TYPING = 'text-xs font-medium text-primary';
 
@@ -91,7 +95,8 @@ export const FIGMA_CHAT_DATE_DIVIDER_ROW = 'mb-5 flex items-center gap-3';
 
 export const FIGMA_CHAT_DATE_DIVIDER_LINE = 'h-px flex-1 bg-border';
 
-export const FIGMA_CHAT_DATE_DIVIDER_LABEL = 'shrink-0 text-xs text-muted-foreground';
+export const FIGMA_CHAT_DATE_DIVIDER_LABEL =
+  'shrink-0 text-xs font-medium uppercase tracking-wide text-foreground-secondary';
 
 export const FIGMA_CHAT_BUBBLE_ROW = 'group/msg relative flex items-end gap-3';
 
@@ -107,7 +112,8 @@ export const FIGMA_CHAT_BUBBLE_AVATAR_SLOT = 'flex h-9 w-9 shrink-0 items-center
 
 export const FIGMA_CHAT_BUBBLE_AVATAR_HIDDEN = 'invisible';
 
-export const FIGMA_CHAT_BUBBLE_COL = 'flex max-w-[68%] flex-col gap-0.5';
+/** relative: neo toolbar sát cạnh bubble (không theo 68% cả hàng). */
+export const FIGMA_CHAT_BUBBLE_COL = 'relative flex max-w-[68%] flex-col gap-0.5';
 
 export const FIGMA_CHAT_BUBBLE_COL_MINE = 'items-end';
 
@@ -120,19 +126,21 @@ export const FIGMA_CHAT_BUBBLE_THEIRS =
   'rounded-[18px_18px_18px_4px] border border-border bg-surface-raised px-3.5 py-2.5 text-[0.9rem] leading-[1.55] text-foreground shadow-sm transition-[box-shadow,border-color,transform] duration-150 group-hover/msg:-translate-y-0.5 group-hover/msg:border-primary/15 group-hover/msg:shadow-md';
 
 export const FIGMA_CHAT_BUBBLE_REPLY =
-  'mb-2 border-l-2 border-primary/40 pl-2 text-left text-[0.6875rem] text-muted-foreground hover:opacity-90';
+  'mb-2 border-l-2 border-primary/40 pl-2 text-left text-xs text-foreground-secondary hover:opacity-90';
 
 export const FIGMA_CHAT_BUBBLE_REPLY_NAME = 'font-semibold text-primary';
 
 export const FIGMA_CHAT_BUBBLE_TIME =
-  'flex items-center gap-1.5 text-[0.6875rem] text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100';
+  'flex items-center gap-1.5 text-xs text-foreground-secondary opacity-80 transition-opacity duration-150 group-hover/msg:opacity-100';
 
 export const FIGMA_CHAT_BUBBLE_TOOLBAR =
   'pointer-events-none absolute top-1/2 z-30 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/msg:pointer-events-auto group-hover/msg:opacity-100';
 
-export const FIGMA_CHAT_BUBBLE_TOOLBAR_MINE = 'right-[calc(68%+8px)]';
+/** Tin mình (phải): toolbar ngay bên trái bubble. */
+export const FIGMA_CHAT_BUBBLE_TOOLBAR_MINE = 'right-full mr-1.5';
 
-export const FIGMA_CHAT_BUBBLE_TOOLBAR_THEIRS = 'left-[calc(68%+8px)]';
+/** Tin đối phương (trái): toolbar ngay bên phải bubble. */
+export const FIGMA_CHAT_BUBBLE_TOOLBAR_THEIRS = 'left-full ml-1.5';
 
 export const FIGMA_CHAT_REACTION =
   'inline-flex items-center gap-1 rounded-full border border-primary/15 bg-primary/[0.07] px-1.5 py-0.5 text-xs transition hover:bg-primary/[0.12]';
@@ -141,7 +149,7 @@ export const FIGMA_CHAT_REACTION_MINE =
   'inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/20 px-1.5 py-0.5 text-xs text-primary-foreground';
 
 export const FIGMA_CHAT_COMPOSER_WRAP =
-  'relative mt-auto shrink-0 border-t border-border bg-background px-5 pb-4 pt-3';
+  'relative mt-auto shrink-0 border-t border-border bg-background px-4 pb-3.5 pt-2.5';
 
 export const FIGMA_CHAT_REPLY_BANNER =
   'mb-2 flex items-center justify-between gap-2 rounded-lg border border-primary/20 border-l-[3px] border-l-primary bg-primary/10 px-3 py-2 text-sm text-foreground';
@@ -181,7 +189,7 @@ export const FIGMA_CHAT_SIDEBAR_TAB =
   'flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border-none bg-transparent text-[0.78rem] font-normal text-muted-foreground transition-[background-color,color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30';
 
 export const FIGMA_CHAT_SIDEBAR_TAB_ACTIVE =
-  'bg-surface font-semibold text-foreground shadow-xs';
+  'bg-surface font-semibold text-primary shadow-xs ring-1 ring-primary/20';
 
 export const FIGMA_CHAT_SIDEBAR_TAB_BADGE =
   'flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1.5 text-[0.6rem] font-bold tabular-nums text-primary-foreground';
@@ -205,12 +213,12 @@ export const FIGMA_CHAT_FILTER_CHIP =
   'h-7 flex-1 rounded-[7px] border-none bg-transparent text-xs font-medium text-muted-foreground transition-[background-color,color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30';
 
 export const FIGMA_CHAT_FILTER_CHIP_ACTIVE =
-  'bg-primary font-medium text-primary-foreground';
+  'bg-primary font-semibold text-primary-foreground shadow-sm';
 
 export const FIGMA_CHAT_INVITES_SCROLL = 'flex-1 overflow-y-auto px-2.5 py-2.5 scrollbar-overlay';
 
 export const FIGMA_CHAT_INVITES_SECTION_TITLE =
-  'mb-2 px-1 text-[0.65rem] font-bold uppercase tracking-[0.08em] text-muted-foreground';
+  'mb-2 px-1 text-xs font-bold uppercase tracking-[0.06em] text-foreground-secondary';
 
 export const FIGMA_CHAT_INVITE_CARD =
   'mb-2 rounded-xl border border-border bg-surface p-3.5 transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md';
