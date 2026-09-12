@@ -23,7 +23,8 @@ import { useWorkspaceSuite, SUITE } from '../../context/WorkspaceSuiteContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { useNotificationBadge } from '../../hooks/queries';
 import { getDefaultPathForSuite, normalizeSuite } from '../../utils/suitePathUtils';
-import { getInitials, getUserDisplayName } from '../../utils/helpers';
+import { getUserDisplayName } from '../../utils/helpers';
+import UserAvatar from '../Shared/UserAvatar';
 import { FIGMA_TOP_HEADER } from './figmaShellClasses';
 import ShellCommandPalette from './ShellCommandPalette';
 import AppSwitcherOverlay from './AppSwitcherOverlay';
@@ -185,7 +186,9 @@ export default function TopHeader() {
   const SUITE_META = getSuiteMeta(t);
   const activeMeta = SUITE_META[currentSuite] || SUITE_META[SUITE.COMMUNICATE];
   const displayName = getUserDisplayName(user);
-  const initials = getInitials(displayName);
+  const profileUserId = user?.userId || user?.id || user?._id || null;
+  const profileAvatar = user?.avatar || user?.avatarUrl || null;
+  const profileAvatarBust = user?.avatarCacheKey || profileAvatar || undefined;
 
   useEffect(() => {
     const handleClick = (e) => {
@@ -388,24 +391,27 @@ export default function TopHeader() {
               className="flex items-center gap-1.5 rounded-lg p-1 transition"
               style={{ background: showProfileMenu ? 'var(--muted)' : 'transparent' }}
             >
-              <div
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[0.625rem] font-bold text-white shadow-md"
-                style={{ background: 'linear-gradient(135deg, #2563EB, #3B82F6)' }}
-              >
-                {initials || <User size={12} aria-hidden />}
-              </div>
+              <UserAvatar
+                avatar={profileAvatar}
+                userId={profileUserId}
+                name={displayName || user?.email || 'U'}
+                size="xs"
+                cacheBust={profileAvatarBust}
+                ringClassName="shadow-md"
+              />
             </button>
 
             {showProfileMenu && (
               <div className="absolute right-0 top-[calc(100%+6px)] z-[100] w-[220px] animate-scale-in overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
                 <div className="border-b border-border px-3.5 py-3">
                   <div className="flex items-center gap-2.5">
-                    <div
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
-                      style={{ background: 'linear-gradient(135deg, #2563EB, #3B82F6)' }}
-                    >
-                      {initials || <User size={14} aria-hidden />}
-                    </div>
+                    <UserAvatar
+                      avatar={profileAvatar}
+                      userId={profileUserId}
+                      name={displayName || user?.email || 'U'}
+                      size="sm"
+                      cacheBust={profileAvatarBust}
+                    />
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-foreground">{displayName}</div>
                       <div className="truncate text-[0.6875rem] text-muted-foreground">{user?.email}</div>

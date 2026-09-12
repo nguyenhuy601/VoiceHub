@@ -77,13 +77,30 @@ export function invalidateProtectedAvatarCache({ userId, avatar, cacheBust } = {
   }
 }
 
+const MIN_AVATAR_BLOB_BYTES = 200;
+
+function assertUsableAvatarBlob(blob) {
+  if (!(blob instanceof Blob)) {
+    throw new Error('Avatar blob missing');
+  }
+  const type = String(blob.type || '').toLowerCase();
+  if (type.includes('json') || type.startsWith('text/')) {
+    throw new Error('Avatar response is not an image');
+  }
+  if (blob.size < MIN_AVATAR_BLOB_BYTES) {
+    throw new Error('Avatar file too small');
+  }
+  return blob;
+}
+
 async function fetchUserAvatarBlob(userId, cacheBust) {
   const qs = cacheBust ? `?v=${encodeURIComponent(String(cacheBust))}` : '';
   const res = await apiClient.get(`/users/${encodeURIComponent(String(userId))}/avatar${qs}`, {
     responseType: 'blob',
     skipGlobalErrorHandling: true,
   });
-  return res instanceof Blob ? res : res?.data;
+  const blob = res instanceof Blob ? res : res?.data;
+  return assertUsableAvatarBlob(blob);
 }
 
 async function fetchUploadPathBlob(avatar, cacheBust) {
@@ -109,7 +126,7 @@ async function fetchUploadPathBlob(avatar, cacheBust) {
   if (!res.ok) {
     throw new Error(`Avatar fetch failed: ${res.status}`);
   }
-  return res.blob();
+  return assertUsableAvatarBlob(await res.blob());
 }
 
 async function loadProtectedAvatarBlob({ userId, avatar, cacheBust } = {}) {
