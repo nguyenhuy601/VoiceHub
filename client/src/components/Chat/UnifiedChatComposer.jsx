@@ -8,6 +8,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
+import HoverTooltip from '../Shared/HoverTooltip';
 import UserAvatar from '../Shared/UserAvatar';
 import { useAppStrings } from '../../locales/appStrings';
 
@@ -247,19 +248,22 @@ function UnifiedChatComposer({
   const plusMenuRow = composerDark
     ? 'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-white transition hover:bg-slate-800/80 disabled:cursor-not-allowed disabled:opacity-40'
     : 'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40';
-  const textareaClass = composerDark
-    ? `scrollbar-composer max-h-[240px] flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 pr-1 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60 ${
-        richToolbar
-          ? 'min-h-[36px] py-1.5 leading-normal'
-          : 'min-h-[44px] py-2 leading-relaxed'
-      }`
-    : `scrollbar-composer max-h-[240px] flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent px-2 pr-1 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60 ${
-        richToolbar
-          ? 'min-h-[36px] py-1.5 leading-normal'
-          : 'min-h-[44px] py-2 leading-relaxed'
-      }`;
+  const textareaClass = (() => {
+    const baseDark =
+      'scrollbar-composer max-h-[240px] min-w-0 flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent text-sm text-white outline-none placeholder:text-muted-foreground disabled:opacity-60';
+    const baseLight =
+      'scrollbar-composer max-h-[240px] min-w-0 flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60';
+    const base = composerDark ? baseDark : baseLight;
+    if (flatInner) {
+      return `${base} min-h-9 px-2 py-2 leading-5`;
+    }
+    if (richToolbar) {
+      return `${base} min-h-[36px] px-2 py-1.5 leading-normal`;
+    }
+    return `${base} min-h-[44px] px-2 py-2 leading-relaxed`;
+  })();
   const inputClass = composerDark
-    ? 'h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60'
+    ? 'h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-white outline-none placeholder:text-muted-foreground disabled:opacity-60'
     : 'h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60';
 
   const handleInputChange = (nextRaw) => {
@@ -293,8 +297,30 @@ function UnifiedChatComposer({
     }
   };
   const actionBtn = composerDark
-    ? 'h-9 rounded-md text-gray-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50'
-    : 'h-9 rounded-md text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 disabled:opacity-50';
+    ? 'inline-flex h-9 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50'
+    : 'inline-flex h-9 items-center justify-center rounded-lg text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 disabled:opacity-50';
+  const flatActionBtn =
+    'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-none bg-transparent text-muted-foreground transition-[background-color,color] duration-150 hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50';
+
+  const renderIconControl = (item, { flat = false } = {}) => {
+    const label = item.title || item.label || item.key;
+    const btnClass = flat
+      ? `${flatActionBtn} ${item.className || ''}`.trim()
+      : `${actionBtn} ${item.className || 'w-9 text-base'}`.trim();
+    return (
+      <HoverTooltip key={item.key} label={label} placement="top" disabled={disabled || item.disabled}>
+        <button
+          type="button"
+          disabled={disabled || item.disabled}
+          onClick={item.onClick}
+          className={btnClass}
+          aria-label={label}
+        >
+          {item.content}
+        </button>
+      </HoverTooltip>
+    );
+  };
 
   return (
     <div className={wrapperClassName ?? defaultWrapper}>
@@ -308,21 +334,22 @@ function UnifiedChatComposer({
             { k: 'mention', Icon: AtSign, title: t('chat.toolbarMention') },
             { k: 'code', Icon: Code, title: t('chat.toolbarCode') },
           ].map(({ k, Icon, title }) => (
-            <button
-              key={k}
-              type="button"
-              disabled={disabled}
-              title={title}
-              ref={k === 'mention' ? mentionButtonRef : undefined}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                syncSelection();
-              }}
-              onClick={() => fmt(k)}
-              className={fmtBtn}
-            >
-              <Icon className="h-4 w-4" strokeWidth={2} />
-            </button>
+            <HoverTooltip key={k} label={title} placement="top" disabled={disabled}>
+              <button
+                type="button"
+                disabled={disabled}
+                ref={k === 'mention' ? mentionButtonRef : undefined}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  syncSelection();
+                }}
+                onClick={() => fmt(k)}
+                className={fmtBtn}
+                aria-label={title}
+              >
+                <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
+              </button>
+            </HoverTooltip>
           ))}
         </div>
       )}
@@ -361,32 +388,31 @@ function UnifiedChatComposer({
             </div>
           </div>
         )}
-        <div className={rowClassName ?? `flex gap-2 ${singleLine || richToolbar ? 'items-center' : 'items-end'}`}>
-        {safeLeadingItems.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            disabled={disabled || item.disabled}
-            onClick={item.onClick}
-            className={`${actionBtn} ${item.className || 'w-9 text-base'}`}
-            title={item.title || item.label || item.key}
-            aria-label={item.title || item.label || item.key}
-          >
-            {item.content}
-          </button>
-        ))}
+        <div
+          className={
+            rowClassName ??
+            `flex gap-2 ${singleLine || richToolbar || flatInner ? 'items-center' : 'items-end'}`
+          }
+        >
+        {safeLeadingItems.length > 0 ? (
+          <div className={`flex shrink-0 items-center ${flatInner ? 'gap-0.5' : 'gap-1'}`}>
+            {safeLeadingItems.map((item) => renderIconControl(item, { flat: flatInner }))}
+          </div>
+        ) : null}
         {safePlusItems.length > 0 && (
           <>
-            <button
-              ref={plusButtonRef}
-              type="button"
-              disabled={disabled}
-              onClick={() => setShowPlusMenu((prev) => !prev)}
-              className={plusBtnClass}
-              title={t('chat.addUtilities')}
-            >
-              +
-            </button>
+            <HoverTooltip label={t('chat.addUtilities')} placement="top" disabled={disabled}>
+              <button
+                ref={plusButtonRef}
+                type="button"
+                disabled={disabled}
+                onClick={() => setShowPlusMenu((prev) => !prev)}
+                className={plusBtnClass}
+                aria-label={t('chat.addUtilities')}
+              >
+                +
+              </button>
+            </HoverTooltip>
 
             {showPlusMenu && (
               <div ref={plusMenuRef} className={plusMenuClass}>
@@ -449,38 +475,29 @@ function UnifiedChatComposer({
             showSendButton ? 'flex-col items-end gap-2' : 'items-center'
           }`}
         >
-          <div className="flex items-center gap-1">
-            {resolvedActionItems.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                disabled={disabled || item.disabled}
-                onClick={item.onClick}
-                className={`${actionBtn} ${item.className || 'w-9 text-base'}`}
-                title={item.title || item.label || item.key}
-              >
-                {item.content}
-              </button>
-            ))}
+          <div className={`flex items-center ${flatInner ? 'gap-0.5' : 'gap-1'}`}>
+            {resolvedActionItems.map((item) => renderIconControl(item, { flat: flatInner }))}
             {showAiToggle && (
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => onAiToggle?.(!aiEnabled)}
-                className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition ${
-                  aiEnabled
-                    ? composerDark
-                      ? 'bg-cyan-600/35 text-cyan-50 ring-1 ring-cyan-500/45'
-                      : 'bg-cyan-100 text-cyan-900 ring-1 ring-cyan-400/50'
-                    : composerDark
-                      ? 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
-                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800'
-                }`}
-                title={t('chat.aiSuggestBeta')}
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                AI
-              </button>
+              <HoverTooltip label={t('chat.aiSuggestBeta')} placement="top" disabled={disabled}>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onAiToggle?.(!aiEnabled)}
+                  className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition ${
+                    aiEnabled
+                      ? composerDark
+                        ? 'bg-cyan-600/35 text-cyan-50 ring-1 ring-cyan-500/45'
+                        : 'bg-cyan-100 text-cyan-900 ring-1 ring-cyan-400/50'
+                      : composerDark
+                        ? 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800'
+                  }`}
+                  aria-label={t('chat.aiSuggestBeta')}
+                >
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                  AI
+                </button>
+              </HoverTooltip>
             )}
           </div>
           {showSendButton && (

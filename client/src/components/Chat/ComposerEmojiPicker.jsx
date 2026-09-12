@@ -15,7 +15,7 @@ function MediaGrid({ items, onPick, emptyLabel, cols = 4 }) {
 
   if (!items.length) {
     return (
-      <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-white/10 px-3 py-6 text-center text-sm text-slate-400">
+      <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-foreground-secondary">
         {emptyLabel}
       </div>
     );
@@ -33,7 +33,7 @@ function MediaGrid({ items, onPick, emptyLabel, cols = 4 }) {
             onClick={() => onPick?.(item)}
             onMouseEnter={() => prefetchChatMediaFile(item)}
             onFocus={() => prefetchChatMediaFile(item)}
-            className="group flex aspect-square flex-col items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-[#111a2c] p-1.5 transition hover:border-blue-400/40 hover:bg-slate-700/80"
+            className="group flex aspect-square flex-col items-center justify-center overflow-hidden rounded-xl border border-border bg-muted p-1.5 transition duration-150 hover:border-primary/40 hover:bg-primary/10"
           >
             <img
               src={thumb}
@@ -51,7 +51,7 @@ function MediaGrid({ items, onPick, emptyLabel, cols = 4 }) {
                 e.currentTarget.style.display = 'none';
               }}
             />
-            <span className="mt-1 w-full truncate text-center text-[10px] text-slate-400 group-hover:text-slate-200">
+            <span className="mt-1 w-full truncate text-center text-xs text-foreground-secondary group-hover:text-foreground">
               {item.label}
             </span>
           </button>
@@ -97,9 +97,17 @@ export default function ComposerEmojiPicker({
   if (!open) return null;
 
   const tabs = [
-    { id: 'gif', label: t('orgPanel.gifTab') },
-    { id: 'sticker', label: t('orgPanel.stickerTab') },
-    { id: 'emoji', label: t('orgPanel.emojiTab') },
+    { id: 'gif', label: t('orgPanel.gifTab'), activeClass: 'bg-info/20 text-info ring-1 ring-info/35' },
+    {
+      id: 'sticker',
+      label: t('orgPanel.stickerTab'),
+      activeClass: 'bg-warning/15 text-warning ring-1 ring-warning/35',
+    },
+    {
+      id: 'emoji',
+      label: t('orgPanel.emojiTab'),
+      activeClass: 'bg-primary/15 text-primary ring-1 ring-primary/35',
+    },
   ];
 
   const searchPlaceholder =
@@ -129,17 +137,17 @@ export default function ComposerEmojiPicker({
         onClick={onClose}
         className={`${shellNavRailBackdrop} z-40 cursor-default bg-black/30`}
       />
-      <div className="fixed bottom-24 right-4 z-50 h-[min(420px,calc(100vh-8rem))] w-[min(520px,calc(100vw-2rem))] max-w-[92vw] overflow-hidden rounded-2xl border border-border bg-[#0b1220] shadow-2xl">
+      <div className="fixed bottom-24 right-4 z-50 h-[min(420px,calc(100vh-8rem))] w-[min(520px,calc(100vw-2rem))] max-w-[92vw] overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-2xl">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => onTabChange?.(tab.id)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition duration-150 ${
                 activeTab === tab.id
-                  ? 'bg-slate-700 text-white'
-                  : 'text-gray-300 hover:bg-slate-800/70'
+                  ? tab.activeClass
+                  : 'text-foreground-secondary hover:bg-muted hover:text-foreground'
               }`}
             >
               {tab.label}
@@ -151,7 +159,7 @@ export default function ComposerEmojiPicker({
             value={search}
             onChange={(event) => onSearchChange?.(event.target.value)}
             placeholder={searchPlaceholder}
-            className="h-11 w-full rounded-xl border border-blue-500/70 bg-[#0d1525] px-3 text-sm text-white outline-none placeholder:text-slate-400"
+            className="h-11 w-full rounded-xl border border-border bg-input-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
           />
         </div>
         <div className="relative h-[calc(100%-126px)] overflow-y-auto p-3 scrollbar-overlay">
@@ -176,7 +184,7 @@ export default function ComposerEmojiPicker({
                   key={`${emoji}-${idx}`}
                   type="button"
                   onClick={() => onPick?.(emoji)}
-                  className="h-11 rounded-lg bg-[#111a2c] text-2xl transition hover:bg-slate-700/80"
+                  className="h-11 rounded-lg bg-muted text-2xl transition hover:bg-primary/15"
                 >
                   {emoji}
                 </button>
@@ -189,7 +197,7 @@ export default function ComposerEmojiPicker({
             </div>
           )}
           {busy && activeTab !== 'emoji' ? (
-            <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded-lg bg-black/60 px-3 py-2 text-center text-xs text-slate-200">
+            <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded-lg border border-border bg-surface/95 px-3 py-2 text-center text-xs font-medium text-foreground shadow-md">
               {t('orgPanel.mediaSending')}
             </div>
           ) : null}

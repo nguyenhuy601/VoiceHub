@@ -15,7 +15,8 @@ export const FIGMA_MODAL_TITLE = 'text-lg font-bold text-foreground sm:text-xl';
 export const FIGMA_MODAL_CLOSE_BTN =
   'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground';
 
-export const FIGMA_MODAL_BODY = 'scrollbar-overlay max-h-[calc(90vh-8rem)] overflow-y-auto p-6';
+export const FIGMA_MODAL_BODY =
+  'scrollbar-overlay max-h-[calc(90vh-8rem)] overflow-y-auto p-6 text-foreground';
 
 export const FIGMA_MODAL_SIZES = {
   sm: 'max-w-md',

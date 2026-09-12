@@ -12,7 +12,11 @@ export function mergeMessagesById(existing, incoming) {
   return [...map.values()];
 }
 
-/** Thay optimistic temp bằng tin server (khớp content + reply). */
+/**
+ * Thay optimistic temp bằng tin server (khớp content + reply).
+ * Kể cả optimistic đã `failed` (ack tới trễ sau SEND_ACK timeout) — tránh UI
+ * "đã hiện tin nhưng vẫn Gửi thất bại".
+ */
 export function replaceOptimisticWithServer(prev, serverMsg, tempId) {
   const sid = serverMsg?._id || serverMsg?.id;
   if (!sid) return prev;
@@ -21,7 +25,7 @@ export function replaceOptimisticWithServer(prev, serverMsg, tempId) {
     const xid = x._id || x.id;
     if (String(xid) === String(sid)) return false;
     if (tempId && String(xid) === String(tempId)) return false;
-    if (x._optimistic && x._sendStatus !== 'failed') {
+    if (x._optimistic) {
       const sameText = String(x.content || '') === String(serverMsg.content || '');
       const sameReply =
         String(x.replyToMessageId || '') === String(serverMsg.replyToMessageId || '');

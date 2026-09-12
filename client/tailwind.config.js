@@ -32,6 +32,8 @@ export default {
         border: 'var(--border)',
         'border-strong': 'var(--border-strong)',
         input: 'var(--input)',
+        /* Token --input-background (index.css); thiếu key → bg-input-background bị bỏ qua, input trắng + text-foreground tối → chữ gần như ẩn */
+        'input-background': 'var(--input-background)',
         ring: 'var(--ring)',
         background: 'var(--background)',
         foreground: 'var(--foreground)',
