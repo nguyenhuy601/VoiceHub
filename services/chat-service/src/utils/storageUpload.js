@@ -43,7 +43,7 @@ async function uploadBuffer(storagePath, buffer, contentType) {
         );
         err.statusCode = 503;
         err.messageUser =
-          'Kho MinIO chưa sẵn sàng. Chạy: docker compose -f docker-compose.swarm-extra.yml --env-file .env up -d minio minio-init';
+          'Kho lưu trữ file chưa sẵn sàng. Thử lại sau vài giây hoặc bật MinIO (compose extra).';
         throw err;
       }
       /* auto + MinIO lỗi: thử Firebase */
