@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
@@ -17,6 +18,7 @@ import {
 } from '../../utils/helpers';
 import { AVATAR_FILE_ACCEPT } from '../../utils/avatarDisplay';
 import { invalidateProtectedAvatarCache } from '../../utils/protectedMediaFetch';
+import { queryKeys } from '../../lib/queryKeys';
 import {
   birthYearOptions,
   isBirthDateComplete,
@@ -30,6 +32,7 @@ function ProfileModal({ isOpen, onClose }) {
   const { user: authUser, updateUser } = useAuth();
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
+  const queryClient = useQueryClient();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -357,6 +360,7 @@ function ProfileModal({ isOpen, onClose }) {
       if (authUser) {
         updateUser(mergeAuthUserFromProfile(authUser, merged, { avatarBust: bust }));
       }
+      queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
       notify.success(t('profileModal.avatarOk'));
       handleAvatarCropClose();
     } catch (error) {

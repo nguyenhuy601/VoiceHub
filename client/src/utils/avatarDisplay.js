@@ -49,15 +49,8 @@ export function voiceSpeakingRingClass(active) {
     : 'ring-2 ring-transparent';
 }
 
-const AVATAR_BG_COLORS = [
-  'bg-violet-500',
-  'bg-indigo-500',
-  'bg-blue-500',
-  'bg-cyan-500',
-  'bg-teal-500',
-  'bg-purple-500',
-  'bg-fuchsia-500',
-];
+/** Một màu token — tránh initials tím/xanh/đỏ lệch giữa header / settings / chat. */
+const AVATAR_PLACEHOLDER_BG = 'bg-primary';
 
 export function isAvatarImageUrl(value) {
   const picked = pickAvatarValue(value);
@@ -83,21 +76,39 @@ export function displayInitials(name) {
   return (one[0] || '?').toUpperCase();
 }
 
-export function getAvatarBgClass(name) {
-  const key = String(name || '?').trim();
-  let hash = 0;
-  for (let i = 0; i < key.length; i += 1) {
-    hash = key.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const index = Math.abs(hash) % AVATAR_BG_COLORS.length;
-  return AVATAR_BG_COLORS[index];
+export function getAvatarBgClass(_name) {
+  return AVATAR_PLACEHOLDER_BG;
 }
 
 export function getAvatarSizeClass(size = 'md') {
   return SIZE_CLASS[size] || SIZE_CLASS.md;
 }
 
-/** Class cho placeholder initials (không có ảnh). */
+/** Class cho placeholder initials (không có ảnh) — màu/shape thống nhất theo tên, bỏ bg/rounded lệch từ ringClassName. */
+export function sanitizeAvatarRingExtra(extra = '') {
+  return String(extra || '')
+    .split(/\s+/)
+    .filter(
+      (c) =>
+        c &&
+        !/^bg-/.test(c) &&
+        !/^from-/.test(c) &&
+        !/^to-/.test(c) &&
+        !/^via-/.test(c) &&
+        !/^rounded-/.test(c) &&
+        !/^text-/.test(c) &&
+        !/^h-/.test(c) &&
+        !/^w-/.test(c) &&
+        !/^flex$/.test(c) &&
+        !/^items-/.test(c) &&
+        !/^justify-/.test(c) &&
+        !/^shrink-/.test(c) &&
+        !/^overflow-/.test(c) &&
+        !/^font-/.test(c)
+    )
+    .join(' ');
+}
+
 export function avatarPlaceholderClassName(name, size = 'md', extra = '') {
   return [
     'inline-flex shrink-0 items-center justify-center overflow-hidden',
@@ -105,7 +116,7 @@ export function avatarPlaceholderClassName(name, size = 'md', extra = '') {
     getAvatarSizeClass(size),
     getAvatarBgClass(name),
     AVATAR_TEXT_CLASS,
-    extra,
+    sanitizeAvatarRingExtra(extra),
   ]
     .filter(Boolean)
     .join(' ');
@@ -117,20 +128,29 @@ export function avatarImageShellClassName(size = 'md', extra = '') {
     'inline-flex shrink-0 items-center justify-center overflow-hidden',
     AVATAR_RADIUS_CLASS,
     getAvatarSizeClass(size),
-    extra,
+    sanitizeAvatarRingExtra(extra),
   ]
     .filter(Boolean)
     .join(' ');
 }
 
-/** Avatar protected — dùng blob fetch (ưu tiên /api/users/:id/avatar khi có userId). */
+/** Avatar protected — ưu tiên GET /api/users/:id/avatar khi có userId (kể cả list thiếu URL). */
 export function needsAuthenticatedAvatarFetch(avatar, userId = null) {
   const raw = pickAvatarValue(avatar);
+  if (raw && String(raw).startsWith('data:')) return false;
+  const uid = String(userId || '').trim();
+  if (uid) return true;
   if (!raw || !isAvatarImageUrl(avatar)) return false;
   if (/\/uploads\//i.test(String(raw))) return true;
   const v = String(raw).trim();
-  if (/^https?:\/\//i.test(v) || v.startsWith('data:')) return false;
-  return Boolean(String(userId || '').trim());
+  if (/^https?:\/\//i.test(v)) return false;
+  return false;
+}
+
+/** Chỉ hiện <img> khi đã có src thật — tránh ô trống/màu lạ khi blob chưa về hoặc 404. */
+export function canRenderAvatarImage({ resolvedSrc, imgFailed = false } = {}) {
+  if (imgFailed) return false;
+  return Boolean(resolvedSrc);
 }
 
 export function resolveAvatarSrc(avatar, cacheBust, userId = null) {
