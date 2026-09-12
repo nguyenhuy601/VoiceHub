@@ -125,13 +125,13 @@ export const FIGMA_VOICE_CTRL_BTN_DANGER =
 export const FIGMA_VOICE_CTRL_END =
   'flex items-center gap-1.5 rounded-full border-0 bg-destructive px-4 py-2 text-sm font-bold text-destructive-foreground shadow-[0_4px_14px_rgba(239,68,68,0.4)] transition-shadow hover:shadow-[0_6px_20px_rgba(239,68,68,0.55)]';
 
-/** Panel phải inline (desktop Figma) */
+/** Panel phải inline (desktop Figma) — width do parent style. */
 export const FIGMA_VOICE_SIDE_PANEL_INLINE =
-  'flex h-full w-[17.5rem] shrink-0 flex-col border-l border-border bg-surface-raised dark:border-white/[0.07]';
+  'relative flex h-full shrink-0 flex-col border-l border-border bg-surface-raised dark:border-white/[0.07]';
 
-/** Panel phải overlay (mobile) */
+/** Panel phải overlay (mobile) — width do parent style / max. */
 export const FIGMA_VOICE_SIDE_PANEL =
-  'fixed inset-y-0 right-0 z-40 flex h-full w-[min(100vw,17.5rem)] flex-col border-l border-border bg-surface-raised shadow-2xl transition-transform duration-300 ease-out vh-anim-scale-in dark:border-white/10';
+  'fixed inset-y-0 right-0 z-40 flex h-full max-w-[min(100vw,22.5rem)] flex-col border-l border-border bg-surface-raised shadow-2xl transition-transform duration-300 ease-out vh-anim-scale-in dark:border-white/10';
 
 export const FIGMA_VOICE_SIDE_TAB_ROW =
   'flex shrink-0 items-center border-b border-border dark:border-white/[0.07]';
@@ -285,14 +285,14 @@ export const FIGMA_VOICE_LOBBY_SCROLL_MAIN =
 
 export const FIGMA_VOICE_LOBBY_SCROLL = FIGMA_VOICE_LOBBY_SCROLL_MAIN;
 
-export const FIGMA_VOICE_LOBBY_PAGE_INNER = 'mx-auto w-full max-w-6xl p-4 pb-8 sm:p-6';
+export const FIGMA_VOICE_LOBBY_PAGE_INNER = 'mx-auto w-full max-w-5xl p-4 pb-8 sm:p-5';
 
 export const FIGMA_VOICE_LOBBY_PREJOIN_GRID =
-  'grid grid-cols-1 items-start gap-4 xl:grid-cols-2 xl:gap-6';
+  'grid grid-cols-1 items-start gap-4 xl:grid-cols-2 xl:gap-5';
 
-export const FIGMA_VOICE_LOBBY_BODY = 'mx-auto w-full max-w-6xl p-4 sm:p-6';
+export const FIGMA_VOICE_LOBBY_BODY = 'mx-auto w-full max-w-5xl p-4 sm:p-5';
 
-export const FIGMA_VOICE_LOBBY_HERO_GRID = 'grid grid-cols-1 gap-3.5 md:grid-cols-2';
+export const FIGMA_VOICE_LOBBY_HERO_GRID = 'grid grid-cols-1 gap-3.5 md:grid-cols-2 md:gap-4';
 
 export const FIGMA_VOICE_LOBBY_CREATE_CARD =
   'relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.09] to-primary/[0.04] p-5 transition-[box-shadow,border-color] duration-150 sm:p-6 lg:p-7 md:hover:-translate-y-0.5 md:hover:border-primary/30 md:hover:shadow-md';
@@ -313,7 +313,7 @@ export const FIGMA_VOICE_LOBBY_PRIMARY_BTN =
   'inline-flex h-10 items-center gap-1.5 rounded-[9px] border-none bg-gradient-to-br from-primary to-primary-hover px-[22px] text-sm font-semibold text-primary-foreground shadow-[0_4px_14px_rgba(37,99,235,0.4)] transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-[0_5px_20px_rgba(37,99,235,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';
 
 export const FIGMA_VOICE_LOBBY_JOIN_INPUT =
-  'h-10 flex-1 rounded-[9px] border border-border bg-input-background px-3 font-mono text-[0.9375rem] tracking-[0.12em] text-foreground outline-none transition-[border-color,box-shadow,background-color] duration-150 focus:border-cyan-400 focus:shadow-[0_0_0_3px_rgba(34,211,238,0.14)]';
+  'h-10 flex-1 rounded-[9px] border border-border bg-input-background px-3 font-mono text-[0.9375rem] tracking-[0.12em] text-foreground outline-none transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-muted-foreground focus:border-cyan-400 focus:shadow-[0_0_0_3px_rgba(34,211,238,0.14)] [-webkit-text-fill-color:var(--foreground)]';
 
 export const FIGMA_VOICE_LOBBY_JOIN_BTN =
   'h-10 shrink-0 rounded-[9px] border-none px-[18px] text-sm font-semibold text-primary-foreground transition-[box-shadow,opacity,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';

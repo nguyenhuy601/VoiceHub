@@ -40,7 +40,7 @@ function readHistoryOpen() {
   } catch {
     /* ignore */
   }
-  return true;
+  return false;
 }
 
 export default function VoiceLobbyView({
@@ -185,6 +185,7 @@ export default function VoiceLobbyView({
                   onClick={toggleHistory}
                   className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
                   aria-label={t('voiceRoom.historyCollapse')}
+                  aria-expanded={true}
                   title={t('voiceRoom.historyCollapse')}
                 >
                   <ChevronRight className="h-4 w-4" aria-hidden />
@@ -211,6 +212,7 @@ export default function VoiceLobbyView({
               onClick={toggleHistory}
               className="flex h-full flex-col items-center gap-2 px-1 py-4 text-muted-foreground hover:bg-muted/60"
               aria-label={t('voiceRoom.historyExpand')}
+              aria-expanded={false}
               title={t('voiceRoom.historyExpand')}
             >
               <ChevronLeft className="h-4 w-4 shrink-0" aria-hidden />

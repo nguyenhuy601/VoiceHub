@@ -70,6 +70,13 @@ import VoiceAudioSettingsPanel from './VoiceAudioSettingsPanel';
 import { acquireMicStream, loadVoiceAudioPrefs, saveVoiceAudioPrefs } from './voiceAudioPrefs';
 import { bindAndPlayRemoteAudio, applyRemoteAudioElement } from './voiceRemoteAudio';
 import { resolveAppOrigin } from '../../utils/browserOrigin';
+import {
+  VOICE_SIDE_BASE_W,
+  VOICE_SIDE_MAX_W,
+  VOICE_SIDE_MIN_W,
+  loadVoiceRoomLayoutPrefs,
+  saveVoiceRoomLayoutPrefs,
+} from '../../utils/voiceRoomLayoutPrefs';
 import { emitNotificationsRefresh } from '../../services/notificationSync';
 import UserAvatar from '../../components/Shared/UserAvatar';
 import { isAvatarImageUrl } from '../../utils/avatarDisplay';
@@ -170,8 +177,11 @@ function VoiceToolbarControl({
   active = true,
   pressed = false,
   suiteLayout = false,
+  ariaExpanded,
 }) {
   const OffIcon = iconOff || Icon;
+  const expandedProp =
+    ariaExpanded === undefined ? undefined : { 'aria-expanded': Boolean(ariaExpanded) };
   if (suiteLayout) {
     const btnState = !active
       ? FIGMA_VOICE_CTRL_BTN_DANGER
@@ -189,6 +199,7 @@ function VoiceToolbarControl({
         onClick={onClick}
         title={label}
         aria-label={badge != null ? `${label} (${badge})` : label}
+        {...expandedProp}
         className={`${FIGMA_VOICE_CTRL_BTN} ${btnState}`}
       >
         {active ? (
@@ -203,6 +214,7 @@ function VoiceToolbarControl({
     <button
       type="button"
       onClick={onClick}
+      {...expandedProp}
       className={`group flex min-w-[56px] flex-col items-center gap-1 rounded-lg px-1.5 py-1 text-white transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
         pressed ? 'bg-sky-500/25 ring-1 ring-sky-400/50' : ''
       }`}
@@ -502,6 +514,12 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
   const [orgPermissionsLoaded, setOrgPermissionsLoaded] = useState(false);
 
   const [rightPanel, setRightPanel] = useState(null); // null | 'chat' | 'people'
+  const [sidePanelWidth, setSidePanelWidth] = useState(
+    () => loadVoiceRoomLayoutPrefs().sidePanelWidth
+  );
+  const sidePanelWidthRef = useRef(sidePanelWidth);
+  sidePanelWidthRef.current = sidePanelWidth;
+  const sidePanelResizingRef = useRef(null);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [inviteSearch, setInviteSearch] = useState('');
   const [inviteCandidates, setInviteCandidates] = useState([]);
@@ -521,6 +539,82 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
       return [];
     }
   });
+
+  const persistSidePanelWidth = useCallback((w) => {
+    const next = saveVoiceRoomLayoutPrefs({ sidePanelWidth: w });
+    setSidePanelWidth(next.sidePanelWidth);
+  }, []);
+
+  const setVoiceSidePanel = useCallback((nextOrUpdater) => {
+    setRightPanel((prev) => {
+      const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(prev) : nextOrUpdater;
+      saveVoiceRoomLayoutPrefs({ lastPanel: next });
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e) => {
+      const st = sidePanelResizingRef.current;
+      if (!st?.active) return;
+      const next = Math.round(st.startW + (st.startX - (e?.clientX ?? 0)));
+      const clamped = Math.max(VOICE_SIDE_MIN_W, Math.min(VOICE_SIDE_MAX_W, next));
+      setSidePanelWidth(clamped);
+      e?.preventDefault?.();
+    };
+    const onUp = () => {
+      const st = sidePanelResizingRef.current;
+      if (!st?.active) return;
+      sidePanelResizingRef.current = null;
+      persistSidePanelWidth(sidePanelWidthRef.current);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [persistSidePanelWidth]);
+
+  const sidePanelStyle = useMemo(
+    () => ({
+      width: sidePanelWidth,
+      minWidth: VOICE_SIDE_MIN_W,
+      maxWidth: VOICE_SIDE_MAX_W,
+    }),
+    [sidePanelWidth]
+  );
+
+  const startSidePanelResize = useCallback((e) => {
+    if (e.button !== 0) return;
+    sidePanelResizingRef.current = {
+      active: true,
+      startX: e.clientX,
+      startW: sidePanelWidthRef.current,
+    };
+    e.preventDefault();
+  }, []);
+
+  const resetSidePanelWidth = useCallback(() => {
+    persistSidePanelWidth(VOICE_SIDE_BASE_W);
+  }, [persistSidePanelWidth]);
+
+  const renderSidePanelResizeHandle = () => (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-valuenow={sidePanelWidth}
+      aria-valuemin={VOICE_SIDE_MIN_W}
+      aria-valuemax={VOICE_SIDE_MAX_W}
+      title={t('voiceRoom.sidePanelResizeHint', {
+        min: VOICE_SIDE_MIN_W,
+        max: VOICE_SIDE_MAX_W,
+      })}
+      className="absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none hover:bg-primary/20 active:bg-primary/30"
+      onMouseDown={startSidePanelResize}
+      onDoubleClick={resetSidePanelWidth}
+    />
+  );
   const [lobbyMeetings, setLobbyMeetings] = useState([]);
   const [recordingPlayback, setRecordingPlayback] = useState(null);
   const [segmentPicker, setSegmentPicker] = useState(null);
@@ -3471,15 +3565,16 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
           <button
             key={tab.id}
             type="button"
-            onClick={() => setRightPanel(tab.id)}
+            onClick={() => setVoiceSidePanel(tab.id)}
             className={figmaVoiceSideTab(rightPanel === tab.id)}
+            aria-expanded={rightPanel === tab.id}
           >
             {tab.label}
           </button>
         ))}
         <button
           type="button"
-          onClick={() => setRightPanel(null)}
+          onClick={() => setVoiceSidePanel(null)}
           className={FIGMA_VOICE_SIDE_CLOSE_BTN}
           aria-label={t('voiceRoom.closeAria')}
         >
@@ -4004,7 +4099,8 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                           value={displayNameInput}
                           onChange={(e) => setDisplayNameInput(e.target.value)}
                           placeholder={localDisplayName}
-                          className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary"
+                          autoComplete="name"
+                          className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary [-webkit-text-fill-color:var(--foreground)] [&:-webkit-autofill]:[-webkit-text-fill-color:var(--foreground)] [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_var(--input-background)]"
                         />
                       </label>
 
@@ -4766,7 +4862,11 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                       <div className={FIGMA_VOICE_GRID_SCROLL}>{gridContent}</div>
                     </div>
                     {rightPanel ? (
-                      <div className={`hidden lg:flex ${figmaVoiceSidePanel(suiteLayout, true, { inline: true })}`}>
+                      <div
+                        className={`hidden lg:flex ${figmaVoiceSidePanel(suiteLayout, true, { inline: true })}`}
+                        style={sidePanelStyle}
+                      >
+                        {renderSidePanelResizeHandle()}
                         {renderVoiceSidePanelBody()}
                       </div>
                     ) : null}
@@ -4914,7 +5014,8 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                     icon={Users}
                     badge={totalParticipants}
                     pressed={rightPanel === 'people'}
-                    onClick={() => setRightPanel((p) => (p === 'people' ? null : 'people'))}
+                    ariaExpanded={rightPanel === 'people'}
+                    onClick={() => setVoiceSidePanel((p) => (p === 'people' ? null : 'people'))}
                     chevron
                     suiteLayout={suiteLayout}
                   />
@@ -4922,7 +5023,8 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                     label={t('voiceRoom.toolbarChat')}
                     icon={MessageSquare}
                     pressed={rightPanel === 'chat'}
-                    onClick={() => setRightPanel((p) => (p === 'chat' ? null : 'chat'))}
+                    ariaExpanded={rightPanel === 'chat'}
+                    onClick={() => setVoiceSidePanel((p) => (p === 'chat' ? null : 'chat'))}
                     chevron
                     suiteLayout={suiteLayout}
                   />
@@ -5091,7 +5193,11 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
             </div>
 
             {rightPanel ? (
-              <div className={`${suiteLayout ? 'lg:hidden ' : ''}${figmaVoiceSidePanel(suiteLayout, true)}`}>
+              <div
+                className={`${suiteLayout ? 'lg:hidden ' : ''}${figmaVoiceSidePanel(suiteLayout, true)}`}
+                style={sidePanelStyle}
+              >
+                {renderSidePanelResizeHandle()}
                 {renderVoiceSidePanelBody()}
               </div>
             ) : null}
