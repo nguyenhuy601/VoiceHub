@@ -9,6 +9,7 @@ import { useAppStrings } from '../../locales/appStrings';
 import api from '../../services/api';
 import friendService from '../../services/friendService';
 import NotificationsFigmaView from '../../components/Notifications/NotificationsFigmaView';
+import { useNotificationInboxShortcuts } from '../../hooks/useNotificationInboxShortcuts';
 import {
   NOTIFICATIONS_REFRESH_EVENT,
   markFriendNotificationsResolved,
@@ -28,7 +29,7 @@ import {
   isVoiceRoomInviteNotification,
   resolveVoiceRoomInvitePath,
 } from '../../utils/notificationNavigation';
-import { isP0Notification } from '../../utils/notificationP0Policy';
+import { isP0Notification, mapNotificationUiType } from '../../utils/notificationP0Policy';
 
 function getNotificationTimeGroup(createdAt) {
   if (!createdAt) return 'earlier';
@@ -143,10 +144,15 @@ function NotificationsPage({ orgScope = false } = {}) {
     navigate(`${COLLABORATE_NOTIFICATIONS_PATH}${qs ? `?${qs}` : ''}`, { replace: true });
   }, [location.pathname, navigate, searchParams]);
 
-  const [filter, setFilter] = useState('all');
+  const [primaryFilter, setPrimaryFilter] = useState('needsAction');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [selectedId, setSelectedId] = useState(null);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [checkedIds, setCheckedIds] = useState(() => new Set());
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState(null);
   const [notifSearch, setNotifSearch] = useState('');
   const [notifications, setNotifications] = useState([]);
-  const [deleteNotifConfirmId, setDeleteNotifConfirmId] = useState(null);
   const [actingNotifId, setActingNotifId] = useState('');
   const { on, off } = useSocket();
   const queryClient = useQueryClient();
@@ -233,21 +239,7 @@ function NotificationsPage({ orgScope = false } = {}) {
     const id = item?._id || item?.id;
     const rawType = String(item?.type || 'system');
     const kind = String(data?.kind || '').trim();
-    const isTaskDueKind = kind === 'task_due_soon' || kind === 'task_overdue';
-    const type =
-      isTaskDueKind
-        ? 'deadline'
-        : rawType === 'friend_request' || rawType === 'friend_accepted'
-          ? 'friend'
-          : rawType === 'task_assigned' || rawType === 'task_completed'
-            ? 'task'
-            : rawType === 'document'
-              ? 'file'
-              : rawType === 'message'
-                ? 'mention'
-                : rawType === 'org_join_application'
-                  ? 'system'
-                  : rawType;
+    const type = mapNotificationUiType(rawType, kind);
     const orgLabel =
       data?.workspaceName ||
       data?.organizationName ||
@@ -505,12 +497,12 @@ function NotificationsPage({ orgScope = false } = {}) {
     }
   };
 
-  const handleMarkAsRead = async (id) => {
+  const handleMarkAsRead = async (id, { silent = false } = {}) => {
     if (!id) return;
     try {
       await api.patch(`/notifications/${id}/read`);
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-      toast.success(t('notifications.markRead'));
+      if (!silent) toast.success(t('notifications.markRead'));
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.markReadErr') }));
     }
@@ -527,15 +519,64 @@ function NotificationsPage({ orgScope = false } = {}) {
   };
 
   const confirmDeleteNotification = async () => {
-    const id = deleteNotifConfirmId;
-    if (!id) return;
+    const ids = Array.isArray(pendingDeleteIds) ? pendingDeleteIds.filter(Boolean) : [];
+    if (!ids.length) return;
+    let deleted = 0;
     try {
-      await api.delete(`/notifications/${id}`);
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
-      toast.success(t('notifications.deleted'));
+      for (const id of ids) {
+        await api.delete(`/notifications/${id}`);
+        deleted += 1;
+      }
+      const idSet = new Set(ids.map(String));
+      setNotifications((prev) => prev.filter((n) => !idSet.has(String(n.id))));
+      setSelectedId((prev) => (prev != null && idSet.has(String(prev)) ? null : prev));
+      setCheckedIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(String(id)));
+        return next;
+      });
+      toast.success(
+        ids.length > 1
+          ? t('notifications.bulkDeleteDone', { n: deleted })
+          : t('notifications.deleted')
+      );
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.deleteErr') }));
+    } finally {
+      setPendingDeleteIds(null);
     }
+  };
+
+  const handleSelectNotification = (notif) => {
+    if (!notif?.id) return;
+    if (bulkMode) {
+      setCheckedIds((prev) => {
+        const next = new Set(prev);
+        const key = String(notif.id);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+      setSelectedId(notif.id);
+      return;
+    }
+    setSelectedId(notif.id);
+    if (!notif.read) {
+      handleMarkAsRead(notif.id, { silent: true });
+    }
+  };
+
+  const handleToggleCheck = (notif) => {
+    if (!notif?.id) return;
+    setBulkMode(true);
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      const key = String(notif.id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    setSelectedId(notif.id);
   };
 
   const handleOpenNotification = (notif) => {
@@ -652,16 +693,17 @@ function NotificationsPage({ orgScope = false } = {}) {
   };
 
   const filteredNotifications = useMemo(() => {
-    let list =
-      filter === 'all'
-        ? notifications
-        : filter === 'unread'
-          ? notifications.filter((n) => !n.read)
-          : filter === 'priority'
-            ? notifications.filter((n) => isP0Notification(n))
-            : filter === 'friend'
-              ? notifications.filter((n) => n.type === 'friend')
-              : notifications.filter((n) => n.type === filter);
+    let list = notifications;
+    if (primaryFilter === 'unread') {
+      list = list.filter((n) => !n.read);
+    } else if (primaryFilter === 'needsAction') {
+      list = list.filter((n) => isP0Notification(n));
+    }
+    if (typeFilter === 'friend') {
+      list = list.filter((n) => n.type === 'friend');
+    } else if (typeFilter !== 'all') {
+      list = list.filter((n) => n.type === typeFilter);
+    }
     if (notificationScope === 'organization' && organizationIdFilter) {
       list = list.filter((n) => String(n.organizationId || '').trim() === organizationIdFilter);
     }
@@ -671,23 +713,51 @@ function NotificationsPage({ orgScope = false } = {}) {
       const hay = `${n.title || ''} ${n.message || ''} ${n.action || ''} ${n.type || ''}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [notifications, filter, notifSearch, organizationIdFilter, notificationScope]);
+  }, [
+    notifications,
+    primaryFilter,
+    typeFilter,
+    notifSearch,
+    organizationIdFilter,
+    notificationScope,
+  ]);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.read).length;
+  const needsActionCount = useMemo(
+    () => notifications.filter((n) => isP0Notification(n) && !n.read).length,
+    [notifications]
+  );
 
-  const figmaFilterOptions = useMemo(
+  const primaryFilterOptions = useMemo(
     () => [
+      { id: 'needsAction', label: t('notifications.filterNeedsAction') },
       { id: 'all', label: t('notifications.filterAll') },
       { id: 'unread', label: t('notifications.filterUnread') },
-      { id: 'priority', label: t('notifications.filterPriority') },
+    ],
+    [t]
+  );
+
+  const typeFilterOptions = useMemo(
+    () => [
+      { id: 'all', label: t('notifications.filterTypeAll') },
       { id: 'friend', label: t('notifications.filterFriend') },
-      { id: 'mention', label: t('common.mentions') },
+      { id: 'mention', label: t('notifications.filterMentions') },
       { id: 'meeting', label: t('notifications.filterMeetings') },
       { id: 'task', label: t('notifications.filterTasks') },
       { id: 'deadline', label: t('notifications.filterDeadline') },
     ],
     [t]
   );
+
+  const emptyHint = useMemo(() => {
+    if (primaryFilter === 'needsAction' && typeFilter === 'all' && !notifSearch.trim()) {
+      return t('notifications.emptyHintNeedsAction');
+    }
+    if (primaryFilter !== 'all' || typeFilter !== 'all' || notifSearch.trim()) {
+      return t('notifications.emptyHintFilter');
+    }
+    return t('notifications.emptyHintAllRead');
+  }, [primaryFilter, typeFilter, notifSearch, t]);
 
   const groupedNotifications = useMemo(() => {
     const labels = {
@@ -704,52 +774,210 @@ function NotificationsPage({ orgScope = false } = {}) {
       .filter((group) => group.items.length > 0);
   }, [filteredNotifications, t]);
 
+  const selectedNotification = useMemo(
+    () => filteredNotifications.find((n) => String(n.id) === String(selectedId)) || null,
+    [filteredNotifications, selectedId]
+  );
+
+  const visibleIds = useMemo(
+    () => filteredNotifications.map((n) => String(n.id)),
+    [filteredNotifications]
+  );
+
+  useEffect(() => {
+    if (selectedId == null) return;
+    if (!filteredNotifications.some((n) => String(n.id) === String(selectedId))) {
+      setSelectedId(null);
+    }
+  }, [filteredNotifications, selectedId]);
+
+  useEffect(() => {
+    setCheckedIds((prev) => {
+      if (!prev.size) return prev;
+      const allowed = new Set(visibleIds);
+      const next = new Set([...prev].filter((id) => allowed.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleIds]);
+
+  const moveSelection = useCallback(
+    (delta) => {
+      if (!visibleIds.length) return;
+      const current = selectedId != null ? visibleIds.indexOf(String(selectedId)) : -1;
+      let nextIndex = current + delta;
+      if (current < 0) nextIndex = delta > 0 ? 0 : visibleIds.length - 1;
+      if (nextIndex < 0) nextIndex = 0;
+      if (nextIndex >= visibleIds.length) nextIndex = visibleIds.length - 1;
+      setSelectedId(visibleIds[nextIndex]);
+    },
+    [visibleIds, selectedId]
+  );
+
+  const handleBulkSelectAll = useCallback(() => {
+    setBulkMode(true);
+    setCheckedIds(new Set(visibleIds));
+  }, [visibleIds]);
+
+  const handleBulkClear = useCallback(() => {
+    setCheckedIds(new Set());
+  }, []);
+
+  const handleBulkMarkRead = useCallback(async () => {
+    const ids = [...checkedIds];
+    if (!ids.length) return;
+    let ok = 0;
+    try {
+      for (const id of ids) {
+        await api.patch(`/notifications/${id}/read`);
+        ok += 1;
+      }
+      const idSet = new Set(ids.map(String));
+      setNotifications((prev) =>
+        prev.map((n) => (idSet.has(String(n.id)) ? { ...n, read: true } : n))
+      );
+      toast.success(t('notifications.bulkMarkReadDone', { n: ok }));
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.markReadErr') }));
+    }
+  }, [checkedIds, t]);
+
+  const handleShortcutMarkRead = useCallback(() => {
+    if (bulkMode && checkedIds.size > 0) {
+      handleBulkMarkRead();
+      return;
+    }
+    if (selectedId != null) handleMarkAsRead(selectedId);
+  }, [bulkMode, checkedIds, selectedId, handleBulkMarkRead]);
+
+  const handleShortcutDelete = useCallback(() => {
+    if (bulkMode && checkedIds.size > 0) {
+      setPendingDeleteIds([...checkedIds]);
+      return;
+    }
+    if (selectedId != null) setPendingDeleteIds([selectedId]);
+  }, [bulkMode, checkedIds, selectedId]);
+
+  const handleShortcutOpen = useCallback(() => {
+    if (bulkMode) return;
+    if (selectedNotification) handleOpenNotification(selectedNotification);
+  }, [bulkMode, selectedNotification]);
+
+  const handleShortcutEscape = useCallback(() => {
+    if (shortcutHelpOpen) {
+      setShortcutHelpOpen(false);
+      return;
+    }
+    if (bulkMode) {
+      setBulkMode(false);
+      setCheckedIds(new Set());
+      return;
+    }
+    setSelectedId(null);
+  }, [shortcutHelpOpen, bulkMode]);
+
+  const handleShortcutToggleCheck = useCallback(() => {
+    if (selectedId == null && visibleIds[0]) {
+      const first = filteredNotifications.find((n) => String(n.id) === visibleIds[0]);
+      if (first) handleToggleCheck(first);
+      return;
+    }
+    const current = filteredNotifications.find((n) => String(n.id) === String(selectedId));
+    if (current) handleToggleCheck(current);
+  }, [selectedId, visibleIds, filteredNotifications]);
+
+  useNotificationInboxShortcuts({
+    enabled: !isOrgNotificationsPage,
+    itemIds: visibleIds,
+    selectedId,
+    bulkMode,
+    dialogOpen: pendingDeleteIds != null,
+    onMove: moveSelection,
+    onOpen: handleShortcutOpen,
+    onMarkRead: handleShortcutMarkRead,
+    onDelete: handleShortcutDelete,
+    onEscape: handleShortcutEscape,
+    onToggleCheck: handleShortcutToggleCheck,
+    onToggleHelp: () => setShortcutHelpOpen((v) => !v),
+  });
+
   if (isOrgNotificationsPage && organizationIdFilter) {
     return null;
   }
+
+  const pendingDeleteCount = Array.isArray(pendingDeleteIds) ? pendingDeleteIds.length : 0;
 
   return (
     <>
       <NotificationsFigmaView
         title={t('notifications.defaultTitle')}
         unreadCount={unreadCount}
+        needsActionCount={needsActionCount}
         search={notifSearch}
         onSearchChange={setNotifSearch}
         searchPlaceholder={t('notifications.searchPlaceholder')}
-        filter={filter}
-        onFilterChange={setFilter}
-        filterOptions={figmaFilterOptions}
+        primaryFilter={primaryFilter}
+        onPrimaryFilterChange={setPrimaryFilter}
+        primaryFilterOptions={primaryFilterOptions}
+        typeFilter={typeFilter}
+        onTypeFilterChange={setTypeFilter}
+        typeFilterOptions={typeFilterOptions}
         groups={groupedNotifications}
+        selectedId={selectedId}
+        selectedNotification={selectedNotification}
+        bulkMode={bulkMode}
+        checkedIds={checkedIds}
+        checkedCount={checkedIds.size}
+        shortcutHelpOpen={shortcutHelpOpen}
         loading={notificationsLoading}
         emptyMessage={t('notifications.emptyNew')}
-        emptyHint={
-          filter !== 'all'
-            ? t('notifications.emptyHintFilter')
-            : t('notifications.emptyHintAllRead')
-        }
+        emptyHint={emptyHint}
         getActionKind={getNotifActionKind}
         actingNotifId={actingNotifId}
+        onSelectNotification={handleSelectNotification}
         onOpenNotification={handleOpenNotification}
-        onDeleteNotification={(notif) => setDeleteNotifConfirmId(notif.id)}
+        onMarkReadNotification={handleMarkAsRead}
+        onClearSelection={() => setSelectedId(null)}
+        onDeleteNotification={(notif) => setPendingDeleteIds([notif.id])}
         onAcceptFriend={handleAcceptFriendRequest}
         onRejectFriend={handleRejectFriendRequest}
         onJoinVoice={handleOpenNotification}
         onMarkAllRead={handleMarkAllRead}
+        onToggleBulkMode={() => {
+          setBulkMode((v) => {
+            if (v) setCheckedIds(new Set());
+            return !v;
+          });
+        }}
+        onToggleCheck={handleToggleCheck}
+        onBulkSelectAll={handleBulkSelectAll}
+        onBulkClear={handleBulkClear}
+        onBulkMarkRead={handleBulkMarkRead}
+        onBulkDelete={() => {
+          if (checkedIds.size) setPendingDeleteIds([...checkedIds]);
+        }}
+        onToggleShortcutHelp={() => setShortcutHelpOpen((v) => !v)}
         markAllReadLabel={t('notifications.markAllReadShort')}
         actionLabels={{
           accept: t('notifications.actionAccept'),
           reject: t('notifications.actionReject'),
           joinVoice: t('notifications.actionJoin'),
           delete: t('notifications.deleteBtn'),
+          open: t('notifications.actionOpen'),
+          markRead: t('notifications.markOneRead'),
+          checkItem: t('notifications.bulkCheckItem'),
         }}
       />
 
       <ConfirmDialog
-        isOpen={deleteNotifConfirmId != null}
-        onClose={() => setDeleteNotifConfirmId(null)}
+        isOpen={pendingDeleteIds != null}
+        onClose={() => setPendingDeleteIds(null)}
         onConfirm={confirmDeleteNotification}
         title={t('notifications.confirmDeleteTitle')}
-        message={t('notifications.confirmDeleteMsg')}
+        message={
+          pendingDeleteCount > 1
+            ? t('notifications.bulkDeleteConfirm', { n: pendingDeleteCount })
+            : t('notifications.confirmDeleteMsg')
+        }
         confirmText={t('common.delete')}
         cancelText={t('nav.cancel')}
       />
