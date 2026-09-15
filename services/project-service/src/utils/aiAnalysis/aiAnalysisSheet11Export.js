@@ -7,6 +7,7 @@ const { SHEETS, SHEET_COLUMNS } = require('../../constants/requirementTemplate.c
 const {
   AI_ANALYSIS_USER_JOBS,
   AI_ANALYSIS_JOB_OUTPUT_MAP,
+  isAiAnalysisWhatJob,
 } = require('../../constants/aiAnalysisJobs.constants');
 const { ensureAiAnalysisContainer } = require('./aiAnalysisContainer');
 
@@ -19,13 +20,17 @@ function pushRow(rows, section, key, value) {
   rows.push([section, key, v]);
 }
 
-function collectConfirmedRows(aiAnalysis) {
+function collectConfirmedRows(aiAnalysis, { includePlanning = false } = {}) {
   const c = ensureAiAnalysisContainer(aiAnalysis);
   const rows = [];
   pushRow(rows, 'Meta', 'schemaVersion', c.schemaVersion);
   pushRow(rows, 'Meta', 'currentJob', c.currentJob || '');
+  pushRow(rows, 'Meta', 'exportScope', includePlanning ? 'what+how' : 'what-only');
 
   for (const job of AI_ANALYSIS_USER_JOBS) {
+    // Requirement / SRS path: only WHAT jobs (ADR 0003 RULE-05)
+    if (!includePlanning && !isAiAnalysisWhatJob(job)) continue;
+
     const meta = c.jobs[job];
     if (meta.status !== 'confirmed') continue;
     const section = `Job:${job}`;
@@ -77,17 +82,19 @@ function collectConfirmedRows(aiAnalysis) {
         );
       }
     }
-    for (const key of map.planning || []) {
-      const val = c.planning[key];
-      if (Array.isArray(val)) {
-        pushRow(rows, section, `planning.${key}.count`, val.length);
-      } else {
-        pushRow(rows, section, `planning.${key}`, val);
+    if (includePlanning) {
+      for (const key of map.planning || []) {
+        const val = c.planning[key];
+        if (Array.isArray(val)) {
+          pushRow(rows, section, `planning.${key}.count`, val.length);
+        } else {
+          pushRow(rows, section, `planning.${key}`, val);
+        }
       }
-    }
-    for (const key of map.resource || []) {
-      const val = c.resource[key];
-      pushRow(rows, section, `resource.${key}.count`, Array.isArray(val) ? val.length : 0);
+      for (const key of map.resource || []) {
+        const val = c.resource[key];
+        pushRow(rows, section, `resource.${key}.count`, Array.isArray(val) ? val.length : 0);
+      }
     }
   }
   return rows;

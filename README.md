@@ -4,7 +4,7 @@ Nền tảng **cộng tác nội bộ** (chat, voice/meeting, task, tài liệu,
 
 **Dev chuẩn (LAN):** [`https://voicehub.local`](https://voicehub.local) — Nginx TLS, không mở thẳng `localhost:3000` / `IP:port` trên máy client. Chi tiết: [`docs/lan-https-voicehub.local.md`](docs/lan-https-voicehub.local.md).
 
-Đặc tả / luồng nghiệp vụ: [`docs/spec-pack/`](docs/spec-pack/), [`docs/luong nghiep vu/`](docs/luong%20nghiep%20vu/).
+Đặc tả / luồng nghiệp vụ: [`docs/spec-pack/`](docs/spec-pack/), [`docs/luong nghiep vu/00-overview.md`](docs/luong%20nghiep%20vu/00-overview.md) (theo nhóm suite).
 
 ---
 
@@ -14,10 +14,11 @@ VoiceHub gom giao tiếp và làm việc của **một công ty** (và mạng l�
 
 | Vùng | Người dùng làm gì |
 |------|-------------------|
-| **Communicate** (`/app/communicate`) | Chat bạn bè (DM), kênh tổ chức, phòng voice/meeting, thông báo |
-| **Collaborate** (`/app/collaborate`) | Workspace, task, tài liệu, duyệt đơn gia nhập |
+| **Communicate** (`/app/communicate`) | Chat bạn bè (DM), kênh, phòng voice/meeting, thông báo |
+| **Company** (`/app/company`) | Home phòng/ban, chat/docs/calendar/approvals không gian công ty |
+| **Projects** (`/app/projects`) | Picker, hub, board/WBS, tạo project (kể cả AI) |
+| **Admin** (`/app/admin`) | 16+ domain: users, OU, RBAC, channels, projects, … |
 | **Me** (`/app/me`) | Dashboard cá nhân, lịch, cài đặt |
-| **Admin** (`/app/admin`) | Quản trị công ty: người dùng, cấu trúc, RBAC, cấu hình hệ thống |
 
 Đăng nhập một tài khoản; dữ liệu tenant gắn **organization** (workspace). Deploy hiện tại ưu tiên **một công ty** (`SINGLE_ORG_MODE=true`) — seed IT/admin, hạn chế tạo org công khai; multi-org vẫn còn trong code cho tương thích.
 
@@ -284,7 +285,7 @@ Chi tiết Compose: [`docs/DOCKER-COMPOSE.md`](docs/DOCKER-COMPOSE.md).
 | [`docs/SOCKET_LB.md`](docs/SOCKET_LB.md) | Socket / LB |
 | [`docs/FIREBASE_STORAGE.md`](docs/FIREBASE_STORAGE.md) | Signed URL chat files |
 | [`docs/spec-pack/00-INDEX.md`](docs/spec-pack/00-INDEX.md) | Gói đặc tả |
-| [`docs/luong nghiep vu/00-overview.md`](docs/luong%20nghiep%20vu/00-overview.md) | Luồng nghiệp vụ theo code |
+| [`docs/luong nghiep vu/00-overview.md`](docs/luong%20nghiep%20vu/00-overview.md) | Luồng nghiệp vụ theo nhóm suite |
 | [`devops/swarm/README.md`](devops/swarm/README.md) | Deploy / ops Swarm |
 | [`shared/README.md`](shared/README.md) | Package `@enterprise/shared` |
 

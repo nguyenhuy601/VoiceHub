@@ -4,7 +4,7 @@ const ProjectMember = require('../models/ProjectMember');
 const { fetchDepartmentRoster } = require('../clients/orgStructure.client');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
-const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
+const { fetchTaskWorkspaceScope, canCreateTaskInScope, canCreateProjectInScope } = require('./taskWorkspaceScope');
 const { resolveCanonicalOrganizationRoleKey } = require('@enterprise/shared/config/masterData');
 const {
   toDayMs,
@@ -16,6 +16,7 @@ const {
   computeAllocationStatus,
 } = require('../utils/staffing/allocationOverlap');
 const { coalesceJobTitle } = require('../utils/common/jobTitleProfile');
+const { resolveOrgPlannerAccessDecision } = require('../utils/staffing/orgPlannerAccess');
 
 function asOid(id) {
   const s = String(id || '').trim();
@@ -38,9 +39,8 @@ async function assertOrgMember(userId, organizationId) {
 }
 
 /**
- * Org-wide capacity/planner: Membership owner/admin hoặc Org Role key `resource_manager`.
- * Follow-up: map GET /resources/planner vào gói Permission (checkPermission) — chưa gán API↔gói/PM.
- * Không nới “mọi org member” (lộ PII toàn org). Wizard tạo project gọi planner chỉ để badge — FE skip toast 403.
+ * Org-wide GET /resources/capacity|pool (và planner không departmentId):
+ * owner/admin hoặc Org Role `resource_manager`. Không nới mọi org member (PII toàn org).
  */
 async function assertCanViewOrgCapacity(actorUserId, organizationId) {
   const scope = await assertOrgMember(actorUserId, organizationId);
@@ -250,8 +250,28 @@ async function getResourcePlanner({
     const access = await assertCanViewProjectPlanner(actorUserId, project);
     elevated = Boolean(access.elevated);
   } else {
-    const access = await assertCanViewOrgCapacity(actorUserId, resolvedOrgId);
-    elevated = access.isOrgAdmin || access.isResourceManager;
+    const scope = await assertOrgMember(actorUserId, resolvedOrgId);
+    let isResourceManager = false;
+    if (!isOrgAdminScope(scope)) {
+      const vis = await fetchProjectVisibilityContext(resolvedOrgId, actorUserId);
+      const keys = (vis.organizationRoleKeys || []).map((k) =>
+        resolveCanonicalOrganizationRoleKey(String(k || '').toLowerCase())
+      );
+      isResourceManager = keys.includes('resource_manager');
+    }
+    const decision = resolveOrgPlannerAccessDecision({
+      isOrgAdmin: isOrgAdminScope(scope),
+      isResourceManager,
+      canCreateProject: canCreateProjectInScope(scope),
+      departmentId: deptId,
+    });
+    if (!decision.allowed) {
+      const err = new Error('Chỉ Org Admin hoặc Resource Manager được xem Capacity / Planner tổ chức');
+      err.statusCode = 403;
+      err.errorCode = 'RESOURCE_CAPACITY_FORBIDDEN';
+      throw err;
+    }
+    elevated = decision.elevated;
   }
 
   const asOfMs = toDayMs(asOf || new Date()) ?? toDayMs(new Date());

@@ -13,6 +13,8 @@ export default function MasterPermissionTreeEditor({
   onSetMany,
   editable = true,
   excludeCategoryKeys = [],
+  /** When a category is excluded, still show these master keys (e.g. project.project.create). */
+  includePermissionKeys = [],
   searchPlaceholder = 'Tìm category / module / action…',
 }) {
   const [query, setQuery] = useState('');
@@ -24,11 +26,37 @@ export default function MasterPermissionTreeEditor({
     () => new Set((Array.isArray(excludeCategoryKeys) ? excludeCategoryKeys : []).map((k) => String(k || '').trim()).filter(Boolean)),
     [excludeCategoryKeys]
   );
-
-  const visibleTree = useMemo(
-    () => (tree || []).filter((cat) => !excluded.has(String(cat?.key || ''))),
-    [tree, excluded]
+  const includedKeys = useMemo(
+    () =>
+      new Set(
+        (Array.isArray(includePermissionKeys) ? includePermissionKeys : [])
+          .map((k) => String(k || '').trim())
+          .filter(Boolean)
+      ),
+    [includePermissionKeys]
   );
+
+  const visibleTree = useMemo(() => {
+    const rows = [];
+    for (const cat of tree || []) {
+      const catKey = String(cat?.key || '');
+      if (!excluded.has(catKey)) {
+        rows.push(cat);
+        continue;
+      }
+      if (!includedKeys.size) continue;
+      const modules = (cat.modules || [])
+        .map((mod) => {
+          const permissions = (mod.permissions || []).filter((p) =>
+            includedKeys.has(String(p?.key || '').trim())
+          );
+          return permissions.length ? { ...mod, permissions } : null;
+        })
+        .filter(Boolean);
+      if (modules.length) rows.push({ ...cat, modules });
+    }
+    return rows;
+  }, [tree, excluded, includedKeys]);
 
   const filtered = useMemo(() => {
     if (!q) return visibleTree;

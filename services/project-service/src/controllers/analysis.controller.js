@@ -5,10 +5,19 @@ function getUserId(req) {
 }
 
 function handleError(res, err) {
-  const status = err.statusCode || 500;
+  let status = err.statusCode || 500;
+  let message = err.message || 'Lỗi analysis';
+  if (!err.statusCode && err.name === 'ValidationError') {
+    status = 400;
+    message = err.message;
+  }
+  if (status >= 500) {
+    // eslint-disable-next-line no-console
+    console.error('[analysis]', message, err.stack || '');
+  }
   return res.status(status).json({
     success: false,
-    message: err.message || 'Lỗi analysis',
+    message,
     errorCode: err.errorCode || undefined,
     details: err.details || undefined,
   });
@@ -181,6 +190,112 @@ async function advancePhase2(req, res) {
       importWorkItems: req.body?.importWorkItems !== false,
       applyAssignees: req.body?.applyAssignees !== false,
       skipReadyGate: Boolean(req.body?.skipReadyGate),
+      publishWbs: req.body?.publishWbs !== false,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function getSrsDraft(req, res) {
+  try {
+    const data = await analysisService.getSrsDraft({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function startDeliveryPlanning(req, res) {
+  try {
+    const data = await analysisService.startDeliveryPlanning({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function confirmAnalysisImport(req, res) {
+  try {
+    const data = await analysisService.confirmAnalysisImport({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      sessionId: req.body?.sessionId,
+      importSetId: req.body?.importSetId || null,
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function listImportSets(req, res) {
+  try {
+    const importSetService = require('../services/analysisImportSet.service');
+    const data = await importSetService.listImportSets({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      status: req.query?.status,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function attachRawImportSet(req, res) {
+  try {
+    const importSetService = require('../services/analysisImportSet.service');
+    const file = req.file;
+    if (!file?.buffer) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu file Raw (.xlsx)',
+        errorCode: 'IMPORT_SET_RAW_FILE_REQUIRED',
+      });
+    }
+    const data = await importSetService.attachRawDocument({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      fileBuffer: file.buffer,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function trashImportSet(req, res) {
+  try {
+    const importSetService = require('../services/analysisImportSet.service');
+    const data = await importSetService.softDeleteImportSet({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      setId: req.params.setId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function restoreImportSet(req, res) {
+  try {
+    const importSetService = require('../services/analysisImportSet.service');
+    const data = await importSetService.restoreImportSet({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      setId: req.params.setId,
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -202,4 +317,11 @@ module.exports = {
   listSrsBaselines,
   cutSrsBaseline,
   advancePhase2,
+  getSrsDraft,
+  startDeliveryPlanning,
+  confirmAnalysisImport,
+  listImportSets,
+  attachRawImportSet,
+  trashImportSet,
+  restoreImportSet,
 };

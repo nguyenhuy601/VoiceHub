@@ -148,7 +148,7 @@ describe('suitePathUtils dual suite', () => {
   it('builds project module path', () => {
     assert.equal(
       buildProjectsModulePath('p1', 'changeRequests', { organizationId: 'o1' }),
-      '/app/projects/p1/change-requests?organizationId=o1'
+      '/app/projects/p1/change-requests'
     );
     assert.equal(buildCompanyWorkspacePath({ organizationId: 'o1', tab: 'calendar' }), '/app/company/workspaces?organizationId=o1&tab=calendar');
   });
@@ -177,11 +177,22 @@ describe('suiteNavConfig', () => {
   });
 
   it('projects post-select groups', () => {
+    // Omit deliveryPhase → Phase 2 WORK catalog (legacy callers that know phase).
+    // UI loading must NOT call this path; ProjectsSidebar waits for project hub data.
     const items = getProjectsPostSelectNavItems('proj1');
     assert.ok(items.every((i) => i.path.includes('/app/projects/proj1/')));
     assert.ok(items.some((i) => i.group === PROJECT_MENU_GROUPS.WORK));
     assert.ok(items.some((i) => i.group === PROJECT_MENU_GROUPS.COLLAB));
     assert.ok(items.some((i) => i.group === PROJECT_MENU_GROUPS.OPS));
+  });
+
+  it('phase 1 deliveryPhase uses RA/Planning groups not WORK board catalog', () => {
+    const items = getProjectsPostSelectNavItems('proj1', {
+      deliveryPhase: 'requirement_analysis',
+    });
+    assert.ok(items.some((i) => i.group === PROJECT_MENU_GROUPS.PHASE1_RA));
+    assert.equal(items.some((i) => i.module === 'board'), false);
+    assert.equal(items.some((i) => i.module === 'list'), false);
   });
 
   it('normalizes hub tab to module', () => {
@@ -195,6 +206,36 @@ describe('suiteNavConfig', () => {
       getProjectsPostSelectNavItems('proj1').some((i) => i.key === 'report'),
       false
     );
+  });
+
+  it('locks analysis modules when canViewAnalysis is false (phase 1)', () => {
+    const items = getProjectsPostSelectNavItems('proj1', {
+      deliveryPhase: 'requirement_analysis',
+      capabilities: { canViewAnalysis: false, canViewPlanning: false },
+    });
+    assert.ok(items.some((i) => i.module === 'overview'));
+    const fr = items.find((i) => i.module === 'analysis-fr');
+    const docs = items.find((i) => i.module === 'customer-documents');
+    const wbs = items.find((i) => i.module === 'planning-wbs');
+    assert.ok(fr);
+    assert.equal(fr.locked, true);
+    assert.ok(docs);
+    assert.equal(docs.locked, true);
+    assert.ok(wbs);
+    assert.equal(wbs.locked, true);
+    assert.ok(items.some((i) => i.module === 'chat'));
+  });
+
+  it('shows analysis modules when role-backed canViewAnalysis is true (phase 1)', () => {
+    const items = getProjectsPostSelectNavItems('proj1', {
+      deliveryPhase: 'requirement_analysis',
+      // Caps derived from Project Role (PO/BA), not org Permission Group
+      capabilities: { canViewAnalysis: true, canViewPlanning: true },
+    });
+    assert.ok(items.some((i) => i.module === 'overview'));
+    assert.ok(items.some((i) => i.module === 'analysis-fr'));
+    assert.ok(items.some((i) => i.module === 'customer-documents'));
+    assert.ok(items.some((i) => i.module === 'chat'));
   });
 });
 

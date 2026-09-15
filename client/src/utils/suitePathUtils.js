@@ -243,13 +243,17 @@ export function buildProjectsPickerPath(orgId = '') {
 export function buildProjectsModulePath(projectId, module = 'overview', query = {}) {
   const pid = String(projectId || '').trim();
   if (!pid) return buildProjectsPickerPath(query?.organizationId || query?.orgId || '');
-  const mod = normalizeProjectModule(module);
+  let mod = String(module || 'overview').trim();
+  if (mod.startsWith('planning-')) {
+    mod = `planning/${mod.replace(/^planning-/, '')}`;
+  } else if (!mod.includes('/')) {
+    mod = normalizeProjectModule(mod);
+  }
   const base = `/app/projects/${encodeURIComponent(pid)}/${mod}`;
   const params = new URLSearchParams();
-  const orgId = String(query?.organizationId || query?.orgId || '').trim();
+  // organizationId is resolved client-side from project payload / storage — do not write to module URLs.
   const boardId = String(query?.boardId || '').trim();
   const channelId = String(query?.channelId || '').trim();
-  if (orgId) params.set('organizationId', orgId);
   if (boardId) params.set('boardId', boardId);
   if (channelId) params.set('channelId', channelId);
   const qs = params.toString();
@@ -362,6 +366,36 @@ export function buildCollaborateProjectsNewAiPath(orgId = '', query = {}) {
 export function orgQueryFromSearch(search) {
   const params = new URLSearchParams(typeof search === 'string' ? search : search || '');
   return String(params.get('organizationId') || params.get('orgId') || '').trim();
+}
+
+/** Extract organizationId from GET project hub payload. */
+export function organizationIdFromProjectRow(projectRow) {
+  if (!projectRow || typeof projectRow !== 'object') return '';
+  return String(
+    projectRow.organizationId ||
+      projectRow.organization?._id ||
+      projectRow.organization?.id ||
+      projectRow.organization ||
+      ''
+  ).trim();
+}
+
+/**
+ * Resolve org for project module routes (URL may omit organizationId).
+ * Prefer legacy query, then project payload (avoids stale storage wrong-org), then storage / workspace.
+ */
+export function resolveProjectOrganizationId({
+  search,
+  projectRow,
+  workspaceOrgId = '',
+} = {}) {
+  const fromQuery = orgQueryFromSearch(search);
+  if (fromQuery) return fromQuery;
+  const fromProject = organizationIdFromProjectRow(projectRow);
+  if (fromProject) return fromProject;
+  const fromStorage = readStoredLastOrganizationId();
+  if (fromStorage) return fromStorage;
+  return String(workspaceOrgId || '').trim();
 }
 
 export function departmentQueryFromSearch(search) {

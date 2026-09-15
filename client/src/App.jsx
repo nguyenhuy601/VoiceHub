@@ -51,6 +51,7 @@ const CreateProjectWizardPage = lazy(() => import('./pages/Projects/CreateProjec
 const CreateProjectAiWizardPage = lazy(() => import('./pages/Projects/CreateProjectAiWizardPage'));
 const ProjectPickerPage = lazy(() => import('./features/projects/picker/ProjectPickerPage'));
 const ProjectModuleRoute = lazy(() => import('./features/projects/hub/ProjectModuleRoute'));
+const Phase1Shell = lazy(() => import('./features/projects/phase1/Phase1Shell'));
 const NotificationsPage = lazy(() => import('./pages/Notifications/NotificationsPage'));
 const CalendarPage = lazy(() => import('./pages/Calendar/CalendarPage'));
 const SettingsPage = lazy(() => import('./pages/Settings/SettingsPage'));
@@ -173,6 +174,7 @@ function App() {
         >
           <Route index element={<ProjectPickerPage />} />
           <Route path="requirements" element={<CollaborateRequirementsPage />} />
+          <Route path=":projectId/planning/:planningModule" element={<Phase1Shell />} />
           <Route path=":projectId/:module" element={<ProjectModuleRoute />} />
           <Route path=":projectId" element={<ProjectIdToOverviewRedirect />} />
         </Route>

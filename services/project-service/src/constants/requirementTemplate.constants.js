@@ -1,12 +1,22 @@
 /**
- * Requirement Template — Standard Format v2.0 (WHAT-only).
- * Source of truth: assets/Requirement_Template.xlsx
- * FR levels: Module | Feature | Requirement. No Role/Skill/Effort on FR.
+ * Requirement Template — Standard Format v2.0 (WHAT-only) = AI/Admin **SRS file** intake.
+ * Source of truth asset: assets/SRS.xlsx (legacy filename Requirement_Template.xlsx accepted on upload).
+ * Requirement Analysis workbook (ADR 0003): assets/Requirement_Analysis.xlsx — separate schema.
+ * FR levels (SRS intake): Module | Feature | Requirement. No Role/Skill/Effort on FR.
  */
 
 const TEMPLATE_VERSION = '2.0';
-const TEMPLATE_FILE_NAME = 'Requirement_Template.xlsx';
-/** Only Standard Format v2 accepted on ship path */
+/** Product download name for AI/Admin intake (SRS file) */
+const TEMPLATE_FILE_NAME = 'SRS.xlsx';
+/** Legacy download/upload alias — still accepted by filename checks */
+const TEMPLATE_FILE_NAME_LEGACY = 'Requirement_Template.xlsx';
+/** Wave 2 — BA Requirement Analysis workbook (extends v2.0 sheets + BG/BR/BPM/UC) */
+const {
+  ANALYSIS_TEMPLATE_FILE_NAME,
+  ANALYSIS_TEMPLATE_TYPE,
+  ANALYSIS_TEMPLATE_VERSION,
+} = require('./requirementAnalysisTemplate.constants');
+/** Only Standard Format v2 accepted on SRS/AI ship path */
 const COMPATIBLE_TEMPLATE_VERSIONS = Object.freeze(['2.0']);
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_FR_ROWS = 2000;
@@ -22,14 +32,20 @@ const SHEETS = Object.freeze({
   STAKEHOLDERS: '02_Stakeholders',
   /** Legacy separate scope sheet — optional; Standard Format embeds In/Out Scope in Context */
   SCOPE: '02_Scope',
+  /** Requirement Analysis — optional BA sheets (ADR 0003 Wave 2) */
+  BUSINESS_GOAL: '02_Business_Goal',
+  BUSINESS_RULES: '03_Business_Rules',
+  BUSINESS_PROCESS: '04_Business_Process',
   FUNCTIONAL: '03_Functional_Requirements',
   NFR: '04_Non_Functional',
+  USE_CASE: '06_Use_Case',
   TECHNOLOGY: '05_Technology',
   INTEGRATION: '06_Integration',
   CONSTRAINTS: '07_Constraints',
   DEPENDENCIES: '08_Dependencies',
   ASSUMPTIONS: '09_Assumptions',
   METADATA: '10_Requirement_Metadata',
+  /** WHAT-job summary only on Requirement path — not Project Plan (ADR 0003) */
   AI_OUTPUT: '11_AI_Analysis_Output',
 });
 
@@ -44,6 +60,10 @@ const OPTIONAL_SHEETS = Object.freeze([
   SHEETS.README,
   SHEETS.STAKEHOLDERS,
   SHEETS.SCOPE,
+  SHEETS.BUSINESS_GOAL,
+  SHEETS.BUSINESS_RULES,
+  SHEETS.BUSINESS_PROCESS,
+  SHEETS.USE_CASE,
   SHEETS.TECHNOLOGY,
   SHEETS.INTEGRATION,
   SHEETS.CONSTRAINTS,
@@ -127,6 +147,34 @@ const CONTEXT_SCOPE_LABELS = Object.freeze({
 const SHEET_COLUMNS = Object.freeze({
   [SHEETS.CONTEXT]: ['Field', 'Value', 'Description / Guidance'],
   [SHEETS.SCOPE]: ['Scope Type', 'Description'],
+  [SHEETS.BUSINESS_GOAL]: ['ID', 'Title', 'Statement', 'Success Metric', 'Priority'],
+  [SHEETS.BUSINESS_RULES]: [
+    'ID',
+    'Title',
+    'Description',
+    'When Applies',
+    'Exception',
+    'Related BG',
+  ],
+  [SHEETS.BUSINESS_PROCESS]: [
+    'ID',
+    'Process Name',
+    'Step',
+    'Actor',
+    'Action',
+    'Input',
+    'Output',
+    'Related Systems',
+  ],
+  [SHEETS.USE_CASE]: [
+    'ID',
+    'Title',
+    'Actor',
+    'Precondition',
+    'Main Flow',
+    'Related FR',
+    'Priority',
+  ],
   [SHEETS.STAKEHOLDERS]: [
     'ID',
     'Stakeholder / Actor',
@@ -220,6 +268,10 @@ function isTemplateV2(templateVersion) {
 module.exports = {
   TEMPLATE_VERSION,
   TEMPLATE_FILE_NAME,
+  TEMPLATE_FILE_NAME_LEGACY,
+  ANALYSIS_TEMPLATE_FILE_NAME,
+  ANALYSIS_TEMPLATE_TYPE,
+  ANALYSIS_TEMPLATE_VERSION,
   COMPATIBLE_TEMPLATE_VERSIONS,
   MAX_FILE_BYTES,
   MAX_FR_ROWS,

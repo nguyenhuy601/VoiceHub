@@ -43,12 +43,13 @@ export default function ProjectPickerPage() {
     isError: projectsError,
     reload: reloadProjects,
   } = useOrgProjectsList(orgId, { excludeClosed: true });
-  const { canCreateTask, loading: scopeLoading } = useTaskWorkspaceScope(orgId);
+  const { canCreateProject, canCreateProjectCapability, loading: scopeLoading } =
+    useTaskWorkspaceScope(orgId);
   const { access: requirementAccess, loading: requirementAccessLoading } =
     useRequirementAccess(orgId);
 
   const orgName = String(organization?.name || '').trim();
-  const canCreate = Boolean(canCreateTask);
+  const canCreate = Boolean(canCreateProjectCapability ?? canCreateProject);
   const canCreateWithAi = canCreate && Boolean(requirementAccess?.canRunAiPlanning);
 
   const listLoading = Boolean(orgId) && projectsLoading;

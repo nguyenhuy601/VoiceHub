@@ -29,12 +29,21 @@ const customerDocumentSchema = new mongoose.Schema(
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'AnalysisArtifact' }],
       default: [],
     },
+    importSetId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AnalysisImportSet',
+      default: null,
+      index: true,
+    },
     uploadedBy: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     isActive: { type: Boolean, default: true, index: true },
+    deletedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+    deletedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
 customerDocumentSchema.index({ projectId: 1, createdAt: -1 });
+customerDocumentSchema.index({ projectId: 1, importSetId: 1, isActive: 1 });
 
 module.exports = mongoose.model('CustomerDocument', customerDocumentSchema);

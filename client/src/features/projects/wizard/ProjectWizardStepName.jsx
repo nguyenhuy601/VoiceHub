@@ -51,7 +51,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
           >
             {PROJECT_TYPES.map((v) => (
               <option key={v} value={v}>
-                {v}
+                {t(`workspace.projectHubProjectType_${v}`)}
               </option>
             ))}
           </select>
@@ -81,7 +81,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
           >
             {PROJECT_CATEGORIES.map((v) => (
               <option key={v} value={v}>
-                {v}
+                {t(`workspace.projectHubCategory_${v}`)}
               </option>
             ))}
           </select>
@@ -95,7 +95,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
           >
             {PROJECT_PRIORITIES.map((v) => (
               <option key={v} value={v}>
-                {v}
+                {t(`workspace.projectHubProjectPriority_${v}`)}
               </option>
             ))}
           </select>

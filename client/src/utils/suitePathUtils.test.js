@@ -6,17 +6,19 @@ import {
   buildProjectsModulePath,
   buildProjectsPickerPath,
   isCompanyChatModulePath,
+  resolveProjectOrganizationId,
+  organizationIdFromProjectRow,
 } from './suitePathUtils.js';
 
 describe('buildProjectsModulePath', () => {
-  it('keeps module and serializes organizationId, boardId, channelId', () => {
+  it('keeps module and serializes boardId/channelId but not organizationId', () => {
     const path = buildProjectsModulePath('pid1', 'list', {
       organizationId: 'org1',
       boardId: 'board1',
       channelId: 'ch1',
     });
     assert.match(path, /\/app\/projects\/pid1\/list\?/);
-    assert.match(path, /organizationId=org1/);
+    assert.doesNotMatch(path, /organizationId=/);
     assert.match(path, /boardId=board1/);
     assert.match(path, /channelId=ch1/);
     assert.doesNotMatch(path, /\/overview/);
@@ -25,7 +27,7 @@ describe('buildProjectsModulePath', () => {
   it('maps changeRequests tab id to change-requests segment', () => {
     assert.equal(
       buildProjectsModulePath('p', 'changeRequests', { organizationId: 'o' }),
-      '/app/projects/p/change-requests?organizationId=o'
+      '/app/projects/p/change-requests'
     );
   });
 
@@ -34,13 +36,38 @@ describe('buildProjectsModulePath', () => {
       organizationId: 'o',
       channelId: '',
     });
-    assert.equal(path, '/app/projects/p/chat?organizationId=o');
+    assert.equal(path, '/app/projects/p/chat');
   });
 
   it('chat path does not require boardId', () => {
     const path = buildProjectsModulePath('p', 'chat', { organizationId: 'o' });
-    assert.equal(path, '/app/projects/p/chat?organizationId=o');
+    assert.equal(path, '/app/projects/p/chat');
     assert.doesNotMatch(path, /boardId=/);
+  });
+});
+
+describe('resolveProjectOrganizationId', () => {
+  it('prefers query then projectRow then workspace', () => {
+    assert.equal(
+      resolveProjectOrganizationId({
+        search: '?organizationId=fromQuery',
+        projectRow: { organizationId: 'fromProject' },
+        workspaceOrgId: 'fromWs',
+      }),
+      'fromQuery'
+    );
+    assert.equal(
+      resolveProjectOrganizationId({
+        search: '',
+        projectRow: { organizationId: 'fromProject' },
+        workspaceOrgId: 'fromWs',
+      }),
+      'fromProject'
+    );
+    assert.equal(
+      organizationIdFromProjectRow({ organization: { _id: 'nested' } }),
+      'nested'
+    );
   });
 });
 
@@ -51,7 +78,7 @@ describe('buildCollaborateProjectHubPath', () => {
       organizationId: 'org',
       boardId: 'b1',
     });
-    assert.equal(path, '/app/projects/pid/board?organizationId=org&boardId=b1');
+    assert.equal(path, '/app/projects/pid/board?boardId=b1');
   });
 
   it('defaults to overview when module omitted (wizard success)', () => {
@@ -59,7 +86,7 @@ describe('buildCollaborateProjectHubPath', () => {
       organizationId: 'org',
       boardId: 'b1',
     });
-    assert.equal(path, '/app/projects/pid/overview?organizationId=org&boardId=b1');
+    assert.equal(path, '/app/projects/pid/overview?boardId=b1');
   });
 });
 

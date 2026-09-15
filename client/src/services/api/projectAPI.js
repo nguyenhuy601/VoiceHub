@@ -329,8 +329,10 @@ export const projectAPI = {
 
   /**
    * Phase 2/3 — org-wide employee resource pool (admin / resource_manager).
+   * Opt-in: view=roleSuggest + projectRoleKeys (wizard intake PO/PM/BA).
    * params: asOf, verifiedOnly, departmentId, limit,
-   *         fromDate, toDate | requirementPackId (Phase 3 capacityRange).
+   *         fromDate, toDate | requirementPackId (Phase 3 capacityRange),
+   *         view, projectRoleKeys.
    */
   listOrgResourcePool: (organizationId, params = {}, config = {}) =>
     apiClient.get(
@@ -494,6 +496,10 @@ export const projectAPI = {
   /** Confirm Phase 1 → Phase 2 (manual | ai) */
   advancePhase2: (projectId, body = {}) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/phase2/advance`, body),
+
+  /** Start Delivery Planning after RA approved */
+  startDeliveryPlanning: (projectId) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/phase1/start-planning`),
 };
 
 export default projectAPI;

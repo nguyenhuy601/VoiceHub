@@ -194,6 +194,12 @@ async function updateProjectRole(req, res) {
 
     const updated = await ProjectRole.findOneAndUpdate({ _id: role._id }, { $set: patch }, { new: true }).lean();
     try {
+      const { clearResolveUserProjectPermissionsCache } = require('../services/projectAccess.service');
+      clearResolveUserProjectPermissionsCache();
+    } catch {
+      /* best-effort */
+    }
+    try {
       const auditService = require('../services/audit.service');
       await auditService.recordMutationAudit({
         organizationId: orgId,

@@ -10,6 +10,7 @@ const {
 const {
   defaultPermissionsForRoleKey,
   hasPermission,
+  unionPermissionsFromRoles,
   PROJECT_PERMISSION_KEYS,
 } = require('../src/utils/project/projectPermissionMatrix');
 
@@ -84,5 +85,35 @@ describe('analysis permission matrix by projectRole', () => {
   it('legacy tech_lead alias resolves', () => {
     const perms = defaultPermissionsForRoleKey('tech_lead');
     assert.equal(hasPermission(perms, 'analysis:tech_review'), true);
+  });
+
+  it('stale PO/BA docs still get analysis:view from role-key matrix', () => {
+    const perms = unionPermissionsFromRoles([
+      { key: 'product_owner', permissions: ['project:view'] },
+      { key: 'business_analyst', permissions: ['project:view', 'task:view'] },
+    ]);
+    assert.equal(hasPermission(perms, 'analysis:view'), true);
+    assert.equal(hasPermission(perms, 'analysis:artifact_edit'), true);
+    assert.equal(hasPermission(perms, 'analysis:ba_review'), true);
+    assert.equal(hasPermission(perms, 'analysis:po_review'), true);
+    assert.equal(hasPermission(perms, 'planning:view'), true);
+  });
+
+  it('empty roles yield no analysis:view', () => {
+    const perms = unionPermissionsFromRoles([]);
+    assert.equal(hasPermission(perms, 'analysis:view'), false);
+  });
+
+  it('doc permissions remain additive on top of role-key baseline', () => {
+    const perms = unionPermissionsFromRoles([
+      {
+        key: 'scrum_master',
+        permissions: ['project:view', 'analysis:cut_srs'],
+      },
+    ]);
+    // SM baseline (VIEW_ONLY) includes analysis:view; cut_srs only from doc
+    assert.equal(hasPermission(perms, 'analysis:view'), true);
+    assert.equal(hasPermission(perms, 'sprint:create'), true);
+    assert.equal(hasPermission(perms, 'analysis:cut_srs'), true);
   });
 });

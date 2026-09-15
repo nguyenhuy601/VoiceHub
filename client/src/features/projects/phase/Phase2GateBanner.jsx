@@ -54,7 +54,8 @@ export default function Phase2GateBanner({
   });
 
   const ready = Boolean(gaps?.readyForPhase2);
-  const showBanner = gateRelevant && ready;
+  const showBanner = gateRelevant && phase === 'delivery_planning' && ready;
+  const blocking = Array.isArray(gaps?.blockingReasons) ? gaps.blockingReasons : [];
 
   useEffect(() => {
     if (!open || mode !== 'ai' || packId || !packs.length) return;
