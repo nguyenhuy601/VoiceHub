@@ -82,6 +82,7 @@ Sau khi vá rủi ro bảo mật: `bash devops/scripts/check-security-env.sh` v�
 2. **Unit test** liên quan (nếu có file `*.test.js` hoặc thêm test tối thiểu cho policy/logic mới):
    - `node --test shared/tests/*.test.js`
    - `node --test services/<service>/tests/*.test.js` (service vừa sửa)
+   - **Test hygiene:** ưu tiên in-memory/buffer (mẫu `rankRoleSuggestCandidates.test.js`); không `write*Asset` / không để lại xlsx/tmp trong repo sau `node --test`; temp bắt buộc → `os.tmpdir()` + xóa trong `after`/`finally`. Chỉ báo pass/fail, không commit file do test sinh ra.
 3. **Smoke / integration** khi đụng API hoặc deploy:
    - Stack local: `docker compose up` (hoặc swarm dev) rồi script smoke tương ứng (ví dụ pivot single-company: `node devops/scripts/smoke-single-company.js` sau `node devops/scripts/seed-single-company.js`).
    - Ghi trong báo cáo: pass/fail từng mã T*, command đã chạy, và **blocker** nếu gateway không lên (không giả vờ pass).

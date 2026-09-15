@@ -19,8 +19,14 @@ import {
   WIZARD_PO_ROLE,
   firstSeedMemberWithRole,
 } from './projectWizardConstants';
-import { collectWizardRosterKeys, deliveryRosterStatus } from './projectDeliveryRoster';
 import { isProjectDateRangeInvalid } from '../hub/projectHubUtils';
+import {
+  INTAKE_LEAD_ROLE_KEYS,
+  emptyIntakeSlots,
+  slotsToSeedMembers,
+  intakeSlotsFromSeedMembers,
+  intakeSlotFilled,
+} from './projectWizardIntakeRoles';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -45,10 +51,11 @@ function emptyForm(initial = {}) {
     projectCode: explicitCode || (title.trim() ? buildProjectCodeBase({ title }) : ''),
     projectCodeTouched: Boolean(explicitCode),
     seedMembers: Array.isArray(initial.seedMembers) ? initial.seedMembers : [],
-    participationScale: initial.participationScale === 'department' ? 'department' : 'company',
-    relatedDepartmentIds: Array.isArray(initial.relatedDepartmentIds)
-      ? initial.relatedDepartmentIds.map(String).filter(Boolean)
-      : [],
+    intakeSlots: initial.intakeSlots
+      ? { ...emptyIntakeSlots(), ...initial.intakeSlots }
+      : intakeSlotsFromSeedMembers(initial.seedMembers),
+    participationScale: 'company',
+    relatedDepartmentIds: [],
     visibility: initial.visibility === 'workspace' ? 'workspace' : 'private',
     dueDate: initial.dueDate ? String(initial.dueDate).slice(0, 10) : '',
     startDate: initial.startDate ? String(initial.startDate).slice(0, 10) : '',
@@ -139,25 +146,17 @@ export default function useCreateProjectWizard({
         return true;
       }
       if (id === 'roster') {
-        const scale = form.participationScale === 'department' ? 'department' : 'company';
-        const depts = (Array.isArray(form.relatedDepartmentIds) ? form.relatedDepartmentIds : [])
-          .map((d) => String(d || '').trim())
-          .filter(Boolean);
-        if (scale === 'department' && depts.length !== 1) {
-          toast.error(t('adminTasks.wizardNeedOneDept'));
+        const slots = { ...emptyIntakeSlots(), ...(form.intakeSlots || {}) };
+        if (!intakeSlotFilled(slots, 'product_owner')) {
+          toast.error(t('adminTasks.wizardNeedPo'));
           return false;
         }
-        if (scale === 'company' && depts.length < 1) {
-          toast.error(t('adminTasks.wizardNeedRelatedDepts'));
+        if (!intakeSlotFilled(slots, 'project_manager')) {
+          toast.error(t('adminTasks.wizardNeedPm'));
           return false;
         }
-        const roster = deliveryRosterStatus(collectWizardRosterKeys(form.seedMembers));
-        if (!roster.hasBa) {
-          toast.error(t('adminTasks.wizardRosterNeedBa') || 'Cần gán Business Analyst.');
-          return false;
-        }
-        if (!roster.hasPo) {
-          toast.error(t('adminTasks.wizardRosterNeedPo') || 'Cần Product Owner (mặc định: bạn).');
+        if (!intakeSlotFilled(slots, 'business_analyst')) {
+          toast.error(t('adminTasks.wizardRosterNeedBa'));
           return false;
         }
         return true;
@@ -178,21 +177,87 @@ export default function useCreateProjectWizard({
     setStep((s) => Math.max(s - 1, 0));
   }, []);
 
-  const addSeedMember = useCallback((row) => {
+  const setIntakeSlot = useCallback((roleKey, candidate) => {
+    const key = String(roleKey || '')
+      .trim()
+      .toLowerCase();
+    if (!INTAKE_LEAD_ROLE_KEYS.includes(key)) return;
     setForm((prev) => {
-      const userId = String(row?.userId || '').trim();
+      const slots = { ...emptyIntakeSlots(), ...(prev.intakeSlots || {}) };
+      if (!candidate) {
+        slots[key] = null;
+      } else {
+        const userId = String(candidate.userId || '').trim();
+        if (!userId) return prev;
+        slots[key] = {
+          userId,
+          displayName: String(candidate.displayName || '').trim(),
+          jobTitle: String(candidate.jobTitle || '').trim(),
+        };
+      }
+      return {
+        ...prev,
+        intakeSlots: slots,
+        seedMembers: slotsToSeedMembers(slots),
+        relatedDepartmentIds: [],
+      };
+    });
+  }, []);
+
+  const clearIntakeSlot = useCallback(
+    (roleKey) => {
+      setIntakeSlot(roleKey, null);
+    },
+    [setIntakeSlot]
+  );
+
+  const addSeedMember = useCallback((rowOrUserId, projectRoleKeys) => {
+    setForm((prev) => {
+      const fromString = typeof rowOrUserId === 'string' || typeof rowOrUserId === 'number';
+      const userId = fromString
+        ? String(rowOrUserId || '').trim()
+        : String(rowOrUserId?.userId || '').trim();
       if (!userId) return prev;
+      const keys = Array.isArray(projectRoleKeys)
+        ? projectRoleKeys
+        : Array.isArray(rowOrUserId?.projectRoleKeys)
+          ? rowOrUserId.projectRoleKeys
+          : [];
+      const projectRoleKeysNorm = [
+        ...new Set(keys.map((k) => String(k || '').trim().toLowerCase()).filter(Boolean)),
+      ];
+      if (!projectRoleKeysNorm.length) return prev;
       const rest = (prev.seedMembers || []).filter((m) => String(m.userId) !== userId);
-      return { ...prev, seedMembers: [...rest, row] };
+      const displayName = fromString ? '' : String(rowOrUserId?.displayName || '').trim();
+      const seedMembers = [
+        ...rest,
+        {
+          userId,
+          projectRoleKeys: projectRoleKeysNorm,
+          ...(displayName ? { displayName } : {}),
+        },
+      ];
+      return {
+        ...prev,
+        seedMembers,
+        intakeSlots: intakeSlotsFromSeedMembers(seedMembers),
+      };
     });
   }, []);
 
   const removeSeedMember = useCallback((userId) => {
     const id = String(userId || '').trim();
-    setForm((prev) => ({
-      ...prev,
-      seedMembers: (prev.seedMembers || []).filter((m) => String(m.userId) !== id),
-    }));
+    setForm((prev) => {
+      const slots = { ...emptyIntakeSlots(), ...(prev.intakeSlots || {}) };
+      for (const key of INTAKE_LEAD_ROLE_KEYS) {
+        if (String(slots[key]?.userId || '') === id) slots[key] = null;
+      }
+      return {
+        ...prev,
+        intakeSlots: slots,
+        seedMembers: slotsToSeedMembers(slots),
+      };
+    });
   }, []);
 
   const buildPayload = useCallback(() => {
@@ -201,7 +266,8 @@ export default function useCreateProjectWizard({
       {
         ...form,
         methodology: 'kanban',
-        members: form.seedMembers,
+        members: slotsToSeedMembers({ ...emptyIntakeSlots(), ...(form.intakeSlots || {}) }),
+        relatedDepartmentIds: [],
         projectManagerId: pm?.userId,
       },
       { organizationId, creatorUserId, scopeLabel }
@@ -254,6 +320,8 @@ export default function useCreateProjectWizard({
     submit,
     addSeedMember,
     removeSeedMember,
+    setIntakeSlot,
+    clearIntakeSlot,
     defaultMemberRole: WIZARD_DEFAULT_MEMBER_ROLE,
     baRole: WIZARD_BA_ROLE,
     poRole: WIZARD_PO_ROLE,

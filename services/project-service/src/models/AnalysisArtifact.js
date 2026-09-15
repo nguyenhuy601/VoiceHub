@@ -61,6 +61,12 @@ const analysisArtifactSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    importSetId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AnalysisImportSet',
+      default: null,
+      index: true,
+    },
     version: { type: Number, default: 1, min: 1 },
     status: {
       type: String,
@@ -82,10 +88,12 @@ const analysisArtifactSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+/** Unique among active artifacts only — trashed rows must not block re-seed */
 analysisArtifactSchema.index(
   { projectId: 1, kind: 1, externalKey: 1, version: 1 },
-  { unique: true }
+  { unique: true, partialFilterExpression: { isActive: true } }
 );
 analysisArtifactSchema.index({ projectId: 1, kind: 1, status: 1 });
+analysisArtifactSchema.index({ projectId: 1, importSetId: 1, isActive: 1 });
 
 module.exports = mongoose.model('AnalysisArtifact', analysisArtifactSchema);

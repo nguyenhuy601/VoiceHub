@@ -230,6 +230,36 @@ class RbacV2Controller {
       return sendError(res, error, 500, 'Direct replace thất bại', 'RBAC_DIRECT_REPLACE_FAILED');
     }
   }
+
+  /** S2S — Wave B create-project migration */
+  async ensureProjectCreateGrant(req, res) {
+    try {
+      const userId = req.body?.userId;
+      const organizationId = req.body?.organizationId || req.body?.serverId;
+      if (!userId || !organizationId) {
+        return res.status(400).json({
+          success: false,
+          message: 'userId and organizationId are required',
+          errorCode: 'VALIDATION_REQUIRED',
+        });
+      }
+      const data = await rbacV2Service.ensureProjectCreateGrant({
+        userId,
+        organizationId,
+        actorUserId: actorUserId(req) || userId,
+      });
+      return res.json({ success: true, data });
+    } catch (error) {
+      logger.error('RBAC V2 ensureProjectCreateGrant error:', error);
+      return sendError(
+        res,
+        error,
+        500,
+        'Không thể đảm bảo quyền tạo dự án',
+        'MIGRATION_BIND_FAILED'
+      );
+    }
+  }
 }
 
 module.exports = new RbacV2Controller();

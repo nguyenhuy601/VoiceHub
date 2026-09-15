@@ -133,6 +133,22 @@ function assertPackStatusAllowsAi(pack) {
   }
 }
 
+/** ADR 0003 RULE-04 — HOW/Planning jobs only after Requirement pack approved. */
+function assertHowJobsRequireApprovedPack(pack, job) {
+  const { isAiAnalysisHowJob } = require('../constants/aiAnalysisJobs.constants');
+  if (!isAiAnalysisHowJob(job)) return;
+  const status = String(pack.status || '');
+  if (status !== 'approved' && status !== 'project_linked') {
+    const err = new Error(
+      'Planning AI jobs (WBS…Project Plan) yêu cầu Requirement pack đã approved — không chạy trên path SRS/Requirement draft'
+    );
+    err.statusCode = 422;
+    err.errorCode = 'AI_ANALYSIS_HOW_REQUIRES_APPROVED';
+    err.details = { status, job };
+    throw err;
+  }
+}
+
 function ensurePackContainer(pack) {
   const raw = pack.aiAnalysis;
   const rawCapStatus =
@@ -237,6 +253,7 @@ async function runAiAnalysisJob({
   const job = parseJobId(jobRaw);
   const pack = await loadPackForAiAnalysis({ packId, organizationId });
   assertPackStatusAllowsAi(pack);
+  assertHowJobsRequireApprovedPack(pack, job);
   assertPackReadyForAiAnalysis(pack.toObject());
 
   let container = ensurePackContainer(pack);
@@ -879,6 +896,7 @@ async function confirmAiAnalysisJob({
   const job = parseJobId(jobRaw);
   const pack = await loadPackForAiAnalysis({ packId, organizationId });
   assertPackStatusAllowsAi(pack);
+  assertHowJobsRequireApprovedPack(pack, job);
 
   let container = ensurePackContainer(pack);
   const status = getJobStatus(container, job);

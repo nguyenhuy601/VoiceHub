@@ -48,6 +48,30 @@ const DEVELOPMENT_MODULES = Object.freeze([
 
 const COLLAB_MIN = Object.freeze(['chat', 'calendar', 'documents', 'settings', 'members']);
 
+const PLANNING_SUBMODULES = Object.freeze([
+  'planning-overview',
+  'planning-wbs',
+  'planning-architecture',
+  'planning-resources',
+  'planning-dependencies',
+  'planning-schedule',
+  'planning-milestones',
+  'planning-releases',
+  'planning-risks',
+  'planning-approval',
+  /** nested path aliases (FE path planning/wbs) */
+  'planning/overview',
+  'planning/wbs',
+  'planning/architecture',
+  'planning/resources',
+  'planning/dependencies',
+  'planning/schedule',
+  'planning/milestones',
+  'planning/releases',
+  'planning/risks',
+  'planning/approval',
+]);
+
 const REQUIREMENT_ANALYSIS_MODULES = Object.freeze([
   'overview',
   'customer-documents',
@@ -62,16 +86,29 @@ const REQUIREMENT_ANALYSIS_MODULES = Object.freeze([
   'analysis-reviews',
   'srs-baselines',
   'requirements',
+  /** Planning visible but locked at FE until Start Planning */
+  ...PLANNING_SUBMODULES,
   ...COLLAB_MIN,
 ]);
 
 const DELIVERY_PLANNING_MODULES = Object.freeze([
   'overview',
-  'customer-baselines',
+  'customer-documents',
+  'analysis-bg',
+  'analysis-br',
+  'analysis-bpm',
+  'analysis-fr',
+  'analysis-uc',
+  'analysis-nfr',
+  'analysis-scope',
   'traceability',
   'analysis-reviews',
+  'srs-baselines',
+  'customer-baselines',
   'customer-planning',
+  'delivery-planning',
   'requirements',
+  ...PLANNING_SUBMODULES,
   'planning',
   'timeline',
   ...COLLAB_MIN,
@@ -122,12 +159,18 @@ function coerceDeliveryPhase(raw, { missingAsExisting = true } = {}) {
   return null;
 }
 
-function isModuleAllowedForPhase(moduleKey, deliveryPhase) {
-  const phase = coerceDeliveryPhase(deliveryPhase) || DEFAULT_DELIVERY_PHASE_EXISTING;
-  const allowed = PHASE_NAV_MODULES[phase] || DEVELOPMENT_MODULES;
+function normalizeModuleKey(moduleKey) {
   const mod = String(moduleKey || '')
     .trim()
     .toLowerCase();
+  if (mod.startsWith('planning/') || mod.startsWith('planning-')) return mod;
+  return mod;
+}
+
+function isModuleAllowedForPhase(moduleKey, deliveryPhase) {
+  const phase = coerceDeliveryPhase(deliveryPhase) || DEFAULT_DELIVERY_PHASE_EXISTING;
+  const allowed = PHASE_NAV_MODULES[phase] || DEVELOPMENT_MODULES;
+  const mod = normalizeModuleKey(moduleKey);
   return allowed.includes(mod);
 }
 
@@ -153,6 +196,7 @@ module.exports = {
   DEVELOPMENT_MODULES,
   REQUIREMENT_ANALYSIS_MODULES,
   DELIVERY_PLANNING_MODULES,
+  PLANNING_SUBMODULES,
   QA_UAT_MODULES,
   RELEASE_HANDOVER_MODULES,
   PHASE_NAV_MODULES,

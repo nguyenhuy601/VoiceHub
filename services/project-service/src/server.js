@@ -27,6 +27,16 @@ connectDB()
       logger.warn('[Task] syncIndexes failed: %s', err?.message || err);
     }
 
+    try {
+      const AnalysisArtifact = require('./models/AnalysisArtifact');
+      const AnalysisImportSet = require('./models/AnalysisImportSet');
+      await AnalysisArtifact.syncIndexes();
+      await AnalysisImportSet.syncIndexes();
+      logger.info('[AnalysisImportSet] syncIndexes done');
+    } catch (err) {
+      logger.warn('[AnalysisImportSet] syncIndexes failed: %s', err?.message || err);
+    }
+
     runTaskFromFileWorkerLoop();
     startSprintAutoCompleteRemindersJob();
     startTaskDueRemindersJob();

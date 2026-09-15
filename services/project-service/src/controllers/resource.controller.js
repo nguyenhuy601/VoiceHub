@@ -188,6 +188,10 @@ async function getOrgResourcePoolHandler(req, res) {
       fromDate: req.query.fromDate,
       toDate: req.query.toDate,
       requirementPackId: req.query.requirementPackId,
+      view: req.query.view,
+      projectRoleKeys: req.query.projectRoleKeys,
+      offset: req.query.offset,
+      fitAvailable: req.query.fitAvailable,
     });
     return res.json({ success: true, data });
   } catch (err) {

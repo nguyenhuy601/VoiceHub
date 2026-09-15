@@ -22,6 +22,7 @@ const {
   assertPreviewReadyForImport,
 } = require('../utils/requirement/requirementPlanningReadiness');
 const { createEmptyAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+const { clampOverviewForPack } = require('../utils/requirement/requirementOverviewClamp');
 
 function splitPlatforms(raw) {
   return String(raw || '')
@@ -44,6 +45,23 @@ function mapFunctionalRow(row) {
     suggestedSkills: (row.suggestedSkills || []).map((s) => resolveWhitelistSkill(s)).filter(Boolean),
     estimateHours: row.estimateHours ?? null,
     suggestedRoleKey: row.suggestedRoleKey || '',
+    moduleLabel: row.moduleLabel || '',
+    capabilityLabel: row.capabilityLabel || '',
+    featureLabel: row.featureLabel || '',
+    trigger: row.trigger || '',
+    preconditions: row.preconditions || '',
+    mainFlow: row.mainFlow || '',
+    exceptionFlow: row.exceptionFlow || '',
+    businessRules: row.businessRules || '',
+    input: row.input || '',
+    output: row.output || '',
+    customerRequirementIds: Array.isArray(row.customerRequirementIds)
+      ? row.customerRequirementIds
+      : [],
+    brIds: Array.isArray(row.brIds) ? row.brIds : [],
+    bpmIds: Array.isArray(row.bpmIds) ? row.bpmIds : [],
+    status: row.status || '',
+    baNote: row.baNote || '',
   };
 }
 
@@ -60,7 +78,7 @@ function mapParsedToPackPayload(parsed, skillExtras = {}) {
 
   return {
     templateVersion: parsed.templateVersion || TEMPLATE_VERSION,
-    overview: {
+    overview: clampOverviewForPack({
       requirementName: overview.requirementName || '',
       projectObjective: overview.projectObjective || '',
       businessScope: overview.businessScope || '',
@@ -72,7 +90,7 @@ function mapParsedToPackPayload(parsed, skillExtras = {}) {
       budget: overview.budget ? Number(String(overview.budget).replace(/[^\d.-]/g, '')) || null : null,
       budgetCurrency: String(overview.budgetCurrency || staffingPlan.budgetCurrency || '').trim().toUpperCase(),
       priority: overview.priority || 'Medium',
-    },
+    }),
     staffingPlan,
     aiPlanning: {
       status: 'none',
@@ -92,6 +110,17 @@ function mapParsedToPackPayload(parsed, skillExtras = {}) {
       requirement: row.requirement,
       target: row.target,
       priority: row.priority || 'Medium',
+      measurement: row.measurement || '',
+      scope: row.scope || '',
+      constraint: row.constraint || '',
+      acceptanceCriteria: row.acceptanceCriteria || row.verification || '',
+      source: row.source || '',
+      status: row.status || '',
+      baNote: row.baNote || '',
+      customerRequirementIds: Array.isArray(row.customerRequirementIds)
+        ? row.customerRequirementIds
+        : [],
+      verification: row.verification || row.acceptanceCriteria || '',
     })),
     technology: (parsed.technology || []).map((row) => ({
       category: row.category,
@@ -123,11 +152,94 @@ function mapParsedToPackPayload(parsed, skillExtras = {}) {
       assumption: row.assumption,
       impactIfInvalid: row.impactIfInvalid,
     })),
+    businessGoals: (parsed.businessGoals || []).map((row) => ({
+      externalId: row.externalId,
+      title: row.title,
+      statement: row.statement,
+      successMetric: row.successMetric,
+      priority: row.priority || 'Medium',
+      businessProblem: row.businessProblem || '',
+      expectedBusinessOutcome: row.expectedBusinessOutcome || '',
+      stakeholder: row.stakeholder || '',
+      assumption: row.assumption || '',
+      constraint: row.constraint || '',
+      status: row.status || '',
+      baNote: row.baNote || '',
+      customerRequirementIds: Array.isArray(row.customerRequirementIds)
+        ? row.customerRequirementIds
+        : [],
+    })),
+    businessRules: (parsed.businessRules || []).map((row) => ({
+      externalId: row.externalId,
+      title: row.title,
+      description: row.description,
+      whenApplies: row.whenApplies,
+      exception: row.exception,
+      relatedBg: row.relatedBg,
+      businessRule: row.businessRule || '',
+      stakeholder: row.stakeholder || '',
+      priority: row.priority || 'Medium',
+      successCriteria: row.successCriteria || '',
+      dependency: row.dependency || '',
+      assumption: row.assumption || '',
+      constraint: row.constraint || '',
+      status: row.status || '',
+      baNote: row.baNote || '',
+      customerRequirementIds: Array.isArray(row.customerRequirementIds)
+        ? row.customerRequirementIds
+        : [],
+    })),
+    businessProcesses: (parsed.businessProcesses || []).map((row) => ({
+      externalId: row.externalId,
+      processName: row.processName,
+      step: row.step,
+      actor: row.actor,
+      action: row.action,
+      input: row.input,
+      output: row.output,
+      relatedSystems: row.relatedSystems,
+      relatedBr: row.relatedBr || '',
+      processDescription: row.processDescription || '',
+      trigger: row.trigger || '',
+      precondition: row.precondition || '',
+      businessRule: row.businessRule || '',
+      exception: row.exception || '',
+      relatedCr: row.relatedCr || '',
+      status: row.status || '',
+      baNote: row.baNote || '',
+    })),
+    useCases: (parsed.useCases || []).map((row) => ({
+      externalId: row.externalId,
+      title: row.title,
+      actor: row.actor,
+      precondition: row.precondition,
+      mainFlow: row.mainFlow,
+      relatedFr: row.relatedFr,
+      relatedFrIds: Array.isArray(row.relatedFrIds) ? row.relatedFrIds : [],
+      brIds: Array.isArray(row.brIds) ? row.brIds : [],
+      customerRequirementIds: Array.isArray(row.customerRequirementIds)
+        ? row.customerRequirementIds
+        : [],
+      goal: row.goal || '',
+      secondaryActor: row.secondaryActor || '',
+      trigger: row.trigger || '',
+      postconditions: row.postconditions || '',
+      alternativeFlow: row.alternativeFlow || '',
+      exceptionFlow: row.exceptionFlow || '',
+      businessRules: row.businessRules || '',
+      input: row.input || '',
+      output: row.output || '',
+      priority: row.priority || 'Medium',
+      status: row.status || '',
+      baNote: row.baNote || '',
+    })),
+    traceabilityLinks: Array.isArray(parsed.traceabilityLinks) ? parsed.traceabilityLinks : [],
     requirementSkills: skillExtras.requirementSkillRefs || [],
     importSkillMeta: {
       newSkillsDetected: [],
       resolvedAt: null,
     },
+    isRequirementAnalysis: Boolean(parsed.isRequirementAnalysis),
   };
 }
 
@@ -135,12 +247,33 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
   await assertRequirementPermission({ userId, organizationId, permission: 'requirement:import' });
 
   const buffer = Buffer.isBuffer(fileBuffer) ? fileBuffer : Buffer.from(fileBuffer || []);
-  const parsed = parseRequirementWorkbook(buffer);
-  const validation = validateRequirementWorkbook({
-    fileName,
-    fileSize: buffer.length || 0,
-    parsed,
-  });
+  const {
+    peekWorkbookTemplateType,
+    isAnalysisTemplateType,
+    parseAnalysisWorkbook,
+  } = require('../utils/requirement/requirementAnalysisTemplateParse');
+  const { validateAnalysisWorkbook } = require('../utils/requirement/requirementAnalysisTemplateValidate');
+
+  const peekedType = peekWorkbookTemplateType(buffer);
+  const useAnalysis = isAnalysisTemplateType(peekedType);
+
+  let parsed;
+  let validation;
+  if (useAnalysis) {
+    parsed = parseAnalysisWorkbook(buffer);
+    validation = validateAnalysisWorkbook({
+      fileName,
+      fileSize: buffer.length || 0,
+      parsed,
+    });
+  } else {
+    parsed = parseRequirementWorkbook(buffer);
+    validation = validateRequirementWorkbook({
+      fileName,
+      fileSize: buffer.length || 0,
+      parsed,
+    });
+  }
 
   let previewPayload = null;
   if (validation.valid) {
@@ -177,8 +310,9 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     sessionId: String(session._id),
     fileName: session.fileName,
     templateVersion: session.templateVersion,
+    templateType: useAnalysis ? 'RequirementAnalysis' : 'SRS',
     valid: validation.valid,
-    canRunAiAnalysis: Boolean(validation.canRunAiAnalysis),
+    canRunAiAnalysis: useAnalysis ? false : Boolean(validation.canRunAiAnalysis),
     errorCount: validation.errorCount,
     warningCount: validation.warningCount,
     infoCount: validation.infoCount || 0,

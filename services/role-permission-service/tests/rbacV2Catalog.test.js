@@ -61,8 +61,8 @@ test('skill registry grants removed from delivery templates', () => {
   assert.equal(po.grants.includes('organization.skill_registry.review'), false);
 });
 
-test('T4b org permission pack templates omit project.*; project_admin keeps them', () => {
-  for (const key of ['organization_admin', 'department_manager', 'viewer']) {
+test('T4b org permission packs omit project.* except Wave B create on organization_admin; project packs keep them', () => {
+  for (const key of ['department_manager', 'viewer']) {
     const tpl = getTemplateDefinition(key);
     assert.ok(tpl, key);
     assert.equal(isProjectPackTemplateKey(key), false);
@@ -73,6 +73,15 @@ test('T4b org permission pack templates omit project.*; project_admin keeps them
     );
   }
 
+  const orgAdmin = getTemplateDefinition('organization_admin');
+  assert.ok(orgAdmin);
+  assert.equal(orgAdmin.grants.includes('project.project.create'), true);
+  assert.equal(
+    orgAdmin.grants.some((k) => isProjectMasterPermission(k) && k !== 'project.project.create'),
+    false,
+    'organization_admin may only keep project.project.create among project.*'
+  );
+
   const projectAdmin = getTemplateDefinition('project_admin');
   assert.ok(projectAdmin);
   assert.equal(isProjectPackTemplateKey('project_admin'), true);
@@ -82,20 +91,26 @@ test('T4b org permission pack templates omit project.*; project_admin keeps them
 
   const pm = getTemplateDefinition('project_manager');
   assert.ok(pm.grants.includes('project.task.view'));
+  assert.ok(pm.grants.includes('project.project.create'));
 });
 
-test('T5 stripProjectGrantsUnlessProjectPack — org pack drops project.task.view; project_admin keeps it', () => {
-  const mixed = ['organization.employee.view', 'project.task.view', 'communication.chat.send'];
-  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'organization_admin').sort(), [
+test('T5 stripProjectGrantsUnlessProjectPack — org packs keep create only; drop task; project packs keep project.*', () => {
+  const mixed = [
+    'organization.employee.view',
+    'project.task.view',
+    'project.project.create',
+    'communication.chat.send',
+  ];
+  const orgExpected = [
     'communication.chat.send',
     'organization.employee.view',
-  ]);
-  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'department_manager').sort(), [
-    'communication.chat.send',
-    'organization.employee.view',
-  ]);
-  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'project_admin').sort(), mixed.sort());
-  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'developer').sort(), mixed.sort());
+    'project.project.create',
+  ];
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'organization_admin').sort(), orgExpected);
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'department_manager').sort(), orgExpected);
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'viewer').sort(), orgExpected);
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'project_admin').sort(), [...mixed].sort());
+  assert.deepEqual(stripProjectGrantsUnlessProjectPack(mixed, 'developer').sort(), [...mixed].sort());
   assert.equal(isProjectMasterPermission('project.task.view'), true);
   assert.equal(isProjectMasterPermission('organization.position.view'), false);
 });

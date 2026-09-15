@@ -14,8 +14,10 @@ const {
   assertPermission,
   normalizePermissionList,
   PROJECT_PERMISSION_KEYS,
+  VIEW_ONLY,
 } = require('../utils/project/projectPermissionMatrix');
 const { resolveProjectAccess } = require('../utils/project/projectVisibility');
+const logger = require('@enterprise/shared/utils/logger');
 
 const RESOLVE_CACHE_TTL_MS = 15_000;
 const resolveCache = createTtlCoalesceCache({ ttlMs: RESOLVE_CACHE_TTL_MS });
@@ -93,12 +95,22 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
   })
     .select('projectRoleId')
     .lean();
+  const hasMembership = memberships.length > 0;
   const roleIds = memberships.map((m) => m.projectRoleId).filter(Boolean);
   const roles = roleIds.length
     ? await ProjectRole.find({ _id: { $in: roleIds } }).select('key permissions canAssign').lean()
     : [];
 
+  // Align with getProject: membership row ⇒ member even if role docs failed to resolve.
   let perms = unionPermissionsFromRoles(roles);
+  if (hasMembership && roles.length === 0) {
+    logger.warn(
+      '[projectAccess] orphan membership (no resolvable roles) project=%s user=%s — VIEW_ONLY fallback',
+      String(project._id),
+      uid
+    );
+    perms = normalizePermissionList(VIEW_ONLY);
+  }
 
   let informationLevel = 'details';
   try {
@@ -115,7 +127,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
       },
       project,
       membership: {
-        isMember: roles.length > 0,
+        isMember: hasMembership || roles.length > 0,
         projectRoleKeys,
       },
       orgPolicy: visibilityCtx.policy,
@@ -179,6 +191,11 @@ function _clearResolveUserProjectPermissionsCacheForTests() {
   resolveCache.clear();
 }
 
+/** Clear all resolve entries (org-default role permission updates affect many projects). */
+function clearResolveUserProjectPermissionsCache() {
+  resolveCache.clear();
+}
+
 function _setResolveUserProjectPermissionsCacheTtlForTests(ttlMs) {
   resolveCache.setTtlMs(ttlMs);
 }
@@ -196,6 +213,7 @@ module.exports = {
   assertUserAnyProjectPermission,
   hasPermission,
   invalidateResolveCacheForProject,
+  clearResolveUserProjectPermissionsCache,
   _clearResolveUserProjectPermissionsCacheForTests,
   _setResolveUserProjectPermissionsCacheTtlForTests,
 };

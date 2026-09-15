@@ -1,18 +1,29 @@
 /**
  * Suite sidebar nav config — Company (fixed) + Projects (pre/post select).
- * Groups: work (Công việc) | collab (Cộng tác) | ops (Vận hành)
+ * Groups: work | collab | ops | phase1_ra | phase1_planning
  * Post-select menu filtered by Project.deliveryPhase via projectPhaseNav.
  */
 
 import {
+  filterNavItemsByCapabilities,
   filterNavItemsByDeliveryPhase,
   PHASE_MODULE_LABEL_KEYS,
+  isPhase1DeliveryPhase,
 } from './projectPhaseNav.js';
+import {
+  PHASE1_COLLAB_MODULES,
+  PHASE1_PLANNING_MODULES,
+  PHASE1_RA_MODULES,
+  getPhase1SidebarGroups,
+  isPlanningUnlocked,
+} from '../features/projects/phase1/nav/phase1NavConfig.js';
 
 export const PROJECT_MENU_GROUPS = {
   WORK: 'work',
   COLLAB: 'collab',
   OPS: 'ops',
+  PHASE1_RA: 'phase1_ra',
+  PHASE1_PLANNING: 'phase1_planning',
 };
 
 /** Hub tab id / path segment → menu module key (incl. Phase 1 analysis modules) */
@@ -43,6 +54,16 @@ export const PROJECT_MODULE_KEYS = [
   'analysis-reviews',
   'srs-baselines',
   'delivery-planning',
+  'planning-overview',
+  'planning-wbs',
+  'planning-architecture',
+  'planning-resources',
+  'planning-dependencies',
+  'planning-schedule',
+  'planning-milestones',
+  'planning-releases',
+  'planning-risks',
+  'planning-approval',
 ];
 
 /** Map legacy hub tab ids to path modules */
@@ -85,6 +106,7 @@ export function normalizeProjectModule(raw) {
   const lower = value.toLowerCase();
   if (lower === 'changerequests' || lower === 'change-requests') return 'change-requests';
   if (PROJECT_MODULE_KEYS.includes(lower)) return lower;
+  if (lower.startsWith('planning-')) return lower;
   return 'overview';
 }
 
@@ -109,21 +131,56 @@ export function getProjectsPreSelectNavItems() {
 }
 
 /**
- * Full post-select catalog (all phases). Filter with deliveryPhase.
+ * Full post-select catalog (all phases). Filter with deliveryPhase + capabilities.
+ * Phase 1 uses nested RA + Planning groups.
  * @param {string} projectId
- * @param {{ deliveryPhase?: string }} [opts]
+ * @param {{ deliveryPhase?: string, capabilities?: object|null, skipPhaseFilter?: boolean }} [opts]
  */
 export function getProjectsPostSelectNavItems(projectId, opts = {}) {
   const pid = String(projectId || '').trim();
   const base = pid ? `/app/projects/${encodeURIComponent(pid)}` : '/app/projects';
+  const deliveryPhase = opts.deliveryPhase;
+  const capabilities = opts.capabilities;
 
-  const item = (key, labelKey, module, group) => ({
+  const item = (key, labelKey, module, group, pathSeg) => ({
     key,
     labelKey,
-    path: `${base}/${module}`,
+    path: `${base}/${pathSeg || module}`,
     module,
     group,
+    pathSeg: pathSeg || module,
   });
+
+  const applyCapabilityFilter = (items) =>
+    filterNavItemsByCapabilities(items, capabilities);
+
+  if (isPhase1DeliveryPhase(deliveryPhase)) {
+    const planningLocked = !isPlanningUnlocked(deliveryPhase);
+    const groups = getPhase1SidebarGroups({ planningLocked });
+    const phase1Items = [];
+    for (const g of groups) {
+      const groupId =
+        g.id === 'planning' ? PROJECT_MENU_GROUPS.PHASE1_PLANNING : PROJECT_MENU_GROUPS.PHASE1_RA;
+      for (const m of g.items) {
+        phase1Items.push({
+          ...item(m.key, m.labelKey, m.module, groupId, m.pathSeg),
+          locked: Boolean(g.locked),
+          lockHintKey: g.lockHintKey,
+        });
+      }
+    }
+    for (const m of PHASE1_COLLAB_MODULES) {
+      phase1Items.push(
+        item(
+          m.key,
+          m.labelKey,
+          m.module,
+          m.group === 'ops' ? PROJECT_MENU_GROUPS.OPS : PROJECT_MENU_GROUPS.COLLAB
+        )
+      );
+    }
+    return applyCapabilityFilter(phase1Items);
+  }
 
   const all = [
     item('overview', 'workspace.projectHubTabOverview', 'overview', PROJECT_MENU_GROUPS.WORK),
@@ -190,15 +247,18 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
   ];
 
   if (opts.deliveryPhase === undefined && opts.skipPhaseFilter) {
-    return all;
+    return applyCapabilityFilter(all);
   }
-  // Default: development (legacy projects / missing field)
-  return filterNavItemsByDeliveryPhase(all, opts.deliveryPhase);
+  return applyCapabilityFilter(filterNavItemsByDeliveryPhase(all, opts.deliveryPhase));
 }
 
 export function getProjectMenuGroupLabelKey(group) {
   if (group === PROJECT_MENU_GROUPS.WORK) return 'nav.projectGroupWork';
   if (group === PROJECT_MENU_GROUPS.COLLAB) return 'nav.projectGroupCollab';
   if (group === PROJECT_MENU_GROUPS.OPS) return 'nav.projectGroupOps';
+  if (group === PROJECT_MENU_GROUPS.PHASE1_RA) return 'workspace.phase1GroupRequirementAnalysis';
+  if (group === PROJECT_MENU_GROUPS.PHASE1_PLANNING) return 'workspace.phase1GroupPlanning';
   return '';
 }
+
+export { PHASE1_RA_MODULES, PHASE1_PLANNING_MODULES };

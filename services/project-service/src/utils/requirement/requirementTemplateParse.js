@@ -270,6 +270,23 @@ function parseRequirementWorkbook(buffer) {
     SHEET_COLUMNS[SHEETS.METADATA]
   );
 
+  const bgRows = mapRowsByHeader(
+    sheetToMatrix(workbook, SHEETS.BUSINESS_GOAL),
+    SHEET_COLUMNS[SHEETS.BUSINESS_GOAL] || []
+  );
+  const brRows = mapRowsByHeader(
+    sheetToMatrix(workbook, SHEETS.BUSINESS_RULES),
+    SHEET_COLUMNS[SHEETS.BUSINESS_RULES] || []
+  );
+  const bpmRows = mapRowsByHeader(
+    sheetToMatrix(workbook, SHEETS.BUSINESS_PROCESS),
+    SHEET_COLUMNS[SHEETS.BUSINESS_PROCESS] || []
+  );
+  const ucRows = mapRowsByHeader(
+    sheetToMatrix(workbook, SHEETS.USE_CASE),
+    SHEET_COLUMNS[SHEETS.USE_CASE] || []
+  );
+
   const aiOutputRowCount = countAiOutputRows(workbook);
 
   const technology = parseTableRows(techRows.rows, {
@@ -386,6 +403,56 @@ function parseRequirementWorkbook(buffer) {
         sourceReference: 'Source / Reference',
       },
       { idFields: ['requirementId'], proseFields: ['field', 'value'] }
+    ),
+    businessGoals: parseTableRows(
+      bgRows.rows,
+      {
+        externalId: 'ID',
+        title: 'Title',
+        statement: 'Statement',
+        successMetric: 'Success Metric',
+        priority: 'Priority',
+      },
+      { idFields: ['externalId'] }
+    ),
+    businessRules: parseTableRows(
+      brRows.rows,
+      {
+        externalId: 'ID',
+        title: 'Title',
+        description: 'Description',
+        whenApplies: 'When Applies',
+        exception: 'Exception',
+        relatedBg: 'Related BG',
+      },
+      { idFields: ['externalId'] }
+    ),
+    businessProcesses: parseTableRows(
+      bpmRows.rows,
+      {
+        externalId: 'ID',
+        processName: 'Process Name',
+        step: 'Step',
+        actor: 'Actor',
+        action: 'Action',
+        input: 'Input',
+        output: 'Output',
+        relatedSystems: 'Related Systems',
+      },
+      { idFields: ['externalId'] }
+    ),
+    useCases: parseTableRows(
+      ucRows.rows,
+      {
+        externalId: 'ID',
+        title: 'Title',
+        actor: 'Actor',
+        precondition: 'Precondition',
+        mainFlow: 'Main Flow',
+        relatedFr: 'Related FR',
+        priority: 'Priority',
+      },
+      { idFields: ['externalId'] }
     ),
     aiOutputRowCount,
     columnMaps: {

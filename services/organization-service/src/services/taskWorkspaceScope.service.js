@@ -29,6 +29,7 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
     return {
       visibility: 'self',
       canCreateTask: false,
+      canCreateProject: false,
       canUseAiTask: false,
       membershipRole: null,
       assignableUserIds: [uid],
@@ -38,6 +39,8 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
       organizationRoles: [],
       ledTeamIdsDeprecatedForAssign: true,
       divisionIds: [],
+      scopeType: 'SELF',
+      scopeIds: [],
     };
   }
 
@@ -152,11 +155,30 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
   const { resolveOrganizationRoles } = require('./organizationRoles.service');
   const organizationRoles = await resolveOrganizationRoles(uid, oid);
 
+  // Wave B: Create Project scope flag is placement-based and named separately from Create Task.
+  // Same placement rule initially; FE/API must not reuse canCreateTask for Create Project.
+  const canCreateProject = Boolean(canCreateTask);
+
+  const scopeType = String(visibility || 'self').toUpperCase();
+  const scopeIds =
+    visibility === 'org'
+      ? [oid]
+      : visibility === 'division'
+        ? [...scopedDivisionIds]
+        : visibility === 'department'
+          ? [...departmentIds]
+          : visibility === 'team'
+            ? [...teamIds]
+            : [];
+
   return {
     visibility,
     canCreateTask,
+    canCreateProject,
     canUseAiTask: canCreateTask,
     membershipRole,
+    /** Account role in org (owner|admin|hr|member) — not Org Role catalog. */
+    membershipAccountRole: membershipRole,
     departmentIds,
     teamIds,
     /**
@@ -171,6 +193,8 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
     departmentId: departmentIds[0] || null,
     teamId: teamIds[0] || null,
     assignableUserIds,
+    scopeType,
+    scopeIds,
   };
 }
 

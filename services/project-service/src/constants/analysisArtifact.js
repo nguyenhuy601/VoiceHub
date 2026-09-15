@@ -1,6 +1,7 @@
 /**
  * Analysis artifact kinds, lifecycle, sources, trace link types.
  * SSOT: docs/adr/0001-project-delivery-phase-and-req-analysis.md
+ * Four workbooks: docs/adr/0003-phase1-four-workbooks.md
  */
 
 const ANALYSIS_ARTIFACT_KINDS = Object.freeze([
@@ -42,7 +43,9 @@ const ARTIFACT_TRACE_LINK_TYPES = Object.freeze([
 ]);
 
 const CUSTOMER_DOC_CLASSES = Object.freeze([
-  'requirement_xlsx',
+  'customer_raw',
+  'requirement_analysis',
+  'requirement_xlsx', // legacy alias — prefer customer_raw / requirement_analysis
   'business_description',
   'bpmn',
   'other',

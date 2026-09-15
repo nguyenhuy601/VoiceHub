@@ -103,11 +103,27 @@ async function listOrgResourcePool({
   fromDate,
   toDate,
   requirementPackId,
+  view = '',
+  projectRoleKeys,
+  offset,
+  fitAvailable,
   /** Internal: caller already asserted capacity / AI-planning permission */
   skipCapacityAuth = false,
   /** Internal: include compact verified projectExperiences on capability (AI planning enrich) */
   forAiPlanning = false,
 } = {}) {
+  if (String(view || '').trim() === 'roleSuggest') {
+    const { listOrgRoleSuggestCandidates } = require('./projectMemberCandidate.service');
+    return listOrgRoleSuggestCandidates({
+      organizationId,
+      actorUserId,
+      projectRoleKeys,
+      limit,
+      offset,
+      fitAvailable,
+    });
+  }
+
   const orgId = asOid(organizationId);
   if (!orgId) {
     const err = new Error('organizationId không hợp lệ');

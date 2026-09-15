@@ -87,8 +87,8 @@ export function previewColumnsForCard(cardId) {
 export const WIZARD_PM_ROLE = DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER;
 export const WIZARD_SM_ROLE = DEFAULT_PROJECT_ROLE_KEYS.SCRUM_MASTER;
 export const WIZARD_PO_ROLE = DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER;
-export const WIZARD_BA_ROLE = DEFAULT_PROJECT_ROLE_KEYS.BUSINESS_ANALYST;
-export const WIZARD_DEFAULT_MEMBER_ROLE = DEFAULT_PROJECT_ROLE_KEYS.BUSINESS_ANALYST;
+export const WIZARD_BA_ROLE = 'business_analyst';
+export const WIZARD_DEFAULT_MEMBER_ROLE = WIZARD_BA_ROLE;
 
 export function firstSeedMemberWithRole(seedMembers, roleKey) {
   const want = String(roleKey || '')

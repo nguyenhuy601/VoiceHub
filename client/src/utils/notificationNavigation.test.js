@@ -30,7 +30,7 @@ describe('resolveNotificationAppPath', () => {
       resolveNotificationAppPath({
         data: { projectId: 'p9', organizationId: 'o1', boardId: 'b1' },
       }),
-      '/app/projects/p9/overview?organizationId=o1&boardId=b1'
+      '/app/projects/p9/overview?boardId=b1'
     );
   });
 });

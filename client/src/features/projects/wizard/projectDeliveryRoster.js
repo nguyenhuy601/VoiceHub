@@ -1,4 +1,4 @@
-/** Mirror BE projectDeliveryRoster — Phase 1 create requires BA + PO. */
+/** Mirror BE projectDeliveryRoster — Phase 1 create requires BA on the seed list (no implicit creator PO). */
 
 export const PRODUCT_BAND = Object.freeze(['product_owner', 'business_analyst']);
 export const FACILITATE_BAND = Object.freeze(['scrum_master', 'project_manager']);
@@ -48,9 +48,9 @@ export function deliveryRosterStatus(roleKeys = []) {
   };
 }
 
-/** Creator mặc định PO; seedMembers bổ sung BA/PO/khác. */
-export function collectWizardRosterKeys(seedMembers = [], { creatorIsPo = true } = {}) {
-  const keys = creatorIsPo ? ['product_owner'] : [];
+/** Chỉ role đã gán trên seedMembers — không mặc định creator = PO/BA. */
+export function collectWizardRosterKeys(seedMembers = []) {
+  const keys = [];
   for (const row of Array.isArray(seedMembers) ? seedMembers : []) {
     keys.push(...(Array.isArray(row?.projectRoleKeys) ? row.projectRoleKeys : []));
   }

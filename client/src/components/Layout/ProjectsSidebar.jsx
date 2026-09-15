@@ -49,11 +49,13 @@ import {
   buildProjectsNewPath,
   buildProjectsPickerPath,
   getDefaultPathForSuite,
-  orgQueryFromSearch,
-  readStoredLastOrganizationId,
+  resolveProjectOrganizationId,
+  writeStoredLastOrganizationId,
 } from '../../utils/suitePathUtils';
-import { ensureProjectHubProject } from '../../features/projects/hub/useProjectHubQueries';
-import { useQueryClient } from '@tanstack/react-query';
+import { fetchProjectHubProject } from '../../features/projects/hub/useProjectHubQueries';
+import { useQuery } from '@tanstack/react-query';
+import { queryKeys } from '../../lib/queryKeys';
+import { coerceDeliveryPhase } from '../../utils/projectPhaseNav';
 
 const COLLAPSE_KEY = 'voicehub:sidebar-collapsed';
 
@@ -97,31 +99,57 @@ const MODULE_ICONS = {
   'srs-baselines': FolderKanban,
   deliveryPlanning: FolderKanban,
   'delivery-planning': FolderKanban,
+  'planning-overview': LayoutDashboard,
+  'planning-wbs': FolderKanban,
+  'planning-architecture': Settings,
+  'planning-resources': Users,
+  'planning-dependencies': GanttChart,
+  'planning-schedule': Calendar,
+  'planning-milestones': Activity,
+  'planning-releases': FolderKanban,
+  'planning-risks': FileText,
+  'planning-approval': Activity,
 };
 
 function NavItem({ item, collapsed, suiteColor, isActive }) {
   const Icon = item.icon || LayoutDashboard;
+  const locked = Boolean(item.locked);
   const content = (
     <>
-      {isActive && (
+      {isActive && !locked && (
         <span
           className="absolute bottom-[18%] left-0 top-[18%] w-[3px] rounded-r-sm"
           style={{ background: suiteColor, boxShadow: `0 0 8px ${suiteColor}88` }}
         />
       )}
-      <Icon size={15} className="shrink-0" style={{ color: isActive ? suiteColor : undefined }} />
+      <Icon size={15} className="shrink-0" style={{ color: isActive && !locked ? suiteColor : undefined }} />
       {!collapsed && (
         <span
           className="min-w-0 flex-1 text-left whitespace-nowrap text-[0.8125rem] tracking-tight"
-          style={{ fontWeight: isActive ? 500 : 400, color: isActive ? '#E2E8F0' : undefined }}
+          style={{
+            fontWeight: isActive && !locked ? 500 : 400,
+            color: locked ? 'rgba(255,255,255,0.28)' : isActive ? '#E2E8F0' : undefined,
+          }}
         >
           {item.label}
         </span>
       )}
     </>
   );
-  const className = figmaNavItemClass(isActive, suiteColor, collapsed);
-  const style = figmaNavItemBg(isActive, suiteColor);
+  const className = figmaNavItemClass(isActive && !locked, suiteColor, collapsed);
+  const style = figmaNavItemBg(isActive && !locked, suiteColor);
+  if (locked) {
+    return (
+      <div
+        className="group relative block cursor-not-allowed opacity-60"
+        title={item.lockHint || item.label}
+      >
+        <div className={className} style={style}>
+          {content}
+        </div>
+      </div>
+    );
+  }
   return (
     <Link to={item.path} className="group relative block" title={collapsed ? item.label : undefined}>
       <div className={className} style={style}>
@@ -134,8 +162,6 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
 export default function ProjectsSidebar({ landingDemo = false } = {}) {
   const [collapsed, setCollapsed] = useState(false);
   const [showSuitePicker, setShowSuitePicker] = useState(false);
-  const [projectTitle, setProjectTitle] = useState('');
-  const [deliveryPhase, setDeliveryPhase] = useState('development');
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useAppStrings();
@@ -143,17 +169,41 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   const { mobileNavOpen, closeMobileNav } = useShellLayout();
   const { canAccessHub, isSystemAdmin } = useCompanyAdminAccess();
   const showAdminSuite = canAccessHub && !isSystemAdmin;
-  const { projectId: projectIdParam, module: moduleParam } = useParams();
+  const { projectId: projectIdParam, module: moduleParam, planningModule } = useParams();
   const [searchParams] = useSearchParams();
-  const queryClient = useQueryClient();
   const { company, activeWorkspace } = useWorkspace();
 
   const projectId = String(projectIdParam || '').trim();
-  const activeModule = normalizeProjectModule(moduleParam || '');
-  const orgId =
-    orgQueryFromSearch(searchParams) ||
-    readStoredLastOrganizationId() ||
-    String(activeWorkspace?._id || company?.id || company?._id || '').trim();
+  const activeModule = planningModule
+    ? `planning-${String(planningModule).toLowerCase()}`
+    : normalizeProjectModule(moduleParam || '');
+
+  const { data: projectRow } = useQuery({
+    queryKey: queryKeys.projectHub.project(projectId),
+    queryFn: () => fetchProjectHubProject(projectId),
+    enabled: Boolean(projectId),
+    staleTime: 30_000,
+  });
+
+  const workspaceOrgId = String(
+    activeWorkspace?._id || company?.id || company?._id || ''
+  ).trim();
+  const orgId = resolveProjectOrganizationId({
+    search: searchParams,
+    projectRow,
+    workspaceOrgId,
+  });
+
+  useEffect(() => {
+    if (orgId) writeStoredLastOrganizationId(orgId);
+  }, [orgId]);
+
+  // Do not assume development while loading — that flashes Phase 2 menu for Phase 1 projects.
+  const projectTitle = projectRow
+    ? String(projectRow?.title || projectRow?.name || '').trim()
+    : '';
+  const deliveryPhase = projectRow ? coerceDeliveryPhase(projectRow.deliveryPhase) : null;
+  const projectCapabilities = projectRow?.capabilities || null;
 
   const suiteColor = SUITE_COLORS.projects || '#8B5CF6';
   const suiteLabels = {
@@ -173,30 +223,6 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
       // ignore
     }
   }, []);
-
-  useEffect(() => {
-    if (!projectId) {
-      setProjectTitle('');
-      setDeliveryPhase('development');
-      return undefined;
-    }
-    let cancelled = false;
-    ensureProjectHubProject(queryClient, projectId)
-      .then((row) => {
-        if (cancelled) return;
-        setProjectTitle(String(row?.title || row?.name || '').trim());
-        setDeliveryPhase(String(row?.deliveryPhase || 'development').trim() || 'development');
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setProjectTitle('');
-          setDeliveryPhase('development');
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, queryClient]);
 
   const toggleCollapsed = () => {
     const next = !collapsed;
@@ -220,29 +246,40 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   const boardId = boardQueryFromSearch(searchParams);
 
   const postItems = useMemo(() => {
-    if (!projectId) return [];
-    return getProjectsPostSelectNavItems(projectId, { deliveryPhase }).map((item) => ({
+    if (!projectId || !projectRow || deliveryPhase == null) return [];
+    return getProjectsPostSelectNavItems(projectId, {
+      deliveryPhase,
+      capabilities: projectCapabilities,
+    }).map((item) => ({
       ...item,
       label: t(item.labelKey),
+      lockHint: item.lockHintKey ? t(item.lockHintKey) : '',
       icon: MODULE_ICONS[item.key] || MODULE_ICONS[item.module] || LayoutDashboard,
-      path: buildProjectsModulePath(projectId, item.module, {
-        organizationId: orgId,
-        boardId,
-      }),
+      path: item.pathSeg
+        ? `/app/projects/${encodeURIComponent(projectId)}/${item.pathSeg}${
+            boardId ? `?boardId=${encodeURIComponent(boardId)}` : ''
+          }`
+        : buildProjectsModulePath(projectId, item.module, {
+            boardId,
+          }),
     }));
-  }, [projectId, orgId, boardId, t, deliveryPhase]);
+  }, [projectId, orgId, boardId, t, deliveryPhase, projectCapabilities, projectRow]);
 
   const groupedPost = useMemo(() => {
     const groups = [
+      PROJECT_MENU_GROUPS.PHASE1_RA,
+      PROJECT_MENU_GROUPS.PHASE1_PLANNING,
       PROJECT_MENU_GROUPS.WORK,
       PROJECT_MENU_GROUPS.COLLAB,
       PROJECT_MENU_GROUPS.OPS,
     ];
-    return groups.map((group) => ({
-      group,
-      label: t(getProjectMenuGroupLabelKey(group)),
-      items: postItems.filter((i) => i.group === group),
-    }));
+    return groups
+      .map((group) => ({
+        group,
+        label: t(getProjectMenuGroupLabelKey(group)),
+        items: postItems.filter((i) => i.group === group),
+      }))
+      .filter((section) => section.items.length > 0);
   }, [postItems, t]);
 
   const allowedSuites = useMemo(() => {
@@ -263,6 +300,9 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
       }
       if (item.key === 'new') return location.pathname.startsWith('/app/projects/new');
       return false;
+    }
+    if (item.pathSeg && item.pathSeg.includes('/')) {
+      return location.pathname.includes(`/${item.pathSeg}`);
     }
     return item.module === activeModule;
   };

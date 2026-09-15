@@ -1,42 +1,31 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  deliveryRosterStatus,
-  assertDeliveryRoster,
   collectCreateProjectRoleKeys,
-} = require('../src/utils/projectDeliveryRoster');
+  deliveryRosterStatus,
+} = require('../src/utils/project/projectDeliveryRoster');
 
-describe('projectDeliveryRoster', () => {
-  it('một user 3 keys → pass', () => {
-    const keys = ['product_owner', 'scrum_master', 'backend_developer'];
-    const status = deliveryRosterStatus(keys);
-    assert.equal(status.hasProduct, true);
-    assert.equal(status.hasFacilitate, true);
-    assert.equal(status.hasBuild, true);
-    assert.doesNotThrow(() => assertDeliveryRoster(keys));
+describe('collectCreateProjectRoleKeys', () => {
+  it('không mặc định product_owner khi members trống', () => {
+    const keys = collectCreateProjectRoleKeys({ members: [] });
+    assert.deepEqual(keys, []);
+    assert.equal(deliveryRosterStatus(keys).hasProduct, false);
   });
 
-  it('thiếu Dev/QA → fail', () => {
-    assert.throws(
-      () => assertDeliveryRoster(['product_owner', 'scrum_master']),
-      /Dev hoặc QA|PROJECT_ROSTER|400/
-    );
-  });
-
-  it('BA + PM + QA đủ 3 band', () => {
-    const status = deliveryRosterStatus(['business_analyst', 'project_manager', 'qa_engineer']);
-    assert.equal(status.hasProduct, true);
-    assert.equal(status.hasFacilitate, true);
-    assert.equal(status.hasBuild, true);
-  });
-
-  it('collectCreateProjectRoleKeys gồm creator PO + seed + SM slot', () => {
+  it('BA trên members đủ product band, không tự thêm PO', () => {
     const keys = collectCreateProjectRoleKeys({
-      scrumMasterId: 'u2',
-      members: [{ userId: 'u3', projectRoleKeys: ['frontend_developer'] }],
+      members: [{ userId: 'u1', projectRoleKeys: ['business_analyst', 'scrum_master'] }],
+    });
+    assert.ok(keys.includes('business_analyst'));
+    assert.ok(!keys.includes('product_owner'));
+    assert.equal(deliveryRosterStatus(keys).hasProduct, true);
+  });
+
+  it('productOwnerId slot vẫn thêm PO', () => {
+    const keys = collectCreateProjectRoleKeys({
+      productOwnerId: 'po1',
+      members: [{ userId: 'u2', projectRoleKeys: ['developer'] }],
     });
     assert.ok(keys.includes('product_owner'));
-    assert.ok(keys.includes('scrum_master'));
-    assert.ok(keys.includes('frontend_developer'));
   });
 });

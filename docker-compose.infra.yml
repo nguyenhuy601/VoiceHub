@@ -161,9 +161,10 @@ services:
 
 
 
+  # Docker Hub minio/* community images removed (2025-10); use Quay mirrors.
   minio:
 
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
 
     container_name: enterprise-minio
 
@@ -205,7 +206,7 @@ services:
 
   minio-init:
 
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
 
     container_name: enterprise-minio-init
 

@@ -29,6 +29,18 @@ describe('gateway admin bypass routes', () => {
       classifyPermissionRoute('POST', '/api/auth/users/u123/lock'),
       'admin_bypass'
     );
+    assert.equal(
+      classifyPermissionRoute('POST', '/api/auth/users/u123/set-password'),
+      'admin_bypass'
+    );
+    assert.equal(
+      classifyPermissionRoute('POST', '/api/auth/users/u123/force-password'),
+      'admin_bypass'
+    );
+    assert.equal(
+      classifyPermissionRoute('POST', '/api/auth/users/u123/reset-password'),
+      'admin_bypass'
+    );
   });
 
   it('does not treat login/me as admin_bypass', () => {
@@ -36,8 +48,8 @@ describe('gateway admin bypass routes', () => {
     assert.notEqual(classifyPermissionRoute('GET', '/api/auth/me'), 'admin_bypass');
   });
 
-  it('project role catalog CRUD is task_bypass not /admin prefix', () => {
-    assert.equal(classifyPermissionRoute('GET', '/api/projects/roles'), 'task_bypass');
+  it('project role catalog CRUD is downstream_authorized not /admin prefix', () => {
+    assert.equal(classifyPermissionRoute('GET', '/api/projects/roles'), 'downstream_authorized');
     assert.notEqual(classifyPermissionRoute('GET', '/api/projects/admin/roles'), 'admin_bypass');
   });
 });

@@ -2,7 +2,7 @@ import { wizardUi } from './projectWizardUi';
 import { deliveryPhaseLabelKey } from '../../../utils/projectPhaseNav';
 
 /** Step Confirm — Phase 1 intake summary. */
-export default function ProjectWizardStepConfirm({ form, t, creatorUserId }) {
+export default function ProjectWizardStepConfirm({ form, t }) {
   const members = Array.isArray(form.seedMembers) ? form.seedMembers : [];
   const phaseLabel = t(deliveryPhaseLabelKey('requirement_analysis'));
 
@@ -23,11 +23,11 @@ export default function ProjectWizardStepConfirm({ form, t, creatorUserId }) {
           <span className="rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
             {phaseLabel}
           </span>
-          <span className="rounded border border-border px-2 py-0.5 text-[10px] font-semibold uppercase">
-            {form.category || 'internal'}
+          <span className="rounded border border-border px-2 py-0.5 text-[10px] font-semibold">
+            {t(`workspace.projectHubCategory_${form.category || 'internal'}`)}
           </span>
-          <span className="rounded border border-border px-2 py-0.5 text-[10px] font-semibold uppercase">
-            {form.priority || 'medium'}
+          <span className="rounded border border-border px-2 py-0.5 text-[10px] font-semibold">
+            {t(`workspace.projectHubProjectPriority_${form.priority || 'medium'}`)}
           </span>
         </div>
         <p className="text-base font-semibold text-foreground">{form.title || '—'}</p>
@@ -38,10 +38,7 @@ export default function ProjectWizardStepConfirm({ form, t, creatorUserId }) {
           <p className="text-muted-foreground whitespace-pre-wrap">{form.description}</p>
         ) : null}
         <p className="text-xs text-muted-foreground">
-          {t('adminTasks.wizardConfirmRoster') || 'Thành viên seed'}: {members.length}
-          {creatorUserId
-            ? ` (+ ${t('adminTasks.wizardConfirmYouArePo') || 'bạn = PO'})`
-            : ''}
+          {t('adminTasks.wizardConfirmRoster')}: {members.length}
         </p>
       </div>
     </div>

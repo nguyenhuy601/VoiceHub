@@ -49,13 +49,12 @@ export function inferBoardRoleFromProjectKeys(projectRoleKeys = []) {
  * @param {Array<{ userId: string, projectRoleKeys?: string[], boardRole?: string }>} seedRows
  * @param {{ creatorUserId?: string }} [opts]
  */
-export function buildCreateBoardMembers(seedRows, { creatorUserId } = {}) {
-  const creator = String(creatorUserId || '').trim();
+export function buildCreateBoardMembers(seedRows) {
   const out = [];
   const seen = new Set();
   for (const raw of Array.isArray(seedRows) ? seedRows : []) {
     const userId = String(raw?.userId || '').trim();
-    if (!userId || (creator && userId === creator) || seen.has(userId)) continue;
+    if (!userId || seen.has(userId)) continue;
     seen.add(userId);
     const projectRoleKeys = [
       ...new Set(
@@ -124,9 +123,7 @@ export function buildCreateBoardPayload(form, ctx = {}) {
       ? form.relatedDepartmentIds.map(String).filter(Boolean)
       : [],
     delegationTemplateId: normalizeDelegationTemplateId(form.delegationTemplateId),
-    members: buildCreateBoardMembers(form.members || form.seedMembers || [], {
-      creatorUserId: ctx.creatorUserId,
-    }),
+    members: buildCreateBoardMembers(form.members || form.seedMembers || []),
     projectType: PROJECT_TYPES.includes(String(form.projectType || '').toLowerCase())
       ? String(form.projectType).toLowerCase()
       : 'software',

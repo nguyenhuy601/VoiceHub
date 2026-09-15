@@ -7,6 +7,7 @@ import { PROJECT_WIZARD_STEPS } from './wizard/projectWizardConstants';
 import { wizardUi } from './wizard/projectWizardUi';
 import { useAppStrings } from '../../locales/appStrings';
 import { deliveryPhaseLabelKey } from '../../utils/projectPhaseNav';
+import ProjectWizardRosterPreview from './wizard/ProjectWizardRosterPreview';
 
 /**
  * Full-screen Project Create Wizard — Identity → Roster → Confirm (Phase 1 intake).
@@ -89,20 +90,12 @@ export default function CreateProjectWizard({
                 <ProjectWizardStepTeam
                   orgId={organizationId}
                   form={wizard.form}
-                  patchForm={wizard.patchForm}
-                  catalogRoles={wizard.catalogRoles}
-                  addSeedMember={wizard.addSeedMember}
-                  removeSeedMember={wizard.removeSeedMember}
-                  defaultMemberRole={wizard.defaultMemberRole}
+                  setIntakeSlot={wizard.setIntakeSlot}
                   t={t}
                 />
               ) : null}
               {wizard.stepId === 'confirm' ? (
-                <ProjectWizardStepConfirm
-                  form={wizard.form}
-                  t={t}
-                  creatorUserId={wizard.creatorUserId}
-                />
+                <ProjectWizardStepConfirm form={wizard.form} t={t} />
               ) : null}
             </div>
           </div>
@@ -162,33 +155,50 @@ export default function CreateProjectWizard({
               {t('adminTasks.wizardPreviewLabel') || 'Preview'}
             </p>
             <p className={wizardUi.previewHint}>
-              {t('adminTasks.wizardPhase1PreviewHint') ||
-                'Intake Phase 1 — không cấu hình board tại bước tạo.'}
+              {wizard.stepId === 'roster'
+                ? t('adminTasks.wizardPreviewMembersHint')
+                : t('adminTasks.wizardPhase1PreviewHint')}
             </p>
             <span className="inline-flex rounded border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
               {t(deliveryPhaseLabelKey('requirement_analysis'))}
             </span>
           </div>
-          <div className="relative min-h-0 flex-1 rounded-xl border border-border bg-surface/80 p-4">
-            <p className="text-lg font-semibold text-foreground">
-              {wizard.form.title || t('workspace.projectHubUntitled')}
-            </p>
-            <p className="mt-1 font-mono text-xs text-muted-foreground">
-              {wizard.form.projectCode || '—'}
-            </p>
-            <ol className="mt-6 space-y-2 text-sm text-muted-foreground">
-              {PROJECT_WIZARD_STEPS.map((id, i) => (
-                <li
-                  key={id}
-                  className={
-                    i === wizard.step ? 'font-semibold text-foreground' : i < wizard.step ? 'opacity-70' : ''
-                  }
-                >
-                  {i + 1}. {stepTitles[id] || id}
-                </li>
-              ))}
-            </ol>
-          </div>
+          {wizard.stepId === 'roster' ? (
+            <ProjectWizardRosterPreview
+              title={wizard.form.title}
+              projectCode={wizard.form.projectCode}
+              intakeSlots={wizard.form.intakeSlots}
+              seedMembers={wizard.form.seedMembers}
+              catalogRoles={wizard.catalogRoles}
+              onClearSlot={wizard.clearIntakeSlot}
+              t={t}
+            />
+          ) : (
+            <div className="relative min-h-0 flex-1 rounded-xl border border-border bg-surface/80 p-4">
+              <p className="text-lg font-semibold text-foreground">
+                {wizard.form.title || t('workspace.projectHubUntitled')}
+              </p>
+              <p className="mt-1 font-mono text-xs text-muted-foreground">
+                {wizard.form.projectCode || '—'}
+              </p>
+              <ol className="mt-6 space-y-2 text-sm text-muted-foreground">
+                {PROJECT_WIZARD_STEPS.map((id, i) => (
+                  <li
+                    key={id}
+                    className={
+                      i === wizard.step
+                        ? 'font-semibold text-foreground'
+                        : i < wizard.step
+                          ? 'opacity-70'
+                          : ''
+                    }
+                  >
+                    {i + 1}. {stepTitles[id] || id}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
         </div>
       </div>
     </div>

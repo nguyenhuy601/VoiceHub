@@ -48,6 +48,16 @@ export const queryKeys = {
     ],
     /** Prefix invalidate mọi biến thể list của org */
     listAll: (orgId) => [...queryKeys.projects.all, 'list', String(orgId || '')],
+    roleSuggestPool: (orgId, roleKeys = '', { limit = 3, offset = 0, fitAvailable = true } = {}) => [
+      ...queryKeys.projects.all,
+      'resourcePool',
+      String(orgId || ''),
+      'roleSuggest',
+      String(roleKeys || ''),
+      `limit:${limit}`,
+      `offset:${offset}`,
+      `fit:${fitAvailable ? '1' : '0'}`,
+    ],
   },
   friends: {
     all: ['friends'],

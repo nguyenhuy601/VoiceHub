@@ -57,6 +57,17 @@ const requirementImportSessionSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    projectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Project',
+      default: null,
+      index: true,
+    },
+    customerDocumentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CustomerDocument',
+      default: null,
+    },
     newSkillsDetected: { type: [mongoose.Schema.Types.Mixed], default: [] },
     skillResolveEnabled: { type: Boolean, default: false },
   },
