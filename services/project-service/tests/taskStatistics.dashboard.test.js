@@ -68,26 +68,37 @@ describe('taskStatistics dashboard helpers', () => {
     assert.equal(match.assigneeId, undefined);
   });
 
-  it('formatOverdueItems map title board và bỏ hàng thiếu id', () => {
-    const titles = new Map([['bbbbbbbbbbbbbbbbbbbbbbbb', 'Alpha']]);
+  it('formatOverdueItems map title board + identity dự án; bỏ hàng thiếu id', () => {
+    const boardId = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+    const projectId = 'p'.repeat(24);
+    const titles = new Map([[boardId, 'Main']]);
+    const projectIdByBoardId = new Map([[boardId, projectId]]);
+    const projectById = new Map([
+      [projectId, { projectTitle: 'OV Demo Cafe', projectCode: 'OV' }],
+    ]);
     const out = formatOverdueItems(
       [
         {
           _id: 'cccccccccccccccccccccccc',
           title: '  Trễ A  ',
           dueDate: '2026-08-01T00:00:00.000Z',
-          boardId: 'bbbbbbbbbbbbbbbbbbbbbbbb',
+          boardId,
           assigneeId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
           organizationId: 'dddddddddddddddddddddddd',
         },
         { title: 'no-id' },
       ],
       titles,
-      'dddddddddddddddddddddddd'
+      'dddddddddddddddddddddddd',
+      projectIdByBoardId,
+      projectById
     );
     assert.equal(out.length, 1);
     assert.equal(out[0].title, 'Trễ A');
-    assert.equal(out[0].boardName, 'Alpha');
+    assert.equal(out[0].boardName, 'Main');
+    assert.equal(out[0].projectId, projectId);
+    assert.equal(out[0].projectTitle, 'OV Demo Cafe');
+    assert.equal(out[0].projectCode, 'OV');
     assert.equal(OVERDUE_ITEMS_LIMIT, 8);
   });
 });
