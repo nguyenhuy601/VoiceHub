@@ -27,10 +27,11 @@ const {
 } = require('./requirementPackWorkImport.service');
 const { normalizeCreatePackLeafAssignments } = require('../utils/requirement/requirementPackWorkImport.utils');
 
-/** Minimal 3-band roster so createProject assertDeliveryRoster passes (edit later in Hub). */
+/** Intake roster so createProject assertIntakeLeadRoster passes (edit later in Hub). */
 const CREATE_FROM_PACK_ROSTER_KEYS = Object.freeze([
   'product_owner',
   'project_manager',
+  'business_analyst',
   'developer',
 ]);
 
@@ -316,10 +317,28 @@ async function createProjectFromRequirementPack({
     throw err;
   }
 
+  let analysisSeed = null;
+  try {
+    const { seedArtifactsFromRequirementPack } = require('./analysis.service');
+    analysisSeed = await seedArtifactsFromRequirementPack({
+      userId,
+      projectId,
+      pack: linked.toObject(),
+    });
+  } catch (seedErr) {
+    logger.warn(
+      '[requirement] analysis artifact seed failed project=%s pack=%s: %s',
+      String(projectId),
+      String(packId),
+      seedErr?.message || seedErr
+    );
+  }
+
   return {
     pack: attachPlanningReadiness(linked.toObject()),
     project,
     importStats,
+    analysisSeed,
   };
 }
 

@@ -10,6 +10,7 @@ const {
   ensureAiAnalysisContainer,
   assertSchemaVersionPresent,
   assertPreviousJobConfirmed,
+  assertJobNotConfirmedForRerun,
   summarizeAiAnalysis,
   buildWizardJobDto,
   markJobReadyStub,
@@ -17,6 +18,7 @@ const {
   markJobsStaleAfter,
   applyJobEdits,
   getJobStatus,
+  assertCapabilityConfirmable,
 } = require('../utils/aiAnalysis/aiAnalysisContainer');
 const { parseJobId } = require('../constants/aiAnalysisJobs.constants');
 const {
@@ -131,8 +133,28 @@ function assertPackStatusAllowsAi(pack) {
   }
 }
 
+/** ADR 0003 RULE-04 — HOW/Planning jobs only after Requirement pack approved. */
+function assertHowJobsRequireApprovedPack(pack, job) {
+  const { isAiAnalysisHowJob } = require('../constants/aiAnalysisJobs.constants');
+  if (!isAiAnalysisHowJob(job)) return;
+  const status = String(pack.status || '');
+  if (status !== 'approved' && status !== 'project_linked') {
+    const err = new Error(
+      'Planning AI jobs (WBS…Project Plan) yêu cầu Requirement pack đã approved — không chạy trên path SRS/Requirement draft'
+    );
+    err.statusCode = 422;
+    err.errorCode = 'AI_ANALYSIS_HOW_REQUIRES_APPROVED';
+    err.details = { status, job };
+    throw err;
+  }
+}
+
 function ensurePackContainer(pack) {
   const raw = pack.aiAnalysis;
+  const rawCapStatus =
+    raw && typeof raw === 'object'
+      ? String(raw.jobs?.capabilityAnalysis?.status || '')
+      : '';
   const jobWasMissing =
     !raw ||
     typeof raw !== 'object' ||
@@ -144,6 +166,13 @@ function ensurePackContainer(pack) {
     pack.aiAnalysis = createEmptyAiAnalysisContainer();
   } else {
     pack.aiAnalysis = ensureAiAnalysisContainer(pack.aiAnalysis);
+  }
+
+  if (
+    rawCapStatus === 'ready' &&
+    getJobStatus(pack.aiAnalysis, 'capabilityAnalysis') === 'stale'
+  ) {
+    pack.markModified('aiAnalysis');
   }
 
   const migrated = ensureHierarchyDecompositionMigrated(
@@ -180,13 +209,19 @@ async function getAiAnalysisSummary({ userId, organizationId, packId }) {
     permission: 'requirement:view',
   });
   const pack = await loadPackForAiAnalysis({ packId, organizationId });
+  const rawCapStatus = String(pack.aiAnalysis?.jobs?.capabilityAnalysis?.status || '');
   let container = ensureAiAnalysisContainer(pack.aiAnalysis);
+  let needsSave =
+    rawCapStatus === 'ready' && getJobStatus(container, 'capabilityAnalysis') === 'stale';
   const gc = failStalePendingAiAnalysisJobs(container);
   if (gc.changed) {
-    pack.aiAnalysis = gc.container;
+    container = gc.container;
+    needsSave = true;
+  }
+  if (needsSave) {
+    pack.aiAnalysis = container;
     pack.markModified('aiAnalysis');
     await pack.save();
-    container = gc.container;
   }
   return summarizeAiAnalysis(container);
 }
@@ -218,6 +253,7 @@ async function runAiAnalysisJob({
   const job = parseJobId(jobRaw);
   const pack = await loadPackForAiAnalysis({ packId, organizationId });
   assertPackStatusAllowsAi(pack);
+  assertHowJobsRequireApprovedPack(pack, job);
   assertPackReadyForAiAnalysis(pack.toObject());
 
   let container = ensurePackContainer(pack);
@@ -229,6 +265,9 @@ async function runAiAnalysisJob({
     await pack.save();
   }
   assertPreviousJobConfirmed(container, job);
+  assertJobNotConfirmedForRerun(container, job, {
+    frList: pack.functionalRequirements || [],
+  });
 
   if (shouldSkipRerunBecauseReady(container, job, { force: Boolean(force) })) {
     return {
@@ -387,29 +426,36 @@ async function runAiAnalysisJob({
     container = ensureAiAnalysisContainer(container);
     container = markJobReadyStub(container, job);
     container = applyCapabilityToContainer(container, capabilityResult);
+    const capabilityItems = capabilityResult.items || [];
+    const capabilityEmpty = capabilityItems.length === 0;
+    const capabilityStatus = capabilityEmpty ? 'failed' : 'ready';
+    const capabilityError = capabilityEmpty
+      ? capabilityResult.meta?.error || 'empty_requirement_leaves'
+      : capabilityResult.meta?.error || null;
     container.jobs.capabilityAnalysis = {
       ...container.jobs.capabilityAnalysis,
-      status: 'ready',
+      status: capabilityStatus,
       model: capabilityResult.model || null,
       generatedAt: capabilityResult.generatedAt,
       confirmedAt: null,
       durationMs: elapsedDurationMs(),
-      error: capabilityResult.meta?.error || null,
+      error: capabilityError,
     };
     pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'ready';
+    pack.aiAnalysisStatus = capabilityEmpty ? 'failed' : 'ready';
     pack.markModified('aiAnalysis');
     await pack.save();
 
     return {
       job,
-      status: 'ready',
+      status: capabilityStatus,
       schemaVersion: pack.aiAnalysis.schemaVersion,
       llmCalls: capabilityResult.meta?.llmCalls ?? 0,
       partial: Boolean(capabilityResult.meta?.partial),
       cacheHit: Boolean(capabilityResult.meta?.cacheHit),
       durationMs: pack.aiAnalysis.jobs.capabilityAnalysis.durationMs,
-      capabilityCount: (capabilityResult.items || []).length,
+      capabilityCount: capabilityItems.length,
+      ...(capabilityEmpty ? { error: capabilityError } : {}),
     };
   }
 
@@ -750,7 +796,12 @@ async function runAiAnalysisJob({
 
     container = ensureAiAnalysisContainer(pack.aiAnalysis);
     container = markJobReadyStub(container, job);
-    const scheduleResult = runScheduleCapacity(container, { forceHeuristic: true });
+    const projectStart =
+      pack.overview?.startDate || pack.staffingPlan?.startDate || null;
+    const scheduleResult = runScheduleCapacity(container, {
+      forceHeuristic: true,
+      projectStart,
+    });
     container = applyScheduleCapacityToContainer(container, scheduleResult);
     container.jobs.scheduleCapacity = {
       ...container.jobs.scheduleCapacity,
@@ -845,6 +896,7 @@ async function confirmAiAnalysisJob({
   const job = parseJobId(jobRaw);
   const pack = await loadPackForAiAnalysis({ packId, organizationId });
   assertPackStatusAllowsAi(pack);
+  assertHowJobsRequireApprovedPack(pack, job);
 
   let container = ensurePackContainer(pack);
   const status = getJobStatus(container, job);
@@ -898,6 +950,10 @@ async function confirmAiAnalysisJob({
       addedCount: merged.addedCount,
       addedIds: merged.addedIds,
     };
+  }
+
+  if (job === 'capabilityAnalysis') {
+    assertCapabilityConfirmable(container);
   }
 
   pack.aiAnalysis = markJobConfirmed(container, job);

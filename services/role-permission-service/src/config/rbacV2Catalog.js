@@ -149,19 +149,30 @@ function isProjectPackTemplateKey(templateKey) {
   return PROJECT_PACK_TEMPLATE_KEYS.includes(String(templateKey || '').trim());
 }
 
+/** Org packs may keep Create Project only; other project.* stay on project delivery packs. */
+const ORG_PACK_ALLOWED_PROJECT_GRANTS = Object.freeze(['project.project.create']);
+
 function stripProjectGrantsUnlessProjectPack(grants = [], templateKey = '') {
   const list = Array.isArray(grants) ? grants : [];
-  if (isProjectPackTemplateKey(templateKey)) return list.filter(Boolean);
-  return list.filter((k) => k && !isProjectMasterPermission(k));
+  const key = String(templateKey || '').trim();
+  if (isProjectPackTemplateKey(key)) return list.filter(Boolean);
+  // Wave B: every org pack may keep Create Project only (not full project.* / Task / Sprint).
+  return list.filter(
+    (k) => k && (!isProjectMasterPermission(k) || ORG_PACK_ALLOWED_PROJECT_GRANTS.includes(k))
+  );
 }
 
 const TEMPLATE_DEFINITIONS = Object.freeze([
   {
     key: 'organization_admin',
     label: 'Organization Admin',
-    grants: MASTER_PERMISSIONS.filter(
-      (k) => !isProjectMasterPermission(k) && (!k.startsWith('meeting.') || k.endsWith('.view'))
-    ),
+    grants: [
+      ...MASTER_PERMISSIONS.filter(
+        (k) => !isProjectMasterPermission(k) && (!k.startsWith('meeting.') || k.endsWith('.view'))
+      ),
+      // Wave B: account-admin may create projects when org scope also allows (Strict AND).
+      'project.project.create',
+    ],
   },
   {
     key: 'project_admin',
@@ -188,6 +199,7 @@ const TEMPLATE_DEFINITIONS = Object.freeze([
     label: 'Project Manager',
     grants: [
       'project.project.view',
+      'project.project.create',
       'project.project.update',
       'project.sprint.view',
       'project.sprint.create',

@@ -68,6 +68,7 @@ export const ORGANIZATION_ROLE_LABELS = Object.freeze({
 });
 
 export const PROJECT_ROLE_LABELS = Object.freeze({
+  business_analyst: 'Business Analyst',
   project_manager: 'Project Manager',
   product_owner: 'Product Owner',
   scrum_master: 'Scrum Master',

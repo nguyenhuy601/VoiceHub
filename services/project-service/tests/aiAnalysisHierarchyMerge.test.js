@@ -126,4 +126,48 @@ describe('aiAnalysisHierarchyMerge', () => {
     assert.equal(merged.filter((r) => r.name === 'Bad parent level').length, 0);
     assert.equal(merged.filter((r) => r.name === 'Accepted feat').length, 1);
   });
+
+  it('remaps Requirement parent from Feature proposalId to allocated externalId', () => {
+    const frList = [
+      {
+        externalId: 'FR-001',
+        level: 'Module',
+        parentExternalId: '',
+        name: 'Auth',
+      },
+    ];
+
+    const { frList: merged, addedCount } = mergeHierarchyProposalsIntoFrList(frList, {
+      proposedFeatures: [
+        {
+          proposalId: 'PROP-F-FR-001-1',
+          parentExternalId: 'FR-001',
+          level: 'Feature',
+          name: 'Login',
+          status: 'accepted',
+        },
+      ],
+      proposedRequirements: [
+        {
+          proposalId: 'PROP-R-PROP-F-FR-001-1-1',
+          parentExternalId: 'PROP-F-FR-001-1',
+          level: 'Requirement',
+          name: 'Password login',
+          status: 'accepted',
+        },
+      ],
+    });
+
+    assert.equal(addedCount, 2);
+    const feat = merged.find((r) => r.name === 'Login');
+    const req = merged.find((r) => r.name === 'Password login');
+    assert.equal(feat.level, 'Feature');
+    assert.equal(req.level, 'Requirement');
+    assert.equal(req.parentExternalId, feat.externalId);
+    assert.ok(req.parentExternalId !== 'PROP-F-FR-001-1');
+
+    const slices = buildRequirementFrSlices({ functionalRequirements: merged });
+    assert.equal(slices.length, 1);
+    assert.equal(slices[0].title, 'Password login');
+  });
 });

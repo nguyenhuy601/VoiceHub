@@ -1,18 +1,26 @@
+import { useSearchParams } from 'react-router-dom';
 import BrandPageLoader from '../../components/Shared/BrandPageLoader';
 import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
 import { useAppStrings } from '../../locales/appStrings';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { useSpace } from '../../context/SpaceContext';
 import useRequirementAccess from '../../hooks/useRequirementAccess';
 import { shouldShowCollaborateRequirementsNavForUser } from '../../utils/collaborateRequirementsNav';
+import { orgQueryFromSearch } from '../../utils/suitePathUtils';
 import RequirementImportWorkspace from './RequirementImportWorkspace';
 
-export default function CollaborateRequirementsPage() {
+export default function CollaborateRequirementsPage(_props = {}) {
   const { t } = useAppStrings();
   const { user } = useAuth();
   const { activeWorkspace, company } = useWorkspace();
+  const space = useSpace();
+  const [searchParams] = useSearchParams();
+
   const orgId = String(
-    activeWorkspace?._id ||
+    space?.organizationId ||
+      orgQueryFromSearch(searchParams) ||
+      activeWorkspace?._id ||
       activeWorkspace?.id ||
       company?.id ||
       company?._id ||

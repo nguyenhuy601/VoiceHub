@@ -59,6 +59,42 @@ async function downloadTemplate(req, res) {
       return res.status(400).json({ success: false, message: 'organizationId bắt buộc' });
     }
     await assertRequirementPermission({ userId, organizationId, permission: 'requirement:view' });
+
+    const variant = String(req.query?.variant || '')
+      .trim()
+      .toLowerCase();
+
+    if (variant === 'raw') {
+      const {
+        loadCustomerRawTemplateBuffer,
+        CUSTOMER_RAW_FILE_NAME,
+      } = require('../utils/requirement/customerRawTemplateBuilder');
+      const buf = await loadCustomerRawTemplateBuffer();
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      res.setHeader('Content-Disposition', `attachment; filename="${CUSTOMER_RAW_FILE_NAME}"`);
+      return res.send(Buffer.from(buf));
+    }
+
+    if (variant === 'analysis') {
+      const {
+        loadRequirementAnalysisTemplateBuffer,
+        ANALYSIS_TEMPLATE_FILE_NAME,
+      } = require('../utils/requirement/requirementAnalysisTemplateBuilder');
+      const buf = await loadRequirementAnalysisTemplateBuffer();
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${ANALYSIS_TEMPLATE_FILE_NAME}"`
+      );
+      return res.send(Buffer.from(buf));
+    }
+
     const buf = await buildRequirementTemplateBuffer();
     res.setHeader(
       'Content-Type',

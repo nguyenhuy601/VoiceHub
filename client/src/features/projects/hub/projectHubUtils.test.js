@@ -997,9 +997,13 @@ test('overviewDonutCalloutPoints: lát nhỏ sát đỉnh không đè y', () => 
   }
 });
 
-test('PROJECT_HUB_TABS: Báo cáo ngay sau Tổng quan', () => {
+test('PROJECT_HUB_TABS: Danh sách ngay sau Tổng quan (không còn Báo cáo)', () => {
   assert.equal(PROJECT_HUB_TABS[0].id, 'overview');
-  assert.equal(PROJECT_HUB_TABS[1].id, 'report');
+  assert.equal(PROJECT_HUB_TABS[1].id, 'list');
+  assert.equal(
+    PROJECT_HUB_TABS.some((tab) => tab.id === 'report'),
+    false
+  );
 });
 
 test('isOpaqueAssigneeLabel: ObjectId và 6 ký tự cuối', () => {

@@ -7,7 +7,7 @@ const { classifyPermissionRoute } = require('../src/config/permissions');
 describe('D1 dual-path cleanup', () => {
   it('canonical chat/task paths stay mapped', () => {
     assert.equal(classifyPermissionRoute('GET', '/api/messages'), 'action');
-    assert.equal(classifyPermissionRoute('GET', '/api/tasks'), 'task_bypass');
+    assert.equal(classifyPermissionRoute('GET', '/api/tasks'), 'downstream_authorized');
   });
 
   it('removed chat/work prefixes are unmapped', () => {

@@ -58,6 +58,63 @@ module-b
 API / client / deploy surface
 ```
 
+### 2.6 Nguồn dữ liệu
+
+Bắt buộc khi plan đụng API / list / card / enrich payload (FE hoặc BE). Plan thuần UI copy / không gọi data: ghi «N/A — không đụng API».
+
+#### Sinh request / route mới?
+
+| Loại | Kết luận |
+|------|----------|
+| **HTTP public / browser** | Có / Không — nếu Có: method + path + lý do không gộp endpoint sẵn |
+| **Route REST mới (service)** | Có / Không |
+| **Query / S2S nội bộ (server-side)** | Không / Có (liệt kê; không expose public route) |
+
+#### Client request (hiện có hoặc mới)
+
+```http
+METHOD /api/...?...
+```
+
+#### Nguồn gốc field → UI / response
+
+| UI / consumer field | Field response | Nguồn gốc (Model / aggregate / membership / …) |
+|---------------------|----------------|------------------------------------------------|
+| … | … | … |
+
+#### Payload response (shape)
+
+- Envelope: `{ success, data }` / …
+- Additive vs breaking: …
+- Null-safe / fallback: …
+
+```json
+{ }
+```
+
+#### Tối ưu response (bắt buộc khi sinh / đổi payload)
+
+Áp dụng khi plan **thêm field**, **enrich list**, hoặc **đổi shape** response trả browser (kể cả mở rộng endpoint sẵn). Mục tiêu: payload khớp UI surface — không dump document lean / nested thừa.
+
+Điền checklist trong plan:
+
+- [ ] **Whitelist field** — liệt kê field UI thật sự render; mọi field khác = omit (ghi rõ trong JSON mẫu hoặc cột «Omit»).
+- [ ] **Không trả nested dư** — ví dụ chỉ cần `defaultBoardId` thì **không** embed `boards[]` đầy đủ; chỉ cần count thì không trả full membership rows.
+- [ ] **View / projection opt-in** — ưu tiên query trên route sẵn (`view=card` | `fields=…`) thay vì luôn slim (tránh phá consumer khác) hoặc route REST mới.
+- [ ] **Default backward-compatible** — thiếu `view` → behavior/payload cũ; consumer mới (landing/card) mới gửi view hẹp.
+- [ ] **Enrich tối thiểu** — chỉ attach metric hiện trên UI (vd. `progressPercent` / `health` / `pm`); không kéo overview/WBS/budget lên list.
+- [ ] **FE cache** — nếu có `view`/projection: đưa vào React Query key / fetch params để không trộn full vs slim.
+- [ ] **So sánh kích thước (DoD)** — Success Criteria đo được: omit list cụ thể hoặc «body nhỏ hơn / không còn field X,Y,Z».
+
+**Cấm trong plan sinh res:** trả `...doc` lean nguyên bản cho list/card; nhét Tier-3 (budget, config workflow, closureSnapshot, …) lên list khi UI không hiển thị.
+
+Tham chiếu thiết kế API: Skill [`api-design`](../../api-design/SKILL.md) (mục Response shaping).
+
+#### FE consume / round-trip
+
+- Hook / API client: …
+- Browser round-trip sau thay đổi: N (so với trước)
+
 ---
 
 ## 3. Thiết kế & trách nhiệm module

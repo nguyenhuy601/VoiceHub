@@ -5,7 +5,6 @@ import { normalizePriorityConfig, slugPriorityKey } from './projectPriorityConfi
 
 export const PROJECT_HUB_TABS = [
   { id: 'overview', labelKey: 'workspace.projectHubTabOverview' },
-  { id: 'report', labelKey: 'workspace.projectHubTabReport' },
   { id: 'list', labelKey: 'workspace.projectHubTabList' },
   { id: 'planning', labelKey: 'workspace.projectHubTabPlanning' },
   { id: 'board', labelKey: 'workspace.projectHubTabBoard' },

@@ -20,6 +20,33 @@ const AI_ANALYSIS_USER_JOBS = Object.freeze([
   'projectPlan',
 ]);
 
+/** ADR 0003 — WHAT jobs (Requirement Analysis path) */
+const AI_ANALYSIS_WHAT_JOBS = Object.freeze([
+  'hierarchyDecomposition',
+  'requirementAnalysis',
+  'capabilityAnalysis',
+]);
+
+/** ADR 0003 — HOW / Planning jobs (require pack approved) */
+const AI_ANALYSIS_HOW_JOBS = Object.freeze([
+  'wbsGeneration',
+  'dependencyAnalysis',
+  'architectureRiskAnalysis',
+  'effortRoleAnalysis',
+  'sequencingCpm',
+  'employeeMatching',
+  'scheduleCapacity',
+  'projectPlan',
+]);
+
+function isAiAnalysisWhatJob(job) {
+  return AI_ANALYSIS_WHAT_JOBS.includes(String(job || '').trim());
+}
+
+function isAiAnalysisHowJob(job) {
+  return AI_ANALYSIS_HOW_JOBS.includes(String(job || '').trim());
+}
+
 /** Extra job shells — not runnable via run API. */
 const AI_ANALYSIS_POST_JOBS = Object.freeze(['final']);
 
@@ -64,8 +91,8 @@ const AI_ANALYSIS_JOB_OUTPUT_MAP = Object.freeze({
   },
   employeeMatching: { resource: ['fte', 'recommendations'] },
   scheduleCapacity: {
-    resource: ['assignments', 'schedule'],
-    planning: ['completion'],
+    resource: ['assignments', 'assignmentsMeta', 'schedule'],
+    planning: ['completion', 'tasks'],
   },
   projectPlan: { planning: ['executionPlan'] },
 });
@@ -122,6 +149,8 @@ function userJobsAfter(job) {
 module.exports = {
   AI_ANALYSIS_SCHEMA_VERSION,
   AI_ANALYSIS_USER_JOBS,
+  AI_ANALYSIS_WHAT_JOBS,
+  AI_ANALYSIS_HOW_JOBS,
   AI_ANALYSIS_POST_JOBS,
   AI_ANALYSIS_ALL_JOB_KEYS,
   AI_ANALYSIS_JOB_STATUS,
@@ -129,6 +158,8 @@ module.exports = {
   AI_ANALYSIS_JOB_OUTPUT_MAP,
   AI_ANALYSIS_LEGACY_JOB_IDS,
   isAiAnalysisUserJob,
+  isAiAnalysisWhatJob,
+  isAiAnalysisHowJob,
   parseJobId,
   previousUserJob,
   userJobsAfter,

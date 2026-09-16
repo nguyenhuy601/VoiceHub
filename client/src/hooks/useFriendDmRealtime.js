@@ -154,11 +154,14 @@ export function useFriendDmRealtime({
 
       const pending = pendingSendsRef.current;
       let matchedTempId = null;
+      const serverContent = String(m.content || '');
+      const serverReply = String(m.replyToMessageId || '');
       for (const [tempId, meta] of pending.entries()) {
-        if (
-          String(meta.receiverId) === String(m.receiverId?._id || m.receiverId) &&
-          String(meta.content) === String(m.content || '')
-        ) {
+        const sameReceiver =
+          String(meta.receiverId) === String(m.receiverId?._id || m.receiverId);
+        const sameContent = String(meta.content) === serverContent;
+        const sameReply = String(meta.replyToMessageId || '') === serverReply;
+        if (sameReceiver && sameContent && sameReply) {
           matchedTempId = tempId;
           pending.delete(tempId);
           break;

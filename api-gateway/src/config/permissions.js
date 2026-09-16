@@ -350,7 +350,8 @@ function isDownstreamAuthorizedRoute(path) {
 
 /**
  * Phân loại route cho permission middleware (audit + smoke).
- * @returns {'public_skip'|'admin_bypass'|'task_bypass'|'no_permission'|'action'|'downstream'|'unmapped'}
+ * @returns {'public_skip'|'admin_bypass'|'downstream_authorized'|'no_permission'|'action'|'unmapped'}
+ * Note: legacy alias `task_bypass` was renamed — use downstream_authorized (project-service enforces).
  */
 function classifyPermissionRoute(method, path) {
   if (isAdminServiceAuthRoute(path)) {
@@ -359,15 +360,13 @@ function classifyPermissionRoute(method, path) {
   if (isNoPermissionRoute(path)) {
     return 'no_permission';
   }
-  if (isTaskAuthBypassRoute(path)) {
-    return 'task_bypass';
+  // Coarse RPS skipped — downstream service MUST authorize (not "no auth").
+  if (isTaskAuthBypassRoute(path) || isDownstreamAuthorizedRoute(path)) {
+    return 'downstream_authorized';
   }
   const action = getAction(method, path);
   if (action) {
     return 'action';
-  }
-  if (isDownstreamAuthorizedRoute(path)) {
-    return 'downstream';
   }
   return 'unmapped';
 }

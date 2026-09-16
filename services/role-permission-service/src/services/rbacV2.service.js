@@ -678,6 +678,121 @@ class RbacV2Service {
     for (const g of groups) grants.push(...(g.grants || []));
     return uniqueStrings(grants).filter(isValidMasterPermission);
   }
+
+  /**
+   * Wave B migration: ensure user has master grant project.project.create.
+   * Idempotent — binds project_admin pack (+ patches organization_admin groups) when missing.
+   */
+  async ensureProjectCreateGrant({ userId, organizationId, actorUserId = null }) {
+    const CREATE_KEY = 'project.project.create';
+    const uid = asObjectId(userId, 'userId');
+    const oid = asObjectId(organizationId, 'organizationId');
+
+    const existing = await this.collectEffectiveMasterGrants(uid, oid);
+    if (existing.includes(CREATE_KEY)) {
+      return { ok: true, migrated: false, alreadyHadGrant: true };
+    }
+
+    // Patch existing organization_admin groups so account-admins pick up Create Project.
+    const adminGroups = await OrganizationPermissionGroup.find({
+      organizationId: oid,
+      templateKey: 'organization_admin',
+      isActive: true,
+    })
+      .select('_id')
+      .lean();
+    for (const g of adminGroups) {
+      await OrganizationPermissionGroup.updateOne(
+        { _id: g._id },
+        { $addToSet: { grants: CREATE_KEY } }
+      );
+      const bindings = await RolePermissionGroupBinding.find({
+        organizationId: oid,
+        permissionGroupId: g._id,
+        isActive: true,
+      })
+        .select('roleId')
+        .lean();
+      for (const b of bindings) {
+        await rematerializeRolePermissions(oid, b.roleId);
+      }
+    }
+
+    let afterPatch = await this.collectEffectiveMasterGrants(uid, oid);
+    if (afterPatch.includes(CREATE_KEY)) {
+      const redis = getRedisClient();
+      if (redis) await redis.del(`permissions:${uid}:${oid}`);
+      return { ok: true, migrated: true, via: 'organization_admin_patch' };
+    }
+
+    // Bind project_admin pack (has full project.* including create).
+    let roleByTemplate = await this.buildRoleIdByTemplateKey(oid);
+    let roleId = roleByTemplate.project_admin || roleByTemplate.project_manager || null;
+    if (!roleId) {
+      await this.seedSystemTemplates();
+      let group = await OrganizationPermissionGroup.findOne({
+        organizationId: oid,
+        templateKey: 'project_admin',
+        isActive: true,
+      }).lean();
+      if (!group) {
+        group = await this.cloneTemplate({
+          organizationId: oid,
+          templateKey: 'project_admin',
+          actorUserId,
+        });
+      }
+      const permissions = materializeLegacyPermissions(group.grants || []);
+      const role = await Role.create({
+        name: group.name || 'Project Admin',
+        description: 'RBAC V2 · Wave B ensure project.project.create',
+        scope: 'ORGANIZATION',
+        serverId: oid,
+        organizationId: oid,
+        permissions,
+        color: '#6366f1',
+        isDefault: false,
+        priority: 180,
+        isActive: true,
+      });
+      roleId = String(role._id);
+      await this.assignGroupToRole({
+        organizationId: oid,
+        roleId: role._id,
+        permissionGroupId: group._id,
+        roleLayer: 'organization',
+        actorUserId,
+      });
+    }
+
+    const actor =
+      actorUserId && mongoose.Types.ObjectId.isValid(String(actorUserId)) ? actorUserId : null;
+    await UserRole.updateOne(
+      { userId: uid, serverId: oid, roleId },
+      {
+        $set: {
+          isActive: true,
+          assignedBy: actor,
+          assignedAt: new Date(),
+        },
+        $unset: { expiresAt: 1 },
+      },
+      { upsert: true }
+    );
+
+    const redis = getRedisClient();
+    if (redis) await redis.del(`permissions:${uid}:${oid}`);
+
+    afterPatch = await this.collectEffectiveMasterGrants(uid, oid);
+    if (!afterPatch.includes(CREATE_KEY)) {
+      throw serviceError(
+        'Không thể cấp project.project.create',
+        500,
+        'MIGRATION_BIND_FAILED'
+      );
+    }
+    return { ok: true, migrated: true, via: 'project_admin_bind', roleId: String(roleId) };
+  }
 }
 
 module.exports = new RbacV2Service();

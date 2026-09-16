@@ -76,8 +76,11 @@ function memberUserId(m) {
   return String(u || '');
 }
 
-async function fetchMembersWithRolesBundle(orgId) {
-  const payload = await organizationAPI.getMembersWithRoles(orgId);
+async function fetchMembersWithRolesBundle(orgId, departmentId = '') {
+  const deptId = String(departmentId || '').trim();
+  const payload = await organizationAPI.getMembersWithRoles(orgId, {
+    ...(deptId ? { departmentId: deptId } : {}),
+  });
   const body = unwrapBody(payload);
   const bundle = body?.data ?? body;
   const list = Array.isArray(bundle?.members)
@@ -166,6 +169,7 @@ function toLowerStr(input) {
 
 function OrganizationMemberSidebar({
   organizationId,
+  departmentId = '',
   workspaceSlug = '',
   organizationName = '',
   selectedTeamId = '',
@@ -490,12 +494,13 @@ function OrganizationMemberSidebar({
     if (!organizationId || sidebarTab !== 'people') return;
     if (memberDockOpen === false) return;
     let cancelled = false;
+    const deptId = String(departmentId || '').trim();
     (async () => {
       setLoading(true);
       setError('');
       try {
         const { members: rawMembers, roles: rolesList } =
-          await fetchMembersWithRolesBundle(organizationId);
+          await fetchMembersWithRolesBundle(organizationId, deptId);
         if (cancelled) return;
 
         const normalizedRoles = rolesList.map(normalizeRoleRecord).filter(Boolean);
@@ -518,7 +523,7 @@ function OrganizationMemberSidebar({
     return () => {
       cancelled = true;
     };
-  }, [organizationId, refreshKey, sidebarTab, memberDockOpen, t]);
+  }, [organizationId, departmentId, refreshKey, sidebarTab, memberDockOpen, t]);
 
   useEffect(() => {
     if (!selectedJoinApplication) return;

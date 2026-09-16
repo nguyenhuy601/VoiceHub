@@ -3,16 +3,17 @@ import {
   AVATAR_TEXT_CLASS,
   avatarImageShellClassName,
   avatarPlaceholderClassName,
+  canRenderAvatarImage,
   displayInitials,
-  isAvatarImageUrl,
   needsAuthenticatedAvatarFetch,
   pickAvatarValue,
   resolveAvatarSrc,
 } from '../../utils/avatarDisplay';
-import { fetchProtectedAvatarBlob } from '../../utils/protectedMediaFetch';
+import { fetchProtectedAvatarBlob, isProtectedUploadPath } from '../../utils/protectedMediaFetch';
 
 /**
  * Avatar thống nhất: ảnh (URL/upload) hoặc initials trên nền màu — bo góc rounded-xl.
+ * Có userId → luôn thử GET /users/:id/avatar (đồng bộ ảnh dù list thiếu field avatar).
  */
 export default function UserAvatar({
   avatar,
@@ -31,10 +32,11 @@ export default function UserAvatar({
   const [authAvatarUrl, setAuthAvatarUrl] = useState(null);
   const avatarValue = pickAvatarValue(avatar);
   const useAuthFetch = needsAuthenticatedAvatarFetch(avatarValue, userId);
+  const effectiveBust = cacheBust != null && cacheBust !== '' ? cacheBust : avatarValue;
 
   useEffect(() => {
     setImgFailed(false);
-  }, [avatarValue, cacheBust, userId]);
+  }, [avatarValue, effectiveBust, userId]);
 
   useEffect(() => {
     if (!useAuthFetch) {
@@ -47,11 +49,25 @@ export default function UserAvatar({
 
     (async () => {
       try {
-        const blob = await fetchProtectedAvatarBlob({
-          userId: userId || null,
-          avatar: avatarValue,
-          cacheBust,
-        });
+        let blob;
+        try {
+          blob = await fetchProtectedAvatarBlob({
+            userId: userId || null,
+            avatar: avatarValue,
+            cacheBust: effectiveBust,
+          });
+        } catch (primaryErr) {
+          // DB có path /uploads nhưng GET theo userId 404 (file cũ / cache) → thử path trực tiếp.
+          if (avatarValue && isProtectedUploadPath(avatarValue)) {
+            blob = await fetchProtectedAvatarBlob({
+              userId: null,
+              avatar: avatarValue,
+              cacheBust: effectiveBust,
+            });
+          } else {
+            throw primaryErr;
+          }
+        }
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setAuthAvatarUrl(objectUrl);
@@ -70,13 +86,19 @@ export default function UserAvatar({
       }
       setAuthAvatarUrl(null);
     };
-  }, [useAuthFetch, userId, avatarValue, cacheBust]);
+  }, [useAuthFetch, userId, avatarValue, effectiveBust]);
 
   const clickable = typeof onClick === 'function';
   const Wrapper = clickable ? 'button' : 'div';
   const isOnline = status === 'online';
-  const resolvedSrc = useAuthFetch ? authAvatarUrl : resolveAvatarSrc(avatarValue, cacheBust, userId);
-  const hasImage = isAvatarImageUrl(avatarValue) && !imgFailed && Boolean(resolvedSrc);
+  const resolvedSrc = useAuthFetch
+    ? authAvatarUrl
+    : resolveAvatarSrc(avatarValue, effectiveBust, userId);
+  const hasImage = canRenderAvatarImage({
+    avatar: avatarValue,
+    resolvedSrc,
+    imgFailed,
+  });
   const shellClass = hasImage
     ? avatarImageShellClassName(size, ringClassName)
     : avatarPlaceholderClassName(name, size, ringClassName);

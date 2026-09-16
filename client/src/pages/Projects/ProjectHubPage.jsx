@@ -31,15 +31,32 @@ import {
   buildCollaborateProjectHubPath,
   buildCollaborateProjectsNewPath,
   buildCollaborateProjectsPath,
+  buildProjectsPickerPath,
   orgQueryFromSearch,
   readStoredLastOrganizationId,
 } from '../../utils/suitePathUtils';
+import { normalizeProjectModule } from '../../utils/suiteNavConfig';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { isHoursSoftWarning } from '../../utils/hoursSoftWarning';
 import useTaskWorkspaceScope from '../../hooks/useTaskWorkspaceScope';
 import { fetchOrgProjectsList } from '../../hooks/useOrgProjectsList';
 
-export default function ProjectHubPage() {
+function hubErrorStatus(err) {
+  return Number(err?.response?.status || err?.status || 0) || 0;
+}
+
+/** 403/404 khi mở Hub từ portfolio — không spam toast.error. */
+function isSoftHubAccessError(err) {
+  const status = hubErrorStatus(err);
+  return status === 403 || status === 404;
+}
+
+export default function ProjectHubPage({
+  controlledModule = null,
+  hideTabBar = false,
+  onModuleChange = null,
+  onSwitchProject = null,
+} = {}) {
   const { t } = useAppStrings();
   const { locale } = useLocale();
   const { isDarkMode } = useTheme();
@@ -47,9 +64,11 @@ export default function ProjectHubPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const invalidateProjectHub = useInvalidateProjectHub();
-  const { projectId: projectIdParam } = useParams();
+  const { projectId: projectIdParam, module: moduleParam } = useParams();
   const [searchParams] = useSearchParams();
   const projectId = String(projectIdParam || '').trim();
+  /** Prefer URL module so boardId sync never resets to overview. */
+  const currentModule = normalizeProjectModule(moduleParam || controlledModule || 'overview');
   const orgIdFromQuery =
     orgQueryFromSearch(searchParams) || readStoredLastOrganizationId();
   const boardIdFromQuery = boardQueryFromSearch(searchParams);
@@ -176,7 +195,11 @@ export default function ProjectHubPage() {
       applyBoardPickerList(list);
       return true;
     } catch (err) {
-      toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardFail')));
+      if (isSoftHubAccessError(err)) {
+        toast(t('dashboard.boardHealthHubAccessSoft'), { icon: 'ℹ️' });
+      } else {
+        toast.error(resolveApiErrorMessage(err, t('taskBoard.loadBoardFail')));
+      }
       return false;
     } finally {
       setLoadingTaskBoards(false);
@@ -197,8 +220,13 @@ export default function ProjectHubPage() {
 
   useEffect(() => {
     if (!boardDetailQuery.isError) return;
+    const err = boardDetailQuery.error;
+    if (isSoftHubAccessError(err)) {
+      toast(t('dashboard.boardHealthHubAccessSoft'), { icon: 'ℹ️' });
+      return;
+    }
     toast.error(
-      resolveApiErrorMessage(boardDetailQuery.error, t('taskBoard.loadBoardDetailFail'))
+      resolveApiErrorMessage(err, t('taskBoard.loadBoardDetailFail'))
     );
   }, [boardDetailQuery.isError, boardDetailQuery.error, t]);
 
@@ -275,7 +303,12 @@ export default function ProjectHubPage() {
     taskAPI
       .listProjectBriefs(
         { organizationId: String(orgId), status: 'open' },
-        { timeout: 4000, skipPermissionDeniedToast: true }
+        {
+          timeout: 4000,
+          skipPermissionDeniedToast: true,
+          skipNotFoundToast: true,
+          skipGlobalErrorHandling: true,
+        }
       )
       .then((res) => {
         if (cancelled) return;
@@ -312,7 +345,11 @@ export default function ProjectHubPage() {
         const nextBoardId = String(main?._id || '').trim();
         if (!cancelled && nextBoardId) {
           navigate(
-            buildCollaborateProjectHubPath(pid, { organizationId: orgId, boardId: nextBoardId }),
+            buildCollaborateProjectHubPath(pid, {
+              module: currentModule,
+              organizationId: orgId,
+              boardId: nextBoardId,
+            }),
             { replace: true }
           );
         }
@@ -323,19 +360,20 @@ export default function ProjectHubPage() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, boardIdFromQuery, orgId, navigate, queryClient]);
+  }, [projectId, boardIdFromQuery, orgId, navigate, queryClient, currentModule]);
 
   useEffect(() => {
     if (!projectId || !selectedTaskBoardId) return;
     if (String(boardIdFromQuery || '') === String(selectedTaskBoardId)) return;
     navigate(
       buildCollaborateProjectHubPath(projectId, {
+        module: currentModule,
         organizationId: orgId,
         boardId: selectedTaskBoardId,
       }),
       { replace: true }
     );
-  }, [projectId, selectedTaskBoardId, orgId, boardIdFromQuery, navigate]);
+  }, [projectId, selectedTaskBoardId, orgId, boardIdFromQuery, navigate, currentModule]);
 
   const refreshTaskBoardView = useCallback(async () => {
     if (!selectedTaskBoardId) return;
@@ -731,9 +769,16 @@ export default function ProjectHubPage() {
         workspaceSlug=""
         boardSlot={renderTaskBoardPanel(true)}
         emptySlot={renderTaskBoardPanel(false)}
-        onBack={() => navigate(buildCollaborateProjectsPath(orgId))}
+        onBack={() =>
+          typeof onSwitchProject === 'function'
+            ? onSwitchProject()
+            : navigate(buildProjectsPickerPath(orgId))
+        }
         onBoardChange={setSelectedTaskBoardId}
         currentUserId={currentUserId}
+        activeModule={controlledModule}
+        hideTabBar={hideTabBar}
+        onModuleChange={onModuleChange}
       />
     </div>
   );

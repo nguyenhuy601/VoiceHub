@@ -2,6 +2,12 @@
  * Pure helpers — G1 Create Project lifecycle fields (không phụ thuộc DB).
  */
 
+const {
+  DELIVERY_PHASES,
+  DEFAULT_DELIVERY_PHASE_NEW,
+  coerceDeliveryPhase,
+} = require('../../constants/projectDeliveryPhase');
+
 const PROJECT_STATUSES = Object.freeze([
   'planning',
   'ready_for_planning',
@@ -77,6 +83,16 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
     fields.status = coerced;
   } else if (!partial) {
     fields.status = 'ready_for_planning';
+  }
+
+  if (body.deliveryPhase !== undefined) {
+    const phase = coerceDeliveryPhase(body.deliveryPhase, { missingAsExisting: false });
+    if (!phase || !DELIVERY_PHASES.includes(phase)) {
+      return { ok: false, message: 'deliveryPhase không hợp lệ' };
+    }
+    fields.deliveryPhase = phase;
+  } else if (!partial) {
+    fields.deliveryPhase = DEFAULT_DELIVERY_PHASE_NEW;
   }
 
   if (body.projectType !== undefined || !partial) {

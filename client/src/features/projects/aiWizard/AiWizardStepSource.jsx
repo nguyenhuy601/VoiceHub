@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { wizardUi } from '../wizard/projectWizardUi';
 import { AI_WIZARD_PACK_PAGE_SIZE } from './aiWizardConstants';
 
@@ -45,7 +45,7 @@ export default function AiWizardStepSource({
   const showPager = packs.length > AI_WIZARD_PACK_PAGE_SIZE;
 
   return (
-    <div className="mx-auto w-full max-w-xl space-y-6">
+    <div className="w-full max-w-xl space-y-6">
       <div>
         <h1 className={wizardUi.title}>{t('aiCreateWizard.sourceTitle')}</h1>
         <p className={wizardUi.subtitle}>{t('aiCreateWizard.sourceSubtitle')}</p>
@@ -73,27 +73,38 @@ export default function AiWizardStepSource({
             {pagedPacks.map((item) => {
               const id = String(item._id || '');
               const selected = id === packId;
+              const packTitle =
+                item.overview?.requirementName || item.sourceFileName || id;
               return (
                 <li key={id}>
                   <button
                     type="button"
-                    className={selected ? wizardUi.statusCardActive : wizardUi.rowCard}
+                    className={selected ? wizardUi.statusCardActive : wizardUi.statusCard}
                     disabled={busy}
                     aria-pressed={selected}
+                    title={packTitle}
                     onClick={() => onSelectPack?.(item)}
                   >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">
-                        {item.overview?.requirementName || item.sourceFileName || id}
+                    <span className="flex w-full items-start justify-between gap-3">
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-foreground line-clamp-2">
+                          {packTitle}
+                        </span>
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          {t(`requirements.status.${item.status}`)}
+                          {item.planningReadiness?.score != null
+                            ? ` · ${t('requirements.planningScore', {
+                                score: item.planningReadiness.score,
+                              })}`
+                            : ''}
+                        </span>
                       </span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {t(`requirements.status.${item.status}`)}
-                        {item.planningReadiness?.score != null
-                          ? ` · ${t('requirements.planningScore', {
-                              score: item.planningReadiness.score,
-                            })}`
-                          : ''}
-                      </span>
+                      {selected ? (
+                        <Check
+                          className="mt-0.5 h-4 w-4 shrink-0 text-primary"
+                          aria-hidden
+                        />
+                      ) : null}
                     </span>
                   </button>
                 </li>

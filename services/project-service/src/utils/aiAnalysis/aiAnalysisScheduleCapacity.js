@@ -1,5 +1,7 @@
 /**
- * Schedule & capacity packing (engine-only).
+ * Schedule & capacity packing (engine-only) — THE calendar Scheduler in AI Analysis.
+ * Effort (hours) ≠ Duration (calendar span). startDate/dueDate come from packing
+ * effort into available daily capacity under FS dependencies.
  * Daily cap: 8h = work hours + meetingHours (meetingHours default 0).
  */
 
@@ -120,8 +122,6 @@ function packScheduleCapacity({
       if (remaining <= 0) {
         finished.add(taskId);
         pending.delete(taskId);
-        startEs.set(taskId, 0);
-        finishEf.set(taskId, 0);
         progressed = true;
         continue;
       }
@@ -192,9 +192,11 @@ function packScheduleCapacity({
   const criticalPath = longestCalendarPath([...taskById.keys()], preds, finishEf);
 
   const totalEffort = [...taskById.values()].reduce((s, t) => s + taskEffort(t), 0);
+  const taskDates = buildTaskDatesMap(startEs, finishEf);
 
   return {
     schedule,
+    taskDates,
     completion: {
       projectStart: startKey,
       estimatedEnd,
@@ -210,6 +212,35 @@ function packScheduleCapacity({
       scheduleRowCount: schedule.length,
     },
   };
+}
+
+/** Calendar start/due per task — only valid YYYY-MM-DD keys (RULE-03). */
+function buildTaskDatesMap(startEs, finishEf) {
+  const out = {};
+  for (const [taskId, start] of startEs) {
+    if (typeof start !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
+    const end = finishEf.get(taskId);
+    if (typeof end !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(end)) continue;
+    out[taskId] = { startDate: start, dueDate: end };
+  }
+  return out;
+}
+
+/** Derive min/max dateKey from schedule rows when taskDates missing. */
+function taskDatesFromSchedule(schedule = []) {
+  const byTask = new Map();
+  for (const row of schedule || []) {
+    const tid = String(row?.taskId || '').trim();
+    const key = toDateKey(row?.dateKey);
+    if (!tid || !key) continue;
+    if (!byTask.has(tid)) byTask.set(tid, { startDate: key, dueDate: key });
+    else {
+      const cur = byTask.get(tid);
+      if (key < cur.startDate) cur.startDate = key;
+      if (key > cur.dueDate) cur.dueDate = key;
+    }
+  }
+  return Object.fromEntries(byTask);
 }
 
 function longestCalendarPath(ids, preds, finishEf) {
@@ -276,6 +307,7 @@ function runScheduleCapacity(container, opts = {}) {
     generatedAt: new Date().toISOString(),
     assignments,
     schedule: packed.schedule,
+    taskDates: packed.taskDates,
     completion: packed.completion,
     meta: packed.meta,
   };
@@ -288,8 +320,30 @@ function applyScheduleCapacityToContainer(container, result) {
     resource: { ...container.resource },
   };
   next.resource.assignments = result.assignments || [];
+  if (result.meta && typeof result.meta === 'object') {
+    next.resource.assignmentsMeta = {
+      ...(next.resource.assignmentsMeta || {}),
+      ...result.meta,
+    };
+  }
   next.resource.schedule = result.schedule || [];
   next.planning.completion = result.completion || null;
+
+  const taskDates =
+    result.taskDates && typeof result.taskDates === 'object' && Object.keys(result.taskDates).length
+      ? result.taskDates
+      : taskDatesFromSchedule(result.schedule);
+
+  next.planning.tasks = (Array.isArray(next.planning.tasks) ? next.planning.tasks : []).map((t) => {
+    const id = String(t?.id || t?.taskId || '').trim();
+    const dates = id && taskDates[id] ? taskDates[id] : null;
+    return {
+      ...t,
+      startDate: dates?.startDate || null,
+      dueDate: dates?.dueDate || null,
+    };
+  });
+
   return next;
 }
 
@@ -315,13 +369,25 @@ function buildExecutionPlanFromContainer(container) {
     });
   }
 
+  const works = [...byTask.values()].map((w) => {
+    const keys = (w.days || [])
+      .map((d) => toDateKey(d.dateKey))
+      .filter(Boolean)
+      .sort();
+    return {
+      ...w,
+      startDate: keys[0] || null,
+      dueDate: keys.length ? keys[keys.length - 1] : null,
+    };
+  });
+
   return {
     projectStart: completion?.projectStart || null,
     estimatedEnd: completion?.estimatedEnd || null,
     totalEffortHours: completion?.totalEffortHours ?? null,
     criticalPath: completion?.criticalPath || [],
     assignments,
-    works: [...byTask.values()],
+    works,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -343,6 +409,9 @@ module.exports = {
   applyScheduleCapacityToContainer,
   buildExecutionPlanFromContainer,
   applyProjectPlanToContainer,
+  buildTaskDatesMap,
+  taskDatesFromSchedule,
   toDateKey,
   nextWeekday,
+  utcNoon,
 };

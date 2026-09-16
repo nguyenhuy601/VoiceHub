@@ -111,6 +111,15 @@ function canCreateTaskInScope(scope) {
   return Boolean(scope?.canCreateTask);
 }
 
+/** Wave B: Create Project uses dedicated scope flag (not canCreateTask). */
+function canCreateProjectInScope(scope) {
+  if (scope && Object.prototype.hasOwnProperty.call(scope, 'canCreateProject')) {
+    return Boolean(scope.canCreateProject);
+  }
+  // Compat: older org payloads before Wave B deploy
+  return Boolean(scope?.canCreateTask);
+}
+
 function canAssignUser(scope, assigneeId) {
   if (!assigneeId) return true;
   if (!scope) return false;
@@ -169,6 +178,7 @@ module.exports = {
   fetchTaskWorkspaceScope,
   buildTaskVisibilityFilter,
   canCreateTaskInScope,
+  canCreateProjectInScope,
   canAssignUser,
   canAssignOwnerTeam,
   normalizeOwnerTeamId,

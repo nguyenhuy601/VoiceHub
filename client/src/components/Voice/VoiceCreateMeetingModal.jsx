@@ -289,7 +289,8 @@ export default function VoiceCreateMeetingModal({
                     value={displayNameInput}
                     onChange={(e) => onDisplayNameInputChange?.(e.target.value)}
                     placeholder={localDisplayName}
-                    className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary"
+                    autoComplete="name"
+                    className="h-11 w-full rounded-[9px] border border-border bg-input-background px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary [-webkit-text-fill-color:var(--foreground)] [&:-webkit-autofill]:[-webkit-text-fill-color:var(--foreground)] [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_var(--input-background)]"
                   />
                 </label>
 

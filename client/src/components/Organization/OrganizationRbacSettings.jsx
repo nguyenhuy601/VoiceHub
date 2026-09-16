@@ -41,9 +41,12 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import {
   countMasterGrants,
   grantKeysFromDraft,
+  grantStripOptionsForTemplate,
   grantsDraftFromList,
-  isProjectMasterPermission,
+  isProjectPackTemplateKey,
+  isToggleableMasterGrant,
   notifyRbacGrantsChanged,
+  ORG_ALLOWED_PROJECT_GRANTS,
 } from '../../utils/rbacV2Ui';
 
 function stripDiacritics(s) {
@@ -117,6 +120,16 @@ export default function OrganizationRbacSettings({ orgId }) {
   const totalSlots = (catalog?.masterPermissions || []).filter(
     (k) => !String(k || '').startsWith('project.')
   ).length;
+
+  const activePermGroup = useMemo(() => {
+    const hit = bindings.find((b) => String(b.group?._id || b.permissionGroupId) === String(groupId));
+    return hit?.group || null;
+  }, [bindings, groupId]);
+  const isProjectPack = isProjectPackTemplateKey(activePermGroup?.templateKey, catalog);
+  const stripOpts = useMemo(
+    () => grantStripOptionsForTemplate(activePermGroup?.templateKey, catalog),
+    [activePermGroup?.templateKey, catalog]
+  );
 
   const roleMemberCounts = useMemo(() => {
     const counts = new Map();
@@ -206,7 +219,9 @@ export default function OrganizationRbacSettings({ orgId }) {
         const first = list.find((b) => b.group)?.group || list[0]?.group;
         const gid = String(first?._id || first?.id || '');
         setGroupId(gid);
-        setGrantsDraft(grantsDraftFromList(first?.grants || []));
+        setGrantsDraft(
+          grantsDraftFromList(first?.grants || [], grantStripOptionsForTemplate(first?.templateKey, catalog))
+        );
         setHydratedGroupId(gid);
         setPermEditMode(false);
       } catch {
@@ -220,7 +235,7 @@ export default function OrganizationRbacSettings({ orgId }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, selectedRole]);
+  }, [orgId, selectedRole, catalog]);
 
   const catalogReady = tree.length > 0 && !catalogError;
   const canSavePerms =
@@ -233,7 +248,7 @@ export default function OrganizationRbacSettings({ orgId }) {
       await roleAPI.setPermissionGroupGrants(groupId, {
         organizationId: orgId,
         serverId: orgId,
-        grants: grantKeysFromDraft(grantsDraft),
+        grants: grantKeysFromDraft(grantsDraft, stripOpts),
       });
       toast.success(t('organizationSettings.rbacPermsSaved'));
       setPermEditMode(false);
@@ -567,7 +582,12 @@ export default function OrganizationRbacSettings({ orgId }) {
                               bindings.find(
                                 (b) => String(b.group?._id || b.permissionGroupId) === String(groupId)
                               )?.group || bindings[0]?.group;
-                            setGrantsDraft(grantsDraftFromList(hit?.grants || []));
+                            setGrantsDraft(
+                              grantsDraftFromList(
+                                hit?.grants || [],
+                                grantStripOptionsForTemplate(hit?.templateKey, catalog)
+                              )
+                            );
                           }}
                           className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300"
                         >
@@ -608,11 +628,12 @@ export default function OrganizationRbacSettings({ orgId }) {
                   ) : (
                     <MasterPermissionTreeEditor
                       tree={tree}
-                      excludeCategoryKeys={['project']}
+                      excludeCategoryKeys={isProjectPack ? [] : ['project']}
+                      includePermissionKeys={isProjectPack ? [] : [...ORG_ALLOWED_PROJECT_GRANTS]}
                       grantsDraft={grantsDraft}
                       editable={permEditMode}
                       onToggle={(key) => {
-                        if (!permEditMode || isProjectMasterPermission(key)) return;
+                        if (!permEditMode || !isToggleableMasterGrant(key, { isProjectPack })) return;
                         setGrantsDraft((prev) => {
                           const next = { ...prev };
                           if (next[key]) delete next[key];
@@ -625,7 +646,7 @@ export default function OrganizationRbacSettings({ orgId }) {
                         setGrantsDraft((prev) => {
                           const next = { ...prev };
                           for (const key of keys || []) {
-                            if (isProjectMasterPermission(key)) continue;
+                            if (!isToggleableMasterGrant(key, { isProjectPack })) continue;
                             if (value) next[key] = true;
                             else delete next[key];
                           }

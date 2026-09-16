@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { Forward, MoreHorizontal, Pencil, Reply, SmilePlus } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
+import HoverTooltip from '../Shared/HoverTooltip';
 import { shellNavRailBackdrop } from '../../theme/shellTheme';
 import {
   EST_EMOJI_PANEL_PX,
@@ -132,34 +133,37 @@ export default function ChannelMessageToolbar({
     <div ref={toolbarRef} className={bar} onClick={(e) => e.stopPropagation()}>
       <div className={`flex items-center gap-0.5 ${compact ? 'pr-1' : 'pr-1.5'} ${sep}`}>
         {recentSlots.map((em) => (
-          <button
-            key={em}
-            type="button"
-            title={em}
-            disabled={disabled}
-            onClick={() => {
-              pushRecent(em);
-              onQuickReact?.(em);
-            }}
-            className={`flex ${iconSz} items-center justify-center rounded-md ${emojiSz} transition disabled:opacity-40 ${
-              isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'
-            }`}
-          >
-            {em}
-          </button>
+          <HoverTooltip key={em} label={em} placement="top" disabled={disabled}>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={em}
+              onClick={() => {
+                pushRecent(em);
+                onQuickReact?.(em);
+              }}
+              className={`flex ${iconSz} items-center justify-center rounded-md ${emojiSz} transition disabled:opacity-40 ${
+                isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'
+              }`}
+            >
+              {em}
+            </button>
+          </HoverTooltip>
         ))}
       </div>
 
       <div className={`relative flex items-center gap-0.5 ${compact ? 'pl-0' : 'pl-0.5'}`}>
-        <button
-          type="button"
-          title={t('chat.addReaction')}
-          disabled={disabled}
-          onClick={() => setEmojiOpen((v) => !v)}
-          className={iconBtn}
-        >
-          <SmilePlus className={iconClass} strokeWidth={2} />
-        </button>
+        <HoverTooltip label={t('chat.addReaction')} placement="top" disabled={disabled}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setEmojiOpen((v) => !v)}
+            className={iconBtn}
+            aria-label={t('chat.addReaction')}
+          >
+            <SmilePlus className={iconClass} strokeWidth={2} aria-hidden />
+          </button>
+        </HoverTooltip>
         {emojiOpen && (
           <>
             <button
@@ -192,39 +196,49 @@ export default function ChannelMessageToolbar({
           </>
         )}
 
-        <button
-          type="button"
-          title={showEdit ? t('chat.editMessage') : t('chat.replyMessage')}
+        <HoverTooltip
+          label={showEdit ? t('chat.editMessage') : t('chat.replyMessage')}
+          placement="top"
           disabled={disabled}
-          onClick={() => onMiddleAction?.()}
-          className={iconBtn}
         >
-          {showEdit ? (
-            <Pencil className={iconClass} strokeWidth={2} />
-          ) : (
-            <Reply className={iconClass} strokeWidth={2} />
-          )}
-        </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onMiddleAction?.()}
+            className={iconBtn}
+            aria-label={showEdit ? t('chat.editMessage') : t('chat.replyMessage')}
+          >
+            {showEdit ? (
+              <Pencil className={iconClass} strokeWidth={2} aria-hidden />
+            ) : (
+              <Reply className={iconClass} strokeWidth={2} aria-hidden />
+            )}
+          </button>
+        </HoverTooltip>
 
-        <button
-          type="button"
-          title={t('chat.forwardMessage')}
-          disabled={disabled}
-          onClick={() => onForward?.()}
-          className={iconBtn}
-        >
-          <Forward className={iconClass} strokeWidth={2} />
-        </button>
+        <HoverTooltip label={t('chat.forwardMessage')} placement="top" disabled={disabled}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onForward?.()}
+            className={iconBtn}
+            aria-label={t('chat.forwardMessage')}
+          >
+            <Forward className={iconClass} strokeWidth={2} aria-hidden />
+          </button>
+        </HoverTooltip>
 
-        <button
-          type="button"
-          title={t('chat.moreItems')}
-          disabled={disabled}
-          onClick={(e) => onMore?.(e)}
-          className={iconBtn}
-        >
-          <MoreHorizontal className={iconClass} strokeWidth={2} />
-        </button>
+        <HoverTooltip label={t('chat.moreItems')} placement="top" disabled={disabled}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={(e) => onMore?.(e)}
+            className={iconBtn}
+            aria-label={t('chat.moreItems')}
+          >
+            <MoreHorizontal className={iconClass} strokeWidth={2} aria-hidden />
+          </button>
+        </HoverTooltip>
       </div>
     </div>
   );

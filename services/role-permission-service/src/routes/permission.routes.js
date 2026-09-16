@@ -90,4 +90,11 @@ router.post(
   rbacV2Controller.directReplace.bind(rbacV2Controller)
 );
 
+/** Project-service S2S — Wave B Strict AND migration for Create Project */
+router.post(
+  '/internal/ensure-project-create-grant',
+  internalGatewayAuth,
+  rbacV2Controller.ensureProjectCreateGrant.bind(rbacV2Controller)
+);
+
 module.exports = router;

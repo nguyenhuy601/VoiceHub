@@ -67,6 +67,9 @@ services:
       - ./services/user-service/.env
     environment:
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
+    volumes:
+      # Persist avatar uploads across service recreate (tránh DB có path nhưng file mất).
+      - user_service_uploads:/app/uploads
     networks:
       - enterprise-network
     deploy:
@@ -945,3 +948,6 @@ networks:
   enterprise-network:
     driver: overlay
     attachable: true
+
+volumes:
+  user_service_uploads:

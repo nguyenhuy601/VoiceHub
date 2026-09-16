@@ -69,13 +69,13 @@ async function ensureOrgProjectRoles(organizationId) {
   const byKey = new Map();
   if (syncOn) {
     for (const def of roleDefs) {
+      // projectId chỉ trong $setOnInsert + filter — Mongo conflict nếu cùng path ở $set + $setOnInsert
       let row = await ProjectRole.findOneAndUpdate(
         orgDefaultFilter(oid, { key: def.key }),
         {
           $set: {
             label: def.label,
             isSystem: true,
-            projectId: null,
           },
           $setOnInsert: {
             organizationId: oid,
@@ -192,34 +192,40 @@ async function cloneOrgRolesToProject(projectId, organizationId) {
   }
 
   const orgRoles = await ensureOrgProjectRoles(oid);
-  const cloned = [];
-  for (const def of orgRoles) {
-    if (def.enabled === false) continue;
-    const key = String(def.key || '').trim();
-    if (!key) continue;
+  const defs = (orgRoles || []).filter((def) => def && def.enabled !== false && String(def.key || '').trim());
+  const keys = defs.map((d) => String(d.key).trim());
+  const existing = keys.length
+    ? await ProjectRole.find({ projectId: pid, key: { $in: keys } }).lean()
+    : [];
+  const existingByKey = new Map(existing.map((r) => [String(r.key), r]));
 
-    let row = await ProjectRole.findOne({ projectId: pid, key }).lean();
-    if (!row) {
-      row = await ProjectRole.findOneAndUpdate(
-        { projectId: pid, key },
-        {
-          $setOnInsert: {
-            organizationId: oid,
-            projectId: pid,
-            key,
-            label: def.label,
-            canAssign: Boolean(def.canAssign),
-            permissions: Array.isArray(def.permissions) ? [...def.permissions] : [],
-            isSystem: Boolean(def.isSystem),
-            sortOrder: Number(def.sortOrder) || 100,
-          },
-        },
-        { upsert: true, new: true }
-      ).lean();
+  const toInsert = [];
+  for (const def of defs) {
+    const key = String(def.key || '').trim();
+    if (existingByKey.has(key)) continue;
+    toInsert.push({
+      organizationId: oid,
+      projectId: pid,
+      key,
+      label: def.label,
+      canAssign: Boolean(def.canAssign),
+      permissions: Array.isArray(def.permissions) ? [...def.permissions] : [],
+      isSystem: Boolean(def.isSystem),
+      sortOrder: Number(def.sortOrder) || 100,
+    });
+  }
+  if (toInsert.length) {
+    try {
+      await ProjectRole.insertMany(toInsert, { ordered: false });
+    } catch (err) {
+      // Parallel create / duplicate key — ignore; re-read below
+      if (err?.code !== 11000 && !String(err?.message || '').includes('E11000')) {
+        throw err;
+      }
     }
-    cloned.push(row);
   }
 
+  const cloned = await ProjectRole.find({ projectId: pid }).lean();
   await remapMembershipsToProjectRoles(pid, oid, cloned);
   invalidateProjectRolesListCache(pid);
   return cloned.sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0));
@@ -400,6 +406,12 @@ async function ensureProjectMembership({
     },
     { upsert: true, new: true }
   ).lean();
+  try {
+    const { invalidateResolveCacheForProject } = require('./projectAccess.service');
+    invalidateResolveCacheForProject(pid);
+  } catch {
+    /* best-effort */
+  }
   return row;
 }
 
@@ -541,15 +553,37 @@ async function setUserProjectRoles({
   leaveDate,
   billable,
   status,
+  /** Internal create/bootstrap: actor already passed canCreateTask / is creator */
+  skipActorPermissionCheck = false,
+  /** Caller already ran cloneOrgRolesToProject / ensureProjectRolesCloned */
+  skipEnsureRoles = false,
+  /** Create path already validated roles via intake / master-data suggest */
+  skipMasterDataCheck = false,
+  /** Caller records a coarser audit (e.g. project.created) */
+  skipAudit = false,
+  /** New project seed — skip before-roles read (always empty) */
+  assumeNewMember = false,
+  /** Create bootstrap: caller does not use returned role rows */
+  skipRoleRowsRead = false,
+  /** Avoid re-fetching project title for notify */
+  knownProjectTitle = null,
+  /** Skip board/project re-fetch when caller has context */
+  knownContext = null,
 }) {
   let pid = projectId ? String(projectId) : '';
-  let board = null;
   let orgId = null;
   let aclBoardId = boardId || null;
 
-  if (boardId) {
+  if (
+    knownContext?.projectId &&
+    knownContext?.organizationId &&
+    (knownContext.boardId || boardId || projectId)
+  ) {
+    pid = String(knownContext.projectId);
+    orgId = knownContext.organizationId;
+    aclBoardId = knownContext.boardId || boardId || null;
+  } else if (boardId) {
     const ctx = await resolveProjectContext(boardId);
-    board = ctx.board;
     pid = ctx.projectId;
     orgId = ctx.organizationId;
     aclBoardId = boardId;
@@ -566,7 +600,7 @@ async function setUserProjectRoles({
   }
 
   const actorId = String(addedBy || '').trim();
-  if (actorId) {
+  if (actorId && !skipActorPermissionCheck) {
     const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
     if (isProjectRbacV2Enabled()) {
       const { resolveUserProjectPermissions } = require('./projectAccess.service');
@@ -587,9 +621,11 @@ async function setUserProjectRoles({
     }
   }
 
-  await ensureProjectRolesCloned(pid, orgId);
+  if (!skipEnsureRoles) {
+    await ensureProjectRolesCloned(pid, orgId);
+  }
   const keys = [...new Set((projectRoleKeys || []).map((k) => String(k).trim()).filter(Boolean))];
-  if (isMasterDataV1Enabled()) {
+  if (!skipMasterDataCheck && isMasterDataV1Enabled()) {
     const enabled = await fetchEnabledProjectRoleKeys(orgId);
     const enabledSet = new Set((enabled || []).map(String));
     for (const k of keys) {
@@ -602,19 +638,27 @@ async function setUserProjectRoles({
       }
     }
   }
-  const beforeRoles = pid
-    ? await listUserProjectRolesOnProject(pid, userId)
-    : [];
-  const beforeKeys = (beforeRoles || [])
-    .map((r) => String(r.key || r.roleKey || '').trim())
-    .filter(Boolean)
-    .sort();
+  const beforeKeys = assumeNewMember
+    ? []
+    : ((await listUserProjectRolesOnProject(pid, userId)) || [])
+        .map((r) => String(r.key || r.roleKey || '').trim())
+        .filter(Boolean)
+        .sort();
 
-  const resolvedKeys = keys.map((k) => resolveCanonicalProjectRoleKey(k) || k);
-  const roles = [];
-  for (const k of resolvedKeys) {
-    const role = await ensureProjectRoleKey(pid, orgId, k);
-    if (role) roles.push(role);
+  const resolvedKeys = [...new Set(keys.map((k) => resolveCanonicalProjectRoleKey(k) || k).filter(Boolean))];
+  let roles = resolvedKeys.length
+    ? await ProjectRole.find({ projectId: pid, key: { $in: resolvedKeys } }).lean()
+    : [];
+  if (roles.length < resolvedKeys.length) {
+    const found = new Set(roles.map((r) => String(r.key)));
+    for (const k of resolvedKeys) {
+      if (found.has(k)) continue;
+      const role = await ensureProjectRoleKey(pid, orgId, k);
+      if (role) {
+        roles.push(role);
+        found.add(String(role.key));
+      }
+    }
   }
   assertResolvedProjectRoleKeys(keys, roles);
   const roleIds = new Set(roles.map((r) => String(r._id)));
@@ -625,21 +669,25 @@ async function setUserProjectRoles({
     projectRoleId: { $nin: [...roleIds] },
   });
 
-  for (const role of roles) {
-    await ProjectMembership.updateOne(
-      { projectId: pid, userId, projectRoleId: role._id },
-      {
-        $setOnInsert: {
-          organizationId: orgId,
-          projectId: pid,
-          userId,
-          projectRoleId: role._id,
-          addedBy: addedBy || userId,
-          ...(!aclBoardId ? { boardId: null } : {}),
-        },
-        ...(aclBoardId ? { $set: { boardId: aclBoardId } } : {}),
-      },
-      { upsert: true }
+  if (roles.length) {
+    await Promise.all(
+      roles.map((role) =>
+        ProjectMembership.updateOne(
+          { projectId: pid, userId, projectRoleId: role._id },
+          {
+            $setOnInsert: {
+              organizationId: orgId,
+              projectId: pid,
+              userId,
+              projectRoleId: role._id,
+              addedBy: addedBy || userId,
+              ...(!aclBoardId ? { boardId: null } : {}),
+            },
+            ...(aclBoardId ? { $set: { boardId: aclBoardId } } : {}),
+          },
+          { upsert: true }
+        )
+      )
     );
   }
 
@@ -674,34 +722,43 @@ async function setUserProjectRoles({
     });
   }
 
-  const roleRows = boardId
-    ? await listUserProjectRolesOnBoard(boardId, userId)
-    : await listUserProjectRolesOnProject(pid, userId);
+  const roleRows = skipRoleRowsRead
+    ? []
+    : boardId
+      ? await listUserProjectRolesOnBoard(boardId, userId)
+      : await listUserProjectRolesOnProject(pid, userId);
 
-  try {
-    const auditService = require('./audit.service');
-    const afterKeys = (roleRows || [])
-      .map((r) => String(r.key || r.roleKey || '').trim())
-      .filter(Boolean)
-      .sort();
-    await auditService.recordAudit({
-      organizationId: orgId,
-      actorUserId: addedBy || userId,
-      action: 'project.members.roles_updated',
-      resourceType: 'project_member',
-      resourceId: `${pid}:${userId}`,
-      before: { projectRoleKeys: beforeKeys },
-      after: { projectRoleKeys: afterKeys },
-      meta: { projectId: String(pid), memberUserId: String(userId) },
-    });
-  } catch {
-    /* best-effort */
+  if (!skipAudit) {
+    try {
+      const auditService = require('./audit.service');
+      const afterKeys = skipRoleRowsRead
+        ? [...keys].map((k) => String(k).trim()).filter(Boolean).sort()
+        : (roleRows || [])
+            .map((r) => String(r.key || r.roleKey || '').trim())
+            .filter(Boolean)
+            .sort();
+      await auditService.recordAudit({
+        organizationId: orgId,
+        actorUserId: addedBy || userId,
+        action: 'project.members.roles_updated',
+        resourceType: 'project_member',
+        resourceId: `${pid}:${userId}`,
+        before: { projectRoleKeys: beforeKeys },
+        after: { projectRoleKeys: afterKeys },
+        meta: { projectId: String(pid), memberUserId: String(userId) },
+      });
+    } catch {
+      /* best-effort */
+    }
   }
 
   if (!beforeKeys.length && String(userId) !== String(addedBy || userId)) {
     const { notifySystemKind, projectHubActionUrl } = require('../clients/notification.client');
-    const titleDoc = await Project.findById(pid).select('title').lean();
-    const pname = String(titleDoc?.title || 'dự án').trim() || 'dự án';
+    let pname = String(knownProjectTitle || '').trim();
+    if (!pname) {
+      const titleDoc = await Project.findById(pid).select('title').lean();
+      pname = String(titleDoc?.title || 'dự án').trim() || 'dự án';
+    }
     void notifySystemKind({
       userIds: [userId],
       kind: 'project_member_added',
@@ -718,6 +775,13 @@ async function setUserProjectRoles({
         organizationId: orgId,
       }),
     });
+  }
+
+  try {
+    const { invalidateResolveCacheForProject } = require('./projectAccess.service');
+    invalidateResolveCacheForProject(pid);
+  } catch {
+    /* best-effort */
   }
 
   return {

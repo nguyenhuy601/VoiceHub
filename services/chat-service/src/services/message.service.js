@@ -139,19 +139,27 @@ class MessageService {
 
       const redis = getRedisClient();
       if (redis) {
-        const cacheKey = `message:${message._id}`;
-        await redis.setex(cacheKey, 3600, JSON.stringify(toClientMessage(message)));
-        if (message.receiverId && message.senderId) {
-          const a = String(message.senderId);
-          const b = String(message.receiverId);
-          const pair = [a, b].sort().join(':');
-          await redis.del(`dm:last:${pair}`);
+        try {
+          const cacheKey = `message:${message._id}`;
+          await redis.setex(cacheKey, 3600, JSON.stringify(toClientMessage(message)));
+          if (message.receiverId && message.senderId) {
+            const a = String(message.senderId);
+            const b = String(message.receiverId);
+            const pair = [a, b].sort().join(':');
+            await redis.del(`dm:last:${pair}`);
+          }
+        } catch (cacheErr) {
+          // Không fail tạo tin vì cache — tránh 500 sau khi đã ghi Mongo.
+          console.warn(
+            `[ChatService] message cache skip after create: ${cacheErr?.message || cacheErr}`
+          );
         }
       }
 
       return toClientMessage(message);
     } catch (error) {
       const err = normalizeMongoError(error);
+      console.error('[ChatService] createMessage failed:', err?.message || err);
       throw new Error(`Error creating message: ${err.message}`);
     }
   }

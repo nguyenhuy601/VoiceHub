@@ -15,9 +15,27 @@ const PORT = process.env.PORT || 3009;
 
 // Kết nối MongoDB
 connectDB()
-  .then(() => {
+  .then(async () => {
     // Kết nối Redis
     connectRedis();
+
+    try {
+      const Task = require('./models/Task');
+      await Task.syncIndexes();
+      logger.info('[Task] syncIndexes done');
+    } catch (err) {
+      logger.warn('[Task] syncIndexes failed: %s', err?.message || err);
+    }
+
+    try {
+      const AnalysisArtifact = require('./models/AnalysisArtifact');
+      const AnalysisImportSet = require('./models/AnalysisImportSet');
+      await AnalysisArtifact.syncIndexes();
+      await AnalysisImportSet.syncIndexes();
+      logger.info('[AnalysisImportSet] syncIndexes done');
+    } catch (err) {
+      logger.warn('[AnalysisImportSet] syncIndexes failed: %s', err?.message || err);
+    }
 
     runTaskFromFileWorkerLoop();
     startSprintAutoCompleteRemindersJob();

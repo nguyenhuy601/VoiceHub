@@ -59,9 +59,97 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'change_request:create',
   'change_request:update',
   'change_request:delete',
+  'analysis:view',
+  'analysis:document_upload',
+  'analysis:artifact_import',
+  'analysis:artifact_edit',
+  'analysis:submit_ba_review',
+  'analysis:ba_review',
+  'analysis:tech_review',
+  'analysis:po_review',
+  'analysis:manage_trace',
+  'analysis:cut_srs',
+  'delivery_phase:change',
+  'planning:view',
+  'planning:artifact_edit',
+  'planning:submit_review',
+  'planning:ba_review',
+  'planning:tech_review',
+  'planning:pm_review',
+  'planning:po_review',
+  'planning:cut_baseline',
+  'planning:publish_wbs',
 ]);
 
 const PERM_SET = new Set(PROJECT_PERMISSION_KEYS);
+
+const ANALYSIS_VIEW = Object.freeze(['analysis:view']);
+
+const ANALYSIS_BA_PERMS = Object.freeze([
+  ...ANALYSIS_VIEW,
+  'analysis:document_upload',
+  'analysis:artifact_import',
+  'analysis:artifact_edit',
+  'analysis:submit_ba_review',
+  'analysis:ba_review',
+  'analysis:manage_trace',
+]);
+
+const ANALYSIS_PO_PERMS = Object.freeze([
+  ...ANALYSIS_VIEW,
+  'analysis:document_upload',
+  'analysis:artifact_import',
+  'analysis:artifact_edit',
+  'analysis:po_review',
+  'analysis:manage_trace',
+  'analysis:cut_srs',
+]);
+
+const ANALYSIS_PM_PERMS = Object.freeze([
+  ...ANALYSIS_VIEW,
+  'analysis:document_upload',
+  'analysis:po_review',
+  'analysis:manage_trace',
+  'analysis:cut_srs',
+  'delivery_phase:change',
+]);
+
+const ANALYSIS_TECH_PERMS = Object.freeze([
+  ...ANALYSIS_VIEW,
+  'analysis:tech_review',
+  'analysis:manage_trace',
+]);
+
+const PLANNING_VIEW = Object.freeze(['planning:view']);
+
+const PLANNING_BA_PERMS = Object.freeze([
+  ...PLANNING_VIEW,
+  'planning:artifact_edit',
+  'planning:submit_review',
+  'planning:ba_review',
+]);
+
+const PLANNING_TECH_PERMS = Object.freeze([
+  ...PLANNING_VIEW,
+  'planning:artifact_edit',
+  'planning:tech_review',
+]);
+
+const PLANNING_PM_PERMS = Object.freeze([
+  ...PLANNING_VIEW,
+  'planning:artifact_edit',
+  'planning:submit_review',
+  'planning:pm_review',
+  'planning:cut_baseline',
+  'planning:publish_wbs',
+]);
+
+const PLANNING_PO_PERMS = Object.freeze([
+  ...PLANNING_VIEW,
+  'planning:artifact_edit',
+  'planning:po_review',
+  'planning:cut_baseline',
+]);
 
 const VIEW_ONLY = Object.freeze([
   'project:view',
@@ -77,6 +165,8 @@ const VIEW_ONLY = Object.freeze([
   'delivery:view',
   'report:view',
   'change_request:view',
+  ...ANALYSIS_VIEW,
+  ...PLANNING_VIEW,
 ]);
 
 const DEV_PERMS = Object.freeze([
@@ -102,6 +192,8 @@ const LEAD_PERMS = Object.freeze([
   'approval:decide',
   'change_request:update',
   'change_request:delete',
+  ...ANALYSIS_TECH_PERMS,
+  ...PLANNING_TECH_PERMS,
 ]);
 
 const PO_PERMS = Object.freeze([
@@ -116,6 +208,8 @@ const PO_PERMS = Object.freeze([
   'approval:request',
   'change_request:create',
   'change_request:update',
+  ...ANALYSIS_PO_PERMS,
+  ...PLANNING_PO_PERMS,
 ]);
 
 const BA_PERMS = Object.freeze([
@@ -130,6 +224,8 @@ const BA_PERMS = Object.freeze([
   'approval:request',
   'change_request:create',
   'change_request:update',
+  ...ANALYSIS_BA_PERMS,
+  ...PLANNING_BA_PERMS,
 ]);
 
 const SM_PERMS = Object.freeze([
@@ -150,6 +246,8 @@ const PM_PERMS = Object.freeze([
   'change_request:create',
   'change_request:update',
   'change_request:delete',
+  ...ANALYSIS_PM_PERMS,
+  ...PLANNING_PM_PERMS,
 ]);
 
 const QA_PERMS = Object.freeze([
@@ -179,6 +277,8 @@ const ARCHITECT_PERMS = Object.freeze([
   'repository:merge',
   'wiki:edit',
   'files:upload',
+  ...ANALYSIS_TECH_PERMS,
+  ...PLANNING_TECH_PERMS,
 ]);
 
 /** Default matrix by role key */
@@ -293,17 +393,14 @@ function defaultPermissionsForRoleKey(roleKey) {
 
 /**
  * Union permissions from multiple role docs.
+ * Baseline = matrix theo role key; permissions trên doc chỉ bổ sung (không che matrix).
  * @param {Array<{ key?: string, permissions?: string[] }>} roles
  */
 function unionPermissionsFromRoles(roles = []) {
   const set = new Set();
   for (const role of Array.isArray(roles) ? roles : []) {
-    const fromDoc = normalizePermissionList(role?.permissions);
-    if (fromDoc.length) {
-      for (const p of fromDoc) set.add(p);
-      continue;
-    }
     for (const p of defaultPermissionsForRoleKey(role?.key)) set.add(p);
+    for (const p of normalizePermissionList(role?.permissions)) set.add(p);
   }
   return [...set];
 }

@@ -50,10 +50,14 @@ async function invalidateSignedReadCacheForStoragePath(storagePath) {
  */
 async function attachSignedReadUrlsToMessages(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return messages;
+  const uploadMode = String(process.env.CHAT_UPLOAD_STORAGE || 'auto').trim().toLowerCase();
+  // Dev MinIO-only: client đọc qua GET /messages/storage/object — không ký Firebase.
+  if (uploadMode === 'minio') return messages;
   if (!firebaseStorage.isEnabled()) return messages;
 
   const redis = getRedisClient();
   const started = Date.now();
+  const minioBucket = String(process.env.MINIO_BUCKET || '').trim();
 
   const out = await Promise.all(
     messages.map(async (msg) => {
@@ -63,6 +67,10 @@ async function attachSignedReadUrlsToMessages(messages) {
         return msg;
       }
       const sp = msg.fileMeta.storagePath;
+      const bucket = String(msg.fileMeta.storageBucket || '').trim();
+      if (minioBucket && bucket && bucket === minioBucket) {
+        return msg;
+      }
       const ctx = msg.fileMeta.retentionContext || 'dm';
       const ttlMs = ttlMsForRetentionContext(ctx);
 

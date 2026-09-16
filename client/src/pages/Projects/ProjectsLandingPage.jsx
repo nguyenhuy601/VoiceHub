@@ -1,16 +1,22 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../locales/appStrings';
 import ProjectsLandingGrid from '../../features/projects/landing/ProjectsLandingGrid';
 import { isProjectActiveForUi } from '../../features/projects/landing/projectLandingActive';
 import {
+  boardQueryFromSearch,
   buildCollaborateProjectHubPath,
   buildCollaborateProjectsNewAiPath,
   buildCollaborateProjectsNewPath,
   orgQueryFromSearch,
   readStoredLastOrganizationId,
 } from '../../utils/suitePathUtils';
+import {
+  buildBoardIdToProjectIndex,
+  projectRefFromBoardDetailPayload,
+} from '../../utils/mapBoardHealthToProject';
+import { taskAPI, unwrapTaskBoardDetailPayload } from '../../services/api/taskAPI';
 import useRequirementAccess from '../../hooks/useRequirementAccess';
 import useOrganizationDetail from '../../hooks/useOrganizationDetail';
 import useOrgProjectsList from '../../hooks/useOrgProjectsList';
@@ -38,6 +44,8 @@ export default function ProjectsLandingPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const orgId = orgQueryFromSearch(searchParams) || readStoredLastOrganizationId();
+  const boardIdFromQuery = boardQueryFromSearch(searchParams);
+  const boardRedirectTriedRef = useRef('');
 
   const { organization } = useOrganizationDetail(orgId);
   const {
@@ -68,6 +76,67 @@ export default function ProjectsLandingPage() {
     () => rawProjects.filter(isMyProject).filter(isProjectActiveForUi),
     [rawProjects]
   );
+
+  // Deep-link từ Overview board health: ?boardId= → Hub (tab overview).
+  useEffect(() => {
+    const boardId = String(boardIdFromQuery || '').trim();
+    if (!orgId || !boardId || listLoading || projectsError) return;
+    const attemptKey = `${orgId}:${boardId}`;
+    if (boardRedirectTriedRef.current === attemptKey) return;
+
+    const index = buildBoardIdToProjectIndex(rawProjects);
+    const hit = index.get(boardId);
+    if (hit?.projectId) {
+      boardRedirectTriedRef.current = attemptKey;
+      navigate(
+        buildCollaborateProjectHubPath(hit.projectId, {
+          organizationId: orgId,
+          boardId,
+          tab: 'overview',
+        }),
+        { replace: true }
+      );
+      return undefined;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await taskAPI.getBoardDetail(boardId, {
+          includeCards: false,
+          organizationId: orgId,
+        });
+        if (cancelled) return;
+        const ref = projectRefFromBoardDetailPayload(unwrapTaskBoardDetailPayload(res));
+        if (!ref?.projectId) {
+          boardRedirectTriedRef.current = attemptKey;
+          return;
+        }
+        boardRedirectTriedRef.current = attemptKey;
+        navigate(
+          buildCollaborateProjectHubPath(ref.projectId, {
+            organizationId: orgId || ref.organizationId,
+            boardId,
+            tab: 'overview',
+          }),
+          { replace: true }
+        );
+      } catch {
+        if (!cancelled) boardRedirectTriedRef.current = attemptKey;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    orgId,
+    boardIdFromQuery,
+    listLoading,
+    projectsError,
+    rawProjects,
+    navigate,
+  ]);
 
   const handleCreate = useCallback(() => {
     if (!orgId) {

@@ -187,6 +187,32 @@ const projectSchema = new mongoose.Schema(
       default: 'planning',
       index: true,
     },
+    /**
+     * Delivery gate (orthogonal to status). Missing on legacy docs → coerce to development at read.
+     * New creates default requirement_analysis via createProject / init fields.
+     */
+    deliveryPhase: {
+      type: String,
+      enum: [
+        'requirement_analysis',
+        'delivery_planning',
+        'development',
+        'qa_uat',
+        'release_handover',
+      ],
+      default: 'requirement_analysis',
+      index: true,
+    },
+    /** Template-driven required analysis kinds for Phase 1 gate (empty = default PHASE1_REQUIRED_KINDS) */
+    phase1RequiredKinds: {
+      type: [{ type: String, trim: true, uppercase: true, maxlength: 16 }],
+      default: [],
+    },
+    /** Stamp when PM/PO starts Delivery Planning after RA approved */
+    phase1RaApprovedAt: {
+      type: Date,
+      default: null,
+    },
     projectType: {
       type: String,
       enum: ['software', 'integration', 'maintenance', 'research', 'other'],
@@ -340,8 +366,9 @@ projectSchema.index(
   { unique: true, partialFilterExpression: { projectCode: { $gt: '' } } }
 );
 
-/** Dual-read: docs cũ status=cancelled/completed/… → closed trước khi validate enum. */
-projectSchema.pre('validate', function coerceLegacyStatus(next) {
+/** Dual-read: docs cũ status=cancelled/completed/… → closed trước khi validate enum.
+ * Mongoose 9: middleware sync/async — không còn callback `next` (gọi next() → TypeError). */
+projectSchema.pre('validate', function coerceLegacyStatus() {
   try {
     const { coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
     const coerced = coerceProjectLifecycleStatus(this.status);
@@ -349,7 +376,6 @@ projectSchema.pre('validate', function coerceLegacyStatus(next) {
   } catch {
     /* keep raw — enum sẽ reject nếu vẫn invalid */
   }
-  next();
 });
 
 module.exports = mongoose.model('Project', projectSchema);

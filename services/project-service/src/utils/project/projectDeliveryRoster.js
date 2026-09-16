@@ -60,13 +60,42 @@ function assertDeliveryRoster(roleKeys = []) {
   throw err;
 }
 
+const INTAKE_LEAD_ROLE_KEYS = Object.freeze([
+  'product_owner',
+  'project_manager',
+  'business_analyst',
+]);
+
+const INTAKE_LEAD_LABELS = Object.freeze({
+  product_owner: 'Product Owner',
+  project_manager: 'Project Manager',
+  business_analyst: 'Business Analyst',
+});
+
+/**
+ * Public create (wizard): bắt buộc đúng 3 vai trò intake — 1 user/slot, kiêm nhiệm OK.
+ */
+function assertIntakeLeadRoster(roleKeys = []) {
+  const keys = new Set(normalizeRoleKeys(roleKeys));
+  const missing = INTAKE_LEAD_ROLE_KEYS.filter((k) => !keys.has(k)).map(
+    (k) => INTAKE_LEAD_LABELS[k] || k
+  );
+  if (!missing.length) {
+    return { ok: true, keys: [...keys] };
+  }
+  const err = new Error(`Team dự án thiếu: ${missing.join(', ')}`);
+  err.statusCode = 400;
+  err.errorCode = 'PROJECT_ROSTER_INCOMPLETE';
+  throw err;
+}
+
 function collectCreateProjectRoleKeys({
   productOwnerId,
   scrumMasterId,
   techLeadId,
   members,
 } = {}) {
-  const keys = ['product_owner'];
+  const keys = [];
   if (productOwnerId) keys.push('product_owner');
   if (scrumMasterId) keys.push('scrum_master');
   if (techLeadId) keys.push('technical_lead');
@@ -81,8 +110,10 @@ module.exports = {
   PRODUCT_BAND,
   FACILITATE_BAND,
   BUILD_BAND,
+  INTAKE_LEAD_ROLE_KEYS,
   normalizeRoleKeys,
   deliveryRosterStatus,
   assertDeliveryRoster,
+  assertIntakeLeadRoster,
   collectCreateProjectRoleKeys,
 };

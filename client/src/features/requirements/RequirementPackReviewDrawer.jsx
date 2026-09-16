@@ -7,7 +7,7 @@ import GradientButton from '../../components/Shared/GradientButton';
 import BrandPageLoader from '../../components/Shared/BrandPageLoader';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { buildCollaborateProjectHubPath } from '../../utils/suitePathUtils';
+import { buildProjectsNewAiPath } from '../../utils/suitePathUtils';
 import { requirementAPI } from '../../services/api/requirementAPI';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
 import AiAnalysisBlueprintWizard from './AiAnalysisBlueprintWizard';
@@ -171,30 +171,24 @@ export default function RequirementPackReviewDrawer({
     }
   };
 
-  const createProject = async (options = {}) => {
+  const createProject = async () => {
     if (!orgId || !packId || busy) return;
-    setBusy(true);
-    try {
-      const body = {
-        importWorkItems: Boolean(options.importWorkItems),
-        applyAssignees: options.applyAssignees !== false,
-      };
-      const res = await requirementAPI.createProjectFromPack(orgId, packId, body);
-      const data = unwrap(res);
-      toast.success(t('requirements.createProjectSuccess'));
-      onChanged?.();
-      onClose?.();
-      const projectId = String(data?.project?._id || data?.project?.projectId || '').trim();
-      if (projectId) {
-        navigate(buildCollaborateProjectHubPath(projectId, { organizationId: orgId }));
-      }
-    } catch (error) {
-      toast.error(
-        resolveApiErrorMessage(error, { t, fallback: t('requirements.createProjectFail') })
+    const linkedProjectId = String(pack?.projectId || '').trim();
+    if (!linkedProjectId) {
+      toast(
+        t('workspace.phase2AiNeedsLinkedProject') ||
+          'Pack = SRS. Gắn pack với dự án Phase 1 đã sẵn sàng gate, rồi dùng AI Phase 2 trên Overview.'
       );
-    } finally {
-      setBusy(false);
+      return;
     }
+    onClose?.();
+    navigate(
+      buildProjectsNewAiPath(orgId, {
+        projectId: linkedProjectId,
+        packId,
+        from: 'requirements',
+      })
+    );
   };
 
   return (
@@ -241,12 +235,7 @@ export default function RequirementPackReviewDrawer({
                   <AiAnalysisBlueprintWizard
                     organizationId={orgId}
                     packId={packId}
-                    onCreateProject={
-                      showCreateProject
-                        ? (opts) =>
-                            createProject(opts || { importWorkItems: true, applyAssignees: true })
-                        : null
-                    }
+                    onCreateProject={showCreateProject ? () => createProject() : null}
                   />
                 </div>
               ) : null}
@@ -307,11 +296,11 @@ export default function RequirementPackReviewDrawer({
               <GradientButton
                 variant="success"
                 disabled={busy}
-                onClick={() => createProject({ importWorkItems: true, applyAssignees: true })}
+                onClick={() => createProject()}
                 className="px-4 py-2 text-sm"
               >
                 <FolderPlus className="h-4 w-4" />
-                {t('requirements.createProject')}
+                {t('workspace.phase2OptionAi') || t('requirements.createProject')}
               </GradientButton>
             ) : null}
             {showDelete && typeof onDeletePack === 'function' ? (

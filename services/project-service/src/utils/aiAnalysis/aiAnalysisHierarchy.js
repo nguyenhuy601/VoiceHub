@@ -9,6 +9,7 @@ const {
   analysisChunkTimeoutMs,
 } = require('./ollamaClient');
 const { resolveJobWallMs } = require('./aiAnalysisJobBudgets');
+const { buildWallBudgetSkipMeta } = require('./aiAnalysisWallBudgetMeta');
 const { normProse } = require('../requirement/requirementTemplateTextNorm');
 const { buildModuleSlices, buildFeatureSlices } = require('./aiAnalysisFrSlice');
 const { emptyHierarchySection, ensureAiAnalysisContainer } = require('./aiAnalysisContainer');
@@ -171,6 +172,52 @@ function buildHeuristicRequirementProposals(featureSlices = []) {
   return out;
 }
 
+/**
+ * Treat newly proposed Features as childless Feature parents (id = proposalId)
+ * so the same Job 1 run can cascade Requirement proposals.
+ */
+function buildSyntheticFeatureSlicesFromProposals(featureProposals = []) {
+  const out = [];
+  for (const proposal of featureProposals || []) {
+    if (!proposal || typeof proposal !== 'object') continue;
+    const status = String(proposal.status || 'accepted').trim().toLowerCase();
+    if (status === 'rejected') continue;
+    const id = String(proposal.proposalId || '').trim();
+    if (!id) continue;
+    out.push({
+      id,
+      title: proposal.name || id,
+      description: proposal.description || '',
+      moduleTitle: proposal.moduleLabel || '',
+      childRequirementIds: [],
+      mainFlow: '',
+    });
+  }
+  return out;
+}
+
+/** Pack Feature slices ∪ synthetic slices from Feature proposals. */
+function buildRequirementParentSlices(featureSlices = [], featureProposals = []) {
+  return [...(featureSlices || []), ...buildSyntheticFeatureSlicesFromProposals(featureProposals)];
+}
+
+/**
+ * Ensure every Feature proposal / childless pack Feature has Requirement proposals.
+ */
+function cascadeRequirementsForFeatureProposals(
+  featureSlices = [],
+  featureProposals = [],
+  existingRequirementProposals = []
+) {
+  const parentSlices = buildRequirementParentSlices(featureSlices, featureProposals);
+  const heuristic = buildHeuristicRequirementProposals(parentSlices);
+  return mergeProposalLists(
+    existingRequirementProposals,
+    heuristic,
+    (p) => normalizeRequirementProposal(p)
+  );
+}
+
 function mergeProposalLists(primary = [], secondary = [], normalizeFn) {
   const seen = new Set();
   const out = [];
@@ -282,13 +329,18 @@ function parseHierarchyLlmPayload(data) {
 async function tryLlmHierarchyProposals({
   moduleSlices,
   featureSlices,
+  featureProposalsForCascade = [],
   wallMs,
   chunkTimeoutMs,
   chunkSize,
   generateJsonFn,
 }) {
   const needsFeatures = (moduleSlices || []).filter((m) => !(m.childFeatureIds || []).length);
-  const needsRequirements = (featureSlices || []).filter(
+  const requirementParents = buildRequirementParentSlices(
+    featureSlices,
+    featureProposalsForCascade
+  );
+  const needsRequirements = (requirementParents || []).filter(
     (f) => !(f.childRequirementIds || []).length
   );
   if (!needsFeatures.length && !needsRequirements.length) {
@@ -309,12 +361,22 @@ async function tryLlmHierarchyProposals({
   let llmCalls = 0;
   let partial = false;
   let lastError = null;
+  let wallBudgetSkipMeta = null;
+
+  const countHierarchyParents = (chunk) =>
+    (chunk?.modules?.length || 0) + (chunk?.features?.length || 0);
 
   for (let i = 0; i < chunks.length; i += 1) {
     const elapsed = Date.now() - started;
     if (!canStartChunk(elapsed, wallMs, chunkTimeoutMs)) {
       partial = true;
       lastError = 'wall_budget';
+      wallBudgetSkipMeta = buildWallBudgetSkipMeta({
+        chunks,
+        fromIndex: i,
+        countInputs: countHierarchyParents,
+        kind: 'parent',
+      });
       break;
     }
 
@@ -352,6 +414,7 @@ async function tryLlmHierarchyProposals({
     llmCalls,
     partial,
     error: lastError,
+    ...(wallBudgetSkipMeta || {}),
   };
 }
 
@@ -387,7 +450,11 @@ async function runHierarchyDecomposition(pack, opts = {}) {
   }
 
   const heuristicFeatures = buildHeuristicFeatureProposals(moduleSlices);
-  const heuristicRequirements = buildHeuristicRequirementProposals(featureSlices);
+  const heuristicRequirements = cascadeRequirementsForFeatureProposals(
+    featureSlices,
+    heuristicFeatures,
+    []
+  );
 
   let proposedFeatures = heuristicFeatures;
   let proposedRequirements = heuristicRequirements;
@@ -396,6 +463,7 @@ async function runHierarchyDecomposition(pack, opts = {}) {
   let model = null;
   let partial = false;
   let error = null;
+  let wallBudgetSkipMeta = null;
 
   const llmEnabled = isAiPlanningLlmEnabled() && opts.forceHeuristic !== true;
   if (llmEnabled) {
@@ -403,6 +471,7 @@ async function runHierarchyDecomposition(pack, opts = {}) {
       const llm = await tryLlmHierarchyProposals({
         moduleSlices,
         featureSlices,
+        featureProposalsForCascade: heuristicFeatures,
         wallMs,
         chunkTimeoutMs: chunkTimeout,
         chunkSize,
@@ -411,15 +480,28 @@ async function runHierarchyDecomposition(pack, opts = {}) {
       llmCalls = llm.llmCalls;
       partial = Boolean(llm.partial);
       error = llm.error || null;
+      if (
+        Number.isFinite(llm.wallBudgetSkippedInputCount) &&
+        llm.wallBudgetSkippedInputCount > 0
+      ) {
+        wallBudgetSkipMeta = {
+          wallBudgetSkippedInputCount: llm.wallBudgetSkippedInputCount,
+          wallBudgetSkippedInputKind: llm.wallBudgetSkippedInputKind || 'parent',
+        };
+      }
       proposedFeatures = mergeProposalLists(
         llm.proposedFeatures,
         heuristicFeatures,
         (p) => normalizeFeatureProposal(p)
       );
-      proposedRequirements = mergeProposalLists(
-        llm.proposedRequirements,
-        heuristicRequirements,
-        (p) => normalizeRequirementProposal(p)
+      proposedRequirements = cascadeRequirementsForFeatureProposals(
+        featureSlices,
+        proposedFeatures,
+        mergeProposalLists(
+          llm.proposedRequirements,
+          heuristicRequirements,
+          (p) => normalizeRequirementProposal(p)
+        )
       );
       if (llmCalls > 0 && (llm.proposedFeatures.length || llm.proposedRequirements.length)) {
         source = partial ? 'llm_partial' : 'llm+heuristic';
@@ -435,7 +517,11 @@ async function runHierarchyDecomposition(pack, opts = {}) {
       error = err?.message || String(err);
       source = 'heuristic';
       proposedFeatures = heuristicFeatures;
-      proposedRequirements = heuristicRequirements;
+      proposedRequirements = cascadeRequirementsForFeatureProposals(
+        featureSlices,
+        heuristicFeatures,
+        []
+      );
     }
   }
 
@@ -453,6 +539,7 @@ async function runHierarchyDecomposition(pack, opts = {}) {
       moduleCount: moduleSlices.length,
       featureCount: featureSlices.length,
       elapsedMs: Date.now() - started,
+      ...(wallBudgetSkipMeta || {}),
     },
   };
 }
@@ -491,6 +578,9 @@ module.exports = {
   isHierarchyDecompositionEnabled,
   buildHeuristicFeatureProposals,
   buildHeuristicRequirementProposals,
+  buildSyntheticFeatureSlicesFromProposals,
+  buildRequirementParentSlices,
+  cascadeRequirementsForFeatureProposals,
   deriveProposalNames,
   toSlimModuleParent,
   toSlimFeatureParent,

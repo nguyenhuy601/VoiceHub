@@ -17,10 +17,13 @@ function withOrg(organizationId, config = {}) {
 }
 
 export const requirementAPI = {
-  downloadTemplate: async (organizationId) => {
+  downloadTemplate: async (organizationId, options = {}) => {
+    const variant = String(options.variant || '').trim();
     // apiClient interceptor already returns response.data (Blob when responseType: 'blob')
     return apiClient.get('/projects/requirements/import/template', {
-      ...withOrg(organizationId),
+      ...withOrg(organizationId, {
+        params: variant ? { variant } : {},
+      }),
       responseType: 'blob',
       skipGlobalErrorHandling: true,
     });

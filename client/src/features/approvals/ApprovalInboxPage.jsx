@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { projectAPI } from '../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { buildProjectsPickerPath } from '../../utils/suitePathUtils';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -174,7 +175,7 @@ export default function ApprovalInboxPage() {
             </div>
             <p className="text-sm text-muted-foreground">{t('approvals.aiDraftsHint')}</p>
             <Link
-              to="/app/collaborate/projects"
+              to={buildProjectsPickerPath(orgId)}
               className="mt-3 inline-block text-sm text-primary hover:underline"
             >
               {t('approvals.openProjects')}

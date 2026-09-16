@@ -128,6 +128,12 @@ export function canRunJob(summaryJobs, jobId) {
   return String(summaryJobs?.[prev]?.status || '') === 'confirmed';
 }
 
+/** Align BE confirm gate: only ready | confirmed (not stale). */
+export function canConfirmJob(summaryJobs, jobId) {
+  const status = String(summaryJobs?.[jobId]?.status || '').toLowerCase();
+  return status === 'ready' || status === 'confirmed';
+}
+
 /** Index of first job that is not confirmed (-1 if all confirmed). */
 export function firstIncompleteJobIndex(summaryJobs) {
   for (let i = 0; i < AI_ANALYSIS_JOBS.length; i += 1) {

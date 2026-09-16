@@ -10,6 +10,8 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { mergeAuthUserFromProfile, unwrapApiData } from '../../utils/helpers';
+import { pickAvatarValue } from '../../utils/avatarDisplay';
+import { invalidateProtectedAvatarCache } from '../../utils/protectedMediaFetch';
 import { getJwtEmail } from '../../utils/tokenStorage';
 import UserAvatar from '../../components/Shared/UserAvatar';
 import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
@@ -141,6 +143,8 @@ function SettingsPage() {
     directMessagePermission: 'everyone',
   });
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [avatarCacheBust, setAvatarCacheBust] = useState(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [roles, setRoles] = useState([
     { id: 'r1', name: 'Administrator', members: 3, permissions: 'Full access', color: 'from-red-500 to-orange-500', icon: '👑' },
     { id: 'r2', name: 'Department lead', members: 4, permissions: 'Manage department', color: 'from-cyan-600 to-teal-600', icon: '👔' },
@@ -263,7 +267,8 @@ function SettingsPage() {
         /* ignore */
       }
     }
-    if (avatarData) setAvatarUrl(avatarData);
+    const storedAvatar = pickAvatarValue(avatarData);
+    if (storedAvatar && !storedAvatar.startsWith('data:')) setAvatarUrl(storedAvatar);
   }, []);
 
   const fetchRoles = async () => {
@@ -323,6 +328,8 @@ function SettingsPage() {
         ...(phoneValue ? { phone: phoneValue } : {}),
       })
     );
+    const fromMe = pickAvatarValue(meProfile.avatar || meProfile.avatarUrl);
+    if (fromMe) setAvatarUrl(fromMe);
   }, [meProfile]);
 
   useEffect(() => {
@@ -346,9 +353,14 @@ function SettingsPage() {
   }, [privacySettings]);
 
   useEffect(() => {
-    if (!avatarUrl) return;
+    if (!avatarUrl || String(avatarUrl).startsWith('data:')) return;
     localStorage.setItem('settings:avatar', avatarUrl);
   }, [avatarUrl]);
+
+  useEffect(() => {
+    const fromUser = pickAvatarValue(user?.avatar || user?.avatarUrl);
+    if (fromUser) setAvatarUrl(fromUser);
+  }, [user?.avatar, user?.avatarUrl]);
 
   useEffect(() => {
     const nextTab = userRole === 'admin' ? 'general' : 'profile';
@@ -456,18 +468,36 @@ function SettingsPage() {
     )));
   };
 
-  const handleAvatarChange = (event) => {
+  const handleAvatarChange = async (event) => {
     const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      setAvatarUrl(result);
-      toast.success(t('settingsPage.toastAvatar'));
-    };
-    reader.readAsDataURL(file);
     event.target.value = '';
+    if (!file) return;
+    if (!String(file.type || '').startsWith('image/')) {
+      toast.error(t('profileModal.imageOnly'));
+      return;
+    }
+    const profileUserId = user?.userId || user?.id || user?._id;
+    try {
+      setAvatarUploading(true);
+      const res = await userService.uploadAvatar(file);
+      const updated = unwrapApiData(res);
+      const nextUrl = pickAvatarValue(updated?.avatar || updated?.avatarUrl);
+      if (!nextUrl) {
+        toast.error(t('profileModal.avatarUrlMissing'));
+        return;
+      }
+      const bust = Date.now();
+      invalidateProtectedAvatarCache({ userId: profileUserId, cacheBust: bust });
+      setAvatarCacheBust(bust);
+      setAvatarUrl(nextUrl);
+      updateUser(mergeAuthUserFromProfile(user, { ...updated, avatar: nextUrl }, { avatarBust: bust }));
+      queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
+      toast.success(t('settingsPage.toastAvatar'));
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('profileModal.avatarUploadFail') }));
+    } finally {
+      setAvatarUploading(false);
+    }
   };
 
   const handleExportAuditLog = () => {
@@ -666,15 +696,22 @@ function SettingsPage() {
           <div className={`${FIGMA_SETTINGS_CARD} space-y-4`}>
             <div className="flex items-center gap-5">
               <UserAvatar
-                avatar={avatarUrl || null}
-                userId={user?.id || user?._id}
+                avatar={avatarUrl || user?.avatar || null}
+                userId={user?.userId || user?.id || user?._id}
                 name={userProfileForm.fullName || user?.displayName || user?.name}
                 size="2xl"
+                cacheBust={avatarCacheBust || user?.avatarCacheKey || undefined}
               />
-              <label className="inline-flex cursor-pointer">
-                <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+              <label className={`inline-flex ${avatarUploading ? 'pointer-events-none opacity-60' : 'cursor-pointer'}`}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={avatarUploading}
+                  onChange={handleAvatarChange}
+                />
                 <span className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
-                  {t('settingsPage.changeAvatar')}
+                  {avatarUploading ? t('profileModal.changeAvatarUploading') : t('settingsPage.changeAvatar')}
                 </span>
               </label>
             </div>

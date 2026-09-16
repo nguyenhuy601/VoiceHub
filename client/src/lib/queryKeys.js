@@ -33,14 +33,25 @@ export const queryKeys = {
   },
   projects: {
     all: ['projects'],
-    list: (orgId, { excludeClosed = false } = {}) => [
+    list: (orgId, { excludeClosed = false, view = '' } = {}) => [
       ...queryKeys.projects.all,
       'list',
       String(orgId || ''),
       excludeClosed ? 'excludeClosed' : 'allActive',
+      view ? `view:${view}` : 'view:full',
     ],
     /** Prefix invalidate mọi biến thể list của org */
     listAll: (orgId) => [...queryKeys.projects.all, 'list', String(orgId || '')],
+    roleSuggestPool: (orgId, roleKeys = '', { limit = 3, offset = 0, fitAvailable = true } = {}) => [
+      ...queryKeys.projects.all,
+      'resourcePool',
+      String(orgId || ''),
+      'roleSuggest',
+      String(roleKeys || ''),
+      `limit:${limit}`,
+      `offset:${offset}`,
+      `fit:${fitAvailable ? '1' : '0'}`,
+    ],
   },
   friends: {
     all: ['friends'],
@@ -177,11 +188,12 @@ export const queryKeys = {
   },
   calendar: {
     all: ['calendar'],
-    feed: (yearMonth = '', organizationId = '') => [
+    feed: (yearMonth = '', organizationId = '', projectId = '') => [
       ...queryKeys.calendar.all,
       'feed',
       String(yearMonth || ''),
       String(organizationId || ''),
+      String(projectId || ''),
     ],
   },
 };

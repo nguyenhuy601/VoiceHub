@@ -114,12 +114,10 @@ function resolveProjectAccess({ actor, project, membership, orgPolicy }) {
       )
     : 'summary';
 
-  // Hard floor: membership / PM never stuck at related-dept "summary"
+  // Hard floor: project members never stuck at summary (even if org policy sets
+  // project_members: summary — that would strip analysis:view / planning:view).
   if (isMember) {
-    informationLevel = maxInformationLevel([
-      informationLevel,
-      policy.defaultInformationLevels.project_members || 'details',
-    ]);
+    informationLevel = maxInformationLevel([informationLevel, 'details']);
   }
   if (isProjectManager) {
     informationLevel = maxInformationLevel([

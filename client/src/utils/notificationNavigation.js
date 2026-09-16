@@ -1,17 +1,41 @@
+import {
+  buildProjectsModulePath,
+  buildProjectsPickerPath,
+  mapCollaboratePathToDualSuite,
+} from './suitePathUtils.js';
+
 /** @typedef {{ actionUrl?: string, data?: Record<string, unknown>, organizationId?: string, projectId?: string }} NotificationLike */
+
+/**
+ * Normalize legacy in-app paths (collaborate → dual suite, /voice → communicate).
+ * @param {string} pathname
+ * @param {string} [search]
+ * @returns {string}
+ */
+export function normalizeLegacyAppPath(pathname, search = '') {
+  const path = String(pathname || '').replace(/\/+/g, '/');
+  const qsRaw = typeof search === 'string' ? search.replace(/^\?/, '') : '';
+  const qs = qsRaw ? `?${qsRaw}` : '';
+
+  if (path.startsWith('/app/collaborate')) {
+    return mapCollaboratePathToDualSuite(path, qs);
+  }
+
+  const voiceMatch = path.match(/^\/voice\/([^/]+)\/?$/);
+  if (voiceMatch) {
+    return `/app/communicate/voice/${encodeURIComponent(voiceMatch[1])}${qs}`;
+  }
+
+  return `${path}${qs}`;
+}
 
 function buildProjectHubPath(projectId, query = {}) {
   const pid = String(projectId || '').trim();
-  const base = pid
-    ? `/app/collaborate/projects/${encodeURIComponent(pid)}`
-    : '/app/collaborate/projects';
-  const params = new URLSearchParams();
-  const orgId = String(query?.organizationId || query?.orgId || '').trim();
-  const boardId = String(query?.boardId || '').trim();
-  if (orgId) params.set('organizationId', orgId);
-  if (boardId) params.set('boardId', boardId);
-  const qs = params.toString();
-  return qs ? `${base}?${qs}` : base;
+  if (!pid) return buildProjectsPickerPath(query?.organizationId || query?.orgId || '');
+  return buildProjectsModulePath(pid, 'overview', {
+    organizationId: query?.organizationId || query?.orgId,
+    boardId: query?.boardId,
+  });
 }
 
 export function isVoiceRoomInviteNotification(notif) {
@@ -87,7 +111,15 @@ export function parseSafeAppPath(actionUrl) {
 export function resolveNotificationAppPath(notif) {
   if (!notif) return null;
   const fromAction = parseSafeAppPath(notif.actionUrl || notif.data?.actionUrl);
-  if (fromAction) return fromAction;
+  if (fromAction) {
+    if (fromAction.startsWith('/app/collaborate')) {
+      const qIdx = fromAction.indexOf('?');
+      const pathOnly = qIdx >= 0 ? fromAction.slice(0, qIdx) : fromAction;
+      const search = qIdx >= 0 ? fromAction.slice(qIdx) : '';
+      return mapCollaboratePathToDualSuite(pathOnly, search);
+    }
+    return fromAction;
+  }
   const data = notif.data && typeof notif.data === 'object' ? notif.data : {};
   const projectId = String(data.projectId || notif.projectId || '').trim();
   if (!projectId) return null;

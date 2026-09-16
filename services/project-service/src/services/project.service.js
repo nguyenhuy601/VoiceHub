@@ -11,10 +11,15 @@ const { logger } = require('@enterprise/shared');
 const {
   fetchTaskWorkspaceScope,
   canCreateTaskInScope,
+  canCreateProjectInScope,
 } = require('./taskWorkspaceScope');
 const {
-  ensureOrgProjectRoles,
-  ensureProjectMembership,
+  hasProjectCreateGrant,
+  ensureProjectCreateGrant,
+  requireGrantEnabled,
+  PROJECT_CREATE_GRANT,
+} = require('../clients/rolePermission.client');
+const {
   setUserProjectRoles,
   cloneOrgRolesToProject,
 } = require('./projectTeam.service');
@@ -24,6 +29,7 @@ const {
   isCreateBoardSeedEnabled,
   normalizeDelegationTemplateId,
   normalizeSeedMembers,
+  inferBoardRoleFromProjectKeys,
 } = require('../utils/project/createBoardSeed');
 const {
   buildProjectCodeBase,
@@ -38,7 +44,7 @@ const {
   assertPatchDoesNotCloseProject,
 } = require('../utils/project/projectCloseGate');
 const {
-  assertDeliveryRoster,
+  assertIntakeLeadRoster,
   collectCreateProjectRoleKeys,
   normalizeRoleKeys,
 } = require('../utils/project/projectDeliveryRoster');
@@ -57,6 +63,8 @@ const {
   isOrgElevatedMembershipRole,
   memberScopedProjectFilter,
 } = require('../utils/project/projectListMembershipScope');
+const { attachListProjectCardSummaries } = require('../utils/project/listProjectCardSummary');
+const { isCardListView, toProjectListCardItem, CARD_LIST_PROJECT_SELECT } = require('../utils/project/projectListCardView');
 
 const DEFAULT_BOARD_TITLE = 'Main';
 const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Done']);
@@ -188,7 +196,34 @@ async function createProject({
   budgetStub,
 }) {
   const scope = await fetchTaskWorkspaceScope(userId, organizationId);
-  if (!scope || !canCreateTaskInScope(scope)) {
+  if (!scope || !canCreateProjectInScope(scope)) {
+    const err = new Error('Bạn không có quyền tạo dự án trong phạm vi tổ chức');
+    err.statusCode = 403;
+    err.errorCode = 'OUT_OF_ORG_SCOPE';
+    throw err;
+  }
+
+  if (requireGrantEnabled()) {
+    let hasGrant = await hasProjectCreateGrant(userId, organizationId);
+    if (!hasGrant) {
+      // RULE-02: migration when scope already allows create
+      const migrated = await ensureProjectCreateGrant(userId, organizationId, userId);
+      if (!migrated.ok) {
+        const err = new Error('Không thể cấp quyền tạo dự án (migration)');
+        err.statusCode = 403;
+        err.errorCode = migrated.errorCode || 'MIGRATION_BIND_FAILED';
+        throw err;
+      }
+      hasGrant = await hasProjectCreateGrant(userId, organizationId);
+    }
+    if (!hasGrant) {
+      const err = new Error(`Thiếu quyền ${PROJECT_CREATE_GRANT}`);
+      err.statusCode = 403;
+      err.errorCode = 'MISSING_PROJECT_CREATE_GRANT';
+      throw err;
+    }
+  } else if (!canCreateTaskInScope(scope)) {
+    // Hotfix flag path: still require legacy create-task scope semantics
     throw new Error('Bạn không có quyền tạo dự án');
   }
   // Project thuộc Organization — map mọi create (kể cả legacy dept/team/div) sang org scope.
@@ -223,6 +258,11 @@ async function createProject({
     customer,
   });
   if (!init.ok) throw new Error(init.message);
+  // RULE-W1: public create always starts Phase 1 Requirement Analysis
+  const {
+    DEFAULT_DELIVERY_PHASE_NEW,
+  } = require('../constants/projectDeliveryPhase');
+  init.fields.deliveryPhase = DEFAULT_DELIVERY_PHASE_NEW;
 
   let due = init.fields.dueDate || null;
   if (!due && dueDate !== undefined && dueDate !== null && String(dueDate).trim() !== '') {
@@ -234,7 +274,7 @@ async function createProject({
   const titleTrim = String(title || '').trim();
   if (!titleTrim) throw new Error('title là bắt buộc');
 
-  assertDeliveryRoster(
+  assertIntakeLeadRoster(
     collectCreateProjectRoleKeys({
       productOwnerId,
       scrumMasterId,
@@ -304,162 +344,167 @@ async function createProject({
     isActive: true,
   });
 
-  const lists = await seedDefaultLists(board._id);
-
   const pmUserId = toValidUserId(projectManagerId) || String(userId);
   const ownerUserId = pmUserId;
+  const templateId = normalizeDelegationTemplateId(delegationTemplateId);
 
-  await TaskBoardMember.create({
-    boardId: board._id,
-    userId: ownerUserId,
-    role: 'owner',
-    canView: true,
-    canEdit: true,
-    addedBy: userId,
-  });
-
+  const boardMemberCreates = [
+    TaskBoardMember.create({
+      boardId: board._id,
+      userId: ownerUserId,
+      role: 'owner',
+      canView: true,
+      canEdit: true,
+      addedBy: userId,
+    }),
+  ];
   if (String(userId) !== String(ownerUserId)) {
-    try {
-      await TaskBoardMember.create({
+    boardMemberCreates.push(
+      TaskBoardMember.create({
         boardId: board._id,
         userId,
         role: 'editor',
         canView: true,
         canEdit: true,
         addedBy: userId,
-      });
-    } catch (err) {
-      logger.warn('[project] creator board member: %s', err.message);
-    }
+      }).catch((err) => {
+        logger.warn('[project] creator board member: %s', err.message);
+      })
+    );
   }
 
-  const templateId = normalizeDelegationTemplateId(delegationTemplateId);
+  // Lists + ACL board + clone roles song song (creator đã pass canCreateTaskInScope).
+  const [lists] = await Promise.all([
+    seedDefaultLists(board._id),
+    Promise.all(boardMemberCreates),
+    cloneOrgRolesToProject(project._id, organizationId).catch((err) => {
+      logger.warn('[project] cloneOrgRolesToProject: %s', err.message);
+    }),
+  ]);
 
-  // Creator mặc định: Product Owner (+ role kiêm nhiệm nếu gửi trong members).
+  const knownContext = {
+    projectId: String(project._id),
+    organizationId: String(organizationId),
+    boardId: String(board._id),
+  };
+  const bootstrapRoleOpts = {
+    projectId: project._id,
+    boardId: board._id,
+    addedBy: userId,
+    skipActorPermissionCheck: true,
+    skipEnsureRoles: true,
+    skipMasterDataCheck: true,
+    skipAudit: true,
+    assumeNewMember: true,
+    skipRoleRowsRead: true,
+    knownProjectTitle: titleTrim,
+    knownContext,
+  };
+
+  /** Merge lead/creator/seed vào 1 lần setUserProjectRoles / user (tránh N lần members:manage + clone). */
+  const roleAssignments = new Map();
+  const mergeRoleAssignment = (uid, keys, preferredBoardRole) => {
+    const userKey = toValidUserId(uid);
+    if (!userKey) return;
+    const nextKeys = normalizeRoleKeys(keys);
+    if (!nextKeys.length) return;
+    const prev = roleAssignments.get(userKey) || { keys: new Set(), boardRole: 'editor' };
+    for (const k of nextKeys) prev.keys.add(k);
+    if (preferredBoardRole === 'owner' || prev.boardRole === 'owner') {
+      prev.boardRole = 'owner';
+    } else if (preferredBoardRole === 'editor' || prev.boardRole === 'editor') {
+      prev.boardRole = 'editor';
+    } else {
+      prev.boardRole =
+        preferredBoardRole || inferBoardRoleFromProjectKeys([...prev.keys]) || 'editor';
+    }
+    roleAssignments.set(userKey, prev);
+  };
+
   try {
-    await cloneOrgRolesToProject(project._id, organizationId);
     const creatorSeed = (Array.isArray(members) ? members : []).find(
       (m) => String(m?.userId || m?.id || '') === String(userId)
     );
-    const creatorKeys = normalizeRoleKeys([
-      DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER,
-      ...((creatorSeed && Array.isArray(creatorSeed.projectRoleKeys)
-        ? creatorSeed.projectRoleKeys
-        : [])),
-    ]);
-    await setUserProjectRoles({
-      projectId: project._id,
-      boardId: board._id,
-      userId: ownerUserId,
-      projectRoleKeys:
-        String(ownerUserId) === String(userId)
-          ? creatorKeys
-          : [DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER],
-      addedBy: userId,
-      boardRole: 'owner',
-    });
-    if (String(userId) !== String(ownerUserId)) {
-      await setUserProjectRoles({
-        projectId: project._id,
-        boardId: board._id,
-        userId,
-        projectRoleKeys: creatorKeys,
-        addedBy: userId,
-        boardRole: 'editor',
-      });
-    }
-  } catch (err) {
-    logger.warn('[project] creator product-owner membership failed: %s', err.message);
-    try {
-      await ensureProjectMembership({
-        projectId: project._id,
-        boardId: board._id,
-        userId: ownerUserId,
-        projectRoleKey: DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER,
-        addedBy: userId,
-        organizationId,
-      });
-    } catch (fallbackErr) {
-      logger.warn('[project] creator membership fallback failed: %s', fallbackErr.message);
-    }
-  }
+    mergeRoleAssignment(
+      userId,
+      creatorSeed && Array.isArray(creatorSeed.projectRoleKeys) ? creatorSeed.projectRoleKeys : [],
+      'editor'
+    );
 
-  try {
-    const leadSlots = {
-      productOwnerId,
-      scrumMasterId,
-      techLeadId,
-    };
+    const ownerUid = toValidUserId(ownerUserId);
+    if (ownerUid && String(ownerUid) !== String(userId) && toValidUserId(productOwnerId) === ownerUid) {
+      mergeRoleAssignment(ownerUid, [DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER], 'owner');
+    }
+
     for (const [slot, roleKey] of Object.entries({
       productOwnerId: LEAD_ROLE_SLOT_KEYS.productOwnerId,
       scrumMasterId: LEAD_ROLE_SLOT_KEYS.scrumMasterId,
       techLeadId: LEAD_ROLE_SLOT_KEYS.techLeadId,
     })) {
-      const uid = toValidUserId(leadSlots[slot]);
-      if (!uid) continue;
-      await setUserProjectRoles({
-        projectId: project._id,
-        boardId: board._id,
-        userId: uid,
-        projectRoleKeys: [roleKey],
-        addedBy: userId,
-        boardRole: 'editor',
-      });
+      mergeRoleAssignment(
+        { productOwnerId, scrumMasterId, techLeadId }[slot],
+        [roleKey],
+        'editor'
+      );
     }
+
+    if (isCreateBoardSeedEnabled()) {
+      for (const row of normalizeSeedMembers(members, { creatorUserId: userId })) {
+        mergeRoleAssignment(row.userId, row.projectRoleKeys, row.boardRole);
+      }
+    }
+
+    await Promise.all(
+      [...roleAssignments.entries()].map(([memberUserId, row]) =>
+        setUserProjectRoles({
+          ...bootstrapRoleOpts,
+          userId: memberUserId,
+          projectRoleKeys: [...row.keys],
+          boardRole: row.boardRole,
+        }).catch((err) => {
+          logger.warn('[project] seed member failed user=%s: %s', memberUserId, err.message);
+        })
+      )
+    );
 
     await applyDelegationTemplate(board._id, templateId);
   } catch (err) {
     logger.warn('[project] team bootstrap failed: %s', err.message);
   }
 
-  if (isCreateBoardSeedEnabled()) {
-    const seedRows = normalizeSeedMembers(members, { creatorUserId: userId });
-    for (const row of seedRows) {
-      try {
-        await setUserProjectRoles({
-          projectId: project._id,
-          boardId: board._id,
-          userId: row.userId,
-          projectRoleKeys: row.projectRoleKeys,
-          addedBy: userId,
-          boardRole: row.boardRole,
-        });
-      } catch (err) {
-        logger.warn('[project] seed member failed user=%s: %s', row.userId, err.message);
-      }
-    }
-  }
-
-  await logActivity({
-    organizationId,
-    projectId: project._id,
-    boardId: board._id,
-    actorId: userId,
-    type: 'project.created',
-    title: `Tạo dự án ${titleTrim}`,
-    payload: {
-      projectCode: code,
-      defaultBoardId: String(board._id),
-      status: project.status,
-      methodology: project.methodology,
-    },
-  });
-
-  try {
-    const auditService = require('./audit.service');
-    await auditService.recordMutationAudit({
+  await Promise.all([
+    logActivity({
       organizationId,
-      actorUserId: userId,
-      action: 'project.created',
-      resourceType: 'project',
-      resourceId: String(project._id),
-      beforeDoc: null,
-      afterDoc: project.toObject(),
-      keys: ['title', 'projectCode', 'status', 'dueDate', 'visibilityMode', 'isActive'],
-    });
-  } catch {
-    /* best-effort */
-  }
+      projectId: project._id,
+      boardId: board._id,
+      actorId: userId,
+      type: 'project.created',
+      title: `Tạo dự án ${titleTrim}`,
+      payload: {
+        projectCode: code,
+        defaultBoardId: String(board._id),
+        status: project.status,
+        methodology: project.methodology,
+      },
+    }),
+    (async () => {
+      try {
+        const auditService = require('./audit.service');
+        await auditService.recordMutationAudit({
+          organizationId,
+          actorUserId: userId,
+          action: 'project.created',
+          resourceType: 'project',
+          resourceId: String(project._id),
+          beforeDoc: null,
+          afterDoc: project.toObject(),
+          keys: ['title', 'projectCode', 'status', 'dueDate', 'visibilityMode', 'isActive'],
+        });
+      } catch {
+        /* best-effort */
+      }
+    })(),
+  ]);
 
   try {
     const { emitProjectCoreChannelsProvisionBestEffort } = require('../clients/projectChatPublisher.client');
@@ -508,7 +553,24 @@ async function listProjects({
   scopeId,
   includeArchived = false,
   excludeClosed = false,
+  view = '',
 }) {
+  const cardView = isCardListView(view);
+  const timingOn = String(process.env.LIST_PROJECTS_TIMING || '')
+    .trim()
+    .toLowerCase();
+  const wantTiming = timingOn === '1' || timingOn === 'true' || timingOn === 'on';
+  const tTotal = Date.now();
+  const timing = {
+    visibilityMs: 0,
+    projectQueryMs: 0,
+    boardMemberMs: 0,
+    healMs: 0,
+    progressMs: 0,
+    pmMs: 0,
+    profilesMs: 0,
+  };
+
   const userOid = mongoose.Types.ObjectId.isValid(userId)
     ? new mongoose.Types.ObjectId(String(userId))
     : null;
@@ -542,14 +604,23 @@ async function listProjects({
 
   const useV2 = isProjectVisibilityV2Enabled();
   let visibilityCtx = null;
+  let memberRows;
+  const tVis = Date.now();
   if (useV2) {
-    visibilityCtx = await fetchProjectVisibilityContext(organizationId, userId);
+    const [ctx, rows] = await Promise.all([
+      fetchProjectVisibilityContext(organizationId, userId),
+      ProjectMembership.find({ userId: userOid }).select('projectId projectRoleId').lean(),
+    ]);
+    visibilityCtx = ctx;
+    memberRows = rows || [];
     if (!visibilityCtx.isOrgMember) return [];
+  } else {
+    memberRows = await ProjectMembership.find({ userId: userOid })
+      .select('projectId projectRoleId')
+      .lean();
   }
+  timing.visibilityMs = Date.now() - tVis;
 
-  const memberRows = await ProjectMembership.find({ userId: userOid })
-    .select('projectId projectRoleId')
-    .lean();
   const roleIdsNeeded = [
     ...new Set(memberRows.map((r) => String(r.projectRoleId || '')).filter(Boolean)),
   ];
@@ -575,31 +646,37 @@ async function listProjects({
     useV2 && visibilityCtx
       ? isOrgElevatedMembershipRole(visibilityCtx.membershipRole)
       : false;
-  if (useV2 && elevated) {
-    projects = await Project.find(base).sort({ createdAt: -1 }).lean();
-  } else {
-    // Non-admin (V2 + legacy): chỉ project membership / creator — không workspace / phòng ban.
-    projects = await Project.find(
-      memberScopedProjectFilter(base, userOid, memberProjectIds)
-    )
-      .sort({ createdAt: -1 })
-      .lean();
+  const projectQuery =
+    useV2 && elevated
+      ? Project.find(base).sort({ createdAt: -1 })
+      : Project.find(memberScopedProjectFilter(base, userOid, memberProjectIds)).sort({
+          createdAt: -1,
+        });
+  if (cardView) {
+    projectQuery.select(CARD_LIST_PROJECT_SELECT);
   }
+  const tProj = Date.now();
+  projects = await projectQuery.lean();
+  timing.projectQueryMs = Date.now() - tProj;
 
   if (!projects.length) return [];
 
   const projectIds = projects.map((p) => p._id);
+  const boardQuery = TaskBoard.find({
+    projectId: { $in: projectIds },
+    isActive: true,
+  }).sort({ createdAt: 1 });
+  if (cardView) {
+    boardQuery.select('_id projectId');
+  }
+  const tBoard = Date.now();
   const [boards, membershipRows] = await Promise.all([
-    TaskBoard.find({
-      projectId: { $in: projectIds },
-      isActive: true,
-    })
-      .sort({ createdAt: 1 })
-      .lean(),
+    boardQuery.lean(),
     ProjectMembership.find({ projectId: { $in: projectIds } })
-      .select('projectId userId')
+      .select('projectId userId projectRoleId')
       .lean(),
   ]);
+  timing.boardMemberMs = Date.now() - tBoard;
 
   const boardsByProject = new Map();
   for (const b of boards) {
@@ -616,36 +693,8 @@ async function listProjects({
     if (uid) memberCountByProject.get(key).add(uid);
   }
 
-  const healJobs = [];
-  for (const p of projects) {
-    const key = String(p._id);
-    const users = memberCountByProject.get(key) || new Set();
-    const creatorId = String(p.createdBy || '').trim();
-    if (creatorId && !users.has(creatorId)) {
-      healJobs.push(
-        (async () => {
-          try {
-            await ensureOrgProjectRoles(p.organizationId);
-            await ensureProjectMembership({
-              projectId: p._id,
-              boardId: (boardsByProject.get(key) || [])[0]?._id || null,
-              userId: creatorId,
-              projectRoleKey: DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER,
-              addedBy: creatorId,
-              organizationId: p.organizationId,
-            });
-            users.add(creatorId);
-            memberCountByProject.set(key, users);
-            if (!roleKeysByProject.has(key)) roleKeysByProject.set(key, []);
-            roleKeysByProject.get(key).push(DEFAULT_PROJECT_ROLE_KEYS.PRODUCT_OWNER);
-          } catch (err) {
-            logger.warn('[listProjects] creator membership heal failed project=%s: %s', key, err.message);
-          }
-        })()
-      );
-    }
-  }
-  if (healJobs.length) await Promise.all(healJobs);
+  // GET list must not heal membership / ensureOrgProjectRoles (write-path only).
+  timing.healMs = 0;
 
   const actor = visibilityCtx
     ? {
@@ -684,7 +733,11 @@ async function listProjects({
         ...p,
         projectId: key,
         defaultBoardId: defaultBoard ? String(defaultBoard._id) : null,
-        boards: access.informationLevel === 'summary' ? undefined : pBoards,
+        boards: cardView
+          ? undefined
+          : access.informationLevel === 'summary'
+            ? undefined
+            : pBoards,
         memberCount,
         membersCount: memberCount,
         access,
@@ -696,6 +749,43 @@ async function listProjects({
       access.informationLevel
     );
     result.push(payload);
+  }
+
+  try {
+    const summaryTiming = {};
+    await attachListProjectCardSummaries(result, String(organizationId), {
+      memberships: membershipRows,
+      progressMode: cardView ? 'card' : 'full',
+      organizationId: String(organizationId),
+      timingOut: wantTiming ? summaryTiming : undefined,
+    });
+    if (wantTiming) {
+      timing.progressMs = Number(summaryTiming.progressMs) || 0;
+      timing.pmMs = Number(summaryTiming.pmMs) || 0;
+      timing.profilesMs = Number(summaryTiming.profilesMs) || 0;
+    }
+  } catch (err) {
+    logger.warn('[listProjects] card summary attach failed: %s', err?.message || err);
+  }
+
+  if (wantTiming) {
+    logger.info(
+      '[listProjects] timing view=%s projects=%s visibilityMs=%s projectQueryMs=%s boardMemberMs=%s healMs=%s progressMs=%s pmMs=%s profilesMs=%s totalMs=%s',
+      cardView ? 'card' : 'full',
+      result.length,
+      timing.visibilityMs,
+      timing.projectQueryMs,
+      timing.boardMemberMs,
+      timing.healMs,
+      timing.progressMs,
+      timing.pmMs,
+      timing.profilesMs,
+      Date.now() - tTotal
+    );
+  }
+
+  if (cardView) {
+    return result.map((row) => toProjectListCardItem(row));
   }
   return result;
 }
@@ -805,6 +895,8 @@ async function getProject({ userId, projectId }) {
 async function attachProjectCapabilities(payload, userId, projectId) {
   if (payload && typeof payload === 'object') {
     delete payload.technicalSetup;
+    const { coerceDeliveryPhase } = require('../constants/projectDeliveryPhase');
+    payload.deliveryPhase = coerceDeliveryPhase(payload.deliveryPhase);
     payload.workTypeConfig = require('../utils/project/workTypeConfig').serializeWorkTypeConfig(
       payload.workTypeConfig
     );
@@ -848,6 +940,23 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       canPrioritizeBacklog: bypass || hasPermission(perms, 'backlog:prioritize'),
       canUpdateBacklog: bypass || hasPermission(perms, 'backlog:update'),
       canEstimate: bypass || hasPermission(perms, 'task:estimate'),
+      canViewAnalysis: bypass || hasPermission(perms, 'analysis:view'),
+      canEditAnalysis: bypass || hasPermission(perms, 'analysis:artifact_edit'),
+      canImportAnalysis: bypass || hasPermission(perms, 'analysis:artifact_import'),
+      canReviewAnalysisBa: bypass || hasPermission(perms, 'analysis:ba_review'),
+      canReviewAnalysisTech: bypass || hasPermission(perms, 'analysis:tech_review'),
+      canReviewAnalysisPo: bypass || hasPermission(perms, 'analysis:po_review'),
+      canChangeDeliveryPhase: bypass || hasPermission(perms, 'delivery_phase:change'),
+      canCutSrs: bypass || hasPermission(perms, 'analysis:cut_srs'),
+      canViewPlanning: bypass || hasPermission(perms, 'planning:view'),
+      canEditPlanning: bypass || hasPermission(perms, 'planning:artifact_edit'),
+      canReviewPlanning: bypass ||
+        hasPermission(perms, 'planning:ba_review') ||
+        hasPermission(perms, 'planning:tech_review') ||
+        hasPermission(perms, 'planning:pm_review') ||
+        hasPermission(perms, 'planning:po_review'),
+      canCutPlanningBaseline: bypass || hasPermission(perms, 'planning:cut_baseline'),
+      canPublishPlanningWbs: bypass || hasPermission(perms, 'planning:publish_wbs'),
     },
   };
 }
@@ -910,19 +1019,59 @@ async function patchProject({ userId, projectId, patch }) {
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
+    const hasDeliveryPhasePatch = Object.prototype.hasOwnProperty.call(
+      patch || {},
+      'deliveryPhase'
+    );
+    if (hasDeliveryPhasePatch) {
+      const canPhase =
+        hasPermission(resolved.permissions, 'delivery_phase:change') ||
+        resolved.isOrgAdmin ||
+        resolved.isCreator;
+      if (!canPhase) {
+        const err = new Error('Không có quyền đổi deliveryPhase (delivery_phase:change)');
+        err.statusCode = 403;
+        throw err;
+      }
+    }
     const canSettings =
       hasPermission(resolved.permissions, 'settings:update') ||
       hasPermission(resolved.permissions, 'project:edit') ||
       resolved.isOrgAdmin ||
       resolved.isCreator;
-    if (!canSettings) {
+    if (!canSettings && !hasDeliveryPhasePatch) {
       const err = new Error('Không có quyền sửa settings dự án (settings:update)');
       err.statusCode = 403;
       throw err;
     }
+    if (!canSettings && hasDeliveryPhasePatch) {
+      // PM may change only deliveryPhase without full settings:update
+      const onlyPhase =
+        Object.keys(patch || {}).filter((k) => patch[k] !== undefined).length === 1;
+      if (!onlyPhase) {
+        const err = new Error('Không có quyền sửa settings dự án (settings:update)');
+        err.statusCode = 403;
+        throw err;
+      }
+    }
   } else {
     const canAdmin = await userCanAdminProject(userId, project.toObject());
     if (!canAdmin) throw new Error('Không có quyền sửa settings dự án');
+  }
+
+  const {
+    canTransitionDeliveryPhase,
+    coerceDeliveryPhase: coercePhase,
+  } = require('../constants/projectDeliveryPhase');
+  if (Object.prototype.hasOwnProperty.call(patch || {}, 'deliveryPhase')) {
+    const from = coercePhase(project.deliveryPhase);
+    const to = coercePhase(patch.deliveryPhase, { missingAsExisting: false });
+    if (!to || !canTransitionDeliveryPhase(from, to)) {
+      const err = new Error('Chuyển deliveryPhase không được phép');
+      err.statusCode = 400;
+      err.errorCode = 'DELIVERY_PHASE_TRANSITION_DENIED';
+      throw err;
+    }
   }
 
   const built = buildBoardIdentityPatch(patch);
@@ -944,6 +1093,7 @@ async function patchProject({ userId, projectId, patch }) {
   if (init.ok === false && Object.keys(patch || {}).some((k) =>
     [
       'status',
+      'deliveryPhase',
       'projectType',
       'category',
       'priority',

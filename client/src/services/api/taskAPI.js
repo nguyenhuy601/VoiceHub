@@ -475,6 +475,8 @@ export const taskAPI = {
     if (opts.timeout != null) cfg.timeout = opts.timeout;
     if (opts.signal) cfg.signal = opts.signal;
     if (opts.skipPermissionDeniedToast) cfg.skipPermissionDeniedToast = true;
+    if (opts.skipNotFoundToast) cfg.skipNotFoundToast = true;
+    if (opts.skipGlobalErrorHandling) cfg.skipGlobalErrorHandling = true;
     return apiClient.get(q ? `/tasks/project-briefs?${q}` : '/tasks/project-briefs', cfg);
   },
 

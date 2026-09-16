@@ -125,6 +125,10 @@ router.post('/', controller.createProject);
  */
 router.get('/', controller.listProjects);
 
+/** Wave B: mandatory resource authz for every /:projectId route (fail-closed). */
+const { requireProjectAuthorization } = require('../middleware/requireProjectAuthorization');
+router.use('/:projectId', requireProjectAuthorization);
+
 router.get('/:projectId/overview', controller.getOverview);
 router.get('/:projectId/activity', controller.getActivity);
 router.get('/:projectId/files', controller.getFiles);
@@ -259,6 +263,13 @@ router.patch('/:projectId/tasks/:taskId/planning', planning.linkTaskEpic);
 router.get('/:projectId/complete-preview', controller.completeProjectPreview);
 router.post('/:projectId/complete', controller.completeProject);
 router.post('/:projectId/archive', controller.archiveProject);
+
+const analysisRoutes = require('./analysis.routes');
+router.use('/:projectId', analysisRoutes);
+
+const planningRoutes = require('./planning.routes');
+router.use('/:projectId/planning', planningRoutes);
+
 router.patch('/:projectId', controller.patchProject);
 router.get('/:projectId', controller.getProject);
 
