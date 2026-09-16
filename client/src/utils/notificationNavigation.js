@@ -10,42 +10,14 @@ import {
  * Normalize legacy in-app paths (collaborate → dual suite, /voice → communicate).
  * @param {string} pathname
  * @param {string} [search]
- * @returns {string}
+ * @returns {string | null}
  */
 export function normalizeLegacyAppPath(pathname, search = '') {
-  const path = String(pathname || '').replace(/\/+/g, '/');
+  let path = String(pathname || '').replace(/\/+/g, '/').trim();
   const qsRaw = typeof search === 'string' ? search.replace(/^\?/, '') : '';
   const qs = qsRaw ? `?${qsRaw}` : '';
-
-  if (path.startsWith('/app/collaborate')) {
-    return mapCollaboratePathToDualSuite(path, qs);
-  }
-
-  const voiceMatch = path.match(/^\/voice\/([^/]+)\/?$/);
-  if (voiceMatch) {
-    return `/app/communicate/voice/${encodeURIComponent(voiceMatch[1])}${qs}`;
-  }
-
-  return `${path}${qs}`;
-}
-
-function buildProjectHubPath(projectId, query = {}) {
-  const pid = String(projectId || '').trim();
-  if (!pid) return buildProjectsPickerPath(query?.organizationId || query?.orgId || '');
-  return buildProjectsModulePath(pid, 'overview', {
-    organizationId: query?.organizationId || query?.orgId,
-    boardId: query?.boardId,
-  });
-}
-
-/**
- * Chuẩn hoá pathname legacy → `/app/...`.
- * @param {string} pathname
- * @param {string} [search]
- */
-export function normalizeLegacyAppPath(pathname, search = '') {
-  let path = String(pathname || '').trim();
   if (!path) return null;
+
   if (path.startsWith('/voice/')) {
     path = path.replace(/^\/voice/, '/app/communicate/voice');
   } else if (path === '/voice') {
@@ -59,9 +31,22 @@ export function normalizeLegacyAppPath(pathname, search = '') {
   } else if (path === '/organizations') {
     path = '/app/collaborate/workspaces';
   }
+
+  if (path.startsWith('/app/collaborate')) {
+    return mapCollaboratePathToDualSuite(path, qs);
+  }
+
   if (!path.startsWith('/app/')) return null;
-  const qs = search || '';
   return `${path}${qs}`;
+}
+
+function buildProjectHubPath(projectId, query = {}) {
+  const pid = String(projectId || '').trim();
+  if (!pid) return buildProjectsPickerPath(query?.organizationId || query?.orgId || '');
+  return buildProjectsModulePath(pid, 'overview', {
+    organizationId: query?.organizationId || query?.orgId,
+    boardId: query?.boardId,
+  });
 }
 
 export function isVoiceRoomInviteNotification(notif) {
@@ -114,18 +99,25 @@ export function resolveVoiceRoomInvitePath(notif) {
 export function parseSafeAppPath(actionUrl) {
   const raw = String(actionUrl || '').trim();
   if (!raw) return null;
+  if (/^[a-zA-Z][a-zA-Z+\-.]*:/.test(raw) || raw.startsWith('//')) return null;
   try {
-    const parsed =
-      raw.startsWith('http') || raw.startsWith('//')
-        ? new URL(raw)
-        : new URL(raw, 'https://voicehub.local');
-    return normalizeLegacyAppPath(parsed.pathname, parsed.search || '');
+    const parsed = new URL(raw, 'https://voicehub.local');
+    const path = String(parsed.pathname || '').trim();
+    if (path.startsWith('/app/')) {
+      const qs = parsed.search || '';
+      return `${path}${qs}`;
+    }
+    const legacy = normalizeLegacyAppPath(path, parsed.search || '');
+    return legacy && String(legacy).startsWith('/app/') ? legacy : null;
   } catch {
     if (raw.startsWith('/app/') && !raw.includes('://')) {
       return raw.split('#')[0];
     }
-    const legacy = normalizeLegacyAppPath(raw.split('?')[0], raw.includes('?') ? `?${raw.split('?')[1]}` : '');
-    return legacy;
+    const legacy = normalizeLegacyAppPath(
+      raw.split('?')[0],
+      raw.includes('?') ? `?${raw.split('?')[1]}` : ''
+    );
+    return legacy && String(legacy).startsWith('/app/') ? legacy : null;
   }
 }
 

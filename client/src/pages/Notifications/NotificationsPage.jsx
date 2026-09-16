@@ -104,7 +104,22 @@ function getNotifActionKind(notif) {
   return 'navigate';
 }
 
-function NotificationsPage({ orgScope = false } = {}) {
+/**
+ * Inbox thông báo — một UI (NotificationsFigmaView).
+ * @param {object} [props]
+ * @param {boolean} [props.orgScope] — scope organization (route company hoặc embed workspace)
+ * @param {string} [props.organizationIdOverride] — orgId từ workspace panel (ưu tiên hơn URL)
+ * @param {boolean} [props.fetchEnabled=true] — tắt fetch khi panel chưa sẵn sàng
+ * @param {string} [props.pageTitle] — title header (mặc định i18n)
+ * @param {boolean} [props.embedded=false] — nhúng trong OrganizationMainPanel
+ */
+function NotificationsPage({
+  orgScope = false,
+  organizationIdOverride = '',
+  fetchEnabled = true,
+  pageTitle = '',
+  embedded = false,
+} = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -112,10 +127,14 @@ function NotificationsPage({ orgScope = false } = {}) {
   const { activeWorkspace } = useWorkspace();
   const isOrgNotificationsPage =
     orgScope ||
+    embedded ||
     location.pathname.startsWith(COLLABORATE_NOTIFICATIONS_PATH) ||
-    location.pathname.startsWith(ORG_NOTIFICATIONS_PATH);
+    location.pathname.startsWith(ORG_NOTIFICATIONS_PATH) ||
+    location.pathname.startsWith('/app/company/notifications');
   const notificationScope = isOrgNotificationsPage ? 'organization' : 'personal';
   const organizationIdFilter = useMemo(() => {
+    const fromProp = String(organizationIdOverride || '').trim();
+    if (fromProp) return fromProp;
     const fromQuery = String(searchParams.get('organizationId') || searchParams.get('orgId') || '').trim();
     if (fromQuery) return fromQuery;
     if (!isOrgNotificationsPage) return '';
@@ -126,6 +145,7 @@ function NotificationsPage({ orgScope = false } = {}) {
       ''
     );
   }, [
+    organizationIdOverride,
     searchParams,
     isOrgNotificationsPage,
     activeWorkspace?._id,
@@ -161,14 +181,15 @@ function NotificationsPage({ orgScope = false } = {}) {
   const notifInfiniteQuery = useNotificationsInfinite({
     scope: notificationScope,
     organizationId: organizationIdFilter,
+    enabled: fetchEnabled && (!isOrgNotificationsPage || Boolean(organizationIdFilter)),
   });
 
-  const { pendingCount: friendPendingCount } = useFriendPending({
+  useFriendPending({
     enabled: !isOrgNotificationsPage,
   });
 
   const { data: orgShellForBadge } = useOrgShell(organizationIdFilter, {
-    enabled: isOrgNotificationsPage && Boolean(organizationIdFilter),
+    enabled: isOrgNotificationsPage && Boolean(organizationIdFilter) && fetchEnabled,
   });
 
   useEffect(() => {
@@ -260,6 +281,7 @@ function NotificationsPage({ orgScope = false } = {}) {
       data?.organizationId ||
       item?.workspaceId ||
       item?.organizationId ||
+      organizationIdFilter ||
       '';
     const actionUrl = String(item?.actionUrl || '').trim();
     return {
@@ -887,7 +909,7 @@ function NotificationsPage({ orgScope = false } = {}) {
   }, [selectedId, visibleIds, filteredNotifications]);
 
   useNotificationInboxShortcuts({
-    enabled: !isOrgNotificationsPage,
+    enabled: true,
     itemIds: visibleIds,
     selectedId,
     bulkMode,
@@ -901,16 +923,18 @@ function NotificationsPage({ orgScope = false } = {}) {
     onToggleHelp: () => setShortcutHelpOpen((v) => !v),
   });
 
-  if (isOrgNotificationsPage && organizationIdFilter) {
-    return null;
-  }
-
   const pendingDeleteCount = Array.isArray(pendingDeleteIds) ? pendingDeleteIds.length : 0;
+  const inboxTitle =
+    pageTitle ||
+    (isOrgNotificationsPage ? t('notifications.titleOrganization') : t('notifications.defaultTitle'));
+  const inboxEmptyMessage = isOrgNotificationsPage
+    ? t('notifications.emptyOrg')
+    : t('notifications.emptyNew');
 
   return (
     <>
       <NotificationsFigmaView
-        title={t('notifications.defaultTitle')}
+        title={inboxTitle}
         unreadCount={unreadCount}
         needsActionCount={needsActionCount}
         search={notifSearch}
@@ -929,8 +953,8 @@ function NotificationsPage({ orgScope = false } = {}) {
         checkedIds={checkedIds}
         checkedCount={checkedIds.size}
         shortcutHelpOpen={shortcutHelpOpen}
-        loading={notificationsLoading}
-        emptyMessage={t('notifications.emptyNew')}
+        loading={!fetchEnabled || notificationsLoading}
+        emptyMessage={inboxEmptyMessage}
         emptyHint={emptyHint}
         getActionKind={getNotifActionKind}
         actingNotifId={actingNotifId}
