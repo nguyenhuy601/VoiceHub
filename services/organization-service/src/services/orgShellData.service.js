@@ -18,8 +18,8 @@ const {
   resolveUserHierarchyScopes,
   buildTeamDepartmentMap,
   isDeptOnlyChannel,
-  userHasTeamInDepartment,
 } = require('../utils/memberPlacementScope');
+const { shouldGrantDefaultMemberOrgChannelAccess } = require('../utils/defaultMemberOrgChannelAccess');
 const {
   isMultiPlacementReadEnabled,
   resolveEffectiveScopesFromAssignments,
@@ -540,25 +540,18 @@ async function buildAccessibleChannelData(userId, orgId, access) {
       canWrite = false;
       canDelete = false;
       canVoice = false;
-    } else if (
+    }
+    if (
       !isStructureAdmin &&
-      inStructure &&
-      isDeptOnlyChannel(ch) &&
       !roleAcl &&
       !acl &&
-      !canRead
+      !canRead &&
+      shouldGrantDefaultMemberOrgChannelAccess(ch, structureVisibility, teamDepartmentByTeamId)
     ) {
-      const depId = String(ch.department || '');
-      if (
-        structureVisibility.departmentIds?.has(depId) ||
-        userHasTeamInDepartment(structureVisibility.teamIds, depId, teamDepartmentByTeamId)
-      ) {
-        canSee = true;
-        canRead = true;
-        // Announcement Only: member thường chỉ đọc
-        canWrite = isAnnouncementChannel ? false : true;
-        canVoice = isAnnouncementChannel ? false : true;
-      }
+      canSee = true;
+      canRead = true;
+      canWrite = isAnnouncementChannel ? false : true;
+      canVoice = isAnnouncementChannel ? false : true;
     }
 
     // Trưởng phòng được đăng announcement phòng mình
