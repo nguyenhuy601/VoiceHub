@@ -18,6 +18,9 @@ function mergeOverdueItems(rows) {
         dueDate: item.dueDate || null,
         boardId: item.boardId ? String(item.boardId) : '',
         boardName: String(item.boardName || ''),
+        projectId: item.projectId ? String(item.projectId) : '',
+        projectTitle: item.projectTitle != null ? String(item.projectTitle) : '',
+        projectCode: item.projectCode != null ? String(item.projectCode) : '',
         assigneeId: item.assigneeId ? String(item.assigneeId) : null,
         organizationId: String(item.organizationId || oid),
       });

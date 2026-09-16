@@ -175,3 +175,80 @@ export function enrichBoardHealthList(boards = [], projects = []) {
   const index = buildBoardIdToProjectIndex(projects);
   return (Array.isArray(boards) ? boards : []).map((b) => enrichBoardHealthRow(b, index));
 }
+
+/**
+ * Secondary label for overdue row: tên dự án; không hiện «Main».
+ * @param {{ projectTitle?: string, projectCode?: string, boardName?: string, name?: string } | null | undefined} item
+ */
+export function resolveOverdueScopeLabel(item) {
+  const projectTitle = String(item?.projectTitle || '').trim();
+  if (projectTitle) return projectTitle;
+  const code = String(item?.projectCode || '').trim();
+  if (code) return code;
+  const boardName = String(item?.boardName || item?.name || '').trim();
+  if (boardName && !/^main$/i.test(boardName)) return boardName;
+  return '';
+}
+
+/**
+ * Gắn identity dự án lên overdueItems (BE trước, rồi board-health map, rồi index projects).
+ * @param {unknown[]} items
+ * @param {unknown[]} boardHealthRows — boards đã enrich (có thể chỉ top 5)
+ * @param {unknown[]} projects
+ */
+export function enrichOverdueItems(items = [], boardHealthRows = [], projects = []) {
+  const rows = Array.isArray(items) ? items : [];
+  if (!rows.length) return [];
+
+  const byBoardFromHealth = new Map();
+  (Array.isArray(boardHealthRows) ? boardHealthRows : []).forEach((b) => {
+    const id = asId(b?.id || b?._id);
+    if (!id) return;
+    byBoardFromHealth.set(id, {
+      projectId: String(b.projectId || '').trim(),
+      projectTitle: String(b.projectTitle || '').trim(),
+      projectCode: String(b.projectCode || '').trim(),
+    });
+  });
+
+  const byBoardFromProjects = buildBoardIdToProjectIndex(projects);
+  const projectById = new Map();
+  (Array.isArray(projects) ? projects : []).forEach((p) => {
+    const pid = asId(p?.projectId || p?._id || p?.id);
+    if (!pid) return;
+    projectById.set(pid, {
+      projectId: pid,
+      projectTitle: String(p?.title || p?.name || '').trim(),
+      projectCode: String(p?.projectCode || p?.code || '').trim(),
+    });
+  });
+
+  return rows.map((item) => {
+    const row = item && typeof item === 'object' ? item : {};
+    const boardId = asId(row.boardId);
+    const hitHealth = boardId ? byBoardFromHealth.get(boardId) : null;
+    const hitProj = boardId ? byBoardFromProjects.get(boardId) : null;
+    let projectId = String(row.projectId || hitHealth?.projectId || hitProj?.projectId || '').trim();
+    let projectTitle = String(
+      row.projectTitle || hitHealth?.projectTitle || hitProj?.projectTitle || ''
+    ).trim();
+    let projectCode = String(
+      row.projectCode || hitHealth?.projectCode || hitProj?.projectCode || ''
+    ).trim();
+
+    if (projectId && (!projectTitle || !projectCode)) {
+      const byId = projectById.get(projectId);
+      if (byId) {
+        projectTitle = projectTitle || byId.projectTitle;
+        projectCode = projectCode || byId.projectCode;
+      }
+    }
+
+    return {
+      ...row,
+      projectId,
+      projectTitle,
+      projectCode,
+    };
+  });
+}

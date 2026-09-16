@@ -2,6 +2,7 @@ import { AlertTriangle, Clock } from 'lucide-react';
 import { useLocale } from '../../context/LocaleContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { formatDateForLocale } from '../../utils/localeFormat';
+import { resolveOverdueScopeLabel } from '../../utils/mapBoardHealthToProject';
 import {
   FIGMA_DASH_CARD,
   FIGMA_DASH_SECTION_TITLE,
@@ -28,22 +29,26 @@ export default function DashboardOverdueList({ items = [], onItemClick }) {
           const dueLabel = item?.dueDate
             ? formatDateForLocale(item.dueDate, locale, { month: 'short', day: 'numeric' })
             : '—';
+          const scopeLabel = resolveOverdueScopeLabel(item);
+          const openHint = t('dashboard.boardHealthOpenHint');
           return (
             <li key={item.id}>
               <button
                 type="button"
+                title={openHint}
+                aria-label={`${openHint}: ${item.title || item.id}`}
                 onClick={() => onItemClick?.(item)}
-                className="w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-left transition hover:border-destructive/25 hover:bg-background"
+                className="w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-left transition hover:border-destructive/25 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
               >
                 <div className="truncate text-[0.8125rem] font-semibold text-foreground">
                   {item.title || item.id}
                 </div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.625rem] text-muted-foreground">
                   <span className="inline-flex items-center gap-1 font-medium text-destructive">
-                    <Clock size={11} />
+                    <Clock size={11} aria-hidden />
                     {t('dashboard.overdueListDue', { date: dueLabel })}
                   </span>
-                  {item.boardName ? <span className="truncate">{item.boardName}</span> : null}
+                  {scopeLabel ? <span className="truncate">{scopeLabel}</span> : null}
                 </div>
               </button>
             </li>

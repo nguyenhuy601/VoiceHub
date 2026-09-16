@@ -56,6 +56,7 @@ import {
 } from '../../utils/suitePathUtils';
 import useOrgProjectsList from '../../hooks/useOrgProjectsList';
 import useBoardHealthEnrichment from '../../hooks/useBoardHealthEnrichment';
+import { enrichOverdueItems } from '../../utils/mapBoardHealthToProject';
 import DashboardGlobalSearchModal from '../../components/Dashboard/DashboardGlobalSearchModal';
 import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
 import { LOCAL_CUSTOM_KEY } from '../../utils/dmCalendarReminders';
@@ -568,7 +569,7 @@ function DashboardPage({
         setPresenceFriends(presence);
 
         let activeVoiceMeetings = summary?.activeVoiceMeetings ?? null;
-        if (activeVoiceMeetings == null) {
+        if (activeVoiceMeetings == null && summary?.upcomingMeetings == null) {
           const activeMeetingRes = await meetingAPI
             .getMeetings({ status: 'active', limit: 50 })
             .catch(() => null);
@@ -576,13 +577,15 @@ function DashboardPage({
           const activeInner = activeBody?.data ?? activeBody;
           const activeRows = activeInner?.meetings ?? activeInner?.data?.meetings ?? activeInner?.items;
           activeVoiceMeetings = Array.isArray(activeRows) ? activeRows.length : 0;
+        } else if (activeVoiceMeetings == null) {
+          activeVoiceMeetings = 0;
         }
 
         let meetingsUi = [];
-        const summaryMeetings = Array.isArray(summary?.upcomingMeetings)
-          ? summary.upcomingMeetings
-          : [];
-        if (summaryMeetings.length > 0) {
+        // BFF luôn trả upcomingMeetings (có thể []); không fallback GET /meetings khi đã có mảng
+        const summaryHasMeetingsField = Array.isArray(summary?.upcomingMeetings);
+        const summaryMeetings = summaryHasMeetingsField ? summary.upcomingMeetings : [];
+        if (summaryHasMeetingsField) {
           meetingsUi = summaryMeetings.map((m) => {
             const startDt = m.startTime ? new Date(m.startTime) : null;
             const timeStr =
@@ -1025,6 +1028,26 @@ function DashboardPage({
     projectsLoading: dashOrgProjectsLoading,
   });
   const showWorkAnalytics = dashPersona !== 'guest' && dashPersona !== 'personal';
+  const showOrgBoardHealth = dashPersonaShowsOrgHealth(dashPersona);
+  const dashOrgId = useMemo(() => {
+    const fromSummary = String(summaryQuery.data?.primaryOrgId || '').trim();
+    if (fromSummary) return fromSummary;
+    const first = Array.isArray(orgsQuery.data) ? orgsQuery.data[0] : null;
+    return String(first?._id || first?.id || company?.id || company?._id || '').trim();
+  }, [summaryQuery.data?.primaryOrgId, orgsQuery.data, company]);
+  const { projects: dashOrgProjects, loading: dashOrgProjectsLoading } = useOrgProjectsList(dashOrgId, {
+    excludeClosed: true,
+    enabled: (showOrgBoardHealth || showWorkAnalytics) && Boolean(dashOrgId),
+  });
+  const enrichedBoardHealth = useBoardHealthEnrichment(metrics.boards || [], dashOrgProjects, {
+    enabled: showOrgBoardHealth,
+    organizationId: dashOrgId,
+    projectsLoading: dashOrgProjectsLoading,
+  });
+  const enrichedOverdueItems = useMemo(() => {
+    if (!showWorkAnalytics) return [];
+    return enrichOverdueItems(metrics.overdueItems || [], enrichedBoardHealth, dashOrgProjects);
+  }, [showWorkAnalytics, metrics.overdueItems, enrichedBoardHealth, dashOrgProjects]);
 
   const stats = useMemo(() => {
     const fmt = (n) => {
@@ -1550,8 +1573,8 @@ function DashboardPage({
       roleTitle={t(`dashboard.personaTitle.${dashPersona}`)}
       roleHint={t(`dashboard.personaHint.${dashPersona}`)}
       showWorkAnalytics={showWorkAnalytics}
-      boardHealth={enrichedBoardHealth}
-      overdueItems={showWorkAnalytics ? metrics.overdueItems || [] : []}
+      boardHealth={showOrgBoardHealth ? enrichedBoardHealth : []}
+      overdueItems={enrichedOverdueItems}
       onBoardClick={(board) => {
         const oid = String(board?.organizationId || dashOrgId || '').trim();
         const boardId = String(board?.id || board?._id || '').trim();
@@ -1577,7 +1600,9 @@ function DashboardPage({
         const oid = String(item?.organizationId || dashOrgId || '').trim();
         const boardId = String(item?.boardId || '').trim();
         const projectId = String(
-          enrichedBoardHealth.find((b) => String(b.id || b._id) === boardId)?.projectId || ''
+          item?.projectId ||
+            enrichedBoardHealth.find((b) => String(b.id || b._id) === boardId)?.projectId ||
+            ''
         ).trim();
         if (projectId) {
           navigate(
@@ -1589,6 +1614,7 @@ function DashboardPage({
           );
           return;
         }
+        toast(t('dashboard.boardHealthOpenFallback'), { icon: 'ℹ️' });
         navigate(
           oid
             ? buildCollaborateTasksPath(oid, { boardId })
