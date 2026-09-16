@@ -29,6 +29,7 @@ test('resolveStoragePathFromAttachment ưu tiên storagePath', () => {
 import {
   resolveAttachmentContentType,
   shouldOpenAttachmentInline,
+  ensureTypedBlob,
 } from '../../board/taskBoardAttachmentDisplay.js';
 
 test('resolveAttachmentContentType cho markdown', () => {
@@ -37,4 +38,18 @@ test('resolveAttachmentContentType cho markdown', () => {
     'text/plain; charset=utf-8'
   );
   assert.equal(shouldOpenAttachmentInline('text/plain; charset=utf-8'), true);
+});
+
+test('ensureTypedBlob từ chối null / Blob chữ null', async () => {
+  await assert.rejects(() => ensureTypedBlob(null, 'text/plain'), /Không tải được/);
+  await assert.rejects(
+    () => ensureTypedBlob(new Blob(['null'], { type: 'application/json' }), 'text/plain'),
+    /Không tải được/
+  );
+});
+
+test('ensureTypedBlob giữ nội dung text hợp lệ', async () => {
+  const out = await ensureTypedBlob(new Blob(['# hello'], { type: 'application/octet-stream' }), 'text/plain');
+  assert.equal(await out.text(), '# hello');
+  assert.match(out.type, /^text\/plain/);
 });
