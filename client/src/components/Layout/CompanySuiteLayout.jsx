@@ -8,6 +8,8 @@ import { useOrgShell } from '../../hooks/queries/useOrgShell';
 import { readStoredLastOrganizationId } from '../../utils/suitePathUtils';
 import {
   COMPANY_SPACE_LEVEL,
+  isCompanyStructureReadyForTeamCheck,
+  isValidCompanyTeamId,
   readStoredCompanyTeamId,
   resolveCompanySpaceLevel,
   resolveMyDepartmentId,
@@ -57,9 +59,16 @@ export default function CompanySuiteLayout() {
     [shell, departmentId, teamIdFromUrl]
   );
 
-  const spaceLevel = resolved.level;
-  const spaceTeamId = resolved.teamId;
   const spaceDeptId = resolved.departmentId || departmentId;
+  const structureReady = isCompanyStructureReadyForTeamCheck(shell, spaceDeptId);
+  const holdUrlTeam =
+    Boolean(teamIdFromUrl) &&
+    !resolved.teamId &&
+    (shellQuery.isLoading || !shell || !structureReady);
+  const spaceTeamId = resolved.teamId || (holdUrlTeam ? teamIdFromUrl : '');
+  const spaceLevel = spaceTeamId
+    ? COMPANY_SPACE_LEVEL.TEAM
+    : resolved.level;
 
   useEffect(() => {
     if (!organizationId || !spaceDeptId || shellQuery.isLoading || !shell) return;
@@ -93,6 +102,8 @@ export default function CompanySuiteLayout() {
     navigate,
     shell,
     shellQuery.isLoading,
+    structureReady,
+    teamIdFromUrl,
   ]);
 
   return (

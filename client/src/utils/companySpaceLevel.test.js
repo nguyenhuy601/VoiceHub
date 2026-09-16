@@ -7,6 +7,11 @@ import {
   isValidCompanyTeamId,
   listMyTeamsFromShell,
   normalizeCompanySpaceLevel,
+  preferCompanyDepartmentWorkspace,
+  preferCompanyTeamFromSearch,
+  preserveCompanyTeamIdOnModuleSearch,
+  preferUrlTeamIdWhenAhead,
+  isCompanyStructureReadyForTeamCheck,
   resolveCompanySpaceLevel,
   resolveMyDepartmentId,
 } from './companySpaceLevel.js';
@@ -131,6 +136,95 @@ describe('companySpaceLevel', () => {
     assert.equal(calTeam.get('tab'), 'calendar');
     assert.equal(calTeam.get('teamId'), 'team1');
     assert.equal(calTeam.get('departmentId'), 'dept1');
+  });
+
+  it('lists all structure teams when canSeeAllStructure', () => {
+    const adminShell = {
+      access: {
+        scope: {
+          departmentId: 'dept1',
+          canSeeAllStructure: true,
+          scopedDepartmentIds: [],
+          scopedTeamIds: [],
+        },
+      },
+      structureSummary: shellFixture.structureSummary,
+    };
+    const teams = listMyTeamsFromShell(adminShell, 'dept1');
+    assert.deepEqual(
+      teams.map((t) => t.id).sort(),
+      ['team1', 'team2', 'team3']
+    );
+    assert.equal(isValidCompanyTeamId(adminShell, 'team3', 'dept1'), true);
+  });
+
+  it('URL teamId thắng workspace phòng', () => {
+    assert.equal(preferCompanyTeamFromSearch('t1'), true);
+    assert.equal(preferCompanyTeamFromSearch(''), false);
+    assert.equal(
+      preferCompanyDepartmentWorkspace({
+        departmentIdFromQuery: 'd1',
+        teamIdFromQuery: 't1',
+      }),
+      false
+    );
+    assert.equal(
+      preferCompanyDepartmentWorkspace({
+        departmentIdFromQuery: 'd1',
+        teamIdFromQuery: '',
+      }),
+      true
+    );
+    assert.equal(isCompanyStructureReadyForTeamCheck(shellFixture, 'dept1'), true);
+    assert.equal(isCompanyStructureReadyForTeamCheck({}), false);
+    const emptyTeamsShell = {
+      structureSummary: {
+        branches: [
+          {
+            divisions: [
+              { departments: [{ _id: 'dept1', name: 'Engineering', teams: [] }] },
+            ],
+          },
+        ],
+      },
+    };
+    assert.equal(isCompanyStructureReadyForTeamCheck(emptyTeamsShell, 'dept1'), false);
+  });
+
+  it('URL team mới không bị SpaceContext team cũ ghi đè', () => {
+    const staleSpace = {
+      organizationId: 'o1',
+      departmentId: 'dept1',
+      teamId: 'team-be1',
+      level: 'team',
+    };
+    const current = new URLSearchParams(
+      'organizationId=o1&departmentId=dept1&tab=chat&teamId=team-be2'
+    );
+    const next = preferUrlTeamIdWhenAhead(
+      buildCompanyModuleSearch(staleSpace, 'chat'),
+      current
+    );
+    assert.equal(next.get('teamId'), 'team-be2');
+  });
+
+  it('F5: URL teamId không bị module search DEPARTMENT xóa', () => {
+    const deptSpace = {
+      organizationId: 'o1',
+      departmentId: 'dept1',
+      teamId: '',
+      level: 'department',
+    };
+    const current = new URLSearchParams(
+      'organizationId=o1&departmentId=dept1&tab=chat&teamId=team-be1'
+    );
+    const next = preserveCompanyTeamIdOnModuleSearch(
+      buildCompanyModuleSearch(deptSpace, 'chat'),
+      current,
+      'chat'
+    );
+    assert.equal(next.get('teamId'), 'team-be1');
+    assert.equal(next.get('tab'), 'chat');
   });
 
   it('exports storage key', () => {

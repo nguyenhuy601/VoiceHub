@@ -4,10 +4,12 @@ import {
     AtSign,
     Bell,
     Calendar,
+    ChevronLeft,
     ChevronsDown,
     ClipboardList,
     FileText,
     Hash,
+    PanelLeft,
     Image as ImageIcon,
     MessageSquare,
     Mic,
@@ -44,8 +46,20 @@ import { fetchChatMediaFile } from '../../utils/chatGifStickerSend';
 import { normalizeComposerFile } from '../../utils/composerAttachmentUtils';
 import { isHoursSoftWarning } from '../../utils/hoursSoftWarning';
 import { shouldPlaceToolbarBelowBubble } from '../../utils/messageToolbarPlacement';
-import { resolveScopedWorkspaceChannels } from '../../utils/orgChannelScope';
-import { channelNameToDisplaySlug, displayDepartmentName } from '../../utils/orgEntityDisplay';
+import {
+  resolveLineChatScope,
+  resolveScopedWorkspaceChannels,
+} from '../../utils/orgChannelScope';
+import {
+  CHAT_RAIL_BASE_W,
+  CHAT_RAIL_MAX_W,
+  CHAT_RAIL_MIN_W,
+} from '../../utils/orgWorkspaceLayoutPrefs';
+import {
+  channelNameToDisplaySlug,
+  displayDepartmentName,
+  resolveChannelHeaderDescription,
+} from '../../utils/orgEntityDisplay';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import ChatContextPicker from '../Chat/ChatContextPicker';
 import ChatContextPreview from '../Chat/ChatContextPreview';
@@ -208,6 +222,7 @@ function FigmaOrgChatComposer({
   canWriteInChannel,
   channelReadOnly,
   chSlug,
+  placeholder: placeholderOverride,
   fileInputRef,
   imageInputRef,
   messageInput,
@@ -229,13 +244,15 @@ function FigmaOrgChatComposer({
   const MAX_TEXTAREA_HEIGHT = 120;
   const disabled = !selectedChannelId || sendingMessage || channelReadOnly;
   const sendDisabled = disabled || (!String(messageInput || '').trim() && !hasContextCall);
-  const placeholder = channelReadOnly
-    ? t('orgPanel.composerReadOnlyHint')
-    : selectedChannelId
-      ? t('orgPanel.composerFigmaHint', {
-          ch: chSlug || t('organizations.channelNameFallback'),
-        })
-      : t('orgPanel.composerPlaceholder');
+  const placeholder =
+    placeholderOverride ||
+    (channelReadOnly
+      ? t('orgPanel.composerReadOnlyHint')
+      : selectedChannelId
+        ? t('orgPanel.composerFigmaHint', {
+            ch: chSlug || t('organizations.channelNameFallback'),
+          })
+        : t('orgPanel.composerPlaceholder'));
   const iconButton =
     'flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,transform] duration-150 hover:-translate-y-0.5 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0';
 
@@ -355,7 +372,7 @@ function FigmaOrgChatComposer({
   };
 
   return (
-    <div className="mr-auto w-full max-w-[920px]">
+    <div className="mr-auto w-full">
       {replyingToMessage ? (
         <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/60 px-3 py-2 text-sm text-foreground shadow-xs">
           <div className="min-w-0">
@@ -373,7 +390,7 @@ function FigmaOrgChatComposer({
         </div>
       ) : null}
 
-      <div className="relative overflow-visible rounded-[18px] border border-border bg-surface shadow-sm transition-[border-color,box-shadow] duration-150 focus-within:border-primary/35 focus-within:shadow-md">
+      <div className="relative overflow-visible rounded-2xl border border-border bg-surface shadow-sm transition-[border-color,box-shadow] duration-150 focus-within:border-primary/35 focus-within:shadow-md">
         {showMentionMenu && safeMentionItems.length > 0 ? (
           <div
             ref={mentionMenuRef}
@@ -413,8 +430,8 @@ function FigmaOrgChatComposer({
           </div>
         ) : null}
 
-        <div className="flex min-h-10 items-center justify-between gap-3 border-b border-border px-3 py-2">
-          <div className="flex items-center gap-1">
+        <div className="flex items-end gap-1 px-2 py-1.5 sm:px-2.5">
+          <div className="flex shrink-0 items-center gap-0.5 pb-0.5">
             <button
               type="button"
               title={t('orgPanel.menuUploadFile')}
@@ -451,7 +468,7 @@ function FigmaOrgChatComposer({
               aria-label={t('orgPanel.menuContextCall')}
               disabled={!canWriteInChannel}
               onClick={() => onOpenContextPicker?.()}
-              className={iconButton}
+              className={`${iconButton} hidden sm:flex`}
             >
               <ClipboardList size={17} aria-hidden />
             </button>
@@ -461,7 +478,7 @@ function FigmaOrgChatComposer({
               aria-label={t('orgPanel.menuPoll')}
               disabled={!canWriteInChannel}
               onClick={onCreatePoll}
-              className={iconButton}
+              className={`${iconButton} hidden sm:flex`}
             >
               <AlertCircle size={17} aria-hidden />
             </button>
@@ -471,7 +488,7 @@ function FigmaOrgChatComposer({
               aria-label={t('orgPanel.menuContact')}
               disabled={!canWriteInChannel}
               onClick={onCreateContactCard}
-              className={iconButton}
+              className={`${iconButton} hidden sm:flex`}
             >
               <Users size={17} aria-hidden />
             </button>
@@ -492,9 +509,6 @@ function FigmaOrgChatComposer({
             </button>
           </div>
 
-        </div>
-
-        <div className="flex items-end gap-3 px-4 py-3">
           <textarea
             ref={inputRef}
             value={messageInput}
@@ -503,7 +517,7 @@ function FigmaOrgChatComposer({
             disabled={disabled}
             rows={1}
             placeholder={placeholder}
-            className="max-h-[120px] min-h-[2.75rem] flex-1 resize-none bg-transparent py-2 text-[0.9375rem] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-70"
+            className="max-h-[120px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[0.9375rem] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-70"
           />
           <button
             type="button"
@@ -615,6 +629,14 @@ const OrganizationMainPanel = ({
   suiteLayout = false,
   suiteMode = null,
   departmentWorkspaceActive = false,
+  onBackFromTeam = null,
+  leftRailOpen = true,
+  leftRailWidth = CHAT_RAIL_BASE_W,
+  onLeftRailOpenChange,
+  onLeftRailWidthChange,
+  rightPanelOpen = false,
+  onRightPanelOpenChange,
+  isLgViewport = true,
   /** Docs: phòng + kênh user thuộc (lọc chat phòng ban + project files). */
   memberDepartmentIds = null,
   memberDepartmentChannelIds = null,
@@ -752,6 +774,8 @@ const OrganizationMainPanel = ({
   const LEFT_ASIDE_MIN_W = 100;
   const LEFT_ASIDE_MAX_W = LEFT_ASIDE_BASE_W + 100;
   const [leftAsideW, setLeftAsideW] = useState(LEFT_ASIDE_BASE_W);
+  const leftAsideWRef = useRef(leftAsideW);
+  leftAsideWRef.current = leftAsideW;
   const leftAsideResizeRef = useRef(null);
 
   useEffect(() => {
@@ -769,6 +793,7 @@ const OrganizationMainPanel = ({
       const st = leftAsideResizeRef.current;
       if (!st || !st.active) return;
       leftAsideResizeRef.current = null;
+      if (st.persistChatRail) onLeftRailWidthChange?.(leftAsideWRef.current);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -776,7 +801,16 @@ const OrganizationMainPanel = ({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, []);
+  }, [onLeftRailWidthChange]);
+
+  useEffect(() => {
+    if (!suiteLayout) return;
+    const next = Math.max(
+      CHAT_RAIL_MIN_W,
+      Math.min(CHAT_RAIL_MAX_W, Number(leftRailWidth) || CHAT_RAIL_BASE_W)
+    );
+    setLeftAsideW(next);
+  }, [suiteLayout, leftRailWidth]);
 
   const resolvedDepartmentId = String(
     selectedDepartment?._id || selectedDepartment?.id || selectedDepartmentId || ''
@@ -834,6 +868,11 @@ const OrganizationMainPanel = ({
     [...channels, ...projectChannels].find(
       (channel) => String(channel._id) === String(selectedChannelId)
     ) || null;
+  const lineChatScope = resolveLineChatScope({
+    departmentWorkspaceActive,
+    selectedTeamId,
+    channel: selectedChannel,
+  });
   const selectedChannelPerm = getChannelPerm(selectedChannelId);
   const canWriteInChannel = Boolean(selectedChannelPerm.canWrite);
   const channelReadOnly =
@@ -865,8 +904,7 @@ const OrganizationMainPanel = ({
     });
   };
   const isVoiceChannel = selectedChannel?.type === 'voice';
-  const isVoiceWorkspace =
-    !deptWorkspaceContext && (workspaceTab === 'voice' || isVoiceChannel);
+  const isVoiceWorkspace = workspaceTab === 'voice' || isVoiceChannel;
   const canUseVoiceChannel = (channel) => {
     if (!channel?._id) return false;
     if (!channelMatrixReady) return true;
@@ -1606,7 +1644,7 @@ const OrganizationMainPanel = ({
     return {
       ...ent,
       composerBar: suiteLayout
-        ? 'relative shrink-0 border-t border-border bg-background px-5 pb-4 pt-3'
+        ? 'relative shrink-0 border-t border-border bg-background px-4 pb-3 pt-2'
         : isDarkMode
           ? 'relative mt-auto shrink-0 rounded-b-xl border-t border-white/[0.06] bg-transparent px-4 pb-3 pt-2.5'
           : 'relative mt-auto shrink-0 rounded-b-xl border-t border-slate-200/80 bg-white px-4 pb-3 pt-2.5',
@@ -1955,6 +1993,27 @@ const OrganizationMainPanel = ({
   const chSlug = selectedChannel
     ? channelNameToDisplaySlug(selectedChannel.name || 'chat', locale)
     : '';
+  const channelNameFallback = t('organizations.channelNameFallback');
+  const lineChatComposerPlaceholder = channelReadOnly
+    ? t('orgPanel.composerReadOnlyHint')
+    : !selectedChannelId
+      ? t('orgPanel.composerPlaceholder')
+      : lineChatScope === 'dept'
+        ? t('orgPanel.composerDeptHint', { ch: chSlug || channelNameFallback })
+        : lineChatScope === 'team'
+          ? t('orgPanel.composerTeamHint', { ch: chSlug || channelNameFallback })
+          : t('orgPanel.composerFigmaHint', { ch: chSlug || channelNameFallback });
+  const lineChatEmptyCopy = !selectedChannelId
+    ? lineChatScope === 'dept'
+      ? t('orgPanel.emptyDeptNoChannel')
+      : lineChatScope === 'team'
+        ? t('orgPanel.emptyTeamNoChannel')
+        : t('orgPanel.emptyChannelMsgs')
+    : lineChatScope === 'dept'
+      ? t('orgPanel.emptyDeptChannelMsgs')
+      : lineChatScope === 'team'
+        ? t('orgPanel.emptyTeamChannelMsgs')
+        : t('orgPanel.emptyChannelMsgs');
   const activeVoiceSlug = activeVoiceChannel?.name
     ? channelNameToDisplaySlug(activeVoiceChannel.name, locale)
     : '';
@@ -1969,11 +2028,6 @@ const OrganizationMainPanel = ({
   const canManageScopedChannels = Boolean(
     canManageWorkspaceStructure && (selectedTeamId || deptWorkspaceContext)
   );
-  const teamInitial =
-    String(teamName && teamName !== '—' ? teamName : orgName)
-      .trim()
-      .slice(0, 2)
-      .toUpperCase() || 'VH';
   const moduleIconMap = {
     chat: Hash,
     announcement: MessageSquare,
@@ -2007,7 +2061,7 @@ const OrganizationMainPanel = ({
     moduleKind === 'chat' || moduleKind === 'announcement'
       ? `#${chSlug || (moduleKind === 'announcement' ? t('workspace.moduleAnnouncement') : t('organizations.channelNameFallback'))}`
       : moduleKind === 'voice'
-        ? activeVoiceSlug || 'Voice'
+        ? `#${activeVoiceSlug || 'voice'}`
         : moduleKind === 'tasks'
           ? t('nav.tasks.label')
           : moduleKind === 'documents'
@@ -2019,18 +2073,26 @@ const OrganizationMainPanel = ({
                 : moduleKind === 'meetings'
                   ? t('workspace.moduleMeetings')
                   : t('notifications.titleOrganization');
-  const moduleDescription =
-    moduleKind === 'chat' || moduleKind === 'announcement'
-      ? selectedChannel?.description ||
-        selectedChannel?.topic ||
-        (departmentWorkspaceActive && !selectedTeamId
-          ? t('workspace.deptTextChat')
-          : t('taskBoard.teamTextChat'))
+  const chatHeaderFallback =
+    departmentWorkspaceActive && !selectedTeamId
+      ? t('workspace.deptTextChat')
+      : t('taskBoard.teamTextChat');
+  const voiceHeaderFallback =
+    departmentWorkspaceActive && !selectedTeamId
+      ? t('workspace.deptVoiceContext')
       : selectedTeamId
         ? `${teamName} · ${orgName}`
-        : departmentWorkspaceActive && deptName !== '—'
-          ? `${deptName} · ${orgName}`
-          : orgName;
+        : orgName;
+  const moduleDescription =
+    moduleKind === 'chat' || moduleKind === 'announcement'
+      ? resolveChannelHeaderDescription(selectedChannel, chatHeaderFallback)
+      : moduleKind === 'voice'
+        ? resolveChannelHeaderDescription(selectedChannel, voiceHeaderFallback)
+        : selectedTeamId
+          ? `${teamName} · ${orgName}`
+          : departmentWorkspaceActive && deptName !== '—'
+            ? `${deptName} · ${orgName}`
+            : orgName;
   const railTone = isDarkMode
     ? {
         panel: 'border-white/10 bg-[#0b1120]/95 text-slate-100',
@@ -2096,66 +2158,30 @@ const OrganizationMainPanel = ({
       </div>
     );
   };
-  const suiteOrgModuleRail = suiteLayout ? (
-    <aside
-      className={`hidden h-full min-h-0 w-[min(280px,88vw)] shrink-0 flex-col overflow-hidden border-r lg:flex ${railTone.panel}`}
-    >
-      <div className="scrollbar-overlay flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
-        <div className={`rounded-2xl border p-4 ${railTone.card}`}>
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-cyan-400 text-sm font-black text-white shadow-lg shadow-primary/20">
-              {teamInitial}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-base font-bold">
-                {selectedTeamId
-                  ? teamName
-                  : selectedDepartment && deptName !== '—'
-                    ? deptName
-                    : orgName}
-              </p>
-              {selectedDepartment && !selectedTeamId && deptName !== '—' ? (
-                <p className={`mt-0.5 truncate text-xs ${railTone.muted}`}>
-                  {selectedChannel?.type === 'voice'
-                    ? t('workspace.deptVoiceContext')
-                    : t('workspace.deptChatContext')}
-                </p>
-              ) : (
-                <p className="mt-0.5 flex items-center gap-1 text-xs text-success">
-                  <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                  {t('orgPanel.onlineCount', { n: workspaceOnlineUserIds?.length || 0 })}
-                </p>
-              )}
-            </div>
-            {canInviteMembers ? (
-              <button
-                type="button"
-                onClick={() => selectedOrganization?._id && onInviteOrganization?.(selectedOrganization._id)}
-                className="rounded-lg border border-border bg-surface p-2 text-muted-foreground transition hover:border-primary/40 hover:text-primary"
-                title={t('taskBoard.inviteMembers')}
-              >
-                <Users size={15} />
-              </button>
-            ) : null}
-            {deptWorkspaceContext && canManageWorkspaceStructure && onOpenDepartmentSettings ? (
-              <button
-                type="button"
-                onClick={() => onOpenDepartmentSettings(selectedDepartment)}
-                className="rounded-lg border border-border bg-surface p-2 text-muted-foreground transition hover:border-primary/40 hover:text-primary"
-                title={t('orgPanel.departmentPermissionSettingsTitle')}
-              >
-                <Settings size={15} />
-              </button>
-            ) : null}
-          </div>
-          {selectedTeamId && selectedDepartment?.name ? (
-            <p className={`mt-3 truncate text-xs ${railTone.muted}`}>
-              {displayDepartmentName(selectedDepartment.name, locale)}
-            </p>
+  const suiteRailScopeTitle = selectedTeamId
+    ? teamName
+    : selectedDepartment && deptName !== '—'
+      ? deptName
+      : orgName;
+
+  const suiteRailInner = (
+    <>
+      <div className="scrollbar-overlay flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+        <div className="mb-3 flex items-center justify-between gap-2 px-1">
+          <p className="min-w-0 truncate text-sm font-semibold">{suiteRailScopeTitle}</p>
+          {deptWorkspaceContext && canManageWorkspaceStructure && onOpenDepartmentSettings ? (
+            <button
+              type="button"
+              onClick={() => onOpenDepartmentSettings(selectedDepartment)}
+              className="rounded-lg border border-border bg-surface p-1.5 text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+              title={t('orgPanel.departmentPermissionSettingsTitle')}
+            >
+              <Settings size={14} />
+            </button>
           ) : null}
         </div>
 
-        <div className="mt-4">
+        <div>
           <div className={`mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.12em] ${railTone.muted}`}>
             {deptWorkspaceContext
               ? t('workspace.moduleAnnouncement')
@@ -2184,10 +2210,9 @@ const OrganizationMainPanel = ({
           </div>
         </div>
 
-        {!deptWorkspaceContext ? (
         <div className="mt-5">
           <div className={`mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.12em] ${railTone.muted}`}>
-            Voice
+            {t('workspace.moduleMeetings')}
           </div>
           <div className="space-y-1.5">
             {railVoiceChannels.length ? (
@@ -2209,7 +2234,6 @@ const OrganizationMainPanel = ({
             ) : null}
           </div>
         </div>
-        ) : null}
       </div>
 
       {voiceConnVisible && voiceConnectionState !== 'idle' ? (
@@ -2227,25 +2251,90 @@ const OrganizationMainPanel = ({
         />
       ) : null}
 
-      <div className={`shrink-0 border-t border-border ${isDarkMode ? 'bg-[#0b1120]' : 'bg-white'}`}>
-        <OrganizationSidebarAudioBar
-          isDarkMode={isDarkMode}
-          t={t}
-          voiceUserId={orgVoiceUserId}
-          voiceInChannel={voiceConnVisible}
-          voiceAudioState={voiceAudioState}
-          onToggleMute={() => voiceControlActionsRef.current.toggleMute?.()}
-          onToggleSpeaker={() => voiceControlActionsRef.current.toggleSpeaker?.()}
-          onAudioPrefChange={handleOrgAudioPrefChange}
-          onOpenOrganizationSettings={() => onOpenOrganizationSettings?.(selectedOrganization)}
-          onOpenVoiceSettings={() => setOrgVoiceSettingsOpen(true)}
+      {voiceConnVisible ? (
+        <div className={`shrink-0 border-t border-border ${isDarkMode ? 'bg-[#0b1120]' : 'bg-white'}`}>
+          <OrganizationSidebarAudioBar
+            isDarkMode={isDarkMode}
+            t={t}
+            voiceUserId={orgVoiceUserId}
+            voiceInChannel={voiceConnVisible}
+            voiceAudioState={voiceAudioState}
+            onToggleMute={() => voiceControlActionsRef.current.toggleMute?.()}
+            onToggleSpeaker={() => voiceControlActionsRef.current.toggleSpeaker?.()}
+            onAudioPrefChange={handleOrgAudioPrefChange}
+            onOpenOrganizationSettings={() => onOpenOrganizationSettings?.(selectedOrganization)}
+            onOpenVoiceSettings={() => setOrgVoiceSettingsOpen(true)}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+
+  const startChatRailResize = (e) => {
+    if (e.button !== 0) return;
+    leftAsideResizeRef.current = {
+      active: true,
+      startX: e.clientX,
+      startW: leftAsideW,
+      minW: CHAT_RAIL_MIN_W,
+      maxW: CHAT_RAIL_MAX_W,
+      persistChatRail: true,
+    };
+    e.preventDefault();
+  };
+
+  const hideSuiteChatRail = workspaceTab === 'documents';
+  const suiteOrgModuleRail =
+    suiteLayout && leftRailOpen && isLgViewport && !hideSuiteChatRail ? (
+      <aside
+        className={`relative hidden h-full min-h-0 shrink-0 flex-col overflow-hidden border-r lg:flex ${railTone.panel}`}
+        style={{
+          width: leftAsideW,
+          minWidth: CHAT_RAIL_MIN_W,
+          maxWidth: CHAT_RAIL_MAX_W,
+        }}
+      >
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuenow={leftAsideW}
+          aria-valuemin={CHAT_RAIL_MIN_W}
+          aria-valuemax={CHAT_RAIL_MAX_W}
+          title={t('organizations.layoutResizeDblClickHint', {
+            min: CHAT_RAIL_MIN_W,
+            max: CHAT_RAIL_MAX_W,
+          })}
+          className="absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize touch-none hover:bg-primary/20"
+          onMouseDown={startChatRailResize}
+          onDoubleClick={() => {
+            setLeftAsideW(CHAT_RAIL_BASE_W);
+            onLeftRailWidthChange?.(CHAT_RAIL_BASE_W);
+          }}
         />
+        {suiteRailInner}
+      </aside>
+    ) : null;
+
+  const suiteOrgModuleRailDrawer =
+    suiteLayout && leftRailOpen && !isLgViewport && !hideSuiteChatRail ? (
+      <div className="fixed inset-0 z-[240] bg-black/40 lg:hidden" role="presentation">
+        <button
+          type="button"
+          className="absolute inset-0 h-full w-full cursor-default"
+          aria-label={t('nav.close')}
+          onClick={() => onLeftRailOpenChange?.(false)}
+        />
+        <aside
+          className={`relative z-[1] flex h-full w-[min(100vw,320px)] flex-col overflow-hidden border-r ${railTone.panel}`}
+        >
+          {suiteRailInner}
+        </aside>
       </div>
-    </aside>
-  ) : null;
+    ) : null;
 
   return (
     <>
+    {suiteOrgModuleRailDrawer}
     <div className={`${workspace.shell} h-full min-h-0 w-full max-w-full`}>
       <div
         className={
@@ -2392,7 +2481,7 @@ const OrganizationMainPanel = ({
             suiteLayout ? 'flex min-w-0 flex-1 flex-col bg-background/75 backdrop-blur-sm dark:bg-background/65' : workspace.main
           } h-full min-h-0 overflow-hidden ${isDarkMode && !suiteLayout && !useFigmaChannelHeader ? '!bg-transparent' : ''}`}
         >
-          {(
+          {workspaceTab !== 'documents' ? (
           <header
             className={
               suiteLayout
@@ -2402,6 +2491,17 @@ const OrganizationMainPanel = ({
           >
             {suiteLayout ? (
               <>
+                {typeof onBackFromTeam === 'function' && selectedTeamId ? (
+                  <button
+                    type="button"
+                    onClick={() => onBackFromTeam()}
+                    title={t('workspace.backToDepartments')}
+                    aria-label={t('workspace.backToDepartments')}
+                    className={FIGMA_ORG_CHANNEL_ICON_BTN}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                ) : null}
                 <ModuleHeaderIcon size={16} className="shrink-0 text-muted-foreground" />
                 <span className={FIGMA_ORG_CHANNEL_HEADER_TITLE}>
                   {moduleTitle}
@@ -2411,6 +2511,46 @@ const OrganizationMainPanel = ({
                   {moduleDescription}
                 </span>
                 <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    title={
+                      leftRailOpen
+                        ? t('organizations.hideChannelRail')
+                        : t('organizations.showChannelRail')
+                    }
+                    aria-label={
+                      leftRailOpen
+                        ? t('organizations.hideChannelRail')
+                        : t('organizations.showChannelRail')
+                    }
+                    onClick={() => onLeftRailOpenChange?.(!leftRailOpen)}
+                    className={`${FIGMA_ORG_CHANNEL_ICON_BTN} ${
+                      leftRailOpen ? 'bg-muted text-primary' : ''
+                    }`}
+                  >
+                    <PanelLeft size={14} />
+                  </button>
+                  {typeof onRightPanelOpenChange === 'function' ? (
+                    <button
+                      type="button"
+                      title={
+                        rightPanelOpen
+                          ? t('organizations.hideMemberDock')
+                          : t('organizations.showMemberDock')
+                      }
+                      aria-label={
+                        rightPanelOpen
+                          ? t('organizations.hideMemberDock')
+                          : t('organizations.showMemberDock')
+                      }
+                      onClick={() => onRightPanelOpenChange?.(!rightPanelOpen)}
+                      className={`${FIGMA_ORG_CHANNEL_ICON_BTN} ${
+                        rightPanelOpen ? 'bg-muted text-primary' : ''
+                      }`}
+                    >
+                      <Users size={14} />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     title={t('orgPanel.workspaceSearchAria')}
@@ -2503,7 +2643,7 @@ const OrganizationMainPanel = ({
             </div>
             )}
           </header>
-          )}
+          ) : null}
 
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <div
@@ -2511,14 +2651,15 @@ const OrganizationMainPanel = ({
             className={
               (isChatLikeTab && !isVoiceChannel) ||
               isVoiceChannel ||
-              workspaceTab === 'tasks'
+              workspaceTab === 'tasks' || workspaceTab === 'documents'
                 ? 'min-h-0 flex-1 overflow-hidden'
                 : 'scrollbar-chat min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain'
             }
             onScroll={
               (isChatLikeTab && !isVoiceChannel) ||
               isVoiceChannel ||
-              workspaceTab === 'tasks'
+              workspaceTab === 'tasks' ||
+              workspaceTab === 'documents'
                 ? undefined
                 : handleChatScroll
             }
@@ -2531,10 +2672,16 @@ const OrganizationMainPanel = ({
                 onReload={onWorkspaceDocumentsReload}
                 isDarkMode={isDarkMode}
                 onOpenInWorkspace={onOpenDocumentInWorkspace}
-                scopeHint={t('workspace.deptDocsScopeHint')}
-                departmentId={deptWorkspaceContext ? resolvedDepartmentId : ''}
+                organizationId={organizationId ? String(organizationId) : ''}
+                departmentId={deptWorkspaceContext || selectedTeamId ? resolvedDepartmentId : ''}
+                teamId={selectedTeamId ? String(selectedTeamId) : ''}
                 departmentChannelIds={
-                  deptWorkspaceContext
+                  deptWorkspaceContext && !selectedTeamId
+                    ? scopedChannels.map((ch) => String(ch._id || ch.id || '')).filter(Boolean)
+                    : null
+                }
+                teamChannelIds={
+                  selectedTeamId
                     ? scopedChannels.map((ch) => String(ch._id || ch.id || '')).filter(Boolean)
                     : null
                 }
@@ -2577,6 +2724,7 @@ const OrganizationMainPanel = ({
                     organizationId={organizationId ? String(organizationId) : ''}
                     channelLabel={selectedChannel?.name || ''}
                     isDarkMode={isDarkMode}
+                    compactSuite={suiteLayout}
                     canVoice={canVoiceChannel}
                     micDeviceId={orgMicId}
                     speakerDeviceId={orgSpeakerId}
@@ -2651,7 +2799,7 @@ const OrganizationMainPanel = ({
                     isDarkMode ? 'bg-white/5 text-gray-300' : 'bg-white/80 text-slate-600 shadow-sm'
                   }`}
                 >
-                  {t('orgPanel.emptyChannelMsgs')}
+                  {lineChatEmptyCopy}
                 </div>
               )}
 
@@ -3050,6 +3198,7 @@ const OrganizationMainPanel = ({
                   canWriteInChannel={canWriteInChannel}
                   channelReadOnly={channelReadOnly}
                   chSlug={chSlug}
+                  placeholder={lineChatComposerPlaceholder}
                   fileInputRef={fileInputRef}
                   imageInputRef={imageInputRef}
                   messageInput={messageInput}
@@ -3125,15 +3274,7 @@ const OrganizationMainPanel = ({
                 value={messageInput}
                 onChange={onChangeMessageInput}
                 onSend={handleComposerSend}
-                placeholder={
-                  channelReadOnly
-                    ? t('orgPanel.composerReadOnlyHint')
-                    : selectedChannelId
-                      ? t('orgPanel.composerHint', {
-                          ch: chSlug || t('organizations.channelNameFallback'),
-                        })
-                      : t('orgPanel.composerPlaceholder')
-                }
+                placeholder={lineChatComposerPlaceholder}
                 disabled={!selectedChannelId || sendingMessage || channelReadOnly}
                 sendDisabled={
                   (!messageInput.trim() &&
