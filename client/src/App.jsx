@@ -7,7 +7,6 @@ import CommunicateSidebar from './components/Layout/CommunicateSidebar';
 import CompanySuiteLayout from './components/Layout/CompanySuiteLayout';
 import ProjectsSidebar from './components/Layout/ProjectsSidebar';
 import AdminShellLayout from './components/Layout/AdminShellLayout';
-import ProfileSidebar from './components/Layout/ProfileSidebar';
 import SuiteRootRedirect from './components/Layout/SuiteRootRedirect';
 import LegacyWorkspaceRedirect from './components/Layout/LegacyWorkspaceRedirect';
 import LegacyPathRedirect from './components/Layout/LegacyPathRedirect';
@@ -229,7 +228,7 @@ function App() {
           path="/app/me"
           element={
             <Protected>
-              <SuiteShellLayout sidebar={<ProfileSidebar />} />
+              <SuiteShellLayout sidebar={<CommunicateSidebar />} />
             </Protected>
           }
         >

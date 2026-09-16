@@ -98,8 +98,6 @@ export function getCompanyNavItems(opts = {}) {
     { key: 'home', labelKey: 'nav.companyHome', path: '/app/company/home', group: null },
     { key: 'chat', labelKey: 'nav.messages', path: '/app/company/chat', group: null },
     { key: 'documents', labelKey: 'nav.documents', path: '/app/company/documents', group: null },
-    { key: 'calendar', labelKey: 'nav.calendar', path: '/app/company/calendar', group: null },
-    { key: 'approvals', labelKey: 'nav.approvals', path: '/app/company/approvals', group: null },
   ];
 }
 

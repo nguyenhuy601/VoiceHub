@@ -44,8 +44,11 @@ export const SUITE_DEFAULT_PATH = {
 export function normalizeSuite(value) {
   const raw = String(value || '').trim().toUpperCase();
   if (raw === 'COLLABORATE') return SUITE.COMPANY;
-  if (Object.values(SUITE).includes(raw) && raw !== 'COLLABORATE') return raw;
+  // Suite Cá nhân đã ẩn — hồ sơ/tổng quan mở qua avatar, chrome = Communicate.
+  if (raw === 'ME') return SUITE.COMMUNICATE;
+  if (Object.values(SUITE).includes(raw) && raw !== 'COLLABORATE' && raw !== 'ME') return raw;
   const fromSegment = SEGMENT_TO_SUITE[String(value || '').trim().toLowerCase()];
+  if (fromSegment === SUITE.ME) return SUITE.COMMUNICATE;
   return fromSegment || SUITE.COMMUNICATE;
 }
 
@@ -92,7 +95,7 @@ export function detectSuiteFromPath(pathname) {
   if (path.startsWith('/app/company')) return SUITE.COMPANY;
   if (path.startsWith('/app/projects')) return SUITE.PROJECTS;
   if (path.startsWith('/app/collaborate')) return SUITE.COMPANY;
-  if (path.startsWith('/app/me')) return SUITE.ME;
+  if (path.startsWith('/app/me')) return SUITE.COMMUNICATE;
   return null;
 }
 
@@ -201,6 +204,16 @@ export function buildCompanyChatPath(orgId = '', query = {}) {
 export function isCompanyChatModulePath(pathname = '') {
   const p = String(pathname || '').split('?')[0].replace(/\/+$/, '') || '';
   return p === '/app/company/chat';
+}
+
+/** True when pathname is the company suite documents module. */
+export function isCompanyDocumentsModulePath(pathname = '') {
+  const p = String(pathname || '').split('?')[0].replace(/\/+$/, '') || '';
+  return p === '/app/company/documents';
+}
+
+export function isImmersiveCompanyModulePath(pathname = '') {
+  return isCompanyChatModulePath(pathname) || isCompanyDocumentsModulePath(pathname);
 }
 
 export function buildCompanyDocumentsPath(orgId = '', query = {}) {

@@ -144,7 +144,7 @@ export const FIGMA_ORG_CHANNEL_HEADER =
 export const FIGMA_ORG_CHANNEL_HEADER_TITLE = 'truncate text-[0.875rem] font-bold text-foreground';
 
 export const FIGMA_ORG_CHANNEL_HEADER_DESC =
-  'min-w-0 flex-1 truncate text-[0.75rem] text-muted-foreground';
+  'min-w-0 flex-1 truncate text-[0.75rem] tracking-normal text-muted-foreground';
 
 export const FIGMA_ORG_CHANNEL_ICON_BTN =
   'flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-primary';

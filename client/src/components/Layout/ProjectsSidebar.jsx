@@ -246,8 +246,8 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   }, [postItems, t]);
 
   const allowedSuites = useMemo(() => {
-    const base = ['communicate', 'company', 'projects', 'me'];
-    if (showAdminSuite) return ['communicate', 'company', 'projects', 'admin', 'me'];
+    const base = ['communicate', 'company', 'projects'];
+    if (showAdminSuite) return ['communicate', 'company', 'projects', 'admin'];
     return base;
   }, [showAdminSuite]);
 

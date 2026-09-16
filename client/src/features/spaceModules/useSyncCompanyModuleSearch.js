@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSpace, SPACE_KIND } from '../../context/SpaceContext';
-import { buildCompanyModuleSearch } from '../../utils/companySpaceLevel';
+import {
+  buildCompanyModuleSearch,
+  preferUrlTeamIdWhenAhead,
+  preserveCompanyTeamIdOnModuleSearch,
+} from '../../utils/companySpaceLevel';
 
 /**
  * Keep URL query aligned with SpaceContext for OrganizationsPage hydrate.
@@ -17,7 +21,14 @@ export function useSyncCompanyModuleSearch(module) {
     const deptId = String(space?.departmentId || '').trim();
     if (!deptId) return;
 
-    const desired = buildCompanyModuleSearch(space, module);
+    const desired = preferUrlTeamIdWhenAhead(
+      preserveCompanyTeamIdOnModuleSearch(
+        buildCompanyModuleSearch(space, module),
+        searchParams,
+        module
+      ),
+      searchParams
+    );
     const desiredKey = desired.toString();
     const syncKey = `${module}|${desiredKey}`;
     if (lastSyncedRef.current === syncKey) {

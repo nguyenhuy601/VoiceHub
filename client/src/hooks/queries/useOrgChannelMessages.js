@@ -5,6 +5,30 @@ import api from '../../services/api';
 import { queryKeys } from '../../lib/queryKeys';
 import { STALE_TIME_FRIENDS_MS } from '../../lib/queryClient';
 import { parseMessageListPage } from '../../lib/parseMessageListPage';
+import {
+  removeOrgChannelMessageFromInfiniteData,
+  upsertOrgChannelMessageInInfiniteData,
+} from '../../utils/orgChannelMessageCache';
+
+function orgChannelMessagesQueryKey(roomId, organizationId) {
+  return queryKeys.org.channelMessages(String(roomId || ''), String(organizationId || ''));
+}
+
+export function upsertOrgChannelMessageCache(queryClient, roomId, organizationId, message) {
+  const rid = String(roomId || '').trim();
+  if (!queryClient || !rid || !message) return;
+  queryClient.setQueryData(orgChannelMessagesQueryKey(rid, organizationId), (prev) =>
+    upsertOrgChannelMessageInInfiniteData(prev, message)
+  );
+}
+
+export function removeOrgChannelMessageCache(queryClient, roomId, organizationId, messageId) {
+  const rid = String(roomId || '').trim();
+  if (!queryClient || !rid || !messageId) return;
+  queryClient.setQueryData(orgChannelMessagesQueryKey(rid, organizationId), (prev) =>
+    removeOrgChannelMessageFromInfiniteData(prev, messageId)
+  );
+}
 
 const ORG_MSG_PAGE_SIZE = 50;
 
