@@ -663,6 +663,63 @@ async function setUserProjectRoles({
   assertResolvedProjectRoleKeys(keys, roles);
   const roleIds = new Set(roles.map((r) => String(r._id)));
 
+  /** RULE-14 — delivery roles trước Plan Baseline */
+  let rule14Warning = null;
+  if (!assumeNewMember && !skipEnsureRoles) {
+    try {
+      const {
+        evaluateMemberAddBeforePlanBaseline,
+        normalizeMemberAddMode,
+      } = require('../utils/planning/memberAddBeforePlanBaseline');
+      const GovernanceSettings = require('../models/GovernanceSettings');
+      const PlanningBaseline = require('../models/PlanningBaseline');
+      const PlanningArtifact = require('../models/PlanningArtifact');
+      const gov = await GovernanceSettings.findOne({ organizationId: orgId })
+        .select('memberAddBeforePlanBaseline')
+        .lean();
+      const mode = normalizeMemberAddMode(gov?.memberAddBeforePlanBaseline);
+      const [baselineExists, resourceApproved] = await Promise.all([
+        PlanningBaseline.exists({ projectId: pid, isActive: true }),
+        PlanningArtifact.exists({
+          projectId: pid,
+          kind: 'RESOURCE',
+          status: 'approved',
+          isActive: true,
+        }),
+      ]);
+      const gate = evaluateMemberAddBeforePlanBaseline({
+        mode,
+        roleKeys: resolvedKeys,
+        planningBaselineExists: Boolean(baselineExists),
+        resourceApproved: Boolean(resourceApproved),
+      });
+      if (!gate.allowed && gate.error) throw gate.error;
+      if (gate.warning) {
+        rule14Warning = gate.warning;
+        try {
+          const auditService = require('./audit.service');
+          await auditService.recordAudit({
+            organizationId: orgId,
+            actorUserId: addedBy || userId,
+            action: 'project.members.plan_baseline_warn',
+            resourceType: 'project_member',
+            resourceId: `${pid}:${userId}`,
+            meta: {
+              projectId: String(pid),
+              deliveryKeys: gate.deliveryKeys,
+              mode: gate.mode,
+            },
+          });
+        } catch {
+          /* best-effort */
+        }
+      }
+    } catch (e) {
+      if (e && e.errorCode === 'PLAN_BASELINE_REQUIRED') throw e;
+      /* soft-fail other errors — không chặn add member nếu gov lookup lỗi */
+    }
+  }
+
   await ProjectMembership.deleteMany({
     projectId: pid,
     userId,
@@ -788,6 +845,7 @@ async function setUserProjectRoles({
     roles: roleRows,
     resource,
     allocationStatus: resource?.allocationStatus || 'ok',
+    warnings: rule14Warning ? [rule14Warning] : [],
   };
 }
 

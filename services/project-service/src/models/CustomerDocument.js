@@ -39,11 +39,15 @@ const customerDocumentSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true, index: true },
     deletedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
     deletedAt: { type: Date, default: null },
+    deletedReason: { type: String, trim: true, default: '', maxlength: 64 },
+    deletedBatchId: { type: String, trim: true, default: '', maxlength: 128 },
+    contentHash: { type: String, trim: true, default: '', maxlength: 64 },
   },
   { timestamps: true }
 );
 
 customerDocumentSchema.index({ projectId: 1, createdAt: -1 });
 customerDocumentSchema.index({ projectId: 1, importSetId: 1, isActive: 1 });
+customerDocumentSchema.index({ projectId: 1, docClass: 1, isActive: 1 });
 
 module.exports = mongoose.model('CustomerDocument', customerDocumentSchema);

@@ -83,6 +83,22 @@ async function transitionArtifact(req, res) {
   }
 }
 
+async function bulkTransitionArtifacts(req, res) {
+  try {
+    const data = await deliveryPlanningService.bulkTransitionArtifacts({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      fromStatus: req.body?.fromStatus,
+      toStatus: req.body?.toStatus || req.body?.status,
+      note: req.body?.note,
+      kind: req.body?.kind || req.query?.kind,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
 async function listBaselines(req, res) {
   try {
     const data = await deliveryPlanningService.listBaselines({
@@ -133,6 +149,61 @@ async function suggest(req, res) {
   }
 }
 
+async function confirmSuggestions(req, res) {
+  try {
+    const data = await deliveryPlanningService.confirmSuggestions({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      suggestions: req.body?.suggestions || [],
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function forkArtifact(req, res) {
+  try {
+    const data = await deliveryPlanningService.forkArtifactVersion({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      artifactId: req.params.artifactId,
+      note: req.body?.note,
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function bulkDump(req, res) {
+  try {
+    const data = await deliveryPlanningService.bulkDumpArtifacts({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      body: req.body || {},
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function dumpTemplate(req, res) {
+  try {
+    const { buildPlanningDumpTemplateBuffer } = require('../utils/planning/planningDumpParse');
+    const buf = buildPlanningDumpTemplateBuffer();
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="planning-dump-template.xlsx"');
+    return res.send(buf);
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
 async function publishWbs(req, res) {
   try {
     const data = await deliveryPlanningService.publishWbsToDevelopment({
@@ -151,9 +222,14 @@ module.exports = {
   createArtifact,
   updateArtifact,
   transitionArtifact,
+  bulkTransitionArtifacts,
   listBaselines,
   cutBaseline,
   getSummary,
   suggest,
+  confirmSuggestions,
+  forkArtifact,
+  bulkDump,
+  dumpTemplate,
   publishWbs,
 };

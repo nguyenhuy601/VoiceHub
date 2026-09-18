@@ -84,6 +84,10 @@ const analysisArtifactSchema = new mongoose.Schema(
     contentHash: { type: String, trim: true, default: '', maxlength: 64 },
     rejectionReason: { type: String, trim: true, default: '', maxlength: 2000 },
     isActive: { type: Boolean, default: true, index: true },
+    deletedAt: { type: Date, default: null },
+    deletedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+    deletedReason: { type: String, trim: true, default: '', maxlength: 64 },
+    deletedBatchId: { type: String, trim: true, default: '', maxlength: 128 },
   },
   { timestamps: true }
 );

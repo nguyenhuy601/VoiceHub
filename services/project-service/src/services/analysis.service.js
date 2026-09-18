@@ -20,6 +20,12 @@ const {
 const { assertUserProjectPermission, assertUserAnyProjectPermission } =
   require('./projectAccess.service');
 const { clampOverviewForPack } = require('../utils/requirement/requirementOverviewClamp');
+const {
+  isPhase1SetGateEnabled,
+} = require('../constants/analysisImportSet');
+const {
+  resolveArtifactDraftUpdate,
+} = require('../constants/analysisArtifactFieldCatalog');
 
 function hashContent(parts) {
   return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 40);
@@ -226,6 +232,7 @@ async function updateArtifactDraft({ userId, projectId, artifactId, body = {} })
   if (!['draft', 'rejected'].includes(doc.status)) {
     const err = new Error('Chỉ sửa được artifact draft/rejected');
     err.statusCode = 400;
+    err.errorCode = 'STATUS_NOT_EDITABLE';
     throw err;
   }
   assertCanAuthorKind({
@@ -233,13 +240,30 @@ async function updateArtifactDraft({ userId, projectId, artifactId, body = {} })
     kind: doc.kind,
     isBypass: bypass,
   });
-  if (body.title !== undefined) doc.title = String(body.title || '').trim().slice(0, 240);
-  if (body.summary !== undefined) doc.summary = String(body.summary || '').trim().slice(0, 2000);
-  if (body.body !== undefined) doc.body = String(body.body || '').trim().slice(0, 20000);
-  if (body.structured !== undefined && typeof body.structured === 'object') {
-    doc.structured = body.structured;
+
+  /** Wave 2 — whitelist field theo catalog (FR/UC); kind khác giữ legacy. */
+  const resolvedUpdate = resolveArtifactDraftUpdate({
+    kind: doc.kind,
+    status: doc.status,
+    body,
+    existingStructured: doc.structured && typeof doc.structured === 'object' ? doc.structured : {},
+    strictUnknown: false,
+  });
+
+  if (resolvedUpdate.top?.title !== undefined) {
+    doc.title = String(resolvedUpdate.top.title || '').trim().slice(0, 240);
   }
-  if (doc.status === 'rejected' && body.reopen === true) {
+  if (resolvedUpdate.top?.summary !== undefined) {
+    doc.summary = String(resolvedUpdate.top.summary || '').trim().slice(0, 2000);
+  }
+  if (resolvedUpdate.top?.body !== undefined) {
+    doc.body = String(resolvedUpdate.top.body || '').trim().slice(0, 20000);
+  }
+  if (resolvedUpdate.structured !== undefined) {
+    doc.structured = resolvedUpdate.structured;
+    doc.markModified('structured');
+  }
+  if (doc.status === 'rejected' && resolvedUpdate.reopen === true) {
     doc.status = 'draft';
     doc.rejectionReason = '';
   }
@@ -483,6 +507,11 @@ async function computeGapReport({ userId, projectId }) {
     requiredKinds,
   });
 
+  const { constraints, assumptions } = await collectConstraintsAssumptions({
+    projectId,
+    artifacts,
+  });
+
   return {
     counts: {
       BG: bgs.length,
@@ -519,6 +548,190 @@ async function computeGapReport({ userId, projectId }) {
     },
     srsBaselineExists,
     planningBaselineExists,
+    constraints,
+    assumptions,
+  };
+}
+
+const CONSTRAINTS_ASSUMPTIONS_CAP = 100;
+
+/** RULE-10 read-model: pack + NFR Constraint + structured fields (cap 100). */
+async function collectConstraintsAssumptions({ projectId, artifacts }) {
+  const constraints = [];
+  const assumptions = [];
+  try {
+    const AnalysisImportSet = require('../models/AnalysisImportSet');
+    const RequirementPack = require('../models/RequirementPack');
+    const active = await AnalysisImportSet.findOne({ projectId, status: 'active' })
+      .select('packId')
+      .lean();
+    if (active?.packId) {
+      const pack = await RequirementPack.findById(active.packId)
+        .select('constraints assumptions')
+        .lean();
+      for (const c of pack?.constraints || []) {
+        if (constraints.length >= CONSTRAINTS_ASSUMPTIONS_CAP) break;
+        const text = String(c?.description || '').trim();
+        if (!text) continue;
+        constraints.push({
+          source: 'pack',
+          text: text.slice(0, 500),
+          externalKey: String(c?.type || '').trim().slice(0, 64),
+        });
+      }
+      for (const a of pack?.assumptions || []) {
+        if (assumptions.length >= CONSTRAINTS_ASSUMPTIONS_CAP) break;
+        const text = String(a?.assumption || '').trim();
+        if (!text) continue;
+        assumptions.push({
+          source: 'pack',
+          text: text.slice(0, 500),
+          impactIfInvalid: String(a?.impactIfInvalid || '').trim().slice(0, 300),
+          externalKey: String(a?.externalId || '').trim().slice(0, 64),
+        });
+      }
+    }
+  } catch {
+    /* pack optional */
+  }
+
+  for (const art of artifacts || []) {
+    if (constraints.length < CONSTRAINTS_ASSUMPTIONS_CAP) {
+      const cat = String(art.structured?.category || '').trim().toLowerCase();
+      const constraintText = String(art.structured?.constraint || '').trim();
+      if (art.kind === 'NFR' && (cat === 'constraint' || constraintText)) {
+        constraints.push({
+          source: 'nfr',
+          text: (constraintText || String(art.title || '')).slice(0, 500),
+          externalKey: String(art.externalKey || '').slice(0, 64),
+        });
+      } else if (constraintText) {
+        constraints.push({
+          source: 'artifact',
+          text: constraintText.slice(0, 500),
+          externalKey: String(art.externalKey || '').slice(0, 64),
+        });
+      }
+    }
+    if (assumptions.length < CONSTRAINTS_ASSUMPTIONS_CAP) {
+      const assumptionText = String(art.structured?.assumption || '').trim();
+      if (assumptionText) {
+        assumptions.push({
+          source: 'artifact',
+          text: assumptionText.slice(0, 500),
+          impactIfInvalid: String(art.structured?.impactIfInvalid || '').trim().slice(0, 300),
+          externalKey: String(art.externalKey || '').slice(0, 64),
+        });
+      }
+    }
+  }
+
+  return {
+    constraints: constraints.slice(0, CONSTRAINTS_ASSUMPTIONS_CAP),
+    assumptions: assumptions.slice(0, CONSTRAINTS_ASSUMPTIONS_CAP),
+  };
+}
+
+/**
+ * One lifecycle step for ≤500 active artifacts in fromStatus.
+ * Permission checked once; updateMany (no N+1 save). Four-eyes skips self BA→Tech.
+ */
+async function bulkTransitionArtifacts({
+  userId,
+  projectId,
+  fromStatus,
+  toStatus,
+  note = '',
+}) {
+  await assertProjectMemberAccess({ userId, projectId });
+  const from = String(fromStatus || '')
+    .trim()
+    .toLowerCase();
+  const to = String(toStatus || '')
+    .trim()
+    .toLowerCase();
+  if (!canTransitionArtifactStatus(from, to)) {
+    const err = new Error(`Không bulk chuyển được ${from} → ${to}`);
+    err.statusCode = 400;
+    err.errorCode = 'ARTIFACT_TRANSITION_DENIED';
+    throw err;
+  }
+
+  const perm = permissionForArtifactTransition(from, to);
+  const { resolveUserProjectPermissions } = require('./projectAccess.service');
+  const resolved = await resolveUserProjectPermissions({ userId, projectId });
+  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  if (!bypass && perm) {
+    await assertAnalysisPerm({ userId, projectId, permission: perm });
+  }
+
+  const gateNote = String(note || '').trim().slice(0, 1000);
+  const stamp = { userId, at: new Date(), note: gateNote };
+  const filter = { projectId, isActive: true, status: from };
+  let skippedFourEyes = 0;
+
+  // Four-eyes: BA cannot promote own artifact to tech_review
+  if (from === 'ba_review' && to === 'tech_review' && !bypass) {
+    const ownCount = await AnalysisArtifact.countDocuments({
+      ...filter,
+      createdBy: userId,
+    });
+    skippedFourEyes = ownCount;
+    filter.createdBy = { $ne: userId };
+  }
+
+  const candidateCount = await AnalysisArtifact.countDocuments({
+    projectId,
+    isActive: true,
+    status: from,
+  });
+
+  const $set = {
+    status: to,
+    updatedBy: userId,
+    updatedAt: new Date(),
+  };
+  if (from === 'ba_review' && (to === 'tech_review' || to === 'rejected')) {
+    $set['review.ba'] = stamp;
+  }
+  if (from === 'tech_review' && (to === 'po_review' || to === 'rejected')) {
+    $set['review.tech'] = stamp;
+  }
+  if (from === 'po_review' && (to === 'approved' || to === 'rejected')) {
+    $set['review.po'] = stamp;
+  }
+  if (to === 'rejected' && gateNote) {
+    $set.rejectionReason = gateNote;
+  }
+
+  // Cap via ids to avoid unbounded write
+  const ids = await AnalysisArtifact.find(filter).select('_id').limit(500).lean();
+  const idList = ids.map((r) => r._id);
+  let updated = 0;
+  if (idList.length) {
+    const res = await AnalysisArtifact.updateMany(
+      { _id: { $in: idList }, projectId, isActive: true, status: from },
+      { $set }
+    );
+    updated = res.modifiedCount || 0;
+  }
+
+  return {
+    fromStatus: from,
+    toStatus: to,
+    candidateCount,
+    updated,
+    skipped: Math.max(0, candidateCount - updated),
+    skippedReasons:
+      skippedFourEyes > 0
+        ? [
+            {
+              errorCode: 'ARTIFACT_FOUR_EYES',
+              message: `Bỏ qua ${skippedFourEyes} artifact do four-eyes (author = actor)`,
+            },
+          ]
+        : [],
+    truncated: idList.length >= 500,
   };
 }
 
@@ -603,16 +816,21 @@ async function seedArtifactsFromRequirementPack({
   const packId = pack._id;
   let seeded = 0;
 
+  const existingRows = await AnalysisArtifact.find({
+    projectId,
+    isActive: true,
+    version: 1,
+  })
+    .select('kind externalKey')
+    .lean();
+  const existingKeys = new Set(existingRows.map((a) => `${a.kind}::${a.externalKey}`));
+  const pendingCreates = [];
+
   const upsert = async (payload) => {
-    const existing = await AnalysisArtifact.findOne({
-      projectId,
-      kind: payload.kind,
-      externalKey: payload.externalKey,
-      version: 1,
-      isActive: true,
-    }).lean();
-    if (existing) return;
-    await AnalysisArtifact.create({
+    const key = `${payload.kind}::${payload.externalKey}`;
+    if (existingKeys.has(key)) return;
+    existingKeys.add(key);
+    pendingCreates.push({
       organizationId: orgId,
       projectId,
       ...payload,
@@ -624,6 +842,8 @@ async function seedArtifactsFromRequirementPack({
       createdBy: userId,
       updatedBy: userId,
       contentHash: hashContent(payload),
+      isActive: true,
+      version: 1,
     });
     seeded += 1;
   };
@@ -896,26 +1116,49 @@ async function seedArtifactsFromRequirementPack({
   }
 
   // Seed UC→FR implements and BR→BG derives when keys exist
+  if (pendingCreates.length) {
+    const BATCH = 150;
+    for (let i = 0; i < pendingCreates.length; i += BATCH) {
+      const chunk = pendingCreates.slice(i, i + BATCH);
+      try {
+        await AnalysisArtifact.insertMany(chunk, { ordered: false });
+      } catch (e) {
+        // Duplicate key from concurrent seed — ignore; other errors rethrow.
+        if (!(e && (e.code === 11000 || e.writeErrors || e.name === 'MongoBulkWriteError'))) {
+          throw e;
+        }
+      }
+    }
+  }
+
   const allArts = await AnalysisArtifact.find({ projectId, isActive: true }).lean();
   const artByKey = new Map(allArts.map((a) => [String(a.externalKey), a]));
   let linksSeeded = 0;
-  const ensureLink = async (fromKey, toKey, linkType) => {
+  const existingLinks = await ArtifactTraceLink.find({ projectId, isActive: true })
+    .select('fromArtifactId toArtifactId linkType')
+    .lean();
+  const existingLinkKeys = new Set(
+    existingLinks.map(
+      (l) => `${String(l.fromArtifactId)}::${String(l.toArtifactId)}::${l.linkType}`
+    )
+  );
+  const pendingLinks = [];
+  const queueLink = (fromKey, toKey, linkType) => {
     const from = artByKey.get(String(fromKey));
     const to = artByKey.get(String(toKey));
     if (!from || !to) return;
-    try {
-      await ArtifactTraceLink.create({
-        organizationId: orgId,
-        projectId,
-        fromArtifactId: from._id,
-        toArtifactId: to._id,
-        linkType,
-        createdBy: userId,
-      });
-      linksSeeded += 1;
-    } catch (e) {
-      if (!(e && e.code === 11000)) throw e;
-    }
+    const key = `${String(from._id)}::${String(to._id)}::${linkType}`;
+    if (existingLinkKeys.has(key)) return;
+    existingLinkKeys.add(key);
+    pendingLinks.push({
+      organizationId: orgId,
+      projectId,
+      fromArtifactId: from._id,
+      toArtifactId: to._id,
+      linkType,
+      createdBy: userId,
+      isActive: true,
+    });
   };
   for (const uc of useCases) {
     const ucKey = String(uc.externalId || '').trim();
@@ -926,13 +1169,24 @@ async function seedArtifactsFromRequirementPack({
           .map((s) => s.trim())
           .filter(Boolean);
     for (const frKey of frKeys) {
-      await ensureLink(ucKey, frKey, 'implements');
+      queueLink(ucKey, frKey, 'implements');
     }
   }
   for (const br of businessRules) {
     const brKey = String(br.externalId || '').trim();
     const bgKey = String(br.relatedBg || '').trim();
-    if (brKey && bgKey) await ensureLink(brKey, bgKey, 'derives');
+    if (brKey && bgKey) queueLink(brKey, bgKey, 'derives');
+  }
+  if (pendingLinks.length) {
+    try {
+      const inserted = await ArtifactTraceLink.insertMany(pendingLinks, { ordered: false });
+      linksSeeded = inserted.length;
+    } catch (e) {
+      if (!(e && (e.code === 11000 || e.writeErrors || e.name === 'MongoBulkWriteError'))) {
+        throw e;
+      }
+      linksSeeded = pendingLinks.length;
+    }
   }
 
   return { seeded, linksSeeded };
@@ -949,10 +1203,13 @@ async function advanceToPhase2({
   mode = 'manual',
   packId = null,
   methodology = null,
-  importWorkItems = true,
-  applyAssignees = true,
+  /** RULE-21 — default off; seed chính từ PlanningBaseline + publish-wbs */
+  importWorkItems = false,
+  applyAssignees = false,
   skipReadyGate = false,
   publishWbs = true,
+  /** Explicit override khi wizard create-project mới (không có Phase1 plan path) */
+  forcePackImport = false,
 }) {
   const projectDoc = await Project.findById(projectId);
   if (!projectDoc || projectDoc.isActive === false) {
@@ -1014,7 +1271,11 @@ async function advanceToPhase2({
       projectId,
       pack: pack.toObject(),
     });
-    if (importWorkItems) {
+    // RULE-21: nếu đã có Planning Baseline thì không seed work từ pack trừ forcePackImport
+    const hasPlanBaseline = Boolean(gaps.planningBaselineExists);
+    const allowPackImport =
+      Boolean(forcePackImport) || (Boolean(importWorkItems) && !hasPlanBaseline);
+    if (allowPackImport) {
       const TaskBoard = require('../models/TaskBoard');
       const board = await TaskBoard.findOne({ projectId, isActive: true }).lean();
       const { importRequirementPackWorkItems } = require('./requirementPackWorkImport.service');
@@ -1027,6 +1288,12 @@ async function advanceToPhase2({
         leafAssignments: [],
         applyAssignees: Boolean(applyAssignees),
       });
+    } else if (importWorkItems && hasPlanBaseline) {
+      importStats = {
+        skipped: true,
+        reason: 'PLANNING_BASELINE_SEED_PATH',
+        message: 'Đã có Planning Baseline — seed Board qua publish-wbs, không import từ pack',
+      };
     }
   }
 
@@ -1057,6 +1324,23 @@ async function advanceToPhase2({
   }
 
   projectDoc.deliveryPhase = 'development';
+  // Lifecycle status is orthogonal to deliveryPhase but must stay in Project enum.
+  // Legacy/bad rows (e.g. status "draft") fail validation on save — coerce into Phase 2.
+  const PROJECT_STATUS = new Set([
+    'planning',
+    'ready_for_planning',
+    'in_development',
+    'on_hold',
+    'closed',
+  ]);
+  if (!PROJECT_STATUS.has(String(projectDoc.status || ''))) {
+    projectDoc.status = 'in_development';
+  } else if (
+    projectDoc.status === 'planning' ||
+    projectDoc.status === 'ready_for_planning'
+  ) {
+    projectDoc.status = 'in_development';
+  }
   if (methodology) {
     const m = String(methodology).trim().toLowerCase();
     if (['scrum', 'kanban', 'waterfall'].includes(m)) {
@@ -1141,6 +1425,14 @@ async function startDeliveryPlanning({ userId, projectId }) {
     err.details = gaps.raReadiness?.blockingReasons || gaps.blockingReasons;
     throw err;
   }
+  /** RULE-19 — SRS Baseline bắt buộc trước khi vào Planning */
+  if (!gaps.srsBaselineExists) {
+    const err = new Error('Cần cắt SRS Baseline trước khi Start Planning');
+    err.statusCode = 409;
+    err.errorCode = 'SRS_BASELINE_REQUIRED';
+    err.details = [{ code: 'NO_SRS_BASELINE', message: 'Chưa có SRS Baseline active' }];
+    throw err;
+  }
   const from = String(projectDoc.deliveryPhase || '');
   if (from === 'delivery_planning') {
     return {
@@ -1162,6 +1454,114 @@ async function startDeliveryPlanning({ userId, projectId }) {
     deliveryPhase: projectDoc.deliveryPhase,
     phase1RaApprovedAt: projectDoc.phase1RaApprovedAt,
     alreadyStarted: false,
+  };
+}
+
+/**
+ * Project-scoped Analysis workbook preview — auth via analysis:* (not org requirement:import).
+ * Creates RequirementImportSession for later confirmAnalysisImport.
+ */
+async function previewAnalysisImport({ userId, projectId, fileBuffer, fileName }) {
+  const project = await assertProjectMemberAccess({ userId, projectId });
+  await assertAnalysisPerm({
+    userId,
+    projectId,
+    permission: 'analysis:artifact_import',
+  });
+
+  const buffer = Buffer.isBuffer(fileBuffer) ? fileBuffer : Buffer.from(fileBuffer || []);
+  if (!buffer.length) {
+    const err = new Error('file (.xlsx) bắt buộc');
+    err.statusCode = 400;
+    err.errorCode = 'REQ_IMPORT_FILE_REQUIRED';
+    throw err;
+  }
+
+  const RequirementImportSession = require('../models/RequirementImportSession');
+  const {
+    IMPORT_SESSION_TTL_HOURS,
+    TEMPLATE_VERSION,
+  } = require('../constants/requirementTemplate.constants');
+  const {
+    peekWorkbookTemplateType,
+    isAnalysisTemplateType,
+    parseAnalysisWorkbook,
+  } = require('../utils/requirement/requirementAnalysisTemplateParse');
+  const {
+    validateAnalysisWorkbook,
+  } = require('../utils/requirement/requirementAnalysisTemplateValidate');
+  const {
+    buildExcelPreviewFromBuffer,
+    XLSX_MIME,
+  } = require('../utils/requirement/requirementExcelPreview');
+  const { pickPlanningReadinessSummary } = require('../utils/requirement/requirementPlanningReadiness');
+  const { mapParsedToPackPayload } = require('./requirementImport.service');
+
+  const peekedType = peekWorkbookTemplateType(buffer);
+  if (!isAnalysisTemplateType(peekedType)) {
+    const err = new Error(
+      'Chỉ chấp nhận workbook Requirement Analysis (TemplateType=RequirementAnalysis)'
+    );
+    err.statusCode = 400;
+    err.errorCode = 'IMPORT_SET_EXPECT_ANALYSIS';
+    throw err;
+  }
+
+  const parsed = parseAnalysisWorkbook(buffer);
+  const validation = validateAnalysisWorkbook({
+    fileName,
+    fileSize: buffer.length || 0,
+    parsed,
+  });
+
+  let previewPayload = null;
+  if (validation.valid) {
+    previewPayload = mapParsedToPackPayload(parsed);
+  }
+
+  const excelPreview = buildExcelPreviewFromBuffer(buffer, {
+    fileName: String(fileName || '').slice(0, 255),
+    functionalRequirements: parsed.functionalRequirements || [],
+  });
+
+  const expiresAt = new Date(Date.now() + IMPORT_SESSION_TTL_HOURS * 60 * 60 * 1000);
+  const session = await RequirementImportSession.create({
+    organizationId: project.organizationId,
+    projectId,
+    uploadedBy: userId,
+    fileName: String(fileName || '').slice(0, 255),
+    templateVersion: parsed.templateVersion || TEMPLATE_VERSION,
+    status: 'preview',
+    expiresAt,
+    errorCount: validation.errorCount,
+    warningCount: validation.warningCount,
+    issues: validation.issues,
+    summary: validation.summary,
+    previewPayload,
+    previewTree: validation.previewTree,
+    excelPreview,
+    fileBuffer: buffer.length <= 5 * 1024 * 1024 ? buffer : undefined,
+    fileContentType: XLSX_MIME,
+    newSkillsDetected: [],
+    skillResolveEnabled: false,
+  });
+
+  return {
+    sessionId: String(session._id),
+    fileName: session.fileName,
+    templateVersion: session.templateVersion,
+    templateType: 'RequirementAnalysis',
+    valid: validation.valid,
+    canRunAiAnalysis: false,
+    errorCount: validation.errorCount,
+    warningCount: validation.warningCount,
+    infoCount: validation.infoCount || 0,
+    issues: validation.issues,
+    summary: validation.summary,
+    previewTree: validation.previewTree,
+    excelPreview,
+    expiresAt: session.expiresAt,
+    planningReadiness: previewPayload ? pickPlanningReadinessSummary(previewPayload) : null,
   };
 }
 
@@ -1245,13 +1645,34 @@ async function confirmAnalysisImport({ userId, projectId, sessionId, importSetId
     throw err;
   }
 
+  const analysisMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const analysisBuffer =
+    session.fileBuffer && Buffer.isBuffer(session.fileBuffer) ? session.fileBuffer : null;
+  let analysisStorageKey = `pending/${projectId}/${Date.now()}-analysis`.slice(0, 512);
+  let analysisContentHash = '';
+  let analysisSize = analysisBuffer ? analysisBuffer.length : null;
+  if (analysisBuffer && analysisBuffer.length > 0) {
+    const stored = await importSetService.persistImportSetFileBuffer({
+      projectId,
+      setId: draftSet._id,
+      slot: 'analysis',
+      fileName: session.fileName || 'Requirement_Analysis.xlsx',
+      mimeType: analysisMime,
+      buffer: analysisBuffer,
+    });
+    if (stored.storageKey) analysisStorageKey = stored.storageKey;
+    analysisContentHash = stored.contentHash;
+    analysisSize = stored.sizeBytes;
+  }
+
   const analysisDoc = await CustomerDocument.create({
     organizationId: project.organizationId,
     projectId,
     filename: String(session.fileName || 'Requirement_Analysis.xlsx').slice(0, 260),
-    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    storageKey: `pending/${projectId}/${Date.now()}-analysis`.slice(0, 512),
-    sizeBytes: null,
+    mimeType: analysisMime,
+    storageKey: analysisStorageKey,
+    sizeBytes: analysisSize,
+    contentHash: analysisContentHash,
     docClass: 'requirement_analysis',
     notes: `import:${sessionId}`,
     importSetId: draftSet._id,
@@ -1305,29 +1726,44 @@ async function confirmAnalysisImport({ userId, projectId, sessionId, importSetId
   session.fileBuffer = undefined;
   await session.save();
 
-  const seeded = await seedArtifactsFromRequirementPack({
-    userId,
-    projectId,
-    pack: pack.toObject ? pack.toObject() : pack,
-    importSetId: draftSet._id,
-    sourceDocumentId: analysisDoc._id,
-  });
+  const gateEnabled = isPhase1SetGateEnabled();
+  let seededCount = 0;
+  let resultSet;
 
-  const activated = await importSetService.activateImportSetOnConfirm({
-    userId,
-    projectId,
-    importSetId: draftSet._id,
-    analysisDocumentId: analysisDoc._id,
-    packId: pack._id,
-  });
+  if (gateEnabled) {
+    resultSet = await importSetService.stageImportSetOnConfirm({
+      userId,
+      projectId,
+      importSetId: draftSet._id,
+      analysisDocumentId: analysisDoc._id,
+      packId: pack._id,
+    });
+  } else {
+    const seeded = await seedArtifactsFromRequirementPack({
+      userId,
+      projectId,
+      pack: pack.toObject ? pack.toObject() : pack,
+      importSetId: draftSet._id,
+      sourceDocumentId: analysisDoc._id,
+    });
+    seededCount = seeded.seeded || 0;
+    resultSet = await importSetService.activateImportSetOnConfirm({
+      userId,
+      projectId,
+      importSetId: draftSet._id,
+      analysisDocumentId: analysisDoc._id,
+      packId: pack._id,
+    });
+  }
 
   return {
     sessionId: String(session._id),
     packId: String(pack._id),
-    seeded: seeded.seeded || 0,
+    seeded: seededCount,
     projectId: String(projectId),
-    importSetId: String(activated._id),
-    importSetStatus: activated.status,
+    importSetId: String(resultSet._id),
+    importSetStatus: resultSet.status,
+    gateEnabled,
   };
 }
 
@@ -1339,6 +1775,7 @@ module.exports = {
   createArtifact,
   updateArtifactDraft,
   transitionArtifactStatus,
+  bulkTransitionArtifacts,
   createTraceLink,
   listTraceLinks,
   computeGapReport,
@@ -1348,5 +1785,6 @@ module.exports = {
   advanceToPhase2,
   getSrsDraft,
   startDeliveryPlanning,
+  previewAnalysisImport,
   confirmAnalysisImport,
 };
