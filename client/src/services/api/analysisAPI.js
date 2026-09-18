@@ -50,6 +50,13 @@ export const analysisAPI = {
       body
     ),
 
+  bulkTransitionArtifacts: (projectId, body = {}) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/analysis-artifacts/bulk-transition`,
+      body,
+      { timeout: 180000 }
+    ),
+
   listTraceLinks: (projectId) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/analysis-trace-links`),
 
@@ -74,8 +81,20 @@ export const analysisAPI = {
   advancePhase2: (projectId, body = {}) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/phase2/advance`, body),
 
+  previewAnalysisImport: (projectId, file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/analysis-import/preview`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+  },
+
   confirmAnalysisImport: (projectId, body = {}) =>
-    apiClient.post(`/projects/${encodeURIComponent(projectId)}/analysis-import/confirm`, body),
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/analysis-import/confirm`, body, {
+      timeout: 120000,
+    }),
 
   listImportSets: (projectId, { status } = {}) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/analysis-import-sets`, {
@@ -100,6 +119,18 @@ export const analysisAPI = {
   restoreImportSet: (projectId, setId) =>
     apiClient.post(
       `/projects/${encodeURIComponent(projectId)}/analysis-import-sets/${encodeURIComponent(setId)}/restore`
+    ),
+
+  getImportSetDiff: (projectId, setId) =>
+    apiClient.get(
+      `/projects/${encodeURIComponent(projectId)}/analysis-import-sets/${encodeURIComponent(setId)}/diff`
+    ),
+
+  transitionImportSet: (projectId, setId, body = {}) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/analysis-import-sets/${encodeURIComponent(setId)}/transition`,
+      body,
+      { timeout: 180000 }
     ),
 };
 

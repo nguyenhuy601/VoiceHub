@@ -341,11 +341,13 @@ export default function useCreateProjectAiWizard({
       }
 
       if (isPhase2Ai) {
+        // RULE-21 — Phase1 plan path: seed qua publish-wbs, không import pack work items
         const res = await projectAPI.advancePhase2(phase2ProjectId, {
           mode: 'ai',
           packId: String(current._id),
-          importWorkItems: true,
-          applyAssignees: true,
+          importWorkItems: false,
+          applyAssignees: false,
+          publishWbs: true,
         });
         const data = res?.data?.data ?? res?.data ?? res;
         toast.success(t('workspace.phase2AdvanceSuccess') || t('requirements.createProjectSuccess'));

@@ -153,6 +153,8 @@ export function isModuleAllowedForPhase(moduleKey, deliveryPhase) {
 }
 
 export function phaseHomeModule(deliveryPhase) {
+  const phase = coerceDeliveryPhase(deliveryPhase);
+  if (phase === 'development' || phase === 'qa_uat') return 'board';
   return 'overview';
 }
 

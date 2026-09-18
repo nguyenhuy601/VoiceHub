@@ -60,13 +60,17 @@ export default function Phase1Shell({
       ? PLANNING_SUB_TO_MODULE[String(planningSub).toLowerCase()] || `planning-${planningSub}`
       : String(moduleParam || 'overview').toLowerCase());
 
-  const { data: projectRow } = useQuery({
+  const { data: projectRow, isPending: projectPending } = useQuery({
     queryKey: queryKeys.projectHub.project(projectId),
     queryFn: () => fetchProjectHubProject(projectId),
     enabled: Boolean(projectId),
-    staleTime: 30_000,
+    // Planning deep-links must not use a stale deliveryPhase after Start Planning / phase PATCH.
+    staleTime: String(module).startsWith('planning') ? 0 : 30_000,
+    refetchOnMount: String(module).startsWith('planning') ? 'always' : true,
   });
-  const deliveryPhase = coerceDeliveryPhase(projectRow?.deliveryPhase);
+  const deliveryPhase = projectRow
+    ? coerceDeliveryPhase(projectRow.deliveryPhase)
+    : null;
   const planningUnlocked = isPlanningUnlocked(deliveryPhase);
   const raReadOnly = deliveryPhase === 'delivery_planning';
   const caps = projectRow?.capabilities || {};
@@ -83,6 +87,15 @@ export default function Phase1Shell({
 
   if (!projectId) {
     return <Navigate to={buildProjectsPickerPath(orgId)} replace />;
+  }
+
+  // Avoid redirecting planning → hub while project row is still refetching.
+  if (projectPending && !projectRow) {
+    return (
+      <div className="flex min-h-[8rem] items-center justify-center p-4 text-sm text-muted-foreground">
+        {t('common.loading')}
+      </div>
+    );
   }
 
   if (projectRow && !isPhase1DeliveryPhase(deliveryPhase)) {

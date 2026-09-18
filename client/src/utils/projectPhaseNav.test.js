@@ -10,6 +10,7 @@ import {
   filterNavItemsByCapabilities,
   isAnalysisViewModule,
   isPlanningViewModule,
+  phaseHomeModule,
   DEVELOPMENT_MODULES,
 } from './projectPhaseNav.js';
 
@@ -22,6 +23,13 @@ describe('projectPhaseNav', () => {
   it('allows board only in development', () => {
     assert.equal(isModuleAllowedForPhase('board', 'development'), true);
     assert.equal(isModuleAllowedForPhase('board', 'requirement_analysis'), false);
+  });
+
+  it('phase home: board for Phase 2 development/qa', () => {
+    assert.equal(phaseHomeModule('development'), 'board');
+    assert.equal(phaseHomeModule('qa_uat'), 'board');
+    assert.equal(phaseHomeModule('requirement_analysis'), 'overview');
+    assert.equal(phaseHomeModule(''), 'board');
   });
 
   it('allows analysis-bg in requirement_analysis', () => {

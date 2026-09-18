@@ -18,15 +18,24 @@ export function isPackWhatReady(readiness) {
 }
 
 export function canConfirmRequirementImport(preview) {
-  if (!preview?.valid || Number(preview.errorCount) > 0) return false;
-  if (preview.canRunAiAnalysis === false) return false;
-  return true;
+  if (!preview?.valid || preview.errorCount > 0) return false;
+  return isPackWhatReady(preview.planningReadiness);
 }
 
-/** Confirm CTA: Continue Anyway when warnings-only (0 errors). */
+/** Pack / readiness đủ WHAT (mọi leaf đã staff) — dùng UI confirm. */
+export function isPackWhatReady(readiness) {
+  return readiness?.allLeavesStaffed === true;
+}
+
+/**
+ * Suffix i18n cho nút confirm (`stringKey(variant, suffix)` → requirements.*).
+ */
 export function getConfirmImportLabelKey(preview) {
-  if (preview?.valid && Number(preview.warningCount) > 0 && Number(preview.errorCount || 0) === 0) {
-    return 'continueAnyway';
+  if (!preview?.valid || Number(preview.errorCount) > 0) {
+    return 'confirmImportBlockedValidation';
+  }
+  if (!isPackWhatReady(preview.planningReadiness)) {
+    return 'confirmImportBlockedStaffing';
   }
   return 'confirmImport';
 }

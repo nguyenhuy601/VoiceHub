@@ -1,16 +1,29 @@
+import { useCallback, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
+import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
+import { modulePathForArtifactKind } from './artifactRelated';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
+function rowId(row) {
+  return String(row?.id || row?._id || '').trim();
+}
+
+/**
+ * Trace hub — gaps + FR↔UC links.
+ * Wave G4: click FR/UC/gap → deep-link analysis-{kind}?artifact= (detail + Related pane).
+ */
 export default function TraceabilityPage({ projectId, readOnly = false }) {
   const { t } = useAppStrings();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { capabilities } = useProjectCapabilities(projectId);
 
@@ -47,6 +60,25 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
     enabled: Boolean(projectId),
   });
 
+  const catalogById = useMemo(() => {
+    const map = new Map();
+    for (const row of [...frs, ...ucs]) {
+      const id = rowId(row);
+      if (id) map.set(id, row);
+    }
+    return map;
+  }, [frs, ucs]);
+
+  const openArtifact = useCallback(
+    (kind, id) => {
+      const artifactId = String(id || '').trim();
+      const moduleSeg = modulePathForArtifactKind(kind);
+      if (!artifactId || !moduleSeg || !projectId) return;
+      navigate(buildPhase1ModulePath(projectId, moduleSeg, { artifact: artifactId }));
+    },
+    [navigate, projectId]
+  );
+
   const linkMut = useMutation({
     mutationFn: (body) => analysisAPI.createTraceLink(projectId, body),
     onSuccess: () => {
@@ -61,27 +93,50 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4">
-      <h1 className="text-lg font-semibold">{t('workspace.phaseNavTraceability')}</h1>
+      <div>
+        <h1 className="text-lg font-semibold">{t('workspace.phaseNavTraceability')}</h1>
+        <p className="mt-0.5 text-xs text-muted-foreground">{t('workspace.phase1TraceHubHint')}</p>
+      </div>
 
       <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
         <h2 className="text-sm font-semibold">{t('workspace.phase1Gaps')}</h2>
         <ul className="mt-2 space-y-1 text-sm">
-          {(gaps?.frMissingUc || []).map((g) => (
-            <li key={g.id}>
-              {t('workspace.phase1GapFrMissingUc', {
-                key: g.externalKey,
-                title: g.title,
-              })}
-            </li>
-          ))}
-          {(gaps?.brMissingBg || []).map((g) => (
-            <li key={g.id}>
-              {t('workspace.phase1GapBrMissingBg', {
-                key: g.externalKey,
-                title: g.title,
-              })}
-            </li>
-          ))}
+          {(gaps?.frMissingUc || []).map((g) => {
+            const id = rowId(g);
+            return (
+              <li key={id || g.externalKey}>
+                <button
+                  type="button"
+                  className="text-left hover:underline disabled:no-underline disabled:opacity-70"
+                  disabled={!id}
+                  onClick={() => openArtifact('FR', id)}
+                >
+                  {t('workspace.phase1GapFrMissingUc', {
+                    key: g.externalKey,
+                    title: g.title,
+                  })}
+                </button>
+              </li>
+            );
+          })}
+          {(gaps?.brMissingBg || []).map((g) => {
+            const id = rowId(g);
+            return (
+              <li key={id || g.externalKey}>
+                <button
+                  type="button"
+                  className="text-left hover:underline disabled:no-underline disabled:opacity-70"
+                  disabled={!id}
+                  onClick={() => openArtifact('BR', id)}
+                >
+                  {t('workspace.phase1GapBrMissingBg', {
+                    key: g.externalKey,
+                    title: g.title,
+                  })}
+                </button>
+              </li>
+            );
+          })}
           {!gaps?.frMissingUc?.length && !gaps?.brMissingBg?.length ? (
             <li className="text-muted-foreground">{t('workspace.phase1NoGaps')}</li>
           ) : null}
@@ -92,7 +147,7 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
         <h2 className="text-sm font-semibold">{t('workspace.phase1FrToUc')}</h2>
         <ul className="mt-3 space-y-3">
           {frs.map((fr) => {
-            const frId = String(fr.id || fr._id);
+            const frId = rowId(fr);
             const linked = links.filter(
               (l) =>
                 l.linkType === 'implements' &&
@@ -100,13 +155,41 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
             );
             return (
               <li key={frId} className="rounded-lg border border-border/60 p-3 text-sm">
-                <p className="font-medium">
-                  <span className="font-mono text-xs">{fr.externalKey}</span> {fr.title}
-                </p>
-                <ul className="mt-1 list-inside list-disc text-muted-foreground">
-                  {linked.map((l) => (
-                    <li key={l.id || l._id}>{String(l.fromArtifactId)} → {String(l.toArtifactId)}</li>
-                  ))}
+                <button
+                  type="button"
+                  className="w-full text-left font-medium hover:underline"
+                  onClick={() => openArtifact('FR', frId)}
+                >
+                  <span className="font-mono text-xs text-muted-foreground">{fr.externalKey}</span>{' '}
+                  {fr.title}
+                </button>
+                <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                  {linked.map((l) => {
+                    const linkId = rowId(l);
+                    const from = String(l.fromArtifactId || '');
+                    const to = String(l.toArtifactId || '');
+                    const peerId = from === frId ? to : from;
+                    const peer = catalogById.get(peerId);
+                    const peerKind = String(peer?.kind || (from === frId ? 'UC' : 'FR')).toUpperCase();
+                    const label = peer
+                      ? `${peer.externalKey || peerId} — ${peer.title || t('workspace.phase1RelatedNoTitle')}`
+                      : peerId;
+                    return (
+                      <li key={linkId || `${from}-${to}`}>
+                        <button
+                          type="button"
+                          className="text-left text-sm hover:underline disabled:no-underline disabled:opacity-70"
+                          disabled={!peerId}
+                          onClick={() => openArtifact(peerKind, peerId)}
+                        >
+                          {label}
+                          {l.linkType ? (
+                            <span className="ml-1 text-[10px] opacity-70">· {l.linkType}</span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
                   {!linked.length ? <li>{t('workspace.phase1NoLinks')}</li> : null}
                 </ul>
                 {canLink && ucs.length ? (
@@ -126,7 +209,7 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
                   >
                     <option value="">{t('workspace.phase1LinkUc')}</option>
                     {ucs.map((u) => (
-                      <option key={u.id || u._id} value={String(u.id || u._id)}>
+                      <option key={rowId(u)} value={rowId(u)}>
                         {u.externalKey} — {u.title}
                       </option>
                     ))}
@@ -135,6 +218,9 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
               </li>
             );
           })}
+          {!frs.length ? (
+            <li className="text-sm text-muted-foreground">{t('workspace.phase1TraceNoFr')}</li>
+          ) : null}
         </ul>
       </div>
     </div>

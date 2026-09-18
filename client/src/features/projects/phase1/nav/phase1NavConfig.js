@@ -140,7 +140,7 @@ export function isPlanningUnlocked(deliveryPhase) {
 /**
  * @param {string} projectId
  * @param {string} pathSeg module path segment (may include planning/wbs)
- * @param {{ organizationId?: string }} [query]
+ * @param {{ organizationId?: string, boardId?: string, artifact?: string }} [query]
  */
 export function buildPhase1ModulePath(projectId, pathSeg, query = {}) {
   const pid = String(projectId || '').trim();
@@ -150,6 +150,8 @@ export function buildPhase1ModulePath(projectId, pathSeg, query = {}) {
   // organizationId omitted from Phase 1 module URLs (resolve via project hub payload).
   const boardId = String(query.boardId || '').trim();
   if (boardId) params.set('boardId', boardId);
+  const artifact = String(query.artifact || query.artifactId || '').trim();
+  if (artifact) params.set('artifact', artifact);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }

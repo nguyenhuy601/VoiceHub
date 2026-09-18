@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
+import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
 import { getArtifactListColumns, truncateCell } from './artifactListColumns';
+import ArtifactDetailPanel from './ArtifactDetailPanel';
+import { modulePathForArtifactKind, resolveArtifactRelated } from './artifactRelated';
+import Phase1SplitWorkspace from '../shared/Phase1SplitWorkspace';
+import {
+  PHASE1_DENSE_CELL,
+  PHASE1_DENSE_HEAD,
+  PHASE1_DENSE_ROW,
+  PHASE1_DENSE_ROW_SELECTED,
+} from '../shared/phase1ListDensity';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -20,10 +31,8 @@ const STATUS_TONE = {
   rejected: 'bg-destructive/15 text-destructive',
 };
 
-const DRAWER_SLIDE_MS = 250;
-
 /**
- * Shared list + detail drawer for AnalysisArtifact kinds.
+ * Shared list + split detail for AnalysisArtifact kinds (desktop list|pane, mobile sheet).
  */
 export default function ArtifactListPage({
   projectId,
@@ -33,49 +42,49 @@ export default function ArtifactListPage({
   layout = 'table',
 }) {
   const { t } = useAppStrings();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { capabilities } = useProjectCapabilities(projectId);
   const [selectedId, setSelectedId] = useState(null);
-  const [closing, setClosing] = useState(false);
-  const closeTimerRef = useRef(null);
   const [filter, setFilter] = useState('');
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState({ externalKey: '', title: '', summary: '' });
+  const createPaneRef = useRef(null);
 
   const canEdit = capabilities.canEditAnalysis && !readOnly;
 
-  const finishClose = useCallback(() => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
+  const clearArtifactQuery = useCallback(() => {
+    if (!searchParams.has('artifact')) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('artifact');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  const closeDetail = useCallback(() => {
     setSelectedId(null);
-    setClosing(false);
-  }, []);
+    setCreating(false);
+    clearArtifactQuery();
+  }, [clearArtifactQuery]);
 
-  const requestClose = useCallback(() => {
-    if (closing) return;
-    setClosing(true);
-    closeTimerRef.current = setTimeout(() => {
-      finishClose();
-    }, DRAWER_SLIDE_MS);
-  }, [closing, finishClose]);
-
-  const openArtifact = useCallback((id) => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-    setClosing(false);
-    setSelectedId(id);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+  const openArtifact = useCallback(
+    (id) => {
+      setCreating(false);
+      setSelectedId(id);
+      const next = new URLSearchParams(searchParams);
+      next.set('artifact', String(id));
+      setSearchParams(next, { replace: true });
     },
-    []
+    [searchParams, setSearchParams]
   );
+
+  // Deep-link: /analysis-fr?artifact=<id> (Wave 4 related nav)
+  useEffect(() => {
+    const fromQuery = String(searchParams.get('artifact') || '').trim();
+    if (!fromQuery) return;
+    setCreating(false);
+    setSelectedId((prev) => (prev === fromQuery ? prev : fromQuery));
+  }, [searchParams]);
 
   const { data: rows = [], isLoading, error } = useQuery({
     queryKey: ['analysisArtifacts', projectId, kind],
@@ -92,10 +101,63 @@ export default function ArtifactListPage({
     enabled: Boolean(projectId && selectedId),
   });
 
+  const detailOpen = Boolean(selectedId);
+
+  // Prefetch on list page so Related pane resolves titles immediately on first click
+  const { data: traceLinks = [], isLoading: linksLoading } = useQuery({
+    queryKey: ['analysisTraceLinks', projectId],
+    queryFn: async () => {
+      const raw = unwrap(await analysisAPI.listTraceLinks(projectId));
+      return Array.isArray(raw) ? raw : [];
+    },
+    enabled: Boolean(projectId),
+    staleTime: 30_000,
+  });
+
+  const { data: relatedCatalog = [], isLoading: catalogLoading } = useQuery({
+    queryKey: ['analysisArtifacts', projectId, 'ALL'],
+    queryFn: async () => {
+      const raw = unwrap(await analysisAPI.listArtifacts(projectId));
+      return Array.isArray(raw) ? raw : [];
+    },
+    enabled: Boolean(projectId),
+    staleTime: 30_000,
+  });
+
+  const relatedItems = useMemo(() => {
+    const catalog =
+      relatedCatalog.length > 0
+        ? relatedCatalog
+        : [...rows, ...(selected && !rows.some((r) => String(r.id || r._id) === String(selected.id || selected._id)) ? [selected] : [])];
+    return resolveArtifactRelated({
+      artifact: selected,
+      links: traceLinks,
+      catalog,
+    });
+  }, [selected, traceLinks, relatedCatalog, rows]);
+
+  const relatedLoading = detailOpen && (linksLoading || catalogLoading) && relatedItems.length === 0;
+
+  const openRelated = useCallback(
+    (item) => {
+      if (!item || item.unresolved || !item.id) return;
+      const targetKind = String(item.kind || '').toUpperCase();
+      if (targetKind === String(kind || '').toUpperCase()) {
+        openArtifact(item.id);
+        return;
+      }
+      const moduleSeg = modulePathForArtifactKind(targetKind);
+      if (!moduleSeg) return;
+      navigate(buildPhase1ModulePath(projectId, moduleSeg, { artifact: item.id }));
+    },
+    [kind, navigate, openArtifact, projectId]
+  );
+
   const createMut = useMutation({
     mutationFn: (body) => analysisAPI.createArtifact(projectId, { ...body, kind }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, kind] });
+      queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
       setCreating(false);
       setDraft({ externalKey: '', title: '', summary: '' });
       toast.success(t('workspace.phase1ArtifactCreated'));
@@ -107,6 +169,7 @@ export default function ArtifactListPage({
     mutationFn: ({ id, body }) => analysisAPI.updateArtifact(projectId, id, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, kind] });
+      queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
       queryClient.invalidateQueries({ queryKey: ['analysisArtifact', projectId, selectedId] });
       toast.success(t('workspace.phase1ArtifactSaved'));
     },
@@ -152,18 +215,88 @@ export default function ArtifactListPage({
 
   const columns = useMemo(() => getArtifactListColumns(kind), [kind]);
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 sm:p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+  useEffect(() => {
+    if (creating) createPaneRef.current?.querySelector('input')?.focus();
+  }, [creating]);
+
+  const hasSelection = Boolean(selectedId) || creating;
+
+  const detailPane = creating ? (
+    <div ref={createPaneRef} className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <h2 className="text-sm font-semibold">{t('workspace.phase1CreateArtifact')}</h2>
+        <button
+          type="button"
+          className="rounded border border-border px-2 py-0.5 text-xs"
+          onClick={closeDetail}
+        >
+          {t('common.close')}
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3">
+        <input
+          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+          placeholder={t('workspace.phase1PlaceholderExternalKey')}
+          value={draft.externalKey}
+          onChange={(e) => setDraft((d) => ({ ...d, externalKey: e.target.value }))}
+        />
+        <input
+          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+          placeholder={t('workspace.phase1PlaceholderTitle')}
+          value={draft.title}
+          onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+        />
+        <textarea
+          className="min-h-[80px] w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+          placeholder={t('workspace.phase1PlaceholderSummary')}
+          value={draft.summary}
+          onChange={(e) => setDraft((d) => ({ ...d, summary: e.target.value }))}
+        />
+      </div>
+      <div className="flex justify-end gap-2 border-t border-border px-3 py-2">
+        <button
+          type="button"
+          className="rounded-lg border border-border px-3 py-1.5 text-sm"
+          onClick={closeDetail}
+        >
+          {t('common.cancel')}
+        </button>
+        <button
+          type="button"
+          className="rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
+          disabled={!draft.externalKey.trim() || !draft.title.trim() || createMut.isPending}
+          onClick={() => createMut.mutate(draft)}
+        >
+          {t('common.save')}
+        </button>
+      </div>
+    </div>
+  ) : selectedId && selected ? (
+    <ArtifactDetailPanel
+      artifact={selected}
+      kind={kind}
+      canEdit={canEdit}
+      saving={updateMut.isPending}
+      relatedItems={relatedItems}
+      relatedLoading={relatedLoading}
+      onClose={closeDetail}
+      onSave={(body) => updateMut.mutate({ id: selectedId, body })}
+      onOpenRelated={openRelated}
+    />
+  ) : null;
+
+  const listPane = (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">{title}</h1>
-          <p className="text-xs text-muted-foreground">
+          <h1 className="text-base font-semibold text-foreground">{title}</h1>
+          <p className="text-[11px] text-muted-foreground">
             {kind} · {rows.length} {t('workspace.phase1Items')}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
-            className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary"
+            className="rounded-lg border border-border bg-background px-2.5 py-1 text-sm outline-none focus:border-primary"
             placeholder={t('common.search')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
@@ -171,8 +304,13 @@ export default function ArtifactListPage({
           {canEdit ? (
             <button
               type="button"
-              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
-              onClick={() => setCreating(true)}
+              className="rounded-lg bg-primary px-2.5 py-1 text-sm font-medium text-primary-foreground"
+              onClick={() => {
+                setSelectedId(null);
+                setCreating(true);
+                setDraft({ externalKey: '', title: '', summary: '' });
+                clearArtifactQuery();
+              }}
             >
               {t('common.add')}
             </button>
@@ -187,58 +325,62 @@ export default function ArtifactListPage({
         <p className="text-sm text-destructive">{resolveApiErrorMessage(error)}</p>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-surface">
-        <table className="w-full text-left text-sm">
-          <thead className="sticky top-0 bg-muted/80 text-xs uppercase text-muted-foreground">
+      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
+        <table className="w-full text-left">
+          <thead className="sticky top-0 bg-muted/90">
             <tr>
               {columns.map((col) => (
-                <th key={col.id} className="px-3 py-2 whitespace-nowrap">
+                <th key={col.id} className={`${PHASE1_DENSE_HEAD} whitespace-nowrap`}>
                   {t(col.labelKey)}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {(layout === 'tree' ? treeRows : filtered).map((row) => (
-              <tr
-                key={row.id || row._id}
-                className="cursor-pointer border-t border-border/60 hover:bg-muted/40"
-                onClick={() => openArtifact(String(row.id || row._id))}
-              >
-                {columns.map((col) => {
-                  const full = col.getValue(row);
-                  const display = col.isStatus ? full : truncateCell(full);
-                  const isIdCol = col.id === 'id';
-                  return (
-                    <td
-                      key={col.id}
-                      className={`px-3 py-2 max-w-[14rem] ${col.mono || isIdCol ? 'font-mono text-xs' : ''}`}
-                      style={
-                        isIdCol && layout === 'tree'
-                          ? { paddingLeft: 12 + (row._depth || 0) * 16 }
-                          : undefined
-                      }
-                      title={full || undefined}
-                    >
-                      {col.isStatus ? (
-                        <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_TONE[row.status] || STATUS_TONE.draft}`}
-                        >
-                          {display || '—'}
-                        </span>
-                      ) : (
-                        display || '—'
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+            {(layout === 'tree' ? treeRows : filtered).map((row) => {
+              const id = String(row.id || row._id);
+              const selected = id === selectedId && !creating;
+              return (
+                <tr
+                  key={id}
+                  className={`${PHASE1_DENSE_ROW} ${selected ? PHASE1_DENSE_ROW_SELECTED : ''}`}
+                  onClick={() => openArtifact(id)}
+                >
+                  {columns.map((col) => {
+                    const full = col.getValue(row);
+                    const display = col.isStatus ? full : truncateCell(full);
+                    const isIdCol = col.id === 'id';
+                    return (
+                      <td
+                        key={col.id}
+                        className={`${PHASE1_DENSE_CELL} max-w-[14rem] ${col.mono || isIdCol ? 'font-mono text-xs' : ''}`}
+                        style={
+                          isIdCol && layout === 'tree'
+                            ? { paddingLeft: 10 + (row._depth || 0) * 14 }
+                            : undefined
+                        }
+                        title={full || undefined}
+                      >
+                        {col.isStatus ? (
+                          <span
+                            className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STATUS_TONE[row.status] || STATUS_TONE.draft}`}
+                          >
+                            {display || '—'}
+                          </span>
+                        ) : (
+                          display || '—'
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
             {!isLoading && filtered.length === 0 ? (
               <tr>
                 <td
                   colSpan={columns.length}
-                  className="px-3 py-8 text-center text-muted-foreground"
+                  className="px-3 py-8 text-center text-sm text-muted-foreground"
                 >
                   {t('workspace.phase1EmptyArtifacts')}
                 </td>
@@ -247,141 +389,17 @@ export default function ArtifactListPage({
           </tbody>
         </table>
       </div>
+    </div>
+  );
 
-      {creating ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl border border-border bg-surface p-4 shadow-xl">
-            <h2 className="text-base font-semibold">{t('workspace.phase1CreateArtifact')}</h2>
-            <div className="mt-3 space-y-2">
-              <input
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                placeholder={t('workspace.phase1PlaceholderExternalKey')}
-                value={draft.externalKey}
-                onChange={(e) => setDraft((d) => ({ ...d, externalKey: e.target.value }))}
-              />
-              <input
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                placeholder={t('workspace.phase1PlaceholderTitle')}
-                value={draft.title}
-                onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-              />
-              <textarea
-                className="min-h-[80px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                placeholder={t('workspace.phase1PlaceholderSummary')}
-                value={draft.summary}
-                onChange={(e) => setDraft((d) => ({ ...d, summary: e.target.value }))}
-              />
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className="rounded-lg border border-border px-3 py-1.5 text-sm" onClick={() => setCreating(false)}>
-                {t('common.cancel')}
-              </button>
-              <button
-                type="button"
-                className="rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
-                disabled={!draft.externalKey.trim() || !draft.title.trim() || createMut.isPending}
-                onClick={() => createMut.mutate(draft)}
-              >
-                {t('common.save')}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {selectedId && selected ? (
-        <>
-          <button
-            type="button"
-            aria-label={t('common.close')}
-            className="fixed inset-0 z-40 bg-black/20"
-            onClick={requestClose}
-          />
-          <div
-            className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-border bg-surface shadow-2xl transition-transform duration-200 ease-out ${
-              closing ? 'translate-x-full' : 'translate-x-0'
-            }`}
-            onTransitionEnd={(e) => {
-              if (e.propertyName !== 'transform') return;
-              if (closing) finishClose();
-            }}
-          >
-            <div className="flex items-start justify-between gap-2 border-b border-border p-4">
-              <div>
-                <p className="font-mono text-xs text-muted-foreground">{selected.externalKey}</p>
-                <h2 className="text-base font-semibold">{selected.title}</h2>
-                <span
-                  className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_TONE[selected.status] || STATUS_TONE.draft}`}
-                >
-                  {selected.status} · v{selected.version || 1}
-                </span>
-              </div>
-              <button
-                type="button"
-                className="text-muted-foreground hover:text-foreground"
-                onClick={requestClose}
-                aria-label={t('common.close')}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
-              <label className="block">
-                <span className="text-xs text-muted-foreground">{t('workspace.phase1Summary')}</span>
-                <textarea
-                  className="mt-1 min-h-[100px] w-full rounded-lg border border-border bg-background px-3 py-2"
-                  defaultValue={selected.summary || ''}
-                  disabled={!canEdit || !['draft', 'rejected'].includes(selected.status)}
-                  onBlur={(e) => {
-                    if (!canEdit) return;
-                    if (e.target.value !== (selected.summary || '')) {
-                      updateMut.mutate({ id: selectedId, body: { summary: e.target.value } });
-                    }
-                  }}
-                />
-              </label>
-              {kind === 'UC' && selected.structured ? (
-                <div className="rounded-lg border border-border p-3">
-                  <p className="text-xs font-semibold uppercase text-muted-foreground">
-                    {t('workspace.phase1Flows')}
-                  </p>
-                  <pre className="mt-2 whitespace-pre-wrap text-xs">
-                    {JSON.stringify(
-                      {
-                        mainFlow: selected.structured.mainFlow,
-                        alternativeFlows: selected.structured.alternativeFlows,
-                        relatedFrKeys: selected.structured.relatedFrKeys,
-                      },
-                      null,
-                      2
-                    )}
-                  </pre>
-                </div>
-              ) : null}
-              {kind === 'FR' && Array.isArray(selected.structured?.relatedUcKeys) ? (
-                <div>
-                  <p className="text-xs font-semibold uppercase text-muted-foreground">
-                    {t('workspace.phase1UseCases')}
-                  </p>
-                  <ul className="mt-1 list-inside list-disc text-sm">
-                    {selected.structured.relatedUcKeys.map((k) => (
-                      <li key={k}>{k}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              <div className="rounded-lg border border-border p-3">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">
-                  {t('workspace.phase1VersionHistory')}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t('workspace.phase1CurrentVersion', { version: selected.version || 1 })}
-                </p>
-              </div>
-            </div>
-          </div>
-        </>
-      ) : null}
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
+      <Phase1SplitWorkspace
+        list={listPane}
+        detail={detailPane}
+        hasSelection={hasSelection}
+        onCloseDetail={closeDetail}
+      />
     </div>
   );
 }

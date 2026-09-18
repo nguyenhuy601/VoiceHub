@@ -56,6 +56,8 @@ export const extraStrings = {
         ORG_INVITE_INVALID: 'Lời mời không hợp lệ hoặc đã dùng.',
         ORG_INVITE_EXPIRED: 'Lời mời đã hết hạn.',
         ORG_ACCESS_DENIED: 'Bạn không có quyền truy cập tổ chức này.',
+        TECH_REVIEWER_REQUIRED:
+          'Project chưa có thành viên quyền Tech Review (analysis:tech_review). Gán Technical Lead / Solution Architect rồi thử lại.',
         ORG_NOT_FOUND: 'Không tìm thấy tổ chức.',
         ORG_MEMBER_NOT_FOUND: 'Không tìm thấy thành viên.',
         ORG_SLUG_EXISTS: 'Slug tổ chức đã tồn tại.',
@@ -577,6 +579,8 @@ export const extraStrings = {
         ORG_INVITE_INVALID: 'Invite is invalid or already used.',
         ORG_INVITE_EXPIRED: 'Invite has expired.',
         ORG_ACCESS_DENIED: 'You do not have access to this organization.',
+        TECH_REVIEWER_REQUIRED:
+          'No project member has Tech Review (analysis:tech_review). Assign Technical Lead / Solution Architect, then retry.',
         ORG_NOT_FOUND: 'Organization not found.',
         ORG_MEMBER_NOT_FOUND: 'Member not found.',
         ORG_SLUG_EXISTS: 'Organization slug already exists.',

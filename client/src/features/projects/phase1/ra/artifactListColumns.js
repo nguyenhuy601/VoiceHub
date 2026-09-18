@@ -38,17 +38,21 @@ function col(id, labelKey, getValue, options = {}) {
 const COL_ID = col('id', 'workspace.phase1ColKey', (row) => asText(row?.externalKey), { mono: true });
 const COL_TITLE = col('title', 'workspace.phase1ColTitle', (row) => asText(row?.title));
 const COL_STATUS = col('status', 'workspace.phase1ColStatus', (row) => asText(row?.status));
+const COL_SOURCE = col('source', 'workspace.phase1ColSource', (row) => asText(row?.source));
+const COL_IMPORT_SET = col('importSet', 'workspace.phase1ColImportSet', (row) =>
+  asText(row?.importSetId).slice(0, 12)
+);
 const COL_PRIORITY = col('priority', 'workspace.phase1ColPriority', (row) =>
   asText(structured(row).priority)
 );
 const COL_STATEMENT = col('statement', 'workspace.phase1ColStatement', (row) =>
-  asText(structured(row).statement || row?.summary)
+  asText(structured(row).statement || structured(row).goal || row?.summary)
 );
 const COL_SUCCESS_METRIC = col('successMetric', 'workspace.phase1ColSuccessMetric', (row) =>
   asText(structured(row).successMetric)
 );
 const COL_DESCRIPTION = col('description', 'workspace.phase1ColDescription', (row) =>
-  asText(structured(row).description || row?.summary)
+  asText(structured(row).description || structured(row).statement || row?.summary)
 );
 const COL_WHEN_APPLIES = col('whenApplies', 'workspace.phase1ColWhenApplies', (row) =>
   asText(structured(row).whenApplies)
@@ -63,7 +67,9 @@ const COL_PROCESS_NAME = col('processName', 'workspace.phase1ColProcessName', (r
   asText(structured(row).processName || row?.title)
 );
 const COL_STEP = col('step', 'workspace.phase1ColStep', (row) => asText(structured(row).step));
-const COL_ACTOR = col('actor', 'workspace.phase1ColActor', (row) => asText(structured(row).actor));
+const COL_ACTOR = col('actor', 'workspace.phase1ColActor', (row) =>
+  asText(structured(row).actor || structured(row).actors)
+);
 const COL_ACTION = col('action', 'workspace.phase1ColAction', (row) => asText(structured(row).action));
 const COL_RELATED_SYSTEMS = col('relatedSystems', 'workspace.phase1ColRelatedSystems', (row) =>
   asText(structured(row).relatedSystems)
@@ -83,7 +89,7 @@ const COL_CATEGORY = col('category', 'workspace.phase1ColCategory', (row) =>
   asText(structured(row).category)
 );
 const COL_TARGET = col('target', 'workspace.phase1ColTarget', (row) =>
-  asText(structured(row).target)
+  asText(structured(row).target || structured(row).metric || structured(row).measurement)
 );
 const COL_SCOPE_TYPE = col('scopeType', 'workspace.phase1ColScopeType', (row) =>
   asText(structured(row).scopeType)
@@ -93,7 +99,16 @@ const COL_SCOPE_DESCRIPTION = col('scopeDescription', 'workspace.phase1ColDescri
 );
 
 const COLUMNS_BY_KIND = Object.freeze({
-  BG: [COL_ID, COL_TITLE, COL_STATEMENT, COL_SUCCESS_METRIC, COL_PRIORITY, COL_STATUS],
+  BG: [
+    COL_ID,
+    COL_TITLE,
+    COL_STATEMENT,
+    COL_SUCCESS_METRIC,
+    COL_PRIORITY,
+    COL_SOURCE,
+    COL_IMPORT_SET,
+    COL_STATUS,
+  ],
   BR: [
     COL_ID,
     COL_TITLE,
@@ -101,6 +116,8 @@ const COLUMNS_BY_KIND = Object.freeze({
     COL_WHEN_APPLIES,
     COL_EXCEPTION,
     COL_RELATED_BG,
+    COL_SOURCE,
+    COL_IMPORT_SET,
     COL_STATUS,
   ],
   BPM: [
@@ -110,15 +127,50 @@ const COLUMNS_BY_KIND = Object.freeze({
     COL_ACTOR,
     COL_ACTION,
     COL_RELATED_SYSTEMS,
+    COL_SOURCE,
+    COL_IMPORT_SET,
     COL_STATUS,
   ],
-  FR: [COL_ID, COL_LEVEL, COL_ARTIFACT, COL_PRIORITY, COL_STATUS],
-  UC: [COL_ID, COL_TITLE, COL_ACTOR, COL_PRECONDITION, COL_RELATED_FR, COL_PRIORITY, COL_STATUS],
-  NFR: [COL_ID, COL_CATEGORY, COL_REQUIREMENT, COL_TARGET, COL_PRIORITY, COL_STATUS],
-  SCOPE: [COL_ID, COL_SCOPE_TYPE, COL_SCOPE_DESCRIPTION, COL_STATUS],
+  FR: [
+    COL_ID,
+    COL_LEVEL,
+    COL_ARTIFACT,
+    COL_PRIORITY,
+    COL_SOURCE,
+    COL_IMPORT_SET,
+    COL_STATUS,
+  ],
+  UC: [
+    COL_ID,
+    COL_TITLE,
+    COL_ACTOR,
+    COL_PRECONDITION,
+    COL_RELATED_FR,
+    COL_PRIORITY,
+    COL_SOURCE,
+    COL_IMPORT_SET,
+    COL_STATUS,
+  ],
+  NFR: [
+    COL_ID,
+    COL_CATEGORY,
+    COL_REQUIREMENT,
+    COL_TARGET,
+    COL_PRIORITY,
+    COL_SOURCE,
+    COL_IMPORT_SET,
+    COL_STATUS,
+  ],
+  SCOPE: [COL_ID, COL_SCOPE_TYPE, COL_SCOPE_DESCRIPTION, COL_SOURCE, COL_IMPORT_SET, COL_STATUS],
 });
 
-const DEFAULT_COLUMNS = Object.freeze([COL_ID, COL_TITLE, COL_STATUS]);
+const DEFAULT_COLUMNS = Object.freeze([
+  COL_ID,
+  COL_TITLE,
+  COL_SOURCE,
+  COL_IMPORT_SET,
+  COL_STATUS,
+]);
 
 /**
  * @param {string} kind

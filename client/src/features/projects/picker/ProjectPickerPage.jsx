@@ -10,6 +10,7 @@ import {
   orgQueryFromSearch,
   readStoredLastOrganizationId,
 } from '../../../utils/suitePathUtils';
+import { phaseHomeModule } from '../../../utils/projectPhaseNav';
 import {
   readStoredLastProjectId,
   writeStoredLastProjectId,
@@ -77,8 +78,9 @@ export default function ProjectPickerPage() {
       if (!projectId) return;
       writeStoredLastProjectId(projectId);
       const boardId = String(project?.defaultBoardId || project?.boards?.[0]?._id || '').trim();
+      const homeModule = phaseHomeModule(project?.deliveryPhase);
       navigate(
-        buildProjectsModulePath(projectId, 'overview', {
+        buildProjectsModulePath(projectId, homeModule, {
           organizationId: orgId,
           boardId,
         })

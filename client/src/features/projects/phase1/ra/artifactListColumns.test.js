@@ -21,8 +21,16 @@ describe('artifactListColumns', () => {
     }
   });
 
-  it('FR is Key, Level, Artifact, Priority, Status', () => {
-    assert.deepEqual(ids('FR'), ['id', 'level', 'artifact', 'priority', 'status']);
+  it('FR is Key, Level, Artifact, Priority, Source, Import Set, Status', () => {
+    assert.deepEqual(ids('FR'), [
+      'id',
+      'level',
+      'artifact',
+      'priority',
+      'source',
+      'importSet',
+      'status',
+    ]);
     assert.equal(ids('FR').includes('module'), false);
     assert.equal(ids('FR').includes('feature'), false);
     assert.equal(ids('FR').includes('requirement'), false);
@@ -32,7 +40,16 @@ describe('artifactListColumns', () => {
 
   it('NFR includes Category and Target', () => {
     const colIds = ids('NFR');
-    assert.deepEqual(colIds, ['id', 'category', 'requirement', 'target', 'priority', 'status']);
+    assert.deepEqual(colIds, [
+      'id',
+      'category',
+      'requirement',
+      'target',
+      'priority',
+      'source',
+      'importSet',
+      'status',
+    ]);
   });
 
   it('BR includes Related BG', () => {
@@ -46,6 +63,8 @@ describe('artifactListColumns', () => {
       'statement',
       'successMetric',
       'priority',
+      'source',
+      'importSet',
       'status',
     ]);
     assert.deepEqual(ids('BPM'), [
@@ -55,6 +74,8 @@ describe('artifactListColumns', () => {
       'actor',
       'action',
       'relatedSystems',
+      'source',
+      'importSet',
       'status',
     ]);
     assert.deepEqual(ids('UC'), [
@@ -64,14 +85,23 @@ describe('artifactListColumns', () => {
       'precondition',
       'relatedFr',
       'priority',
+      'source',
+      'importSet',
       'status',
     ]);
-    assert.deepEqual(ids('SCOPE'), ['id', 'scopeType', 'scopeDescription', 'status']);
+    assert.deepEqual(ids('SCOPE'), [
+      'id',
+      'scopeType',
+      'scopeDescription',
+      'source',
+      'importSet',
+      'status',
+    ]);
   });
 
   it('unknown kind falls back to id/title/status', () => {
-    assert.deepEqual(ids('UNKNOWN'), ['id', 'title', 'status']);
-    assert.deepEqual(ids(''), ['id', 'title', 'status']);
+    assert.deepEqual(ids('UNKNOWN'), ['id', 'title', 'source', 'importSet', 'status']);
+    assert.deepEqual(ids(''), ['id', 'title', 'source', 'importSet', 'status']);
   });
 
   it('getValue reads structured fields null-safely', () => {
@@ -86,6 +116,7 @@ describe('artifactListColumns', () => {
     assert.equal(byId.category.getValue(row), 'Performance');
     assert.equal(byId.target.getValue(row), '< 2 sec');
     assert.equal(byId.requirement.getValue(row), 'Fast API');
+    assert.equal(byId.target.getValue({ structured: { metric: 'p95' } }), 'p95');
     assert.equal(byId.category.getValue({}), '');
     assert.equal(byId.category.getValue(null), '');
   });

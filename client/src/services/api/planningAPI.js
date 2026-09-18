@@ -44,6 +44,29 @@ export const planningAPI = {
   suggest: (projectId, body = {}) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning/suggest`, body),
 
+  confirmSuggestions: (projectId, body = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning/suggest/confirm`, body),
+
+  bulkDumpArtifacts: (projectId, body = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning/artifacts/bulk`, body),
+
+  downloadDumpTemplate: (projectId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/planning/dump-template.xlsx`, {
+      responseType: 'blob',
+    }),
+
+  forkArtifactVersion: (projectId, artifactId, body = {}) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/planning/artifacts/${encodeURIComponent(artifactId)}/fork-version`,
+      body
+    ),
+
+  bulkTransitionArtifacts: (projectId, body = {}) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/planning/artifacts/bulk-transition`,
+      body
+    ),
+
   publishWbs: (projectId) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning/publish-wbs`),
 };
