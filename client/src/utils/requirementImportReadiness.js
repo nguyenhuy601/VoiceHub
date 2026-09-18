@@ -11,7 +11,25 @@ export function getPlanningReadinessTone(readiness) {
 
 export function canConfirmRequirementImport(preview) {
   if (!preview?.valid || preview.errorCount > 0) return false;
-  return preview.planningReadiness?.allLeavesStaffed === true;
+  return isPackWhatReady(preview.planningReadiness);
+}
+
+/** Pack / readiness đủ WHAT (mọi leaf đã staff) — dùng UI confirm. */
+export function isPackWhatReady(readiness) {
+  return readiness?.allLeavesStaffed === true;
+}
+
+/**
+ * Suffix i18n cho nút confirm (`stringKey(variant, suffix)` → requirements.*).
+ */
+export function getConfirmImportLabelKey(preview) {
+  if (!preview?.valid || Number(preview.errorCount) > 0) {
+    return 'confirmImportBlockedValidation';
+  }
+  if (!isPackWhatReady(preview.planningReadiness)) {
+    return 'confirmImportBlockedStaffing';
+  }
+  return 'confirmImport';
 }
 
 export function resolvePlanningReadinessFromPreview(preview) {
