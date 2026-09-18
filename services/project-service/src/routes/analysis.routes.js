@@ -24,9 +24,12 @@ router.post(
 );
 router.post('/analysis-import-sets/:setId/trash', analysis.trashImportSet);
 router.post('/analysis-import-sets/:setId/restore', analysis.restoreImportSet);
+router.get('/analysis-import-sets/:setId/diff', analysis.getImportSetDiff);
+router.post('/analysis-import-sets/:setId/transition', analysis.transitionImportSet);
 
 router.get('/analysis-artifacts', analysis.listArtifacts);
 router.post('/analysis-artifacts', analysis.createArtifact);
+router.post('/analysis-artifacts/bulk-transition', analysis.bulkTransitionArtifacts);
 router.get('/analysis-artifacts/:artifactId', analysis.getArtifact);
 router.patch('/analysis-artifacts/:artifactId', analysis.updateArtifact);
 router.post('/analysis-artifacts/:artifactId/transition', analysis.transitionArtifact);
@@ -40,6 +43,11 @@ router.post('/srs-baselines', analysis.cutSrsBaseline);
 router.get('/srs-draft', analysis.getSrsDraft);
 router.post('/phase2/advance', analysis.advancePhase2);
 router.post('/phase1/start-planning', analysis.startDeliveryPlanning);
+router.post(
+  '/analysis-import/preview',
+  requirementImportUpload.single('file'),
+  analysis.previewAnalysisImport
+);
 router.post('/analysis-import/confirm', analysis.confirmAnalysisImport);
 
 module.exports = router;

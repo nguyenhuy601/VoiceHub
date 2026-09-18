@@ -1581,16 +1581,21 @@ async function getProjectFiles({ userId, projectId }) {
   })
     .select('title attachments boardId')
     .lean();
+  const { readTaskFromStored } = require('../utils/task/taskPii');
   const files = [];
   for (const c of cards) {
-    for (const a of c.attachments || []) {
-      if (!a?.url) continue;
+    const decrypted = readTaskFromStored(c);
+    for (const a of decrypted.attachments || []) {
+      const url = String(a?.url || a?.storagePath || '').trim();
+      if (!url) continue;
       files.push({
-        name: a.name || a.url,
-        url: a.url,
+        name: a.name || url,
+        url,
+        storagePath: String(a?.storagePath || '').trim() || undefined,
         documentId: a.documentId || null,
+        mimeType: a.mimeType || a.contentType || undefined,
         taskId: c._id,
-        taskTitle: c.title,
+        taskTitle: decrypted.title || c.title,
         boardId: c.boardId,
       });
     }

@@ -34,6 +34,9 @@ const artifactTraceLinkSchema = new mongoose.Schema(
     },
     createdBy: { type: mongoose.Schema.Types.ObjectId, required: true },
     isActive: { type: Boolean, default: true, index: true },
+    deletedAt: { type: Date, default: null },
+    deletedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+    deletedBatchId: { type: String, trim: true, default: '', maxlength: 128 },
   },
   { timestamps: true }
 );

@@ -1,6 +1,15 @@
 const mongoose = require('../db');
 const { IMPORT_SET_STATUSES } = require('../constants/analysisImportSet');
 
+const reviewGateSchema = new mongoose.Schema(
+  {
+    userId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    at: { type: Date, default: null },
+    note: { type: String, trim: true, default: '', maxlength: 1000 },
+  },
+  { _id: false }
+);
+
 const analysisImportSetSchema = new mongoose.Schema(
   {
     organizationId: {
@@ -40,6 +49,18 @@ const analysisImportSetSchema = new mongoose.Schema(
     deletedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
     deletedAt: { type: Date, default: null },
     trashedAt: { type: Date, default: null },
+    lastTrashBatchId: { type: String, trim: true, default: '', maxlength: 128 },
+    purgeAfterAt: { type: Date, default: null },
+    revertedFromSetId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AnalysisImportSet',
+      default: null,
+    },
+    review: {
+      ba: { type: reviewGateSchema, default: () => ({}) },
+      tech: { type: reviewGateSchema, default: () => ({}) },
+      po: { type: reviewGateSchema, default: () => ({}) },
+    },
   },
   { timestamps: true }
 );
@@ -61,6 +82,15 @@ analysisImportSetSchema.index(
     unique: true,
     partialFilterExpression: { status: 'draft' },
     name: 'projectId_1_draft_unique',
+  }
+);
+/** At most one PENDING_REVIEW Import Set per project */
+analysisImportSetSchema.index(
+  { projectId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: 'pending_review' },
+    name: 'projectId_1_pending_review_unique',
   }
 );
 

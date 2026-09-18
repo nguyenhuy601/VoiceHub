@@ -237,6 +237,8 @@ const requirementPackSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true, index: true },
     deletedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
     deletedAt: { type: Date, default: null },
+    deletedReason: { type: String, trim: true, default: '', maxlength: 64 },
+    deletedBatchId: { type: String, trim: true, default: '', maxlength: 128 },
   },
   { timestamps: true }
 );

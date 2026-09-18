@@ -20,8 +20,9 @@ const DEFAULT_DELIVERY_PHASE_NEW = 'requirement_analysis';
 const PHASE_HOME_MODULE = Object.freeze({
   requirement_analysis: 'overview',
   delivery_planning: 'overview',
-  development: 'overview',
-  qa_uat: 'overview',
+  /** Phase 2 — Board là mặt phẳng thực thi chính */
+  development: 'board',
+  qa_uat: 'board',
   release_handover: 'overview',
 });
 

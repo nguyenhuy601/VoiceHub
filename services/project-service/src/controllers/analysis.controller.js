@@ -123,6 +123,21 @@ async function transitionArtifact(req, res) {
   }
 }
 
+async function bulkTransitionArtifacts(req, res) {
+  try {
+    const data = await analysisService.bulkTransitionArtifacts({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      fromStatus: req.body?.fromStatus,
+      toStatus: req.body?.toStatus || req.body?.status,
+      note: req.body?.note || '',
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
 async function listTraceLinks(req, res) {
   try {
     const data = await analysisService.listTraceLinks({
@@ -193,8 +208,10 @@ async function advancePhase2(req, res) {
       mode: req.body?.mode,
       packId: req.body?.packId,
       methodology: req.body?.methodology,
-      importWorkItems: req.body?.importWorkItems !== false,
-      applyAssignees: req.body?.applyAssignees !== false,
+      // RULE-21 — opt-in only (seed chính từ PlanningBaseline + publish-wbs)
+      importWorkItems: req.body?.importWorkItems === true,
+      applyAssignees: req.body?.applyAssignees === true,
+      forcePackImport: req.body?.forcePackImport === true,
       skipReadyGate: Boolean(req.body?.skipReadyGate),
       publishWbs: req.body?.publishWbs !== false,
     });
@@ -221,6 +238,28 @@ async function startDeliveryPlanning(req, res) {
     const data = await analysisService.startDeliveryPlanning({
       userId: getUserId(req),
       projectId: req.params.projectId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function previewAnalysisImport(req, res) {
+  try {
+    const file = req.file;
+    if (!file?.buffer) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu file Analysis (.xlsx)',
+        errorCode: 'IMPORT_SET_ANALYSIS_FILE_REQUIRED',
+      });
+    }
+    const data = await analysisService.previewAnalysisImport({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      fileBuffer: file.buffer,
+      fileName: file.originalname,
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -309,6 +348,36 @@ async function restoreImportSet(req, res) {
   }
 }
 
+async function getImportSetDiff(req, res) {
+  try {
+    const importSetService = require('../services/analysisImportSet.service');
+    const data = await importSetService.getImportSetDiff({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      setId: req.params.setId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function transitionImportSet(req, res) {
+  try {
+    const importSetService = require('../services/analysisImportSet.service');
+    const data = await importSetService.transitionImportSet({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      setId: req.params.setId,
+      toStatus: req.body?.toStatus,
+      note: req.body?.note || '',
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
 module.exports = {
   listCustomerDocuments,
   createCustomerDocument,
@@ -317,6 +386,7 @@ module.exports = {
   createArtifact,
   updateArtifact,
   transitionArtifact,
+  bulkTransitionArtifacts,
   listTraceLinks,
   createTraceLink,
   getGapReport,
@@ -325,9 +395,12 @@ module.exports = {
   advancePhase2,
   getSrsDraft,
   startDeliveryPlanning,
+  previewAnalysisImport,
   confirmAnalysisImport,
   listImportSets,
   attachRawImportSet,
   trashImportSet,
   restoreImportSet,
+  getImportSetDiff,
+  transitionImportSet,
 };
