@@ -6,7 +6,7 @@ import {
   canRunJob,
   jobIndex,
 } from './aiAnalysisWizardConstants';
-import { pollAiAnalysisJob } from './aiAnalysisPolling';
+import { pollAiAnalysisJob, resolveAiAnalysisPollTimeoutMs } from './aiAnalysisPolling';
 
 /**
  * W8 — poll + run/confirm one Blueprint job at a time (no Run all).
@@ -123,6 +123,7 @@ export function useAiAnalysisBlueprintWizard({ organizationId, packId, enabled =
         if (isRemoteAccepted) {
           s = await pollAiAnalysisJob({
             job,
+            timeoutMs: resolveAiAnalysisPollTimeoutMs(job),
             fetchSummary: async () => {
               const summaryResponse = await requirementAPI.getAiAnalysis(
                 organizationId,
