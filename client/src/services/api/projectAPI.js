@@ -89,11 +89,13 @@ export function mapBoardsToPickerRows(boards = [], projectMeta = {}) {
  * projectId ≠ boardId (defaultBoardId trên response create/list).
  */
 export const projectAPI = {
-  create: (payload = {}) => {
+  create: (payload = {}, config = {}) => {
     const body = { ...(payload || {}) };
     delete body.workspaceSlug;
     delete body.slug;
-    return apiClient.post('/projects', body);
+    return apiClient.post('/projects', body, {
+      skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+    });
   },
 
   list: (params = {}) => {

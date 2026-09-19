@@ -109,9 +109,50 @@ function normalizePoolItemsForMatching(items = []) {
       activeProjectCount:
         raw.activeProjectCount ?? raw.activeProjects ?? raw.projectCount ?? null,
       resourceConfig: raw.resourceConfig || null,
+      // Soft matching signal — projectExperiences from snapshot projection (≤8).
+      history: Array.isArray(raw.history)
+        ? raw.history
+        : Array.isArray(raw.capability?.projectExperiences)
+          ? raw.capability.projectExperiences
+          : [],
     });
   }
   return out;
+}
+
+/** Soft bonus ≤0.1 when past project role/domain overlaps task needs (RULE-F2). */
+function historyOverlapBonus(item, task, needSkills) {
+  const history = Array.isArray(item?.history) ? item.history : [];
+  if (!history.length) return 0;
+
+  const roleKey = normalizeRoleKey(task?.suggestedRoleKey);
+  const skillNeed = needSkills instanceof Set ? needSkills : new Set();
+  let roleHit = false;
+  let domainHit = false;
+
+  for (const row of history) {
+    if (!row || typeof row !== 'object') continue;
+    const histRole = normalizeRoleKey(row.role || row.projectRole);
+    if (roleKey && histRole && (histRole.includes(roleKey) || roleKey.includes(histRole))) {
+      roleHit = true;
+    }
+    const domain = String(row.domain || row.businessDomain || '')
+      .toLowerCase()
+      .trim();
+    if (domain && skillNeed.size) {
+      for (const s of skillNeed) {
+        if (domain.includes(s) || s.includes(domain)) {
+          domainHit = true;
+          break;
+        }
+      }
+    }
+  }
+
+  let bonus = 0;
+  if (roleHit) bonus += 0.06;
+  if (domainHit) bonus += 0.04;
+  return Math.min(0.1, bonus);
 }
 
 function isAtProjectCap(item) {
@@ -184,6 +225,8 @@ function scorePoolItemForTask({ item, task, container, blockers, criticalIds }) 
   if (criticalIds && criticalIds.has(String(task.id || ''))) {
     score += 0.08;
   }
+
+  score += historyOverlapBonus(item, task, needSkills);
 
   return Math.max(0, Math.min(1, Math.round(score * 1000) / 1000));
 }
@@ -296,6 +339,7 @@ module.exports = {
   buildFteFromPlanning,
   skillsFromPoolItem,
   normalizePoolItemsForMatching,
+  historyOverlapBonus,
   scorePoolItemForTask,
   isAtProjectCap,
   buildTaskShortlists,

@@ -1,6 +1,6 @@
 /**
  * Gửi inbox document qua notification-service (HTTP nội bộ).
- * Không phụ thuộc webhook replica.
+ * Không phụ thuộc hop HTTP trung gian.
  */
 const axios = require('axios');
 const { logger } = require('@enterprise/shared');

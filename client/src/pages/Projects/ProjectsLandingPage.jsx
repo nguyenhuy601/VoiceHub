@@ -54,12 +54,12 @@ export default function ProjectsLandingPage() {
     isError: projectsError,
     reload: reloadProjects,
   } = useOrgProjectsList(orgId, { excludeClosed: true });
-  const { canCreateTask, loading: scopeLoading } = useTaskWorkspaceScope(orgId);
+  const { canCreateProjectCapability, loading: scopeLoading } = useTaskWorkspaceScope(orgId);
   const { access: requirementAccess, loading: requirementAccessLoading } =
     useRequirementAccess(orgId);
 
   const orgName = String(organization?.name || '').trim();
-  const canCreate = Boolean(canCreateTask);
+  const canCreate = Boolean(canCreateProjectCapability);
   const canCreateWithAi = canCreate && Boolean(requirementAccess?.canRunAiPlanning);
 
   /** Grid waits only on projects list; create actions resolve progressively. */
@@ -144,10 +144,10 @@ export default function ProjectsLandingPage() {
       return;
     }
     if (!canCreate) {
-      toast.error(t('taskBoard.createBoardDenied'));
+      toast.error(t('taskBoard.createProjectDenied'));
       return;
     }
-    navigate(buildCollaborateProjectsNewPath(orgId, { from: 'hub' }));
+    navigate(buildCollaborateProjectsNewPath(orgId));
   }, [canCreate, navigate, orgId, t]);
 
   const handleCreateWithAi = useCallback(() => {
@@ -156,10 +156,10 @@ export default function ProjectsLandingPage() {
       return;
     }
     if (!canCreateWithAi) {
-      toast.error(t('taskBoard.createBoardDenied'));
+      toast.error(t('taskBoard.createProjectDenied'));
       return;
     }
-    navigate(buildCollaborateProjectsNewAiPath(orgId, { from: 'hub' }));
+    navigate(buildCollaborateProjectsNewAiPath(orgId));
   }, [canCreateWithAi, navigate, orgId, t]);
 
   const handleSelect = useCallback(

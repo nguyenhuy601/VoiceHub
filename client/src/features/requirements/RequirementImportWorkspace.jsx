@@ -33,6 +33,10 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { buildProjectsNewAiPath } from '../../utils/suitePathUtils';
 import { requirementAPI } from '../../services/api/requirementAPI';
+import {
+  approveRequirementPackWithGate1,
+  formatGateAApproveError,
+} from './approveRequirementPackWithGate1';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
 import RequirementPackReviewDrawer from './RequirementPackReviewDrawer';
 import { canConfirmRequirementImport, getConfirmImportLabelKey, isPackWhatReady } from '../../utils/requirementImportReadiness';
@@ -131,7 +135,7 @@ export default function RequirementImportWorkspace({
   const { t } = useAppStrings();
   const navigate = useNavigate();
   const isAdmin = variant === 'admin';
-  const sk = (suffix) => stringKey(variant, suffix);
+  const sk = useCallback((suffix) => stringKey(variant, suffix), [variant]);
   const showImportSection = isAdmin || canSubmit;
   const fileInputRef = useRef(null);
   const filtersRef = useRef(null);
@@ -302,11 +306,16 @@ export default function RequirementImportWorkspace({
     if (!orgId || !packId || actionPackId) return;
     setActionPackId(packId);
     try {
-      await requirementAPI.approvePack(orgId, packId);
-      toast.success(t('requirements.approveSuccess'));
+      const result = await approveRequirementPackWithGate1({ orgId, packId, t });
+      if (!result.ok) return;
+      toast.success(
+        result.forced
+          ? t('requirements.approveForcedSuccess') || t('requirements.approveSuccess')
+          : t('requirements.approveSuccess')
+      );
       await loadPacks();
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('requirements.approveFail') }));
+      toast.error(formatGateAApproveError(error, { t, fallback: t('requirements.approveFail') }));
     } finally {
       setActionPackId('');
     }
@@ -530,7 +539,9 @@ export default function RequirementImportWorkspace({
   }, [busy, downloadTemplate, handleFileChange, isAdmin, showImportSection, sk, t]);
 
   useEffect(() => {
-    setHeaderActions?.(headerActions);
+    if (!setHeaderActions) return undefined;
+    setHeaderActions(headerActions);
+    return () => setHeaderActions(null);
   }, [headerActions, setHeaderActions]);
 
   const activeFilterCount = statusFilter ? 1 : 0;

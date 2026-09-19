@@ -197,7 +197,7 @@ export function buildCompanyModuleSearch(space, module) {
   const mod = String(module || '').trim().toLowerCase();
 
   const params = new URLSearchParams();
-  if (orgId) params.set('organizationId', orgId);
+  void orgId; // single-company: org resolved from WorkspaceContext, not URL
   if (deptId) params.set('departmentId', deptId);
   if (level === COMPANY_SPACE_LEVEL.TEAM && teamId) {
     params.set('teamId', teamId);

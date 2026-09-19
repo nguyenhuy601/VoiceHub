@@ -44,6 +44,8 @@ const ARTIFACT_TRACE_LINK_TYPES = Object.freeze([
 
 const CUSTOMER_DOC_CLASSES = Object.freeze([
   'customer_raw',
+  'customer_file',
+  'reference_attachment',
   'requirement_analysis',
   'requirement_xlsx', // legacy alias — prefer customer_raw / requirement_analysis
   'business_description',

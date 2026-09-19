@@ -11,6 +11,12 @@ import { buildProjectsNewAiPath } from '../../utils/suitePathUtils';
 import { requirementAPI } from '../../services/api/requirementAPI';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
 import AiAnalysisBlueprintWizard from './AiAnalysisBlueprintWizard';
+import {
+  approveRequirementPackWithGate1,
+  readPackGateA,
+  formatGateAApproveError,
+} from './approveRequirementPackWithGate1';
+import RequirementInsightsPanel from './RequirementInsightsPanel';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -140,14 +146,17 @@ export default function RequirementPackReviewDrawer({
     if (!orgId || !packId || busy) return;
     setBusy(true);
     try {
-      await requirementAPI.approvePack(orgId, packId);
-      toast.success(t('requirements.approveSuccess'));
+      const result = await approveRequirementPackWithGate1({ orgId, packId, t });
+      if (!result.ok) return;
+      toast.success(
+        result.forced
+          ? t('requirements.approveForcedSuccess') || t('requirements.approveSuccess')
+          : t('requirements.approveSuccess')
+      );
       onChanged?.();
       onClose?.();
     } catch (error) {
-      toast.error(
-        resolveApiErrorMessage(error, { t, fallback: t('requirements.approveFail') })
-      );
+      toast.error(formatGateAApproveError(error, { t, fallback: t('requirements.approveFail') }));
     } finally {
       setBusy(false);
     }
@@ -212,6 +221,21 @@ export default function RequirementPackReviewDrawer({
             <h3 className="truncate text-base font-semibold text-foreground">
               {pack?.overview?.requirementName || pack?.sourceFileName || packId}
             </h3>
+            {(() => {
+              const gateA = readPackGateA(pack);
+              if (!gateA) return null;
+              return (
+                <p
+                  className={`mt-1 text-xs ${
+                    gateA.passed ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
+                  }`}
+                >
+                  {gateA.passed
+                    ? t('requirements.gateAPassed') || 'Gate A: đạt'
+                    : t('requirements.gateANotPassed') || 'Gate A: chưa đạt (cần sửa hoặc force duyệt)'}
+                </p>
+              );
+            })()}
           </div>
           <button
             type="button"
@@ -236,6 +260,21 @@ export default function RequirementPackReviewDrawer({
                     organizationId={orgId}
                     packId={packId}
                     onCreateProject={showCreateProject ? () => createProject() : null}
+                  />
+                </div>
+              ) : null}
+              {pack?.aiAnalysis?.analyses?.requirementInsights ||
+              pack?.aiAnalysis?.analyses?.proposedSrs ||
+              pack?.aiAnalysis?.analyses?.preApproval ? (
+                <div className="mb-4 rounded-md border border-border p-3">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {t('requirements.insightsPanelTitle') || 'Requirement Insights'}
+                  </p>
+                  <RequirementInsightsPanel
+                    insights={pack.aiAnalysis.analyses.requirementInsights}
+                    proposedSrs={pack.aiAnalysis.analyses.proposedSrs}
+                    preApproval={pack.aiAnalysis.analyses.preApproval}
+                    t={t}
                   />
                 </div>
               ) : null}

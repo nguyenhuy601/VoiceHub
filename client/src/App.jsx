@@ -20,10 +20,15 @@ function ProjectIdToOverviewRedirect() {
   return <Navigate to={`overview${search || ''}`} replace />;
 }
 
-/** Preserve query when mapping legacy collaborate create URLs. */
+/** Strip org/from query when mapping legacy collaborate create URLs. */
 function LegacyProjectsNewRedirect({ toBase }) {
   const { search } = useLocation();
-  return <Navigate to={`${toBase}${search || ''}`} replace />;
+  const params = new URLSearchParams(search || '');
+  params.delete('organizationId');
+  params.delete('orgId');
+  params.delete('from');
+  const qs = params.toString();
+  return <Navigate to={qs ? `${toBase}?${qs}` : toBase} replace />;
 }
 
 const LoginPage = lazy(() => import('./pages/Auth/LoginPage'));
@@ -131,11 +136,7 @@ function App() {
         />
         <Route
           path="/app/admin/projects/create"
-          element={
-            <Protected>
-              <CreateProjectWizardPage />
-            </Protected>
-          }
+          element={<Navigate to="/app/projects/new" replace />}
         />
 
         {/* Company Space suite */}

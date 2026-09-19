@@ -16,9 +16,9 @@ Premature micro-optimization without evidence.
 
 ## Related Rules
 
-- `.cursor/rules/role-database.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `implementer`)
 - `.cursor/rules/clean-code.mdc`
-- `.cursor/rules/role-frontend.mdc`
+- skills `database-design` / `migration` when query/DB hotspot
 
 ## Input
 

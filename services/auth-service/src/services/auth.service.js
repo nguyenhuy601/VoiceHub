@@ -823,7 +823,7 @@ class AuthService {
       userAuth.emailVerificationExpiresAt = null;
       await userAuth.save();
 
-      // Tạo UserProfile trong user-service (HTTP nội bộ — không qua webhook)
+      // Tạo UserProfile trong user-service (HTTP nội bộ)
       const bootstrap = await bootstrapUserProfile(userAuth, userId);
       if (!bootstrap.ok) {
         console.warn(

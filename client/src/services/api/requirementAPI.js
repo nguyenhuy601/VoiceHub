@@ -75,10 +75,10 @@ export const requirementAPI = {
       withOrg(organizationId)
     ),
 
-  approvePack: (organizationId, packId) =>
+  approvePack: (organizationId, packId, body = {}) =>
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/approve`,
-      {},
+      body,
       withOrg(organizationId)
     ),
 
@@ -112,6 +112,22 @@ export const requirementAPI = {
     apiClient.get(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,
       withOrg(organizationId, { params })
+    ),
+
+  createAiAnalysisSnapshot: (organizationId, packId, body = {}) =>
+    apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/snapshot`,
+      body,
+      {
+        ...withOrg(organizationId),
+        timeout: 120000,
+      }
+    ),
+
+  getAiAnalysisSnapshot: (organizationId, packId) =>
+    apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/snapshot`,
+      withOrg(organizationId)
     ),
 
   runAiAnalysis: (organizationId, packId, job, options = {}) =>

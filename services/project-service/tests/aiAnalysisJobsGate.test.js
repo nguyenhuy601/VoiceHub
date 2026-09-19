@@ -23,12 +23,13 @@ const {
 } = require('../src/utils/aiAnalysis/aiAnalysisMigrateJobs');
 
 describe('aiAnalysisJobsGate', () => {
-  it('has 11 user jobs in designed order', () => {
-    assert.equal(AI_ANALYSIS_USER_JOBS.length, 11);
+  it('has 12 user jobs in designed order (WHAT includes requirementInsights)', () => {
+    assert.equal(AI_ANALYSIS_USER_JOBS.length, 12);
     assert.deepEqual(AI_ANALYSIS_USER_JOBS, [
       'hierarchyDecomposition',
       'requirementAnalysis',
       'capabilityAnalysis',
+      'requirementInsights',
       'wbsGeneration',
       'dependencyAnalysis',
       'architectureRiskAnalysis',
@@ -45,8 +46,14 @@ describe('aiAnalysisJobsGate', () => {
     assert.equal(previousUserJob('hierarchyDecomposition'), null);
     assert.equal(previousUserJob('requirementAnalysis'), 'hierarchyDecomposition');
     assert.equal(previousUserJob('capabilityAnalysis'), 'requirementAnalysis');
-    assert.equal(previousUserJob('wbsGeneration'), 'capabilityAnalysis');
+    assert.equal(previousUserJob('requirementInsights'), 'capabilityAnalysis');
+    assert.equal(previousUserJob('wbsGeneration'), 'requirementInsights');
     assert.equal(previousUserJob('projectPlan'), 'scheduleCapacity');
+  });
+
+  it('HOW jobs length unchanged at 8', () => {
+    const { AI_ANALYSIS_HOW_JOBS } = require('../src/constants/aiAnalysisJobs.constants');
+    assert.equal(AI_ANALYSIS_HOW_JOBS.length, 8);
   });
 
   it('parseJobId rejects legacy ids', () => {

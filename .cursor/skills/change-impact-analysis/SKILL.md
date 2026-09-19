@@ -21,7 +21,7 @@ description: >-
 ## Related Rules
 
 - `.cursor/rules/voicehub-constraints.mdc` (scope, MS boundaries)
-- `.cursor/rules/role-solution-architect.mdc` when designing
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `researcher`) when designing
 
 ## Input
 

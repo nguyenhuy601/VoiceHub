@@ -105,10 +105,8 @@ export function WorkspaceProvider({ children }) {
   );
 
   const getLastCommunicatePath = useCallback(() => {
-    const orgId =
-      String(activeWorkspace?._id || activeWorkspace?.id || lastOrganizationIdState || '').trim();
-    return orgId ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}` : buildCommunicateChannelsPath();
-  }, [activeWorkspace, lastOrganizationIdState]);
+    return buildCommunicateChannelsPath();
+  }, []);
 
   const getLastCollaboratePath = useCallback(() => {
     const orgId =

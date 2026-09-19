@@ -188,14 +188,29 @@ export function sumOpenCardEstimateHours(cards = [], lists = []) {
   }, 0);
 }
 
-/** i18n nhãn status project (planning, ready_for_planning, …). */
+/** i18n nhãn status project (draft, active, on_hold, closed + legacy coerce). */
 export function formatHubProjectStatus(status, t) {
   const raw = String(status || '').trim();
   if (!raw) return '';
   const norm = raw.toLowerCase().replace(/[\s-]+/g, '_');
-  const key = `workspace.projectHubProjectStatus_${norm}`;
+  const coerced =
+    norm === 'planning' || norm === 'ready_for_planning'
+      ? 'draft'
+      : norm === 'in_development'
+        ? 'active'
+        : norm === 'cancelled' ||
+            norm === 'canceled' ||
+            norm === 'completed' ||
+            norm === 'archived'
+          ? 'closed'
+          : norm;
+  const key = `workspace.projectHubProjectStatus_${coerced}`;
   const label = t(key);
-  return label === key ? raw : label;
+  if (label !== key) return label;
+  // Legacy keys kept for docs not yet migrated / dual-read
+  const legacyKey = `workspace.projectHubProjectStatus_${norm}`;
+  const legacyLabel = t(legacyKey);
+  return legacyLabel === legacyKey ? raw : legacyLabel;
 }
 
 /** i18n methodology (kanban / scrum / waterfall). */

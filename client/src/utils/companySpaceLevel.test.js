@@ -114,6 +114,7 @@ describe('companySpaceLevel', () => {
     const chatDept = buildCompanyModuleSearch(deptSpace, 'chat');
     assert.equal(chatDept.get('tab'), 'announcement');
     assert.equal(chatDept.get('teamId'), null);
+    assert.equal(chatDept.get('organizationId'), null);
 
     const teamSpace = {
       organizationId: 'o1',
@@ -124,6 +125,7 @@ describe('companySpaceLevel', () => {
     const chatTeam = buildCompanyModuleSearch(teamSpace, 'chat');
     assert.equal(chatTeam.get('tab'), 'chat');
     assert.equal(chatTeam.get('teamId'), 'team1');
+    assert.equal(chatTeam.get('organizationId'), null);
 
     const calTeam = buildCompanyModuleSearch(teamSpace, 'calendar');
     assert.equal(calTeam.get('tab'), 'calendar');

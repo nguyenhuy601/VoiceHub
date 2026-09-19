@@ -18,6 +18,8 @@ router.post('/:packId/reject', controller.rejectPack);
 router.delete('/:packId', controller.deletePack);
 router.post('/:packId/create-project', controller.createProjectFromPack);
 router.get('/:packId/ai-analysis', controller.getAiAnalysis);
+router.post('/:packId/ai-analysis/snapshot', controller.createAiAnalysisSnapshot);
+router.get('/:packId/ai-analysis/snapshot', controller.getAiAnalysisSnapshot);
 router.post('/:packId/ai-analysis/run', controller.runAiAnalysis);
 router.post('/:packId/ai-analysis/confirm', controller.confirmAiAnalysis);
 router.get('/:packId/ai-analysis/export-sheet11', controller.exportAiAnalysisSheet11);

@@ -64,17 +64,25 @@ export default function CompanySuiteLayout() {
   useEffect(() => {
     if (!organizationId || !spaceDeptId || shellQuery.isLoading || !shell) return;
     const currentDept = String(searchParams.get('departmentId') || '').trim();
-    const currentOrg = String(searchParams.get('organizationId') || '').trim();
-    if (currentDept === spaceDeptId && currentOrg === organizationId) return;
+    const currentTeam = String(searchParams.get('teamId') || '').trim();
+    const hasOrgQuery = Boolean(searchParams.get('organizationId') || searchParams.get('orgId'));
+    const wantTeam =
+      spaceLevel === COMPANY_SPACE_LEVEL.TEAM ? String(spaceTeamId || '').trim() : '';
+    const teamOk =
+      spaceLevel !== COMPANY_SPACE_LEVEL.TEAM ? !currentTeam : currentTeam === wantTeam;
+    if (currentDept === spaceDeptId && teamOk && !hasOrgQuery) return;
+
     const next = new URLSearchParams(searchParams);
-    next.set('organizationId', organizationId);
+    next.delete('organizationId');
+    next.delete('orgId');
     next.set('departmentId', spaceDeptId);
     if (spaceLevel !== COMPANY_SPACE_LEVEL.TEAM) {
       next.delete('teamId');
-    } else if (spaceTeamId) {
-      next.set('teamId', spaceTeamId);
+    } else if (wantTeam) {
+      next.set('teamId', wantTeam);
     }
-    navigate({ pathname: location.pathname, search: `?${next.toString()}` }, { replace: true });
+    const qs = next.toString();
+    navigate({ pathname: location.pathname, search: qs ? `?${qs}` : '' }, { replace: true });
   }, [
     organizationId,
     spaceDeptId,

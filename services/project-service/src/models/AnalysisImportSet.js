@@ -12,7 +12,6 @@ const analysisImportSetSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Project',
       required: true,
-      index: true,
     },
     status: {
       type: String,
@@ -49,7 +48,11 @@ analysisImportSetSchema.index({ projectId: 1, status: 1, updatedAt: -1 });
 /** At most one ACTIVE Import Set per project */
 analysisImportSetSchema.index(
   { projectId: 1 },
-  { unique: true, partialFilterExpression: { status: 'active' } }
+  {
+    unique: true,
+    partialFilterExpression: { status: 'active' },
+    name: 'projectId_1_active_unique',
+  }
 );
 /** At most one DRAFT Import Set per project */
 analysisImportSetSchema.index(

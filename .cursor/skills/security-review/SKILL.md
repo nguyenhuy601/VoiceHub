@@ -16,9 +16,9 @@ Casual feature polish without security surface.
 
 ## Related Rules
 
-- `.cursor/rules/role-rbac.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc`; skill `authorization-analysis`
 - `.cursor/rules/voicehub-constraints.mdc`
-- `.cursor/rules/role-code-reviewer.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `reviewer`)
 
 ## Input
 

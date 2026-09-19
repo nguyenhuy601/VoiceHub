@@ -1,7 +1,7 @@
 const { mongoose } = require('@enterprise/shared/config/mongo');
 const Role = require('../models/Role');
 const UserRole = require('../models/UserRole');
-const { roleWebhook } = require('../clients/webhook.client');
+const { notifyRoleRemoved } = require('../clients/notification.client');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const axios = require('axios');
 const { canonicalizeSystemRoleName } = require('@enterprise/shared/utils/roleLayerNaming');
@@ -381,17 +381,17 @@ class RoleService {
         if (role?.name) {
           const orgId = String(role.organizationId || serverId || '');
           const serverName = await fetchOrganizationDisplayName(serverId, role);
-          await roleWebhook.removed(
-            userId.toString(),
-            role.name,
-            serverId.toString(),
+          await notifyRoleRemoved({
+            userId: userId.toString(),
+            roleName: role.name,
+            serverId: serverId.toString(),
             serverName,
-            null,
-            orgId || undefined
-          );
+            removedBy: null,
+            organizationId: orgId || undefined,
+          });
         }
       } catch (error) {
-        logger.warn('[role.service] role removed webhook skipped:', error.message);
+        logger.warn('[role.service] role removed notification skipped:', error.message);
       }
 
       logger.info(`Role removed: user ${userId}, role ${roleId}, server ${serverId}`);

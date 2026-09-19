@@ -1,7 +1,13 @@
-const { fetchTaskWorkspaceScope, canCreateTaskInScope } = require('./taskWorkspaceScope');
+const {
+  fetchTaskWorkspaceScope,
+  canCreateTaskInScope,
+} = require('./taskWorkspaceScope');
 const { fetchRequirementAccessPolicy } = require('../clients/requirementAccessPolicy.client');
 const { resolveRequirementPersona } = require('../utils/requirement/resolveRequirementPersona');
 const { createInflightCoalesce } = require('../utils/requirement/inflightCoalesce');
+const {
+  canPreviewCustomerRawRequirement,
+} = require('../utils/requirement/customerRawPreviewAuthz');
 
 const coalescePersonaLoad = createInflightCoalesce();
 
@@ -210,8 +216,43 @@ async function assertRequirementPermission({ userId, organizationId, permission 
   throw err;
 }
 
+/**
+ * Preview Customer Requirement Raw only — not Analysis/SRS confirm pack.
+ * Allows project creators without submitter/operator import persona.
+ */
+async function assertRequirementImportOrCreateProjectScope({ userId, organizationId }) {
+  const uid = resolveUserId(userId);
+  const orgId = String(organizationId || '').trim();
+  if (!uid || !orgId) {
+    const err = new Error('userId và organizationId bắt buộc');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const ctx = await loadPersonaContext(uid, orgId);
+  if (!ctx) {
+    const err = new Error('Không có quyền truy cập organization');
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const { scope, persona } = ctx;
+  const actions = persona.actions || {};
+  if (canPreviewCustomerRawRequirement({ actions, scope })) {
+    const via = actions.import ? persona.persona : 'can_create_project';
+    return { scope, via };
+  }
+
+  const err = new Error('Không có quyền: requirement:import');
+  err.statusCode = 403;
+  err.errorCode = 'REQUIREMENT_FORBIDDEN';
+  throw err;
+}
+
 module.exports = {
   assertRequirementPermission,
+  assertRequirementImportOrCreateProjectScope,
+  canPreviewCustomerRawRequirement,
   resolveRequirementAccess,
   canUserRunAiPlanning,
   loadPersonaContext,

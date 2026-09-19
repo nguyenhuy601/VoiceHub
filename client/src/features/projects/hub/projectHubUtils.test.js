@@ -168,9 +168,15 @@ test('countUnassignedOpenCards và sumOpenCardEstimateHours', () => {
 });
 
 test('formatHubProjectStatus: i18n hoặc fallback raw', () => {
-  const t = (key) =>
-    key === 'workspace.projectHubProjectStatus_in_development' ? 'Đang phát triển' : key;
-  assert.equal(formatHubProjectStatus('in_development', t), 'Đang phát triển');
+  const t = (key) => {
+    if (key === 'workspace.projectHubProjectStatus_active') return 'Đang hoạt động';
+    if (key === 'workspace.projectHubProjectStatus_draft') return 'Nháp';
+    if (key === 'workspace.projectHubProjectStatus_in_development') return 'Đang phát triển';
+    return key;
+  };
+  assert.equal(formatHubProjectStatus('active', t), 'Đang hoạt động');
+  assert.equal(formatHubProjectStatus('in_development', t), 'Đang hoạt động');
+  assert.equal(formatHubProjectStatus('ready_for_planning', t), 'Nháp');
   assert.equal(formatHubProjectStatus('CUSTOM', t), 'CUSTOM');
 });
 

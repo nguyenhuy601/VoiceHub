@@ -11,6 +11,7 @@ pnpm-lock.yaml
 # Environment Variables
 # ========================
 
+/services/ai-project-planning-service/.env
 
 # Cloudflare Origin CA (P5 — never commit)
 devops/nginx/certs/cf-origin.pem

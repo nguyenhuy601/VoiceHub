@@ -3,6 +3,7 @@
  */
 
 import { buildRequirementFindingRows } from './aiAnalysisResultModel';
+import RequirementInsightsPanel from './RequirementInsightsPanel';
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -1032,6 +1033,15 @@ export default function AiAnalysisJobPreview({
       );
     case 'capabilityAnalysis':
       return <PreviewCapability dto={dto} t={t} />;
+    case 'requirementInsights':
+      return (
+        <RequirementInsightsPanel
+          insights={dto?.analyses?.requirementInsights}
+          proposedSrs={dto?.analyses?.proposedSrs}
+          preApproval={dto?.analyses?.preApproval}
+          t={t}
+        />
+      );
     case 'wbsGeneration':
       return <PreviewWbs dto={dto} t={t} />;
     case 'dependencyAnalysis':

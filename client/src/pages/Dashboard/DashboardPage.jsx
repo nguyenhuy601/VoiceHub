@@ -677,7 +677,7 @@ function DashboardPage({
           if (orgId) {
             return kind === 'task'
               ? buildCollaborateTasksPath(orgId)
-              : `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`;
+              : buildCommunicateChannelsPath();
           }
           return kind === 'task' ? buildProjectsPickerPath('') : '/app/communicate/chat/friends';
         };
@@ -1627,11 +1627,7 @@ function DashboardPage({
       }}
       onAddFriend={() => setShowAddFriendModal(true)}
       onWorkspaceClick={(ws) =>
-        navigate(
-          ws.slug
-            ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(ws.id)}`
-            : '/app/collaborate/workspaces'
-        )
+        navigate(ws.slug ? buildCommunicateChannelsPath() : '/app/collaborate/workspaces')
       }
     />
   );

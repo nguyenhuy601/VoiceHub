@@ -194,7 +194,7 @@ export default function OrganizationNotificationsWorkspacePanel({
           navigate(buildCollaborateDocumentsPath(orgId));
           break;
         default:
-          navigate(`${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`);
+          navigate(buildCommunicateChannelsPath());
           break;
       }
       return;

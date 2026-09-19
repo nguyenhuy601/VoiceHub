@@ -43,13 +43,12 @@ export default function ProjectPickerPage() {
     isError: projectsError,
     reload: reloadProjects,
   } = useOrgProjectsList(orgId, { excludeClosed: true });
-  const { canCreateProject, canCreateProjectCapability, loading: scopeLoading } =
-    useTaskWorkspaceScope(orgId);
+  const { canCreateProjectCapability, loading: scopeLoading } = useTaskWorkspaceScope(orgId);
   const { access: requirementAccess, loading: requirementAccessLoading } =
     useRequirementAccess(orgId);
 
   const orgName = String(organization?.name || '').trim();
-  const canCreate = Boolean(canCreateProjectCapability ?? canCreateProject);
+  const canCreate = Boolean(canCreateProjectCapability);
   const canCreateWithAi = canCreate && Boolean(requirementAccess?.canRunAiPlanning);
 
   const listLoading = Boolean(orgId) && projectsLoading;
@@ -94,10 +93,10 @@ export default function ProjectPickerPage() {
       return;
     }
     if (!canCreate) {
-      toast.error(t('taskBoard.createBoardDenied'));
+      toast.error(t('taskBoard.createProjectDenied'));
       return;
     }
-    navigate(buildProjectsNewPath(orgId, { from: 'picker' }));
+    navigate(buildProjectsNewPath());
   }, [canCreate, navigate, orgId, t]);
 
   const handleCreateWithAi = useCallback(() => {

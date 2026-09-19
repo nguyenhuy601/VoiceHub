@@ -41,8 +41,6 @@ docker service update --rollback "${STACK}_auth-service"
 | voice-service | `docker service update --rollback voicehub_voice-service` |
 | notification-service | `docker service update --rollback voicehub_notification-service` |
 | notification-dispatch-worker | `docker service update --rollback voicehub_notification-dispatch-worker` |
-| webhook-service | `docker service update --rollback voicehub_webhook-service` |
-| webhook-delivery-worker | `docker service update --rollback voicehub_webhook-delivery-worker` |
 | socket-service | `docker service update --rollback voicehub_socket-service` |
 
 ## Rollback sau rotate secrets

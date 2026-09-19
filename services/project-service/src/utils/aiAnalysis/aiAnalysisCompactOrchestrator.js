@@ -199,6 +199,38 @@ async function runCompactRequirementAnalysis(pack, container, opts = {}) {
     buildFrIdSet(pack?.functionalRequirements || []),
     frSlices
   );
+  try {
+    const { ensureRequirementEvidence } = require('../tools/ensureRequirementEvidence');
+    const { isRequirementAiContextEnabled } = require('../tools/buildRequirementAiContext');
+    if (isRequirementAiContextEnabled()) {
+      // Ensure analyses shell exists for evidence merge
+      if (!pack.aiAnalysis) pack.aiAnalysis = { analyses: {} };
+      if (!pack.aiAnalysis.analyses) pack.aiAnalysis.analyses = {};
+      const ensured = ensureRequirementEvidence({
+        pack,
+        need: ['ambiguity'],
+        requirementTools:
+          pack.aiAnalysis.analyses.requirementTools ||
+          container?.analyses?.requirementTools ||
+          null,
+      });
+      pack.aiAnalysis.analyses.requirementTools = {
+        ...(pack.aiAnalysis.analyses.requirementTools || {}),
+        ...(ensured.requirementTools || {}),
+        facts: {
+          ...(pack.aiAnalysis.analyses.requirementTools?.facts || {}),
+          ...(ensured.requirementTools?.facts || {}),
+        },
+        gateA:
+          ensured.requirementTools?.gateA ||
+          pack.aiAnalysis.analyses.requirementTools?.gateA ||
+          container?.analyses?.requirementTools?.gateA ||
+          null,
+      };
+    }
+  } catch {
+    // soft
+  }
   const context = buildProjectContextSlice(pack);
   const dataHints = buildDataHintSlice(pack);
   const heuristicEntities = buildHeuristicDataEntities(frSlices, dataHints);
@@ -394,6 +426,12 @@ async function runCompactCapabilityAnalysis(pack, container, opts = {}) {
     buildFrIdSet(pack?.functionalRequirements || []),
     frSlices
   );
+  // Capability WHAT job — reuse pack requirementTools / container facts via context enrich
+  if (!pack.aiAnalysis?.analyses?.requirementTools && container?.analyses?.requirementTools) {
+    if (!pack.aiAnalysis) pack.aiAnalysis = { analyses: {} };
+    if (!pack.aiAnalysis.analyses) pack.aiAnalysis.analyses = {};
+    pack.aiAnalysis.analyses.requirementTools = container.analyses.requirementTools;
+  }
   const context = buildProjectContextSlice(pack);
   const heuristic = buildHeuristicCapabilityItems(frSlices);
   let items = heuristic;

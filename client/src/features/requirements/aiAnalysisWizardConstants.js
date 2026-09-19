@@ -1,5 +1,5 @@
 /**
- * AI Analysis Blueprint wizard constants — 11 jobs (schema v2, khớp BE).
+ * AI Analysis Blueprint wizard constants — 12 jobs (schema v2, khớp BE; WHAT + Insights).
  */
 
 export const AI_ANALYSIS_PHASES = Object.freeze([
@@ -32,6 +32,18 @@ export const AI_ANALYSIS_JOBS = Object.freeze([
     labelKey: 'requirements.aiJobCapabilityAnalysis',
     descriptionKey: 'requirements.aiJobCapabilityAnalysisDesc',
     previewKeys: ['analyses.capability'],
+  },
+  {
+    id: 'requirementInsights',
+    phase: 'understand',
+    engine: 'llm',
+    labelKey: 'requirements.aiJobRequirementInsights',
+    descriptionKey: 'requirements.aiJobRequirementInsightsDesc',
+    previewKeys: [
+      'analyses.requirementInsights',
+      'analyses.proposedSrs',
+      'analyses.preApproval',
+    ],
   },
   {
     id: 'wbsGeneration',

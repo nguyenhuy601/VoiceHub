@@ -125,6 +125,15 @@ const requirementPackSchema = new mongoose.Schema(
     },
     /** Blueprint HOW container — W2 jobs + analyses/planning/resource shells */
     aiAnalysis: { type: mongoose.Schema.Types.Mixed, default: null },
+    /** Active AI Analysis Snapshot (pin SRS + system datasets for reproducible jobs) */
+    aiAnalysisActiveSnapshotId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AiAnalysisSnapshot',
+      default: null,
+      index: true,
+    },
+    /** Slim snapshot meta for wizard UI (no frozen pool/FR) */
+    aiAnalysisSnapshotMeta: { type: mongoose.Schema.Types.Mixed, default: null },
     scope: [
       {
         type: { type: String, enum: ['in', 'out'], required: true },

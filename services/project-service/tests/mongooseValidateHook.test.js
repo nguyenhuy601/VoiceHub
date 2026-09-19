@@ -5,14 +5,16 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
+const { coerceProjectLifecycleStatus } = require('../src/utils/project/projectInitFields');
 
 describe('mongoose 9 pre(validate) without next', () => {
   it('sync hook không gọi next vẫn validate + coerce status', async () => {
     const schema = new mongoose.Schema({
-      status: { type: String, enum: ['ready_for_planning', 'closed'] },
+      status: { type: String, enum: ['draft', 'active', 'on_hold', 'closed'] },
     });
     schema.pre('validate', function coerceLegacyStatus() {
-      if (String(this.status) === 'cancelled') this.status = 'closed';
+      const coerced = coerceProjectLifecycleStatus(this.status);
+      if (coerced) this.status = coerced;
     });
     const Model =
       mongoose.models.Mongoose9ValidateHookTest ||
@@ -20,6 +22,27 @@ describe('mongoose 9 pre(validate) without next', () => {
     const doc = new Model({ status: 'cancelled' });
     await assert.doesNotReject(() => doc.validate());
     assert.equal(doc.status, 'closed');
+  });
+
+  it('coerces ready_for_planning and in_development before enum validate', async () => {
+    const schema = new mongoose.Schema({
+      status: { type: String, enum: ['draft', 'active', 'on_hold', 'closed'] },
+    });
+    schema.pre('validate', function coerceLegacyStatus() {
+      const coerced = coerceProjectLifecycleStatus(this.status);
+      if (coerced) this.status = coerced;
+    });
+    const Model =
+      mongoose.models.Mongoose9ValidateHookLegacy ||
+      mongoose.model('Mongoose9ValidateHookLegacy', schema);
+
+    const draftDoc = new Model({ status: 'ready_for_planning' });
+    await assert.doesNotReject(() => draftDoc.validate());
+    assert.equal(draftDoc.status, 'draft');
+
+    const activeDoc = new Model({ status: 'in_development' });
+    await assert.doesNotReject(() => activeDoc.validate());
+    assert.equal(activeDoc.status, 'active');
   });
 
   it('gọi next() khi next undefined → TypeError (pattern cũ)', () => {

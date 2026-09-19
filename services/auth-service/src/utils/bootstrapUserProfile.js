@@ -33,7 +33,7 @@ function buildBootstrapUsername(firstName, lastName, email, userId) {
 }
 
 /**
- * Gọi user-service POST /api/users/internal/bootstrap (không qua webhook).
+ * Gọi user-service POST /api/users/internal/bootstrap (HTTP nội bộ).
  * @returns {Promise<{ ok: boolean, reason?: string, data?: object }>}
  */
 async function bootstrapUserProfile(userAuth, userId) {

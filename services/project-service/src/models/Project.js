@@ -183,8 +183,28 @@ const projectSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['planning', 'ready_for_planning', 'in_development', 'on_hold', 'closed'],
-      default: 'planning',
+      enum: ['draft', 'active', 'on_hold', 'closed'],
+      default: 'draft',
+      index: true,
+    },
+    /**
+     * Status within the current deliveryPhase (orthogonal to Project.status).
+     * New creates default not_started; review/approve transitions are later plans.
+     */
+    phaseStatus: {
+      type: String,
+      enum: ['not_started', 'in_progress', 'review', 'approved', 'blocked', 'completed'],
+      default: 'not_started',
+      index: true,
+    },
+    /**
+     * Intake analysis path chosen at project create (manual BA vs AI).
+     * Declaration only — does not auto-trigger AI jobs.
+     */
+    analysisMode: {
+      type: String,
+      enum: ['manual', 'ai'],
+      default: 'manual',
       index: true,
     },
     /**

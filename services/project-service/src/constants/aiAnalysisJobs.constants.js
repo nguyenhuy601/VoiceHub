@@ -10,6 +10,7 @@ const AI_ANALYSIS_USER_JOBS = Object.freeze([
   'hierarchyDecomposition',
   'requirementAnalysis',
   'capabilityAnalysis',
+  'requirementInsights',
   'wbsGeneration',
   'dependencyAnalysis',
   'architectureRiskAnalysis',
@@ -25,6 +26,7 @@ const AI_ANALYSIS_WHAT_JOBS = Object.freeze([
   'hierarchyDecomposition',
   'requirementAnalysis',
   'capabilityAnalysis',
+  'requirementInsights',
 ]);
 
 /** ADR 0003 — HOW / Planning jobs (require pack approved) */
@@ -79,6 +81,7 @@ const AI_ANALYSIS_JOB_OUTPUT_MAP = Object.freeze({
   hierarchyDecomposition: { analyses: ['hierarchy'] },
   requirementAnalysis: { analyses: ['data', 'gap'] },
   capabilityAnalysis: { analyses: ['capability'] },
+  requirementInsights: { analyses: ['requirementInsights', 'proposedSrs', 'preApproval'] },
 
   wbsGeneration: { planning: ['wbs', 'tasks'] },
   dependencyAnalysis: { analyses: ['dependency'] },

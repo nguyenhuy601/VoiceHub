@@ -37,10 +37,16 @@ async function listCustomerDocuments(req, res) {
 
 async function createCustomerDocument(req, res) {
   try {
+    const file = req.file;
+    const body = req.body || {};
     const data = await analysisService.createCustomerDocument({
       userId: getUserId(req),
       projectId: req.params.projectId,
-      body: req.body || {},
+      body,
+      fileBuffer: file?.buffer || null,
+      fileName: file?.originalname || null,
+      mimeType: file?.mimetype || null,
+      sizeBytes: file?.size != null ? file.size : null,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {

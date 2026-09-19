@@ -17,7 +17,7 @@ Small single-task fixes.
 ## Related Rules
 
 - `.cursor/rules/voicehub-constraints.mdc`
-- `.cursor/rules/role-qa.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `reviewer`)
 
 ## Input
 

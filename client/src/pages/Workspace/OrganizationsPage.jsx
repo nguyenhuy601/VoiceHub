@@ -664,7 +664,7 @@ function OrganizationsPage({
       if (!selectedOrganizationId || landingDemo) return;
       const orgId = String(selectedOrganizationId);
       if (next === 'chat') {
-        navigate(`${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`);
+        navigate(buildCommunicateChannelsPath());
         return;
       }
       if (next === 'tasks') {
@@ -697,10 +697,11 @@ function OrganizationsPage({
         setSelectedChannelId(String(file.roomId));
       }
       if (!selectedOrganizationId) return;
-      const params = new URLSearchParams({ organizationId: String(selectedOrganizationId) });
+      const params = new URLSearchParams();
       if (file?.roomId) params.set('channelId', String(file.roomId));
       if (file?.source === 'message' && file?.id) params.set('messageId', String(file.id));
-      navigate(`${buildCollaborateDocumentsPath()}?${params.toString()}`);
+      const qs = params.toString();
+      navigate(qs ? `${buildCollaborateDocumentsPath()}?${qs}` : buildCollaborateDocumentsPath());
     },
     [selectedOrganizationId, navigate]
   );
@@ -1614,7 +1615,7 @@ function OrganizationsPage({
         if (voiceCh?._id) setSelectedChannelId(String(voiceCh._id));
         setWorkspaceTabView('chat');
         if (selectedOrganizationId) {
-          navigate(`${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(String(selectedOrganizationId))}`);
+          navigate(buildCommunicateChannelsPath());
         }
         return;
       }
@@ -1627,7 +1628,7 @@ function OrganizationsPage({
       if (textCh) setSelectedChannelId(String(textCh));
       setWorkspaceTabView('chat');
       if (selectedOrganizationId) {
-        navigate(`${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(String(selectedOrganizationId))}`);
+        navigate(buildCommunicateChannelsPath());
       }
     },
     [selectedOrganizationId, navigate, canSelectTeam, resolveTeamContext, channels, channelPermissionMatrix]
@@ -2321,8 +2322,8 @@ function OrganizationsPage({
       if (createdId) {
         const target =
           suiteMode === 'communicate'
-            ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(createdId)}`
-            : `/app/collaborate/workspaces?organizationId=${encodeURIComponent(createdId)}`;
+            ? buildCommunicateChannelsPath()
+            : '/app/company/workspaces';
         navigate(target);
       }
     } catch (error) {
@@ -2527,8 +2528,8 @@ function OrganizationsPage({
       if (selected.slug) setLastWorkspaceSlug(selected.slug);
       const target =
         suiteMode === 'communicate'
-          ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`
-          : `/app/collaborate/workspaces?organizationId=${encodeURIComponent(orgId)}`;
+          ? buildCommunicateChannelsPath()
+          : '/app/company/workspaces';
       navigate(target);
     }
   };
@@ -2547,8 +2548,8 @@ function OrganizationsPage({
       if (org.slug) setLastWorkspaceSlug(org.slug);
       const target =
         suiteMode === 'communicate'
-          ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(id)}`
-          : `/app/collaborate/workspaces?organizationId=${encodeURIComponent(id)}`;
+          ? buildCommunicateChannelsPath()
+          : '/app/company/workspaces';
       navigate(target);
     },
     [navigate, setActiveWorkspace, setLastWorkspaceSlug, suiteMode]

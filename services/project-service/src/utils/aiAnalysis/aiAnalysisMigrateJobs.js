@@ -48,6 +48,24 @@ function migrateAiAnalysisJobsV1ToV2(rawJobs = {}) {
     }
   }
 
+  // Inserted WHAT job requirementInsights — if pipeline already past capability→wbs, mark confirmed placeholder.
+  const insightsMeta = copyJobMeta(src.requirementInsights);
+  const wbsStatus = String(wbs?.status || out.wbsGeneration?.status || 'empty');
+  if (
+    (!insightsMeta || insightsMeta.status === 'empty') &&
+    wbsStatus !== 'empty'
+  ) {
+    out.requirementInsights = {
+      status: 'confirmed',
+      model: 'migrated',
+      generatedAt: null,
+      confirmedAt: new Date().toISOString(),
+      durationMs: null,
+      error: null,
+    };
+    migrated = true;
+  }
+
   // Dependency was embedded in architectureRiskAnalysis.
   if (!out.dependencyAnalysis?.status || out.dependencyAnalysis.status === 'empty') {
     if (arch && arch.status !== 'empty') {

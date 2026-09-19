@@ -8,8 +8,8 @@ import {
 } from './projectWizardConstants.js';
 
 describe('PROJECT_WIZARD_STEPS', () => {
-  it('blank Phase 1: identity → roster → confirm', () => {
-    assert.deepEqual([...PROJECT_WIZARD_STEPS], ['identity', 'roster', 'confirm']);
+  it('Phase 1 intake: intake → mode', () => {
+    assert.deepEqual([...PROJECT_WIZARD_STEPS], ['intake', 'mode']);
   });
 });
 

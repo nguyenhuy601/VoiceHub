@@ -10,6 +10,18 @@ export const analysisAPI = {
   createCustomerDocument: (projectId, body = {}) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/customer-documents`, body),
 
+  uploadCustomerDocument: (projectId, file, { docClass, notes } = {}) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (docClass) form.append('docClass', docClass);
+    if (notes) form.append('notes', notes);
+    return apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/customer-documents`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+  },
+
   listArtifacts: (projectId, { kind, status } = {}) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/analysis-artifacts`, {
       params: {

@@ -16,7 +16,10 @@ const {
 } = require('../utils/requirement/requirementExcelPreview');
 const { buildSyntheticExcelPreviewFromPack } = require('../utils/requirement/requirementPackPreviewFallback');
 const objectStorage = require('../utils/common/objectStorage');
-const { assertRequirementPermission } = require('./requirementAccess.service');
+const {
+  assertRequirementPermission,
+  assertRequirementImportOrCreateProjectScope,
+} = require('./requirementAccess.service');
 const {
   pickPlanningReadinessSummary,
   assertPreviewReadyForImport,
@@ -243,9 +246,107 @@ function mapParsedToPackPayload(parsed, skillExtras = {}) {
   };
 }
 
-async function previewRequirementImport({ userId, organizationId, fileBuffer, fileName }) {
-  await assertRequirementPermission({ userId, organizationId, permission: 'requirement:import' });
+async function previewCustomerRawIntake({ userId, organizationId, buffer, fileName }) {
+  const {
+    parseCustomerRawContext,
+    isCustomerRawTemplateType,
+  } = require('../utils/requirement/customerRawContextParse');
+  const {
+    mapCustomerRawToProjectIntakeDraft,
+  } = require('../utils/requirement/mapCustomerRawToProjectIntakeDraft');
+  const { CUSTOMER_RAW_TEMPLATE_TYPE } = require('../constants/customerRawTemplate.constants');
 
+  let parsed;
+  try {
+    parsed = parseCustomerRawContext(buffer);
+  } catch (err) {
+    logger.warn('[requirementImport] CustomerRaw parse failed', {
+      message: err?.message,
+      fileName: String(fileName || '').slice(0, 255),
+    });
+    const parseErr = new Error('Không đọc được Customer Requirement Raw');
+    parseErr.statusCode = 400;
+    parseErr.errorCode = 'REQ_IMPORT_CUSTOMER_RAW_PARSE_FAILED';
+    throw parseErr;
+  }
+
+  if (!isCustomerRawTemplateType(parsed.templateType)) {
+    const typeErr = new Error('File không phải Customer Requirement Raw');
+    typeErr.statusCode = 400;
+    typeErr.errorCode = 'REQ_IMPORT_NOT_CUSTOMER_RAW';
+    throw typeErr;
+  }
+
+  const issues = [];
+  if (!parsed.contextSheetPresent) {
+    issues.push({
+      severity: 'error',
+      code: 'CUSTOMER_RAW_CONTEXT_MISSING',
+      message: 'Thiếu sheet 01_Project_Context',
+    });
+    logger.warn('[requirementImport] CustomerRaw missing context sheet', {
+      fileName: String(fileName || '').slice(0, 255),
+    });
+  }
+
+  const projectIntakeDraft = mapCustomerRawToProjectIntakeDraft(parsed);
+  const valid = parsed.contextSheetPresent;
+  const errorCount = issues.filter((i) => i.severity === 'error').length;
+  const summary = {
+    contextValueCount: parsed.contextValueCount,
+    hasTitle: Boolean(projectIntakeDraft.title),
+  };
+
+  const excelPreview = buildExcelPreviewFromBuffer(buffer, {
+    fileName: String(fileName || '').slice(0, 255),
+    functionalRequirements: [],
+  });
+
+  const expiresAt = new Date(Date.now() + IMPORT_SESSION_TTL_HOURS * 60 * 60 * 1000);
+  const session = await RequirementImportSession.create({
+    organizationId,
+    uploadedBy: userId,
+    fileName: String(fileName || '').slice(0, 255),
+    templateVersion: parsed.templateVersion || '',
+    status: 'preview',
+    expiresAt,
+    errorCount,
+    warningCount: 0,
+    issues,
+    summary,
+    previewPayload: null,
+    previewTree: null,
+    excelPreview,
+    fileBuffer: buffer.length <= 5 * 1024 * 1024 ? buffer : undefined,
+    fileContentType: XLSX_MIME,
+    newSkillsDetected: [],
+    skillResolveEnabled: false,
+  });
+
+  return {
+    sessionId: String(session._id),
+    fileName: session.fileName,
+    templateVersion: session.templateVersion,
+    templateType: CUSTOMER_RAW_TEMPLATE_TYPE,
+    valid,
+    canRunAiAnalysis: false,
+    errorCount,
+    warningCount: 0,
+    infoCount: 0,
+    issues,
+    summary,
+    previewTree: null,
+    excelPreview,
+    expiresAt: session.expiresAt,
+    newSkillsDetected: [],
+    newSkillsCount: 0,
+    skillResolveEnabled: false,
+    planningReadiness: null,
+    projectIntakeDraft,
+  };
+}
+
+async function previewRequirementImport({ userId, organizationId, fileBuffer, fileName }) {
   const buffer = Buffer.isBuffer(fileBuffer) ? fileBuffer : Buffer.from(fileBuffer || []);
   const {
     peekWorkbookTemplateType,
@@ -253,8 +354,17 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     parseAnalysisWorkbook,
   } = require('../utils/requirement/requirementAnalysisTemplateParse');
   const { validateAnalysisWorkbook } = require('../utils/requirement/requirementAnalysisTemplateValidate');
+  const { isCustomerRawTemplateType } = require('../utils/requirement/customerRawContextParse');
 
+  // Peek before authz: Customer Raw uses create-project OR import; Analysis/SRS stay import-only.
   const peekedType = peekWorkbookTemplateType(buffer);
+  if (isCustomerRawTemplateType(peekedType)) {
+    await assertRequirementImportOrCreateProjectScope({ userId, organizationId });
+    return previewCustomerRawIntake({ userId, organizationId, buffer, fileName });
+  }
+
+  await assertRequirementPermission({ userId, organizationId, permission: 'requirement:import' });
+
   const useAnalysis = isAnalysisTemplateType(peekedType);
 
   let parsed;

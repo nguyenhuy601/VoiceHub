@@ -32,12 +32,12 @@ declare -a ALL_IMAGES=(
   "project-service:services/project-service/Dockerfile"
   "ai-task-service:services/ai-task-service/Dockerfile"
   "ai-task-worker:services/ai-task-worker/Dockerfile"
+  "ai-project-planning-service:services/ai-project-planning-service/Dockerfile"
   "summary-service:services/summary-service/Dockerfile"
   "summary-worker:services/summary-worker/Dockerfile"
   "document-service:services/document-service/Dockerfile"
   "voice-service:services/voice-service/Dockerfile"
   "notification-service:services/notification-service/Dockerfile"
-  "webhook-service:services/webhook-service/Dockerfile"
   "socket-service:services/socket-service/Dockerfile"
 )
 
@@ -47,11 +47,7 @@ build_one() {
   local local_tag="voicehub-${name}:${TAG}"
 
   echo "==> Building ${local_tag} (${dockerfile})"
-  if [[ "$dockerfile" == services/webhook-service/Dockerfile ]]; then
-    docker build -f "${ROOT}/${dockerfile}" -t "${local_tag}" "${ROOT}/services/webhook-service"
-  else
-    docker build -f "${ROOT}/${dockerfile}" -t "${local_tag}" "${ROOT}"
-  fi
+  docker build -f "${ROOT}/${dockerfile}" -t "${local_tag}" "${ROOT}"
 
   if [[ "${BUILD_TAG_REGISTRY:-0}" == "1" && -n "${REGISTRY:-}" && -n "${OWNER:-}" ]]; then
     local remote="${REGISTRY}/${OWNER}/voicehub/${name}:${TAG}"

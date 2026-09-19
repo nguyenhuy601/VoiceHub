@@ -20,6 +20,10 @@ const {
 const { assertUserProjectPermission, assertUserAnyProjectPermission } =
   require('./projectAccess.service');
 const { clampOverviewForPack } = require('../utils/requirement/requirementOverviewClamp');
+const objectStorage = require('../utils/common/objectStorage');
+const {
+  buildCustomerDocumentStoragePath,
+} = require('../utils/analysis/customerDocumentStorage');
 
 function hashContent(parts) {
   return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 40);
@@ -65,14 +69,24 @@ async function listCustomerDocuments({ userId, projectId }) {
   return rows.map(serializeDoc);
 }
 
-async function createCustomerDocument({ userId, projectId, body = {} }) {
+async function createCustomerDocument({
+  userId,
+  projectId,
+  body = {},
+  fileBuffer = null,
+  fileName = null,
+  mimeType = null,
+  sizeBytes = null,
+}) {
   const project = await assertProjectMemberAccess({ userId, projectId });
   await assertAnalysisPerm({
     userId,
     projectId,
     permission: 'analysis:document_upload',
   });
-  const filename = String(body.filename || '').trim();
+
+  const hasBinary = Buffer.isBuffer(fileBuffer) && fileBuffer.length > 0;
+  const filename = String(fileName || body.filename || '').trim();
   if (!filename) {
     const err = new Error('filename là bắt buộc');
     err.statusCode = 400;
@@ -81,13 +95,43 @@ async function createCustomerDocument({ userId, projectId, body = {} }) {
   const docClass = CUSTOMER_DOC_CLASSES.includes(String(body.docClass || '').trim())
     ? String(body.docClass).trim()
     : 'other';
+
+  let storageKey = String(body.storageKey || '').trim().slice(0, 512);
+  let resolvedMime = String(mimeType || body.mimeType || '').trim().slice(0, 120);
+  let resolvedSize =
+    sizeBytes != null
+      ? Number(sizeBytes)
+      : body.sizeBytes != null
+        ? Number(body.sizeBytes)
+        : null;
+
+  if (hasBinary) {
+    if (!objectStorage.isEnabled()) {
+      const err = new Error('Object storage (MinIO) chưa được cấu hình');
+      err.statusCode = 503;
+      err.errorCode = 'STORAGE_NOT_CONFIGURED';
+      throw err;
+    }
+    storageKey = buildCustomerDocumentStoragePath({
+      projectId,
+      docClass,
+      filename,
+    });
+    await objectStorage.putObject(
+      storageKey,
+      fileBuffer,
+      resolvedMime || 'application/octet-stream'
+    );
+    if (resolvedSize == null) resolvedSize = fileBuffer.length;
+  }
+
   const doc = await CustomerDocument.create({
     organizationId: project.organizationId,
     projectId,
-    filename,
-    mimeType: String(body.mimeType || '').trim().slice(0, 120),
-    storageKey: String(body.storageKey || '').trim().slice(0, 512),
-    sizeBytes: body.sizeBytes != null ? Number(body.sizeBytes) : null,
+    filename: filename.slice(0, 260),
+    mimeType: resolvedMime,
+    storageKey,
+    sizeBytes: resolvedSize,
     docClass,
     notes: String(body.notes || '').trim().slice(0, 2000),
     uploadedBy: userId,

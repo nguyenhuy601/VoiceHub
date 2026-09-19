@@ -118,6 +118,8 @@ services:
       - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
       - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
+      - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL}
+      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
     networks:
       - enterprise-network
     deploy:
@@ -137,6 +139,9 @@ services:
     env_file:
       - .env
       - ./services/role-permission-service/.env
+    environment:
+      - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL}
+      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
     networks:
       - enterprise-network
     deploy:
@@ -254,6 +259,29 @@ services:
       - enterprise-network
     deploy:
       replicas: ${AI_TASK_SERVICE_REPLICAS:-1}
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+  ai-project-planning-service:
+    image: ${AI_PROJECT_PLANNING_SERVICE_IMAGE}
+    env_file:
+      - .env
+      - ./services/ai-project-planning-service/.env
+    environment:
+      - PROJECT_SERVICE_URL=http://project-service:3009
+      - GATEWAY_INTERNAL_TOKEN=${GATEWAY_INTERNAL_TOKEN}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+    networks:
+      - enterprise-network
+    deploy:
+      replicas: ${AI_PROJECT_PLANNING_SERVICE_REPLICAS:-1}
       restart_policy:
         condition: on-failure
       resources:
@@ -850,59 +878,6 @@ services:
         reservations:
           cpus: "0.20"
           memory: 96M
-
-  webhook-service:
-    image: ${WEBHOOK_SERVICE_IMAGE}
-    env_file:
-      - .env
-      - ./services/webhook-service/.env
-    environment:
-      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
-      - WEBHOOK_ASYNC_QUEUE=${WEBHOOK_ASYNC_QUEUE:-false}
-      - WEBHOOK_DELIVERY_WORKER=false
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: ${WEBHOOK_SERVICE_REPLICAS:-1}
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "0.50"
-          memory: 192M
-        reservations:
-          cpus: "0.10"
-          memory: 64M
-
-  webhook-delivery-worker:
-    image: ${WEBHOOK_SERVICE_IMAGE}
-    command: ["python", "worker.py"]
-    env_file:
-      - .env
-      - ./services/webhook-service/.env
-    environment:
-      - WEBHOOK_ASYNC_QUEUE=true
-      - WEBHOOK_DELIVERY_WORKER=true
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
-      - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL}
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: ${WEBHOOK_DELIVERY_WORKER_REPLICAS:-1}
-      restart_policy:
-        condition: on-failure
-      update_config:
-        parallelism: 1
-        order: start-first
-        failure_action: rollback
-      resources:
-        limits:
-          cpus: "0.75"
-          memory: 384M
-        reservations:
-          cpus: "0.20"
-          memory: 128M
 
   socket-service:
     image: ${SOCKET_SERVICE_IMAGE}

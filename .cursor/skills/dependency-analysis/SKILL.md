@@ -16,7 +16,7 @@ Isolated one-file fix.
 
 ## Related Rules
 
-- `.cursor/rules/role-solution-architect.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `researcher`)
 
 ## Input
 

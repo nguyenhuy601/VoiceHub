@@ -17,7 +17,7 @@ In-process single-service logic.
 ## Related Rules
 
 - `.cursor/rules/voicehub-constraints.mdc`
-- `.cursor/rules/role-solution-architect.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `researcher`)
 
 ## Input
 

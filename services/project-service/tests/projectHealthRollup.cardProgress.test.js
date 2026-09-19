@@ -38,7 +38,7 @@ describe('cardProgressGroup (slim list aggregate)', () => {
     assert.equal(progress.overdueCards, 1);
     const health = classifyProjectHealth(
       {
-        status: 'in_development',
+        status: 'active',
         isActive: true,
         expectedEndDate: '2026-12-01T00:00:00.000Z',
       },

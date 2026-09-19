@@ -1,0 +1,19 @@
+[
+  { "image": "api-gateway", "dockerfile": "api-gateway/Dockerfile" },
+  { "image": "auth-service", "dockerfile": "services/auth-service/Dockerfile" },
+  { "image": "user-service", "dockerfile": "services/user-service/Dockerfile" },
+  { "image": "organization-service", "dockerfile": "services/organization-service/Dockerfile" },
+  { "image": "friend-service", "dockerfile": "services/friend-service/Dockerfile" },
+  { "image": "role-permission-service", "dockerfile": "services/role-permission-service/Dockerfile" },
+  { "image": "chat-service", "dockerfile": "services/chat-service/Dockerfile" },
+  { "image": "project-service", "dockerfile": "services/project-service/Dockerfile" },
+  { "image": "ai-task-service", "dockerfile": "services/ai-task-service/Dockerfile" },
+  { "image": "ai-task-worker", "dockerfile": "services/ai-task-worker/Dockerfile" },
+  { "image": "ai-project-planning-service", "dockerfile": "services/ai-project-planning-service/Dockerfile" },
+  { "image": "summary-service", "dockerfile": "services/summary-service/Dockerfile" },
+  { "image": "summary-worker", "dockerfile": "services/summary-worker/Dockerfile" },
+  { "image": "document-service", "dockerfile": "services/document-service/Dockerfile" },
+  { "image": "voice-service", "dockerfile": "services/voice-service/Dockerfile" },
+  { "image": "notification-service", "dockerfile": "services/notification-service/Dockerfile" },
+  { "image": "socket-service", "dockerfile": "services/socket-service/Dockerfile" }
+]

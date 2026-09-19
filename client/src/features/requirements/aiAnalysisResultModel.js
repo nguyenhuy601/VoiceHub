@@ -64,6 +64,34 @@ export function buildJobSummaryChips(job, dto, t) {
     ];
   }
 
+  if (job === 'requirementInsights') {
+    const insights = dto?.analyses?.requirementInsights || {};
+    const clarifications = asArray(insights.clarifications);
+    const deltas = asArray(dto?.analyses?.proposedSrs?.deltas);
+    const pre = dto?.analyses?.preApproval;
+    const chips = [
+      {
+        key: 'clarifications',
+        label: t('requirements.aiAnalysisChipClarifications', {
+          count: clarifications.length,
+        }),
+      },
+      {
+        key: 'deltas',
+        label: t('requirements.aiAnalysisChipProposedDeltas', { count: deltas.length }),
+      },
+    ];
+    if (pre) {
+      chips.push({
+        key: 'preApproval',
+        label: pre.passed
+          ? t('requirements.preApprovalPassed') || 'Pre-approval: pass'
+          : t('requirements.preApprovalFailed') || 'Pre-approval: fail',
+      });
+    }
+    return chips;
+  }
+
   if (job === 'wbsGeneration') {
     const tasks = asArray(dto?.planning?.tasks);
     return [

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { requirementAPI } from '../../services/api/requirementAPI';
 import {
   AI_ANALYSIS_JOBS,
@@ -6,6 +6,7 @@ import {
   canRunJob,
   jobIndex,
 } from './aiAnalysisWizardConstants';
+import { pollAiAnalysisJob } from './aiAnalysisPolling';
 
 /**
  * W8 — poll + run/confirm one Blueprint job at a time (no Run all).
@@ -16,6 +17,15 @@ export function useAiAnalysisBlueprintWizard({ organizationId, packId, enabled =
   const [activeJob, setActiveJob] = useState(AI_ANALYSIS_JOBS[0].id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [snapshotMeta, setSnapshotMeta] = useState(null);
+  const lifecycleRef = useRef(0);
+
+  useEffect(() => {
+    lifecycleRef.current += 1;
+    return () => {
+      lifecycleRef.current += 1;
+    };
+  }, [organizationId, packId, enabled]);
 
   const refreshSummary = useCallback(async () => {
     if (!organizationId || !packId) return null;
@@ -24,6 +34,7 @@ export function useAiAnalysisBlueprintWizard({ organizationId, packId, enabled =
     });
     const data = res?.data?.data ?? res?.data ?? null;
     setSummary(data);
+    if (data?.snapshot) setSnapshotMeta(data.snapshot);
     return data;
   }, [organizationId, packId]);
 
@@ -42,6 +53,24 @@ export function useAiAnalysisBlueprintWizard({ organizationId, packId, enabled =
     },
     [organizationId, packId]
   );
+
+  // Ensure Analysis Snapshot exists before jobs can run (idempotent reuse).
+  useEffect(() => {
+    if (!enabled || !organizationId || !packId) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await requirementAPI.createAiAnalysisSnapshot(organizationId, packId);
+        const meta = res?.data?.data ?? res?.data ?? null;
+        if (!cancelled) setSnapshotMeta(meta);
+      } catch (err) {
+        if (!cancelled) setError(err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, organizationId, packId]);
 
   // Auto-advance only when pack/enabled changes — not when user selects View.
   useEffect(() => {
@@ -78,9 +107,40 @@ export function useAiAnalysisBlueprintWizard({ organizationId, packId, enabled =
       setBusy(true);
       setError(null);
       setActiveJob(job);
+      const lifecycle = ++lifecycleRef.current;
       try {
-        await requirementAPI.runAiAnalysis(organizationId, packId, job, { force });
-        const s = await refreshSummary();
+        const response = await requirementAPI.runAiAnalysis(
+          organizationId,
+          packId,
+          job,
+          { force }
+        );
+        const responseData = response?.data?.data ?? response?.data ?? null;
+        const isRemoteAccepted =
+          response?.status === 202 ||
+          (responseData?.accepted === true && responseData?.remote === true);
+        let s;
+        if (isRemoteAccepted) {
+          s = await pollAiAnalysisJob({
+            job,
+            fetchSummary: async () => {
+              const summaryResponse = await requirementAPI.getAiAnalysis(
+                organizationId,
+                packId,
+                { view: 'summary' }
+              );
+              return summaryResponse?.data?.data ?? summaryResponse?.data ?? null;
+            },
+            isCancelled: () => lifecycleRef.current !== lifecycle,
+            onSummary: (nextSummary) => {
+              setSummary(nextSummary);
+              if (nextSummary?.snapshot) setSnapshotMeta(nextSummary.snapshot);
+            },
+          });
+          if (lifecycleRef.current !== lifecycle) return null;
+        } else {
+          s = await refreshSummary();
+        }
         await refreshWizard(job);
         return s;
       } catch (err) {
@@ -126,6 +186,7 @@ export function useAiAnalysisBlueprintWizard({ organizationId, packId, enabled =
     setActiveJob,
     busy,
     error,
+    snapshotMeta,
     canRun: canRunJob(summary?.jobs, activeJob),
     runJob,
     confirmJob,

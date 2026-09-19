@@ -11,13 +11,15 @@ describe('projectLandingActive', () => {
     assert.equal(isProjectActiveForUi({ status: 'closed', isActive: true }), false);
   });
 
-  it('treats planning as active when isActive', () => {
+  it('treats draft/active as active when isActive', () => {
+    assert.equal(isProjectActiveForUi({ status: 'draft', isActive: true }), true);
     assert.equal(isProjectActiveForUi({ status: 'planning', isActive: true }), true);
+    assert.equal(isProjectCompletedForUi({ status: 'active' }), false);
     assert.equal(isProjectCompletedForUi({ status: 'in_development' }), false);
   });
 
   it('treats isActive false as completed', () => {
-    assert.equal(isProjectCompletedForUi({ status: 'planning', isActive: false }), true);
-    assert.equal(isProjectActiveForUi({ status: 'planning', isActive: false }), false);
+    assert.equal(isProjectCompletedForUi({ status: 'draft', isActive: false }), true);
+    assert.equal(isProjectActiveForUi({ status: 'draft', isActive: false }), false);
   });
 });

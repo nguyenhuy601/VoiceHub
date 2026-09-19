@@ -79,6 +79,11 @@ router.post('/approvals/stub', approval.startStub);
 
 /** Phase 6 — Enterprise Governance */
 router.post('/internal/audit-events', internalGatewayAuth, governance.ingestAuditEvent);
+router.post(
+  '/internal/ai-planning/job-result',
+  internalGatewayAuth,
+  require('../controllers/aiPlanningInternal.controller').applyJobResult
+);
 router.get('/audit-events', governance.listAuditEvents);
 router.delete('/audit-events/:eventId', governance.deleteAuditEvent);
 router.get('/governance/director-health', governance.directorHealth);
