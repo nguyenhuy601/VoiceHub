@@ -3,7 +3,10 @@ const { mongoose } = mongo;
 const Friend = require('../models/Friend');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
-const { friendWebhook } = require('../clients/webhook.client');
+const {
+  notifyFriendRequestSent,
+  notifyFriendRequestAccepted,
+} = require('../clients/notification.client');
 const { getRedisClient,
   logger } = require('@enterprise/shared');
 const axios = require('axios');
@@ -158,9 +161,13 @@ class FriendService {
       }
 
       try {
-        await friendWebhook.requestSent(actorStr, peerStr, senderName);
-      } catch (webhookErr) {
-        logger.warn('sendFriendRequest webhook:', webhookErr.message);
+        await notifyFriendRequestSent({
+          recipientId: peerStr,
+          requesterId: actorStr,
+          requesterName: senderName,
+        });
+      } catch (notifyErr) {
+        logger.warn('sendFriendRequest notification:', notifyErr.message);
       }
 
       const realtimePayload = {
@@ -256,13 +263,17 @@ class FriendService {
         await clearFriendsListCache(userId, friendId);
       }
 
-      // Gửi webhook
+      // Báo người đã gửi lời mời
       try {
         const userResponse = await fetchUserProfileByIdInternal(friendId);
         const friendName = userResponse.data?.data?.displayName || userResponse.data?.data?.username || 'Someone';
-        await friendWebhook.requestAccepted(userId, friendId, friendName);
+        await notifyFriendRequestAccepted({
+          recipientId: userId,
+          counterpartId: friendId,
+          counterpartName: friendName,
+        });
       } catch (error) {
-        logger.error('Error sending friend accepted webhook:', error);
+        logger.error('Error sending friend accepted notification:', error);
       }
 
       logger.info(`Friend request accepted: ${userId} <-> ${friendId}`);

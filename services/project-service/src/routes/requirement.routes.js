@@ -11,19 +11,17 @@ router.post('/import/confirm', controller.confirmImport);
 router.get('/access', controller.getAccess);
 router.get('/', controller.listPacks);
 router.get('/:packId/source-file', controller.downloadSourceFile);
-/** AI Analysis Blueprint — trước /:packId để không bị nuốt path */
-router.get('/:packId/ai-analysis/export', controller.exportAiAnalysis);
-router.get('/:packId/ai-analysis', controller.getAiAnalysis);
-router.post('/:packId/ai-analysis/jobs/:jobId/run', controller.runAiAnalysis);
-router.post('/:packId/ai-analysis/jobs/:jobId/confirm', controller.confirmAiAnalysis);
 router.get('/:packId', controller.getPack);
 router.post('/:packId/submit', controller.submitPack);
 router.post('/:packId/approve', controller.approvePack);
 router.post('/:packId/reject', controller.rejectPack);
 router.delete('/:packId', controller.deletePack);
 router.post('/:packId/create-project', controller.createProjectFromPack);
-router.post('/:packId/ai-planning/run', controller.runAiPlanning);
-router.post('/:packId/ai-planning/approve-staffing', controller.approveAiStaffing);
-router.post('/:packId/ai-planning/discard-staffing', controller.discardAiStaffing);
+router.get('/:packId/ai-analysis', controller.getAiAnalysis);
+router.post('/:packId/ai-analysis/snapshot', controller.createAiAnalysisSnapshot);
+router.get('/:packId/ai-analysis/snapshot', controller.getAiAnalysisSnapshot);
+router.post('/:packId/ai-analysis/run', controller.runAiAnalysis);
+router.post('/:packId/ai-analysis/confirm', controller.confirmAiAnalysis);
+router.get('/:packId/ai-analysis/export-sheet11', controller.exportAiAnalysisSheet11);
 
 module.exports = router;

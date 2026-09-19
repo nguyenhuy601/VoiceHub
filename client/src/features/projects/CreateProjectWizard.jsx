@@ -1,6 +1,8 @@
 import { ArrowLeft } from 'lucide-react';
 import ProjectWizardStepName from './wizard/ProjectWizardStepName';
 import ProjectWizardStepTeam from './wizard/ProjectWizardStepTeam';
+import ProjectWizardStepMode from './wizard/ProjectWizardStepMode';
+import ProjectWizardStepInputs from './wizard/ProjectWizardStepInputs';
 import ProjectWizardStepConfirm from './wizard/ProjectWizardStepConfirm';
 import useCreateProjectWizard from './wizard/useCreateProjectWizard';
 import { PROJECT_WIZARD_STEPS } from './wizard/projectWizardConstants';
@@ -10,7 +12,7 @@ import { deliveryPhaseLabelKey } from '../../utils/projectPhaseNav';
 import ProjectWizardRosterPreview from './wizard/ProjectWizardRosterPreview';
 
 /**
- * Full-screen Project Create Wizard — Identity → Roster → Confirm (Phase 1 intake).
+ * Full-screen Project Create Wizard — Intake (import + identity + roster) → Mode (Phase 1).
  */
 export default function CreateProjectWizard({
   organizationId,
@@ -54,9 +56,8 @@ export default function CreateProjectWizard({
       : 'animate-[wizardSlideInLeft_220ms_ease-out]';
 
   const stepTitles = {
-    identity: t('adminTasks.wizardIdentityTitle') || 'Identity',
-    roster: t('adminTasks.wizardRosterTitle') || 'Roster',
-    confirm: t('adminTasks.wizardConfirmTitle') || 'Confirm',
+    intake: t('adminTasks.wizardIntakeTitle') || 'Import & project info',
+    mode: t('adminTasks.wizardModeTitle') || 'Analysis Mode',
   };
 
   return (
@@ -83,19 +84,26 @@ export default function CreateProjectWizard({
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
             <div key={`${wizard.step}-${wizard.slideDir}`} className={slideClass}>
-              {wizard.stepId === 'identity' ? (
-                <ProjectWizardStepName form={wizard.form} patchForm={wizard.patchForm} t={t} />
+              {wizard.stepId === 'intake' ? (
+                <div className="space-y-8">
+                  <ProjectWizardStepInputs
+                    form={wizard.form}
+                    patchForm={wizard.patchForm}
+                    onRequirementSelected={wizard.applyRequirementFile}
+                    intakeBusy={wizard.intakeBusy}
+                    t={t}
+                  />
+                  <ProjectWizardStepName form={wizard.form} patchForm={wizard.patchForm} t={t} />
+                  <ProjectWizardStepTeam
+                    orgId={organizationId}
+                    form={wizard.form}
+                    setIntakeSlot={wizard.setIntakeSlot}
+                    t={t}
+                  />
+                </div>
               ) : null}
-              {wizard.stepId === 'roster' ? (
-                <ProjectWizardStepTeam
-                  orgId={organizationId}
-                  form={wizard.form}
-                  setIntakeSlot={wizard.setIntakeSlot}
-                  t={t}
-                />
-              ) : null}
-              {wizard.stepId === 'confirm' ? (
-                <ProjectWizardStepConfirm form={wizard.form} t={t} />
+              {wizard.stepId === 'mode' ? (
+                <ProjectWizardStepMode form={wizard.form} patchForm={wizard.patchForm} t={t} />
               ) : null}
             </div>
           </div>
@@ -111,7 +119,7 @@ export default function CreateProjectWizard({
                   type="button"
                   className={wizardUi.secondaryBtn}
                   onClick={wizard.goBack}
-                  disabled={wizard.busy}
+                  disabled={wizard.busy || wizard.intakeBusy}
                 >
                   {t('common.back') || 'Back'}
                 </button>
@@ -120,7 +128,7 @@ export default function CreateProjectWizard({
                   type="button"
                   className={wizardUi.secondaryBtn}
                   onClick={onCancel}
-                  disabled={wizard.busy}
+                  disabled={wizard.busy || wizard.intakeBusy}
                 >
                   {t('common.cancel')}
                 </button>
@@ -130,7 +138,7 @@ export default function CreateProjectWizard({
                   type="button"
                   className={wizardUi.primaryBtn}
                   onClick={wizard.goNext}
-                  disabled={wizard.busy}
+                  disabled={wizard.busy || wizard.intakeBusy}
                 >
                   {t('common.next') || 'Next'}
                 </button>
@@ -139,7 +147,7 @@ export default function CreateProjectWizard({
                   type="button"
                   className={wizardUi.primaryBtn}
                   onClick={wizard.submit}
-                  disabled={wizard.busy}
+                  disabled={wizard.busy || wizard.intakeBusy}
                 >
                   {wizard.busy ? t('common.saving') : t('adminTasks.wizardCreate') || 'Create'}
                 </button>
@@ -155,7 +163,7 @@ export default function CreateProjectWizard({
               {t('adminTasks.wizardPreviewLabel') || 'Preview'}
             </p>
             <p className={wizardUi.previewHint}>
-              {wizard.stepId === 'roster'
+              {wizard.stepId === 'intake'
                 ? t('adminTasks.wizardPreviewMembersHint')
                 : t('adminTasks.wizardPhase1PreviewHint')}
             </p>
@@ -163,7 +171,7 @@ export default function CreateProjectWizard({
               {t(deliveryPhaseLabelKey('requirement_analysis'))}
             </span>
           </div>
-          {wizard.stepId === 'roster' ? (
+          {wizard.stepId === 'intake' ? (
             <ProjectWizardRosterPreview
               title={wizard.form.title}
               projectCode={wizard.form.projectCode}
@@ -174,14 +182,9 @@ export default function CreateProjectWizard({
               t={t}
             />
           ) : (
-            <div className="relative min-h-0 flex-1 rounded-xl border border-border bg-surface/80 p-4">
-              <p className="text-lg font-semibold text-foreground">
-                {wizard.form.title || t('workspace.projectHubUntitled')}
-              </p>
-              <p className="mt-1 font-mono text-xs text-muted-foreground">
-                {wizard.form.projectCode || '—'}
-              </p>
-              <ol className="mt-6 space-y-2 text-sm text-muted-foreground">
+            <div className="relative min-h-0 flex-1">
+              <ProjectWizardStepConfirm form={wizard.form} t={t} />
+              <ol className="mt-6 space-y-2 px-1 text-sm text-muted-foreground">
                 {PROJECT_WIZARD_STEPS.map((id, i) => (
                   <li
                     key={id}

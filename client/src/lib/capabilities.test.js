@@ -30,4 +30,38 @@ describe('buildWorkspaceCapabilities', () => {
     assert.equal(allow.project.create, true);
     assert.equal(canCreateProjectUi(allow), true);
   });
+
+  it('resolved empty masterGrants denies create (not unknown)', () => {
+    const caps = buildWorkspaceCapabilities({
+      canCreateProject: true,
+      masterGrants: [],
+    });
+    assert.equal(caps.project.create, false);
+  });
+
+  it('grantsError fail-closed denies create', () => {
+    const caps = buildWorkspaceCapabilities({
+      canCreateProject: true,
+      canCreateTask: true,
+      grantsError: true,
+      masterGrants: ['project.project.create'],
+    });
+    assert.equal(caps.project.create, false);
+    assert.equal(caps.task.create, true);
+  });
+
+  it('unknown grants (omit masterGrants) relies on scope flag', () => {
+    const caps = buildWorkspaceCapabilities({
+      canCreateProject: true,
+    });
+    assert.equal(caps.project.create, true);
+  });
+
+  it('grant match is case-insensitive', () => {
+    const caps = buildWorkspaceCapabilities({
+      canCreateProject: true,
+      masterGrants: ['Project.Project.Create'],
+    });
+    assert.equal(caps.project.create, true);
+  });
 });

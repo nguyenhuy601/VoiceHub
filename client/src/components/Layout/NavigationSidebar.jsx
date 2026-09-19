@@ -339,7 +339,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
     return match ? decodeURIComponent(match[1]) : '';
   }, [location.pathname]);
 
-  /** Đồng bộ workspace đang chọn với ?organizationId= (hoặc legacy /w/:slug). */
+  /** Đồng bộ workspace đang chọn (legacy /w/:slug; org từ context, không ghi URL). */
   useEffect(() => {
     if (landingDemo || !orgListIdsKey) return;
 
@@ -524,11 +524,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
 
     const path = location.pathname;
     if (suiteProp === 'communicate') {
-      navigate(
-        id
-          ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(id)}`
-          : buildCommunicateChannelsPath()
-      );
+      navigate(buildCommunicateChannelsPath());
       return;
     }
     if (suiteProp === 'collaborate') {

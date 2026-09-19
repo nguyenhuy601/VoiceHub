@@ -296,17 +296,21 @@ function canStartChunk(elapsedMs, wallMs, chunkTimeoutMs) {
   return elapsedMs + chunkTimeoutMs <= wallMs;
 }
 
-function buildHierarchyChunkPrompt(chunk, chunkIndex, chunkTotal) {
+function buildHierarchyChunkPrompt(chunk, chunkIndex, chunkTotal, verifiedFactsBlock = '') {
   return [
     'You are a software BA. Decompose Module(=Epic) into Features and Features into Requirements.',
     'Return ONLY valid JSON:',
     '{"proposedFeatures":[{proposalId,parentExternalId,name,description?,moduleLabel?}],',
     '"proposedRequirements":[{proposalId,parentExternalId,name,description?,moduleLabel?,featureLabel?}]}',
     'Only propose for parents listed with empty children. Do not invent parent ids.',
+    'Do NOT invent coverage/completeness scores — use VERIFIED_FACTS only when present.',
+    verifiedFactsBlock || '',
     `Chunk ${chunkIndex + 1}/${chunkTotal}.`,
     `Modules needing Features: ${JSON.stringify(chunk.modules || [])}`,
     `Features needing Requirements: ${JSON.stringify(chunk.features || [])}`,
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function parseHierarchyLlmPayload(data) {
@@ -334,6 +338,7 @@ async function tryLlmHierarchyProposals({
   chunkTimeoutMs,
   chunkSize,
   generateJsonFn,
+  verifiedFactsBlock = '',
 }) {
   const needsFeatures = (moduleSlices || []).filter((m) => !(m.childFeatureIds || []).length);
   const requirementParents = buildRequirementParentSlices(
@@ -380,7 +385,12 @@ async function tryLlmHierarchyProposals({
       break;
     }
 
-    const prompt = buildHierarchyChunkPrompt(chunks[i], i, chunks.length);
+    const prompt = buildHierarchyChunkPrompt(
+      chunks[i],
+      i,
+      chunks.length,
+      verifiedFactsBlock
+    );
     const result = await callGenerate({
       prompt,
       temperature: 0.1,
@@ -466,6 +476,20 @@ async function runHierarchyDecomposition(pack, opts = {}) {
   let wallBudgetSkipMeta = null;
 
   const llmEnabled = isAiPlanningLlmEnabled() && opts.forceHeuristic !== true;
+  let verifiedFactsBlock = '';
+  try {
+    const {
+      buildRequirementAiContext,
+      formatVerifiedFactsBlock,
+      isRequirementAiContextEnabled,
+    } = require('../tools/buildRequirementAiContext');
+    if (isRequirementAiContextEnabled()) {
+      verifiedFactsBlock = formatVerifiedFactsBlock(buildRequirementAiContext({ pack }));
+    }
+  } catch {
+    verifiedFactsBlock = '';
+  }
+
   if (llmEnabled) {
     try {
       const llm = await tryLlmHierarchyProposals({
@@ -476,6 +500,7 @@ async function runHierarchyDecomposition(pack, opts = {}) {
         chunkTimeoutMs: chunkTimeout,
         chunkSize,
         generateJsonFn: opts.generateJson,
+        verifiedFactsBlock,
       });
       llmCalls = llm.llmCalls;
       partial = Boolean(llm.partial);

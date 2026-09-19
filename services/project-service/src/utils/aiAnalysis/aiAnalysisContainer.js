@@ -257,6 +257,55 @@ function ensureAiAnalysisContainer(raw) {
     }
   }
 
+  // Additive Recipe tools shell (Group A) — whitelist, not in SECTION_KEYS
+  const rtSrc = working.analyses?.requirementTools;
+  if (rtSrc && typeof rtSrc === 'object') {
+    analyses.requirementTools = {
+      status: String(rtSrc.status || 'empty'),
+      model: rtSrc.model ?? null,
+      generatedAt: rtSrc.generatedAt ?? null,
+      recipe: rtSrc.recipe && typeof rtSrc.recipe === 'object' ? rtSrc.recipe : null,
+      gateA: rtSrc.gateA && typeof rtSrc.gateA === 'object' ? rtSrc.gateA : null,
+      facts: rtSrc.facts && typeof rtSrc.facts === 'object' ? rtSrc.facts : {},
+      meta: rtSrc.meta && typeof rtSrc.meta === 'object' ? rtSrc.meta : {},
+    };
+  }
+
+  // Additive Phase 1 AI Context projection (optional persist)
+  const ctxSrc = working.analyses?.requirementAiContext;
+  if (ctxSrc && typeof ctxSrc === 'object') {
+    analyses.requirementAiContext = {
+      problem: ctxSrc.problem && typeof ctxSrc.problem === 'object' ? ctxSrc.problem : null,
+      consistency:
+        ctxSrc.consistency && typeof ctxSrc.consistency === 'object' ? ctxSrc.consistency : null,
+      constraints: Array.isArray(ctxSrc.constraints) ? ctxSrc.constraints : [],
+      ambiguity: ctxSrc.ambiguity && typeof ctxSrc.ambiguity === 'object' ? ctxSrc.ambiguity : null,
+      priorities: ctxSrc.priorities && typeof ctxSrc.priorities === 'object' ? ctxSrc.priorities : null,
+      feasibilitySummary:
+        ctxSrc.feasibilitySummary && typeof ctxSrc.feasibilitySummary === 'object'
+          ? ctxSrc.feasibilitySummary
+          : null,
+      factsSummary:
+        ctxSrc.factsSummary && typeof ctxSrc.factsSummary === 'object' ? ctxSrc.factsSummary : {},
+      gateA: ctxSrc.gateA && typeof ctxSrc.gateA === 'object' ? ctxSrc.gateA : null,
+      policyVersion: ctxSrc.policyVersion || null,
+    };
+  }
+
+  // Additive Phase 1 Insights / Proposed SRS / Pre-approval
+  const insightsSrc = working.analyses?.requirementInsights;
+  if (insightsSrc && typeof insightsSrc === 'object') {
+    analyses.requirementInsights = insightsSrc;
+  }
+  const proposedSrc = working.analyses?.proposedSrs;
+  if (proposedSrc && typeof proposedSrc === 'object') {
+    analyses.proposedSrs = proposedSrc;
+  }
+  const preSrc = working.analyses?.preApproval;
+  if (preSrc && typeof preSrc === 'object') {
+    analyses.preApproval = preSrc;
+  }
+
   const planningSrc = working.planning && typeof working.planning === 'object' ? working.planning : {};
   const resourceSrc = working.resource && typeof working.resource === 'object' ? working.resource : {};
 
@@ -395,6 +444,34 @@ function summarizeAiAnalysis(container) {
     schemaVersion: c.schemaVersion,
     currentJob: c.currentJob,
     jobs,
+    phase1: {
+      requirementInsights: c.analyses?.requirementInsights
+        ? {
+            schemaVersion: c.analyses.requirementInsights.schemaVersion || null,
+            clarificationCount: Array.isArray(c.analyses.requirementInsights.clarifications)
+              ? c.analyses.requirementInsights.clarifications.length
+              : 0,
+            quality: c.analyses.requirementInsights.quality || null,
+            gateAPassed: c.analyses.requirementInsights.quality?.gateAPassed ?? null,
+          }
+        : null,
+      proposedSrs: c.analyses?.proposedSrs
+        ? {
+            schemaVersion: c.analyses.proposedSrs.schemaVersion || null,
+            deltaCount: Array.isArray(c.analyses.proposedSrs.deltas)
+              ? c.analyses.proposedSrs.deltas.length
+              : 0,
+          }
+        : null,
+      preApproval: c.analyses?.preApproval
+        ? {
+            passed: Boolean(c.analyses.preApproval.passed),
+            checkCount: Array.isArray(c.analyses.preApproval.checks)
+              ? c.analyses.preApproval.checks.length
+              : 0,
+          }
+        : null,
+    },
   };
 }
 

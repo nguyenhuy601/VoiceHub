@@ -57,6 +57,7 @@ import { fetchProjectHubProject } from '../../features/projects/hub/useProjectHu
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys';
 import { coerceDeliveryPhase } from '../../utils/projectPhaseNav';
+import useTaskWorkspaceScope from '../../hooks/useTaskWorkspaceScope';
 
 const COLLAPSE_KEY = 'voicehub:sidebar-collapsed';
 
@@ -221,6 +222,11 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
     workspaceOrgId,
   });
 
+  const { canCreateProjectCapability, loading: createProjectScopeLoading } =
+    useTaskWorkspaceScope(orgId);
+  const showCreateProjectNav =
+    !createProjectScopeLoading && Boolean(canCreateProjectCapability);
+
   useEffect(() => {
     if (orgId) writeStoredLastOrganizationId(orgId);
   }, [orgId]);
@@ -259,16 +265,18 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   };
 
   const preItems = useMemo(() => {
-    return getProjectsPreSelectNavItems().map((item) => ({
-      ...item,
-      label: t(item.labelKey),
-      icon: MODULE_ICONS[item.key] || FolderKanban,
-      path:
-        item.key === 'new'
-          ? buildProjectsNewPath(orgId, { from: 'sidebar' })
-          : buildProjectsPickerPath(orgId),
-    }));
-  }, [orgId, t]);
+    return getProjectsPreSelectNavItems()
+      .filter((item) => item.key !== 'new' || showCreateProjectNav)
+      .map((item) => ({
+        ...item,
+        label: t(item.labelKey),
+        icon: MODULE_ICONS[item.key] || FolderKanban,
+        path:
+          item.key === 'new'
+            ? buildProjectsNewPath()
+            : buildProjectsPickerPath(),
+      }));
+  }, [t, showCreateProjectNav]);
 
   const boardId = boardQueryFromSearch(searchParams);
 

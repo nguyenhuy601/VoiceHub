@@ -16,7 +16,7 @@ No metrics available — use logging-analysis.
 
 ## Related Rules
 
-- `.cursor/rules/role-solution-architect.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `researcher`)
 
 ## Input
 

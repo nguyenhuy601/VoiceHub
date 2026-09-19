@@ -137,7 +137,7 @@ describe('suitePathUtils dual suite', () => {
   it('maps collaborate legacy paths', () => {
     assert.equal(
       mapCollaboratePathToDualSuite('/app/collaborate/workspaces', '?organizationId=o1'),
-      '/app/company/workspaces?organizationId=o1'
+      '/app/company/workspaces'
     );
     assert.match(
       mapCollaboratePathToDualSuite('/app/collaborate/projects/pid1', '?tab=board'),
@@ -150,17 +150,17 @@ describe('suitePathUtils dual suite', () => {
       buildProjectsModulePath('p1', 'changeRequests', { organizationId: 'o1' }),
       '/app/projects/p1/change-requests'
     );
-    assert.equal(buildCompanyWorkspacePath({ organizationId: 'o1', tab: 'calendar' }), '/app/company/workspaces?organizationId=o1&tab=calendar');
+    assert.equal(buildCompanyWorkspacePath({ organizationId: 'o1', tab: 'calendar' }), '/app/company/workspaces?tab=calendar');
   });
 
   it('builds company home path with dept/team', () => {
     assert.equal(
       buildCompanyHomePath({ organizationId: 'o1', departmentId: 'd1' }),
-      '/app/company/home?organizationId=o1&departmentId=d1'
+      '/app/company/home?departmentId=d1'
     );
     assert.equal(
       buildCompanyHomePath({ organizationId: 'o1', departmentId: 'd1', teamId: 't1' }),
-      '/app/company/home?organizationId=o1&departmentId=d1&teamId=t1'
+      '/app/company/home?departmentId=d1&teamId=t1'
     );
   });
 });

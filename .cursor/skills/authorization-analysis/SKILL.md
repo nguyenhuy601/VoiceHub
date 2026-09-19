@@ -16,7 +16,7 @@ Pure styling without access control.
 
 ## Related Rules
 
-- `.cursor/rules/role-rbac.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc`; skill `authorization-analysis`
 - `.cursor/rules/voicehub-constraints.mdc`
 
 ## Input

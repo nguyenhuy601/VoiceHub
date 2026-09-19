@@ -31,6 +31,7 @@ import { useTheme } from '../../context/ThemeContext';
 import OrganizationDocumentsWorkspacePanel from '../../features/orgDocuments/OrganizationDocumentsWorkspacePanel';
 import OrganizationNotificationsWorkspacePanel from '../../features/orgNotifications/OrganizationNotificationsWorkspacePanel';
 import { useAppStrings } from '../../locales/appStrings';
+import useTaskWorkspaceScope from '../../hooks/useTaskWorkspaceScope';
 import { entShell, roleBadgeClass, roleBadgeLabel } from '../../theme/enterpriseWorkspace';
 import { AI_TASK_SOFT_BLOCK_CODES, getAiTaskEligibility, getAiTaskTooltipShort } from '../../utils/aiTaskEligibility';
 import { isWorkspaceAuxTab, normalizeWorkspaceTab } from '../../utils/workspaceTabUtils';
@@ -1087,6 +1088,9 @@ const OrganizationMainPanel = ({
   const orgIdForTask =
     organizationId || selectedOrganization?._id || selectedOrganization?.id || null;
   const workspaceSlugForTask = String(selectedOrganization?.slug || '').trim();
+  const { canCreateProjectCapability } = useTaskWorkspaceScope(
+    orgIdForTask ? String(orgIdForTask) : ''
+  );
   const taskBoardApiCtx = useMemo(
     () => ({
       organizationId: orgIdForTask ? String(orgIdForTask) : '',
@@ -1492,6 +1496,7 @@ const OrganizationMainPanel = ({
 
   const canCreateWorkspaceTask = Boolean(taskWorkspaceScope?.canCreateTask);
   const canUseAiWorkspaceTask = Boolean(taskWorkspaceScope?.canUseAiTask ?? taskWorkspaceScope?.canCreateTask);
+  const canOpenCreateProjectWizard = Boolean(canCreateProjectCapability);
 
   const openProjectSetupWizard = useCallback(
     (opts = {}) => {
@@ -1500,13 +1505,12 @@ const OrganizationMainPanel = ({
         toast.error(t('organizations.selectOrgFirst') || 'Chọn organization trước.');
         return;
       }
-      if (!canCreateWorkspaceTask) {
-        toast.error(t('taskBoard.createBoardDenied'));
+      if (!canOpenCreateProjectWizard) {
+        toast.error(t('taskBoard.createProjectDenied'));
         return;
       }
       navigate(
         buildCollaborateProjectsNewPath(orgId, {
-          from: 'hub',
           title: opts.title || '',
           description: opts.description || '',
           projectCode: opts.projectCode || '',
@@ -1519,7 +1523,7 @@ const OrganizationMainPanel = ({
       navigate,
       orgIdForTask,
       organizationId,
-      canCreateWorkspaceTask,
+      canOpenCreateProjectWizard,
       t,
       onCreateTaskBoardFromTeamMenu,
     ]
@@ -2426,9 +2430,9 @@ const OrganizationMainPanel = ({
               canManageChannelRoleAccess={canManageChannelRoleAccess}
               canSeeAllStructure={canSeeAllStructure}
               departmentWorkspaceActive={departmentWorkspaceActive}
-              canCreateTaskBoard={canCreateWorkspaceTask}
+              canCreateTaskBoard={canOpenCreateProjectWizard}
               onCreateTaskBoard={
-                canCreateWorkspaceTask
+                canOpenCreateProjectWizard
                   ? () => {
                       openProjectSetupWizard();
                     }

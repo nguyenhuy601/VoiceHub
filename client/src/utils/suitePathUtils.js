@@ -120,12 +120,11 @@ export function mapLegacyAdminTabToPath(tab) {
   return LEGACY_ADMIN_TAB_TO_PATH[raw] || LEGACY_ADMIN_TAB_TO_PATH.overview;
 }
 
-/** Org-scoped paths (không dùng slug trên URL). */
+/** Suite paths — org resolved client-side (single-company); do not write organizationId to URL. */
 export function buildCommunicateChannelsPath(orgId = '', query = {}) {
+  void orgId;
   const base = '/app/communicate/channels';
   const params = new URLSearchParams();
-  const id = String(orgId || '').trim();
-  if (id) params.set('organizationId', id);
   const deptId = String(query?.departmentId || '').trim();
   const channelId = String(query?.channelId || '').trim();
   if (deptId) params.set('departmentId', deptId);
@@ -139,11 +138,12 @@ export function isProjectChatTabEnabled() {
   return raw !== '0' && raw !== 'false' && raw !== 'off' && raw !== 'no';
 }
 
+/** Append non-org query only (orgId kept for call-site compat; unused on URL). */
 function appendOrgQuery(base, orgId = '', extra = {}) {
+  void orgId;
   const params = new URLSearchParams();
-  const id = String(orgId || '').trim();
-  if (id) params.set('organizationId', id);
   for (const [key, value] of Object.entries(extra || {})) {
+    if (key === 'organizationId' || key === 'orgId' || key === 'from') continue;
     const v = String(value || '').trim();
     if (v) params.set(key, v);
   }
@@ -175,14 +175,13 @@ export function buildCompanyWorkspacePath({
   tab = '',
   channelId = '',
 } = {}) {
+  void organizationId;
   const base = '/app/company/workspaces';
   const params = new URLSearchParams();
-  const orgId = String(organizationId || '').trim();
   const deptId = String(departmentId || '').trim();
   const tid = String(teamId || '').trim();
   const tabId = String(tab || '').trim().toLowerCase();
   const chId = String(channelId || '').trim();
-  if (orgId) params.set('organizationId', orgId);
   if (deptId) params.set('departmentId', deptId);
   if (tid) params.set('teamId', tid);
   if (tabId) params.set('tab', tabId);
@@ -274,12 +273,9 @@ export function buildProjectsModulePath(projectId, module = 'overview', query = 
 }
 
 export function buildProjectsNewPath(orgId = '', query = {}) {
+  void orgId;
   const base = '/app/projects/new';
   const params = new URLSearchParams();
-  const id = String(orgId || '').trim();
-  if (id) params.set('organizationId', id);
-  const from = String(query?.from || '').trim();
-  if (from) params.set('from', from);
   const title = String(query?.title || '').trim();
   const description = String(query?.description || '').trim();
   const projectCode = String(query?.projectCode || '').trim();
@@ -293,12 +289,9 @@ export function buildProjectsNewPath(orgId = '', query = {}) {
 }
 
 export function buildProjectsNewAiPath(orgId = '', query = {}) {
+  void orgId;
   const base = '/app/projects/new-ai';
   const params = new URLSearchParams();
-  const id = String(orgId || '').trim();
-  if (id) params.set('organizationId', id);
-  const from = String(query?.from || '').trim();
-  if (from) params.set('from', from);
   const projectId = String(query?.projectId || '').trim();
   if (projectId) params.set('projectId', projectId);
   const packId = String(query?.packId || '').trim();
@@ -478,6 +471,9 @@ export function mapCollaboratePathToDualSuite(pathname, search = '') {
   const orgId = String(params.get('organizationId') || params.get('orgId') || '').trim();
   const qs = () => {
     const next = new URLSearchParams(params);
+    next.delete('organizationId');
+    next.delete('orgId');
+    next.delete('from');
     const s = next.toString();
     return s ? `?${s}` : '';
   };

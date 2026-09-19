@@ -1,8 +1,10 @@
 /**
- * Requirement Template — Standard Format v2.0 (WHAT-only) = AI/Admin **SRS file** intake.
- * Source of truth asset: assets/SRS.xlsx (legacy filename Requirement_Template.xlsx accepted on upload).
- * Requirement Analysis workbook (ADR 0003): assets/Requirement_Analysis.xlsx — separate schema.
- * FR levels (SRS intake): Module | Feature | Requirement. No Role/Skill/Effort on FR.
+ * Requirement Template — AI/Admin **SRS file** intake constants.
+ * Asset on disk: assets/SRS.xlsx (16-sheet intake schema; download name SRS.xlsx).
+ * Legacy filename Requirement_Template.xlsx may still appear on upload.
+ * Runtime SHEETS / REQUIRED_SHEETS / validate below still describe Standard Format v2.0
+ * until phase B aligns parse+validate with docs/requirement/srs-intake-validation-baseline.md
+ * (baseline-only: no enum/catalog). Requirement Analysis workbook remains separate (ADR 0003).
  */
 
 const TEMPLATE_VERSION = '2.0';

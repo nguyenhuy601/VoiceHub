@@ -16,7 +16,6 @@ STACK="${SWARM_STACK_NAME:-voicehub}"
 declare -a WORKER_SERVICES=(
   voicehub_project-worker
   voicehub_notification-dispatch-worker
-  voicehub_webhook-delivery-worker
   voicehub_ai-task-extract-worker
   voicehub_ai-task-sync-worker
 )
@@ -24,7 +23,6 @@ declare -a WORKER_SERVICES=(
 declare -A ENV_KEYS=(
   [voicehub_project-worker]=TASK_WORKER_REPLICAS
   [voicehub_notification-dispatch-worker]=NOTIFICATION_DISPATCH_WORKER_REPLICAS
-  [voicehub_webhook-delivery-worker]=WEBHOOK_DELIVERY_WORKER_REPLICAS
   [voicehub_ai-task-extract-worker]=AI_TASK_EXTRACT_WORKER_REPLICAS
   [voicehub_ai-task-sync-worker]=AI_TASK_SYNC_WORKER_REPLICAS
 )
@@ -74,7 +72,7 @@ cmd_status() {
     echo ""
     echo "=== Queue depth (critical) ==="
     docker exec "$RAB" rabbitmqctl list_queues name messages consumers 2>/dev/null \
-      | grep -E 'voicehub\.(friend|notification|webhook|task)|task-ai' || true
+      | grep -E 'voicehub\.(friend|notification|task)|task-ai' || true
   fi
 }
 

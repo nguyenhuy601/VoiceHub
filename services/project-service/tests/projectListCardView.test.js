@@ -29,7 +29,7 @@ describe('toProjectListCardItem', () => {
       title: 'Cafe',
       projectCode: 'QLDAC-1',
       description: 'Desc',
-      status: 'in_development',
+      status: 'active',
       priority: 'high',
       visibility: 'private',
       startDate: '2026-09-01T00:00:00.000Z',

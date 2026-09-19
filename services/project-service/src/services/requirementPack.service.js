@@ -173,7 +173,13 @@ async function submitRequirementPack({ userId, organizationId, packId }) {
   return attachPlanningReadiness(pack.toObject());
 }
 
-async function approveRequirementPack({ userId, organizationId, packId }) {
+async function approveRequirementPack({
+  userId,
+  organizationId,
+  packId,
+  forceApprove = false,
+  overrideReason = '',
+}) {
   await assertRequirementPermission({ userId, organizationId, permission: 'requirement:approve' });
   const pack = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true });
   if (!pack) {
@@ -182,9 +188,38 @@ async function approveRequirementPack({ userId, organizationId, packId }) {
     throw err;
   }
   assertTransition(pack.status, 'approved');
+
+  const { assertRequirementGate1Approve } = require('../utils/tools/assertRequirementGate1Approve');
+  const gate1 = assertRequirementGate1Approve({
+    pack: pack.toObject ? pack.toObject() : pack,
+    forceApprove,
+    overrideReason,
+  });
+
   pack.status = 'approved';
   pack.approvedBy = userId;
   pack.approvedAt = new Date();
+
+  if (gate1.override) {
+    const shell = pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
+    shell.gate1Override = {
+      forceApprove: true,
+      reason: gate1.override.reason,
+      missingGateA: Boolean(gate1.override.missingGateA),
+      gateA: gate1.gateA,
+      by: userId,
+      at: new Date().toISOString(),
+    };
+    pack.aiAnalysis = shell;
+    pack.markModified('aiAnalysis');
+    logger.warn('[requirement] Gate1 forceApprove', {
+      packId: String(packId),
+      userId: String(userId),
+      missingGateA: gate1.override.missingGateA,
+      reasonLen: String(gate1.override.reason || '').length,
+    });
+  }
+
   await pack.save();
   return attachPlanningReadiness(pack.toObject());
 }

@@ -36,7 +36,7 @@ export default function OrganizationSettingsPage() {
   } = useOrganizationDetail(orgId, { enabled: !singleOrg && Boolean(orgId) });
 
   const organizationHomePath = orgId
-    ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(orgId)}`
+    ? buildCommunicateChannelsPath()
     : '/app/collaborate/workspaces';
 
   if (singleOrg) {

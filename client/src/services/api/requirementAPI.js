@@ -1,4 +1,5 @@
 import apiClient from './apiClient';
+import { organizationAPI } from './organizationAPI';
 
 function withOrg(organizationId, config = {}) {
   const orgId = String(organizationId || '').trim();
@@ -74,10 +75,10 @@ export const requirementAPI = {
       withOrg(organizationId)
     ),
 
-  approvePack: (organizationId, packId) =>
+  approvePack: (organizationId, packId, body = {}) =>
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/approve`,
-      {},
+      body,
       withOrg(organizationId)
     ),
 
@@ -107,67 +108,48 @@ export const requirementAPI = {
       }
     ),
 
-  runAiPlanning: (organizationId, packId, options = {}) => {
-    const phase = options.phase;
-    const body = phase ? { phase } : {};
-    return apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-planning/run`,
+  getAiAnalysis: (organizationId, packId, params = {}) =>
+    apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,
+      withOrg(organizationId, { params })
+    ),
+
+  createAiAnalysisSnapshot: (organizationId, packId, body = {}) =>
+    apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/snapshot`,
       body,
       {
         ...withOrg(organizationId),
-        timeout: options.timeout ?? 300000,
+        timeout: 120000,
       }
-    );
-  },
+    ),
 
-  approveAiStaffing: (organizationId, packId) =>
-    apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-planning/approve-staffing`,
-      {},
+  getAiAnalysisSnapshot: (organizationId, packId) =>
+    apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/snapshot`,
       withOrg(organizationId)
     ),
 
-  discardAiStaffing: (organizationId, packId) =>
+  runAiAnalysis: (organizationId, packId, job, options = {}) =>
     apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-planning/discard-staffing`,
-      {},
-      withOrg(organizationId)
-    ),
-
-  getAiAnalysis: (organizationId, packId, options = {}) => {
-    const view = String(options.view || '').trim();
-    const job = String(options.job || '').trim();
-    return apiClient.get(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,
-      withOrg(organizationId, {
-        params: {
-          ...(view ? { view } : {}),
-          ...(job ? { job } : {}),
-        },
-      })
-    );
-  },
-
-  runAiAnalysisJob: (organizationId, packId, jobId, options = {}) =>
-    apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/jobs/${encodeURIComponent(jobId)}/run`,
-      { force: Boolean(options.force) },
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/run`,
+      { job, ...(options.force ? { force: true } : {}) },
       {
         ...withOrg(organizationId),
         timeout: options.timeout ?? 300000,
       }
     ),
 
-  confirmAiAnalysisJob: (organizationId, packId, jobId) =>
+  confirmAiAnalysis: (organizationId, packId, job, edits = null) =>
     apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/jobs/${encodeURIComponent(jobId)}/confirm`,
-      {},
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/confirm`,
+      edits != null ? { job, edits } : { job },
       withOrg(organizationId)
     ),
 
   exportAiAnalysisSheet11: (organizationId, packId) =>
     apiClient.get(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/export`,
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/export-sheet11`,
       {
         ...withOrg(organizationId),
         responseType: 'blob',

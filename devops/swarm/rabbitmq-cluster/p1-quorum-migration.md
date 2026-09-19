@@ -16,7 +16,7 @@ bash devops/swarm/rabbitmq-cluster/purge-classic-queues.sh
 4. Set `RABBITMQ_QUORUM_QUEUES=true` trong `.env` (mặc định code = true)
 5. **Deploy consumers trước** (assert quorum)
 6. **Deploy publishers** + workers
-7. Smoke: DM, notification, task file, webhook, **voice recording/STT**
+7. Smoke: DM, notification, task file, **voice recording/STT**
 
 ## Voice queues (classic → quorum)
 

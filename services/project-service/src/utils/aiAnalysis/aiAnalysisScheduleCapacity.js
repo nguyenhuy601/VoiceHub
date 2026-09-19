@@ -37,17 +37,38 @@ function isWeekday(dateKey) {
   return dow >= 1 && dow <= 5;
 }
 
-function nextWeekday(dateKey) {
+function holidayKeySet(calendar) {
+  const set = new Set();
+  const holidays = calendar?.holidays;
+  if (!Array.isArray(holidays)) return set;
+  for (const h of holidays) {
+    const key =
+      typeof h === 'string'
+        ? toDateKey(h)
+        : toDateKey(h?.date || h?.day || h?.holidayDate);
+    if (key) set.add(key);
+  }
+  return set;
+}
+
+function isWorkingDay(dateKey, calendar = null) {
+  if (!isWeekday(dateKey)) return false;
+  if (!calendar) return true;
+  const blocked = holidayKeySet(calendar);
+  return !blocked.has(dateKey);
+}
+
+function nextWeekday(dateKey, calendar = null) {
   let cur = dateKey;
-  for (let i = 0; i < 14; i += 1) {
-    if (isWeekday(cur)) return cur;
+  for (let i = 0; i < 366; i += 1) {
+    if (isWorkingDay(cur, calendar)) return cur;
     cur = addDays(cur, 1);
   }
   return cur;
 }
 
-function advanceWeekday(dateKey) {
-  return nextWeekday(addDays(dateKey, 1));
+function advanceWeekday(dateKey, calendar = null) {
+  return nextWeekday(addDays(dateKey, 1), calendar);
 }
 
 /** Hook — no meeting source yet; always 0 unless opts override map. */
@@ -80,8 +101,12 @@ function packScheduleCapacity({
   assignments = [],
   projectStart = null,
   meetingHoursByUserDay = null,
+  calendar = null,
 } = {}) {
-  const startKey = nextWeekday(toDateKey(projectStart) || toDateKey(new Date()) || '1970-01-01');
+  const startKey = nextWeekday(
+    toDateKey(projectStart) || toDateKey(new Date()) || '1970-01-01',
+    calendar
+  );
   const taskById = new Map();
   for (const t of tasks) {
     const id = String(t?.id || t?.taskId || '').trim();
@@ -133,7 +158,7 @@ function packScheduleCapacity({
           if (r.dateKey > predReadyDay) predReadyDay = r.dateKey;
         }
       }
-      let day = nextWeekday(predReadyDay);
+      let day = nextWeekday(predReadyDay, calendar);
       // If pred finished same day, can continue same day if remaining capacity
       const dayHours = [];
 
@@ -145,14 +170,14 @@ function packScheduleCapacity({
         const used = usedByUserDay.get(usedKey) || 0;
         const remainingCap = Math.max(0, DAILY_CAP_HOURS - meet - used);
         if (remainingCap <= 0) {
-          day = advanceWeekday(day);
+          day = advanceWeekday(day, calendar);
           continue;
         }
         const chunk = Math.min(remaining, remainingCap);
         usedByUserDay.set(usedKey, used + chunk);
         dayHours.push({ dateKey: day, hours: chunk, meetingHours: meet });
         remaining -= chunk;
-        if (remaining > 0) day = advanceWeekday(day);
+        if (remaining > 0) day = advanceWeekday(day, calendar);
       }
 
       for (const row of dayHours) {
@@ -299,6 +324,7 @@ function runScheduleCapacity(container, opts = {}) {
     assignments,
     projectStart: opts.projectStart,
     meetingHoursByUserDay: opts.meetingHoursByUserDay,
+    calendar: opts.calendar || null,
   });
 
   return {

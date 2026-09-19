@@ -7,14 +7,16 @@ const {
   DEFAULT_DELIVERY_PHASE_NEW,
   coerceDeliveryPhase,
 } = require('../../constants/projectDeliveryPhase');
-
-const PROJECT_STATUSES = Object.freeze([
-  'planning',
-  'ready_for_planning',
-  'in_development',
-  'on_hold',
-  'closed',
-]);
+const {
+  PROJECT_STATUSES,
+  PHASE_STATUSES,
+  ANALYSIS_MODES,
+  LEGACY_TERMINAL_PROJECT_STATUSES,
+  LEGACY_STATUS_MAP,
+  DEFAULT_PROJECT_STATUS_NEW,
+  DEFAULT_PHASE_STATUS_NEW,
+  DEFAULT_ANALYSIS_MODE,
+} = require('../../constants/projectLifecycle');
 
 const PROJECT_CATEGORIES = Object.freeze(['internal', 'customer']);
 const PROJECT_PRIORITIES = Object.freeze(['low', 'medium', 'high', 'urgent']);
@@ -37,6 +39,39 @@ const WEEKDAYS = Object.freeze([
   'sunday',
 ]);
 
+/**
+ * Map status legacy / typo → giá trị enum hiện tại.
+ * Trả về null nếu không coerce được (caller giữ nguyên hoặc reject).
+ */
+function coerceProjectLifecycleStatus(raw) {
+  const st = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (!st) return null;
+  if (PROJECT_STATUSES.includes(st)) return st;
+  if (Object.prototype.hasOwnProperty.call(LEGACY_STATUS_MAP, st)) {
+    return LEGACY_STATUS_MAP[st];
+  }
+  if (LEGACY_TERMINAL_PROJECT_STATUSES.includes(st)) return 'closed';
+  return null;
+}
+
+function coercePhaseStatus(raw) {
+  const st = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (!st) return null;
+  return PHASE_STATUSES.includes(st) ? st : null;
+}
+
+function coerceAnalysisMode(raw) {
+  const st = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (!st) return DEFAULT_ANALYSIS_MODE;
+  return ANALYSIS_MODES.includes(st) ? st : null;
+}
+
 function parseOptionalDate(raw) {
   if (raw === undefined) return { skip: true };
   if (raw === null || raw === '') return { ok: true, value: null };
@@ -54,13 +89,33 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
   const fields = {};
 
   if (body.status !== undefined) {
-    const st = String(body.status || '').trim().toLowerCase();
-    if (!PROJECT_STATUSES.includes(st)) {
+    const coerced = coerceProjectLifecycleStatus(body.status);
+    if (!coerced) {
       return { ok: false, message: 'status dự án không hợp lệ' };
     }
-    fields.status = st;
+    fields.status = coerced;
   } else if (!partial) {
-    fields.status = 'ready_for_planning';
+    fields.status = DEFAULT_PROJECT_STATUS_NEW;
+  }
+
+  if (body.phaseStatus !== undefined) {
+    const ps = coercePhaseStatus(body.phaseStatus);
+    if (!ps) {
+      return { ok: false, message: 'phaseStatus không hợp lệ' };
+    }
+    fields.phaseStatus = ps;
+  } else if (!partial) {
+    fields.phaseStatus = DEFAULT_PHASE_STATUS_NEW;
+  }
+
+  if (body.analysisMode !== undefined) {
+    const mode = coerceAnalysisMode(body.analysisMode);
+    if (!mode) {
+      return { ok: false, message: 'analysisMode phải là manual hoặc ai' };
+    }
+    fields.analysisMode = mode;
+  } else if (!partial) {
+    fields.analysisMode = DEFAULT_ANALYSIS_MODE;
   }
 
   if (body.deliveryPhase !== undefined) {
@@ -205,30 +260,18 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
   return { ok: true, fields };
 }
 
-/**
- * Dual-read legacy Project.status → current enum (or null if already valid / unknown).
- * `draft` = seed/legacy early lifecycle → `planning`.
- */
-function coerceProjectLifecycleStatus(raw) {
-  const st = String(raw || '')
-    .trim()
-    .toLowerCase();
-  if (!st) return null;
-  if (PROJECT_STATUSES.includes(st)) return st;
-  if (st === 'draft' || st === 'new' || st === 'created') return 'planning';
-  if (st === 'cancelled' || st === 'canceled' || st === 'completed' || st === 'archived') {
-    return 'closed';
-  }
-  return null;
-}
-
 module.exports = {
   PROJECT_STATUSES,
+  PHASE_STATUSES,
+  ANALYSIS_MODES,
+  LEGACY_TERMINAL_PROJECT_STATUSES,
   PROJECT_CATEGORIES,
   PROJECT_PRIORITIES,
   PROJECT_METHODOLOGIES,
   PROJECT_TYPES,
   WEEKDAYS,
-  buildProjectInitFields,
   coerceProjectLifecycleStatus,
+  coercePhaseStatus,
+  coerceAnalysisMode,
+  buildProjectInitFields,
 };

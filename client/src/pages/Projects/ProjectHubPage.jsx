@@ -103,6 +103,7 @@ export default function ProjectHubPage({
   const {
     scope: taskWorkspaceScopeRaw,
     loading: taskWorkspaceScopeLoading,
+    canCreateProjectCapability,
   } = useTaskWorkspaceScope(orgId);
   /** undefined = đang load (chưa có cache); null = không có scope */
   const taskWorkspaceScope = taskWorkspaceScopeLoading
@@ -571,6 +572,7 @@ export default function ProjectHubPage({
   const canUseAiWorkspaceTask = Boolean(
     taskWorkspaceScope?.canUseAiTask ?? taskWorkspaceScope?.canCreateTask
   );
+  const canOpenCreateProjectWizard = Boolean(canCreateProjectCapability);
   const myAssignedProjectBriefs = useMemo(() => {
     const uid = String(currentUserId || '').trim();
     if (!uid) return [];
@@ -587,13 +589,12 @@ export default function ProjectHubPage({
         toast.error(t('organizations.selectOrgFirst'));
         return;
       }
-      if (!canCreateWorkspaceTask) {
-        toast.error(t('taskBoard.createBoardDenied'));
+      if (!canOpenCreateProjectWizard) {
+        toast.error(t('taskBoard.createProjectDenied'));
         return;
       }
       navigate(
         buildCollaborateProjectsNewPath(orgId, {
-          from: 'hub',
           title: opts.title || '',
           description: opts.description || '',
           projectCode: opts.projectCode || '',
@@ -601,7 +602,7 @@ export default function ProjectHubPage({
         })
       );
     },
-    [canCreateWorkspaceTask, navigate, orgId, t]
+    [canOpenCreateProjectWizard, navigate, orgId, t]
   );
 
   const openCreateBoardFromBrief = useCallback(
@@ -660,8 +661,8 @@ export default function ProjectHubPage({
       }}
       onReorderList={handleReorderBoardList}
       onRefresh={refreshTaskBoardView}
-      onCreateBoard={canCreateWorkspaceTask ? () => openProjectSetupWizard() : undefined}
-      canCreateBoard={canCreateWorkspaceTask}
+      onCreateBoard={canOpenCreateProjectWizard ? () => openProjectSetupWizard() : undefined}
+      canCreateBoard={canOpenCreateProjectWizard}
       boardCapabilities={boardCapabilities}
       canManageLists={canManageListsUi}
       canCreateCards={canCreateCardsUi}

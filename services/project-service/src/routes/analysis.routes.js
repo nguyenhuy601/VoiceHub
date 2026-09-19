@@ -5,11 +5,16 @@
 const express = require('express');
 const analysis = require('../controllers/analysis.controller');
 const { requirementImportUpload } = require('../middleware/requirementImportUpload');
+const { customerDocumentUpload } = require('../middleware/customerDocumentUpload');
 
 const router = express.Router({ mergeParams: true });
 
 router.get('/customer-documents', analysis.listCustomerDocuments);
-router.post('/customer-documents', analysis.createCustomerDocument);
+router.post(
+  '/customer-documents',
+  customerDocumentUpload.single('file'),
+  analysis.createCustomerDocument
+);
 
 router.get('/analysis-import-sets', analysis.listImportSets);
 router.post(

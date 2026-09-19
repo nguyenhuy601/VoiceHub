@@ -27,6 +27,7 @@ import {
 import { buildJobSummaryChips } from './aiAnalysisResultModel';
 import AiAnalysisJobPreview from './AiAnalysisJobPreview';
 import AiAnalysisFindingDrawer from './AiAnalysisFindingDrawer';
+import AiAnalysisSnapshotVersionChips from '../projects/aiWizard/AiAnalysisSnapshotVersionChips';
 
 function formatWhen(value) {
   if (!value) return '—';
@@ -234,6 +235,7 @@ export default function AiAnalysisBlueprintWizard({
     setActiveJob,
     busy,
     error,
+    snapshotMeta,
     runJob,
     confirmJob,
     refreshWizard,
@@ -389,6 +391,11 @@ export default function AiAnalysisBlueprintWizard({
           </div>
         </header>
       ) : null}
+
+      <AiAnalysisSnapshotVersionChips
+        snapshot={snapshotMeta || summary?.snapshot}
+        t={t}
+      />
 
       {toast ? (
         <p

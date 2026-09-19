@@ -32,12 +32,7 @@ import {
 import { ensureProjectHubRoleCatalog } from './useProjectHubQueries';
 
 /** Status DA có thể sửa trên Hub Settings — không gồm closed (dùng luồng Complete). */
-const PROFILE_EDITABLE_STATUSES = Object.freeze([
-  'planning',
-  'ready_for_planning',
-  'in_development',
-  'on_hold',
-]);
+const PROFILE_EDITABLE_STATUSES = Object.freeze(['draft', 'active', 'on_hold']);
 
 const SPRINT_WEEKDAYS = Object.freeze([
   'monday',
@@ -204,7 +199,7 @@ export default function ProjectHubSettingsPanel({
   const [projectType, setProjectType] = useState('software');
   const [category, setCategory] = useState('internal');
   const [projectPriority, setProjectPriority] = useState('medium');
-  const [projectStatus, setProjectStatus] = useState('ready_for_planning');
+  const [projectStatus, setProjectStatus] = useState('draft');
   const [tagsInput, setTagsInput] = useState('');
   const [estimatedDurationDays, setEstimatedDurationDays] = useState('');
   const [workingCalendar, setWorkingCalendar] = useState('standard');
@@ -300,10 +295,14 @@ export default function ProjectHubSettingsPanel({
     setCategory(PROJECT_CATEGORIES.includes(nextCategory) ? nextCategory : 'internal');
     const nextPriority = String(src.priority || 'medium').trim().toLowerCase();
     setProjectPriority(PROJECT_PRIORITIES.includes(nextPriority) ? nextPriority : 'medium');
-    const nextStatus = String(src.status || 'ready_for_planning').trim().toLowerCase();
-    setProjectStatus(
-      PROFILE_EDITABLE_STATUSES.includes(nextStatus) ? nextStatus : 'ready_for_planning'
-    );
+    const nextStatus = String(src.status || 'draft').trim().toLowerCase();
+    const coerced =
+      nextStatus === 'planning' || nextStatus === 'ready_for_planning'
+        ? 'draft'
+        : nextStatus === 'in_development'
+          ? 'active'
+          : nextStatus;
+    setProjectStatus(PROFILE_EDITABLE_STATUSES.includes(coerced) ? coerced : 'draft');
     setTagsInput(tagsToInputValue(src.tags));
     const duration = src.estimatedDurationDays;
     setEstimatedDurationDays(

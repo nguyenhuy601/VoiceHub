@@ -14,7 +14,6 @@ Scale in when:
 ## IO-bound workers
 Applies to:
 - `notification-dispatch-worker`
-- `webhook-delivery-worker`
 
 Scale out when:
 - queue depth > 200 OR retry rate > 5%.
@@ -35,5 +34,5 @@ Scale cautiously:
 - Keep min replicas:
   - project-worker: 1
   - ai extract/sync: 1 each
-  - notification/webhook worker: 1
+  - notification-dispatch-worker: 1
 - Define hard max per node capacity.

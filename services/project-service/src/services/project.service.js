@@ -139,7 +139,7 @@ async function seedDefaultLists(boardId) {
 }
 
 /**
- * Create Project + default Board (Main) + lists + PM ownership (status ready_for_planning).
+ * Create Project + default Board (Main) + lists + PM ownership (status draft).
  * projectId !== boardId.
  */
 function normalizeBudgetStub(raw) {
@@ -195,6 +195,7 @@ async function createProject({
   relatedDepartmentIds,
   requiredProjectRoles,
   budgetStub,
+  analysisMode,
 }) {
   const scope = await fetchTaskWorkspaceScope(userId, organizationId);
   if (!scope || !canCreateProjectInScope(scope)) {
@@ -241,7 +242,7 @@ async function createProject({
   }
 
   const init = buildProjectInitFields({
-    status: 'ready_for_planning',
+    status: 'draft',
     projectType,
     category,
     priority,
@@ -257,6 +258,7 @@ async function createProject({
     sprintStartDay,
     wipLimit,
     customer,
+    analysisMode,
   });
   if (!init.ok) throw new Error(init.message);
   // RULE-W1: public create always starts Phase 1 Requirement Analysis
@@ -1239,6 +1241,8 @@ async function patchProject({ userId, projectId, patch }) {
   if (init.ok === false && Object.keys(patch || {}).some((k) =>
     [
       'status',
+      'phaseStatus',
+      'analysisMode',
       'deliveryPhase',
       'projectType',
       'category',

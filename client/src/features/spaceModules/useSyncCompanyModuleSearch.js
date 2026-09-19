@@ -1,14 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSpace, SPACE_KIND } from '../../context/SpaceContext';
-import {
-  buildCompanyModuleSearch,
-  preferUrlTeamIdWhenAhead,
-  preserveCompanyTeamIdOnModuleSearch,
-} from '../../utils/companySpaceLevel';
+import { buildCompanyModuleSearch } from '../../utils/companySpaceLevel';
+
+const SYNC_KEYS = ['departmentId', 'teamId', 'tab'];
 
 /**
  * Keep URL query aligned with SpaceContext for OrganizationsPage hydrate.
+ * organizationId is resolved from WorkspaceContext (not written to URL).
  * @param {'chat'|'documents'|'calendar'} module
  */
 export function useSyncCompanyModuleSearch(module) {
@@ -21,20 +20,16 @@ export function useSyncCompanyModuleSearch(module) {
     const deptId = String(space?.departmentId || '').trim();
     if (!deptId) return;
 
-    const desired = preferUrlTeamIdWhenAhead(
-      preserveCompanyTeamIdOnModuleSearch(
-        buildCompanyModuleSearch(space, module),
-        searchParams,
-        module
-      ),
-      searchParams
-    );
+    const desired = buildCompanyModuleSearch(space, module);
+    desired.delete('organizationId');
+    desired.delete('orgId');
     const desiredKey = desired.toString();
     const syncKey = `${module}|${desiredKey}`;
-    if (lastSyncedRef.current === syncKey) {
-      // Still apply if URL drifted away from desired
+    const hasOrgQuery = Boolean(searchParams.get('organizationId') || searchParams.get('orgId'));
+
+    if (lastSyncedRef.current === syncKey && !hasOrgQuery) {
       let drifted = false;
-      for (const key of ['organizationId', 'departmentId', 'teamId', 'tab']) {
+      for (const key of SYNC_KEYS) {
         const want = desired.get(key) || '';
         const have = String(searchParams.get(key) || '').trim();
         if (want !== have) {
@@ -45,9 +40,11 @@ export function useSyncCompanyModuleSearch(module) {
       if (!drifted) return;
     }
 
-    let changed = false;
+    let changed = hasOrgQuery;
     const next = new URLSearchParams(searchParams);
-    for (const key of ['organizationId', 'departmentId', 'teamId', 'tab']) {
+    next.delete('organizationId');
+    next.delete('orgId');
+    for (const key of SYNC_KEYS) {
       const want = desired.get(key) || '';
       const have = String(next.get(key) || '').trim();
       if (want !== have) {

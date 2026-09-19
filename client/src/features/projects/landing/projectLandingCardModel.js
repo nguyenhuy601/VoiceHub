@@ -33,6 +33,18 @@ export function normalizeProjectStatus(status) {
     .toLowerCase();
 }
 
+/** Map legacy 5-value status → draft|active|on_hold|closed for display. */
+export function coerceProjectStatusForUi(status) {
+  const st = normalizeProjectStatus(status);
+  if (!st) return '';
+  if (st === 'planning' || st === 'ready_for_planning') return 'draft';
+  if (st === 'in_development') return 'active';
+  if (st === 'cancelled' || st === 'canceled' || st === 'completed' || st === 'archived') {
+    return 'closed';
+  }
+  return st;
+}
+
 export function normalizeProjectPriority(priority) {
   return String(priority || '')
     .trim()
@@ -47,14 +59,8 @@ export function normalizeProjectHealth(health) {
 
 /** Locale path under workspace.* */
 export function projectStatusLabelKey(status) {
-  const st = normalizeProjectStatus(status);
-  const allowed = new Set([
-    'planning',
-    'ready_for_planning',
-    'in_development',
-    'on_hold',
-    'closed',
-  ]);
+  const st = coerceProjectStatusForUi(status);
+  const allowed = new Set(['draft', 'active', 'on_hold', 'closed']);
   if (!allowed.has(st)) return null;
   return `workspace.projectHubProjectStatus_${st}`;
 }

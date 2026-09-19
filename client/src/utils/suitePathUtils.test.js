@@ -91,8 +91,8 @@ describe('buildCollaborateProjectHubPath', () => {
 });
 
 describe('buildProjectsPickerPath', () => {
-  it('appends organizationId when present', () => {
-    assert.equal(buildProjectsPickerPath('org9'), '/app/projects?organizationId=org9');
+  it('does not append organizationId (single-company)', () => {
+    assert.equal(buildProjectsPickerPath('org9'), '/app/projects');
     assert.equal(buildProjectsPickerPath(''), '/app/projects');
   });
 });
@@ -108,14 +108,14 @@ describe('isCompanyChatModulePath', () => {
 });
 
 describe('buildCompanyChatPath', () => {
-  it('keeps chat module path with dept announcement tab', () => {
+  it('keeps chat module path with dept announcement tab without organizationId', () => {
     const path = buildCompanyChatPath('org1', {
       departmentId: 'dept1',
       tab: 'announcement',
       channelId: 'ch1',
     });
     assert.match(path, /^\/app\/company\/chat\?/);
-    assert.match(path, /organizationId=org1/);
+    assert.doesNotMatch(path, /organizationId=/);
     assert.match(path, /departmentId=dept1/);
     assert.match(path, /tab=announcement/);
     assert.match(path, /channelId=ch1/);

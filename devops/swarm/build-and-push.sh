@@ -28,13 +28,13 @@ declare -a IMAGES=(
   "chat-service:services/chat-service/Dockerfile"
   "project-service:services/project-service/Dockerfile"
   "ai-task-service:services/ai-task-service/Dockerfile"
+  "ai-project-planning-service:services/ai-project-planning-service/Dockerfile"
   "ai-task-worker:services/ai-task-worker/Dockerfile"
   "summary-service:services/summary-service/Dockerfile"
   "summary-worker:services/summary-worker/Dockerfile"
   "document-service:services/document-service/Dockerfile"
   "voice-service:services/voice-service/Dockerfile"
   "notification-service:services/notification-service/Dockerfile"
-  "webhook-service:services/webhook-service/Dockerfile"
   "socket-service:services/socket-service/Dockerfile"
 )
 
@@ -46,13 +46,8 @@ for item in "${IMAGES[@]}"; do
   local_tag="voicehub-${name}:${TAG}"
 
   echo "Building ${name} from ${dockerfile}"
-  if [[ "$dockerfile" == services/webhook-service/Dockerfile ]]; then
-    docker build -f "${ROOT_DIR}/${dockerfile}" -t "${full}" -t "${latest}" -t "${local_tag}" \
-      "${ROOT_DIR}/services/webhook-service"
-  else
-    docker build -f "${ROOT_DIR}/${dockerfile}" -t "${full}" -t "${latest}" -t "${local_tag}" \
-      "${ROOT_DIR}"
-  fi
+  docker build -f "${ROOT_DIR}/${dockerfile}" -t "${full}" -t "${latest}" -t "${local_tag}" \
+    "${ROOT_DIR}"
   docker push "${full}"
   docker push "${latest}"
 done

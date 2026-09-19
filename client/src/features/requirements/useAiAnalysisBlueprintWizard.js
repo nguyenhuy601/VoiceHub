@@ -1,125 +1,196 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { requirementAPI } from '../../services/api/requirementAPI';
-import { unwrapRequirementPayload } from '../projects/aiWizard/aiWizardConstants';
-import { AI_ANALYSIS_JOBS } from './aiAnalysisWizardConstants';
-
-const DEFAULT_JOB = AI_ANALYSIS_JOBS[0]?.id || 'hierarchyDecomposition';
-
-function resolveErrorMessage(error) {
-  return (
-    error?.response?.data?.message ||
-    error?.message ||
-    'AI Analysis request failed'
-  );
-}
+import {
+  AI_ANALYSIS_JOBS,
+  assertSingleJob,
+  canRunJob,
+  jobIndex,
+} from './aiAnalysisWizardConstants';
+import { pollAiAnalysisJob } from './aiAnalysisPolling';
 
 /**
- * Controller cho AiAnalysisBlueprintWizard / CreateProjectAiWizard.
- * GET/POST /projects/requirements/:packId/ai-analysis — BE service đã có, route có thể chưa mount.
+ * W8 — poll + run/confirm one Blueprint job at a time (no Run all).
  */
-export function useAiAnalysisBlueprintWizard({
-  organizationId = '',
-  packId = '',
-  enabled = true,
-} = {}) {
-  const orgId = String(organizationId || '').trim();
-  const pid = String(packId || '').trim();
-  const canFetch = Boolean(enabled && orgId && pid);
-
+export function useAiAnalysisBlueprintWizard({ organizationId, packId, enabled = true }) {
   const [summary, setSummary] = useState(null);
   const [wizardDto, setWizardDto] = useState(null);
-  const [activeJob, setActiveJob] = useState(DEFAULT_JOB);
+  const [activeJob, setActiveJob] = useState(AI_ANALYSIS_JOBS[0].id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-
-  const refreshWizard = useCallback(
-    async (jobId) => {
-      if (!canFetch) return null;
-      const job = String(jobId || activeJob || DEFAULT_JOB).trim();
-      const [summaryRes, jobRes] = await Promise.all([
-        requirementAPI.getAiAnalysis(orgId, pid, { view: 'summary' }),
-        requirementAPI.getAiAnalysis(orgId, pid, { job }),
-      ]);
-      const nextSummary = unwrapRequirementPayload(summaryRes);
-      const nextDto = unwrapRequirementPayload(jobRes);
-      setSummary(nextSummary);
-      setWizardDto(nextDto);
-      return { summary: nextSummary, wizardDto: nextDto };
-    },
-    [canFetch, orgId, pid, activeJob]
-  );
+  const [snapshotMeta, setSnapshotMeta] = useState(null);
+  const lifecycleRef = useRef(0);
 
   useEffect(() => {
-    if (!canFetch) {
-      setSummary(null);
-      setWizardDto(null);
-      setError(null);
-      return undefined;
-    }
-    let cancelled = false;
-    setBusy(true);
-    setError(null);
-    refreshWizard(activeJob)
-      .catch((err) => {
-        if (!cancelled) setError(resolveErrorMessage(err));
-      })
-      .finally(() => {
-        if (!cancelled) setBusy(false);
+    lifecycleRef.current += 1;
+    return () => {
+      lifecycleRef.current += 1;
+    };
+  }, [organizationId, packId, enabled]);
+
+  const refreshSummary = useCallback(async () => {
+    if (!organizationId || !packId) return null;
+    const res = await requirementAPI.getAiAnalysis(organizationId, packId, {
+      view: 'summary',
+    });
+    const data = res?.data?.data ?? res?.data ?? null;
+    setSummary(data);
+    if (data?.snapshot) setSnapshotMeta(data.snapshot);
+    return data;
+  }, [organizationId, packId]);
+
+  // Require explicit job — do not close over activeJob (avoids remount race that resets View).
+  const refreshWizard = useCallback(
+    async (job) => {
+      if (!organizationId || !packId) return null;
+      const jobId = assertSingleJob(job);
+      const res = await requirementAPI.getAiAnalysis(organizationId, packId, {
+        view: 'wizard',
+        job: jobId,
       });
+      const data = res?.data?.data ?? res?.data ?? null;
+      setWizardDto(data);
+      return data;
+    },
+    [organizationId, packId]
+  );
+
+  // Ensure Analysis Snapshot exists before jobs can run (idempotent reuse).
+  useEffect(() => {
+    if (!enabled || !organizationId || !packId) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await requirementAPI.createAiAnalysisSnapshot(organizationId, packId);
+        const meta = res?.data?.data ?? res?.data ?? null;
+        if (!cancelled) setSnapshotMeta(meta);
+      } catch (err) {
+        if (!cancelled) setError(err);
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [canFetch, activeJob, refreshWizard]);
+  }, [enabled, organizationId, packId]);
+
+  // Auto-advance only when pack/enabled changes — not when user selects View.
+  useEffect(() => {
+    if (!enabled || !organizationId || !packId) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = await refreshSummary();
+        if (cancelled) return;
+        const jobs = s?.jobs || {};
+        const next =
+          AI_ANALYSIS_JOBS.find((j) => jobs[j.id]?.status !== 'confirmed')?.id ||
+          AI_ANALYSIS_JOBS[AI_ANALYSIS_JOBS.length - 1].id;
+        setActiveJob(next);
+        await refreshWizard(next);
+      } catch (err) {
+        if (!cancelled) setError(err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, organizationId, packId, refreshSummary, refreshWizard]);
 
   const runJob = useCallback(
-    async (jobId, options = {}) => {
-      if (!canFetch) return null;
-      const job = String(jobId || activeJob || DEFAULT_JOB).trim();
+    async (jobOverride = null, options = {}) => {
+      const raw = typeof jobOverride === 'string' ? jobOverride : activeJob;
+      const job = assertSingleJob(raw);
+      const force = Boolean(options.force);
+      if (!canRunJob(summary?.jobs, job)) {
+        setError(new Error('Previous job must be confirmed'));
+        return null;
+      }
       setBusy(true);
       setError(null);
+      setActiveJob(job);
+      const lifecycle = ++lifecycleRef.current;
       try {
-        await requirementAPI.runAiAnalysisJob(orgId, pid, job, options);
-        return await refreshWizard(job);
+        const response = await requirementAPI.runAiAnalysis(
+          organizationId,
+          packId,
+          job,
+          { force }
+        );
+        const responseData = response?.data?.data ?? response?.data ?? null;
+        const isRemoteAccepted =
+          response?.status === 202 ||
+          (responseData?.accepted === true && responseData?.remote === true);
+        let s;
+        if (isRemoteAccepted) {
+          s = await pollAiAnalysisJob({
+            job,
+            fetchSummary: async () => {
+              const summaryResponse = await requirementAPI.getAiAnalysis(
+                organizationId,
+                packId,
+                { view: 'summary' }
+              );
+              return summaryResponse?.data?.data ?? summaryResponse?.data ?? null;
+            },
+            isCancelled: () => lifecycleRef.current !== lifecycle,
+            onSummary: (nextSummary) => {
+              setSummary(nextSummary);
+              if (nextSummary?.snapshot) setSnapshotMeta(nextSummary.snapshot);
+            },
+          });
+          if (lifecycleRef.current !== lifecycle) return null;
+        } else {
+          s = await refreshSummary();
+        }
+        await refreshWizard(job);
+        return s;
       } catch (err) {
-        setError(resolveErrorMessage(err));
+        setError(err);
         throw err;
       } finally {
         setBusy(false);
       }
     },
-    [canFetch, orgId, pid, activeJob, refreshWizard]
+    [activeJob, summary, organizationId, packId, refreshSummary, refreshWizard]
   );
 
   const confirmJob = useCallback(
-    async (_decisions, jobId) => {
-      if (!canFetch) return null;
-      const job = String(jobId || activeJob || DEFAULT_JOB).trim();
+    async (edits = null, jobOverride = null) => {
+      const raw = typeof jobOverride === 'string' ? jobOverride : activeJob;
+      const job = assertSingleJob(raw);
       setBusy(true);
       setError(null);
+      setActiveJob(job);
       try {
-        await requirementAPI.confirmAiAnalysisJob(orgId, pid, job);
-        return await refreshWizard(job);
+        await requirementAPI.confirmAiAnalysis(organizationId, packId, job, edits);
+        const s = await refreshSummary();
+        const idx = jobIndex(job);
+        const nextJob = AI_ANALYSIS_JOBS[Math.min(idx + 1, AI_ANALYSIS_JOBS.length - 1)].id;
+        setActiveJob(nextJob);
+        await refreshWizard(nextJob);
+        return s;
       } catch (err) {
-        setError(resolveErrorMessage(err));
+        setError(err);
         throw err;
       } finally {
         setBusy(false);
       }
     },
-    [canFetch, orgId, pid, activeJob, refreshWizard]
+    [activeJob, organizationId, packId, refreshSummary, refreshWizard]
   );
 
   return {
+    jobs: AI_ANALYSIS_JOBS,
     summary,
     wizardDto,
     activeJob,
     setActiveJob,
     busy,
     error,
+    snapshotMeta,
+    canRun: canRunJob(summary?.jobs, activeJob),
     runJob,
     confirmJob,
+    refreshSummary,
     refreshWizard,
   };
 }
-
-export default useAiAnalysisBlueprintWizard;
