@@ -92,6 +92,13 @@ function oidToStr(v) {
   return String(v);
 }
 
+function doneMoveDenied() {
+  const err = new Error('Chỉ QA/PM/TL mới được kéo thẻ sang cột Done');
+  err.statusCode = 403;
+  err.errorCode = 'PROJECT_ACCESS_DENIED';
+  return err;
+}
+
 /** Gắn subtasks[] trên card cha từ cùng list (không N+1). */
 function attachSubtasksToSanitizedCards(cards = []) {
   const list = Array.isArray(cards) ? cards : [];
@@ -842,6 +849,9 @@ async function getBoardDetailScopedCards({ userId, board, boardOid, epicId, feat
     'createdAt',
     'updatedAt',
     'changeRequestIds',
+    'fixSuggestion',
+    'retestStatus',
+    'sourceTestCaseId',
   ].join(' ');
 
   const cards = await Task.find(cardFilter)
@@ -1675,7 +1685,7 @@ async function movePlanningFeatureCard({ userId, cardId, toListId, position, ind
 
   const movingToDone = isDoneListTitle(list.title);
   if (movingToDone && !caps.canMoveToDone) {
-    throw new Error('Chỉ PM/TL/Admin mới được kéo thẻ sang cột Xong (duyệt)');
+    throw doneMoveDenied();
   }
 
   const isAssignee = feature.assigneeId && String(feature.assigneeId) === String(userId);
@@ -1762,7 +1772,7 @@ async function moveTaskCard({ userId, card, cardId, toListId, position, index, o
 
   const movingToDone = isDoneListTitle(list.title);
   if (movingToDone && !caps.canMoveToDone) {
-    throw new Error('Chỉ PM/TL/Admin mới được kéo thẻ sang cột Xong (duyệt)');
+    throw doneMoveDenied();
   }
 
   const isAssignee = card.assigneeId && String(card.assigneeId) === String(userId);

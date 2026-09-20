@@ -9,6 +9,10 @@ const projectRolesRoutes = require('./projectRoles.routes');
 const controller = require('../controllers/project.controller');
 const planning = require('../controllers/planning.controller');
 const changeRequest = require('../controllers/changeRequest.controller');
+const testCase = require('../controllers/testCase.controller');
+const readyToDone = require('../controllers/readyToDone.controller');
+const releaseReady = require('../controllers/releaseReady.controller');
+const taskQa = require('../controllers/taskQa.controller');
 const resource = require('../controllers/resource.controller');
 const workPreview = require('../controllers/workPreview.controller');
 const workflowTemplates = require('../controllers/workflowTemplate.controller');
@@ -252,7 +256,26 @@ router.post('/:projectId/change-requests', changeRequest.createItem);
 router.get('/:projectId/change-requests/:crId', changeRequest.getItem);
 router.patch('/:projectId/change-requests/:crId', changeRequest.patchItem);
 router.post('/:projectId/change-requests/:crId/submit-approval', changeRequest.submitApproval);
+router.post('/:projectId/change-requests/:crId/apply', changeRequest.applyItem);
 router.delete('/:projectId/change-requests/:crId', changeRequest.deleteItem);
+
+router.get('/:projectId/test-cases', testCase.listItems);
+router.post('/:projectId/test-cases', testCase.createItem);
+router.get('/:projectId/test-cases/:testCaseId', testCase.getItem);
+router.patch('/:projectId/test-cases/:testCaseId', testCase.patchItem);
+router.post('/:projectId/test-cases/:testCaseId/execute', testCase.executeItem);
+router.post('/:projectId/test-cases/:testCaseId/open-bug', testCase.openBug);
+
+router.get('/:projectId/ready-to-done', readyToDone.listMap);
+router.get('/:projectId/tasks/:taskId/ready-to-done', readyToDone.getItem);
+router.post('/:projectId/tasks/:taskId/ready-to-done/confirm', readyToDone.confirmItem);
+
+router.get('/:projectId/release-ready', releaseReady.getItem);
+router.post('/:projectId/release-ready/confirm', releaseReady.confirmItem);
+router.post('/:projectId/uat/sign-off', releaseReady.signOffUat);
+
+router.post('/:projectId/tasks/:taskId/fix-suggestion', taskQa.proposeFixSuggestion);
+router.post('/:projectId/tasks/:taskId/fix-suggestion/decide', taskQa.decideFixSuggestion);
 
 router.get('/:projectId/planning-items', planning.listItems);
 router.post('/:projectId/planning-items', planning.createItem);

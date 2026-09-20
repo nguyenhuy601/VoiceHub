@@ -949,6 +949,7 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       canReviewAnalysisTech: bypass || hasPermission(perms, 'analysis:tech_review'),
       canReviewAnalysisPo: bypass || hasPermission(perms, 'analysis:po_review'),
       canChangeDeliveryPhase: bypass || hasPermission(perms, 'delivery_phase:change'),
+      canSignOffUat: bypass || hasPermission(perms, 'uat:sign_off'),
       canCutSrs: bypass || hasPermission(perms, 'analysis:cut_srs'),
       canViewPlanning: bypass || hasPermission(perms, 'planning:view'),
       canEditPlanning: bypass || hasPermission(perms, 'planning:artifact_edit'),
@@ -1010,6 +1011,38 @@ async function assertProjectMatrixOrAdmin(userId, project, permissions, message)
   }
 }
 
+function normalizeHandoverChecklist(raw, checklistIds = []) {
+  const ids = Array.isArray(checklistIds) ? checklistIds.map(String) : [];
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const out = {};
+  for (const id of ids) {
+    out[id] = src[id] === true;
+  }
+  return out;
+}
+
+async function resolveReleaseLabelForProject(projectId) {
+  try {
+    const ChangeRequest = require('../models/ChangeRequest');
+    const latest = await ChangeRequest.findOne({
+      projectId,
+      status: 'applied',
+    })
+      .sort({ appliedAt: -1, updatedAt: -1 })
+      .select('releaseLabel')
+      .lean();
+    const fromCr = String(latest?.releaseLabel || '').trim();
+    if (fromCr) return fromCr.slice(0, 64);
+  } catch {
+    /* fall through */
+  }
+  const d = new Date();
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `REL-${y}${m}${day}`;
+}
+
 async function patchProject({ userId, projectId, patch }) {
   const project = await Project.findById(projectId);
   if (!project || project.isActive === false) throw new Error('Project không tồn tại');
@@ -1017,21 +1050,45 @@ async function patchProject({ userId, projectId, patch }) {
   if (patch && Object.prototype.hasOwnProperty.call(patch, 'status')) {
     assertPatchDoesNotCloseProject(project.status, patch.status);
   }
+  const hasDeliveryPhasePatch = Object.prototype.hasOwnProperty.call(
+    patch || {},
+    'deliveryPhase'
+  );
+  const hasHandoverChecklistPatch = Object.prototype.hasOwnProperty.call(
+    patch || {},
+    'handoverChecklist'
+  );
+  const hasDeployEvidencePatch = Object.prototype.hasOwnProperty.call(
+    patch || {},
+    'deployEvidence'
+  );
   const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
-    const hasDeliveryPhasePatch = Object.prototype.hasOwnProperty.call(
-      patch || {},
-      'deliveryPhase'
-    );
-    if (hasDeliveryPhasePatch) {
+    // Client must not set releaseLabel (RULE-06)
+    if (Object.prototype.hasOwnProperty.call(patch || {}, 'releaseLabel')) {
+      delete patch.releaseLabel;
+    }
+    const phaseLikePatch =
+      hasDeliveryPhasePatch || hasHandoverChecklistPatch || hasDeployEvidencePatch;
+    if (phaseLikePatch) {
       const canPhase =
         hasPermission(resolved.permissions, 'delivery_phase:change') ||
         resolved.isOrgAdmin ||
         resolved.isCreator;
-      if (!canPhase) {
+      if (!canPhase && hasDeliveryPhasePatch) {
         const err = new Error('Không có quyền đổi deliveryPhase (delivery_phase:change)');
+        err.statusCode = 403;
+        throw err;
+      }
+      if (!canPhase && hasHandoverChecklistPatch) {
+        const err = new Error('Không có quyền cập nhật checklist bàn giao');
+        err.statusCode = 403;
+        throw err;
+      }
+      if (!canPhase && hasDeployEvidencePatch) {
+        const err = new Error('Không có quyền cập nhật bằng chứng deploy');
         err.statusCode = 403;
         throw err;
       }
@@ -1041,16 +1098,18 @@ async function patchProject({ userId, projectId, patch }) {
       hasPermission(resolved.permissions, 'project:edit') ||
       resolved.isOrgAdmin ||
       resolved.isCreator;
-    if (!canSettings && !hasDeliveryPhasePatch) {
+    if (!canSettings && !phaseLikePatch) {
       const err = new Error('Không có quyền sửa settings dự án (settings:update)');
       err.statusCode = 403;
       throw err;
     }
-    if (!canSettings && hasDeliveryPhasePatch) {
-      // PM may change only deliveryPhase without full settings:update
-      const onlyPhase =
-        Object.keys(patch || {}).filter((k) => patch[k] !== undefined).length === 1;
-      if (!onlyPhase) {
+    if (!canSettings && phaseLikePatch) {
+      // PM may change phase / checklist / deploy evidence without full settings:update
+      const allowedKeys = new Set(['deliveryPhase', 'handoverChecklist', 'deployEvidence']);
+      const extra = Object.keys(patch || {}).filter(
+        (k) => patch[k] !== undefined && !allowedKeys.has(k)
+      );
+      if (extra.length) {
         const err = new Error('Không có quyền sửa settings dự án (settings:update)');
         err.statusCode = 403;
         throw err;
@@ -1061,10 +1120,17 @@ async function patchProject({ userId, projectId, patch }) {
     if (!canAdmin) throw new Error('Không có quyền sửa settings dự án');
   }
 
+  // Always strip client releaseLabel even in legacy RBAC path
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'releaseLabel')) {
+    delete patch.releaseLabel;
+  }
+
   const {
     canTransitionDeliveryPhase,
     coerceDeliveryPhase: coercePhase,
+    RELEASE_HANDOVER_CHECKLIST,
   } = require('../constants/projectDeliveryPhase');
+  const { assertHandoverGate } = require('../utils/work/assertHandoverGate');
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'deliveryPhase')) {
     const from = coercePhase(project.deliveryPhase);
     const to = coercePhase(patch.deliveryPhase, { missingAsExisting: false });
@@ -1073,6 +1139,28 @@ async function patchProject({ userId, projectId, patch }) {
       err.statusCode = 400;
       err.errorCode = 'DELIVERY_PHASE_TRANSITION_DENIED';
       throw err;
+    }
+    if (from === 'qa_uat' && to === 'release_handover') {
+      const checklistIds = RELEASE_HANDOVER_CHECKLIST.map((row) => row.id);
+      const upcomingChecklist = Object.prototype.hasOwnProperty.call(patch, 'handoverChecklist')
+        ? normalizeHandoverChecklist(patch.handoverChecklist, checklistIds)
+        : normalizeHandoverChecklist(project.handoverChecklist, checklistIds);
+      const gate = assertHandoverGate({
+        releaseReadyStatus: project.releaseReadyStatus,
+        uatStatus: project.uatStatus,
+        handoverChecklist: upcomingChecklist,
+        checklistIds,
+      });
+      if (!gate.ok) {
+        const err = new Error(
+          `Chưa đủ điều kiện bàn giao (${(gate.blockers || []).join(', ') || 'not_ready'})`
+        );
+        err.statusCode = 409;
+        err.errorCode = 'HANDOVER_GATE_DENIED';
+        err.blockers = gate.blockers;
+        err.details = { blockers: gate.blockers };
+        throw err;
+      }
     }
   }
 
@@ -1087,7 +1175,17 @@ async function patchProject({ userId, projectId, patch }) {
     'informationLevelOverrides',
     'relatedDepartmentIds',
   ].some((k) => Object.prototype.hasOwnProperty.call(patch || {}, k));
-  if (!built.ok && !init.ok && !hasStaffingPatch && !hasVisibilityPatch && !hasWorkTypeConfigPatch && !hasPriorityConfigPatch) {
+  if (
+    !built.ok &&
+    !init.ok &&
+    !hasStaffingPatch &&
+    !hasVisibilityPatch &&
+    !hasWorkTypeConfigPatch &&
+    !hasPriorityConfigPatch &&
+    !hasHandoverChecklistPatch &&
+    !hasDeployEvidencePatch &&
+    !hasDeliveryPhasePatch
+  ) {
     const err = new Error(built.message || init.message || 'Không có field hợp lệ');
     err.statusCode = 400;
     throw err;
@@ -1125,6 +1223,32 @@ async function patchProject({ userId, projectId, patch }) {
   };
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'requiredProjectRoles')) {
     $set.requiredProjectRoles = normalizeRequiredProjectRoles(patch.requiredProjectRoles);
+  }
+  if (hasHandoverChecklistPatch) {
+    const { RELEASE_HANDOVER_CHECKLIST } = require('../constants/projectDeliveryPhase');
+    const checklistIds = RELEASE_HANDOVER_CHECKLIST.map((row) => row.id);
+    const nextChecklist = normalizeHandoverChecklist(patch.handoverChecklist, checklistIds);
+    // Plan D RULE-01 — cannot claim Production verify before UAT Pass
+    if (nextChecklist.deployment_verified === true && String(project.uatStatus || '') !== 'pass') {
+      const err = new Error('Chỉ tick “Đã verify deploy” sau khi UAT Pass (Staging)');
+      err.statusCode = 409;
+      err.errorCode = 'DEPLOY_VERIFY_BEFORE_UAT';
+      throw err;
+    }
+    $set.handoverChecklist = nextChecklist;
+  }
+  if (hasDeployEvidencePatch) {
+    const { normalizeDeployEvidence } = require('../utils/work/normalizeDeployEvidence');
+    if (String(project.uatStatus || '') !== 'pass') {
+      const err = new Error('Chỉ ghi bằng chứng deploy sau khi UAT Pass');
+      err.statusCode = 409;
+      err.errorCode = 'DEPLOY_EVIDENCE_BEFORE_UAT';
+      throw err;
+    }
+    $set.deployEvidence = normalizeDeployEvidence(patch.deployEvidence, {
+      userId,
+      releaseLabel: project.releaseLabel,
+    });
   }
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'relatedDepartmentIds')) {
     $set.relatedDepartmentIds = normalizeRelatedDepartmentIds(patch.relatedDepartmentIds);
@@ -1179,6 +1303,15 @@ async function patchProject({ userId, projectId, patch }) {
 
   if ($set.projectCode !== undefined && $set.projectCode) {
     $set.projectCode = await ensureUniqueProjectCode(project.organizationId, $set.projectCode);
+  }
+
+  // Plan B C4 — set releaseLabel once on first successful advance to handover
+  if (
+    $set.deliveryPhase === 'release_handover' &&
+    coercePhase(project.deliveryPhase) === 'qa_uat' &&
+    !String(project.releaseLabel || '').trim()
+  ) {
+    $set.releaseLabel = await resolveReleaseLabelForProject(project._id);
   }
 
   const beforeSnap = project.toObject();

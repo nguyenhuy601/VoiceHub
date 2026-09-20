@@ -11,6 +11,13 @@ const DONE_LIST_TITLES = new Set([
   'hoan thanh',
 ]);
 
+const READY_FOR_QA_TITLES = new Set([
+  'ready for qa',
+  'ready_for_qa',
+  'san sang qa',
+  'ready-for-qa',
+]);
+
 function normalizeListTitle(title) {
   return String(title || '')
     .trim()
@@ -24,6 +31,11 @@ function isDoneListTitle(title) {
   if (!n) return false;
   if (DONE_LIST_TITLES.has(n)) return true;
   return n === 'xong' || n.endsWith(' xong') || n.startsWith('done');
+}
+
+function isReadyForQaListTitle(title) {
+  const normalized = normalizeListTitle(title);
+  return Boolean(normalized && READY_FOR_QA_TITLES.has(normalized));
 }
 
 /**
@@ -78,7 +90,9 @@ function buildBoardCapabilities({
 
 module.exports = {
   DONE_LIST_TITLES,
+  READY_FOR_QA_TITLES,
   normalizeListTitle,
   isDoneListTitle,
+  isReadyForQaListTitle,
   buildBoardCapabilities,
 };
