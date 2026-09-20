@@ -99,11 +99,36 @@ export const PHASE_NAV_MODULES = Object.freeze({
     'overview',
     'list',
     'board',
+    'test-cases',
+    'change-requests',
     'files',
     ...COLLAB_MIN,
     'activity',
   ]),
-  release_handover: Object.freeze(['overview', 'files', ...COLLAB_MIN, 'activity']),
+  release_handover: Object.freeze([
+    'overview',
+    'list',
+    'board',
+    'test-cases',
+    'change-requests',
+    'files',
+    ...COLLAB_MIN,
+    'activity',
+  ]),
+});
+
+/** FE mirror of BE RELEASE_HANDOVER_CHECKLIST item ids (static checklist UX). */
+export const RELEASE_HANDOVER_CHECKLIST_IDS = Object.freeze([
+  'release_notes',
+  'deployment_verified',
+  'acceptance_signed_off',
+  'handover_completed',
+]);
+
+/** Forward-only advances used by hub delivery phase panel. */
+export const DELIVERY_PHASE_FORWARD = Object.freeze({
+  development: Object.freeze(['qa_uat']),
+  qa_uat: Object.freeze(['release_handover']),
 });
 
 export const PHASE_MODULE_LABEL_KEYS = Object.freeze({

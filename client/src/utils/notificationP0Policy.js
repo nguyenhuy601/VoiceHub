@@ -1,10 +1,17 @@
 /**
-
  * Notify P0 (team chốt) — tránh “notify mọi thứ”.
  * Sau B0, type `system` có data.kind đa dạng: không coi mọi system là P0.
  *
- * P0: gán/hoàn thành thẻ, hạn, HITL duyệt, thêm vào dự án, sprint sắp hết,
- * document, capability/HR, và system cũ không có kind.
+ * P0: gán/hoàn thành thẻ, hạn, HITL duyệt (project_approval + ai_proposal_pending),
+ * thêm vào dự án, sprint sắp hết, document, @mention kênh dự án, capability/HR,
+ * và system cũ không có kind.
+ *
+ * === H1 SoT — cố ý KHÔNG P0 / không Inbox ===
+ * - Chat tin thường kênh → socket only (không producer Inbox)
+ * - task_board_list (đổi list / watcher) → có thể có system+kind nhưng không P0
+ * - change_request_work → system+kind, không P0 (tránh spam)
+ * - Overview / Files / Members chỉ xem → không notify
+ * - Receipts đã gửi/đã xem kênh → không phải notify (PR R1 riêng)
  */
 
 const P0_RAW_TYPES = new Set(['task_assigned', 'task_completed', 'document']);
@@ -19,7 +26,15 @@ const P0_SYSTEM_KINDS = new Set([
   'project_member_added',
   'project_approval',
   'sprint_ending_soon',
+  'ready_to_done_proposed',
+  'release_ready_proposed',
+  'uat_requested',
 ]);
+
+/** Kind system đã gửi nhưng cố ý không đưa vào chip Ưu tiên */
+const NON_P0_SYSTEM_KINDS = new Set(['task_board_list', 'change_request_work']);
+
+const P0_MESSAGE_KINDS = new Set(['project_mention']);
 
 const DEADLINE_KINDS = new Set(['task_due_soon', 'task_overdue']);
 
@@ -34,8 +49,13 @@ export function mapNotificationUiType(rawType, kind) {
   if (raw === 'task_assigned' || raw === 'task_completed') return 'task';
   if (DEADLINE_KINDS.has(k)) return 'deadline';
   if (raw === 'document') return 'file';
-  if (raw === 'message') return 'mention';
+  if (raw === 'message') {
+    if (k === 'project_mention' || k === 'cross_team_work') return 'mention';
+    return 'message';
+  }
+  if (raw === 'meeting') return 'meeting';
   if (raw === 'org_join_application') return 'system';
+  if (k === 'ai_proposal_pending') return 'system';
   return raw;
 }
 
@@ -45,29 +65,19 @@ function notificationKind(notif) {
 
 /**
  * @param {{ rawType?: string, type?: string, data?: object }|null|undefined} notif
-
  */
-
 export function isP0Notification(notif) {
-
   if (!notif) return false;
-
   const raw = String(notif.rawType || '').trim().toLowerCase();
-
   const kind = notificationKind(notif);
-
   if (NON_P0_SYSTEM_KINDS.has(kind)) return false;
-
   if (raw === 'message') {
-
     return P0_MESSAGE_KINDS.has(kind);
-
   }
-
   if (raw && P0_RAW_TYPES.has(raw)) return true;
-
   const ui = String(notif.type || '').trim().toLowerCase();
-  if (ui && P0_UI_TYPES.has(ui)) return true;
+  if (ui === 'mention' && P0_MESSAGE_KINDS.has(kind)) return true;
+  if (ui && P0_UI_TYPES.has(ui) && ui !== 'mention') return true;
   if (kind.includes('capability') || kind.startsWith('hr_')) return true;
   if (raw === 'system' || ui === 'system') {
     if (!kind) return true;
@@ -76,4 +86,11 @@ export function isP0Notification(notif) {
   return false;
 }
 
-export { P0_RAW_TYPES, P0_UI_TYPES, P0_SYSTEM_KINDS };
+export {
+  P0_RAW_TYPES,
+  P0_UI_TYPES,
+  P0_SYSTEM_KINDS,
+  P0_MESSAGE_KINDS,
+  NON_P0_SYSTEM_KINDS,
+};
+
