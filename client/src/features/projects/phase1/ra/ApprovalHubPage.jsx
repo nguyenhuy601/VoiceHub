@@ -139,9 +139,19 @@ export default function ApprovalHubPage({ projectId, readOnly = false }) {
   const setTransitionMut = useMutation({
     mutationFn: ({ setId, toStatus, note }) =>
       analysisAPI.transitionImportSet(projectId, setId, { toStatus, note }),
-    onSuccess: () => {
+    onSuccess: (res, vars) => {
       invalidate();
-      toast.success(t('workspace.phase1TransitionOk'));
+      const data = unwrap(res);
+      const st = String(data?.status || '');
+      if (st === 'active') {
+        toast.success(t('workspace.phase1ImportSetGateOkActive'));
+      } else if (vars?.toStatus === 'tech_review') {
+        toast.success(t('workspace.phase1ImportSetGateOkBa'));
+      } else if (vars?.toStatus === 'po_review') {
+        toast.success(t('workspace.phase1ImportSetGateOkTech'));
+      } else {
+        toast.success(t('workspace.phase1TransitionOk'));
+      }
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
@@ -192,7 +202,11 @@ export default function ApprovalHubPage({ projectId, readOnly = false }) {
                       disabled={setTransitionMut.isPending}
                       onClick={() => setTransitionMut.mutate({ setId: set.id, toStatus: next })}
                     >
-                      {t('workspace.phase1Approve')}
+                      {next === 'tech_review'
+                        ? t('workspace.phase1ApproveNextBa')
+                        : next === 'po_review'
+                          ? t('workspace.phase1ApproveNextTech')
+                          : t('workspace.phase1ApproveNextPo')}
                     </button>
                     <button
                       type="button"

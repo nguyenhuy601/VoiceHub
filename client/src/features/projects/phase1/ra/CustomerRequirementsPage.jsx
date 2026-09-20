@@ -79,6 +79,13 @@ function SetGateProgress({ set, t }) {
   );
 }
 
+function approveLabelKey(nextGate) {
+  if (nextGate === 'tech_review') return 'workspace.phase1ApproveNextBa';
+  if (nextGate === 'po_review') return 'workspace.phase1ApproveNextTech';
+  if (nextGate === 'approved') return 'workspace.phase1ApproveNextPo';
+  return 'workspace.phase1Approve';
+}
+
 function ImportSetDetail({
   set,
   t,
@@ -102,6 +109,11 @@ function ImportSetDetail({
             {t('workspace.phase1ImportSetStatus')}
           </p>
           <span className={`mt-1 ${statusBadgeClass(set.status)}`}>{set.status}</span>
+          {isPending ? (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {t('workspace.phase1ImportSetWaitingGate')}
+            </p>
+          ) : null}
         </div>
         {onClose ? (
           <button
@@ -130,6 +142,30 @@ function ImportSetDetail({
           <>
             <p className="text-xs text-muted-foreground">{t('workspace.phase1SetGateProgress')}</p>
             <SetGateProgress set={set} t={t} />
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-[11px] text-muted-foreground">
+              {t('workspace.phase1ImportStaged')}
+            </p>
+            {/* Nút Duyệt đặt ngay dưới tiến trình — tránh tưởng 3 pill BA/Tech/PO là nút bấm */}
+            {canMutate && nextGate && onGateTransition ? (
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={gatePending}
+                  className="rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+                  onClick={() => onGateTransition(set.id, nextGate)}
+                >
+                  {t(approveLabelKey(nextGate))}
+                </button>
+                <button
+                  type="button"
+                  disabled={gatePending}
+                  className="rounded border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive disabled:opacity-50"
+                  onClick={() => onGateTransition(set.id, 'rejected')}
+                >
+                  {t('workspace.phase1Reject')}
+                </button>
+              </div>
+            ) : null}
           </>
         ) : null}
         {isTrash ? (
@@ -143,26 +179,6 @@ function ImportSetDetail({
       </div>
       {canMutate ? (
         <div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
-          {isPending && nextGate && onGateTransition ? (
-            <>
-              <button
-                type="button"
-                disabled={gatePending}
-                className="rounded border border-border px-2 py-1 text-xs font-medium"
-                onClick={() => onGateTransition(set.id, nextGate)}
-              >
-                {t('workspace.phase1Approve')}
-              </button>
-              <button
-                type="button"
-                disabled={gatePending}
-                className="rounded border border-destructive/40 px-2 py-1 text-xs font-medium text-destructive"
-                onClick={() => onGateTransition(set.id, 'rejected')}
-              >
-                {t('workspace.phase1Reject')}
-              </button>
-            </>
-          ) : null}
           {isTrash ? (
             <button
               type="button"
@@ -356,8 +372,18 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
   const gateMut = useMutation({
     mutationFn: ({ setId, toStatus }) =>
       analysisAPI.transitionImportSet(projectId, setId, { toStatus }),
-    onSuccess: () => {
-      toast.success(t('workspace.phase1TransitionOk'));
+    onSuccess: (res, vars) => {
+      const data = unwrap(res);
+      const st = String(data?.status || '');
+      if (st === 'active') {
+        toast.success(t('workspace.phase1ImportSetGateOkActive'));
+      } else if (vars?.toStatus === 'tech_review') {
+        toast.success(t('workspace.phase1ImportSetGateOkBa'));
+      } else if (vars?.toStatus === 'po_review') {
+        toast.success(t('workspace.phase1ImportSetGateOkTech'));
+      } else {
+        toast.success(t('workspace.phase1TransitionOk'));
+      }
       invalidateSets();
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),

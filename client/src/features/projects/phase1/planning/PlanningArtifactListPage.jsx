@@ -41,7 +41,17 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
   const [error, setError] = useState(null);
 
   const canEdit = capabilities.canEditPlanning;
+  const canReview = Boolean(capabilities.canReviewPlanning);
   const showGantt = GANTT_KINDS.has(String(kind || '').toUpperCase());
+
+  const PLANNING_NEXT = {
+    draft: 'ba_review',
+    ba_review: 'tech_review',
+    tech_review: 'pm_review',
+    pm_review: 'po_review',
+    po_review: 'approved',
+    rejected: 'draft',
+  };
 
   const {
     data: rows = [],
@@ -153,7 +163,11 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
   };
 
   const openEdit = (row) => {
-    if (!['draft', 'rejected'].includes(String(row.status)) || !canEdit) return;
+    const st = String(row.status || '');
+    const canOpenDraft = canEdit && ['draft', 'rejected'].includes(st);
+    const canOpenReview =
+      canReview && ['draft', 'ba_review', 'tech_review', 'pm_review', 'po_review', 'rejected'].includes(st);
+    if (!canOpenDraft && !canOpenReview) return;
     setFormMode('edit');
     setEditing(row);
     setFormOpen(true);
@@ -174,6 +188,32 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
       createMut.mutate(body);
     }
   };
+
+  const transitionMut = useMutation({
+    mutationFn: ({ id, toStatus }) =>
+      planningAPI.transitionArtifact(projectId, id, { toStatus, status: toStatus }),
+    onSuccess: (_data, vars) => {
+      invalidate();
+      toast.success(
+        t('workspace.phase1ArtifactGateOk', { status: vars?.toStatus || '' })
+      );
+      if (editing && String(editing.id || editing._id) === String(vars.id)) {
+        setEditing((prev) => (prev ? { ...prev, status: vars.toStatus } : prev));
+      }
+    },
+    onError: (err) => toast.error(resolveApiErrorMessage(err)),
+  });
+
+  const editingNext = useMemo(() => {
+    if (formMode !== 'edit' || !editing) return null;
+    const st = String(editing.status || '').toLowerCase();
+    const to = PLANNING_NEXT[st];
+    if (!to) return null;
+    if (st === 'draft' || st === 'rejected') {
+      return canEdit || canReview ? to : null;
+    }
+    return canReview ? to : null;
+  }, [formMode, editing, canEdit, canReview]);
 
   const editingId = editing ? String(editing.id || editing._id) : null;
 
@@ -314,7 +354,17 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
             {filtered.map((row) => {
               const st = row.structured || {};
               const dates = [st.startDate, st.endDate || st.targetDate].filter(Boolean).join(' → ');
-              const editable = canEdit && ['draft', 'rejected'].includes(String(row.status));
+              const editable =
+                (canEdit && ['draft', 'rejected'].includes(String(row.status))) ||
+                (canReview &&
+                  [
+                    'draft',
+                    'ba_review',
+                    'tech_review',
+                    'pm_review',
+                    'po_review',
+                    'rejected',
+                  ].includes(String(row.status)));
               const id = String(row.id || row._id);
               const selected = formOpen && formMode === 'edit' && id === editingId;
               return (
@@ -359,8 +409,13 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
       kind={kind}
       artifact={editing}
       busy={createMut.isPending || updateMut.isPending}
+      transitioning={transitionMut.isPending}
+      nextStatus={editingNext}
       onClose={closeForm}
       onSubmit={onSubmit}
+      onTransition={(toStatus) =>
+        transitionMut.mutate({ id: editingId, toStatus })
+      }
       variant="pane"
     />
   ) : null;
