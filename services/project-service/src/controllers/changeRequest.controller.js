@@ -88,6 +88,9 @@ async function createItem(req, res) {
       reason: req.body?.reason,
       current: req.body?.current,
       requestedChange: req.body?.requestedChange,
+      impact: req.body?.impact,
+      srsBaselineId: req.body?.srsBaselineId,
+      affectedExternalKeys: req.body?.affectedExternalKeys,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -173,6 +176,31 @@ async function submitApproval(req, res) {
   }
 }
 
+async function applyItem(req, res) {
+  try {
+    const userId = asUserId(req);
+    const { projectId, crId } = req.params;
+    if (!userId) return unauthorized(res);
+    if (!validOid(projectId) || !validOid(crId)) {
+      return res.status(400).json({ success: false, message: 'projectId/crId không hợp lệ' });
+    }
+    const data = await changeRequestService.applyApprovedChangeRequest({
+      userId,
+      projectId,
+      crId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendErrorFromCatch(
+      res,
+      err,
+      err.statusCode || 400,
+      'Không thể apply change request',
+      'CHANGE_REQUEST_APPLY_FAILED'
+    );
+  }
+}
+
 module.exports = {
   listItems,
   getItem,
@@ -180,4 +208,5 @@ module.exports = {
   patchItem,
   deleteItem,
   submitApproval,
+  applyItem,
 };

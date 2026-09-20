@@ -142,6 +142,33 @@ const taskSchema = new mongoose.Schema(
       default: 'task',
       index: true,
     },
+    retestStatus: {
+      type: String,
+      enum: ['pending', 'passed', 'failed', null],
+      default: null,
+    },
+    sourceTestCaseId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'TestCase',
+      default: null,
+    },
+    /** Plan C — dedupe stamp for ready_to_done_proposed notify. */
+    readyToDoneNotifiedAt: {
+      type: Date,
+      default: null,
+    },
+    fixSuggestion: {
+      status: {
+        type: String,
+        enum: ['none', 'pending', 'accepted', 'rejected'],
+        default: 'none',
+      },
+      text: { type: String, trim: true, default: '', maxlength: 4000 },
+      proposedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+      proposedAt: { type: Date, default: null },
+      decidedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+      decidedAt: { type: Date, default: null },
+    },
     changeRequestIds: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ChangeRequest' }],
       default: [],

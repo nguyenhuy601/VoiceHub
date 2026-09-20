@@ -230,7 +230,9 @@ async function updateArtifactDraft({ userId, projectId, artifactId, body = {} })
     throw err;
   }
   if (!['draft', 'rejected'].includes(doc.status)) {
-    const err = new Error('Chỉ sửa được artifact draft/rejected');
+    const err = new Error(
+      'Chỉ sửa được artifact draft/rejected. Sau khi cắt SRS, đổi yêu cầu đã duyệt qua Change Request (Phase 2).'
+    );
     err.statusCode = 400;
     err.errorCode = 'STATUS_NOT_EDITABLE';
     throw err;
@@ -1448,6 +1450,15 @@ async function startDeliveryPlanning({ userId, projectId }) {
   }
   projectDoc.deliveryPhase = 'delivery_planning';
   projectDoc.phase1RaApprovedAt = new Date();
+  // Legacy seed may have status=draft (not in enum) — coerce so save() validates.
+  const { coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
+  const coercedStatus = coerceProjectLifecycleStatus(projectDoc.status);
+  if (coercedStatus) projectDoc.status = coercedStatus;
+  else if (!['planning', 'ready_for_planning', 'in_development', 'on_hold', 'closed'].includes(
+    String(projectDoc.status || '')
+  )) {
+    projectDoc.status = 'planning';
+  }
   await projectDoc.save();
   return {
     projectId: String(projectDoc._id),

@@ -98,6 +98,36 @@ const changeRequestSchema = new mongoose.Schema(
       default: '',
       maxlength: 64,
     },
+    srsBaselineId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+    affectedExternalKeys: {
+      type: [{ type: String, trim: true }],
+      default: [],
+    },
+    releaseLabel: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 64,
+    },
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+    approvedAt: {
+      type: Date,
+      default: null,
+    },
+    appliedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+    appliedAt: {
+      type: Date,
+      default: null,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,

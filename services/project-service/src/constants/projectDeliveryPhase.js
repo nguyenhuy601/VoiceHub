@@ -17,6 +17,13 @@ const DEFAULT_DELIVERY_PHASE_EXISTING = 'development';
 /** New Project.create default */
 const DEFAULT_DELIVERY_PHASE_NEW = 'requirement_analysis';
 
+const RELEASE_HANDOVER_CHECKLIST = Object.freeze([
+  Object.freeze({ id: 'release_notes', labelKey: 'project.releaseHandover.releaseNotes' }),
+  Object.freeze({ id: 'deployment_verified', labelKey: 'project.releaseHandover.deploymentVerified' }),
+  Object.freeze({ id: 'acceptance_signed_off', labelKey: 'project.releaseHandover.acceptanceSignedOff' }),
+  Object.freeze({ id: 'handover_completed', labelKey: 'project.releaseHandover.handoverCompleted' }),
+]);
+
 const PHASE_HOME_MODULE = Object.freeze({
   requirement_analysis: 'overview',
   delivery_planning: 'overview',
@@ -120,6 +127,8 @@ const QA_UAT_MODULES = Object.freeze([
   'overview',
   'list',
   'board',
+  'test-cases',
+  'change-requests',
   'files',
   ...COLLAB_MIN,
   'activity',
@@ -127,6 +136,10 @@ const QA_UAT_MODULES = Object.freeze([
 
 const RELEASE_HANDOVER_MODULES = Object.freeze([
   'overview',
+  'list',
+  'board',
+  'test-cases',
+  'change-requests',
   'files',
   ...COLLAB_MIN,
   'activity',
@@ -189,10 +202,18 @@ function canTransitionDeliveryPhase(from, to) {
   return next.includes(b);
 }
 
+function listForwardPhases(from) {
+  const phase = coerceDeliveryPhase(from, { missingAsExisting: false });
+  if (!phase) return [];
+  const index = DELIVERY_PHASES.indexOf(phase);
+  return DELIVERY_PHASES.slice(index + 1);
+}
+
 module.exports = {
   DELIVERY_PHASES,
   DEFAULT_DELIVERY_PHASE_EXISTING,
   DEFAULT_DELIVERY_PHASE_NEW,
+  RELEASE_HANDOVER_CHECKLIST,
   PHASE_HOME_MODULE,
   DEVELOPMENT_MODULES,
   REQUIREMENT_ANALYSIS_MODULES,
@@ -206,4 +227,5 @@ module.exports = {
   isModuleAllowedForPhase,
   phaseHomeModule,
   canTransitionDeliveryPhase,
+  listForwardPhases,
 };

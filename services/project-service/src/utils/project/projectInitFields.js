@@ -205,6 +205,23 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
   return { ok: true, fields };
 }
 
+/**
+ * Dual-read legacy Project.status → current enum (or null if already valid / unknown).
+ * `draft` = seed/legacy early lifecycle → `planning`.
+ */
+function coerceProjectLifecycleStatus(raw) {
+  const st = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (!st) return null;
+  if (PROJECT_STATUSES.includes(st)) return st;
+  if (st === 'draft' || st === 'new' || st === 'created') return 'planning';
+  if (st === 'cancelled' || st === 'canceled' || st === 'completed' || st === 'archived') {
+    return 'closed';
+  }
+  return null;
+}
+
 module.exports = {
   PROJECT_STATUSES,
   PROJECT_CATEGORIES,
@@ -213,4 +230,5 @@ module.exports = {
   PROJECT_TYPES,
   WEEKDAYS,
   buildProjectInitFields,
+  coerceProjectLifecycleStatus,
 };

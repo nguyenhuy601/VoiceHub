@@ -11,7 +11,7 @@ const {
   permissionsToBoardCapabilities,
   applyInformationLevelToPermissions,
   assertPermission,
-} = require('../src/utils/projectPermissionMatrix');
+} = require('../src/utils/project/projectPermissionMatrix');
 
 describe('projectPermissionMatrix', () => {
   it('T1: default matrix seed has known keys for developer/pm/watcher', () => {

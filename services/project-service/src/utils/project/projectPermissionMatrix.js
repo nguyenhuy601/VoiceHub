@@ -15,6 +15,7 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'task:create',
   'task:update',
   'task:change_status',
+  'task:drag_to_done',
   'task:delete',
   'task:assign',
   'task:comment',
@@ -70,6 +71,7 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'analysis:manage_trace',
   'analysis:cut_srs',
   'delivery_phase:change',
+  'uat:sign_off',
   'planning:view',
   'planning:artifact_edit',
   'planning:submit_review',
@@ -187,6 +189,7 @@ const DEV_PERMS = Object.freeze([
 
 const LEAD_PERMS = Object.freeze([
   ...DEV_PERMS,
+  'task:drag_to_done',
   'task:delete',
   'repository:merge',
   'approval:decide',
@@ -208,6 +211,7 @@ const PO_PERMS = Object.freeze([
   'approval:request',
   'change_request:create',
   'change_request:update',
+  'uat:sign_off',
   ...ANALYSIS_PO_PERMS,
   ...PLANNING_PO_PERMS,
 ]);
@@ -240,18 +244,21 @@ const SM_PERMS = Object.freeze([
 const PM_PERMS = Object.freeze([
   ...VIEW_ONLY,
   'project:edit',
+  'task:drag_to_done',
   'delivery:manage',
   'release:create',
   'settings:view',
   'change_request:create',
   'change_request:update',
   'change_request:delete',
+  'uat:sign_off',
   ...ANALYSIS_PM_PERMS,
   ...PLANNING_PM_PERMS,
 ]);
 
 const QA_PERMS = Object.freeze([
   ...VIEW_ONLY,
+  'task:drag_to_done',
   'bug:create',
   'task:create',
   'task:update',
@@ -453,11 +460,9 @@ function permissionsToBoardCapabilities(perms = [], { isCreator = false, isOrgAd
     canMoveCards:
       hasPermission(set, 'task:change_status') ||
       hasPermission(set, 'task:update') ||
-      hasPermission(set, 'task:assign'),
-    canMoveToDone:
-      hasPermission(set, 'task:change_status') ||
-      hasPermission(set, 'task:update') ||
-      hasPermission(set, 'task:assign'),
+      hasPermission(set, 'task:assign') ||
+      hasPermission(set, 'task:drag_to_done'),
+    canMoveToDone: hasPermission(set, 'task:drag_to_done'),
     canChangeStatus:
       hasPermission(set, 'task:change_status') || hasPermission(set, 'task:update'),
     canUseAiConfirm: hasPermission(set, 'task:assign') || hasPermission(set, 'task:create'),

@@ -28,7 +28,7 @@ const {
   resolveChangeRequestWorkStatus,
   CR_LIST_DEFAULT_PAGE_SIZE,
   CR_LIST_MAX_PAGE_SIZE,
-} = require('../src/utils/changeRequestTypes');
+} = require('../src/utils/work/changeRequestTypes');
 
 describe('ChangeRequest constants T1', () => {
   it('includes type / priority / status enums', () => {
@@ -45,6 +45,7 @@ describe('ChangeRequest constants T1', () => {
       'pending',
       'reviewing',
       'approved',
+      'applied',
       'rejected',
       'deferred',
     ]);
@@ -202,7 +203,8 @@ describe('ChangeRequest status transitions T1–T3', () => {
       'rejected',
       'deferred',
     ]);
-    assert.deepEqual(listAllowedChangeRequestStatusTransitions('approved'), []);
+    assert.deepEqual(listAllowedChangeRequestStatusTransitions('approved'), ['applied']);
+    assert.equal(assertChangeRequestStatusTransition('approved', 'applied'), 'applied');
   });
 
   it('T2 forbidden rejected→approved, draft→approved, approved→deferred', () => {

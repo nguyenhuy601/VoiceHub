@@ -21,6 +21,12 @@ describe('coerceProjectLifecycleStatus', () => {
     assert.equal(coerceProjectLifecycleStatus('archived'), 'closed');
   });
 
+  it('maps legacy draft/new to planning', () => {
+    assert.equal(coerceProjectLifecycleStatus('draft'), 'planning');
+    assert.equal(coerceProjectLifecycleStatus('new'), 'planning');
+    assert.equal(coerceProjectLifecycleStatus('created'), 'planning');
+  });
+
   it('returns null for unknown', () => {
     assert.equal(coerceProjectLifecycleStatus('nope'), null);
     assert.equal(coerceProjectLifecycleStatus(''), null);

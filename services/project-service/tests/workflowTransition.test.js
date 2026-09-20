@@ -9,7 +9,7 @@ const {
   planListMigration,
   statesToBoardShape,
   transitionsToBoardShape,
-} = require('../src/utils/workflowTransition');
+} = require('../src/utils/work/workflowTransition');
 const {
   STARTUP_TEMPLATE,
   SME_TEMPLATE,
@@ -17,7 +17,7 @@ const {
   ENTERPRISE_TEMPLATE,
   suggestedTemplateKeyForCompanySize,
   BUILTIN_TEMPLATES,
-} = require('../src/utils/workflowTemplates.defaults');
+} = require('../src/utils/work/workflowTemplates.defaults');
 
 function asWorkflow(template) {
   return {
