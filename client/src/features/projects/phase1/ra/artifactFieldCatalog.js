@@ -179,6 +179,21 @@ export function isLegacyFormField(field) {
 }
 
 /**
+ * Soft-trace keys (DEC R3) — luôn hiện để BA gắn related kể cả khi DB trống.
+ * Không áp dụng hide-empty của G3 (khác whenApplies / dataEntities / …).
+ */
+const SOFT_TRACE_FIELD_KEYS = new Set([
+  'relatedUcKeys',
+  'relatedFrKeys',
+  'relatedBgKey',
+  'relatedBrKey',
+]);
+
+export function isSoftTraceFormField(field) {
+  return SOFT_TRACE_FIELD_KEYS.has(String(field?.key || ''));
+}
+
+/**
  * Có giá trị structured thật (kèm alias) — dùng để quyết định hiện legacy.
  */
 export function hasStructuredFieldValue(st, kind, field) {
@@ -189,7 +204,7 @@ export function hasStructuredFieldValue(st, kind, field) {
 }
 
 /**
- * PRIMARY luôn hiện; LEGACY chỉ hiện khi DB có giá trị.
+ * PRIMARY + soft-trace luôn hiện; LEGACY nội dung khác chỉ hiện khi DB có giá trị (G3).
  * @param {string} kind
  * @param {object} [artifact]
  */
@@ -197,7 +212,11 @@ export function listVisibleStructuredFields(kind, artifact) {
   const cat = getArtifactFieldCatalog(kind);
   if (!cat) return [];
   const st = artifact?.structured && typeof artifact.structured === 'object' ? artifact.structured : {};
-  return cat.structured.filter((field) => !isLegacyFormField(field) || hasStructuredFieldValue(st, kind, field));
+  return cat.structured.filter((field) => {
+    if (isSoftTraceFormField(field)) return true;
+    if (!isLegacyFormField(field)) return true;
+    return hasStructuredFieldValue(st, kind, field);
+  });
 }
 
 /**

@@ -5,6 +5,7 @@ import { planningAPI } from '../../../../services/api/planningAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
+import { kindChipClass, queueCardClass, statusBadgeClass } from '../shared/phase1UiTokens';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -169,7 +170,11 @@ export default function PlanningApprovalPage({ projectId }) {
       ) : null}
 
       {readiness ? (
-        <div className="rounded-lg border border-border bg-surface px-2.5 py-2 text-sm">
+        <div
+          className={`rounded-lg border px-2.5 py-2 text-sm ${
+            readiness.ok ? queueCardClass('approved') : queueCardClass('ba_review')
+          }`}
+        >
           <h2 className="text-xs font-semibold">{t('workspace.phase1BaselineReadiness')}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {readiness.ok
@@ -291,8 +296,8 @@ export default function PlanningApprovalPage({ projectId }) {
         </div>
       ) : null}
 
-      <div className="rounded-lg border border-border bg-surface">
-        <h2 className="border-b border-border px-2.5 py-1.5 text-xs font-semibold">
+      <div className={`rounded-lg border ${queueCardClass('ba_review')}`}>
+        <h2 className="border-b border-border/60 px-2.5 py-1.5 text-xs font-semibold">
           {t('workspace.phase1PendingArtifacts')}
         </h2>
         <ul className="divide-y divide-border/60">
@@ -300,9 +305,11 @@ export default function PlanningApprovalPage({ projectId }) {
             const id = String(item.id || item._id);
             return (
               <li key={id} className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1 text-sm">
-                <span className="min-w-0 truncate text-xs">
-                  <span className="font-mono text-[11px]">{item.kind}</span> {item.externalKey} —{' '}
-                  {item.title} <span className="text-muted-foreground">({item.status})</span>
+                <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
+                  <span className={kindChipClass(item.kind)}>{item.kind}</span>
+                  <span className="font-mono text-[11px]">{item.externalKey}</span>
+                  <span className="truncate">— {item.title}</span>
+                  <span className={statusBadgeClass(item.status)}>{item.status}</span>
                 </span>
                 {capabilities.canReviewPlanning ? (
                   <button
@@ -330,8 +337,8 @@ export default function PlanningApprovalPage({ projectId }) {
       </div>
 
       {hasBaseline && approved.length && capabilities.canEditPlanning ? (
-        <div className="rounded-lg border border-border bg-surface">
-          <div className="border-b border-border px-2.5 py-1.5">
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+          <div className="border-b border-border/60 px-2.5 py-1.5">
             <h2 className="text-xs font-semibold">{t('workspace.phase1ForkTitle')}</h2>
             <p className="text-[11px] text-muted-foreground">{t('workspace.phase1ForkHint')}</p>
           </div>
@@ -343,9 +350,10 @@ export default function PlanningApprovalPage({ projectId }) {
                   key={`fork-${id}`}
                   className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1 text-sm"
                 >
-                  <span className="text-xs">
-                    <span className="font-mono text-[11px]">{item.kind}</span> {item.externalKey} v
-                    {item.version || 1}
+                  <span className="flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className={kindChipClass(item.kind)}>{item.kind}</span>
+                    <span className="font-mono text-[11px]">{item.externalKey}</span>
+                    <span className={statusBadgeClass('approved')}>v{item.version || 1}</span>
                   </span>
                   <button
                     type="button"

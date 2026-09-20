@@ -7,6 +7,7 @@ import {
   resolvePlanningBarRange,
   unionPlanningBounds,
 } from './planningGanttUtils';
+import { kindChipClass, statusBadgeClass } from '../shared/phase1UiTokens';
 
 const TRACK_PX = 640;
 const STORAGE_KEY = 'vh.phase1.ganttExpanded';
@@ -52,10 +53,13 @@ export default function PlanningGanttPanel({ artifacts = [], onSelect, kind = ''
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-surface">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-2.5 py-1.5">
+    <div className="overflow-hidden rounded-lg border border-sky-500/30 bg-sky-500/5">
+      <div className="flex items-center justify-between gap-2 border-b border-border/60 px-2.5 py-1.5">
         <div className="min-w-0">
-          <h2 className="text-xs font-semibold">{t('workspace.phase1GanttTitle')}</h2>
+          <h2 className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+            {t('workspace.phase1GanttTitle')}
+            {kind ? <span className={kindChipClass(kind)}>{kind}</span> : null}
+          </h2>
           {expanded ? (
             <p className="text-[10px] text-muted-foreground">
               {formatPlanningDay(window.start)} → {formatPlanningDay(window.end)}
@@ -107,7 +111,7 @@ export default function PlanningGanttPanel({ artifacts = [], onSelect, kind = ''
                         title={`${row.externalKey} — ${row.title}`}
                         onClick={() => onSelect?.(row)}
                       >
-                        <span className="font-mono text-[10px] text-muted-foreground">{row.kind}</span>{' '}
+                        <span className={kindChipClass(row.kind)}>{row.kind}</span>{' '}
                         {row.externalKey}
                       </button>
                       <div className="relative h-6 rounded bg-muted/40" style={{ width: TRACK_PX }}>
@@ -117,12 +121,14 @@ export default function PlanningGanttPanel({ artifacts = [], onSelect, kind = ''
                             range.isMilestone ? 'bg-amber-600' : 'bg-primary'
                           }`}
                           style={style}
-                          title={row.title}
+                          title={`${row.title} · ${row.status || ''}`}
                           onClick={() => onSelect?.(row)}
                         >
-                          {range.isMilestone ? '◆' : ''} {row.title}
+                          {range.isMilestone ? '◆ ' : ''}
+                          {row.title}
                         </button>
                       </div>
+                      <span className={`shrink-0 ${statusBadgeClass(row.status)}`}>{row.status}</span>
                     </li>
                   );
                 })}
