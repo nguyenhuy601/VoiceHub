@@ -1793,6 +1793,16 @@ async function confirmAnalysisImport({ userId, projectId, sessionId, importSetId
       analysisDocumentId: analysisDoc._id,
       packId: pack._id,
     });
+    // Seed draft ngay khi stage — BA chỉnh trên tab FR/BG… trước khi set ACTIVE.
+    // Publish (PO) chỉ activate set; seed idempotent theo kind::externalKey.
+    const seeded = await seedArtifactsFromRequirementPack({
+      userId,
+      projectId,
+      pack: pack.toObject ? pack.toObject() : pack,
+      importSetId: draftSet._id,
+      sourceDocumentId: analysisDoc._id,
+    });
+    seededCount = seeded.seeded || 0;
   } else {
     const seeded = await seedArtifactsFromRequirementPack({
       userId,
