@@ -48,6 +48,23 @@ export default function ArtifactListPage({
 
   const canEdit = capabilities.canEditAnalysis && !readOnly;
 
+  const canSubmitBa =
+    !readOnly &&
+    (Boolean(capabilities.canImportAnalysis) ||
+      Boolean(capabilities.canEditAnalysis) ||
+      (Array.isArray(capabilities.permissions) &&
+        capabilities.permissions.includes('analysis:submit_ba_review')));
+
+  const ARTIFACT_NEXT = {
+    draft: { to: 'ba_review', allow: canSubmitBa },
+    ba_review: { to: 'tech_review', allow: Boolean(capabilities.canReviewAnalysisBa) && !readOnly },
+    tech_review: {
+      to: 'po_review',
+      allow: Boolean(capabilities.canReviewAnalysisTech) && !readOnly,
+    },
+    po_review: { to: 'approved', allow: Boolean(capabilities.canReviewAnalysisPo) && !readOnly },
+  };
+
   const clearArtifactQuery = useCallback(() => {
     if (!searchParams.has('artifact')) return;
     const next = new URLSearchParams(searchParams);
@@ -170,6 +187,33 @@ export default function ArtifactListPage({
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
 
+  const transitionMut = useMutation({
+    mutationFn: ({ id, toStatus }) =>
+      analysisAPI.transitionArtifact(projectId, id, { toStatus, status: toStatus }),
+    onSuccess: (_res, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, kind] });
+      queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
+      queryClient.invalidateQueries({ queryKey: ['analysisArtifact', projectId, selectedId] });
+      queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
+      toast.success(
+        t('workspace.phase1ArtifactGateOk', { status: vars?.toStatus || '' })
+      );
+    },
+    onError: (err) => toast.error(resolveApiErrorMessage(err)),
+  });
+
+  const selectedNext = useMemo(() => {
+    const st = String(selected?.status || '').toLowerCase();
+    const step = ARTIFACT_NEXT[st];
+    return step?.allow ? step.to : null;
+  }, [
+    selected?.status,
+    canSubmitBa,
+    capabilities.canReviewAnalysisBa,
+    capabilities.canReviewAnalysisTech,
+    capabilities.canReviewAnalysisPo,
+    readOnly,
+  ]);
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return rows;
@@ -271,10 +315,13 @@ export default function ArtifactListPage({
       kind={kind}
       canEdit={canEdit}
       saving={updateMut.isPending}
+      transitioning={transitionMut.isPending}
+      nextStatus={selectedNext}
       relatedItems={relatedItems}
       relatedLoading={relatedLoading}
       onClose={closeDetail}
       onSave={(body) => updateMut.mutate({ id: selectedId, body })}
+      onTransition={(toStatus) => transitionMut.mutate({ id: selectedId, toStatus })}
       onOpenRelated={openRelated}
     />
   ) : null;

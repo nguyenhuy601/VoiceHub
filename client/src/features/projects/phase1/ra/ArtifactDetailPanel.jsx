@@ -25,10 +25,13 @@ export default function ArtifactDetailPanel({
   kind,
   canEdit = false,
   saving = false,
+  transitioning = false,
+  nextStatus = null,
   relatedItems = [],
   relatedLoading = false,
   onClose,
   onSave,
+  onTransition,
   onOpenRelated,
 }) {
   const { t } = useAppStrings();
@@ -288,25 +291,48 @@ export default function ArtifactDetailPanel({
         </div>
       </div>
 
-      {contentEditable ? (
-        <div className="flex justify-end gap-2 border-t border-border px-3 py-2">
-          <button
-            type="button"
-            className="rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-50"
-            disabled={!isDirty || saving}
-            onClick={() => setForm(baseline)}
-          >
-            {t('common.cancel')}
-          </button>
-          <button
-            type="button"
-            className="rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
-            disabled={!isDirty || saving || !String(form.top.title || '').trim()}
-            onClick={() => onSave?.(dirtyBody)}
-            title={t('workspace.phase1ValidateVsHitlHint')}
-          >
-            {saving ? t('common.saving') : t('common.save')}
-          </button>
+      {contentEditable || nextStatus ? (
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-3 py-2">
+          {contentEditable ? (
+            <>
+              <button
+                type="button"
+                className="rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-50"
+                disabled={!isDirty || saving || transitioning}
+                onClick={() => setForm(baseline)}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm disabled:opacity-50"
+                disabled={!isDirty || saving || transitioning || !String(form.top.title || '').trim()}
+                onClick={() => onSave?.(dirtyBody)}
+                title={t('workspace.phase1ValidateVsHitlHint')}
+              >
+                {saving ? t('common.saving') : t('common.save')}
+              </button>
+            </>
+          ) : null}
+          {nextStatus && onTransition ? (
+            <button
+              type="button"
+              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+              disabled={saving || transitioning || isDirty}
+              title={
+                isDirty
+                  ? t('workspace.phase1SaveBeforeApproveHint')
+                  : t('workspace.phase1ValidateVsHitlHint')
+              }
+              onClick={() => onTransition(nextStatus)}
+            >
+              {transitioning
+                ? t('common.saving')
+                : String(artifact?.status) === 'draft'
+                  ? t('workspace.phase1SubmitForReview')
+                  : t('workspace.phase1Approve')}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
