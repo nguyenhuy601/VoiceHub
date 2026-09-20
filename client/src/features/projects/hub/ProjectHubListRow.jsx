@@ -250,6 +250,13 @@ export default function ProjectHubListRow({
       : t('workspace.projectHubListDragInvalidAria')
     : t('workspace.projectHubListDragAria');
 
+  const statusStripe =
+    bucket === 'done'
+      ? 'border-l-[3px] border-l-success'
+      : bucket === 'progress'
+        ? 'border-l-[3px] border-l-primary'
+        : 'border-l-[3px] border-l-border';
+
   return (
     <>
       <div
@@ -258,10 +265,9 @@ export default function ProjectHubListRow({
         style={{ ...style, ...gridStyle }}
         aria-grabbed={isDragging}
         aria-invalid={isDragging && !dragValid ? true : undefined}
-        className={`items-center border-b border-border px-2 py-1.5 ${
-          selected ? 'bg-primary/10' : 'hover:bg-muted/40'
-        } ${isOver && dropAllowed ? 'border-t-2 border-t-primary' : ''} ${isOver && !dropAllowed ? 'opacity-60' : ''} ${dragRing}`}
-      >
+        className={`items-center border-b border-border/40 px-2 py-2 ${statusStripe} ${
+          selected ? 'bg-primary/8' : 'odd:bg-muted/10 hover:bg-muted/35'
+        } ${isOver && dropAllowed ? 'border-t-2 border-t-primary' : ''} ${isOver && !dropAllowed ? 'opacity-60' : ''} ${dragRing}`}      >
         <div className={`flex items-center justify-center ${HUB_GRID_CELL_BORDER}`}>
           <button
             type="button"
@@ -404,7 +410,7 @@ export default function ProjectHubListRow({
         <div className={`min-w-0 ${HUB_GRID_CELL_BORDER}`}>
           {openable && canChangeStatus ? (
             <select
-              className="w-full max-w-[7.5rem] rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px] font-semibold text-foreground"
+              className="w-full max-w-[7.5rem] rounded-md border border-border/60 bg-background px-1.5 py-1 text-[11px] font-semibold text-foreground shadow-sm outline-none transition-colors hover:border-border focus:border-primary"
               value={String(raw.priority || 'medium').toLowerCase()}
               disabled={busy}
               aria-label={t('workspace.projectHubListPriorityColumn')}
@@ -426,7 +432,7 @@ export default function ProjectHubListRow({
         <div className={`min-w-0 ${HUB_GRID_CELL_BORDER}`}>
           {openable && canChangeStatus && listOptions.length > 0 ? (
             <select
-              className={`w-full max-w-[9rem] rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${statusPillClass(bucket)}`}
+              className={`w-full max-w-[9rem] rounded-md border border-border/60 px-1.5 py-1 text-[11px] font-semibold shadow-sm outline-none transition-colors focus:border-primary ${statusPillClass(bucket)}`}
               value={isPlanning ? planningSelectListId : String(raw.listId || '')}
               disabled={busy}
               aria-label={statusBucketLabel(bucket, t)}
@@ -464,7 +470,7 @@ export default function ProjectHubListRow({
           {canEditStart ? (
             <input
               type="date"
-              className="w-full max-w-[9.5rem] rounded-md border border-border bg-background px-1 py-0.5 text-[11px] text-foreground"
+              className="w-full max-w-[9.5rem] rounded-md border border-border/60 bg-background px-1.5 py-1 text-[11px] text-foreground shadow-sm outline-none transition-colors hover:border-border focus:border-primary"
               value={startInput}
               disabled={busy}
               aria-label={t('workspace.projectHubListStartColumn')}
@@ -482,7 +488,7 @@ export default function ProjectHubListRow({
           {canEditDue ? (
             <input
               type="date"
-              className="w-full max-w-[9.5rem] rounded-md border border-border bg-background px-1 py-0.5 text-[11px] text-foreground"
+              className="w-full max-w-[9.5rem] rounded-md border border-border/60 bg-background px-1.5 py-1 text-[11px] text-foreground shadow-sm outline-none transition-colors hover:border-border focus:border-primary"
               value={dueInput}
               disabled={busy}
               aria-label={t('workspace.projectHubListDueColumn')}

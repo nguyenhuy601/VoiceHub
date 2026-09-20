@@ -823,7 +823,7 @@ export default function ProjectHubTimelinePanel({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex shrink-0 flex-col border-r border-border" style={{ width: WORK_COL_PX }}>
           <div
-            className="flex shrink-0 items-end border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+            className="flex shrink-0 items-end border-b border-border/50 bg-muted/40 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
             style={{ height: HEADER_PX }}
           >
             {t('workspace.projectHubTimelineWork')}
@@ -854,7 +854,7 @@ export default function ProjectHubTimelinePanel({
               return (
                 <div
                   key={node.id}
-                  className={`relative flex items-center gap-1 border-b border-border px-2 ${nodeRowToneClass(index, hovered)}`}
+                  className={`relative flex items-center gap-1 border-b border-border/35 px-2 ${nodeRowToneClass(index, hovered)}`}
                   style={{ height: TIMELINE_ROW_PX, paddingLeft: 8 + depth * 16 }}
                   onMouseEnter={() => setHoveredRowId(node.id)}
                   onMouseLeave={() => setHoveredRowId((id) => (id === node.id ? null : id))}

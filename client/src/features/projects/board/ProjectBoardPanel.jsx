@@ -1,39 +1,44 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  closestCenter,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
+    DndContext,
+    DragOverlay,
+    PointerSensor,
+    closestCenter,
+    useDraggable,
+    useDroppable,
+    useSensor,
+    useSensors,
 } from '@dnd-kit/core';
 import {
-  SortableContext,
-  arrayMove,
-  useSortable,
-  verticalListSortingStrategy,
+    SortableContext,
+    arrayMove,
+    useSortable,
+    verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Check, CheckCircle2, Circle, Eye, GripVertical, MoreHorizontal, Pencil, Plus, Search, Sparkles, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import TaskBoardCardActionsMenu from './TaskBoardCardActionsMenu';
-import WorkItemDetail from '../hub/WorkItemDetail';
-import { allowedIssueTypesFromCaps } from '../hub/hubCaps';
-import { visibleCreateTypes } from '../hub/projectWorkTypes';
-import { useProjectWorkTypes } from '../hub/useProjectWorkTypes';
-import ProjectHubSprintBoardCard from '../hub/ProjectHubSprintBoardCard';
-import { entityRelId } from '../hub/projectHubBacklogStats';
-import { isCardInSprint, statusSelectBucket } from '../hub/projectHubUtils';
-import { planningStatusToListId } from '../hub/planningBoardStatus';
-import TaskBoardListActionsMenu from './TaskBoardListActionsMenu';
-import { labelById, parseCardLabelIds } from './taskBoardCardLabels';
-import { useAppStrings } from '../../../locales/appStrings';
 import { Modal } from '../../../components/Shared';
+import { useAppStrings } from '../../../locales/appStrings';
 import aiTaskService from '../../../services/aiTaskService';
+import { projectAPI } from '../../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
+import ProjectHubSprintBoardCard from '../hub/ProjectHubSprintBoardCard';
+import WorkItemDetail from '../hub/WorkItemDetail';
+import { allowedIssueTypesFromCaps } from '../hub/hubCaps';
+import {
+    issueTypeCardClass,
+    readyToDoneCardAccentClass,
+} from '../hub/phase3HubUiTokens';
+import { planningStatusToListId } from '../hub/planningBoardStatus';
+import { entityRelId } from '../hub/projectHubBacklogStats';
+import { isCardInSprint, statusSelectBucket } from '../hub/projectHubUtils';
+import { visibleCreateTypes } from '../hub/projectWorkTypes';
+import { useProjectWorkTypes } from '../hub/useProjectWorkTypes';
+import TaskBoardCardActionsMenu from './TaskBoardCardActionsMenu';
+import TaskBoardListActionsMenu from './TaskBoardListActionsMenu';
+import { labelById, parseCardLabelIds } from './taskBoardCardLabels';
 
 const LIST_WIDTH = 'w-[272px]';
 const LANE_LABEL_WIDTH = 'w-[140px] min-w-[140px]';
@@ -366,6 +371,7 @@ function KanbanSortableCard({
   cardShell,
   isWorkflowDone = false,
   isCelebratingDone = false,
+  readyAccent = false,
   onOpenDetail,
   onOpenMenu,
   onToggleComplete,
@@ -381,6 +387,8 @@ function KanbanSortableCard({
     transition,
     opacity: isDragging ? 0.4 : undefined,
   };
+  const typeTint = issueTypeCardClass(card?.issueType || card?.type);
+  const readyCls = readyToDoneCardAccentClass(readyAccent);
 
   return (
     <div ref={setNodeRef} style={style} className="touch-none">
@@ -393,7 +401,7 @@ function KanbanSortableCard({
         onKeyDown={(e) => {
           if (e.key === 'Enter') onOpenDetail(card);
         }}
-        className={`group relative cursor-grab rounded-lg border px-2 py-2 text-xs transition-[box-shadow,border-color] hover:shadow-md active:cursor-grabbing ${cardShell} ${
+        className={`group relative cursor-grab rounded-lg border px-2 py-2 text-xs transition-[box-shadow,border-color] hover:shadow-md active:cursor-grabbing ${cardShell} ${typeTint} ${readyCls} ${
           isCelebratingDone ? DONE_ARRIVE_CLASS : ''
         } ${isWorkflowDone && !isCelebratingDone ? 'border-[color:color-mix(in_srgb,var(--success)_35%,transparent)]' : ''}`}
         data-workflow-done={isWorkflowDone ? 'true' : undefined}
@@ -445,6 +453,8 @@ export default function TaskBoardWorkspacePanel({
 }) {
   const { t, locale } = useAppStrings();
   const [optimisticLists, setOptimisticLists] = useState([]);
+  const [readyToDoneMap, setReadyToDoneMap] = useState({});
+  const [confirmingDoneId, setConfirmingDoneId] = useState('');
   const [addingListOpen, setAddingListOpen] = useState(false);
   const [newListTitle, setNewListTitle] = useState('');
   const [submittingList, setSubmittingList] = useState(false);
@@ -456,8 +466,73 @@ export default function TaskBoardWorkspacePanel({
   const [cardIssueTypeByList, setCardIssueTypeByList] = useState({});
   const [cardComposerOpen, setCardComposerOpen] = useState({});
   const hubProjectId = String(
-    boardDetail?.board?.projectId || boards.find((b) => String(b._id) === String(selectedBoardId))?.projectId || ''
+    hubSprintCard?.projectId ||
+      boardDetail?.board?.projectId ||
+      boards.find((b) => String(b._id) === String(selectedBoardId))?.projectId ||
+      ''
   ).trim();
+  const canConfirmReadyToDone = Boolean(
+    boardCapabilities?.canMoveToDone ||
+      (Array.isArray(boardCapabilities?.permissions) &&
+        boardCapabilities.permissions.includes('task:drag_to_done'))
+  );
+
+  useEffect(() => {
+    if (!hubSprintCard || !hubProjectId) {
+      setReadyToDoneMap({});
+      return undefined;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await projectAPI.listReadyToDone(hubProjectId);
+        const data = res?.data ?? res;
+        if (!cancelled && data && typeof data === 'object') {
+          setReadyToDoneMap(data);
+        }
+      } catch {
+        if (!cancelled) setReadyToDoneMap({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hubSprintCard, hubProjectId, boardDetail?.cards]);
+
+  const onConfirmReadyToDone = useCallback(
+    async (card) => {
+      const cardId = String(card?._id || card?.id || '');
+      if (!hubProjectId || !cardId || confirmingDoneId) return;
+      setConfirmingDoneId(cardId);
+      try {
+        const res = await projectAPI.confirmReadyToDone(hubProjectId, cardId);
+        const payload = res?.data ?? res;
+        const moved = payload?.card || payload;
+        if (moved && onBoardCardsPatch) {
+          onBoardCardsPatch((prev) =>
+            (prev || []).map((c) =>
+              String(c._id || c.id) === cardId ? { ...c, ...moved } : c
+            )
+          );
+        }
+        setReadyToDoneMap((prev) => {
+          const next = { ...prev };
+          delete next[cardId];
+          return next;
+        });
+        toast.success(t('workspace.phaseQaReadyToDoneSuccess'));
+        onRefresh?.();
+      } catch (err) {
+        toast.error(
+          resolveApiErrorMessage(err, { t, fallback: t('workspace.phaseQaReadyToDoneFail') })
+        );
+      } finally {
+        setConfirmingDoneId('');
+      }
+    },
+    [hubProjectId, confirmingDoneId, onBoardCardsPatch, onRefresh, t]
+  );
+
   const { config: workTypeConfig } = useProjectWorkTypes(hubProjectId);
   const allowedIssueTypes = useMemo(() => {
     const fromCaps = allowedIssueTypesFromCaps(boardCapabilities);
@@ -1272,6 +1347,8 @@ export default function TaskBoardWorkspacePanel({
     const isWorkflowDone =
       typeof doneProp === 'boolean' ? doneProp : isCardInWorkflowEnd(card);
     if (hubSprintCard) {
+      const cardId = String(card._id || card.id || '');
+      const readyInfo = readyToDoneMap[cardId] || null;
       return (
         <ProjectHubSprintBoardCard
           card={card}
@@ -1286,6 +1363,9 @@ export default function TaskBoardWorkspacePanel({
           workTypeConfig={workTypeConfig}
           epics={hubSprintCard.epics || []}
           features={hubSprintCard.features || []}
+          readyToDone={canConfirmReadyToDone ? readyInfo : null}
+          confirmingDone={confirmingDoneId === cardId}
+          onConfirmReadyToDone={canConfirmReadyToDone ? onConfirmReadyToDone : null}
         />
       );
     }
@@ -1859,6 +1939,7 @@ export default function TaskBoardWorkspacePanel({
                               cardShell={cardShell}
                               isWorkflowDone={isCardInWorkflowEnd(card)}
                               isCelebratingDone={celebratingDoneIds.has(String(card._id))}
+                              readyAccent={Boolean(readyToDoneMap[String(card._id)]?.ready)}
                               onOpenDetail={(c) => openCardDetail(c, 'detail')}
                               onOpenMenu={openCardMenu}
                               onToggleComplete={toggleCardComplete}
@@ -1875,7 +1956,7 @@ export default function TaskBoardWorkspacePanel({
             <DragOverlay dropAnimation={null}>
               {draggingCard ? (
                 <div
-                  className={`${CARD_OVERLAY_WIDTH} cursor-grabbing rounded-lg border px-2 py-2 text-xs shadow-2xl ${cardShell}`}
+                  className={`${CARD_OVERLAY_WIDTH} cursor-grabbing rounded-lg border px-2 py-2 text-xs shadow-2xl ${cardShell} ${issueTypeCardClass(draggingCard?.issueType || draggingCard?.type)}`}
                 >
                   {renderCardBody(draggingCard, {
                     onOpenMenu: () => {},
@@ -1938,6 +2019,7 @@ export default function TaskBoardWorkspacePanel({
                         cardShell={cardShell}
                         isWorkflowDone={isCardInWorkflowEnd(card)}
                         isCelebratingDone={celebratingDoneIds.has(String(card._id))}
+                        readyAccent={Boolean(readyToDoneMap[String(card._id)]?.ready)}
                         onOpenDetail={(c) => openCardDetail(c, 'detail')}
                         onOpenMenu={openCardMenu}
                         onToggleComplete={toggleCardComplete}
@@ -2143,7 +2225,7 @@ export default function TaskBoardWorkspacePanel({
             <DragOverlay dropAnimation={null}>
               {draggingCard ? (
                 <div
-                  className={`${CARD_OVERLAY_WIDTH} cursor-grabbing rounded-lg border px-2 py-2 text-xs shadow-2xl ${cardShell}`}
+                  className={`${CARD_OVERLAY_WIDTH} cursor-grabbing rounded-lg border px-2 py-2 text-xs shadow-2xl ${cardShell} ${issueTypeCardClass(draggingCard?.issueType || draggingCard?.type)}`}
                 >
                   {renderCardBody(draggingCard, {
                     onOpenMenu: () => {},
@@ -2241,6 +2323,13 @@ export default function TaskBoardWorkspacePanel({
         canChangeStatus={
           Array.isArray(boardCapabilities?.permissions)
             ? boardCapabilities.permissions.includes('task:change_status') ||
+              Boolean(boardCapabilities?.canManageBoard)
+            : true
+        }
+        canUpdateTask={
+          Array.isArray(boardCapabilities?.permissions)
+            ? boardCapabilities.permissions.includes('task:update') ||
+              boardCapabilities.permissions.includes('bug:create') ||
               Boolean(boardCapabilities?.canManageBoard)
             : true
         }

@@ -11,6 +11,7 @@ export const PROJECT_HUB_TABS = [
   { id: 'chat', labelKey: 'workspace.projectHubTabChat' },
   { id: 'timeline', labelKey: 'workspace.projectHubTabTimeline' },
   { id: 'changeRequests', labelKey: 'workspace.projectHubTabChangeRequests' },
+  { id: 'testCases', labelKey: 'workspace.phaseQaTestCasesTitle' },
   { id: 'members', labelKey: 'workspace.projectHubTabMembers' },
   { id: 'files', labelKey: 'workspace.projectHubTabFiles' },
   { id: 'activity', labelKey: 'workspace.projectHubTabActivity' },
@@ -725,7 +726,11 @@ export function mergeChangeRequestPatch(prev, saved, patch = {}, workCards = [])
   return next;
 }
 
-export const HUB_GRID_CELL_BORDER = 'border-r border-border';
+/** Soft cell chrome — padding only; row divider lives on the row. */
+export const HUB_GRID_CELL_BORDER = 'min-w-0 px-2 py-1.5';
+
+/** Soft padded cell (List/CR) — no vertical/horizontal cell grid. */
+export const HUB_GRID_CELL = 'min-w-0 px-2 py-1.5';
 
 /** Feature hiển thị như Story. */
 export function normalizeIssueType(type) {
