@@ -10,6 +10,7 @@ import {
 } from '../nav/phase1NavConfig';
 import { useNavigate } from 'react-router-dom';
 import Phase2GateBanner from '../../phase/Phase2GateBanner';
+import { gateStepClass, kindChipClass } from '../shared/phase1UiTokens';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -19,9 +20,7 @@ function KindChip({ label, count, approved }) {
   const ok = approved && count > 0;
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded border border-border/60 px-1.5 py-0.5 font-mono text-[11px] ${
-        ok ? 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-200' : 'text-muted-foreground'
-      }`}
+      className={`${kindChipClass(label)} ${ok ? 'ring-1 ring-emerald-500/40' : ''}`}
       title={`${label}: ${count ?? 0}`}
     >
       {label}
@@ -98,31 +97,21 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
         <p className="mt-1 text-[11px] font-medium text-muted-foreground">
           {t('workspace.phase1GateStepsTitle')}
         </p>
-        <ol className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
-          <li
-            className={
-              gateStep1Ok
-                ? 'font-medium text-emerald-800 dark:text-emerald-200'
-                : 'text-muted-foreground'
-            }
-          >
+        <ol className="mt-1.5 flex flex-wrap gap-2 text-[11px]">
+          <li className={gateStepClass(gateStep1Ok ? 'done' : 'pending')}>
             <Mark ok={gateStep1Ok} /> {t('workspace.phase1GateStep1')}
           </li>
           <li
-            className={
-              gateStep2Ok
-                ? 'font-medium text-emerald-800 dark:text-emerald-200'
-                : 'text-muted-foreground'
-            }
+            className={gateStepClass(
+              gateStep2Ok ? 'done' : gateStep1Ok ? 'pending' : 'locked'
+            )}
           >
             <Mark ok={gateStep2Ok} /> {t('workspace.phase1GateStep2')}
           </li>
           <li
-            className={
-              gateStep3Ok
-                ? 'font-medium text-emerald-800 dark:text-emerald-200'
-                : 'text-muted-foreground'
-            }
+            className={gateStepClass(
+              gateStep3Ok ? 'done' : gateStep2Ok ? 'pending' : 'locked'
+            )}
           >
             <Mark ok={gateStep3Ok} /> {t('workspace.phase1GateStep3')}
           </li>
@@ -285,7 +274,7 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
               {Object.entries(gaps?.planningReadiness?.byKind || {}).map(([k, v]) => (
                 <span
                   key={k}
-                  className="inline-flex items-center gap-1 rounded border border-border/60 px-1.5 py-0.5 font-mono text-[11px]"
+                  className={kindChipClass(k)}
                   title={t('workspace.phase1PlanningApprovedDraft', {
                     approved: v.approved,
                     total: v.total,
@@ -293,7 +282,7 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
                   })}
                 >
                   {k}
-                  <span className="text-muted-foreground">
+                  <span className="opacity-80">
                     {v.approved}/{v.total}
                   </span>
                 </span>

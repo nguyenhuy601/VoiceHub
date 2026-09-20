@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { planningAPI } from '../../../../services/api/planningAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
+import { kindChipClass, statusBadgeClass } from '../shared/phase1UiTokens';
 
 function emptyRole() {
   return { roleKey: '', title: '', count: 1, skillKeysText: '', effortHours: '', notes: '' };
@@ -67,10 +68,14 @@ export default function PlanningResourcePanel({ projectId, artifact, canEdit, on
   if (!artifactId) return null;
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-3">
+    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold">{t('workspace.phase1ResourceRolesTitle')}</h2>
+          <h2 className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
+            {t('workspace.phase1ResourceRolesTitle')}
+            <span className={kindChipClass('RESOURCE')}>RESOURCE</span>
+            <span className={statusBadgeClass(artifact?.status)}>{artifact?.status}</span>
+          </h2>
           <p className="text-xs text-muted-foreground">{t('workspace.phase1ResourceRolesHint')}</p>
         </div>
         {canEdit ? (

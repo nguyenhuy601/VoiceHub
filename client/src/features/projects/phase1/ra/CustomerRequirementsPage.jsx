@@ -13,6 +13,7 @@ import {
   PHASE1_DENSE_ROW,
   PHASE1_DENSE_ROW_SELECTED,
 } from '../shared/phase1ListDensity';
+import { statusBadgeClass, statusRowTintClass } from '../shared/phase1UiTokens';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -100,7 +101,7 @@ function ImportSetDetail({
           <p className="text-xs font-semibold uppercase text-muted-foreground">
             {t('workspace.phase1ImportSetStatus')}
           </p>
-          <p className="font-mono text-sm font-medium">{set.status}</p>
+          <span className={`mt-1 ${statusBadgeClass(set.status)}`}>{set.status}</span>
         </div>
         {onClose ? (
           <button
@@ -113,6 +114,11 @@ function ImportSetDetail({
         ) : null}
       </div>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3 text-sm">
+        {!isTrash ? (
+          <p className="rounded-md border border-border/80 bg-muted/20 p-2 text-[11px] text-muted-foreground">
+            {t('workspace.phase1ImportSetDraftFixHint')}
+          </p>
+        ) : null}
         <p className="text-xs text-muted-foreground">
           Raw: {set.rawDocument?.filename || '—'}
         </p>
@@ -393,6 +399,9 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
           <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
             {t('workspace.phase1CustomerDocsHint')}
           </p>
+          <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
+            {t('workspace.phase1ImportSetDraftFixHint')}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {canDownload ? (
@@ -543,10 +552,10 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
                   type="button"
                   className={`flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left ${PHASE1_DENSE_ROW} ${
                     selected ? PHASE1_DENSE_ROW_SELECTED : ''
-                  }`}
+                  } ${statusRowTintClass(s.status)}`}
                   onClick={() => setSelectedSetId(s.id)}
                 >
-                  <span className="font-mono text-[11px] font-medium">{s.status}</span>
+                  <span className={statusBadgeClass(s.status)}>{s.status}</span>
                   <span className="w-full truncate text-[11px] text-muted-foreground">
                     {s.rawDocument?.filename || '—'} · {s.analysisDocument?.filename || '—'}
                   </span>

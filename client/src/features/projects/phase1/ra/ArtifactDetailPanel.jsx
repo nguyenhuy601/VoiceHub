@@ -8,16 +8,9 @@ import {
   listVisibleStructuredFields,
   listVisibleTopFields,
 } from './artifactFieldCatalog';
+import { listArtifactReviewTimeline } from './artifactReviewTimeline';
 import { formatActorRef } from './srsEmptyAudit';
-
-const STATUS_TONE = {
-  draft: 'bg-muted text-muted-foreground',
-  ba_review: 'bg-amber-500/15 text-amber-800 dark:text-amber-200',
-  tech_review: 'bg-sky-500/15 text-sky-800 dark:text-sky-200',
-  po_review: 'bg-violet-500/15 text-violet-800 dark:text-violet-200',
-  approved: 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200',
-  rejected: 'bg-destructive/15 text-destructive',
-};
+import { kindChipClass, statusBadgeClass } from '../shared/phase1UiTokens';
 
 const inputClass =
   'mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60';
@@ -25,7 +18,7 @@ const textareaClass =
   'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm disabled:opacity-60';
 
 /**
- * Detail / edit panel for AnalysisArtifact (Wave 3 form + Wave 4 related + Wave 5 audit).
+ * Detail / edit panel for AnalysisArtifact (Wave 3 form + Wave 4 related + Wave 5 audit + DEC R1–R4).
  */
 export default function ArtifactDetailPanel({
   artifact,
@@ -52,6 +45,7 @@ export default function ArtifactDetailPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [kind, artifactId, artifact?.updatedAt, artifact?.version, artifact?.title, artifact?.summary, artifact?.body]
   );
+  const reviewTimeline = useMemo(() => listArtifactReviewTimeline(artifact), [artifact]);
   const baseline = useMemo(
     () => buildArtifactFormState(artifact, kind),
     // reset when switching artifact or server data version
@@ -118,10 +112,13 @@ export default function ArtifactDetailPanel({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2">
         <div className="min-w-0">
-          <p className="font-mono text-[11px] text-muted-foreground">{artifact?.externalKey}</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={kindChipClass(kind)}>{kind}</span>
+            <p className="font-mono text-[11px] text-muted-foreground">{artifact?.externalKey}</p>
+          </div>
           <h2 className="truncate text-sm font-semibold">{form.top.title || artifact?.title}</h2>
           <span
-            className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_TONE[artifact?.status] || STATUS_TONE.draft}`}
+            className={`mt-1 ${statusBadgeClass(artifact?.status)}`}
             title={t('workspace.phase1ArtifactDraftVerHint', {
               version: artifact?.version || 1,
             })}
@@ -130,7 +127,9 @@ export default function ArtifactDetailPanel({
           </span>
           {!contentEditable && canEdit ? (
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {t('workspace.phase1EditOnlyDraftHint')}
+              {String(artifact?.status) === 'approved'
+                ? t('workspace.phase1ApprovedUseCrHint')
+                : t('workspace.phase1EditOnlyDraftHint')}
             </p>
           ) : null}
         </div>
@@ -145,6 +144,19 @@ export default function ArtifactDetailPanel({
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm">
+        {contentEditable ? (
+          <div className="rounded-lg border border-border/80 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
+            <p>{t('workspace.phase1DraftFixHint')}</p>
+            <p className="mt-1">{t('workspace.phase1ValidateVsHitlHint')}</p>
+          </div>
+        ) : null}
+        {!contentEditable && String(artifact?.status) === 'approved' ? (
+          <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 p-2.5 text-[11px] text-amber-950 dark:text-amber-100">
+            <p className="font-semibold">{t('workspace.phase1ApprovedLockedTitle')}</p>
+            <p className="mt-1">{t('workspace.phase1ApprovedUseCrHint')}</p>
+          </div>
+        ) : null}
+
         <div className="rounded-lg border border-border p-2.5">
           <p className="text-[10px] font-semibold uppercase text-muted-foreground">
             {t('workspace.phase1RelatedTitle')}
@@ -251,6 +263,28 @@ export default function ArtifactDetailPanel({
                 : null}
             </p>
           ) : null}
+
+          <p className="mt-2 text-[10px] font-semibold uppercase text-muted-foreground">
+            {t('workspace.phase1ReviewTimelineTitle')}
+          </p>
+          <ul className="mt-1 space-y-1">
+            {reviewTimeline.map((row) => (
+              <li key={row.gate} className="text-[11px] text-muted-foreground">
+                <span className="font-medium text-foreground">{t(row.labelKey)}</span>
+                {': '}
+                {row.stamp.done
+                  ? [
+                      row.stamp.at ? t('workspace.phase1ReviewGateAt', { date: row.stamp.at }) : null,
+                      row.stamp.actorRef
+                        ? t('workspace.phase1UpdatedBy', { by: row.stamp.actorRef })
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
+                  : t('workspace.phase1ReviewGatePending')}
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
 
@@ -269,6 +303,7 @@ export default function ArtifactDetailPanel({
             className="rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
             disabled={!isDirty || saving || !String(form.top.title || '').trim()}
             onClick={() => onSave?.(dirtyBody)}
+            title={t('workspace.phase1ValidateVsHitlHint')}
           >
             {saving ? t('common.saving') : t('common.save')}
           </button>

@@ -10,11 +10,14 @@ import PlanningGanttPanel from './PlanningGanttPanel';
 import PlanningArtifactFormDrawer from './PlanningArtifactFormDrawer';
 import Phase1SplitWorkspace from '../shared/Phase1SplitWorkspace';
 import {
-  PHASE1_DENSE_CELL,
-  PHASE1_DENSE_HEAD,
   PHASE1_DENSE_ROW,
   PHASE1_DENSE_ROW_SELECTED,
+  PHASE1_TABLE,
+  PHASE1_TABLE_SHELL,
+  PHASE1_TD,
+  PHASE1_TH,
 } from '../shared/phase1ListDensity';
+import { kindChipClass, statusBadgeClass } from '../shared/phase1UiTokens';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -178,7 +181,10 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-base font-semibold">{title}</h1>
+          <h1 className="flex flex-wrap items-center gap-2 text-base font-semibold">
+            <span className={kindChipClass(kind)}>{kind}</span>
+            {title}
+          </h1>
           <p className="text-[11px] text-muted-foreground">
             {t('workspace.phase1PlanningListHint', { kind, count: rows.length })}
           </p>
@@ -293,15 +299,15 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
         />
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
-        <table className="w-full text-left">
-          <thead className="sticky top-0 bg-muted/90">
+      <div className={PHASE1_TABLE_SHELL}>
+        <table className={PHASE1_TABLE}>
+          <thead className="sticky top-0 z-10">
             <tr>
-              <th className={PHASE1_DENSE_HEAD}>{t('workspace.phase1ColKey')}</th>
-              <th className={PHASE1_DENSE_HEAD}>{t('workspace.phase1ColTitle')}</th>
-              <th className={PHASE1_DENSE_HEAD}>{t('workspace.phase1ColStatus')}</th>
-              <th className={PHASE1_DENSE_HEAD}>{t('workspace.phase1ColDates')}</th>
-              <th className={PHASE1_DENSE_HEAD}>{t('workspace.phase1ColSource')}</th>
+              <th className={PHASE1_TH}>{t('workspace.phase1ColKey')}</th>
+              <th className={PHASE1_TH}>{t('workspace.phase1ColTitle')}</th>
+              <th className={PHASE1_TH}>{t('workspace.phase1ColStatus')}</th>
+              <th className={PHASE1_TH}>{t('workspace.phase1ColDates')}</th>
+              <th className={PHASE1_TH}>{t('workspace.phase1ColSource')}</th>
             </tr>
           </thead>
           <tbody>
@@ -314,18 +320,20 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
               return (
                 <tr
                   key={id}
-                  className={`${editable ? PHASE1_DENSE_ROW : 'border-t border-border/50'} ${
+                  className={`${editable ? PHASE1_DENSE_ROW : 'odd:bg-muted/15'} ${
                     selected ? PHASE1_DENSE_ROW_SELECTED : ''
-                  }`}
+                  } ${editable ? '' : 'cursor-default'}`}
                   onClick={() => openEdit(row)}
                 >
-                  <td className={`${PHASE1_DENSE_CELL} font-mono text-xs`}>{row.externalKey}</td>
-                  <td className={PHASE1_DENSE_CELL}>{row.title}</td>
-                  <td className={`${PHASE1_DENSE_CELL} text-xs`}>{row.status}</td>
-                  <td className={`${PHASE1_DENSE_CELL} text-xs text-muted-foreground`}>
+                  <td className={`${PHASE1_TD} font-mono text-xs`}>{row.externalKey}</td>
+                  <td className={PHASE1_TD}>{row.title}</td>
+                  <td className={PHASE1_TD}>
+                    <span className={statusBadgeClass(row.status)}>{row.status || '—'}</span>
+                  </td>
+                  <td className={`${PHASE1_TD} text-xs text-muted-foreground`}>
                     {dates || '—'}
                   </td>
-                  <td className={`${PHASE1_DENSE_CELL} text-xs text-muted-foreground`}>
+                  <td className={`${PHASE1_TD} text-xs text-muted-foreground`}>
                     {row.source}
                   </td>
                 </tr>
@@ -333,7 +341,7 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
             })}
             {!filtered.length && !isLoading ? (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={5} className={`${PHASE1_TD} py-8 text-center text-muted-foreground`}>
                   {t('workspace.phase1EmptyPlanning')}
                 </td>
               </tr>

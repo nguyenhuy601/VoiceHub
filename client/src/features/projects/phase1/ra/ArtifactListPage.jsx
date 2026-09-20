@@ -12,24 +12,18 @@ import ArtifactDetailPanel from './ArtifactDetailPanel';
 import { modulePathForArtifactKind, resolveArtifactRelated } from './artifactRelated';
 import Phase1SplitWorkspace from '../shared/Phase1SplitWorkspace';
 import {
-  PHASE1_DENSE_CELL,
-  PHASE1_DENSE_HEAD,
   PHASE1_DENSE_ROW,
   PHASE1_DENSE_ROW_SELECTED,
+  PHASE1_TABLE,
+  PHASE1_TABLE_SHELL,
+  PHASE1_TD,
+  PHASE1_TH,
 } from '../shared/phase1ListDensity';
+import { kindChipClass, statusBadgeClass } from '../shared/phase1UiTokens';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
-
-const STATUS_TONE = {
-  draft: 'bg-muted text-muted-foreground',
-  ba_review: 'bg-amber-500/15 text-amber-800 dark:text-amber-200',
-  tech_review: 'bg-sky-500/15 text-sky-800 dark:text-sky-200',
-  po_review: 'bg-violet-500/15 text-violet-800 dark:text-violet-200',
-  approved: 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200',
-  rejected: 'bg-destructive/15 text-destructive',
-};
 
 /**
  * Shared list + split detail for AnalysisArtifact kinds (desktop list|pane, mobile sheet).
@@ -289,9 +283,12 @@ export default function ArtifactListPage({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
         <div>
-          <h1 className="text-base font-semibold text-foreground">{title}</h1>
+          <h1 className="flex flex-wrap items-center gap-2 text-base font-semibold text-foreground">
+            <span className={kindChipClass(kind)}>{kind}</span>
+            {title}
+          </h1>
           <p className="text-[11px] text-muted-foreground">
-            {kind} · {rows.length} {t('workspace.phase1Items')}
+            {rows.length} {t('workspace.phase1Items')}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -325,12 +322,12 @@ export default function ArtifactListPage({
         <p className="text-sm text-destructive">{resolveApiErrorMessage(error)}</p>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
-        <table className="w-full text-left">
-          <thead className="sticky top-0 bg-muted/90">
+      <div className={PHASE1_TABLE_SHELL}>
+        <table className={PHASE1_TABLE}>
+          <thead className="sticky top-0 z-10">
             <tr>
               {columns.map((col) => (
-                <th key={col.id} className={`${PHASE1_DENSE_HEAD} whitespace-nowrap`}>
+                <th key={col.id} className={PHASE1_TH}>
                   {t(col.labelKey)}
                 </th>
               ))}
@@ -353,7 +350,7 @@ export default function ArtifactListPage({
                     return (
                       <td
                         key={col.id}
-                        className={`${PHASE1_DENSE_CELL} max-w-[14rem] ${col.mono || isIdCol ? 'font-mono text-xs' : ''}`}
+                        className={`${PHASE1_TD} max-w-[14rem] ${col.mono || isIdCol ? 'font-mono text-xs' : ''}`}
                         style={
                           isIdCol && layout === 'tree'
                             ? { paddingLeft: 10 + (row._depth || 0) * 14 }
@@ -362,11 +359,7 @@ export default function ArtifactListPage({
                         title={full || undefined}
                       >
                         {col.isStatus ? (
-                          <span
-                            className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STATUS_TONE[row.status] || STATUS_TONE.draft}`}
-                          >
-                            {display || '—'}
-                          </span>
+                          <span className={statusBadgeClass(row.status)}>{display || '—'}</span>
                         ) : (
                           display || '—'
                         )}
@@ -380,7 +373,7 @@ export default function ArtifactListPage({
               <tr>
                 <td
                   colSpan={columns.length}
-                  className="px-3 py-8 text-center text-sm text-muted-foreground"
+                  className={`${PHASE1_TD} py-8 text-center text-muted-foreground`}
                 >
                   {t('workspace.phase1EmptyArtifacts')}
                 </td>

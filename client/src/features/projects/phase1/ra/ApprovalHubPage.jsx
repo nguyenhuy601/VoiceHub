@@ -5,6 +5,7 @@ import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
+import { kindChipClass, queueCardClass, statusBadgeClass } from '../shared/phase1UiTokens';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -159,8 +160,8 @@ export default function ApprovalHubPage({ projectId, readOnly = false }) {
         ) : null}
       </div>
 
-      <div className="rounded-lg border border-border bg-surface">
-        <h2 className="border-b border-border px-2.5 py-1.5 text-xs font-semibold">
+      <div className={`rounded-lg border ${queueCardClass('set_queue')}`}>
+        <h2 className="border-b border-border/60 px-2.5 py-1.5 text-xs font-semibold">
           {t('workspace.phase1SetQueueTitle')}{' '}
           <span className="text-muted-foreground">({pendingSets.length})</span>
         </h2>
@@ -227,10 +228,10 @@ export default function ApprovalHubPage({ projectId, readOnly = false }) {
       ) : null}
 
       {queues.map((q) => (
-        <div key={q.status} className="rounded-lg border border-border bg-surface">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-2.5 py-1.5">
-            <h2 className="text-xs font-semibold">
-              {t(q.labelKey)}{' '}
+        <div key={q.status} className={`rounded-lg border ${queueCardClass(q.status)}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-2.5 py-1.5">
+            <h2 className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+              <span className={statusBadgeClass(q.status)}>{t(q.labelKey)}</span>
               <span className="text-muted-foreground">({q.items.length})</span>
             </h2>
             {!readOnly && q.items.length > 0 && NEXT[q.status] ? (
@@ -255,7 +256,12 @@ export default function ApprovalHubPage({ projectId, readOnly = false }) {
                   className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1 text-sm"
                 >
                   <div className="min-w-0">
-                    <span className="font-mono text-[11px]">{item.externalKey || id.slice(0, 8)}</span>
+                    <div className="flex flex-wrap items-center gap-1">
+                      {item.kind ? (
+                        <span className={kindChipClass(item.kind)}>{item.kind}</span>
+                      ) : null}
+                      <span className="font-mono text-[11px]">{item.externalKey || id.slice(0, 8)}</span>
+                    </div>
                     <p className="truncate text-[11px] text-muted-foreground">{item.title || '—'}</p>
                   </div>
                   {!readOnly && NEXT[q.status] ? (

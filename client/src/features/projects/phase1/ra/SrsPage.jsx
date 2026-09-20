@@ -8,6 +8,13 @@ import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
 import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
 import { isSrsDraftEmpty } from './srsEmptyAudit';
+import { kindChipClass, queueCardClass } from '../shared/phase1UiTokens';
+import {
+  PHASE1_TABLE,
+  PHASE1_TABLE_SHELL,
+  PHASE1_TD,
+  PHASE1_TH,
+} from '../shared/phase1ListDensity';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -102,30 +109,35 @@ export default function SrsPage({ projectId, readOnly = false }) {
       </div>
 
       {tab === 'baselines' ? (
-        <div className="rounded-xl border border-border bg-surface">
-          <ul className="divide-y divide-border">
-            {baselines.map((b) => (
-              <li key={b.id || b._id} className="px-4 py-3 text-sm">
-                <p className="font-medium">
-                  <span className="mr-1.5 inline-flex rounded border border-border/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('workspace.phase1SrsReleaseVerLabel')}
-                  </span>
-                  {b.srsVersion} — {b.title || t('workspace.phase1SrsBaselineDefault')}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('workspace.phase1ArtifactsMeta', {
-                    count: (b.artifactSnapshot || []).length,
-                    date: b.approvedAt || '',
-                  })}
-                </p>
-              </li>
-            ))}
-            {!baselines.length ? (
-              <li className="px-4 py-8 text-center text-sm text-muted-foreground">
-                {t('workspace.phase1NoSrsBaseline')}
-              </li>
-            ) : null}
-          </ul>
+        <div className={PHASE1_TABLE_SHELL}>
+          <table className={PHASE1_TABLE}>
+            <thead className="sticky top-0 z-10">
+              <tr>
+                <th className={PHASE1_TH}>{t('workspace.phase1SrsReleaseVerLabel')}</th>
+                <th className={PHASE1_TH}>{t('workspace.phase1ColTitle')}</th>
+                <th className={PHASE1_TH}>{t('workspace.phase1Items')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {baselines.map((b) => (
+                <tr key={b.id || b._id} className="odd:bg-muted/15">
+                  <td className={`${PHASE1_TD} font-mono text-xs`}>{b.srsVersion}</td>
+                  <td className={PHASE1_TD}>{b.title || t('workspace.phase1SrsBaselineDefault')}</td>
+                  <td className={`${PHASE1_TD} text-xs text-muted-foreground`}>
+                    {(b.artifactSnapshot || []).length}
+                    {b.approvedAt ? ` · ${b.approvedAt}` : ''}
+                  </td>
+                </tr>
+              ))}
+              {!baselines.length ? (
+                <tr>
+                  <td colSpan={3} className={`${PHASE1_TD} py-8 text-center text-muted-foreground`}>
+                    {t('workspace.phase1NoSrsBaseline')}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
       ) : (
         <>
@@ -156,8 +168,16 @@ export default function SrsPage({ projectId, readOnly = false }) {
                 </p>
               ) : null}
               {sectionEntries.map(([kind, rows]) => (
-                <div key={kind} className="rounded-xl border border-border bg-surface p-4">
-                  <h2 className="text-sm font-semibold">{kind}</h2>
+                <div
+                  key={kind}
+                  className={`rounded-xl border p-4 ${queueCardClass(
+                    rows?.length ? 'approved' : 'draft'
+                  )}`}
+                >
+                  <h2 className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                    <span className={kindChipClass(kind)}>{kind}</span>
+                    <span className="text-muted-foreground">({(rows || []).length})</span>
+                  </h2>
                   <ul className="mt-2 space-y-1 text-sm">
                     {(rows || []).map((r) => (
                       <li key={r.id}>

@@ -8,6 +8,7 @@ import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
 import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
 import { modulePathForArtifactKind } from './artifactRelated';
+import { kindAccentCardClass, kindChipClass } from '../shared/phase1UiTokens';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -154,12 +155,13 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
                 (String(l.toArtifactId) === frId || String(l.fromArtifactId) === frId)
             );
             return (
-              <li key={frId} className="rounded-lg border border-border/60 p-3 text-sm">
+              <li key={frId} className={kindAccentCardClass('FR')}>
                 <button
                   type="button"
-                  className="w-full text-left font-medium hover:underline"
+                  className="flex w-full flex-wrap items-center gap-1.5 text-left font-medium hover:underline"
                   onClick={() => openArtifact('FR', frId)}
                 >
+                  <span className={kindChipClass('FR')}>FR</span>
                   <span className="font-mono text-xs text-muted-foreground">{fr.externalKey}</span>{' '}
                   {fr.title}
                 </button>
@@ -178,10 +180,11 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
                       <li key={linkId || `${from}-${to}`}>
                         <button
                           type="button"
-                          className="text-left text-sm hover:underline disabled:no-underline disabled:opacity-70"
+                          className="inline-flex flex-wrap items-center gap-1 text-left text-sm hover:underline disabled:no-underline disabled:opacity-70"
                           disabled={!peerId}
                           onClick={() => openArtifact(peerKind, peerId)}
                         >
+                          {peerKind ? <span className={kindChipClass(peerKind)}>{peerKind}</span> : null}
                           {label}
                           {l.linkType ? (
                             <span className="ml-1 text-[10px] opacity-70">· {l.linkType}</span>

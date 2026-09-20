@@ -11,6 +11,7 @@ import {
   inputToTags,
   isArtifactContentEditable,
   isLegacyFormField,
+  isSoftTraceFormField,
   listCatalogKinds,
   listVisibleStructuredFields,
   listVisibleTopFields,
@@ -156,5 +157,28 @@ describe('artifactFieldCatalog (FE)', () => {
     assert.ok(!topEmpty.some((f) => f.key === 'body'));
     const topFilled = listVisibleTopFields('FR', { title: 'T', summary: 'S', body: 'long' });
     assert.ok(topFilled.some((f) => f.key === 'body'));
+  });
+
+  it('R3: soft-trace keys always visible even when empty; other legacy still hide-empty', () => {
+    assert.ok(isSoftTraceFormField({ key: 'relatedUcKeys' }));
+    assert.ok(isSoftTraceFormField({ key: 'relatedFrKeys' }));
+    assert.ok(isSoftTraceFormField({ key: 'relatedBgKey' }));
+    assert.ok(isSoftTraceFormField({ key: 'relatedBrKey' }));
+    assert.ok(!isSoftTraceFormField({ key: 'whenApplies' }));
+    assert.ok(!isSoftTraceFormField({ key: 'dataEntities' }));
+
+    const emptyFr = listVisibleStructuredFields('FR', { structured: { priority: 'Must' } });
+    assert.ok(emptyFr.some((f) => f.key === 'relatedUcKeys'), 'FR relatedUcKeys visible when empty');
+    assert.ok(!emptyFr.some((f) => f.key === 'dataEntities'));
+
+    const emptyNfr = listVisibleStructuredFields('NFR', { structured: { category: 'Perf' } });
+    assert.ok(emptyNfr.some((f) => f.key === 'relatedFrKeys'));
+    assert.ok(!emptyNfr.some((f) => f.key === 'verification'));
+
+    const emptyBpm = listVisibleStructuredFields('BPM', {
+      structured: { processName: 'P', actor: 'A' },
+    });
+    assert.ok(emptyBpm.some((f) => f.key === 'relatedBrKey'));
+    assert.ok(!emptyBpm.some((f) => f.key === 'relatedSystems'));
   });
 });
