@@ -42,6 +42,13 @@ describe('projectPhaseNav', () => {
     assert.ok(DEVELOPMENT_MODULES.includes('change-requests'));
   });
 
+  it('qa_uat allows test-cases and change-requests', () => {
+    assert.equal(isModuleAllowedForPhase('test-cases', 'qa_uat'), true);
+    assert.equal(isModuleAllowedForPhase('change-requests', 'qa_uat'), true);
+    assert.equal(isModuleAllowedForPhase('test-cases', 'development'), false);
+    assert.equal(isModuleAllowedForPhase('change-requests', 'development'), true);
+  });
+
   it('filters nav items by phase', () => {
     const items = [
       { key: 'board', module: 'board' },

@@ -162,6 +162,13 @@ export function resolveNotificationVisual(notif) {
   if (ui === 'deadline' || kind === 'task_due_soon' || kind === 'task_overdue') {
     return VISUAL.deadline;
   }
+  if (
+    kind === 'ready_to_done_proposed' ||
+    kind === 'release_ready_proposed' ||
+    kind === 'uat_requested'
+  ) {
+    return VISUAL.needsAction;
+  }
   if (ui === 'task' || raw === 'task_assigned' || raw === 'task_completed') {
     return VISUAL.task;
   }

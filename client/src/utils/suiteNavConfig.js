@@ -34,6 +34,7 @@ export const PROJECT_MODULE_KEYS = [
   'board',
   'timeline',
   'change-requests',
+  'test-cases',
   'requirements',
   'files',
   'chat',
@@ -74,6 +75,7 @@ export const HUB_TAB_TO_MODULE = {
   board: 'board',
   timeline: 'timeline',
   changeRequests: 'change-requests',
+  testCases: 'test-cases',
   chat: 'chat',
   members: 'members',
   files: 'files',
@@ -88,6 +90,7 @@ export const MODULE_TO_HUB_TAB = {
   board: 'board',
   timeline: 'timeline',
   'change-requests': 'changeRequests',
+  'test-cases': 'testCases',
   chat: 'chat',
   members: 'members',
   files: 'files',
@@ -105,6 +108,7 @@ export function normalizeProjectModule(raw) {
   if (HUB_TAB_TO_MODULE[value]) return HUB_TAB_TO_MODULE[value];
   const lower = value.toLowerCase();
   if (lower === 'changerequests' || lower === 'change-requests') return 'change-requests';
+  if (lower === 'testcases' || lower === 'test-cases') return 'test-cases';
   if (PROJECT_MODULE_KEYS.includes(lower)) return lower;
   if (lower.startsWith('planning-')) return lower;
   return 'overview';
@@ -234,6 +238,12 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
       'changeRequests',
       'workspace.projectHubTabChangeRequests',
       'change-requests',
+      PROJECT_MENU_GROUPS.WORK
+    ),
+    item(
+      'testCases',
+      'workspace.phaseQaTestCasesTitle',
+      'test-cases',
       PROJECT_MENU_GROUPS.WORK
     ),
     item('requirements', 'nav.requirements', 'requirements', PROJECT_MENU_GROUPS.WORK),

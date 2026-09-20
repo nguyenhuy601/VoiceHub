@@ -14,6 +14,9 @@ import ProjectHubPlanningPanel from './ProjectHubPlanningPanel';
 import ProjectHubListPanel from './ProjectHubListPanel';
 import ProjectHubTimelinePanel from './ProjectHubTimelinePanel';
 import ProjectHubChangeRequestsPanel from './ProjectHubChangeRequestsPanel';
+import ProjectHubTestCasesPanel from './ProjectHubTestCasesPanel';
+import ProjectHubDeliveryPhasePanel from './ProjectHubDeliveryPhasePanel';
+import ProjectHubReleaseReadyPanel from './ProjectHubReleaseReadyPanel';
 import WorkItemDetail from './WorkItemDetail';
 import ProjectChatWorkspace from '../chat/ProjectChatWorkspace';
 import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
@@ -197,6 +200,12 @@ function OverviewPanel({
   projectId = '',
   organizationId = '',
   canChangeDeliveryPhase = false,
+  canSignOffUat = false,
+  handoverChecklist = null,
+  releaseLabel = '',
+  releaseReadyStatus = 'none',
+  uatStatus = 'none',
+  deployEvidence = null,
   summary,
   deliveryExtras = { unassigned: 0, estimateHours: 0 },
   dashboardCharts = null,
@@ -268,6 +277,24 @@ function OverviewPanel({
         organizationId={organizationId}
         deliveryPhase={deliveryPhase}
         canChangePhase={canChangeDeliveryPhase}
+      />
+      <ProjectHubDeliveryPhasePanel
+        projectId={projectId}
+        deliveryPhase={deliveryPhase}
+        canChangePhase={canChangeDeliveryPhase}
+        isDarkMode={isDarkMode}
+        handoverChecklist={handoverChecklist}
+        releaseLabel={releaseLabel}
+        releaseReadyStatus={releaseReadyStatus}
+        uatStatus={uatStatus}
+        deployEvidence={deployEvidence}
+      />
+      <ProjectHubReleaseReadyPanel
+        projectId={projectId}
+        deliveryPhase={deliveryPhase}
+        canConfirmReleaseReady={canChangeDeliveryPhase}
+        canSignOffUat={canSignOffUat}
+        isDarkMode={isDarkMode}
       />
       <header className="mb-4 rounded-xl border border-border bg-surface p-3 sm:p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -403,14 +430,14 @@ function OverviewPanel({
               ].map(({ key, value, label, extra, tone, tipItems, tipTotal, tipHeading }) => {
                 const tile = (
                   <div
-                    className={`rounded-lg border bg-background px-2.5 py-3 text-center ${
+                    className={`rounded-lg border px-2.5 py-3 text-center ${
                       tone === 'destructive'
-                        ? 'border-destructive/50'
+                        ? 'border-destructive/50 bg-destructive/5'
                         : tone === 'warning'
-                          ? 'border-warning/40'
+                          ? 'border-warning/40 bg-amber-500/5'
                           : tone === 'success'
-                            ? 'border-success/30'
-                            : 'border-border'
+                            ? 'border-success/30 bg-emerald-500/5'
+                            : 'border-border bg-background'
                     } ${tipItems?.length ? 'cursor-help' : ''}`}
                   >
                     <div className={`text-lg font-bold ${titleCls}`}>{value}</div>
@@ -554,7 +581,16 @@ function OverviewPanel({
                       ? t('workspace.projectHubOverviewAssigneeRestricted')
                       : t('workspace.projectHubStatUnassigned');
                   return (
-                    <li key={a.id} className="border-b border-border pb-2 last:border-0 last:pb-0">
+                    <li
+                      key={a.id}
+                      className={`rounded-md border px-2 py-1.5 last:mb-0 ${
+                        String(a.issueType || '').toLowerCase() === 'bug'
+                          ? 'border-rose-500/35 bg-rose-500/5'
+                          : a.dueTone === 'overdue'
+                            ? 'border-destructive/30 bg-destructive/5'
+                            : 'border-border/60 bg-background/50'
+                      }`}
+                    >
                       <button
                         type="button"
                         onClick={() => onOpenNextAction?.(a.id)}
@@ -1189,6 +1225,7 @@ export default function ProjectHubShell({
       if (item.id === 'settings' && !hubCaps.canManageSettings) return false;
       if (item.id === 'members' && !hubCaps.canViewMembers) return false;
       if (item.id === 'changeRequests' && !hubCaps.canViewChangeRequests) return false;
+      if (item.id === 'testCases' && !hubCaps.canViewWorkItems) return false;
       if (item.id === 'planning' && !hubCaps.canViewBacklog) return false;
       if (item.id === 'timeline' && !hubCaps.canViewBacklog) return false;
       if ((item.id === 'list' || item.id === 'board') && !hubCaps.canViewWorkItems) return false;
@@ -1217,6 +1254,7 @@ export default function ProjectHubShell({
   const showTimelinePanel = Boolean(visitedTabs.timeline) && hubCaps.canViewBacklog;
   const showChangeRequestsPanel =
     Boolean(visitedTabs.changeRequests) && hubCaps.canViewChangeRequests;
+  const showTestCasesPanel = Boolean(visitedTabs.testCases) && hubCaps.canViewWorkItems;
   const showMembersPanel = Boolean(visitedTabs.members) && hubCaps.canViewMembers;
 
   const issueCounts = useMemo(() => countCardsByIssueType(cards), [cards]);
@@ -1700,6 +1738,18 @@ export default function ProjectHubShell({
                 (Array.isArray(projectPayload?.capabilities?.permissions) &&
                   projectPayload.capabilities.permissions.includes('delivery_phase:change'))
             )}
+            canSignOffUat={Boolean(
+              hubCaps?.canSignOffUat ||
+                (Array.isArray(hubCaps?.permissions) &&
+                  hubCaps.permissions.includes('uat:sign_off')) ||
+                (Array.isArray(projectPayload?.capabilities?.permissions) &&
+                  projectPayload.capabilities.permissions.includes('uat:sign_off'))
+            )}
+            handoverChecklist={projectPayload?.handoverChecklist || null}
+            releaseLabel={projectPayload?.releaseLabel || ''}
+            releaseReadyStatus={projectPayload?.releaseReadyStatus || 'none'}
+            uatStatus={projectPayload?.uatStatus || 'none'}
+            deployEvidence={projectPayload?.deployEvidence || null}
             summary={summary}
             deliveryExtras={deliveryExtras}
             dashboardCharts={dashboardCharts}
@@ -1930,6 +1980,32 @@ export default function ProjectHubShell({
           />
         </div>
         ) : null}
+        {showTestCasesPanel ? (
+        <div
+          className={
+            tab === 'testCases' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'
+          }
+          hidden={tab !== 'testCases'}
+          aria-hidden={tab !== 'testCases'}
+        >
+          <ProjectHubTestCasesPanel
+            projectId={projectId}
+            listActive={tab === 'testCases'}
+            isDarkMode={isDarkMode}
+            boardCards={cards}
+            canCreate={Boolean(hubCaps.canCreateTask || hubCaps.canCreateBug || canManage)}
+            canExecute={Boolean(
+              hubCaps.canCreateTask ||
+                hubCaps.canCreateBug ||
+                canManage ||
+                (Array.isArray(hubCaps.permissions) &&
+                  (hubCaps.permissions.includes('task:change_status') ||
+                    hubCaps.permissions.includes('task:update') ||
+                    hubCaps.permissions.includes('task:drag_to_done')))
+            )}
+          />
+        </div>
+        ) : null}
         {showMembersPanel ? (
         <div
           className={
@@ -2054,7 +2130,9 @@ export default function ProjectHubShell({
             }
             canUpdateTask={
               Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
+              (Array.isArray(hubCaps?.permissions) &&
+                (hubCaps.permissions.includes('task:update') ||
+                  hubCaps.permissions.includes('bug:create')))
             }
             canChangeStatus={
               Boolean(canManage) ||
@@ -2133,7 +2211,9 @@ export default function ProjectHubShell({
             }
             canUpdateTask={
               Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
+              (Array.isArray(hubCaps?.permissions) &&
+                (hubCaps.permissions.includes('task:update') ||
+                  hubCaps.permissions.includes('bug:create')))
             }
             canChangeStatus={
               Boolean(canManage) ||
