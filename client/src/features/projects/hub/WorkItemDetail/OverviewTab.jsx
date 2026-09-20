@@ -14,6 +14,7 @@ import { dueDateTone, formatHubDateShort, listsForStatusSelect, resolveHubActor 
 import { listIdToPlanningStatus, planningStatusToListId } from '../planningBoardStatus';
 import { normalizePriorityConfig } from '../projectPriorityConfig';
 import { useWorkItemDetail } from './WorkItemDetailContext';
+import FixSuggestionPanel from './FixSuggestionPanel';
 import {
   buildWorkItemDatePatch,
   dateInputValueFromIso,
@@ -227,6 +228,8 @@ export default function OverviewTab() {
           {isDone ? t('taskBoard.markUndone') : t('taskBoard.markDone')}
         </button>
       ) : null}
+
+      <FixSuggestionPanel />
 
       {Array.isArray(workItem?.changeRequests) && workItem.changeRequests.length ? (
         <div>

@@ -1213,10 +1213,10 @@ export default function ProjectHubListPanel({
             <div
               role="row"
               style={gridStyle}
-              className="sticky top-0 z-10 border-b border-border bg-surface px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+              className="sticky top-0 z-10 border-b border-border/50 bg-muted/40 px-2 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur-sm"
             >
-              <div className="border-r border-border" aria-hidden />
-              <div className="flex items-center justify-center border-r border-border">
+              <div aria-hidden />
+              <div className="flex items-center justify-center">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -1260,7 +1260,7 @@ export default function ProjectHubListPanel({
               <ResizableTableHeader column={listColumns[11]} onResizeStart={onResizeStart}>
                 {t('workspace.projectHubListDueColumn')}
               </ResizableTableHeader>
-              <div className="border-r border-border" aria-hidden />
+              <div aria-hidden />
             </div>
 
             {flatRows.length === 0 ? (
@@ -1472,7 +1472,9 @@ export default function ProjectHubListPanel({
         }
         canUpdateTask={
           Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
+          (Array.isArray(hubCaps?.permissions) &&
+            (hubCaps.permissions.includes('task:update') ||
+              hubCaps.permissions.includes('bug:create')))
         }
         canChangeStatus={canChangeStatus}
         canViewMembers={Boolean(hubCaps?.canViewMembers || canManage)}

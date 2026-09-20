@@ -169,6 +169,9 @@ export default function ProjectHubSprintBoardCard({
   workTypeConfig = null,
   epics = [],
   features = [],
+  readyToDone = null,
+  confirmingDone = false,
+  onConfirmReadyToDone = null,
 }) {
   const { t, locale } = useAppStrings();
   const [childrenOpen, setChildrenOpen] = useState(false);
@@ -280,6 +283,35 @@ export default function ProjectHubSprintBoardCard({
           <AssigneeMark assignee={assignee} t={t} />
         </span>
       </div>
+
+      {readyToDone?.ready && typeof onConfirmReadyToDone === 'function' && !showDoneCheck ? (
+        <div className="mt-2" onPointerDown={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            disabled={confirmingDone || busy}
+            onClick={(e) => {
+              e.stopPropagation();
+              onConfirmReadyToDone(card);
+            }}
+            className="w-full rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/15 disabled:opacity-50"
+          >
+            {confirmingDone
+              ? t('common.loading')
+              : t('workspace.phaseQaReadyToDoneConfirm', {
+                  pass: readyToDone.passCount,
+                  total: readyToDone.totalActive,
+                })}
+          </button>
+        </div>
+      ) : null}
+
+      {String(card?.fixSuggestion?.status || '').toLowerCase() === 'pending' ? (
+        <div className="mt-1.5">
+          <span className="inline-flex max-w-full truncate rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-200">
+            {t('workspace.phaseQaFixSuggestCardPending')}
+          </span>
+        </div>
+      ) : null}
 
       {Array.isArray(card?.changeRequests) && card.changeRequests.length ? (
         <div className="mt-1.5 flex flex-wrap gap-1" onPointerDown={(e) => e.stopPropagation()}>
