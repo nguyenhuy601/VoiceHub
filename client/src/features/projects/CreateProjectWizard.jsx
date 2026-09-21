@@ -91,6 +91,7 @@ export default function CreateProjectWizard({
                     patchForm={wizard.patchForm}
                     onRequirementSelected={wizard.applyRequirementFile}
                     intakeBusy={wizard.intakeBusy}
+                    requirementIntakeStatus={wizard.requirementIntakeStatus}
                     t={t}
                   />
                   <ProjectWizardStepName form={wizard.form} patchForm={wizard.patchForm} t={t} />

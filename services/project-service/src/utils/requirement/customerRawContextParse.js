@@ -46,13 +46,34 @@ const CONTEXT_LABEL_ALIASES = Object.freeze({
   'out of scope': 'outOfScope',
 });
 
+function normalizeTemplateTypeToken(raw) {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
 function isCustomerRawTemplateType(raw) {
-  return (
-    String(raw || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '') === 'customerraw'
-  );
+  const token = normalizeTemplateTypeToken(raw);
+  if (!token) return false;
+  if (token === 'customerraw' || token === 'customerrequirementraw') return true;
+  return token.includes('customerrequirementraw') || token.endsWith('customerraw');
+}
+
+/**
+ * Sheet fingerprint when Meta.TemplateType missing / renamed
+ * (filled workbooks often keep Raw sheets but drop or alter TemplateType).
+ */
+function looksLikeCustomerRawWorkbook(workbook) {
+  const names = new Set((workbook?.SheetNames || []).map((n) => String(n || '')));
+  if (!names.has(CUSTOMER_RAW_SHEETS.CONTEXT)) return false;
+  // SRS uses 03_Functional_Requirements / 04_Non_Functional — not these Raw ids.
+  const rawMarkers = [
+    CUSTOMER_RAW_SHEETS.BUSINESS_REQUEST,
+    CUSTOMER_RAW_SHEETS.REQUIREMENT,
+    CUSTOMER_RAW_SHEETS.REFERENCE,
+  ];
+  return rawMarkers.some((sheet) => names.has(sheet));
 }
 
 function sheetToMatrix(workbook, sheetName) {
@@ -116,6 +137,26 @@ function parseContextSheet(workbook) {
 }
 
 /**
+ * Peek Meta / sheet fingerprint for Customer Raw routing (import preview).
+ * @param {Buffer|ArrayBuffer|Uint8Array} fileBuffer
+ * @returns {string} canonical CustomerRaw when matched, else Meta TemplateType or ''
+ */
+function peekCustomerRawTemplateType(fileBuffer) {
+  try {
+    const buffer = Buffer.isBuffer(fileBuffer)
+      ? fileBuffer
+      : Buffer.from(fileBuffer || []);
+    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+    const meta = readMeta(workbook);
+    if (isCustomerRawTemplateType(meta.templateType)) return CUSTOMER_RAW_TEMPLATE_TYPE;
+    if (looksLikeCustomerRawWorkbook(workbook)) return CUSTOMER_RAW_TEMPLATE_TYPE;
+    return meta.templateType || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * @param {Buffer|ArrayBuffer|Uint8Array} fileBuffer
  * @returns {{
  *   templateType: string,
@@ -134,11 +175,16 @@ function parseCustomerRawContext(fileBuffer) {
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const meta = readMeta(workbook);
   const { context, present, rowCount } = parseContextSheet(workbook);
-  const templateType = meta.templateType || '';
+  let templateType = meta.templateType || '';
+  let isCustomerRaw = isCustomerRawTemplateType(templateType);
+  if (!isCustomerRaw && looksLikeCustomerRawWorkbook(workbook)) {
+    isCustomerRaw = true;
+    if (!templateType) templateType = CUSTOMER_RAW_TEMPLATE_TYPE;
+  }
   return {
     templateType,
     templateVersion: meta.templateVersion || '',
-    isCustomerRaw: isCustomerRawTemplateType(templateType),
+    isCustomerRaw,
     meta,
     context,
     contextSheetPresent: present,
@@ -151,6 +197,9 @@ function parseCustomerRawContext(fileBuffer) {
 module.exports = {
   parseCustomerRawContext,
   isCustomerRawTemplateType,
+  looksLikeCustomerRawWorkbook,
+  peekCustomerRawTemplateType,
+  normalizeTemplateTypeToken,
   CONTEXT_LABEL_ALIASES,
   readMeta,
   parseContextSheet,
