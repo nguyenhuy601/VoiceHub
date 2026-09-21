@@ -32,6 +32,8 @@ describe('isCustomerRawTemplateType', () => {
   it('accepts CustomerRaw variants', () => {
     assert.equal(isCustomerRawTemplateType('CustomerRaw'), true);
     assert.equal(isCustomerRawTemplateType('customer raw'), true);
+    assert.equal(isCustomerRawTemplateType('Customer Requirement Raw'), true);
+    assert.equal(isCustomerRawTemplateType('Customer_Requirement_Raw'), true);
     assert.equal(isCustomerRawTemplateType('SRS'), false);
     assert.equal(isCustomerRawTemplateType(''), false);
   });
@@ -168,5 +170,42 @@ describe('mapCustomerRawToProjectIntakeDraft', () => {
     assert.match(draft.description, /Platform/);
     assert.match(draft.description, /Web/);
     assert.equal(draft.priority, null);
+  });
+
+  it('detects Raw by sheet fingerprint when Meta.TemplateType missing', () => {
+    const {
+      peekCustomerRawTemplateType,
+      looksLikeCustomerRawWorkbook,
+    } = require('../src/utils/requirement/customerRawContextParse');
+    const buf = buildWorkbookBuffer([
+      {
+        name: CUSTOMER_RAW_SHEETS.META,
+        rows: [
+          ['Key', 'Value'],
+          ['TemplateVersion', CUSTOMER_RAW_TEMPLATE_VERSION],
+        ],
+      },
+      {
+        name: CUSTOMER_RAW_SHEETS.CONTEXT,
+        rows: [
+          ['Field', 'Value', 'Guidance'],
+          ['Project Name', 'Hoc Phan', ''],
+          ['Customer', 'Uni', ''],
+        ],
+      },
+      {
+        name: CUSTOMER_RAW_SHEETS.REQUIREMENT,
+        rows: [
+          ['Requirement ID', 'Title', 'Description'],
+          ['REQ-1', 'Đăng ký', 'Sinh viên đăng ký học phần'],
+        ],
+      },
+    ]);
+    const parsed = parseCustomerRawContext(buf);
+    assert.equal(parsed.isCustomerRaw, true);
+    assert.equal(peekCustomerRawTemplateType(buf), CUSTOMER_RAW_TEMPLATE_TYPE);
+    const XLSX = require('xlsx');
+    const wb = XLSX.read(buf, { type: 'buffer' });
+    assert.equal(looksLikeCustomerRawWorkbook(wb), true);
   });
 });

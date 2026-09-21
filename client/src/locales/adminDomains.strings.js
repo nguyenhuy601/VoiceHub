@@ -1163,6 +1163,9 @@ export const adminDomainStrings = {
         'File không phải Customer Requirement Raw — giữ file, nhập tay các trường.',
       wizardIntakeNoDraft: 'Không đọc được thông tin từ file — nhập tay các trường.',
       wizardIntakeAutofillOk: 'Đã điền thông tin từ Customer Requirement Raw.',
+      wizardIntakeStatusAutofilled: 'Đã tự điền thông tin từ file.',
+      wizardIntakeStatusKeptManual:
+        'File đã giữ để đính kèm — chưa tự điền; nhập tay các trường bên dưới.',
       wizardIntakeAutofillFail:
         'Không tự điền được (thiếu quyền tạo dự án / import Customer Raw, hoặc file lỗi) — nhập tay vẫn được.',
       wizardModeTitle: 'Analysis Mode',
@@ -3155,6 +3158,9 @@ export const adminDomainStrings = {
         'File is not Customer Requirement Raw — file kept; fill fields manually.',
       wizardIntakeNoDraft: 'Could not read fields from the file — fill them manually.',
       wizardIntakeAutofillOk: 'Filled project info from Customer Requirement Raw.',
+      wizardIntakeStatusAutofilled: 'Autofilled project info from this file.',
+      wizardIntakeStatusKeptManual:
+        'File kept as attachment — not autofilled; enter fields manually below.',
       wizardIntakeAutofillFail:
         'Could not autofill (missing create-project / Customer Raw import permission, or bad file) — you can still type fields.',
       wizardModeTitle: 'Analysis Mode',

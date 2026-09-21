@@ -6,19 +6,34 @@ import {
   validateIntakeFile,
 } from './projectWizardInputFiles';
 
-function FileRow({ file, onRemove, disabled }) {
+function FileRow({ file, onRemove, disabled, statusHint }) {
   return (
-    <li className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm">
-      <span className="min-w-0 truncate text-foreground">{file.name}</span>
-      <button
-        type="button"
-        className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-        onClick={onRemove}
-        disabled={disabled}
-        aria-label="Remove"
-      >
-        <X className="h-4 w-4" />
-      </button>
+    <li className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-foreground">{file.name}</span>
+        <button
+          type="button"
+          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+          onClick={onRemove}
+          disabled={disabled}
+          aria-label="Remove"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      {statusHint ? (
+        <p
+          className={`mt-1 text-[11px] ${
+            statusHint.tone === 'ok'
+              ? 'text-emerald-700 dark:text-emerald-400'
+              : statusHint.tone === 'warn'
+                ? 'text-amber-700 dark:text-amber-400'
+                : 'text-muted-foreground'
+          }`}
+        >
+          {statusHint.text}
+        </p>
+      ) : null}
     </li>
   );
 }
@@ -36,6 +51,7 @@ function UploadZone({
   hint,
   disabled,
   busy,
+  statusHint,
 }) {
   const inputRef = useRef(null);
   const list = multiple ? (Array.isArray(files) ? files : []) : files ? [files] : [];
@@ -89,6 +105,7 @@ function UploadZone({
               key={`${f.name}-${f.size}-${i}`}
               file={f}
               disabled={disabled}
+              statusHint={!multiple && i === 0 ? statusHint : null}
               onRemove={() => (multiple ? onRemoveAt(i) : onClearSingle())}
             />
           ))}
@@ -104,6 +121,7 @@ export default function ProjectWizardStepInputs({
   patchForm,
   onRequirementSelected,
   intakeBusy = false,
+  requirementIntakeStatus = 'idle',
   t,
 }) {
   const intake = form.intakeFiles || { requirement: null, customerFiles: [], references: [] };
@@ -114,6 +132,28 @@ export default function ProjectWizardStepInputs({
 
   const accept =
     '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.png,.jpg,.jpeg,.zip';
+
+  const requirementStatusHint =
+    requirementIntakeStatus === 'autofilled'
+      ? {
+          tone: 'ok',
+          text:
+            t('adminTasks.wizardIntakeStatusAutofilled') ||
+            'Đã tự điền thông tin từ file.',
+        }
+      : requirementIntakeStatus === 'kept_manual'
+        ? {
+            tone: 'warn',
+            text:
+              t('adminTasks.wizardIntakeStatusKeptManual') ||
+              'File đã giữ để đính kèm — chưa tự điền; nhập tay các trường bên dưới.',
+          }
+        : requirementIntakeStatus === 'parsing'
+          ? {
+              tone: 'muted',
+              text: t('adminTasks.wizardIntakeParsing') || 'Đang đọc file…',
+            }
+          : null;
 
   return (
     <div className="space-y-6">
@@ -135,6 +175,7 @@ export default function ProjectWizardStepInputs({
         files={intake.requirement}
         disabled={intakeBusy}
         busy={intakeBusy}
+        statusHint={requirementStatusHint}
         onAdd={(files) => {
           const file = files[0] || null;
           setIntake({ requirement: file });
@@ -142,7 +183,10 @@ export default function ProjectWizardStepInputs({
             onRequirementSelected(file);
           }
         }}
-        onClearSingle={() => setIntake({ requirement: null })}
+        onClearSingle={() => {
+          setIntake({ requirement: null });
+          if (typeof onRequirementSelected === 'function') onRequirementSelected(null);
+        }}
         t={t}
       />
 

@@ -96,12 +96,15 @@ export default function useCreateProjectWizard({
   const [catalogRoles, setCatalogRoles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [intakeBusy, setIntakeBusy] = useState(false);
+  /** idle | parsing | autofilled | kept_manual — chip file ≠ autofill success */
+  const [requirementIntakeStatus, setRequirementIntakeStatus] = useState('idle');
 
   useEffect(() => {
     setStep(0);
     setSlideDir('forward');
     setForm(emptyForm(initialValues || {}));
     setIntakeBusy(false);
+    setRequirementIntakeStatus('idle');
   }, [organizationId, resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -141,9 +144,14 @@ export default function useCreateProjectWizard({
 
   const applyRequirementFile = useCallback(
     async (file) => {
-      if (!file || !organizationId) return;
+      if (!file) {
+        setRequirementIntakeStatus('idle');
+        return;
+      }
+      if (!organizationId) return;
       const name = String(file.name || '').toLowerCase();
       if (!name.endsWith('.xlsx')) {
+        setRequirementIntakeStatus('kept_manual');
         toast.error(
           t('adminTasks.wizardIntakeNeedXlsx') ||
             'Chọn file Customer Requirement Raw (.xlsx) để tự điền.'
@@ -151,14 +159,21 @@ export default function useCreateProjectWizard({
         return;
       }
       setIntakeBusy(true);
+      setRequirementIntakeStatus('parsing');
       try {
         const res = await requirementAPI.previewImport(organizationId, file);
         const data = unwrap(res);
         const templateType = String(data?.templateType || '')
           .trim()
           .toLowerCase()
-          .replace(/\s+/g, '');
-        if (templateType !== 'customerraw') {
+          .replace(/[^a-z0-9]/g, '');
+        const isCustomerRaw =
+          templateType === 'customerraw' ||
+          templateType === 'customerrequirementraw' ||
+          templateType.endsWith('customerraw') ||
+          templateType.includes('customerrequirementraw');
+        if (!isCustomerRaw) {
+          setRequirementIntakeStatus('kept_manual');
           toast.error(
             t('adminTasks.wizardIntakeNotCustomerRaw') ||
               'File không phải Customer Requirement Raw — giữ file, nhập tay các trường.'
@@ -167,6 +182,7 @@ export default function useCreateProjectWizard({
         }
         const draft = data?.projectIntakeDraft;
         if (!draft || typeof draft !== 'object') {
+          setRequirementIntakeStatus('kept_manual');
           toast.error(
             t('adminTasks.wizardIntakeNoDraft') ||
               'Không đọc được thông tin từ file — nhập tay các trường.'
@@ -178,10 +194,12 @@ export default function useCreateProjectWizard({
           if (!Object.keys(partial).length) return prev;
           return { ...prev, ...partial };
         });
+        setRequirementIntakeStatus('autofilled');
         toast.success(
           t('adminTasks.wizardIntakeAutofillOk') || 'Đã điền thông tin từ Customer Requirement Raw.'
         );
       } catch (error) {
+        setRequirementIntakeStatus('kept_manual');
         toast.error(
           resolveApiErrorMessage(error, {
             t,
@@ -442,6 +460,7 @@ export default function useCreateProjectWizard({
     catalogRoles,
     busy,
     intakeBusy,
+    requirementIntakeStatus,
     applyRequirementFile,
     goNext,
     goBack,

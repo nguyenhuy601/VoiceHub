@@ -270,7 +270,7 @@ async function previewCustomerRawIntake({ userId, organizationId, buffer, fileNa
     throw parseErr;
   }
 
-  if (!isCustomerRawTemplateType(parsed.templateType)) {
+  if (!isCustomerRawTemplateType(parsed.templateType) && !parsed.isCustomerRaw) {
     const typeErr = new Error('File không phải Customer Requirement Raw');
     typeErr.statusCode = 400;
     typeErr.errorCode = 'REQ_IMPORT_NOT_CUSTOMER_RAW';
@@ -354,10 +354,15 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     parseAnalysisWorkbook,
   } = require('../utils/requirement/requirementAnalysisTemplateParse');
   const { validateAnalysisWorkbook } = require('../utils/requirement/requirementAnalysisTemplateValidate');
-  const { isCustomerRawTemplateType } = require('../utils/requirement/customerRawContextParse');
+  const {
+    isCustomerRawTemplateType,
+    peekCustomerRawTemplateType,
+  } = require('../utils/requirement/customerRawContextParse');
 
   // Peek before authz: Customer Raw uses create-project OR import; Analysis/SRS stay import-only.
-  const peekedType = peekWorkbookTemplateType(buffer);
+  // Prefer Customer Raw peek (Meta aliases + sheet fingerprint) — analysis peek alone misses filled Raw files.
+  const peekedType =
+    peekCustomerRawTemplateType(buffer) || peekWorkbookTemplateType(buffer);
   if (isCustomerRawTemplateType(peekedType)) {
     await assertRequirementImportOrCreateProjectScope({ userId, organizationId });
     return previewCustomerRawIntake({ userId, organizationId, buffer, fileName });
