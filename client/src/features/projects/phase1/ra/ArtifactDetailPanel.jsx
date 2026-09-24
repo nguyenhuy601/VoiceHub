@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import ReviewNoteDialog from '../../../../components/Shared/ReviewNoteDialog';
 import { useAppStrings } from '../../../../locales/appStrings';
 import {
   buildArtifactFormState,
@@ -10,12 +11,16 @@ import {
 } from './artifactFieldCatalog';
 import { listArtifactReviewTimeline } from './artifactReviewTimeline';
 import { formatActorRef } from './srsEmptyAudit';
-import { kindChipClass, statusBadgeClass } from '../shared/phase1UiTokens';
+import { kindChipClass, statusBadgeClass, isTechFocusKind, techFocusBadgeClass, formatPhase1StatusLabel } from '../shared/phase1UiTokens';
 
 const inputClass =
   'mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60';
 const textareaClass =
   'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm disabled:opacity-60';
+
+function artifactServerStamp(artifact) {
+  return `${String(artifact?.updatedAt || '')}|${String(artifact?.version ?? 1)}`;
+}
 
 /**
  * Detail / edit panel for AnalysisArtifact (Wave 3 form + Wave 4 related + Wave 5 audit + DEC R1–R4).
@@ -27,46 +32,68 @@ export default function ArtifactDetailPanel({
   saving = false,
   transitioning = false,
   nextStatus = null,
+  canRequestChanges = false,
+  canReject = false,
   relatedItems = [],
   relatedLoading = false,
   onClose,
+  onCancel,
   onSave,
   onTransition,
   onOpenRelated,
+  /** When true, fields are read-only (side peek). Edit happens in Modal. */
+  viewOnly = false,
 }) {
   const { t } = useAppStrings();
   const catalog = useMemo(() => getArtifactFieldCatalog(kind), [kind]);
-  const contentEditable = canEdit && isArtifactContentEditable(artifact?.status);
+  const contentEditable =
+    !viewOnly && canEdit && isArtifactContentEditable(artifact?.status);
   const artifactId = String(artifact?.id || artifact?._id || '');
+  const serverStamp = artifactServerStamp(artifact);
   const visibleStructured = useMemo(
     () => listVisibleStructuredFields(kind, artifact),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [kind, artifactId, artifact?.updatedAt, artifact?.version, artifact?.structured]
+    [kind, artifactId, serverStamp, artifact?.structured]
   );
   const visibleTop = useMemo(
     () => listVisibleTopFields(kind, artifact),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [kind, artifactId, artifact?.updatedAt, artifact?.version, artifact?.title, artifact?.summary, artifact?.body]
+    [kind, artifactId, serverStamp, artifact?.title, artifact?.summary, artifact?.body]
   );
   const reviewTimeline = useMemo(() => listArtifactReviewTimeline(artifact), [artifact]);
   const baseline = useMemo(
     () => buildArtifactFormState(artifact, kind),
-    // reset when switching artifact or server data version
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [artifactId, artifact?.updatedAt, artifact?.version, kind]
+    [artifactId, serverStamp, kind]
   );
 
   const [form, setForm] = useState(baseline);
+  const [noteDialog, setNoteDialog] = useState(null);
+  const dirtyRef = useRef(false);
+  const artifactIdRef = useRef(artifactId);
 
   useEffect(() => {
-    setForm(baseline);
-  }, [baseline]);
+    const switched = artifactIdRef.current !== artifactId;
+    artifactIdRef.current = artifactId;
+    // Đổi artifact → hydrate lại. Cùng artifact + stamp mới: chỉ sync khi form sạch
+    // (tránh refetch/focus làm mất edit đang gõ → nút Lưu không sáng).
+    if (switched || !dirtyRef.current) {
+      setForm(baseline);
+    }
+  }, [baseline, artifactId]);
 
   const dirtyBody = useMemo(
     () => buildArtifactUpdateBody(form, baseline, kind),
     [form, baseline, kind]
   );
   const isDirty = Object.keys(dirtyBody).length > 0;
+  dirtyRef.current = isDirty;
+  const canSave =
+    contentEditable &&
+    isDirty &&
+    !saving &&
+    !transitioning &&
+    Boolean(String(form.top.title || '').trim());
 
   const setTop = (key, value) => {
     setForm((prev) => ({ ...prev, top: { ...prev.top, [key]: value } }));
@@ -117,6 +144,11 @@ export default function ArtifactDetailPanel({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className={kindChipClass(kind)}>{kind}</span>
+            {isTechFocusKind(kind) ? (
+              <span className={techFocusBadgeClass()} title={t('workspace.phase1TechFocusHint')}>
+                {t('workspace.phase1TechFocusBadge')}
+              </span>
+            ) : null}
             <p className="font-mono text-[11px] text-muted-foreground">{artifact?.externalKey}</p>
             {Array.isArray(artifact?.structured?.evidenceIds) &&
             artifact.structured.evidenceIds.length > 0 ? (
@@ -144,13 +176,19 @@ export default function ArtifactDetailPanel({
               version: artifact?.version || 1,
             })}
           >
-            {artifact?.status} · {t('workspace.phase1CurrentVersion', { version: artifact?.version || 1 })}
+            {formatPhase1StatusLabel(artifact?.status, t)} ·{' '}
+            {t('workspace.phase1CurrentVersion', { version: artifact?.version || 1 })}
           </span>
           {!contentEditable && canEdit ? (
             <p className="mt-1 text-[11px] text-muted-foreground">
               {String(artifact?.status) === 'approved'
                 ? t('workspace.phase1ApprovedUseCrHint')
                 : t('workspace.phase1EditOnlyDraftHint')}
+            </p>
+          ) : null}
+          {contentEditable && isDirty ? (
+            <p className="mt-1 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+              {t('workspace.phase1UnsavedChanges')}
             </p>
           ) : null}
         </div>
@@ -309,33 +347,93 @@ export default function ArtifactDetailPanel({
         </div>
       </div>
 
-      {contentEditable || nextStatus ? (
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-3 py-2">
+      {contentEditable || nextStatus || canRequestChanges || canReject ? (
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-[#FAFAFA] px-4 py-3 dark:bg-slate-900/50">
           {contentEditable ? (
             <>
               <button
                 type="button"
-                className="rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-50"
-                disabled={!isDirty || saving || transitioning}
-                onClick={() => setForm(baseline)}
+                className="rounded-full border border-[#D9D9D9] bg-white px-4 py-1.5 text-sm text-[#595959] hover:bg-[#FAFAFA] disabled:opacity-50"
+                disabled={saving || transitioning}
+                onClick={() => {
+                  if (typeof onCancel === 'function') onCancel();
+                  else setForm(baseline);
+                }}
               >
                 {t('common.cancel')}
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm disabled:opacity-50"
-                disabled={!isDirty || saving || transitioning || !String(form.top.title || '').trim()}
-                onClick={() => onSave?.(dirtyBody)}
-                title={t('workspace.phase1ValidateVsHitlHint')}
+                className={`rounded-full px-4 py-1.5 text-sm font-semibold disabled:opacity-50 ${
+                  canSave
+                    ? 'border border-[#1677FF] bg-white text-[#1677FF] hover:bg-[#E6F4FF]'
+                    : 'border border-[#D9D9D9] bg-white text-[#BFBFBF]'
+                }`}
+                disabled={!canSave}
+                onClick={() => {
+                  if (!canSave || !dirtyBody || !Object.keys(dirtyBody).length) return;
+                  onSave?.(dirtyBody);
+                }}
+                title={
+                  isDirty
+                    ? t('workspace.phase1UnsavedChanges')
+                    : t('workspace.phase1ValidateVsHitlHint')
+                }
               >
                 {saving ? t('common.saving') : t('common.save')}
               </button>
             </>
+          ) : (
+            <button
+              type="button"
+              className="rounded-full border border-[#D9D9D9] bg-white px-4 py-1.5 text-sm text-[#595959] hover:bg-[#FAFAFA]"
+              onClick={onClose}
+            >
+              {t('common.close')}
+            </button>
+          )}
+          {canRequestChanges && onTransition ? (
+            <button
+              type="button"
+              className="rounded-full border border-orange-400/60 bg-white px-4 py-1.5 text-sm text-orange-800 dark:text-orange-200 disabled:opacity-50"
+              disabled={saving || transitioning || isDirty}
+              onClick={() =>
+                setNoteDialog({
+                  variant: 'request_changes',
+                  toStatus: 'changes_requested',
+                  title: t('workspace.phase1RequestChangesTitle'),
+                  description: t('workspace.phase1RequestChangesDescription'),
+                  placeholder: t('workspace.phase1RequestChangesPlaceholder'),
+                  submitLabel: t('workspace.phase1RequestChanges'),
+                })
+              }
+            >
+              {t('workspace.phase1RequestChanges')}
+            </button>
+          ) : null}
+          {canReject && onTransition ? (
+            <button
+              type="button"
+              className="rounded-full border border-destructive/40 bg-white px-4 py-1.5 text-sm text-destructive disabled:opacity-50"
+              disabled={saving || transitioning || isDirty}
+              onClick={() =>
+                setNoteDialog({
+                  variant: 'reject',
+                  toStatus: 'rejected',
+                  title: t('workspace.phase1RejectTitle'),
+                  description: t('workspace.phase1RejectDescription'),
+                  placeholder: t('workspace.phase1ImportSetRejectNotePlaceholder'),
+                  submitLabel: t('workspace.phase1ConfirmReject'),
+                })
+              }
+            >
+              {t('workspace.phase1Reject')}
+            </button>
           ) : null}
           {nextStatus && onTransition ? (
             <button
               type="button"
-              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+              className="rounded-full bg-[#1677FF] px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[#0958D9] disabled:opacity-50"
               disabled={saving || transitioning || isDirty}
               title={
                 isDirty
@@ -348,11 +446,27 @@ export default function ArtifactDetailPanel({
                 ? t('common.saving')
                 : String(artifact?.status) === 'draft'
                   ? t('workspace.phase1SubmitForReview')
-                  : t('workspace.phase1Approve')}
+                  : String(artifact?.status) === 'changes_requested'
+                    ? t('workspace.phase1ResubmitReview')
+                    : t('workspace.phase1Approve')}
             </button>
           ) : null}
         </div>
       ) : null}
+
+      <ReviewNoteDialog
+        isOpen={Boolean(noteDialog)}
+        onClose={() => setNoteDialog(null)}
+        variant={noteDialog?.variant || 'generic'}
+        title={noteDialog?.title || ''}
+        description={noteDialog?.description || ''}
+        placeholder={noteDialog?.placeholder || ''}
+        submitLabel={noteDialog?.submitLabel}
+        onSubmit={(note) => {
+          if (!noteDialog?.toStatus || !onTransition) return;
+          onTransition(noteDialog.toStatus, note);
+        }}
+      />
     </div>
   );
 }

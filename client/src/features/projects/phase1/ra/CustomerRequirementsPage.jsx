@@ -1,19 +1,35 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Upload, Download, Trash2, RotateCcw, CheckCircle2 } from 'lucide-react';
+import {
+  Upload,
+  Download,
+  Trash2,
+  RotateCcw,
+  CheckCircle2,
+  ChevronRight,
+  FileStack,
+  HelpCircle,
+} from 'lucide-react';
 import ConfirmDialog from '../../../../components/Shared/ConfirmDialog';
+import ReviewNoteDialog from '../../../../components/Shared/ReviewNoteDialog';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { requirementAPI } from '../../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
+import Phase1CollapsibleCard from '../shared/Phase1CollapsibleCard';
 import Phase1SplitWorkspace from '../shared/Phase1SplitWorkspace';
-import {
-  PHASE1_DENSE_ROW,
-  PHASE1_DENSE_ROW_SELECTED,
-} from '../shared/phase1ListDensity';
-import { statusBadgeClass, statusRowTintClass } from '../shared/phase1UiTokens';
+import ImportSetUploadWizard from './ImportSetUploadWizard';
+import ImportSetFileLibrary from './ImportSetFileLibrary';
+import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
+import { statusBadgeClass, statusRowTintClass, formatPhase1StatusLabel } from '../shared/phase1UiTokens';
+
+const SECTION_SHELL =
+  'overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950';
+const SECTION_HEAD =
+  'border-b border-[#E8E8E8] bg-[#E8F4FC] px-3.5 py-2.5 dark:border-slate-700 dark:bg-slate-800/80';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -59,23 +75,35 @@ function SetGateProgress({ set, t }) {
   const review = set?.review || {};
   const steps = [
     { key: 'ba', label: t('workspace.phase1SetGateBa'), done: Boolean(review.ba?.userId) },
-    { key: 'tech', label: t('workspace.phase1SetGateTech'), done: Boolean(review.tech?.userId) },
+    {
+      key: 'tech',
+      label: t('workspace.phase1SetGateTech'),
+      done: Boolean(review.tech?.userId || review.tech?.skipped),
+    },
     { key: 'po', label: t('workspace.phase1SetGatePo'), done: Boolean(review.po?.userId) },
   ];
   return (
-    <div className="mt-2 flex flex-wrap gap-2">
-      {steps.map((s) => (
-        <span
+    <ol className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-2">
+      {steps.map((s, idx) => (
+        <li
           key={s.key}
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
-            s.done ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+          className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg border px-2.5 py-2 text-xs font-semibold ${
+            s.done
+              ? 'border-[#91CAFF] bg-[#E6F4FF] text-[#1677FF]'
+              : 'border-[#E8E8E8] bg-[#FAFAFA] text-muted-foreground'
           }`}
         >
-          {s.done ? <CheckCircle2 size={12} /> : null}
-          {s.label}
-        </span>
+          <span
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] ${
+              s.done ? 'bg-[#1677FF] text-white' : 'bg-[#E8E8E8] text-[#8C8C8C]'
+            }`}
+          >
+            {s.done ? <CheckCircle2 size={12} aria-hidden /> : idx + 1}
+          </span>
+          <span className="truncate">{s.label}</span>
+        </li>
       ))}
-    </div>
+    </ol>
   );
 }
 
@@ -86,10 +114,31 @@ function approveLabelKey(nextGate) {
   return 'workspace.phase1Approve';
 }
 
+/** Cổng duyệt Import Set ≠ quyền upload (BA). */
+function canApproveImportSetGate(nextGate, capabilities) {
+  if (!nextGate || !capabilities) return false;
+  if (nextGate === 'tech_review') return Boolean(capabilities.canReviewAnalysisBa);
+  if (nextGate === 'po_review') return Boolean(capabilities.canReviewAnalysisTech);
+  if (nextGate === 'approved') return Boolean(capabilities.canReviewAnalysisPo);
+  return false;
+}
+
+function FileMetaRow({ label, filename, missingLabel }) {
+  return (
+    <div className="rounded-lg border border-[#E8E8E8] bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#8C8C8C]">{label}</p>
+      <p className="mt-0.5 break-words text-xs font-medium text-[#262626] dark:text-slate-100">
+        {filename || missingLabel}
+      </p>
+    </div>
+  );
+}
+
 function ImportSetDetail({
   set,
   t,
   canMutate,
+  canGate,
   onTrash,
   onRestore,
   onGateTransition,
@@ -98,110 +147,213 @@ function ImportSetDetail({
   gatePending,
   onClose,
 }) {
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const isTrash = set.status === 'trashed';
   const isPending = set.status === 'pending_review';
+  const isRejected = set.status === 'rejected';
   const nextGate = isPending ? nextImportSetTransition(set) : null;
+  const artifactCount = set.artifactCount ?? 0;
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase text-muted-foreground">
-            {t('workspace.phase1ImportSetStatus')}
-          </p>
-          <span className={`mt-1 ${statusBadgeClass(set.status)}`}>{set.status}</span>
-          {isPending ? (
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {t('workspace.phase1ImportSetWaitingGate')}
+    <div className="flex h-full min-h-0 flex-col bg-[#F5F5F5] dark:bg-slate-950">
+      {/* Header */}
+      <div className="shrink-0 border-b border-[#C9DFF0] bg-[#E8F4FC] px-3.5 py-3 dark:border-slate-700 dark:bg-slate-800/80">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1677FF]">
+              {t('workspace.phase1ImportSetDetailTitle')}
             </p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <span className={statusBadgeClass(set.status)}>
+                {formatPhase1StatusLabel(set.status, t)}
+              </span>
+              {isPending ? (
+                <span className="text-[11px] text-muted-foreground">
+                  {t('workspace.phase1ImportSetWaitingGateShort')}
+                </span>
+              ) : null}
+              {isRejected ? (
+                <span className="text-[11px] text-amber-800 dark:text-amber-200">
+                  {t('workspace.phase1ImportSetRejectedStatusHint')}
+                </span>
+              ) : null}
+            </div>
+          </div>
+          {onClose ? (
+            <button
+              type="button"
+              className="shrink-0 rounded-lg border border-[#D9D9D9] bg-white px-2.5 py-1 text-xs font-medium text-[#595959] hover:bg-[#FAFAFA]"
+              onClick={onClose}
+            >
+              {t('common.close')}
+            </button>
           ) : null}
         </div>
-        {onClose ? (
-          <button
-            type="button"
-            className="rounded border border-border px-2 py-0.5 text-xs"
-            onClick={onClose}
-          >
-            {t('common.close')}
-          </button>
-        ) : null}
       </div>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3 text-sm">
-        {!isTrash ? (
-          <p className="rounded-md border border-border/80 bg-muted/20 p-2 text-[11px] text-muted-foreground">
-            {t('workspace.phase1ImportSetDraftFixHint')}
-          </p>
-        ) : null}
-        <p className="text-xs text-muted-foreground">
-          Raw: {set.rawDocument?.filename || '—'}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Analysis: {set.analysisDocument?.filename || '—'}
-        </p>
-        <p className="text-xs text-muted-foreground">artifacts={set.artifactCount ?? 0}</p>
-        {isPending ? (
-          <>
-            <p className="text-xs text-muted-foreground">{t('workspace.phase1SetGateProgress')}</p>
-            <SetGateProgress set={set} t={t} />
-            <p className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-[11px] text-muted-foreground">
-              {t('workspace.phase1ImportStaged')}
+
+      <div className="scrollbar-overlay min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+        {/* Files */}
+        <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <div className="border-b border-[#E8E8E8] bg-[#E8F4FC] px-3 py-2 dark:border-slate-700 dark:bg-slate-800/80">
+            <h3 className="text-xs font-semibold text-[#262626] dark:text-white">
+              {t('workspace.phase1ImportSetFilesSection')}
+            </h3>
+          </div>
+          <div className="space-y-2 p-3">
+            <FileMetaRow
+              label={t('workspace.phase1DocClassRaw')}
+              filename={set.rawDocument?.filename}
+              missingLabel={t('workspace.phase1ImportSetNoRaw')}
+            />
+            <FileMetaRow
+              label={t('workspace.phase1DocClassAnalysis')}
+              filename={set.analysisDocument?.filename}
+              missingLabel={t('workspace.phase1ImportSetNoAnalysis')}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              {t('workspace.phase1ImportSetArtifactCount', { count: artifactCount })}
             </p>
-            {/* Nút Duyệt đặt ngay dưới tiến trình — tránh tưởng 3 pill BA/Tech/PO là nút bấm */}
-            {canMutate && nextGate && onGateTransition ? (
-              <div className="flex flex-wrap gap-2 pt-1">
+          </div>
+        </section>
+
+        {isRejected && !isTrash ? (
+          <section className="overflow-hidden rounded-xl border border-destructive/30 bg-destructive/5 shadow-sm">
+            <div className="space-y-2 p-3">
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {t('workspace.phase1ImportSetRejectedNextStep')}
+              </p>
+              {canMutate && onTrash ? (
                 <button
                   type="button"
-                  disabled={gatePending}
-                  className="rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
-                  onClick={() => onGateTransition(set.id, nextGate)}
+                  disabled={trashPending}
+                  className="inline-flex items-center gap-1 rounded-lg border border-destructive/40 bg-white px-2.5 py-1.5 text-xs font-semibold text-destructive disabled:opacity-50"
+                  onClick={() => onTrash(set.id)}
                 >
-                  {t(approveLabelKey(nextGate))}
+                  <Trash2 size={14} aria-hidden />
+                  {t('workspace.phase1TrashAfterReject')}
                 </button>
-                <button
-                  type="button"
-                  disabled={gatePending}
-                  className="rounded border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive disabled:opacity-50"
-                  onClick={() => onGateTransition(set.id, 'rejected')}
-                >
-                  {t('workspace.phase1Reject')}
-                </button>
-              </div>
-            ) : null}
-          </>
+              ) : null}
+            </div>
+          </section>
         ) : null}
+
+        {/* Gate progress + actions */}
+        {isPending ? (
+          <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div className="border-b border-[#E8E8E8] bg-[#E8F4FC] px-3 py-2 dark:border-slate-700 dark:bg-slate-800/80">
+              <h3 className="text-xs font-semibold text-[#262626] dark:text-white">
+                {t('workspace.phase1SetGateProgress')}
+              </h3>
+            </div>
+            <div className="space-y-3 p-3">
+              <SetGateProgress set={set} t={t} />
+              <p className="rounded-lg border border-amber-400/35 bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
+                {t('workspace.phase1ImportStagedShort')}
+              </p>
+              {canGate && nextGate && onGateTransition ? (
+                <div className="flex flex-wrap gap-2 border-t border-[#E8E8E8] pt-3 dark:border-slate-700">
+                  <button
+                    type="button"
+                    disabled={gatePending || rejectDialogOpen}
+                    className="rounded-lg bg-[#1677FF] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#0958D9] disabled:opacity-50"
+                    onClick={() => onGateTransition(set.id, nextGate)}
+                  >
+                    {t(approveLabelKey(nextGate))}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={gatePending}
+                    className="rounded-lg border border-destructive/40 bg-destructive/5 px-3.5 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                    onClick={() => setRejectDialogOpen(true)}
+                  >
+                    {t('workspace.phase1Reject')}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
         {isTrash ? (
-          <p className="text-xs text-muted-foreground">
-            {set.trashedAt ? new Date(set.trashedAt).toLocaleString() : '—'}
-            {set.retentionDaysLeft != null
-              ? ` · ${t('workspace.phase1TrashRetentionDays', { days: set.retentionDaysLeft })}`
-              : ''}
-          </p>
+          <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <p className="text-[11px] text-muted-foreground">
+              {set.trashedAt ? new Date(set.trashedAt).toLocaleString() : '—'}
+              {set.retentionDaysLeft != null
+                ? ` · ${t('workspace.phase1TrashRetentionDays', { days: set.retentionDaysLeft })}`
+                : ''}
+            </p>
+          </section>
+        ) : null}
+
+        {/* Help — collapsible, not permanent wall of text */}
+        {!isTrash ? (
+          <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-2 border-b border-[#E8E8E8] bg-[#E8F4FC] px-3 py-2 text-left dark:border-slate-700 dark:bg-slate-800/80"
+              onClick={() => setHelpOpen((v) => !v)}
+              aria-expanded={helpOpen}
+            >
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#262626] dark:text-white">
+                <HelpCircle size={14} className="text-[#1677FF]" aria-hidden />
+                {t('workspace.phase1ImportSetHelpTitle')}
+              </span>
+              <span className="text-xs text-muted-foreground">{helpOpen ? '▾' : '▸'}</span>
+            </button>
+            {helpOpen ? (
+              <ul className="list-disc space-y-1.5 px-3 py-3 pl-7 text-[11px] leading-relaxed text-muted-foreground">
+                <li>{t('workspace.phase1ImportSetDraftFixHint')}</li>
+                {isPending ? <li>{t('workspace.phase1ImportSetRejectVsTrashHint')}</li> : null}
+                {isPending ? <li>{t('workspace.phase1ImportSetWaitingGate')}</li> : null}
+              </ul>
+            ) : (
+              <p className="px-3 py-2 text-[11px] text-muted-foreground">
+                {t('workspace.phase1ImportSetHelpSummary')}
+              </p>
+            )}
+          </section>
         ) : null}
       </div>
+
       {canMutate ? (
-        <div className="flex flex-wrap gap-2 border-t border-border px-3 py-2">
+        <div className="flex flex-wrap gap-2 border-t border-[#E8E8E8] bg-white px-3.5 py-2.5 dark:border-slate-700 dark:bg-slate-900">
           {isTrash ? (
             <button
               type="button"
               disabled={restorePending}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium"
+              className="inline-flex items-center gap-1 rounded-lg border border-[#D9D9D9] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#595959] disabled:opacity-50"
               onClick={() => onRestore(set.id)}
             >
-              <RotateCcw size={14} />
+              <RotateCcw size={14} aria-hidden />
               {t('workspace.phase1RestoreImportSet')}
             </button>
           ) : (
             <button
               type="button"
               disabled={trashPending}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-medium text-destructive"
+              className="inline-flex items-center gap-1 rounded-lg border border-destructive/35 bg-destructive/5 px-2.5 py-1.5 text-xs font-semibold text-destructive disabled:opacity-50"
               onClick={() => onTrash(set.id)}
             >
-              <Trash2 size={14} />
+              <Trash2 size={14} aria-hidden />
               {t('workspace.phase1TrashImportSet')}
             </button>
           )}
         </div>
       ) : null}
+
+      <ReviewNoteDialog
+        isOpen={rejectDialogOpen}
+        onClose={() => setRejectDialogOpen(false)}
+        variant="reject"
+        title={t('workspace.phase1RejectTitle')}
+        description={t('workspace.phase1RejectDescription')}
+        placeholder={t('workspace.phase1ImportSetRejectNotePlaceholder')}
+        submitLabel={t('workspace.phase1ConfirmReject')}
+        onSubmit={(note) => {
+          onGateTransition?.(set.id, 'rejected', note);
+        }}
+      />
     </div>
   );
 }
@@ -211,6 +363,7 @@ function ImportSetDetail({
  */
 export default function CustomerRequirementsPage({ projectId, organizationId, readOnly = false }) {
   const { t } = useAppStrings();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const rawRef = useRef(null);
   const analysisRef = useRef(null);
@@ -221,6 +374,7 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
   const [rollbackSetId, setRollbackSetId] = useState(null);
   const [selectedSetId, setSelectedSetId] = useState(null);
   const [listFilter, setListFilter] = useState('live'); // live | trash
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const canUpload = capabilities.canImportAnalysis && !readOnly;
   const canDownload = Boolean(organizationId);
@@ -370,13 +524,18 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
   });
 
   const gateMut = useMutation({
-    mutationFn: ({ setId, toStatus }) =>
-      analysisAPI.transitionImportSet(projectId, setId, { toStatus }),
+    mutationFn: ({ setId, toStatus, note }) =>
+      analysisAPI.transitionImportSet(projectId, setId, {
+        toStatus,
+        ...(note ? { note } : {}),
+      }),
     onSuccess: (res, vars) => {
       const data = unwrap(res);
       const st = String(data?.status || '');
       if (st === 'active') {
         toast.success(t('workspace.phase1ImportSetGateOkActive'));
+      } else if (vars?.toStatus === 'rejected' || st === 'rejected') {
+        toast.success(t('workspace.phase1ImportSetRejectedToast'));
       } else if (vars?.toStatus === 'tech_review') {
         toast.success(t('workspace.phase1ImportSetGateOkBa'));
       } else if (vars?.toStatus === 'po_review') {
@@ -416,192 +575,254 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
   );
 
   const listPane = (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h1 className="text-base font-semibold text-foreground">
-            {t('workspace.phaseNavCustomerDocuments')}
-          </h1>
-          <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
-            {t('workspace.phase1CustomerDocsHint')}
-          </p>
-          <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
-            {t('workspace.phase1ImportSetDraftFixHint')}
-          </p>
+    <div className="scrollbar-overlay flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
+      {/* Header + actions */}
+      <section className={SECTION_SHELL}>
+        <div className={SECTION_HEAD}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-sm font-bold text-[#262626] dark:text-white">
+                {t('workspace.phaseNavCustomerDocuments')}
+              </h1>
+              <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-muted-foreground">
+                {t('workspace.phase1CustomerDocsHintShort')}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {canDownload ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[#D9D9D9] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#595959] disabled:opacity-50"
+                    onClick={() => onDownloadTemplate('raw', 'Customer_Requirement_Raw.xlsx')}
+                  >
+                    <Download size={12} aria-hidden />
+                    {t('workspace.phase1DownloadRawTemplate')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[#D9D9D9] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#595959] disabled:opacity-50"
+                    onClick={() =>
+                      onDownloadTemplate('analysis', 'Requirement_Analysis.xlsx')
+                    }
+                  >
+                    <Download size={12} aria-hidden />
+                    {t('workspace.phase1DownloadAnalysisTemplate')}
+                  </button>
+                </>
+              ) : null}
+              {canUpload ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="inline-flex items-center gap-1 rounded-lg bg-[#1677FF] px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-50"
+                    onClick={() => setWizardOpen(true)}
+                  >
+                    <Upload size={12} aria-hidden />
+                    {t('workspace.phase1ImportWizardOpen')}
+                  </button>
+                  <input
+                    ref={rawRef}
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = '';
+                      if (f) onAttachRaw(f);
+                    }}
+                  />
+                  <input
+                    ref={analysisRef}
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = '';
+                      if (f) onPickAnalysis(f);
+                    }}
+                  />
+                </>
+              ) : null}
+            </div>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {canDownload ? (
-            <>
-              <button
-                type="button"
-                disabled={busy}
-                className="inline-flex items-center gap-1 rounded border border-border bg-surface px-2 py-1 text-[11px] font-medium disabled:opacity-50"
-                onClick={() => onDownloadTemplate('raw', 'Customer_Requirement_Raw.xlsx')}
-              >
-                <Download size={12} />
-                {t('workspace.phase1DownloadRawTemplate')}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                className="inline-flex items-center gap-1 rounded border border-border bg-surface px-2 py-1 text-[11px] font-medium disabled:opacity-50"
-                onClick={() => onDownloadTemplate('analysis', 'Requirement_Analysis.xlsx')}
-              >
-                <Download size={12} />
-                {t('workspace.phase1DownloadAnalysisTemplate')}
-              </button>
-            </>
+      </section>
+
+      <Phase1CollapsibleCard
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            <HelpCircle size={14} className="text-[#1677FF]" aria-hidden />
+            {t('workspace.phase1CustomerDocsHelpTitle')}
+          </span>
+        }
+        summary={t('workspace.phase1CustomerDocsHelpSummary')}
+        defaultOpen={false}
+        toneClass="border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950"
+      >
+        <ul className="list-disc space-y-1.5 pl-4 text-[11px] leading-relaxed text-muted-foreground">
+          <li>{t('workspace.phase1CustomerDocsHint')}</li>
+          <li>{t('workspace.phase1ImportSetDraftFixHint')}</li>
+          <li>{t('workspace.phase1FileLibraryHint')}</li>
+          {activeSet && listFilter === 'live' ? (
+            <li>{t('workspace.phase1DoubleGateHint')}</li>
           ) : null}
-          {canUpload ? (
-            <>
-              <input
-                ref={rawRef}
-                type="file"
-                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  e.target.value = '';
-                  if (f) onAttachRaw(f);
-                }}
-              />
-              <input
-                ref={analysisRef}
-                type="file"
-                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  e.target.value = '';
-                  if (f) onPickAnalysis(f);
-                }}
-              />
-              <button
-                type="button"
-                disabled={busy || hasDraftRaw}
-                title={hasDraftRaw ? t('workspace.phase1RawAlreadyAttached') : undefined}
-                className="inline-flex items-center gap-1 rounded border border-border bg-surface px-2 py-1 text-[11px] font-medium disabled:opacity-50"
-                onClick={() => rawRef.current?.click()}
-              >
-                <Upload size={12} />
-                {busy ? t('common.loading') : t('workspace.phase1UploadRaw')}
-              </button>
-              <button
-                type="button"
-                disabled={busy || !hasDraftRaw}
-                title={!hasDraftRaw ? t('workspace.phase1NeedRawFirst') : undefined}
-                className="inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-50"
-                onClick={() => analysisRef.current?.click()}
-              >
-                <Upload size={12} />
-                {t('workspace.phase1UploadAnalysis')}
-              </button>
-            </>
-          ) : null}
-        </div>
-      </div>
+        </ul>
+      </Phase1CollapsibleCard>
 
       {preview ? (
-        <div className="rounded-lg border border-border bg-surface p-2.5">
-          <h2 className="text-xs font-semibold">{t('workspace.phase1ImportPreview')}</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {preview.pendingFileName || preview.fileName} · errors={preview.errorCount} ·
-            warnings={preview.warningCount}
-          </p>
-          {Array.isArray(preview.issues) && preview.issues.length ? (
-            <ul className="mt-1 max-h-24 overflow-y-auto text-[11px] text-muted-foreground">
-              {preview.issues.slice(0, 12).map((iss, i) => (
-                <li key={`${iss.code}-${i}`}>
-                  [{iss.severity}] {iss.message}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <div className="mt-2 flex gap-2">
+        <section className={SECTION_SHELL}>
+          <div className={SECTION_HEAD}>
+            <h2 className="text-xs font-semibold">{t('workspace.phase1ImportPreview')}</h2>
+          </div>
+          <div className="space-y-2 px-3.5 py-3">
+            <p className="text-[11px] text-muted-foreground">
+              {preview.pendingFileName || preview.fileName} · errors={preview.errorCount} ·
+              warnings={preview.warningCount}
+            </p>
+            {Array.isArray(preview.issues) && preview.issues.length ? (
+              <ul className="max-h-24 overflow-y-auto text-[11px] text-muted-foreground">
+                {preview.issues.slice(0, 12).map((iss, i) => (
+                  <li key={`${iss.code}-${i}`}>
+                    [{iss.severity}] {iss.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-border px-2.5 py-1 text-xs"
+                onClick={() => setPreview(null)}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={preview.errorCount > 0 || confirmMut.isPending || !preview.sessionId}
+                className="rounded-lg bg-[#1677FF] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                onClick={() => confirmMut.mutate()}
+              >
+                {t('workspace.phase1ConfirmImport')}
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {listFilter === 'live' ? (
+        <ImportSetFileLibrary projectId={projectId} importSets={sets} />
+      ) : null}
+
+      {/* Import Set queue */}
+      <section className={`${SECTION_SHELL} flex min-h-0 flex-1 flex-col`}>
+        <div className={`${SECTION_HEAD} flex flex-wrap items-center justify-between gap-2`}>
+          <h2 className="flex items-center gap-2 text-xs font-semibold text-[#262626] dark:text-white">
+            <FileStack size={14} className="text-[#1677FF]" aria-hidden />
+            {t('workspace.phase1SectionImportSets')}
+          </h2>
+          <div className="flex gap-1 rounded-lg border border-[#C9DFF0] bg-white p-0.5 dark:border-slate-600 dark:bg-slate-900">
             <button
               type="button"
-              className="rounded border border-border px-2 py-1 text-xs"
-              onClick={() => setPreview(null)}
+              className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${
+                listFilter === 'live'
+                  ? 'bg-[#1677FF] text-white'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              onClick={() => {
+                setListFilter('live');
+                setSelectedSetId(null);
+              }}
             >
-              {t('common.cancel')}
+              {t('workspace.phase1ActiveImportSet')} ({liveSets.length})
             </button>
             <button
               type="button"
-              disabled={preview.errorCount > 0 || confirmMut.isPending || !preview.sessionId}
-              className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50"
-              onClick={() => confirmMut.mutate()}
+              className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${
+                listFilter === 'trash'
+                  ? 'bg-[#1677FF] text-white'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              onClick={() => {
+                setListFilter('trash');
+                setSelectedSetId(null);
+              }}
             >
-              {t('workspace.phase1ConfirmImport')}
+              {t('workspace.phase1TrashImportSets')} ({trashSets.length})
             </button>
           </div>
         </div>
-      ) : null}
 
-      <div className="flex gap-1">
-        <button
-          type="button"
-          className={`rounded px-2 py-0.5 text-[11px] ${
-            listFilter === 'live' ? 'bg-primary/15 text-primary' : 'text-muted-foreground'
-          }`}
-          onClick={() => {
-            setListFilter('live');
-            setSelectedSetId(null);
-          }}
-        >
-          {t('workspace.phase1ActiveImportSet')} ({liveSets.length})
-        </button>
-        <button
-          type="button"
-          className={`rounded px-2 py-0.5 text-[11px] ${
-            listFilter === 'trash' ? 'bg-primary/15 text-primary' : 'text-muted-foreground'
-          }`}
-          onClick={() => {
-            setListFilter('trash');
-            setSelectedSetId(null);
-          }}
-        >
-          {t('workspace.phase1TrashImportSets')} ({trashSets.length})
-        </button>
-      </div>
+        <div className="min-h-0 flex-1 overflow-auto px-3.5 py-3">
+          {isLoading ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+          ) : null}
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-      ) : null}
-
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
-        <ul>
-          {displaySets.map((s) => {
-            const selected = s.id === selectedSetId;
-            return (
-              <li key={s.id}>
-                <button
-                  type="button"
-                  className={`flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left ${PHASE1_DENSE_ROW} ${
-                    selected ? PHASE1_DENSE_ROW_SELECTED : ''
-                  } ${statusRowTintClass(s.status)}`}
-                  onClick={() => setSelectedSetId(s.id)}
-                >
-                  <span className={statusBadgeClass(s.status)}>{s.status}</span>
-                  <span className="w-full truncate text-[11px] text-muted-foreground">
-                    {s.rawDocument?.filename || '—'} · {s.analysisDocument?.filename || '—'}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
           {!isLoading && !displaySets.length ? (
-            <li className="px-3 py-8 text-center text-sm text-muted-foreground">
+            <p className="rounded-lg border border-dashed border-border/60 px-3 py-8 text-center text-sm text-muted-foreground">
               {listFilter === 'trash'
                 ? t('workspace.phase1TrashEmpty')
                 : t('workspace.phase1NoActiveImportSet')}
-            </li>
+            </p>
           ) : null}
-        </ul>
-      </div>
 
-      {activeSet && listFilter === 'live' ? (
-        <p className="text-[11px] text-muted-foreground">{t('workspace.phase1DoubleGateHint')}</p>
-      ) : null}
+          {displaySets.length > 0 ? (
+            <ul className="space-y-2">
+              {displaySets.map((s) => {
+                const selected = s.id === selectedSetId;
+                return (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
+                        selected
+                          ? 'border-[#1677FF] bg-[#E6F4FF] shadow-sm'
+                          : 'border-[#E8E8E8] bg-[#FAFAFA] hover:border-[#91CAFF] hover:bg-[#E6F4FF]/40'
+                      } ${statusRowTintClass(s.status)}`}
+                      onClick={() => setSelectedSetId(s.id)}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={statusBadgeClass(s.status)}>
+                            {formatPhase1StatusLabel(s.status, t)}
+                          </span>
+                          {typeof s.artifactCount === 'number' ? (
+                            <span className="text-[10px] text-muted-foreground">
+                              {t('workspace.phase1ImportSetArtifactCount', {
+                                count: s.artifactCount,
+                              })}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 truncate text-xs font-medium text-foreground">
+                          {s.rawDocument?.filename || t('workspace.phase1ImportSetNoRaw')}
+                        </p>
+                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                          {s.analysisDocument?.filename ||
+                            t('workspace.phase1ImportSetNoAnalysis')}
+                        </p>
+                        {s.status === 'draft' && !s.rawDocument?.filename ? (
+                          <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                            {t('workspace.phase1ImportSetIncompleteHint')}
+                          </p>
+                        ) : null}
+                      </div>
+                      <ChevronRight
+                        className={`h-4 w-4 shrink-0 ${selected ? 'text-[#1677FF]' : 'text-muted-foreground'}`}
+                        aria-hidden
+                      />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </div>
+      </section>
     </div>
   );
 
@@ -610,9 +831,15 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
       set={selectedSet}
       t={t}
       canMutate={canUpload}
+      canGate={
+        !readOnly &&
+        canApproveImportSetGate(nextImportSetTransition(selectedSet), capabilities)
+      }
       onTrash={(id) => trashMut.mutate(id)}
       onRestore={(id) => onRequestRestore(id)}
-      onGateTransition={(id, toStatus) => gateMut.mutate({ setId: id, toStatus })}
+      onGateTransition={(id, toStatus, note) =>
+        gateMut.mutate({ setId: id, toStatus, note })
+      }
       trashPending={trashMut.isPending}
       restorePending={restoreMut.isPending}
       gatePending={gateMut.isPending}
@@ -622,6 +849,18 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
+      <ImportSetUploadWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        projectId={projectId}
+        organizationId={organizationId}
+        draftSet={draftSet}
+        onCompleted={() => invalidateSets()}
+        onOpenReviews={() => {
+          invalidateSets();
+          navigate(buildPhase1ModulePath(projectId, 'analysis-reviews', { organizationId }));
+        }}
+      />
       <ConfirmDialog
         isOpen={Boolean(rollbackDiff && rollbackSetId)}
         title={t('workspace.phase1RollbackConfirmTitle')}

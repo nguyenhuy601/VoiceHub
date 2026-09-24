@@ -7,6 +7,13 @@ export const analysisAPI = {
   listCustomerDocuments: (projectId) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/customer-documents`),
 
+  /** Download Import Set / customer file from MinIO (existing GET + format=download). */
+  downloadCustomerDocument: (projectId, documentId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/customer-documents`, {
+      params: { documentId, format: 'download' },
+      responseType: 'blob',
+    }),
+
   createCustomerDocument: (projectId, body = {}) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/customer-documents`, body),
 
@@ -68,6 +75,17 @@ export const analysisAPI = {
 
   getSrsDraft: (projectId) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/srs-draft`),
+
+  /** IEEE-mapped SRS xlsx (working set or baselineId). Returns axios blob response. */
+  downloadSrsWorkbook: (projectId, { baselineId, srsVersion } = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/srs-draft`, {
+      params: {
+        format: 'xlsx',
+        ...(baselineId ? { baselineId } : {}),
+        ...(srsVersion ? { srsVersion } : {}),
+      },
+      responseType: 'blob',
+    }),
 
   listSrsBaselines: (projectId) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/srs-baselines`),
