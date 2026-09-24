@@ -29,6 +29,13 @@ const P0_SYSTEM_KINDS = new Set([
   'ready_to_done_proposed',
   'release_ready_proposed',
   'uat_requested',
+  'ready_for_qa',
+  /** Phase 1 HITL — BA/PM phải thấy khi bị yêu cầu sửa, không chỉ tự mở tab Duyệt */
+  'analysis_changes_requested',
+  'planning_changes_requested',
+  'analysis_gate_pending',
+  'planning_gate_pending',
+  'phase1_gate_pending',
 ]);
 
 /** Kind system đã gửi nhưng cố ý không đưa vào chip Ưu tiên */
