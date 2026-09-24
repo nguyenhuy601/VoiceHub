@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Languages,
   LayoutDashboard,
@@ -9,7 +9,8 @@ import {
   Zap,
   ClipboardList,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
@@ -21,6 +22,12 @@ import UserAvatar from '../Shared/UserAvatar';
 import { FIGMA_TOP_HEADER } from './figmaShellClasses';
 import ShellCommandPalette from './ShellCommandPalette';
 import { useShellLayout } from '../../context/ShellLayoutContext';
+import { fetchProjectHubProject } from '../../features/projects/hub/useProjectHubQueries';
+import { queryKeys } from '../../lib/queryKeys';
+import {
+  projectIdFromPathname,
+  resolveDeliveryRoleBadges,
+} from './profileDeliveryRoleBadge';
 
 function getSuiteMeta(t) {
   return {
@@ -92,11 +99,30 @@ export default function TopHeader() {
   const profileRef = useRef(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { locale, toggleLocale } = useLocale();
   const { isDarkMode, toggleTheme } = useTheme();
   const { t } = useAppStrings();
   const { openMobileNav, mobileNavOpen } = useShellLayout();
   const { currentSuite } = useWorkspaceSuite();
+
+  const projectId = useMemo(
+    () => projectIdFromPathname(location.pathname),
+    [location.pathname]
+  );
+  const { data: hubProject } = useQuery({
+    queryKey: queryKeys.projectHub.project(projectId),
+    queryFn: () => fetchProjectHubProject(projectId),
+    enabled: Boolean(projectId),
+    staleTime: 30_000,
+  });
+  const roleBadges = useMemo(
+    () =>
+      resolveDeliveryRoleBadges(
+        hubProject?.capabilities?.viewerProjectRoleKeys || hubProject?.viewerProjectRoleKeys
+      ),
+    [hubProject]
+  );
 
   const SUITE_META = getSuiteMeta(t);
   const activeMeta = SUITE_META[currentSuite] || SUITE_META[SUITE.COMMUNICATE];
@@ -207,6 +233,18 @@ export default function TopHeader() {
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-foreground">{displayName}</div>
                       <div className="truncate text-[0.6875rem] text-muted-foreground">{user?.email}</div>
+                      {roleBadges.length ? (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {roleBadges.map((b) => (
+                            <span
+                              key={b.key}
+                              className={`inline-flex items-center rounded px-1.5 py-0.5 text-[0.625rem] font-bold tracking-wide ${b.className}`}
+                            >
+                              {b.short}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
