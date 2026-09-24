@@ -71,9 +71,9 @@ const {
   resolveBoardTitle,
 } = require('../utils/project/defaultBoardTitle');
 
-/** @deprecated Prefer resolveDefaultBoardTitle(projectCode). Kept for legacy imports. */
 const DEFAULT_BOARD_TITLE = FALLBACK_BOARD_TITLE;
-const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Done']);
+const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Ready for QA', 'Done']);
+const DEFAULT_LIST_STATUS_KEYS = Object.freeze(['todo', 'in_progress', 'qa', 'done']);
 
 const LEAD_ROLE_SLOT_KEYS = Object.freeze({
   projectManagerId: DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER,
@@ -130,11 +130,10 @@ async function logActivity({
 }
 
 async function seedDefaultLists(boardId) {
-  const STATUS_KEYS = ['todo', 'in_progress', 'done'];
   const rows = DEFAULT_LIST_TITLES.map((title, idx) => ({
     boardId,
     title,
-    statusKey: STATUS_KEYS[idx] || '',
+    statusKey: DEFAULT_LIST_STATUS_KEYS[idx] || '',
     order: (idx + 1) * 1000,
     isArchived: false,
     isDefault: idx === 0,
@@ -912,14 +911,40 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       payload.priorityConfig
     );
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  const { resolveUserProjectPermissions } = require('./projectAccess.service');
+  const {
+    isProjectRbacV2Enabled,
+    hasPermission,
+    matrixPermissionsFromRoleKeys,
+  } = require('../utils/project/projectPermissionMatrix');
   if (!isProjectRbacV2Enabled()) {
     return payload;
   }
-  const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
   const perms = resolved.permissions || [];
   const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  // Import Raw/Analysis: chỉ BA theo matrix role key (bỏ doc permissions seed cũ + creator dump)
+  const roleMatrixPerms = matrixPermissionsFromRoleKeys(resolved.roles || []);
+  const canImportFromRole =
+    hasPermission(roleMatrixPerms, 'analysis:artifact_import') &&
+    hasPermission(roleMatrixPerms, 'analysis:document_upload');
+  /** Draft / gửi lại changes_requested — chỉ BA theo role matrix (không creator/admin bypass). */
+  const canBaAuthorFromRole =
+    hasPermission(roleMatrixPerms, 'analysis:submit_ba_review') ||
+    hasPermission(roleMatrixPerms, 'analysis:artifact_import') ||
+    hasPermission(roleMatrixPerms, 'analysis:ba_review');
+  let hasAnalysisTechReviewer = false;
+  let hasPlanningTechReviewer = false;
+  try {
+    const {
+      projectHasAnalysisTechReviewer,
+      projectHasPlanningTechReviewer,
+    } = require('../utils/phase1GatePolicy');
+    hasAnalysisTechReviewer = await projectHasAnalysisTechReviewer(projectId);
+    hasPlanningTechReviewer = await projectHasPlanningTechReviewer(projectId);
+  } catch {
+    /* non-blocking */
+  }
   return {
     ...payload,
     capabilities: {
@@ -950,20 +975,31 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       canEstimate: bypass || hasPermission(perms, 'task:estimate'),
       canViewAnalysis: bypass || hasPermission(perms, 'analysis:view'),
       canEditAnalysis: bypass || hasPermission(perms, 'analysis:artifact_edit'),
-      canImportAnalysis: bypass || hasPermission(perms, 'analysis:artifact_import'),
+      canImportAnalysis: canImportFromRole,
+      /** BA chủ trì draft / sửa sau request-changes — role matrix, không bypass creator. */
+      canBaAuthorAnalysis: canBaAuthorFromRole,
       canReviewAnalysisBa: bypass || hasPermission(perms, 'analysis:ba_review'),
       canReviewAnalysisTech: bypass || hasPermission(perms, 'analysis:tech_review'),
       canReviewAnalysisPo: bypass || hasPermission(perms, 'analysis:po_review'),
+      viewerProjectRoleKeys: Array.isArray(resolved.roles)
+        ? resolved.roles.map((r) => String(r?.key || '').trim()).filter(Boolean)
+        : [],
+      hasAnalysisTechReviewer,
+      hasPlanningTechReviewer,
       canChangeDeliveryPhase: bypass || hasPermission(perms, 'delivery_phase:change'),
       canSignOffUat: bypass || hasPermission(perms, 'uat:sign_off'),
+      /** SoD Phase 4 — chỉ role matrix product_owner (handover:accept); không creator/admin dump. */
+      canAcceptHandover: hasPermission(roleMatrixPerms, 'handover:accept'),
       canCutSrs: bypass || hasPermission(perms, 'analysis:cut_srs'),
       canViewPlanning: bypass || hasPermission(perms, 'planning:view'),
       canEditPlanning: bypass || hasPermission(perms, 'planning:artifact_edit'),
       canReviewPlanning: bypass ||
-        hasPermission(perms, 'planning:ba_review') ||
         hasPermission(perms, 'planning:tech_review') ||
         hasPermission(perms, 'planning:pm_review') ||
         hasPermission(perms, 'planning:po_review'),
+      canReviewPlanningTech: bypass || hasPermission(perms, 'planning:tech_review'),
+      canReviewPlanningPm: bypass || hasPermission(perms, 'planning:pm_review'),
+      canReviewPlanningPo: bypass || hasPermission(perms, 'planning:po_review'),
       canCutPlanningBaseline: bypass || hasPermission(perms, 'planning:cut_baseline'),
       canPublishPlanningWbs: bypass || hasPermission(perms, 'planning:publish_wbs'),
     },
@@ -1069,6 +1105,8 @@ async function patchProject({ userId, projectId, patch }) {
     'deployEvidence'
   );
   const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  let canPhaseActor = false;
+  let canAcceptActor = false;
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -1076,24 +1114,30 @@ async function patchProject({ userId, projectId, patch }) {
     if (Object.prototype.hasOwnProperty.call(patch || {}, 'releaseLabel')) {
       delete patch.releaseLabel;
     }
+    canPhaseActor =
+      hasPermission(resolved.permissions, 'delivery_phase:change') ||
+      resolved.isOrgAdmin ||
+      resolved.isCreator;
+    // SoD: chỉ membership role có handover:accept (PO) — không creator/admin bypass
+    const { matrixPermissionsFromRoleKeys } = require('../utils/project/projectPermissionMatrix');
+    canAcceptActor = hasPermission(
+      matrixPermissionsFromRoleKeys(resolved.roles || []),
+      'handover:accept'
+    );
     const phaseLikePatch =
       hasDeliveryPhasePatch || hasHandoverChecklistPatch || hasDeployEvidencePatch;
     if (phaseLikePatch) {
-      const canPhase =
-        hasPermission(resolved.permissions, 'delivery_phase:change') ||
-        resolved.isOrgAdmin ||
-        resolved.isCreator;
-      if (!canPhase && hasDeliveryPhasePatch) {
+      if (!canPhaseActor && hasDeliveryPhasePatch) {
         const err = new Error('Không có quyền đổi deliveryPhase (delivery_phase:change)');
         err.statusCode = 403;
         throw err;
       }
-      if (!canPhase && hasHandoverChecklistPatch) {
+      if (hasHandoverChecklistPatch && !canPhaseActor && !canAcceptActor) {
         const err = new Error('Không có quyền cập nhật checklist bàn giao');
         err.statusCode = 403;
         throw err;
       }
-      if (!canPhase && hasDeployEvidencePatch) {
+      if (!canPhaseActor && hasDeployEvidencePatch) {
         const err = new Error('Không có quyền cập nhật bằng chứng deploy');
         err.statusCode = 403;
         throw err;
@@ -1110,7 +1154,7 @@ async function patchProject({ userId, projectId, patch }) {
       throw err;
     }
     if (!canSettings && phaseLikePatch) {
-      // PM may change phase / checklist / deploy evidence without full settings:update
+      // PM/PO may change phase / checklist / deploy evidence without full settings:update
       const allowedKeys = new Set(['deliveryPhase', 'handoverChecklist', 'deployEvidence']);
       const extra = Object.keys(patch || {}).filter(
         (k) => patch[k] !== undefined && !allowedKeys.has(k)
@@ -1124,6 +1168,8 @@ async function patchProject({ userId, projectId, patch }) {
   } else {
     const canAdmin = await userCanAdminProject(userId, project.toObject());
     if (!canAdmin) throw new Error('Không có quyền sửa settings dự án');
+    canPhaseActor = true;
+    canAcceptActor = true;
   }
 
   // Always strip client releaseLabel even in legacy RBAC path
@@ -1232,8 +1278,26 @@ async function patchProject({ userId, projectId, patch }) {
   }
   if (hasHandoverChecklistPatch) {
     const { RELEASE_HANDOVER_CHECKLIST } = require('../constants/projectDeliveryPhase');
+    const {
+      assertHandoverChecklistAuthz,
+      assertDeployVerifiedEvidence,
+      buildChecklistMetaPatch,
+    } = require('../utils/work/handoverChecklistPolicy');
     const checklistIds = RELEASE_HANDOVER_CHECKLIST.map((row) => row.id);
+    const prevChecklist = normalizeHandoverChecklist(project.handoverChecklist, checklistIds);
     const nextChecklist = normalizeHandoverChecklist(patch.handoverChecklist, checklistIds);
+    const authz = assertHandoverChecklistAuthz({
+      prevChecklist,
+      nextChecklist,
+      canPhase: canPhaseActor,
+      canAccept: canAcceptActor,
+    });
+    if (!authz.ok) {
+      const err = new Error(authz.message);
+      err.statusCode = authz.statusCode;
+      err.errorCode = authz.errorCode;
+      throw err;
+    }
     // Plan D RULE-01 — cannot claim Production verify before UAT Pass
     if (nextChecklist.deployment_verified === true && String(project.uatStatus || '') !== 'pass') {
       const err = new Error('Chỉ tick “Đã verify deploy” sau khi UAT Pass (Staging)');
@@ -1241,7 +1305,31 @@ async function patchProject({ userId, projectId, patch }) {
       err.errorCode = 'DEPLOY_VERIFY_BEFORE_UAT';
       throw err;
     }
+    const { normalizeDeployEvidence } = require('../utils/work/normalizeDeployEvidence');
+    const effectiveEvidence = hasDeployEvidencePatch
+      ? normalizeDeployEvidence(patch.deployEvidence, {
+          userId,
+          releaseLabel: project.releaseLabel,
+        })
+      : project.deployEvidence;
+    const evidenceGate = assertDeployVerifiedEvidence({
+      prevChecklist,
+      nextChecklist,
+      deployEvidence: effectiveEvidence,
+    });
+    if (!evidenceGate.ok) {
+      const err = new Error(evidenceGate.message);
+      err.statusCode = evidenceGate.statusCode;
+      err.errorCode = evidenceGate.errorCode;
+      throw err;
+    }
     $set.handoverChecklist = nextChecklist;
+    $set.handoverChecklistMeta = buildChecklistMetaPatch({
+      prevChecklist,
+      nextChecklist,
+      prevMeta: project.handoverChecklistMeta,
+      userId,
+    });
   }
   if (hasDeployEvidencePatch) {
     const { normalizeDeployEvidence } = require('../utils/work/normalizeDeployEvidence');

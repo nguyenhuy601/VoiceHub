@@ -51,6 +51,9 @@ describe('toProjectListCardItem', () => {
       },
       progressPercent: 68,
       health: 'on_track',
+      deliveryPhase: 'qa_uat',
+      releaseReadyStatus: 'none',
+      uatStatus: 'none',
       pm: { userId: 'u1', displayName: 'Nguyễn A' },
       boards: [{ _id: 'cccccccccccccccccccccccc', title: 'Main' }],
       methodologySettings: { wipLimit: 0 },
@@ -69,6 +72,9 @@ describe('toProjectListCardItem', () => {
     assert.equal(out.defaultBoardId, 'cccccccccccccccccccccccc');
     assert.equal(out.progressPercent, 68);
     assert.equal(out.health, 'on_track');
+    assert.equal(out.deliveryPhase, 'qa_uat');
+    assert.equal(out.releaseReadyStatus, 'none');
+    assert.equal(out.uatStatus, 'none');
     assert.deepEqual(out.pm, { userId: 'u1', displayName: 'Nguyễn A' });
     assert.deepEqual(out.access, {
       discover: true,
