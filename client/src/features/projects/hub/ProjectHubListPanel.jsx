@@ -1194,9 +1194,39 @@ export default function ProjectHubListPanel({
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
       aria-busy={loading || undefined}
     >
-      <div className="border-b border-border px-4 py-2 sm:px-4">
-        <h3 className={`text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabList')}</h3>
-        <p className={`text-xs ${muted}`}>{t('workspace.projectHubListHint')}</p>
+      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border px-4 py-2 sm:px-4">
+        <div className="min-w-0">
+          <h3 className={`text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabList')}</h3>
+          <p className={`text-xs ${muted}`}>{t('workspace.projectHubListHint')}</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            className="rounded-md border border-border bg-background px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted"
+            onClick={() => {
+              const next = new Set();
+              const walk = (nodes) => {
+                for (const n of nodes || []) {
+                  if (Array.isArray(n.children) && n.children.length > 0) {
+                    next.add(n.id);
+                    walk(n.children);
+                  }
+                }
+              };
+              walk(tree);
+              setExpandedIds(next);
+            }}
+          >
+            {t('workspace.projectHubListExpandAll')}
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-border bg-background px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted"
+            onClick={() => setExpandedIds(new Set())}
+          >
+            {t('workspace.projectHubListCollapseAll')}
+          </button>
+        </div>
       </div>
 
       <DndContext
@@ -1280,7 +1310,13 @@ export default function ProjectHubListPanel({
                   expanded={expandedIds.has(node.id)}
                   canExpand={canExpandListRow({
                     loading: loadingIds.has(node.id),
-                    hasChildren: Array.isArray(node.children) && node.children.length > 0,
+                    hasChildren:
+                      (Array.isArray(node.children) && node.children.length > 0) ||
+                      hasLocalChildCards(
+                        listCards,
+                        node.raw?._id || node.raw?.id,
+                        node.workType || node.kind
+                      ),
                   })}
                   expandLoading={loadingIds.has(node.id)}
                   expandError={expandErrorIds.has(node.id)}

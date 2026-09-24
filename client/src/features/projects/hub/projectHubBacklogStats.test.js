@@ -8,17 +8,25 @@ const lists = [
 ];
 
 test('childWorkStats: không parent → 0', () => {
-  assert.deepEqual(childWorkStats([{ parentTaskId: 'a' }], '', lists), { total: 0, done: 0 });
+  assert.deepEqual(childWorkStats([{ parentTaskId: 'a' }], '', lists), {
+    total: 0,
+    done: 0,
+    incompleteTitles: [],
+  });
 });
 
 test('childWorkStats: không con → 0', () => {
-  assert.deepEqual(childWorkStats([{ _id: 'c1' }], 'p1', lists), { total: 0, done: 0 });
+  assert.deepEqual(childWorkStats([{ _id: 'c1' }], 'p1', lists), {
+    total: 0,
+    done: 0,
+    incompleteTitles: [],
+  });
 });
 
 test('childWorkStats: 1 To Do → 0 of 1', () => {
   assert.deepEqual(
-    childWorkStats([{ _id: 'c2', parentTaskId: 'p1', listId: 'l-todo' }], 'p1', lists),
-    { total: 1, done: 0 }
+    childWorkStats([{ _id: 'c2', parentTaskId: 'p1', listId: 'l-todo', title: 'Child' }], 'p1', lists),
+    { total: 1, done: 0, incompleteTitles: ['Child'] }
   );
 });
 
@@ -26,21 +34,44 @@ test('childWorkStats: 1 Done + 1 To Do → 1 of 2', () => {
   assert.deepEqual(
     childWorkStats(
       [
-        { _id: 'c2', parentTaskId: 'p1', listId: 'l-todo' },
-        { _id: 'c3', parentTaskId: 'p1', listId: 'l-done' },
+        { _id: 'c2', parentTaskId: 'p1', listId: 'l-todo', title: 'Open' },
+        { _id: 'c3', parentTaskId: 'p1', listId: 'l-done', title: 'Done child' },
         { _id: 'c4', parentTaskId: 'other' },
       ],
       'p1',
       lists
     ),
-    { total: 2, done: 1 }
+    { total: 2, done: 1, incompleteTitles: ['Open'] }
   );
 });
 
 test('childWorkStats: parentTaskId object vẫn đếm', () => {
   assert.deepEqual(
-    childWorkStats([{ _id: 'c2', parentTaskId: { _id: 'p1' }, listId: 'l-todo' }], { id: 'p1' }, lists),
-    { total: 1, done: 0 }
+    childWorkStats(
+      [{ _id: 'c2', parentTaskId: { _id: 'p1' }, listId: 'l-todo', title: 'Obj' }],
+      { id: 'p1' },
+      lists
+    ),
+    { total: 1, done: 0, incompleteTitles: ['Obj'] }
+  );
+});
+
+test('childWorkStats: cột Done thắng stale status=todo', () => {
+  assert.deepEqual(
+    childWorkStats(
+      [
+        {
+          _id: 'c2',
+          parentTaskId: 'p1',
+          listId: 'l-done',
+          status: 'todo',
+          title: 'Stale',
+        },
+      ],
+      'p1',
+      lists
+    ),
+    { total: 1, done: 1, incompleteTitles: [] }
   );
 });
 
@@ -68,5 +99,9 @@ test('directChildCards / childWorkStats: Feature theo featureId, bỏ subtask', 
     directChildCards(cards, 'f1', 'feature').map((c) => c._id),
     ['t1', 't2']
   );
-  assert.deepEqual(childWorkStats(cards, 'f1', lists, 'feature'), { total: 2, done: 1 });
+  assert.deepEqual(childWorkStats(cards, 'f1', lists, 'feature'), {
+    total: 2,
+    done: 1,
+    incompleteTitles: [],
+  });
 });
