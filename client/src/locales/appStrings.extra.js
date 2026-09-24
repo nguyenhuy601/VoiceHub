@@ -14,6 +14,7 @@ export const extraStrings = {
       backToLogin: 'Quay lại đăng nhập',
       close: 'Đóng',
       cancel: 'Hủy',
+      confirm: 'Xác nhận',
       save: 'Lưu',
       next: 'Tiếp',
       back: 'Quay lại',
@@ -43,6 +44,9 @@ export const extraStrings = {
         USER_NOT_AUTHENTICATED: 'Vui lòng đăng nhập lại.',
         USER_PROFILE_FORBIDDEN: 'Bạn không có quyền thực hiện hành động này.',
         USER_VALIDATION: 'Dữ liệu chưa hợp lệ.',
+        HANDOVER_ACCEPT_FORBIDDEN:
+          'Chỉ Product Owner được xác nhận nghiệm thu và hoàn tất bàn giao.',
+        HANDOVER_CHECKLIST_FORBIDDEN: 'Chỉ Project Manager được cập nhật mục checklist này.',
         VALIDATION_INVALID_ID: 'Định danh không hợp lệ.',
         VALIDATION_REQUIRED: 'Thiếu thông tin bắt buộc.',
         AUTH_WEAK_PASSWORD:
@@ -537,6 +541,7 @@ export const extraStrings = {
       backToLogin: 'Back to sign in',
       close: 'Close',
       cancel: 'Cancel',
+      confirm: 'Confirm',
       save: 'Save',
       next: 'Next',
       back: 'Back',
@@ -566,6 +571,9 @@ export const extraStrings = {
         USER_NOT_AUTHENTICATED: 'Please sign in again.',
         USER_PROFILE_FORBIDDEN: 'You do not have permission for this action.',
         USER_VALIDATION: 'Invalid data.',
+        HANDOVER_ACCEPT_FORBIDDEN:
+          'Only the Product Owner can confirm acceptance and complete handover.',
+        HANDOVER_CHECKLIST_FORBIDDEN: 'Only the Project Manager can update this checklist item.',
         VALIDATION_INVALID_ID: 'Invalid identifier.',
         VALIDATION_REQUIRED: 'Required information is missing.',
         AUTH_WEAK_PASSWORD:
