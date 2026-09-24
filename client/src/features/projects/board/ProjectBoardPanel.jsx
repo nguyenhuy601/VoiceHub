@@ -184,14 +184,13 @@ function isDoneListTitle(title) {
   return n.endsWith(' xong') || n.startsWith('done');
 }
 
-/** Cột cuối workflow (theo order) hoặc cột Done theo statusKey/title. */
-function isWorkflowEndList(list, orderedLists = []) {
+/** Cột Done theo statusKey/title — không dùng “cột cuối theo order”
+ * (board hay để Ready for QA sau Done → sai ✓ + ẩn Confirm Done). */
+function isWorkflowEndList(list) {
   if (!list) return false;
-  if (orderedLists.length) {
-    const last = orderedLists[orderedLists.length - 1];
-    if (String(last?._id) === String(list._id)) return true;
-  }
-  const statusKey = String(list.statusKey || '').toLowerCase();
+  const statusKey = String(list.statusKey || '')
+    .trim()
+    .toLowerCase();
   if (statusKey === 'done' || statusKey === 'completed') return true;
   return isDoneListTitle(list.title);
 }
@@ -335,6 +334,15 @@ function KanbanListColumn({
           <GripVertical className="h-4 w-4" />
         </button>
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{repairUtf8Mojibake(list.title)}</h3>
+        <span
+          className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
+            isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-slate-200/80 text-slate-600'
+          }`}
+          title={t('taskBoard.columnCardCount', { count: cardSortableIds.length })}
+          aria-label={t('taskBoard.columnCardCount', { count: cardSortableIds.length })}
+        >
+          {cardSortableIds.length}
+        </span>
         {list.isWatching || list.watcherCount > 0 ? (
           <span
             className={`flex items-center gap-0.5 text-[10px] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}
@@ -1125,6 +1133,29 @@ export default function TaskBoardWorkspacePanel({
         return;
       }
 
+      const targetList = listMap.find((l) => String(l._id) === String(listId));
+      const originList = listMap.find((l) => String(l._id) === String(originListId));
+      const movingCard =
+        (cardItemsByList[originListId] || []).find((c) => String(c._id) === activeCardId) ||
+        (cardItemsByList[listId] || []).find((c) => String(c._id) === activeCardId);
+      const isBugCard = String(movingCard?.issueType || '')
+        .trim()
+        .toLowerCase() === 'bug';
+      // DEC D4 — chặn kéo Done nếu chưa ready (không áp dụng bug); Confirm Done HITL.
+      if (
+        !isBugCard &&
+        isWorkflowEndList(targetList) &&
+        !isWorkflowEndList(originList) &&
+        !Boolean(readyToDoneMap[activeCardId]?.ready)
+      ) {
+        toast.error(
+          'Chưa sẵn sàng Done — Pass hết TC rồi bấm Confirm Done (không kéo thẳng sang Done)'
+        );
+        setCardItemsByList(buildCardItemsByList(listMap));
+        releaseCardLayoutLock();
+        return;
+      }
+
       try {
         await onMoveCard?.(activeCardId, listId, index, ownerTeamId);
         setDetailCard((prev) =>
@@ -1136,9 +1167,7 @@ export default function TaskBoardWorkspacePanel({
               }
             : prev
         );
-        const targetList = listMap.find((l) => String(l._id) === String(listId));
-        const originList = listMap.find((l) => String(l._id) === String(originListId));
-        if (isWorkflowEndList(targetList, listMap) && !isWorkflowEndList(originList, listMap)) {
+        if (isWorkflowEndList(targetList) && !isWorkflowEndList(originList)) {
           celebrateDoneArrival(activeCardId);
         }
       } catch {
@@ -1147,7 +1176,15 @@ export default function TaskBoardWorkspacePanel({
         releaseCardLayoutLock();
       }
     },
-    [cardItemsByList, listMap, onMoveCard, canTransitionLists, celebrateDoneArrival, t]
+    [
+      cardItemsByList,
+      listMap,
+      onMoveCard,
+      canTransitionLists,
+      celebrateDoneArrival,
+      readyToDoneMap,
+      t,
+    ]
   );
 
   const resolveSwimOverTarget = useCallback(
@@ -1328,7 +1365,7 @@ export default function TaskBoardWorkspacePanel({
   const isCardInWorkflowEnd = useCallback(
     (card) => {
       const list = listMap.find((l) => String(l._id) === String(card?.listId || ''));
-      return isWorkflowEndList(list, listMap);
+      return isWorkflowEndList(list);
     },
     [listMap]
   );
@@ -1363,9 +1400,13 @@ export default function TaskBoardWorkspacePanel({
           workTypeConfig={workTypeConfig}
           epics={hubSprintCard.epics || []}
           features={hubSprintCard.features || []}
-          readyToDone={canConfirmReadyToDone ? readyInfo : null}
+          readyToDone={
+            canConfirmReadyToDone && !isWorkflowDone ? readyInfo : null
+          }
           confirmingDone={confirmingDoneId === cardId}
-          onConfirmReadyToDone={canConfirmReadyToDone ? onConfirmReadyToDone : null}
+          onConfirmReadyToDone={
+            canConfirmReadyToDone && !isWorkflowDone ? onConfirmReadyToDone : null
+          }
         />
       );
     }
@@ -1785,14 +1826,28 @@ export default function TaskBoardWorkspacePanel({
                 >
                   {t('taskBoard.swimlaneTeamCol')}
                 </div>
-                {listMap.map((list) => (
+                {listMap.map((list) => {
+                  const listKey = String(list._id);
+                  const colCount = filterCardsForView(cardItemsByList[listKey] || []).length;
+                  return (
                   <div
                     key={`head-${list._id}`}
                     className={`${LIST_WIDTH} shrink-0 truncate px-2 text-sm font-semibold`}
                   >
-                    {repairUtf8Mojibake(list.title)}
+                    <span className="inline-flex max-w-full items-center gap-1.5">
+                      <span className="truncate">{repairUtf8Mojibake(list.title)}</span>
+                      <span
+                        className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
+                          isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-slate-200/80 text-slate-600'
+                        }`}
+                        title={t('taskBoard.columnCardCount', { count: colCount })}
+                      >
+                        {colCount}
+                      </span>
+                    </span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="space-y-3">
                 {swimlaneRows.map((lane) => (
@@ -1939,7 +1994,10 @@ export default function TaskBoardWorkspacePanel({
                               cardShell={cardShell}
                               isWorkflowDone={isCardInWorkflowEnd(card)}
                               isCelebratingDone={celebratingDoneIds.has(String(card._id))}
-                              readyAccent={Boolean(readyToDoneMap[String(card._id)]?.ready)}
+                              readyAccent={
+                                Boolean(readyToDoneMap[String(card._id)]?.ready) &&
+                                !isCardInWorkflowEnd(card)
+                              }
                               onOpenDetail={(c) => openCardDetail(c, 'detail')}
                               onOpenMenu={openCardMenu}
                               onToggleComplete={toggleCardComplete}
@@ -2019,7 +2077,10 @@ export default function TaskBoardWorkspacePanel({
                         cardShell={cardShell}
                         isWorkflowDone={isCardInWorkflowEnd(card)}
                         isCelebratingDone={celebratingDoneIds.has(String(card._id))}
-                        readyAccent={Boolean(readyToDoneMap[String(card._id)]?.ready)}
+                        readyAccent={
+                          Boolean(readyToDoneMap[String(card._id)]?.ready) &&
+                          !isCardInWorkflowEnd(card)
+                        }
                         onOpenDetail={(c) => openCardDetail(c, 'detail')}
                         onOpenMenu={openCardMenu}
                         onToggleComplete={toggleCardComplete}
