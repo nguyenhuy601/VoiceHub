@@ -193,6 +193,28 @@ describe('suiteNavConfig', () => {
     assert.ok(items.some((i) => i.group === PROJECT_MENU_GROUPS.PHASE1_RA));
     assert.equal(items.some((i) => i.module === 'board'), false);
     assert.equal(items.some((i) => i.module === 'list'), false);
+    const fr = items.find((i) => i.module === 'analysis-fr');
+    assert.ok(fr);
+    assert.equal(Boolean(fr.readOnly), false);
+  });
+
+  it('marks RA tabs readOnly (except overview) after Start Planning', () => {
+    const items = getProjectsPostSelectNavItems('proj1', {
+      deliveryPhase: 'delivery_planning',
+    });
+    const overview = items.find((i) => i.module === 'overview');
+    const fr = items.find((i) => i.module === 'analysis-fr');
+    const docs = items.find((i) => i.module === 'customer-documents');
+    const wbs = items.find((i) => i.module === 'planning-wbs');
+    assert.ok(overview);
+    assert.equal(Boolean(overview.readOnly), false);
+    assert.ok(fr);
+    assert.equal(fr.readOnly, true);
+    assert.ok(docs);
+    assert.equal(docs.readOnly, true);
+    assert.ok(wbs);
+    assert.equal(Boolean(wbs.readOnly), false);
+    assert.equal(Boolean(wbs.locked), false);
   });
 
   it('normalizes hub tab to module', () => {
