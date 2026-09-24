@@ -15,7 +15,7 @@ import {
   resolveHubActor,
   HUB_GRID_CELL_BORDER,
 } from './projectHubUtils';
-import { WORK_TYPE_INDENT_PX, depthDeltaFromPointerX } from './projectWorkTypes';
+import { LIST_TREE_INDENT_PX, depthDeltaFromPointerX } from './projectWorkTypes';
 import { normalizePriorityConfig } from './projectPriorityConfig';
 import { planningStatusToListId } from './planningBoardStatus';
 import {
@@ -181,8 +181,10 @@ export default function ProjectHubListRow({
   const reporter = resolveReporter(raw, assignableMembers);
   const planningSelectListId = isPlanning ? planningStatusToListId(raw.status, lists) : '';
   const listMeta = listMap[String(raw.listId || '')] || listMap[planningSelectListId] || null;
+  // Board column SoT — stale card.status must not paint To Do when listId is Done.
   const bucket = classifyListStatusBucket(
-    String(raw.status || '').toLowerCase() === 'active' ? 'doing' : raw.status || listMeta
+    listMeta ||
+      (String(raw.status || '').toLowerCase() === 'active' ? 'doing' : raw.status)
   );
   const isDone = bucket === 'done';
   const resolution =
@@ -206,7 +208,8 @@ export default function ProjectHubListRow({
     : [{ key: currentPriority, label: currentPriority }, ...priorityItems];
 
   const indentStep = depthDeltaFromPointerX(dragDeltaX);
-  const previewPad = Math.max(0, depth + indentStep) * WORK_TYPE_INDENT_PX;
+  const treeDepth = Math.max(0, depth + indentStep);
+  const previewPad = treeDepth * LIST_TREE_INDENT_PX;
 
   const listOptions = useMemo(
     () =>
@@ -266,9 +269,17 @@ export default function ProjectHubListRow({
         aria-grabbed={isDragging}
         aria-invalid={isDragging && !dragValid ? true : undefined}
         className={`items-center border-b border-border/40 px-2 py-2 ${statusStripe} ${
-          selected ? 'bg-primary/8' : 'odd:bg-muted/10 hover:bg-muted/35'
-        } ${isOver && dropAllowed ? 'border-t-2 border-t-primary' : ''} ${isOver && !dropAllowed ? 'opacity-60' : ''} ${dragRing}`}      >
-        <div className={`flex items-center justify-center ${HUB_GRID_CELL_BORDER}`}>
+          selected
+            ? 'bg-primary/8'
+            : depth > 0
+              ? 'bg-muted/25 hover:bg-muted/45'
+              : 'odd:bg-muted/10 hover:bg-muted/35'
+        } ${isOver && dropAllowed ? 'border-t-2 border-t-primary' : ''} ${isOver && !dropAllowed ? 'opacity-60' : ''} ${dragRing}`}
+      >
+        <div
+          className={`flex items-center justify-center ${HUB_GRID_CELL_BORDER}`}
+          style={treeDepth > 0 ? { paddingLeft: Math.min(treeDepth, 1) * 8 } : undefined}
+        >
           <button
             type="button"
             className="cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:text-foreground active:cursor-grabbing disabled:opacity-40"
@@ -290,7 +301,12 @@ export default function ProjectHubListRow({
           />
         </div>
 
-        <div className={`group flex min-w-0 items-center gap-1.5 ${HUB_GRID_CELL_BORDER}`} style={{ paddingLeft: previewPad }}>
+        <div
+          className={`group flex min-w-0 items-center gap-1.5 ${HUB_GRID_CELL_BORDER} ${
+            depth > 0 ? 'border-l-2 border-l-primary/40' : ''
+          }`}
+          style={{ paddingLeft: previewPad }}
+        >
           {showExpand ? (
             <button
               type="button"
@@ -342,20 +358,21 @@ export default function ProjectHubListRow({
             {keyLabel}
           </button>
           <span
-            className={`min-w-0 flex-1 truncate text-sm text-foreground ${isDone ? 'line-through opacity-70' : ''}`}
+            className={`min-w-0 flex-1 truncate text-sm ${
+              depth > 0 ? 'font-normal text-muted-foreground' : 'font-medium text-foreground'
+            } ${isDone ? 'line-through opacity-70' : ''}`}
           >
             {node.title || '—'}
           </span>
           {childTotal > 0 ? (
-            <button
-              type="button"
-              className="inline-flex shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-muted/50 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground"
               title={childLabel}
               aria-label={childLabel}
-              onClick={() => openable && onOpenWorkItem?.(node)}
             >
-              <GitFork size={14} aria-hidden />
-            </button>
+              <GitFork size={11} aria-hidden />
+              {childDone}/{childTotal}
+            </span>
           ) : null}
           <div className="flex shrink-0 items-center gap-0.5">
             {openable ? (

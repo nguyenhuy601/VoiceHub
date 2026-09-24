@@ -33,6 +33,7 @@ import {
   resolveActiveSprint,
   resolveViewerActiveSprint,
   pickNextHubActions,
+  computeHubBoardSummary,
   formatHubActivityLine,
   normalizeHubActivityRow,
   mapHubActivityItem,
@@ -306,6 +307,37 @@ test('countIssuesByStatusBucket todo / progress / done', () => {
   assert.equal(counts.todo, 1);
   assert.equal(counts.progress, 1);
   assert.equal(counts.done, 2);
+});
+
+test('Board column SoT: stale status=todo trên cột Done vẫn tính done / không vào attention', () => {
+  const lists = [
+    { _id: 'todo', statusKey: 'todo', title: 'To Do' },
+    { _id: 'done', statusKey: 'done', title: 'Done' },
+  ];
+  const cards = [
+    { _id: 'p1', title: 'Parent Done', listId: 'done', status: 'todo' },
+    {
+      _id: 'b1',
+      title: '[Bug] TC-10',
+      listId: 'todo',
+      status: 'todo',
+      issueType: 'bug',
+      parentTaskId: 'p1',
+    },
+  ];
+  const summary = computeHubBoardSummary(cards, lists);
+  assert.equal(summary.total, 2);
+  assert.equal(summary.done, 1);
+  assert.equal(summary.donePercent, 50);
+  const buckets = countIssuesByStatusBucket(cards, lists);
+  assert.equal(buckets.done, 1);
+  assert.equal(buckets.todo, 1);
+  const actions = pickNextHubActions(cards, lists, { limit: 5 });
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].title, '[Bug] TC-10');
+  assert.equal(actions[0].isChild, true);
+  assert.equal(actions[0].parentTitle, 'Parent Done');
+  assert.ok(!actions.some((a) => a.title === 'Parent Done'));
 });
 
 test('statusBucketPillClass và childWorkProgress*', () => {

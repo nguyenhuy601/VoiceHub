@@ -38,17 +38,26 @@ export function directChildCards(cards = [], parentId, parentWorkType = null) {
 }
 
 /**
- * Đếm work con và số con đã Done — dùng icon cây Backlog / List.
- * @returns {{ total: number, done: number }}
+ * Đếm work con và số con đã Done — dùng icon cây Backlog / List / Board.
+ * Board column (list) is SoT — ignore stale card.status (parity Overview %).
+ * @returns {{ total: number, done: number, incompleteTitles: string[] }}
  */
 export function childWorkStats(cards = [], parentId, lists = [], parentWorkType = null) {
   const children = directChildCards(cards, parentId, parentWorkType);
-  if (!children.length) return { total: 0, done: 0 };
+  if (!children.length) return { total: 0, done: 0, incompleteTitles: [] };
   const listById = new Map((lists || []).map((l) => [String(l._id || l.id || ''), l]));
   let done = 0;
+  const incompleteTitles = [];
   for (const card of children) {
     const list = listById.get(String(card?.listId || card?.list || ''));
-    if (classifyListStatusBucket(card?.status || list) === 'done') done += 1;
+    const bucket = list
+      ? classifyListStatusBucket(list)
+      : classifyListStatusBucket(card?.status);
+    if (bucket === 'done') done += 1;
+    else {
+      const title = String(card?.title || '').trim();
+      if (title) incompleteTitles.push(title);
+    }
   }
-  return { total: children.length, done };
+  return { total: children.length, done, incompleteTitles };
 }
