@@ -22,6 +22,8 @@ const Modal = ({
   footer = null,
   bodyClassName = '',
   panelClassName = '',
+  headerClassName = '',
+  titleClassName = '',
 }) => {
   const { t } = useAppStrings();
   if (!isOpen) return null;
@@ -38,6 +40,8 @@ const Modal = ({
   const overlayClass = fill
     ? `${FIGMA_MODAL_OVERLAY} p-2 sm:p-3 ${layerClassName}`.trim()
     : `${FIGMA_MODAL_OVERLAY} ${layerClassName}`.trim();
+  const headerClass = `${FIGMA_MODAL_HEADER} ${headerClassName}`.trim();
+  const titleClass = `${FIGMA_MODAL_TITLE} ${titleClassName}`.trim();
 
   return (
     <div
@@ -48,8 +52,8 @@ const Modal = ({
     >
       <div className={FIGMA_MODAL_BACKDROP} aria-hidden />
       <div className={panelClass} onClick={(e) => e.stopPropagation()}>
-        <div className={FIGMA_MODAL_HEADER}>
-          <h2 className={FIGMA_MODAL_TITLE}>{title}</h2>
+        <div className={headerClass}>
+          <h2 className={titleClass}>{title}</h2>
           {closable ? (
             <button
               type="button"

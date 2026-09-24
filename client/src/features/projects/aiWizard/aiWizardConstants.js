@@ -1,8 +1,10 @@
+/**
+ * CreateProjectAiWizard renders source → analysis → confirm only.
+ * Legacy planning/review/assign step components are unused (do not re-add without UI).
+ */
 export const AI_WIZARD_STEPS = Object.freeze([
   { id: 'source', labelKey: 'aiCreateWizard.stepSource' },
-  { id: 'planning', labelKey: 'aiCreateWizard.stepPlanning' },
-  { id: 'review', labelKey: 'aiCreateWizard.stepReview' },
-  { id: 'assign', labelKey: 'aiCreateWizard.stepAssign' },
+  { id: 'analysis', labelKey: 'aiCreateWizard.stepAnalysis' },
   { id: 'confirm', labelKey: 'aiCreateWizard.stepConfirm' },
 ]);
 
