@@ -16,7 +16,6 @@ import ProjectHubTimelinePanel from './ProjectHubTimelinePanel';
 import ProjectHubChangeRequestsPanel from './ProjectHubChangeRequestsPanel';
 import ProjectHubTestCasesPanel from './ProjectHubTestCasesPanel';
 import ProjectHubDeliveryPhasePanel from './ProjectHubDeliveryPhasePanel';
-import ProjectHubReleaseReadyPanel from './ProjectHubReleaseReadyPanel';
 import WorkItemDetail from './WorkItemDetail';
 import ProjectChatWorkspace from '../chat/ProjectChatWorkspace';
 import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
@@ -201,6 +200,7 @@ function OverviewPanel({
   organizationId = '',
   canChangeDeliveryPhase = false,
   canSignOffUat = false,
+  canAcceptHandover = false,
   handoverChecklist = null,
   releaseLabel = '',
   releaseReadyStatus = 'none',
@@ -282,19 +282,14 @@ function OverviewPanel({
         projectId={projectId}
         deliveryPhase={deliveryPhase}
         canChangePhase={canChangeDeliveryPhase}
+        canSignOffUat={canSignOffUat}
+        canAcceptHandover={canAcceptHandover}
         isDarkMode={isDarkMode}
         handoverChecklist={handoverChecklist}
         releaseLabel={releaseLabel}
         releaseReadyStatus={releaseReadyStatus}
         uatStatus={uatStatus}
         deployEvidence={deployEvidence}
-      />
-      <ProjectHubReleaseReadyPanel
-        projectId={projectId}
-        deliveryPhase={deliveryPhase}
-        canConfirmReleaseReady={canChangeDeliveryPhase}
-        canSignOffUat={canSignOffUat}
-        isDarkMode={isDarkMode}
       />
       <header className="mb-4 rounded-xl border border-border bg-surface p-3 sm:p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -610,6 +605,17 @@ function OverviewPanel({
                         <span className={`mt-0.5 block text-[11px] ${muted}`}>
                           {statusText ? `${statusText} · ${who}` : who}
                         </span>
+                        {a.parentTitle ? (
+                          <span className={`mt-0.5 block text-[11px] ${muted}`}>
+                            {t('workspace.projectHubAttentionChildOf', {
+                              parent: a.parentTitle,
+                            })}
+                          </span>
+                        ) : a.isChild ? (
+                          <span className={`mt-0.5 block text-[11px] ${muted}`}>
+                            {t('workspace.projectHubAttentionHiddenChild')}
+                          </span>
+                        ) : null}
                         {a.dueDate ? (
                           <span className={`mt-0.5 block text-[11px] ${dueCls}`}>
                             {t('workspace.projectHubActionDue', {
@@ -1050,16 +1056,26 @@ export default function ProjectHubShell({
     });
   }, [boardDetail?.lists]);
   const summary = useMemo(() => {
+    // Prefer live board cards — Overview API can lag / use stale card.status.
+    if (Array.isArray(cards) && cards.length > 0) {
+      return computeHubBoardSummary(cards, lists);
+    }
     if (overviewPayload?.summary) return overviewPayload.summary;
     return computeHubBoardSummary(cards, lists);
   }, [overviewPayload?.summary, cards, lists]);
   const overdueHealthCards = useMemo(() => {
+    if (Array.isArray(cards) && cards.length > 0) {
+      return listHubHealthCards(cards, lists, 'overdue', { limit: 8 });
+    }
     if (overviewPayload?.healthPreview?.overdue?.length) {
       return overviewPayload.healthPreview.overdue;
     }
     return listHubHealthCards(cards, lists, 'overdue', { limit: 8 });
   }, [overviewPayload?.healthPreview?.overdue, cards, lists]);
   const inReviewHealthCards = useMemo(() => {
+    if (Array.isArray(cards) && cards.length > 0) {
+      return listHubHealthCards(cards, lists, 'inReview', { limit: 8 });
+    }
     if (overviewPayload?.healthPreview?.inReview?.length) {
       return overviewPayload.healthPreview.inReview;
     }
@@ -1265,6 +1281,16 @@ export default function ProjectHubShell({
   const dashboardCharts = useMemo(() => {
     if (!overviewVisibility.canViewTaskMetrics) return null;
     const membersForCharts = overviewVisibility.canViewMemberBreakdown ? chartMembers : [];
+    // Prefer live board for status donut — sync with Kanban columns.
+    if (Array.isArray(cards) && cards.length > 0) {
+      return buildOverviewDashboardCharts({
+        cards,
+        lists,
+        issueCounts,
+        priorityConfig: projectPayload?.priorityConfig,
+        members: membersForCharts,
+      });
+    }
     if (overviewPayload?.charts) {
       return chartsFromOverviewApi(
         overviewPayload.charts,
@@ -1319,6 +1345,11 @@ export default function ProjectHubShell({
     return activeSprint;
   }, [overviewPayload?.activeSprint, activeSprint]);
   const nextActions = useMemo(() => {
+    if (Array.isArray(cards) && cards.length > 0) {
+      return pickNextHubActions(cards, lists, {
+        projectCode: resolvedBoard?.projectCode || '',
+      });
+    }
     if (Array.isArray(overviewPayload?.nextActions) && overviewPayload.nextActions.length) {
       return overviewPayload.nextActions;
     }
@@ -1745,6 +1776,7 @@ export default function ProjectHubShell({
                 (Array.isArray(projectPayload?.capabilities?.permissions) &&
                   projectPayload.capabilities.permissions.includes('uat:sign_off'))
             )}
+            canAcceptHandover={Boolean(hubCaps?.canAcceptHandover)}
             handoverChecklist={projectPayload?.handoverChecklist || null}
             releaseLabel={projectPayload?.releaseLabel || ''}
             releaseReadyStatus={projectPayload?.releaseReadyStatus || 'none'}
@@ -1993,6 +2025,8 @@ export default function ProjectHubShell({
             listActive={tab === 'testCases'}
             isDarkMode={isDarkMode}
             boardCards={cards}
+            boardLists={lists}
+            onPatchBoardCards={onPatchBoardCards}
             canCreate={Boolean(hubCaps.canCreateTask || hubCaps.canCreateBug || canManage)}
             canExecute={Boolean(
               hubCaps.canCreateTask ||

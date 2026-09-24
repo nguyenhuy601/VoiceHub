@@ -8,6 +8,8 @@ import SpaceCalendarModule from '../../spaceModules/SpaceCalendarModule';
 import SpaceDocumentsModule from '../../spaceModules/SpaceDocumentsModule';
 import SpaceProjectChatModule from '../../spaceModules/SpaceProjectChatModule';
 import Phase1Shell from '../phase1/Phase1Shell';
+import Phase4Shell from './phase4/Phase4Shell';
+import { isPhase4DeliveryPhase } from './phase4/phase4Ui';
 import { MODULE_TO_HUB_TAB, normalizeProjectModule } from '../../../utils/suiteNavConfig';
 import {
   coerceDeliveryPhase,
@@ -132,6 +134,10 @@ export default function ProjectModuleRoute() {
       module === 'settings')
   ) {
     return <Phase1Shell module={module} />;
+  }
+
+  if (projectRow && isPhase4DeliveryPhase(deliveryPhase)) {
+    return <Phase4Shell module={module} />;
   }
 
   const hubTab = MODULE_TO_HUB_TAB[module] || null;
