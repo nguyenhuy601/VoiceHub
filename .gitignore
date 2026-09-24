@@ -131,3 +131,14 @@ docker-compose.override.yml
 *.pem
 .vercel
 *.tsbuildinfo
+
+# ========================
+# Local scratch / agent noise (không commit)
+# ========================
+/tmp/
+/deep-research-report.md
+/summary 1.md
+devops/nginx/dev-https-runtime-*.conf
+# Plan Mode local drafts (repo chỉ track vài plan đã chốt)
+.cursor/plans/*.plan.md
+!.cursor/plans/.gitkeep
