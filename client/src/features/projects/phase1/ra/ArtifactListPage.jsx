@@ -1,32 +1,66 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import Modal from '../../../../components/Shared/Modal';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
 import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
-import { getArtifactListColumns, truncateCell } from './artifactListColumns';
+import {
+  getDefaultVisibleColumnIds,
+  loadVisibleColumnIds,
+  resolveVisibleColumns,
+  truncateCell,
+} from './artifactListColumns';
+import ArtifactColumnPicker from './ArtifactColumnPicker';
 import ArtifactDetailPanel from './ArtifactDetailPanel';
 import { modulePathForArtifactKind, resolveArtifactRelated } from './artifactRelated';
+import {
+  buildArtifactFormState,
+  buildArtifactUpdateBody,
+  isArtifactContentEditable,
+} from './artifactFieldCatalog';
 import Phase1SplitWorkspace from '../shared/Phase1SplitWorkspace';
+import Phase1InlineActionBar from '../shared/Phase1InlineActionBar';
+import {
+  Phase1DataTableToolbar,
+  Phase1SortableTh,
+  Phase1TablePagination,
+} from '../shared/Phase1DataTableChrome';
+import {
+  PHASE1_TABLE_PAGE_SIZE,
+  paginatePhase1Rows,
+  sortPhase1Rows,
+} from '../shared/phase1ClientTable';
+import {
+  readInlineFormValue,
+  resolveRaInlineEditTarget,
+  writeInlineFormValue,
+} from '../shared/phase1InlineColumnEdit';
+import { renderPhase1TableCell } from '../shared/phase1TableCell';
 import {
   PHASE1_DENSE_ROW,
+  PHASE1_DENSE_ROW_EDITING,
   PHASE1_DENSE_ROW_SELECTED,
   PHASE1_TABLE,
+  PHASE1_TABLE_FRAME,
   PHASE1_TABLE_SHELL,
   PHASE1_TD,
-  PHASE1_TH,
+  PHASE1_TD_STICKY,
 } from '../shared/phase1ListDensity';
-import { kindChipClass, statusBadgeClass } from '../shared/phase1UiTokens';
+import { isTechFocusKind } from '../shared/phase1UiTokens';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
+const CELL_INPUT =
+  'w-full min-w-[8rem] rounded border border-[#FFD591] bg-[#FFFBE6] px-1.5 py-1 text-[13px] text-[#262626] outline-none focus:border-[#FA8C16] focus:ring-1 focus:ring-[#FA8C16]';
+
 /**
- * Shared list + split detail for AnalysisArtifact kinds (desktop list|pane, mobile sheet).
+ * RA artifact table — inline cell edit + view-only side detail; create via Modal.
  */
 export default function ArtifactListPage({
   projectId,
@@ -43,17 +77,38 @@ export default function ArtifactListPage({
   const [selectedId, setSelectedId] = useState(null);
   const [filter, setFilter] = useState('');
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState({ externalKey: '', title: '', summary: '' });
+  const [createDraft, setCreateDraft] = useState({ externalKey: '', title: '', summary: '' });
+  const [visibleColumnIds, setVisibleColumnIds] = useState(
+    () => loadVisibleColumnIds(kind) || getDefaultVisibleColumnIds(kind)
+  );
+  const [sortId, setSortId] = useState('id');
+  const [sortDir, setSortDir] = useState('asc');
+  const [page, setPage] = useState(1);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [activeColId, setActiveColId] = useState(null);
+  const [inlineForm, setInlineForm] = useState(null);
+  const [inlineBaseline, setInlineBaseline] = useState(null);
   const createPaneRef = useRef(null);
 
-  const canEdit = capabilities.canEditAnalysis && !readOnly;
+  useEffect(() => {
+    setVisibleColumnIds(loadVisibleColumnIds(kind) || getDefaultVisibleColumnIds(kind));
+    setSortId('id');
+    setSortDir('asc');
+    setPage(1);
+    setEditingId(null);
+    setActiveColId(null);
+    setInlineForm(null);
+    setInlineBaseline(null);
+  }, [kind]);
 
-  const canSubmitBa =
-    !readOnly &&
-    (Boolean(capabilities.canImportAnalysis) ||
-      Boolean(capabilities.canEditAnalysis) ||
-      (Array.isArray(capabilities.permissions) &&
-        capabilities.permissions.includes('analysis:submit_ba_review')));
+  useEffect(() => {
+    setPage(1);
+  }, [filter]);
+
+  const canEdit =
+    (capabilities.canEditAnalysis || capabilities.canImportAnalysis) && !readOnly;
+  const canSubmitBa = !readOnly && Boolean(capabilities.canBaAuthorAnalysis);
 
   const ARTIFACT_NEXT = {
     draft: { to: 'ba_review', allow: canSubmitBa },
@@ -63,6 +118,7 @@ export default function ArtifactListPage({
       allow: Boolean(capabilities.canReviewAnalysisTech) && !readOnly,
     },
     po_review: { to: 'approved', allow: Boolean(capabilities.canReviewAnalysisPo) && !readOnly },
+    changes_requested: { to: null, allow: canSubmitBa },
   };
 
   const clearArtifactQuery = useCallback(() => {
@@ -72,15 +128,25 @@ export default function ArtifactListPage({
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  const stopInlineEdit = useCallback(() => {
+    setEditingId(null);
+    setActiveColId(null);
+    setInlineForm(null);
+    setInlineBaseline(null);
+  }, []);
+
   const closeDetail = useCallback(() => {
     setSelectedId(null);
     setCreating(false);
+    setCreateOpen(false);
+    stopInlineEdit();
     clearArtifactQuery();
-  }, [clearArtifactQuery]);
+  }, [clearArtifactQuery, stopInlineEdit]);
 
-  const openArtifact = useCallback(
+  const selectRow = useCallback(
     (id) => {
       setCreating(false);
+      setCreateOpen(false);
       setSelectedId(id);
       const next = new URLSearchParams(searchParams);
       next.set('artifact', String(id));
@@ -89,11 +155,20 @@ export default function ArtifactListPage({
     [searchParams, setSearchParams]
   );
 
-  // Deep-link: /analysis-fr?artifact=<id> (Wave 4 related nav)
+  const openCreate = useCallback(() => {
+    setSelectedId(null);
+    setCreating(true);
+    setCreateOpen(true);
+    stopInlineEdit();
+    setCreateDraft({ externalKey: '', title: '', summary: '' });
+    clearArtifactQuery();
+  }, [clearArtifactQuery, stopInlineEdit]);
+
   useEffect(() => {
     const fromQuery = String(searchParams.get('artifact') || '').trim();
     if (!fromQuery) return;
     setCreating(false);
+    setCreateOpen(false);
     setSelectedId((prev) => (prev === fromQuery ? prev : fromQuery));
   }, [searchParams]);
 
@@ -106,15 +181,21 @@ export default function ArtifactListPage({
     enabled: Boolean(projectId && kind),
   });
 
-  const { data: selected } = useQuery({
+  const { data: selectedDetail } = useQuery({
     queryKey: ['analysisArtifact', projectId, selectedId],
     queryFn: async () => unwrap(await analysisAPI.getArtifact(projectId, selectedId)),
     enabled: Boolean(projectId && selectedId),
+    placeholderData: keepPreviousData,
   });
 
+  const selectedFromList = useMemo(() => {
+    if (!selectedId) return null;
+    return rows.find((r) => String(r.id || r._id) === String(selectedId)) || null;
+  }, [rows, selectedId]);
+
+  const selected = selectedDetail || selectedFromList;
   const detailOpen = Boolean(selectedId);
 
-  // Prefetch on list page so Related pane resolves titles immediately on first click
   const { data: traceLinks = [], isLoading: linksLoading } = useQuery({
     queryKey: ['analysisTraceLinks', projectId],
     queryFn: async () => {
@@ -139,12 +220,14 @@ export default function ArtifactListPage({
     const catalog =
       relatedCatalog.length > 0
         ? relatedCatalog
-        : [...rows, ...(selected && !rows.some((r) => String(r.id || r._id) === String(selected.id || selected._id)) ? [selected] : [])];
-    return resolveArtifactRelated({
-      artifact: selected,
-      links: traceLinks,
-      catalog,
-    });
+        : [
+            ...rows,
+            ...(selected &&
+            !rows.some((r) => String(r.id || r._id) === String(selected.id || selected._id))
+              ? [selected]
+              : []),
+          ];
+    return resolveArtifactRelated({ artifact: selected, links: traceLinks, catalog });
   }, [selected, traceLinks, relatedCatalog, rows]);
 
   const relatedLoading = detailOpen && (linksLoading || catalogLoading) && relatedItems.length === 0;
@@ -154,14 +237,14 @@ export default function ArtifactListPage({
       if (!item || item.unresolved || !item.id) return;
       const targetKind = String(item.kind || '').toUpperCase();
       if (targetKind === String(kind || '').toUpperCase()) {
-        openArtifact(item.id);
+        selectRow(item.id);
         return;
       }
       const moduleSeg = modulePathForArtifactKind(targetKind);
       if (!moduleSeg) return;
       navigate(buildPhase1ModulePath(projectId, moduleSeg, { artifact: item.id }));
     },
-    [kind, navigate, openArtifact, projectId]
+    [kind, navigate, selectRow, projectId]
   );
 
   const createMut = useMutation({
@@ -170,7 +253,8 @@ export default function ArtifactListPage({
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, kind] });
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
       setCreating(false);
-      setDraft({ externalKey: '', title: '', summary: '' });
+      setCreateOpen(false);
+      setCreateDraft({ externalKey: '', title: '', summary: '' });
       toast.success(t('workspace.phase1ArtifactCreated'));
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
@@ -183,21 +267,21 @@ export default function ArtifactListPage({
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
       queryClient.invalidateQueries({ queryKey: ['analysisArtifact', projectId, selectedId] });
       toast.success(t('workspace.phase1ArtifactSaved'));
+      stopInlineEdit();
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
 
   const transitionMut = useMutation({
-    mutationFn: ({ id, toStatus }) =>
-      analysisAPI.transitionArtifact(projectId, id, { toStatus, status: toStatus }),
+    mutationFn: ({ id, toStatus, note }) =>
+      analysisAPI.transitionArtifact(projectId, id, { toStatus, status: toStatus, note }),
     onSuccess: (_res, vars) => {
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, kind] });
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
       queryClient.invalidateQueries({ queryKey: ['analysisArtifact', projectId, selectedId] });
       queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
-      toast.success(
-        t('workspace.phase1ArtifactGateOk', { status: vars?.toStatus || '' })
-      );
+      toast.success(t('workspace.phase1ArtifactGateOk', { status: vars?.toStatus || '' }));
+      stopInlineEdit();
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
@@ -205,15 +289,28 @@ export default function ArtifactListPage({
   const selectedNext = useMemo(() => {
     const st = String(selected?.status || '').toLowerCase();
     const step = ARTIFACT_NEXT[st];
-    return step?.allow ? step.to : null;
+    if (!step?.allow) return null;
+    if (st === 'changes_requested') {
+      return String(selected?.changesRequestedFrom || 'tech_review').toLowerCase();
+    }
+    return step.to;
   }, [
     selected?.status,
+    selected?.changesRequestedFrom,
     canSubmitBa,
     capabilities.canReviewAnalysisBa,
     capabilities.canReviewAnalysisTech,
     capabilities.canReviewAnalysisPo,
     readOnly,
   ]);
+
+  const canRequestChanges =
+    !readOnly &&
+    ['ba_review', 'tech_review', 'po_review'].includes(String(selected?.status || '').toLowerCase()) &&
+    ((String(selected?.status) === 'ba_review' && capabilities.canReviewAnalysisBa) ||
+      (String(selected?.status) === 'tech_review' && capabilities.canReviewAnalysisTech) ||
+      (String(selected?.status) === 'po_review' && capabilities.canReviewAnalysisPo));
+
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return rows;
@@ -251,116 +348,124 @@ export default function ArtifactListPage({
     return flat;
   }, [filtered, layout]);
 
-  const columns = useMemo(() => getArtifactListColumns(kind), [kind]);
+  const columns = useMemo(
+    () => resolveVisibleColumns(kind, visibleColumnIds),
+    [kind, visibleColumnIds]
+  );
+
+  const columnById = useMemo(() => new Map(columns.map((c) => [c.id, c])), [columns]);
+
+  const sourceRows = layout === 'tree' ? treeRows : filtered;
+
+  const sortedRows = useMemo(() => {
+    if (layout === 'tree') return sourceRows;
+    return sortPhase1Rows(sourceRows, {
+      sortId,
+      sortDir,
+      getValue: (row, colId) => columnById.get(colId)?.getValue?.(row) ?? '',
+    });
+  }, [sourceRows, layout, sortId, sortDir, columnById]);
+
+  const { pageRows, page: safePage, pageCount, total } = useMemo(
+    () => paginatePhase1Rows(sortedRows, { page, pageSize: PHASE1_TABLE_PAGE_SIZE }),
+    [sortedRows, page]
+  );
 
   useEffect(() => {
-    if (creating) createPaneRef.current?.querySelector('input')?.focus();
-  }, [creating]);
+    if (safePage !== page) setPage(safePage);
+  }, [safePage, page]);
 
-  const hasSelection = Boolean(selectedId) || creating;
+  const onSortColumn = useCallback(
+    (colId) => {
+      if (layout === 'tree') return;
+      setSortId((prev) => {
+        if (prev === colId) {
+          setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+          return prev;
+        }
+        setSortDir('asc');
+        return colId;
+      });
+      setPage(1);
+    },
+    [layout]
+  );
 
-  const detailPane = creating ? (
-    <div ref={createPaneRef} className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <h2 className="text-sm font-semibold">{t('workspace.phase1CreateArtifact')}</h2>
-        <button
-          type="button"
-          className="rounded border border-border px-2 py-0.5 text-xs"
-          onClick={closeDetail}
-        >
-          {t('common.close')}
-        </button>
-      </div>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3">
-        <input
-          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
-          placeholder={t('workspace.phase1PlaceholderExternalKey')}
-          value={draft.externalKey}
-          onChange={(e) => setDraft((d) => ({ ...d, externalKey: e.target.value }))}
-        />
-        <input
-          className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
-          placeholder={t('workspace.phase1PlaceholderTitle')}
-          value={draft.title}
-          onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-        />
-        <textarea
-          className="min-h-[80px] w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
-          placeholder={t('workspace.phase1PlaceholderSummary')}
-          value={draft.summary}
-          onChange={(e) => setDraft((d) => ({ ...d, summary: e.target.value }))}
-        />
-      </div>
-      <div className="flex justify-end gap-2 border-t border-border px-3 py-2">
-        <button
-          type="button"
-          className="rounded-lg border border-border px-3 py-1.5 text-sm"
-          onClick={closeDetail}
-        >
-          {t('common.cancel')}
-        </button>
-        <button
-          type="button"
-          className="rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
-          disabled={!draft.externalKey.trim() || !draft.title.trim() || createMut.isPending}
-          onClick={() => createMut.mutate(draft)}
-        >
-          {t('common.save')}
-        </button>
-      </div>
-    </div>
-  ) : selectedId && selected ? (
-    <ArtifactDetailPanel
-      artifact={selected}
-      kind={kind}
-      canEdit={canEdit}
-      saving={updateMut.isPending}
-      transitioning={transitionMut.isPending}
-      nextStatus={selectedNext}
-      relatedItems={relatedItems}
-      relatedLoading={relatedLoading}
-      onClose={closeDetail}
-      onSave={(body) => updateMut.mutate({ id: selectedId, body })}
-      onTransition={(toStatus) => transitionMut.mutate({ id: selectedId, toStatus })}
-      onOpenRelated={openRelated}
-    />
-  ) : null;
+  const dirtyBody = useMemo(() => {
+    if (!inlineForm || !inlineBaseline) return {};
+    return buildArtifactUpdateBody(inlineForm, inlineBaseline, kind);
+  }, [inlineForm, inlineBaseline, kind]);
+  const isDirty = Object.keys(dirtyBody).length > 0;
+  const canSaveInline =
+    Boolean(editingId) &&
+    isDirty &&
+    !updateMut.isPending &&
+    !transitionMut.isPending &&
+    Boolean(String(inlineForm?.top?.title || '').trim());
+
+  const beginInlineEdit = useCallback(
+    (row, colId) => {
+      if (!canEdit || !isArtifactContentEditable(row?.status)) return;
+      const target = resolveRaInlineEditTarget({ id: colId }, kind);
+      if (!target) return;
+      const id = String(row.id || row._id);
+      selectRow(id);
+      if (editingId !== id) {
+        const form = buildArtifactFormState(row, kind);
+        setInlineForm(form);
+        setInlineBaseline(form);
+        setEditingId(id);
+      }
+      setActiveColId(colId);
+    },
+    [canEdit, kind, editingId, selectRow]
+  );
+
+  const onCancelInline = () => {
+    stopInlineEdit();
+  };
+
+  const onSaveInline = () => {
+    if (!canSaveInline || !editingId) return;
+    updateMut.mutate({ id: editingId, body: dirtyBody });
+  };
+
+  useEffect(() => {
+    if (createOpen) createPaneRef.current?.querySelector('input')?.focus();
+  }, [createOpen]);
+
+  const editingRow = editingId
+    ? rows.find((r) => String(r.id || r._id) === String(editingId))
+    : null;
 
   const listPane = (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
-        <div>
-          <h1 className="flex flex-wrap items-center gap-2 text-base font-semibold text-foreground">
-            <span className={kindChipClass(kind)}>{kind}</span>
-            {title}
-          </h1>
-          <p className="text-[11px] text-muted-foreground">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+      <Phase1DataTableToolbar
+        kind={kind}
+        title={title}
+        subtitle={
+          <>
             {rows.length} {t('workspace.phase1Items')}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            className="rounded-lg border border-border bg-background px-2.5 py-1 text-sm outline-none focus:border-primary"
-            placeholder={t('common.search')}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            {isTechFocusKind(kind) ? (
+              <span className="ml-1.5 text-sky-800 dark:text-sky-200">
+                · {t('workspace.phase1TechFocusListHint')}
+              </span>
+            ) : null}
+          </>
+        }
+        searchValue={filter}
+        onSearchChange={setFilter}
+        searchPlaceholder={t('common.search')}
+        columnsSlot={
+          <ArtifactColumnPicker
+            kind={kind}
+            visibleIds={visibleColumnIds}
+            onChange={setVisibleColumnIds}
           />
-          {canEdit ? (
-            <button
-              type="button"
-              className="rounded-lg bg-primary px-2.5 py-1 text-sm font-medium text-primary-foreground"
-              onClick={() => {
-                setSelectedId(null);
-                setCreating(true);
-                setDraft({ externalKey: '', title: '', summary: '' });
-                clearArtifactQuery();
-              }}
-            >
-              {t('common.add')}
-            </button>
-          ) : null}
-        </div>
-      </div>
+        }
+        primaryLabel={canEdit ? t('common.add') : null}
+        onPrimary={canEdit ? openCreate : undefined}
+      />
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
@@ -369,77 +474,262 @@ export default function ArtifactListPage({
         <p className="text-sm text-destructive">{resolveApiErrorMessage(error)}</p>
       ) : null}
 
-      <div className={PHASE1_TABLE_SHELL}>
-        <table className={PHASE1_TABLE}>
-          <thead className="sticky top-0 z-10">
-            <tr>
-              {columns.map((col) => (
-                <th key={col.id} className={PHASE1_TH}>
-                  {t(col.labelKey)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {(layout === 'tree' ? treeRows : filtered).map((row) => {
-              const id = String(row.id || row._id);
-              const selected = id === selectedId && !creating;
-              return (
-                <tr
-                  key={id}
-                  className={`${PHASE1_DENSE_ROW} ${selected ? PHASE1_DENSE_ROW_SELECTED : ''}`}
-                  onClick={() => openArtifact(id)}
-                >
-                  {columns.map((col) => {
-                    const full = col.getValue(row);
-                    const display = col.isStatus ? full : truncateCell(full);
-                    const isIdCol = col.id === 'id';
-                    return (
-                      <td
-                        key={col.id}
-                        className={`${PHASE1_TD} max-w-[14rem] ${col.mono || isIdCol ? 'font-mono text-xs' : ''}`}
-                        style={
-                          isIdCol && layout === 'tree'
-                            ? { paddingLeft: 10 + (row._depth || 0) * 14 }
-                            : undefined
-                        }
-                        title={full || undefined}
-                      >
-                        {col.isStatus ? (
-                          <span className={statusBadgeClass(row.status)}>{display || '—'}</span>
-                        ) : (
-                          display || '—'
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-            {!isLoading && filtered.length === 0 ? (
+      <div className={PHASE1_TABLE_FRAME}>
+        <div className={PHASE1_TABLE_SHELL}>
+          <table className={PHASE1_TABLE}>
+            <thead className="sticky top-0 z-10">
               <tr>
-                <td
-                  colSpan={columns.length}
-                  className={`${PHASE1_TD} py-8 text-center text-muted-foreground`}
-                >
-                  {t('workspace.phase1EmptyArtifacts')}
-                </td>
+                {columns.map((col) => (
+                  <Phase1SortableTh
+                    key={col.id}
+                    label={t(col.labelKey)}
+                    sortId={col.id}
+                    activeSortId={sortId}
+                    sortDir={sortDir}
+                    onSort={layout === 'tree' ? undefined : onSortColumn}
+                    sticky={col.id === 'id'}
+                  />
+                ))}
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {pageRows.map((row) => {
+                const id = String(row.id || row._id);
+                const isEditing = editingId === id;
+                const isSelected = selectedId === id && !isEditing;
+                const rowEditable = canEdit && isArtifactContentEditable(row.status);
+                return (
+                  <tr
+                    key={id}
+                    className={`${PHASE1_DENSE_ROW} ${
+                      isEditing
+                        ? PHASE1_DENSE_ROW_EDITING
+                        : isSelected
+                          ? PHASE1_DENSE_ROW_SELECTED
+                          : ''
+                    }`}
+                    onClick={() => selectRow(id)}
+                  >
+                    {columns.map((col) => {
+                      const target = resolveRaInlineEditTarget(col, kind);
+                      const isActive = isEditing && activeColId === col.id && Boolean(target);
+                      const isIdCol = col.id === 'id';
+                      const full = col.getValue(row);
+                      const display = col.isStatus ? full : truncateCell(full);
+                      return (
+                        <td
+                          key={col.id}
+                          className={`${isIdCol ? PHASE1_TD_STICKY : PHASE1_TD} max-w-[16rem] ${
+                            isActive
+                              ? 'bg-[#FFF7E6] ring-2 ring-inset ring-[#FAAD14]'
+                              : isEditing && isIdCol
+                                ? 'bg-[#FFF7E6]'
+                                : isSelected && isIdCol
+                                  ? 'bg-primary/10'
+                                  : ''
+                          } ${col.mono || isIdCol ? 'font-mono text-xs' : ''}`}
+                          style={
+                            isIdCol && layout === 'tree'
+                              ? { paddingLeft: 10 + (row._depth || 0) * 14 }
+                              : undefined
+                          }
+                          title={full || undefined}
+                          onClick={(e) => {
+                            if (!rowEditable || !target) return;
+                            e.stopPropagation();
+                            beginInlineEdit(row, col.id);
+                          }}
+                        >
+                          {isActive && inlineForm ? (
+                            target.multiline ? (
+                              <textarea
+                                className={`${CELL_INPUT} min-h-[52px] resize-y`}
+                                value={readInlineFormValue(inlineForm, target)}
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) =>
+                                  setInlineForm((f) =>
+                                    writeInlineFormValue(f, target, e.target.value)
+                                  )
+                                }
+                              />
+                            ) : (
+                              <input
+                                className={CELL_INPUT}
+                                value={readInlineFormValue(inlineForm, target)}
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) =>
+                                  setInlineForm((f) =>
+                                    writeInlineFormValue(f, target, e.target.value)
+                                  )
+                                }
+                              />
+                            )
+                          ) : (
+                            renderPhase1TableCell({ col, row, display, full, t })
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+              {!isLoading && filtered.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={columns.length}
+                    className={`${PHASE1_TD} py-8 text-center text-muted-foreground`}
+                  >
+                    {t('workspace.phase1EmptyArtifacts')}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+        {editingId ? (
+          <Phase1InlineActionBar
+            title={
+              editingRow
+                ? `${editingRow.externalKey || ''} — ${editingRow.title || ''}`.trim()
+                : t('workspace.phase1EditArtifact')
+            }
+            dirty={isDirty}
+            canSave={canSaveInline}
+            saving={updateMut.isPending}
+            transitioning={transitionMut.isPending}
+            nextStatus={
+              editingId === selectedId && selectedNext ? selectedNext : null
+            }
+            submitLabel={
+              String(editingRow?.status) === 'draft'
+                ? t('workspace.phase1SubmitForReview')
+                : String(editingRow?.status) === 'changes_requested'
+                  ? t('workspace.phase1ResubmitReview')
+                  : t('workspace.phase1Approve')
+            }
+            cancelLabel={t('common.cancel')}
+            saveLabel={t('common.save')}
+            savingLabel={t('common.saving')}
+            onCancel={onCancelInline}
+            onSave={onSaveInline}
+            onSubmitReview={
+              editingId === selectedId && selectedNext
+                ? () => transitionMut.mutate({ id: editingId, toStatus: selectedNext })
+                : undefined
+            }
+          />
+        ) : null}
+        <Phase1TablePagination
+          page={safePage}
+          pageCount={pageCount}
+          total={total}
+          onPageChange={setPage}
+          pageLabel={t('workspace.phase1TablePage', {
+            page: safePage,
+            pageCount,
+            total,
+          })}
+        />
       </div>
     </div>
   );
+
+  const detailPane =
+    selectedId && selected ? (
+      <ArtifactDetailPanel
+        artifact={selected}
+        kind={kind}
+        canEdit={false}
+        viewOnly
+        saving={false}
+        transitioning={transitionMut.isPending}
+        nextStatus={null}
+        relatedItems={relatedItems}
+        relatedLoading={relatedLoading}
+        onClose={() => {
+          setSelectedId(null);
+          clearArtifactQuery();
+        }}
+        onSave={undefined}
+        onTransition={
+          canRequestChanges
+            ? (toStatus, note) => transitionMut.mutate({ id: selectedId, toStatus, note })
+            : undefined
+        }
+        canRequestChanges={canRequestChanges}
+        canReject={canRequestChanges}
+        onOpenRelated={openRelated}
+      />
+    ) : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
       <Phase1SplitWorkspace
         list={listPane}
         detail={detailPane}
-        hasSelection={hasSelection}
-        onCloseDetail={closeDetail}
+        hasSelection={Boolean(selectedId)}
+        onCloseDetail={() => {
+          setSelectedId(null);
+          clearArtifactQuery();
+        }}
       />
+
+      <Modal
+        isOpen={createOpen}
+        onClose={() => {
+          setCreateOpen(false);
+          setCreating(false);
+        }}
+        title={t('workspace.phase1CreateArtifact')}
+        size="md"
+      >
+        <div ref={createPaneRef} className="space-y-3">
+          <input
+            className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+            placeholder={t('workspace.phase1PlaceholderExternalKey')}
+            value={createDraft.externalKey}
+            onChange={(e) => setCreateDraft((d) => ({ ...d, externalKey: e.target.value }))}
+          />
+          <input
+            className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+            placeholder={t('workspace.phase1PlaceholderTitle')}
+            value={createDraft.title}
+            onChange={(e) => setCreateDraft((d) => ({ ...d, title: e.target.value }))}
+          />
+          <textarea
+            className="min-h-[80px] w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+            placeholder={t('workspace.phase1PlaceholderSummary')}
+            value={createDraft.summary}
+            onChange={(e) => setCreateDraft((d) => ({ ...d, summary: e.target.value }))}
+          />
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              className="rounded-full border border-[#D9D9D9] bg-white px-4 py-1.5 text-sm"
+              onClick={() => {
+                setCreateOpen(false);
+                setCreating(false);
+              }}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="rounded-full bg-[#1677FF] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+              disabled={
+                !createDraft.externalKey.trim() ||
+                !createDraft.title.trim() ||
+                createMut.isPending
+              }
+              onClick={() => createMut.mutate(createDraft)}
+            >
+              {createMut.isPending ? t('common.saving') : t('common.save')}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

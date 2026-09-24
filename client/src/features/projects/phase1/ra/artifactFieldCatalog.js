@@ -6,7 +6,7 @@
  * LEGACY = seed/trace/extra — ẩn khi DB trống; vẫn hydrate + PATCH.
  */
 
-export const ARTIFACT_EDITABLE_STATUSES = Object.freeze(['draft', 'rejected']);
+export const ARTIFACT_EDITABLE_STATUSES = Object.freeze(['draft', 'changes_requested']);
 
 /** @typedef {{ key: string, labelKey: string, control?: 'input'|'textarea'|'tags', rows?: number, legacy?: boolean }} FormFieldDef */
 
@@ -19,14 +19,14 @@ const TOP_FIELDS = Object.freeze([
   f('body', 'workspace.phase1FieldBody', 'textarea', { rows: 4, legacy: true }),
 ]);
 
-/** FR — workbook primary + seed/trace legacy */
+/** FR — đủ cột Excel 05_FR (primary); chỉ trace/AI phụ = legacy. */
 const FR_STRUCTURED = Object.freeze([
   f('priority', 'workspace.phase1ColPriority'),
   f('level', 'workspace.phase1ColLevel'),
   f('parentExternalKey', 'workspace.phase1FieldParentKey'),
   f('moduleLabel', 'workspace.phase1ColModule'),
   f('featureLabel', 'workspace.phase1ColFeature'),
-  f('capabilityLabel', 'workspace.phase1FieldCapability', 'input', { legacy: true }),
+  f('capabilityLabel', 'workspace.phase1FieldCapability'),
   f('description', 'workspace.phase1ColDescription', 'textarea', { rows: 3 }),
   f('actor', 'workspace.phase1ColActor'),
   f('acceptanceCriteria', 'workspace.phase1FieldAcceptanceCriteria', 'textarea', { rows: 3 }),
@@ -39,13 +39,14 @@ const FR_STRUCTURED = Object.freeze([
   f('output', 'workspace.phase1FieldOutput'),
   f('dataEntities', 'workspace.phase1FieldDataEntities', 'input', { legacy: true }),
   f('dependency', 'workspace.phase1FieldDependency'),
-  f('assumption', 'workspace.phase1FieldAssumption', 'textarea', { rows: 2, legacy: true }),
+  f('assumption', 'workspace.phase1FieldAssumption', 'textarea', { rows: 2 }),
   f('constraint', 'workspace.phase1FieldConstraint', 'textarea', { rows: 2 }),
-  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2, legacy: true }),
+  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2 }),
   f('relatedUcKeys', 'workspace.phase1UseCases', 'tags', { legacy: true }),
-  f('brIds', 'workspace.phase1FieldBrIds', 'tags', { legacy: true }),
-  f('bpmIds', 'workspace.phase1FieldBpmIds', 'tags', { legacy: true }),
-  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags', { legacy: true }),
+  f('brIds', 'workspace.phase1FieldBrIds', 'tags'),
+  f('bpmIds', 'workspace.phase1FieldBpmIds', 'tags'),
+  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags'),
+  f('status', 'workspace.phase1ColAnalysisStatus'),
   f('sourceReference', 'workspace.phase1FieldSourceReference', 'input', { legacy: true }),
   f('traceRelationship', 'workspace.phase1FieldTraceRelationship', 'input', { legacy: true }),
   f('traceAnalysisStatus', 'workspace.phase1FieldTraceAnalysisStatus', 'input', { legacy: true }),
@@ -54,91 +55,143 @@ const FR_STRUCTURED = Object.freeze([
 const UC_STRUCTURED = Object.freeze([
   f('priority', 'workspace.phase1ColPriority'),
   f('actor', 'workspace.phase1ColActor'),
-  f('secondaryActor', 'workspace.phase1FieldSecondaryActor', 'input', { legacy: true }),
-  f('goal', 'workspace.phase1FieldGoal', 'textarea', { rows: 2, legacy: true }),
-  f('trigger', 'workspace.phase1FieldTrigger', 'input', { legacy: true }),
+  f('secondaryActor', 'workspace.phase1FieldSecondaryActor'),
+  f('goal', 'workspace.phase1FieldGoal', 'textarea', { rows: 2 }),
+  f('trigger', 'workspace.phase1FieldTrigger'),
   f('precondition', 'workspace.phase1ColPrecondition', 'textarea', { rows: 2 }),
-  f('postconditions', 'workspace.phase1FieldPostconditions', 'textarea', { rows: 2, legacy: true }),
+  f('postconditions', 'workspace.phase1FieldPostconditions', 'textarea', { rows: 2 }),
   f('mainFlow', 'workspace.phase1FieldMainFlow', 'textarea', { rows: 4 }),
-  f('alternativeFlow', 'workspace.phase1FieldAlternativeFlow', 'textarea', { rows: 3, legacy: true }),
-  f('exceptionFlow', 'workspace.phase1ColException', 'textarea', { rows: 2, legacy: true }),
-  f('businessRules', 'workspace.phase1FieldBusinessRules', 'textarea', { rows: 2, legacy: true }),
-  f('input', 'workspace.phase1FieldInput', 'input', { legacy: true }),
-  f('output', 'workspace.phase1FieldOutput', 'input', { legacy: true }),
+  f('alternativeFlow', 'workspace.phase1FieldAlternativeFlow', 'textarea', { rows: 3 }),
+  f('exceptionFlow', 'workspace.phase1ColException', 'textarea', { rows: 2 }),
+  f('businessRules', 'workspace.phase1FieldBusinessRules', 'textarea', { rows: 2 }),
+  f('input', 'workspace.phase1FieldInput'),
+  f('output', 'workspace.phase1FieldOutput'),
   f('relatedFrKeys', 'workspace.phase1ColRelatedFr', 'tags'),
-  f('brIds', 'workspace.phase1FieldBrIds', 'tags', { legacy: true }),
-  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags', { legacy: true }),
-  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2, legacy: true }),
+  f('brIds', 'workspace.phase1FieldBrIds', 'tags'),
+  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags'),
+  f('status', 'workspace.phase1ColAnalysisStatus'),
+  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2 }),
   f('sourceReference', 'workspace.phase1FieldSourceReference', 'input', { legacy: true }),
   f('traceRelationship', 'workspace.phase1FieldTraceRelationship', 'input', { legacy: true }),
   f('traceAnalysisStatus', 'workspace.phase1FieldTraceAnalysisStatus', 'input', { legacy: true }),
 ]);
 
+/** SCOPE — đủ cột Excel 08_Scope (primary, luôn hiện form). */
 const SCOPE_STRUCTURED = Object.freeze([
   f('scopeType', 'workspace.phase1ColScopeType'),
   f('description', 'workspace.phase1ColDescription', 'textarea', { rows: 3 }),
+  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags'),
+  f('source', 'workspace.phase1ColWorkbookSource'),
+  f('dateRaised', 'workspace.phase1ColDateRaised'),
+  f('status', 'workspace.phase1ColAnalysisStatus'),
+  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2 }),
 ]);
 
 const BG_STRUCTURED = Object.freeze([
   f('statement', 'workspace.phase1FieldGoal', 'textarea', { rows: 3 }),
-  f('businessProblem', 'workspace.phase1FieldBusinessProblem', 'textarea', { rows: 2, legacy: true }),
-  f('expectedBusinessOutcome', 'workspace.phase1FieldExpectedOutcome', 'textarea', { rows: 2, legacy: true }),
+  f('businessProblem', 'workspace.phase1FieldBusinessProblem', 'textarea', { rows: 2 }),
+  f('expectedBusinessOutcome', 'workspace.phase1FieldExpectedOutcome', 'textarea', { rows: 2 }),
   f('successMetric', 'workspace.phase1FieldSuccessCriteria', 'textarea', { rows: 2 }),
   f('priority', 'workspace.phase1ColPriority'),
-  f('stakeholder', 'workspace.phase1FieldStakeholder', 'input', { legacy: true }),
-  f('assumption', 'workspace.phase1FieldAssumption', 'textarea', { rows: 2, legacy: true }),
-  f('constraint', 'workspace.phase1FieldConstraint', 'textarea', { rows: 2, legacy: true }),
-  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2, legacy: true }),
-  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags', { legacy: true }),
+  f('stakeholder', 'workspace.phase1FieldStakeholder'),
+  f('assumption', 'workspace.phase1FieldAssumption', 'textarea', { rows: 2 }),
+  f('constraint', 'workspace.phase1FieldConstraint', 'textarea', { rows: 2 }),
+  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags'),
+  f('status', 'workspace.phase1ColAnalysisStatus'),
+  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2 }),
 ]);
 
 const BR_STRUCTURED = Object.freeze([
   f('description', 'workspace.phase1ColDescription', 'textarea', { rows: 3 }),
-  f('businessRule', 'workspace.phase1FieldBusinessRules', 'textarea', { rows: 2, legacy: true }),
+  f('businessRule', 'workspace.phase1FieldBusinessRules', 'textarea', { rows: 2 }),
   f('whenApplies', 'workspace.phase1ColWhenApplies', 'textarea', { rows: 2, legacy: true }),
   f('exception', 'workspace.phase1ColException', 'textarea', { rows: 2, legacy: true }),
   f('relatedBgKey', 'workspace.phase1ColRelatedBg'),
-  f('stakeholder', 'workspace.phase1FieldStakeholder', 'input', { legacy: true }),
-  f('priority', 'workspace.phase1ColPriority', 'input', { legacy: true }),
-  f('successCriteria', 'workspace.phase1FieldSuccessCriteria', 'textarea', { rows: 2, legacy: true }),
-  f('dependency', 'workspace.phase1FieldDependency', 'input', { legacy: true }),
-  f('assumption', 'workspace.phase1FieldAssumption', 'textarea', { rows: 2, legacy: true }),
-  f('constraint', 'workspace.phase1FieldConstraint', 'textarea', { rows: 2, legacy: true }),
-  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2, legacy: true }),
-  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags', { legacy: true }),
+  f('stakeholder', 'workspace.phase1FieldStakeholder'),
+  f('priority', 'workspace.phase1ColPriority'),
+  f('successCriteria', 'workspace.phase1FieldSuccessCriteria', 'textarea', { rows: 2 }),
+  f('dependency', 'workspace.phase1FieldDependency'),
+  f('assumption', 'workspace.phase1FieldAssumption', 'textarea', { rows: 2 }),
+  f('constraint', 'workspace.phase1FieldConstraint', 'textarea', { rows: 2 }),
+  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags'),
+  f('status', 'workspace.phase1ColAnalysisStatus'),
+  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2 }),
 ]);
 
 const BPM_STRUCTURED = Object.freeze([
   f('processName', 'workspace.phase1ColProcessName'),
-  f('processDescription', 'workspace.phase1FieldProcessDescription', 'textarea', { rows: 3, legacy: true }),
+  f('processDescription', 'workspace.phase1FieldProcessDescription', 'textarea', { rows: 3 }),
   f('step', 'workspace.phase1ColStep'),
   f('actor', 'workspace.phase1ColActor'),
   f('action', 'workspace.phase1ColAction', 'textarea', { rows: 2 }),
   f('input', 'workspace.phase1FieldInput'),
   f('output', 'workspace.phase1FieldOutput'),
   f('relatedSystems', 'workspace.phase1ColRelatedSystems', 'input', { legacy: true }),
-  f('relatedBrKey', 'workspace.phase1FieldRelatedBr', 'input', { legacy: true }),
-  f('trigger', 'workspace.phase1FieldTrigger', 'input', { legacy: true }),
-  f('precondition', 'workspace.phase1ColPrecondition', 'textarea', { rows: 2, legacy: true }),
-  f('businessRule', 'workspace.phase1FieldBusinessRules', 'textarea', { rows: 2, legacy: true }),
-  f('exception', 'workspace.phase1ColException', 'textarea', { rows: 2, legacy: true }),
-  f('relatedCr', 'workspace.phase1FieldRelatedCr', 'input', { legacy: true }),
-  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2, legacy: true }),
+  f('relatedBrKey', 'workspace.phase1FieldRelatedBr'),
+  f('trigger', 'workspace.phase1FieldTrigger'),
+  f('precondition', 'workspace.phase1ColPrecondition', 'textarea', { rows: 2 }),
+  f('businessRule', 'workspace.phase1FieldBusinessRules', 'textarea', { rows: 2 }),
+  f('exception', 'workspace.phase1ColException', 'textarea', { rows: 2 }),
+  f('relatedCr', 'workspace.phase1FieldRelatedCr'),
+  f('status', 'workspace.phase1ColAnalysisStatus'),
+  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2 }),
 ]);
 
 const NFR_STRUCTURED = Object.freeze([
   f('category', 'workspace.phase1ColCategory'),
+  f('requirement', 'workspace.phase1ColRequirement', 'textarea', { rows: 2 }),
   f('target', 'workspace.phase1ColTarget', 'textarea', { rows: 2 }),
-  f('measurement', 'workspace.phase1FieldMeasurement', 'input', { legacy: true }),
+  f('measurement', 'workspace.phase1FieldMeasurement'),
   f('priority', 'workspace.phase1ColPriority'),
-  f('scope', 'workspace.phase1FieldNfrScope', 'textarea', { rows: 2, legacy: true }),
-  f('constraint', 'workspace.phase1FieldConstraint', 'textarea', { rows: 2, legacy: true }),
+  f('scope', 'workspace.phase1FieldNfrScope', 'textarea', { rows: 2 }),
+  f('constraint', 'workspace.phase1FieldConstraint', 'textarea', { rows: 2 }),
   f('verification', 'workspace.phase1FieldVerification', 'textarea', { rows: 2, legacy: true }),
-  f('acceptanceCriteria', 'workspace.phase1FieldAcceptanceCriteria', 'textarea', { rows: 2, legacy: true }),
-  f('source', 'workspace.phase1ColSource', 'input', { legacy: true }),
-  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2, legacy: true }),
+  f('acceptanceCriteria', 'workspace.phase1FieldAcceptanceCriteria', 'textarea', { rows: 2 }),
+  f('source', 'workspace.phase1ColWorkbookSource'),
+  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags'),
+  f('status', 'workspace.phase1ColAnalysisStatus'),
+  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2 }),
   f('relatedFrKeys', 'workspace.phase1ColRelatedFr', 'tags', { legacy: true }),
-  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags', { legacy: true }),
+]);
+
+const INTERFACE_STRUCTURED = Object.freeze([
+  f('interfaceName', 'workspace.phase1ColInterfaceName'),
+  f('interfaceType', 'workspace.phase1ColInterfaceType'),
+  f('direction', 'workspace.phase1ColDirection'),
+  f('protocol', 'workspace.phase1ColProtocol'),
+  f('description', 'workspace.phase1ColDescription', 'textarea', { rows: 3 }),
+  f('relatedArtifactIds', 'workspace.phase1FieldRelatedArtifacts', 'tags'),
+  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags'),
+  f('status', 'workspace.phase1ColAnalysisStatus'),
+  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2 }),
+]);
+
+const DATA_STRUCTURED = Object.freeze([
+  f('entity', 'workspace.phase1ColEntity'),
+  f('attributes', 'workspace.phase1ColAttributes', 'textarea', { rows: 3 }),
+  f('validationRules', 'workspace.phase1ColValidationRules', 'textarea', { rows: 2 }),
+  f('description', 'workspace.phase1ColDescription', 'textarea', { rows: 2, legacy: true }),
+  f('relatedArtifactIds', 'workspace.phase1FieldRelatedArtifacts', 'tags'),
+  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags'),
+  f('status', 'workspace.phase1ColAnalysisStatus'),
+  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2 }),
+]);
+
+const GLOSSARY_STRUCTURED = Object.freeze([
+  f('term', 'workspace.phase1ColTerm'),
+  f('definition', 'workspace.phase1ColDefinition', 'textarea', { rows: 3 }),
+  f('relatedArtifactIds', 'workspace.phase1FieldRelatedArtifacts', 'tags'),
+  f('status', 'workspace.phase1ColAnalysisStatus'),
+  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2 }),
+]);
+
+const ASSUMPTION_STRUCTURED = Object.freeze([
+  f('text', 'workspace.phase1ColAssumptionText', 'textarea', { rows: 3 }),
+  f('impactIfInvalid', 'workspace.phase1ColImpactIfInvalid', 'textarea', { rows: 2 }),
+  f('relatedArtifactIds', 'workspace.phase1FieldRelatedArtifacts', 'tags'),
+  f('customerRequirementIds', 'workspace.phase1FieldCrIds', 'tags'),
+  f('status', 'workspace.phase1ColAnalysisStatus'),
+  f('baNote', 'workspace.phase1FieldBaNote', 'textarea', { rows: 2 }),
 ]);
 
 const CATALOG = Object.freeze({
@@ -149,6 +202,10 @@ const CATALOG = Object.freeze({
   BR: Object.freeze({ kind: 'BR', topLevel: TOP_FIELDS, structured: BR_STRUCTURED }),
   BPM: Object.freeze({ kind: 'BPM', topLevel: TOP_FIELDS, structured: BPM_STRUCTURED }),
   NFR: Object.freeze({ kind: 'NFR', topLevel: TOP_FIELDS, structured: NFR_STRUCTURED }),
+  INTERFACE: Object.freeze({ kind: 'INTERFACE', topLevel: TOP_FIELDS, structured: INTERFACE_STRUCTURED }),
+  DATA: Object.freeze({ kind: 'DATA', topLevel: TOP_FIELDS, structured: DATA_STRUCTURED }),
+  GLOSSARY: Object.freeze({ kind: 'GLOSSARY', topLevel: TOP_FIELDS, structured: GLOSSARY_STRUCTURED }),
+  ASSUMPTION: Object.freeze({ kind: 'ASSUMPTION', topLevel: TOP_FIELDS, structured: ASSUMPTION_STRUCTURED }),
 });
 
 export function normalizeArtifactKind(kind) {
@@ -187,6 +244,10 @@ const SOFT_TRACE_FIELD_KEYS = new Set([
   'relatedFrKeys',
   'relatedBgKey',
   'relatedBrKey',
+  'brIds',
+  'bpmIds',
+  'relatedArtifactIds',
+  'customerRequirementIds',
 ]);
 
 export function isSoftTraceFormField(field) {
@@ -204,7 +265,32 @@ export function hasStructuredFieldValue(st, kind, field) {
 }
 
 /**
+ * FR Module/Capability/Feature — nhiều cột Requirement-level trống theo Excel.
+ * Chỉ hiện field hierarchy + soft-trace; field chi tiết chỉ hiện khi DB có giá trị.
+ */
+const FR_HIERARCHY_CORE_KEYS = new Set([
+  'priority',
+  'level',
+  'parentExternalKey',
+  'moduleLabel',
+  'featureLabel',
+  'capabilityLabel',
+  'description',
+  'actor',
+  'baNote',
+  'status',
+]);
+
+function isFrHierarchyLevel(st) {
+  const level = String(st?.level || '')
+    .trim()
+    .toLowerCase();
+  return level === 'module' || level === 'capability' || level === 'feature';
+}
+
+/**
  * PRIMARY + soft-trace luôn hiện; LEGACY nội dung khác chỉ hiện khi DB có giá trị (G3).
+ * FR hierarchy: ẩn field chi tiết trống (tránh form “trắng” trên Module/Capability/Feature).
  * @param {string} kind
  * @param {object} [artifact]
  */
@@ -212,8 +298,12 @@ export function listVisibleStructuredFields(kind, artifact) {
   const cat = getArtifactFieldCatalog(kind);
   if (!cat) return [];
   const st = artifact?.structured && typeof artifact.structured === 'object' ? artifact.structured : {};
+  const frSparse = normalizeArtifactKind(kind) === 'FR' && isFrHierarchyLevel(st);
   return cat.structured.filter((field) => {
     if (isSoftTraceFormField(field)) return true;
+    if (frSparse && !FR_HIERARCHY_CORE_KEYS.has(field.key)) {
+      return hasStructuredFieldValue(st, kind, field);
+    }
     if (!isLegacyFormField(field)) return true;
     return hasStructuredFieldValue(st, kind, field);
   });
@@ -265,11 +355,14 @@ const STRUCTURED_READ_ALIASES = Object.freeze({
   NFR: Object.freeze({
     target: Object.freeze(['target', 'metric', 'measurement']),
     measurement: Object.freeze(['measurement', 'metric']),
+    requirement: Object.freeze(['requirement', 'name']),
   }),
   FR: Object.freeze({
     mainBehavior: Object.freeze(['mainBehavior', 'mainFlow']),
     mainFlow: Object.freeze(['mainFlow', 'mainBehavior']),
     description: Object.freeze(['description']),
+    dependency: Object.freeze(['dependency', 'frDependencies']),
+    constraint: Object.freeze(['constraint', 'constraintsNotes']),
   }),
   SCOPE: Object.freeze({
     description: Object.freeze(['description']),
@@ -326,6 +419,12 @@ export function buildArtifactFormState(artifact, kind) {
       }
       if ((value == null || value === '') && k === 'BPM' && field.key === 'processName') {
         value = String(artifact?.title || '');
+      }
+      if ((value == null || value === '') && k === 'NFR' && field.key === 'requirement') {
+        value = String(artifact?.title || '');
+      }
+      if ((value == null || value === '') && k === 'FR' && field.key === 'description') {
+        value = String(artifact?.title || summary || '');
       }
       if (field.control === 'tags') structured[field.key] = tagsToInput(value);
       else structured[field.key] = value == null ? '' : String(value);

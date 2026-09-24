@@ -21,10 +21,14 @@ import {
 describe('artifactFieldCatalog (FE)', () => {
   it('exposes catalogs for all RA kinds', () => {
     assert.deepEqual(listCatalogKinds().sort(), [
+      'ASSUMPTION',
       'BG',
       'BPM',
       'BR',
+      'DATA',
       'FR',
+      'GLOSSARY',
+      'INTERFACE',
       'NFR',
       'SCOPE',
       'UC',
@@ -33,12 +37,28 @@ describe('artifactFieldCatalog (FE)', () => {
     assert.ok(getArtifactFieldCatalog('UC'));
     assert.ok(getArtifactFieldCatalog('BR'));
     assert.ok(getArtifactFieldCatalog('SCOPE'));
+    assert.ok(getArtifactFieldCatalog('INTERFACE'));
   });
 
-  it('editable only draft/rejected', () => {
-    assert.deepEqual([...ARTIFACT_EDITABLE_STATUSES], ['draft', 'rejected']);
+  it('SCOPE form exposes full Excel columns as primary', () => {
+    const keys = getArtifactFieldCatalog('SCOPE').structured.map((f) => f.key);
+    assert.deepEqual(keys, [
+      'scopeType',
+      'description',
+      'customerRequirementIds',
+      'source',
+      'dateRaised',
+      'status',
+      'baNote',
+    ]);
+    assert.ok(!getArtifactFieldCatalog('SCOPE').structured.some((f) => f.legacy));
+  });
+
+  it('editable only draft/changes_requested', () => {
+    assert.deepEqual([...ARTIFACT_EDITABLE_STATUSES], ['draft', 'changes_requested']);
     assert.equal(isArtifactContentEditable('draft'), true);
-    assert.equal(isArtifactContentEditable('rejected'), true);
+    assert.equal(isArtifactContentEditable('changes_requested'), true);
+    assert.equal(isArtifactContentEditable('rejected'), false);
     assert.equal(isArtifactContentEditable('approved'), false);
     assert.equal(isArtifactContentEditable('ba_review'), false);
   });
@@ -134,7 +154,7 @@ describe('artifactFieldCatalog (FE)', () => {
     });
     assert.ok(!emptyBr.some((f) => f.key === 'whenApplies'));
     assert.ok(!emptyBr.some((f) => f.key === 'exception'));
-    assert.ok(!emptyBr.some((f) => f.key === 'baNote'));
+    assert.ok(emptyBr.some((f) => f.key === 'baNote'), 'Excel BA Note always on form');
     assert.ok(emptyBr.some((f) => f.key === 'description'));
     assert.ok(emptyBr.some((f) => f.key === 'relatedBgKey'));
 
@@ -146,7 +166,7 @@ describe('artifactFieldCatalog (FE)', () => {
 
     const emptyFr = listVisibleStructuredFields('FR', { structured: { priority: 'Must' } });
     assert.ok(!emptyFr.some((f) => f.key === 'dataEntities'));
-    assert.ok(!emptyFr.some((f) => f.key === 'baNote'));
+    assert.ok(emptyFr.some((f) => f.key === 'baNote'), 'Excel BA Note always on form');
     assert.ok(emptyFr.some((f) => f.key === 'priority'));
     const filledFr = listVisibleStructuredFields('FR', {
       structured: { priority: 'Must', dataEntities: 'Meeting' },
@@ -173,6 +193,7 @@ describe('artifactFieldCatalog (FE)', () => {
 
     const emptyNfr = listVisibleStructuredFields('NFR', { structured: { category: 'Perf' } });
     assert.ok(emptyNfr.some((f) => f.key === 'relatedFrKeys'));
+    assert.ok(emptyNfr.some((f) => f.key === 'requirement'));
     assert.ok(!emptyNfr.some((f) => f.key === 'verification'));
 
     const emptyBpm = listVisibleStructuredFields('BPM', {
@@ -180,5 +201,21 @@ describe('artifactFieldCatalog (FE)', () => {
     });
     assert.ok(emptyBpm.some((f) => f.key === 'relatedBrKey'));
     assert.ok(!emptyBpm.some((f) => f.key === 'relatedSystems'));
+  });
+
+  it('FR Module/Capability/Feature hides empty requirement-detail fields', () => {
+    const moduleFields = listVisibleStructuredFields('FR', {
+      structured: { level: 'Module', moduleLabel: 'Kho', description: 'Mod', priority: 'High' },
+    });
+    assert.ok(moduleFields.some((f) => f.key === 'moduleLabel'));
+    assert.ok(moduleFields.some((f) => f.key === 'description'));
+    assert.ok(!moduleFields.some((f) => f.key === 'mainBehavior'));
+    assert.ok(!moduleFields.some((f) => f.key === 'acceptanceCriteria'));
+    assert.ok(moduleFields.some((f) => f.key === 'customerRequirementIds'));
+
+    const reqFields = listVisibleStructuredFields('FR', {
+      structured: { level: 'Requirement', priority: 'High' },
+    });
+    assert.ok(reqFields.some((f) => f.key === 'mainBehavior'));
   });
 });

@@ -147,6 +147,10 @@ export const ANALYSIS_MODULE_BY_KIND = Object.freeze({
   UC: 'analysis-uc',
   NFR: 'analysis-nfr',
   SCOPE: 'analysis-scope',
+  INTERFACE: 'analysis-interface',
+  DATA: 'analysis-data',
+  GLOSSARY: 'analysis-glossary',
+  ASSUMPTION: 'analysis-assumption',
 });
 
 export function modulePathForArtifactKind(kind) {
