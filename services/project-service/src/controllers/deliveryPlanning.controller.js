@@ -142,6 +142,7 @@ async function suggest(req, res) {
       userId: getUserId(req),
       projectId: req.params.projectId,
       kind: req.body?.kind || req.query.kind,
+      view: req.body?.view || req.query.view,
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -155,6 +156,8 @@ async function confirmSuggestions(req, res) {
       userId: getUserId(req),
       projectId: req.params.projectId,
       suggestions: req.body?.suggestions || [],
+      kind: req.body?.kind || req.query.kind,
+      view: req.body?.view || req.query.view,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -183,7 +186,12 @@ async function bulkDump(req, res) {
       projectId: req.params.projectId,
       body: req.body || {},
     });
-    return res.status(201).json({ success: true, data });
+    const dryRun =
+      req.body?.dryRun === true ||
+      req.body?.dryRun === 'true' ||
+      req.body?.dryRun === 1 ||
+      req.body?.dryRun === '1';
+    return res.status(dryRun ? 200 : 201).json({ success: true, data });
   } catch (err) {
     return handleError(res, err);
   }
@@ -191,13 +199,23 @@ async function bulkDump(req, res) {
 
 async function dumpTemplate(req, res) {
   try {
-    const { buildPlanningDumpTemplateBuffer } = require('../utils/planning/planningDumpParse');
-    const buf = buildPlanningDumpTemplateBuffer();
+    const seedFromRa =
+      req.query.seedFromRa === '1' ||
+      req.query.seedFromRa === 'true' ||
+      req.query.seedFromRa === true;
+    const buf = await deliveryPlanningService.buildDumpWorkbookTemplate({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      seedFromRa,
+    });
+    const filename = seedFromRa
+      ? 'planning-workbook-seed-ra.xlsx'
+      : 'planning-workbook-template.xlsx';
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     );
-    res.setHeader('Content-Disposition', 'attachment; filename="planning-dump-template.xlsx"');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     return res.send(buf);
   } catch (err) {
     return handleError(res, err);

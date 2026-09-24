@@ -98,11 +98,14 @@ function parsePlanningDumpCsv(text) {
     endDate: header.indexOf('enddate'),
     targetDate: header.indexOf('targetdate'),
     effortHours: header.indexOf('efforthours'),
+    assigneeEmail: header.indexOf('assigneeemail'),
+    assigneeName: header.indexOf('assigneename'),
+    assignee: header.indexOf('assignee'),
   };
   if (idx.kind < 0 || idx.externalKey < 0 || idx.title < 0) {
     return {
       rows: [],
-      errors: ['CSV cần header: kind,externalKey,title[,summary,parentExternalKey,startDate,endDate,targetDate]'],
+      errors: ['CSV cần header: kind,externalKey,title[,summary,parentExternalKey,startDate,endDate,targetDate,assigneeEmail,assigneeName]'],
     };
   }
   const rows = [];
@@ -115,6 +118,15 @@ function parsePlanningDumpCsv(text) {
     if (idx.effortHours >= 0 && cols[idx.effortHours]) {
       const n = Number(cols[idx.effortHours]);
       if (Number.isFinite(n)) structured.effortHours = n;
+    }
+    if (idx.assigneeEmail >= 0 && cols[idx.assigneeEmail]) {
+      structured.assigneeEmail = cols[idx.assigneeEmail].slice(0, 120);
+    }
+    if (idx.assigneeName >= 0 && cols[idx.assigneeName]) {
+      structured.assigneeName = cols[idx.assigneeName].slice(0, 120);
+    }
+    if (idx.assignee >= 0 && cols[idx.assignee]) {
+      structured.assignee = cols[idx.assignee].slice(0, 120);
     }
     const n = normalizeDumpRow({
       kind: cols[idx.kind],
@@ -156,7 +168,7 @@ function splitCsvLine(line) {
 
 /**
  * @param {Buffer|ArrayBuffer|Uint8Array} fileBuffer
- * @returns {{ rows: object[], errors: string[] }}
+ * @returns {{ rows: object[], errors: string[]|object[], format?: string, meta?: object }}
  */
 function parsePlanningDumpXlsx(fileBuffer) {
   const errors = [];
@@ -176,6 +188,13 @@ function parsePlanningDumpXlsx(fileBuffer) {
   } catch (e) {
     return { rows: [], errors: [`Không đọc được .xlsx: ${e.message}`] };
   }
+
+  const { isMultiSheetPlanningWorkbook } = require('../../constants/planningWorkbookCatalog');
+  if (isMultiSheetPlanningWorkbook(workbook.SheetNames || [])) {
+    const { parsePlanningWorkbookXlsx } = require('./planningWorkbookParse');
+    return parsePlanningWorkbookXlsx(buf);
+  }
+
   const sheetName = workbook.SheetNames?.[0];
   if (!sheetName) return { rows: [], errors: ['Workbook không có sheet'] };
   const sheet = workbook.Sheets[sheetName];
@@ -192,6 +211,9 @@ function parsePlanningDumpXlsx(fileBuffer) {
     }
     if (item.fromKey) structured.fromKey = String(item.fromKey).slice(0, 64);
     if (item.toKey) structured.toKey = String(item.toKey).slice(0, 64);
+    if (item.assigneeEmail) structured.assigneeEmail = String(item.assigneeEmail).trim().slice(0, 120);
+    if (item.assigneeName) structured.assigneeName = String(item.assigneeName).trim().slice(0, 120);
+    if (item.assignee) structured.assignee = String(item.assignee).trim().slice(0, 120);
     const n = normalizeDumpRow({
       kind: item.kind,
       externalKey: item.externalKey || item.key,
@@ -206,54 +228,17 @@ function parsePlanningDumpXlsx(fileBuffer) {
     }
     rows.push(n);
   });
-  return { rows, errors };
+  return { rows, errors, format: 'xlsx' };
 }
 
 /**
- * Build minimal xlsx buffer template for Planning dump.
+ * Build Planning dump template — multi-sheet workbook (DEC D-WB1).
+ * @param {{ project?: object, seedFromRa?: boolean, seed?: object }} [opts]
  * @returns {Buffer}
  */
-function buildPlanningDumpTemplateBuffer() {
-  const XLSX = require('xlsx');
-  const rows = [
-    {
-      kind: 'WBS',
-      externalKey: 'WBS-01',
-      title: 'Example work package',
-      summary: 'Replace with real plan',
-      parentExternalKey: '',
-      startDate: '2026-10-01',
-      endDate: '2026-10-15',
-      targetDate: '',
-      effortHours: 40,
-    },
-    {
-      kind: 'MILESTONE',
-      externalKey: 'MS-01',
-      title: 'Phase 2 start',
-      summary: '',
-      parentExternalKey: '',
-      startDate: '',
-      endDate: '',
-      targetDate: '2026-11-01',
-      effortHours: '',
-    },
-    {
-      kind: 'SCHEDULE',
-      externalKey: 'SCH-01',
-      title: 'Delivery schedule',
-      summary: '',
-      parentExternalKey: '',
-      startDate: '2026-10-01',
-      endDate: '2026-12-31',
-      targetDate: '',
-      effortHours: '',
-    },
-  ];
-  const sheet = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, sheet, 'Planning');
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+function buildPlanningDumpTemplateBuffer(opts = {}) {
+  const { buildPlanningWorkbookBuffer } = require('./planningWorkbookBuilder');
+  return buildPlanningWorkbookBuffer(opts);
 }
 
 /**
@@ -287,7 +272,7 @@ function parsePlanningDumpPayload(body = {}) {
         return { rows: [], errors: ['File .xlsx vượt 2MB'], format: 'xlsx' };
       }
       const parsed = parsePlanningDumpXlsx(buf);
-      return { ...parsed, format: 'xlsx' };
+      return { ...parsed, format: parsed.format || 'xlsx' };
     }
 
     if (Array.isArray(body.items) || Array.isArray(body.artifacts)) {

@@ -34,7 +34,7 @@ describe('planningBaselinePolicy', () => {
     assert.ok(r.missingRecommended.includes('ARCHITECTURE'));
   });
 
-  it('ignores draft and inactive', () => {
+  it('ignores draft and inactive for ok, but marks draft-only required', () => {
     const arts = [
       ...PLANNING_BASELINE_REQUIRED_KINDS.map((kind) => ({
         kind,
@@ -45,5 +45,19 @@ describe('planningBaselinePolicy', () => {
     ];
     const r = evaluatePlanningBaselineReadiness(arts);
     assert.equal(r.ok, false);
+    assert.deepEqual(r.requiredAbsent, []);
+    assert.ok(r.requiredDraftOnly.includes('WBS'));
+    assert.ok(r.requiredDraftOnly.includes('SCHEDULE'));
+  });
+
+  it('separates absent vs draft-only required kinds', () => {
+    const r = evaluatePlanningBaselineReadiness([
+      { kind: 'WBS', status: 'draft', isActive: true },
+      { kind: 'RISK', status: 'pm_review', isActive: true },
+    ]);
+    assert.ok(r.requiredDraftOnly.includes('WBS'));
+    assert.ok(r.requiredDraftOnly.includes('RISK'));
+    assert.ok(r.requiredAbsent.includes('SCHEDULE'));
+    assert.ok(r.requiredAbsent.includes('RESOURCE'));
   });
 });

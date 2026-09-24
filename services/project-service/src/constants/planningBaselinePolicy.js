@@ -23,17 +23,37 @@ const PLANNING_BASELINE_RECOMMENDED_KINDS = Object.freeze([
 /**
  * @param {Array<{ kind?: string, status?: string, isActive?: boolean }>} artifacts
  * @param {{ requireRecommended?: boolean }} [opts]
- * @returns {{ ok: boolean, missingRequired: string[], missingRecommended: string[], approvedByKind: Record<string, number> }}
+ * @returns {{
+ *   ok: boolean,
+ *   missingRequired: string[],
+ *   missingRecommended: string[],
+ *   approvedByKind: Record<string, number>,
+ *   presentByKind: Record<string, number>,
+ *   requiredDraftOnly: string[],
+ *   requiredAbsent: string[],
+ * }}
  */
 function evaluatePlanningBaselineReadiness(artifacts = [], opts = {}) {
-  const rows = (Array.isArray(artifacts) ? artifacts : []).filter(
-    (a) => a && a.isActive !== false && String(a.status || '').toLowerCase() === 'approved'
+  const allActive = (Array.isArray(artifacts) ? artifacts : []).filter(
+    (a) => a && a.isActive !== false
   );
+  const approvedRows = allActive.filter(
+    (a) => String(a.status || '').toLowerCase() === 'approved'
+  );
+
   const approvedByKind = {};
+  const presentByKind = {};
   for (const k of PLANNING_ARTIFACT_KINDS) {
     approvedByKind[k] = 0;
+    presentByKind[k] = 0;
   }
-  for (const a of rows) {
+  for (const a of allActive) {
+    const k = String(a.kind || '')
+      .trim()
+      .toUpperCase();
+    if (presentByKind[k] != null) presentByKind[k] += 1;
+  }
+  for (const a of approvedRows) {
     const k = String(a.kind || '')
       .trim()
       .toUpperCase();
@@ -42,6 +62,8 @@ function evaluatePlanningBaselineReadiness(artifacts = [], opts = {}) {
 
   const missingRequired = PLANNING_BASELINE_REQUIRED_KINDS.filter((k) => !approvedByKind[k]);
   const missingRecommended = PLANNING_BASELINE_RECOMMENDED_KINDS.filter((k) => !approvedByKind[k]);
+  const requiredDraftOnly = missingRequired.filter((k) => presentByKind[k] > 0);
+  const requiredAbsent = missingRequired.filter((k) => !presentByKind[k]);
   const requireRecommended = opts.requireRecommended === true;
   const ok = missingRequired.length === 0 && (!requireRecommended || missingRecommended.length === 0);
 
@@ -50,6 +72,9 @@ function evaluatePlanningBaselineReadiness(artifacts = [], opts = {}) {
     missingRequired,
     missingRecommended,
     approvedByKind,
+    presentByKind,
+    requiredDraftOnly,
+    requiredAbsent,
   };
 }
 

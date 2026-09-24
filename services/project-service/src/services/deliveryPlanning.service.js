@@ -5,6 +5,9 @@ const {
   normalizePlanningKind,
   canTransitionPlanningStatus,
   permissionForPlanningTransition,
+  isPlanningContentEditableStatus,
+  isPlanningReviewNoteRequired,
+  canResubmitPlanningFromChangesRequested,
   PLANNING_ARTIFACT_KINDS,
 } = require('../constants/planningArtifact');
 const { evaluatePlanningBaselineReadiness } = require('../constants/planningBaselinePolicy');
@@ -37,6 +40,24 @@ function serializeDoc(doc) {
   const o = typeof doc.toObject === 'function' ? doc.toObject() : { ...doc };
   o.id = String(o._id);
   return o;
+}
+
+/** Org members + profiles for Planning assignee soft-validate. */
+async function loadOrgAssigneeDirectory(organizationId, actorUserId) {
+  const { fetchOrganizationMemberships } = require('../clients/orgMemberships.client');
+  const { fetchProfilesByUserIds } = require('../clients/userProfilesBatch.client');
+  const memberships = await fetchOrganizationMemberships(organizationId, actorUserId);
+  const userIds = memberships.map((m) => m.userId);
+  const profiles = await fetchProfilesByUserIds(userIds);
+  return userIds.map((userId) => {
+    const p = profiles.get(userId) || {};
+    return {
+      userId,
+      email: p.email || '',
+      displayName: p.displayName || p.fullName || p.username || '',
+      username: p.username || '',
+    };
+  });
 }
 
 async function recordPlanningAudit({
@@ -156,8 +177,8 @@ async function updateArtifact({ userId, projectId, artifactId, body = {} }) {
     err.statusCode = 404;
     throw err;
   }
-  if (!['draft', 'rejected'].includes(String(doc.status))) {
-    const err = new Error('Chỉ sửa được planning artifact draft/rejected');
+  if (!isPlanningContentEditableStatus(doc.status)) {
+    const err = new Error('Chỉ sửa được planning artifact draft / changes_requested / rejected');
     err.statusCode = 400;
     throw err;
   }
@@ -185,11 +206,40 @@ async function updateArtifact({ userId, projectId, artifactId, body = {} }) {
   return serializeDoc(doc);
 }
 
-function applyReviewStamp(doc, from, to, stamp) {
-  if (from === 'ba_review' && (to === 'tech_review' || to === 'rejected')) doc.review.ba = stamp;
-  if (from === 'tech_review' && (to === 'pm_review' || to === 'rejected')) doc.review.tech = stamp;
-  if (from === 'pm_review' && (to === 'po_review' || to === 'rejected')) doc.review.pm = stamp;
-  if (from === 'po_review' && (to === 'approved' || to === 'rejected')) doc.review.po = stamp;
+function applyReviewStamp(doc, from, to, stamp, { techSkipped = false } = {}) {
+  if (
+    from === 'ba_review' &&
+    (to === 'tech_review' ||
+      to === 'pm_review' ||
+      to === 'po_review' ||
+      to === 'rejected' ||
+      to === 'changes_requested')
+  ) {
+    doc.review.ba = stamp;
+  }
+  if (from === 'draft' && (to === 'pm_review' || to === 'ba_review')) {
+    /* submit — no stamp yet */
+  }
+  if (
+    from === 'tech_review' &&
+    (to === 'pm_review' || to === 'po_review' || to === 'rejected' || to === 'changes_requested')
+  ) {
+    doc.review.tech = stamp;
+  }
+  if (
+    from === 'pm_review' &&
+    (to === 'tech_review' || to === 'po_review' || to === 'rejected' || to === 'changes_requested')
+  ) {
+    doc.review.pm = stamp;
+  }
+  if (from === 'po_review' && (to === 'approved' || to === 'rejected' || to === 'changes_requested')) {
+    doc.review.po = stamp;
+  }
+  if (techSkipped && (to === 'po_review' || to === 'pm_review') && from !== 'tech_review') {
+    doc.review.tech = doc.review.tech?.userId
+      ? doc.review.tech
+      : { skipped: true, at: new Date(), note: 'tech_optional_skip' };
+  }
 }
 
 async function transitionArtifact({ userId, projectId, artifactId, toStatus, note = '' }) {
@@ -208,19 +258,98 @@ async function transitionArtifact({ userId, projectId, artifactId, toStatus, not
     err.statusCode = 400;
     throw err;
   }
+
+  const {
+    projectHasPlanningTechReviewer,
+    assertGateStampSoD,
+    notifyNextGateReviewers,
+  } = require('../utils/phase1GatePolicy');
+  const { resolveUserProjectPermissions } = require('./projectAccess.service');
+  const resolved = await resolveUserProjectPermissions({ userId, projectId });
+  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const techRequired = await projectHasPlanningTechReviewer(projectId);
+
+  // DEC D9: new submits go PM gate — ba_review only for legacy/admin bypass
+  if (from === 'draft' && to === 'ba_review' && !bypass) {
+    const err = new Error('DEC D9: gửi Planning qua pm_review (không qua cổng BA)');
+    err.statusCode = 409;
+    err.errorCode = 'PLANNING_BA_GATE_DISABLED';
+    throw err;
+  }
+
+  if (from === 'changes_requested') {
+    if (!canResubmitPlanningFromChangesRequested(from, to, doc.changesRequestedFrom) && !bypass) {
+      const err = new Error(
+        `Chỉ gửi lại về cổng ${doc.changesRequestedFrom || 'pm_review'} sau khi chỉnh sửa`
+      );
+      err.statusCode = 400;
+      err.errorCode = 'PLANNING_RESUBMIT_GATE';
+      throw err;
+    }
+  }
+
+  if (isPlanningReviewNoteRequired(to) && !String(note || '').trim() && !bypass) {
+    const err = new Error('Ghi chú bắt buộc khi yêu cầu chỉnh sửa hoặc từ chối');
+    err.statusCode = 400;
+    err.errorCode = 'PLANNING_NOTE_REQUIRED';
+    throw err;
+  }
+
+  // DEC D9: skip forcing Tech when none; block skip when Tech exists
+  if (
+    (from === 'pm_review' || from === 'ba_review') &&
+    to === 'tech_review' &&
+    !techRequired &&
+    !bypass
+  ) {
+    const err = new Error('Không có Tech Reviewer — chuyển thẳng po_review');
+    err.statusCode = 409;
+    err.errorCode = 'PLANNING_TECH_SKIP';
+    throw err;
+  }
+  if (
+    (from === 'pm_review' || from === 'ba_review') &&
+    to === 'po_review' &&
+    techRequired &&
+    !bypass
+  ) {
+    const err = new Error('Có Tech Reviewer — phải qua tech_review');
+    err.statusCode = 409;
+    err.errorCode = 'PLANNING_TECH_REQUIRED';
+    throw err;
+  }
+
   const perm = permissionForPlanningTransition(from, to);
-  if (perm) {
+  if (perm && !bypass) {
     await assertPlanningPerm({ userId, projectId, permission: perm });
   }
+
+  const prior = [];
+  if (from === 'tech_review') prior.push(doc.review?.ba, doc.review?.pm);
+  if (from === 'po_review') prior.push(doc.review?.ba, doc.review?.tech, doc.review?.pm);
+  if (from === 'pm_review' && to === 'tech_review') prior.push(doc.review?.ba);
+  assertGateStampSoD({ actorUserId: userId, priorStamps: prior, bypass });
+
   const beforeStatus = doc.status;
-  doc.status = to;
-  doc.updatedBy = userId;
-  if (to === 'rejected') {
-    doc.rejectionReason = String(note || '').trim().slice(0, 2000);
-  }
   const gateNote = String(note || '').trim().slice(0, 1000);
   const stamp = { userId, at: new Date(), note: gateNote };
-  applyReviewStamp(doc, from, to, stamp);
+  const techSkipped = !techRequired && (to === 'po_review' || to === 'pm_review') && from !== 'tech_review';
+  applyReviewStamp(doc, from, to, stamp, { techSkipped });
+
+  if (to === 'changes_requested') {
+    doc.changesRequestedFrom = from;
+    doc.rejectionReason = gateNote;
+  }
+  if (to === 'rejected') {
+    doc.rejectionReason = gateNote || doc.rejectionReason;
+    doc.changesRequestedFrom = '';
+  }
+  if (from === 'changes_requested' && (to === 'pm_review' || to === 'tech_review' || to === 'po_review')) {
+    doc.changesRequestedFrom = '';
+  }
+
+  doc.status = to;
+  doc.updatedBy = userId;
   await doc.save();
   await recordPlanningAudit({
     organizationId: doc.organizationId,
@@ -231,6 +360,59 @@ async function transitionArtifact({ userId, projectId, artifactId, toStatus, not
     after: { status: to },
     meta: { projectId: String(projectId), note: gateNote },
   });
+
+  let nextPermission = null;
+  if (to === 'changes_requested') {
+    nextPermission = null;
+    try {
+      const { notifySystemKind, projectHubActionUrl } = require('../clients/notification.client');
+      const { userIdsWithProjectPermission } = require('../utils/phase1GatePolicy');
+      const editors = await userIdsWithProjectPermission(projectId, 'planning:artifact_edit');
+      const authorId = String(doc.createdBy || '').trim();
+      const targets = [...new Set([...(editors || []), authorId].filter(Boolean))];
+      if (targets.length) {
+        await notifySystemKind({
+          userIds: targets,
+          kind: 'planning_changes_requested',
+          title: 'Yêu cầu chỉnh sửa Planning',
+          content: `Planning “${String(doc.title || doc.externalKey || '').trim() || '—'}” cần chỉnh sửa: ${gateNote.slice(0, 200)}`,
+          data: {
+            projectId: String(projectId),
+            organizationId: String(doc.organizationId || ''),
+            artifactId: String(doc._id),
+            kind: 'planning_changes_requested',
+            returnTo: from,
+          },
+          actionUrl: projectHubActionUrl({
+            projectId,
+            organizationId: doc.organizationId,
+            pathSuffix: 'planning/approval',
+          }),
+          excludeUserId: userId,
+        });
+      }
+    } catch {
+      /* non-blocking */
+    }
+  } else if (to === 'tech_review') nextPermission = 'planning:tech_review';
+  else if (to === 'pm_review' && techRequired && from !== 'changes_requested') {
+    nextPermission = 'planning:tech_review';
+  } else if (to === 'pm_review' && !techRequired) nextPermission = 'planning:po_review';
+  else if (to === 'po_review') nextPermission = 'planning:po_review';
+
+  if (nextPermission) {
+    await notifyNextGateReviewers({
+      projectId,
+      organizationId: doc.organizationId,
+      actorUserId: userId,
+      nextPermission,
+      title: 'Planning chờ duyệt',
+      content: `Planning “${String(doc.title || doc.externalKey || '').trim() || '—'}” chờ cổng tiếp theo.`,
+      kind: 'planning_gate_pending',
+      actionPath: 'planning/approval',
+    });
+  }
+
   return serializeDoc(doc);
 }
 
@@ -432,9 +614,17 @@ async function cutBaseline({ userId, projectId, body = {} }) {
 /**
  * Heuristic suggest từ SRS (HITL — không auto-insert).
  */
-async function suggestArtifacts({ userId, projectId, kind }) {
+async function suggestArtifacts({ userId, projectId, kind, view }) {
   const project = await assertProjectMemberAccess({ userId, projectId });
   await assertPlanningPerm({ userId, projectId, permission: 'planning:view' });
+
+  const kindRaw = String(kind || '')
+    .trim()
+    .toUpperCase();
+  if (kindRaw === 'WORK_ITEM') {
+    return suggestWorkItemSuggestions({ projectId, project, view });
+  }
+
   const k = normalizePlanningKind(kind);
   const suggestions = [];
 
@@ -595,27 +785,67 @@ async function suggestArtifacts({ userId, projectId, kind }) {
     });
   }
 
+  const sliced = suggestions.slice(0, 80);
+  let assigneeReport = null;
+  try {
+    const { reportAssigneeHints } = require('../utils/planning/planningAssigneeResolve');
+    const members = await loadOrgAssigneeDirectory(project.organizationId, userId);
+    assigneeReport = reportAssigneeHints(sliced, members);
+  } catch {
+    assigneeReport = null;
+  }
+
   return {
     jobId: null,
     status: 'ready',
     kind: k,
-    suggestions: suggestions.slice(0, 80),
+    suggestions: sliced,
+    assigneeReport: assigneeReport
+      ? {
+          summary: assigneeReport.summary,
+          unresolved: assigneeReport.unresolved.slice(0, 40),
+          ambiguous: assigneeReport.ambiguous.slice(0, 20),
+        }
+      : null,
     message:
-      suggestions.length > 0
-        ? `Gợi ý ${suggestions.length} mục (heuristic HITL) — xác nhận từng dòng để tạo artifact`
+      sliced.length > 0
+        ? `Gợi ý ${sliced.length} mục (heuristic HITL) — xác nhận từng dòng để tạo artifact`
         : 'Không có gợi ý mới (đã có artifact hoặc chưa có SRS approved)',
     projectId: String(projectId),
     organizationId: String(project.organizationId || ''),
   };
 }
 
-async function confirmSuggestions({ userId, projectId, suggestions = [] }) {
-  await assertProjectMemberAccess({ userId, projectId });
+async function confirmSuggestions({ userId, projectId, suggestions = [], kind, view }) {
+  const kindRaw = String(kind || suggestions?.[0]?.kind || '')
+    .trim()
+    .toUpperCase();
+  if (kindRaw === 'WORK_ITEM') {
+    return confirmWorkItemSuggestions({ userId, projectId, suggestions, view });
+  }
+
+  const project = await assertProjectMemberAccess({ userId, projectId });
   await assertPlanningPerm({ userId, projectId, permission: 'planning:artifact_edit' });
   const list = Array.isArray(suggestions) ? suggestions : [];
+  const working = list.slice(0, 50).map((s) => ({
+    kind: s.kind,
+    externalKey: s.externalKey,
+    title: s.title,
+    summary: s.summary,
+    structured:
+      s.structured && typeof s.structured === 'object' ? { ...s.structured } : {},
+  }));
+  let assigneeReport = null;
+  try {
+    const { applyAssigneeResolution } = require('../utils/planning/planningAssigneeResolve');
+    const members = await loadOrgAssigneeDirectory(project.organizationId, userId);
+    assigneeReport = applyAssigneeResolution(working, members);
+  } catch {
+    assigneeReport = null;
+  }
   const created = [];
   const skipped = [];
-  for (const s of list.slice(0, 50)) {
+  for (const s of working) {
     try {
       const row = await createArtifact({
         userId,
@@ -638,7 +868,274 @@ async function confirmSuggestions({ userId, projectId, suggestions = [] }) {
       });
     }
   }
-  return { created: created.length, skipped, items: created };
+  return {
+    created: created.length,
+    skipped,
+    items: created,
+    assigneeReport: assigneeReport
+      ? {
+          summary: assigneeReport.summary,
+          unresolved: assigneeReport.unresolved.slice(0, 40),
+          ambiguous: assigneeReport.ambiguous.slice(0, 20),
+        }
+      : null,
+  };
+}
+
+/**
+ * P2-A/B — suggest Task cards under published epics (no DB write).
+ */
+async function suggestWorkItemSuggestions({ projectId, project, view }) {
+  const { suggestWorkItems } = require('../utils/planning/suggestWorkItems');
+  const PlanningItem = require('../models/PlanningItem');
+  const Task = require('../models/Task');
+  const AnalysisArtifact = require('../models/AnalysisArtifact');
+
+  const resolvedView = String(view || 'from_wbs')
+    .trim()
+    .toLowerCase() === 'from_uc_gap'
+    ? 'from_uc_gap'
+    : 'from_wbs';
+
+  const [wbsArtifacts, epics, existingTasks, frs, useCases] = await Promise.all([
+    PlanningArtifact.find({
+      projectId,
+      kind: 'WBS',
+      isActive: true,
+    })
+      .select('title summary externalKey status structured publishedWorkItemId')
+      .lean(),
+    PlanningItem.find({
+      projectId,
+      type: 'epic',
+      isActive: { $ne: false },
+    })
+      .select('title type sourceArtifactId')
+      .lean(),
+    Task.find({
+      projectId,
+      isActive: true,
+      $or: [
+        { sourceWbsArtifactId: { $ne: null } },
+        { sourceUcKey: { $nin: [null, ''] } },
+      ],
+    })
+      .select('sourceWbsArtifactId sourceUcKey sourceFrKey')
+      .lean(),
+    AnalysisArtifact.find({
+      projectId,
+      kind: 'FR',
+      status: 'approved',
+      isActive: true,
+    })
+      .select('externalKey title summary')
+      .lean(),
+    resolvedView === 'from_uc_gap'
+      ? AnalysisArtifact.find({
+          projectId,
+          kind: 'UC',
+          status: 'approved',
+          isActive: true,
+        })
+          .select('externalKey title summary structured status')
+          .limit(80)
+          .lean()
+      : Promise.resolve([]),
+  ]);
+
+  const frByKey = new Map();
+  for (const fr of frs) {
+    const key = String(fr.externalKey || '').trim();
+    if (key) frByKey.set(key, fr);
+  }
+
+  const result = suggestWorkItems({
+    view: resolvedView,
+    wbsArtifacts,
+    epics,
+    existingTasks,
+    frByKey,
+    useCases,
+  });
+
+  const sliced = (result.suggestions || []).slice(0, 50);
+  return {
+    jobId: `wi-suggest-${Date.now()}`,
+    status: 'ready',
+    kind: 'WORK_ITEM',
+    view: result.view,
+    suggestions: sliced,
+    skippedHints: (result.skippedHints || []).slice(0, 40),
+    message: sliced.length
+      ? `Gợi ý ${sliced.length} task (HITL) — xác nhận để tạo thẻ dưới Epic`
+      : 'Không có gợi ý task (chưa publish WBS, đã có task, hoặc không còn UC gap)',
+    projectId: String(projectId),
+    organizationId: String(project.organizationId || ''),
+  };
+}
+
+/**
+ * P2 confirm — tạo Task dưới Epic; cần task:create.
+ */
+async function confirmWorkItemSuggestions({ userId, projectId, suggestions = [] }) {
+  const project = await assertProjectMemberAccess({ userId, projectId });
+  if (isProjectRbacV2Enabled()) {
+    await assertUserProjectPermission({
+      userId,
+      projectId,
+      permission: 'task:create',
+      message: 'Thiếu quyền task:create để tạo thẻ từ gợi ý',
+    });
+  }
+
+  const TaskBoard = require('../models/TaskBoard');
+  const TaskBoardList = require('../models/TaskBoardList');
+  const PlanningItem = require('../models/PlanningItem');
+  const Task = require('../models/Task');
+  const taskBoardService = require('./taskBoard.service');
+
+  const board = await TaskBoard.findOne({ projectId, isActive: true }).sort({ createdAt: 1 }).lean();
+  if (!board) {
+    const err = new Error('Project chưa có board — tạo board trước khi confirm task');
+    err.statusCode = 400;
+    err.errorCode = 'BOARD_REQUIRED';
+    throw err;
+  }
+
+  let list =
+    (await TaskBoardList.findOne({
+      boardId: board._id,
+      isArchived: false,
+      isDefault: true,
+    }).lean()) ||
+    (await TaskBoardList.findOne({
+      boardId: board._id,
+      isArchived: false,
+      statusKey: { $in: ['todo', 'open'] },
+    })
+      .sort({ order: 1 })
+      .lean()) ||
+    (await TaskBoardList.findOne({ boardId: board._id, isArchived: false }).sort({ order: 1 }).lean());
+
+  if (!list) {
+    const err = new Error('Board chưa có cột (list) — thêm cột Todo trước');
+    err.statusCode = 400;
+    err.errorCode = 'BOARD_LIST_REQUIRED';
+    throw err;
+  }
+
+  const listIn = Array.isArray(suggestions) ? suggestions : [];
+  const working = listIn.slice(0, 50);
+  const created = [];
+  const skipped = [];
+
+  for (const s of working) {
+    const epicId = String(s.epicId || '').trim();
+    const title = String(s.title || '').trim();
+    const sourceWbsArtifactId = s.sourceWbsArtifactId
+      ? String(s.sourceWbsArtifactId).trim()
+      : '';
+    const sourceUcKey = String(s.sourceUcKey || '').trim();
+    const sourceFrKey = String(s.sourceFrKey || '').trim();
+
+    if (!epicId || !title) {
+      skipped.push({
+        key: s.key,
+        message: 'Thiếu epicId hoặc title',
+        errorCode: 'INVALID_SUGGESTION',
+      });
+      continue;
+    }
+
+    const epic = await PlanningItem.findOne({
+      _id: epicId,
+      projectId,
+      type: 'epic',
+    }).lean();
+    if (!epic) {
+      skipped.push({
+        key: s.key,
+        epicId,
+        message: 'Epic không thuộc project',
+        errorCode: 'EPIC_INVALID',
+      });
+      continue;
+    }
+
+    if (sourceWbsArtifactId) {
+      const dup = await Task.findOne({
+        projectId,
+        isActive: true,
+        sourceWbsArtifactId,
+      })
+        .select('_id title')
+        .lean();
+      if (dup) {
+        skipped.push({
+          key: s.key,
+          sourceWbsArtifactId,
+          message: 'Đã có task từ WBS này',
+          errorCode: 'DUP_WBS',
+          existingId: String(dup._id),
+        });
+        continue;
+      }
+    }
+    if (sourceUcKey) {
+      const dupUc = await Task.findOne({
+        projectId,
+        isActive: true,
+        sourceUcKey,
+      })
+        .select('_id title')
+        .lean();
+      if (dupUc) {
+        skipped.push({
+          key: s.key,
+          sourceUcKey,
+          message: 'Đã có task từ UC này',
+          errorCode: 'DUP_UC',
+          existingId: String(dupUc._id),
+        });
+        continue;
+      }
+    }
+
+    try {
+      const card = await taskBoardService.createCard({
+        userId,
+        boardId: board._id,
+        listId: list._id,
+        title: title.slice(0, 240),
+        summary: String(s.summary || '').slice(0, 2000),
+        epicId: epic._id,
+        issueType: s.issueType === 'task' || s.issueType === 'bug' ? s.issueType : 'story',
+        sourceWbsArtifactId: sourceWbsArtifactId || null,
+        sourceFrKey: sourceFrKey || '',
+        sourceUcKey: sourceUcKey || '',
+      });
+      created.push({
+        id: String(card._id || card.id),
+        title: card.title,
+        epicId: String(epic._id),
+      });
+    } catch (e) {
+      skipped.push({
+        key: s.key,
+        message: e.message || 'create failed',
+        errorCode: e.errorCode || e.code,
+      });
+    }
+  }
+
+  return {
+    created: created.length,
+    skipped,
+    items: created,
+    kind: 'WORK_ITEM',
+    projectId: String(projectId),
+    organizationId: String(project.organizationId || ''),
+  };
 }
 
 async function publishWbsToDevelopment({ userId, projectId }) {
@@ -696,6 +1193,104 @@ async function publishWbsToDevelopment({ userId, projectId }) {
   return { published, total: rows.length };
 }
 
+/**
+ * DEC D1 — after publish WBS epics, materialize board Tasks from WBS leaves (HITL-free on advance).
+ */
+async function seedBoardTasksFromPublishedWbs({ userId, projectId }) {
+  const project = await assertProjectMemberAccess({ userId, projectId });
+  const Task = require('../models/Task');
+  const PlanningItem = require('../models/PlanningItem');
+  const AnalysisArtifact = require('../models/AnalysisArtifact');
+
+  const wbsAll = await PlanningArtifact.find({
+    projectId,
+    kind: 'WBS',
+    status: 'approved',
+    isActive: true,
+  }).lean();
+
+  const usedAsParent = new Set(
+    wbsAll.map((w) => String(w.parentExternalKey || '').trim()).filter(Boolean)
+  );
+  const leaves = wbsAll.filter((w) => {
+    const key = String(w.externalKey || '').trim();
+    if (!key) return true;
+    return !usedAsParent.has(key);
+  });
+
+  if (!leaves.length) {
+    return {
+      created: 0,
+      skipped: [],
+      leafCount: 0,
+      errorCode: 'NO_WBS_LEAVES',
+      message: 'Không có WBS leaf approved để seed Task',
+    };
+  }
+
+  // Ensure every leaf has publishedWorkItemId (epic) — publish any missing first
+  const unpublished = leaves.filter((w) => !w.publishedWorkItemId);
+  if (unpublished.length) {
+    await publishWbsToDevelopment({ userId, projectId });
+    const refreshed = await PlanningArtifact.find({
+      projectId,
+      kind: 'WBS',
+      status: 'approved',
+      isActive: true,
+    }).lean();
+    const byId = new Map(refreshed.map((r) => [String(r._id), r]));
+    for (let i = 0; i < leaves.length; i += 1) {
+      const id = String(leaves[i]._id);
+      if (byId.has(id)) leaves[i] = byId.get(id);
+    }
+  }
+
+  const epics = await PlanningItem.find({ projectId, type: 'epic', isActive: { $ne: false } }).lean();
+  const existingTasks = await Task.find({ projectId, isActive: true })
+    .select('sourceWbsArtifactId sourceUcKey title')
+    .lean();
+  const frRows = await AnalysisArtifact.find({
+    projectId,
+    kind: 'FR',
+    isActive: true,
+  })
+    .select('externalKey title summary')
+    .lean();
+  const frByKey = new Map(frRows.map((f) => [String(f.externalKey || '').trim(), f]));
+
+  const { suggestWorkItemsFromWbs } = require('../utils/planning/suggestWorkItems');
+  const { suggestions } = suggestWorkItemsFromWbs({
+    wbsArtifacts: leaves,
+    epics,
+    frByKey,
+    existingTasks,
+  });
+
+  if (!suggestions.length) {
+    const already = existingTasks.filter((t) => t.sourceWbsArtifactId).length;
+    return {
+      created: 0,
+      skipped: [],
+      leafCount: leaves.length,
+      existingFromWbs: already,
+      message: already
+        ? 'Task từ WBS đã có sẵn'
+        : 'Không tạo được suggestion — kiểm tra epic publish',
+    };
+  }
+
+  const result = await confirmWorkItemSuggestions({
+    userId,
+    projectId,
+    suggestions,
+  });
+  return {
+    ...result,
+    leafCount: leaves.length,
+    organizationId: String(project.organizationId || ''),
+  };
+}
+
 async function planningSummary({ userId, projectId }) {
   await assertProjectMemberAccess({ userId, projectId });
   await assertPlanningPerm({ userId, projectId, permission: 'planning:view' });
@@ -721,6 +1316,8 @@ async function planningSummary({ userId, projectId }) {
       ok: readiness.ok,
       missingRequired: readiness.missingRequired,
       missingRecommended: readiness.missingRecommended,
+      requiredDraftOnly: readiness.requiredDraftOnly,
+      requiredAbsent: readiness.requiredAbsent,
     },
     activeBaseline: baselines[0]
       ? {
@@ -803,29 +1400,121 @@ async function forkArtifactVersion({ userId, projectId, artifactId, note = '' })
 
 /**
  * RULE-22 — bulk dump Planning artifacts (draft).
+ * DEC D-WB4: dryRun=true → validate + preview, no DB writes.
  */
 async function bulkDumpArtifacts({ userId, projectId, body = {} }) {
-  await assertProjectMemberAccess({ userId, projectId });
+  const project = await assertProjectMemberAccess({ userId, projectId });
   await assertPlanningPerm({ userId, projectId, permission: 'planning:artifact_edit' });
   const { parsePlanningDumpPayload } = require('../utils/planning/planningDumpParse');
   const parsed = parsePlanningDumpPayload(body);
+  const dryRun =
+    body.dryRun === true || body.dryRun === 'true' || body.dryRun === 1 || body.dryRun === '1';
+
+  const parseErrors = Array.isArray(parsed.errors) ? parsed.errors : [];
+  const structuredErrors = parseErrors.map((e) =>
+    typeof e === 'object' && e
+      ? e
+      : { sheet: '', row: 0, code: 'PARSE', message: String(e) }
+  );
+
   if (!parsed.rows.length) {
-    const err = new Error(parsed.errors[0] || 'Không có dòng dump hợp lệ');
+    if (dryRun) {
+      return {
+        dryRun: true,
+        format: parsed.format || 'unknown',
+        created: 0,
+        skipped: 0,
+        wouldCreate: 0,
+        wouldSkip: 0,
+        errors: structuredErrors,
+        parseErrors: structuredErrors,
+        preview: [],
+        meta: parsed.meta || null,
+      };
+    }
+    const err = new Error(structuredErrors[0]?.message || 'Không có dòng dump hợp lệ');
     err.statusCode = 400;
     err.errorCode = 'PLANNING_DUMP_EMPTY';
-    err.details = parsed.errors;
+    err.details = structuredErrors;
     throw err;
+  }
+
+  let assigneeReport = null;
+  try {
+    const { applyAssigneeResolution } = require('../utils/planning/planningAssigneeResolve');
+    const members = await loadOrgAssigneeDirectory(project.organizationId, userId);
+    assigneeReport = applyAssigneeResolution(parsed.rows, members);
+  } catch {
+    assigneeReport = null;
+  }
+
+  const existing = await PlanningArtifact.find({ projectId, isActive: true })
+    .select('kind externalKey')
+    .lean();
+  const existingKeys = new Set(existing.map((a) => `${a.kind}:${a.externalKey}`));
+
+  const previewRow = (row) => ({
+    kind: row.kind,
+    externalKey: row.externalKey,
+    title: row.title,
+    summary: row.summary ? String(row.summary).slice(0, 200) : '',
+    parentExternalKey: row.parentExternalKey || '',
+    sheet: row._sheet || '',
+    row: row._row || 0,
+    duplicate: existingKeys.has(`${row.kind}:${row.externalKey}`),
+  });
+
+  if (dryRun) {
+    const wouldCreate = [];
+    const wouldSkip = [];
+    for (const row of parsed.rows) {
+      const key = `${row.kind}:${row.externalKey}`;
+      if (existingKeys.has(key)) {
+        wouldSkip.push({
+          externalKey: row.externalKey,
+          kind: row.kind,
+          message: 'Đã tồn tại',
+          errorCode: 'DUPLICATE',
+        });
+      } else {
+        wouldCreate.push(previewRow(row));
+        existingKeys.add(key);
+      }
+    }
+    return {
+      dryRun: true,
+      format: parsed.format,
+      created: 0,
+      skipped: wouldSkip.length,
+      wouldCreate: wouldCreate.length,
+      wouldSkip: wouldSkip.length,
+      errors: structuredErrors,
+      parseErrors: structuredErrors,
+      preview: wouldCreate.slice(0, 100),
+      skippedItems: wouldSkip.slice(0, 100),
+      meta: parsed.meta || null,
+      assigneeReport: assigneeReport
+        ? {
+            summary: assigneeReport.summary,
+            unmatchedHints: [
+              ...assigneeReport.unresolved.slice(0, 30),
+              ...assigneeReport.ambiguous.slice(0, 20),
+            ],
+          }
+        : null,
+    };
   }
 
   const created = [];
   const skipped = [];
   for (const row of parsed.rows) {
     try {
+      const { _sheet, _row, ...payload } = row;
       const item = await createArtifact({
         userId,
         projectId,
         body: {
-          ...row,
+          ...payload,
           source: 'import',
         },
       });
@@ -834,6 +1523,8 @@ async function bulkDumpArtifacts({ userId, projectId, body = {} }) {
       skipped.push({
         externalKey: row.externalKey,
         kind: row.kind,
+        sheet: row._sheet || '',
+        row: row._row || 0,
         message: e.message || 'skip',
         errorCode: e.code === 11000 ? 'DUPLICATE' : e.errorCode,
       });
@@ -841,13 +1532,94 @@ async function bulkDumpArtifacts({ userId, projectId, body = {} }) {
   }
 
   return {
+    dryRun: false,
     format: parsed.format,
     created: created.length,
     skipped: skipped.length,
-    parseErrors: parsed.errors,
+    errors: structuredErrors,
+    parseErrors: structuredErrors,
     items: created,
     skippedItems: skipped,
+    assigneeReport: assigneeReport
+      ? {
+          summary: assigneeReport.summary,
+          unmatchedHints: [
+            ...assigneeReport.unresolved.slice(0, 30),
+            ...assigneeReport.ambiguous.slice(0, 20),
+          ],
+          unresolved: assigneeReport.unresolved.slice(0, 40),
+          ambiguous: assigneeReport.ambiguous.slice(0, 20),
+          matched: assigneeReport.matched.slice(0, 40),
+        }
+      : null,
   };
+}
+
+/**
+ * Multi-sheet Planning workbook template (optional RA seed — DEC D-WB2).
+ */
+async function buildDumpWorkbookTemplate({ userId, projectId, seedFromRa = false }) {
+  const project = await assertProjectMemberAccess({ userId, projectId });
+  await assertPlanningPerm({ userId, projectId, permission: 'planning:artifact_edit' });
+
+  let seed = null;
+  if (seedFromRa) {
+    const existing = await PlanningArtifact.find({ projectId, isActive: true })
+      .select('kind externalKey')
+      .lean();
+    const existingKeys = new Set(existing.map((a) => `${a.kind}:${a.externalKey}`));
+
+    let frs = [];
+    let nfrs = [];
+    let assumptions = [];
+    try {
+      const AnalysisArtifact = require('../models/AnalysisArtifact');
+      frs = await AnalysisArtifact.find({
+        projectId,
+        kind: 'FR',
+        status: 'approved',
+        isActive: true,
+      })
+        .select('externalKey title summary')
+        .limit(40)
+        .lean();
+      nfrs = await AnalysisArtifact.find({
+        projectId,
+        kind: 'NFR',
+        status: 'approved',
+        isActive: true,
+        'structured.category': { $regex: /^constraint$/i },
+      })
+        .select('externalKey title summary structured')
+        .limit(20)
+        .lean();
+    } catch {
+      frs = [];
+      nfrs = [];
+    }
+    try {
+      const RequirementPack = require('../models/RequirementPack');
+      const pack = await RequirementPack.findOne({
+        projectId,
+        status: { $in: ['ACTIVE', 'active', 'approved', 'APPROVED'] },
+      })
+        .select('assumptions')
+        .lean();
+      assumptions = Array.isArray(pack?.assumptions) ? pack.assumptions : [];
+    } catch {
+      assumptions = [];
+    }
+
+    const { buildSeedMapsFromRa } = require('../utils/planning/planningWorkbookBuilder');
+    seed = buildSeedMapsFromRa({ frs, nfrs, assumptions, existingKeys });
+  }
+
+  const { buildPlanningWorkbookBuffer } = require('../utils/planning/planningWorkbookBuilder');
+  return buildPlanningWorkbookBuffer({
+    project,
+    seedFromRa: Boolean(seedFromRa),
+    seed: seed || undefined,
+  });
 }
 
 module.exports = {
@@ -862,7 +1634,9 @@ module.exports = {
   suggestArtifacts,
   confirmSuggestions,
   publishWbsToDevelopment,
+  seedBoardTasksFromPublishedWbs,
   planningSummary,
   forkArtifactVersion,
   bulkDumpArtifacts,
+  buildDumpWorkbookTemplate,
 };
