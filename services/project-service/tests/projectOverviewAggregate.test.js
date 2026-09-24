@@ -5,7 +5,7 @@ const {
   computeHubBoardSummary,
   countIssuesByStatusBucket,
   classifyListStatusBucket,
-} = require('../src/utils/projectOverviewAggregate');
+} = require('../src/utils/project/projectOverviewAggregate');
 
 const lists = [
   { _id: 'l1', title: 'Todo', statusKey: 'todo' },
@@ -24,9 +24,34 @@ describe('projectOverviewAggregate', () => {
     const summary = computeHubBoardSummary(cards, lists);
     assert.equal(summary.total, 4);
     assert.equal(summary.done, 1);
-    assert.equal(summary.inReview, 1);
+    // Column SoT: l2 is in_progress — stale status=in_review does not count as inReview.
+    assert.equal(summary.inReview, 0);
     assert.equal(summary.overdue, 1);
     assert.equal(summary.donePercent, 25);
+  });
+
+  it('Board column SoT: stale status=todo on Done still counts as done', () => {
+    const cards = [
+      { _id: '1', listId: 'l3', status: 'todo', title: 'Parent' },
+      {
+        _id: '2',
+        listId: 'l1',
+        status: 'todo',
+        title: 'Bug child',
+        issueType: 'bug',
+        parentTaskId: '1',
+      },
+    ];
+    const summary = computeHubBoardSummary(cards, lists);
+    assert.equal(summary.done, 1);
+    assert.equal(summary.donePercent, 50);
+    assert.equal(countIssuesByStatusBucket(cards, lists).done, 1);
+    assert.equal(countIssuesByStatusBucket(cards, lists).todo, 1);
+    const out = buildProjectOverviewAggregate({ cards, lists, projectCode: 'PRJ' });
+    assert.equal(out.nextActions.length, 1);
+    assert.equal(out.nextActions[0].title, 'Bug child');
+    assert.equal(out.nextActions[0].parentTitle, 'Parent');
+    assert.equal(out.nextActions[0].isChild, true);
   });
 
   it('buildProjectOverviewAggregate charts + health', () => {

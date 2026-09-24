@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   buildProjectOverviewAggregate,
   slimOverviewProject,
-} = require('../src/utils/projectOverviewAggregate');
+} = require('../src/utils/project/projectOverviewAggregate');
 
 describe('getProjectOverview shape (unit)', () => {
   it('slimOverviewProject strips heavy fields', () => {

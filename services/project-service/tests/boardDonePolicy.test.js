@@ -33,3 +33,23 @@ describe('board Done policy', () => {
     assert.equal(isReadyForQaListTitle('Ready for QA'), true);
   });
 });
+
+describe('default board lists include Ready for QA', () => {
+  it('project.service DEFAULT_LIST_TITLES seeds Ready for QA before Done', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const src = fs.readFileSync(
+      path.join(__dirname, '../src/services/project.service.js'),
+      'utf8'
+    );
+    const m = src.match(
+      /DEFAULT_LIST_TITLES\s*=\s*Object\.freeze\(\[([^\]]+)\]\)/
+    );
+    assert.ok(m, 'DEFAULT_LIST_TITLES freeze array not found');
+    const titles = m[1]
+      .split(',')
+      .map((s) => s.replace(/['"`]/g, '').trim())
+      .filter(Boolean);
+    assert.deepEqual(titles, ['To Do', 'In Progress', 'Ready for QA', 'Done']);
+  });
+});
