@@ -17,6 +17,7 @@ export const STATUS_TONE = Object.freeze({
   pm_review: 'bg-indigo-500/15 text-indigo-800 dark:text-indigo-200 border border-indigo-500/25',
   po_review: 'bg-violet-500/15 text-violet-800 dark:text-violet-200 border border-violet-500/25',
   approved: 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 border border-emerald-500/25',
+  changes_requested: 'bg-orange-500/15 text-orange-900 dark:text-orange-200 border border-orange-500/30',
   rejected: 'bg-destructive/15 text-destructive border border-destructive/30',
   // Import-set / gate aliases
   pending_review: 'bg-amber-500/15 text-amber-800 dark:text-amber-200 border border-amber-500/25',
@@ -33,6 +34,10 @@ export const KIND_TONE = Object.freeze({
   FR: 'border-blue-500/40 bg-blue-500/10 text-blue-800 dark:text-blue-200',
   UC: 'border-purple-500/40 bg-purple-500/10 text-purple-800 dark:text-purple-200',
   NFR: 'border-cyan-500/40 bg-cyan-500/10 text-cyan-800 dark:text-cyan-200',
+  INTERFACE: 'border-sky-600/40 bg-sky-500/10 text-sky-900 dark:text-sky-200',
+  DATA: 'border-emerald-600/40 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200',
+  GLOSSARY: 'border-stone-500/40 bg-stone-500/10 text-stone-800 dark:text-stone-200',
+  ASSUMPTION: 'border-amber-600/40 bg-amber-500/10 text-amber-900 dark:text-amber-200',
   WBS: 'border-lime-600/40 bg-lime-500/10 text-lime-900 dark:text-lime-200',
   ARCHITECTURE: 'border-sky-500/40 bg-sky-500/10 text-sky-800 dark:text-sky-200',
   RESOURCE: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
@@ -53,6 +58,7 @@ export const QUEUE_TONE = Object.freeze({
   pm_review: 'border-indigo-500/35 bg-indigo-500/5',
   po_review: 'border-violet-500/35 bg-violet-500/5',
   approved: 'border-emerald-500/35 bg-emerald-500/5',
+  changes_requested: 'border-orange-500/40 bg-orange-500/5',
   rejected: 'border-destructive/35 bg-destructive/5',
   pending_review: 'border-amber-500/35 bg-amber-500/5',
   set_queue: 'border-orange-500/35 bg-orange-500/5',
@@ -60,13 +66,13 @@ export const QUEUE_TONE = Object.freeze({
 
 const QUEUE_FALLBACK = 'border-border bg-surface';
 
-/** Optional priority chips. */
+/** Optional priority chips — solid High (orange) / Critical (red) + white text (mock). */
 export const PRIORITY_TONE = Object.freeze({
-  high: 'bg-rose-500/15 text-rose-800 dark:text-rose-200 border border-rose-500/25',
-  medium: 'bg-amber-500/15 text-amber-800 dark:text-amber-200 border border-amber-500/25',
-  med: 'bg-amber-500/15 text-amber-800 dark:text-amber-200 border border-amber-500/25',
-  low: 'bg-muted text-muted-foreground border border-border/50',
-  critical: 'bg-destructive/15 text-destructive border border-destructive/30',
+  high: 'bg-[#FA8C16] text-white border-transparent',
+  medium: 'bg-[#FAAD14] text-white border-transparent',
+  med: 'bg-[#FAAD14] text-white border-transparent',
+  low: 'bg-[#8C8C8C] text-white border-transparent',
+  critical: 'bg-[#CF1322] text-white border-transparent font-semibold',
 });
 
 /** Gate step card tint: done | pending | locked */
@@ -99,6 +105,31 @@ export function statusBadgeClass(status) {
 }
 
 /**
+ * Locale path for status display (UI only — API enums unchanged).
+ * @param {string} [status]
+ * @returns {string} e.g. workspace.phase1Status_ba_review
+ */
+export function phase1StatusLabelKey(status) {
+  const key = normStatus(status);
+  return key ? `workspace.phase1Status_${key}` : '';
+}
+
+/**
+ * Human-readable status for badges (falls back to raw enum if no locale).
+ * @param {string} [status]
+ * @param {(path: string, vars?: object) => string} t
+ */
+export function formatPhase1StatusLabel(status, t) {
+  const raw = String(status || '').trim();
+  if (!raw) return '—';
+  const path = phase1StatusLabelKey(raw);
+  if (!path || typeof t !== 'function') return raw;
+  const label = t(path);
+  if (!label || label === path || label === `phase1Status_${normStatus(raw)}`) return raw;
+  return label;
+}
+
+/**
  * @param {string} [kind]
  * @returns {string} full kind chip className
  */
@@ -106,6 +137,30 @@ export function kindChipClass(kind) {
   const key = normKind(kind);
   const tone = KIND_TONE[key] || KIND_FALLBACK;
   return `${CHIP_BASE} ${tone}`;
+}
+
+/**
+ * DEC P1-F — Tech review depth on FR + UC (optional NFR technical).
+ * @param {string} [kind]
+ */
+export function isTechFocusKind(kind) {
+  const key = normKind(kind);
+  return key === 'FR' || key === 'UC';
+}
+
+/**
+ * Badge: “Tech focus” for FR/UC in review UI.
+ */
+export function techFocusBadgeClass() {
+  return `${BADGE_BASE} border border-sky-500/35 bg-sky-500/15 text-sky-900 dark:text-sky-100`;
+}
+
+/**
+ * Soft highlight row for Tech focus kinds inside tech_review queue.
+ */
+export function techFocusRowClass(kind) {
+  if (!isTechFocusKind(kind)) return '';
+  return 'bg-sky-500/[0.06]';
 }
 
 /**

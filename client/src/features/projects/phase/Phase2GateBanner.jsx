@@ -91,6 +91,8 @@ export default function Phase2GateBanner({
         methodology,
         importWorkItems: false,
         applyAssignees: false,
+        publishWbs: true,
+        seedBoardTasks: true,
       });
       toast.success(t('workspace.phase2AdvanceSuccess') || 'Đã chuyển Phase 2 — Development');
       setOpen(false);
