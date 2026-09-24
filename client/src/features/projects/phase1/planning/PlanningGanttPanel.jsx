@@ -7,7 +7,7 @@ import {
   resolvePlanningBarRange,
   unionPlanningBounds,
 } from './planningGanttUtils';
-import { kindChipClass, statusBadgeClass } from '../shared/phase1UiTokens';
+import { kindChipClass, statusBadgeClass, formatPhase1StatusLabel } from '../shared/phase1UiTokens';
 
 const TRACK_PX = 640;
 const STORAGE_KEY = 'vh.phase1.ganttExpanded';
@@ -121,14 +121,16 @@ export default function PlanningGanttPanel({ artifacts = [], onSelect, kind = ''
                             range.isMilestone ? 'bg-amber-600' : 'bg-primary'
                           }`}
                           style={style}
-                          title={`${row.title} · ${row.status || ''}`}
+                          title={`${row.title} · ${formatPhase1StatusLabel(row.status, t)}`}
                           onClick={() => onSelect?.(row)}
                         >
                           {range.isMilestone ? '◆ ' : ''}
                           {row.title}
                         </button>
                       </div>
-                      <span className={`shrink-0 ${statusBadgeClass(row.status)}`}>{row.status}</span>
+                      <span className={`shrink-0 ${statusBadgeClass(row.status)}`}>
+                        {formatPhase1StatusLabel(row.status, t)}
+                      </span>
                     </li>
                   );
                 })}
