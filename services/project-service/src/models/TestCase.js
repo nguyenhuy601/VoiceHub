@@ -32,6 +32,14 @@ const testCaseSchema = new mongoose.Schema(
       default: '',
       maxlength: 64,
     },
+    /** DEC D2 — stable UC key for P3 attach (may equal externalKey for UC-born TCs). */
+    sourceUcKey: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 64,
+      index: true,
+    },
     status: {
       type: String,
       enum: TEST_CASE_STATUSES,
