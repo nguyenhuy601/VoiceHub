@@ -15,7 +15,7 @@ import { useAppStrings } from '../../../locales/appStrings';
 import { FIGMA_WS_TEAM_CARD, FIGMA_WS_TEAM_GRID } from '../../../components/Organization/figmaOrganizationClasses';
 import { paginateList } from './projectsLandingPagination';
 import { isProjectActiveForUi, isProjectCompletedForUi } from './projectLandingActive';
-import { buildProjectLandingCards } from './projectLandingCardModel';
+import { buildProjectLandingCards, resolveLandingNextHintKey } from './projectLandingCardModel';
 
 export default function ProjectsLandingGrid({
   projects = [],
@@ -61,6 +61,9 @@ export default function ProjectsLandingGrid({
     const priorityLabel = card.priorityLabelKey ? t(card.priorityLabelKey) : '';
     const progressPct = card.progressPercent;
     const showProgress = progressPct != null;
+    // Tính lại mỗi render — tránh useMemo/HMR giữ card cũ thiếu nextHint.
+    const nextHintLabelKey =
+      card.nextHintLabelKey || resolveLandingNextHintKey(card.raw) || null;
 
     return (
       <div
@@ -150,8 +153,25 @@ export default function ProjectsLandingGrid({
                 />
               </div>
             ) : null}
+            {nextHintLabelKey ? (
+              <p
+                className="rounded-md border border-amber-500/40 bg-amber-500/15 px-2.5 py-2 text-[0.75rem] font-semibold leading-snug text-amber-950 dark:text-amber-50"
+                role="status"
+              >
+                {t(nextHintLabelKey)}
+              </p>
+            ) : null}
           </div>
         )}
+
+        {!phaseLabel && !showProgress && nextHintLabelKey ? (
+          <p
+            className="mt-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-2.5 py-2 text-[0.75rem] font-semibold leading-snug text-amber-950 dark:text-amber-50"
+            role="status"
+          >
+            {t(nextHintLabelKey)}
+          </p>
+        ) : null}
 
         <div className="mt-1 flex flex-col gap-1.5 text-xs text-muted-foreground">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

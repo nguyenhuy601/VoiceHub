@@ -8,6 +8,7 @@ import {
   projectPriorityLabelKey,
   projectStatusLabelKey,
   resolveLandingDeadlineRaw,
+  resolveLandingNextHintKey,
 } from './projectLandingCardModel.js';
 
 test('buildProjectLandingCard maps Tier 1–2 fields', () => {
@@ -38,6 +39,7 @@ test('buildProjectLandingCard maps Tier 1–2 fields', () => {
   assert.equal(card.healthDotClass, 'bg-success');
   assert.equal(card.hasPm, true);
   assert.equal(card.pmDisplayName, 'Nguyễn A');
+  assert.equal(card.nextHintLabelKey, null);
   assert.ok(card.deadlineLabel.includes('11') || card.deadlineLabel.includes('30'));
 });
 
@@ -76,4 +78,85 @@ test('label key helpers', () => {
   assert.equal(projectPriorityLabelKey('urgent'), 'workspace.projectHubPriorityUrgent');
   assert.equal(projectHealthLabelKey('delayed'), 'workspace.projectLandingHealth_delayed');
   assert.equal(projectHealthDotClass('at_risk'), 'bg-warning');
+});
+
+test('resolveLandingNextHintKey — Phase 3 gates after 100% board', () => {
+  assert.equal(
+    resolveLandingNextHintKey({
+      status: 'in_development',
+      deliveryPhase: 'qa_uat',
+      progressPercent: 100,
+      releaseReadyStatus: 'none',
+      uatStatus: 'none',
+    }),
+    'workspace.projectLandingNext_confirmReleaseReadyAt100'
+  );
+  assert.equal(
+    resolveLandingNextHintKey({
+      status: 'in_development',
+      deliveryPhase: 'qa_uat',
+      progressPercent: 40,
+      releaseReadyStatus: 'none',
+    }),
+    'workspace.projectLandingNext_confirmReleaseReady'
+  );
+  assert.equal(
+    resolveLandingNextHintKey({
+      deliveryPhase: 'qa_uat',
+      releaseReadyStatus: 'confirmed',
+      uatStatus: 'none',
+      progressPercent: 100,
+    }),
+    'workspace.projectLandingNext_uatPass'
+  );
+  assert.equal(
+    resolveLandingNextHintKey({
+      deliveryPhase: 'qa_uat',
+      releaseReadyStatus: 'confirmed',
+      uatStatus: 'pass',
+    }),
+    'workspace.projectLandingNext_advancePhase4'
+  );
+  assert.equal(
+    resolveLandingNextHintKey({
+      deliveryPhase: 'release_handover',
+      progressPercent: 100,
+    }),
+    'workspace.projectLandingNext_phase4Handover'
+  );
+  assert.equal(
+    resolveLandingNextHintKey({
+      deliveryPhase: 'development',
+      progressPercent: 100,
+    }),
+    'workspace.projectLandingNext_advanceQaUat'
+  );
+  assert.equal(
+    resolveLandingNextHintKey({
+      status: 'closed',
+      deliveryPhase: 'qa_uat',
+      progressPercent: 100,
+    }),
+    null
+  );
+  assert.equal(
+    resolveLandingNextHintKey({
+      status: 'in_development',
+      progressPercent: 100,
+    }),
+    'workspace.projectLandingNext_boardCompleteOpenGates'
+  );
+});
+
+test('buildProjectLandingCard exposes nextHintLabelKey for Phase 3 at 100%', () => {
+  const card = buildProjectLandingCard({
+    _id: 'p3',
+    title: 'VTXK',
+    status: 'in_development',
+    deliveryPhase: 'qa_uat',
+    progressPercent: 100,
+    releaseReadyStatus: 'none',
+    uatStatus: 'none',
+  });
+  assert.equal(card.nextHintLabelKey, 'workspace.projectLandingNext_confirmReleaseReadyAt100');
 });
