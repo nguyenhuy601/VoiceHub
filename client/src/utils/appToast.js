@@ -4,15 +4,14 @@
  */
 import toast from 'react-hot-toast';
 
-const base = { duration: 3000 };
+const base = { duration: 3400 };
 
 export const notify = {
-  success: (message, opts) => toast.success(message, { ...base, ...opts }),
-  error: (message, opts) => toast.error(message, { ...base, ...opts }),
+  success: (message, opts) => toast.success(message, { duration: 3000, ...opts }),
+  error: (message, opts) => toast.error(message, { duration: 4200, ...opts }),
   info: (message, opts) =>
     toast(message, {
       ...base,
-      icon: 'ℹ️',
       ...opts,
     }),
   loading: (message, opts) => toast.loading(message, { ...base, ...opts }),
