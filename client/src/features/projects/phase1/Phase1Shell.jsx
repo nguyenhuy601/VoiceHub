@@ -34,6 +34,8 @@ import SrsPage from './ra/SrsPage';
 import ApprovalHubPage from './ra/ApprovalHubPage';
 import PlanningArtifactListPage from './planning/PlanningArtifactListPage';
 import PlanningApprovalPage from './planning/PlanningApprovalPage';
+import PlanningOverviewPage from './planning/PlanningOverviewPage';
+import PlanningTcFromUcPanel from './planning/PlanningTcFromUcPanel';
 import SpaceCalendarModule from '../../spaceModules/SpaceCalendarModule';
 import SpaceDocumentsModule from '../../spaceModules/SpaceDocumentsModule';
 import SpaceProjectChatModule from '../../spaceModules/SpaceProjectChatModule';
@@ -123,21 +125,18 @@ export default function Phase1Shell({
   }
 
   let body = null;
-  if (module === 'overview' || module === 'planning-overview') {
-    body =
-      module === 'planning-overview' ? (
-        <Phase1OverviewPage
-          projectId={projectId}
-          organizationId={orgId}
-          deliveryPhase={deliveryPhase}
-        />
-      ) : (
-        <Phase1OverviewPage
-          projectId={projectId}
-          organizationId={orgId}
-          deliveryPhase={deliveryPhase}
-        />
-      );
+  if (module === 'planning-overview') {
+    body = (
+      <PlanningOverviewPage projectId={projectId} organizationId={orgId} />
+    );
+  } else if (module === 'overview') {
+    body = (
+      <Phase1OverviewPage
+        projectId={projectId}
+        organizationId={orgId}
+        deliveryPhase={deliveryPhase}
+      />
+    );
   } else if (module === 'customer-documents') {
     body = (
       <CustomerRequirementsPage
@@ -174,6 +173,8 @@ export default function Phase1Shell({
         title={labelKey ? t(labelKey) : kind}
       />
     );
+  } else if (module === 'planning-test-cases') {
+    body = <PlanningTcFromUcPanel projectId={projectId} />;
   } else if (module === 'planning-approval') {
     body = <PlanningApprovalPage projectId={projectId} />;
   } else if (module === 'chat') {
@@ -202,7 +203,14 @@ export default function Phase1Shell({
 
   return (
     <SpaceProvider kind={SPACE_KIND.PROJECT} organizationId={orgId} projectId={projectId}>
-      {body}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
+        {raReadOnly && module !== 'overview' && !String(module).startsWith('planning') ? (
+          <div className="shrink-0 border-b border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-muted-foreground sm:px-4">
+            {t('workspace.phase1RaReadOnlyBanner')}
+          </div>
+        ) : null}
+        {body}
+      </div>
     </SpaceProvider>
   );
 }

@@ -4,7 +4,7 @@ import { useAppStrings } from '../../../../locales/appStrings';
 const LG_MQ = '(min-width: 1024px)';
 
 /**
- * Desktop ≥ lg: list | detail split (list stays visible).
+ * Desktop ≥ lg: list full-width; detail pane only when an item is selected.
  * &lt; lg: list full; detail as right sheet when selected.
  * Only one detail tree mounts at a time (avoids duplicate related buttons / double handlers).
  */
@@ -13,7 +13,7 @@ export default function Phase1SplitWorkspace({
   detail = null,
   hasSelection = false,
   onCloseDetail,
-  emptyDetail = null,
+  emptyDetail: _emptyDetail = null,
   className = '',
   detailWidthClass = 'lg:w-[min(420px,38%)]',
 }) {
@@ -30,12 +30,7 @@ export default function Phase1SplitWorkspace({
     return () => mq.removeEventListener('change', sync);
   }, []);
 
-  const empty =
-    emptyDetail ?? (
-      <div className="flex h-full min-h-[12rem] items-center justify-center px-4 text-center text-sm text-muted-foreground">
-        {t('workspace.phase1SplitEmptyDetail')}
-      </div>
-    );
+  const showDetail = Boolean(hasSelection && detail);
 
   return (
     <div
@@ -43,14 +38,16 @@ export default function Phase1SplitWorkspace({
     >
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{list}</div>
 
-      {isDesktop ? (
+      {showDetail && isDesktop ? (
         <aside
           className={`flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-border bg-surface ${detailWidthClass}`}
           aria-label={t('workspace.phase1SplitDetailAria')}
         >
-          {hasSelection && detail ? detail : empty}
+          {detail}
         </aside>
-      ) : hasSelection && detail ? (
+      ) : null}
+
+      {showDetail && !isDesktop ? (
         <>
           <button
             type="button"
