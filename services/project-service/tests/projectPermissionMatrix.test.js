@@ -114,6 +114,15 @@ describe('projectPermissionMatrix', () => {
     assert.equal(sm.includes('approval:manage_policy'), false);
   });
 
+  it('T9b: PO has handover:accept; PM has uat but not handover:accept', () => {
+    const po = defaultPermissionsForRoleKey('product_owner');
+    const pm = defaultPermissionsForRoleKey('project_manager');
+    assert.ok(po.includes('handover:accept'));
+    assert.ok(po.includes('uat:sign_off'));
+    assert.ok(pm.includes('uat:sign_off'));
+    assert.equal(pm.includes('handover:accept'), false);
+  });
+
   it('T9: PO manages epic/story/priority, not technical tasks', () => {
     const po = defaultPermissionsForRoleKey('product_owner');
     assert.ok(po.includes('backlog:update'));

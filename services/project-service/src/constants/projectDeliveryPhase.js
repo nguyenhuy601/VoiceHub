@@ -136,6 +136,9 @@ const QA_UAT_MODULES = Object.freeze([
 
 const RELEASE_HANDOVER_MODULES = Object.freeze([
   'overview',
+  'handover',
+  'deploy-evidence',
+  'release-notes',
   'list',
   'board',
   'test-cases',
