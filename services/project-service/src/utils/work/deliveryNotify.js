@@ -7,7 +7,15 @@ const KIND = Object.freeze({
   READY_TO_DONE: 'ready_to_done_proposed',
   RELEASE_READY: 'release_ready_proposed',
   UAT_REQUESTED: 'uat_requested',
+  READY_FOR_QA: 'ready_for_qa',
 });
+
+const READY_FOR_QA_ROLE_KEYS = Object.freeze([
+  'qa_lead',
+  'qa_engineer',
+  'qa',
+  'tester',
+]);
 
 function warnLog(...args) {
   try {
@@ -56,6 +64,12 @@ function shouldNotifyUatRequested({ uatStatus }) {
   return String(uatStatus || 'none') !== 'pass';
 }
 
+/** Enter Ready for QA: notify once; leave column: clear stamp. */
+function readyForQaDedupeAction({ isInReadyForQa, notifiedAt }) {
+  if (isInReadyForQa) return notifiedAt ? 'skip' : 'notify';
+  return notifiedAt ? 'clear' : 'skip';
+}
+
 /**
  * @param {{ projectId: string, permission: string }} opts
  * @returns {Promise<string[]>}
@@ -97,6 +111,51 @@ async function resolveProjectMemberUserIdsByPermission({ projectId, permission }
     }
   }
   return [...new Set(out)];
+}
+
+/**
+ * QA roles first; fallback task:drag_to_done (PM/TL/QA) nếu chưa có QA trên dự án.
+ * @param {{ projectId: string }} opts
+ * @returns {Promise<string[]>}
+ */
+async function resolveReadyForQaRecipientUserIds({ projectId }) {
+  const pid = String(projectId || '').trim();
+  if (!pid) return [];
+
+  const Project = require('../../models/Project');
+  const ProjectMembership = require('../../models/ProjectMembership');
+  const ProjectRole = require('../../models/ProjectRole');
+
+  const project = await Project.findById(pid).select('_id createdBy').lean();
+  if (!project) return [];
+
+  const rows = await ProjectMembership.find({ projectId: pid })
+    .select('userId projectRoleId')
+    .lean();
+  const roleIds = [
+    ...new Set(rows.map((r) => String(r.projectRoleId || '').trim()).filter(Boolean)),
+  ];
+  const roles = roleIds.length
+    ? await ProjectRole.find({ _id: { $in: roleIds } }).select('_id key').lean()
+    : [];
+  const roleKeyById = new Map(
+    roles.map((r) => [String(r._id), String(r.key || '').trim().toLowerCase()])
+  );
+  const qaKeys = new Set(READY_FOR_QA_ROLE_KEYS);
+  const byRole = [
+    ...new Set(
+      rows
+        .filter((r) => qaKeys.has(roleKeyById.get(String(r.projectRoleId || '')) || ''))
+        .map((r) => String(r.userId || '').trim())
+        .filter(Boolean)
+    ),
+  ];
+  if (byRole.length) return byRole;
+
+  return resolveProjectMemberUserIdsByPermission({
+    projectId: pid,
+    permission: 'task:drag_to_done',
+  });
 }
 
 async function emitSystemKind({
@@ -316,6 +375,86 @@ async function notifyUatRequested({ actorId, project }) {
   }
 }
 
+/**
+ * After card move into / out of Ready for QA column.
+ */
+async function maybeNotifyReadyForQa({
+  actorId,
+  projectId,
+  organizationId,
+  boardId,
+  taskId,
+  taskTitle,
+  toList,
+  fromList,
+}) {
+  if (!isDeliveryNotifyEnabled()) return { action: 'skip', reason: 'disabled' };
+  const Task = require('../../models/Task');
+  const { isReadyForQaList } = require('../../services/boardCapabilities');
+  const { projectHubActionUrl } = require('../../clients/notification.client');
+
+  const tid = String(taskId || '').trim();
+  const pid = String(projectId || '').trim();
+  if (!tid || !pid) return { action: 'skip', reason: 'missing_ids' };
+
+  try {
+    const isInReadyForQa = isReadyForQaList(toList);
+    const wasInReadyForQa = isReadyForQaList(fromList);
+    if (isInReadyForQa === wasInReadyForQa && !isInReadyForQa) {
+      return { action: 'skip', reason: 'not_qa_transition' };
+    }
+
+    const task = await Task.findOne({ _id: tid, projectId: pid, isActive: true });
+    if (!task) return { action: 'skip', reason: 'task_missing' };
+
+    const action = readyForQaDedupeAction({
+      isInReadyForQa,
+      notifiedAt: task.readyForQaNotifiedAt,
+    });
+
+    if (action === 'clear') {
+      task.readyForQaNotifiedAt = null;
+      await task.save();
+      return { action: 'clear' };
+    }
+    if (action !== 'notify') return { action: 'skip' };
+
+    const userIds = await resolveReadyForQaRecipientUserIds({ projectId: pid });
+    const titleText = String(taskTitle || task.title || 'Thẻ').trim() || 'Thẻ';
+    const org = String(organizationId || task.organizationId || '');
+    const bid = String(boardId || task.boardId || '');
+    const sent = await emitSystemKind({
+      kind: KIND.READY_FOR_QA,
+      userIds,
+      title: 'Card sẵn sàng kiểm thử',
+      content: `Thẻ “${titleText}” đã vào Ready for QA — mở Kiểm thử để gắn test case.`,
+      data: {
+        organizationId: org,
+        projectId: pid,
+        boardId: bid,
+        taskId: tid,
+      },
+      actionUrl: projectHubActionUrl({
+        projectId: pid,
+        boardId: bid,
+        organizationId: org,
+        module: 'test-cases',
+      }),
+      excludeUserId: actorId,
+    });
+
+    task.readyForQaNotifiedAt = new Date();
+    await task.save();
+    infoLog(
+      `[deliveryNotify] kind=${KIND.READY_FOR_QA} project=${pid} task=${tid} recipients~${userIds.length} ok=${sent.ok}`
+    );
+    return { action: 'notify', sent };
+  } catch (err) {
+    warnLog('[deliveryNotify] ready_for_qa failed: %s', err?.message || err);
+    return { action: 'skip', reason: 'error' };
+  }
+}
+
 /** Fire-and-forget wrapper for write handlers. */
 function scheduleDeliveryNotify(fn) {
   try {
@@ -331,13 +470,17 @@ function scheduleDeliveryNotify(fn) {
 
 module.exports = {
   KIND,
+  READY_FOR_QA_ROLE_KEYS,
   isDeliveryNotifyEnabled,
   readyToDoneDedupeAction,
   releaseReadyDedupeAction,
+  readyForQaDedupeAction,
   shouldNotifyUatRequested,
   resolveProjectMemberUserIdsByPermission,
+  resolveReadyForQaRecipientUserIds,
   maybeNotifyReadyToDoneProposed,
   maybeNotifyReleaseReadyProposed,
+  maybeNotifyReadyForQa,
   notifyUatRequested,
   scheduleDeliveryNotify,
 };

@@ -4,14 +4,20 @@ const {
   KIND,
   readyToDoneDedupeAction,
   releaseReadyDedupeAction,
+  readyForQaDedupeAction,
   shouldNotifyUatRequested,
 } = require('../src/utils/work/deliveryNotify');
+const {
+  isReadyForQaList,
+  isReadyForQaListTitle,
+} = require('../src/services/boardCapabilities');
 
 describe('deliveryNotify pure', () => {
-  it('exports three kind constants', () => {
+  it('exports kind constants including ready_for_qa', () => {
     assert.equal(KIND.READY_TO_DONE, 'ready_to_done_proposed');
     assert.equal(KIND.RELEASE_READY, 'release_ready_proposed');
     assert.equal(KIND.UAT_REQUESTED, 'uat_requested');
+    assert.equal(KIND.READY_FOR_QA, 'ready_for_qa');
   });
 
   it('readyToDone: notify once then skip until clear', () => {
@@ -25,6 +31,25 @@ describe('deliveryNotify pure', () => {
       'clear'
     );
     assert.equal(readyToDoneDedupeAction({ isReady: false, notifiedAt: null }), 'skip');
+  });
+
+  it('readyForQa: notify once on enter; clear on leave', () => {
+    assert.equal(
+      readyForQaDedupeAction({ isInReadyForQa: true, notifiedAt: null }),
+      'notify'
+    );
+    assert.equal(
+      readyForQaDedupeAction({ isInReadyForQa: true, notifiedAt: new Date() }),
+      'skip'
+    );
+    assert.equal(
+      readyForQaDedupeAction({ isInReadyForQa: false, notifiedAt: new Date() }),
+      'clear'
+    );
+    assert.equal(
+      readyForQaDedupeAction({ isInReadyForQa: false, notifiedAt: null }),
+      'skip'
+    );
   });
 
   it('releaseReady: no notify when already confirmed', () => {
@@ -66,5 +91,15 @@ describe('deliveryNotify pure', () => {
     assert.equal(shouldNotifyUatRequested({ uatStatus: 'none' }), true);
     assert.equal(shouldNotifyUatRequested({ uatStatus: 'fail' }), true);
     assert.equal(shouldNotifyUatRequested({ uatStatus: 'pass' }), false);
+  });
+});
+
+describe('isReadyForQaList', () => {
+  it('matches title and statusKey qa', () => {
+    assert.equal(isReadyForQaListTitle('Ready for QA'), true);
+    assert.equal(isReadyForQaList({ title: 'Ready for QA' }), true);
+    assert.equal(isReadyForQaList({ statusKey: 'qa', title: 'QA Queue' }), true);
+    assert.equal(isReadyForQaList({ title: 'In Progress' }), false);
+    assert.equal(isReadyForQaList({ statusKey: 'todo', title: 'To Do' }), false);
   });
 });
