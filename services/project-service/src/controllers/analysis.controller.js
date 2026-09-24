@@ -25,6 +25,31 @@ function handleError(res, err) {
 
 async function listCustomerDocuments(req, res) {
   try {
+    const format = String(req.query?.format || '')
+      .trim()
+      .toLowerCase();
+    const documentId = String(req.query?.documentId || req.query?.id || '').trim();
+    if ((format === 'download' || format === 'bin' || format === 'file') && documentId) {
+      const { stream, fileName, mimeType } = await analysisService.downloadCustomerDocument({
+        userId: getUserId(req),
+        projectId: req.params.projectId,
+        documentId,
+      });
+      res.setHeader('Content-Type', mimeType || 'application/octet-stream');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${String(fileName || 'document').replace(/"/g, '')}"`
+      );
+      if (stream && typeof stream.pipe === 'function') {
+        return stream.pipe(res);
+      }
+      // AWS SDK v3 Body may be async iterable
+      const chunks = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      return res.send(Buffer.concat(chunks));
+    }
     const data = await analysisService.listCustomerDocuments({
       userId: getUserId(req),
       projectId: req.params.projectId,
@@ -215,6 +240,7 @@ async function advancePhase2(req, res) {
       forcePackImport: req.body?.forcePackImport === true,
       skipReadyGate: Boolean(req.body?.skipReadyGate),
       publishWbs: req.body?.publishWbs !== false,
+      seedBoardTasks: req.body?.seedBoardTasks !== false,
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -224,6 +250,23 @@ async function advancePhase2(req, res) {
 
 async function getSrsDraft(req, res) {
   try {
+    const format = String(req.query?.format || '')
+      .trim()
+      .toLowerCase();
+    if (format === 'xlsx' || format === 'excel') {
+      const { buffer, fileName } = await analysisService.exportSrsWorkbook({
+        userId: getUserId(req),
+        projectId: req.params.projectId,
+        baselineId: req.query?.baselineId,
+        srsVersion: req.query?.srsVersion,
+      });
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      return res.send(Buffer.from(buffer));
+    }
     const data = await analysisService.getSrsDraft({
       userId: getUserId(req),
       projectId: req.params.projectId,

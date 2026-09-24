@@ -177,7 +177,7 @@ function parseAnalysisWorkbook(buffer) {
     _rowNumber: row._rowNumber,
   }));
 
-  const businessProcesses = bpm.rows.map((row) => ({
+  const businessProcessesRaw = bpm.rows.map((row) => ({
     externalId: normId(row['BPM ID']),
     relatedBr: normId(row['BR ID']),
     processName: normProse(row['Process Name']),
@@ -197,6 +197,29 @@ function parseAnalysisWorkbook(buffer) {
     baNote: normProse(row['BA Note']),
     _rowNumber: row._rowNumber,
   }));
+  // Fill-forward process-level fields within same BPM ID (Excel often chỉ điền ở step 1).
+  const businessProcesses = [];
+  const bpmCarry = new Map();
+  for (const row of businessProcessesRaw) {
+    const id = row.externalId || '';
+    const prev = bpmCarry.get(id) || {};
+    const processDescription = row.processDescription || prev.processDescription || '';
+    const trigger = row.trigger || prev.trigger || '';
+    const processName = row.processName || prev.processName || '';
+    if (id) {
+      bpmCarry.set(id, {
+        processDescription: processDescription || prev.processDescription || '',
+        trigger: trigger || prev.trigger || '',
+        processName: processName || prev.processName || '',
+      });
+    }
+    businessProcesses.push({
+      ...row,
+      processName,
+      processDescription,
+      trigger,
+    });
+  }
 
   const functionalRequirements = fr.rows.map((row, index) => {
     const level = normalizeAnalysisFrLevel(row.Level);
@@ -279,6 +302,109 @@ function parseAnalysisWorkbook(buffer) {
     _rowNumber: row._rowNumber,
   }));
 
+  const scopeSheet = mapSheet(ANALYSIS_SHEETS.SCOPE);
+  const scope = scopeSheet.rows
+    .map((row) => {
+      const rawType = normalizeHeader(row['Scope Type']);
+      const type = rawType.includes('out') ? 'out' : 'in';
+      const description = normProse(row.Description);
+      if (!description) return null;
+      const source = normProse(row.Source);
+      const dateRaised = normProse(row['Date Raised']);
+      const baNote = normProse(row['BA Note']);
+      const status = normProse(row.Status) || 'Draft';
+      return {
+        type,
+        description,
+        source,
+        dateRaised,
+        status,
+        baNote,
+        customerRequirementIds: splitIds(row['Customer Requirement IDs']),
+        _rowNumber: row._rowNumber,
+      };
+    })
+    .filter(Boolean);
+
+  const interfacesSheet = mapSheet(ANALYSIS_SHEETS.INTERFACES);
+  const interfaces = interfacesSheet.rows
+    .map((row) => {
+      const externalId = normId(row['Interface ID']);
+      const name = normProse(row.Name);
+      if (!externalId && !name) return null;
+      return {
+        externalId: externalId || `IF-${row._rowNumber}`,
+        name,
+        interfaceType: normProse(row.Type),
+        direction: normProse(row.Direction) || 'inout',
+        protocol: normProse(row.Protocol),
+        description: normProse(row.Description),
+        relatedArtifactIds: splitIds(row['Related Artifact IDs']),
+        customerRequirementIds: splitIds(row['Customer Requirement IDs']),
+        status: normProse(row.Status) || 'Draft',
+        baNote: normProse(row['BA Note']),
+        _rowNumber: row._rowNumber,
+      };
+    })
+    .filter(Boolean);
+
+  const dataSheet = mapSheet(ANALYSIS_SHEETS.DATA);
+  const dataEntities = dataSheet.rows
+    .map((row) => {
+      const externalId = normId(row['Data ID']);
+      const entity = normProse(row.Entity);
+      if (!externalId && !entity) return null;
+      return {
+        externalId: externalId || `DATA-${row._rowNumber}`,
+        entity,
+        attributes: normProse(row.Attributes),
+        validationRules: normProse(row.Rules),
+        relatedArtifactIds: splitIds(row['Related Artifact IDs']),
+        customerRequirementIds: splitIds(row['Customer Requirement IDs']),
+        status: normProse(row.Status) || 'Draft',
+        baNote: normProse(row['BA Note']),
+        _rowNumber: row._rowNumber,
+      };
+    })
+    .filter(Boolean);
+
+  const glossarySheet = mapSheet(ANALYSIS_SHEETS.GLOSSARY);
+  const glossary = glossarySheet.rows
+    .map((row) => {
+      const term = normProse(row.Term);
+      if (!term) return null;
+      const externalId = normId(row['Term ID']) || `GL-${row._rowNumber}`;
+      return {
+        externalId,
+        term,
+        definition: normProse(row.Definition),
+        relatedArtifactIds: splitIds(row['Related Artifact IDs']),
+        status: normProse(row.Status) || 'Draft',
+        baNote: normProse(row['BA Note']),
+        _rowNumber: row._rowNumber,
+      };
+    })
+    .filter(Boolean);
+
+  const assumptionsSheet = mapSheet(ANALYSIS_SHEETS.ASSUMPTIONS);
+  const assumptions = assumptionsSheet.rows
+    .map((row) => {
+      const text = normProse(row.Text);
+      if (!text) return null;
+      const externalId = normId(row['Assumption ID']) || `ASM-${row._rowNumber}`;
+      return {
+        externalId,
+        text,
+        impactIfInvalid: normProse(row['Impact If Invalid']),
+        relatedArtifactIds: splitIds(row['Related Artifact IDs']),
+        customerRequirementIds: splitIds(row['Customer Requirement IDs']),
+        status: normProse(row.Status) || 'Draft',
+        baNote: normProse(row['BA Note']),
+        _rowNumber: row._rowNumber,
+      };
+    })
+    .filter(Boolean);
+
   const firstBg = businessGoals[0] || {};
   const overview = {
     requirementName: firstBg.title || 'Requirement Analysis',
@@ -299,14 +425,17 @@ function parseAnalysisWorkbook(buffer) {
     templateVersion,
     sheetNames,
     overview,
-    scope: [],
+    scope,
     functionalRequirements,
     nonFunctionalRequirements,
     technology: [],
     integration: [],
     constraints: [],
     dependencies: [],
-    assumptions: [],
+    assumptions,
+    interfaces,
+    dataEntities,
+    glossary,
     requirementMetadata: [],
     businessGoals,
     businessRules,
@@ -322,6 +451,11 @@ function parseAnalysisWorkbook(buffer) {
       functional: fr.indexByKey,
       uc: uc.indexByKey,
       nfr: nfr.indexByKey,
+      scope: scopeSheet.indexByKey,
+      interfaces: interfacesSheet.indexByKey,
+      data: dataSheet.indexByKey,
+      glossary: glossarySheet.indexByKey,
+      assumptions: assumptionsSheet.indexByKey,
     },
     sheetPresent: {
       traceability: trace.present || sheetNames.includes(ANALYSIS_SHEETS.TRACEABILITY),
@@ -331,6 +465,11 @@ function parseAnalysisWorkbook(buffer) {
       fr: fr.present || sheetNames.includes(ANALYSIS_SHEETS.FR),
       uc: uc.present || sheetNames.includes(ANALYSIS_SHEETS.UC),
       nfr: nfr.present || sheetNames.includes(ANALYSIS_SHEETS.NFR),
+      scope: scopeSheet.present || sheetNames.includes(ANALYSIS_SHEETS.SCOPE),
+      interfaces: interfacesSheet.present || sheetNames.includes(ANALYSIS_SHEETS.INTERFACES),
+      data: dataSheet.present || sheetNames.includes(ANALYSIS_SHEETS.DATA),
+      glossary: glossarySheet.present || sheetNames.includes(ANALYSIS_SHEETS.GLOSSARY),
+      assumptions: assumptionsSheet.present || sheetNames.includes(ANALYSIS_SHEETS.ASSUMPTIONS),
     },
     analysisFrLevels: ANALYSIS_FR_LEVELS,
   };

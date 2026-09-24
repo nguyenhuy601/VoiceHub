@@ -12,10 +12,14 @@ const {
 describe('analysisArtifactFieldCatalog (all RA kinds)', () => {
   it('lists all analysis kinds', () => {
     assert.deepEqual(listCatalogKinds().sort(), [
+      'ASSUMPTION',
       'BG',
       'BPM',
       'BR',
+      'DATA',
       'FR',
+      'GLOSSARY',
+      'INTERFACE',
       'NFR',
       'SCOPE',
       'UC',

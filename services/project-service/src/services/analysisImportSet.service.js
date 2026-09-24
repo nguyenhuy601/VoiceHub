@@ -27,6 +27,7 @@ const {
   computeRetention,
   planSetTransition,
   assertCanPublish,
+  planArtifactQueueAfterSetGate,
 } = require('../constants/analysisImportSet');
 const { CUSTOMER_RAW_TEMPLATE_TYPE } = require('../constants/customerRawTemplate.constants');
 const {
@@ -55,6 +56,18 @@ async function assertProjectMemberAccess({ userId, projectId }) {
 
 async function assertAnalysisPerm({ userId, projectId, permission, message }) {
   if (!isProjectRbacV2Enabled()) return;
+  const key = String(permission || '').trim().toLowerCase();
+  // Raw/Analysis upload + confirm: BA role matrix (không creator dump)
+  if (key === 'analysis:document_upload' || key === 'analysis:artifact_import') {
+    const { assertUserProjectRoleMatrixPermission } = require('./projectAccess.service');
+    await assertUserProjectRoleMatrixPermission({
+      userId,
+      projectId,
+      permission: key,
+      message: message || `Thiếu quyền ${key} — chỉ BA được tải Raw/Analysis`,
+    });
+    return;
+  }
   await assertUserProjectPermission({
     userId,
     projectId,
@@ -149,6 +162,52 @@ async function enrichSet(setLean) {
   });
 }
 
+/**
+ * Idempotent: sau BA stamp Import Set, mở hàng chờ artifact (draft|ba_review → tech_review|po_review).
+ * Gọi khi BA gate transition và khi list pending sets (backfill set đã stamp trước fix).
+ */
+async function syncArtifactReviewQueueFromSetGate(setDoc, { techRequired = true, actorUserId = null } = {}) {
+  const { hasGateStamp } = require('../constants/analysisImportSet');
+  const review = setDoc?.review || {};
+  if (!hasGateStamp(review.ba)) return { modifiedCount: 0 };
+  // Artifact dual-gate độc lập Import Set: draft sót (BPM seed muộn, miss sync) vẫn kéo lên
+  // tech/po queue kể cả khi set đã stamp Tech — Tech stamp set ≠ duyệt hết artifact.
+  const queueTo = planArtifactQueueAfterSetGate({
+    setGateTo: 'tech_review',
+    techRequired,
+  });
+  if (!queueTo) return { modifiedCount: 0 };
+
+  const baStamp = {
+    userId: review.ba.userId,
+    at: review.ba.at || new Date(),
+    note: review.ba.note || 'import_set_ba_gate',
+  };
+  const $set = {
+    status: queueTo,
+    updatedAt: new Date(),
+    'review.ba': baStamp,
+  };
+  if (actorUserId) $set.updatedBy = actorUserId;
+  if (queueTo === 'po_review' && !techRequired) {
+    $set['review.tech'] = {
+      skipped: true,
+      at: new Date(),
+      note: 'tech_optional_skip',
+    };
+  }
+  const result = await AnalysisArtifact.updateMany(
+    {
+      projectId: setDoc.projectId,
+      importSetId: setDoc._id,
+      isActive: true,
+      status: { $in: ['draft', 'ba_review'] },
+    },
+    { $set }
+  );
+  return { modifiedCount: result?.modifiedCount || 0, queueTo };
+}
+
 async function findActiveSet(projectId) {
   return AnalysisImportSet.findOne({ projectId, status: 'active' });
 }
@@ -183,19 +242,29 @@ async function persistImportSetFileBuffer({
   buffer,
 }) {
   const contentHash = sha256Hex(buffer);
-  let storageKey = '';
-  if (objectStorage.isEnabled() && buffer.length > 0) {
-    storageKey = buildImportSetObjectKey({ projectId, setId, slot, fileName });
-    try {
-      await objectStorage.putObject(storageKey, buffer, mimeType);
-    } catch (uploadErr) {
-      logger.error(
-        `analysisImportSet MinIO putObject failed set=${setId} slot=${slot}: ${uploadErr.message}`
-      );
-      storageKey = '';
-    }
-  } else if (!objectStorage.isEnabled()) {
-    logger.warn(`analysisImportSet MinIO disabled — set=${setId} slot=${slot} pending storage`);
+  if (!buffer?.length) {
+    const err = new Error('File rỗng — không lưu Import Set');
+    err.statusCode = 400;
+    err.errorCode = IMPORT_SET_ERROR_CODES.STORAGE_REQUIRED;
+    throw err;
+  }
+  if (!objectStorage.isEnabled()) {
+    const err = new Error('Object storage (MinIO) chưa bật — không thể lưu file Import Set');
+    err.statusCode = 503;
+    err.errorCode = IMPORT_SET_ERROR_CODES.STORAGE_REQUIRED;
+    throw err;
+  }
+  const storageKey = buildImportSetObjectKey({ projectId, setId, slot, fileName });
+  try {
+    await objectStorage.putObject(storageKey, buffer, mimeType);
+  } catch (uploadErr) {
+    logger.error(
+      `analysisImportSet MinIO putObject failed set=${setId} slot=${slot}: ${uploadErr.message}`
+    );
+    const err = new Error('Không lưu được file lên storage — thử lại sau');
+    err.statusCode = 503;
+    err.errorCode = IMPORT_SET_ERROR_CODES.STORAGE_REQUIRED;
+    throw err;
   }
   return { storageKey, contentHash, sizeBytes: buffer.length };
 }
@@ -401,6 +470,7 @@ async function assertTechReviewerExists(projectId) {
 async function listImportSets({ userId, projectId, status }) {
   await assertProjectMemberAccess({ userId, projectId });
   await assertAnalysisPerm({ userId, projectId, permission: 'analysis:view' });
+  await purgeOrphanEmptyDrafts(projectId);
   const filter = { projectId };
   const st = String(status || '').trim().toLowerCase();
   const allowed = ['draft', 'pending_review', 'rejected', 'active', 'trashed'];
@@ -408,6 +478,25 @@ async function listImportSets({ userId, projectId, status }) {
     filter.status = st;
   }
   const rows = await AnalysisImportSet.find(filter).sort({ updatedAt: -1 }).lean();
+  const { projectHasAnalysisTechReviewer } = require('../utils/phase1GatePolicy');
+  let techRequired = true;
+  try {
+    techRequired = await projectHasAnalysisTechReviewer(projectId);
+  } catch {
+    techRequired = true;
+  }
+  for (const row of rows) {
+    // Backfill draft sót cả khi set đã active (PO đã stamp set) — dual-gate artifact độc lập.
+    if (row.status !== 'pending_review' && row.status !== 'active') continue;
+    try {
+      await syncArtifactReviewQueueFromSetGate(row, { techRequired, actorUserId: userId });
+    } catch (e) {
+      logger.warn('[ImportSet] sync artifact queue on list failed', {
+        setId: String(row._id),
+        err: e?.message,
+      });
+    }
+  }
   return Promise.all(rows.map((r) => enrichSet(r)));
 }
 
@@ -451,22 +540,30 @@ async function attachRawDocument({
   const mime =
     String(mimeType || '').trim().slice(0, 120) ||
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-  const { storageKey, contentHash, sizeBytes: storedSize } = await persistImportSetFileBuffer({
-    projectId,
-    setId: draft._id,
-    slot: 'raw',
-    fileName: fileName || 'Customer_Requirement_Raw.xlsx',
-    mimeType: mime,
-    buffer,
-  });
+  let storageKey;
+  let contentHash;
+  let storedSize;
+  try {
+    ({ storageKey, contentHash, sizeBytes: storedSize } = await persistImportSetFileBuffer({
+      projectId,
+      setId: draft._id,
+      slot: 'raw',
+      fileName: fileName || 'Customer_Requirement_Raw.xlsx',
+      mimeType: mime,
+      buffer,
+    }));
+  } catch (persistErr) {
+    // MinIO fail sau ensureDraft → nháp trống «— —»; xóa orphan để UI không lệch.
+    await deleteOrphanEmptyDraft(draft);
+    throw persistErr;
+  }
 
   const doc = await CustomerDocument.create({
     organizationId: project.organizationId,
     projectId,
     filename: String(fileName || 'Customer_Requirement_Raw.xlsx').slice(0, 260),
     mimeType: mime,
-    storageKey:
-      storageKey || `pending/${projectId}/${Date.now()}-raw`.slice(0, 512),
+    storageKey,
     sizeBytes: sizeBytes != null ? Number(sizeBytes) : storedSize,
     contentHash,
     docClass: 'customer_raw',
@@ -481,6 +578,37 @@ async function attachRawDocument({
   await draft.save();
 
   return enrichSet(draft.toObject());
+}
+
+/** Draft không có Raw/Analysis — thường do upload MinIO fail giữa chừng. */
+async function deleteOrphanEmptyDraft(draft) {
+  if (!draft?._id) return;
+  const hasRaw = Boolean(draft.rawDocumentId);
+  const hasAnalysis = Boolean(draft.analysisDocumentId);
+  if (hasRaw || hasAnalysis) return;
+  if (String(draft.status || '') !== 'draft') return;
+  try {
+    await AnalysisImportSet.deleteOne({ _id: draft._id, status: 'draft' });
+  } catch {
+    /* non-blocking */
+  }
+}
+
+async function purgeOrphanEmptyDrafts(projectId) {
+  const orphans = await AnalysisImportSet.find({
+    projectId,
+    status: 'draft',
+    $and: [
+      { $or: [{ rawDocumentId: null }, { rawDocumentId: { $exists: false } }] },
+      { $or: [{ analysisDocumentId: null }, { analysisDocumentId: { $exists: false } }] },
+    ],
+  })
+    .select('_id')
+    .lean();
+  if (!orphans.length) return 0;
+  const ids = orphans.map((o) => o._id);
+  await AnalysisImportSet.deleteMany({ _id: { $in: ids }, status: 'draft' });
+  return ids.length;
 }
 
 async function softDeleteImportSet({ userId, projectId, setId }) {
@@ -644,7 +772,7 @@ async function stageImportSetOnConfirm({
   return setDoc;
 }
 
-async function publishImportSet({ userId, projectId, setId }) {
+async function publishImportSet({ userId, projectId, setId, techRequired }) {
   const setDoc = await AnalysisImportSet.findOne({ _id: setId, projectId });
   if (!setDoc) {
     const err = new Error('Import Set không tồn tại');
@@ -655,7 +783,12 @@ async function publishImportSet({ userId, projectId, setId }) {
   if (setDoc.status === 'active') {
     return setDoc;
   }
-  assertCanPublish(setDoc);
+  let needTech = techRequired;
+  if (needTech == null) {
+    const { projectHasAnalysisTechReviewer } = require('../utils/phase1GatePolicy');
+    needTech = await projectHasAnalysisTechReviewer(projectId);
+  }
+  assertCanPublish(setDoc, { techRequired: needTech });
   assertCanActivate(setDoc);
 
   const pack = await RequirementPack.findById(setDoc.packId);
@@ -710,12 +843,43 @@ async function transitionImportSet({ userId, projectId, setId, toStatus, note = 
     throw err;
   }
 
-  const { to, permission, publish, republish } = planSetTransition(setDoc, toStatus);
+  const {
+    projectHasAnalysisTechReviewer,
+    assertGateStampSoD,
+    notifyNextGateReviewers,
+  } = require('../utils/phase1GatePolicy');
+  const { resolveUserProjectPermissions } = require('./projectAccess.service');
+  const techRequired = await projectHasAnalysisTechReviewer(projectId);
+  const resolved = await resolveUserProjectPermissions({ userId, projectId });
+  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+
+  const { to, permission, publish, republish } = planSetTransition(setDoc, toStatus, {
+    techRequired,
+  });
   if (permission) {
     await assertAnalysisPerm({ userId, projectId, permission });
   }
 
+  const review = setDoc.review || {};
+  if (to === 'tech_review') {
+    assertGateStampSoD({ actorUserId: userId, priorStamps: [], bypass });
+  } else if (to === 'po_review') {
+    assertGateStampSoD({ actorUserId: userId, priorStamps: [review.ba], bypass });
+  } else if (to === 'approved' && !republish) {
+    assertGateStampSoD({
+      actorUserId: userId,
+      priorStamps: [review.ba, review.tech],
+      bypass,
+    });
+  }
+
   const gateNote = String(note || '').trim().slice(0, 1000);
+  if (to === 'rejected' && !gateNote) {
+    const err = new Error('Bắt buộc ghi lý do khi từ chối Import Set');
+    err.statusCode = 400;
+    err.errorCode = 'IMPORT_SET_NOTE_REQUIRED';
+    throw err;
+  }
   const stamp = { userId, at: new Date(), note: gateNote };
 
   if (to === 'rejected') {
@@ -734,6 +898,9 @@ async function transitionImportSet({ userId, projectId, setId, toStatus, note = 
 
   if (to === 'tech_review') {
     setDoc.review.ba = stamp;
+    if (!techRequired) {
+      setDoc.review.tech = { skipped: true, at: new Date(), note: 'tech_optional_skip' };
+    }
   } else if (to === 'po_review') {
     setDoc.review.tech = stamp;
   } else if (to === 'approved') {
@@ -743,12 +910,57 @@ async function transitionImportSet({ userId, projectId, setId, toStatus, note = 
       await setDoc.save();
     }
     if (publish) {
-      const published = await publishImportSet({ userId, projectId, setId: setDoc._id });
+      const published = await publishImportSet({
+        userId,
+        projectId,
+        setId: setDoc._id,
+        techRequired,
+      });
       return enrichSet(published.toObject());
     }
   }
   setDoc.updatedBy = userId;
   await setDoc.save();
+
+  // Dual-gate: BA stamp Import Set → mở hàng chờ artifact cho Tech (hoặc PO nếu skip Tech).
+  if (to === 'tech_review') {
+    try {
+      const synced = await syncArtifactReviewQueueFromSetGate(setDoc, {
+        techRequired,
+        actorUserId: userId,
+      });
+      if (synced?.modifiedCount) {
+        logger.info(
+          `[ImportSet] BA gate promoted ${synced.modifiedCount} artifacts → ${synced.queueTo} (set=${setDoc._id})`
+        );
+      }
+    } catch (promoErr) {
+      logger.warn('[ImportSet] artifact queue promote after BA gate failed', {
+        setId: String(setDoc._id),
+        err: promoErr?.message,
+      });
+    }
+  }
+
+  let nextPermission = null;
+  if (to === 'tech_review') {
+    nextPermission = techRequired ? 'analysis:tech_review' : 'analysis:po_review';
+  } else if (to === 'po_review') {
+    nextPermission = 'analysis:po_review';
+  }
+  if (nextPermission) {
+    await notifyNextGateReviewers({
+      projectId,
+      organizationId: setDoc.organizationId,
+      actorUserId: userId,
+      nextPermission,
+      title: 'Import Set chờ duyệt',
+      content: 'Có Import Set cần bạn duyệt ở cổng tiếp theo.',
+      kind: 'import_set_gate_pending',
+      actionPath: 'customer-documents',
+    });
+  }
+
   return enrichSet(setDoc.toObject());
 }
 

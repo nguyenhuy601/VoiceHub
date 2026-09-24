@@ -1,5 +1,6 @@
 /**
- * Phase 1 AnalysisArtifact field catalog — đủ kind RA (SCOPE/BG/BR/BPM/FR/UC/NFR).
+ * Phase 1 AnalysisArtifact field catalog — đủ kind RA
+ * (SCOPE/BG/BR/BPM/FR/UC/NFR + INTERFACE/DATA/GLOSSARY/ASSUMPTION).
  *
  * SoT nguồn:
  * - Workbook Requirement Analysis parse: `requirementTemplateParse.js`
@@ -9,7 +10,7 @@
  * Cấm: lấy schema AI-gen làm mẫu.
  */
 
-const EDITABLE_STATUSES = Object.freeze(['draft', 'rejected']);
+const EDITABLE_STATUSES = Object.freeze(['draft', 'changes_requested']);
 
 /** @typedef {'top'|'structured'} FieldLayer */
 /** @typedef {{ key: string, layer: FieldLayer, required?: boolean, maxLen?: number, type?: 'string'|'string[]', source: string, legacy?: boolean }} FieldDef */
@@ -70,11 +71,12 @@ const FR_STRUCTURED = Object.freeze([
   field('dependency', 'workbook Dependencies', { legacy: true }),
   field('assumption', 'seed assumption', { legacy: true }),
   field('constraint', 'workbook Constraints / Notes'),
-  field('baNote', 'seed baNote', { legacy: true }),
+  field('baNote', 'seed baNote'),
   field('relatedUcKeys', 'trace FR→UC keys', { type: 'string[]', legacy: true }),
   field('brIds', 'seed linked BR ids/keys', { type: 'string[]', legacy: true }),
   field('bpmIds', 'seed linked BPM ids/keys', { type: 'string[]', legacy: true }),
-  field('customerRequirementIds', 'seed CR refs', { type: 'string[]', legacy: true }),
+  field('customerRequirementIds', 'seed CR refs', { type: 'string[]' }),
+  field('status', 'workbook Status'),
   field('sourceReference', 'traceability sheet Source / Reference', { legacy: true }),
   field('traceRelationship', 'traceability sheet relationship', { legacy: true }),
   field('traceAnalysisStatus', 'traceability sheet analysisStatus', { legacy: true }),
@@ -101,17 +103,67 @@ const UC_STRUCTURED = Object.freeze([
   field('priority', 'workbook Priority'),
   field('relatedFrKeys', 'workbook Related FR → keys[]', { type: 'string[]', legacy: true }),
   field('brIds', 'seed linked BR ids/keys', { type: 'string[]', legacy: true }),
-  field('customerRequirementIds', 'seed CR refs', { type: 'string[]', legacy: true }),
-  field('baNote', 'seed baNote', { legacy: true }),
+  field('customerRequirementIds', 'seed CR refs', { type: 'string[]' }),
+  field('status', 'workbook Status'),
+  field('baNote', 'seed baNote'),
   field('sourceReference', 'traceability sheet Source / Reference', { legacy: true }),
   field('traceRelationship', 'traceability sheet relationship', { legacy: true }),
   field('traceAnalysisStatus', 'traceability sheet analysisStatus', { legacy: true }),
 ]);
 
-/** SCOPE — workbook Scope / Context in-out + seed upsert. */
+/** SCOPE — workbook 08_Scope + seed upsert (đủ cột Excel). */
 const SCOPE_STRUCTURED = Object.freeze([
   field('scopeType', 'workbook Scope Type (in|out)'),
   field('description', 'workbook Description'),
+  field('customerRequirementIds', 'workbook Customer Requirement IDs', { type: 'string[]' }),
+  field('source', 'workbook Source'),
+  field('dateRaised', 'workbook Date Raised'),
+  field('status', 'workbook Status (Draft|Reviewed|Approved)'),
+  field('baNote', 'workbook BA Note'),
+]);
+
+/** INTERFACE — workbook 09_Interfaces + seed upsert. */
+const INTERFACE_STRUCTURED = Object.freeze([
+  field('interfaceName', 'workbook Name'),
+  field('interfaceType', 'workbook Type'),
+  field('direction', 'workbook Direction'),
+  field('protocol', 'workbook Protocol'),
+  field('description', 'workbook Description'),
+  field('relatedArtifactIds', 'workbook Related Artifact IDs', { type: 'string[]', legacy: true }),
+  field('customerRequirementIds', 'seed CR refs', { type: 'string[]' }),
+  field('status', 'workbook Status'),
+  field('baNote', 'workbook BA Note'),
+]);
+
+/** DATA — workbook 10_Data + seed upsert. */
+const DATA_STRUCTURED = Object.freeze([
+  field('entity', 'workbook Entity'),
+  field('attributes', 'workbook Attributes'),
+  field('validationRules', 'workbook Rules'),
+  field('description', 'workbook Description', { legacy: true }),
+  field('relatedArtifactIds', 'workbook Related Artifact IDs', { type: 'string[]', legacy: true }),
+  field('customerRequirementIds', 'seed CR refs', { type: 'string[]' }),
+  field('status', 'workbook Status'),
+  field('baNote', 'workbook BA Note'),
+]);
+
+/** GLOSSARY — workbook 11_Glossary + seed upsert. */
+const GLOSSARY_STRUCTURED = Object.freeze([
+  field('term', 'workbook Term'),
+  field('definition', 'workbook Definition'),
+  field('relatedArtifactIds', 'workbook Related Artifact IDs', { type: 'string[]', legacy: true }),
+  field('status', 'workbook Status'),
+  field('baNote', 'workbook BA Note'),
+]);
+
+/** ASSUMPTION — workbook 12_Assumptions + seed upsert. */
+const ASSUMPTION_STRUCTURED = Object.freeze([
+  field('text', 'workbook Text'),
+  field('impactIfInvalid', 'workbook Impact If Invalid'),
+  field('relatedArtifactIds', 'workbook Related Artifact IDs', { type: 'string[]', legacy: true }),
+  field('customerRequirementIds', 'seed CR refs', { type: 'string[]' }),
+  field('status', 'workbook Status'),
+  field('baNote', 'workbook BA Note'),
 ]);
 
 /** BG — workbook Business Goals + seed upsert. */
@@ -124,8 +176,9 @@ const BG_STRUCTURED = Object.freeze([
   field('stakeholder', 'seed stakeholder', { legacy: true }),
   field('assumption', 'seed assumption', { legacy: true }),
   field('constraint', 'seed constraint', { legacy: true }),
-  field('baNote', 'seed baNote', { legacy: true }),
-  field('customerRequirementIds', 'seed CR refs', { type: 'string[]', legacy: true }),
+  field('customerRequirementIds', 'seed CR refs', { type: 'string[]' }),
+  field('status', 'workbook Status'),
+  field('baNote', 'workbook BA Note'),
 ]);
 
 /** BR — workbook Business Rules + seed upsert. */
@@ -141,8 +194,9 @@ const BR_STRUCTURED = Object.freeze([
   field('dependency', 'seed dependency', { legacy: true }),
   field('assumption', 'seed assumption', { legacy: true }),
   field('constraint', 'seed constraint', { legacy: true }),
-  field('baNote', 'seed baNote', { legacy: true }),
-  field('customerRequirementIds', 'seed CR refs', { type: 'string[]', legacy: true }),
+  field('customerRequirementIds', 'seed CR refs', { type: 'string[]' }),
+  field('status', 'workbook Status'),
+  field('baNote', 'workbook BA Note'),
 ]);
 
 /** BPM — workbook Business Process + seed upsert. */
@@ -161,12 +215,14 @@ const BPM_STRUCTURED = Object.freeze([
   field('businessRule', 'seed businessRule', { legacy: true }),
   field('exception', 'seed exception', { legacy: true }),
   field('relatedCr', 'seed relatedCr', { legacy: true }),
-  field('baNote', 'seed baNote', { legacy: true }),
+  field('status', 'workbook Status'),
+  field('baNote', 'workbook BA Note'),
 ]);
 
 /** NFR — workbook Non-Functional + seed upsert. */
 const NFR_STRUCTURED = Object.freeze([
   field('category', 'workbook Category'),
+  field('requirement', 'workbook Requirement (also seeded to title)'),
   field('target', 'workbook Target'),
   field('measurement', 'seed measurement', { legacy: true }),
   field('priority', 'workbook Priority'),
@@ -177,9 +233,10 @@ const NFR_STRUCTURED = Object.freeze([
   }),
   field('acceptanceCriteria', 'seed acceptanceCriteria', { legacy: true }),
   field('source', 'seed source', { legacy: true }),
-  field('baNote', 'seed baNote', { legacy: true }),
+  field('customerRequirementIds', 'seed CR refs', { type: 'string[]' }),
+  field('status', 'workbook Status'),
+  field('baNote', 'workbook BA Note'),
   field('relatedFrKeys', 'soft FR keys', { type: 'string[]', legacy: true }),
-  field('customerRequirementIds', 'seed CR refs', { type: 'string[]', legacy: true }),
 ]);
 
 const CATALOG_BY_KIND = Object.freeze({
@@ -224,6 +281,30 @@ const CATALOG_BY_KIND = Object.freeze({
     wave: 1,
     topLevel: TOP_LEVEL_EDITABLE,
     structured: NFR_STRUCTURED,
+  }),
+  INTERFACE: Object.freeze({
+    kind: 'INTERFACE',
+    wave: 1,
+    topLevel: TOP_LEVEL_EDITABLE,
+    structured: INTERFACE_STRUCTURED,
+  }),
+  DATA: Object.freeze({
+    kind: 'DATA',
+    wave: 1,
+    topLevel: TOP_LEVEL_EDITABLE,
+    structured: DATA_STRUCTURED,
+  }),
+  GLOSSARY: Object.freeze({
+    kind: 'GLOSSARY',
+    wave: 1,
+    topLevel: TOP_LEVEL_EDITABLE,
+    structured: GLOSSARY_STRUCTURED,
+  }),
+  ASSUMPTION: Object.freeze({
+    kind: 'ASSUMPTION',
+    wave: 1,
+    topLevel: TOP_LEVEL_EDITABLE,
+    structured: ASSUMPTION_STRUCTURED,
   }),
 });
 

@@ -31,6 +31,13 @@ const {
   getActiveAiAnalysisSnapshotMeta,
 } = require('../services/aiAnalysisSnapshot.service');
 const {
+  getAiAnalysisSummary,
+  getAiAnalysisWizardJob,
+  runAiAnalysisJob,
+  confirmAiAnalysisJob,
+  exportAiAnalysisSheet11,
+} = require('../services/aiAnalysis.service');
+const {
   assertRequirementPermission,
   resolveRequirementAccess,
 } = require('../services/requirementAccess.service');

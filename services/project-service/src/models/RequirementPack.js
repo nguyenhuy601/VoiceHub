@@ -29,6 +29,10 @@ const requirementNodeSchema = new mongoose.Schema(
     customerRequirementIds: { type: [String], default: [] },
     brIds: { type: [String], default: [] },
     bpmIds: { type: [String], default: [] },
+    /** Analysis 05_FR — Dependency / Assumption / Constraint (seed → artifact.structured) */
+    frDependencies: { type: String, trim: true, default: '', maxlength: 2000 },
+    assumption: { type: String, trim: true, default: '', maxlength: 2000 },
+    constraintsNotes: { type: String, trim: true, default: '', maxlength: 2000 },
     status: { type: String, trim: true, default: '', maxlength: 64 },
     baNote: { type: String, trim: true, default: '', maxlength: 2000 },
   },
@@ -138,6 +142,12 @@ const requirementPackSchema = new mongoose.Schema(
       {
         type: { type: String, enum: ['in', 'out'], required: true },
         description: { type: String, trim: true, default: '', maxlength: 2000 },
+        /** Analysis workbook 08_Scope extras — keep on pack so seed SCOPE artifacts stay complete */
+        source: { type: String, trim: true, default: '', maxlength: 240 },
+        dateRaised: { type: String, trim: true, default: '', maxlength: 64 },
+        status: { type: String, trim: true, default: '', maxlength: 64 },
+        baNote: { type: String, trim: true, default: '', maxlength: 2000 },
+        customerRequirementIds: { type: [String], default: [] },
       },
     ],
     functionalRequirements: { type: [requirementNodeSchema], default: [] },
@@ -207,10 +217,21 @@ const requirementPackSchema = new mongoose.Schema(
     assumptions: [
       {
         externalId: { type: String, trim: true, maxlength: 64 },
+        /** Legacy SRS field */
         assumption: { type: String, trim: true, maxlength: 2000 },
-        impactIfInvalid: { type: String, trim: true, maxlength: 500 },
+        /** Analysis workbook 12_Assumptions.Text */
+        text: { type: String, trim: true, maxlength: 2000 },
+        impactIfInvalid: { type: String, trim: true, maxlength: 2000 },
+        relatedArtifactIds: { type: [String], default: [] },
+        customerRequirementIds: { type: [String], default: [] },
+        status: { type: String, trim: true, default: '', maxlength: 64 },
+        baNote: { type: String, trim: true, default: '', maxlength: 2000 },
       },
     ],
+    /** Analysis workbook optional sheets — Mixed so seed can copy full structured rows */
+    interfaces: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    dataEntities: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    glossary: { type: [mongoose.Schema.Types.Mixed], default: [] },
     aiAnalysisStatus: {
       type: String,
       enum: AI_ANALYSIS_STATUS,
