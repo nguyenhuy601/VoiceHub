@@ -34,18 +34,29 @@ describe('assertHandoverGate', () => {
     assert.ok(r.blockers.includes('uat_not_pass'));
   });
 
-  it('fails when checklist incomplete', () => {
+  it('ok when RR+UAT even if checklist empty (entry not checklist)', () => {
     const r = assertHandoverGate({
       releaseReadyStatus: 'confirmed',
       uatStatus: 'pass',
       handoverChecklist: { release_notes: true },
       checklistIds: IDS,
     });
-    assert.equal(r.ok, false);
-    assert.ok(r.blockers.includes('checklist_deployment_verified'));
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.blockers, []);
   });
 
-  it('ok when all criteria met', () => {
+  it('ok when RR+UAT with empty checklist', () => {
+    const r = assertHandoverGate({
+      releaseReadyStatus: 'confirmed',
+      uatStatus: 'pass',
+      handoverChecklist: {},
+      checklistIds: IDS,
+    });
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.blockers, []);
+  });
+
+  it('ok when all criteria met including checklist', () => {
     const r = assertHandoverGate({
       releaseReadyStatus: 'confirmed',
       uatStatus: 'pass',
