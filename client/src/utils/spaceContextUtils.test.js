@@ -198,20 +198,20 @@ describe('suiteNavConfig', () => {
     assert.equal(Boolean(fr.readOnly), false);
   });
 
-  it('marks RA tabs readOnly (except overview) after Start Planning', () => {
+  it('after Start Planning: RA thu gọn Overview+SRS (SRS readOnly); Planning mở', () => {
+    // DEC P1-H: raReadOnly → chỉ giữ overview + srs-baselines trong nhóm RA.
     const items = getProjectsPostSelectNavItems('proj1', {
       deliveryPhase: 'delivery_planning',
     });
     const overview = items.find((i) => i.module === 'overview');
-    const fr = items.find((i) => i.module === 'analysis-fr');
-    const docs = items.find((i) => i.module === 'customer-documents');
+    const srs = items.find((i) => i.module === 'srs-baselines');
     const wbs = items.find((i) => i.module === 'planning-wbs');
     assert.ok(overview);
     assert.equal(Boolean(overview.readOnly), false);
-    assert.ok(fr);
-    assert.equal(fr.readOnly, true);
-    assert.ok(docs);
-    assert.equal(docs.readOnly, true);
+    assert.ok(srs);
+    assert.equal(srs.readOnly, true);
+    assert.equal(items.some((i) => i.module === 'analysis-fr'), false);
+    assert.equal(items.some((i) => i.module === 'customer-documents'), false);
     assert.ok(wbs);
     assert.equal(Boolean(wbs.readOnly), false);
     assert.equal(Boolean(wbs.locked), false);
