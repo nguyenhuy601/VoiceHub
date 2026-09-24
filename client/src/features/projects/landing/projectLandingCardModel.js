@@ -117,6 +117,61 @@ export function resolveLandingDeadlineRaw(project) {
   return project?.expectedEndDate || project?.dueDate || null;
 }
 
+function normalizeLandingProgressPercent(progressRaw) {
+  if (progressRaw == null || progressRaw === '') return null;
+  if (!Number.isFinite(Number(progressRaw))) return null;
+  return Math.max(0, Math.min(100, Math.round(Number(progressRaw))));
+}
+
+/**
+ * Gợi ý bước tiếp trên thẻ landing — % board ≠ cổng Phase 3/4 (RR / UAT / handover).
+ * @param {object} project — list card payload
+ * @returns {string|null} locale key under workspace.*
+ */
+export function resolveLandingNextHintKey(project) {
+  const status = normalizeProjectStatus(project?.status);
+  if (status === 'closed') return null;
+
+  const phase = String(project?.deliveryPhase || '')
+    .trim()
+    .toLowerCase();
+  const rr = String(project?.releaseReadyStatus || 'none')
+    .trim()
+    .toLowerCase();
+  const uat = String(project?.uatStatus || 'none')
+    .trim()
+    .toLowerCase();
+  const progress = normalizeLandingProgressPercent(project?.progressPercent);
+  const atFullBoard = progress != null && progress >= 100;
+
+  if (phase === 'release_handover') {
+    return 'workspace.projectLandingNext_phase4Handover';
+  }
+
+  if (phase === 'qa_uat') {
+    if (rr !== 'confirmed') {
+      return atFullBoard
+        ? 'workspace.projectLandingNext_confirmReleaseReadyAt100'
+        : 'workspace.projectLandingNext_confirmReleaseReady';
+    }
+    if (uat !== 'pass') {
+      return 'workspace.projectLandingNext_uatPass';
+    }
+    return 'workspace.projectLandingNext_advancePhase4';
+  }
+
+  if (phase === 'development' && atFullBoard) {
+    return 'workspace.projectLandingNext_advanceQaUat';
+  }
+
+  // BE card cũ chưa trả deliveryPhase — vẫn gợi ý khi board đã 100%.
+  if (atFullBoard && !phase) {
+    return 'workspace.projectLandingNext_boardCompleteOpenGates';
+  }
+
+  return null;
+}
+
 /**
  * @param {object} p — list project payload
  * @param {string} [locale]
@@ -134,16 +189,11 @@ export function buildProjectLandingCard(p, locale = 'vi', idx = 0) {
   const status = normalizeProjectStatus(p?.status);
   const priority = normalizeProjectPriority(p?.priority);
   const health = normalizeProjectHealth(p?.health);
-  const progressRaw = p?.progressPercent;
-  const progressPercent =
-    progressRaw == null || progressRaw === ''
-      ? null
-      : Number.isFinite(Number(progressRaw))
-        ? Math.max(0, Math.min(100, Math.round(Number(progressRaw))))
-        : null;
+  const progressPercent = normalizeLandingProgressPercent(p?.progressPercent);
   const deadlineRaw = resolveLandingDeadlineRaw(p);
   const pmUserId = String(p?.pm?.userId || '').trim();
   const pmDisplayName = String(p?.pm?.displayName || '').trim();
+  const nextHintLabelKey = resolveLandingNextHintKey(p);
 
   return {
     id,
@@ -169,6 +219,7 @@ export function buildProjectLandingCard(p, locale = 'vi', idx = 0) {
     healthLabelKey: projectHealthLabelKey(health),
     healthDotClass: projectHealthDotClass(health),
     progressPercent,
+    nextHintLabelKey,
     deadlineRaw,
     deadlineLabel: formatLandingDeadline(deadlineRaw, locale),
     pmUserId,
