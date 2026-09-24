@@ -271,6 +271,11 @@ const projectSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: () => ({}),
     },
+    /** Chuẩn Vàng — per-item audit { [id]: { at, byUserId } }. */
+    handoverChecklistMeta: {
+      type: mongoose.Schema.Types.Mixed,
+      default: () => ({}),
+    },
     /** Plan B — product release label (server-set on first handover). */
     releaseLabel: {
       type: String,
