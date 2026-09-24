@@ -17,6 +17,7 @@ const NON_APPROVED_STATUSES = Object.freeze([
   'tech_review',
   'pm_review',
   'po_review',
+  'changes_requested',
   'rejected',
 ]);
 
@@ -144,6 +145,70 @@ function evaluateReadyForPhase2(input = {}) {
   };
 }
 
+/**
+ * Overview inbox — tách chưa duyệt vs chỉnh sửa, rồi theo kind (không dump list).
+ * `allowedKinds` mặc định = ANALYSIS_ARTIFACT_KINDS (BPM/ASSUMPTION… cũng hiện).
+ * Truyền PLANNING_ARTIFACT_KINDS cho inbox Planning.
+ *
+ * @param {{
+ *   artifacts?: Array<{ kind?: string, status?: string, isActive?: boolean }>,
+ *   allowedKinds?: string[],
+ * }} input
+ * @returns {{
+ *   total: number,
+ *   pendingReview: { total: number, byKind: Record<string, number> },
+ *   changesRequested: { total: number, byKind: Record<string, number> },
+ * }}
+ */
+function summarizeReviewAttention(input = {}) {
+  const allowed = Array.isArray(input.allowedKinds) && input.allowedKinds.length
+    ? input.allowedKinds.map((k) => String(k || '').trim().toUpperCase()).filter(Boolean)
+    : [...ANALYSIS_ARTIFACT_KINDS];
+  const allowedSet = new Set(allowed);
+
+  const artifacts = (Array.isArray(input.artifacts) ? input.artifacts : []).filter(
+    (a) => a && a.isActive !== false
+  );
+  const pendingByKind = new Map();
+  const changesByKind = new Map();
+
+  for (const a of artifacts) {
+    const kind = String(a.kind || '')
+      .trim()
+      .toUpperCase();
+    if (!kind || !allowedSet.has(kind)) continue;
+    const st = String(a.status || '')
+      .trim()
+      .toLowerCase();
+    if (st === 'approved') continue;
+    if (st === 'changes_requested') {
+      changesByKind.set(kind, (changesByKind.get(kind) || 0) + 1);
+      continue;
+    }
+    if (NON_APPROVED_STATUSES.includes(st) || st === 'rejected') {
+      pendingByKind.set(kind, (pendingByKind.get(kind) || 0) + 1);
+    }
+  }
+
+  const toByKindObject = (map) =>
+    Object.fromEntries([...map.entries()].sort((a, b) => a[0].localeCompare(b[0])));
+
+  const pendingReview = {
+    total: [...pendingByKind.values()].reduce((s, n) => s + n, 0),
+    byKind: toByKindObject(pendingByKind),
+  };
+  const changesRequested = {
+    total: [...changesByKind.values()].reduce((s, n) => s + n, 0),
+    byKind: toByKindObject(changesByKind),
+  };
+
+  return {
+    total: pendingReview.total + changesRequested.total,
+    pendingReview,
+    changesRequested,
+  };
+}
+
 module.exports = {
   PHASE1_REQUIRED_KINDS,
   PHASE1_ALL_KINDS,
@@ -151,5 +216,6 @@ module.exports = {
   resolveRequiredKinds,
   evaluateRaReadiness,
   evaluateReadyForPhase2,
+  summarizeReviewAttention,
   ANALYSIS_ARTIFACT_KINDS,
 };

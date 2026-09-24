@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   evaluateReadyForPhase2,
   evaluateRaReadiness,
+  summarizeReviewAttention,
   PHASE1_REQUIRED_KINDS,
 } = require('../src/constants/phase2Gate');
 
@@ -116,5 +117,42 @@ describe('evaluateRaReadiness', () => {
     const r = evaluateRaReadiness({ artifacts: arts, criticalGapCount: 0 });
     assert.equal(r.raApproved, false);
     assert.ok(r.blockingReasons.some((b) => b.code === 'PENDING_FR'));
+  });
+});
+
+describe('summarizeReviewAttention', () => {
+  it('splits pending vs changes_requested and includes optional kinds', () => {
+    const r = summarizeReviewAttention({
+      artifacts: [
+        { kind: 'BG', status: 'po_review', isActive: true },
+        { kind: 'BPM', status: 'po_review', isActive: true },
+        { kind: 'BPM', status: 'po_review', isActive: true },
+        { kind: 'ASSUMPTION', status: 'changes_requested', isActive: true },
+        { kind: 'FR', status: 'approved', isActive: true },
+        { kind: 'BR', status: 'draft', isActive: false },
+      ],
+    });
+    assert.equal(r.total, 4);
+    assert.equal(r.pendingReview.total, 3);
+    assert.equal(r.pendingReview.byKind.BG, 1);
+    assert.equal(r.pendingReview.byKind.BPM, 2);
+    assert.equal(r.changesRequested.total, 1);
+    assert.equal(r.changesRequested.byKind.ASSUMPTION, 1);
+    assert.equal(r.pendingReview.byKind.BR, undefined);
+  });
+
+  it('respects allowedKinds for planning inbox', () => {
+    const r = summarizeReviewAttention({
+      allowedKinds: ['WBS', 'RISK'],
+      artifacts: [
+        { kind: 'WBS', status: 'pm_review', isActive: true },
+        { kind: 'BG', status: 'po_review', isActive: true },
+        { kind: 'RISK', status: 'changes_requested', isActive: true },
+      ],
+    });
+    assert.equal(r.total, 2);
+    assert.equal(r.pendingReview.byKind.WBS, 1);
+    assert.equal(r.changesRequested.byKind.RISK, 1);
+    assert.equal(r.pendingReview.byKind.BG, undefined);
   });
 });
