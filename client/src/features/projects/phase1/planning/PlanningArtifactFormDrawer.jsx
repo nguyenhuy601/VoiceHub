@@ -1,209 +1,144 @@
+/**
+ * Create / edit Planning artifact — fields mirror Excel workbook catalog per kind.
+ * variant: 'pane' | 'modal'
+ */
 import { useEffect, useState } from 'react';
 import { useAppStrings } from '../../../../locales/appStrings';
+import {
+  buildPlanningSubmitPayload,
+  countPlanningFormFields,
+  draftFromPlanningArtifact,
+  emptyPlanningDraft,
+  fieldsForPlanningKind,
+  planningFieldLabelKey,
+} from './planningWorkbookFields';
+import PlanningRolesFormSection from './PlanningRolesFormSection';
 
-function emptyDraft(kind) {
-  return {
-    externalKey: '',
-    title: '',
-    summary: '',
-    parentExternalKey: '',
-    startDate: '',
-    endDate: '',
-    targetDate: '',
-    effortHours: '',
-    fromKey: '',
-    toKey: '',
-    dependencyType: 'FS',
-  };
-}
+const IMPACT_OPTS = ['low', 'medium', 'high'];
+const DEP_OPTS = ['FS', 'SS', 'FF', 'SF'];
 
-function draftFromArtifact(artifact) {
-  const st = artifact?.structured && typeof artifact.structured === 'object' ? artifact.structured : {};
-  return {
-    externalKey: artifact?.externalKey || '',
-    title: artifact?.title || '',
-    summary: artifact?.summary || '',
-    parentExternalKey: artifact?.parentExternalKey || '',
-    startDate: st.startDate || '',
-    endDate: st.endDate || '',
-    targetDate: st.targetDate || '',
-    effortHours: st.effortHours != null ? String(st.effortHours) : '',
-    fromKey: st.fromKey || '',
-    toKey: st.toKey || '',
-    dependencyType: st.dependencyType || 'FS',
-  };
-}
-
-function buildStructured(kind, draft) {
-  const structured = {};
-  if (draft.startDate) structured.startDate = draft.startDate;
-  if (draft.endDate) structured.endDate = draft.endDate;
-  if (draft.targetDate) structured.targetDate = draft.targetDate;
-  if (draft.effortHours !== '') {
-    const n = Number(draft.effortHours);
-    if (Number.isFinite(n)) structured.effortHours = n;
-  }
-  if (String(kind).toUpperCase() === 'DEPENDENCY') {
-    if (draft.fromKey) structured.fromKey = draft.fromKey;
-    if (draft.toKey) structured.toKey = draft.toKey;
-    structured.dependencyType = draft.dependencyType || 'FS';
-  }
-  return structured;
-}
-
-function FormFields({
-  draft,
-  setDraft,
-  k,
-  isEdit,
-  readOnly = false,
-  showDates,
-  showEffort,
-  showDependency,
-  t,
-}) {
+function FormFields({ draft, setDraft, kind, isEdit, readOnly = false, t }) {
   const disabled = Boolean(readOnly);
+  const fields = fieldsForPlanningKind(kind);
+  const setField = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
+  const fieldCount = countPlanningFormFields(kind);
+
   return (
-    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-      {!isEdit ? (
-        <label className="block text-sm">
-          <span className="text-xs font-medium text-muted-foreground">
-            {t('workspace.phase1PlaceholderExternalKey')}
-          </span>
-          <input
-            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-            value={draft.externalKey}
-            disabled={disabled}
-            onChange={(e) => setDraft((d) => ({ ...d, externalKey: e.target.value }))}
-          />
-        </label>
-      ) : (
-        <p className="font-mono text-xs text-muted-foreground">{draft.externalKey}</p>
-      )}
-      <label className="block text-sm">
-        <span className="text-xs font-medium text-muted-foreground">
-          {t('workspace.phase1PlaceholderTitle')}
-        </span>
-        <input
-          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-          value={draft.title}
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-3">
+      <p className="text-[11px] text-muted-foreground">
+        {t('workspace.phase1PlanningFormFieldsHint', { count: fieldCount })}
+      </p>
+      {fields.map((f) => {
+        const label = t(planningFieldLabelKey(f.key));
+        if (f.key === 'externalKey' && isEdit) {
+          return (
+            <p key={f.key} className="font-mono text-xs text-muted-foreground">
+              {label}: {draft.externalKey}
+            </p>
+          );
+        }
+
+        if (f.input === 'textarea') {
+          return (
+            <label key={f.key} className="block text-sm">
+              <span className="text-xs font-medium text-muted-foreground">
+                {label}
+                {f.required ? ' *' : ''}
+              </span>
+              <textarea
+                className="mt-1 min-h-[72px] w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
+                value={draft[f.key] || ''}
+                disabled={disabled}
+                onChange={(e) => setField(f.key, e.target.value)}
+              />
+            </label>
+          );
+        }
+
+        if (f.input === 'selectDep') {
+          return (
+            <label key={f.key} className="block text-sm">
+              <span className="text-xs font-medium text-muted-foreground">
+                {label}
+                {f.required ? ' *' : ''}
+              </span>
+              <select
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
+                value={draft[f.key] || 'FS'}
+                disabled={disabled}
+                onChange={(e) => setField(f.key, e.target.value)}
+              >
+                {DEP_OPTS.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </label>
+          );
+        }
+
+        if (f.input === 'selectImpact') {
+          return (
+            <label key={f.key} className="block text-sm">
+              <span className="text-xs font-medium text-muted-foreground">
+                {label}
+                {f.required ? ' *' : ''}
+              </span>
+              <select
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
+                value={draft[f.key] || 'medium'}
+                disabled={disabled}
+                onChange={(e) => setField(f.key, e.target.value)}
+              >
+                {IMPACT_OPTS.map((o) => (
+                  <option key={o} value={o}>
+                    {t(`workspace.phase1PlanningImpact_${o}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          );
+        }
+
+        return (
+          <label key={f.key} className="block text-sm">
+            <span className="text-xs font-medium text-muted-foreground">
+              {label}
+              {f.required ? ' *' : ''}
+            </span>
+            <input
+              type={f.input === 'date' ? 'date' : f.input === 'number' ? 'number' : 'text'}
+              min={f.input === 'number' ? 0 : undefined}
+              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
+              value={draft[f.key] || ''}
+              disabled={disabled}
+              onChange={(e) => setField(f.key, e.target.value)}
+              placeholder={
+                f.key === 'skillKeys' ? t('workspace.phase1PlanningFieldSkillKeysPh') : undefined
+              }
+            />
+          </label>
+        );
+      })}
+
+      {String(kind).toUpperCase() === 'RESOURCE' ? (
+        <PlanningRolesFormSection
+          rolesDraft={draft.rolesDraft || []}
+          setRolesDraft={(updater) =>
+            setDraft((d) => ({
+              ...d,
+              rolesDraft: typeof updater === 'function' ? updater(d.rolesDraft || []) : updater,
+            }))
+          }
           disabled={disabled}
-          onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+          t={t}
         />
-      </label>
-      <label className="block text-sm">
-        <span className="text-xs font-medium text-muted-foreground">
-          {t('workspace.phase1PlaceholderSummary')}
-        </span>
-        <textarea
-          className="mt-1 min-h-[72px] w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-          value={draft.summary}
-          disabled={disabled}
-          onChange={(e) => setDraft((d) => ({ ...d, summary: e.target.value }))}
-        />
-      </label>
-      <label className="block text-sm">
-        <span className="text-xs font-medium text-muted-foreground">
-          {t('workspace.phase1ParentKey')}
-        </span>
-        <input
-          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-          value={draft.parentExternalKey}
-          disabled={disabled}
-          onChange={(e) => setDraft((d) => ({ ...d, parentExternalKey: e.target.value }))}
-        />
-      </label>
-      {showDates && k !== 'MILESTONE' ? (
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block text-sm">
-            <span className="text-xs font-medium text-muted-foreground">
-              {t('workspace.phase1StartDate')}
-            </span>
-            <input
-              type="date"
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-              value={draft.startDate}
-              disabled={disabled}
-              onChange={(e) => setDraft((d) => ({ ...d, startDate: e.target.value }))}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-xs font-medium text-muted-foreground">
-              {t('workspace.phase1EndDate')}
-            </span>
-            <input
-              type="date"
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-              value={draft.endDate}
-              disabled={disabled}
-              onChange={(e) => setDraft((d) => ({ ...d, endDate: e.target.value }))}
-            />
-          </label>
-        </div>
-      ) : null}
-      {(k === 'MILESTONE' || k === 'RELEASE') && (
-        <label className="block text-sm">
-          <span className="text-xs font-medium text-muted-foreground">
-            {t('workspace.phase1TargetDate')}
-          </span>
-          <input
-            type="date"
-            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-            value={draft.targetDate}
-            disabled={disabled}
-            onChange={(e) => setDraft((d) => ({ ...d, targetDate: e.target.value }))}
-          />
-        </label>
-      )}
-      {showEffort ? (
-        <label className="block text-sm">
-          <span className="text-xs font-medium text-muted-foreground">
-            {t('workspace.phase1RoleEffort')}
-          </span>
-          <input
-            type="number"
-            min={0}
-            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-            value={draft.effortHours}
-            disabled={disabled}
-            onChange={(e) => setDraft((d) => ({ ...d, effortHours: e.target.value }))}
-          />
-        </label>
-      ) : null}
-      {showDependency ? (
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block text-sm">
-            <span className="text-xs font-medium text-muted-foreground">
-              {t('workspace.phase1DepFrom')}
-            </span>
-            <input
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-              value={draft.fromKey}
-              disabled={disabled}
-              onChange={(e) => setDraft((d) => ({ ...d, fromKey: e.target.value }))}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-xs font-medium text-muted-foreground">
-              {t('workspace.phase1DepTo')}
-            </span>
-            <input
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-              value={draft.toKey}
-              disabled={disabled}
-              onChange={(e) => setDraft((d) => ({ ...d, toKey: e.target.value }))}
-            />
-          </label>
-        </div>
       ) : null}
     </div>
   );
 }
 
-/**
- * Create / edit Planning artifact — pane (split) or modal (mobile fallback).
- * variant: 'pane' | 'modal'
- */
 export default function PlanningArtifactFormDrawer({
   open,
   mode = 'create',
@@ -218,27 +153,31 @@ export default function PlanningArtifactFormDrawer({
   variant = 'modal',
 }) {
   const { t } = useAppStrings();
-  const [draft, setDraft] = useState(() => emptyDraft(kind));
+  const [draft, setDraft] = useState(() => emptyPlanningDraft(kind));
   const k = String(kind || artifact?.kind || '').toUpperCase();
-  const showDates = ['WBS', 'SCHEDULE', 'RELEASE', 'MILESTONE', 'DEPENDENCY'].includes(k);
-  const showEffort = k === 'WBS' || k === 'RESOURCE';
-  const showDependency = k === 'DEPENDENCY';
   const isEdit = mode === 'edit';
   const contentEditable =
-    isEdit && ['draft', 'rejected'].includes(String(artifact?.status || 'draft').toLowerCase());
+    !isEdit ||
+    ['draft', 'rejected', 'changes_requested'].includes(
+      String(artifact?.status || 'draft').toLowerCase()
+    );
 
   useEffect(() => {
     if (!open) return;
-    setDraft(isEdit && artifact ? draftFromArtifact(artifact) : emptyDraft(kind));
+    setDraft(isEdit && artifact ? draftFromPlanningArtifact(artifact) : emptyPlanningDraft(kind));
   }, [open, isEdit, artifact, kind]);
 
   if (!open) return null;
 
   const canSave =
-    contentEditable && (isEdit || draft.externalKey.trim()) && draft.title.trim() && !busy && !transitioning;
+    contentEditable &&
+    (isEdit || draft.externalKey.trim()) &&
+    draft.title.trim() &&
+    !busy &&
+    !transitioning;
 
   const header = (
-    <div className="flex items-center justify-between border-b border-border px-3 py-2">
+    <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
       <div>
         <h2 className="text-sm font-semibold">
           {isEdit ? t('workspace.phase1EditArtifact') : t('workspace.phase1CreateArtifact')}
@@ -255,10 +194,10 @@ export default function PlanningArtifactFormDrawer({
   );
 
   const footer = (
-    <div className="flex flex-wrap justify-end gap-2 border-t border-border px-3 py-2">
+    <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border bg-[#FAFAFA] px-4 py-3 dark:bg-slate-900/50">
       <button
         type="button"
-        className="rounded-lg border border-border px-3 py-1.5 text-sm"
+        className="rounded-full border border-[#D9D9D9] bg-white px-4 py-1.5 text-sm text-[#595959] hover:bg-[#FAFAFA] disabled:opacity-50"
         onClick={onClose}
         disabled={busy || transitioning}
       >
@@ -267,25 +206,17 @@ export default function PlanningArtifactFormDrawer({
       {contentEditable ? (
         <button
           type="button"
-          className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-foreground disabled:opacity-50"
+          className="rounded-full border border-[#1677FF] bg-white px-4 py-1.5 text-sm font-semibold text-[#1677FF] hover:bg-[#E6F4FF] disabled:opacity-50"
           disabled={!canSave}
-          onClick={() =>
-            onSubmit?.({
-              externalKey: draft.externalKey.trim(),
-              title: draft.title.trim(),
-              summary: draft.summary.trim(),
-              parentExternalKey: draft.parentExternalKey.trim(),
-              structured: buildStructured(k, draft),
-            })
-          }
+          onClick={() => onSubmit?.(buildPlanningSubmitPayload(k, draft))}
         >
-          {t('common.save')}
+          {busy ? t('common.saving') : t('common.save')}
         </button>
       ) : null}
       {isEdit && nextStatus && onTransition ? (
         <button
           type="button"
-          className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          className="rounded-full bg-[#1677FF] px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[#0958D9] disabled:opacity-50"
           disabled={busy || transitioning}
           onClick={() => onTransition(nextStatus)}
         >
@@ -299,18 +230,17 @@ export default function PlanningArtifactFormDrawer({
     </div>
   );
 
-  const body = (
+  const shellClass = 'flex h-full min-h-0 flex-col overflow-hidden';
+
+  const inner = (
     <>
       {header}
       <FormFields
         draft={draft}
         setDraft={setDraft}
-        k={k}
+        kind={k}
         isEdit={isEdit}
         readOnly={!contentEditable && isEdit}
-        showDates={showDates}
-        showEffort={showEffort}
-        showDependency={showDependency}
         t={t}
       />
       {footer}
@@ -318,7 +248,7 @@ export default function PlanningArtifactFormDrawer({
   );
 
   if (variant === 'pane') {
-    return <div className="flex h-full min-h-0 flex-col">{body}</div>;
+    return <div className={shellClass}>{inner}</div>;
   }
 
   return (
@@ -326,9 +256,9 @@ export default function PlanningArtifactFormDrawer({
       <div
         role="dialog"
         aria-modal="true"
-        className="flex max-h-[92vh] w-full max-w-lg flex-col rounded-t-2xl border border-border bg-surface shadow-lg sm:rounded-2xl"
+        className={`max-h-[92vh] w-full max-w-lg rounded-t-2xl border border-border bg-surface shadow-lg sm:rounded-2xl ${shellClass}`}
       >
-        {body}
+        {inner}
       </div>
     </div>
   );

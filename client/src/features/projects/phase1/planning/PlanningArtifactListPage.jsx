@@ -1,55 +1,89 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { planningAPI } from '../../../../services/api/planningAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
+import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
 import PlanningResourcePanel from './PlanningResourcePanel';
 import PlanningGanttPanel from './PlanningGanttPanel';
 import PlanningArtifactFormDrawer from './PlanningArtifactFormDrawer';
+import PlanningSuggestFromRaModal from './PlanningSuggestFromRaModal';
 import Phase1SplitWorkspace from '../shared/Phase1SplitWorkspace';
+import Phase1InlineActionBar from '../shared/Phase1InlineActionBar';
+import {
+  Phase1DataTableToolbar,
+  Phase1SortableTh,
+  Phase1TablePagination,
+} from '../shared/Phase1DataTableChrome';
+import {
+  PHASE1_TABLE_PAGE_SIZE,
+  paginatePhase1Rows,
+  sortPhase1Rows,
+} from '../shared/phase1ClientTable';
+import { resolvePlanningInlineEditTarget } from '../shared/phase1InlineColumnEdit';
+import { renderPhase1TableCell } from '../shared/phase1TableCell';
 import {
   PHASE1_DENSE_ROW,
+  PHASE1_DENSE_ROW_EDITING,
   PHASE1_DENSE_ROW_SELECTED,
   PHASE1_TABLE,
+  PHASE1_TABLE_FRAME,
   PHASE1_TABLE_SHELL,
   PHASE1_TD,
-  PHASE1_TH,
 } from '../shared/phase1ListDensity';
-import { kindChipClass, statusBadgeClass } from '../shared/phase1UiTokens';
+import {
+  buildPlanningSubmitPayload,
+  draftFromPlanningArtifact,
+  getPlanningListColumns,
+  truncatePlanningCell,
+} from './planningWorkbookFields';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
 const GANTT_KINDS = new Set(['WBS', 'SCHEDULE', 'MILESTONE', 'RELEASE', 'DEPENDENCY']);
+const SUGGEST_FROM_RA_KINDS = new Set(['WBS', 'RISK', 'RESOURCE', 'MILESTONE', 'SCHEDULE']);
+const CONTENT_EDITABLE = new Set(['draft', 'rejected', 'changes_requested']);
+
+const CELL_INPUT =
+  'w-full min-w-[8rem] rounded border border-[#FFD591] bg-[#FFFBE6] px-1.5 py-1 text-[13px] text-[#262626] outline-none focus:border-[#FA8C16]';
 
 /**
- * Shared list/CRUD for PlanningArtifact kinds (+ split form pane, collapsible Gantt, AI suggest HITL).
+ * Planning list — inline cell edit + view-only side detail; create via Modal.
  */
 export default function PlanningArtifactListPage({ projectId, kind, title }) {
   const { t } = useAppStrings();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { capabilities } = useProjectCapabilities(projectId);
   const [filter, setFilter] = useState('');
-  const [formOpen, setFormOpen] = useState(false);
-  const [formMode, setFormMode] = useState('create');
-  const [editing, setEditing] = useState(null);
-  const [suggestions, setSuggestions] = useState([]);
-  const [selectedSuggest, setSelectedSuggest] = useState(() => new Set());
+  const [createOpen, setCreateOpen] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const [error, setError] = useState(null);
+  const [sortId, setSortId] = useState('externalKey');
+  const [sortDir, setSortDir] = useState('asc');
+  const [page, setPage] = useState(1);
+  const [editingId, setEditingId] = useState(null);
+  const [activeColId, setActiveColId] = useState(null);
+  const [inlineDraft, setInlineDraft] = useState(null);
+  const [inlineBaseline, setInlineBaseline] = useState(null);
 
   const canEdit = capabilities.canEditPlanning;
   const canReview = Boolean(capabilities.canReviewPlanning);
   const showGantt = GANTT_KINDS.has(String(kind || '').toUpperCase());
 
   const PLANNING_NEXT = {
-    draft: 'ba_review',
+    draft: 'pm_review',
     ba_review: 'tech_review',
-    tech_review: 'pm_review',
+    tech_review: 'po_review',
     pm_review: 'po_review',
     po_review: 'approved',
+    changes_requested: 'pm_review',
     rejected: 'draft',
   };
 
@@ -78,8 +112,7 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
     mutationFn: (body) => planningAPI.createArtifact(projectId, { ...body, kind }),
     onSuccess: () => {
       invalidate();
-      setFormOpen(false);
-      setEditing(null);
+      setCreateOpen(false);
       toast.success(t('workspace.phase1ArtifactCreated'));
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
@@ -89,45 +122,28 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
     mutationFn: ({ id, body }) => planningAPI.updateArtifact(projectId, id, body),
     onSuccess: () => {
       invalidate();
-      setFormOpen(false);
-      setEditing(null);
       toast.success(t('workspace.phase1ArtifactUpdated'));
+      setEditingId(null);
+      setActiveColId(null);
+      setInlineDraft(null);
+      setInlineBaseline(null);
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
 
-  const suggestMut = useMutation({
-    mutationFn: () => planningAPI.suggest(projectId, { kind }),
-    onSuccess: (res) => {
-      const data = unwrap(res);
-      const list = Array.isArray(data?.suggestions) ? data.suggestions : [];
-      setSuggestions(list);
-      setSelectedSuggest(new Set(list.map((_, i) => i)));
-      setError(null);
-      if (!list.length) {
-        toast(data?.message || t('workspace.phase1AiSuggestEmpty'));
-      } else {
-        toast.success(data?.message || t('workspace.phase1AiSuggestReady', { count: list.length }));
-      }
-    },
-    onError: (err) => {
-      setError(resolveApiErrorMessage(err));
-      toast.error(resolveApiErrorMessage(err));
-    },
-  });
-
-  const confirmMut = useMutation({
-    mutationFn: (items) => planningAPI.confirmSuggestions(projectId, { suggestions: items }),
-    onSuccess: (res) => {
-      const data = unwrap(res);
+  const transitionMut = useMutation({
+    mutationFn: ({ id, toStatus }) =>
+      planningAPI.transitionArtifact(projectId, id, { toStatus, status: toStatus }),
+    onSuccess: (_data, vars) => {
       invalidate();
-      setSuggestions([]);
-      setSelectedSuggest(new Set());
-      toast.success(
-        t('workspace.phase1AiSuggestConfirmed', {
-          count: data?.created ?? 0,
-        })
-      );
+      toast.success(t('workspace.phase1ArtifactGateOk', { status: vars?.toStatus || '' }));
+      setEditingId(null);
+      setActiveColId(null);
+      setInlineDraft(null);
+      setInlineBaseline(null);
+      if (selected && String(selected.id || selected._id) === String(vars.id)) {
+        setSelected((prev) => (prev ? { ...prev, status: vars.toStatus } : prev));
+      }
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
@@ -142,119 +158,150 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
           .includes(q) ||
         String(r.title || '')
           .toLowerCase()
+          .includes(q) ||
+        String(r.summary || '')
+          .toLowerCase()
           .includes(q)
     );
   }, [rows, filter]);
+
+  useEffect(() => {
+    setPage(1);
+    setEditingId(null);
+    setActiveColId(null);
+    setInlineDraft(null);
+    setInlineBaseline(null);
+  }, [filter, kind]);
+
+  useEffect(() => {
+    setSortId('externalKey');
+    setSortDir('asc');
+  }, [kind]);
+
+  const listColumns = useMemo(() => getPlanningListColumns(kind), [kind]);
+  const columnById = useMemo(() => new Map(listColumns.map((c) => [c.id, c])), [listColumns]);
+
+  const sortedRows = useMemo(
+    () =>
+      sortPhase1Rows(filtered, {
+        sortId,
+        sortDir,
+        getValue: (row, colId) => columnById.get(colId)?.getValue?.(row) ?? '',
+      }),
+    [filtered, sortId, sortDir, columnById]
+  );
+
+  const { pageRows, page: safePage, pageCount, total } = useMemo(
+    () => paginatePhase1Rows(sortedRows, { page, pageSize: PHASE1_TABLE_PAGE_SIZE }),
+    [sortedRows, page]
+  );
+
+  useEffect(() => {
+    if (safePage !== page) setPage(safePage);
+  }, [safePage, page]);
+
+  const onSortColumn = (colId) => {
+    setSortId((prev) => {
+      if (prev === colId) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return prev;
+      }
+      setSortDir('asc');
+      return colId;
+    });
+    setPage(1);
+  };
 
   const resourceRow = useMemo(
     () => (kind === 'RESOURCE' ? rows.find((r) => r.status !== 'approved') || rows[0] : null),
     [kind, rows]
   );
 
-  const closeForm = () => {
-    setFormOpen(false);
-    setEditing(null);
-  };
+  const selectRow = (row) => setSelected(row);
 
-  const openCreate = () => {
-    setFormMode('create');
-    setEditing(null);
-    setFormOpen(true);
-  };
-
-  const openEdit = (row) => {
+  const beginInline = (row, colId) => {
     const st = String(row.status || '');
-    const canOpenDraft = canEdit && ['draft', 'rejected'].includes(st);
-    const canOpenReview =
-      canReview && ['draft', 'ba_review', 'tech_review', 'pm_review', 'po_review', 'rejected'].includes(st);
-    if (!canOpenDraft && !canOpenReview) return;
-    setFormMode('edit');
-    setEditing(row);
-    setFormOpen(true);
-  };
-
-  const onSubmit = (body) => {
-    if (formMode === 'edit' && editing) {
-      updateMut.mutate({
-        id: String(editing.id || editing._id),
-        body: {
-          title: body.title,
-          summary: body.summary,
-          parentExternalKey: body.parentExternalKey,
-          structured: body.structured,
-        },
-      });
-    } else {
-      createMut.mutate(body);
+    if (!(canEdit && CONTENT_EDITABLE.has(st))) return;
+    const target = resolvePlanningInlineEditTarget({ id: colId });
+    if (!target) return;
+    const id = String(row.id || row._id);
+    setSelected(row);
+    if (editingId !== id) {
+      const draft = draftFromPlanningArtifact(row);
+      setInlineDraft(draft);
+      setInlineBaseline(draft);
+      setEditingId(id);
     }
+    setActiveColId(colId);
   };
 
-  const transitionMut = useMutation({
-    mutationFn: ({ id, toStatus }) =>
-      planningAPI.transitionArtifact(projectId, id, { toStatus, status: toStatus }),
-    onSuccess: (_data, vars) => {
-      invalidate();
-      toast.success(
-        t('workspace.phase1ArtifactGateOk', { status: vars?.toStatus || '' })
-      );
-      if (editing && String(editing.id || editing._id) === String(vars.id)) {
-        setEditing((prev) => (prev ? { ...prev, status: vars.toStatus } : prev));
-      }
-    },
-    onError: (err) => toast.error(resolveApiErrorMessage(err)),
-  });
+  const editingRow = editingId
+    ? rows.find((r) => String(r.id || r._id) === String(editingId))
+    : null;
 
   const editingNext = useMemo(() => {
-    if (formMode !== 'edit' || !editing) return null;
-    const st = String(editing.status || '').toLowerCase();
-    const to = PLANNING_NEXT[st];
+    if (!editingRow) return null;
+    const st = String(editingRow.status || '').toLowerCase();
+    const hasTech = Boolean(capabilities.hasPlanningTechReviewer);
+    let to = PLANNING_NEXT[st];
+    if (st === 'changes_requested') {
+      to = String(editingRow.changesRequestedFrom || 'pm_review').toLowerCase();
+    }
+    if (st === 'pm_review') to = hasTech ? 'tech_review' : 'po_review';
+    if (st === 'ba_review') to = hasTech ? 'tech_review' : 'pm_review';
     if (!to) return null;
-    if (st === 'draft' || st === 'rejected') {
+    if (st === 'draft' || st === 'rejected' || st === 'changes_requested') {
       return canEdit || canReview ? to : null;
     }
     return canReview ? to : null;
-  }, [formMode, editing, canEdit, canReview]);
+  }, [editingRow, canEdit, canReview, capabilities.hasPlanningTechReviewer]);
 
-  const editingId = editing ? String(editing.id || editing._id) : null;
+  const isDirty = useMemo(() => {
+    if (!inlineDraft || !inlineBaseline) return false;
+    return JSON.stringify(inlineDraft) !== JSON.stringify(inlineBaseline);
+  }, [inlineDraft, inlineBaseline]);
+
+  const canSaveInline =
+    Boolean(editingId) &&
+    isDirty &&
+    Boolean(String(inlineDraft?.title || '').trim()) &&
+    !updateMut.isPending;
 
   const listPane = (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="flex flex-wrap items-center gap-2 text-base font-semibold">
-            <span className={kindChipClass(kind)}>{kind}</span>
-            {title}
-          </h1>
-          <p className="text-[11px] text-muted-foreground">
-            {t('workspace.phase1PlanningListHint', { kind, count: rows.length })}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <input
-            className="rounded-lg border border-border bg-background px-2.5 py-1 text-sm"
-            placeholder={t('common.search')}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-          <button
-            type="button"
-            className="rounded-lg border border-border px-2.5 py-1 text-sm disabled:opacity-50"
-            disabled={suggestMut.isPending}
-            onClick={() => suggestMut.mutate()}
-          >
-            {t('workspace.phase1AiSuggest')}
-          </button>
-          {canEdit ? (
-            <button
-              type="button"
-              className="rounded-lg bg-primary px-2.5 py-1 text-sm text-primary-foreground"
-              onClick={openCreate}
-            >
-              {t('common.add')}
-            </button>
-          ) : null}
-        </div>
-      </div>
+      <Phase1DataTableToolbar
+        kind={kind}
+        title={title}
+        subtitle={t('workspace.phase1PlanningListHint', { kind, count: rows.length })}
+        searchValue={filter}
+        onSearchChange={setFilter}
+        searchPlaceholder={t('common.search')}
+        extraActions={
+          <>
+            {canEdit ? (
+              <button
+                type="button"
+                className="rounded-full border border-[#2563EB]/60 bg-[#EFF6FF] px-3 py-1.5 text-sm text-[#1D4ED8]"
+                onClick={() => navigate(buildPhase1ModulePath(projectId, 'planning/overview'))}
+                title={t('workspace.phase1DumpGoImportHint')}
+              >
+                {t('workspace.phase1DumpGoImport')}
+              </button>
+            ) : null}
+            {SUGGEST_FROM_RA_KINDS.has(String(kind || '').toUpperCase()) ? (
+              <button
+                type="button"
+                className="rounded-full border border-[#D9D9D9] bg-white px-3 py-1.5 text-sm shadow-sm"
+                onClick={() => setSuggestOpen(true)}
+              >
+                {t('workspace.phase1AiSuggest')}
+              </button>
+            ) : null}
+          </>
+        }
+        primaryLabel={canEdit ? t('common.add') : null}
+        onPrimary={canEdit ? () => setCreateOpen(true) : undefined}
+      />
 
       {isLoading ? <p className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
       {isError || error ? (
@@ -273,160 +320,215 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
         </div>
       ) : null}
 
-      {suggestions.length > 0 ? (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 p-2">
-          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-xs font-semibold">
-              {t('workspace.phase1AiSuggestPanel', { count: suggestions.length })}
-            </h2>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="rounded border border-border px-2 py-0.5 text-[11px]"
-                onClick={() => setSuggestions([])}
-              >
-                {t('common.cancel')}
-              </button>
-              {canEdit ? (
-                <button
-                  type="button"
-                  className="rounded bg-primary px-2 py-0.5 text-[11px] text-primary-foreground disabled:opacity-50"
-                  disabled={confirmMut.isPending || selectedSuggest.size === 0}
-                  onClick={() => {
-                    const items = suggestions.filter((_, i) => selectedSuggest.has(i));
-                    confirmMut.mutate(items);
-                  }}
-                >
-                  {t('workspace.phase1AiSuggestConfirmSelected')}
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <ul className="max-h-28 space-y-0.5 overflow-y-auto text-xs">
-            {suggestions.map((s, i) => (
-              <li key={`${s.kind}-${s.externalKey}-${i}`} className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  checked={selectedSuggest.has(i)}
-                  onChange={() => {
-                    setSelectedSuggest((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(i)) next.delete(i);
-                      else next.add(i);
-                      return next;
-                    });
-                  }}
-                />
-                <span>
-                  <span className="font-mono text-[10px]">{s.kind}</span> {s.externalKey} — {s.title}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
       {showGantt ? (
-        <PlanningGanttPanel artifacts={filtered} onSelect={openEdit} kind={kind} />
+        <PlanningGanttPanel artifacts={filtered} onSelect={selectRow} kind={kind} />
       ) : null}
 
       {kind === 'RESOURCE' && resourceRow ? (
         <PlanningResourcePanel
           projectId={projectId}
           artifact={resourceRow}
-          canEdit={canEdit && ['draft', 'rejected'].includes(String(resourceRow.status))}
+          canEdit={canEdit && CONTENT_EDITABLE.has(String(resourceRow.status))}
           onSaved={invalidate}
         />
       ) : null}
 
-      <div className={PHASE1_TABLE_SHELL}>
-        <table className={PHASE1_TABLE}>
-          <thead className="sticky top-0 z-10">
-            <tr>
-              <th className={PHASE1_TH}>{t('workspace.phase1ColKey')}</th>
-              <th className={PHASE1_TH}>{t('workspace.phase1ColTitle')}</th>
-              <th className={PHASE1_TH}>{t('workspace.phase1ColStatus')}</th>
-              <th className={PHASE1_TH}>{t('workspace.phase1ColDates')}</th>
-              <th className={PHASE1_TH}>{t('workspace.phase1ColSource')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((row) => {
-              const st = row.structured || {};
-              const dates = [st.startDate, st.endDate || st.targetDate].filter(Boolean).join(' → ');
-              const editable =
-                (canEdit && ['draft', 'rejected'].includes(String(row.status))) ||
-                (canReview &&
-                  [
-                    'draft',
-                    'ba_review',
-                    'tech_review',
-                    'pm_review',
-                    'po_review',
-                    'rejected',
-                  ].includes(String(row.status)));
-              const id = String(row.id || row._id);
-              const selected = formOpen && formMode === 'edit' && id === editingId;
-              return (
-                <tr
-                  key={id}
-                  className={`${editable ? PHASE1_DENSE_ROW : 'odd:bg-muted/15'} ${
-                    selected ? PHASE1_DENSE_ROW_SELECTED : ''
-                  } ${editable ? '' : 'cursor-default'}`}
-                  onClick={() => openEdit(row)}
-                >
-                  <td className={`${PHASE1_TD} font-mono text-xs`}>{row.externalKey}</td>
-                  <td className={PHASE1_TD}>{row.title}</td>
-                  <td className={PHASE1_TD}>
-                    <span className={statusBadgeClass(row.status)}>{row.status || '—'}</span>
-                  </td>
-                  <td className={`${PHASE1_TD} text-xs text-muted-foreground`}>
-                    {dates || '—'}
-                  </td>
-                  <td className={`${PHASE1_TD} text-xs text-muted-foreground`}>
-                    {row.source}
+      <div className={PHASE1_TABLE_FRAME}>
+        <div className={PHASE1_TABLE_SHELL}>
+          <table className={PHASE1_TABLE}>
+            <thead className="sticky top-0 z-10">
+              <tr>
+                {listColumns.map((col) => (
+                  <Phase1SortableTh
+                    key={col.id}
+                    label={t(col.labelKey)}
+                    sortId={col.id}
+                    activeSortId={sortId}
+                    sortDir={sortDir}
+                    onSort={onSortColumn}
+                    sticky={col.id === 'externalKey'}
+                  />
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((row) => {
+                const id = String(row.id || row._id);
+                const rowEditable = canEdit && CONTENT_EDITABLE.has(String(row.status));
+                const isEditing = editingId === id;
+                const isSelected = selected && String(selected.id || selected._id) === id && !isEditing;
+                return (
+                  <tr
+                    key={id}
+                    className={`${rowEditable ? PHASE1_DENSE_ROW : 'odd:bg-[#F5F7FA] even:bg-white'} ${
+                      isEditing ? PHASE1_DENSE_ROW_EDITING : isSelected ? PHASE1_DENSE_ROW_SELECTED : ''
+                    }`}
+                    onClick={() => selectRow(row)}
+                  >
+                    {listColumns.map((col) => {
+                      const target = resolvePlanningInlineEditTarget(col);
+                      const isActive = isEditing && activeColId === col.id && Boolean(target);
+                      const raw = col.getValue(row);
+                      const display = col.isStatus ? raw : truncatePlanningCell(raw);
+                      return (
+                        <td
+                          key={col.id}
+                          className={`${PHASE1_TD} ${col.mono ? 'font-mono text-xs' : ''} ${
+                            isActive ? 'bg-[#FFF7E6] ring-2 ring-inset ring-[#FAAD14]' : ''
+                          }`}
+                          title={raw || undefined}
+                          onClick={(e) => {
+                            if (!rowEditable || !target) return;
+                            e.stopPropagation();
+                            beginInline(row, col.id);
+                          }}
+                        >
+                          {isActive && inlineDraft ? (
+                            target.multiline ? (
+                              <textarea
+                                className={`${CELL_INPUT} min-h-[52px]`}
+                                value={inlineDraft[target.key] || ''}
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) =>
+                                  setInlineDraft((d) => ({ ...d, [target.key]: e.target.value }))
+                                }
+                              />
+                            ) : (
+                              <input
+                                className={CELL_INPUT}
+                                value={inlineDraft[target.key] || ''}
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) =>
+                                  setInlineDraft((d) => ({ ...d, [target.key]: e.target.value }))
+                                }
+                              />
+                            )
+                          ) : (
+                            renderPhase1TableCell({ col, row, display, full: raw, t })
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+              {!filtered.length && !isLoading ? (
+                <tr>
+                  <td
+                    colSpan={listColumns.length}
+                    className={`${PHASE1_TD} py-8 text-center text-muted-foreground`}
+                  >
+                    {t('workspace.phase1EmptyPlanning')}
                   </td>
                 </tr>
-              );
-            })}
-            {!filtered.length && !isLoading ? (
-              <tr>
-                <td colSpan={5} className={`${PHASE1_TD} py-8 text-center text-muted-foreground`}>
-                  {t('workspace.phase1EmptyPlanning')}
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+        {editingId ? (
+          <Phase1InlineActionBar
+            title={
+              editingRow
+                ? `${editingRow.externalKey || ''} — ${editingRow.title || ''}`.trim()
+                : t('workspace.phase1EditArtifact')
+            }
+            dirty={isDirty}
+            canSave={canSaveInline}
+            saving={updateMut.isPending}
+            transitioning={transitionMut.isPending}
+            nextStatus={editingNext}
+            submitLabel={
+              String(editingRow?.status) === 'draft'
+                ? t('workspace.phase1SubmitForReview')
+                : t('workspace.phase1Approve')
+            }
+            cancelLabel={t('common.cancel')}
+            saveLabel={t('common.save')}
+            savingLabel={t('common.saving')}
+            onCancel={() => {
+              setEditingId(null);
+              setActiveColId(null);
+              setInlineDraft(null);
+              setInlineBaseline(null);
+            }}
+            onSave={() => {
+              if (!canSaveInline || !editingId || !inlineDraft) return;
+              updateMut.mutate({
+                id: editingId,
+                body: buildPlanningSubmitPayload(kind, inlineDraft),
+              });
+            }}
+            onSubmitReview={
+              editingNext
+                ? () => transitionMut.mutate({ id: editingId, toStatus: editingNext })
+                : undefined
+            }
+          />
+        ) : null}
+        <Phase1TablePagination
+          page={safePage}
+          pageCount={pageCount}
+          total={total}
+          onPageChange={setPage}
+          pageLabel={t('workspace.phase1TablePage', {
+            page: safePage,
+            pageCount,
+            total,
+          })}
+        />
       </div>
     </div>
   );
 
-  const detailPane = formOpen ? (
-    <PlanningArtifactFormDrawer
-      open={formOpen}
-      mode={formMode}
-      kind={kind}
-      artifact={editing}
-      busy={createMut.isPending || updateMut.isPending}
-      transitioning={transitionMut.isPending}
-      nextStatus={editingNext}
-      onClose={closeForm}
-      onSubmit={onSubmit}
-      onTransition={(toStatus) =>
-        transitionMut.mutate({ id: editingId, toStatus })
-      }
-      variant="pane"
-    />
-  ) : null;
+  // Side: clone as approved so FormDrawer fields are read-only (edit is inline only).
+  const sideArtifact = selected
+    ? { ...selected, status: 'approved' }
+    : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
       <Phase1SplitWorkspace
         list={listPane}
-        detail={detailPane}
-        hasSelection={formOpen}
-        onCloseDetail={closeForm}
+        detail={
+          sideArtifact ? (
+            <PlanningArtifactFormDrawer
+              open
+              mode="edit"
+              kind={kind}
+              artifact={sideArtifact}
+              busy={false}
+              transitioning={false}
+              nextStatus={null}
+              onClose={() => setSelected(null)}
+              onSubmit={() => {}}
+              variant="pane"
+            />
+          ) : null
+        }
+        hasSelection={Boolean(selected)}
+        onCloseDetail={() => setSelected(null)}
+        detailWidthClass="lg:w-[min(420px,38%)]"
+      />
+      <PlanningArtifactFormDrawer
+        open={createOpen}
+        mode="create"
+        kind={kind}
+        artifact={null}
+        busy={createMut.isPending}
+        transitioning={false}
+        nextStatus={null}
+        onClose={() => setCreateOpen(false)}
+        onSubmit={(body) => createMut.mutate(body)}
+        variant="modal"
+      />
+      <PlanningSuggestFromRaModal
+        projectId={projectId}
+        kind={kind}
+        open={suggestOpen}
+        onClose={() => setSuggestOpen(false)}
+        canEdit={canEdit}
       />
     </div>
   );
