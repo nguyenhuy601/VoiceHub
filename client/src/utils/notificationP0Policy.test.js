@@ -43,6 +43,18 @@ describe('isP0Notification', () => {
       true
     );
     assert.equal(
+      isP0Notification({ rawType: 'system', data: { kind: 'ready_for_qa' } }),
+      true
+    );
+    assert.equal(
+      isP0Notification({ rawType: 'system', data: { kind: 'analysis_changes_requested' } }),
+      true
+    );
+    assert.equal(
+      isP0Notification({ rawType: 'system', data: { kind: 'planning_changes_requested' } }),
+      true
+    );
+    assert.equal(
       isP0Notification({ rawType: 'system', data: { kind: 'task_board_list' } }),
       false
     );
