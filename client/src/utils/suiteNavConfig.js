@@ -51,6 +51,10 @@ export const PROJECT_MODULE_KEYS = [
   'analysis-uc',
   'analysis-nfr',
   'analysis-scope',
+  'analysis-interface',
+  'analysis-data',
+  'analysis-glossary',
+  'analysis-assumption',
   'traceability',
   'analysis-reviews',
   'srs-baselines',
@@ -64,7 +68,11 @@ export const PROJECT_MODULE_KEYS = [
   'planning-milestones',
   'planning-releases',
   'planning-risks',
+  'planning-test-cases',
   'planning-approval',
+  'handover',
+  'deploy-evidence',
+  'release-notes',
 ];
 
 /** Map legacy hub tab ids to path modules */
@@ -109,6 +117,8 @@ export function normalizeProjectModule(raw) {
   const lower = value.toLowerCase();
   if (lower === 'changerequests' || lower === 'change-requests') return 'change-requests';
   if (lower === 'testcases' || lower === 'test-cases') return 'test-cases';
+  if (lower === 'deployevidence' || lower === 'deploy-evidence') return 'deploy-evidence';
+  if (lower === 'releasenotes' || lower === 'release-notes') return 'release-notes';
   if (PROJECT_MODULE_KEYS.includes(lower)) return lower;
   if (lower.startsWith('planning-')) return lower;
   return 'overview';
@@ -160,16 +170,22 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
 
   if (isPhase1DeliveryPhase(deliveryPhase)) {
     const planningLocked = !isPlanningUnlocked(deliveryPhase);
-    const groups = getPhase1SidebarGroups({ planningLocked });
+    const raReadOnly = isPlanningUnlocked(deliveryPhase);
+    const groups = getPhase1SidebarGroups({ planningLocked, raReadOnly });
     const phase1Items = [];
     for (const g of groups) {
       const groupId =
         g.id === 'planning' ? PROJECT_MENU_GROUPS.PHASE1_PLANNING : PROJECT_MENU_GROUPS.PHASE1_RA;
       for (const m of g.items) {
+        // Overview stays interactive (gates / Start Planning / planning CTAs).
+        const itemReadOnly =
+          Boolean(g.readOnly) && String(m.key || m.module || '') !== 'overview';
         phase1Items.push({
           ...item(m.key, m.labelKey, m.module, groupId, m.pathSeg),
           locked: Boolean(g.locked),
           lockHintKey: g.lockHintKey,
+          readOnly: itemReadOnly,
+          readOnlyHintKey: itemReadOnly ? g.readOnlyHintKey : undefined,
         });
       }
     }
@@ -188,6 +204,19 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
 
   const all = [
     item('overview', 'workspace.projectHubTabOverview', 'overview', PROJECT_MENU_GROUPS.WORK),
+    item('handover', PHASE_MODULE_LABEL_KEYS.handover, 'handover', PROJECT_MENU_GROUPS.WORK),
+    item(
+      'deployEvidence',
+      PHASE_MODULE_LABEL_KEYS['deploy-evidence'],
+      'deploy-evidence',
+      PROJECT_MENU_GROUPS.WORK
+    ),
+    item(
+      'releaseNotes',
+      PHASE_MODULE_LABEL_KEYS['release-notes'],
+      'release-notes',
+      PROJECT_MENU_GROUPS.WORK
+    ),
     item(
       'customerDocuments',
       PHASE_MODULE_LABEL_KEYS['customer-documents'],

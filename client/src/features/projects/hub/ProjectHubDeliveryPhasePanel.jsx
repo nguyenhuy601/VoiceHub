@@ -23,6 +23,7 @@ import {
   DELIVERY_PHASE_FORWARD,
   RELEASE_HANDOVER_CHECKLIST_IDS,
 } from '../../../utils/projectPhaseNav';
+import ProjectHubReleaseReadyPanel from './ProjectHubReleaseReadyPanel';
 
 const HANDOVER_BLOCKER_KEYS = Object.freeze({
   release_ready_not_confirmed: 'workspace.phaseHandoverBlocker_release_ready_not_confirmed',
@@ -84,6 +85,8 @@ export default function ProjectHubDeliveryPhasePanel({
   projectId = '',
   deliveryPhase = 'development',
   canChangePhase = false,
+  canSignOffUat = false,
+  canAcceptHandover = false,
   isDarkMode = false,
   onPhaseChanged = null,
   handoverChecklist = null,
@@ -101,6 +104,7 @@ export default function ProjectHubDeliveryPhasePanel({
   const [deployCardOpen, setDeployCardOpen] = useState(false);
   const [checklistCardOpen, setChecklistCardOpen] = useState(false);
   const [gatesCardOpen, setGatesCardOpen] = useState(false);
+  const [advanceCardOpen, setAdvanceCardOpen] = useState(false);
 
   const phase = coerceDeliveryPhase(deliveryPhase);
   const phaseIndex = Math.max(0, DELIVERY_PHASES.indexOf(phase));
@@ -118,10 +122,9 @@ export default function ProjectHubDeliveryPhasePanel({
   }, [deployEvidence, projectId]);
 
   const nextPhases = useMemo(() => DELIVERY_PHASE_FORWARD[phase] || [], [phase]);
-  const showChecklist =
-    phase === 'release_handover' || nextPhases.includes('release_handover');
-  const showDeployBlock =
-    showChecklist && (uatPassed || phase === 'release_handover' || readyConfirmed);
+  /** Checklist + deploy evidence are Phase 4 work (Chuẩn Vàng) — not shown as P3 entry work. */
+  const showChecklist = phase === 'release_handover';
+  const showDeployBlock = phase === 'release_handover' && (uatPassed || readyConfirmed);
 
   const checklistDone = useMemo(
     () => RELEASE_HANDOVER_CHECKLIST_IDS.filter((id) => checked[id]).length,
@@ -134,22 +137,23 @@ export default function ProjectHubDeliveryPhasePanel({
     const blockers = [];
     if (!readyConfirmed) blockers.push('release_ready_not_confirmed');
     if (!uatPassed) blockers.push('uat_not_pass');
-    if (!checklistComplete) {
-      for (const id of RELEASE_HANDOVER_CHECKLIST_IDS) {
-        if (!checked[id]) blockers.push(`checklist_${id}`);
-      }
-    }
+    // Checklist is Phase 4 work — not an entry blocker (Chuẩn Vàng RULE-02).
     return blockers;
-  }, [readyConfirmed, uatPassed, checklistComplete, checked]);
+  }, [readyConfirmed, uatPassed]);
 
   const canAdvanceHandover = handoverGateBlockers.length === 0;
 
   const persistChecklist = useCallback(
-    async (nextChecked) => {
+    async (nextChecked, { asPo = false } = {}) => {
       const pid = String(projectId || '').trim();
-      if (!pid || !canChangePhase) return;
+      if (!pid) return;
+      if (asPo ? !canAcceptHandover : !canChangePhase) return;
       try {
-        await projectAPI.patch(pid, { handoverChecklist: nextChecked });
+        await projectAPI.patch(
+          pid,
+          { handoverChecklist: nextChecked },
+          { skipPermissionDeniedToast: true }
+        );
         await queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.project(pid) });
       } catch (err) {
         toast.error(
@@ -158,7 +162,7 @@ export default function ProjectHubDeliveryPhasePanel({
         setChecked(checklistFromProject(handoverChecklist));
       }
     },
-    [projectId, canChangePhase, queryClient, t, handoverChecklist]
+    [projectId, canChangePhase, canAcceptHandover, queryClient, t, handoverChecklist]
   );
 
   const onToggleChecklist = (id, value) => {
@@ -166,9 +170,29 @@ export default function ProjectHubDeliveryPhasePanel({
       toast.error(t('workspace.phaseDeployVerifyNeedUat'));
       return;
     }
+    const isPoItem = id === 'acceptance_signed_off' || id === 'handover_completed';
+    if (isPoItem && !canAcceptHandover) {
+      toast.error(t('workspace.phaseHandoverAcceptPoOnly'), {
+        id: 'phase4-handover-accept',
+      });
+      return;
+    }
+    if (!isPoItem && !canChangePhase) {
+      toast.error(t('workspace.phaseHandoverChecklistPmOnly'), {
+        id: 'phase4-handover-pm',
+      });
+      return;
+    }
+    if (id === 'deployment_verified' && value) {
+      const url = String(evidenceDraft.pipelineUrl || '').trim();
+      if (!/^https?:\/\//i.test(url)) {
+        toast.error(t('workspace.phaseDeployVerifyNeedUrl'));
+        return;
+      }
+    }
     const next = { ...checked, [id]: value };
     setChecked(next);
-    void persistChecklist(next);
+    void persistChecklist(next, { asPo: isPoItem });
   };
 
   const saveEvidence = useCallback(async () => {
@@ -205,10 +229,10 @@ export default function ProjectHubDeliveryPhasePanel({
   const advanceTo = useCallback(
     async (target) => {
       const pid = String(projectId || '').trim();
-      if (!pid || !canChangePhase || busy) return;
+      if (!pid || !canChangePhase || busy) return false;
       if (target === 'release_handover' && !canAdvanceHandover) {
         toast.error(t('workspace.phaseHandoverGateBlocked'));
-        return;
+        return false;
       }
       setBusy(true);
       try {
@@ -222,10 +246,12 @@ export default function ProjectHubDeliveryPhasePanel({
         }
         await queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.project(pid) });
         onPhaseChanged?.(target);
+        return true;
       } catch (err) {
         toast.error(
           resolveApiErrorMessage(err, { t, fallback: t('workspace.phaseQaPhaseAdvanceFail') })
         );
+        return false;
       } finally {
         setBusy(false);
       }
@@ -361,28 +387,6 @@ export default function ProjectHubDeliveryPhasePanel({
         ) : null}
       </div>
 
-      {/* Gate table → compact card + modal */}
-      {showGatesCard ? (
-        <button
-          type="button"
-          onClick={() => setGatesCardOpen(true)}
-          className="mt-3 flex w-full items-start gap-2 rounded-xl border border-border/70 bg-background/60 px-3 py-2.5 text-left transition hover:brightness-[0.98]"
-        >
-          <LayoutList className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-          <span className="min-w-0 flex-1">
-            <span className={`block text-xs font-bold ${titleCls}`}>
-              {t('workspace.phaseGatesCardTitle')}
-            </span>
-            <span className={`mt-0.5 block text-[10px] tabular-nums ${muted}`}>
-              {t('workspace.phaseGatesProgress', { done: gatesDoneCount, total: 3 })}
-              {' · '}
-              {t('workspace.phaseGatesOpenHint')}
-            </span>
-          </span>
-          <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} aria-hidden />
-        </button>
-      ) : null}
-
       <ol
         className="mt-4 flex flex-wrap items-center gap-1 sm:gap-0"
         aria-label={t('workspace.phaseQaDeliveryPhaseTitle')}
@@ -424,94 +428,193 @@ export default function ProjectHubDeliveryPhasePanel({
         })}
       </ol>
 
-      {canChangePhase && nextPhases.length > 0 ? (
-        <div className="mt-3 flex flex-col gap-2">
-          <div className="flex flex-wrap gap-2">
-            {nextPhases.map((target) => {
+      {/* Một lưới thẻ đồng bộ — chi tiết / action trong modal */}
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {showGatesCard ? (
+          <button
+            type="button"
+            onClick={() => setGatesCardOpen(true)}
+            className="flex items-start gap-2 rounded-xl border border-border/70 bg-background/60 px-3 py-2.5 text-left transition hover:brightness-[0.98]"
+          >
+            <LayoutList className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className={`block text-xs font-bold ${titleCls}`}>
+                {t('workspace.phaseGatesCardTitle')}
+              </span>
+              <span className={`mt-0.5 block text-[10px] tabular-nums ${muted}`}>
+                {t('workspace.phaseGatesProgress', { done: gatesDoneCount, total: 3 })}
+                {' · '}
+                {t('workspace.phaseGatesOpenHint')}
+              </span>
+            </span>
+            <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} aria-hidden />
+          </button>
+        ) : null}
+
+        {phase === 'qa_uat' ? (
+          <ProjectHubReleaseReadyPanel
+            projectId={projectId}
+            deliveryPhase={deliveryPhase}
+            canConfirmReleaseReady={canChangePhase}
+            canSignOffUat={canSignOffUat}
+            isDarkMode={isDarkMode}
+            embedded
+          />
+        ) : null}
+
+        {showChecklist ? (
+          <button
+            type="button"
+            onClick={() => setChecklistCardOpen(true)}
+            className="flex items-start gap-2 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-left transition hover:brightness-[0.98]"
+          >
+            <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className={`block text-xs font-bold ${titleCls}`}>
+                {t('workspace.phaseQaHandoverChecklistTitle')}
+              </span>
+              <span className={`mt-0.5 block text-[10px] tabular-nums ${muted}`}>
+                {t('workspace.phaseQaChecklistProgress', {
+                  done: checklistDone,
+                  total: checklistTotal,
+                })}
+              </span>
+            </span>
+            <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} aria-hidden />
+          </button>
+        ) : null}
+
+        {showDeployBlock ? (
+          <button
+            type="button"
+            onClick={() => setDeployCardOpen(true)}
+            className={`flex items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition hover:brightness-[0.98] ${
+              uatPassed
+                ? 'border-amber-500/40 bg-amber-500/5'
+                : 'border-border/70 bg-muted/20'
+            }`}
+          >
+            <Server
+              className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400"
+              aria-hidden
+            />
+            <span className="min-w-0 flex-1">
+              <span className={`block text-xs font-bold ${titleCls}`}>
+                {t('workspace.phaseDeployOutsideTitle')}
+              </span>
+              <span className={`mt-0.5 block text-[10px] leading-snug ${muted}`}>
+                {checked.deployment_verified
+                  ? t('workspace.phaseDeployVerifiedOn')
+                  : uatPassed
+                    ? t('workspace.phaseDeployOpenHint')
+                    : t('workspace.phaseDeployWaitUat')}
+              </span>
+            </span>
+            <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} aria-hidden />
+          </button>
+        ) : null}
+
+        {canChangePhase && nextPhases.length > 0
+          ? nextPhases.map((target) => {
               const isHandover = target === 'release_handover';
-              const disabled = busy || (isHandover && !canAdvanceHandover);
+              const blocked = isHandover && !canAdvanceHandover;
+              const blockerN = isHandover ? handoverGateBlockers.length : 0;
               return (
                 <button
                   key={target}
                   type="button"
-                  disabled={disabled}
-                  onClick={() => void advanceTo(target)}
-                  className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+                  onClick={() => setAdvanceCardOpen(target)}
+                  className={`flex items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition hover:brightness-[0.98] ${
+                    blocked
+                      ? 'border-border/70 bg-muted/20'
+                      : 'border-primary/40 bg-primary/10'
+                  }`}
                 >
-                  {t('workspace.phaseQaAdvanceTo', { phase: t(deliveryPhaseLabelKey(target)) })}
-                  <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                  <Rocket className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className={`block text-xs font-bold ${titleCls}`}>
+                      {t('workspace.phaseAdvanceCardTitle')}
+                    </span>
+                    <span className={`mt-0.5 block text-[10px] leading-snug ${muted}`}>
+                      {t('workspace.phaseQaAdvanceTo', {
+                        phase: t(deliveryPhaseLabelKey(target)),
+                      })}
+                      {' · '}
+                      {blocked
+                        ? t('workspace.phaseAdvanceCardBlocked', { n: blockerN })
+                        : t('workspace.phaseAdvanceCardReady')}
+                    </span>
+                  </span>
+                  <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} aria-hidden />
                 </button>
               );
-            })}
-          </div>
-          {nextPhases.includes('release_handover') && !canAdvanceHandover ? (
-            <ul className={`list-inside list-disc text-[11px] ${muted}`}>
-              {handoverGateBlockers.slice(0, 6).map((b) => (
-                <li key={b}>
-                  {t(HANDOVER_BLOCKER_KEYS[b] || 'workspace.phaseHandoverBlocker_unknown')}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
+            })
+          : null}
+      </div>
 
-      {/* Deploy + checklist — compact entry cards; detail in modal */}
-      {(showDeployBlock || showChecklist) && (
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          {showDeployBlock ? (
-            <button
-              type="button"
-              onClick={() => setDeployCardOpen(true)}
-              className={`flex items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition hover:brightness-[0.98] ${
-                uatPassed
-                  ? 'border-amber-500/40 bg-amber-500/5'
-                  : 'border-border/70 bg-muted/20'
-              }`}
-            >
-              <Server
-                className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400"
-                aria-hidden
-              />
-              <span className="min-w-0 flex-1">
-                <span className={`block text-xs font-bold ${titleCls}`}>
-                  {t('workspace.phaseDeployOutsideTitle')}
-                </span>
-                <span className={`mt-0.5 block text-[10px] leading-snug ${muted}`}>
-                  {checked.deployment_verified
-                    ? t('workspace.phaseDeployVerifiedOn')
-                    : uatPassed
-                      ? t('workspace.phaseDeployOpenHint')
-                      : t('workspace.phaseDeployWaitUat')}
-                </span>
-              </span>
-              <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} aria-hidden />
-            </button>
-          ) : null}
-
-          {showChecklist ? (
-            <button
-              type="button"
-              onClick={() => setChecklistCardOpen(true)}
-              className="flex items-start gap-2 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-left transition hover:brightness-[0.98]"
-            >
-              <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-              <span className="min-w-0 flex-1">
-                <span className={`block text-xs font-bold ${titleCls}`}>
-                  {t('workspace.phaseQaHandoverChecklistTitle')}
-                </span>
-                <span className={`mt-0.5 block text-[10px] tabular-nums ${muted}`}>
-                  {t('workspace.phaseQaChecklistProgress', {
-                    done: checklistDone,
-                    total: checklistTotal,
-                  })}
-                </span>
-              </span>
-              <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} aria-hidden />
-            </button>
-          ) : null}
+      <Modal
+        isOpen={Boolean(advanceCardOpen)}
+        onClose={() => setAdvanceCardOpen(false)}
+        title={
+          advanceCardOpen
+            ? t('workspace.phaseQaAdvanceTo', {
+                phase: t(deliveryPhaseLabelKey(advanceCardOpen)),
+              })
+            : t('workspace.phaseAdvanceCardTitle')
+        }
+        size="md"
+      >
+        <div className="space-y-3">
+          <p className={`text-[11px] leading-relaxed ${muted}`}>
+            {t('workspace.phaseAdvanceModalHint')}
+          </p>
+          {advanceCardOpen === 'release_handover' && !canAdvanceHandover ? (
+            <div>
+              <p className={`mb-1.5 text-[11px] font-semibold ${titleCls}`}>
+                {t('workspace.phaseAdvanceBlockersTitle')}
+              </p>
+              <ul className={`list-inside list-disc text-[11px] ${muted}`}>
+                {handoverGateBlockers.map((b) => (
+                  <li key={b}>
+                    {t(HANDOVER_BLOCKER_KEYS[b] || 'workspace.phaseHandoverBlocker_unknown')}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <>
+              <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                {t('workspace.phaseAdvanceCardReady')}
+              </p>
+              {advanceCardOpen === 'release_handover' ? (
+                <p className={`text-[11px] leading-relaxed ${muted}`}>
+                  {t('workspace.phaseHandoverChecklistAfterAdvance')}
+                </p>
+              ) : null}
+            </>
+          )}
+          <button
+            type="button"
+            disabled={
+              busy ||
+              !advanceCardOpen ||
+              (advanceCardOpen === 'release_handover' && !canAdvanceHandover)
+            }
+            onClick={() => {
+              const target = advanceCardOpen;
+              if (!target) return;
+              void (async () => {
+                const ok = await advanceTo(target);
+                if (ok) setAdvanceCardOpen(false);
+              })();
+            }}
+            className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50 sm:w-auto"
+          >
+            {busy ? t('common.loading') : t('workspace.phaseAdvanceConfirm')}
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+          </button>
         </div>
-      )}
+      </Modal>
 
       <Modal
         isOpen={gatesCardOpen}
@@ -657,7 +760,9 @@ export default function ProjectHubDeliveryPhasePanel({
               const isOn = Boolean(checked[id]);
               const tone = CHECKLIST_CARD_TONE[id] || CHECKLIST_CARD_TONE.release_notes;
               const deployLocked = id === 'deployment_verified' && !uatPassed;
-              const disabled = !canChangePhase || busy || deployLocked;
+              const isPoItem = id === 'acceptance_signed_off' || id === 'handover_completed';
+              const allowed = isPoItem ? canAcceptHandover : canChangePhase;
+              const disabled = !allowed || busy || deployLocked;
               return (
                 <li key={id}>
                   <label

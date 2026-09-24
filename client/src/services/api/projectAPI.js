@@ -110,8 +110,8 @@ export const projectAPI = {
       withHubSoftErrorToasts(config)
     ),
 
-  patch: (projectId, body = {}) =>
-    apiClient.patch(`/projects/${encodeURIComponent(projectId)}`, body),
+  patch: (projectId, body = {}, config = {}) =>
+    apiClient.patch(`/projects/${encodeURIComponent(projectId)}`, body, config),
 
   archive: (projectId) => apiClient.post(`/projects/${encodeURIComponent(projectId)}/archive`),
 
@@ -495,6 +495,16 @@ export const projectAPI = {
 
   listTestCases: (projectId) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/test-cases`),
+
+  suggestTestCasesFromUc: (projectId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/test-cases`, {
+      params: { view: 'suggest_from_uc' },
+    }),
+
+  createTestCasesFromSuggestions: (projectId, suggestions = []) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/test-cases`, {
+      suggestions,
+    }),
 
   createTestCase: (projectId, body = {}) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/test-cases`, {
