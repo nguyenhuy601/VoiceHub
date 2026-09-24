@@ -67,6 +67,11 @@ function validateAnalysisWorkbook({ fileName, fileSize, parsed }) {
     [ANALYSIS_SHEETS.FR]: 'functional',
     [ANALYSIS_SHEETS.UC]: 'uc',
     [ANALYSIS_SHEETS.NFR]: 'nfr',
+    [ANALYSIS_SHEETS.SCOPE]: 'scope',
+    [ANALYSIS_SHEETS.INTERFACES]: 'interfaces',
+    [ANALYSIS_SHEETS.DATA]: 'data',
+    [ANALYSIS_SHEETS.GLOSSARY]: 'glossary',
+    [ANALYSIS_SHEETS.ASSUMPTIONS]: 'assumptions',
   };
 
   for (const sheet of Object.keys(ANALYSIS_SHEET_REQUIRED_COLUMNS)) {
@@ -206,7 +211,7 @@ function validateAnalysisWorkbook({ fileName, fileSize, parsed }) {
           sheet: ANALYSIS_SHEETS.FR,
           row: row._rowNumber,
           column: 'Parent ID',
-          message: `${level} parent must be ${allowedParents.join(' or ')} (got ${parentLevel})`,
+          message: `${level} phải có cha là ${allowedParents.join(' hoặc ')} (đang gắn: ${parentLevel})`,
         })
       );
     }
@@ -259,6 +264,11 @@ function validateAnalysisWorkbook({ fileName, fileSize, parsed }) {
     ...(parsed?.businessProcesses || []).map((r) => r.externalId),
     ...(parsed?.useCases || []).map((r) => r.externalId),
     ...nfrList.map((r) => r.externalId),
+    ...(parsed?.scope || []).map((r) => r.externalId),
+    ...(parsed?.interfaces || []).map((r) => r.externalId),
+    ...(parsed?.dataEntities || []).map((r) => r.externalId),
+    ...(parsed?.glossary || []).map((r) => r.externalId),
+    ...(parsed?.assumptions || []).map((r) => r.externalId),
   ].filter(Boolean));
 
   const links = Array.isArray(parsed?.traceabilityLinks) ? parsed.traceabilityLinks : [];
@@ -267,7 +277,8 @@ function validateAnalysisWorkbook({ fileName, fileSize, parsed }) {
       issue({
         code: 'RA_TRACE_EMPTY',
         sheet: ANALYSIS_SHEETS.TRACEABILITY,
-        message: 'Traceability sheet has no data rows — map Analysis IDs to Customer Requirement IDs',
+        message:
+          'Sheet Traceability chưa có dòng dữ liệu — map Analysis ID với Customer Requirement ID',
         severity: 'warning',
       })
     );
@@ -284,7 +295,7 @@ function validateAnalysisWorkbook({ fileName, fileSize, parsed }) {
           sheet: ANALYSIS_SHEETS.TRACEABILITY,
           row: row._rowNumber,
           column: 'Analysis ID',
-          message: 'Analysis ID is required',
+          message: 'Bắt buộc có Analysis ID',
         })
       );
     } else if (!artifactIds.has(analysisId) && !artifactIds.has(normId(analysisId))) {
@@ -294,7 +305,7 @@ function validateAnalysisWorkbook({ fileName, fileSize, parsed }) {
           sheet: ANALYSIS_SHEETS.TRACEABILITY,
           row: row._rowNumber,
           column: 'Analysis ID',
-          message: `Analysis ID ${analysisId} not found on BG/BR/BPM/FR/UC/NFR sheets`,
+          message: `Analysis ID ${analysisId} không thấy trên các sheet BG/BR/BPM/FR/UC/NFR/Scope/IF/Data/Glossary/Assumption`,
           severity: 'warning',
         })
       );
@@ -391,7 +402,7 @@ function validateAnalysisWorkbook({ fileName, fileSize, parsed }) {
       requirements: frList.filter((r) => normalizeAnalysisFrLevel(r.level) === 'Requirement').length,
       nfrCount: nfrList.length,
       traceabilityCount: links.length,
-      scopeCount: 0,
+      scopeCount: (parsed?.scope || []).length,
     },
   };
 }

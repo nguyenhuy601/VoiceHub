@@ -304,6 +304,99 @@ async function buildRequirementAnalysisTemplateBuffer() {
     ],
   ]);
 
+  addSheet(wb, ANALYSIS_SHEETS.SCOPE, ANALYSIS_SHEET_COLUMNS[ANALYSIS_SHEETS.SCOPE], [
+    [
+      'In Scope',
+      'Students can search and register courses online via web',
+      'CR-001;CR-002',
+      'Workshop #1',
+      '2026-09-01',
+      'Draft',
+      'From Raw In Scope',
+    ],
+    [
+      'In Scope',
+      'Reject registration when class capacity is full',
+      'CR-003',
+      'Workshop #1',
+      '2026-09-01',
+      'Draft',
+      '',
+    ],
+    [
+      'In Scope',
+      'University SSO authentication for students/lecturers/admin',
+      'CR-001',
+      'Workshop #1',
+      '2026-09-01',
+      'Draft',
+      'Integration constraint',
+    ],
+    [
+      'Out of Scope',
+      'Native mobile apps (iOS/Android stores)',
+      'CR-004',
+      'Workshop #1',
+      '2026-09-01',
+      'Draft',
+      'Web responsive only for this release',
+    ],
+    [
+      'Out of Scope',
+      'Payment / tuition gateway',
+      '',
+      'Workshop #1',
+      '2026-09-01',
+      'Draft',
+      '',
+    ],
+  ]);
+
+  addSheet(wb, ANALYSIS_SHEETS.INTERFACES, ANALYSIS_SHEET_COLUMNS[ANALYSIS_SHEETS.INTERFACES], [
+    [
+      'IF-001',
+      'Campus SSO',
+      'auth',
+      'in',
+      'SAML/OIDC',
+      'University identity provider for student/lecturer login',
+      'FR-001;NFR-001',
+      'CR-001',
+      'Draft',
+      '',
+    ],
+  ]);
+
+  addSheet(wb, ANALYSIS_SHEETS.DATA, ANALYSIS_SHEET_COLUMNS[ANALYSIS_SHEETS.DATA], [
+    [
+      'DATA-001',
+      'Enrollment',
+      'studentId; courseId; status; enrolledAt',
+      'status in {pending,active,rejected}; unique(studentId,courseId)',
+      'FR-001;UC-001',
+      'CR-002',
+      'Draft',
+      '',
+    ],
+  ]);
+
+  addSheet(wb, ANALYSIS_SHEETS.GLOSSARY, ANALYSIS_SHEET_COLUMNS[ANALYSIS_SHEETS.GLOSSARY], [
+    ['GL-001', 'SSO', 'Single Sign-On via campus identity provider', 'IF-001', 'Draft', ''],
+    ['GL-002', 'Capacity', 'Maximum seats allowed for a course section', 'BR-001', 'Draft', ''],
+  ]);
+
+  addSheet(wb, ANALYSIS_SHEETS.ASSUMPTIONS, ANALYSIS_SHEET_COLUMNS[ANALYSIS_SHEETS.ASSUMPTIONS], [
+    [
+      'ASM-001',
+      'Campus SSO is available for all enrolled students at go-live',
+      'Registration must fall back to local accounts; timeline slips',
+      'IF-001;BG-001',
+      'CR-001',
+      'Draft',
+      '',
+    ],
+  ]);
+
   return wb.xlsx.writeBuffer();
 }
 

@@ -18,6 +18,13 @@ const {
 } = require('../services/requirementPack.service');
 const { runAiPlanningHeuristic, approveStaffingProposal, discardStaffingProposal } = require('../services/aiPlanning.service');
 const {
+  getAiAnalysisSummary,
+  getAiAnalysisWizardJob,
+  runAiAnalysisJob,
+  confirmAiAnalysisJob,
+  exportAiAnalysisSheet11,
+} = require('../services/aiAnalysis.service');
+const {
   assertRequirementPermission,
   resolveRequirementAccess,
 } = require('../services/requirementAccess.service');
@@ -368,6 +375,106 @@ async function deletePack(req, res) {
   }
 }
 
+async function getAiAnalysis(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const view = String(req.query?.view || '').trim().toLowerCase();
+    const job = String(req.query?.job || '').trim();
+    if (view === 'summary' || !job) {
+      const data = await getAiAnalysisSummary({ userId, organizationId, packId });
+      return res.json({ success: true, data });
+    }
+    const data = await getAiAnalysisWizardJob({ userId, organizationId, packId, job });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function runAiAnalysis(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    const jobId = String(req.params.jobId || '').trim();
+    if (!organizationId || !packId || !jobId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId, packId và jobId bắt buộc',
+      });
+    }
+    const data = await runAiAnalysisJob({
+      userId,
+      organizationId,
+      packId,
+      job: jobId,
+      force: Boolean(req.body?.force),
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function confirmAiAnalysis(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    const jobId = String(req.params.jobId || '').trim();
+    if (!organizationId || !packId || !jobId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId, packId và jobId bắt buộc',
+      });
+    }
+    const data = await confirmAiAnalysisJob({
+      userId,
+      organizationId,
+      packId,
+      job: jobId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function exportAiAnalysis(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const { buffer, fileName } = await exportAiAnalysisSheet11({
+      userId,
+      organizationId,
+      packId,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    return res.send(buffer);
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
 module.exports = {
   downloadTemplate,
   previewImport,
@@ -384,4 +491,8 @@ module.exports = {
   runAiPlanning,
   approveAiStaffing,
   discardAiStaffing,
+  getAiAnalysis,
+  runAiAnalysis,
+  confirmAiAnalysis,
+  exportAiAnalysis,
 };

@@ -11,6 +11,11 @@ router.post('/import/confirm', controller.confirmImport);
 router.get('/access', controller.getAccess);
 router.get('/', controller.listPacks);
 router.get('/:packId/source-file', controller.downloadSourceFile);
+/** AI Analysis Blueprint — trước /:packId để không bị nuốt path */
+router.get('/:packId/ai-analysis/export', controller.exportAiAnalysis);
+router.get('/:packId/ai-analysis', controller.getAiAnalysis);
+router.post('/:packId/ai-analysis/jobs/:jobId/run', controller.runAiAnalysis);
+router.post('/:packId/ai-analysis/jobs/:jobId/confirm', controller.confirmAiAnalysis);
 router.get('/:packId', controller.getPack);
 router.post('/:packId/submit', controller.submitPack);
 router.post('/:packId/approve', controller.approvePack);

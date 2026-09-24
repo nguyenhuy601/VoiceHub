@@ -56,7 +56,7 @@ describe('analysisImportSetGate', () => {
     assert.equal(step.republish, true);
   });
 
-  it('assertCanPublish requires all three gate stamps', () => {
+  it('assertCanPublish requires BA+PO; Tech only when techRequired', () => {
     assert.throws(
       () =>
         assertCanPublish({
@@ -64,6 +64,19 @@ describe('analysisImportSetGate', () => {
           review: { ba: { userId: 'a', at: new Date() }, tech: {}, po: {} },
         }),
       (err) => err.errorCode === IMPORT_SET_ERROR_CODES.PUBLISH_DENIED
+    );
+    assert.doesNotThrow(() =>
+      assertCanPublish(
+        {
+          status: 'pending_review',
+          review: {
+            ba: { userId: 'a', at: new Date() },
+            tech: {},
+            po: { userId: 'c', at: new Date() },
+          },
+        },
+        { techRequired: false }
+      )
     );
     assert.doesNotThrow(() =>
       assertCanPublish({
@@ -75,5 +88,52 @@ describe('analysisImportSetGate', () => {
         },
       })
     );
+  });
+
+  it('planSetTransition allows PO approved after BA when tech skipped', () => {
+    const afterBa = {
+      status: 'pending_review',
+      review: { ba: { userId: 'u1', at: new Date() }, tech: { skipped: true }, po: {} },
+    };
+    const step = planSetTransition(afterBa, 'approved', { techRequired: false });
+    assert.equal(step.to, 'approved');
+    assert.equal(step.permission, 'analysis:po_review');
+  });
+
+  it('reject permission follows current Import Set gate', () => {
+    const pending = { status: 'pending_review', review: { ba: {}, tech: {}, po: {} } };
+    assert.equal(planSetTransition(pending, 'rejected').permission, 'analysis:ba_review');
+
+    const afterBa = {
+      status: 'pending_review',
+      review: { ba: { userId: 'u1', at: new Date() }, tech: {}, po: {} },
+    };
+    assert.equal(planSetTransition(afterBa, 'rejected').permission, 'analysis:tech_review');
+
+    const afterTech = {
+      status: 'pending_review',
+      review: {
+        ba: { userId: 'u1', at: new Date() },
+        tech: { userId: 'u2', at: new Date() },
+        po: {},
+      },
+    };
+    assert.equal(planSetTransition(afterTech, 'rejected').permission, 'analysis:po_review');
+  });
+
+  it('planArtifactQueueAfterSetGate opens Tech/PO queues after BA set stamp', () => {
+    const {
+      planArtifactQueueAfterSetGate,
+    } = require('../src/constants/analysisImportSet');
+    assert.equal(
+      planArtifactQueueAfterSetGate({ setGateTo: 'tech_review', techRequired: true }),
+      'tech_review'
+    );
+    assert.equal(
+      planArtifactQueueAfterSetGate({ setGateTo: 'tech_review', techRequired: false }),
+      'po_review'
+    );
+    assert.equal(planArtifactQueueAfterSetGate({ setGateTo: 'po_review' }), null);
+    assert.equal(planArtifactQueueAfterSetGate({ setGateTo: 'approved' }), null);
   });
 });
