@@ -34,7 +34,8 @@ function conflict(message, errorCode = 'READY_TO_DONE_NOT_READY') {
 }
 
 async function loadOpenBugsForTestCases(projectId, testCases) {
-  const tcIds = (testCases || [])
+  const list = Array.isArray(testCases) ? testCases : [];
+  const tcIds = list
     .map((tc) => tc._id || tc.id)
     .filter((id) => validOid(id))
     .map((id) => String(id));
@@ -59,7 +60,19 @@ async function loadOpenBugsForTestCases(projectId, testCases) {
     lists.filter((l) => isDoneListTitle(l.title)).map((l) => String(l._id))
   );
 
-  return bugs.filter((b) => !doneListIds.has(String(b.listId || '')));
+  // Retest Pass → bug no longer blocks Confirm Done (even if still on To Do).
+  const passedTcIds = new Set(
+    list
+      .filter((tc) => String(tc.lastResult || '').trim().toLowerCase() === 'pass')
+      .map((tc) => String(tc._id || tc.id))
+      .filter(Boolean)
+  );
+
+  return bugs.filter((b) => {
+    if (doneListIds.has(String(b.listId || ''))) return false;
+    if (passedTcIds.has(String(b.sourceTestCaseId || ''))) return false;
+    return true;
+  });
 }
 
 async function evaluateForWorkItem(projectId, workItemId) {
@@ -69,8 +82,29 @@ async function evaluateForWorkItem(projectId, workItemId) {
     isActive: true,
   }).lean();
   const openBugs = await loadOpenBugsForTestCases(projectId, testCases);
+  const evaluation = evaluateReadyToDone({ testCases, openBugs });
+
+  // Already in Done → không còn đề xuất Confirm Done.
+  const task = await Task.findOne({ _id: workItemId, projectId, isActive: true })
+    .select('_id listId status')
+    .lean();
+  if (task?.listId) {
+    const list = await TaskBoardList.findById(task.listId).select('title statusKey').lean();
+    const statusKey = String(list?.statusKey || task.status || '')
+      .trim()
+      .toLowerCase();
+    if (statusKey === 'done' || statusKey === 'completed' || isDoneListTitle(list?.title)) {
+      return {
+        ...evaluation,
+        ready: false,
+        reason: 'already_done',
+        workItemId: String(workItemId),
+      };
+    }
+  }
+
   return {
-    ...evaluateReadyToDone({ testCases, openBugs }),
+    ...evaluation,
     workItemId: String(workItemId),
   };
 }
@@ -115,8 +149,41 @@ async function listReadyToDoneMap({ userId, projectId }) {
   const out = {};
   for (const [workItemId, tcs] of byWorkItem.entries()) {
     const openBugs = await loadOpenBugsForTestCases(projectId, tcs);
-    out[workItemId] = evaluateReadyToDone({ testCases: tcs, openBugs });
+    const evaluation = evaluateReadyToDone({ testCases: tcs, openBugs });
+    out[workItemId] = evaluation;
   }
+
+  // Mark already-Done cards as not ready (hide Confirm on Done column).
+  const workItemIds = Object.keys(out);
+  if (workItemIds.length) {
+    const tasks = await Task.find({
+      _id: { $in: workItemIds },
+      projectId,
+      isActive: true,
+    })
+      .select('_id listId status')
+      .lean();
+    const listIds = [...new Set(tasks.map((t) => String(t.listId || '')).filter(Boolean))];
+    const lists = listIds.length
+      ? await TaskBoardList.find({ _id: { $in: listIds } }).select('_id title statusKey').lean()
+      : [];
+    const listById = new Map(lists.map((l) => [String(l._id), l]));
+    for (const task of tasks) {
+      const wid = String(task._id);
+      const list = listById.get(String(task.listId || ''));
+      const statusKey = String(list?.statusKey || task.status || '')
+        .trim()
+        .toLowerCase();
+      if (statusKey === 'done' || statusKey === 'completed' || isDoneListTitle(list?.title)) {
+        out[wid] = {
+          ...out[wid],
+          ready: false,
+          reason: 'already_done',
+        };
+      }
+    }
+  }
+
   return out;
 }
 

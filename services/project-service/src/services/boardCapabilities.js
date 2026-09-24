@@ -35,7 +35,19 @@ function isDoneListTitle(title) {
 
 function isReadyForQaListTitle(title) {
   const normalized = normalizeListTitle(title);
-  return Boolean(normalized && READY_FOR_QA_TITLES.has(normalized));
+  if (!normalized) return false;
+  if (READY_FOR_QA_TITLES.has(normalized)) return true;
+  return normalized.includes('ready for qa') || normalized.includes('san sang qa');
+}
+
+/** List object: statusKey `qa` hoặc title Ready for QA. */
+function isReadyForQaList(list) {
+  if (!list) return false;
+  const statusKey = String(list.statusKey || '')
+    .trim()
+    .toLowerCase();
+  if (statusKey === 'qa') return true;
+  return isReadyForQaListTitle(list.title);
 }
 
 /**
@@ -94,5 +106,6 @@ module.exports = {
   normalizeListTitle,
   isDoneListTitle,
   isReadyForQaListTitle,
+  isReadyForQaList,
   buildBoardCapabilities,
 };

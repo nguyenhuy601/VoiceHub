@@ -107,7 +107,16 @@ async function loadSprintCardsWithTc(projectId, linkedTestCases) {
   const bugDoneLists = new Set(
     bugLists.filter((l) => isDoneListTitle(l.title)).map((l) => String(l._id))
   );
-  const openBugs = bugs.filter((b) => !bugDoneLists.has(String(b.listId || '')));
+  const passedTcIds = new Set(
+    linkedTestCases
+      .filter((tc) => String(tc.lastResult || '').trim().toLowerCase() === 'pass')
+      .map((tc) => String(tc._id))
+  );
+  const openBugs = bugs.filter((b) => {
+    if (bugDoneLists.has(String(b.listId || ''))) return false;
+    if (passedTcIds.has(String(b.sourceTestCaseId || ''))) return false;
+    return true;
+  });
 
   return cards.map((card) => {
     const id = String(card._id);
