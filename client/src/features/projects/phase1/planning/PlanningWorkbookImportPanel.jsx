@@ -14,6 +14,27 @@ function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
+/** ZIP/OOXML local-file header — rejects text stubs like "undefined" from bad downloads. */
+function isZipXlsxBytes(bytes) {
+  return (
+    bytes &&
+    bytes.length >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07) &&
+    (bytes[3] === 0x04 || bytes[3] === 0x06 || bytes[3] === 0x08)
+  );
+}
+
+function bytesToBase64(bytes) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 export default function PlanningWorkbookImportPanel({ projectId, canEdit }) {
   const { t } = useAppStrings();
   const queryClient = useQueryClient();
@@ -80,8 +101,20 @@ export default function PlanningWorkbookImportPanel({ projectId, canEdit }) {
 
   const downloadTemplate = async (seedFromRa) => {
     try {
-      const res = await planningAPI.downloadDumpTemplate(projectId, { seedFromRa });
-      const blob = res?.data instanceof Blob ? res.data : new Blob([res?.data]);
+      // apiClient interceptor returns response.data (Blob when responseType: 'blob')
+      const data = await planningAPI.downloadDumpTemplate(projectId, { seedFromRa });
+      const blob =
+        data instanceof Blob
+          ? data
+          : data?.data instanceof Blob
+            ? data.data
+            : new Blob([data?.data ?? data], {
+                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              });
+      if (!(blob instanceof Blob) || blob.size < 64) {
+        toast.error(t('workspace.phase1DumpTemplateEmpty'));
+        return;
+      }
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -155,23 +188,36 @@ export default function PlanningWorkbookImportPanel({ projectId, canEdit }) {
               e.target.value = '';
               if (!file) return;
               setUploading(true);
+              clearPreview();
               try {
                 const buf = await file.arrayBuffer();
                 const bytes = new Uint8Array(buf);
-                let binary = '';
-                bytes.forEach((b) => {
-                  binary += String.fromCharCode(b);
-                });
-                const base64 = btoa(binary);
+                if (!isZipXlsxBytes(bytes)) {
+                  toast.error(t('workspace.phase1DumpInvalidXlsx'));
+                  return;
+                }
+                const base64 = bytesToBase64(bytes);
                 const res = await planningAPI.bulkDumpArtifacts(projectId, {
                   format: 'xlsx',
                   base64,
                   dryRun: true,
                 });
                 const data = unwrap(res);
-                setPendingXlsxBase64(base64);
-                setDumpPreview(data);
-                notifyDumpAssignee(data);
+                const parseErrors = Array.isArray(data?.errors)
+                  ? data.errors
+                  : Array.isArray(data?.parseErrors)
+                    ? data.parseErrors
+                    : [];
+                const wouldCreate = Number(data?.wouldCreate ?? 0);
+                if (wouldCreate > 0 && parseErrors.length === 0) {
+                  setPendingXlsxBase64(base64);
+                } else {
+                  setPendingXlsxBase64(null);
+                }
+                setDumpPreview(data || { errors: parseErrors, preview: [], wouldCreate: 0 });
+                if (wouldCreate > 0 && parseErrors.length === 0) {
+                  notifyDumpAssignee(data);
+                }
               } catch (err) {
                 clearPreview();
                 toast.error(resolveApiErrorMessage(err));

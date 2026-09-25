@@ -11,7 +11,6 @@ import {
   PLANNING_KIND_BY_MODULE,
 } from '../nav/phase1NavConfig';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import Phase2GateBanner from '../../phase/Phase2GateBanner';
 import AiPlanningRunPanel from '../AiPlanningRunPanel';
 import RequirementPhase1PipelinePanel from '../RequirementPhase1PipelinePanel';
 import { gateStepClass } from '../shared/phase1UiTokens';
@@ -169,13 +168,6 @@ export default function Phase1OverviewPage({
 
   return (
     <div className="w-full space-y-5 p-3 sm:p-4">
-      <Phase2GateBanner
-        projectId={projectId}
-        organizationId={organizationId}
-        deliveryPhase={deliveryPhase}
-        canChangePhase={Boolean(capabilities.canChangeDeliveryPhase)}
-      />
-
       {boundPackId ? (
         <RequirementPhase1PipelinePanel
           projectId={projectId}

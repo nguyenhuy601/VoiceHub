@@ -2036,22 +2036,17 @@ async function advanceToPhase2({
   }
 
   projectDoc.deliveryPhase = 'development';
-  // Lifecycle status is orthogonal to deliveryPhase but must stay in Project enum.
-  // Legacy/bad rows (e.g. status "draft") fail validation on save — coerce into Phase 2.
-  const PROJECT_STATUS = new Set([
-    'planning',
-    'ready_for_planning',
-    'in_development',
-    'on_hold',
-    'closed',
-  ]);
-  if (!PROJECT_STATUS.has(String(projectDoc.status || ''))) {
-    projectDoc.status = 'in_development';
-  } else if (
-    projectDoc.status === 'planning' ||
-    projectDoc.status === 'ready_for_planning'
-  ) {
-    projectDoc.status = 'in_development';
+  // Lifecycle status is orthogonal to deliveryPhase but must stay in Project enum
+  // (draft | active | on_hold | closed). Coerce legacy 5-value statuses.
+  const { coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
+  const st = String(projectDoc.status || '').trim().toLowerCase();
+  const coerced = coerceProjectLifecycleStatus(st);
+  if (coerced === 'draft' || st === 'planning' || st === 'ready_for_planning') {
+    projectDoc.status = 'active';
+  } else if (coerced) {
+    projectDoc.status = coerced;
+  } else if (!['draft', 'active', 'on_hold', 'closed'].includes(st)) {
+    projectDoc.status = 'active';
   }
   if (methodology) {
     const m = String(methodology).trim().toLowerCase();
@@ -2249,14 +2244,13 @@ async function startDeliveryPlanning({ userId, projectId }) {
   }
   projectDoc.deliveryPhase = 'delivery_planning';
   projectDoc.phase1RaApprovedAt = new Date();
-  // Legacy seed may have status=draft (not in enum) — coerce so save() validates.
+  // Coerce legacy status so save() validates against draft|active|on_hold|closed.
   const { coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
   const coercedStatus = coerceProjectLifecycleStatus(projectDoc.status);
-  if (coercedStatus) projectDoc.status = coercedStatus;
-  else if (!['planning', 'ready_for_planning', 'in_development', 'on_hold', 'closed'].includes(
-    String(projectDoc.status || '')
-  )) {
-    projectDoc.status = 'planning';
+  if (coercedStatus) {
+    projectDoc.status = coercedStatus;
+  } else if (!['draft', 'active', 'on_hold', 'closed'].includes(String(projectDoc.status || ''))) {
+    projectDoc.status = 'draft';
   }
   await projectDoc.save();
   return {

@@ -58,7 +58,6 @@ export default function useCreateProjectAiWizard({
   const [slideDir, setSlideDir] = useState('forward');
   const [busy, setBusy] = useState(false);
   const [pack, setPack] = useState(null);
-  const [snapshotMeta, setSnapshotMeta] = useState(null);
   const [confirmForm, setConfirmForm] = useState(() => emptyConfirmForm(null));
   const [initialPackHydrated, setInitialPackHydrated] = useState(false);
   const {
@@ -97,11 +96,8 @@ export default function useCreateProjectAiWizard({
       if (!orgId || !packKey) return null;
       try {
         const res = await requirementAPI.createAiAnalysisSnapshot(orgId, packKey);
-        const meta = unwrapRequirementPayload(res);
-        setSnapshotMeta(meta);
-        return meta;
+        return unwrapRequirementPayload(res);
       } catch (error) {
-        setSnapshotMeta(null);
         toast.error(
           resolveApiErrorMessage(error, {
             t,
@@ -430,7 +426,6 @@ export default function useCreateProjectAiWizard({
     packsError,
     pack,
     packId,
-    snapshotMeta,
     confirmForm,
     patchConfirmForm,
     selectApprovedPack,

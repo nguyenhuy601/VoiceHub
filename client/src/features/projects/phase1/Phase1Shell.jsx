@@ -37,6 +37,7 @@ import PlanningArtifactListPage from './planning/PlanningArtifactListPage';
 import PlanningApprovalPage from './planning/PlanningApprovalPage';
 import PlanningOverviewPage from './planning/PlanningOverviewPage';
 import PlanningTcFromUcPanel from './planning/PlanningTcFromUcPanel';
+import Phase2GateBanner from '../phase/Phase2GateBanner';
 import SpaceCalendarModule from '../../spaceModules/SpaceCalendarModule';
 import SpaceDocumentsModule from '../../spaceModules/SpaceDocumentsModule';
 import SpaceProjectChatModule from '../../spaceModules/SpaceProjectChatModule';
@@ -79,6 +80,7 @@ export default function Phase1Shell({
   const caps = projectRow?.capabilities || {};
   const canViewAnalysis = Boolean(caps.canViewAnalysis);
   const canViewPlanning = Boolean(caps.canViewPlanning);
+  const canChangeDeliveryPhase = Boolean(caps.canChangeDeliveryPhase);
   const orgId = resolveProjectOrganizationId({
     search: searchParams,
     projectRow,
@@ -158,23 +160,17 @@ export default function Phase1Shell({
   }
 
   let body = null;
-  if (module === 'overview' || module === 'planning-overview') {
-    body =
-      module === 'planning-overview' ? (
-        <Phase1OverviewPage
-          projectId={projectId}
-          organizationId={orgId}
-          deliveryPhase={deliveryPhase}
-          analysisMode={projectRow?.analysisMode}
-        />
-      ) : (
-        <Phase1OverviewPage
-          projectId={projectId}
-          organizationId={orgId}
-          deliveryPhase={deliveryPhase}
-          analysisMode={projectRow?.analysisMode}
-        />
-      );
+  if (module === 'planning-overview') {
+    body = <PlanningOverviewPage projectId={projectId} organizationId={orgId} />;
+  } else if (module === 'overview') {
+    body = (
+      <Phase1OverviewPage
+        projectId={projectId}
+        organizationId={orgId}
+        deliveryPhase={deliveryPhase}
+        analysisMode={projectRow?.analysisMode}
+      />
+    );
   } else if (module === 'customer-documents') {
     const mode = String(projectRow?.analysisMode || '').toLowerCase();
     body =
@@ -253,6 +249,16 @@ export default function Phase1Shell({
         {raReadOnly && module !== 'overview' && !String(module).startsWith('planning') ? (
           <div className="shrink-0 border-b border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-muted-foreground sm:px-4">
             {t('workspace.phase1RaReadOnlyBanner')}
+          </div>
+        ) : null}
+        {deliveryPhase === 'delivery_planning' ? (
+          <div className="shrink-0 px-3 pt-3 sm:px-4">
+            <Phase2GateBanner
+              projectId={projectId}
+              organizationId={orgId}
+              deliveryPhase={deliveryPhase}
+              canChangePhase={canChangeDeliveryPhase}
+            />
           </div>
         ) : null}
         {body}

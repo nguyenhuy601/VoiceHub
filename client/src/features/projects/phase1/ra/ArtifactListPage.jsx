@@ -56,13 +56,6 @@ function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
-const ARTIFACT_NEXT_MAP = {
-  draft: 'ba_review',
-  ba_review: 'tech_review',
-  tech_review: 'po_review',
-  po_review: 'approved',
-};
-
 const CELL_INPUT =
   'w-full min-w-[8rem] rounded border border-[#FFD591] bg-[#FFFBE6] px-1.5 py-1 text-[13px] text-[#262626] outline-none focus:border-[#FA8C16] focus:ring-1 focus:ring-[#FA8C16]';
 
@@ -83,7 +76,6 @@ export default function ArtifactListPage({
   const { capabilities } = useProjectCapabilities(projectId);
   const [selectedId, setSelectedId] = useState(null);
   const [filter, setFilter] = useState('');
-  const [creating, setCreating] = useState(false);
   const [createDraft, setCreateDraft] = useState({ externalKey: '', title: '', summary: '' });
   const [visibleColumnIds, setVisibleColumnIds] = useState(
     () => loadVisibleColumnIds(kind) || getDefaultVisibleColumnIds(kind)
@@ -142,17 +134,8 @@ export default function ArtifactListPage({
     setInlineBaseline(null);
   }, []);
 
-  const closeDetail = useCallback(() => {
-    setSelectedId(null);
-    setCreating(false);
-    setCreateOpen(false);
-    stopInlineEdit();
-    clearArtifactQuery();
-  }, [clearArtifactQuery, stopInlineEdit]);
-
   const selectRow = useCallback(
     (id) => {
-      setCreating(false);
       setCreateOpen(false);
       setSelectedId(id);
       const next = new URLSearchParams(searchParams);
@@ -164,7 +147,6 @@ export default function ArtifactListPage({
 
   const openCreate = useCallback(() => {
     setSelectedId(null);
-    setCreating(true);
     setCreateOpen(true);
     stopInlineEdit();
     setCreateDraft({ externalKey: '', title: '', summary: '' });
@@ -174,7 +156,6 @@ export default function ArtifactListPage({
   useEffect(() => {
     const fromQuery = String(searchParams.get('artifact') || '').trim();
     if (!fromQuery) return;
-    setCreating(false);
     setCreateOpen(false);
     setSelectedId((prev) => (prev === fromQuery ? prev : fromQuery));
   }, [searchParams]);
@@ -259,7 +240,6 @@ export default function ArtifactListPage({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, kind] });
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
-      setCreating(false);
       setCreateOpen(false);
       setCreateDraft({ externalKey: '', title: '', summary: '' });
       toast.success(t('workspace.phase1ArtifactCreated'));
@@ -289,25 +269,6 @@ export default function ArtifactListPage({
       queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
       toast.success(t('workspace.phase1ArtifactGateOk', { status: vars?.toStatus || '' }));
       stopInlineEdit();
-    },
-    onError: (err) => toast.error(resolveApiErrorMessage(err)),
-  });
-
-  const bulkMut = useMutation({
-    mutationFn: ({ fromStatus, toStatus, artifactIds }) =>
-      analysisAPI.bulkTransitionArtifacts(projectId, { fromStatus, toStatus, artifactIds }),
-    onSuccess: (res) => {
-      const data = unwrap(res);
-      setSelectedIds(new Set());
-      queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, kind] });
-      queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
-      queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
-      toast.success(
-        t('workspace.phase1BulkTransitionOk', {
-          updated: data?.updated ?? 0,
-          skipped: data?.skipped ?? 0,
-        })
-      );
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
@@ -704,10 +665,7 @@ export default function ArtifactListPage({
 
       <Modal
         isOpen={createOpen}
-        onClose={() => {
-          setCreateOpen(false);
-          setCreating(false);
-        }}
+        onClose={() => setCreateOpen(false)}
         title={t('workspace.phase1CreateArtifact')}
         size="md"
       >
@@ -734,10 +692,7 @@ export default function ArtifactListPage({
             <button
               type="button"
               className="rounded-full border border-[#D9D9D9] bg-white px-4 py-1.5 text-sm"
-              onClick={() => {
-                setCreateOpen(false);
-                setCreating(false);
-              }}
+              onClick={() => setCreateOpen(false)}
             >
               {t('common.cancel')}
             </button>

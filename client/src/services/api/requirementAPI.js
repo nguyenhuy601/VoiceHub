@@ -164,13 +164,6 @@ export const requirementAPI = {
       }
     ),
 
-  confirmAiAnalysis: (organizationId, packId, job, edits = null) =>
-    apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/confirm`,
-      edits != null ? { job, edits } : { job },
-      withOrg(organizationId)
-    ),
-
   /** Gate2 — confirm phase_how (phase-only; no job id). */
   confirmPhaseGate2: (organizationId, packId) =>
     apiClient.post(
