@@ -82,7 +82,40 @@ async function invokeTool(toolName, input, context = {}) {
     err.code = 'TOOL_NO_HANDLER';
     throw err;
   }
-  return tool.execute(input, context);
+
+  const timeoutMs = Math.max(1, Number(tool.timeout) || 30_000);
+  const maxRetries = Math.max(
+    0,
+    Number(tool.retryPolicy?.maxRetries != null ? tool.retryPolicy.maxRetries : 0)
+  );
+
+  let attempt = 0;
+  let lastErr;
+  while (attempt <= maxRetries) {
+    attempt += 1;
+    let timer = null;
+    try {
+      const result = await Promise.race([
+        Promise.resolve(tool.execute(input, context)),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            const err = new Error(`Tool ${toolName} timed out after ${timeoutMs}ms`);
+            err.code = 'TOOL_TIMEOUT';
+            err.timeoutMs = timeoutMs;
+            reject(err);
+          }, timeoutMs);
+          if (typeof timer.unref === 'function') timer.unref();
+        }),
+      ]);
+      if (timer) clearTimeout(timer);
+      return result;
+    } catch (err) {
+      if (timer) clearTimeout(timer);
+      lastErr = err;
+      if (attempt > maxRetries) break;
+    }
+  }
+  throw lastErr;
 }
 
 module.exports = {

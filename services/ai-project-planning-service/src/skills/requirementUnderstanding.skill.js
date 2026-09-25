@@ -3,14 +3,22 @@
  */
 const requirementUnderstandingSkill = {
   skillId: 'requirementUnderstanding',
-  version: '1.0.0',
-  objective: 'Extract structured requirements and ambiguities from Context Package',
+  version: '1.1.0',
+  objective: 'Extract structured requirements, candidate relationships, ambiguities, assumptions',
   methodology: 'projection + structured extract; relationships are candidates until validated',
   outputSchema: {
     type: 'object',
-    required: ['action'],
+    required: ['requirements', 'relationships', 'ambiguities', 'assumptions', 'evidence'],
+    properties: {
+      requirements: { type: 'array' },
+      relationships: { type: 'array' },
+      ambiguities: { type: 'array' },
+      assumptions: { type: 'array' },
+      evidence: { type: 'array' },
+    },
   },
-  constraintInterpretation: 'RULE-06 projection whitelist only',
+  constraintInterpretation:
+    'RULE-06 projection whitelist only; RULE-01 no effort/match/schedule; RULE-10 evidence on claims',
   toolUsagePolicy: {
     maxToolsPerStep: 2,
     requireEvidence: true,

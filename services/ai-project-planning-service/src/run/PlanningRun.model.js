@@ -38,8 +38,13 @@ const planningRunSchema = new mongoose.Schema(
     executionLeaseExpiresAt: { type: Date, default: null, index: true },
     completedAt: { type: Date, default: null },
     error: { type: mongoose.Schema.Types.Mixed, default: null },
-    /** G15 checkpoint — agent state JSON (not run lifecycle) */
+    /**
+     * @deprecated G15 AgentState SoT is Redis (`vh:ai-plan:g15:{runId}`).
+     * Field retained for legacy docs; do not write new checkpoints here.
+     */
     checkpoint: { type: mongoose.Schema.Types.Mixed, default: null },
+    /** Metadata only — last successful G15 Redis save (not AgentState body). */
+    lastCheckpointAt: { type: Date, default: null },
     lastFeedback: { type: mongoose.Schema.Types.Mixed, default: null },
     job: { type: String, default: null, maxlength: 64, index: true },
     activeKey: { type: String, maxlength: 256, index: true, unique: true, sparse: true },

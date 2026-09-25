@@ -17,7 +17,8 @@ const {
   historyOverlapBonus,
   scorePoolItemForTask,
   normalizePoolItemsForMatching,
-} = require('../src/utils/aiAnalysis/aiAnalysisMatching');
+} = require('../../ai-project-planning-service/src/engines/employeeMatching');
+
 
 /** Expected control flags (calendar / employees). */
 const MATRIX = Object.freeze({
@@ -163,13 +164,16 @@ describe('AI phase info-control matrix', () => {
     assert.equal(JOB_PROJECTION_PROFILES.employeeMatching.includeCalendar, false);
   });
 
-  it('audit: scheduleCapacity uses holidays / isWorkingDay', () => {
+  it('audit: scheduleCapacity uses holidays / working-day skip', () => {
     const src = fs.readFileSync(
-      path.join(__dirname, '../src/utils/aiAnalysis/aiAnalysisScheduleCapacity.js'),
+      path.join(
+        __dirname,
+        '../../ai-project-planning-service/src/engines/scheduleCapacity.js'
+      ),
       'utf8'
     );
-    assert.match(src, /function holidayKeySet/);
-    assert.match(src, /function isWorkingDay/);
+    assert.match(src, /function holidaySet/);
+    assert.match(src, /function nextWorkingDay/);
     assert.match(src, /calendar\?\.holidays/);
   });
 });

@@ -51,15 +51,23 @@ function nextWorkingDay(dateKey, calendar) {
   return current;
 }
 
+function isMilestoneTask(task) {
+  const area = String(task?.area || '').toLowerCase();
+  const type = String(task?.type || '').toLowerCase();
+  return area === 'milestone' || type === 'milestone';
+}
+
 function packScheduleCapacity({
   tasks = [],
   edges = [],
   assignments = [],
   projectStart,
+  projectDeadline = null,
   meetingHoursByUserDay = null,
   calendar = null,
 } = {}) {
   const start = nextWorkingDay(toDateKey(projectStart) || toDateKey(new Date()), calendar);
+  const deadlineKey = toDateKey(projectDeadline);
   const taskById = new Map(tasks.map((task) => [String(task.id || task.taskId), task]));
   const assignmentByTask = new Map(assignments.map((item) => [String(item.taskId), item]));
   const { preds } = buildTaskGraph(tasks, edges);
@@ -69,6 +77,7 @@ function packScheduleCapacity({
   const used = new Map();
   const schedule = [];
   const taskDates = {};
+  const capacityConflicts = [];
 
   let guard = 0;
   const maxIterations = pending.size * 40 + 10;
@@ -99,6 +108,16 @@ function packScheduleCapacity({
         );
         const available = Math.max(0, DAILY_CAP_HOURS - meetingHours - (used.get(key) || 0));
         if (!available) {
+          if (remaining > 0) {
+            capacityConflicts.push({
+              type: 'zero_capacity_day',
+              taskId,
+              userId: assignment.userId,
+              dateKey: day,
+              remainingHours: Math.round(remaining * 100) / 100,
+              meetingHours,
+            });
+          }
           day = nextWorkingDay(addDays(day, 1), calendar);
           continue;
         }
@@ -118,6 +137,14 @@ function packScheduleCapacity({
         remaining -= hours;
         if (remaining > 0) day = nextWorkingDay(addDays(day, 1), calendar);
       }
+      if (remaining > 0) {
+        capacityConflicts.push({
+          type: 'unresolved_effort',
+          taskId,
+          userId: assignment.userId,
+          remainingHours: Math.round(remaining * 100) / 100,
+        });
+      }
       if (firstDay) taskDates[taskId] = { startDate: firstDay, dueDate: day };
       finishByTask.set(taskId, day);
       finished.add(taskId);
@@ -127,10 +154,31 @@ function packScheduleCapacity({
     if (!progressed) break;
   }
   const estimatedEnd = [...finishByTask.values()].sort().at(-1) || start;
+  if (deadlineKey && estimatedEnd > deadlineKey) {
+    capacityConflicts.push({
+      type: 'past_deadline',
+      estimatedEnd,
+      deadline: deadlineKey,
+    });
+  }
+
+  const milestones = [];
+  for (const task of tasks) {
+    if (!isMilestoneTask(task)) continue;
+    const tid = String(task.id || task.taskId || '');
+    milestones.push({
+      taskId: tid,
+      name: task.name || task.title || tid,
+      dateKey: taskDates[tid]?.dueDate || toDateKey(task.dueDate) || null,
+    });
+  }
+
   const criticalPath = longestCalendarPath([...taskById.keys()], preds, finishByTask);
   return {
     schedule,
     taskDates,
+    capacityConflicts,
+    milestones,
     completion: {
       projectStart: start,
       estimatedEnd,
@@ -143,8 +191,15 @@ function packScheduleCapacity({
       unassignedTaskIds: [...taskById.keys()].filter((id) => !assignmentByTask.has(id)),
       unresolvedPending: [...pending],
       dailyCapHours: DAILY_CAP_HOURS,
+      deadline: deadlineKey,
     },
-    meta: { source: 'engine', llmCalls: 0, scheduleRowCount: schedule.length },
+    meta: {
+      source: 'engine',
+      llmCalls: 0,
+      scheduleRowCount: schedule.length,
+      capacityConflictCount: capacityConflicts.length,
+      milestoneCount: milestones.length,
+    },
   };
 }
 
@@ -204,6 +259,7 @@ function runScheduleCapacity(container, options = {}) {
       edges: container?.analyses?.dependency?.edges || [],
       assignments,
       projectStart: options.projectStart,
+      projectDeadline: options.projectDeadline || options.deadline || null,
       meetingHoursByUserDay:
         options.meetingHoursByUserDay && typeof options.meetingHoursByUserDay === 'object'
           ? options.meetingHoursByUserDay
@@ -242,6 +298,7 @@ function applyScheduleCapacityToContainer(container, result) {
     planning: {
       ...(container?.planning || {}),
       completion: result.completion,
+      milestones: Array.isArray(result.milestones) ? result.milestones : [],
       tasks: (container?.planning?.tasks || []).map((task) => ({
         ...task,
         startDate:
@@ -254,6 +311,9 @@ function applyScheduleCapacityToContainer(container, result) {
       ...(container?.resource || {}),
       assignments: result.assignments,
       schedule: result.schedule,
+      capacityConflicts: Array.isArray(result.capacityConflicts)
+        ? result.capacityConflicts
+        : [],
     },
   };
   if (result.meta && typeof result.meta === 'object') {
@@ -275,4 +335,5 @@ module.exports = {
   applyScheduleCapacityToContainer,
   utcNoon,
   nextWeekday: nextWorkingDay,
+  holidaySet,
 };

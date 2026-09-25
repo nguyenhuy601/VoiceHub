@@ -118,6 +118,24 @@ export default function ArtifactDetailPanel({
           <div className="flex flex-wrap items-center gap-1.5">
             <span className={kindChipClass(kind)}>{kind}</span>
             <p className="font-mono text-[11px] text-muted-foreground">{artifact?.externalKey}</p>
+            {Array.isArray(artifact?.structured?.evidenceIds) &&
+            artifact.structured.evidenceIds.length > 0 ? (
+              <span
+                className="rounded border border-emerald-600/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-900 dark:text-emerald-100"
+                title={artifact.structured.evidenceIds.join(', ')}
+              >
+                {t('requirements.phase1HasEvidence') || 'Có evidence'}
+              </span>
+            ) : null}
+            {artifact?.structured?.groundingStatus === 'fail' ? (
+              <span className="rounded border border-amber-600/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-950 dark:text-amber-100">
+                {t('requirements.phase1Ungrounded') || 'Ungrounded'}
+              </span>
+            ) : artifact?.structured?.groundingStatus === 'pass' ? (
+              <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {t('requirements.phase1Grounded') || 'Grounded'}
+              </span>
+            ) : null}
           </div>
           <h2 className="truncate text-sm font-semibold">{form.top.title || artifact?.title}</h2>
           <span

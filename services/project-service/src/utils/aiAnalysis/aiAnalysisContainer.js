@@ -12,7 +12,7 @@ const {
   previousUserJob,
   userJobsAfter,
 } = require('../../constants/aiAnalysisJobs.constants');
-const { buildRequirementAnalysisGapPreview } = require('./aiAnalysisGap');
+const { buildRequirementAnalysisGapPreview } = require('./gapPreview');
 const {
   migrateAiAnalysisJobsV1ToV2,
   needsJobMigration,
@@ -134,10 +134,6 @@ function emptyResourceShell() {
 }
 
 function createEmptyAiAnalysisContainer() {
-  const jobs = {};
-  for (const key of AI_ANALYSIS_ALL_JOB_KEYS) {
-    jobs[key] = emptyJobMeta();
-  }
   const analyses = {};
   for (const key of AI_ANALYSIS_SECTION_KEYS) {
     analyses[key] = key === 'hierarchy' ? emptyHierarchySection() : emptyAnalysisSection();
@@ -145,11 +141,10 @@ function createEmptyAiAnalysisContainer() {
   return {
     schemaVersion: AI_ANALYSIS_SCHEMA_VERSION,
     generatedAt: null,
-    currentJob: null,
-    jobs,
     analyses,
     planning: emptyPlanningShell(),
     resource: emptyResourceShell(),
+    phaseRuns: {},
   };
 }
 
@@ -217,21 +212,23 @@ function normalizeEmptyCapabilityReady(container) {
 }
 
 function ensureAiAnalysisContainer(raw) {
+  const { migrateJobsProjectionToPhaseRuns } = require('./phaseGate2');
   const base = createEmptyAiAnalysisContainer();
-  if (!raw || typeof raw !== 'object') return base;
-
-  let working = raw;
-  if (needsJobMigration(raw)) {
-    const { jobs: migratedJobs } = migrateAiAnalysisJobsV1ToV2(raw.jobs || {});
-    working = { ...raw, jobs: migratedJobs, schemaVersion: AI_ANALYSIS_SCHEMA_VERSION };
+  if (!raw || typeof raw !== 'object') {
+    return {
+      ...base,
+      ingestionRunId: require('crypto').randomUUID(),
+    };
   }
 
-  const jobs = { ...base.jobs };
-  for (const key of AI_ANALYSIS_ALL_JOB_KEYS) {
-    const src = working.jobs?.[key];
-    if (src && typeof src === 'object') {
-      jobs[key] = normalizeJobMeta(src);
-    }
+  let working = migrateJobsProjectionToPhaseRuns({ ...raw });
+  if (needsJobMigration(raw) && raw.jobs) {
+    const { jobs: migratedJobs } = migrateAiAnalysisJobsV1ToV2(raw.jobs || {});
+    working = migrateJobsProjectionToPhaseRuns({
+      ...raw,
+      jobs: migratedJobs,
+      schemaVersion: AI_ANALYSIS_SCHEMA_VERSION,
+    });
   }
 
   const analyses = { ...base.analyses };
@@ -257,7 +254,6 @@ function ensureAiAnalysisContainer(raw) {
     }
   }
 
-  // Additive Recipe tools shell (Group A) — whitelist, not in SECTION_KEYS
   const rtSrc = working.analyses?.requirementTools;
   if (rtSrc && typeof rtSrc === 'object') {
     analyses.requirementTools = {
@@ -271,7 +267,6 @@ function ensureAiAnalysisContainer(raw) {
     };
   }
 
-  // Additive Phase 1 AI Context projection (optional persist)
   const ctxSrc = working.analyses?.requirementAiContext;
   if (ctxSrc && typeof ctxSrc === 'object') {
     analyses.requirementAiContext = {
@@ -292,7 +287,6 @@ function ensureAiAnalysisContainer(raw) {
     };
   }
 
-  // Additive Phase 1 Insights / Proposed SRS / Pre-approval
   const insightsSrc = working.analyses?.requirementInsights;
   if (insightsSrc && typeof insightsSrc === 'object') {
     analyses.requirementInsights = insightsSrc;
@@ -305,15 +299,17 @@ function ensureAiAnalysisContainer(raw) {
   if (preSrc && typeof preSrc === 'object') {
     analyses.preApproval = preSrc;
   }
+  const g4Src = working.analyses?.g4Understanding;
+  if (g4Src && typeof g4Src === 'object') {
+    analyses.g4Understanding = g4Src;
+  }
 
   const planningSrc = working.planning && typeof working.planning === 'object' ? working.planning : {};
   const resourceSrc = working.resource && typeof working.resource === 'object' ? working.resource : {};
 
-  const built = {
+  const out = {
     schemaVersion: AI_ANALYSIS_SCHEMA_VERSION,
     generatedAt: working.generatedAt ?? null,
-    currentJob: working.currentJob ?? null,
-    jobs,
     analyses,
     planning: {
       wbs: planningSrc.wbs ?? null,
@@ -341,9 +337,24 @@ function ensureAiAnalysisContainer(raw) {
           : {},
       schedule: Array.isArray(resourceSrc.schedule) ? resourceSrc.schedule : [],
     },
+    phaseRuns:
+      working.phaseRuns && typeof working.phaseRuns === 'object' ? working.phaseRuns : {},
   };
 
-  return normalizeEmptyCapabilityReady(built).container;
+  // G3 / G6 thin fields — preserve if present; stamp ingestion once
+  if (working.ingestionRunId != null && String(working.ingestionRunId).trim()) {
+    out.ingestionRunId = String(working.ingestionRunId).trim();
+  } else {
+    out.ingestionRunId = require('crypto').randomUUID();
+  }
+  if (working.approvedSrsVersion != null && String(working.approvedSrsVersion).trim()) {
+    out.approvedSrsVersion = String(working.approvedSrsVersion).trim();
+  }
+  if (working.intakeCorpus != null) out.intakeCorpus = working.intakeCorpus;
+  if (working.inputDocuments != null) out.inputDocuments = working.inputDocuments;
+  if (working.gate1Override != null) out.gate1Override = working.gate1Override;
+
+  return out;
 }
 
 function assertSchemaVersionPresent(container) {
@@ -408,42 +419,15 @@ function assertJobNotConfirmedForRerun(container, job, opts = {}) {
   throw err;
 }
 
-function markJobsStaleAfter(container, job) {
-  const next = ensureAiAnalysisContainer(container);
-  for (const key of userJobsAfter(job)) {
-    const st = next.jobs[key].status;
-    if (st === 'empty') continue;
-    next.jobs[key] = {
-      ...next.jobs[key],
-      status: 'stale',
-      error: null,
-    };
-  }
-  for (const key of ['final']) {
-    if (next.jobs[key] && next.jobs[key].status !== 'empty') {
-      next.jobs[key] = { ...next.jobs[key], status: 'stale', error: null };
-    }
-  }
-  return next;
+function markJobsStaleAfter(container) {
+  return ensureAiAnalysisContainer(container);
 }
 
 function summarizeAiAnalysis(container) {
   const c = ensureAiAnalysisContainer(container);
-  const jobs = {};
-  for (const key of AI_ANALYSIS_ALL_JOB_KEYS) {
-    const meta = c.jobs[key];
-    jobs[key] = {
-      status: meta.status,
-      generatedAt: meta.generatedAt ?? null,
-      confirmedAt: meta.confirmedAt ?? null,
-      durationMs: meta.durationMs ?? null,
-      error: meta.error ?? null,
-    };
-  }
   return {
     schemaVersion: c.schemaVersion,
-    currentJob: c.currentJob,
-    jobs,
+    phaseRuns: c.phaseRuns || {},
     phase1: {
       requirementInsights: c.analyses?.requirementInsights
         ? {
@@ -479,50 +463,11 @@ function summarizeAiAnalysis(container) {
  * Allowlisted wizard DTO per job — no full FR / no sibling job payloads.
  */
 function buildWizardJobDto(container, job) {
-  const c = ensureAiAnalysisContainer(container);
-  if (!isAiAnalysisUserJob(job)) {
-    const err = new Error(`Unknown AI Analysis job: ${job}`);
-    err.statusCode = 400;
-    err.errorCode = 'AI_ANALYSIS_INVALID_JOB';
-    throw err;
-  }
-  const meta = c.jobs[job];
-  const map = AI_ANALYSIS_JOB_OUTPUT_MAP[job] || {};
-  const dto = {
-    job,
-    status: meta.status,
-    model: meta.model,
-    generatedAt: meta.generatedAt,
-    confirmedAt: meta.confirmedAt,
-    durationMs: meta.durationMs ?? null,
-    error: meta.error,
-    schemaVersion: c.schemaVersion,
-  };
-
-  if (map.analyses) {
-    dto.analyses = {};
-    for (const key of map.analyses) {
-      dto.analyses[key] = c.analyses[key];
-    }
-  }
-  if (map.planning) {
-    dto.planning = {};
-    for (const key of map.planning) {
-      dto.planning[key] = c.planning[key];
-    }
-  }
-  if (map.resource) {
-    dto.resource = {};
-    for (const key of map.resource) {
-      dto.resource[key] = c.resource[key];
-    }
-  }
-
-  if (job === 'requirementAnalysis') {
-    dto.preview = buildRequirementAnalysisGapPreview(c.analyses.gap);
-  }
-
-  return dto;
+  const err = new Error('Wizard per-job DTO removed — use phase summary / phaseRuns');
+  err.statusCode = 410;
+  err.errorCode = 'JOB_BY_JOB_REMOVED';
+  err.details = { job };
+  throw err;
 }
 
 /**

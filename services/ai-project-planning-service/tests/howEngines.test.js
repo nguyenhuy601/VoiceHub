@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { runHowJob } = require('../src/engines/howJobRunner');
+const { runToolsSequence } = require('../src/orchestration/runToolsSequence');
 const { runSequencingCpm } = require('../src/engines/sequencingCpm');
 const {
   historyOverlapBonus,
@@ -13,7 +13,6 @@ const {
 
 function baseContainer() {
   return {
-    jobs: {},
     planning: {
       tasks: [
         { id: 'A', name: 'API', suggestedRoleKey: 'backend', effortHours: 8 },
@@ -31,15 +30,16 @@ function baseContainer() {
 }
 
 describe('deterministic HOW engines', () => {
-  it('effort runner updates tasks, rollup and evidence', async () => {
-    const output = await runHowJob({
-      job: 'effortRoleAnalysis',
-      container: baseContainer(),
-      snapshotId: 'snap-1',
-    });
-    assert.equal(output.container.jobs.effortRoleAnalysis.status, 'ready');
+  it('effort tool updates tasks and rollup without jobs shells', async () => {
+    const output = await runToolsSequence(
+      [{ toolName: 'EffortTool', autoConfirm: false }],
+      {
+        container: baseContainer(),
+        snapshotId: 'snap-1',
+      }
+    );
+    assert.equal(output.container.jobs, undefined);
     assert.ok(output.container.planning.effort.estimatedHoursTotal > 0);
-    assert.equal(output.evidence[0].snapshotId, 'snap-1');
   });
 
   it('CPM preserves dependency semantics and critical path', () => {
@@ -61,9 +61,17 @@ describe('deterministic HOW engines', () => {
       poolItems: [
         { userId: 'free', jobTitle: 'backend', capacityRemaining: 1 },
         { userId: 'busy', maxConcurrentProjects: 1, activeProjectCount: 1 },
+        { userId: 'excluded', jobTitle: 'backend', capacityRemaining: 1 },
+        { userId: 'overloaded', jobTitle: 'backend', capacityRemaining: 0.1 },
       ],
+      constraints: { excludeEmployeeIds: ['excluded'] },
     });
     assert.equal(result.meta.filteredProjectCap, 2);
+    assert.equal(result.recommendations[0].shortlist.some((s) => s.userId === 'excluded'), false);
+    const overloaded = result.recommendations[0].shortlist.find((s) => s.userId === 'overloaded');
+    assert.ok(overloaded);
+    assert.equal(overloaded.overload, true);
+    assert.ok(Number.isFinite(overloaded.available_capacity));
     assert.equal(result.recommendations[0].shortlist[0].userId, 'free');
   });
 
@@ -87,7 +95,7 @@ describe('deterministic HOW engines', () => {
     assert.equal(packed.taskDates.B.startDate, '2026-09-09');
   });
 
-  it('runs the production scheduleCapacity branch with nullable meeting input', async () => {
+  it('runs the production ScheduleTool with nullable meeting input', async () => {
     const container = baseContainer();
     container.resource.recommendations = [
       {
@@ -99,17 +107,16 @@ describe('deterministic HOW engines', () => {
         shortlist: [{ userId: 'u2', score: 1 }],
       },
     ];
-    const output = await runHowJob({
-      job: 'scheduleCapacity',
-      container,
-      toolData: { meetingHoursByUserDay: null },
-      snapshotId: 'snap-schedule',
-    });
-    assert.equal(output.container.jobs.scheduleCapacity.status, 'ready');
-    assert.ok(output.container.resource.schedule.length > 0);
-    assert.equal(
-      typeof output.container.jobs.scheduleCapacity.durationMs,
-      'number'
+    const output = await runToolsSequence(
+      [{ toolName: 'ScheduleTool', autoConfirm: false }],
+      {
+        container,
+        pack: { overview: { startDate: '2026-09-07' } },
+        toolData: { meetingHoursByUserDay: null },
+        snapshotId: 'snap-schedule',
+      }
     );
+    assert.equal(output.container.jobs, undefined);
+    assert.ok(output.container.resource.schedule.length > 0);
   });
 });

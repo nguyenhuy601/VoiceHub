@@ -107,6 +107,30 @@ export const requirementAPI = {
       }
     ),
 
+  createIntakeDraft: (organizationId, body = {}) =>
+    apiClient.post('/projects/requirements/intake-draft', body, withOrg(organizationId)),
+
+  listPackCustomerDocuments: (organizationId, packId) =>
+    apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/customer-documents`,
+      withOrg(organizationId)
+    ),
+
+  uploadPackCustomerDocument: (organizationId, packId, file, { docClass, notes } = {}) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (docClass) form.append('docClass', docClass);
+    if (notes) form.append('notes', notes);
+    return apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/customer-documents`,
+      form,
+      {
+        ...withOrg(organizationId),
+        headers: { 'Content-Type': 'multipart/form-data' },
+      }
+    );
+  },
+
   getAiAnalysis: (organizationId, packId, params = {}) =>
     apiClient.get(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,
@@ -129,12 +153,13 @@ export const requirementAPI = {
       withOrg(organizationId)
     ),
 
-  runAiAnalysis: (organizationId, packId, job, options = {}) =>
+  startPhaseAiPlanning: (organizationId, packId, body = {}, options = {}) =>
     apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/run`,
-      { job, ...(options.force ? { force: true } : {}) },
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/phase-run`,
+      body,
       {
         ...withOrg(organizationId),
+        // Stage2 G4 remote / HOW phase-run (5m).
         timeout: options.timeout ?? 300000,
       }
     ),
@@ -143,6 +168,14 @@ export const requirementAPI = {
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/confirm`,
       edits != null ? { job, edits } : { job },
+      withOrg(organizationId)
+    ),
+
+  /** Gate2 — confirm phase_how (phase-only; no job id). */
+  confirmPhaseGate2: (organizationId, packId) =>
+    apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/confirm`,
+      { phase: 'how' },
       withOrg(organizationId)
     ),
 
@@ -169,31 +202,4 @@ export const requirementAPI = {
       })
     );
   },
-
-  runAiAnalysisJob: (organizationId, packId, jobId, options = {}) =>
-    apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/jobs/${encodeURIComponent(jobId)}/run`,
-      { force: Boolean(options.force) },
-      {
-        ...withOrg(organizationId),
-        timeout: options.timeout ?? 300000,
-      }
-    ),
-
-  confirmAiAnalysisJob: (organizationId, packId, jobId) =>
-    apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/jobs/${encodeURIComponent(jobId)}/confirm`,
-      {},
-      withOrg(organizationId)
-    ),
-
-  exportAiAnalysisSheet11: (organizationId, packId) =>
-    apiClient.get(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/export`,
-      {
-        ...withOrg(organizationId),
-        responseType: 'blob',
-        skipGlobalErrorHandling: true,
-      }
-    ),
 };

@@ -6,7 +6,7 @@ import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
-import { isProjectCompletedStatus, resolveHubCapabilities } from './hubCaps';
+import { isProjectCompletedStatus, isProjectDraftStatus, resolveHubCapabilities } from './hubCaps';
 import { resolveOverviewVisibility } from './overviewVisibility';
 import ProjectHubMembersPanel from './ProjectHubMembersPanel';
 import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
@@ -1068,6 +1068,7 @@ export default function ProjectHubShell({
   const isProjectCompleted = isProjectCompletedStatus(
     projectPayload?.status || resolvedBoard?.status
   );
+  const isDraftProject = isProjectDraftStatus(projectPayload?.status || resolvedBoard?.status);
   const workLooksComplete = summary.total > 0 && summary.donePercent === 100;
   const informationLevel = String(
     projectPayload?.access?.informationLevel ||
@@ -1547,15 +1548,27 @@ export default function ProjectHubShell({
         <button
           type="button"
           onClick={() => setArchiveProjectOpen(true)}
-          title={t('workspace.projectHubArchiveProject')}
+          title={
+            isDraftProject
+              ? t('workspace.projectHubDeleteDraft')
+              : t('workspace.projectHubArchiveProject')
+          }
           className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
             isDarkMode
               ? 'border-rose-400/50 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25'
               : 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
           }`}
         >
-          <span className="hidden sm:inline">{t('workspace.projectHubArchiveProject')}</span>
-          <span className="sm:hidden">{t('workspace.projectHubArchiveProjectShort')}</span>
+          <span className="hidden sm:inline">
+            {isDraftProject
+              ? t('workspace.projectHubDeleteDraft')
+              : t('workspace.projectHubArchiveProject')}
+          </span>
+          <span className="sm:hidden">
+            {isDraftProject
+              ? t('workspace.projectHubDeleteDraftShort')
+              : t('workspace.projectHubArchiveProjectShort')}
+          </span>
         </button>
       ) : null}
       {tab === 'board' && hubCaps?.canManageSprints && activeSprint?._id ? (
@@ -2046,6 +2059,7 @@ export default function ProjectHubShell({
             canArchiveProject={Boolean(hubCaps.canArchiveProject)}
             canArchiveWithoutComplete={Boolean(hubCaps.canArchiveWithoutComplete)}
             isProjectCompleted={isProjectCompleted}
+            isDraftProject={isDraftProject}
             projectStillActive={projectStillActive}
             onRequestArchive={() => setArchiveProjectOpen(true)}
             isDarkMode={isDarkMode}
@@ -2096,10 +2110,17 @@ export default function ProjectHubShell({
           isOpen={archiveProjectOpen}
           projectId={projectId}
           projectTitle={resolvedBoard?.title || projectPayload?.title || ''}
-          earlyArchive={!isProjectCompleted && Boolean(hubCaps.canArchiveWithoutComplete)}
+          draftDelete={isDraftProject}
+          earlyArchive={
+            !isDraftProject && !isProjectCompleted && Boolean(hubCaps.canArchiveWithoutComplete)
+          }
           onClose={() => setArchiveProjectOpen(false)}
           onArchived={() => {
-            toast.success(t('workspace.projectHubArchiveSuccess'));
+            toast.success(
+              isDraftProject
+                ? t('workspace.projectHubDeleteDraftSuccess')
+                : t('workspace.projectHubArchiveSuccess')
+            );
             setArchiveProjectOpen(false);
             onBack?.();
           }}

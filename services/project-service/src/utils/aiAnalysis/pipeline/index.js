@@ -16,4 +16,5 @@ module.exports = {
   ...require('./jobFilters'),
   ...require('./splitContext'),
   ...require('./buildPipeline'),
+  ...require('./buildPhaseToolData'),
 };

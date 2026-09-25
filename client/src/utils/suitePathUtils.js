@@ -266,8 +266,12 @@ export function buildProjectsModulePath(projectId, module = 'overview', query = 
   // organizationId is resolved client-side from project payload / storage — do not write to module URLs.
   const boardId = String(query?.boardId || '').trim();
   const channelId = String(query?.channelId || '').trim();
+  const packId = String(query?.packId || '').trim();
+  const startWhat = String(query?.startWhat || '').trim();
   if (boardId) params.set('boardId', boardId);
   if (channelId) params.set('channelId', channelId);
+  if (packId) params.set('packId', packId);
+  if (startWhat) params.set('startWhat', startWhat);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
@@ -350,7 +354,11 @@ export function buildCollaborateRequirementsPath(orgId = '', query = {}) {
   if (projectId) {
     return buildProjectsModulePath(projectId, 'requirements', { organizationId: orgId });
   }
-  return appendOrgQuery('/app/projects/requirements', orgId);
+  const base = appendOrgQuery('/app/projects/requirements', orgId);
+  const packId = String(query?.packId || '').trim();
+  if (!packId) return base;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}packId=${encodeURIComponent(packId)}`;
 }
 
 export function buildCollaborateOrgNotificationsPath(orgId = '') {

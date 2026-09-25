@@ -8,6 +8,7 @@ export default function ProjectHubArchiveProjectModal({
   isOpen,
   projectId,
   projectTitle = '',
+  draftDelete = false,
   earlyArchive = false,
   onClose,
   onArchived,
@@ -28,7 +29,9 @@ export default function ProjectHubArchiveProjectModal({
       setError(
         resolveApiErrorMessage(err, {
           t,
-          fallback: t('workspace.projectHubArchiveFail'),
+          fallback: draftDelete
+            ? t('workspace.projectHubDeleteDraftFail')
+            : t('workspace.projectHubArchiveFail'),
         })
       );
     } finally {
@@ -36,15 +39,35 @@ export default function ProjectHubArchiveProjectModal({
     }
   };
 
-  const confirmText = earlyArchive
-    ? t('workspace.projectHubArchiveEarlyConfirm', { title: projectTitle || '—' })
-    : t('workspace.projectHubArchiveProjectConfirm', { title: projectTitle || '—' });
+  const confirmText = draftDelete
+    ? t('workspace.projectHubDeleteDraftConfirm', { title: projectTitle || '—' })
+    : earlyArchive
+      ? t('workspace.projectHubArchiveEarlyConfirm', { title: projectTitle || '—' })
+      : t('workspace.projectHubArchiveProjectConfirm', { title: projectTitle || '—' });
+
+  const hintText = draftDelete
+    ? t('workspace.projectHubDeleteDraftHint')
+    : earlyArchive
+      ? t('workspace.projectHubArchiveEarlyHint')
+      : t('workspace.projectHubArchiveProjectHint');
+
+  const modalTitle = draftDelete
+    ? t('workspace.projectHubDeleteDraftModalTitle')
+    : t('workspace.projectHubArchiveProjectModalTitle');
+
+  const submitLabel = submitting
+    ? draftDelete
+      ? t('workspace.projectHubDeleteDraftSubmitting')
+      : t('workspace.projectHubArchiveProjectSubmitting')
+    : draftDelete
+      ? t('workspace.projectHubDeleteDraftSubmit')
+      : t('workspace.projectHubArchiveProjectSubmit');
 
   return (
     <Modal
       isOpen={Boolean(isOpen)}
       onClose={onClose}
-      title={t('workspace.projectHubArchiveProjectModalTitle')}
+      title={modalTitle}
       size="md"
       footer={
         <>
@@ -62,18 +85,14 @@ export default function ProjectHubArchiveProjectModal({
             disabled={submitting || !pid}
             className="rounded-lg bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
           >
-            {submitting ? t('workspace.projectHubArchiveProjectSubmitting') : t('workspace.projectHubArchiveProjectSubmit')}
+            {submitLabel}
           </button>
         </>
       }
     >
       <div className="space-y-3">
         <p className="text-sm text-foreground">{confirmText}</p>
-        {earlyArchive ? (
-          <p className="text-xs text-muted-foreground">{t('workspace.projectHubArchiveEarlyHint')}</p>
-        ) : (
-          <p className="text-xs text-muted-foreground">{t('workspace.projectHubArchiveProjectHint')}</p>
-        )}
+        <p className="text-xs text-muted-foreground">{hintText}</p>
         {error ? (
           <p className="text-sm text-destructive" role="alert">
             {error}

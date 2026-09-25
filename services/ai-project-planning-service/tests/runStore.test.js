@@ -32,7 +32,7 @@ describe('run binds snapshotId', () => {
             snapshotId: 'snap-1',
             packId: 'pack-1',
             organizationId: 'org-1',
-            job: 'sequencingCpm',
+            job: 'phase_how',
             input: { container: {} },
           }),
         (error) => error.code === 'ACTIVE_RUN_EXISTS'

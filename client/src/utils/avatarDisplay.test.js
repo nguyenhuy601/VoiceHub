@@ -19,9 +19,10 @@ describe('avatarDisplay sync helpers', () => {
     assert.equal(needsAuthenticatedAvatarFetch('/uploads/x.png', 'u1'), true);
   });
 
-  it('không userId: chỉ fetch khi uploads path', () => {
+  it('không userId: chỉ fetch khi uploads path hoặc MinIO key', () => {
     assert.equal(needsAuthenticatedAvatarFetch(null, null), false);
     assert.equal(needsAuthenticatedAvatarFetch('/uploads/x.png', null), true);
+    assert.equal(needsAuthenticatedAvatarFetch('users/u1/avatars/1.jpg', null), true);
     assert.equal(needsAuthenticatedAvatarFetch('https://cdn.example/a.png', null), false);
   });
 

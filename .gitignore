@@ -17,8 +17,12 @@ pnpm-lock.yaml
 devops/nginx/certs/cf-origin.pem
 devops/nginx/certs/cf-origin-key.pem
 
-# Ignore local docs/scripts in this workspace
-docs/
+# Ignore local docs/scripts in this workspace (keep SoT docs tracked)
+docs/*
+!docs/ARCHITECTURE.md
+!docs/MIGRATION.md
+!docs/STRUCTURE.md
+!docs/LICENSE
 scripts/
 
 # ========================

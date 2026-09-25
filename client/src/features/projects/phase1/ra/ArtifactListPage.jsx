@@ -25,6 +25,13 @@ function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
+const ARTIFACT_NEXT_MAP = {
+  draft: 'ba_review',
+  ba_review: 'tech_review',
+  tech_review: 'po_review',
+  po_review: 'approved',
+};
+
 /**
  * Shared list + split detail for AnalysisArtifact kinds (desktop list|pane, mobile sheet).
  */
@@ -44,6 +51,7 @@ export default function ArtifactListPage({
   const [filter, setFilter] = useState('');
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState({ externalKey: '', title: '', summary: '' });
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const createPaneRef = useRef(null);
 
   const canEdit = capabilities.canEditAnalysis && !readOnly;
@@ -202,6 +210,25 @@ export default function ArtifactListPage({
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
 
+  const bulkMut = useMutation({
+    mutationFn: ({ fromStatus, toStatus, artifactIds }) =>
+      analysisAPI.bulkTransitionArtifacts(projectId, { fromStatus, toStatus, artifactIds }),
+    onSuccess: (res) => {
+      const data = unwrap(res);
+      setSelectedIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, kind] });
+      queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
+      queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
+      toast.success(
+        t('workspace.phase1BulkTransitionOk', {
+          updated: data?.updated ?? 0,
+          skipped: data?.skipped ?? 0,
+        })
+      );
+    },
+    onError: (err) => toast.error(resolveApiErrorMessage(err)),
+  });
+
   const selectedNext = useMemo(() => {
     const st = String(selected?.status || '').toLowerCase();
     const step = ARTIFACT_NEXT[st];
@@ -252,6 +279,59 @@ export default function ArtifactListPage({
   }, [filtered, layout]);
 
   const columns = useMemo(() => getArtifactListColumns(kind), [kind]);
+
+  const visibleRows = layout === 'tree' ? treeRows : filtered;
+
+  const selectedRows = useMemo(() => {
+    return rows.filter((r) => selectedIds.has(String(r.id || r._id)));
+  }, [rows, selectedIds]);
+
+  const selectionMeta = useMemo(() => {
+    if (!selectedRows.length) {
+      return { ok: false, fromStatus: '', toStatus: null, allow: false };
+    }
+    const statuses = new Set(
+      selectedRows.map((r) => String(r.status || '').toLowerCase())
+    );
+    if (statuses.size !== 1) {
+      return { ok: false, fromStatus: '', toStatus: null, allow: false, mixed: true };
+    }
+    const fromStatus = [...statuses][0];
+    const toStatus = ARTIFACT_NEXT_MAP[fromStatus] || null;
+    const step = toStatus ? ARTIFACT_NEXT[fromStatus] : null;
+    return {
+      ok: Boolean(toStatus && step?.allow),
+      fromStatus,
+      toStatus,
+      allow: Boolean(step?.allow),
+      mixed: false,
+    };
+  }, [selectedRows, ARTIFACT_NEXT]);
+
+  const allVisibleSelected =
+    visibleRows.length > 0 &&
+    visibleRows.every((r) => selectedIds.has(String(r.id || r._id)));
+
+  const toggleSelect = useCallback((id, checked) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAllVisible = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const r of visibleRows) next.delete(String(r.id || r._id));
+      } else {
+        for (const r of visibleRows) next.add(String(r.id || r._id));
+      }
+      return next;
+    });
+  }, [allVisibleSelected, visibleRows]);
 
   useEffect(() => {
     if (creating) createPaneRef.current?.querySelector('input')?.focus();
@@ -345,6 +425,40 @@ export default function ArtifactListPage({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
+          {selectedIds.size > 0 ? (
+            <>
+              <button
+                type="button"
+                className="rounded-lg border border-border px-2.5 py-1 text-sm"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                {t('workspace.phase1ClearSelection')}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-primary px-2.5 py-1 text-sm font-medium text-primary-foreground disabled:opacity-40"
+                disabled={!selectionMeta.ok || bulkMut.isPending}
+                title={
+                  selectionMeta.mixed
+                    ? t('workspace.phase1BulkNeedSameStatus')
+                    : undefined
+                }
+                onClick={() => {
+                  if (!selectionMeta.ok) {
+                    toast.error(t('workspace.phase1BulkNeedSameStatus'));
+                    return;
+                  }
+                  bulkMut.mutate({
+                    fromStatus: selectionMeta.fromStatus,
+                    toStatus: selectionMeta.toStatus,
+                    artifactIds: [...selectedIds],
+                  });
+                }}
+              >
+                {t('workspace.phase1BulkSendSelected', { count: selectedIds.size })}
+              </button>
+            </>
+          ) : null}
           {canEdit ? (
             <button
               type="button"
@@ -373,6 +487,15 @@ export default function ArtifactListPage({
         <table className={PHASE1_TABLE}>
           <thead className="sticky top-0 z-10">
             <tr>
+              <th className={`${PHASE1_TH} w-10`}>
+                <input
+                  type="checkbox"
+                  aria-label={t('workspace.phase1SelectAllVisible')}
+                  checked={allVisibleSelected}
+                  onChange={toggleSelectAllVisible}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </th>
               {columns.map((col) => (
                 <th key={col.id} className={PHASE1_TH}>
                   {t(col.labelKey)}
@@ -381,15 +504,27 @@ export default function ArtifactListPage({
             </tr>
           </thead>
           <tbody>
-            {(layout === 'tree' ? treeRows : filtered).map((row) => {
+            {visibleRows.map((row) => {
               const id = String(row.id || row._id);
               const selected = id === selectedId && !creating;
+              const checked = selectedIds.has(id);
               return (
                 <tr
                   key={id}
                   className={`${PHASE1_DENSE_ROW} ${selected ? PHASE1_DENSE_ROW_SELECTED : ''}`}
                   onClick={() => openArtifact(id)}
                 >
+                  <td
+                    className={`${PHASE1_TD} w-10`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => toggleSelect(id, e.target.checked)}
+                      aria-label={row.externalKey || id}
+                    />
+                  </td>
                   {columns.map((col) => {
                     const full = col.getValue(row);
                     const display = col.isStatus ? full : truncateCell(full);
@@ -419,7 +554,7 @@ export default function ArtifactListPage({
             {!isLoading && filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={columns.length}
+                  colSpan={columns.length + 1}
                   className={`${PHASE1_TD} py-8 text-center text-muted-foreground`}
                 >
                   {t('workspace.phase1EmptyArtifacts')}

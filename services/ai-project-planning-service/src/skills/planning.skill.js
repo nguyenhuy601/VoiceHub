@@ -3,7 +3,7 @@
  */
 const planningSkill = {
   skillId: 'planning',
-  version: '1.0.0',
+  version: '1.1.0',
   objective: 'Select and interpret planning tools for WBS/assignment/schedule',
   methodology: 'tool-mediated; no direct business DB',
   outputSchema: {
@@ -18,9 +18,17 @@ const planningSkill = {
   allowedToolNames: [
     'EmployeeMatchingTool',
     'EffortTool',
+    'SequencingTool',
     'ScheduleTool',
     'ArchitectureTool',
     'RiskTool',
+    'WbsTool',
+    'DependencyTool',
+    'ProjectPlanTool',
+    'HierarchyTool',
+    'CapabilityTool',
+    'InsightsTool',
+    'RequirementAnalysisTool',
   ],
 };
 

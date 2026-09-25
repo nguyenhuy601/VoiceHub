@@ -150,6 +150,8 @@ export function buildPhase1ModulePath(projectId, pathSeg, query = {}) {
   // organizationId omitted from Phase 1 module URLs (resolve via project hub payload).
   const boardId = String(query.boardId || '').trim();
   if (boardId) params.set('boardId', boardId);
+  const packId = String(query.packId || '').trim();
+  if (packId) params.set('packId', packId);
   const artifact = String(query.artifact || query.artifactId || '').trim();
   if (artifact) params.set('artifact', artifact);
   const qs = params.toString();

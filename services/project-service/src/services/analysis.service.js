@@ -134,6 +134,7 @@ async function createCustomerDocument({
   const doc = await CustomerDocument.create({
     organizationId: project.organizationId,
     projectId,
+    packId: null,
     filename: filename.slice(0, 260),
     mimeType: resolvedMime,
     storageKey,
@@ -143,6 +144,134 @@ async function createCustomerDocument({
     uploadedBy: userId,
   });
   return serializeDoc(doc);
+}
+
+/**
+ * Pack-scoped upload (HITL before Project board).
+ */
+async function createCustomerDocumentForPack({
+  userId,
+  organizationId,
+  packId,
+  body = {},
+  fileBuffer = null,
+  fileName = null,
+  mimeType = null,
+  sizeBytes = null,
+}) {
+  const {
+    assertRequirementImportOrCreateProjectScope,
+  } = require('./requirementAccess.service');
+  const RequirementPack = require('../models/RequirementPack');
+
+  await assertRequirementImportOrCreateProjectScope({ userId, organizationId });
+
+  const pack = await RequirementPack.findOne({
+    _id: packId,
+    organizationId,
+    isActive: true,
+  }).lean();
+  if (!pack) {
+    const err = new Error('Requirement pack không tồn tại');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const hasBinary = Buffer.isBuffer(fileBuffer) && fileBuffer.length > 0;
+  const filename = String(fileName || body.filename || '').trim();
+  if (!filename) {
+    const err = new Error('filename là bắt buộc');
+    err.statusCode = 400;
+    throw err;
+  }
+  const docClass = CUSTOMER_DOC_CLASSES.includes(String(body.docClass || '').trim())
+    ? String(body.docClass).trim()
+    : 'other';
+
+  let storageKey = String(body.storageKey || '').trim().slice(0, 512);
+  let resolvedMime = String(mimeType || body.mimeType || '').trim().slice(0, 120);
+  let resolvedSize =
+    sizeBytes != null
+      ? Number(sizeBytes)
+      : body.sizeBytes != null
+        ? Number(body.sizeBytes)
+        : null;
+
+  if (hasBinary) {
+    if (!objectStorage.isEnabled()) {
+      const err = new Error('Object storage (MinIO) chưa được cấu hình');
+      err.statusCode = 503;
+      err.errorCode = 'STORAGE_NOT_CONFIGURED';
+      throw err;
+    }
+    storageKey = buildCustomerDocumentStoragePath({
+      packId,
+      docClass,
+      filename,
+    });
+    await objectStorage.putObject(
+      storageKey,
+      fileBuffer,
+      resolvedMime || 'application/octet-stream'
+    );
+    if (resolvedSize == null) resolvedSize = fileBuffer.length;
+  }
+
+  const doc = await CustomerDocument.create({
+    organizationId,
+    projectId: null,
+    packId,
+    filename: filename.slice(0, 260),
+    mimeType: resolvedMime,
+    storageKey,
+    sizeBytes: resolvedSize,
+    docClass,
+    notes: String(body.notes || '').trim().slice(0, 2000),
+    uploadedBy: userId,
+  });
+  return serializeDoc(doc);
+}
+
+async function listCustomerDocumentsForPack({ userId, organizationId, packId }) {
+  const { assertRequirementPermission } = require('./requirementAccess.service');
+  await assertRequirementPermission({
+    userId,
+    organizationId,
+    permission: 'requirement:view',
+  });
+  const rows = await CustomerDocument.find({
+    packId,
+    organizationId,
+    isActive: true,
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+  return rows.map(serializeDoc);
+}
+
+/**
+ * After Gate 2 create-project — attach pack docs to the new board.
+ */
+async function linkPackDocumentsToProject({ organizationId, packId, projectId }) {
+  const orgId = String(organizationId || '').trim();
+  const pid = String(projectId || '').trim();
+  const pack = String(packId || '').trim();
+  if (!orgId || !pid || !pack) {
+    return { matched: 0, modified: 0 };
+  }
+  const result = await CustomerDocument.updateMany(
+    {
+      organizationId: orgId,
+      packId: pack,
+      isActive: true,
+      $or: [{ projectId: null }, { projectId: { $exists: false } }],
+    },
+    { $set: { projectId: pid } }
+  );
+  return {
+    matched: result.matchedCount ?? result.n ?? 0,
+    modified: result.modifiedCount ?? result.nModified ?? 0,
+  };
 }
 
 async function listArtifacts({ userId, projectId, kind, status }) {
@@ -688,6 +817,7 @@ async function bulkTransitionArtifacts({
   fromStatus,
   toStatus,
   note = '',
+  artifactIds = null,
 }) {
   await assertProjectMemberAccess({ userId, projectId });
   const from = String(fromStatus || '')
@@ -711,26 +841,55 @@ async function bulkTransitionArtifacts({
     await assertAnalysisPerm({ userId, projectId, permission: perm });
   }
 
+  const {
+    buildBulkTransitionFilter,
+  } = require('../utils/analysis/bulkTransitionArtifactIds');
+
   const gateNote = String(note || '').trim().slice(0, 1000);
   const stamp = { userId, at: new Date(), note: gateNote };
-  const filter = { projectId, isActive: true, status: from };
   let skippedFourEyes = 0;
 
   // Four-eyes: BA cannot promote own artifact to tech_review
+  let excludeCreatedBy = null;
   if (from === 'ba_review' && to === 'tech_review' && !bypass) {
+    const baseFilter = buildBulkTransitionFilter({
+      projectId,
+      fromStatus: from,
+      artifactIds,
+    }).filter;
     const ownCount = await AnalysisArtifact.countDocuments({
-      ...filter,
+      ...baseFilter,
       createdBy: userId,
     });
     skippedFourEyes = ownCount;
-    filter.createdBy = { $ne: userId };
+    excludeCreatedBy = userId;
   }
 
-  const candidateCount = await AnalysisArtifact.countDocuments({
+  const { filter, idFilterActive } = buildBulkTransitionFilter({
     projectId,
-    isActive: true,
-    status: from,
+    fromStatus: from,
+    artifactIds,
+    excludeCreatedBy,
   });
+
+  if (idFilterActive && (!filter._id || !filter._id.$in?.length)) {
+    return {
+      fromStatus: from,
+      toStatus: to,
+      candidateCount: 0,
+      updated: 0,
+      skipped: 0,
+      skippedReasons: [],
+      truncated: false,
+      idFilter: true,
+    };
+  }
+
+  const candidateCount = await AnalysisArtifact.countDocuments(
+    idFilterActive
+      ? filter
+      : { projectId, isActive: true, status: from }
+  );
 
   const $set = {
     status: to,
@@ -767,7 +926,7 @@ async function bulkTransitionArtifacts({
     toStatus: to,
     candidateCount,
     updated,
-    skipped: Math.max(0, candidateCount - updated),
+    skipped: Math.max(0, candidateCount - updated) + skippedFourEyes,
     skippedReasons:
       skippedFourEyes > 0
         ? [
@@ -778,6 +937,7 @@ async function bulkTransitionArtifacts({
           ]
         : [],
     truncated: idList.length >= 500,
+    idFilter: idFilterActive,
   };
 }
 
@@ -992,6 +1152,12 @@ async function seedArtifactsFromRequirementPack({
           : [],
         brIds: Array.isArray(fr.brIds) ? fr.brIds : [],
         bpmIds: Array.isArray(fr.bpmIds) ? fr.bpmIds : [],
+        evidenceIds: Array.isArray(fr.evidenceIds) ? fr.evidenceIds.map(String).slice(0, 20) : [],
+        groundingStatus: fr.groundingStatus ? String(fr.groundingStatus) : undefined,
+        groundingScore:
+          fr.groundingScore != null && Number.isFinite(Number(fr.groundingScore))
+            ? Number(fr.groundingScore)
+            : undefined,
       },
     });
   }
@@ -1021,6 +1187,14 @@ async function seedArtifactsFromRequirementPack({
         customerRequirementIds: Array.isArray(nfr.customerRequirementIds)
           ? nfr.customerRequirementIds
           : [],
+        evidenceIds: Array.isArray(nfr.evidenceIds)
+          ? nfr.evidenceIds.map(String).slice(0, 20)
+          : [],
+        groundingStatus: nfr.groundingStatus ? String(nfr.groundingStatus) : undefined,
+        groundingScore:
+          nfr.groundingScore != null && Number.isFinite(Number(nfr.groundingScore))
+            ? Number(nfr.groundingScore)
+            : undefined,
       },
     });
   }
@@ -1835,6 +2009,9 @@ async function confirmAnalysisImport({ userId, projectId, sessionId, importSetId
 module.exports = {
   listCustomerDocuments,
   createCustomerDocument,
+  createCustomerDocumentForPack,
+  listCustomerDocumentsForPack,
+  linkPackDocumentsToProject,
   listArtifacts,
   getArtifact,
   createArtifact,

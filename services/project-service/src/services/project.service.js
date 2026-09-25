@@ -65,8 +65,14 @@ const {
 } = require('../utils/project/projectListMembershipScope');
 const { attachListProjectCardSummaries } = require('../utils/project/listProjectCardSummary');
 const { isCardListView, toProjectListCardItem, CARD_LIST_PROJECT_SELECT } = require('../utils/project/projectListCardView');
+const {
+  FALLBACK_BOARD_TITLE,
+  resolveDefaultBoardTitle,
+  resolveBoardTitle,
+} = require('../utils/project/defaultBoardTitle');
 
-const DEFAULT_BOARD_TITLE = 'Main';
+/** @deprecated Prefer resolveDefaultBoardTitle(projectCode). Kept for legacy imports. */
+const DEFAULT_BOARD_TITLE = FALLBACK_BOARD_TITLE;
 const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Done']);
 
 const LEAD_ROLE_SLOT_KEYS = Object.freeze({
@@ -340,7 +346,7 @@ async function createProject({
     teamId: project.teamId,
     scopeType: project.scopeType,
     scopeId: project.scopeId,
-    title: DEFAULT_BOARD_TITLE,
+    title: resolveDefaultBoardTitle(code),
     background: project.background,
     createdBy: userId,
     isActive: true,
@@ -1471,7 +1477,7 @@ async function createBoardInProject({
     teamId: project.teamId,
     scopeType: project.scopeType,
     scopeId: project.scopeId,
-    title: String(title || DEFAULT_BOARD_TITLE).trim() || DEFAULT_BOARD_TITLE,
+    title: resolveBoardTitle({ title, projectCode: project.projectCode }),
     background: String(background || project.background || '').trim(),
     createdBy: userId,
     isActive: true,
@@ -1927,6 +1933,8 @@ async function attachProjectIdentityToBoard(board) {
 
 module.exports = {
   DEFAULT_BOARD_TITLE,
+  resolveDefaultBoardTitle,
+  resolveBoardTitle,
   DEFAULT_LIST_TITLES,
   createProject,
   listProjects,

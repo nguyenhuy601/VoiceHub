@@ -28,6 +28,7 @@ import {
 import { useAppStrings } from '../../../locales/appStrings';
 import Phase1OverviewPage from './overview/Phase1OverviewPage';
 import CustomerRequirementsPage from './ra/CustomerRequirementsPage';
+import AiCustomerDocumentsPanel from './ra/AiCustomerDocumentsPanel';
 import ArtifactListPage from './ra/ArtifactListPage';
 import TraceabilityPage from './ra/TraceabilityPage';
 import SrsPage from './ra/SrsPage';
@@ -103,11 +104,27 @@ export default function Phase1Shell({
   }
 
   if (String(module).startsWith('planning') && !planningUnlocked) {
-    return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
+    return (
+      <Navigate
+        to={buildPhase1ModulePath(projectId, 'overview', {
+          packId: searchParams.get('packId') || '',
+          boardId: searchParams.get('boardId') || '',
+        })}
+        replace
+      />
+    );
   }
 
   if (projectRow && !isModuleAllowedForPhase(module, deliveryPhase)) {
-    return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
+    return (
+      <Navigate
+        to={buildPhase1ModulePath(projectId, 'overview', {
+          packId: searchParams.get('packId') || '',
+          boardId: searchParams.get('boardId') || '',
+        })}
+        replace
+      />
+    );
   }
 
   // Deep-link / bookmark: không mount analysis/planning UI khi thiếu view perm (tránh 403).
@@ -116,10 +133,26 @@ export default function Phase1Shell({
     isAnalysisViewModule(module) &&
     !canViewAnalysis
   ) {
-    return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
+    return (
+      <Navigate
+        to={buildPhase1ModulePath(projectId, 'overview', {
+          packId: searchParams.get('packId') || '',
+          boardId: searchParams.get('boardId') || '',
+        })}
+        replace
+      />
+    );
   }
   if (projectRow && isPlanningViewModule(module) && !canViewPlanning) {
-    return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
+    return (
+      <Navigate
+        to={buildPhase1ModulePath(projectId, 'overview', {
+          packId: searchParams.get('packId') || '',
+          boardId: searchParams.get('boardId') || '',
+        })}
+        replace
+      />
+    );
   }
 
   let body = null;
@@ -130,22 +163,32 @@ export default function Phase1Shell({
           projectId={projectId}
           organizationId={orgId}
           deliveryPhase={deliveryPhase}
+          analysisMode={projectRow?.analysisMode}
         />
       ) : (
         <Phase1OverviewPage
           projectId={projectId}
           organizationId={orgId}
           deliveryPhase={deliveryPhase}
+          analysisMode={projectRow?.analysisMode}
         />
       );
   } else if (module === 'customer-documents') {
-    body = (
-      <CustomerRequirementsPage
-        projectId={projectId}
-        organizationId={orgId}
-        readOnly={raReadOnly}
-      />
-    );
+    const mode = String(projectRow?.analysisMode || '').toLowerCase();
+    body =
+      mode === 'ai' ? (
+        <AiCustomerDocumentsPanel
+          projectId={projectId}
+          organizationId={orgId}
+          packId={String(searchParams.get('packId') || '').trim() || undefined}
+        />
+      ) : (
+        <CustomerRequirementsPage
+          projectId={projectId}
+          organizationId={orgId}
+          readOnly={raReadOnly}
+        />
+      );
   } else if (ARTIFACT_KIND_BY_MODULE[module]) {
     const kind = ARTIFACT_KIND_BY_MODULE[module];
     const labelKey = PHASE_MODULE_LABEL_KEYS[module];

@@ -27,6 +27,23 @@ export const FIGMA_TAB_ACTIVE =
 export const FIGMA_TAB_INACTIVE =
   'rounded-lg border border-border bg-muted px-4 py-2 text-sm font-semibold text-muted-foreground transition-[background-color,border-color,color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-surface hover:text-foreground hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30';
 
+/** Page-level underline tab strip (filter / view switch — not pill CTA). */
+export const FIGMA_PAGE_UNDERLINE_TAB_STRIP = 'mb-4 flex border-b border-border';
+
+export const FIGMA_PAGE_UNDERLINE_TAB =
+  'bg-transparent px-3 py-2.5 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30';
+
+export const FIGMA_PAGE_UNDERLINE_TAB_ACTIVE =
+  '-mb-px border-b-2 border-primary font-semibold text-primary';
+
+export const FIGMA_PAGE_UNDERLINE_TAB_IDLE =
+  'border-b-2 border-transparent font-medium text-muted-foreground hover:text-foreground';
+
+export const figmaPageUnderlineTabClass = (active) =>
+  [FIGMA_PAGE_UNDERLINE_TAB, active ? FIGMA_PAGE_UNDERLINE_TAB_ACTIVE : FIGMA_PAGE_UNDERLINE_TAB_IDLE]
+    .join(' ')
+    .trim();
+
 export const FIGMA_TOOLBAR =
   'flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-surface px-4 py-3';
 

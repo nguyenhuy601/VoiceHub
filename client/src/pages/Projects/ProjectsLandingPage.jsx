@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../locales/appStrings';
 import ProjectsLandingGrid from '../../features/projects/landing/ProjectsLandingGrid';
-import { isProjectActiveForUi } from '../../features/projects/landing/projectLandingActive';
+import { isProjectListableForUi } from '../../features/projects/landing/projectLandingActive';
 import {
   boardQueryFromSearch,
   buildCollaborateProjectHubPath,
@@ -73,7 +73,7 @@ export default function ProjectsLandingPage() {
     });
 
   const projects = useMemo(
-    () => rawProjects.filter(isMyProject).filter(isProjectActiveForUi),
+    () => rawProjects.filter(isMyProject).filter(isProjectListableForUi),
     [rawProjects]
   );
 

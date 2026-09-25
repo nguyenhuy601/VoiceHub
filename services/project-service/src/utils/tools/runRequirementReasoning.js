@@ -57,12 +57,14 @@ function mergeQualityFromFacts(insights, requirementTools) {
   return next;
 }
 
-function buildReasoningPrompt({ context, verifiedFactsBlock, whatSummary }) {
+function buildReasoningPrompt({ context, verifiedFactsBlock, whatSummary, intakeBlock = '' }) {
   return [
     'You are a senior BA. Produce Requirement Insights JSON only.',
     'Do NOT invent coverage/completeness/conflict/ambiguity numbers — copy only from VERIFIED_FACTS.',
     'Narrative and clarifications may reason about missing details; each clarification should cite frId when known.',
+    'When INTAKE_CORPUS is present, use it as customer source context; prefer FR ids from input.',
     verifiedFactsBlock || 'VERIFIED_FACTS: none',
+    intakeBlock || '',
     'Return ONLY valid JSON:',
     JSON.stringify({
       understanding: { name: '', objective: '', narrative: '' },
@@ -143,10 +145,18 @@ async function runRequirementReasoning({
 
   const context = buildRequirementAiContext({ pack, requirementTools: tools });
   const verifiedFactsBlock = formatVerifiedFactsBlock(context);
+  let intakeBlock = '';
+  try {
+    const { buildWhatIntakePromptBlock } = require('../aiAnalysis/buildIntakeCorpus');
+    intakeBlock = buildWhatIntakePromptBlock(pack);
+  } catch {
+    intakeBlock = '';
+  }
   const prompt = buildReasoningPrompt({
     context,
     verifiedFactsBlock,
     whatSummary: summarizeWhatAnalyses(whatAnalyses),
+    intakeBlock,
   });
 
   const generate = generateJsonFn || generateJson;

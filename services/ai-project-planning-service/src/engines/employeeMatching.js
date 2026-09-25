@@ -5,6 +5,7 @@ const { normalizeRoleKey } = require('./roleKey');
 
 const SHORTLIST_K = 5;
 const HOURS_PER_FTE = 40;
+const OVERLOAD_CAPACITY_THRESHOLD = 0.15;
 
 function skillsFromPoolItem(item) {
   if (Array.isArray(item?.skills) && item.skills.length) return item.skills;
@@ -87,6 +88,25 @@ function isAtProjectCap(item) {
   return Number.isFinite(max) && max > 0 && Number.isFinite(active) && active >= max;
 }
 
+function availableCapacityHours(item) {
+  return Math.round((Number(item?.capacityRemaining) || 0) * HOURS_PER_FTE * 100) / 100;
+}
+
+function meetingSoftPenalty(item, meetingHoursByUserDay) {
+  if (!meetingHoursByUserDay || typeof meetingHoursByUserDay !== 'object') return 0;
+  const prefix = `${item.userId}|`;
+  let maxMeeting = 0;
+  for (const [key, hours] of Object.entries(meetingHoursByUserDay)) {
+    if (key === item.userId || String(key).startsWith(prefix)) {
+      maxMeeting = Math.max(maxMeeting, Number(hours) || 0);
+    }
+  }
+  if (maxMeeting <= 0) return 0;
+  if (maxMeeting >= 6) return 0.08;
+  if (maxMeeting >= 3) return 0.04;
+  return 0.02;
+}
+
 function requiredSkills(container, task) {
   const skills = new Set((container?.planning?.skills || []).map((skill) =>
     String(typeof skill === 'string' ? skill : skill?.name || '').toLowerCase()
@@ -116,6 +136,7 @@ function scorePoolItemForTask({
   container,
   blockers = new Set(),
   criticalIds = new Set(),
+  meetingHoursByUserDay = null,
 }) {
   let score = 0.2;
   const roleKey = normalizeRoleKey(task?.suggestedRoleKey);
@@ -147,6 +168,7 @@ function scorePoolItemForTask({
   if (blockers.size && roleKey && blockers.has(roleKey)) score -= 0.05;
   if (criticalIds.has(String(task?.id || ''))) score += 0.08;
   score += historyOverlapBonus(item, task, needs);
+  score -= meetingSoftPenalty(item, meetingHoursByUserDay);
   return Math.max(0, Math.min(1, Math.round(score * 1000) / 1000));
 }
 
@@ -162,29 +184,74 @@ function buildFteFromPlanning(container) {
   }));
 }
 
-async function runEmployeeMatching(_pack, container, { poolItems = [], shortlistK = SHORTLIST_K } = {}) {
-  const pool = normalizePoolItemsForMatching(poolItems);
+function isOverloaded({ capacityRemaining, availableHours, taskHours }) {
+  if (Number(capacityRemaining) < OVERLOAD_CAPACITY_THRESHOLD) return true;
+  if (Number.isFinite(taskHours) && taskHours > 0 && availableHours < taskHours) return true;
+  return false;
+}
+
+async function runEmployeeMatching(
+  _pack,
+  container,
+  {
+    poolItems = [],
+    shortlistK = SHORTLIST_K,
+    constraints = null,
+    meetingHoursByUserDay = null,
+  } = {}
+) {
+  const excludeIds = new Set(
+    (constraints?.excludeEmployeeIds || []).map((id) => String(id)).filter(Boolean)
+  );
+  const pool = normalizePoolItemsForMatching(poolItems).filter(
+    (item) => !excludeIds.has(String(item.userId))
+  );
   const criticalIds = new Set((container?.planning?.criticalWorkIds || []).map(String));
   const blockers = blockingRoleKeys(container);
   let filteredProjectCap = 0;
-  const recommendations = (container?.planning?.tasks || []).filter((task) => task?.id).map((task) => ({
-    taskId: task.id,
-    shortlist: pool.map((item) => {
-      if (isAtProjectCap(item)) {
-        filteredProjectCap += 1;
-        return null;
-      }
-      const reasons = [];
-      if (criticalIds.has(String(task.id))) reasons.push('critical_work');
-      const displayName = String(item.displayName || '').trim();
-      return {
-        userId: item.userId,
-        score: scorePoolItemForTask({ item, task, container, blockers, criticalIds }),
-        ...(displayName ? { displayName } : {}),
-        ...(reasons.length ? { reasons } : {}),
-      };
-    }).filter(Boolean).sort((a, b) => b.score - a.score || a.userId.localeCompare(b.userId)).slice(0, shortlistK),
-  }));
+  let overloadCount = 0;
+  const recommendations = (container?.planning?.tasks || []).filter((task) => task?.id).map((task) => {
+    const taskHours = Number(task.effortHours) || 0;
+    return {
+      taskId: task.id,
+      shortlist: pool
+        .map((item) => {
+          if (isAtProjectCap(item)) {
+            filteredProjectCap += 1;
+            return null;
+          }
+          const availableHours = availableCapacityHours(item);
+          const overload = isOverloaded({
+            capacityRemaining: item.capacityRemaining,
+            availableHours,
+            taskHours,
+          });
+          if (overload) overloadCount += 1;
+          const reasons = [];
+          if (criticalIds.has(String(task.id))) reasons.push('critical_work');
+          if (overload) reasons.push('overload');
+          const displayName = String(item.displayName || '').trim();
+          return {
+            userId: item.userId,
+            score: scorePoolItemForTask({
+              item,
+              task,
+              container,
+              blockers,
+              criticalIds,
+              meetingHoursByUserDay,
+            }),
+            available_capacity: availableHours,
+            overload: Boolean(overload),
+            ...(displayName ? { displayName } : {}),
+            ...(reasons.length ? { reasons } : {}),
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.score - a.score || a.userId.localeCompare(b.userId))
+        .slice(0, shortlistK),
+    };
+  });
   return {
     status: 'ready',
     model: null,
@@ -197,6 +264,8 @@ async function runEmployeeMatching(_pack, container, { poolItems = [], shortlist
       poolSize: pool.length,
       recommendationCount: recommendations.length,
       filteredProjectCap,
+      overloadCount,
+      excludedCount: excludeIds.size,
       criticalWorkCount: (container?.planning?.criticalWorkIds || []).length,
       hasAssignments: false,
       ...(pool.length ? {} : { error: 'empty_pool' }),
@@ -214,11 +283,13 @@ function applyMatchingToContainer(container, result) {
 module.exports = {
   SHORTLIST_K,
   HOURS_PER_FTE,
+  OVERLOAD_CAPACITY_THRESHOLD,
   buildFteFromPlanning,
   skillsFromPoolItem,
   normalizePoolItemsForMatching,
   historyOverlapBonus,
   isAtProjectCap,
+  availableCapacityHours,
   scorePoolItemForTask,
   blockingRoleKeys,
   runEmployeeMatching,

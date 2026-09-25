@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   Check,
@@ -31,7 +31,7 @@ import {
 } from '../../components/Layout/figmaPageClasses';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { buildProjectsNewAiPath } from '../../utils/suitePathUtils';
+import { buildProjectsModulePath } from '../../utils/suitePathUtils';
 import { requirementAPI } from '../../services/api/requirementAPI';
 import {
   approveRequirementPackWithGate1,
@@ -134,6 +134,7 @@ export default function RequirementImportWorkspace({
 }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = variant === 'admin';
   const sk = useCallback((suffix) => stringKey(variant, suffix), [variant]);
   const showImportSection = isAdmin || canSubmit;
@@ -151,6 +152,15 @@ export default function RequirementImportWorkspace({
 
   const { packs, invalidateAllForOrg } = useRequirementPacks(orgId);
   const loadPacks = invalidateAllForOrg;
+
+  useEffect(() => {
+    const fromUrl = String(searchParams.get('packId') || '').trim();
+    if (!fromUrl) return;
+    setReviewPackId(fromUrl);
+    const next = new URLSearchParams(searchParams);
+    next.delete('packId');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const previewLabels = {
     parsedOk: t('requirements.parsedOk'),
@@ -357,23 +367,43 @@ export default function RequirementImportWorkspace({
   const createProjectFromPack = async (pack) => {
     const packId = String(pack?._id || pack || '').trim();
     if (!orgId || !packId || actionPackId) return;
-    const linkedProjectId = String(
-      (typeof pack === 'object' ? pack?.projectId : '') || ''
+    const planStatus = String(
+      (typeof pack === 'object' ? pack?.aiAnalysis?.phaseRuns?.phase_how?.status : '') || ''
     ).trim();
-    if (!linkedProjectId) {
-      toast(
-        t('workspace.phase2AiNeedsLinkedProject') ||
-          'Pack = SRS. Gắn pack với dự án Phase 1 đã sẵn sàng gate, rồi dùng AI Phase 2 trên Overview.'
+    if (planStatus !== 'confirmed') {
+      toast.error(
+        t('requirements.gate2CreateBlocked') ||
+          'Gate 2: confirm phase HOW trước khi tạo Project board.'
       );
       return;
     }
-    navigate(
-      buildProjectsNewAiPath(orgId, {
-        projectId: linkedProjectId,
-        packId,
-        from: 'requirements',
-      })
-    );
+    setActionPackId(packId);
+    try {
+      const res = await requirementAPI.createProjectFromPack(orgId, packId, {
+        importWorkItems: true,
+        applyAssignees: true,
+      });
+      const data = unwrap(res);
+      const projectId = String(
+        data?.project?._id || data?.project?.projectId || data?.projectId || ''
+      ).trim();
+      toast.success(
+        t('requirements.createProjectFromPackSuccess') || 'Đã tạo Project board (sau Gate 2).'
+      );
+      await loadPacks();
+      if (projectId) {
+        navigate(buildProjectsModulePath(projectId, 'overview'));
+      }
+    } catch (error) {
+      toast.error(
+        resolveApiErrorMessage(error, {
+          t,
+          fallback: t('requirements.createProjectFromPackFail') || 'Không tạo được dự án từ pack.',
+        })
+      );
+    } finally {
+      setActionPackId('');
+    }
   };
 
   const canConfirmPreview = canConfirmRequirementImport(preview);
@@ -697,12 +727,20 @@ export default function RequirementImportWorkspace({
         {canCreateFromPack && pack.status === 'approved' ? (
           <PackRowActionButton
             variant="success"
-            disabled={actionPackId === pack._id}
+            disabled={
+              actionPackId === pack._id ||
+              String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || '') !== 'confirmed'
+            }
             onClick={() => createProjectFromPack(pack)}
-            title={t('workspace.phase2OptionAi') || t('requirements.createProject')}
+            title={
+              String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || '') === 'confirmed'
+                ? t('requirements.createProject')
+                : t('requirements.gate2CreateBlocked') ||
+                  'Gate 2: confirm phase HOW trước khi tạo Project board.'
+            }
           >
             <FolderPlus className="h-3 w-3 shrink-0" aria-hidden />
-            {t('workspace.phase2OptionAi') || t('requirements.createProject')}
+            {t('requirements.createProject')}
           </PackRowActionButton>
         ) : null}
         {canApprove && pack.status === 'approved' ? (

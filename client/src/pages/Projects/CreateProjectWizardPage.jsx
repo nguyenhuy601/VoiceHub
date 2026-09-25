@@ -7,6 +7,7 @@ import { taskAPI } from '../../services/api/taskAPI';
 import {
   buildProjectsModulePath,
   buildProjectsPickerPath,
+  buildCollaborateRequirementsPath,
   readStoredLastOrganizationId,
 } from '../../utils/suitePathUtils';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -18,6 +19,7 @@ import useTaskWorkspaceScope from '../../hooks/useTaskWorkspaceScope';
 /**
  * Full-viewport create-project page (no suite sidebar).
  * Route: /app/projects/new — org from WorkspaceContext (single-company).
+ * Wave1 B: no startWhat dialog — Overview uses Understanding prepare.
  */
 export default function CreateProjectWizardPage() {
   const { t } = useAppStrings();
@@ -64,13 +66,30 @@ export default function CreateProjectWizardPage() {
 
   const onCancel = () => navigate(projectsPickerPath);
 
+  const goPhase1Overview = ({ projectId, boardId, packId }) => {
+    navigate(
+      buildProjectsModulePath(projectId, 'overview', {
+        boardId,
+        ...(packId ? { packId } : {}),
+      })
+    );
+  };
+
   const onCreated = async (result) => {
-    const boardId = String(result?.defaultBoardId || result?.board?._id || result?._id || '').trim();
+    if (result?._hitlIncomplete && !result?.projectId) {
+      return;
+    }
+
+    const packId = String(result?.packId || result?.pack?._id || '').trim();
+    const boardId = String(result?.defaultBoardId || result?.board?._id || '').trim();
     const projectId = String(result?.projectId || result?._id || '').trim();
 
     if (organizationId) {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.projects.listAll(organizationId),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.requirements?.packs?.(organizationId) || ['requirements', organizationId],
       });
     }
 
@@ -82,12 +101,14 @@ export default function CreateProjectWizardPage() {
       }
     }
 
+    // 1A: draft project → Phase1Shell overview (Understanding / Gate 1 on project).
     if (projectId) {
-      navigate(
-        buildProjectsModulePath(projectId, 'overview', {
-          boardId,
-        })
-      );
+      goPhase1Overview({ projectId, boardId, packId });
+      return;
+    }
+
+    if (packId) {
+      navigate(buildCollaborateRequirementsPath(organizationId, { packId }));
       return;
     }
     navigate(projectsPickerPath);

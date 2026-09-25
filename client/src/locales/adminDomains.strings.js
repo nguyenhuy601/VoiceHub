@@ -1103,7 +1103,7 @@ export const adminDomainStrings = {
       wizardMemberAvailableLoad: 'Còn trống ({pct}% đã nhận)',
       wizardMemberFullLoadShort: 'đủ việc',
       wizardMemberPartialLoadShort: 'đang nhận việc',
-      wizardCreate: 'Tạo dự án',
+      wizardCreate: 'Tạo nháp dự án',
       wizardWorkflowAgile: 'Agile',
       wizardWorkflowScrum: 'Scrum',
       wizardWorkflowKanban: 'Kanban',
@@ -1166,6 +1166,10 @@ export const adminDomainStrings = {
       wizardIntakeStatusAutofilled: 'Đã tự điền thông tin từ file.',
       wizardIntakeStatusKeptManual:
         'File đã giữ để đính kèm — chưa tự điền; nhập tay các trường bên dưới.',
+      wizardIntakePackCreated:
+        'Đã tạo Requirement Pack — tiếp tục Gate 1 / AI trên dự án nháp.',
+      wizardDraftProjectCreated:
+        'Đã tạo dự án nháp (Phase 1) — tiếp tục Gate 1 / AI Planning.',
       wizardIntakeAutofillFail:
         'Không tự điền được (thiếu quyền tạo dự án / import Customer Raw, hoặc file lỗi) — nhập tay vẫn được.',
       wizardModeTitle: 'Analysis Mode',
@@ -3098,7 +3102,7 @@ export const adminDomainStrings = {
       wizardMemberAvailableLoad: 'Available ({pct}% allocated)',
       wizardMemberFullLoadShort: 'fully allocated',
       wizardMemberPartialLoadShort: 'partially allocated',
-      wizardCreate: 'Create project',
+      wizardCreate: 'Create draft project',
       wizardWorkflowAgile: 'Agile',
       wizardWorkflowScrum: 'Scrum',
       wizardWorkflowKanban: 'Kanban',
@@ -3161,6 +3165,10 @@ export const adminDomainStrings = {
       wizardIntakeStatusAutofilled: 'Autofilled project info from this file.',
       wizardIntakeStatusKeptManual:
         'File kept as attachment — not autofilled; enter fields manually below.',
+      wizardIntakePackCreated:
+        'Requirement Pack created — continue Gate 1 / AI on the draft project.',
+      wizardDraftProjectCreated:
+        'Draft project created (Phase 1) — continue Gate 1 / AI Planning.',
       wizardIntakeAutofillFail:
         'Could not autofill (missing create-project / Customer Raw import permission, or bad file) — you can still type fields.',
       wizardModeTitle: 'Analysis Mode',

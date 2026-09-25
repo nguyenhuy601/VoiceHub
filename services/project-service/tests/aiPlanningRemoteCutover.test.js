@@ -50,13 +50,19 @@ describe('AI planning remote cutover', () => {
     );
   });
 
-  it('routes only deterministic HOW jobs remotely (LLM WHAT stays local)', () => {
+  it('routes all AI Analysis user jobs remotely via APS job registry', () => {
     assert.equal(shouldRunRemoteAiPlanning('effortRoleAnalysis'), true);
     assert.equal(shouldRunRemoteAiPlanning('scheduleCapacity'), true);
     assert.equal(shouldRunRemoteAiPlanning('sequencingCpm'), true);
     assert.equal(shouldRunRemoteAiPlanning('employeeMatching'), true);
-    assert.equal(shouldRunRemoteAiPlanning('requirementAnalysis'), false);
-    assert.equal(shouldRunRemoteAiPlanning('architectureRiskAnalysis'), false);
+    assert.equal(shouldRunRemoteAiPlanning('wbsGeneration'), true);
+    assert.equal(shouldRunRemoteAiPlanning('dependencyAnalysis'), true);
+    assert.equal(shouldRunRemoteAiPlanning('architectureRiskAnalysis'), true);
+    assert.equal(shouldRunRemoteAiPlanning('projectPlan'), true);
+    assert.equal(shouldRunRemoteAiPlanning('hierarchyDecomposition'), true);
+    assert.equal(shouldRunRemoteAiPlanning('requirementAnalysis'), true);
+    assert.equal(shouldRunRemoteAiPlanning('capabilityAnalysis'), true);
+    assert.equal(shouldRunRemoteAiPlanning('requirementInsights'), true);
   });
 
   it('keeps HOW remote even when AI_PLANNING_REMOTE=0 (flag no longer reopens in-process)', () => {
@@ -119,63 +125,61 @@ describe('AI planning remote cutover', () => {
     );
   });
 
-  it('detects callback replay by runId', () => {
+  it('detects callback replay by runId on phaseRuns', () => {
     const container = {
-      jobs: { sequencingCpm: { remoteRunId: 'run-123', status: 'ready' } },
+      phaseRuns: { phase_how: { remoteRunId: 'run-123', status: 'ready' } },
     };
-    assert.equal(isDuplicateRemoteRun(container, 'sequencingCpm', 'run-123'), true);
-    assert.equal(isDuplicateRemoteRun(container, 'sequencingCpm', 'run-456'), false);
+    assert.equal(isDuplicateRemoteRun(container, 'phase_how', 'run-123'), true);
+    assert.equal(isDuplicateRemoteRun(container, 'phase_how', 'run-456'), false);
   });
 
-  it('applies a completed callback once and treats replay as idempotent', async () => {
+  it('applies a completed phase_how callback once and treats replay as idempotent', async () => {
     const originalFindOne = RequirementPack.findOne;
-    const originalFindOneAndUpdate = RequirementPack.findOneAndUpdate;
-    let updateCount = 0;
-    let conditionalFilter;
+    let saveCount = 0;
     const pack = {
       _id: 'pack-1',
       projectId: 'project-1',
+      organizationId: 'org-1',
+      isActive: true,
       aiAnalysisActiveSnapshotId: 'snapshot-1',
       aiAnalysis: createEmptyAiAnalysisContainer(),
       functionalRequirements: [],
       markModified() {},
+      async save() {
+        saveCount += 1;
+        return this;
+      },
       toObject() {
         return this;
       },
     };
-    pack.aiAnalysis.jobs.sequencingCpm = {
-      ...pack.aiAnalysis.jobs.sequencingCpm,
-      status: 'pending',
-      snapshotId: 'snapshot-1',
-      remoteRunId: 'run-1',
+    pack.aiAnalysis.phaseRuns = {
+      phase_how: {
+        status: 'pending',
+        snapshotId: 'snapshot-1',
+        remoteRunId: 'run-1',
+      },
     };
     RequirementPack.findOne = async () => pack;
-    RequirementPack.findOneAndUpdate = async (filter, update) => {
-      conditionalFilter = filter;
-      updateCount += 1;
-      pack.aiAnalysis = update.$set.aiAnalysis;
-      return pack;
-    };
     const callback = {
       runId: 'run-1',
       status: 'completed',
-      job: 'sequencingCpm',
+      job: 'phase_how',
       projectId: 'project-1',
       packId: 'pack-1',
       organizationId: 'org-1',
       snapshotId: 'snapshot-1',
       result: {
-        job: 'sequencingCpm',
+        job: 'phase_how',
         container: {
           planning: {
-            sequence: { waves: [['A']] },
-            theoreticalCpm: { projectDurationHours: 8 },
-            criticalWorkIds: ['A'],
+            tasks: [{ id: 'A', effortHours: 8 }],
           },
-          jobs: {
-            sequencingCpm: { status: 'ready', generatedAt: '2026-09-19T00:00:00.000Z' },
+          phaseRuns: {
+            phase_how: { status: 'ready', hitl: 'gate2' },
           },
         },
+        result: { hitl: 'gate2' },
       },
     };
     try {
@@ -183,63 +187,55 @@ describe('AI planning remote cutover', () => {
       const replay = await applyRemoteHowJobResult(callback);
       assert.equal(first.applied, true);
       assert.equal(replay.idempotent, true);
-      assert.equal(updateCount, 1);
-      assert.equal(
-        conditionalFilter['aiAnalysis.jobs.sequencingCpm.remoteRunId'],
-        'run-1'
-      );
-      assert.equal(
-        conditionalFilter['aiAnalysis.jobs.sequencingCpm.snapshotId'],
-        'snapshot-1'
-      );
-      assert.equal(
-        conditionalFilter['aiAnalysis.jobs.sequencingCpm.status'],
-        'pending'
-      );
-      assert.equal(pack.aiAnalysis.jobs.sequencingCpm.remoteRunId, 'run-1');
+      assert.equal(saveCount, 1);
+      assert.equal(pack.aiAnalysis.phaseRuns.phase_how.status, 'ready');
+      assert.equal(pack.aiAnalysis.phaseRuns.phase_how.remoteRunId, 'run-1');
+      assert.equal(pack.aiAnalysis.jobs, undefined);
     } finally {
       RequirementPack.findOne = originalFindOne;
-      RequirementPack.findOneAndUpdate = originalFindOneAndUpdate;
     }
   });
 
-  it('ACKs an older out-of-order run as stale without updating', async () => {
+  it('ACKs failed callback for pending phase_how without requiring jobs shells', async () => {
     const originalFindOne = RequirementPack.findOne;
-    const originalFindOneAndUpdate = RequirementPack.findOneAndUpdate;
     const pack = {
       projectId: 'project-1',
+      organizationId: 'org-1',
+      isActive: true,
       aiAnalysisActiveSnapshotId: 'snapshot-1',
       aiAnalysis: createEmptyAiAnalysisContainer(),
       functionalRequirements: [],
+      markModified() {},
+      async save() {
+        return this;
+      },
       toObject() {
         return this;
       },
     };
-    pack.aiAnalysis.jobs.employeeMatching = {
-      status: 'pending',
-      snapshotId: 'snapshot-1',
-      remoteRunId: 'run-new',
+    pack.aiAnalysis.phaseRuns = {
+      phase_how: {
+        status: 'pending',
+        snapshotId: 'snapshot-1',
+        remoteRunId: 'run-new',
+      },
     };
     RequirementPack.findOne = async () => pack;
-    RequirementPack.findOneAndUpdate = async () => {
-      assert.fail('stale callback must not update');
-    };
     try {
       const result = await applyRemoteHowJobResult({
-        runId: 'run-old',
+        runId: 'run-new',
         status: 'failed',
-        job: 'employeeMatching',
+        job: 'phase_how',
         projectId: 'project-1',
         packId: 'pack-1',
         organizationId: 'org-1',
         snapshotId: 'snapshot-1',
         error: { code: 'OLD' },
       });
-      assert.equal(result.applied, false);
-      assert.equal(result.stale, true);
+      assert.equal(result.applied, true);
+      assert.equal(pack.aiAnalysis.phaseRuns.phase_how.status, 'failed');
     } finally {
       RequirementPack.findOne = originalFindOne;
-      RequirementPack.findOneAndUpdate = originalFindOneAndUpdate;
     }
   });
 
@@ -247,9 +243,20 @@ describe('AI planning remote cutover', () => {
     const originalFindOne = RequirementPack.findOne;
     RequirementPack.findOne = async () => ({
       projectId: 'project-expected',
+      organizationId: 'org-1',
+      isActive: true,
       aiAnalysisActiveSnapshotId: 'snapshot-active',
-      aiAnalysis: createEmptyAiAnalysisContainer(),
+      aiAnalysis: {
+        ...createEmptyAiAnalysisContainer(),
+        phaseRuns: {
+          phase_how: { status: 'pending', remoteRunId: 'run-1', snapshotId: 'snapshot-active' },
+        },
+      },
       functionalRequirements: [],
+      markModified() {},
+      async save() {
+        return this;
+      },
       toObject() {
         return this;
       },
@@ -257,7 +264,7 @@ describe('AI planning remote cutover', () => {
     const base = {
       runId: 'run-1',
       status: 'failed',
-      job: 'sequencingCpm',
+      job: 'phase_how',
       packId: 'pack-1',
       organizationId: 'org-1',
       snapshotId: 'snapshot-active',
@@ -268,9 +275,9 @@ describe('AI planning remote cutover', () => {
         () =>
           applyRemoteHowJobResult({
             ...base,
-            job: 'requirementAnalysis',
+            job: 'notARealRemoteJob',
           }),
-        (error) => error.errorCode === 'REMOTE_HOW_JOB_INVALID'
+        (error) => error.errorCode === 'JOB_BY_JOB_REMOVED'
       );
       await assert.rejects(
         () =>
@@ -292,68 +299,48 @@ describe('AI planning remote cutover', () => {
     }
   });
 
-  it('returns non-ACK on CAS miss, then applies the callback retry', async () => {
+  it('applies phase_how callback via internal controller', async () => {
     const originalFindOne = RequirementPack.findOne;
-    const originalFindOneAndUpdate = RequirementPack.findOneAndUpdate;
-    let updateAttempts = 0;
     const pack = {
       _id: 'pack-1',
       projectId: 'project-1',
       organizationId: 'org-1',
       isActive: true,
-      updatedAt: new Date('2026-09-19T00:00:00.000Z'),
       aiAnalysisActiveSnapshotId: 'snapshot-1',
       aiAnalysis: createEmptyAiAnalysisContainer(),
       functionalRequirements: [],
+      markModified() {},
+      async save() {
+        return this;
+      },
       toObject() {
         return this;
       },
     };
-    pack.aiAnalysis.jobs.sequencingCpm = {
-      status: 'pending',
-      snapshotId: 'snapshot-1',
-      remoteRunId: 'run-1',
+    pack.aiAnalysis.phaseRuns = {
+      phase_how: {
+        status: 'pending',
+        snapshotId: 'snapshot-1',
+        remoteRunId: 'run-1',
+      },
     };
     const callback = {
       runId: 'run-1',
       status: 'completed',
-      job: 'sequencingCpm',
+      job: 'phase_how',
       projectId: 'project-1',
       packId: 'pack-1',
       organizationId: 'org-1',
       snapshotId: 'snapshot-1',
       result: {
-        job: 'sequencingCpm',
+        job: 'phase_how',
         container: {
-          planning: {
-            sequence: { waves: [['A']] },
-            theoreticalCpm: { projectDurationHours: 8 },
-            criticalWorkIds: ['A'],
-          },
-          jobs: { sequencingCpm: { status: 'ready' } },
+          planning: { tasks: [{ id: 'A' }] },
+          phaseRuns: { phase_how: { status: 'ready' } },
         },
       },
     };
-    RequirementPack.findOne = async () => {
-      const {
-        toObject: _toObject,
-        ...plainPack
-      } = pack;
-      const fresh = structuredClone(plainPack);
-      fresh.toObject = function toObject() {
-        return this;
-      };
-      return fresh;
-    };
-    RequirementPack.findOneAndUpdate = async (_filter, update) => {
-      updateAttempts += 1;
-      if (updateAttempts === 1) {
-        pack.updatedAt = new Date('2026-09-19T00:00:01.000Z');
-        return null;
-      }
-      pack.aiAnalysis = update.$set.aiAnalysis;
-      return pack;
-    };
+    RequirementPack.findOne = async () => pack;
     const makeResponse = () => ({
       statusCode: 200,
       body: null,
@@ -367,36 +354,28 @@ describe('AI planning remote cutover', () => {
       },
     });
     try {
-      const firstResponse = makeResponse();
-      await applyJobResult({ body: callback }, firstResponse);
-      assert.equal(firstResponse.statusCode, 409);
-      assert.equal(firstResponse.body.errorCode, 'REMOTE_RESULT_CAS_RETRY');
-      assert.equal(pack.aiAnalysis.jobs.sequencingCpm.status, 'pending');
-
-      const retryResponse = makeResponse();
-      await applyJobResult({ body: callback }, retryResponse);
-      assert.equal(retryResponse.statusCode, 200);
-      assert.equal(retryResponse.body.success, true);
-      assert.equal(pack.aiAnalysis.jobs.sequencingCpm.status, 'ready');
+      const response = makeResponse();
+      await applyJobResult({ body: callback }, response);
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.body.success, true);
+      assert.equal(pack.aiAnalysis.phaseRuns.phase_how.status, 'ready');
     } finally {
       RequirementPack.findOne = originalFindOne;
-      RequirementPack.findOneAndUpdate = originalFindOneAndUpdate;
     }
   });
 
-  it('strips in-process HOW engine calls from aiAnalysis.service', () => {
+  it('phase planning start uses buildPhaseToolData (no empty toolData hardcode)', () => {
     const source = readFileSync(
       join(__dirname, '../src/services/aiAnalysis.service.js'),
       'utf8'
     );
+    assert.match(source, /buildPhaseToolData/);
+    assert.match(source, /startPhaseAiPlanningRun/);
+    assert.doesNotMatch(source, /toolData:\s*\{\s*\}/);
     assert.doesNotMatch(source, /runEffortEngine\s*\(/);
     assert.doesNotMatch(source, /runEmployeeMatching\s*\(/);
     assert.doesNotMatch(source, /runSequencingCpm\s*\(/);
     assert.doesNotMatch(source, /runScheduleCapacity\s*\(/);
-    assert.doesNotMatch(source, /runRoleSkillPlanning\s*\(/);
-    assert.match(source, /HOW_INPROCESS_REMOVED/);
-    assert.match(source, /buildExecutionPlanFromContainer/);
-    assert.match(source, /applyProjectPlanToContainer/);
     assert.match(source, /validateAssignmentsAgainstShortlist/);
   });
 });

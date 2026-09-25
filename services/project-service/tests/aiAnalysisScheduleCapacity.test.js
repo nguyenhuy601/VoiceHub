@@ -1,5 +1,5 @@
 /**
- * T3 — Schedule capacity 8h/day packing.
+ * T3 — Schedule capacity 8h/day packing (APS engine).
  */
 
 const { describe, it } = require('node:test');
@@ -7,9 +7,9 @@ const assert = require('node:assert/strict');
 const {
   packScheduleCapacity,
   DAILY_CAP_HOURS,
-} = require('../src/utils/aiAnalysis/aiAnalysisScheduleCapacity');
+} = require('../../ai-project-planning-service/src/engines/scheduleCapacity');
 
-describe('aiAnalysisScheduleCapacity', () => {
+describe('scheduleCapacity (APS)', () => {
   it('does not exceed 8h/day for one user with two tasks', () => {
     const { schedule, completion } = packScheduleCapacity({
       tasks: [
@@ -21,7 +21,7 @@ describe('aiAnalysisScheduleCapacity', () => {
         { taskId: 'T1', userId: 'u1' },
         { taskId: 'T2', userId: 'u1' },
       ],
-      projectStart: '2026-09-07', // Monday
+      projectStart: '2026-09-07',
     });
 
     const byDay = new Map();
@@ -70,5 +70,22 @@ describe('aiAnalysisScheduleCapacity', () => {
     const hoursDay1 = day1.reduce((s, r) => s + r.hours, 0);
     assert.ok(hoursDay1 <= 4 + 1e-6);
     assert.ok(schedule.some((r) => r.dateKey > '2026-09-07'));
+  });
+
+  it('emits capacityConflicts for zero-capacity days and past deadline', () => {
+    const { capacityConflicts, milestones } = packScheduleCapacity({
+      tasks: [
+        { id: 'T1', effortHours: 6 },
+        { id: 'M1', name: 'Go-live', area: 'milestone', effortHours: 0 },
+      ],
+      edges: [],
+      assignments: [{ taskId: 'T1', userId: 'u1' }],
+      projectStart: '2026-09-07',
+      projectDeadline: '2026-09-07',
+      meetingHoursByUserDay: { 'u1|2026-09-07': 8 },
+    });
+    assert.ok(capacityConflicts.some((c) => c.type === 'zero_capacity_day'));
+    assert.ok(capacityConflicts.some((c) => c.type === 'past_deadline'));
+    assert.ok(milestones.some((m) => m.taskId === 'M1'));
   });
 });

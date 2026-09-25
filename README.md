@@ -55,7 +55,7 @@ flowchart LR
 4. **S2S**: header internal token — [`docs/security-runbook.md`](docs/security-runbook.md).
 5. **Realtime**: `chat-service` REST + queue; **`socket-service`** giữ Socket.IO `/chat` (không bind WS public từ chat-service).
 
-Chi tiết: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`MIGRATION.md`](MIGRATION.md).
+Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/MIGRATION.md`](docs/MIGRATION.md).
 
 ---
 
@@ -94,7 +94,7 @@ Chi tiết: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`MIGRATION.md`](MIGRATION.md)
 | **voice-service** | Signaling + UDP mediasoup (dải port theo `.env` / stack) |
 | Service khác | Chỉ mạng overlay `voicehub_enterprise-network` / `enterprise-network` |
 
-Infra HA (staging): Mongo Atlas, Redis Sentinel, Rabbit cluster — xem [`ARCHITECTURE.md`](ARCHITECTURE.md).
+Infra HA (staging): Mongo Atlas, Redis Sentinel, Rabbit cluster — xem [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 
@@ -146,7 +146,7 @@ VoiceHub/
   docker-compose.yml        # Compose entry (infra + core)
 ```
 
-Cây chi tiết: [`STRUCTURE.md`](STRUCTURE.md) (một số tên worker mới có thể chưa liệt kê đủ — lấy `docker-stack.yml` / Compose extra làm nguồn đúng).
+Cây chi tiết: [`docs/STRUCTURE.md`](docs/STRUCTURE.md) (một số tên worker mới có thể chưa liệt kê đủ — lấy `docker-stack.yml` / Compose extra làm nguồn đúng).
 
 ---
 
@@ -275,9 +275,9 @@ Chi tiết Compose: [`docs/DOCKER-COMPOSE.md`](docs/DOCKER-COMPOSE.md).
 
 | Tài liệu | Nội dung |
 |----------|----------|
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Kiến trúc + realtime + HA phases |
-| [`MIGRATION.md`](MIGRATION.md) | Compose vs Swarm; stabilization |
-| [`STRUCTURE.md`](STRUCTURE.md) | Cây thư mục |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Kiến trúc + realtime + HA phases |
+| [`docs/MIGRATION.md`](docs/MIGRATION.md) | Compose vs Swarm; stabilization |
+| [`docs/STRUCTURE.md`](docs/STRUCTURE.md) | Cây thư mục |
 | [`docs/README.md`](docs/README.md) | Hub `docs/` |
 | [`docs/lan-https-voicehub.local.md`](docs/lan-https-voicehub.local.md) | Dev HTTPS LAN |
 | [`docs/DOCKER-COMPOSE.md`](docs/DOCKER-COMPOSE.md) | Compose infra/core/dev |
@@ -293,4 +293,4 @@ Chi tiết Compose: [`docs/DOCKER-COMPOSE.md`](docs/DOCKER-COMPOSE.md).
 
 ## License
 
-Xem [LICENSE](LICENSE).
+Xem [LICENSE](docs/LICENSE).

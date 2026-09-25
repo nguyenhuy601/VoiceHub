@@ -1011,22 +1011,6 @@ function DashboardPage({
       company,
     ]
   );
-  const dashOrgId = useMemo(() => {
-    const fromSummary = String(summaryQuery.data?.primaryOrgId || '').trim();
-    if (fromSummary) return fromSummary;
-    const first = Array.isArray(orgsQuery.data) ? orgsQuery.data[0] : null;
-    return String(first?._id || first?.id || company?.id || company?._id || '').trim();
-  }, [summaryQuery.data?.primaryOrgId, orgsQuery.data, company]);
-  const showOrgBoardHealth = dashPersonaShowsOrgHealth(dashPersona);
-  const { projects: dashOrgProjects, loading: dashOrgProjectsLoading } = useOrgProjectsList(dashOrgId, {
-    excludeClosed: true,
-    enabled: showOrgBoardHealth && Boolean(dashOrgId),
-  });
-  const enrichedBoardHealth = useBoardHealthEnrichment(metrics.boards || [], dashOrgProjects, {
-    enabled: showOrgBoardHealth,
-    organizationId: dashOrgId,
-    projectsLoading: dashOrgProjectsLoading,
-  });
   const showWorkAnalytics = dashPersona !== 'guest' && dashPersona !== 'personal';
   const showOrgBoardHealth = dashPersonaShowsOrgHealth(dashPersona);
   const dashOrgId = useMemo(() => {

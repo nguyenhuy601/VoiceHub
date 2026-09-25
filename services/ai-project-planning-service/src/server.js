@@ -2,7 +2,12 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const app = require('./app');
-const { connectDB, disconnectDB } = require('@enterprise/shared');
+const {
+  connectDB,
+  disconnectDB,
+  connectRedis,
+  disconnectRedis,
+} = require('@enterprise/shared');
 const { recoverRunsOnStartup } = require('./controllers/internalPlanning.controller');
 
 const PORT = process.env.PORT || 3025;
@@ -11,6 +16,7 @@ const mongoUri =
 
 connectDB(mongoUri)
   .then(() => {
+    connectRedis();
     recoverRunsOnStartup()
       .catch((error) => {
         console.error('[planning] recover runs', error?.message || error);
@@ -21,6 +27,11 @@ connectDB(mongoUri)
 
     process.on('SIGTERM', async () => {
       server.close(async () => {
+        try {
+          await disconnectRedis();
+        } catch {
+          /* ignore */
+        }
         try {
           await disconnectDB();
         } catch {

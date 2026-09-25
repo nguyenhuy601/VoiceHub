@@ -1,6 +1,7 @@
 /**
- * AI Analysis Jobs — Blueprint container (schema v2).
- * Eleven user-confirm jobs + final shell.
+ * AI Analysis Jobs — Blueprint container (schema v2) projection ids.
+ * Execute SoT is phase_what / phase_how (not public job-by-job run).
+ * Ids remain for container.jobs read-model, Sheet11 export, Gate2 projectPlan.
  */
 
 const AI_ANALYSIS_SCHEMA_VERSION = 2;
@@ -21,7 +22,10 @@ const AI_ANALYSIS_USER_JOBS = Object.freeze([
   'projectPlan',
 ]);
 
-/** ADR 0003 — WHAT jobs (Requirement Analysis path) */
+/** ADR 0003 — WHAT jobs (Requirement Analysis path)
+ * Under WHAT_G4_ENABLED (default): shells only — confirmed at Gate1 after remote G4.
+ * Do not run these via runAiAnalysisJob; use phase_what G4 instead.
+ */
 const AI_ANALYSIS_WHAT_JOBS = Object.freeze([
   'hierarchyDecomposition',
   'requirementAnalysis',

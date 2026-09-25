@@ -60,6 +60,7 @@ export function isAvatarImageUrl(value) {
   if (/^https?:\/\//i.test(v)) return true;
   if (v.startsWith('data:image/')) return true;
   if (/^\/?uploads\//i.test(v) || /^\/?api\//i.test(v)) return true;
+  if (/^users\/[^/]+\/avatars\//i.test(v)) return true;
   if (/\.(jpe?g|png|gif|webp|avif|bmp|svg|ico)(\?.*)?$/i.test(v)) return true;
   return false;
 }
@@ -142,6 +143,7 @@ export function needsAuthenticatedAvatarFetch(avatar, userId = null) {
   if (uid) return true;
   if (!raw || !isAvatarImageUrl(avatar)) return false;
   if (/\/uploads\//i.test(String(raw))) return true;
+  if (/^users\/[^/]+\/avatars\//i.test(String(raw).trim())) return true;
   const v = String(raw).trim();
   if (/^https?:\/\//i.test(v)) return false;
   return false;

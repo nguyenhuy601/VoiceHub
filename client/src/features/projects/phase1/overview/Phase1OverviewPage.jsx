@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
@@ -8,9 +9,13 @@ import {
   buildPhase1ModulePath,
   isPlanningUnlocked,
 } from '../nav/phase1NavConfig';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Phase2GateBanner from '../../phase/Phase2GateBanner';
+import AiPlanningRunPanel from '../AiPlanningRunPanel';
+import RequirementPhase1PipelinePanel from '../RequirementPhase1PipelinePanel';
 import { gateStepClass, kindChipClass } from '../shared/phase1UiTokens';
+import { requirementAPI } from '../../../../services/api/requirementAPI';
+import { buildProjectsModulePath } from '../../../../utils/suitePathUtils';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -33,12 +38,52 @@ function Mark({ ok }) {
   return <span className="font-mono text-xs">{ok ? '✓' : '—'}</span>;
 }
 
-export default function Phase1OverviewPage({ projectId, organizationId, deliveryPhase }) {
+export default function Phase1OverviewPage({
+  projectId,
+  organizationId,
+  deliveryPhase,
+  analysisMode: analysisModeProp,
+}) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { capabilities, isLoading: capsLoading } = useProjectCapabilities(projectId);
   const planningUnlocked = isPlanningUnlocked(deliveryPhase);
+  const analysisMode = ['ai', 'manual'].includes(
+    String(analysisModeProp || searchParams.get('analysisMode') || '')
+      .trim()
+      .toLowerCase()
+  )
+    ? String(analysisModeProp || searchParams.get('analysisMode')).trim().toLowerCase()
+    : 'manual';
+  const [boundPackId, setBoundPackId] = useState(() =>
+    String(searchParams.get('packId') || '').trim()
+  );
+
+  useEffect(() => {
+    const fromUrl = String(searchParams.get('packId') || '').trim();
+    if (fromUrl) {
+      setBoundPackId(fromUrl);
+      return;
+    }
+    if (!organizationId || !projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await requirementAPI.listPacks(organizationId, {});
+        const data = unwrap(res);
+        const list = Array.isArray(data) ? data : data?.items || data?.packs || [];
+        const hit = list.find((p) => String(p.projectId || '') === String(projectId));
+        if (!cancelled && hit?._id) setBoundPackId(String(hit._id));
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, projectId, searchParams]);
 
   const { data: gaps, isLoading } = useQuery({
     queryKey: ['projectAnalysisGaps', String(projectId || '')],
@@ -74,13 +119,55 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
     !planningUnlocked && !raReady && capabilities.canViewAnalysis;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 sm:p-4">
+    // Block flow (space-y) — not flex-col: flex children + min-h-0 were shrinking the RA
+    // grid so KindChips overflowed onto the Planning card below.
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
       <Phase2GateBanner
         projectId={projectId}
         organizationId={organizationId}
         deliveryPhase={deliveryPhase}
         canChangePhase={Boolean(capabilities.canChangeDeliveryPhase)}
       />
+
+      {boundPackId ? (
+        <RequirementPhase1PipelinePanel
+          projectId={projectId}
+          organizationId={organizationId}
+          packId={boundPackId}
+          analysisMode={analysisMode}
+          canRun={Boolean(capabilities.canViewAnalysis)}
+          canSubmit={Boolean(
+            capabilities.canImportAnalysis ||
+              capabilities.canEditAnalysis ||
+              (Array.isArray(capabilities.permissions) &&
+                capabilities.permissions.includes('analysis:submit_ba_review'))
+          )}
+          canApprove={Boolean(capabilities.canReviewAnalysisPo)}
+          onPipelineDone={() => {
+            queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
+            queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId] });
+          }}
+        />
+      ) : null}
+
+      {/* HOW / Gate2 — only after Gate 1 (approved pack); avoid forcing snapshot/pack on draft "Để sau". */}
+      {boundPackId && analysisMode === 'ai' ? (
+        <AiPlanningRunPanel
+          organizationId={organizationId}
+          packId={boundPackId}
+          canRun={Boolean(capabilities.canViewAnalysis)}
+          canPromote={Boolean(capabilities.canChangeDeliveryPhase || capabilities.canViewAnalysis)}
+          onPromoted={(data) => {
+            const pid = String(
+              data?.project?._id || data?.project?.projectId || projectId || ''
+            ).trim();
+            queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
+            if (pid) {
+              navigate(buildProjectsModulePath(pid, 'board'));
+            }
+          }}
+        />
+      ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-base font-semibold">{t('workspace.phase1OverviewTitle')}</h1>
@@ -195,7 +282,7 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
         ) : null}
       </section>
 
-      <div className="grid min-h-0 gap-3 lg:grid-cols-[1fr_minmax(240px,320px)]">
+      <div className="grid gap-3 lg:grid-cols-[1fr_minmax(240px,320px)]">
         <section className="rounded-xl border border-border bg-surface px-3 py-2.5">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {t('workspace.phase1GroupRequirementAnalysis')}
