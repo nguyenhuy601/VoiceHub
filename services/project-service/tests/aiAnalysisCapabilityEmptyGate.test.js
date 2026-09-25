@@ -11,7 +11,9 @@ const {
   createEmptyAiAnalysisContainer,
 } = require('../src/utils/aiAnalysis/aiAnalysisContainer');
 const { shouldSkipRerunBecauseReady } = require('../src/utils/aiAnalysis/aiAnalysisStaleGc');
-const { runCapabilityAnalysis } = require('../src/utils/aiAnalysis/aiAnalysisCapability');
+const {
+  runCapabilityEngine,
+} = require('../../ai-project-planning-service/src/engines/capability');
 
 function readyEmptyCapabilityContainer() {
   const base = createEmptyAiAnalysisContainer();
@@ -92,14 +94,8 @@ describe('aiAnalysisCapabilityEmptyGate', () => {
     assert.doesNotThrow(() => assertCapabilityConfirmable(c));
   });
 
-  it('runCapabilityAnalysis on Module-only pack → empty items (caller marks failed)', async () => {
-    const pack = {
-      overview: { name: 'Demo' },
-      functionalRequirements: [
-        { externalId: 'M1', level: 'Module', name: 'Auth', parentExternalId: '' },
-      ],
-    };
-    const result = await runCapabilityAnalysis(pack, { forceHeuristic: true });
+  it('runCapabilityEngine on empty pack → empty items', () => {
+    const result = runCapabilityEngine({ functionalRequirements: [] });
     assert.equal(result.items.length, 0);
     assert.equal(result.meta.source, 'empty');
   });

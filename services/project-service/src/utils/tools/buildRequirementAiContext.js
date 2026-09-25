@@ -64,7 +64,13 @@ function constraintList(pack) {
 /**
  * @param {{ pack?: object, requirementTools?: object, extras?: object }} args
  */
-function buildRequirementAiContext({ pack = {}, requirementTools = null, extras = {} } = {}) {
+function buildRequirementAiContext({
+  pack = {},
+  requirementTools = null,
+  extras = {},
+  knowledge = null,
+  semanticSummary = null,
+} = {}) {
   const tools =
     requirementTools ||
     pack?.aiAnalysis?.analyses?.requirementTools ||
@@ -99,6 +105,22 @@ function buildRequirementAiContext({ pack = {}, requirementTools = null, extras 
       ? extras.feasibilitySummary
       : { status: 'unknown', reason: 'nfr_feasibility_not_run' };
 
+  const knowledgeMeta =
+    knowledge && typeof knowledge === 'object'
+      ? {
+          stub: knowledge.stub === true,
+          citationCount: Number(knowledge.citationCount) || 0,
+          citationIds: Array.isArray(knowledge.citations)
+            ? knowledge.citations.map((c) => c.id).slice(0, 20)
+            : Array.isArray(knowledge.citationIds)
+              ? knowledge.citationIds.slice(0, 20)
+              : [],
+          catalogPinCount: Array.isArray(knowledge.catalogPins)
+            ? knowledge.catalogPins.length
+            : Number(knowledge.catalogPinCount) || 0,
+        }
+      : null;
+
   return {
     problem: {
       name: String(overview.requirementName || '').trim(),
@@ -127,7 +149,15 @@ function buildRequirementAiContext({ pack = {}, requirementTools = null, extras 
       weighted: coverageWeighted ?? null,
       completeness: completenessScore ?? null,
     },
-    policyVersion: 'requirement-ai-context-v1',
+    knowledge: knowledgeMeta,
+    semanticSummary:
+      semanticSummary && typeof semanticSummary === 'object'
+        ? {
+            linkCount: Number(semanticSummary.linkCount) || 0,
+            frWithLinks: Number(semanticSummary.frWithLinks) || 0,
+          }
+        : null,
+    policyVersion: 'requirement-ai-context-v2',
   };
 }
 
@@ -149,6 +179,14 @@ function formatVerifiedFactsBlock(requirementAiContext) {
     },
     priorities: requirementAiContext.priorities || {},
     feasibilitySummary: requirementAiContext.feasibilitySummary || { status: 'unknown' },
+    knowledge: requirementAiContext.knowledge
+      ? {
+          stub: requirementAiContext.knowledge.stub,
+          citationCount: requirementAiContext.knowledge.citationCount,
+          citationIds: requirementAiContext.knowledge.citationIds,
+        }
+      : null,
+    semanticSummary: requirementAiContext.semanticSummary || null,
   };
   return [
     'VERIFIED_FACTS (deterministic tools — do NOT invent numbers; cite only these keys):',

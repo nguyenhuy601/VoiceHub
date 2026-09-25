@@ -2,21 +2,13 @@
  * W9 — map Blueprint planning.tasks → import plan (not FR→Task).
  */
 
-const { ensureAiAnalysisContainer, getJobStatus } = require('./aiAnalysisContainer');
-const { toDateKey, taskDatesFromSchedule } = require('./aiAnalysisScheduleCapacity');
+const { ensureAiAnalysisContainer } = require('./aiAnalysisContainer');
+const { toDateKey, taskDatesFromSchedule } = require('./scheduleDateKeys');
 
 function assertBlueprintReadyForProjectCreate(pack) {
+  const { assertGate2ProjectPlanConfirmed } = require('../tools/assertGate2ProjectPlanConfirmed');
+  assertGate2ProjectPlanConfirmed(pack);
   const container = ensureAiAnalysisContainer(pack?.aiAnalysis);
-  const jobPlan = getJobStatus(container, 'projectPlan');
-  if (jobPlan !== 'confirmed') {
-    const err = new Error(
-      'projectPlan must be confirmed before create project from Blueprint'
-    );
-    err.statusCode = 409;
-    err.errorCode = 'AI_ANALYSIS_BLUEPRINT_NOT_READY';
-    err.details = { projectPlan: jobPlan };
-    throw err;
-  }
   const tasks = container.planning?.tasks || [];
   if (!tasks.length) {
     const err = new Error('Blueprint planning.tasks is empty');

@@ -42,6 +42,25 @@ services:
         aliases:
           - paddleocr-service
 
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    platform: linux/amd64
+    volumes:
+      - qdrant_data:/qdrant/storage
+    mem_limit: 512m
+    cpus: 1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      enterprise-network:
+        aliases:
+          - qdrant
+
   # Docker Hub minio/* community images removed (2025-10); use Quay mirrors.
   minio:
     image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
@@ -150,6 +169,7 @@ volumes:
   ollama_data:
   minio_data:
   meilisearch_data:
+  qdrant_data:
 
 networks:
   enterprise-network:

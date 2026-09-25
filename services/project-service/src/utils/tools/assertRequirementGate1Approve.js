@@ -37,6 +37,53 @@ function resolveGateAFromPack(pack) {
   return null;
 }
 
+function isAiWhatG4Pack(pack) {
+  const phase = pack?.aiAnalysis?.phaseRuns?.phase_what || pack?.phaseRuns?.phase_what;
+  if (phase && (phase.mode === 'g4' || phase.status === 'ready')) return true;
+  const g4 =
+    pack?.aiAnalysis?.analyses?.g4Understanding || pack?.analyses?.g4Understanding;
+  if (g4 && typeof g4 === 'object') return true;
+  const mode = String(pack?.analysisMode || pack?.aiAnalysisMode || '').toLowerCase();
+  return mode === 'ai';
+}
+
+/**
+ * When WHAT_G4 is on and pack is AI G4 path, require g4Understanding (unless force).
+ */
+function assertG4ReadyForGate1({ pack, forceApprove = false, overrideReason = '' } = {}) {
+  let isWhatG4Enabled = () => true;
+  let hasReadyG4Understanding = () => false;
+  try {
+    ({ isWhatG4Enabled, hasReadyG4Understanding } = require('../aiAnalysis/whatG4Policy'));
+  } catch {
+    /* optional */
+  }
+  if (!isWhatG4Enabled()) return { ok: true, skipped: true };
+  if (!isAiWhatG4Pack(pack)) return { ok: true, skipped: true, reason: 'not_g4_pack' };
+
+  if (hasReadyG4Understanding(pack)) {
+    return { ok: true, g4: true };
+  }
+
+  const forced = forceApprove === true || forceApprove === 'true' || forceApprove === 1;
+  const reason = String(overrideReason || '').trim().slice(0, 2000);
+  if (forced) {
+    if (!reason) {
+      const err = new Error('G4 Understanding chưa sẵn — cần overrideReason khi forceApprove');
+      err.statusCode = 400;
+      err.errorCode = 'G4_OVERRIDE_REASON_REQUIRED';
+      throw err;
+    }
+    return { ok: true, override: { forceApprove: true, reason, missingG4: true } };
+  }
+  const err = new Error(
+    'Chưa có G4 Understanding. Chạy Phase 1 G4 (prepare → G4) trước khi duyệt, hoặc forceApprove kèm lý do.'
+  );
+  err.statusCode = 409;
+  err.errorCode = 'G4_UNDERSTANDING_MISSING';
+  throw err;
+}
+
 /**
  * @param {{ pack: object, forceApprove?: boolean, overrideReason?: string }} args
  * @returns {{ ok: true, gateA: object|null, override: object|null } | never throws}
@@ -50,9 +97,31 @@ function assertRequirementGate1Approve({
     return { ok: true, gateA: resolveGateAFromPack(pack), override: null, skipped: true };
   }
 
+  const g4Gate = assertG4ReadyForGate1({ pack, forceApprove, overrideReason });
+
+  const {
+    assertGate1ConflictAmbiguityOrOverride,
+  } = require('./assertGate1ConflictAmbiguityOrOverride');
+  const conflictGate = assertGate1ConflictAmbiguityOrOverride({
+    pack,
+    forceApprove,
+    overrideReason,
+  });
+
   const gateA = resolveGateAFromPack(pack);
   const forced = forceApprove === true || forceApprove === 'true' || forceApprove === 1;
   const reason = String(overrideReason || '').trim().slice(0, 2000);
+
+  // G4-only AI path may not have classic GateA tools yet — allow when G4 ready
+  if (!gateA && g4Gate.g4 && !g4Gate.override?.missingG4) {
+    return {
+      ok: true,
+      gateA: null,
+      override: conflictGate.override || null,
+      g4: true,
+      conflictAmbiguity: conflictGate.gate || null,
+    };
+  }
 
   if (!gateA) {
     if (forced) {
@@ -71,7 +140,12 @@ function assertRequirementGate1Approve({
           forceApprove: true,
           reason,
           missingGateA: true,
+          ...(g4Gate.override || {}),
+          ...(conflictGate.override
+            ? { conflictAmbiguity: conflictGate.override }
+            : {}),
         },
+        conflictAmbiguity: conflictGate.gate || null,
       };
     }
     const err = new Error(
@@ -84,7 +158,13 @@ function assertRequirementGate1Approve({
   }
 
   if (gateA.passed === true) {
-    return { ok: true, gateA, override: null };
+    return {
+      ok: true,
+      gateA,
+      override: conflictGate.override || null,
+      g4: Boolean(g4Gate.g4),
+      conflictAmbiguity: conflictGate.gate || null,
+    };
   }
 
   if (forced) {
@@ -101,7 +181,13 @@ function assertRequirementGate1Approve({
         forceApprove: true,
         reason,
         missingGateA: false,
+        ...(g4Gate.override || {}),
+        ...(conflictGate.override
+          ? { conflictAmbiguity: conflictGate.override }
+          : {}),
       },
+      g4: Boolean(g4Gate.g4),
+      conflictAmbiguity: conflictGate.gate || null,
     };
   }
 
@@ -126,4 +212,6 @@ module.exports = {
   isRequirementGate1Enabled,
   resolveGateAFromPack,
   assertRequirementGate1Approve,
+  assertG4ReadyForGate1,
+  isAiWhatG4Pack,
 };

@@ -1,16 +1,56 @@
 const { getTool, listTools } = require('../registry/toolRegistry');
+const { generateJson, ollamaModel } = require('./ollamaGenerate');
 
 /**
  * G17 Intelligence Runtime — model/skill/prompt/tool-call parse.
  * Does NOT compute business metrics; does NOT hit DB.
+ * P6: timeout/budget metadata; optional JEV2 route when JEV_CONTROL=1.
  */
 
-function selectModel(env = process.env) {
-  const primary = String(env.OLLAMA_MODEL || '').trim() || 'qwen2.5:3b-instruct';
+function selectModel(env = process.env, opts = {}) {
+  const primary = ollamaModel(env);
   const fallback =
     String(env.OLLAMA_FALLBACK_MODEL || '').trim() || primary;
+  const reasoning =
+    String(env.OLLAMA_REASONING_MODEL || env.OLLAMA_FALLBACK_MODEL || '').trim() ||
+    primary;
   const baseUrl = String(env.OLLAMA_BASE_URL || '').trim() || 'http://ollama:11434';
-  return { model: primary, fallbackModel: fallback, baseUrl };
+  const timeoutMs = Math.max(
+    5000,
+    Math.min(600000, Number(env.G17_LLM_TIMEOUT_MS || 120000) || 120000)
+  );
+  const maxTokens = Math.max(
+    64,
+    Math.min(8192, Number(env.G17_LLM_NUM_PREDICT || 512) || 512)
+  );
+
+  let model = primary;
+  let jev2 = null;
+  try {
+    const {
+      isJevControlEnabled,
+      evaluateJev2ModelRoute,
+    } = require('../orchestration/jevControl');
+    if (isJevControlEnabled(env)) {
+      jev2 = evaluateJev2ModelRoute({
+        riskLevel: opts.riskLevel,
+        complexity: opts.complexity,
+      });
+      if (jev2.route === 'reasoning') model = reasoning;
+    }
+  } catch {
+    /* optional */
+  }
+
+  return {
+    model,
+    fallbackModel: fallback,
+    reasoningModel: reasoning,
+    baseUrl,
+    timeoutMs,
+    maxTokens,
+    jev2,
+  };
 }
 
 function loadSkillStub(skillPackage) {
@@ -84,7 +124,7 @@ function parseToolCalls(rawCalls, { allowedToolNames } = {}) {
 }
 
 /**
- * High-level stub invoke — no HTTP to Ollama in Wave B (keeps unit tests offline).
+ * High-level stub invoke — no HTTP to Ollama (keeps unit tests offline).
  */
 function runIntelligenceStub(input = {}) {
   const model = selectModel(input.env || process.env);
@@ -107,9 +147,66 @@ function runIntelligenceStub(input = {}) {
     prompt,
     structured,
     toolCalls,
-    // Explicit: runtime never writes business metrics
     businessMetrics: null,
+    stub: true,
   };
+}
+
+/**
+ * Production G17 path — uses Ollama when AI_PLANNING_LLM enabled; else stub.
+ */
+async function runIntelligence(input = {}) {
+  const env = input.env || process.env;
+  const { isLlmEnabled, llmProvider } = require('./ollamaGenerate');
+  if (!isLlmEnabled(env) || llmProvider(env) === 'mock' || input.forceStub) {
+    return runIntelligenceStub(input);
+  }
+
+  const model = selectModel(env);
+  const skillLoad = loadSkillStub(input.skill);
+  const prompt = assemblePromptStub({
+    skill: skillLoad.skill,
+    contextPackage: input.contextPackage,
+    objective: input.objective,
+  });
+  const gen = await generateJson({
+    prompt: `${prompt.system}\n\nObjective: ${prompt.user}\nCitations: ${prompt.contextCitations.length}`,
+    temperature: 0.1,
+    numPredict: model.maxTokens || 256,
+    timeoutMs: model.timeoutMs,
+    env,
+    axiosImpl: input.axiosImpl,
+  });
+
+  const candidate =
+    gen.ok && gen.data && typeof gen.data === 'object'
+      ? gen.data
+      : input.structuredCandidate || { action: 'observe' };
+  const structured = validateStructuredOutput(candidate, {
+    required: ['action'],
+  });
+  const toolCalls = parseToolCalls(
+    Array.isArray(candidate.toolCalls) ? candidate.toolCalls : input.toolCalls || [],
+    { allowedToolNames: skillLoad.skill?.allowedToolNames }
+  );
+
+  return {
+    model,
+    skill: skillLoad,
+    prompt,
+    structured,
+    toolCalls,
+    businessMetrics: null,
+    stub: false,
+    llm: { ok: Boolean(gen.ok), skipped: Boolean(gen.skipped), error: gen.error || null },
+  };
+}
+
+/**
+ * Invoke LLM for structured JSON via G17 ollama wrapper.
+ */
+async function runStructuredGenerate(opts = {}) {
+  return generateJson(opts);
 }
 
 module.exports = {
@@ -119,4 +216,6 @@ module.exports = {
   validateStructuredOutput,
   parseToolCalls,
   runIntelligenceStub,
+  runIntelligence,
+  runStructuredGenerate,
 };

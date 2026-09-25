@@ -67,6 +67,12 @@ services:
       - ./services/user-service/.env
     environment:
       - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET=${MINIO_BUCKET}
+      - MINIO_REGION=${MINIO_REGION}
+      - MINIO_USE_SSL=${MINIO_USE_SSL}
     volumes:
       # Persist avatar uploads across service recreate (tránh DB có path nhưng file mất).
       - user_service_uploads:/app/uploads
@@ -278,6 +284,20 @@ services:
       - PROJECT_SERVICE_URL=http://project-service:3009
       - GATEWAY_INTERNAL_TOKEN=${GATEWAY_INTERNAL_TOKEN}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - AGENT_CORE_F2=${AGENT_CORE_F2:-1}
+      - G7_RAG_MODE=${G7_RAG_MODE:-hybrid}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-vh_ai_plan_g7}
+      - AGENT_CORE_HITL_INTERRUPT=${AGENT_CORE_HITL_INTERRUPT:-0}
+      - JEV_CONTROL=${JEV_CONTROL:-0}
+      - AGENT_CORE_LG_MEMORY=${AGENT_CORE_LG_MEMORY:-0}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_URL=${REDIS_URL:-}
+      - REDIS_SENTINELS=${REDIS_SENTINELS:-}
+      - REDIS_SENTINEL_NAME=${REDIS_SENTINEL_NAME:-mymaster}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_USE_AUTH=${REDIS_USE_AUTH:-false}
     networks:
       - enterprise-network
     deploy:

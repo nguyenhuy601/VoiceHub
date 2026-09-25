@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
@@ -7,82 +8,82 @@ import useProjectCapabilities from '../hooks/useProjectCapabilities';
 import {
   buildPhase1ModulePath,
   isPlanningUnlocked,
-  PLANNING_KIND_BY_MODULE,
 } from '../nav/phase1NavConfig';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Phase2GateBanner from '../../phase/Phase2GateBanner';
-import { gateStepClass } from '../shared/phase1UiTokens';
-import { modulePathForArtifactKind } from '../ra/artifactRelated';
-import {
-  Phase1KindNavChip as KindNavChip,
-  Phase1OverviewMark as Mark,
-  Phase1OverviewSection as OverviewSection,
-  Phase1ReviewAttentionBlock as ReviewAttentionBlock,
-} from '../shared/phase1OverviewBlocks';
+import AiPlanningRunPanel from '../AiPlanningRunPanel';
+import RequirementPhase1PipelinePanel from '../RequirementPhase1PipelinePanel';
+import { gateStepClass, kindChipClass } from '../shared/phase1UiTokens';
+import { requirementAPI } from '../../../../services/api/requirementAPI';
+import { buildProjectsModulePath } from '../../../../utils/suitePathUtils';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
-/** Sidebar order — đủ kind phân tích (không chỉ 7 kind cổng). */
-const ANALYSIS_KIND_ORDER = [
-  'SCOPE',
-  'BG',
-  'BR',
-  'BPM',
-  'FR',
-  'UC',
-  'NFR',
-  'INTERFACE',
-  'DATA',
-  'GLOSSARY',
-  'ASSUMPTION',
-];
-
-const PLANNING_KIND_ORDER = [
-  'WBS',
-  'ARCHITECTURE',
-  'RESOURCE',
-  'DEPENDENCY',
-  'SCHEDULE',
-  'MILESTONE',
-  'RELEASE',
-  'RISK',
-];
-
-const PLANNING_MODULE_BY_KIND = Object.freeze(
-  Object.fromEntries(
-    Object.entries(PLANNING_KIND_BY_MODULE).map(([mod, kind]) => [kind, mod.replace(/^planning-/, 'planning/')])
-  )
-);
-
-/** pathSeg for planning kinds: planning/wbs … */
-function modulePathForPlanningKind(kind) {
-  const k = String(kind || '')
-    .trim()
-    .toUpperCase();
-  const fromMap = {
-    WBS: 'planning/wbs',
-    ARCHITECTURE: 'planning/architecture',
-    RESOURCE: 'planning/resources',
-    DEPENDENCY: 'planning/dependencies',
-    SCHEDULE: 'planning/schedule',
-    MILESTONE: 'planning/milestones',
-    RELEASE: 'planning/releases',
-    RISK: 'planning/risks',
-  };
-  return fromMap[k] || PLANNING_MODULE_BY_KIND[k] || null;
+function KindChip({ label, count, approved }) {
+  const ok = approved && count > 0;
+  return (
+    <span
+      className={`${kindChipClass(label)} ${ok ? 'ring-1 ring-emerald-500/40' : ''}`}
+      title={`${label}: ${count ?? 0}`}
+    >
+      {label}
+      <span className="opacity-80">{count ?? 0}</span>
+    </span>
+  );
 }
 
-/**
- * Phase 1 overview — 3 sections; attention lives under Analysis / Planning respectively.
- */
-export default function Phase1OverviewPage({ projectId, organizationId, deliveryPhase }) {
+function Mark({ ok }) {
+  return <span className="font-mono text-xs">{ok ? '✓' : '—'}</span>;
+}
+
+export default function Phase1OverviewPage({
+  projectId,
+  organizationId,
+  deliveryPhase,
+  analysisMode: analysisModeProp,
+}) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { capabilities, isLoading: capsLoading } = useProjectCapabilities(projectId);
   const planningUnlocked = isPlanningUnlocked(deliveryPhase);
+  const analysisMode = ['ai', 'manual'].includes(
+    String(analysisModeProp || searchParams.get('analysisMode') || '')
+      .trim()
+      .toLowerCase()
+  )
+    ? String(analysisModeProp || searchParams.get('analysisMode')).trim().toLowerCase()
+    : 'manual';
+  const [boundPackId, setBoundPackId] = useState(() =>
+    String(searchParams.get('packId') || '').trim()
+  );
+
+  useEffect(() => {
+    const fromUrl = String(searchParams.get('packId') || '').trim();
+    if (fromUrl) {
+      setBoundPackId(fromUrl);
+      return;
+    }
+    if (!organizationId || !projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await requirementAPI.listPacks(organizationId, {});
+        const data = unwrap(res);
+        const list = Array.isArray(data) ? data : data?.items || data?.packs || [];
+        const hit = list.find((p) => String(p.projectId || '') === String(projectId));
+        if (!cancelled && hit?._id) setBoundPackId(String(hit._id));
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, projectId, searchParams]);
 
   const { data: gaps, isLoading } = useQuery({
     queryKey: ['projectAnalysisGaps', String(projectId || '')],
@@ -106,6 +107,7 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
   const raReady = Boolean(gaps?.raReadiness?.raApproved);
   const srsReady = Boolean(gaps?.srsBaselineExists);
   const planReady = Boolean(gaps?.planningBaselineExists);
+  // Gate checklist is sequential (1→2→3) so step marks never skip ahead of prior steps.
   const gateStep1Ok = raReady;
   const gateStep2Ok = raReady && srsReady;
   const gateStep3Ok = planningUnlocked;
@@ -116,14 +118,10 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
   const showNotReady =
     !planningUnlocked && !raReady && capabilities.canViewAnalysis;
 
-  const constraintCount = (gaps?.constraints || []).length;
-  const assumptionCount = (gaps?.assumptions || []).length;
-  const frMissingUc = (gaps?.frMissingUc || []).length;
-  const brMissingBg = (gaps?.brMissingBg || []).length;
-  const criticalCount = gaps?.criticalGapCount ?? 0;
-
   return (
-    <div className="w-full space-y-5 p-3 sm:p-4">
+    // Block flow (space-y) — not flex-col: flex children + min-h-0 were shrinking the RA
+    // grid so KindChips overflowed onto the Planning card below.
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
       <Phase2GateBanner
         projectId={projectId}
         organizationId={organizationId}
@@ -131,16 +129,62 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
         canChangePhase={Boolean(capabilities.canChangeDeliveryPhase)}
       />
 
+      {boundPackId ? (
+        <RequirementPhase1PipelinePanel
+          projectId={projectId}
+          organizationId={organizationId}
+          packId={boundPackId}
+          analysisMode={analysisMode}
+          canRun={Boolean(capabilities.canViewAnalysis)}
+          canSubmit={Boolean(
+            capabilities.canImportAnalysis ||
+              capabilities.canEditAnalysis ||
+              (Array.isArray(capabilities.permissions) &&
+                capabilities.permissions.includes('analysis:submit_ba_review'))
+          )}
+          canApprove={Boolean(capabilities.canReviewAnalysisPo)}
+          onPipelineDone={() => {
+            queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
+            queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId] });
+          }}
+        />
+      ) : null}
+
+      {/* HOW / Gate2 — only after Gate 1 (approved pack); avoid forcing snapshot/pack on draft "Để sau". */}
+      {boundPackId && analysisMode === 'ai' ? (
+        <AiPlanningRunPanel
+          organizationId={organizationId}
+          packId={boundPackId}
+          canRun={Boolean(capabilities.canViewAnalysis)}
+          canPromote={Boolean(capabilities.canChangeDeliveryPhase || capabilities.canViewAnalysis)}
+          onPromoted={(data) => {
+            const pid = String(
+              data?.project?._id || data?.project?.projectId || projectId || ''
+            ).trim();
+            queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
+            if (pid) {
+              navigate(buildProjectsModulePath(pid, 'board'));
+            }
+          }}
+        />
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-base font-semibold tracking-tight">{t('workspace.phase1OverviewTitle')}</h1>
+        <h1 className="text-base font-semibold">{t('workspace.phase1OverviewTitle')}</h1>
         {isLoading ? (
           <span className="text-xs text-muted-foreground">{t('common.loading')}</span>
         ) : null}
       </div>
 
-      {/* 1. Tổng tiến độ — chỉ cổng + CTA (không nhét inbox phân tích/planning) */}
-      <OverviewSection index={1} title={t('workspace.phase1SectionProgress')}>
-        <ol className="flex flex-wrap gap-2 text-[11px]">
+      {/* Single readiness + CTA block — Wave G1: 3-step gate copy */}
+      <section className="rounded-xl border border-border bg-surface px-3 py-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {t('workspace.phase1ReadinessTitle')}
+        </h2>
+        <p className="mt-1 text-[11px] font-medium text-muted-foreground">
+          {t('workspace.phase1GateStepsTitle')}
+        </p>
+        <ol className="mt-1.5 flex flex-wrap gap-2 text-[11px]">
           <li className={gateStepClass(gateStep1Ok ? 'done' : 'pending')}>
             <Mark ok={gateStep1Ok} /> {t('workspace.phase1GateStep1')}
           </li>
@@ -159,8 +203,7 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
             <Mark ok={gateStep3Ok} /> {t('workspace.phase1GateStep3')}
           </li>
         </ol>
-
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
           <span className="inline-flex items-center gap-1.5">
             {t('workspace.phase1ReadinessRa')} <Mark ok={raReady} />
           </span>
@@ -170,14 +213,14 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
           <span className="inline-flex items-center gap-1.5">
             {t('workspace.phase1ReadinessPlan')} <Mark ok={planReady} />
           </span>
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5 text-muted-foreground">
             Phase 2 <Mark ok={Boolean(gaps?.readyForPhase2)} />
           </span>
         </div>
 
         {showStartCta ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
-            <p className="min-w-0 flex-1 text-sm text-emerald-900 dark:text-emerald-100">
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+            <p className="flex-1 text-sm text-emerald-800 dark:text-emerald-200">
               {t('workspace.phase1RaApprovedBody')}
             </p>
             <button
@@ -192,14 +235,14 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
         ) : null}
 
         {showNeedSrs ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-amber-500/30 pt-3">
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-foreground">{t('workspace.phase1NeedSrsTitle')}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{t('workspace.phase1NeedSrsBody')}</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">{t('workspace.phase1NeedSrsBody')}</p>
             </div>
             <button
               type="button"
-              className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+              className="rounded-lg border border-border px-3 py-1.5 text-sm"
               onClick={() =>
                 navigate(buildPhase1ModulePath(projectId, 'srs-baselines', { organizationId }))
               }
@@ -210,110 +253,130 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
         ) : null}
 
         {showNotReady ? (
-          <p className="mt-3 text-xs text-muted-foreground">{t('workspace.phase1DoubleGateHint')}</p>
-        ) : null}
-      </OverviewSection>
-
-      {/* 2. Phân tích — đủ kind + thông báo duyệt phân tích */}
-      <OverviewSection
-        index={2}
-        title={t('workspace.phase1SectionAnalysis')}
-        action={
-          <button
-            type="button"
-            className="rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium hover:bg-muted"
-            onClick={() =>
-              navigate(buildPhase1ModulePath(projectId, 'analysis-bg', { organizationId }))
-            }
-          >
-            {t('workspace.phase1OpenAnalysis')}
-          </button>
-        }
-      >
-        <div className="flex flex-wrap gap-1.5">
-          {ANALYSIS_KIND_ORDER.map((k) => (
-            <KindNavChip
-              key={k}
-              kind={k}
-              count={counts[k] ?? 0}
-              resolvePath={modulePathForArtifactKind}
-              projectId={projectId}
-              organizationId={organizationId}
-              navigate={navigate}
-            />
-          ))}
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-border/50 pt-2.5 text-xs text-muted-foreground">
-          <span>{t('workspace.phase1GapFrMissingUcCount', { count: frMissingUc })}</span>
-          <span>{t('workspace.phase1GapBrMissingBgCount', { count: brMissingBg })}</span>
-          <span>{t('workspace.phase1GapCritical', { count: criticalCount })}</span>
-          <span>
-            {t('workspace.phase1Constraints')}: {constraintCount}
-          </span>
-          <span>
-            {t('workspace.phase1Assumptions')}: {assumptionCount}
-          </span>
-        </div>
-
-        {!isLoading && gaps ? (
-          <div className="mt-3 border-t border-border/50 pt-3">
-            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t('workspace.phase1AttentionTitle')}
-            </p>
-            <ReviewAttentionBlock
-              attention={gaps.reviewAttention}
-              kindOrder={ANALYSIS_KIND_ORDER}
-              resolvePath={modulePathForArtifactKind}
-              reviewsPath="analysis-reviews"
-              projectId={projectId}
-              organizationId={organizationId}
-              navigate={navigate}
-              t={t}
-            />
-          </div>
-        ) : null}
-      </OverviewSection>
-
-      {/* 3. Planning — catalog + thông báo duyệt planning */}
-      <OverviewSection
-        index={3}
-        title={t('workspace.phase1SectionPlanning')}
-        action={
-          planningUnlocked ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">{t('workspace.phase1RaNotReadyTitle')}</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">{t('workspace.phase1DoubleGateHint')}</p>
+              {(gaps?.raReadiness?.blockingReasons || []).length ? (
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                  {(gaps.raReadiness.blockingReasons || []).slice(0, 6).map((reason, i) => {
+                    const text =
+                      typeof reason === 'string'
+                        ? reason
+                        : String(reason?.message || reason?.code || JSON.stringify(reason));
+                    return <li key={`${text}-${i}`}>{text}</li>;
+                  })}
+                </ul>
+              ) : null}
+            </div>
             <button
               type="button"
-              className="rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium hover:bg-muted"
+              className="rounded-lg border border-border px-3 py-1.5 text-sm"
               onClick={() =>
-                navigate(buildPhase1ModulePath(projectId, 'planning/overview', { organizationId }))
+                navigate(buildPhase1ModulePath(projectId, 'analysis-reviews', { organizationId }))
               }
             >
-              {t('workspace.phase1OpenPlanning')}
+              {t('workspace.phase1GoReviews')}
             </button>
-          ) : null
-        }
-      >
+          </div>
+        ) : null}
+      </section>
+
+      <div className="grid gap-3 lg:grid-cols-[1fr_minmax(240px,320px)]">
+        <section className="rounded-xl border border-border bg-surface px-3 py-2.5">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t('workspace.phase1GroupRequirementAnalysis')}
+          </h2>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {['BG', 'BR', 'BPM', 'FR', 'UC', 'NFR', 'SCOPE'].map((k) => (
+              <KindChip key={k} label={k} count={counts[k]} approved={raReady} />
+            ))}
+          </div>
+          <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+            <li>
+              {t('workspace.phase1GapFrMissingUcCount', {
+                count: (gaps?.frMissingUc || []).length,
+              })}
+            </li>
+            <li>
+              {t('workspace.phase1GapBrMissingBgCount', {
+                count: (gaps?.brMissingBg || []).length,
+              })}
+            </li>
+            <li>{t('workspace.phase1GapCritical', { count: gaps?.criticalGapCount ?? 0 })}</li>
+          </ul>
+        </section>
+
+        <section className="rounded-xl border border-border bg-surface px-3 py-2.5">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t('workspace.phase1ConstraintsAssumptions')}
+          </h2>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+            <div>
+              <p className="text-[11px] font-medium text-muted-foreground">
+                {t('workspace.phase1Constraints')} ({(gaps?.constraints || []).length})
+              </p>
+              <ul className="mt-0.5 max-h-24 space-y-0.5 overflow-y-auto text-xs text-muted-foreground">
+                {(gaps?.constraints || []).slice(0, 8).map((c, i) => (
+                  <li key={`c-${i}`} className="truncate" title={c.text}>
+                    {c.externalKey ? `${c.externalKey}: ` : ''}
+                    {c.text}
+                  </li>
+                ))}
+                {!(gaps?.constraints || []).length ? (
+                  <li>{t('workspace.phase1ConstraintsEmpty')}</li>
+                ) : null}
+              </ul>
+            </div>
+            <div>
+              <p className="text-[11px] font-medium text-muted-foreground">
+                {t('workspace.phase1Assumptions')} ({(gaps?.assumptions || []).length})
+              </p>
+              <ul className="mt-0.5 max-h-24 space-y-0.5 overflow-y-auto text-xs text-muted-foreground">
+                {(gaps?.assumptions || []).slice(0, 8).map((a, i) => (
+                  <li key={`a-${i}`} className="truncate" title={a.text}>
+                    {a.externalKey ? `${a.externalKey}: ` : ''}
+                    {a.text}
+                  </li>
+                ))}
+                {!(gaps?.assumptions || []).length ? (
+                  <li>{t('workspace.phase1AssumptionsEmpty')}</li>
+                ) : null}
+              </ul>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section className="rounded-xl border border-border bg-surface px-3 py-2.5">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {t('workspace.phase1GroupPlanning')}
+        </h2>
         {planningUnlocked ? (
-          <div>
-            <p className="text-sm text-emerald-800 dark:text-emerald-200">
+          <div className="mt-2">
+            <p className="mb-2 text-sm text-emerald-800 dark:text-emerald-200">
               {t('workspace.phase1PlanningUnlockedHint')}
             </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {PLANNING_KIND_ORDER.map((k) => {
-                const v = gaps?.planningReadiness?.byKind?.[k];
-                const total = v?.total ?? 0;
-                return (
-                  <KindNavChip
-                    key={k}
-                    kind={k}
-                    count={total}
-                    resolvePath={modulePathForPlanningKind}
-                    projectId={projectId}
-                    organizationId={organizationId}
-                    navigate={navigate}
-                  />
-                );
-              })}
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(gaps?.planningReadiness?.byKind || {}).map(([k, v]) => (
+                <span
+                  key={k}
+                  className={kindChipClass(k)}
+                  title={t('workspace.phase1PlanningApprovedDraft', {
+                    approved: v.approved,
+                    total: v.total,
+                    draft: v.draft,
+                  })}
+                >
+                  {k}
+                  <span className="opacity-80">
+                    {v.approved}/{v.total}
+                  </span>
+                </span>
+              ))}
+              {!Object.keys(gaps?.planningReadiness?.byKind || {}).length ? (
+                <p className="text-sm text-muted-foreground">{t('workspace.phase1PlanningEmpty')}</p>
+              ) : null}
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
               {gaps?.planningBaselineExists
@@ -323,29 +386,11 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
             </p>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            {t('workspace.phase1PlanningSectionLocked')}
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t('workspace.phase1PlanningLockedHint')}
           </p>
         )}
-
-        {!isLoading && gaps && planningUnlocked ? (
-          <div className="mt-3 border-t border-border/50 pt-3">
-            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t('workspace.phase1AttentionTitle')}
-            </p>
-            <ReviewAttentionBlock
-              attention={gaps.planningReviewAttention}
-              kindOrder={PLANNING_KIND_ORDER}
-              resolvePath={modulePathForPlanningKind}
-              reviewsPath="planning/approval"
-              projectId={projectId}
-              organizationId={organizationId}
-              navigate={navigate}
-              t={t}
-            />
-          </div>
-        ) : null}
-      </OverviewSection>
+      </section>
     </div>
   );
 }

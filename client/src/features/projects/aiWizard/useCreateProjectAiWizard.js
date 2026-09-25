@@ -8,7 +8,6 @@ import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import useRequirementAccess from '../../../hooks/useRequirementAccess';
 import useRequirementPacks from '../../../hooks/useRequirementPacks';
 import { queryKeys } from '../../../lib/queryKeys';
-import { AI_ANALYSIS_JOBS, areAllAnalysisJobsConfirmed } from '../../requirements/aiAnalysisWizardConstants';
 import { approveRequirementPackWithGate1 } from '../../requirements/approveRequirementPackWithGate1';
 import {
   AI_WIZARD_STEPS,
@@ -299,13 +298,24 @@ export default function useCreateProjectAiWizard({
       try {
         const res = await requirementAPI.getAiAnalysis(orgId, packId, { view: 'summary' });
         const summary = unwrapRequirementPayload(res);
-        if (!areAllAnalysisJobsConfirmed(summary?.jobs)) {
-          toast.error(t('aiCreateWizard.needConfirmAllAnalysisJobs'));
+        const planStatus = String(summary?.phaseRuns?.phase_how?.status || '');
+        if (planStatus !== 'confirmed') {
+          toast.error(
+            t('aiCreateWizard.needConfirmProjectPlan') ||
+              t('requirements.gate2CreateBlocked') ||
+              'Gate 2: confirm phase HOW trước khi tiếp tục.'
+          );
           return;
         }
       } catch (error) {
         toast.error(
-          resolveApiErrorMessage(error, { t, fallback: t('aiCreateWizard.needConfirmAllAnalysisJobs') })
+          resolveApiErrorMessage(error, {
+            t,
+            fallback:
+              t('aiCreateWizard.needConfirmProjectPlan') ||
+              t('requirements.gate2CreateBlocked') ||
+              'Gate 2: confirm projectPlan trước khi tiếp tục.',
+          })
         );
         return;
       } finally {
@@ -429,7 +439,6 @@ export default function useCreateProjectAiWizard({
     goNext,
     createProject,
     canRunAiOnPack: canRunAiOnPack(pack),
-    analysisJobCount: AI_ANALYSIS_JOBS.length,
     isPhase2Ai,
     existingProjectId: phase2ProjectId,
   };

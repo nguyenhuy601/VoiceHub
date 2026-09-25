@@ -156,6 +156,7 @@ async function bulkTransitionArtifacts(req, res) {
       fromStatus: req.body?.fromStatus,
       toStatus: req.body?.toStatus || req.body?.status,
       note: req.body?.note || '',
+      artifactIds: req.body?.artifactIds ?? req.body?.ids ?? null,
     });
     return res.json({ success: true, data });
   } catch (err) {

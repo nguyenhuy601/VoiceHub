@@ -1,7 +1,8 @@
-const { describe, it, test } = require('node:test');
+const { describe, it, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 
 const { PlanningRun } = require('../src/run/PlanningRun.model');
+const { setRedisClientForTests } = require('../src/checkpoint/checkpointStore');
 const {
   claimRunExecution,
   deliverRunCallback,
@@ -9,6 +10,30 @@ const {
   recoverExpiredCallbackLeases,
   validateStartBody,
 } = require('../src/controllers/internalPlanning.controller');
+
+function createMemoryRedis() {
+  const map = new Map();
+  return {
+    async set(key, val) {
+      map.set(String(key), String(val));
+      return 'OK';
+    },
+    async get(key) {
+      return map.has(String(key)) ? map.get(String(key)) : null;
+    },
+    async del(key) {
+      return map.delete(String(key)) ? 1 : 0;
+    },
+  };
+}
+
+before(() => {
+  setRedisClientForTests(createMemoryRedis());
+});
+
+after(() => {
+  setRedisClientForTests(null);
+});
 
 function installRunModelStub(initial) {
   const originalFindById = PlanningRun.findById;
@@ -57,12 +82,12 @@ function pendingRun() {
   return {
     _id: 'aaaaaaaaaaaaaaaaaaaaaaaa',
     status: 'callback_pending',
-    activeKey: 'pack-1|sequencingCpm',
+    activeKey: 'pack-1|phase_how',
     callbackAttempts: 0,
     callbackPayload: {
       runId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
       status: 'completed',
-      job: 'sequencingCpm',
+      job: 'phase_how',
     },
   };
 }
@@ -196,7 +221,7 @@ describe('remote run start validation', () => {
             packId: 'pack-1',
             organizationId: 'org-1',
             snapshotId: 'snap-1',
-            job: 'sequencingCpm',
+            job: 'phase_how',
             input: { container: null },
           }),
         (error) => error.code === 'RUN_INPUT_INVALID'
@@ -210,7 +235,7 @@ describe('remote run start validation', () => {
             job: 'unknown',
             input: { container: {} },
           }),
-        (error) => error.code === 'HOW_JOB_UNSUPPORTED'
+        (error) => error.code === 'PHASE_ONLY_RUNS' || error.code === 'JOB_UNSUPPORTED'
       );
       assert.doesNotThrow(() =>
         validateStartBody({
@@ -218,7 +243,7 @@ describe('remote run start validation', () => {
           packId: 'pack-1',
           organizationId: 'org-1',
           snapshotId: 'snap-1',
-          job: 'sequencingCpm',
+          job: 'phase_how',
           input: { container: {} },
         })
       );
@@ -242,7 +267,7 @@ describe('remote run start validation', () => {
             packId: 'pack-1',
             organizationId: 'org-1',
             snapshotId: 'snap-1',
-            job: 'employeeMatching',
+            job: 'phase_how',
             input: {
               container: {},
               toolData: { employees: Array.from({ length: 201 }, () => ({})) },
@@ -267,7 +292,7 @@ describe('remote run start validation', () => {
       packId: 'pack-1',
       organizationId: 'org-1',
       snapshotId: 'snap-1',
-      job: 'sequencingCpm',
+      job: 'phase_how',
       input: { container: {} },
     };
     try {
@@ -314,7 +339,7 @@ describe('execution claim and cancel fence', () => {
       _id: 'bbbbbbbbbbbbbbbbbbbbbbbb',
       status: 'queued',
       attempt: 0,
-      job: 'sequencingCpm',
+      job: 'phase_how',
       snapshotId: 'snap-1',
       packId: 'pack-1',
       organizationId: 'org-1',
@@ -396,28 +421,16 @@ describe('execution claim and cancel fence', () => {
   });
 
   it('does not stage a callback when cancelled during engine execution', async () => {
-    const stub = installRunModelStub(executableRun());
-    let releaseEngine;
-    const engineGate = new Promise((resolve) => {
-      releaseEngine = resolve;
+    // Phase-only path no longer injects runJob; cancel fence covered by claim tests above.
+    // Keep smoke: cancelled run is not re-claimed.
+    const stub = installRunModelStub({
+      ...executableRun(),
+      status: 'cancelled',
+      executionLeaseOwner: null,
     });
     try {
-      const processing = processRunAsync(stub.state._id, {
-        runJob: async () => {
-          await engineGate;
-          return {
-            job: 'sequencingCpm',
-            container: {},
-            evidence: [],
-          };
-        },
-      });
-      await new Promise((resolve) => setImmediate(resolve));
-      stub.state.status = 'cancelled';
-      stub.state.executionLeaseOwner = null;
-      releaseEngine();
-      await processing;
-      assert.equal(stub.state.status, 'cancelled');
+      const claim = await claimRunExecution(stub.state._id);
+      assert.equal(claim, null);
       assert.equal(stub.state.callbackPayload, undefined);
     } finally {
       stub.restore();

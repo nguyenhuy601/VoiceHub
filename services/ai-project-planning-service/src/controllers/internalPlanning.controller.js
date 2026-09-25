@@ -7,15 +7,21 @@ const {
   toPublicRun,
 } = require('../run/runStore');
 const { parseFeedback } = require('../feedback/feedbackParser');
-const { saveCheckpoint } = require('../checkpoint/checkpointStore');
-const { runPlanningGraph } = require('../orchestration/planningGraph');
+const {
+  saveCheckpoint,
+  loadCheckpoint,
+  deleteCheckpoint,
+  assertCheckpointForResume,
+} = require('../checkpoint/checkpointStore');
 const { PlanningRun } = require('../run/PlanningRun.model');
 const {
   assertCallbackConfigured,
   notifyRunAccepted,
   notifyJobResult,
 } = require('../clients/project.client');
-const { HOW_JOBS, runHowJob } = require('../engines/howJobRunner');
+
+const PHASE_JOBS = new Set(['phase_how', 'phase_what']);
+const PHASE_ONLY_ERROR = 'PHASE_ONLY_RUNS';
 
 const MAX_ARRAY_ITEMS = 2000;
 const MAX_EMPLOYEES = 200;
@@ -102,9 +108,12 @@ function validateStartBody(body) {
     }
   }
   const job = String(body.job || '').trim();
-  if (!HOW_JOBS.has(job)) {
-    const error = new Error(`Unsupported deterministic HOW job: ${job}`);
-    error.code = 'HOW_JOB_UNSUPPORTED';
+  if (!PHASE_JOBS.has(job)) {
+    const error = new Error(
+      `Phase-only planning: unsupported job "${job}" — use phase_what or phase_how`
+    );
+    error.code = PHASE_ONLY_ERROR;
+    error.statusCode = 410;
     throw error;
   }
   if (body.runId != null && !/^[a-f\d]{24}$/i.test(String(body.runId))) {
@@ -189,6 +198,7 @@ async function startRun(req, res) {
               'RUN_IDENTIFIERS_REQUIRED',
               'RUN_IDENTIFIERS_INVALID',
               'HOW_JOB_UNSUPPORTED',
+              'JOB_UNSUPPORTED',
               'RUN_INPUT_REQUIRED',
               'RUN_INPUT_INVALID',
               'RUN_INPUT_TOO_LARGE',
@@ -258,7 +268,7 @@ async function deliverRunCallback(
     await notify(run.callbackPayload);
     const finalStatus =
       run.callbackPayload.status === 'completed' ? 'completed' : 'failed';
-    return PlanningRun.findOneAndUpdate(
+    const updated = await PlanningRun.findOneAndUpdate(
       {
         _id: runId,
         status: 'callback_delivering',
@@ -283,6 +293,11 @@ async function deliverRunCallback(
       },
       { new: true }
     ).lean();
+    // G15: drop Redis state when run completes successfully (keep on failed for resume).
+    if (finalStatus === 'completed') {
+      await deleteCheckpoint(runId);
+    }
+    return updated;
   } catch (error) {
     const errorPatch = {
       code: error.code || 'PROJECT_CALLBACK_FAILED',
@@ -341,6 +356,8 @@ async function deliverRunCallback(
 }
 
 async function stageCallback(run, executionLeaseOwner, payload, patch = {}) {
+  const { checkpoint: _ignoredCheckpoint, ...mongoPatch } = patch;
+  void _ignoredCheckpoint;
   const staged = await PlanningRun.findOneAndUpdate(
     {
       _id: run._id,
@@ -357,7 +374,7 @@ async function stageCallback(run, executionLeaseOwner, payload, patch = {}) {
         callbackLastError: null,
         executionLeaseOwner: null,
         executionLeaseExpiresAt: null,
-        ...patch,
+        ...mongoPatch,
       },
     },
     { new: true }
@@ -401,22 +418,85 @@ async function claimRunExecution(
   return run ? { run, executionLeaseOwner } : null;
 }
 
-async function processRunAsync(runId, { runJob = runHowJob } = {}) {
+async function processRunAsync(runId) {
   const claim = await claimRunExecution(runId);
   const claimed = claim?.run;
   if (!claimed) return;
-  const run = claimed;
+  let run = claimed;
   const { executionLeaseOwner } = claim;
 
-  if (HOW_JOBS.has(run.job)) {
+  // G1 Step 2 — attach catalogs on AI service before tools (RULE-11)
+  try {
+    const { enrichRunInputWithG1Catalogs } = require('../knowledge/enrichRunInputWithG1Catalogs');
+    const enriched = await enrichRunInputWithG1Catalogs(run);
+    run = enriched.run;
+  } catch (g1Err) {
+    console.warn('[planning] attachG1Catalogs', g1Err?.message || g1Err);
+  }
+
+  if (run.job === 'phase_how' || run.job === 'phase_what') {
     try {
-      const output = await runJob({
-        job: run.job,
-        container: run.input?.container,
-        pack: run.input?.pack,
-        toolData: run.input?.toolData,
+      const {
+        hydrateToolDataFromSnapshot,
+      } = require('../knowledge/hydrateToolDataFromSnapshot');
+      const toolData = hydrateToolDataFromSnapshot(
+        run.input?.toolData,
+        run.input?.snapshot || run.input?.snapshotPayload || null
+      );
+
+      const loadedCp = await loadCheckpoint(runId);
+      const cpState = loadedCp?.checkpoint?.state || null;
+      const selectiveNames = cpState?.selectiveReplanSteps;
+      const isSelectiveHow =
+        run.job === 'phase_how' &&
+        Array.isArray(selectiveNames) &&
+        selectiveNames.length > 0;
+
+      const { runAgentPhase } = require('../orchestration/agentLoopRunner');
+      const phaseOut = await runAgentPhase({
+        phase: run.job === 'phase_what' ? 'what' : 'how',
+        container: cpState?.container || run.input?.container,
+        pack: cpState?.pack || run.input?.pack,
+        toolData: cpState?.toolData || toolData,
+        snapshot: run.input?.snapshot || run.input?.snapshotPayload || null,
         snapshotId: run.snapshotId,
+        runId,
+        g4Opts: run.input?.g4Opts || {},
+        resumeState: run.job === 'phase_how' ? cpState : null,
+        selectiveToolNames: isSelectiveHow ? selectiveNames : null,
+        onCheckpoint: (agentState) =>
+          saveCheckpoint(runId, {
+            ...agentState,
+            projectId: run.projectId,
+            packId: run.packId,
+            organizationId: run.organizationId,
+            approvedSrsVersion: run.approvedSrsVersion,
+            job: run.job,
+          }),
       });
+      const output = {
+        job: run.job,
+        currentJob: run.job,
+        container: phaseOut.container,
+        g4Understanding: phaseOut.g4Understanding || null,
+        result: {
+          phase: phaseOut.phase,
+          history: phaseOut.history,
+          hitl: phaseOut.hitl,
+          durationMs: phaseOut.durationMs,
+          feasibility: phaseOut.feasibility,
+          g4Understanding: phaseOut.g4Understanding || null,
+          selective: Boolean(phaseOut.selective),
+        },
+        meta: {
+          llmCalls: phaseOut.g4Understanding?.meta?.llmCalls || 0,
+          durationMs: phaseOut.durationMs,
+          agentic: true,
+          selective: Boolean(phaseOut.selective),
+          skillId: phaseOut.g4Understanding?.meta?.skillId || null,
+          promptVersion: phaseOut.g4Understanding?.meta?.promptVersion || null,
+        },
+      };
       const callbackPayload = {
         runId,
         status: 'completed',
@@ -426,21 +506,44 @@ async function processRunAsync(runId, { runJob = runHowJob } = {}) {
         organizationId: run.organizationId,
         snapshotId: run.snapshotId,
         result: output,
+        g4Understanding: phaseOut.g4Understanding || null,
       };
+      await saveCheckpoint(runId, {
+        job: run.job,
+        projectId: run.projectId,
+        packId: run.packId,
+        organizationId: run.organizationId,
+        approvedSrsVersion: run.approvedSrsVersion,
+        snapshotId: run.snapshotId,
+        phaseOut,
+        history: phaseOut.history,
+        toolResults: phaseOut.toolResults,
+        evidence: phaseOut.g4Understanding?.evidence || [],
+        evaluationResult: phaseOut.evaluate,
+        feasibility: phaseOut.feasibility,
+        currentNode: 'callback_pending',
+        status: 'callback_pending',
+        iteration: Array.isArray(phaseOut.history) ? phaseOut.history.length : 0,
+        hitl: phaseOut.hitl,
+        selectiveReplanSteps: null,
+      });
       await stageCallback(run, executionLeaseOwner, callbackPayload, {
         result: output,
-        evidence: output.evidence,
+        evidence: phaseOut.g4Understanding?.evidence || [],
         error: null,
-        checkpoint: {
-          state: { job: run.job, output },
-          savedAt: new Date().toISOString(),
-        },
       });
     } catch (error) {
       const callbackError = {
-        code: error.code || 'HOW_JOB_FAILED',
+        code: error.code || 'AGENT_PHASE_FAILED',
         message: error.message,
       };
+      await saveCheckpoint(runId, {
+        job: run.job,
+        snapshotId: run.snapshotId,
+        status: 'failed',
+        currentNode: 'failed',
+        unresolvedIssues: [callbackError],
+      }).catch(() => {});
       await stageCallback(
         run,
         executionLeaseOwner,
@@ -460,35 +563,35 @@ async function processRunAsync(runId, { runJob = runHowJob } = {}) {
     return;
   }
 
-  const graphState = await runPlanningGraph({
-    runId,
-    snapshotId: run.snapshotId,
-  });
-
-  const feasPass = graphState.feasibility?.pass !== false;
-  await PlanningRun.findOneAndUpdate(
-    {
-      _id: runId,
-      status: 'running',
+  // RULE-PO-01: no per-job / legacy graph execute
+  {
+    const callbackError = {
+      code: PHASE_ONLY_ERROR,
+      message: `Phase-only: refusing to execute job="${run.job}"`,
+    };
+    await saveCheckpoint(runId, {
+      job: run.job,
+      snapshotId: run.snapshotId,
+      status: 'failed',
+      currentNode: 'failed',
+      unresolvedIssues: [callbackError],
+    }).catch(() => {});
+    await stageCallback(
+      run,
       executionLeaseOwner,
-    },
-    {
-      $set: {
-        status: feasPass ? 'waiting_human' : 'failed',
-        currentNode: 'feasibility',
-        checkpoint: {
-          state: graphState,
-          savedAt: new Date().toISOString(),
-        },
-        executionLeaseOwner: null,
-        executionLeaseExpiresAt: null,
-        error: feasPass ? null : { feasibility: graphState.feasibility },
-        ...(!feasPass ? { completedAt: new Date() } : {}),
+      {
+        runId,
+        status: 'failed',
+        job: run.job,
+        projectId: run.projectId,
+        packId: run.packId,
+        organizationId: run.organizationId,
+        snapshotId: run.snapshotId,
+        error: callbackError,
       },
-      ...(!feasPass ? { $unset: { activeKey: 1 } } : {}),
-    },
-    { new: true }
-  ).lean();
+      { error: callbackError }
+    );
+  }
 }
 
 async function recoverExpiredCallbackLeases(now = new Date()) {
@@ -614,6 +717,9 @@ async function cancelRun(req, res) {
     if (!doc) {
       return res.status(404).json({ success: false, message: 'Run not found' });
     }
+    if (doc.status === 'cancelled') {
+      await deleteCheckpoint(req.params.runId);
+    }
     return res.json({ success: true, data: toPublicRun(doc) });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -622,6 +728,16 @@ async function cancelRun(req, res) {
 
 async function resumeRun(req, res) {
   try {
+    const existing = await getRunById(req.params.runId);
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Run not found' });
+    }
+
+    // callback_pending: deliver only — G15 key not required
+    await assertCheckpointForResume(req.params.runId, {
+      hasCallbackPayload: Boolean(existing.callbackPayload),
+    });
+
     const doc = await resumeRunStore(req.params.runId);
     if (!doc) {
       return res.status(404).json({ success: false, message: 'Run not found' });
@@ -635,7 +751,10 @@ async function resumeRun(req, res) {
     });
     return res.status(202).json({ success: true, data: toPublicRun(doc) });
   } catch (err) {
-    const status = err.code === 'RESUME_DENIED' ? 409 : 500;
+    const status =
+      err.code === 'RESUME_DENIED' || err.code === 'CHECKPOINT_MISSING'
+        ? 409
+        : 500;
     return res.status(status).json({
       success: false,
       message: err.message,
@@ -655,11 +774,24 @@ async function submitFeedback(req, res) {
     const parsed = parseFeedback(req.body || {});
     existing.lastFeedback = parsed;
     existing.status = 'replanning';
+    const { resolveToolsForImpactScope } = require('../feedback/selectiveReplan');
+    const selectiveSteps = resolveToolsForImpactScope(parsed.impactScope);
+    existing.markModified('lastFeedback');
     await existing.save();
 
+    const loaded = await loadCheckpoint(runId);
+    const prior = loaded?.checkpoint?.state || {};
     await saveCheckpoint(runId, {
-      ...(existing.checkpoint?.state || {}),
+      ...prior,
+      humanFeedback: parsed,
       lastFeedback: parsed,
+      selectiveReplanSteps: selectiveSteps.map((s) => s.toolName),
+      currentToolIndex: 0,
+      currentToolName: null,
+      status: 'replanning',
+      snapshotId: existing.snapshotId,
+      runId: String(existing._id),
+      job: existing.job,
     });
 
     return res.json({
@@ -668,6 +800,7 @@ async function submitFeedback(req, res) {
         runId: String(existing._id),
         status: existing.status,
         feedback: parsed,
+        selectiveReplanTools: selectiveSteps.map((s) => s.toolName),
       },
     });
   } catch (err) {

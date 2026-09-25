@@ -175,6 +175,7 @@ export default function ProjectHubSettingsPanel({
   canArchiveProject = false,
   canArchiveWithoutComplete = false,
   isProjectCompleted = false,
+  isDraftProject = false,
   projectStillActive = true,
   onRequestArchive = null,
   isDarkMode = false,
@@ -1382,12 +1383,21 @@ export default function ProjectHubSettingsPanel({
               id="project-hub-settings-danger-title"
               className={`text-sm font-bold ${titleCls}`}
             >
-              {t('workspace.projectHubSettingsDangerTitle')}
+              {isDraftProject
+                ? t('workspace.projectHubSettingsDangerDraftTitle')
+                : t('workspace.projectHubSettingsDangerTitle')}
             </h4>
             <p className={`mt-1 text-xs leading-relaxed ${muted}`}>
-              {t('workspace.projectHubSettingsDangerHint')}
+              {isDraftProject
+                ? t('workspace.projectHubSettingsDangerDraftHint')
+                : t('workspace.projectHubSettingsDangerHint')}
             </p>
-            {!canArchiveNow && !isProjectCompleted && !canArchiveWithoutComplete ? (
+            {!canArchiveNow && isDraftProject && !canArchiveWithoutComplete ? (
+              <p className="mt-2 text-xs text-muted-foreground" role="status">
+                {t('workspace.projectHubSettingsDeleteDraftNeedPerm')}
+              </p>
+            ) : null}
+            {!canArchiveNow && !isDraftProject && !isProjectCompleted && !canArchiveWithoutComplete ? (
               <p className="mt-2 text-xs text-muted-foreground" role="status">
                 {t('workspace.projectHubSettingsArchiveNeedComplete')}
               </p>
@@ -1398,7 +1408,9 @@ export default function ProjectHubSettingsPanel({
               onClick={() => onRequestArchive?.()}
               className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {t('workspace.projectHubArchiveProject')}
+              {isDraftProject
+                ? t('workspace.projectHubDeleteDraft')
+                : t('workspace.projectHubArchiveProject')}
             </button>
           </section>
         ) : null}

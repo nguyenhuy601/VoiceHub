@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveHubCapabilities } from './hubCaps.js';
+import { isProjectDraftStatus, resolveHubCapabilities } from './hubCaps.js';
+
+test('isProjectDraftStatus: draft + legacy planning', () => {
+  assert.equal(isProjectDraftStatus('draft'), true);
+  assert.equal(isProjectDraftStatus('Draft'), true);
+  assert.equal(isProjectDraftStatus('planning'), true);
+  assert.equal(isProjectDraftStatus('ready_for_planning'), true);
+  assert.equal(isProjectDraftStatus('ready-for-planning'), true);
+  assert.equal(isProjectDraftStatus('active'), false);
+  assert.equal(isProjectDraftStatus('on_hold'), false);
+  assert.equal(isProjectDraftStatus('closed'), false);
+  assert.equal(isProjectDraftStatus(''), false);
+  assert.equal(isProjectDraftStatus(null), false);
+});
+
 
 test('ẩn Members khi matrix không có members:view / members:manage', () => {
   const caps = resolveHubCapabilities({

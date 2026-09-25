@@ -40,6 +40,22 @@ describe('toolRegistry', () => {
     assert.equal(tool.toolName, 'EmployeeMatchingTool');
   });
 
+  it('EmployeeMatchingTool inputSchema is a non-empty object with at least one property', () => {
+    const tool = resolveTool('EmployeeMatchingTool', {
+      contextName: 'planning',
+      approvedSrs: true,
+      employeeSnapshot: {},
+    });
+    assert.equal(typeof tool.inputSchema, 'object');
+    assert.ok(tool.inputSchema && !Array.isArray(tool.inputSchema));
+    assert.ok(
+      tool.inputSchema.properties &&
+        typeof tool.inputSchema.properties === 'object' &&
+        Object.keys(tool.inputSchema.properties).length >= 1
+    );
+  });
+
+
   it('can register ad-hoc tool', () => {
     registerTool({
       toolName: 'AdHocTestTool',

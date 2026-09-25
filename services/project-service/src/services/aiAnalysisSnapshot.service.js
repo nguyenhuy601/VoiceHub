@@ -270,11 +270,70 @@ function assertSnapshotRequired(snapshot) {
   if (snapshot) return;
   if (!isSnapshotPipelineEnabled()) return;
   const err = new Error(
-    'Analysis Snapshot bắt buộc trước khi chạy AI — chọn pack để tạo snapshot'
+    'Analysis Snapshot bắt buộc trước khi chạy AI — hãy Start lại (snapshot sẽ được tạo tự động)'
   );
   err.statusCode = 422;
   err.errorCode = 'AI_SNAPSHOT_REQUIRED';
   throw err;
+}
+
+/**
+ * Load active snapshot or create/reuse one — pack already known; no pack re-select.
+ * @returns {{ pack, snapshotDoc, snapshotId, meta }}
+ */
+async function ensureActiveAiAnalysisSnapshot({
+  userId,
+  organizationId,
+  packId,
+  pack: packIn = null,
+}) {
+  let pack = packIn;
+  if (!pack) {
+    pack = await loadPackOrThrow({ packId, organizationId });
+  }
+
+  if (!isSnapshotPipelineEnabled()) {
+    const id = pack.aiAnalysisActiveSnapshotId
+      ? String(pack.aiAnalysisActiveSnapshotId)
+      : null;
+    return { pack, snapshotDoc: null, snapshotId: id, meta: null };
+  }
+
+  let snapshotDoc = await loadActiveSnapshotDocument({
+    organizationId,
+    packId,
+    pack,
+  });
+  if (snapshotDoc) {
+    return {
+      pack,
+      snapshotDoc,
+      snapshotId: String(snapshotDoc._id),
+      meta: toMeta(snapshotDoc),
+    };
+  }
+
+  const created = await createOrReuseAiAnalysisSnapshot({
+    userId,
+    organizationId,
+    packId,
+  });
+  // Reload pack — createOrReuse mutates aiAnalysisActiveSnapshotId
+  pack = await loadPackOrThrow({ packId, organizationId });
+  snapshotDoc = await loadActiveSnapshotDocument({
+    organizationId,
+    packId,
+    pack,
+  });
+  if (!snapshotDoc) {
+    assertSnapshotRequired(null);
+  }
+  return {
+    pack,
+    snapshotDoc,
+    snapshotId: String(snapshotDoc._id),
+    meta: created?.meta || toMeta(snapshotDoc),
+  };
 }
 
 module.exports = {
@@ -282,6 +341,7 @@ module.exports = {
   getActiveAiAnalysisSnapshotMeta,
   loadActiveSnapshotDocument,
   assertSnapshotRequired,
+  ensureActiveAiAnalysisSnapshot,
   toMeta,
   buildSkillCatalogStub,
   isSnapshotPipelineEnabled,

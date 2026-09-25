@@ -177,7 +177,24 @@ export function enrichBoardHealthList(boards = [], projects = []) {
 }
 
 /**
- * Secondary label for overdue row: tên dự án; không hiện «Main».
+ * Board name không cần hiện phụ khi trùng identity dự án (Main legacy hoặc = projectCode).
+ * @param {unknown} boardName
+ * @param {{ projectTitle?: unknown, projectCode?: unknown }} [ctx]
+ * @returns {boolean}
+ */
+export function isRedundantBoardHealthName(boardName, ctx = {}) {
+  const name = String(boardName || '').trim();
+  if (!name) return true;
+  if (/^main$/i.test(name)) return true;
+  const projectTitle = String(ctx.projectTitle || '').trim();
+  if (projectTitle && name === projectTitle) return true;
+  const projectCode = String(ctx.projectCode || '').trim();
+  if (projectCode && name.toUpperCase() === projectCode.toUpperCase()) return true;
+  return false;
+}
+
+/**
+ * Secondary label for overdue row: tên dự án; không hiện «Main» / abbr trùng projectCode.
  * @param {{ projectTitle?: string, projectCode?: string, boardName?: string, name?: string } | null | undefined} item
  */
 export function resolveOverdueScopeLabel(item) {
@@ -186,7 +203,7 @@ export function resolveOverdueScopeLabel(item) {
   const code = String(item?.projectCode || '').trim();
   if (code) return code;
   const boardName = String(item?.boardName || item?.name || '').trim();
-  if (boardName && !/^main$/i.test(boardName)) return boardName;
+  if (boardName && !isRedundantBoardHealthName(boardName, { projectCode: code })) return boardName;
   return '';
 }
 

@@ -5,6 +5,9 @@ import { buildCompanyModuleSearch } from '../../utils/companySpaceLevel';
 
 const SYNC_KEYS = ['departmentId', 'teamId', 'tab'];
 
+/** Org id stays in WorkspaceContext — only dept/team/tab sync to URL. */
+const SYNC_KEYS = ['departmentId', 'teamId', 'tab'];
+
 /**
  * Keep URL query aligned with SpaceContext for OrganizationsPage hydrate.
  * organizationId is resolved from WorkspaceContext (not written to URL).

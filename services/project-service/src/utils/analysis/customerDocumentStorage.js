@@ -42,10 +42,12 @@ function sanitizeFilename(raw) {
 
 /**
  * Build MinIO object key — never uses pending/ prefix.
- * @param {{ projectId: string, docClass?: string, filename: string }} opts
+ * Prefer project path; pack-only HITL uses packs/{packId}/...
+ * @param {{ projectId?: string, packId?: string, docClass?: string, filename: string }} opts
  */
-function buildCustomerDocumentStoragePath({ projectId, docClass, filename }) {
+function buildCustomerDocumentStoragePath({ projectId, packId, docClass, filename }) {
   const pid = String(projectId || '').trim();
+  const pack = String(packId || '').trim();
   const safeName = sanitizeFilename(filename);
   const cls = String(docClass || 'other')
     .trim()
@@ -53,7 +55,13 @@ function buildCustomerDocumentStoragePath({ projectId, docClass, filename }) {
     .replace(/[^a-z0-9_]/g, '')
     .slice(0, 40) || 'other';
   const stamp = Date.now();
-  return `projects/${pid}/customer-docs/${cls}/${stamp}-${safeName}`.slice(0, 512);
+  if (pid) {
+    return `projects/${pid}/customer-docs/${cls}/${stamp}-${safeName}`.slice(0, 512);
+  }
+  if (pack) {
+    return `packs/${pack}/customer-docs/${cls}/${stamp}-${safeName}`.slice(0, 512);
+  }
+  throw new Error('projectId or packId required for storage path');
 }
 
 function normalizeIntakeDocClass(raw) {

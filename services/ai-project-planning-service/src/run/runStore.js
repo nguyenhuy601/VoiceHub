@@ -158,6 +158,7 @@ function toPublicRun(doc) {
     evidence: doc.evidence,
     startedAt: doc.startedAt,
     completedAt: doc.completedAt,
+    lastCheckpointAt: doc.lastCheckpointAt || null,
     error: doc.error,
     callbackAttempts: doc.callbackAttempts,
     callbackNextRetryAt: doc.callbackNextRetryAt,

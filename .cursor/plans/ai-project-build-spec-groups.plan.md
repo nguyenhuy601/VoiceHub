@@ -3,7 +3,7 @@ name: AI Project Build Spec (Groups 1–20)
 overview: Build Spec G1–G20 + Evidence. AI chạy trên microservice riêng ai-project-planning-service (+ optional worker) — không nhồi vào project-service. Spec-only; next Build Contracts then Step N only.
 todos:
   - id: approve-build-spec
-    content: Review/approve Spec G1–G20 + service split (§3.8) + RULE-01…11
+    content: Review/approve Spec G1–G20 + service split (§3.8) + RULE-01…14
     status: completed
   - id: contracts-wave-0
     content: "Wave 0: scaffold ai-project-planning-service + Swarm/gateway + S2S clients (empty graph)"
@@ -47,7 +47,7 @@ isProject: true
 - [ ] **20 nhóm** đủ 8 mục + cross-cutting Evidence
 - [ ] **§3.7 Service Split** khóa ownership + async + S2S
 - [ ] G8 Evaluate ≠ G13 Feasibility; Skill ≠ Tool ≠ Agent ≠ RAG
-- [ ] RULE-01…**RULE-11** khóa; as-is map G1–G20
+- [ ] RULE-01…**RULE-14** khóa; as-is map G1–G20; JEV deferred; 3 track trước Agent Core
 - [ ] Lộ trình: Wave 0 scaffold service → Contracts → `Implement step N only. Stop for review.`
 
 ### 1.3 In-Scope
@@ -63,6 +63,8 @@ isProject: true
 - **Không** đổi JWT / gateway trust model / RBAC packs / chat / voice / friend / org
 - **Không** gộp vào `ai-task-service` (domain chat→task khác)
 - **Không** giữ LLM/orchestrator lâu dài trong `project-service` sau Wave C (facade mỏng được phép)
+- **Không** implement runtime **JEV 1/2/3** trong Spec/Contract waves hiện tại (control layer deferred — SoT: [`docs/ai-project/jev-control-layer.md`](../../docs/ai-project/jev-control-layer.md); provider-agnostic, không pin vendor)
+- **Không** bắt đầu **Agent Core (LangGraph F2)** / JEV runtime trước khi Track C→A→B đạt DoD docs+contract — [`docs/ai-project/pre-agent-core-3tracks.md`](../../docs/ai-project/pre-agent-core-3tracks.md) (RULE-14)
 
 ---
 
@@ -105,7 +107,7 @@ G13 Feasibility (whole plan)    │
 G14 Gate2 → G20 Project Init    │
          ↓                      │
 G16 Feedback (P1+P2) ───────────┘
-G15 Checkpoint persists AgentState inside G19 Run
+G15 Checkpoint persists AgentState in Redis (`vh:ai-plan:g15:{runId}`); G19 Run is Mongo lifecycle only
 ```
 
 **Deploy:** Swarm service **`ai-project-planning-service`** (build/update riêng); `project-service` chỉ facade/S2S; Ollama/Qdrant = Compose extra; **không** build lại project khi chỉ đổi AI graph.
@@ -118,16 +120,21 @@ N/A — spec-only. Build Contract từng nhóm bắt buộc điền §2.6 khi ch
 
 ## 3. Thiết kế & trách nhiệm
 
-### 3.1 Architecture — 4 lớp (+ runtime/registry)
+### 3.1 Architecture — 4 lớp (+ runtime/registry) + cross-cut JEV + khung đọc 3-layer
+
+**Khung đọc vận hành (RULE-13):** Layer A Workflow · Layer B Agent · Layer C Governance — SoT: [`docs/ai-project/main-flow-3layer.md`](../../docs/ai-project/main-flow-3layer.md). Cùng backbone Two-Phase; không thay G1–G20. Vá lỗ theo 3 track C→A→B **trước** Agent Core: [`docs/ai-project/pre-agent-core-3tracks.md`](../../docs/ai-project/pre-agent-core-3tracks.md).
 
 ```text
 1. ORCHESTRATION     G8 LangGraph + G19 Run + G15 Checkpoint + G5/G14 HITL + G16 Feedback
 2. INTELLIGENCE      G17 Runtime: model/session/skill/prompt/budget/structured output/tool-call parse
 3. KNOWLEDGE         G1 catalogs + G7 RAG (retrieve → rerank → assemble)
 4. DETERMINISTIC     G18 Registry → G9–G12 Tools + G3/G13 Validators + G20 Project Init
+X. JEV (deferred)    Control layer: JEV1 RAG confidence → Gate1; JEV2 model/risk → G17; JEV3 supervisor → G8
+                     Provider-agnostic (Choice/Score/Noul + confidence). Không thay Snap/Tools/RAG/G13.
+                     SoT: docs/ai-project/jev-control-layer.md — sau 3 track + Agent Core (RULE-14)
 ```
 
-**Cấm hiểu sai:** Layer 2 ≠ “gọi Ollama với prompt khổng lồ tự làm hết”. Mọi LLM call đi qua **G17**; mọi business execution đi qua **G18 → Tool**.
+**Cấm hiểu sai:** Layer 2 ≠ “gọi Ollama với prompt khổng lồ tự làm hết”. Mọi LLM call đi qua **G17**; mọi business execution đi qua **G18 → Tool**. JEV ≠ LLM ≠ Tool ≠ Feasibility. Sơ đồ phẳng **không** được trộn Agent cycle vào Workflow (RULE-13).
 
 ### 3.2 RULES
 
@@ -144,6 +151,9 @@ N/A — spec-only. Build Contract từng nhóm bắt buộc điền §2.6 khi ch
 | RULE-09 | Mỗi Run **bind** `snapshotId`; không đọc live DB giữa chừng để tránh plan lai hai thời điểm |
 | RULE-10 | Mọi numeric/business claim trong result phải kèm `evidence[]` (cross-cutting Evidence) |
 | RULE-11 | **AI planning runtime (G4/G7/G8/G15–G19, G17–G18, G9–G13 compute) sống trong `ai-project-planning-service`** — không chạy LLM/orchestrator in-process trong `project-service`. Project chỉ domain pack/project + Gate HTTP facade + **G20 materialize**. Giao tiếp S2S + async run (202 + poll/event). Không shared DB / cross-populate. |
+| RULE-12 | **JEV = control layer** trên evidence/Context đã bind `snapshotId`; không execute tool; không đọc CURRENT; không thay G13 feasibility metrics; không auto-approve Gate. Provider-agnostic; runtime deferred — [`docs/ai-project/jev-control-layer.md`](../../docs/ai-project/jev-control-layer.md). |
+| RULE-13 | **SoT vận hành đọc theo Layer A/B/C** — Workflow / Agent / Governance. Cấm sơ đồ phẳng trộn Agent cycle vào Workflow. Cùng backbone Two-Phase; không thay G1–G20 — [`docs/ai-project/main-flow-3layer.md`](../../docs/ai-project/main-flow-3layer.md). |
+| RULE-14 | **Không bắt đầu Agent Core (LangGraph F2) / JEV runtime** trước khi Track C→A→B đạt DoD docs + contract gate — [`docs/ai-project/pre-agent-core-3tracks.md`](../../docs/ai-project/pre-agent-core-3tracks.md). Wave F JS evaluate ∈ Track B prep. **F2 HOW unlocked** (2026-09): `AGENT_CORE_F2=1` → LangGraph; default `0` = JS SoT. JEV vẫn deferred. |
 
 ### 3.3 Bảng nhóm G1–G20
 
@@ -199,28 +209,28 @@ Ví dụ: **Planning Skill** dạy LLM *khi nào* gọi Matching/Schedule — **
 
 | G | Status | Ghi chú |
 |---|--------|---------|
-| 1 | PARTIAL | Snapshot + catalogs; thiếu Metric catalog chuẩn + Qdrant |
+| 1 | PARTIAL | Catalogs + attachG1; Qdrant ingest Step 5 wired (default mode stub) |
 | 2 | EXISTS | Import SRS + system supplement |
-| 3 | PARTIAL | Parse/normalize/validate; thiếu `ingestionRunId` product API |
-| 4 | PARTIAL | 4 job WHAT + requirement tools |
-| 5 | EXISTS | Pack approve + GateA |
-| 6 | PARTIAL | Approved pack / artifacts |
-| 7 | MISSING | Không Qdrant; có semanticMerge |
-| 8 | MISSING | Pipeline 12 job cố định |
-| 9 | PARTIAL | Matching/effort/requirement engines |
+| 3 | AVAILABLE | Parse/normalize/validate; `aiAnalysis.ingestionRunId` stamped once (ensureAiAnalysisContainer) |
+| 4 | AVAILABLE | G4 trên APS + Gate1 materialize; Phase1 LLM in-process forbidden (RULE-11) |
+| 5 | EXISTS | Pack approve + GateA + Conflict/Ambiguity override |
+| 6 | AVAILABLE | Approved pack; `aiAnalysis.approvedSrsVersion` freeze at Gate1 |
+| 7 | AVAILABLE | hybrid+Qdrant Step 5 (`G7_RAG_MODE=hybrid`); stub:false khi hits |
+| 8 | AVAILABLE | Agent Core F2 HOW LangGraph (`AGENT_CORE_F2`); default JS SoT |
+| 9 | EXISTS | Matching/effort/requirement engines via G18 |
 | 10 | EXISTS | scheduleCapacity + sequencingCpm |
-| 11 | PARTIAL | LLM architecture impact job |
-| 12 | PARTIAL | LLM-assisted risk |
-| 13 | PARTIAL | GateA + constraintValidation |
-| 14 | PARTIAL | Per-job confirm; thiếu reject→impact |
-| 15 | MISSING | Job status; không LangGraph checkpoint |
-| 16 | MISSING | Không feedback subsystem P1+P2 |
-| 17 | PARTIAL | Có gọi model/job prompts; thiếu runtime SoT (session/skill version/budget/structured) |
-| 18 | PARTIAL | `toolRegistry.js` / recipes tồn tại; thiếu policy `allowedContexts` + agent-facing registry đầy đủ |
-| 19 | MISSING | Không run lifecycle / snapshot binding / cancel-idempotency SoT |
-| 20 | PARTIAL | Create project sau all-confirmed; thiếu PROJECT_INIT deterministic contract + idempotent artifacts |
+| 11 | PARTIAL | ArchitectureTool heuristic |
+| 12 | PARTIAL | RiskTool heuristic |
+| 13 | PARTIAL | `deriveFeasibilityFlags` từ tool evidence (không hardcode HOW) |
+| 14 | PARTIAL | Per-job confirm; reject→impact mỏng |
+| 15 | AVAILABLE | Redis G15 + LangGraph RedisSaver (`AGENT_CORE_LG_MEMORY=0`) |
+| 16 | PARTIAL | Feedback + selectiveReplan tool map |
+| 17 | AVAILABLE | `runIntelligence` + timeout/budget; JEV2 route khi `JEV_CONTROL=1` |
+| 18 | EXISTS | Registry + schemas + full HOW_PHASE_TOOL_STEPS |
+| 19 | EXISTS | Run lifecycle + snapshot bind |
+| 20 | PARTIAL | Gate2 promote + idempotencyKey replay |
 
-**As-is 12 jobs:** WHAT = hierarchy → requirementAnalysis → capability → insights; HOW = wbs → dependency → architectureRisk → effort → CPM → matching → schedule → projectPlan.
+**As-is 12 jobs:** WHAT = hierarchy → requirementAnalysis → capability → insights; HOW = wbs → dependency → architectureRisk → effort → CPM → matching → schedule → projectPlan (phase_how = full G18 chain).
 
 ### 3.7 Service Split — `ai-project-planning-service` (bắt buộc)
 
@@ -419,6 +429,7 @@ Requirement Understanding **không** được dùng Employee pool để interpre
 | **Không được làm** | Assign, schedule, effort, approve |
 | **Dependency** | G1; consumed by G8/G17 |
 | **AC** | 4 bước testable; citation bắt buộc; không write planning |
+| **JEV touchpoint** | **JEV 1** (deferred): confidence / RAG relevance trên Context Package trước Gate 1 — xem [`docs/ai-project/jev-control-layer.md`](../../docs/ai-project/jev-control-layer.md) |
 
 ---
 
@@ -434,6 +445,7 @@ Requirement Understanding **không** được dùng Employee pool để interpre
 | **Không được làm** | RULE-01; bypass G18; hardcode `if (action===matching)`; gọi DB trực tiếp; gộp Evaluate với G13 |
 | **Dependency** | G6, G7(opt), G17, G18, G9–G12, G15, G19 |
 | **AC** | Numeric chỉ từ toolResults+evidence; mỗi iteration log action/tool/evidence; Evaluate fail → local re-plan/select tool — không full ingest |
+| **JEV touchpoint** | **JEV 3** (deferred): supervisor confidence / enough-info tư vấn CONTINUE\|RETRIEVE\|NEED_TOOL — **không** thay G13; optional tool-guard trước G18 |
 
 **AgentState tối thiểu:** `runId, projectId, approvedSrsVersion, snapshotId, context, currentGoal, currentPlan, currentAction, toolResults, evidence, unresolvedIssues, evaluationResult` *(local)*`, humanFeedback, iteration, status`.
 
@@ -512,6 +524,7 @@ Requirement Understanding **không** được dùng Employee pool để interpre
 | **Không được làm** | Human UI; tự re-plan; thay thế G8 Evaluate |
 | **Dependency** | G8–G12 |
 | **AC** | Fail → không mở Gate 2 approve (trừ force có audit); mã lỗi ổn định; test phân biệt Evaluate vs Feasibility |
+| **JEV touchpoint** | **Không** map JEV → pass/fail plan. Feasibility vẫn deterministic từ tool evidence (RULE-12) |
 
 ---
 
@@ -533,13 +546,13 @@ Requirement Understanding **không** được dùng Employee pool để interpre
 
 | Mục | Nội dung |
 |-----|----------|
-| **Mục đích** | Persist LangGraph checkpoint / AgentState — **không** thay G19 Run Management |
+| **Mục đích** | Persist AgentState checkpoint — **không** thay G19 Run Management |
 | **Input** | Mọi node write trong một Run |
-| **Xử lý** | Persist state, node, tool results, plan, iteration, human feedback, context snapshot ref |
+| **Xử lý** | Persist state, node, tool results, plan, iteration, human feedback, context snapshot ref trên **Redis only** |
 | **Output** | Resumable graph state |
-| **Không được làm** | Quản lý queue/cancel/ownership run (thuộc G19); mất evidence giữa interrupt |
+| **Không được làm** | Quản lý queue/cancel/ownership run (thuộc G19); dual-write Mongo AgentState; mất evidence giữa interrupt |
 | **Dependency** | G8, G5, G14, G19 |
-| **AC** | Resume giữ iteration+toolResults; snapshotId không đổi trong run (RULE-09) |
+| **AC** | Resume `loadCheckpoint` Redis; miss → CHECKPOINT_MISSING; snapshotId không đổi (RULE-09); SoT key `vh:ai-plan:g15:{runId}` |
 
 ---
 
@@ -579,6 +592,7 @@ Feedback
 | **Không được làm** | Tự tính business metric; truy cập DB business trực tiếp; bypass Tool/G18; tự approve; execute tool side-effects |
 | **Dependency** | G7 context; G8 orchestration; G18 schemas; model provider / Ollama |
 | **AC** | Mọi LLM call log `model/version`, `prompt/skill version`, `runId`; structured output validate trước khi vào State; tool-call name ∈ G18 registry; budget/timeout enforced |
+| **JEV touchpoint** | **JEV 2** (deferred): model router + risk gater trước LLM call — mở rộng `selectModel`; provider-agnostic |
 
 **Skill package tối thiểu:** `skillId, version, objective, methodology, outputSchema, constraintInterpretation, toolUsagePolicy, allowedToolNames[]`.
 
@@ -717,6 +731,8 @@ schedule, milestones, risks, artifacts → Project Ready
 ---
 
 ## 7. Mapping LangGraph (to-be)
+
+> Đọc vận hành theo Layer A/B/C: [`docs/ai-project/main-flow-3layer.md`](../../docs/ai-project/main-flow-3layer.md). F2 LangGraph chỉ sau Track C→A→B (RULE-14).
 
 ```text
 START → INGEST(G3) → REQUIREMENT_UNDERSTANDING(G4 via G17)

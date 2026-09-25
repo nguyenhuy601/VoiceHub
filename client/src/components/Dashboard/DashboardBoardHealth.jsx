@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { AlertTriangle, LayoutDashboard } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import { boardRag } from '../../utils/boardRag';
+import { isRedundantBoardHealthName } from '../../utils/mapBoardHealthToProject';
 import {
   FIGMA_DASH_CARD,
   FIGMA_DASH_LINK_BTN,
@@ -34,12 +35,14 @@ function sortBoardsByRag(rows) {
   });
 }
 
-/** Primary label: tên dự án (map FE/BE), tránh hiện «Main». */
+/** Primary label: tên dự án (map FE/BE), tránh hiện «Main»; thiếu title thì dùng abbr. */
 function resolveBoardHealthPrimaryTitle(board, labels) {
   const projectTitle = String(board?.projectTitle || '').trim();
   if (projectTitle) return projectTitle;
   const name = String(board?.name || board?.title || '').trim();
   if (name && !/^main$/i.test(name)) return name;
+  const code = String(board?.projectCode || '').trim();
+  if (code) return code;
   if (board?.enrichmentFailed) return labels.unresolved;
   return labels.untitled;
 }
@@ -50,7 +53,10 @@ function resolveBoardHealthMetaLine(board) {
   const projectTitle = String(board?.projectTitle || '').trim();
   const parts = [];
   if (code) parts.push(code);
-  if (boardName && !/^main$/i.test(boardName) && boardName !== projectTitle) {
+  if (
+    boardName &&
+    !isRedundantBoardHealthName(boardName, { projectTitle, projectCode: code })
+  ) {
     parts.push(boardName);
   }
   return parts.join(' · ');

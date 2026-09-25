@@ -5,14 +5,28 @@ const {
 } = require('../engines/scheduleCapacity');
 
 /** G10 Schedule — deterministic capacity engine adapter. */
-async function schedule(snapshot = {}, _context = {}) {
-  const snapshotId = snapshot.snapshotId || snapshot.id || null;
-  const container = snapshot.container || snapshot;
-  const toolData = snapshot.toolData || {};
+async function schedule(input = {}, context = {}) {
+  const snapshotId = input.snapshotId || input.id || null;
+  const pack = context.pack || input.pack || {};
+  const container = context.container || input.container || input;
+  const toolData = input.toolData || {};
   const engineResult = runScheduleCapacity(container, {
-    projectStart: toolData.overview?.startDate,
-    calendar: toolData.calendar,
-    meetingHoursByUserDay: toolData.meetingHoursByUserDay,
+    projectStart:
+      toolData.overview?.startDate ||
+      input.overview?.startDate ||
+      pack.overview?.startDate ||
+      null,
+    projectDeadline:
+      toolData.overview?.deadline ||
+      pack.overview?.deadline ||
+      null,
+    calendar: toolData.calendar || input.calendar || null,
+    meetingHoursByUserDay:
+      toolData.meetingHoursByUserDay &&
+      typeof toolData.meetingHoursByUserDay === 'object' &&
+      !Array.isArray(toolData.meetingHoursByUserDay)
+        ? toolData.meetingHoursByUserDay
+        : input.meetingHoursByUserDay || {},
   });
   const updatedContainer = applyScheduleCapacityToContainer(container, engineResult);
 
@@ -22,10 +36,10 @@ async function schedule(snapshot = {}, _context = {}) {
       sourceId: 'snapshot',
       snapshotId,
       metric: 'scheduled_tasks',
-      value: new Set(engineResult.schedule.map((row) => row.taskId)).size,
+      value: new Set((engineResult.schedule || []).map((row) => row.taskId)).size,
       unit: 'count',
       calculatedBy: 'ScheduleTool',
-      ruleId: 'SCH-ENGINE-001',
+      ruleId: 'SCH-001',
     }),
   ];
 

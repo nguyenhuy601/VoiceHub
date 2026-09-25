@@ -22,4 +22,15 @@ describe('feasibility G13', () => {
     assert.equal(out.pass, true);
     assert.deepEqual(out.failures, []);
   });
+
+  it('ignores high confidence — confidence ≠ pass (Track C)', () => {
+    const out = checkFeasibility({
+      confidence: 0.99,
+      confidenceScore: 1,
+      flags: { coverage: false, resource: true, schedule: true },
+    });
+    assert.equal(out.pass, false);
+    assert.equal(out.confidenceIgnored, true);
+    assert.ok(out.failures.some((f) => f.code === 'FEAS_COVERAGE'));
+  });
 });

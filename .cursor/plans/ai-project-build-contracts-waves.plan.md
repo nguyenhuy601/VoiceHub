@@ -119,11 +119,38 @@ Impact whitelist: `requirement | WBS | architecture | resource | effort | schedu
 
 ### G15 Checkpoint
 
-Persisted on `PlanningRun.checkpoint` JSON (≠ run lifecycle).
+**Redis-only** SoT: key `vh:ai-plan:g15:{runId}` (AgentState JSON; ≠ G19 lifecycle).  
+Mongo `PlanningRun` keeps `lastCheckpointAt` metadata only — do **not** dual-write AgentState to `PlanningRun.checkpoint`.
 
 ### RULE-11 cutover
 
 Do **not** delete in-process `aiAnalysis` yet. Gate behind `AI_PLANNING_REMOTE`. Rollback = set `0`.
+
+---
+
+## Wave D+ — G1 Knowledge catalogs + G7 RAG (Qdrant)
+
+**Full Build Contracts (locked):** [ai-project-g1-g7-build-contracts.md](ai-project-g1-g7-build-contracts.md)
+
+| Item | Value |
+|------|--------|
+| G1 schemas | `services/ai-project-planning-service/src/knowledge/g1CatalogSchemas.js` |
+| G2/G3/G6 deps | `services/ai-project-planning-service/src/knowledge/g2G3G6Deps.js` |
+| G7 schemas | `services/ai-project-planning-service/src/retrieval/g7PipelineSchemas.js` |
+| Context Package | Wave C fields + opt-in `mode`, `intent`, `stub` |
+| Vector DB | Qdrant in Compose **extra** only (`QDRANT_URL`) |
+| Default mode | `G7_RAG_MODE=stub` until Step 5 |
+| Graph | metadata + `semanticMerge` edges (no Neo4j wave 1) |
+
+**Impl order + STOP gates:** see §4 of the G1/G7 contracts file. Do not deploy Qdrant until Contract Step 5 review.
+
+**Unit verify:**
+
+```bash
+node --test services/ai-project-planning-service/tests/g1CatalogSchemas.test.js
+node --test services/ai-project-planning-service/tests/g7PipelineSchemas.test.js
+node --test services/ai-project-planning-service/tests/g2G3G6Deps.test.js
+```
 
 ---
 

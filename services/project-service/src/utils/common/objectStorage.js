@@ -73,6 +73,26 @@ async function getObjectStream(storagePath) {
   return res.Body;
 }
 
+/**
+ * Read object into a Buffer (for text extract / workbook parse).
+ * @param {string} storagePath
+ * @returns {Promise<Buffer>}
+ */
+async function getObjectBuffer(storagePath) {
+  const body = await getObjectStream(storagePath);
+  if (!body) return Buffer.alloc(0);
+  if (Buffer.isBuffer(body)) return body;
+  if (typeof body.transformToByteArray === 'function') {
+    const arr = await body.transformToByteArray();
+    return Buffer.from(arr);
+  }
+  const chunks = [];
+  for await (const chunk of body) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 async function deleteObject(storagePath) {
   if (!storagePath || !isEnabled()) return false;
   try {
@@ -111,6 +131,7 @@ module.exports = {
   getBucket,
   putObject,
   getObjectStream,
+  getObjectBuffer,
   deleteObject,
   objectExists,
 };

@@ -3,12 +3,12 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  runCapabilityAnalysis,
-} = require('../src/utils/aiAnalysis/aiAnalysisCapability');
+  runCapabilityEngine,
+} = require('../../ai-project-planning-service/src/engines/capability');
 const { buildPackContentHash } = require('../src/utils/aiAnalysis/aiAnalysisCompactPolicy');
 const {
-  runHierarchyDecomposition,
-} = require('../src/utils/aiAnalysis/aiAnalysisHierarchy');
+  runHierarchyEngine,
+} = require('../../ai-project-planning-service/src/engines/hierarchy');
 const {
   mergeHierarchyProposalsIntoFrList,
 } = require('../src/utils/aiAnalysis/aiAnalysisHierarchyMerge');
@@ -36,6 +36,7 @@ const acceptedHierarchy = {
     {
       proposalId: 'PROP-R-F1-1',
       parentExternalId: 'F1',
+      level: 'Requirement',
       name: 'Capture GPS on check-in',
       description: 'Record lat/lng when employee checks in',
       moduleLabel: 'Attendance',
@@ -45,38 +46,45 @@ const acceptedHierarchy = {
   ],
 };
 
-describe('runCapabilityAnalysis hierarchy union', () => {
-  it('Module/Feature-only pack + accepted proposal → items ≥ 1 with proposal sourceFrIds', async () => {
-    const empty = await runCapabilityAnalysis(packModulesFeaturesOnly, {
-      forceHeuristic: true,
-    });
-    assert.equal(empty.items.length, 0);
-    assert.equal(empty.meta.source, 'empty');
-
-    const result = await runCapabilityAnalysis(packModulesFeaturesOnly, {
-      hierarchy: acceptedHierarchy,
-      forceHeuristic: true,
+describe('runCapabilityEngine hierarchy union (APS)', () => {
+  it('Module/Feature-only pack + accepted proposal → items ≥ 1 with proposal sourceFrIds', () => {
+    const { frList: merged, addedIds } = mergeHierarchyProposalsIntoFrList(
+      packModulesFeaturesOnly.functionalRequirements,
+      acceptedHierarchy
+    );
+    assert.ok(addedIds.length >= 1);
+    const result = runCapabilityEngine({
+      ...packModulesFeaturesOnly,
+      functionalRequirements: merged,
     });
     assert.ok(result.items.length >= 1);
     assert.equal(result.meta.source, 'heuristic');
     assert.ok(
-      result.items.some((item) => (item.sourceFrIds || []).includes('PROP-R-F1-1')),
-      'sourceFrIds must keep hierarchy proposalId'
+      result.items.some((item) =>
+        (item.sourceFrIds || []).some((id) => addedIds.includes(id))
+      ),
+      'sourceFrIds must include merged hierarchy FR ids'
+    );
+    assert.ok(
+      result.items.some((item) => /Capture GPS/i.test(item.name || '')),
+      'capability name comes from accepted proposal'
     );
   });
 
-  it('rejected proposals are excluded from capability input', async () => {
+  it('rejected proposals are excluded from capability input', () => {
     const hierarchy = {
       proposedRequirements: [
         {
           proposalId: 'PROP-R-F1-rej',
           parentExternalId: 'F1',
+          level: 'Requirement',
           name: 'Rejected req',
           status: 'rejected',
         },
         {
           proposalId: 'PROP-R-F1-ok',
           parentExternalId: 'F1',
+          level: 'Requirement',
           name: 'Pending req',
           description: 'Should become a capability',
           status: 'pending',
@@ -84,12 +92,20 @@ describe('runCapabilityAnalysis hierarchy union', () => {
       ],
     };
 
-    const result = await runCapabilityAnalysis(packModulesFeaturesOnly, {
-      hierarchy,
-      forceHeuristic: true,
+    const { frList: merged, addedIds } = mergeHierarchyProposalsIntoFrList(
+      packModulesFeaturesOnly.functionalRequirements,
+      hierarchy
+    );
+    assert.equal(addedIds.length, 1);
+    const result = runCapabilityEngine({
+      ...packModulesFeaturesOnly,
+      functionalRequirements: merged,
     });
-    assert.equal(result.items.length, 1);
-    assert.deepEqual(result.items[0].sourceFrIds, ['PROP-R-F1-ok']);
+    assert.ok(result.items.some((item) => /Pending req/i.test(item.name || '')));
+    assert.equal(
+      result.items.some((item) => /Rejected req/i.test(item.name || '')),
+      false
+    );
   });
 
   it('content hash with hierarchy differs from pack-only hash', () => {
@@ -100,7 +116,7 @@ describe('runCapabilityAnalysis hierarchy union', () => {
     assert.notEqual(without, withHier);
   });
 
-  it('Module-only → hierarchy cascade → merge → capability items ≥ 1', async () => {
+  it('Module-only → hierarchy cascade → merge → capability items ≥ 1', () => {
     const pack = {
       overview: { name: 'Auth', platform: 'web' },
       functionalRequirements: [
@@ -114,32 +130,25 @@ describe('runCapabilityAnalysis hierarchy union', () => {
       ],
     };
 
-    const prev = process.env.AI_PLANNING_LLM;
-    process.env.AI_PLANNING_LLM = '0';
-    try {
-      const hierarchy = await runHierarchyDecomposition(pack, { forceHeuristic: true });
-      assert.ok(hierarchy.proposedFeatures.length >= 1);
-      assert.ok(hierarchy.proposedRequirements.length >= 1);
+    const hierarchy = runHierarchyEngine(pack);
+    assert.ok(hierarchy.proposedFeatures.length >= 1);
+    assert.ok(hierarchy.proposedRequirements.length >= 1);
 
-      const { frList: merged } = mergeHierarchyProposalsIntoFrList(
-        pack.functionalRequirements,
-        {
-          proposedFeatures: hierarchy.proposedFeatures,
-          proposedRequirements: hierarchy.proposedRequirements,
-        }
-      );
-      assert.ok(merged.some((r) => r.level === 'Feature'));
-      assert.ok(merged.some((r) => r.level === 'Requirement'));
+    const { frList: merged } = mergeHierarchyProposalsIntoFrList(
+      pack.functionalRequirements,
+      {
+        proposedFeatures: hierarchy.proposedFeatures,
+        proposedRequirements: hierarchy.proposedRequirements,
+      }
+    );
+    assert.ok(merged.some((r) => r.level === 'Feature'));
+    assert.ok(merged.some((r) => r.level === 'Requirement'));
 
-      const capability = await runCapabilityAnalysis(
-        { ...pack, functionalRequirements: merged },
-        { forceHeuristic: true }
-      );
-      assert.ok(capability.items.length >= 1);
-      assert.notEqual(capability.meta.source, 'empty');
-    } finally {
-      if (prev === undefined) delete process.env.AI_PLANNING_LLM;
-      else process.env.AI_PLANNING_LLM = prev;
-    }
+    const capability = runCapabilityEngine({
+      ...pack,
+      functionalRequirements: merged,
+    });
+    assert.ok(capability.items.length >= 1);
+    assert.notEqual(capability.meta.source, 'empty');
   });
 });

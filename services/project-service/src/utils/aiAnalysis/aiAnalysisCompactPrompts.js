@@ -29,7 +29,7 @@ function capsRowsCompact(caps = []) {
     .join('\n');
 }
 
-function buildPassADataCapabilityPrompt({ context, frRows }) {
+function buildPassADataCapabilityPrompt({ context, frRows, intakeBlock = '' }) {
   const verified =
     context?.requirementAiContext != null
       ? require('../tools/buildRequirementAiContext').formatVerifiedFactsBlock(
@@ -43,7 +43,9 @@ function buildPassADataCapabilityPrompt({ context, frRows }) {
     '{"entities":[{"name":"","relatedFrIds":[],"crud":{"create":false,"read":true,"update":false,"delete":false}}],"caps":[{"name":"","module":"","sourceFrIds":[],"complexity":"low|medium|high"}]}',
     'Use only FR ids from input. Max 20 entities, 24 caps. crud optional. No markdown.',
     'Do NOT invent coverage/completeness/conflict scores — use VERIFIED_FACTS only.',
+    'When INTAKE_CORPUS is present, use it as customer source context; prefer FR ids from input.',
     verified,
+    intakeBlock || '',
     `Context:${JSON.stringify({
       name: context?.name,
       objective: context?.objective,
@@ -59,7 +61,7 @@ function buildPassADataCapabilityPrompt({ context, frRows }) {
     .join('\n');
 }
 
-function buildPassBGapPrompt({ context, flagRows, frRows }) {
+function buildPassBGapPrompt({ context, flagRows, frRows, intakeBlock = '' }) {
   const verified =
     context?.requirementAiContext != null
       ? require('../tools/buildRequirementAiContext').formatVerifiedFactsBlock(
@@ -72,7 +74,9 @@ function buildPassBGapPrompt({ context, flagRows, frRows }) {
     'Return ONLY JSON: {"gaps":[{"type":"incomplete|ambiguous|missing_nfr|missing_integration|missing_requirement","relatedFrIds":[],"issue":"","severity":"low|medium|high"}]}',
     'Max 12 gaps. Use only FR ids from input. No markdown.',
     'Do NOT invent metric scores — use VERIFIED_FACTS only.',
+    'When INTAKE_CORPUS is present, use it as customer source context; prefer FR ids from input.',
     verified,
+    intakeBlock || '',
     `Context:${JSON.stringify({
       name: context?.name,
       objective: context?.objective,

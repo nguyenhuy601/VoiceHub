@@ -6,14 +6,18 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --test --test-concurrency=1 tests/callbackLifecycle.test.js tests/evaluateVsFeasibility.test.js tests/evidence.test.js tests/feasibility.test.js tests/feedback.test.js tests/health.test.js tests/howEngines.test.js tests/legacyParity.test.js tests/registry.test.js tests/runStore.test.js",
+    "test": "node scripts/run-tests.js",
     "postinstall": "node ../../shared/postinstall-link.cjs"
   },
   "dependencies": {
+    "@langchain/core": "^1.2.12",
+    "@langchain/langgraph": "^1.4.17",
+    "@langchain/langgraph-checkpoint-redis": "^1.0.11",
     "axios": "^1.7.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "ioredis": "^5.11.1",
     "mongoose": "^9.1.4"
   },
   "devDependencies": {
