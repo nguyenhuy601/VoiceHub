@@ -32,6 +32,8 @@ const LEGACY_STATUS_MAP = Object.freeze({
   planning: 'draft',
   ready_for_planning: 'draft',
   in_development: 'active',
+  new: 'draft',
+  created: 'draft',
   cancelled: 'closed',
   canceled: 'closed',
   completed: 'closed',

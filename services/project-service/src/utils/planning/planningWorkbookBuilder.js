@@ -1,6 +1,7 @@
 /**
  * Build Planning multi-sheet workbook (empty sample or seedFromRa).
  * DEC D-WB2: seed only when explicitly requested — no DB writes.
+ * v1.1: writes physical headers (ID/Name/Description/…).
  */
 
 const { PLANNING_ARTIFACT_KINDS } = require('../../constants/planningArtifact');
@@ -8,10 +9,10 @@ const {
   PLANNING_WORKBOOK_SCHEMA_VERSION,
   META_SHEET,
   RESOURCE_ROLES_SHEET,
-  SHEET_COLUMNS,
-  RESOURCE_ROLES_COLUMNS,
+  PHYSICAL_HEADERS,
   defaultSampleRow,
   defaultResourceRolesSample,
+  physicalRowFromDomain,
 } = require('../../constants/planningWorkbookCatalog');
 
 function cell(v) {
@@ -20,11 +21,11 @@ function cell(v) {
   return v;
 }
 
-function rowToSheetObject(kind, row) {
-  const cols = SHEET_COLUMNS[kind] || [];
+function domainRowToPhysicalCells(kind, row) {
+  const phys = physicalRowFromDomain(kind, row);
   const out = {};
-  for (const c of cols) {
-    out[c.key] = cell(row[c.key]);
+  for (const h of PHYSICAL_HEADERS) {
+    out[h] = cell(phys[h]);
   }
   return out;
 }
@@ -59,31 +60,34 @@ function buildPlanningWorkbookBuffer(opts = {}) {
     {
       Key: 'instructions',
       Value:
-        'Fill kind sheets; RESOURCE_ROLES links roles to RESOURCE.externalKey. Import on Duyệt & baseline (dryRun preview first).',
+        'Fill kind sheets (headers: ID, Name, Description, Ref/Notes, Start, End, Hours, Extra*). RESOURCE_ROLES ID = RESOURCE.ID. Import on Duyệt & baseline (dryRun preview first).',
     },
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(metaRows), META_SHEET);
 
+  const headers = [...PHYSICAL_HEADERS];
   for (const kind of PLANNING_ARTIFACT_KINDS) {
-    const cols = SHEET_COLUMNS[kind];
-    const headers = cols.map((c) => c.key);
     let dataRows = Array.isArray(byKind[kind]) ? byKind[kind] : [];
     if (!dataRows.length) {
       dataRows = [defaultSampleRow(kind)];
     }
-    const sheetRows = dataRows.map((r) => rowToSheetObject(kind, { ...defaultSampleRow(kind), ...r }));
+    const sheetRows = dataRows.map((r) =>
+      domainRowToPhysicalCells(kind, { ...defaultSampleRow(kind), ...r })
+    );
     const aoa = [headers, ...sheetRows.map((r) => headers.map((h) => r[h] ?? ''))];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), kind);
   }
 
-  const roleHeaders = RESOURCE_ROLES_COLUMNS.map((c) => c.key);
   let roleRows = Array.isArray(seed.resourceRoles) ? seed.resourceRoles : [];
   if (!roleRows.length) {
     roleRows = defaultResourceRolesSample();
   }
   const roleAoa = [
-    roleHeaders,
-    ...roleRows.map((r) => roleHeaders.map((h) => cell(r[h]))),
+    headers,
+    ...roleRows.map((r) => {
+      const phys = domainRowToPhysicalCells(RESOURCE_ROLES_SHEET, r);
+      return headers.map((h) => phys[h] ?? '');
+    }),
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(roleAoa), RESOURCE_ROLES_SHEET);
 

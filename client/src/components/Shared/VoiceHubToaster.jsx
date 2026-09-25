@@ -1,5 +1,6 @@
 import { Toaster } from 'react-hot-toast';
 import { useTheme } from '../../context/ThemeContext';
+import { TOAST_DURATION } from '../../utils/appToast';
 
 /**
  * react-hot-toast — style đồng bộ dark/light (figma surface).
@@ -44,11 +45,10 @@ export default function VoiceHubToaster() {
         zIndex: 9999,
       }}
       toastOptions={{
-        duration: 3400,
-        className: 'voicehub-toast',
+        duration: TOAST_DURATION.default,
         style: baseStyle,
         success: {
-          duration: 3000,
+          duration: TOAST_DURATION.success,
           style: {
             ...baseStyle,
             border: isDarkMode
@@ -60,7 +60,7 @@ export default function VoiceHubToaster() {
             : { primary: '#0d9488', secondary: '#ffffff' },
         },
         error: {
-          duration: 4200,
+          duration: TOAST_DURATION.error,
           style: {
             ...baseStyle,
             border: isDarkMode

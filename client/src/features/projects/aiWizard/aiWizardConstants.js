@@ -10,23 +10,11 @@ export const AI_WIZARD_STEPS = Object.freeze([
 
 export const AI_WIZARD_PACK_PAGE_SIZE = 4;
 
-export function initLeafAssignMapFromOverlay(overlay = {}) {
-  const map = {};
-  for (const row of overlay?.leafAssignments || []) {
-    const ext = String(row.externalId || '').trim();
-    if (!ext) continue;
-    map[ext] = row.suggestedUserId ? String(row.suggestedUserId) : '';
-  }
-  return map;
-}
-
+/** Pack may proceed to AI Analysis when lifecycle is approved or already linked. */
 export function canRunAiOnPack(pack) {
-  const status = String(pack?.status || '');
-  if (!['under_review', 'approved', 'project_linked'].includes(status)) return false;
-  const readiness = pack?.planningReadiness;
-  if (!readiness) return false;
-  if (readiness.allLeavesStaffed !== true) return false;
-  return true;
+  if (!pack) return false;
+  const st = String(pack.status || '').toLowerCase();
+  return st === 'approved' || st === 'project_linked';
 }
 
 export function unwrapRequirementPayload(res) {
