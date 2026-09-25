@@ -17,8 +17,7 @@ Pure UI styling.
 ## Related Rules
 
 - `.cursor/rules/voicehub-constraints.mdc`
-- `.cursor/rules/role-backend.mdc`
-- `.cursor/rules/role-database.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `researcher`)
 
 ## Input
 

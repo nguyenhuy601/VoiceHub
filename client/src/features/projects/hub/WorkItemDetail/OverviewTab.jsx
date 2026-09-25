@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle } from 'lucide-react';
+import { AlertTriangle, Bug, CheckCircle2, Circle } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import UserAvatar from '../../../../components/Shared/UserAvatar';
@@ -13,7 +13,10 @@ import { FIGMA_ORG_TASK_MODAL_INPUT } from '../../../../components/Organization/
 import { dueDateTone, formatHubDateShort, listsForStatusSelect, resolveHubActor } from '../projectHubUtils';
 import { listIdToPlanningStatus, planningStatusToListId } from '../planningBoardStatus';
 import { normalizePriorityConfig } from '../projectPriorityConfig';
+import { isReadyForQaList } from '../qaTestCaseCardScope';
 import { useWorkItemDetail } from './WorkItemDetailContext';
+import FixSuggestionPanel from './FixSuggestionPanel';
+import { formatReworkNoteDisplay } from './formatReworkNoteDisplay';
 import {
   buildWorkItemDatePatch,
   dateInputValueFromIso,
@@ -72,6 +75,25 @@ export default function OverviewTab() {
   const [estimateHint, setEstimateHint] = useState(null);
   const [hintLoading, setHintLoading] = useState(false);
 
+  const listArr = Array.isArray(lists) ? lists : Object.values(lists || {});
+  const currentList = useMemo(() => {
+    const lid = String(workItem?.listId || '');
+    if (!lid) return null;
+    return listArr.find((l) => String(l._id || l.id) === lid) || null;
+  }, [workItem?.listId, listArr]);
+
+  const showReworkBanner = useMemo(() => {
+    const raw = String(workItem?.qaReworkNote || '').trim();
+    if (!raw) return false;
+    if (isReadyForQaList(currentList)) return false;
+    return true;
+  }, [workItem?.qaReworkNote, currentList]);
+
+  const reworkDisplay = useMemo(
+    () => formatReworkNoteDisplay(workItem?.qaReworkNote),
+    [workItem?.qaReworkNote]
+  );
+
   const applyEstimateHint = useCallback(async () => {
     const orgId = apiCtx?.organizationId || workItem?.organizationId || '';
     const aid = String(assigneeId || workItem?.assigneeId || '').trim();
@@ -123,9 +145,6 @@ export default function OverviewTab() {
     t,
   ]);
 
-  const listArr = Array.isArray(lists) ? lists : Object.values(lists || {});
-  const listById = new Map(listArr.map((l) => [String(l._id), l]));
-  const currentList = listById.get(String(workItem?.listId || ''));
   const epic = (epics || []).find(
     (e) => String(e._id) === relId(workItem?.epicId) || String(e._id) === relId(workItem?.parentId)
   );
@@ -210,22 +229,63 @@ export default function OverviewTab() {
   };
 
   return (
-    <div className="space-y-4 px-1 py-1">
+    <div className="space-y-3 px-1 py-1">
       {!isPlanning && canChangeStatus ? (
-        <button
-          type="button"
-          onClick={() => void toggleComplete()}
-          disabled={saving}
-          className="inline-flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-50"
-          title={isDone ? t('taskBoard.markUndone') : t('taskBoard.markDone')}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void toggleComplete()}
+            disabled={saving}
+            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
+              isDone
+                ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 hover:bg-emerald-500/15 dark:text-emerald-200'
+                : 'border-border bg-background text-foreground hover:bg-muted'
+            }`}
+            title={isDone ? t('taskBoard.markUndone') : t('taskBoard.markDone')}
+          >
+            {isDone ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />
+            ) : (
+              <Circle className="h-4 w-4 text-muted-foreground" aria-hidden />
+            )}
+            {isDone ? t('taskBoard.markUndone') : t('taskBoard.markDone')}
+          </button>
+          {currentList?.title ? (
+            <span className="rounded-md border border-border/70 bg-muted/40 px-2 py-1 text-[10px] font-semibold text-muted-foreground">
+              {currentList.title}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      <FixSuggestionPanel />
+
+      {showReworkBanner ? (
+        <div
+          role="status"
+          className="flex gap-2.5 rounded-xl border border-amber-400/45 bg-amber-50 px-3 py-2.5 dark:border-amber-500/35 dark:bg-amber-950/40"
         >
-          {isDone ? (
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" aria-hidden />
-          ) : (
-            <Circle className="h-4 w-4 text-muted-foreground" aria-hidden />
-          )}
-          {isDone ? t('taskBoard.markUndone') : t('taskBoard.markDone')}
-        </button>
+          <AlertTriangle
+            className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <p className="text-[12px] font-semibold leading-snug text-amber-950 dark:text-amber-100">
+              {t('workspace.phaseQaReworkNoteLabel')}
+            </p>
+            <p className="text-[11px] leading-relaxed text-amber-900/85 dark:text-amber-200/85">
+              {t('workspace.phaseQaReworkNoteHint')}
+            </p>
+            {reworkDisplay.bugTitle ? (
+              <p className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-amber-500/35 bg-white/70 px-2 py-1 text-[11px] font-medium text-amber-950 dark:border-amber-500/30 dark:bg-slate-950/50 dark:text-amber-100">
+                <Bug className="h-3 w-3 shrink-0 text-amber-700 dark:text-amber-300" aria-hidden />
+                <span className="truncate">
+                  {t('workspace.phaseQaBugLinkedNamed', { title: reworkDisplay.bugTitle })}
+                </span>
+              </p>
+            ) : null}
+          </div>
+        </div>
       ) : null}
 
       {Array.isArray(workItem?.changeRequests) && workItem.changeRequests.length ? (

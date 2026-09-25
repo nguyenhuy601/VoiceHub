@@ -1,21 +1,28 @@
-import { useMemo, useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, ChevronRight, GitFork, GitPullRequest, MoreHorizontal, Pencil, User } from 'lucide-react';
+import { useMemo } from 'react';
+import {
+  AlertTriangle,
+  Check,
+  GitFork,
+  GitPullRequest,
+  MoreHorizontal,
+  Pencil,
+  User,
+} from 'lucide-react';
 import UserAvatar from '../../../components/Shared/UserAvatar';
 import { useAppStrings } from '../../../locales/appStrings';
 import ProjectHubIssueTypeBadge from './ProjectHubIssueTypeBadge';
-import { childWorkStats, directChildCards, entityRelId } from './projectHubBacklogStats';
+import { childWorkStats, entityRelId } from './projectHubBacklogStats';
 import { resolveBoardParentTitle } from './projectHubBoardParent';
 import {
   childWorkProgressBarClass,
   childWorkProgressPct,
-  classifyListStatusBucket,
   displayIssueKey,
   dueDateTone,
   formatHubDueDate,
   normalizeIssueType,
-  statusBucketPillClass,
 } from './projectHubUtils';
 import { childWorkTypeIdsForParent, workTypeTitleKey } from './projectWorkTypes';
+import { isReadyForQaList } from './qaTestCaseCardScope';
 
 export { resolveBoardParentTitle } from './projectHubBoardParent';
 
@@ -84,12 +91,6 @@ function childSectionTitle(childTypeIds, t) {
   return childTypeIds.map((id) => t(workTypeTitleKey(id))).join(', ');
 }
 
-function statusBucketLabel(bucket, t) {
-  if (bucket === 'done') return t('workspace.projectHubBacklogStatusDone');
-  if (bucket === 'progress') return t('workspace.projectHubBacklogStatusProgress');
-  return t('workspace.projectHubBacklogStatusTodo');
-}
-
 function AssigneeMark({ assignee, t, compact = false }) {
   if (assignee) {
     return (
@@ -115,46 +116,12 @@ function AssigneeMark({ assignee, t, compact = false }) {
   );
 }
 
-function ChildPreviewRow({ card, listById, projectCode, onOpenCard, t }) {
-  const issueId = entityRelId(card?._id || card?.id);
-  const listMeta = listById.get(String(card?.listId || ''));
-  const bucket = classifyListStatusBucket(card?.status || listMeta);
-  const assignee = cardAssignee(card);
-  const isDone = bucket === 'done';
-
-  return (
-    <button
-      type="button"
-      className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-left"
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpenCard?.(card);
-      }}
-    >
-      <span className="truncate text-xs font-semibold text-foreground">{card?.title || '—'}</span>
-      <span className="flex min-w-0 items-center gap-1.5">
-        <GitFork size={12} className="shrink-0 text-muted-foreground" aria-hidden />
-        <span
-          className={`truncate text-[10px] font-semibold ${
-            isDone ? 'text-muted-foreground line-through' : 'text-muted-foreground'
-          }`}
-        >
-          {displayIssueKey(projectCode, issueId)}
-        </span>
-        <span
-          className={`ml-auto inline-flex shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${statusBucketPillClass(bucket)}`}
-        >
-          {listMeta?.title || statusBucketLabel(bucket, t)}
-        </span>
-        <AssigneeMark assignee={assignee} t={t} compact />
-      </span>
-    </button>
-  );
-}
+const CHIP =
+  'inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold';
 
 /**
- * Thẻ Kanban sprint — layout: title, Due date, Parent, type+key+assignee.
+ * Thẻ Kanban gọn — 3 vùng: tiêu đề · tín hiệu · meta.
+ * Chi tiết (note QA, subtask list, parent đầy đủ) nằm trong popup khi bấm thẻ.
  */
 export default function ProjectHubSprintBoardCard({
   card,
@@ -169,9 +136,11 @@ export default function ProjectHubSprintBoardCard({
   workTypeConfig = null,
   epics = [],
   features = [],
+  readyToDone = null,
+  confirmingDone = false,
+  onConfirmReadyToDone = null,
 }) {
   const { t, locale } = useAppStrings();
-  const [childrenOpen, setChildrenOpen] = useState(false);
   const issueId = String(card?._id || card?.id || '');
   const title = String(card?.title || '').trim();
   const dueDate = card?.dueDate;
@@ -188,10 +157,6 @@ export default function ProjectHubSprintBoardCard({
     () => resolveBoardWorkType(card, allCards, workTypeConfig),
     [card, allCards, workTypeConfig]
   );
-  const children = useMemo(
-    () => directChildCards(allCards, issueId, viewedType),
-    [allCards, issueId, viewedType]
-  );
   const childStats = useMemo(
     () => childWorkStats(allCards, issueId, lists, viewedType),
     [allCards, issueId, lists, viewedType]
@@ -202,16 +167,33 @@ export default function ProjectHubSprintBoardCard({
   );
   const sectionTitle = childSectionTitle(childTypeIds, t);
   const progressPct = childWorkProgressPct(childStats.done, childStats.total);
-  const listById = useMemo(
-    () => new Map((lists || []).map((l) => [String(l._id || l.id || ''), l])),
-    [lists]
+  const childrenIncomplete = childStats.total > 0 && childStats.done < childStats.total;
+  const incompleteHint = (childStats.incompleteTitles || []).slice(0, 2).join(' · ');
+
+  const reworkNote = String(card?.qaReworkNote || '').trim();
+  const onReadyForQa = isReadyForQaList(
+    (Array.isArray(lists) ? lists : []).find(
+      (l) => String(l._id || l.id) === String(card?.listId || '')
+    )
   );
+  const hasRework = Boolean(reworkNote) && !onReadyForQa;
+  const fixPending = String(card?.fixSuggestion?.status || '').toLowerCase() === 'pending';
+  const changeRequests = Array.isArray(card?.changeRequests) ? card.changeRequests : [];
+  const showParent =
+    Boolean(parentTitle) &&
+    parentTitle.trim().toLowerCase() !== title.trim().toLowerCase();
+  const showSignals =
+    hasRework ||
+    fixPending ||
+    changeRequests.length > 0 ||
+    (readyToDone?.ready && typeof onConfirmReadyToDone === 'function' && !showDoneCheck);
 
   return (
     <>
-      <div className="min-w-0 pr-8">
+      {/* 1 — Title */}
+      <div className="min-w-0 pr-7">
         <div className="flex min-w-0 items-start gap-1">
-          <div className="min-w-0 flex-1 truncate font-semibold text-foreground" title={title}>
+          <div className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-snug text-foreground" title={title}>
             {title || '—'}
           </div>
           {typeof onOpenMenu === 'function' ? (
@@ -237,35 +219,85 @@ export default function ProjectHubSprintBoardCard({
             </span>
           ) : null}
         </div>
-
-        {dueLabel ? (
-          <div className="mt-1.5">
-            <div className="text-[10px] text-muted-foreground">{t('workspace.projectHubWorkFieldDueDate')}</div>
-            <div
-              className={`mt-0.5 flex items-center gap-1 text-[11px] ${
-                dueTone === 'overdue' ? 'font-semibold text-destructive' : 'text-foreground'
-              }`}
-            >
-              <span>{dueLabel}</span>
-              {dueTone === 'overdue' ? <AlertTriangle size={12} aria-hidden /> : null}
-            </div>
-          </div>
+        {showParent ? (
+          <p className="mt-0.5 truncate text-[10px] text-muted-foreground" title={parentTitle}>
+            {parentTitle}
+          </p>
         ) : null}
-
-        {parentTitle ? (
-          <div className="mt-1.5">
-            <div className="text-[10px] text-muted-foreground">{t('workspace.projectHubWorkFieldParent')}</div>
-            <div
-              className="mt-0.5 inline-flex max-w-full items-center gap-1 rounded-full border border-primary/40 bg-primary/5 px-2 py-0.5"
-              title={parentTitle}
-            >
-              <span className="h-2 w-2 shrink-0 rounded-sm bg-primary" aria-hidden />
-              <span className="truncate text-[11px] font-medium text-foreground">{parentTitle}</span>
-            </div>
-          </div>
+        {dueLabel ? (
+          <p
+            className={`mt-0.5 inline-flex items-center gap-0.5 text-[10px] ${
+              dueTone === 'overdue' ? 'font-semibold text-destructive' : 'text-muted-foreground'
+            }`}
+            title={t('workspace.projectHubWorkFieldDueDate')}
+          >
+            {dueLabel}
+            {dueTone === 'overdue' ? <AlertTriangle size={11} aria-hidden /> : null}
+          </p>
         ) : null}
       </div>
 
+      {/* 2 — Signals (compact chips; full copy in detail popup) */}
+      {showSignals ? (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
+          {hasRework ? (
+            <span
+              className={`${CHIP} border-destructive/40 bg-destructive/10 text-destructive`}
+              title={reworkNote}
+            >
+              <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+              <span className="truncate">{t('workspace.phaseQaReworkNoteChip')}</span>
+            </span>
+          ) : null}
+          {fixPending ? (
+            <span
+              className={`${CHIP} border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200`}
+              title={t('workspace.phaseQaFixSuggestCardPending')}
+            >
+              {t('workspace.phaseQaFixSuggestCardPending')}
+            </span>
+          ) : null}
+          {changeRequests.map((cr) => {
+            const crId = String(cr._id || cr.id || '');
+            const code = cr.code || 'CR';
+            return (
+              <button
+                key={crId || code}
+                type="button"
+                title={cr.title || code}
+                className={`${CHIP} border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenChangeRequest?.(crId);
+                }}
+              >
+                <GitPullRequest size={11} aria-hidden className="shrink-0" />
+                <span>{code}</span>
+              </button>
+            );
+          })}
+          {readyToDone?.ready && typeof onConfirmReadyToDone === 'function' && !showDoneCheck ? (
+            <button
+              type="button"
+              disabled={confirmingDone || busy}
+              onClick={(e) => {
+                e.stopPropagation();
+                onConfirmReadyToDone(card);
+              }}
+              className={`${CHIP} border-primary/40 bg-primary/10 text-primary hover:bg-primary/15 disabled:opacity-50`}
+            >
+              {confirmingDone
+                ? t('common.loading')
+                : t('workspace.phaseQaReadyToDoneChip', {
+                    pass: readyToDone.passCount,
+                    total: readyToDone.totalActive,
+                  })}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* 3 — Meta footer */}
       <div className="mt-2 flex min-w-0 items-center gap-1.5">
         <ProjectHubIssueTypeBadge type={issueType} label={typeLabel(issueType, t)} variant="icon" />
         <span className="truncate text-[10px] font-semibold text-muted-foreground">{issueKey}</span>
@@ -281,57 +313,61 @@ export default function ProjectHubSprintBoardCard({
         </span>
       </div>
 
-      {Array.isArray(card?.changeRequests) && card.changeRequests.length ? (
-        <div className="mt-1.5 flex flex-wrap gap-1" onPointerDown={(e) => e.stopPropagation()}>
-          {card.changeRequests.map((cr) => {
-            const crId = String(cr._id || cr.id || '');
-            const code = cr.code || 'CR';
-            return (
-              <button
-                key={crId || code}
-                type="button"
-                title={cr.title || code}
-                className="inline-flex items-center gap-0.5 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpenChangeRequest?.(crId);
-                }}
-              >
-                <GitPullRequest size={11} aria-hidden className="shrink-0" />
-                <span>{code}</span>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-
+      {/* 4 — Children progress; warn when parent Done but child still open (hidden on Board) */}
       {childStats.total > 0 ? (
-        <div className="mt-2 border-t border-border pt-2" onPointerDown={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            className="flex w-full items-center gap-1.5 text-[11px] font-semibold text-muted-foreground"
-            aria-expanded={childrenOpen}
-            aria-label={t('workspace.projectHubBacklogChildrenComplete', {
-              done: childStats.done,
-              total: childStats.total,
-            })}
-            disabled={busy}
-            onClick={(e) => {
-              e.stopPropagation();
-              setChildrenOpen((v) => !v);
-            }}
+        <button
+          type="button"
+          className={`mt-2 flex w-full items-center gap-1.5 border-t pt-1.5 text-left ${
+            childrenIncomplete
+              ? 'border-amber-400/50 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-950/30'
+              : 'border-border/70'
+          }`}
+          disabled={busy}
+          title={
+            childrenIncomplete
+              ? t('workspace.projectHubBoardChildrenIncompleteHint', {
+                  names: incompleteHint || String(childStats.total - childStats.done),
+                })
+              : t('workspace.projectHubBoardChildrenOpenHint')
+          }
+          aria-label={t('workspace.projectHubBacklogChildrenComplete', {
+            done: childStats.done,
+            total: childStats.total,
+          })}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenCard?.(card);
+          }}
+        >
+          {childrenIncomplete ? (
+            <AlertTriangle size={12} className="shrink-0 text-amber-700 dark:text-amber-300" aria-hidden />
+          ) : (
+            <GitFork size={12} className="shrink-0 text-muted-foreground" aria-hidden />
+          )}
+          <span
+            className={`min-w-0 flex-1 truncate text-[10px] font-medium ${
+              childrenIncomplete
+                ? 'text-amber-900 dark:text-amber-100'
+                : 'text-muted-foreground'
+            }`}
           >
-            <GitFork size={14} aria-hidden />
-            <span className="truncate">{sectionTitle}</span>
-            <span className="tabular-nums">
-              {childStats.done}/{childStats.total}
-            </span>
-            <span className="ml-auto">
-              {childrenOpen ? <ChevronDown size={16} aria-hidden /> : <ChevronRight size={16} aria-hidden />}
-            </span>
-          </button>
+            {childrenIncomplete
+              ? t('workspace.projectHubBoardChildrenIncompleteLabel', {
+                  open: childStats.total - childStats.done,
+                  total: childStats.total,
+                })
+              : sectionTitle}
+          </span>
+          <span
+            className={`shrink-0 text-[10px] font-semibold tabular-nums ${
+              childrenIncomplete ? 'text-amber-950 dark:text-amber-50' : 'text-foreground'
+            }`}
+          >
+            {childStats.done}/{childStats.total}
+          </span>
           <div
-            className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+            className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-muted"
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}
@@ -342,21 +378,7 @@ export default function ProjectHubSprintBoardCard({
               style={{ width: `${progressPct}%` }}
             />
           </div>
-          {childrenOpen ? (
-            <div className="mt-1.5 space-y-1.5">
-              {children.map((child) => (
-                <ChildPreviewRow
-                  key={String(child._id || child.id)}
-                  card={child}
-                  listById={listById}
-                  projectCode={projectCode}
-                  onOpenCard={onOpenCard}
-                  t={t}
-                />
-              ))}
-            </div>
-          ) : null}
-        </div>
+        </button>
       ) : null}
     </>
   );

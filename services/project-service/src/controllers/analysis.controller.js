@@ -25,6 +25,31 @@ function handleError(res, err) {
 
 async function listCustomerDocuments(req, res) {
   try {
+    const format = String(req.query?.format || '')
+      .trim()
+      .toLowerCase();
+    const documentId = String(req.query?.documentId || req.query?.id || '').trim();
+    if ((format === 'download' || format === 'bin' || format === 'file') && documentId) {
+      const { stream, fileName, mimeType } = await analysisService.downloadCustomerDocument({
+        userId: getUserId(req),
+        projectId: req.params.projectId,
+        documentId,
+      });
+      res.setHeader('Content-Type', mimeType || 'application/octet-stream');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${String(fileName || 'document').replace(/"/g, '')}"`
+      );
+      if (stream && typeof stream.pipe === 'function') {
+        return stream.pipe(res);
+      }
+      // AWS SDK v3 Body may be async iterable
+      const chunks = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      return res.send(Buffer.concat(chunks));
+    }
     const data = await analysisService.listCustomerDocuments({
       userId: getUserId(req),
       projectId: req.params.projectId,
@@ -37,10 +62,16 @@ async function listCustomerDocuments(req, res) {
 
 async function createCustomerDocument(req, res) {
   try {
+    const file = req.file;
+    const body = req.body || {};
     const data = await analysisService.createCustomerDocument({
       userId: getUserId(req),
       projectId: req.params.projectId,
-      body: req.body || {},
+      body,
+      fileBuffer: file?.buffer || null,
+      fileName: file?.originalname || null,
+      mimeType: file?.mimetype || null,
+      sizeBytes: file?.size != null ? file.size : null,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -110,6 +141,22 @@ async function transitionArtifact(req, res) {
       artifactId: req.params.artifactId,
       toStatus: req.body?.status || req.body?.toStatus,
       note: req.body?.note || req.body?.rejectionReason || '',
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function bulkTransitionArtifacts(req, res) {
+  try {
+    const data = await analysisService.bulkTransitionArtifacts({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      fromStatus: req.body?.fromStatus,
+      toStatus: req.body?.toStatus || req.body?.status,
+      note: req.body?.note || '',
+      artifactIds: req.body?.artifactIds ?? req.body?.ids ?? null,
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -187,10 +234,13 @@ async function advancePhase2(req, res) {
       mode: req.body?.mode,
       packId: req.body?.packId,
       methodology: req.body?.methodology,
-      importWorkItems: req.body?.importWorkItems !== false,
-      applyAssignees: req.body?.applyAssignees !== false,
+      // RULE-21 — opt-in only (seed chính từ PlanningBaseline + publish-wbs)
+      importWorkItems: req.body?.importWorkItems === true,
+      applyAssignees: req.body?.applyAssignees === true,
+      forcePackImport: req.body?.forcePackImport === true,
       skipReadyGate: Boolean(req.body?.skipReadyGate),
       publishWbs: req.body?.publishWbs !== false,
+      seedBoardTasks: req.body?.seedBoardTasks !== false,
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -200,6 +250,23 @@ async function advancePhase2(req, res) {
 
 async function getSrsDraft(req, res) {
   try {
+    const format = String(req.query?.format || '')
+      .trim()
+      .toLowerCase();
+    if (format === 'xlsx' || format === 'excel') {
+      const { buffer, fileName } = await analysisService.exportSrsWorkbook({
+        userId: getUserId(req),
+        projectId: req.params.projectId,
+        baselineId: req.query?.baselineId,
+        srsVersion: req.query?.srsVersion,
+      });
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      return res.send(Buffer.from(buffer));
+    }
     const data = await analysisService.getSrsDraft({
       userId: getUserId(req),
       projectId: req.params.projectId,
@@ -215,6 +282,28 @@ async function startDeliveryPlanning(req, res) {
     const data = await analysisService.startDeliveryPlanning({
       userId: getUserId(req),
       projectId: req.params.projectId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function previewAnalysisImport(req, res) {
+  try {
+    const file = req.file;
+    if (!file?.buffer) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu file Analysis (.xlsx)',
+        errorCode: 'IMPORT_SET_ANALYSIS_FILE_REQUIRED',
+      });
+    }
+    const data = await analysisService.previewAnalysisImport({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      fileBuffer: file.buffer,
+      fileName: file.originalname,
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -303,6 +392,36 @@ async function restoreImportSet(req, res) {
   }
 }
 
+async function getImportSetDiff(req, res) {
+  try {
+    const importSetService = require('../services/analysisImportSet.service');
+    const data = await importSetService.getImportSetDiff({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      setId: req.params.setId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function transitionImportSet(req, res) {
+  try {
+    const importSetService = require('../services/analysisImportSet.service');
+    const data = await importSetService.transitionImportSet({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      setId: req.params.setId,
+      toStatus: req.body?.toStatus,
+      note: req.body?.note || '',
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
 module.exports = {
   listCustomerDocuments,
   createCustomerDocument,
@@ -311,6 +430,7 @@ module.exports = {
   createArtifact,
   updateArtifact,
   transitionArtifact,
+  bulkTransitionArtifacts,
   listTraceLinks,
   createTraceLink,
   getGapReport,
@@ -319,9 +439,12 @@ module.exports = {
   advancePhase2,
   getSrsDraft,
   startDeliveryPlanning,
+  previewAnalysisImport,
   confirmAnalysisImport,
   listImportSets,
   attachRawImportSet,
   trashImportSet,
   restoreImportSet,
+  getImportSetDiff,
+  transitionImportSet,
 };

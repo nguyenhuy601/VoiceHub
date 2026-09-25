@@ -26,7 +26,7 @@ describe('buildCardSummaryFields', () => {
 
   it('maps on_track health and progress', () => {
     const project = {
-      status: 'in_development',
+      status: 'active',
       isActive: true,
       expectedEndDate: '2026-11-30T00:00:00.000Z',
     };
@@ -44,7 +44,7 @@ describe('buildCardSummaryFields', () => {
 
   it('marks delayed when past due', () => {
     const project = {
-      status: 'in_development',
+      status: 'active',
       isActive: true,
       dueDate: '2026-09-01T00:00:00.000Z',
     };
@@ -82,7 +82,7 @@ describe('attachListProjectCardSummaries', () => {
       {
         _id: 'aaaaaaaaaaaaaaaaaaaaaaaa',
         projectId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
-        status: 'in_development',
+        status: 'active',
         isActive: true,
         expectedEndDate: '2026-12-01T00:00:00.000Z',
       },
@@ -122,7 +122,7 @@ describe('attachListProjectCardSummaries', () => {
     const projects = [
       {
         _id: 'aaaaaaaaaaaaaaaaaaaaaaaa',
-        status: 'in_development',
+        status: 'active',
         isActive: true,
         expectedEndDate: '2026-12-01T00:00:00.000Z',
       },

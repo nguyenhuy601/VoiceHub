@@ -81,7 +81,7 @@ function writeTaskPayload(input = {}) {
   return out;
 }
 
-/** Plaintext cho API / webhook. */
+/** Plaintext cho API / inbox notification. */
 function readTaskFromStored(task) {
   if (!task || typeof task !== 'object') return task;
   const o = typeof task.toObject === 'function' ? task.toObject() : { ...task };

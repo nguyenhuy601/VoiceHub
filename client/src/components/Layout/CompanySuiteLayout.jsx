@@ -8,6 +8,8 @@ import { useOrgShell } from '../../hooks/queries/useOrgShell';
 import { readStoredLastOrganizationId } from '../../utils/suitePathUtils';
 import {
   COMPANY_SPACE_LEVEL,
+  isCompanyStructureReadyForTeamCheck,
+  isValidCompanyTeamId,
   readStoredCompanyTeamId,
   resolveCompanySpaceLevel,
   resolveMyDepartmentId,
@@ -57,24 +59,39 @@ export default function CompanySuiteLayout() {
     [shell, departmentId, teamIdFromUrl]
   );
 
-  const spaceLevel = resolved.level;
-  const spaceTeamId = resolved.teamId;
   const spaceDeptId = resolved.departmentId || departmentId;
+  const structureReady = isCompanyStructureReadyForTeamCheck(shell, spaceDeptId);
+  const holdUrlTeam =
+    Boolean(teamIdFromUrl) &&
+    !resolved.teamId &&
+    (shellQuery.isLoading || !shell || !structureReady);
+  const spaceTeamId = resolved.teamId || (holdUrlTeam ? teamIdFromUrl : '');
+  const spaceLevel = spaceTeamId
+    ? COMPANY_SPACE_LEVEL.TEAM
+    : resolved.level;
 
   useEffect(() => {
     if (!organizationId || !spaceDeptId || shellQuery.isLoading || !shell) return;
     const currentDept = String(searchParams.get('departmentId') || '').trim();
-    const currentOrg = String(searchParams.get('organizationId') || '').trim();
-    if (currentDept === spaceDeptId && currentOrg === organizationId) return;
+    const currentTeam = String(searchParams.get('teamId') || '').trim();
+    const hasOrgQuery = Boolean(searchParams.get('organizationId') || searchParams.get('orgId'));
+    const wantTeam =
+      spaceLevel === COMPANY_SPACE_LEVEL.TEAM ? String(spaceTeamId || '').trim() : '';
+    const teamOk =
+      spaceLevel !== COMPANY_SPACE_LEVEL.TEAM ? !currentTeam : currentTeam === wantTeam;
+    if (currentDept === spaceDeptId && teamOk && !hasOrgQuery) return;
+
     const next = new URLSearchParams(searchParams);
-    next.set('organizationId', organizationId);
+    next.delete('organizationId');
+    next.delete('orgId');
     next.set('departmentId', spaceDeptId);
     if (spaceLevel !== COMPANY_SPACE_LEVEL.TEAM) {
       next.delete('teamId');
-    } else if (spaceTeamId) {
-      next.set('teamId', spaceTeamId);
+    } else if (wantTeam) {
+      next.set('teamId', wantTeam);
     }
-    navigate({ pathname: location.pathname, search: `?${next.toString()}` }, { replace: true });
+    const qs = next.toString();
+    navigate({ pathname: location.pathname, search: qs ? `?${qs}` : '' }, { replace: true });
   }, [
     organizationId,
     spaceDeptId,
@@ -85,6 +102,8 @@ export default function CompanySuiteLayout() {
     navigate,
     shell,
     shellQuery.isLoading,
+    structureReady,
+    teamIdFromUrl,
   ]);
 
   return (

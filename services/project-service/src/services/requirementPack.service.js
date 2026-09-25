@@ -1,4 +1,5 @@
 const { logger } = require('@enterprise/shared');
+const mongoose = require('../db');
 const RequirementPack = require('../models/RequirementPack');
 const { VALID_STATUS_TRANSITIONS } = require('../constants/requirementLifecycle');
 const {
@@ -15,6 +16,7 @@ const {
   toRequirementPackWizardItem,
 } = require('../utils/requirement/requirementPackList');
 const { mapPackConstraintsToProject } = require('../utils/requirement/mapPackConstraintsToProject');
+const { clampOverviewForPack } = require('../utils/requirement/requirementOverviewClamp');
 const { assertRequirementPermission } = require('./requirementAccess.service');
 const { createProject } = require('./project.service');
 const objectStorage = require('../utils/common/objectStorage');
@@ -173,7 +175,13 @@ async function submitRequirementPack({ userId, organizationId, packId }) {
   return attachPlanningReadiness(pack.toObject());
 }
 
-async function approveRequirementPack({ userId, organizationId, packId }) {
+async function approveRequirementPack({
+  userId,
+  organizationId,
+  packId,
+  forceApprove = false,
+  overrideReason = '',
+}) {
   await assertRequirementPermission({ userId, organizationId, permission: 'requirement:approve' });
   const pack = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true });
   if (!pack) {
@@ -182,9 +190,85 @@ async function approveRequirementPack({ userId, organizationId, packId }) {
     throw err;
   }
   assertTransition(pack.status, 'approved');
+
+  const { assertRequirementGate1Approve } = require('../utils/tools/assertRequirementGate1Approve');
+  const gate1 = assertRequirementGate1Approve({
+    pack: pack.toObject ? pack.toObject() : pack,
+    forceApprove,
+    overrideReason,
+  });
+
   pack.status = 'approved';
   pack.approvedBy = userId;
   pack.approvedAt = new Date();
+
+  // G6: freeze SRS version on pack.aiAnalysis (Mixed) after Gate1
+  {
+    const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+    const shell = ensureAiAnalysisContainer(pack.aiAnalysis);
+    const frozen = String(
+      pack.versionNumber ?? pack.version ?? shell.approvedSrsVersion ?? '1'
+    );
+    shell.approvedSrsVersion = frozen;
+    pack.aiAnalysis = shell;
+    pack.markModified('aiAnalysis');
+  }
+
+  // G4 Gate1: materialize FR + mark phase_what approved for HOW unlock
+  {
+    const {
+      isWhatG4Enabled,
+      markPhaseWhatGate1Approved,
+      hasReadyG4Understanding,
+    } = require('../utils/aiAnalysis/whatG4Policy');
+    const { materializeG4IntoPack } = require('../utils/aiAnalysis/materializeG4IntoPack');
+    const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+    if (isWhatG4Enabled() && hasReadyG4Understanding(pack)) {
+      const g4 = pack.aiAnalysis?.analyses?.g4Understanding;
+      const { pack: seeded, meta } = materializeG4IntoPack(
+        pack.toObject ? pack.toObject() : pack,
+        g4
+      );
+      if (!meta.skipped && Array.isArray(seeded.functionalRequirements)) {
+        pack.functionalRequirements = seeded.functionalRequirements;
+        pack.markModified('functionalRequirements');
+      }
+      let container = ensureAiAnalysisContainer(pack.aiAnalysis);
+      container = markPhaseWhatGate1Approved(container, {
+        source: 'g4_gate1',
+        at: new Date().toISOString(),
+      });
+      pack.aiAnalysis = container;
+      pack.markModified('aiAnalysis');
+      logger.info('[requirement] Gate1 G4 mark phase_what approved', {
+        packId: String(packId),
+        seededFr: meta.seededFr,
+      });
+    }
+  }
+
+  if (gate1.override) {
+    const shell = pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
+    shell.gate1Override = {
+      forceApprove: true,
+      reason: gate1.override.reason,
+      missingGateA: Boolean(gate1.override.missingGateA),
+      gateA: gate1.gateA,
+      conflictAmbiguity: gate1.override.conflictAmbiguity || null,
+      by: userId,
+      at: new Date().toISOString(),
+    };
+    pack.aiAnalysis = shell;
+    pack.markModified('aiAnalysis');
+    logger.warn('[requirement] Gate1 forceApprove', {
+      packId: String(packId),
+      userId: String(userId),
+      missingGateA: gate1.override.missingGateA,
+      conflictAmbiguity: Boolean(gate1.override.conflictAmbiguity),
+      reasonLen: String(gate1.override.reason || '').length,
+    });
+  }
+
   await pack.save();
   return attachPlanningReadiness(pack.toObject());
 }
@@ -220,6 +304,9 @@ async function createProjectFromRequirementPack({
   leafAssignments = [],
   applyAssignees = true,
   taskIds = null,
+  forceApprove = false,
+  overrideReason = '',
+  idempotencyKey = null,
 }) {
   await assertRequirementPermission({
     userId,
@@ -232,6 +319,63 @@ async function createProjectFromRequirementPack({
     const err = new Error('Requirement pack không tồn tại');
     err.statusCode = 404;
     throw err;
+  }
+
+  if (pack.status !== 'approved') {
+    const err = new Error('Pack phải ở trạng thái approved trước khi tạo dự án');
+    err.statusCode = 409;
+    err.errorCode = 'REQ_INVALID_STATUS_TRANSITION';
+    throw err;
+  }
+
+  const { assertGate2ProjectPlanConfirmed } = require('../utils/tools/assertGate2ProjectPlanConfirmed');
+  assertGate2ProjectPlanConfirmed(pack.toObject ? pack.toObject() : pack);
+
+  const {
+    assertGate2FeasibilityOrOverride,
+  } = require('../utils/tools/assertGate2FeasibilityOrOverride');
+  const g13Gate = assertGate2FeasibilityOrOverride({
+    pack: pack.toObject ? pack.toObject() : pack,
+    forceApprove,
+    overrideReason,
+  });
+  if (g13Gate.override) {
+    const shell =
+      pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
+    shell.gate2Override = {
+      forceApprove: true,
+      reason: g13Gate.override.reason,
+      missingFeasibility: Boolean(g13Gate.override.missingFeasibility),
+      failures: g13Gate.override.failures || null,
+      by: userId,
+      at: new Date().toISOString(),
+    };
+    pack.aiAnalysis = shell;
+    pack.markModified('aiAnalysis');
+    const { logger } = require('@enterprise/shared');
+    logger.warn('[requirement] Gate2 G13 forceApprove (create-project)', {
+      packId: String(packId),
+      userId: String(userId),
+      reasonLen: String(g13Gate.override.reason || '').length,
+    });
+    await pack.save();
+  }
+
+  // 1A: pack already bound to draft project → promote instead of second create.
+  if (pack.projectId) {
+    const { promoteProjectFromGate2 } = require('./projectPromoteFromGate2.service');
+    return promoteProjectFromGate2({
+      userId,
+      organizationId,
+      packId,
+      importWorkItems,
+      applyAssignees,
+      leafAssignments,
+      taskIds,
+      forceApprove,
+      overrideReason,
+      idempotencyKey,
+    });
   }
 
   assertTransition(pack.status, 'project_linked');
@@ -319,12 +463,21 @@ async function createProjectFromRequirementPack({
 
   let analysisSeed = null;
   try {
-    const { seedArtifactsFromRequirementPack } = require('./analysis.service');
+    const { seedArtifactsFromRequirementPack, linkPackDocumentsToProject } = require('./analysis.service');
     analysisSeed = await seedArtifactsFromRequirementPack({
       userId,
       projectId,
       pack: linked.toObject(),
     });
+    const linkedDocs = await linkPackDocumentsToProject({
+      organizationId,
+      packId,
+      projectId,
+    });
+    analysisSeed = {
+      ...(analysisSeed && typeof analysisSeed === 'object' ? analysisSeed : {}),
+      linkedDocumentCount: linkedDocs.modified,
+    };
   } catch (seedErr) {
     logger.warn(
       '[requirement] analysis artifact seed failed project=%s pack=%s: %s',
@@ -339,6 +492,7 @@ async function createProjectFromRequirementPack({
     project,
     importStats,
     analysisSeed,
+    linkedDocumentCount: analysisSeed?.linkedDocumentCount ?? 0,
   };
 }
 
@@ -362,6 +516,92 @@ async function deleteRequirementPack({ userId, organizationId, packId }) {
   return { deleted: true, packId: String(pack._id) };
 }
 
+/**
+ * Wizard HITL intake — create draft pack; optional bind to Project draft (1A).
+ * Does NOT set status project_linked (that happens after Gate 2 promote).
+ */
+async function createIntakeDraftPack({
+  userId,
+  organizationId,
+  title = '',
+  description = '',
+  customerName = '',
+  startDate = null,
+  dueDate = null,
+  priority = 'Medium',
+  sourceFileName = '',
+  importSessionId = null,
+  analysisMode = '',
+  projectId = null,
+}) {
+  const {
+    assertRequirementImportOrCreateProjectScope,
+  } = require('./requirementAccess.service');
+  await assertRequirementImportOrCreateProjectScope({ userId, organizationId });
+
+  const name = String(title || '').trim().slice(0, 240);
+  if (!name) {
+    const err = new Error('title bắt buộc');
+    err.statusCode = 400;
+    err.errorCode = 'REQ_INTAKE_TITLE_REQUIRED';
+    throw err;
+  }
+
+  const overview = clampOverviewForPack({
+    requirementName: name,
+    projectObjective: String(description || '').trim().slice(0, 4000),
+    businessScope: customerName
+      ? `Customer: ${String(customerName).trim().slice(0, 200)}`
+      : '',
+    startDate: startDate || null,
+    deadline: dueDate || null,
+    priority: String(priority || 'Medium').trim().slice(0, 32) || 'Medium',
+  });
+
+  const boundProjectId = (() => {
+    const s = String(projectId || '').trim();
+    return mongoose.Types.ObjectId.isValid(s) ? s : null;
+  })();
+
+  if (boundProjectId) {
+    const Project = require('../models/Project');
+    const project = await Project.findOne({
+      _id: boundProjectId,
+      organizationId,
+      isArchived: { $ne: true },
+    })
+      .select('_id')
+      .lean();
+    if (!project) {
+      const err = new Error('Project không tồn tại trong organization');
+      err.statusCode = 404;
+      err.errorCode = 'REQ_INTAKE_PROJECT_NOT_FOUND';
+      throw err;
+    }
+  }
+
+  const mode = ['manual', 'ai'].includes(String(analysisMode || '').toLowerCase())
+    ? String(analysisMode).toLowerCase()
+    : '';
+
+  const pack = await RequirementPack.create({
+    organizationId,
+    createdBy: userId,
+    status: 'draft',
+    templateVersion: '1.1-raw',
+    sourceFileName: String(sourceFileName || '').trim().slice(0, 255),
+    importSessionId: importSessionId || null,
+    projectId: boundProjectId,
+    overview: mode
+      ? { ...overview, analysisMode: mode }
+      : overview,
+    functionalRequirements: [],
+    nonFunctionalRequirements: [],
+  });
+
+  return attachPlanningReadiness(pack.toObject());
+}
+
 module.exports = {
   listRequirementPacks,
   getRequirementPack,
@@ -371,4 +611,5 @@ module.exports = {
   rejectRequirementPack,
   createProjectFromRequirementPack,
   deleteRequirementPack,
+  createIntakeDraftPack,
 };

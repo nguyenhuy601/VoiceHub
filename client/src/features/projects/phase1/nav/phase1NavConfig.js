@@ -18,6 +18,30 @@ export const PHASE1_RA_MODULES = Object.freeze([
   { key: 'analysis-fr', module: 'analysis-fr', labelKey: 'workspace.phaseNavAnalysisFr', pathSeg: 'analysis-fr' },
   { key: 'analysis-uc', module: 'analysis-uc', labelKey: 'workspace.phaseNavAnalysisUc', pathSeg: 'analysis-uc' },
   { key: 'analysis-nfr', module: 'analysis-nfr', labelKey: 'workspace.phaseNavAnalysisNfr', pathSeg: 'analysis-nfr' },
+  {
+    key: 'analysis-interface',
+    module: 'analysis-interface',
+    labelKey: 'workspace.phaseNavAnalysisInterface',
+    pathSeg: 'analysis-interface',
+  },
+  {
+    key: 'analysis-data',
+    module: 'analysis-data',
+    labelKey: 'workspace.phaseNavAnalysisData',
+    pathSeg: 'analysis-data',
+  },
+  {
+    key: 'analysis-glossary',
+    module: 'analysis-glossary',
+    labelKey: 'workspace.phaseNavAnalysisGlossary',
+    pathSeg: 'analysis-glossary',
+  },
+  {
+    key: 'analysis-assumption',
+    module: 'analysis-assumption',
+    labelKey: 'workspace.phaseNavAnalysisAssumption',
+    pathSeg: 'analysis-assumption',
+  },
   { key: 'traceability', module: 'traceability', labelKey: 'workspace.phaseNavTraceability', pathSeg: 'traceability' },
   { key: 'srs-baselines', module: 'srs-baselines', labelKey: 'workspace.phaseNavSrsBaselines', pathSeg: 'srs-baselines' },
   {
@@ -74,6 +98,12 @@ export const PHASE1_PLANNING_MODULES = Object.freeze([
   },
   { key: 'planning-risks', module: 'planning-risks', labelKey: 'workspace.phaseNavPlanningRisks', pathSeg: 'planning/risks' },
   {
+    key: 'planning-test-cases',
+    module: 'planning-test-cases',
+    labelKey: 'workspace.phaseNavPlanningTestCases',
+    pathSeg: 'planning/test-cases',
+  },
+  {
     key: 'planning-approval',
     module: 'planning-approval',
     labelKey: 'workspace.phaseNavPlanningApproval',
@@ -100,6 +130,7 @@ export const PLANNING_SUB_TO_MODULE = Object.freeze({
   milestones: 'planning-milestones',
   releases: 'planning-releases',
   risks: 'planning-risks',
+  'test-cases': 'planning-test-cases',
   approval: 'planning-approval',
 });
 
@@ -111,6 +142,10 @@ export const ARTIFACT_KIND_BY_MODULE = Object.freeze({
   'analysis-uc': 'UC',
   'analysis-nfr': 'NFR',
   'analysis-scope': 'SCOPE',
+  'analysis-interface': 'INTERFACE',
+  'analysis-data': 'DATA',
+  'analysis-glossary': 'GLOSSARY',
+  'analysis-assumption': 'ASSUMPTION',
 });
 
 export const PLANNING_KIND_BY_MODULE = Object.freeze({
@@ -140,7 +175,7 @@ export function isPlanningUnlocked(deliveryPhase) {
 /**
  * @param {string} projectId
  * @param {string} pathSeg module path segment (may include planning/wbs)
- * @param {{ organizationId?: string }} [query]
+ * @param {{ organizationId?: string, boardId?: string, artifact?: string }} [query]
  */
 export function buildPhase1ModulePath(projectId, pathSeg, query = {}) {
   const pid = String(projectId || '').trim();
@@ -150,17 +185,29 @@ export function buildPhase1ModulePath(projectId, pathSeg, query = {}) {
   // organizationId omitted from Phase 1 module URLs (resolve via project hub payload).
   const boardId = String(query.boardId || '').trim();
   if (boardId) params.set('boardId', boardId);
+  const packId = String(query.packId || '').trim();
+  if (packId) params.set('packId', packId);
+  const artifact = String(query.artifact || query.artifactId || '').trim();
+  if (artifact) params.set('artifact', artifact);
+  const sourceUcKey = String(query.sourceUcKey || query.uc || '').trim();
+  if (sourceUcKey) params.set('sourceUcKey', sourceUcKey);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
 
-export function getPhase1SidebarGroups({ planningLocked = true } = {}) {
+export function getPhase1SidebarGroups({ planningLocked = true, raReadOnly = false } = {}) {
+  const raItems = raReadOnly
+    ? PHASE1_RA_MODULES.filter((m) => m.key === 'srs-baselines' || m.key === 'overview')
+    : PHASE1_RA_MODULES;
   return [
     {
       id: 'requirement_analysis',
       labelKey: 'workspace.phase1GroupRequirementAnalysis',
       locked: false,
-      items: PHASE1_RA_MODULES,
+      /** After Start Planning: chỉ Overview + SRS Baseline (DEC P1-H). */
+      readOnly: Boolean(raReadOnly),
+      readOnlyHintKey: 'workspace.phase1RaReadOnlyNavHint',
+      items: raItems,
     },
     {
       id: 'planning',

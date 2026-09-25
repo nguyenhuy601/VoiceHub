@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   List,
+  Lock,
   MessageCircle,
   Plus,
   Settings,
@@ -56,6 +57,7 @@ import { fetchProjectHubProject } from '../../features/projects/hub/useProjectHu
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys';
 import { coerceDeliveryPhase } from '../../utils/projectPhaseNav';
+import useTaskWorkspaceScope from '../../hooks/useTaskWorkspaceScope';
 
 const COLLAPSE_KEY = 'voicehub:sidebar-collapsed';
 
@@ -114,6 +116,7 @@ const MODULE_ICONS = {
 function NavItem({ item, collapsed, suiteColor, isActive }) {
   const Icon = item.icon || LayoutDashboard;
   const locked = Boolean(item.locked);
+  const readOnly = Boolean(item.readOnly) && !locked;
   const content = (
     <>
       {isActive && !locked && (
@@ -125,7 +128,7 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
       <Icon size={15} className="shrink-0" style={{ color: isActive && !locked ? suiteColor : undefined }} />
       {!collapsed && (
         <span
-          className="min-w-0 flex-1 text-left whitespace-nowrap text-[0.8125rem] tracking-tight"
+          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[0.8125rem] tracking-tight"
           style={{
             fontWeight: isActive && !locked ? 500 : 400,
             color: locked ? 'rgba(255,255,255,0.28)' : isActive ? '#E2E8F0' : undefined,
@@ -134,6 +137,24 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
           {item.label}
         </span>
       )}
+      {readOnly && !collapsed ? (
+        <span
+          aria-hidden="true"
+          className="inline-flex h-3.5 max-w-[2.75rem] shrink-0 items-center gap-0.5 overflow-hidden rounded px-0.5 text-[0.5rem] font-medium leading-none text-white/45"
+          title={item.readOnlyHint || item.readOnlyBadge || ''}
+        >
+          <Lock size={8} strokeWidth={2.5} className="shrink-0 opacity-80" aria-hidden />
+          <span className="truncate">{item.readOnlyBadge || 'RO'}</span>
+        </span>
+      ) : null}
+      {readOnly && collapsed ? (
+        <Lock
+          size={9}
+          className="absolute right-0.5 top-0.5 text-white/40"
+          strokeWidth={2.5}
+          aria-hidden
+        />
+      ) : null}
     </>
   );
   const className = figmaNavItemClass(isActive && !locked, suiteColor, collapsed);
@@ -150,8 +171,15 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
       </div>
     );
   }
+  const linkTitle = collapsed
+    ? readOnly
+      ? `${item.label} — ${item.readOnlyHint || item.readOnlyBadge || ''}`
+      : item.label
+    : readOnly
+      ? item.readOnlyHint || undefined
+      : undefined;
   return (
-    <Link to={item.path} className="group relative block" title={collapsed ? item.label : undefined}>
+    <Link to={item.path} className="group relative block" title={linkTitle}>
       <div className={className} style={style}>
         {content}
       </div>
@@ -194,6 +222,11 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
     workspaceOrgId,
   });
 
+  const { canCreateProjectCapability, loading: createProjectScopeLoading } =
+    useTaskWorkspaceScope(orgId);
+  const showCreateProjectNav =
+    !createProjectScopeLoading && Boolean(canCreateProjectCapability);
+
   useEffect(() => {
     if (orgId) writeStoredLastOrganizationId(orgId);
   }, [orgId]);
@@ -232,16 +265,18 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   };
 
   const preItems = useMemo(() => {
-    return getProjectsPreSelectNavItems().map((item) => ({
-      ...item,
-      label: t(item.labelKey),
-      icon: MODULE_ICONS[item.key] || FolderKanban,
-      path:
-        item.key === 'new'
-          ? buildProjectsNewPath(orgId, { from: 'sidebar' })
-          : buildProjectsPickerPath(orgId),
-    }));
-  }, [orgId, t]);
+    return getProjectsPreSelectNavItems()
+      .filter((item) => item.key !== 'new' || showCreateProjectNav)
+      .map((item) => ({
+        ...item,
+        label: t(item.labelKey),
+        icon: MODULE_ICONS[item.key] || FolderKanban,
+        path:
+          item.key === 'new'
+            ? buildProjectsNewPath()
+            : buildProjectsPickerPath(),
+      }));
+  }, [t, showCreateProjectNav]);
 
   const boardId = boardQueryFromSearch(searchParams);
 
@@ -254,6 +289,8 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
       ...item,
       label: t(item.labelKey),
       lockHint: item.lockHintKey ? t(item.lockHintKey) : '',
+      readOnlyHint: item.readOnlyHintKey ? t(item.readOnlyHintKey) : '',
+      readOnlyBadge: item.readOnly ? t('workspace.phase1RaReadOnlyBadge') : '',
       icon: MODULE_ICONS[item.key] || MODULE_ICONS[item.module] || LayoutDashboard,
       path: item.pathSeg
         ? `/app/projects/${encodeURIComponent(projectId)}/${item.pathSeg}${
@@ -283,8 +320,8 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   }, [postItems, t]);
 
   const allowedSuites = useMemo(() => {
-    const base = ['communicate', 'company', 'projects', 'me'];
-    if (showAdminSuite) return ['communicate', 'company', 'projects', 'admin', 'me'];
+    const base = ['communicate', 'company', 'projects'];
+    if (showAdminSuite) return ['communicate', 'company', 'projects', 'admin'];
     return base;
   }, [showAdminSuite]);
 

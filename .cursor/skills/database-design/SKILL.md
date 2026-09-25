@@ -16,7 +16,7 @@ Cross-service schema sharing.
 
 ## Related Rules
 
-- `.cursor/rules/role-database.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `implementer`); skills `database-design` / `migration`
 
 ## Input
 

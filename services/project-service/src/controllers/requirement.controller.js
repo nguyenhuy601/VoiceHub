@@ -15,14 +15,21 @@ const {
   rejectRequirementPack,
   createProjectFromRequirementPack,
   deleteRequirementPack,
+  createIntakeDraftPack,
 } = require('../services/requirementPack.service');
+const analysisService = require('../services/analysis.service');
 const {
   getAiAnalysisSummary,
   getAiAnalysisWizardJob,
   runAiAnalysisJob,
   confirmAiAnalysisJob,
   exportAiAnalysisSheet11,
+  startPhaseAiPlanningRun,
 } = require('../services/aiAnalysis.service');
+const {
+  createOrReuseAiAnalysisSnapshot,
+  getActiveAiAnalysisSnapshotMeta,
+} = require('../services/aiAnalysisSnapshot.service');
 const {
   assertRequirementPermission,
   resolveRequirementAccess,
@@ -239,7 +246,20 @@ async function approvePack(req, res) {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
     const packId = String(req.params.packId || '').trim();
-    const pack = await approveRequirementPack({ userId, organizationId, packId });
+    const forceApprove =
+      req.body?.forceApprove === true ||
+      req.body?.forceApprove === 'true' ||
+      req.body?.forceApprove === 1;
+    const overrideReason = String(
+      req.body?.overrideReason || req.body?.reason || ''
+    ).trim();
+    const pack = await approveRequirementPack({
+      userId,
+      organizationId,
+      packId,
+      forceApprove,
+      overrideReason,
+    });
     return res.json({ success: true, data: pack });
   } catch (err) {
     return jsonError(res, err);
@@ -285,6 +305,82 @@ async function createProjectFromPack(req, res) {
       leafAssignments: req.body?.leafAssignments,
       applyAssignees: req.body?.applyAssignees !== false,
       taskIds: Array.isArray(req.body?.taskIds) ? req.body.taskIds : null,
+      forceApprove:
+        req.body?.forceApprove === true ||
+        req.body?.forceApprove === 'true' ||
+        req.body?.forceApprove === 1,
+      overrideReason: String(
+        req.body?.overrideReason || req.body?.reason || ''
+      ).trim(),
+      idempotencyKey: req.body?.idempotencyKey
+        ? String(req.body.idempotencyKey).trim()
+        : null,
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function createIntakeDraft(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'organizationId bắt buộc' });
+    }
+    const pack = await createIntakeDraftPack({
+      userId,
+      organizationId,
+      title: req.body?.title,
+      description: req.body?.description,
+      customerName: req.body?.customerName,
+      startDate: req.body?.startDate,
+      dueDate: req.body?.dueDate ?? req.body?.deadline,
+      priority: req.body?.priority,
+      sourceFileName: req.body?.sourceFileName,
+      importSessionId: req.body?.importSessionId,
+      analysisMode: req.body?.analysisMode,
+      projectId: req.body?.projectId,
+    });
+    return res.status(201).json({ success: true, data: pack });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function listPackCustomerDocuments(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    const data = await analysisService.listCustomerDocumentsForPack({
+      userId,
+      organizationId,
+      packId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function uploadPackCustomerDocument(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    const file = req.file;
+    const body = req.body || {};
+    const data = await analysisService.createCustomerDocumentForPack({
+      userId,
+      organizationId,
+      packId,
+      body,
+      fileBuffer: file?.buffer || null,
+      fileName: file?.originalname || null,
+      mimeType: file?.mimetype || null,
+      sizeBytes: file?.size != null ? file.size : null,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -339,6 +435,51 @@ async function getAiAnalysis(req, res) {
   }
 }
 
+async function createAiAnalysisSnapshot(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const { meta } = await createOrReuseAiAnalysisSnapshot({
+      userId,
+      organizationId,
+      packId,
+      force: Boolean(req.body?.force),
+    });
+    return res.json({ success: true, data: meta });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function getAiAnalysisSnapshot(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const meta = await getActiveAiAnalysisSnapshotMeta({
+      userId,
+      organizationId,
+      packId,
+    });
+    return res.json({ success: true, data: meta });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
 async function runAiAnalysis(req, res) {
   try {
     const organizationId = resolveOrgId(req);
@@ -357,6 +498,10 @@ async function runAiAnalysis(req, res) {
       job: req.body?.job,
       force: Boolean(req.body?.force),
     });
+    // Remote planning (AI_PLANNING_REMOTE=1) → 202 Accepted
+    if (data?.accepted && data?.httpStatus === 202) {
+      return res.status(202).json({ success: true, data });
+    }
     return res.json({ success: true, data });
   } catch (err) {
     return jsonError(res, err);
@@ -379,9 +524,37 @@ async function confirmAiAnalysis(req, res) {
       organizationId,
       packId,
       job: req.body?.job,
+      phase: req.body?.phase,
       edits: req.body?.edits ?? null,
     });
     return res.json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function startPhaseAiPlanning(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const data = await startPhaseAiPlanningRun({
+      userId,
+      organizationId,
+      packId,
+      phase: req.body?.phase || 'how',
+      force: Boolean(req.body?.force),
+      mode: req.body?.mode || '',
+      feedback: req.body?.feedback || '',
+    });
+    const httpStatus = Number(data?.httpStatus) === 200 ? 200 : 202;
+    return res.status(httpStatus).json({ success: true, data });
   } catch (err) {
     return jsonError(res, err);
   }
@@ -427,8 +600,14 @@ module.exports = {
   rejectPack,
   deletePack,
   createProjectFromPack,
+  createIntakeDraft,
+  listPackCustomerDocuments,
+  uploadPackCustomerDocument,
   getAiAnalysis,
+  createAiAnalysisSnapshot,
+  getAiAnalysisSnapshot,
   runAiAnalysis,
   confirmAiAnalysis,
+  startPhaseAiPlanning,
   exportAiAnalysisSheet11: exportAiAnalysisSheet11Ctrl,
 };

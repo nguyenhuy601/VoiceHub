@@ -3,13 +3,14 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import ProjectsLandingGrid from '../landing/ProjectsLandingGrid';
-import { isProjectActiveForUi } from '../landing/projectLandingActive';
+import { isProjectListableForUi } from '../landing/projectLandingActive';
 import {
   buildProjectsModulePath,
   buildProjectsNewPath,
   orgQueryFromSearch,
   readStoredLastOrganizationId,
 } from '../../../utils/suitePathUtils';
+import { phaseHomeModule } from '../../../utils/projectPhaseNav';
 import {
   readStoredLastProjectId,
   writeStoredLastProjectId,
@@ -43,13 +44,12 @@ export default function ProjectPickerPage() {
     isError: projectsError,
     reload: reloadProjects,
   } = useOrgProjectsList(orgId, { excludeClosed: true });
-  const { canCreateProject, canCreateProjectCapability, loading: scopeLoading } =
-    useTaskWorkspaceScope(orgId);
+  const { canCreateProjectCapability, loading: scopeLoading } = useTaskWorkspaceScope(orgId);
   const { access: requirementAccess, loading: requirementAccessLoading } =
     useRequirementAccess(orgId);
 
   const orgName = String(organization?.name || '').trim();
-  const canCreate = Boolean(canCreateProjectCapability ?? canCreateProject);
+  const canCreate = Boolean(canCreateProjectCapability);
   const canCreateWithAi = canCreate && Boolean(requirementAccess?.canRunAiPlanning);
 
   const listLoading = Boolean(orgId) && projectsLoading;
@@ -62,7 +62,7 @@ export default function ProjectPickerPage() {
     });
 
   const projects = useMemo(
-    () => rawProjects.filter(isMyProject).filter(isProjectActiveForUi),
+    () => rawProjects.filter(isMyProject).filter(isProjectListableForUi),
     [rawProjects]
   );
 
@@ -78,8 +78,9 @@ export default function ProjectPickerPage() {
       if (!projectId) return;
       writeStoredLastProjectId(projectId);
       const boardId = String(project?.defaultBoardId || project?.boards?.[0]?._id || '').trim();
+      const homeModule = phaseHomeModule(project?.deliveryPhase);
       navigate(
-        buildProjectsModulePath(projectId, 'overview', {
+        buildProjectsModulePath(projectId, homeModule, {
           organizationId: orgId,
           boardId,
         })
@@ -94,10 +95,10 @@ export default function ProjectPickerPage() {
       return;
     }
     if (!canCreate) {
-      toast.error(t('taskBoard.createBoardDenied'));
+      toast.error(t('taskBoard.createProjectDenied'));
       return;
     }
-    navigate(buildProjectsNewPath(orgId, { from: 'picker' }));
+    navigate(buildProjectsNewPath());
   }, [canCreate, navigate, orgId, t]);
 
   const handleCreateWithAi = useCallback(() => {

@@ -1,8 +1,14 @@
 /**
- * AI Analysis job orchestration (schema v2) — 11 user jobs + gates.
+ * AI Analysis job orchestration (schema v2) — 12 user jobs + gates.
+ *
+ * Deterministic HOW jobs (effortRoleAnalysis, sequencingCpm, employeeMatching,
+ * scheduleCapacity) always run remotely via ai-project-planning-service S2S.
+ * AI_PLANNING_REMOTE=0 must NOT reopen in-process HOW engines (flag ignored for
+ * HOW routing). LLM WHAT / compact orchestrator / projectPlan remain local.
  */
 
 const RequirementPack = require('../models/RequirementPack');
+const aiProjectPlanningClient = require('../clients/aiProjectPlanning.client');
 const { AI_PLANNING_ALLOWED_STATUSES } = require('../constants/requirementLifecycle');
 const { assertPackReadyForAiAnalysis } = require('../utils/requirement/requirementPlanningReadiness');
 const {
@@ -20,81 +26,12 @@ const {
   getJobStatus,
   assertCapabilityConfirmable,
 } = require('../utils/aiAnalysis/aiAnalysisContainer');
-const { parseJobId } = require('../constants/aiAnalysisJobs.constants');
-const {
-  resolveJobWallMs,
-  remainingWallMs,
-} = require('../utils/aiAnalysis/aiAnalysisJobBudgets');
+const { parseJobId, AI_ANALYSIS_USER_JOBS } = require('../constants/aiAnalysisJobs.constants');
 const { ensureHierarchyDecompositionMigrated } = require('../utils/aiAnalysis/aiAnalysisMigrateJobs');
-const { warmOllamaModelSession } = require('../utils/aiAnalysis/ollamaClient');
-const { compactSessionWarmTtlMs } = require('../utils/aiAnalysis/aiAnalysisCompactPolicy');
-const {
-  isCompactV2Enabled,
-  runCompactRequirementAnalysis,
-  runCompactCapabilityAnalysis,
-  runCompactWbsGeneration,
-  runCompactDependencyAnalysis,
-  runCompactArchitectureRiskAnalysis,
-} = require('../utils/aiAnalysis/aiAnalysisCompactOrchestrator');
 const { buildAiAnalysisSheet11Buffer } = require('../utils/aiAnalysis/aiAnalysisSheet11Export');
-const {
-  runCapabilityAnalysis,
-  applyCapabilityToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisCapability');
-const {
-  runDataAnalysis,
-  applyDataToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisData');
-const {
-  runDependencyAnalysis,
-  applyDependencyToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisDependency');
-const {
-  runArchitectureImpactAnalysis,
-  applyArchitectureImpactToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisArchitectureImpact');
-const {
-  runRiskAnalysis,
-  applyRiskToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisRisk');
-const {
-  runGapAnalysis,
-  applyGapToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisGap');
-const {
-  runWbsTaskGeneration,
-  applyWbsToContainer,
-  applyDependencyOrderHint,
-} = require('../utils/aiAnalysis/aiAnalysisWbs');
-const {
-  runRoleSkillPlanning,
-  applyRoleSkillToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisRoleSkill');
-const {
-  runEffortEngine,
-  applyEffortToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisEffort');
-const {
-  runEmployeeMatching,
-  applyMatchingToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisMatching');
 const {
   validateAssignmentsAgainstShortlist,
 } = require('../utils/aiAnalysis/aiAnalysisAssignment');
-const {
-  runSequencingCpm,
-  applySequencingCpmToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisSequencingCpm');
-const {
-  runScheduleCapacity,
-  applyScheduleCapacityToContainer,
-  buildExecutionPlanFromContainer,
-  applyProjectPlanToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisScheduleCapacity');
-const {
-  runHierarchyDecomposition,
-  applyHierarchyToContainer,
-} = require('../utils/aiAnalysis/aiAnalysisHierarchy');
 const {
   mergeHierarchyProposalsIntoFrList,
 } = require('../utils/aiAnalysis/aiAnalysisHierarchyMerge');
@@ -103,8 +40,17 @@ const {
   failStalePendingAiAnalysisJobs,
   shouldSkipRerunBecauseReady,
 } = require('../utils/aiAnalysis/aiAnalysisStaleGc');
+const {
+  loadActiveSnapshotDocument,
+  assertSnapshotRequired,
+  ensureActiveAiAnalysisSnapshot,
+  isSnapshotPipelineEnabled,
+} = require('./aiAnalysisSnapshot.service');
+const { buildJobInputFromSnapshot, buildPackObjectFromSnapshot } = require('../utils/aiAnalysis/pipeline/buildPipeline');
 
 const ALLOWED_STATUS_SET = new Set(AI_PLANNING_ALLOWED_STATUSES);
+/** All AI Analysis user jobs run remotely via APS job registry. */
+const REMOTE_HOW_JOBS = new Set(AI_ANALYSIS_USER_JOBS);
 
 async function loadPackForAiAnalysis({ packId, organizationId }) {
   const pack = await RequirementPack.findOne({
@@ -120,17 +66,21 @@ async function loadPackForAiAnalysis({ packId, organizationId }) {
   return pack;
 }
 
-function assertPackStatusAllowsAi(pack) {
+function assertPackStatusAllowsAi(pack, job = null) {
   const status = String(pack.status || '');
-  if (!ALLOWED_STATUS_SET.has(status)) {
-    const err = new Error(
-      `Không chạy AI Analysis ở trạng thái ${status} (cần under_review|approved|project_linked)`
-    );
-    err.statusCode = 422;
-    err.errorCode = 'AI_ANALYSIS_STATUS_NOT_ALLOWED';
-    err.details = { status };
-    throw err;
+  if (ALLOWED_STATUS_SET.has(status)) return;
+  // Draft project HITL: WHAT jobs may run on intake draft (fill Scope/FR from docs).
+  if (status === 'draft' && job) {
+    const { isAiAnalysisWhatJob } = require('../constants/aiAnalysisJobs.constants');
+    if (isAiAnalysisWhatJob(job)) return;
   }
+  const err = new Error(
+    `Không chạy AI Analysis ở trạng thái ${status} (cần under_review|approved|project_linked)`
+  );
+  err.statusCode = 422;
+  err.errorCode = 'AI_ANALYSIS_STATUS_NOT_ALLOWED';
+  err.details = { status, job: job || undefined };
+  throw err;
 }
 
 /** ADR 0003 RULE-04 — HOW/Planning jobs only after Requirement pack approved. */
@@ -223,7 +173,10 @@ async function getAiAnalysisSummary({ userId, organizationId, packId }) {
     pack.markModified('aiAnalysis');
     await pack.save();
   }
-  return summarizeAiAnalysis(container);
+  return {
+    ...summarizeAiAnalysis(container),
+    snapshot: pack.aiAnalysisSnapshotMeta || null,
+  };
 }
 
 async function getAiAnalysisWizardJob({ userId, organizationId, packId, job: jobRaw }) {
@@ -237,6 +190,28 @@ async function getAiAnalysisWizardJob({ userId, organizationId, packId, job: job
   return buildWizardJobDto(ensureAiAnalysisContainer(pack.aiAnalysis), job);
 }
 
+/**
+ * Legacy env helper (tests / docs). HOW routing ignores this flag — deterministic
+ * HOW jobs are always remote via shouldRunRemoteAiPlanning.
+ */
+function isAiPlanningRemoteEnabled() {
+  return String(process.env.AI_PLANNING_REMOTE ?? '1').trim() !== '0';
+}
+
+function shouldRunRemoteAiPlanning(job) {
+  return REMOTE_HOW_JOBS.has(String(job || ''));
+}
+
+/**
+ * Remote 202 path — project facade only starts S2S run (no in-process LLM).
+ */
+async function startRemoteAiPlanningRun() {
+  const err = new Error('startRemoteAiPlanningRun removed — use startPhaseAiPlanningRun');
+  err.statusCode = 410;
+  err.errorCode = 'JOB_BY_JOB_REMOVED';
+  throw err;
+}
+
 async function runAiAnalysisJob({
   userId,
   organizationId,
@@ -244,640 +219,24 @@ async function runAiAnalysisJob({
   job: jobRaw,
   force = false,
 }) {
-  await assertRequirementPermission({
-    userId,
-    organizationId,
-    permission: 'requirement:run-ai-planning',
-  });
-
-  const job = parseJobId(jobRaw);
-  const pack = await loadPackForAiAnalysis({ packId, organizationId });
-  assertPackStatusAllowsAi(pack);
-  assertHowJobsRequireApprovedPack(pack, job);
-  assertPackReadyForAiAnalysis(pack.toObject());
-
-  let container = ensurePackContainer(pack);
-  const gc = failStalePendingAiAnalysisJobs(container);
-  if (gc.changed) {
-    container = gc.container;
-    pack.aiAnalysis = container;
-    pack.markModified('aiAnalysis');
-    await pack.save();
+  void userId;
+  void organizationId;
+  void packId;
+  void force;
+  // RULE-JJ-01: per-job run removed — use startPhaseAiPlanningRun (phase_what / phase_how).
+  let requestedJob = String(jobRaw || '').trim();
+  try {
+    requestedJob = parseJobId(jobRaw);
+  } catch {
+    /* keep raw for error details */
   }
-  assertPreviousJobConfirmed(container, job);
-  assertJobNotConfirmedForRerun(container, job, {
-    frList: pack.functionalRequirements || [],
-  });
-
-  if (shouldSkipRerunBecauseReady(container, job, { force: Boolean(force) })) {
-    return {
-      job,
-      status: getJobStatus(container, job),
-      schemaVersion: container.schemaVersion,
-      skipped: true,
-      reason: 'already_ready',
-    };
-  }
-
-  const compactOn = isCompactV2Enabled();
-  // Session warm for classic + compact — avoid cold warm on every job when keep_alive holds model.
-  await warmOllamaModelSession({ ttlMs: compactSessionWarmTtlMs() });
-
-  // durationMs excludes warm for all jobs (timer starts after session warm).
-  const runStartedAt = Date.now();
-  const elapsedDurationMs = () => Math.max(0, Date.now() - runStartedAt);
-
-  if (job === 'hierarchyDecomposition') {
-    container = beginJobPending(pack, container, job);
-    await pack.save();
-
-    const hierarchyResult = await runHierarchyDecomposition(pack.toObject(), {
-      wallMs: resolveJobWallMs('hierarchyDecomposition'),
-    });
-
-    container = ensureAiAnalysisContainer(container);
-    container = markJobReadyStub(container, job);
-    container = applyHierarchyToContainer(container, hierarchyResult);
-    container.jobs.hierarchyDecomposition = {
-      ...container.jobs.hierarchyDecomposition,
-      status: 'ready',
-      model: hierarchyResult.model || null,
-      generatedAt: hierarchyResult.generatedAt,
-      confirmedAt: null,
-      durationMs: elapsedDurationMs(),
-      error: hierarchyResult.meta?.error || null,
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'ready';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: 'ready',
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      llmCalls: hierarchyResult.meta?.llmCalls ?? 0,
-      partial: Boolean(hierarchyResult.meta?.partial),
-      durationMs: pack.aiAnalysis.jobs.hierarchyDecomposition.durationMs,
-      proposedFeatureCount: (hierarchyResult.proposedFeatures || []).length,
-      proposedRequirementCount: (hierarchyResult.proposedRequirements || []).length,
-      disabled: Boolean(hierarchyResult.meta?.disabled),
-    };
-  }
-
-  if (job === 'requirementAnalysis') {
-    container = beginJobPending(pack, container, job);
-    await pack.save();
-
-    const packObj = pack.toObject();
-    const importIssuesBefore = pack.importIssues;
-
-    let dataResult;
-    let gapResult;
-    let llmCalls;
-    let partial;
-    let jobError;
-
-    if (compactOn) {
-      const compact = await runCompactRequirementAnalysis(packObj, container, {
-        force: Boolean(force),
-        wallMs: resolveJobWallMs('requirementAnalysis'),
-      });
-      container = compact.container;
-      dataResult = compact.dataResult;
-      gapResult = compact.gapResult;
-      llmCalls = compact.llmCalls;
-      partial = Boolean(dataResult.meta?.partial || gapResult.meta?.partial);
-      jobError = dataResult.meta?.error || gapResult.meta?.error || null;
-    } else {
-      const wallMs = resolveJobWallMs('requirementAnalysis');
-      const wallStartedAt = Date.now();
-      dataResult = await runDataAnalysis(packObj, {
-        hierarchy: container?.analyses?.hierarchy || null,
-        wallMs,
-      });
-      gapResult = await runGapAnalysis(packObj, {
-        hierarchy: container?.analyses?.hierarchy || null,
-        wallMs: remainingWallMs(wallMs, wallStartedAt),
-      });
-      llmCalls =
-        (dataResult.meta?.llmCalls ?? 0) + (gapResult.meta?.llmCalls ?? 0);
-      partial = Boolean(dataResult.meta?.partial || gapResult.meta?.partial);
-      jobError = dataResult.meta?.error || gapResult.meta?.error || null;
-    }
-
-    container = ensureAiAnalysisContainer(container);
-    container = markJobReadyStub(container, job);
-    container = applyDataToContainer(container, dataResult);
-    container = applyGapToContainer(container, gapResult);
-
-    const models = [dataResult.model, gapResult.model].filter(Boolean);
-
-    container.jobs.requirementAnalysis = {
-      ...container.jobs.requirementAnalysis,
-      status: 'ready',
-      model: models[0] || null,
-      generatedAt: gapResult.generatedAt || dataResult.generatedAt,
-      confirmedAt: null,
-      durationMs: elapsedDurationMs(),
-      error: jobError,
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'ready';
-    if (importIssuesBefore !== undefined) pack.importIssues = importIssuesBefore;
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: 'ready',
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      llmCalls,
-      partial,
-      cacheHit: Boolean(dataResult.meta?.cacheHit || gapResult.meta?.cacheHit),
-      durationMs: pack.aiAnalysis.jobs.requirementAnalysis.durationMs,
-      entityCount: (dataResult.entities || []).length,
-      dataFlowCount: (dataResult.dataFlows || []).length,
-      gapCount: (gapResult.items || []).length,
-      severityCounts: gapResult.meta?.severityCounts || null,
-      hardBlockNextJob: Boolean(gapResult.meta?.hardBlockNextJob),
-    };
-  }
-
-  if (job === 'capabilityAnalysis') {
-    container = beginJobPending(pack, container, job);
-    await pack.save();
-
-    let capabilityResult;
-    if (compactOn) {
-      const compact = await runCompactCapabilityAnalysis(pack.toObject(), container, {
-        force: Boolean(force),
-        wallMs: resolveJobWallMs('capabilityAnalysis'),
-      });
-      container = compact.container;
-      capabilityResult = compact.capabilityResult;
-    } else {
-      capabilityResult = await runCapabilityAnalysis(pack.toObject(), {
-        hierarchy: container?.analyses?.hierarchy || null,
-        wallMs: resolveJobWallMs('capabilityAnalysis'),
-      });
-    }
-
-    container = ensureAiAnalysisContainer(container);
-    container = markJobReadyStub(container, job);
-    container = applyCapabilityToContainer(container, capabilityResult);
-    const capabilityItems = capabilityResult.items || [];
-    const capabilityEmpty = capabilityItems.length === 0;
-    const capabilityStatus = capabilityEmpty ? 'failed' : 'ready';
-    const capabilityError = capabilityEmpty
-      ? capabilityResult.meta?.error || 'empty_requirement_leaves'
-      : capabilityResult.meta?.error || null;
-    container.jobs.capabilityAnalysis = {
-      ...container.jobs.capabilityAnalysis,
-      status: capabilityStatus,
-      model: capabilityResult.model || null,
-      generatedAt: capabilityResult.generatedAt,
-      confirmedAt: null,
-      durationMs: elapsedDurationMs(),
-      error: capabilityError,
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = capabilityEmpty ? 'failed' : 'ready';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: capabilityStatus,
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      llmCalls: capabilityResult.meta?.llmCalls ?? 0,
-      partial: Boolean(capabilityResult.meta?.partial),
-      cacheHit: Boolean(capabilityResult.meta?.cacheHit),
-      durationMs: pack.aiAnalysis.jobs.capabilityAnalysis.durationMs,
-      capabilityCount: capabilityItems.length,
-      ...(capabilityEmpty ? { error: capabilityError } : {}),
-    };
-  }
-
-  if (job === 'wbsGeneration') {
-    container = beginJobPending(pack, container, job);
-    await pack.save();
-
-    const packObj = pack.toObject();
-    container = ensureAiAnalysisContainer(pack.aiAnalysis);
-    container = markJobReadyStub(container, job);
-    const caps = container.analyses?.capability?.items || [];
-
-    let wbsResult;
-    if (compactOn) {
-      const compact = await runCompactWbsGeneration(packObj, container, {
-        force: Boolean(force),
-        capabilities: caps,
-        wallMs: resolveJobWallMs('wbsGeneration'),
-      });
-      container = compact.container;
-      wbsResult = compact.wbsResult;
-    } else {
-      wbsResult = await runWbsTaskGeneration(packObj, container, {
-        capabilities: caps,
-        wallMs: resolveJobWallMs('wbsGeneration'),
-      });
-    }
-
-    container = applyWbsToContainer(container, wbsResult);
-    container.jobs.wbsGeneration = {
-      ...container.jobs.wbsGeneration,
-      status: 'ready',
-      model: wbsResult.model || null,
-      generatedAt: wbsResult.generatedAt,
-      confirmedAt: null,
-      durationMs: elapsedDurationMs(),
-      error: wbsResult.meta?.error || null,
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'ready';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: 'ready',
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      llmCalls: wbsResult.meta?.llmCalls ?? 0,
-      partial: Boolean(wbsResult.meta?.partial),
-      cacheHit: Boolean(wbsResult.meta?.cacheHit),
-      durationMs: pack.aiAnalysis.jobs.wbsGeneration.durationMs,
-      taskCount: (wbsResult.tasks || []).length,
-    };
-  }
-
-  if (job === 'dependencyAnalysis') {
-    container = beginJobPending(pack, container, job);
-    await pack.save();
-
-    const packObj = pack.toObject();
-    container = ensureAiAnalysisContainer(pack.aiAnalysis);
-
-    let depResult;
-    if (compactOn) {
-      const compact = await runCompactDependencyAnalysis(packObj, container, {
-        force: Boolean(force),
-        wallMs: resolveJobWallMs('dependencyAnalysis'),
-      });
-      depResult = compact.depResult;
-    } else {
-      depResult = await runDependencyAnalysis(packObj, container, {
-        wallMs: resolveJobWallMs('dependencyAnalysis'),
-      });
-    }
-
-    container = markJobReadyStub(container, job);
-    container = applyDependencyToContainer(container, depResult);
-    if (Array.isArray(container.planning?.tasks) && container.planning.tasks.length) {
-      container.planning.tasks = applyDependencyOrderHint(
-        container.planning.tasks,
-        depResult.orderHint || []
-      );
-    }
-    container.jobs.dependencyAnalysis = {
-      ...container.jobs.dependencyAnalysis,
-      status: 'ready',
-      model: depResult.model || null,
-      generatedAt: depResult.generatedAt,
-      confirmedAt: null,
-      durationMs: elapsedDurationMs(),
-      error: depResult.meta?.error || null,
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'ready';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: 'ready',
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      llmCalls: depResult.meta?.llmCalls ?? 0,
-      partial: Boolean(depResult.meta?.partial),
-      durationMs: pack.aiAnalysis.jobs.dependencyAnalysis.durationMs,
-      edgeCount: (depResult.edges || []).length,
-      orderHintCount: (depResult.orderHint || []).length,
-      cycleBroken: (depResult.meta?.cycleBroken || []).length,
-    };
-  }
-
-  if (job === 'architectureRiskAnalysis') {
-    container = beginJobPending(pack, container, job);
-    await pack.save();
-
-    const packObj = pack.toObject();
-    container = ensureAiAnalysisContainer(pack.aiAnalysis);
-
-    let archResult;
-    let riskResult;
-    let llmCalls;
-    let partial;
-    let jobError;
-
-    if (compactOn) {
-      const compact = await runCompactArchitectureRiskAnalysis(packObj, container, {
-        force: Boolean(force),
-        wallMs: resolveJobWallMs('architectureRiskAnalysis'),
-      });
-      container = compact.container;
-      archResult = compact.archResult;
-      riskResult = compact.riskResult;
-      llmCalls = compact.llmCalls;
-      partial = Boolean(archResult.meta?.partial || riskResult.meta?.partial);
-      jobError = archResult.meta?.error || riskResult.meta?.error || null;
-    } else {
-      const wallMs = resolveJobWallMs('architectureRiskAnalysis');
-      const wallStartedAt = Date.now();
-      archResult = await runArchitectureImpactAnalysis(packObj, container, {
-        wallMs,
-      });
-      container = markJobReadyStub(container, job);
-      container = applyArchitectureImpactToContainer(container, archResult);
-      riskResult = await runRiskAnalysis(packObj, container, {
-        wallMs: remainingWallMs(wallMs, wallStartedAt),
-      });
-      llmCalls =
-        (archResult.meta?.llmCalls ?? 0) + (riskResult.meta?.llmCalls ?? 0);
-      partial = Boolean(archResult.meta?.partial || riskResult.meta?.partial);
-      jobError = archResult.meta?.error || riskResult.meta?.error || null;
-    }
-
-    container = markJobReadyStub(container, job);
-    container = applyArchitectureImpactToContainer(container, archResult);
-    container = applyRiskToContainer(container, riskResult);
-
-    const models = [archResult.model, riskResult.model].filter(Boolean);
-
-    container.jobs.architectureRiskAnalysis = {
-      ...container.jobs.architectureRiskAnalysis,
-      status: 'ready',
-      model: models[0] || null,
-      generatedAt: riskResult.generatedAt || archResult.generatedAt,
-      confirmedAt: null,
-      durationMs: elapsedDurationMs(),
-      error: jobError,
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'ready';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: 'ready',
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      llmCalls,
-      partial,
-      cacheHit: Boolean(archResult.meta?.cacheHit || riskResult.meta?.cacheHit),
-      durationMs: pack.aiAnalysis.jobs.architectureRiskAnalysis.durationMs,
-      architectureImpactCount: (archResult.items || []).length,
-      chainCount: (archResult.chains || []).length,
-      riskCount: (riskResult.items || []).length,
-      riskBandCounts: riskResult.meta?.bandCounts || null,
-      hardBlockNextJob: Boolean(riskResult.meta?.hardBlockNextJob),
-    };
-  }
-
-  if (job === 'effortRoleAnalysis') {
-    container = beginJobPending(pack, container, job);
-    await pack.save();
-
-    const packObj = pack.toObject();
-    container = ensureAiAnalysisContainer(pack.aiAnalysis);
-    container = markJobReadyStub(container, job);
-    const roleSkillResult = runRoleSkillPlanning(packObj, container);
-    container = applyRoleSkillToContainer(container, roleSkillResult);
-    const effortResult = runEffortEngine(container);
-    container = applyEffortToContainer(container, effortResult);
-
-    container.jobs.effortRoleAnalysis = {
-      ...container.jobs.effortRoleAnalysis,
-      status: 'ready',
-      model: null,
-      generatedAt: effortResult.generatedAt || roleSkillResult.generatedAt,
-      confirmedAt: null,
-      durationMs: elapsedDurationMs(),
-      error: null,
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'ready';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: 'ready',
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      llmCalls: 0,
-      durationMs: pack.aiAnalysis.jobs.effortRoleAnalysis.durationMs,
-      roleCount: (roleSkillResult.roles || []).length,
-      skillCount: (roleSkillResult.skills || []).length,
-      estimatedHoursTotal: effortResult.effort?.estimatedHoursTotal ?? 0,
-      hasProjectManager: Boolean(roleSkillResult.meta?.hasProjectManager),
-    };
-  }
-
-  if (job === 'sequencingCpm') {
-    container = beginJobPending(pack, container, job);
-    await pack.save();
-
-    container = ensureAiAnalysisContainer(pack.aiAnalysis);
-    container = markJobReadyStub(container, job);
-    const cpmResult = runSequencingCpm(container);
-    container = applySequencingCpmToContainer(container, cpmResult);
-    container.jobs.sequencingCpm = {
-      ...container.jobs.sequencingCpm,
-      status: 'ready',
-      model: null,
-      generatedAt: cpmResult.generatedAt,
-      confirmedAt: null,
-      durationMs: elapsedDurationMs(),
-      error: null,
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'ready';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: 'ready',
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      llmCalls: 0,
-      durationMs: pack.aiAnalysis.jobs.sequencingCpm.durationMs,
-      projectDurationHours: cpmResult.theoreticalCpm?.projectDurationHours ?? 0,
-      criticalCount: (cpmResult.criticalWorkIds || []).length,
-      unresolvedEdgeCount: cpmResult.meta?.unresolvedEdgeCount ?? 0,
-    };
-  }
-
-  if (job === 'employeeMatching') {
-    container = beginJobPending(pack, container, job);
-    await pack.save();
-
-    container = ensureAiAnalysisContainer(pack.aiAnalysis);
-    container = markJobReadyStub(container, job);
-
-    const { listOrgResourcePool } = require('./orgResourcePool.service');
-    let pool;
-    try {
-      pool = await listOrgResourcePool({
-        organizationId,
-        actorUserId: userId,
-        requirementPackId: String(packId),
-        skipCapacityAuth: true,
-        forAiPlanning: true,
-        limit: 200,
-      });
-    } catch (windowErr) {
-      if (windowErr.errorCode !== 'PLANNING_WINDOW_INCOMPLETE') {
-        const err = new Error(
-          windowErr.message || 'Failed to load organization resource pool for matching'
-        );
-        err.statusCode = windowErr.statusCode || 502;
-        err.errorCode = windowErr.errorCode || 'POOL_LOAD_FAILED';
-        err.cause = windowErr;
-        throw err;
-      }
-      pool = await listOrgResourcePool({
-        organizationId,
-        actorUserId: userId,
-        skipCapacityAuth: true,
-        forAiPlanning: true,
-        limit: 200,
-      });
-    }
-    const poolItems = Array.isArray(pool?.items)
-      ? pool.items
-      : Array.isArray(pool)
-        ? pool
-        : [];
-
-    const matchResult = await runEmployeeMatching(pack.toObject(), container, {
-      poolItems,
-    });
-    container = applyMatchingToContainer(container, matchResult);
-    container.jobs.employeeMatching = {
-      ...container.jobs.employeeMatching,
-      status: 'ready',
-      model: null,
-      generatedAt: matchResult.generatedAt,
-      confirmedAt: null,
-      durationMs: elapsedDurationMs(),
-      error: matchResult.meta?.error || null,
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'ready';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: 'ready',
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      llmCalls: 0,
-      durationMs: pack.aiAnalysis.jobs.employeeMatching.durationMs,
-      fteCount: (matchResult.fte || []).length,
-      recommendationCount: (matchResult.recommendations || []).length,
-      poolSize: matchResult.meta?.poolSize ?? poolItems.length,
-      filteredProjectCap: matchResult.meta?.filteredProjectCap ?? 0,
-      assignmentCount: 0,
-    };
-  }
-
-  if (job === 'scheduleCapacity') {
-    container = beginJobPending(pack, container, job);
-    await pack.save();
-
-    container = ensureAiAnalysisContainer(pack.aiAnalysis);
-    container = markJobReadyStub(container, job);
-    const projectStart =
-      pack.overview?.startDate || pack.staffingPlan?.startDate || null;
-    const scheduleResult = runScheduleCapacity(container, {
-      forceHeuristic: true,
-      projectStart,
-    });
-    container = applyScheduleCapacityToContainer(container, scheduleResult);
-    container.jobs.scheduleCapacity = {
-      ...container.jobs.scheduleCapacity,
-      status: 'ready',
-      model: null,
-      generatedAt: scheduleResult.generatedAt,
-      confirmedAt: null,
-      durationMs: elapsedDurationMs(),
-      error: scheduleResult.meta?.error || null,
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'ready';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: 'ready',
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      llmCalls: 0,
-      durationMs: pack.aiAnalysis.jobs.scheduleCapacity.durationMs,
-      assignmentCount: (scheduleResult.assignments || []).length,
-      scheduleRowCount: (scheduleResult.schedule || []).length,
-      estimatedEnd: scheduleResult.completion?.estimatedEnd || null,
-      projectStart: scheduleResult.completion?.projectStart || null,
-    };
-  }
-
-  if (job === 'projectPlan') {
-    container = beginJobPending(pack, container, job);
-    await pack.save();
-
-    container = ensureAiAnalysisContainer(pack.aiAnalysis);
-    container = markJobReadyStub(container, job);
-    const executionPlan = buildExecutionPlanFromContainer(container);
-    container = applyProjectPlanToContainer(container, executionPlan);
-    container.jobs.projectPlan = {
-      ...container.jobs.projectPlan,
-      status: 'ready',
-      model: null,
-      generatedAt: executionPlan.generatedAt,
-      confirmedAt: null,
-      durationMs: elapsedDurationMs(),
-      error: null,
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'ready';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: 'ready',
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      llmCalls: 0,
-      durationMs: pack.aiAnalysis.jobs.projectPlan.durationMs,
-      estimatedEnd: executionPlan.estimatedEnd,
-      workCount: (executionPlan.works || []).length,
-    };
-  }
-
-  pack.aiAnalysis = markJobReadyStub(container, job);
-  pack.aiAnalysis.jobs[job] = {
-    ...pack.aiAnalysis.jobs[job],
-    durationMs: elapsedDurationMs(),
-  };
-  pack.aiAnalysisStatus = 'ready';
-  pack.markModified('aiAnalysis');
-  await pack.save();
-
-  return {
-    job,
-    status: pack.aiAnalysis.jobs[job].status,
-    schemaVersion: pack.aiAnalysis.schemaVersion,
-    durationMs: pack.aiAnalysis.jobs[job].durationMs,
-  };
+  const err = new Error(
+    `Job-by-job AI Analysis run is removed — use phase-run (phase_what / phase_how) instead of job="${requestedJob}"`
+  );
+  err.statusCode = 410;
+  err.errorCode = 'JOB_BY_JOB_REMOVED';
+  err.details = { job: requestedJob, use: 'POST …/ai-analysis/phase-run' };
+  throw err;
 }
 
 async function confirmAiAnalysisJob({
@@ -885,84 +244,55 @@ async function confirmAiAnalysisJob({
   organizationId,
   packId,
   job: jobRaw,
+  phase: phaseRaw,
   edits = null,
 }) {
+  void edits;
+  const phaseHint = String(phaseRaw || '').trim().toLowerCase();
+  const jobHint = String(jobRaw || '').trim();
+  if (jobHint) {
+    const err = new Error(
+      `Confirm uses phase=how only — job="${jobHint}" is not allowed`
+    );
+    err.statusCode = 409;
+    err.errorCode = 'CONFIRM_ONLY_PROJECT_PLAN';
+    err.details = { job: jobHint, allowed: ['phase=how'] };
+    throw err;
+  }
+  if (phaseHint !== 'how' && phaseHint !== 'phase_how') {
+    const err = new Error(
+      `Confirm requires phase=how — got phase="${phaseHint || ''}"`
+    );
+    err.statusCode = 409;
+    err.errorCode = 'CONFIRM_ONLY_PROJECT_PLAN';
+    err.details = { phase: phaseHint || null, allowed: ['how'] };
+    throw err;
+  }
+
   await assertRequirementPermission({
     userId,
     organizationId,
     permission: 'requirement:run-ai-planning',
   });
 
-  const job = parseJobId(jobRaw);
+  const {
+    assertPhaseHowReadyForConfirm,
+    markPhaseHowConfirmed,
+    migrateJobsProjectionToPhaseRuns,
+  } = require('../utils/aiAnalysis/phaseGate2');
+
   const pack = await loadPackForAiAnalysis({ packId, organizationId });
-  assertPackStatusAllowsAi(pack);
-  assertHowJobsRequireApprovedPack(pack, job);
-
-  let container = ensurePackContainer(pack);
-  const status = getJobStatus(container, job);
-  if (status !== 'ready' && status !== 'confirmed') {
-    const err = new Error(`Job ${job} must be ready before confirm (current: ${status})`);
-    err.statusCode = 409;
-    err.errorCode = 'AI_ANALYSIS_JOB_NOT_READY';
-    err.details = { job, status };
-    throw err;
-  }
-
-  container = applyJobEdits(container, job, edits);
-
-  if (job === 'scheduleCapacity' && edits?.resource?.assignments) {
-    const { valid, rejected } = validateAssignmentsAgainstShortlist(
-      edits.resource.assignments,
-      container.resource?.recommendations || []
-    );
-    if (rejected.length) {
-      const err = new Error('Assignment userId must be in employeeMatching shortlist');
-      err.statusCode = 400;
-      err.errorCode = 'AI_ANALYSIS_ASSIGN_NOT_IN_SHORTLIST';
-      err.details = { rejected };
-      throw err;
-    }
-    container.resource.assignments = valid;
-  }
-
-  if (job === 'hierarchyDecomposition') {
-    const hierarchy = container.analyses?.hierarchy || {};
-    const merged = mergeHierarchyProposalsIntoFrList(
-      pack.functionalRequirements || [],
-      {
-        proposedFeatures: hierarchy.proposedFeatures || [],
-        proposedRequirements: hierarchy.proposedRequirements || [],
-      },
-      { onlyAccepted: true }
-    );
-    pack.functionalRequirements = merged.frList;
-    pack.markModified('functionalRequirements');
-    container = markJobsStaleAfter(container, 'hierarchyDecomposition');
-    pack.aiAnalysis = markJobConfirmed(container, job);
-    pack.aiAnalysisStatus = 'ready';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    return {
-      job,
-      status: 'confirmed',
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-      addedCount: merged.addedCount,
-      addedIds: merged.addedIds,
-    };
-  }
-
-  if (job === 'capabilityAnalysis') {
-    assertCapabilityConfirmable(container);
-  }
-
-  pack.aiAnalysis = markJobConfirmed(container, job);
+  let container = migrateJobsProjectionToPhaseRuns(ensurePackContainer(pack));
+  assertPhaseHowReadyForConfirm(container);
+  container = markPhaseHowConfirmed(container);
+  pack.aiAnalysis = container;
   pack.aiAnalysisStatus = 'ready';
   pack.markModified('aiAnalysis');
   await pack.save();
 
   return {
-    job,
+    phase: 'how',
+    job: 'phase_how',
     status: 'confirmed',
     schemaVersion: pack.aiAnalysis.schemaVersion,
   };
@@ -984,10 +314,482 @@ async function exportAiAnalysisSheet11({ userId, organizationId, packId }) {
   };
 }
 
+function mergeRemoteHowContainer(current, remote, job) {
+  const next = ensureAiAnalysisContainer(current);
+  if (job === 'effortRoleAnalysis') {
+    next.planning = {
+      ...next.planning,
+      roles: remote.planning?.roles || [],
+      skills: remote.planning?.skills || [],
+      tasks: remote.planning?.tasks || [],
+      effort: remote.planning?.effort || null,
+    };
+  } else if (job === 'sequencingCpm') {
+    next.planning = {
+      ...next.planning,
+      sequence: remote.planning?.sequence || { waves: [] },
+      theoreticalCpm: remote.planning?.theoreticalCpm || null,
+      criticalWorkIds: remote.planning?.criticalWorkIds || [],
+    };
+  } else if (job === 'employeeMatching') {
+    next.resource = {
+      ...next.resource,
+      fte: remote.resource?.fte || [],
+      recommendations: remote.resource?.recommendations || [],
+    };
+  } else if (job === 'scheduleCapacity') {
+    next.planning = {
+      ...next.planning,
+      tasks: remote.planning?.tasks || next.planning?.tasks || [],
+      completion: remote.planning?.completion || null,
+    };
+    next.resource = {
+      ...next.resource,
+      assignments: remote.resource?.assignments || [],
+      assignmentsMeta: {
+        ...(next.resource?.assignmentsMeta || {}),
+        ...(remote.resource?.assignmentsMeta || {}),
+      },
+      schedule: remote.resource?.schedule || [],
+    };
+  } else if (job === 'hierarchyDecomposition') {
+    next.analyses = {
+      ...next.analyses,
+      hierarchy: remote.analyses?.hierarchy || next.analyses?.hierarchy,
+    };
+  } else if (job === 'requirementAnalysis') {
+    next.analyses = {
+      ...next.analyses,
+      data: remote.analyses?.data || next.analyses?.data,
+      gap: remote.analyses?.gap || next.analyses?.gap,
+    };
+  } else if (job === 'capabilityAnalysis') {
+    next.analyses = {
+      ...next.analyses,
+      capability: remote.analyses?.capability || next.analyses?.capability,
+    };
+  } else if (job === 'requirementInsights') {
+    next.analyses = {
+      ...next.analyses,
+      requirementInsights:
+        remote.analyses?.requirementInsights || next.analyses?.requirementInsights,
+      proposedSrs: remote.analyses?.proposedSrs || next.analyses?.proposedSrs,
+      preApproval: remote.analyses?.preApproval || next.analyses?.preApproval,
+    };
+  } else if (job === 'wbsGeneration') {
+    next.planning = {
+      ...next.planning,
+      tasks: remote.planning?.tasks || [],
+      wbs: remote.planning?.wbs || null,
+    };
+  } else if (job === 'dependencyAnalysis') {
+    next.analyses = {
+      ...next.analyses,
+      dependency: remote.analyses?.dependency || next.analyses?.dependency,
+    };
+    if (Array.isArray(remote.planning?.tasks) && remote.planning.tasks.length) {
+      next.planning = {
+        ...next.planning,
+        tasks: remote.planning.tasks,
+      };
+    }
+  } else if (job === 'architectureRiskAnalysis') {
+    next.analyses = {
+      ...next.analyses,
+      architectureImpact:
+        remote.analyses?.architectureImpact || next.analyses?.architectureImpact,
+      risk: remote.analyses?.risk || next.analyses?.risk,
+    };
+  } else if (job === 'projectPlan') {
+    next.planning = {
+      ...next.planning,
+      executionPlan: remote.planning?.executionPlan || null,
+    };
+  }
+  next.jobs[job] = { ...next.jobs[job], ...remote.jobs?.[job] };
+  return next;
+}
+
+function isDuplicateRemoteRun(container, job, runId) {
+  const recorded =
+    container?.phaseRuns?.[job]?.remoteRunId ||
+    container?.resource?.assignmentsMeta?.remoteRunIds?.[job] ||
+    container?.jobs?.[job]?.remoteRunId;
+  return Boolean(runId) && String(recorded || '') === String(runId);
+}
+
+async function applyRemoteHowJobResult({
+  runId,
+  status,
+  job: jobRaw,
+  projectId,
+  packId,
+  organizationId,
+  snapshotId,
+  result,
+  error,
+  g4Understanding = null,
+}) {
+  const jobKey = String(jobRaw || '').trim();
+  if (jobKey === 'phase_how' || jobKey === 'phase_what') {
+    return applyRemotePhaseRunResult({
+      runId,
+      status,
+      job: jobKey,
+      projectId,
+      packId,
+      organizationId,
+      snapshotId,
+      result: {
+        ...(result || {}),
+        g4Understanding:
+          g4Understanding ||
+          result?.g4Understanding ||
+          result?.result?.g4Understanding ||
+          null,
+      },
+      error,
+    });
+  }
+  const err = new Error(
+    `Callback rejects per-job result "${jobKey}" — phase_what|phase_how only`
+  );
+  err.statusCode = 410;
+  err.errorCode = 'JOB_BY_JOB_REMOVED';
+  err.details = { job: jobKey };
+  throw err;
+}
+
+async function applyRemotePhaseRunResult({
+  runId,
+  status,
+  job,
+  projectId,
+  packId,
+  organizationId,
+  snapshotId,
+  result,
+  error,
+}) {
+  if (!runId || !packId || !organizationId || !snapshotId) {
+    const invalid = new Error('runId, packId, organizationId and snapshotId are required');
+    invalid.statusCode = 400;
+    invalid.errorCode = 'REMOTE_RESULT_IDENTIFIERS_REQUIRED';
+    throw invalid;
+  }
+  const pack = await loadPackForAiAnalysis({ packId, organizationId });
+  if (projectId && pack.projectId && String(pack.projectId) !== String(projectId)) {
+    const invalid = new Error('Remote result projectId does not match requirement pack');
+    invalid.statusCode = 409;
+    invalid.errorCode = 'REMOTE_RESULT_PROJECT_MISMATCH';
+    throw invalid;
+  }
+  if (String(pack.aiAnalysisActiveSnapshotId || '') !== String(snapshotId)) {
+    return { applied: false, stale: true, reason: 'snapshot_not_active', job, runId };
+  }
+  const phaseMeta = pack.aiAnalysis?.phaseRuns?.[job] || {};
+  if (String(phaseMeta.remoteRunId || '') === String(runId) && phaseMeta.status !== 'pending') {
+    return { applied: false, idempotent: true, job, runId };
+  }
+  let container = ensurePackContainer(pack);
+  if (status === 'completed') {
+    if (!result?.container) {
+      const invalid = new Error('Completed phase result must include container');
+      invalid.statusCode = 400;
+      invalid.errorCode = 'REMOTE_RESULT_INVALID';
+      throw invalid;
+    }
+    const {
+      applyG4UnderstandingToContainer,
+    } = require('../utils/aiAnalysis/whatG4Policy');
+    const incoming = result.container;
+    if (incoming.jobs != null) {
+      /* strip — RULE-PO-03 */
+    }
+    if (incoming.planning) container.planning = incoming.planning;
+    if (incoming.resource) container.resource = incoming.resource;
+    if (incoming.analyses) {
+      container.analyses = { ...(container.analyses || {}), ...incoming.analyses };
+    }
+    if (incoming.phaseRuns) {
+      container.phaseRuns = { ...(container.phaseRuns || {}), ...incoming.phaseRuns };
+    }
+    const g4 =
+      result.g4Understanding ||
+      result.result?.g4Understanding ||
+      incoming.analyses?.g4Understanding ||
+      null;
+    if (job === 'phase_what' && g4) {
+      container = applyG4UnderstandingToContainer(container, g4, {
+        remoteRunId: String(runId),
+        snapshotId: String(snapshotId),
+        status: 'ready',
+        mode: 'g4',
+        durationMs: result?.meta?.durationMs || result?.result?.durationMs || null,
+      });
+    } else {
+      const feas =
+        result?.feasibility ||
+        result?.result?.feasibility ||
+        incoming.analyses?.g13Feasibility ||
+        null;
+      container.phaseRuns = {
+        ...(container.phaseRuns || {}),
+        [job]: {
+          status: 'ready',
+          mode: job === 'phase_what' ? 'g4' : undefined,
+          remoteRunId: String(runId),
+          snapshotId: String(snapshotId),
+          hitl: result?.result?.hitl || (job === 'phase_how' ? 'gate2' : 'gate1'),
+          durationMs: result?.meta?.durationMs || result?.result?.durationMs || null,
+          completedAt: new Date().toISOString(),
+          error: null,
+          ...(feas && typeof feas === 'object' ? { feasibility: feas } : {}),
+        },
+      };
+      if (job === 'phase_how' && feas && typeof feas === 'object') {
+        container.analyses = {
+          ...(container.analyses || {}),
+          g13Feasibility: feas,
+        };
+      }
+    }
+    pack.aiAnalysisStatus = 'ready';
+  } else if (status === 'failed') {
+    container.phaseRuns = {
+      ...(container.phaseRuns || {}),
+      [job]: {
+        status: 'failed',
+        remoteRunId: String(runId),
+        snapshotId: String(snapshotId),
+        error: error || { code: 'AGENT_PHASE_FAILED' },
+      },
+    };
+    pack.aiAnalysisStatus = 'failed';
+  } else {
+    const invalid = new Error(`Invalid remote result status: ${status}`);
+    invalid.statusCode = 400;
+    invalid.errorCode = 'REMOTE_RESULT_STATUS_INVALID';
+    throw invalid;
+  }
+  if (container.jobs != null) delete container.jobs;
+  pack.aiAnalysis = container;
+  pack.markModified('aiAnalysis');
+  await pack.save();
+  return { applied: true, idempotent: false, job, runId, status, phase: true };
+}
+
+/**
+ * Start agentic HOW / WHAT phase run.
+ * WHAT under WHAT_G4_ENABLED: remote G4 on ai-project-planning-service (202).
+ * prepare_only stays local Stage1.
+ */
+async function startPhaseAiPlanningRun({
+  userId,
+  organizationId,
+  packId,
+  phase = 'how',
+  force = false,
+  mode = '',
+  feedback = '',
+}) {
+  await assertRequirementPermission({
+    userId,
+    organizationId,
+    permission: 'requirement:run-ai-planning',
+  });
+
+  const phaseJob = String(phase || 'how').trim().toLowerCase() === 'what' ? 'phase_what' : 'phase_how';
+  const modeNorm = String(mode || '').trim().toLowerCase();
+  const { isWhatG4Enabled } = require('../utils/aiAnalysis/whatG4Policy');
+
+  // Phase 1 Stage 1 — input readiness (no G4 LLM).
+  if (phaseJob === 'phase_what' && modeNorm === 'prepare_only') {
+    const {
+      runPhase1Stage1PrepareInput,
+    } = require('./requirementPhase1Pipeline.service');
+    return runPhase1Stage1PrepareInput({
+      userId,
+      organizationId,
+      packId,
+    });
+  }
+
+  // RULE-11: Phase1 intelligence always remote APS (no in-process Ollama / local WHAT jobs).
+  // WHAT_G4_ENABLED=0 legacy paths are retired — fall through to S2S phase_what.
+  if (phaseJob === 'phase_what' && !isWhatG4Enabled()) {
+    console.warn(
+      '[phase_what] WHAT_G4_ENABLED=0 ignored — routing remote APS (RULE-11)'
+    );
+  }
+
+  // WHAT G4 remote (tools_propose / g4 / default) and HOW — S2S below
+  const pack = await loadPackForAiAnalysis({ packId, organizationId });
+  if (phaseJob === 'phase_how') {
+    assertHowJobsRequireApprovedPack(pack, 'effortRoleAnalysis');
+  }
+  if (phaseJob === 'phase_what') {
+    const st = String(pack.status || '');
+    if (st !== 'draft' && st !== 'waiting_review') {
+      assertPackReadyForAiAnalysis(pack.toObject());
+    }
+  } else {
+    assertPackReadyForAiAnalysis(pack.toObject());
+  }
+
+  let snapshotId = pack.aiAnalysisActiveSnapshotId
+    ? String(pack.aiAnalysisActiveSnapshotId)
+    : null;
+  let snapshotDoc = null;
+  let packForPhase = pack;
+  if (isSnapshotPipelineEnabled()) {
+    const ensured = await ensureActiveAiAnalysisSnapshot({
+      userId,
+      organizationId,
+      packId,
+      pack,
+    });
+    packForPhase = ensured.pack || pack;
+    snapshotDoc = ensured.snapshotDoc;
+    assertSnapshotRequired(snapshotDoc);
+    if (snapshotDoc) snapshotId = String(snapshotDoc._id);
+  }
+  if (!snapshotId) {
+    const err = new Error('Active AI snapshot required for phase planning run');
+    err.statusCode = 400;
+    err.errorCode = 'SNAPSHOT_REQUIRED';
+    throw err;
+  }
+
+  let container = ensurePackContainer(packForPhase);
+  const existing = container.phaseRuns?.[phaseJob];
+  if (
+    !force &&
+    existing?.status === 'pending' &&
+    String(existing.remoteRunId || '')
+  ) {
+    return {
+      accepted: true,
+      remote: true,
+      job: phaseJob,
+      status: 'pending',
+      runId: existing.remoteRunId,
+      snapshotId,
+      schemaVersion: container.schemaVersion,
+      mode: phaseJob === 'phase_what' ? 'g4' : undefined,
+    };
+  }
+
+  const expectedRunId = new RequirementPack.db.base.Types.ObjectId().toString();
+  container.phaseRuns = {
+    ...(container.phaseRuns || {}),
+    [phaseJob]: {
+      status: 'pending',
+      mode: phaseJob === 'phase_what' ? 'g4' : existing?.mode || undefined,
+      remoteRunId: expectedRunId,
+      snapshotId: String(snapshotId),
+      startedAt: new Date().toISOString(),
+      error: null,
+    },
+  };
+  packForPhase.aiAnalysis = container;
+  packForPhase.aiAnalysisStatus = 'pending';
+  packForPhase.markModified('aiAnalysis');
+  await packForPhase.save();
+
+  const snapshotObject = snapshotDoc
+    ? snapshotDoc.toObject
+      ? snapshotDoc.toObject()
+      : snapshotDoc
+    : null;
+  const packForJob = snapshotObject
+    ? buildPackObjectFromSnapshot(packForPhase, snapshotObject, {})
+    : packForPhase.toObject();
+
+  const snapshotPayload = {
+    ...(snapshotObject || {}),
+    snapshotId,
+    packId: String(packId),
+    functionalRequirements:
+      packForJob.functionalRequirements ||
+      snapshotObject?.functionalRequirements ||
+      [],
+    overview: packForJob.overview || snapshotObject?.overview || {},
+  };
+
+  const { buildPhaseToolData } = require('../utils/aiAnalysis/pipeline/buildPhaseToolData');
+  const toolData = buildPhaseToolData(snapshotObject, phaseJob);
+  if (phaseJob === 'phase_how') {
+    const n = Array.isArray(toolData.employees) ? toolData.employees.length : 0;
+    console.info(`[phase_how] toolData employees=${n} snapshotId=${snapshotId}`);
+  }
+
+  let s2s;
+  try {
+    s2s = await aiProjectPlanningClient.startRun({
+      runId: expectedRunId,
+      projectId: packForPhase.projectId ? String(packForPhase.projectId) : null,
+      packId: String(packId),
+      organizationId: String(organizationId),
+      snapshotId,
+      approvedSrsVersion: packForPhase.approvedSrsVersion || packForPhase.version || null,
+      snapshotPayloadRef: snapshotId,
+      trigger: force ? 'force_rerun' : 'phase_run',
+      initiatedBy: userId != null ? String(userId) : null,
+      job: phaseJob,
+      requestKey: `${String(packId)}:${phaseJob}:${snapshotId}`,
+      input: {
+        container,
+        pack: packForJob,
+        snapshot: snapshotPayload,
+        toolData,
+        inputFingerprint:
+          toolData.inputFingerprint || `${phaseJob}:${snapshotId}`,
+      },
+    });
+  } catch (err) {
+    container.phaseRuns[phaseJob] = {
+      ...container.phaseRuns[phaseJob],
+      status: 'failed',
+      error: { code: err.code || 'S2S_START_FAILED', message: err.message },
+    };
+    packForPhase.aiAnalysis = container;
+    packForPhase.aiAnalysisStatus = 'failed';
+    packForPhase.markModified('aiAnalysis');
+    await packForPhase.save();
+    throw err;
+  }
+
+  if (s2s.status !== 202) {
+    const err = new Error(s2s.data?.message || 'Phase planning start rejected');
+    err.statusCode = s2s.status >= 400 ? s2s.status : 502;
+    err.errorCode = s2s.data?.errorCode || 'PHASE_PLANNING_START_FAILED';
+    throw err;
+  }
+
+  return {
+    accepted: true,
+    remote: true,
+    job: phaseJob,
+    status: 'pending',
+    runId: expectedRunId,
+    snapshotId,
+    schemaVersion: container.schemaVersion,
+    httpStatus: 202,
+    mode: phaseJob === 'phase_what' ? 'g4' : undefined,
+  };
+}
+
 module.exports = {
   getAiAnalysisSummary,
   getAiAnalysisWizardJob,
   runAiAnalysisJob,
+  startRemoteAiPlanningRun,
+  startPhaseAiPlanningRun,
+  isAiPlanningRemoteEnabled,
+  shouldRunRemoteAiPlanning,
+  isDuplicateRemoteRun,
+  applyRemoteHowJobResult,
   confirmAiAnalysisJob,
   exportAiAnalysisSheet11,
   assertBlueprintReadyForProjectCreate: (...args) =>
@@ -998,5 +800,13 @@ module.exports = {
     require('../utils/aiAnalysis/aiAnalysisBlueprintImport').mapBlueprintTasksToImportPlan(
       ...args
     ),
+  // WHAT G4 policy helpers (tests / Gate1)
+  ...(() => {
+    try {
+      return require('../utils/aiAnalysis/whatG4Policy');
+    } catch {
+      return {};
+    }
+  })(),
 };
 

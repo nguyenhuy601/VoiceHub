@@ -1,5 +1,4 @@
 import apiClient from './apiClient';
-import { organizationAPI } from './organizationAPI';
 
 function withOrg(organizationId, config = {}) {
   const orgId = String(organizationId || '').trim();
@@ -75,10 +74,10 @@ export const requirementAPI = {
       withOrg(organizationId)
     ),
 
-  approvePack: (organizationId, packId) =>
+  approvePack: (organizationId, packId, body = {}) =>
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/approve`,
-      {},
+      body,
       withOrg(organizationId)
     ),
 
@@ -108,26 +107,68 @@ export const requirementAPI = {
       }
     ),
 
+  createIntakeDraft: (organizationId, body = {}) =>
+    apiClient.post('/projects/requirements/intake-draft', body, withOrg(organizationId)),
+
+  listPackCustomerDocuments: (organizationId, packId) =>
+    apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/customer-documents`,
+      withOrg(organizationId)
+    ),
+
+  uploadPackCustomerDocument: (organizationId, packId, file, { docClass, notes } = {}) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (docClass) form.append('docClass', docClass);
+    if (notes) form.append('notes', notes);
+    return apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/customer-documents`,
+      form,
+      {
+        ...withOrg(organizationId),
+        headers: { 'Content-Type': 'multipart/form-data' },
+      }
+    );
+  },
+
   getAiAnalysis: (organizationId, packId, params = {}) =>
     apiClient.get(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,
       withOrg(organizationId, { params })
     ),
 
-  runAiAnalysis: (organizationId, packId, job, options = {}) =>
+  createAiAnalysisSnapshot: (organizationId, packId, body = {}) =>
     apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/run`,
-      { job, ...(options.force ? { force: true } : {}) },
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/snapshot`,
+      body,
       {
         ...withOrg(organizationId),
+        timeout: 120000,
+      }
+    ),
+
+  getAiAnalysisSnapshot: (organizationId, packId) =>
+    apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/snapshot`,
+      withOrg(organizationId)
+    ),
+
+  startPhaseAiPlanning: (organizationId, packId, body = {}, options = {}) =>
+    apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/phase-run`,
+      body,
+      {
+        ...withOrg(organizationId),
+        // Stage2 G4 remote / HOW phase-run (5m).
         timeout: options.timeout ?? 300000,
       }
     ),
 
-  confirmAiAnalysis: (organizationId, packId, job, edits = null) =>
+  /** Gate2 — confirm phase_how (phase-only; no job id). */
+  confirmPhaseGate2: (organizationId, packId) =>
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/confirm`,
-      edits != null ? { job, edits } : { job },
+      { phase: 'how' },
       withOrg(organizationId)
     ),
 
@@ -140,4 +181,18 @@ export const requirementAPI = {
         skipGlobalErrorHandling: true,
       }
     ),
+
+  getAiAnalysis: (organizationId, packId, options = {}) => {
+    const view = String(options.view || '').trim();
+    const job = String(options.job || '').trim();
+    return apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,
+      withOrg(organizationId, {
+        params: {
+          ...(view ? { view } : {}),
+          ...(job ? { job } : {}),
+        },
+      })
+    );
+  },
 };

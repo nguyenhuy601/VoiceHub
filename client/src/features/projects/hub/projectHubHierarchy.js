@@ -1,5 +1,6 @@
 /** Phân cấp List / Backlog / Board từ Settings Work types (FE). */
 
+import { entityRelId } from './projectHubBacklogStats.js';
 import {
   WORK_TYPE_ALL_IDS,
   WORK_TYPE_CREATE_IDS,
@@ -222,6 +223,7 @@ export function computeInsertSortOrder(siblings = [], activeId, overId) {
 
 /**
  * Cây List tối đa 3 tầng: Epic → (Feature | Story/Task/Bug) → Sub-task.
+ * parentTaskId / featureId / epicId có thể là string hoặc object populate — luôn qua entityRelId.
  */
 export function buildListTree({ epics = [], features = [], cards = [], config } = {}) {
   const cfg = normalizeWorkTypeConfig(config);
@@ -229,11 +231,11 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
   if (!bands.length) return [];
 
   const cardList = Array.isArray(cards) ? cards : [];
-  const byId = new Map(cardList.map((c) => [String(c._id || c.id), c]));
+  const byId = new Map(cardList.map((c) => [entityRelId(c._id || c.id), c]));
   const childrenByParent = new Map();
 
   for (const card of cardList) {
-    const pid = card.parentTaskId ? String(card.parentTaskId) : '';
+    const pid = entityRelId(card.parentTaskId);
     if (!pid) continue;
     if (!childrenByParent.has(pid)) childrenByParent.set(pid, []);
     childrenByParent.get(pid).push(card);
@@ -242,8 +244,9 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
 
   const displayCardWorkType = (card) => {
     const issue = String(card?.issueType || 'task').toLowerCase();
-    if (!card?.parentTaskId) return issue === 'story' || issue === 'bug' ? issue : 'task';
-    const parent = byId.get(String(card.parentTaskId));
+    const parentPid = entityRelId(card?.parentTaskId);
+    if (!parentPid) return issue === 'story' || issue === 'bug' ? issue : 'task';
+    const parent = byId.get(parentPid);
     const parentIssue = parent ? String(parent.issueType || 'task').toLowerCase() : 'task';
     if (issue === 'task' && parentIssue === 'task') return 'subtask';
     if (
@@ -257,12 +260,12 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
   };
 
   const makeCardNode = (card, band) => {
-    const id = String(card._id || card.id);
+    const id = entityRelId(card._id || card.id);
     const childCards = childrenByParent.get(id) || [];
-    const children =
-      band < bands.length - 1
-        ? childCards.map((c) => makeCardNode(c, Math.min(band + 1, bands.length - 1)))
-        : [];
+    // Always nest children when parentTaskId links — even on last hierarchy band
+    // (otherwise subtasks vanish from List while still existing in cards).
+    const childBand = Math.min(band + 1, Math.max(0, bands.length - 1));
+    const children = childCards.map((c) => makeCardNode(c, childBand));
     return {
       id: nodeId('card', id),
       kind: 'card',
@@ -280,7 +283,7 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
   const orphanFeatures = [];
 
   for (const f of featureList) {
-    const parent = f.parentId ? String(f.parentId) : '';
+    const parent = entityRelId(f.parentId);
     if (parent) {
       if (!featuresByEpic.has(parent)) featuresByEpic.set(parent, []);
       featuresByEpic.get(parent).push(f);
@@ -293,14 +296,14 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
   const cardsByFeature = new Map();
   const rootsOrphanCards = [];
   for (const card of cardList) {
-    if (card.parentTaskId) continue;
-    const fid = card.featureId ? String(card.featureId) : '';
+    if (entityRelId(card.parentTaskId)) continue;
+    const fid = entityRelId(card.featureId);
     if (fid) {
       if (!cardsByFeature.has(fid)) cardsByFeature.set(fid, []);
       cardsByFeature.get(fid).push(card);
       continue;
     }
-    const eid = card.epicId ? String(card.epicId) : '';
+    const eid = entityRelId(card.epicId);
     if (!eid) {
       rootsOrphanCards.push(card);
       continue;
@@ -316,11 +319,11 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
   const roots = [];
 
   for (const epic of epicList) {
-    const eid = String(epic._id || epic.id);
+    const eid = entityRelId(epic._id || epic.id);
     const children = [];
     for (const f of featuresByEpic.get(eid) || []) {
       const fBand = Math.max(0, bandIndexForType('feature', cfg));
-      const fid = String(f._id || f.id);
+      const fid = entityRelId(f._id || f.id);
       const featureCards = cardsByFeature.get(fid) || [];
       children.push({
         id: nodeId('planning', f._id || f.id),
@@ -331,11 +334,13 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
         raw: f,
         children: featureCards.map((c) => makeCardNode(c, Math.max(0, resolveItemBand(c, cfg)))),
       });
+      cardsByFeature.delete(fid);
     }
     for (const card of cardsByEpic.get(eid) || []) {
       const cBand = Math.max(0, resolveItemBand(card, cfg));
       children.push(makeCardNode(card, cBand));
     }
+    cardsByEpic.delete(eid);
     roots.push({
       id: nodeId('planning', eid),
       kind: 'planning',
@@ -347,9 +352,28 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
     });
   }
 
+  // Cards gắn epicId nhưng Epic planning thiếu / chưa hydrate → vẫn gom cây (không flat root).
+  for (const [eid, kids] of cardsByEpic) {
+    if (!eid || !(kids || []).length) continue;
+    const titleGuess =
+      String(kids.find((c) => c.epicTitle)?.epicTitle || '').trim() ||
+      String(kids.find((c) => c.epicName)?.epicName || '').trim() ||
+      `Epic · ${eid.slice(-4)}`;
+    roots.push({
+      id: nodeId('planning', eid),
+      kind: 'planning',
+      band: epicBand,
+      workType: 'epic',
+      title: titleGuess,
+      raw: { _id: eid, id: eid, type: 'epic', title: titleGuess, synthetic: true },
+      children: kids.map((c) => makeCardNode(c, Math.max(0, resolveItemBand(c, cfg)))),
+    });
+  }
+
   for (const f of orphanFeatures) {
-    const fid = String(f._id || f.id);
+    const fid = entityRelId(f._id || f.id);
     const featureCards = cardsByFeature.get(fid) || [];
+    cardsByFeature.delete(fid);
     roots.push({
       id: nodeId('planning', f._id || f.id),
       kind: 'planning',
@@ -361,6 +385,23 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
     });
   }
 
+  // FeatureId trỏ Feature không có trong planning — synthetic feature root.
+  for (const [fid, kids] of cardsByFeature) {
+    if (!fid || !(kids || []).length) continue;
+    const titleGuess =
+      String(kids.find((c) => c.featureTitle)?.featureTitle || '').trim() ||
+      `Feature · ${fid.slice(-4)}`;
+    roots.push({
+      id: nodeId('planning', fid),
+      kind: 'planning',
+      band: Math.max(0, bandIndexForType('feature', cfg)),
+      workType: 'feature',
+      title: titleGuess,
+      raw: { _id: fid, id: fid, type: 'feature', title: titleGuess, synthetic: true },
+      children: kids.map((c) => makeCardNode(c, Math.max(0, resolveItemBand(c, cfg)))),
+    });
+  }
+
   const featureBand = Math.max(0, bandIndexForType('feature', cfg));
   for (const card of rootsOrphanCards) {
     roots.push(makeCardNode(card, featureBand >= 0 ? featureBand : 1));
@@ -368,8 +409,8 @@ export function buildListTree({ epics = [], features = [], cards = [], config } 
 
   const danglingParentCards = [];
   for (const card of cardList) {
-    if (!card.parentTaskId) continue;
-    const pid = String(card.parentTaskId);
+    const pid = entityRelId(card.parentTaskId);
+    if (!pid) continue;
     if (byId.has(pid)) continue;
     danglingParentCards.push(card);
   }

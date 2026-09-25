@@ -107,6 +107,7 @@ async function createProject(req, res) {
       productOwnerId: body.productOwnerId,
       scrumMasterId: body.scrumMasterId,
       techLeadId: body.techLeadId,
+      analysisMode: body.analysisMode,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {

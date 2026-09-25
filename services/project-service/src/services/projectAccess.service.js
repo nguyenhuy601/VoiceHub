@@ -8,6 +8,7 @@ const { createTtlCoalesceCache } = require('../utils/ttlCoalesceCache');
 const {
   isProjectRbacV2Enabled,
   unionPermissionsFromRoles,
+  matrixPermissionsFromRoleKeys,
   applyInformationLevelToPermissions,
   permissionsToBoardCapabilities,
   hasPermission,
@@ -74,18 +75,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
       informationLevel: 'details',
       rbacV2: false,
       project,
-    };
-  }
-
-  if (isOrgAdmin || isCreator) {
-    return {
-      permissions: [...PROJECT_PERMISSION_KEYS],
-      capabilities: permissionsToBoardCapabilities([], { isCreator: true, isOrgAdmin: true }),
-      isOrgAdmin,
-      isCreator,
-      informationLevel: 'confidential',
-      rbacV2: true,
-      project,
+      roles: [],
     };
   }
 
@@ -100,6 +90,21 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
   const roles = roleIds.length
     ? await ProjectRole.find({ _id: { $in: roleIds } }).select('key permissions canAssign').lean()
     : [];
+
+  // Org admin / creator: full permission dump for most ops, but keep roles for
+  // BA-only gates (import Raw/Analysis) + viewer role badges.
+  if (isOrgAdmin || isCreator) {
+    return {
+      permissions: [...PROJECT_PERMISSION_KEYS],
+      capabilities: permissionsToBoardCapabilities([], { isCreator: true, isOrgAdmin: true }),
+      isOrgAdmin,
+      isCreator,
+      informationLevel: 'confidential',
+      rbacV2: true,
+      project,
+      roles,
+    };
+  }
 
   // Align with getProject: membership row ⇒ member even if role docs failed to resolve.
   let perms = unionPermissionsFromRoles(roles);
@@ -168,6 +173,23 @@ async function assertUserProjectPermission({ userId, projectId, boardId, permiss
 }
 
 /**
+ * BA-only ops (Raw/Analysis import): matrix theo role key hiện tại —
+ * bỏ qua permissions array seed cũ trên ProjectRole doc; không creator/org-admin bypass.
+ */
+async function assertUserProjectRoleMatrixPermission({
+  userId,
+  projectId,
+  boardId,
+  permission,
+  message,
+}) {
+  const resolved = await resolveUserProjectPermissions({ userId, projectId, boardId });
+  const rolePerms = matrixPermissionsFromRoleKeys(resolved.roles || []);
+  assertPermission(rolePerms, permission, message || `Thiếu quyền ${permission}`);
+  return resolved;
+}
+
+/**
  * Cho phép một trong các key (vd. sprint:start fallback sprint:create).
  */
 async function assertUserAnyProjectPermission({
@@ -210,6 +232,7 @@ function invalidateResolveCacheForProject(projectId) {
 module.exports = {
   resolveUserProjectPermissions,
   assertUserProjectPermission,
+  assertUserProjectRoleMatrixPermission,
   assertUserAnyProjectPermission,
   hasPermission,
   invalidateResolveCacheForProject,

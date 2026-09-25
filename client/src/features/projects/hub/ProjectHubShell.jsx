@@ -6,7 +6,7 @@ import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
-import { isProjectCompletedStatus, resolveHubCapabilities } from './hubCaps';
+import { isProjectCompletedStatus, isProjectDraftStatus, resolveHubCapabilities } from './hubCaps';
 import { resolveOverviewVisibility } from './overviewVisibility';
 import ProjectHubMembersPanel from './ProjectHubMembersPanel';
 import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
@@ -14,6 +14,8 @@ import ProjectHubPlanningPanel from './ProjectHubPlanningPanel';
 import ProjectHubListPanel from './ProjectHubListPanel';
 import ProjectHubTimelinePanel from './ProjectHubTimelinePanel';
 import ProjectHubChangeRequestsPanel from './ProjectHubChangeRequestsPanel';
+import ProjectHubTestCasesPanel from './ProjectHubTestCasesPanel';
+import ProjectHubDeliveryPhasePanel from './ProjectHubDeliveryPhasePanel';
 import WorkItemDetail from './WorkItemDetail';
 import ProjectChatWorkspace from '../chat/ProjectChatWorkspace';
 import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
@@ -197,6 +199,13 @@ function OverviewPanel({
   projectId = '',
   organizationId = '',
   canChangeDeliveryPhase = false,
+  canSignOffUat = false,
+  canAcceptHandover = false,
+  handoverChecklist = null,
+  releaseLabel = '',
+  releaseReadyStatus = 'none',
+  uatStatus = 'none',
+  deployEvidence = null,
   summary,
   deliveryExtras = { unassigned: 0, estimateHours: 0 },
   dashboardCharts = null,
@@ -268,6 +277,19 @@ function OverviewPanel({
         organizationId={organizationId}
         deliveryPhase={deliveryPhase}
         canChangePhase={canChangeDeliveryPhase}
+      />
+      <ProjectHubDeliveryPhasePanel
+        projectId={projectId}
+        deliveryPhase={deliveryPhase}
+        canChangePhase={canChangeDeliveryPhase}
+        canSignOffUat={canSignOffUat}
+        canAcceptHandover={canAcceptHandover}
+        isDarkMode={isDarkMode}
+        handoverChecklist={handoverChecklist}
+        releaseLabel={releaseLabel}
+        releaseReadyStatus={releaseReadyStatus}
+        uatStatus={uatStatus}
+        deployEvidence={deployEvidence}
       />
       <header className="mb-4 rounded-xl border border-border bg-surface p-3 sm:p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -403,14 +425,14 @@ function OverviewPanel({
               ].map(({ key, value, label, extra, tone, tipItems, tipTotal, tipHeading }) => {
                 const tile = (
                   <div
-                    className={`rounded-lg border bg-background px-2.5 py-3 text-center ${
+                    className={`rounded-lg border px-2.5 py-3 text-center ${
                       tone === 'destructive'
-                        ? 'border-destructive/50'
+                        ? 'border-destructive/50 bg-destructive/5'
                         : tone === 'warning'
-                          ? 'border-warning/40'
+                          ? 'border-warning/40 bg-amber-500/5'
                           : tone === 'success'
-                            ? 'border-success/30'
-                            : 'border-border'
+                            ? 'border-success/30 bg-emerald-500/5'
+                            : 'border-border bg-background'
                     } ${tipItems?.length ? 'cursor-help' : ''}`}
                   >
                     <div className={`text-lg font-bold ${titleCls}`}>{value}</div>
@@ -554,7 +576,16 @@ function OverviewPanel({
                       ? t('workspace.projectHubOverviewAssigneeRestricted')
                       : t('workspace.projectHubStatUnassigned');
                   return (
-                    <li key={a.id} className="border-b border-border pb-2 last:border-0 last:pb-0">
+                    <li
+                      key={a.id}
+                      className={`rounded-md border px-2 py-1.5 last:mb-0 ${
+                        String(a.issueType || '').toLowerCase() === 'bug'
+                          ? 'border-rose-500/35 bg-rose-500/5'
+                          : a.dueTone === 'overdue'
+                            ? 'border-destructive/30 bg-destructive/5'
+                            : 'border-border/60 bg-background/50'
+                      }`}
+                    >
                       <button
                         type="button"
                         onClick={() => onOpenNextAction?.(a.id)}
@@ -574,6 +605,17 @@ function OverviewPanel({
                         <span className={`mt-0.5 block text-[11px] ${muted}`}>
                           {statusText ? `${statusText} · ${who}` : who}
                         </span>
+                        {a.parentTitle ? (
+                          <span className={`mt-0.5 block text-[11px] ${muted}`}>
+                            {t('workspace.projectHubAttentionChildOf', {
+                              parent: a.parentTitle,
+                            })}
+                          </span>
+                        ) : a.isChild ? (
+                          <span className={`mt-0.5 block text-[11px] ${muted}`}>
+                            {t('workspace.projectHubAttentionHiddenChild')}
+                          </span>
+                        ) : null}
                         {a.dueDate ? (
                           <span className={`mt-0.5 block text-[11px] ${dueCls}`}>
                             {t('workspace.projectHubActionDue', {
@@ -1014,16 +1056,26 @@ export default function ProjectHubShell({
     });
   }, [boardDetail?.lists]);
   const summary = useMemo(() => {
+    // Prefer live board cards — Overview API can lag / use stale card.status.
+    if (Array.isArray(cards) && cards.length > 0) {
+      return computeHubBoardSummary(cards, lists);
+    }
     if (overviewPayload?.summary) return overviewPayload.summary;
     return computeHubBoardSummary(cards, lists);
   }, [overviewPayload?.summary, cards, lists]);
   const overdueHealthCards = useMemo(() => {
+    if (Array.isArray(cards) && cards.length > 0) {
+      return listHubHealthCards(cards, lists, 'overdue', { limit: 8 });
+    }
     if (overviewPayload?.healthPreview?.overdue?.length) {
       return overviewPayload.healthPreview.overdue;
     }
     return listHubHealthCards(cards, lists, 'overdue', { limit: 8 });
   }, [overviewPayload?.healthPreview?.overdue, cards, lists]);
   const inReviewHealthCards = useMemo(() => {
+    if (Array.isArray(cards) && cards.length > 0) {
+      return listHubHealthCards(cards, lists, 'inReview', { limit: 8 });
+    }
     if (overviewPayload?.healthPreview?.inReview?.length) {
       return overviewPayload.healthPreview.inReview;
     }
@@ -1032,6 +1084,7 @@ export default function ProjectHubShell({
   const isProjectCompleted = isProjectCompletedStatus(
     projectPayload?.status || resolvedBoard?.status
   );
+  const isDraftProject = isProjectDraftStatus(projectPayload?.status || resolvedBoard?.status);
   const workLooksComplete = summary.total > 0 && summary.donePercent === 100;
   const informationLevel = String(
     projectPayload?.access?.informationLevel ||
@@ -1189,6 +1242,7 @@ export default function ProjectHubShell({
       if (item.id === 'settings' && !hubCaps.canManageSettings) return false;
       if (item.id === 'members' && !hubCaps.canViewMembers) return false;
       if (item.id === 'changeRequests' && !hubCaps.canViewChangeRequests) return false;
+      if (item.id === 'testCases' && !hubCaps.canViewWorkItems) return false;
       if (item.id === 'planning' && !hubCaps.canViewBacklog) return false;
       if (item.id === 'timeline' && !hubCaps.canViewBacklog) return false;
       if ((item.id === 'list' || item.id === 'board') && !hubCaps.canViewWorkItems) return false;
@@ -1217,6 +1271,7 @@ export default function ProjectHubShell({
   const showTimelinePanel = Boolean(visitedTabs.timeline) && hubCaps.canViewBacklog;
   const showChangeRequestsPanel =
     Boolean(visitedTabs.changeRequests) && hubCaps.canViewChangeRequests;
+  const showTestCasesPanel = Boolean(visitedTabs.testCases) && hubCaps.canViewWorkItems;
   const showMembersPanel = Boolean(visitedTabs.members) && hubCaps.canViewMembers;
 
   const issueCounts = useMemo(() => countCardsByIssueType(cards), [cards]);
@@ -1227,6 +1282,16 @@ export default function ProjectHubShell({
   const dashboardCharts = useMemo(() => {
     if (!overviewVisibility.canViewTaskMetrics) return null;
     const membersForCharts = overviewVisibility.canViewMemberBreakdown ? chartMembers : [];
+    // Prefer live board for status donut — sync with Kanban columns.
+    if (Array.isArray(cards) && cards.length > 0) {
+      return buildOverviewDashboardCharts({
+        cards,
+        lists,
+        issueCounts,
+        priorityConfig: projectPayload?.priorityConfig,
+        members: membersForCharts,
+      });
+    }
     if (overviewPayload?.charts) {
       return chartsFromOverviewApi(
         overviewPayload.charts,
@@ -1281,6 +1346,11 @@ export default function ProjectHubShell({
     return activeSprint;
   }, [overviewPayload?.activeSprint, activeSprint]);
   const nextActions = useMemo(() => {
+    if (Array.isArray(cards) && cards.length > 0) {
+      return pickNextHubActions(cards, lists, {
+        projectCode: resolvedBoard?.projectCode || '',
+      });
+    }
     if (Array.isArray(overviewPayload?.nextActions) && overviewPayload.nextActions.length) {
       return overviewPayload.nextActions;
     }
@@ -1509,15 +1579,27 @@ export default function ProjectHubShell({
         <button
           type="button"
           onClick={() => setArchiveProjectOpen(true)}
-          title={t('workspace.projectHubArchiveProject')}
+          title={
+            isDraftProject
+              ? t('workspace.projectHubDeleteDraft')
+              : t('workspace.projectHubArchiveProject')
+          }
           className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
             isDarkMode
               ? 'border-rose-400/50 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25'
               : 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
           }`}
         >
-          <span className="hidden sm:inline">{t('workspace.projectHubArchiveProject')}</span>
-          <span className="sm:hidden">{t('workspace.projectHubArchiveProjectShort')}</span>
+          <span className="hidden sm:inline">
+            {isDraftProject
+              ? t('workspace.projectHubDeleteDraft')
+              : t('workspace.projectHubArchiveProject')}
+          </span>
+          <span className="sm:hidden">
+            {isDraftProject
+              ? t('workspace.projectHubDeleteDraftShort')
+              : t('workspace.projectHubArchiveProjectShort')}
+          </span>
         </button>
       ) : null}
       {tab === 'board' && hubCaps?.canManageSprints && activeSprint?._id ? (
@@ -1700,6 +1782,19 @@ export default function ProjectHubShell({
                 (Array.isArray(projectPayload?.capabilities?.permissions) &&
                   projectPayload.capabilities.permissions.includes('delivery_phase:change'))
             )}
+            canSignOffUat={Boolean(
+              hubCaps?.canSignOffUat ||
+                (Array.isArray(hubCaps?.permissions) &&
+                  hubCaps.permissions.includes('uat:sign_off')) ||
+                (Array.isArray(projectPayload?.capabilities?.permissions) &&
+                  projectPayload.capabilities.permissions.includes('uat:sign_off'))
+            )}
+            canAcceptHandover={Boolean(hubCaps?.canAcceptHandover)}
+            handoverChecklist={projectPayload?.handoverChecklist || null}
+            releaseLabel={projectPayload?.releaseLabel || ''}
+            releaseReadyStatus={projectPayload?.releaseReadyStatus || 'none'}
+            uatStatus={projectPayload?.uatStatus || 'none'}
+            deployEvidence={projectPayload?.deployEvidence || null}
             summary={summary}
             deliveryExtras={deliveryExtras}
             dashboardCharts={dashboardCharts}
@@ -1930,6 +2025,34 @@ export default function ProjectHubShell({
           />
         </div>
         ) : null}
+        {showTestCasesPanel ? (
+        <div
+          className={
+            tab === 'testCases' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'
+          }
+          hidden={tab !== 'testCases'}
+          aria-hidden={tab !== 'testCases'}
+        >
+          <ProjectHubTestCasesPanel
+            projectId={projectId}
+            listActive={tab === 'testCases'}
+            isDarkMode={isDarkMode}
+            boardCards={cards}
+            boardLists={lists}
+            onPatchBoardCards={onPatchBoardCards}
+            canCreate={Boolean(hubCaps.canCreateTask || hubCaps.canCreateBug || canManage)}
+            canExecute={Boolean(
+              hubCaps.canCreateTask ||
+                hubCaps.canCreateBug ||
+                canManage ||
+                (Array.isArray(hubCaps.permissions) &&
+                  (hubCaps.permissions.includes('task:change_status') ||
+                    hubCaps.permissions.includes('task:update') ||
+                    hubCaps.permissions.includes('task:drag_to_done')))
+            )}
+          />
+        </div>
+        ) : null}
         {showMembersPanel ? (
         <div
           className={
@@ -1970,6 +2093,7 @@ export default function ProjectHubShell({
             canArchiveProject={Boolean(hubCaps.canArchiveProject)}
             canArchiveWithoutComplete={Boolean(hubCaps.canArchiveWithoutComplete)}
             isProjectCompleted={isProjectCompleted}
+            isDraftProject={isDraftProject}
             projectStillActive={projectStillActive}
             onRequestArchive={() => setArchiveProjectOpen(true)}
             isDarkMode={isDarkMode}
@@ -2020,10 +2144,17 @@ export default function ProjectHubShell({
           isOpen={archiveProjectOpen}
           projectId={projectId}
           projectTitle={resolvedBoard?.title || projectPayload?.title || ''}
-          earlyArchive={!isProjectCompleted && Boolean(hubCaps.canArchiveWithoutComplete)}
+          draftDelete={isDraftProject}
+          earlyArchive={
+            !isDraftProject && !isProjectCompleted && Boolean(hubCaps.canArchiveWithoutComplete)
+          }
           onClose={() => setArchiveProjectOpen(false)}
           onArchived={() => {
-            toast.success(t('workspace.projectHubArchiveSuccess'));
+            toast.success(
+              isDraftProject
+                ? t('workspace.projectHubDeleteDraftSuccess')
+                : t('workspace.projectHubArchiveSuccess')
+            );
             setArchiveProjectOpen(false);
             onBack?.();
           }}
@@ -2054,7 +2185,9 @@ export default function ProjectHubShell({
             }
             canUpdateTask={
               Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
+              (Array.isArray(hubCaps?.permissions) &&
+                (hubCaps.permissions.includes('task:update') ||
+                  hubCaps.permissions.includes('bug:create')))
             }
             canChangeStatus={
               Boolean(canManage) ||
@@ -2133,7 +2266,9 @@ export default function ProjectHubShell({
             }
             canUpdateTask={
               Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
+              (Array.isArray(hubCaps?.permissions) &&
+                (hubCaps.permissions.includes('task:update') ||
+                  hubCaps.permissions.includes('bug:create')))
             }
             canChangeStatus={
               Boolean(canManage) ||

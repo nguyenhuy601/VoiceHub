@@ -44,8 +44,11 @@ export const SUITE_DEFAULT_PATH = {
 export function normalizeSuite(value) {
   const raw = String(value || '').trim().toUpperCase();
   if (raw === 'COLLABORATE') return SUITE.COMPANY;
-  if (Object.values(SUITE).includes(raw) && raw !== 'COLLABORATE') return raw;
+  // Suite Cá nhân đã ẩn — hồ sơ/tổng quan mở qua avatar, chrome = Communicate.
+  if (raw === 'ME') return SUITE.COMMUNICATE;
+  if (Object.values(SUITE).includes(raw) && raw !== 'COLLABORATE' && raw !== 'ME') return raw;
   const fromSegment = SEGMENT_TO_SUITE[String(value || '').trim().toLowerCase()];
+  if (fromSegment === SUITE.ME) return SUITE.COMMUNICATE;
   return fromSegment || SUITE.COMMUNICATE;
 }
 
@@ -92,7 +95,7 @@ export function detectSuiteFromPath(pathname) {
   if (path.startsWith('/app/company')) return SUITE.COMPANY;
   if (path.startsWith('/app/projects')) return SUITE.PROJECTS;
   if (path.startsWith('/app/collaborate')) return SUITE.COMPANY;
-  if (path.startsWith('/app/me')) return SUITE.ME;
+  if (path.startsWith('/app/me')) return SUITE.COMMUNICATE;
   return null;
 }
 
@@ -117,12 +120,11 @@ export function mapLegacyAdminTabToPath(tab) {
   return LEGACY_ADMIN_TAB_TO_PATH[raw] || LEGACY_ADMIN_TAB_TO_PATH.overview;
 }
 
-/** Org-scoped paths (không dùng slug trên URL). */
+/** Suite paths — org resolved client-side (single-company); do not write organizationId to URL. */
 export function buildCommunicateChannelsPath(orgId = '', query = {}) {
+  void orgId;
   const base = '/app/communicate/channels';
   const params = new URLSearchParams();
-  const id = String(orgId || '').trim();
-  if (id) params.set('organizationId', id);
   const deptId = String(query?.departmentId || '').trim();
   const channelId = String(query?.channelId || '').trim();
   if (deptId) params.set('departmentId', deptId);
@@ -136,11 +138,12 @@ export function isProjectChatTabEnabled() {
   return raw !== '0' && raw !== 'false' && raw !== 'off' && raw !== 'no';
 }
 
+/** Append non-org query only (orgId kept for call-site compat; unused on URL). */
 function appendOrgQuery(base, orgId = '', extra = {}) {
+  void orgId;
   const params = new URLSearchParams();
-  const id = String(orgId || '').trim();
-  if (id) params.set('organizationId', id);
   for (const [key, value] of Object.entries(extra || {})) {
+    if (key === 'organizationId' || key === 'orgId' || key === 'from') continue;
     const v = String(value || '').trim();
     if (v) params.set(key, v);
   }
@@ -172,14 +175,13 @@ export function buildCompanyWorkspacePath({
   tab = '',
   channelId = '',
 } = {}) {
+  void organizationId;
   const base = '/app/company/workspaces';
   const params = new URLSearchParams();
-  const orgId = String(organizationId || '').trim();
   const deptId = String(departmentId || '').trim();
   const tid = String(teamId || '').trim();
   const tabId = String(tab || '').trim().toLowerCase();
   const chId = String(channelId || '').trim();
-  if (orgId) params.set('organizationId', orgId);
   if (deptId) params.set('departmentId', deptId);
   if (tid) params.set('teamId', tid);
   if (tabId) params.set('tab', tabId);
@@ -201,6 +203,16 @@ export function buildCompanyChatPath(orgId = '', query = {}) {
 export function isCompanyChatModulePath(pathname = '') {
   const p = String(pathname || '').split('?')[0].replace(/\/+$/, '') || '';
   return p === '/app/company/chat';
+}
+
+/** True when pathname is the company suite documents module. */
+export function isCompanyDocumentsModulePath(pathname = '') {
+  const p = String(pathname || '').split('?')[0].replace(/\/+$/, '') || '';
+  return p === '/app/company/documents';
+}
+
+export function isImmersiveCompanyModulePath(pathname = '') {
+  return isCompanyChatModulePath(pathname) || isCompanyDocumentsModulePath(pathname);
 }
 
 export function buildCompanyDocumentsPath(orgId = '', query = {}) {
@@ -254,19 +266,20 @@ export function buildProjectsModulePath(projectId, module = 'overview', query = 
   // organizationId is resolved client-side from project payload / storage — do not write to module URLs.
   const boardId = String(query?.boardId || '').trim();
   const channelId = String(query?.channelId || '').trim();
+  const packId = String(query?.packId || '').trim();
+  const startWhat = String(query?.startWhat || '').trim();
   if (boardId) params.set('boardId', boardId);
   if (channelId) params.set('channelId', channelId);
+  if (packId) params.set('packId', packId);
+  if (startWhat) params.set('startWhat', startWhat);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
 
 export function buildProjectsNewPath(orgId = '', query = {}) {
+  void orgId;
   const base = '/app/projects/new';
   const params = new URLSearchParams();
-  const id = String(orgId || '').trim();
-  if (id) params.set('organizationId', id);
-  const from = String(query?.from || '').trim();
-  if (from) params.set('from', from);
   const title = String(query?.title || '').trim();
   const description = String(query?.description || '').trim();
   const projectCode = String(query?.projectCode || '').trim();
@@ -280,12 +293,9 @@ export function buildProjectsNewPath(orgId = '', query = {}) {
 }
 
 export function buildProjectsNewAiPath(orgId = '', query = {}) {
+  void orgId;
   const base = '/app/projects/new-ai';
   const params = new URLSearchParams();
-  const id = String(orgId || '').trim();
-  if (id) params.set('organizationId', id);
-  const from = String(query?.from || '').trim();
-  if (from) params.set('from', from);
   const projectId = String(query?.projectId || '').trim();
   if (projectId) params.set('projectId', projectId);
   const packId = String(query?.packId || '').trim();
@@ -344,7 +354,11 @@ export function buildCollaborateRequirementsPath(orgId = '', query = {}) {
   if (projectId) {
     return buildProjectsModulePath(projectId, 'requirements', { organizationId: orgId });
   }
-  return appendOrgQuery('/app/projects/requirements', orgId);
+  const base = appendOrgQuery('/app/projects/requirements', orgId);
+  const packId = String(query?.packId || '').trim();
+  if (!packId) return base;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}packId=${encodeURIComponent(packId)}`;
 }
 
 export function buildCollaborateOrgNotificationsPath(orgId = '') {
@@ -465,6 +479,9 @@ export function mapCollaboratePathToDualSuite(pathname, search = '') {
   const orgId = String(params.get('organizationId') || params.get('orgId') || '').trim();
   const qs = () => {
     const next = new URLSearchParams(params);
+    next.delete('organizationId');
+    next.delete('orgId');
+    next.delete('from');
     const s = next.toString();
     return s ? `?${s}` : '';
   };

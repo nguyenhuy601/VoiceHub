@@ -15,7 +15,7 @@ bash devops/scripts/rabbit-queue-depth.sh
 1. Burst chat messages in organization channels.
 2. Upload batch files to trigger `task-file-worker`.
 3. Push AI extraction and sync jobs continuously.
-4. Trigger webhook bursts for friend/task events.
+4. Keep friend/task notification bursts flowing.
 5. Keep 2-10 concurrent voice rooms.
 
 ## Chaos scenarios

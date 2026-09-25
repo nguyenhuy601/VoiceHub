@@ -84,8 +84,6 @@ services:
 
       - notification-service
 
-      - webhook-service
-
     networks:
 
       - enterprise-network
@@ -897,36 +895,6 @@ services:
       - /app/node_modules
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
-
-
-
-  webhook-service:
-
-    build: ./services/webhook-service
-
-    container_name: enterprise-webhook-service
-
-    env_file:
-
-      - .env
-
-      - ./services/webhook-service/.env
-
-    environment:
-
-      NOTIFICATION_INTERNAL_TOKEN: ${NOTIFICATION_INTERNAL_TOKEN}
-
-    depends_on:
-
-      - notification-service
-
-    networks:
-
-      - enterprise-network
-
-    volumes:
-
-      - ./services/webhook-service:/app
 
 
 

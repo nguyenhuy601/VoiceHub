@@ -2,7 +2,7 @@ import { wizardUi } from '../wizard/projectWizardUi';
 import { isProjectDateRangeInvalid } from '../hub/projectHubUtils';
 
 /**
- * Step 4 — confirm title/dates then create project from pack.
+ * Step 3 — confirm title/dates then create project from pack.
  * Description stays display-only (from pack objective).
  */
 export default function AiWizardStepConfirm({

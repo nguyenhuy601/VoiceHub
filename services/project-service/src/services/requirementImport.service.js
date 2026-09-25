@@ -4,11 +4,6 @@ const RequirementPack = require('../models/RequirementPack');
 const { IMPORT_SESSION_TTL_HOURS, TEMPLATE_VERSION } = require('../constants/requirementTemplate.constants');
 const { parseRequirementWorkbook } = require('../utils/requirement/requirementTemplateParse');
 const { validateRequirementWorkbook } = require('../utils/requirement/requirementTemplateValidate');
-const { parseDateValue } = require('../utils/requirement/requirementDateUtils');
-const {
-  buildStaffingPlanFromParsed,
-} = require('../utils/requirement/requirementStaffingRollup');
-const { resolveWhitelistSkill } = require('../utils/requirement/requirementStaffingParse');
 const {
   buildExcelPreviewFromBuffer,
   buildRequirementSourceStoragePath,
@@ -16,236 +11,117 @@ const {
 } = require('../utils/requirement/requirementExcelPreview');
 const { buildSyntheticExcelPreviewFromPack } = require('../utils/requirement/requirementPackPreviewFallback');
 const objectStorage = require('../utils/common/objectStorage');
-const { assertRequirementPermission } = require('./requirementAccess.service');
+const {
+  assertRequirementPermission,
+  assertRequirementImportOrCreateProjectScope,
+} = require('./requirementAccess.service');
 const {
   pickPlanningReadinessSummary,
   assertPreviewReadyForImport,
 } = require('../utils/requirement/requirementPlanningReadiness');
-const { createEmptyAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
-const { clampOverviewForPack } = require('../utils/requirement/requirementOverviewClamp');
+const { mapParsedToPackPayload } = require('../utils/requirement/mapParsedToPackPayload');
 
-function splitPlatforms(raw) {
-  return String(raw || '')
-    .split(/[,;|]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+async function previewCustomerRawIntake({ userId, organizationId, buffer, fileName }) {
+  const {
+    parseCustomerRawContext,
+    isCustomerRawTemplateType,
+  } = require('../utils/requirement/customerRawContextParse');
+  const {
+    mapCustomerRawToProjectIntakeDraft,
+  } = require('../utils/requirement/mapCustomerRawToProjectIntakeDraft');
+  const { CUSTOMER_RAW_TEMPLATE_TYPE } = require('../constants/customerRawTemplate.constants');
 
-function mapFunctionalRow(row) {
-  return {
-    externalId: row.externalId,
-    level: row.level,
-    parentExternalId: row.parentExternalId || '',
-    name: row.name,
-    description: row.description || '',
-    actor: row.actor || '',
-    priority: row.priority || 'Medium',
-    acceptanceCriteria: row.acceptanceCriteria || '',
-    sortOrder: row.sortOrder ?? 0,
-    suggestedSkills: (row.suggestedSkills || []).map((s) => resolveWhitelistSkill(s)).filter(Boolean),
-    estimateHours: row.estimateHours ?? null,
-    suggestedRoleKey: row.suggestedRoleKey || '',
-    moduleLabel: row.moduleLabel || '',
-    capabilityLabel: row.capabilityLabel || '',
-    featureLabel: row.featureLabel || '',
-    trigger: row.trigger || '',
-    preconditions: row.preconditions || '',
-    mainFlow: row.mainFlow || '',
-    exceptionFlow: row.exceptionFlow || '',
-    businessRules: row.businessRules || '',
-    input: row.input || '',
-    output: row.output || '',
-    customerRequirementIds: Array.isArray(row.customerRequirementIds)
-      ? row.customerRequirementIds
-      : [],
-    brIds: Array.isArray(row.brIds) ? row.brIds : [],
-    bpmIds: Array.isArray(row.bpmIds) ? row.bpmIds : [],
-    status: row.status || '',
-    baNote: row.baNote || '',
+  let parsed;
+  try {
+    parsed = parseCustomerRawContext(buffer);
+  } catch (err) {
+    logger.warn('[requirementImport] CustomerRaw parse failed', {
+      message: err?.message,
+      fileName: String(fileName || '').slice(0, 255),
+    });
+    const parseErr = new Error('Không đọc được Customer Requirement Raw');
+    parseErr.statusCode = 400;
+    parseErr.errorCode = 'REQ_IMPORT_CUSTOMER_RAW_PARSE_FAILED';
+    throw parseErr;
+  }
+
+  if (!isCustomerRawTemplateType(parsed.templateType) && !parsed.isCustomerRaw) {
+    const typeErr = new Error('File không phải Customer Requirement Raw');
+    typeErr.statusCode = 400;
+    typeErr.errorCode = 'REQ_IMPORT_NOT_CUSTOMER_RAW';
+    throw typeErr;
+  }
+
+  const issues = [];
+  if (!parsed.contextSheetPresent) {
+    issues.push({
+      severity: 'error',
+      code: 'CUSTOMER_RAW_CONTEXT_MISSING',
+      message: 'Thiếu sheet 01_Project_Context',
+    });
+    logger.warn('[requirementImport] CustomerRaw missing context sheet', {
+      fileName: String(fileName || '').slice(0, 255),
+    });
+  }
+
+  const projectIntakeDraft = mapCustomerRawToProjectIntakeDraft(parsed);
+  const valid = parsed.contextSheetPresent;
+  const errorCount = issues.filter((i) => i.severity === 'error').length;
+  const summary = {
+    contextValueCount: parsed.contextValueCount,
+    hasTitle: Boolean(projectIntakeDraft.title),
   };
-}
 
-function mapParsedToPackPayload(parsed, skillExtras = {}) {
-  const overview = parsed.overview || {};
-  const functionalRequirements = (parsed.functionalRequirements || []).map(mapFunctionalRow);
-  const staffingPlan = buildStaffingPlanFromParsed(
-    {
-      ...parsed,
-      functionalRequirements,
-    },
-    { resolvedStaffingSkills: skillExtras.staffingSkillsResolved }
-  );
+  const excelPreview = buildExcelPreviewFromBuffer(buffer, {
+    fileName: String(fileName || '').slice(0, 255),
+    functionalRequirements: [],
+  });
+
+  const expiresAt = new Date(Date.now() + IMPORT_SESSION_TTL_HOURS * 60 * 60 * 1000);
+  const session = await RequirementImportSession.create({
+    organizationId,
+    uploadedBy: userId,
+    fileName: String(fileName || '').slice(0, 255),
+    templateVersion: parsed.templateVersion || '',
+    status: 'preview',
+    expiresAt,
+    errorCount,
+    warningCount: 0,
+    issues,
+    summary,
+    previewPayload: null,
+    previewTree: null,
+    excelPreview,
+    fileBuffer: buffer.length <= 5 * 1024 * 1024 ? buffer : undefined,
+    fileContentType: XLSX_MIME,
+    newSkillsDetected: [],
+    skillResolveEnabled: false,
+  });
 
   return {
-    templateVersion: parsed.templateVersion || TEMPLATE_VERSION,
-    overview: clampOverviewForPack({
-      requirementName: overview.requirementName || '',
-      projectObjective: overview.projectObjective || '',
-      businessScope: overview.businessScope || '',
-      platform: splitPlatforms(overview.platform),
-      expectedUsers: overview.expectedUsers || '',
-      expectedScale: overview.expectedScale || '',
-      deadline: parseDateValue(overview.deadline),
-      startDate: parseDateValue(overview.startDate),
-      budget: overview.budget ? Number(String(overview.budget).replace(/[^\d.-]/g, '')) || null : null,
-      budgetCurrency: String(overview.budgetCurrency || staffingPlan.budgetCurrency || '').trim().toUpperCase(),
-      priority: overview.priority || 'Medium',
-    }),
-    staffingPlan,
-    aiPlanning: {
-      status: 'none',
-      overlay: null,
-      generatedAt: null,
-      sourcePackVersion: null,
-    },
-    aiAnalysis: createEmptyAiAnalysisContainer(),
-    scope: (parsed.scope || []).map((row) => ({
-      type: row.type,
-      description: row.description,
-    })),
-    functionalRequirements,
-    nonFunctionalRequirements: (parsed.nonFunctionalRequirements || []).map((row) => ({
-      externalId: row.externalId,
-      category: row.category,
-      requirement: row.requirement,
-      target: row.target,
-      priority: row.priority || 'Medium',
-      measurement: row.measurement || '',
-      scope: row.scope || '',
-      constraint: row.constraint || '',
-      acceptanceCriteria: row.acceptanceCriteria || row.verification || '',
-      source: row.source || '',
-      status: row.status || '',
-      baNote: row.baNote || '',
-      customerRequirementIds: Array.isArray(row.customerRequirementIds)
-        ? row.customerRequirementIds
-        : [],
-      verification: row.verification || row.acceptanceCriteria || '',
-    })),
-    technology: (parsed.technology || []).map((row) => ({
-      category: row.category,
-      name: row.name,
-      version: row.version,
-      mandatory: Boolean(row.mandatory),
-      note: row.note || '',
-    })),
-    integration: (parsed.integration || []).map((row) => ({
-      system: row.system,
-      integrationType: row.integrationType,
-      direction: row.direction,
-      description: row.description,
-      required: row.required !== false,
-    })),
-    constraints: (parsed.constraints || []).map((row) => ({
-      type: row.type,
-      description: row.description,
-    })),
-    dependencies: (parsed.dependencies || []).map((row) => ({
-      externalId: row.externalId,
-      dependency: row.dependency,
-      type: row.type,
-      requiredDate: parseDateValue(row.requiredDateRaw),
-      impact: row.impact,
-    })),
-    assumptions: (parsed.assumptions || []).map((row) => ({
-      externalId: row.externalId,
-      assumption: row.assumption,
-      impactIfInvalid: row.impactIfInvalid,
-    })),
-    businessGoals: (parsed.businessGoals || []).map((row) => ({
-      externalId: row.externalId,
-      title: row.title,
-      statement: row.statement,
-      successMetric: row.successMetric,
-      priority: row.priority || 'Medium',
-      businessProblem: row.businessProblem || '',
-      expectedBusinessOutcome: row.expectedBusinessOutcome || '',
-      stakeholder: row.stakeholder || '',
-      assumption: row.assumption || '',
-      constraint: row.constraint || '',
-      status: row.status || '',
-      baNote: row.baNote || '',
-      customerRequirementIds: Array.isArray(row.customerRequirementIds)
-        ? row.customerRequirementIds
-        : [],
-    })),
-    businessRules: (parsed.businessRules || []).map((row) => ({
-      externalId: row.externalId,
-      title: row.title,
-      description: row.description,
-      whenApplies: row.whenApplies,
-      exception: row.exception,
-      relatedBg: row.relatedBg,
-      businessRule: row.businessRule || '',
-      stakeholder: row.stakeholder || '',
-      priority: row.priority || 'Medium',
-      successCriteria: row.successCriteria || '',
-      dependency: row.dependency || '',
-      assumption: row.assumption || '',
-      constraint: row.constraint || '',
-      status: row.status || '',
-      baNote: row.baNote || '',
-      customerRequirementIds: Array.isArray(row.customerRequirementIds)
-        ? row.customerRequirementIds
-        : [],
-    })),
-    businessProcesses: (parsed.businessProcesses || []).map((row) => ({
-      externalId: row.externalId,
-      processName: row.processName,
-      step: row.step,
-      actor: row.actor,
-      action: row.action,
-      input: row.input,
-      output: row.output,
-      relatedSystems: row.relatedSystems,
-      relatedBr: row.relatedBr || '',
-      processDescription: row.processDescription || '',
-      trigger: row.trigger || '',
-      precondition: row.precondition || '',
-      businessRule: row.businessRule || '',
-      exception: row.exception || '',
-      relatedCr: row.relatedCr || '',
-      status: row.status || '',
-      baNote: row.baNote || '',
-    })),
-    useCases: (parsed.useCases || []).map((row) => ({
-      externalId: row.externalId,
-      title: row.title,
-      actor: row.actor,
-      precondition: row.precondition,
-      mainFlow: row.mainFlow,
-      relatedFr: row.relatedFr,
-      relatedFrIds: Array.isArray(row.relatedFrIds) ? row.relatedFrIds : [],
-      brIds: Array.isArray(row.brIds) ? row.brIds : [],
-      customerRequirementIds: Array.isArray(row.customerRequirementIds)
-        ? row.customerRequirementIds
-        : [],
-      goal: row.goal || '',
-      secondaryActor: row.secondaryActor || '',
-      trigger: row.trigger || '',
-      postconditions: row.postconditions || '',
-      alternativeFlow: row.alternativeFlow || '',
-      exceptionFlow: row.exceptionFlow || '',
-      businessRules: row.businessRules || '',
-      input: row.input || '',
-      output: row.output || '',
-      priority: row.priority || 'Medium',
-      status: row.status || '',
-      baNote: row.baNote || '',
-    })),
-    traceabilityLinks: Array.isArray(parsed.traceabilityLinks) ? parsed.traceabilityLinks : [],
-    requirementSkills: skillExtras.requirementSkillRefs || [],
-    importSkillMeta: {
-      newSkillsDetected: [],
-      resolvedAt: null,
-    },
-    isRequirementAnalysis: Boolean(parsed.isRequirementAnalysis),
+    sessionId: String(session._id),
+    fileName: session.fileName,
+    templateVersion: session.templateVersion,
+    templateType: CUSTOMER_RAW_TEMPLATE_TYPE,
+    valid,
+    canRunAiAnalysis: false,
+    errorCount,
+    warningCount: 0,
+    infoCount: 0,
+    issues,
+    summary,
+    previewTree: null,
+    excelPreview,
+    expiresAt: session.expiresAt,
+    newSkillsDetected: [],
+    newSkillsCount: 0,
+    skillResolveEnabled: false,
+    planningReadiness: null,
+    projectIntakeDraft,
   };
 }
 
 async function previewRequirementImport({ userId, organizationId, fileBuffer, fileName }) {
-  await assertRequirementPermission({ userId, organizationId, permission: 'requirement:import' });
-
   const buffer = Buffer.isBuffer(fileBuffer) ? fileBuffer : Buffer.from(fileBuffer || []);
   const {
     peekWorkbookTemplateType,
@@ -253,8 +129,22 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     parseAnalysisWorkbook,
   } = require('../utils/requirement/requirementAnalysisTemplateParse');
   const { validateAnalysisWorkbook } = require('../utils/requirement/requirementAnalysisTemplateValidate');
+  const {
+    isCustomerRawTemplateType,
+    peekCustomerRawTemplateType,
+  } = require('../utils/requirement/customerRawContextParse');
 
-  const peekedType = peekWorkbookTemplateType(buffer);
+  // Peek before authz: Customer Raw uses create-project OR import; Analysis/SRS stay import-only.
+  // Prefer Customer Raw peek (Meta aliases + sheet fingerprint) — analysis peek alone misses filled Raw files.
+  const peekedType =
+    peekCustomerRawTemplateType(buffer) || peekWorkbookTemplateType(buffer);
+  if (isCustomerRawTemplateType(peekedType)) {
+    await assertRequirementImportOrCreateProjectScope({ userId, organizationId });
+    return previewCustomerRawIntake({ userId, organizationId, buffer, fileName });
+  }
+
+  await assertRequirementPermission({ userId, organizationId, permission: 'requirement:import' });
+
   const useAnalysis = isAnalysisTemplateType(peekedType);
 
   let parsed;

@@ -42,4 +42,19 @@ describe('notificationVisualMeta', () => {
     assert.match(mention.color, /destructive/);
     assert.match(due.color, /error/);
   });
+
+  it('Plan C HITL kinds dùng needsAction visual', () => {
+    for (const kind of [
+      'ready_to_done_proposed',
+      'release_ready_proposed',
+      'uat_requested',
+    ]) {
+      const v = resolveNotificationVisual({
+        type: 'system',
+        rawType: 'system',
+        data: { kind },
+      });
+      assert.equal(v.accent, getPrimaryFilterVisual('needsAction').accent);
+    }
+  });
 });

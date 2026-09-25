@@ -5,7 +5,6 @@
 - `ai-task-extract-worker`
 - `ai-task-sync-worker`
 - `notification-dispatch-worker`
-- `webhook-delivery-worker`
 
 ## Priority 2 (evaluate by metrics)
 - `chat-media-worker`

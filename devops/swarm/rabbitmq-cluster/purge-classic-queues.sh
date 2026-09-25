@@ -32,8 +32,6 @@ QUEUES=(
   task-ai.dlq
   voicehub.task.from_file
   voicehub.task.from_file.dlq
-  voicehub.webhook.delivery
-  voicehub.webhook.delivery.dlq
   voicehub.org.events.chat
   voicehub.org.events.chat.dlq
   voicehub.org.events.notification

@@ -1,16 +1,20 @@
 import { ArrowLeft } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAppStrings } from '../../../locales/appStrings';
 import { wizardUi } from '../wizard/projectWizardUi';
-import AiAnalysisBlueprintWizard from '../../requirements/AiAnalysisBlueprintWizard';
-import { useAiAnalysisBlueprintWizard } from '../../requirements/useAiAnalysisBlueprintWizard';
-import { areAllAnalysisJobsConfirmed } from '../../requirements/aiAnalysisWizardConstants';
 import { isProjectDateRangeInvalid } from '../hub/projectHubUtils';
 import useCreateProjectAiWizard from './useCreateProjectAiWizard';
 import AiWizardStepSource from './AiWizardStepSource';
 import AiWizardStepConfirm from './AiWizardStepConfirm';
+import AiPlanningRunPanel from '../phase1/AiPlanningRunPanel';
+import { requirementAPI } from '../../../services/api/requirementAPI';
+
+function unwrap(res) {
+  return res?.data?.data ?? res?.data ?? res;
+}
 
 /**
- * Full-screen AI Create Project Wizard — Source → AI Analysis → Confirm (full-width, no side pane).
+ * Full-screen AI Create Project Wizard — Source → AI Planning (phase HOW) → Confirm.
  */
 export default function CreateProjectAiWizard({
   organizationId,
@@ -27,20 +31,33 @@ export default function CreateProjectAiWizard({
     initialPackId,
     onCreated,
   });
-  const analysisEnabled =
-    Boolean(wizard.packId) && (wizard.stepId === 'analysis' || wizard.stepId === 'confirm');
-  const analysis = useAiAnalysisBlueprintWizard({
-    organizationId,
-    packId: wizard.packId,
-    enabled: analysisEnabled,
-  });
+  const [planStatus, setPlanStatus] = useState('');
+
+  const refreshPlanStatus = useCallback(async () => {
+    if (!organizationId || !wizard.packId) {
+      setPlanStatus('');
+      return;
+    }
+    try {
+      const pack = unwrap(
+        await requirementAPI.getPack(organizationId, wizard.packId, { view: 'full' })
+      );
+      setPlanStatus(String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || ''));
+    } catch {
+      /* ignore */
+    }
+  }, [organizationId, wizard.packId]);
+
+  useEffect(() => {
+    refreshPlanStatus();
+  }, [refreshPlanStatus, wizard.stepId]);
 
   const isLast = wizard.step >= wizard.steps.length - 1;
   const stepNum = wizard.step + 1;
-  const allAnalysisConfirmed = areAllAnalysisJobsConfirmed(analysis.summary?.jobs);
+  const planConfirmed = planStatus === 'confirmed';
   const analysisBlocksNext =
-    wizard.stepId === 'analysis' && (!allAnalysisConfirmed || analysis.busy || !analysis.summary);
-  const anyBusy = wizard.busy || analysis.busy;
+    wizard.stepId === 'analysis' && (!planConfirmed || wizard.busy);
+  const anyBusy = wizard.busy;
   const sourceBlocksNext = wizard.stepId === 'source' && !wizard.packId;
   const headerBackLabel = backLabel || t('adminTasks.wizardBackToHub') || 'Back';
   const confirmCta = wizard.isPhase2Ai
@@ -122,12 +139,17 @@ export default function CreateProjectAiWizard({
               ) : null}
               {wizard.stepId === 'analysis' ? (
                 <div className="mx-auto w-full max-w-[90rem]">
-                  <AiAnalysisBlueprintWizard
+                  <AiPlanningRunPanel
                     organizationId={organizationId}
                     packId={wizard.packId}
-                    controller={analysis}
-                    onContinue={wizard.goNext}
+                    canRun={Boolean(wizard.access?.canRunAiPlanning)}
+                    canPromote={false}
+                    onPlanStatusChange={(status) => setPlanStatus(String(status || ''))}
                   />
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {t('aiCreateWizard.phaseHowHint') ||
+                      'Chạy AI Planning (HOW), xác nhận projectPlan (Gate 2), rồi Next để tạo project.'}
+                  </p>
                 </div>
               ) : null}
               {wizard.stepId === 'confirm' ? (
@@ -171,7 +193,10 @@ export default function CreateProjectAiWizard({
                 <button
                   type="button"
                   className={wizardUi.primaryBtn}
-                  onClick={wizard.goNext}
+                  onClick={async () => {
+                    await refreshPlanStatus();
+                    wizard.goNext();
+                  }}
                   disabled={anyBusy || analysisBlocksNext || sourceBlocksNext}
                 >
                   {t('common.next') || 'Next'}

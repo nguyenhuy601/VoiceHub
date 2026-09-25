@@ -23,12 +23,13 @@ const {
 } = require('../src/utils/aiAnalysis/aiAnalysisMigrateJobs');
 
 describe('aiAnalysisJobsGate', () => {
-  it('has 11 user jobs in designed order', () => {
-    assert.equal(AI_ANALYSIS_USER_JOBS.length, 11);
+  it('has 12 user jobs in designed order (WHAT includes requirementInsights)', () => {
+    assert.equal(AI_ANALYSIS_USER_JOBS.length, 12);
     assert.deepEqual(AI_ANALYSIS_USER_JOBS, [
       'hierarchyDecomposition',
       'requirementAnalysis',
       'capabilityAnalysis',
+      'requirementInsights',
       'wbsGeneration',
       'dependencyAnalysis',
       'architectureRiskAnalysis',
@@ -45,8 +46,14 @@ describe('aiAnalysisJobsGate', () => {
     assert.equal(previousUserJob('hierarchyDecomposition'), null);
     assert.equal(previousUserJob('requirementAnalysis'), 'hierarchyDecomposition');
     assert.equal(previousUserJob('capabilityAnalysis'), 'requirementAnalysis');
-    assert.equal(previousUserJob('wbsGeneration'), 'capabilityAnalysis');
+    assert.equal(previousUserJob('requirementInsights'), 'capabilityAnalysis');
+    assert.equal(previousUserJob('wbsGeneration'), 'requirementInsights');
     assert.equal(previousUserJob('projectPlan'), 'scheduleCapacity');
+  });
+
+  it('HOW jobs length unchanged at 8', () => {
+    const { AI_ANALYSIS_HOW_JOBS } = require('../src/constants/aiAnalysisJobs.constants');
+    assert.equal(AI_ANALYSIS_HOW_JOBS.length, 8);
   });
 
   it('parseJobId rejects legacy ids', () => {
@@ -62,7 +69,7 @@ describe('aiAnalysisJobsGate', () => {
     assert.equal(parseJobId('hierarchyDecomposition'), 'hierarchyDecomposition');
   });
 
-  it('migrate v1→v2 maps legacy job meta to stale new keys', () => {
+  it('migrate v1→v2 maps legacy job meta then ensure strips jobs', () => {
     const raw = {
       schemaVersion: 1,
       jobs: {
@@ -84,18 +91,17 @@ describe('aiAnalysisJobsGate', () => {
 
     const ensured = ensureAiAnalysisContainer(raw);
     assert.equal(ensured.schemaVersion, 2);
-    assert.ok(ensured.jobs.capabilityAnalysis);
-    assert.ok(ensured.jobs.hierarchyDecomposition);
+    assert.equal(ensured.jobs, undefined);
+    assert.ok(ensured.phaseRuns);
     assert.ok(ensured.planning.criticalWorkIds);
     assert.ok(Array.isArray(ensured.resource.schedule));
   });
 
-  it('createEmptyAiAnalysisContainer includes hierarchy job + analyses.hierarchy', () => {
+  it('createEmptyAiAnalysisContainer has phaseRuns + hierarchy analysis (no jobs)', () => {
     const c = createEmptyAiAnalysisContainer();
     assert.equal(c.schemaVersion, 2);
-    assert.equal(c.jobs.hierarchyDecomposition.status, 'empty');
-    assert.equal(c.jobs.projectPlan.status, 'empty');
-    assert.equal(c.jobs.final.status, 'empty');
+    assert.equal(c.jobs, undefined);
+    assert.ok(c.phaseRuns);
     assert.equal(c.planning.executionPlan, null);
     assert.ok(c.analyses.hierarchy);
     assert.deepEqual(c.analyses.hierarchy.proposedFeatures, []);
@@ -173,22 +179,20 @@ describe('aiAnalysisJobsGate', () => {
     assert.notEqual(container.analyses.hierarchy?.meta?.migratedSkip, true);
   });
 
-  it('assertJobNotConfirmedForRerun rejects confirmed job', () => {
+  it('assertJobNotConfirmedForRerun is no-op without jobs projection', () => {
     const container = ensureAiAnalysisContainer({
       schemaVersion: 2,
       jobs: {
         requirementAnalysis: { status: 'confirmed' },
       },
     });
-    assert.throws(() => assertJobNotConfirmedForRerun(container, 'requirementAnalysis'), (err) => {
-      assert.equal(err.statusCode, 409);
-      assert.equal(err.errorCode, 'AI_ANALYSIS_JOB_ALREADY_CONFIRMED');
-      assert.equal(err.details?.status, 'confirmed');
-      return true;
-    });
+    assert.equal(container.jobs, undefined);
+    assert.doesNotThrow(() =>
+      assertJobNotConfirmedForRerun(container, 'requirementAnalysis')
+    );
   });
 
-  it('assertJobNotConfirmedForRerun allows ready and stale', () => {
+  it('assertJobNotConfirmedForRerun allows ready and stale (stripped)', () => {
     const ready = ensureAiAnalysisContainer({
       schemaVersion: 2,
       jobs: { requirementAnalysis: { status: 'ready' } },
@@ -202,7 +206,7 @@ describe('aiAnalysisJobsGate', () => {
     assert.doesNotThrow(() => assertJobNotConfirmedForRerun(stale, 'requirementAnalysis'));
   });
 
-  it('assertJobNotConfirmedForRerun allows confirmed hierarchy when Feature lacks Requirement', () => {
+  it('assertJobNotConfirmedForRerun hierarchy residual is no-op after strip', () => {
     const container = ensureAiAnalysisContainer({
       schemaVersion: 2,
       jobs: { hierarchyDecomposition: { status: 'confirmed' } },
@@ -215,13 +219,6 @@ describe('aiAnalysisJobsGate', () => {
         name: 'Login',
         parentExternalId: 'FR-001',
       },
-    ];
-    assert.doesNotThrow(() =>
-      assertJobNotConfirmedForRerun(container, 'hierarchyDecomposition', { frList })
-    );
-
-    const withLeaf = [
-      ...frList,
       {
         externalId: 'FR-003',
         level: 'Requirement',
@@ -229,12 +226,8 @@ describe('aiAnalysisJobsGate', () => {
         parentExternalId: 'FR-002',
       },
     ];
-    assert.throws(
-      () =>
-        assertJobNotConfirmedForRerun(container, 'hierarchyDecomposition', {
-          frList: withLeaf,
-        }),
-      (err) => err.errorCode === 'AI_ANALYSIS_JOB_ALREADY_CONFIRMED'
+    assert.doesNotThrow(() =>
+      assertJobNotConfirmedForRerun(container, 'hierarchyDecomposition', { frList })
     );
   });
 });

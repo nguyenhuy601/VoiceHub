@@ -93,6 +93,7 @@ export default function ProjectHubChangeRequestDetailDrawer({
   const [linkTaskId, setLinkTaskId] = useState('');
   const [linking, setLinking] = useState(false);
   const [submittingApproval, setSubmittingApproval] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [approvalEpoch, setApprovalEpoch] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -312,6 +313,23 @@ export default function ProjectHubChangeRequestDetailDrawer({
     }
   };
 
+  const applyApproved = async () => {
+    if (!canUpdate || !projectId || !crId || applying) return;
+    if (String(row?.status || '') !== 'approved') return;
+    setApplying(true);
+    try {
+      const res = await projectAPI.applyChangeRequest(projectId, crId);
+      applySaved(unwrapChangeRequestEntity(res));
+      toast.success(t('workspace.phaseQaCrApplySuccess'));
+    } catch (err) {
+      toast.error(
+        resolveApiErrorMessage(err, { t, fallback: t('workspace.phaseQaCrApplyFail') })
+      );
+    } finally {
+      setApplying(false);
+    }
+  };
+
   const deleteCr = async () => {
     if (!canDelete || !projectId || !crId || deleting) return;
     setDeleting(true);
@@ -349,6 +367,18 @@ export default function ProjectHubChangeRequestDetailDrawer({
           value={formatHubDateTime(row?.createdAt, locale)}
         />
         <Field label={t('workspace.projectHubCrFieldReason')} value={row?.reason} />
+        {row?.srsBaselineId ? (
+          <Field
+            label={t('workspace.projectHubCrSrsBaseline')}
+            value={String(row.srsBaselineId)}
+          />
+        ) : null}
+        {Array.isArray(row?.affectedExternalKeys) && row.affectedExternalKeys.length ? (
+          <Field
+            label={t('workspace.projectHubCrAffectedKeys')}
+            value={row.affectedExternalKeys.join(', ')}
+          />
+        ) : null}
       </dl>
       <div className="flex flex-col gap-2">
         <ChangeBlock label={t('workspace.projectHubCrFieldCurrent')} value={row?.current} />
@@ -360,6 +390,37 @@ export default function ProjectHubChangeRequestDetailDrawer({
           value={row?.requestedChange}
         />
       </div>
+      {String(row?.status || '') === 'applied' || row?.appliedAt ? (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-3 text-sm">
+          <p className="font-semibold text-emerald-800 dark:text-emerald-200">
+            {t('workspace.phaseQaCrAppliedBanner')}
+          </p>
+          {row?.releaseLabel ? (
+            <p className="mt-1 text-xs text-emerald-700/90 dark:text-emerald-300/90">
+              {t('workspace.phaseQaCrReleaseLabel')}:{' '}
+              <span className="font-mono font-semibold">{row.releaseLabel}</span>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {canUpdate && String(row?.status || '') === 'approved' ? (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 px-3 py-3">
+          <p className="text-sm font-semibold text-foreground">
+            {t('workspace.phaseQaCrApplyTitle')}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t('workspace.phaseQaCrApplyHint')}
+          </p>
+          <button
+            type="button"
+            disabled={applying}
+            onClick={() => void applyApproved()}
+            className="mt-3 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+          >
+            {applying ? t('common.loading') : t('workspace.phaseQaCrApply')}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 

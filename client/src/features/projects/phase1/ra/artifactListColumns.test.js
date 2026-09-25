@@ -1,108 +1,77 @@
-import assert from 'node:assert/strict';
+/**
+ * DEC R1 — column catalog / visibility helpers (no DOM).
+ */
 import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 import {
-  getArtifactListColumns,
-  truncateCell,
-  COLUMNS_BY_KIND,
+  getArtifactListColumnCatalog,
+  getDefaultVisibleColumnIds,
+  resolveVisibleColumns,
 } from './artifactListColumns.js';
 
-function ids(kind) {
-  return getArtifactListColumns(kind).map((c) => c.id);
-}
+describe('artifactListColumns DEC R1', () => {
+  it('FR catalog includes Excel-aligned fields; defaults show Excel primary columns', () => {
+    const catalog = getArtifactListColumnCatalog('FR');
+    const ids = catalog.map((c) => c.id);
+    assert.ok(ids.includes('module'));
+    assert.ok(ids.includes('feature'));
+    assert.ok(ids.includes('mainBehavior'));
+    assert.ok(ids.includes('acceptance'));
+    assert.ok(ids.includes('trigger'));
+    assert.ok(ids.includes('capability'));
+    assert.ok(ids.includes('brIds'));
+    assert.ok(ids.includes('bpmIds'));
 
-describe('artifactListColumns', () => {
-  it('every known kind includes id and status', () => {
-    for (const kind of Object.keys(COLUMNS_BY_KIND)) {
-      const colIds = ids(kind);
-      assert.ok(colIds.includes('id'), `${kind} missing id`);
-      assert.ok(colIds.includes('status'), `${kind} missing status`);
-      assert.equal(colIds[0], 'id');
-      assert.equal(colIds[colIds.length - 1], 'status');
-    }
+    const defaults = getDefaultVisibleColumnIds('FR');
+    assert.ok(defaults.includes('module'));
+    assert.ok(defaults.includes('mainBehavior'));
+    assert.ok(defaults.includes('acceptance'));
+    assert.ok(defaults.includes('trigger'));
+    assert.ok(defaults.includes('capability'));
+    assert.ok(defaults.includes('parent'));
+    assert.ok(defaults.includes('brIds'));
+    assert.ok(defaults.includes('bpmIds'));
   });
 
-  it('FR is Key, Level, Artifact, Priority, Status', () => {
-    assert.deepEqual(ids('FR'), ['id', 'level', 'artifact', 'priority', 'status']);
-    assert.equal(ids('FR').includes('module'), false);
-    assert.equal(ids('FR').includes('feature'), false);
-    assert.equal(ids('FR').includes('requirement'), false);
-    const artifact = getArtifactListColumns('FR').find((c) => c.id === 'artifact');
-    assert.equal(artifact.getValue({ title: 'Register course' }), 'Register course');
-  });
-
-  it('NFR includes Category and Target', () => {
-    const colIds = ids('NFR');
-    assert.deepEqual(colIds, ['id', 'category', 'requirement', 'target', 'priority', 'status']);
-  });
-
-  it('BR includes Related BG', () => {
-    assert.ok(ids('BR').includes('relatedBg'));
-  });
-
-  it('BG / BPM / UC / SCOPE column sets match plan', () => {
-    assert.deepEqual(ids('BG'), [
-      'id',
-      'title',
-      'statement',
-      'successMetric',
-      'priority',
-      'status',
-    ]);
-    assert.deepEqual(ids('BPM'), [
-      'id',
-      'processName',
-      'step',
-      'actor',
-      'action',
-      'relatedSystems',
-      'status',
-    ]);
-    assert.deepEqual(ids('UC'), [
-      'id',
-      'title',
-      'actor',
-      'precondition',
-      'relatedFr',
-      'priority',
-      'status',
-    ]);
-    assert.deepEqual(ids('SCOPE'), ['id', 'scopeType', 'scopeDescription', 'status']);
-  });
-
-  it('unknown kind falls back to id/title/status', () => {
-    assert.deepEqual(ids('UNKNOWN'), ['id', 'title', 'status']);
-    assert.deepEqual(ids(''), ['id', 'title', 'status']);
-  });
-
-  it('getValue reads structured fields null-safely', () => {
-    const cols = getArtifactListColumns('NFR');
-    const byId = Object.fromEntries(cols.map((c) => [c.id, c]));
-    const row = {
-      externalKey: 'NFR-001',
-      title: 'Fast API',
-      status: 'draft',
-      structured: { category: 'Performance', target: '< 2 sec', priority: 'High' },
-    };
-    assert.equal(byId.category.getValue(row), 'Performance');
-    assert.equal(byId.target.getValue(row), '< 2 sec');
-    assert.equal(byId.requirement.getValue(row), 'Fast API');
-    assert.equal(byId.category.getValue({}), '');
-    assert.equal(byId.category.getValue(null), '');
-  });
-
-  it('Related FR joins array keys', () => {
-    const relatedFr = getArtifactListColumns('UC').find((c) => c.id === 'relatedFr');
-    assert.equal(
-      relatedFr.getValue({ structured: { relatedFrKeys: ['FR-001', 'FR-002'] } }),
-      'FR-001, FR-002'
+  it('resolveVisibleColumns always keeps id and drops unknown', () => {
+    const cols = resolveVisibleColumns('FR', ['acceptance', 'bogus', 'module']);
+    assert.equal(cols[0].id, 'id');
+    assert.deepEqual(
+      cols.map((c) => c.id),
+      ['id', 'acceptance', 'module']
     );
   });
 
-  it('truncateCell ellipsizes long text', () => {
-    assert.equal(truncateCell('short'), 'short');
-    const long = 'a'.repeat(120);
-    const out = truncateCell(long, 100);
-    assert.equal(out.length, 100);
-    assert.ok(out.endsWith('…'));
+  it('BG/BR defaults include Excel business fields', () => {
+    const bgDef = getDefaultVisibleColumnIds('BG');
+    assert.ok(bgDef.includes('businessProblem'));
+    assert.ok(bgDef.includes('expectedOutcome'));
+    assert.ok(bgDef.includes('customerRequirementIds'));
+
+    const brDef = getDefaultVisibleColumnIds('BR');
+    assert.ok(brDef.includes('businessRule'));
+    assert.ok(brDef.includes('successCriteria'));
+    assert.ok(brDef.includes('relatedBg'));
+  });
+
+  it('SCOPE/IF/DATA/GLOSSARY/ASSUMPTION defaults cover Excel columns', () => {
+    for (const id of [
+      'scopeType',
+      'scopeDescription',
+      'customerRequirementIds',
+      'workbookSource',
+      'dateRaised',
+      'analysisStatus',
+      'baNote',
+    ]) {
+      assert.ok(getDefaultVisibleColumnIds('SCOPE').includes(id), `SCOPE ${id}`);
+    }
+    assert.ok(getDefaultVisibleColumnIds('INTERFACE').includes('relatedArtifactIds'));
+    assert.ok(getDefaultVisibleColumnIds('DATA').includes('relatedArtifactIds'));
+    assert.ok(getDefaultVisibleColumnIds('GLOSSARY').includes('relatedArtifactIds'));
+    assert.ok(getDefaultVisibleColumnIds('ASSUMPTION').includes('impactIfInvalid'));
+    assert.ok(getDefaultVisibleColumnIds('BPM').includes('relatedCr'));
+    assert.ok(getDefaultVisibleColumnIds('BPM').includes('relatedBr'));
+    assert.ok(getDefaultVisibleColumnIds('NFR').includes('nfrScope'));
   });
 });

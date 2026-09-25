@@ -162,6 +162,19 @@ export function resolveNotificationVisual(notif) {
   if (ui === 'deadline' || kind === 'task_due_soon' || kind === 'task_overdue') {
     return VISUAL.deadline;
   }
+  if (
+    kind === 'ready_to_done_proposed' ||
+    kind === 'release_ready_proposed' ||
+    kind === 'uat_requested' ||
+    kind === 'ready_for_qa' ||
+    kind === 'analysis_changes_requested' ||
+    kind === 'planning_changes_requested' ||
+    kind === 'analysis_gate_pending' ||
+    kind === 'planning_gate_pending' ||
+    kind === 'phase1_gate_pending'
+  ) {
+    return VISUAL.needsAction;
+  }
   if (ui === 'task' || raw === 'task_assigned' || raw === 'task_completed') {
     return VISUAL.task;
   }

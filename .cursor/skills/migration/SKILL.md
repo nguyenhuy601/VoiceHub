@@ -16,7 +16,7 @@ Cross-service shared schema (forbidden).
 
 ## Related Rules
 
-- `.cursor/rules/role-database.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `implementer`); skills `database-design` / `migration`
 - `.cursor/rules/voicehub-constraints.mdc`
 
 ## Input

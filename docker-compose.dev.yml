@@ -1,7 +1,7 @@
 # Dev: bind mount (./services/…:/app, ./shared:/shared trong core) + nodemon + CHOKIDAR polling (Windows/WSL).
 # docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 #
-# Mọi service Node trong core đều có entry tương ứng ở đây (npm run dev). Python: webhook-service dùng uvicorn --reload.
+# Mọi service Node trong core đều có entry tương ứng ở đây (npm run dev).
 
 services:
   api-gateway:
@@ -82,9 +82,6 @@ services:
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
-
-  webhook-service:
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3016", "--reload"]
 
   socket-service:
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]

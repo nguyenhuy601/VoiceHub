@@ -7,9 +7,16 @@ function hubListById(lists = []) {
   return new Map((lists || []).map((l) => [String(l._id || l.id), l]));
 }
 
+/**
+ * Board column (list) is SoT for open/done — ignore stale card.status after drag.
+ * Same rule as FE isWorkItemDone / Overview % hoàn thành.
+ */
 function cardStatusText(card, listById) {
   const list = listById.get(String(card?.listId || card?.list || ''));
-  return String(card?.status || list?.statusKey || list?.title || '').toLowerCase();
+  if (list) {
+    return String(list.statusKey || list.title || card?.status || '').toLowerCase();
+  }
+  return String(card?.status || '').toLowerCase();
 }
 
 function isDoneStatus(status) {
@@ -74,7 +81,9 @@ function countIssuesByStatusBucket(issues = [], lists = []) {
   const out = { todo: 0, progress: 0, done: 0 };
   for (const issue of issues || []) {
     const list = listById.get(String(issue.listId || issue.list || ''));
-    const bucket = classifyListStatusBucket(issue.status || list);
+    const bucket = list
+      ? classifyListStatusBucket(list)
+      : classifyListStatusBucket(issue.status);
     out[bucket] += 1;
   }
   return out;
@@ -237,13 +246,14 @@ function pickNextHubActions(cards = [], lists = [], { limit = 5, projectCode = '
       const dueTs = dueRaw ? new Date(dueRaw).getTime() : NaN;
       const hasDue = Number.isFinite(dueTs);
       const status = cardStatusText(card, listById);
-      const dueTone = dueDateTone(dueRaw, card.status || list);
+      const dueTone = dueDateTone(dueRaw, list || card.status);
       const isInReview = status.includes('review');
       const hasAssignee = Boolean(
         String(card?.assigneeId || '').trim() || String(card?.assigneeName || '').trim()
       );
       return {
         card,
+        list,
         dueRaw,
         dueTs: hasDue ? dueTs : Number.POSITIVE_INFINITY,
         attentionRank: hubActionAttentionRank({ dueTone, isInReview, hasAssignee }),
@@ -254,13 +264,30 @@ function pickNextHubActions(cards = [], lists = [], { limit = 5, projectCode = '
     if (a.dueTs !== b.dueTs) return a.dueTs - b.dueTs;
     return String(a.card.title || '').localeCompare(String(b.card.title || ''));
   });
-  return ranked.slice(0, limit).map(({ card, dueRaw }) => ({
-    id: String(card._id || card.id || ''),
-    title: String(card.title || ''),
-    issueKey: projectCode ? `${projectCode}-${String(card._id || '').slice(-4)}` : '',
-    issueType: card.issueType || card.type || 'task',
-    dueDate: dueRaw,
-  }));
+  return ranked.slice(0, limit).map(({ card, list, dueRaw }) => {
+    const id = String(card._id || card.id || '');
+    const parentRaw = card?.parentTaskId;
+    const parentId =
+      parentRaw == null || parentRaw === ''
+        ? ''
+        : typeof parentRaw === 'object'
+          ? String(parentRaw._id || parentRaw.id || '').trim()
+          : String(parentRaw).trim();
+    const parentCard = parentId
+      ? (cards || []).find((c) => String(c._id || c.id) === parentId)
+      : null;
+    return {
+      id,
+      title: String(card.title || ''),
+      issueKey: projectCode ? `${projectCode}-${String(id).slice(-4)}` : '',
+      issueType: card.issueType || card.type || 'task',
+      statusLabel: String(list?.title || card.status || list?.statusKey || '').trim(),
+      statusKey: String(list?.statusKey || card.status || '').trim(),
+      dueDate: dueRaw,
+      isChild: Boolean(parentId),
+      parentTitle: String(parentCard?.title || '').trim(),
+    };
+  });
 }
 
 function countPlanningByType(rows = []) {

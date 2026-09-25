@@ -1,6 +1,9 @@
 /**
- * Serve official SRS.xlsx (AI/Admin intake Standard Format v2.0).
- * Legacy asset Requirement_Template.xlsx kept as fallback path.
+ * Serve official SRS.xlsx (AI/Admin intake).
+ * Asset SSOT: assets/SRS.xlsx — 16-sheet intake schema (download name SRS.xlsx).
+ * Legacy fallback: assets/Requirement_Template.xlsx.
+ * Runtime parse/validate still expect Standard Format v2.0 sheet names until phase B
+ * (see docs/requirement/srs-intake-validation-baseline.md).
  */
 
 const fs = require('fs');

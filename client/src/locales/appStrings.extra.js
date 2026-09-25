@@ -14,6 +14,7 @@ export const extraStrings = {
       backToLogin: 'Quay lại đăng nhập',
       close: 'Đóng',
       cancel: 'Hủy',
+      confirm: 'Xác nhận',
       save: 'Lưu',
       next: 'Tiếp',
       back: 'Quay lại',
@@ -43,6 +44,9 @@ export const extraStrings = {
         USER_NOT_AUTHENTICATED: 'Vui lòng đăng nhập lại.',
         USER_PROFILE_FORBIDDEN: 'Bạn không có quyền thực hiện hành động này.',
         USER_VALIDATION: 'Dữ liệu chưa hợp lệ.',
+        HANDOVER_ACCEPT_FORBIDDEN:
+          'Chỉ Product Owner được xác nhận nghiệm thu và hoàn tất bàn giao.',
+        HANDOVER_CHECKLIST_FORBIDDEN: 'Chỉ Project Manager được cập nhật mục checklist này.',
         VALIDATION_INVALID_ID: 'Định danh không hợp lệ.',
         VALIDATION_REQUIRED: 'Thiếu thông tin bắt buộc.',
         AUTH_WEAK_PASSWORD:
@@ -56,6 +60,8 @@ export const extraStrings = {
         ORG_INVITE_INVALID: 'Lời mời không hợp lệ hoặc đã dùng.',
         ORG_INVITE_EXPIRED: 'Lời mời đã hết hạn.',
         ORG_ACCESS_DENIED: 'Bạn không có quyền truy cập tổ chức này.',
+        TECH_REVIEWER_REQUIRED:
+          'Project chưa có thành viên quyền Tech Review (analysis:tech_review). Gán Technical Lead / Solution Architect rồi thử lại.',
         ORG_NOT_FOUND: 'Không tìm thấy tổ chức.',
         ORG_MEMBER_NOT_FOUND: 'Không tìm thấy thành viên.',
         ORG_SLUG_EXISTS: 'Slug tổ chức đã tồn tại.',
@@ -535,6 +541,7 @@ export const extraStrings = {
       backToLogin: 'Back to sign in',
       close: 'Close',
       cancel: 'Cancel',
+      confirm: 'Confirm',
       save: 'Save',
       next: 'Next',
       back: 'Back',
@@ -564,6 +571,9 @@ export const extraStrings = {
         USER_NOT_AUTHENTICATED: 'Please sign in again.',
         USER_PROFILE_FORBIDDEN: 'You do not have permission for this action.',
         USER_VALIDATION: 'Invalid data.',
+        HANDOVER_ACCEPT_FORBIDDEN:
+          'Only the Product Owner can confirm acceptance and complete handover.',
+        HANDOVER_CHECKLIST_FORBIDDEN: 'Only the Project Manager can update this checklist item.',
         VALIDATION_INVALID_ID: 'Invalid identifier.',
         VALIDATION_REQUIRED: 'Required information is missing.',
         AUTH_WEAK_PASSWORD:
@@ -577,6 +587,8 @@ export const extraStrings = {
         ORG_INVITE_INVALID: 'Invite is invalid or already used.',
         ORG_INVITE_EXPIRED: 'Invite has expired.',
         ORG_ACCESS_DENIED: 'You do not have access to this organization.',
+        TECH_REVIEWER_REQUIRED:
+          'No project member has Tech Review (analysis:tech_review). Assign Technical Lead / Solution Architect, then retry.',
         ORG_NOT_FOUND: 'Organization not found.',
         ORG_MEMBER_NOT_FOUND: 'Member not found.',
         ORG_SLUG_EXISTS: 'Organization slug already exists.',

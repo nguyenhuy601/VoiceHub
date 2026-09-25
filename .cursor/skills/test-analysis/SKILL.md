@@ -16,7 +16,7 @@ Green suite with no failures.
 
 ## Related Rules
 
-- `.cursor/rules/role-qa.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `reviewer`)
 
 ## Input
 

@@ -7,6 +7,7 @@ import { requirementAPI } from '../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { buildProjectsModulePath, buildProjectsNewAiPath } from '../../../utils/suitePathUtils';
+import { phaseHomeModule } from '../../../utils/projectPhaseNav';
 import { queryKeys } from '../../../lib/queryKeys';
 
 function unwrap(res) {
@@ -35,7 +36,7 @@ export default function Phase2GateBanner({
   const phase = String(deliveryPhase || '').toLowerCase();
   const gateRelevant = phase === 'requirement_analysis' || phase === 'delivery_planning';
 
-  const { data: gaps } = useQuery({
+  const { data: gaps, isFetched: gapsFetched } = useQuery({
     queryKey: ['projectAnalysisGaps', String(projectId || '')],
     queryFn: async () => unwrap(await projectAPI.getAnalysisGaps(projectId)),
     enabled: Boolean(projectId) && gateRelevant,
@@ -54,7 +55,9 @@ export default function Phase2GateBanner({
   });
 
   const ready = Boolean(gaps?.readyForPhase2);
-  const showBanner = gateRelevant && phase === 'delivery_planning' && ready;
+  const inPlanning = phase === 'delivery_planning';
+  const showReadyBanner = inPlanning && ready;
+  const showBlockedBanner = inPlanning && gapsFetched && !ready;
   const blocking = Array.isArray(gaps?.blockingReasons) ? gaps.blockingReasons : [];
 
   useEffect(() => {
@@ -90,13 +93,15 @@ export default function Phase2GateBanner({
         methodology,
         importWorkItems: false,
         applyAssignees: false,
+        publishWbs: true,
+        seedBoardTasks: true,
       });
       toast.success(t('workspace.phase2AdvanceSuccess') || 'Đã chuyển Phase 2 — Development');
       setOpen(false);
       await queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.project(projectId) });
       await queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
       navigate(
-        buildProjectsModulePath(projectId, 'overview', {
+        buildProjectsModulePath(projectId, phaseHomeModule('development'), {
           organizationId,
           boardId: searchParams.get('boardId') || '',
         })
@@ -124,7 +129,37 @@ export default function Phase2GateBanner({
     searchParams,
   ]);
 
-  if (!showBanner) return null;
+  if (showBlockedBanner) {
+    return (
+      <div className="mb-4 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-3 sm:px-4">
+        <p className="text-sm font-semibold text-foreground">
+          {t('workspace.phase2BlockedTitle') ||
+            'Chưa sẵn sàng chuyển Phase 2 (Development)'}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t('workspace.phase2BlockedHint') ||
+            'Hoàn tất RA approved, SRS Baseline và Planning Baseline trước khi chuyển phase.'}
+        </p>
+        {blocking.length > 0 ? (
+          <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs text-muted-foreground">
+            {blocking.slice(0, 6).map((b, idx) => {
+              const code = b?.code || '';
+              const message = b?.message || String(b || '');
+              return (
+                <li key={`${code}-${idx}`}>
+                  {code ? <span className="font-mono text-foreground/80">{code}</span> : null}
+                  {code && message ? ' — ' : ''}
+                  {message}
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (!showReadyBanner) return null;
 
   return (
     <>
@@ -176,7 +211,7 @@ export default function Phase2GateBanner({
                   </span>
                   <span className="mt-0.5 block text-xs text-muted-foreground">
                     {t('workspace.phase2OptionManualHint') ||
-                      'Dựa trên artifact Phase 1 đã approve; tự cấu hình methodology rồi chuyển Development.'}
+                      'Chuyển Development và publish WBS từ Planning Baseline (HITL).'}
                   </span>
                 </span>
               </label>
@@ -189,11 +224,11 @@ export default function Phase2GateBanner({
                 />
                 <span>
                   <span className="font-semibold">
-                    {t('workspace.phase2OptionAi') || 'AI từ Excel SRS'}
+                    {t('workspace.phase2OptionAi') || 'AI hỗ trợ (sau plan)'}
                   </span>
                   <span className="mt-0.5 block text-xs text-muted-foreground">
                     {t('workspace.phase2OptionAiHint') ||
-                      'Dùng Requirement Pack (SRS) + import work như luồng AI cũ — trên dự án hiện tại.'}
+                      'Mở wizard AI trên dự án hiện tại. Seed Board vẫn ưu tiên từ Planning Baseline (không bypass pack import).'}
                   </span>
                 </span>
               </label>

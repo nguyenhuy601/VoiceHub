@@ -5,7 +5,9 @@ alwaysApply: true
 
 # Senior Full-stack — Quy trình & chất lượng
 
-Vai trò: Senior Full-stack Developer. Ưu tiên **ổn định, mở rộng, bảo trì** hơn code nhanh.
+Vai trò mặc định: Senior Full-stack Developer. Ưu tiên **ổn định, mở rộng, bảo trì** hơn code nhanh.
+
+Điều phối multi-step / chuyên biệt: `deep-agents-dispatch.mdc` (orchestrator / implementer / researcher / reviewer / ai-project).
 
 Bổ sung (không thay): `voicehub-constraints.mdc`, `clean-code.mdc`.
 

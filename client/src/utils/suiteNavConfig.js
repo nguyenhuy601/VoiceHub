@@ -34,6 +34,7 @@ export const PROJECT_MODULE_KEYS = [
   'board',
   'timeline',
   'change-requests',
+  'test-cases',
   'requirements',
   'files',
   'chat',
@@ -50,6 +51,10 @@ export const PROJECT_MODULE_KEYS = [
   'analysis-uc',
   'analysis-nfr',
   'analysis-scope',
+  'analysis-interface',
+  'analysis-data',
+  'analysis-glossary',
+  'analysis-assumption',
   'traceability',
   'analysis-reviews',
   'srs-baselines',
@@ -63,7 +68,11 @@ export const PROJECT_MODULE_KEYS = [
   'planning-milestones',
   'planning-releases',
   'planning-risks',
+  'planning-test-cases',
   'planning-approval',
+  'handover',
+  'deploy-evidence',
+  'release-notes',
 ];
 
 /** Map legacy hub tab ids to path modules */
@@ -74,6 +83,7 @@ export const HUB_TAB_TO_MODULE = {
   board: 'board',
   timeline: 'timeline',
   changeRequests: 'change-requests',
+  testCases: 'test-cases',
   chat: 'chat',
   members: 'members',
   files: 'files',
@@ -88,6 +98,7 @@ export const MODULE_TO_HUB_TAB = {
   board: 'board',
   timeline: 'timeline',
   'change-requests': 'changeRequests',
+  'test-cases': 'testCases',
   chat: 'chat',
   members: 'members',
   files: 'files',
@@ -105,6 +116,9 @@ export function normalizeProjectModule(raw) {
   if (HUB_TAB_TO_MODULE[value]) return HUB_TAB_TO_MODULE[value];
   const lower = value.toLowerCase();
   if (lower === 'changerequests' || lower === 'change-requests') return 'change-requests';
+  if (lower === 'testcases' || lower === 'test-cases') return 'test-cases';
+  if (lower === 'deployevidence' || lower === 'deploy-evidence') return 'deploy-evidence';
+  if (lower === 'releasenotes' || lower === 'release-notes') return 'release-notes';
   if (PROJECT_MODULE_KEYS.includes(lower)) return lower;
   if (lower.startsWith('planning-')) return lower;
   return 'overview';
@@ -120,8 +134,6 @@ export function getCompanyNavItems(opts = {}) {
     { key: 'home', labelKey: 'nav.companyHome', path: '/app/company/home', group: null },
     { key: 'chat', labelKey: 'nav.messages', path: '/app/company/chat', group: null },
     { key: 'documents', labelKey: 'nav.documents', path: '/app/company/documents', group: null },
-    { key: 'calendar', labelKey: 'nav.calendar', path: '/app/company/calendar', group: null },
-    { key: 'approvals', labelKey: 'nav.approvals', path: '/app/company/approvals', group: null },
   ];
 }
 
@@ -158,16 +170,22 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
 
   if (isPhase1DeliveryPhase(deliveryPhase)) {
     const planningLocked = !isPlanningUnlocked(deliveryPhase);
-    const groups = getPhase1SidebarGroups({ planningLocked });
+    const raReadOnly = isPlanningUnlocked(deliveryPhase);
+    const groups = getPhase1SidebarGroups({ planningLocked, raReadOnly });
     const phase1Items = [];
     for (const g of groups) {
       const groupId =
         g.id === 'planning' ? PROJECT_MENU_GROUPS.PHASE1_PLANNING : PROJECT_MENU_GROUPS.PHASE1_RA;
       for (const m of g.items) {
+        // Overview stays interactive (gates / Start Planning / planning CTAs).
+        const itemReadOnly =
+          Boolean(g.readOnly) && String(m.key || m.module || '') !== 'overview';
         phase1Items.push({
           ...item(m.key, m.labelKey, m.module, groupId, m.pathSeg),
           locked: Boolean(g.locked),
           lockHintKey: g.lockHintKey,
+          readOnly: itemReadOnly,
+          readOnlyHintKey: itemReadOnly ? g.readOnlyHintKey : undefined,
         });
       }
     }
@@ -186,6 +204,19 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
 
   const all = [
     item('overview', 'workspace.projectHubTabOverview', 'overview', PROJECT_MENU_GROUPS.WORK),
+    item('handover', PHASE_MODULE_LABEL_KEYS.handover, 'handover', PROJECT_MENU_GROUPS.WORK),
+    item(
+      'deployEvidence',
+      PHASE_MODULE_LABEL_KEYS['deploy-evidence'],
+      'deploy-evidence',
+      PROJECT_MENU_GROUPS.WORK
+    ),
+    item(
+      'releaseNotes',
+      PHASE_MODULE_LABEL_KEYS['release-notes'],
+      'release-notes',
+      PROJECT_MENU_GROUPS.WORK
+    ),
     item(
       'customerDocuments',
       PHASE_MODULE_LABEL_KEYS['customer-documents'],
@@ -236,6 +267,12 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
       'changeRequests',
       'workspace.projectHubTabChangeRequests',
       'change-requests',
+      PROJECT_MENU_GROUPS.WORK
+    ),
+    item(
+      'testCases',
+      'workspace.phaseQaTestCasesTitle',
+      'test-cases',
       PROJECT_MENU_GROUPS.WORK
     ),
     item('requirements', 'nav.requirements', 'requirements', PROJECT_MENU_GROUPS.WORK),

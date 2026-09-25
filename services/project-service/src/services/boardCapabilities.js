@@ -11,6 +11,13 @@ const DONE_LIST_TITLES = new Set([
   'hoan thanh',
 ]);
 
+const READY_FOR_QA_TITLES = new Set([
+  'ready for qa',
+  'ready_for_qa',
+  'san sang qa',
+  'ready-for-qa',
+]);
+
 function normalizeListTitle(title) {
   return String(title || '')
     .trim()
@@ -24,6 +31,23 @@ function isDoneListTitle(title) {
   if (!n) return false;
   if (DONE_LIST_TITLES.has(n)) return true;
   return n === 'xong' || n.endsWith(' xong') || n.startsWith('done');
+}
+
+function isReadyForQaListTitle(title) {
+  const normalized = normalizeListTitle(title);
+  if (!normalized) return false;
+  if (READY_FOR_QA_TITLES.has(normalized)) return true;
+  return normalized.includes('ready for qa') || normalized.includes('san sang qa');
+}
+
+/** List object: statusKey `qa` hoặc title Ready for QA. */
+function isReadyForQaList(list) {
+  if (!list) return false;
+  const statusKey = String(list.statusKey || '')
+    .trim()
+    .toLowerCase();
+  if (statusKey === 'qa') return true;
+  return isReadyForQaListTitle(list.title);
 }
 
 /**
@@ -78,7 +102,10 @@ function buildBoardCapabilities({
 
 module.exports = {
   DONE_LIST_TITLES,
+  READY_FOR_QA_TITLES,
   normalizeListTitle,
   isDoneListTitle,
+  isReadyForQaListTitle,
+  isReadyForQaList,
   buildBoardCapabilities,
 };

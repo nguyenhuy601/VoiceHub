@@ -1,0 +1,56 @@
+---
+description: Deep Agents dispatch — map intent/plan tới orchestrator/implementer/researcher/reviewer/ai-project; thay role-*.mdc
+alwaysApply: true
+---
+
+# Deep Agents dispatch (VoiceHub)
+
+Thay mô hình **Senior … role-*.mdc**. Điều phối theo **capability agent** (Deep Agents: harness + specialized subagents).
+
+## Harness vs subagent
+
+| Intent / từ khóa trong prompt/plan | Agent (`.cursor/agents/`) | Skills ưu tiên |
+|------------------------------------|---------------------------|----------------|
+| Multi-step, plan, “orchestrate”, nhiều concern | `orchestrator` | `plan-authoring`, `change-impact-analysis`, `deep-agents-orchestration` |
+| Implement FE (`client/`) hoặc BE (`services/<one>`) | `implementer` | `feature-implementation`, `bug-fixing`, `api-design`, `unit-testing` |
+| Architecture, impact, as-is, readonly design | `researcher` | `architecture-analysis`, `change-impact-analysis`, `service-boundary-analysis` |
+| Code review, QA cases, security gate, đóng plan | `reviewer` | `code-review`, `test-case-generation`, `security-review`, `regression-testing` |
+| AI Project / Two-Phase HITL / aiAnalysis* | `ai-project` | `ai-project-primer` → `ecosystem-primer` (nếu agent stack) |
+
+Alias legacy (vẫn map được):
+
+| Cũ (prompt) | Mới |
+|-------------|-----|
+| Senior Frontend / Backend / API / Database | `implementer` (+ skill `api-design` / `migration` / `database-design` khi cần) |
+| Senior Solution Architect | `researcher` |
+| Senior Code Reviewer / QA | `reviewer` |
+| Senior RBAC Architect | `researcher` + `authorization-analysis` / `security-review` |
+| React Native | `implementer` (scope mobile nếu có) — không còn `role-react-native.mdc` |
+
+## Quy tắc Main Agent
+
+1. Task nhỏ (≤ ~3 file, rõ ràng) → Main tự làm với `senior-dev-engineering.mdc` + `voicehub-constraints.mdc`; **không** over-delegate.
+2. Task lớn / multi-step → ưu tiên `orchestrator` hoặc Main đóng vai harness: todos + Task tool tới subagent.
+3. AI Project → **đọc `ai-project-primer` trước**; delegate `ai-project` khi đụng pipeline Phase 1/2.
+4. Nhiều concern (vd. FE + BE): spawn `implementer` với scope path rõ; xung đột → ràng buộc chặt hơn (không đụng service/DB/API ngoài scope).
+5. Design-only → `researcher` (readonly). Implement → `implementer` / `ai-project`.
+
+## Ràng buộc luôn giữ (không role-file)
+
+- `.cursor/rules/voicehub-constraints.mdc`
+- `.cursor/rules/senior-dev-engineering.mdc`
+- `.cursor/rules/clean-code.mdc`
+- Swarm/Compose: `swarm-compose-split.mdc`, `docker-vhdx-disk.mdc`
+- Admin UI: `enterprise-admin-ui.mdc` khi đụng admin/RBAC catalog
+- API style: `restful-api-design.mdc` khi thiết kế REST
+- FE page removal: `remove-page-cleanup.mdc`
+
+## Implementer — scope FE vs BE (gộp từ role cũ)
+
+**FE (`client/`):** không sửa BE/DB; không đổi API contract; reuse design system/i18n; loading/empty/error/retry; a11y cơ bản.
+
+**BE (`services/<name>/`):** chỉ service được chỉ định; không cross-DB; không đổi API/Event contract trừ khi plan yêu cầu; clients S2S trong `services/<name>/src/clients/`.
+
+## Skills SoT
+
+`.cursor/skills/*/SKILL.md` — gồm VoiceHub + ecosystem LangChain/LangGraph/Deep Agents (đồng bộ từ `.claude/skills`). Plan Standard: `plan-authoring`. Đóng plan: `regression-testing`.

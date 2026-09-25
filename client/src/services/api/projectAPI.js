@@ -89,11 +89,13 @@ export function mapBoardsToPickerRows(boards = [], projectMeta = {}) {
  * projectId ≠ boardId (defaultBoardId trên response create/list).
  */
 export const projectAPI = {
-  create: (payload = {}) => {
+  create: (payload = {}, config = {}) => {
     const body = { ...(payload || {}) };
     delete body.workspaceSlug;
     delete body.slug;
-    return apiClient.post('/projects', body);
+    return apiClient.post('/projects', body, {
+      skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+    });
   },
 
   list: (params = {}) => {
@@ -108,8 +110,8 @@ export const projectAPI = {
       withHubSoftErrorToasts(config)
     ),
 
-  patch: (projectId, body = {}) =>
-    apiClient.patch(`/projects/${encodeURIComponent(projectId)}`, body),
+  patch: (projectId, body = {}, config = {}) =>
+    apiClient.patch(`/projects/${encodeURIComponent(projectId)}`, body, config),
 
   archive: (projectId) => apiClient.post(`/projects/${encodeURIComponent(projectId)}/archive`),
 
@@ -249,6 +251,9 @@ export const projectAPI = {
       reason: body.reason,
       current: body.current,
       requestedChange: body.requestedChange,
+      impact: body.impact,
+      srsBaselineId: body.srsBaselineId,
+      affectedExternalKeys: body.affectedExternalKeys,
     }),
 
   patchChangeRequest: (projectId, crId, body = {}) => {
@@ -262,6 +267,10 @@ export const projectAPI = {
     if (body.requestedChange !== undefined) payload.requestedChange = body.requestedChange;
     if (body.status !== undefined) payload.status = body.status;
     if (body.impact !== undefined) payload.impact = body.impact;
+    if (body.srsBaselineId !== undefined) payload.srsBaselineId = body.srsBaselineId;
+    if (body.affectedExternalKeys !== undefined) {
+      payload.affectedExternalKeys = body.affectedExternalKeys;
+    }
     if (body.linkWorkItemId !== undefined) payload.linkWorkItemId = body.linkWorkItemId;
     if (body.unlinkWorkItemId !== undefined) payload.unlinkWorkItemId = body.unlinkWorkItemId;
     return apiClient.patch(
@@ -477,6 +486,93 @@ export const projectAPI = {
   submitChangeRequestApproval: (projectId, crId) =>
     apiClient.post(
       `/projects/${encodeURIComponent(projectId)}/change-requests/${encodeURIComponent(crId)}/submit-approval`
+    ),
+
+  applyChangeRequest: (projectId, crId) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/change-requests/${encodeURIComponent(crId)}/apply`
+    ),
+
+  listTestCases: (projectId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/test-cases`),
+
+  suggestTestCasesFromUc: (projectId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/test-cases`, {
+      params: { view: 'suggest_from_uc' },
+    }),
+
+  createTestCasesFromSuggestions: (projectId, suggestions = []) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/test-cases`, {
+      suggestions,
+    }),
+
+  createTestCase: (projectId, body = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/test-cases`, {
+      title: body.title,
+      externalKey: body.externalKey,
+      status: body.status,
+      workItemId: body.workItemId || undefined,
+    }),
+
+  patchTestCase: (projectId, testCaseId, body = {}) => {
+    const payload = {};
+    if (body.title !== undefined) payload.title = body.title;
+    if (body.externalKey !== undefined) payload.externalKey = body.externalKey;
+    if (body.status !== undefined) payload.status = body.status;
+    if (body.workItemId !== undefined) payload.workItemId = body.workItemId;
+    if (body.resetExecution === true) payload.resetExecution = true;
+    return apiClient.patch(
+      `/projects/${encodeURIComponent(projectId)}/test-cases/${encodeURIComponent(testCaseId)}`,
+      payload
+    );
+  },
+
+  executeTestCase: (projectId, testCaseId, body = {}) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/test-cases/${encodeURIComponent(testCaseId)}/execute`,
+      { result: body.result }
+    ),
+
+  openBugFromTestCase: (projectId, testCaseId) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/test-cases/${encodeURIComponent(testCaseId)}/open-bug`
+    ),
+
+  listReadyToDone: (projectId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/ready-to-done`),
+
+  getReadyToDone: (projectId, taskId) =>
+    apiClient.get(
+      `/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/ready-to-done`
+    ),
+
+  confirmReadyToDone: (projectId, taskId) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/ready-to-done/confirm`
+    ),
+
+  getReleaseReady: (projectId) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/release-ready`),
+
+  confirmReleaseReady: (projectId) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/release-ready/confirm`),
+
+  signOffUat: (projectId, body = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/uat/sign-off`, {
+      result: body.result,
+      note: body.note,
+    }),
+
+  proposeFixSuggestion: (projectId, taskId, body = {}) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/fix-suggestion`,
+      { text: body.text }
+    ),
+
+  decideFixSuggestion: (projectId, taskId, body = {}) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/fix-suggestion/decide`,
+      { decision: body.decision }
     ),
 
   /** Phase 6 — Governance */

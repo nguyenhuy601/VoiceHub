@@ -17,6 +17,9 @@ const CARD_LIST_PROJECT_SELECT = [
   'visibilityMode',
   'visibilityPolicy',
   'informationLevelOverrides',
+  'deliveryPhase',
+  'releaseReadyStatus',
+  'uatStatus',
   'startDate',
   'expectedEndDate',
   'dueDate',
@@ -79,6 +82,10 @@ function toProjectListCardItem(payload) {
     },
     progressPercent,
     health: p.health != null ? String(p.health) : null,
+    deliveryPhase: p.deliveryPhase != null ? String(p.deliveryPhase) : undefined,
+    releaseReadyStatus:
+      p.releaseReadyStatus != null ? String(p.releaseReadyStatus) : undefined,
+    uatStatus: p.uatStatus != null ? String(p.uatStatus) : undefined,
     pm: pmIn && pmIn.userId
       ? {
           userId: String(pmIn.userId),

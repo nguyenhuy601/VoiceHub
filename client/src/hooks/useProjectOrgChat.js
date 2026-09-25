@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { useOrgShell } from './queries/useOrgShell';
-import { useOrgChannelMessages } from './queries/useOrgChannelMessages';
+import {
+  removeOrgChannelMessageCache,
+  upsertOrgChannelMessageCache,
+  useOrgChannelMessages,
+} from './queries/useOrgChannelMessages';
 import api from '../services/api';
 import dmMessageService from '../services/dmMessageService';
 import {
@@ -68,6 +73,7 @@ export default function useProjectOrgChat({
 } = {}) {
   const { t } = useAppStrings();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { on, off, joinRoom, leaveRoom } = useSocket();
   const orgId = String(organizationId || '').trim();
   const filterPid = String(projectIdFilter || '').trim();
@@ -160,7 +166,11 @@ export default function useProjectOrgChat({
       ...prev,
       [sid]: { ...(prev[sid] || {}), ...patch },
     }));
-  }, []);
+    upsertOrgChannelMessageCache(queryClient, selectedChannelId, orgId, {
+      _id: sid,
+      ...patch,
+    });
+  }, [queryClient, selectedChannelId, orgId]);
 
   const appendLocal = useCallback((raw) => {
     const normalized = normalizeOrgChatMessage(raw?.data !== undefined ? unwrapData(raw) : raw);
@@ -170,7 +180,13 @@ export default function useProjectOrgChat({
       if (id && prev.some((m) => messageId(m) === id)) return prev;
       return [...prev, normalized];
     });
-  }, []);
+    upsertOrgChannelMessageCache(
+      queryClient,
+      normalized.roomId || selectedChannelId,
+      orgId,
+      normalized
+    );
+  }, [queryClient, selectedChannelId, orgId]);
 
   useEffect(() => {
     if (!selectedChannelId || !orgId || !joinRoom || !leaveRoom) return undefined;
@@ -443,7 +459,7 @@ export default function useProjectOrgChat({
           ? await dmMessageService.removeReaction(mid, emoji)
           : await dmMessageService.addReaction(mid, emoji);
         const updated = dmMessageService.unwrap(resp);
-        patchMessage(mid, updated);
+        patchMessage(mid, normalizeOrgChatMessage(updated) || updated);
       } catch {
         toast.error(t('friendChat.reactionFail'));
       }
@@ -482,6 +498,7 @@ export default function useProjectOrgChat({
       try {
         await api.delete(`/messages/${mid}`);
         setDeletedMessageIds((prev) => new Set([...prev, String(mid)]));
+        removeOrgChannelMessageCache(queryClient, selectedChannelId, orgId, mid);
         toast.success(t('organizations.msgDeleted'));
         return true;
       } catch {
@@ -489,7 +506,7 @@ export default function useProjectOrgChat({
         return false;
       }
     },
-    [t]
+    [t, queryClient, selectedChannelId, orgId]
   );
 
   const recallMessage = useCallback(
@@ -498,7 +515,7 @@ export default function useProjectOrgChat({
       try {
         const resp = await dmMessageService.recallMessage(mid);
         const updated = dmMessageService.unwrap(resp);
-        patchMessage(mid, updated);
+        patchMessage(mid, normalizeOrgChatMessage(updated) || updated);
         toast.success(t('friendChat.recallOk'));
         return true;
       } catch {

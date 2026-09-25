@@ -11,6 +11,7 @@ export const PROJECT_HUB_TABS = [
   { id: 'chat', labelKey: 'workspace.projectHubTabChat' },
   { id: 'timeline', labelKey: 'workspace.projectHubTabTimeline' },
   { id: 'changeRequests', labelKey: 'workspace.projectHubTabChangeRequests' },
+  { id: 'testCases', labelKey: 'workspace.phaseQaTestCasesTitle' },
   { id: 'members', labelKey: 'workspace.projectHubTabMembers' },
   { id: 'files', labelKey: 'workspace.projectHubTabFiles' },
   { id: 'activity', labelKey: 'workspace.projectHubTabActivity' },
@@ -67,7 +68,10 @@ export function computeHubBoardSummary(cards = [], lists = []) {
   const now = Date.now();
   for (const card of cards || []) {
     const list = listById.get(String(card.listId || card.list || ''));
-    const status = String(card.status || list?.statusKey || list?.title || '').toLowerCase();
+    // Board column SoT — stale card.status after drag must not keep % < 100.
+    const status = String(
+      list?.statusKey || list?.title || card.status || ''
+    ).toLowerCase();
     if (status.includes('done') || status.includes('complete') || status === 'done') done += 1;
     if (status.includes('review')) inReview += 1;
     const due = card.dueDate ? new Date(card.dueDate).getTime() : NaN;
@@ -79,9 +83,13 @@ export function computeHubBoardSummary(cards = [], lists = []) {
   return { total, done, donePercent, overdue, inReview };
 }
 
+/** Prefer list column over stale card.status (drag Done often leaves status=todo). */
 function hubCardStatusText(card, listById) {
   const list = listById.get(String(card?.listId || card?.list || ''));
-  return String(card?.status || list?.statusKey || list?.title || '').toLowerCase();
+  if (list) {
+    return String(list.statusKey || list.title || card?.status || '').toLowerCase();
+  }
+  return String(card?.status || '').toLowerCase();
 }
 
 function isHubCardDoneStatus(status) {
@@ -157,13 +165,22 @@ export function collectCardActivity(cards = [], limit = 20) {
 }
 
 function hubListById(lists = []) {
-  return new Map((lists || []).map((l) => [String(l._id), l]));
+  return new Map((lists || []).map((l) => [String(l._id || l.id), l]));
 }
 
 export function isHubCardOpen(card, listById) {
+  return !isHubCardDoneStatus(hubCardStatusText(card, listById));
+}
+
+/** Bucket todo/progress/done — ưu tiên cột Board khi có listId. */
+export function resolveHubCardStatusBucket(card, listsOrMap) {
+  const listById =
+    listsOrMap instanceof Map
+      ? listsOrMap
+      : new Map((listsOrMap || []).map((l) => [String(l._id || l.id), l]));
   const list = listById.get(String(card?.listId || card?.list || ''));
-  const status = String(card?.status || list?.statusKey || list?.title || '').toLowerCase();
-  return !(status.includes('done') || status.includes('complete') || status === 'done');
+  if (list) return classifyListStatusBucket(list);
+  return classifyListStatusBucket(card?.status);
 }
 
 /** Số thẻ đang mở chưa có assignee (Overview KPI optional). */
@@ -188,14 +205,29 @@ export function sumOpenCardEstimateHours(cards = [], lists = []) {
   }, 0);
 }
 
-/** i18n nhãn status project (planning, ready_for_planning, …). */
+/** i18n nhãn status project (draft, active, on_hold, closed + legacy coerce). */
 export function formatHubProjectStatus(status, t) {
   const raw = String(status || '').trim();
   if (!raw) return '';
   const norm = raw.toLowerCase().replace(/[\s-]+/g, '_');
-  const key = `workspace.projectHubProjectStatus_${norm}`;
+  const coerced =
+    norm === 'planning' || norm === 'ready_for_planning'
+      ? 'draft'
+      : norm === 'in_development'
+        ? 'active'
+        : norm === 'cancelled' ||
+            norm === 'canceled' ||
+            norm === 'completed' ||
+            norm === 'archived'
+          ? 'closed'
+          : norm;
+  const key = `workspace.projectHubProjectStatus_${coerced}`;
   const label = t(key);
-  return label === key ? raw : label;
+  if (label !== key) return label;
+  // Legacy keys kept for docs not yet migrated / dual-read
+  const legacyKey = `workspace.projectHubProjectStatus_${norm}`;
+  const legacyLabel = t(legacyKey);
+  return legacyLabel === legacyKey ? raw : legacyLabel;
 }
 
 /** i18n methodology (kanban / scrum / waterfall). */
@@ -245,7 +277,9 @@ function hubCardHasAssignee(card) {
 }
 
 function hubCardIsInReview(card, list) {
-  const status = String(card?.status || list?.statusKey || list?.title || '').toLowerCase();
+  const status = list
+    ? String(list.statusKey || list.title || '').toLowerCase()
+    : String(card?.status || '').toLowerCase();
   return status.includes('review');
 }
 
@@ -261,7 +295,7 @@ export function pickNextHubActions(cards = [], lists = [], { limit = 5, projectC
       const dueRaw = card.dueDate || card.targetDate || null;
       const dueTs = dueRaw ? new Date(dueRaw).getTime() : NaN;
       const hasDue = Number.isFinite(dueTs);
-      const dueTone = dueDateTone(dueRaw, card.status || list);
+      const dueTone = dueDateTone(dueRaw, list || card.status);
       const isInReview = hubCardIsInReview(card, list);
       const hasAssignee = hubCardHasAssignee(card);
       return {
@@ -282,17 +316,29 @@ export function pickNextHubActions(cards = [], lists = [], { limit = 5, projectC
 
   return ranked.slice(0, limit).map(({ card, list, dueRaw, dueTone, attentionRank }) => {
     const id = String(card._id || card.id);
+    const parentRaw = card?.parentTaskId;
+    const parentId =
+      parentRaw == null || parentRaw === ''
+        ? ''
+        : typeof parentRaw === 'object'
+          ? String(parentRaw._id || parentRaw.id || '').trim()
+          : String(parentRaw).trim();
+    const parentCard = parentId
+      ? (cards || []).find((c) => String(c._id || c.id) === parentId)
+      : null;
     return {
       id,
       title: String(card.title || ''),
       issueKey: displayIssueKey(projectCode, id),
       issueType: card.issueType || card.type || 'task',
       statusLabel: String(list?.title || card.status || list?.statusKey || '').trim(),
-      statusKey: String(card.status || list?.statusKey || '').trim(),
+      statusKey: String(list?.statusKey || card.status || '').trim(),
       assigneeName: hubCardAssigneeName(card),
       dueDate: dueRaw,
       dueTone,
       attentionRank,
+      isChild: Boolean(parentId),
+      parentTitle: String(parentCard?.title || '').trim(),
     };
   });
 }
@@ -710,7 +756,11 @@ export function mergeChangeRequestPatch(prev, saved, patch = {}, workCards = [])
   return next;
 }
 
-export const HUB_GRID_CELL_BORDER = 'border-r border-border';
+/** Soft cell chrome — padding only; row divider lives on the row. */
+export const HUB_GRID_CELL_BORDER = 'min-w-0 px-2 py-1.5';
+
+/** Soft padded cell (List/CR) — no vertical/horizontal cell grid. */
+export const HUB_GRID_CELL = 'min-w-0 px-2 py-1.5';
 
 /** Feature hiển thị như Story. */
 export function normalizeIssueType(type) {
@@ -926,11 +976,14 @@ export function listsForStatusSelect(lists = [], currentListId = '', transitions
 }
 
 export function countIssuesByStatusBucket(issues = [], lists = []) {
-  const listById = new Map((lists || []).map((l) => [String(l._id), l]));
+  const listById = new Map((lists || []).map((l) => [String(l._id || l.id), l]));
   const out = { todo: 0, progress: 0, done: 0 };
   for (const issue of issues || []) {
     const list = listById.get(String(issue.listId || issue.list || ''));
-    const bucket = classifyListStatusBucket(issue.status || list);
+    // Prefer board column over stale card.status (parity isWorkItemDone / isHubCardOpen).
+    const bucket = list
+      ? classifyListStatusBucket(list)
+      : classifyListStatusBucket(issue.status);
     out[bucket] += 1;
   }
   return out;
@@ -1662,7 +1715,9 @@ export function listOverviewChartSegmentCards({
   if (kind === 'status') {
     for (const card of cards || []) {
       const list = listById.get(String(card?.listId || card?.list || ''));
-      const bucket = classifyListStatusBucket(card?.status || list);
+      const bucket = list
+        ? classifyListStatusBucket(list)
+        : classifyListStatusBucket(card?.status);
       if (bucket !== key) continue;
       out.push(overviewChartCardRow(card, members));
     }

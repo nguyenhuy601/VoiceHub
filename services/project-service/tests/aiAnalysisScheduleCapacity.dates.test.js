@@ -1,5 +1,5 @@
 /**
- * Effort ≠ Duration — scheduleCapacity materializes startDate/dueDate.
+ * Effort ≠ Duration — scheduleCapacity materializes startDate/dueDate (APS + project helpers).
  */
 
 const { describe, it } = require('node:test');
@@ -7,19 +7,22 @@ const assert = require('node:assert/strict');
 const {
   packScheduleCapacity,
   applyScheduleCapacityToContainer,
-  buildExecutionPlanFromContainer,
   runScheduleCapacity,
-} = require('../src/utils/aiAnalysis/aiAnalysisScheduleCapacity');
+} = require('../../ai-project-planning-service/src/engines/scheduleCapacity');
+const {
+  buildExecutionPlanFromContainer,
+} = require('../../ai-project-planning-service/src/engines/projectPlan');
 const { mapBlueprintTasksToImportPlan } = require('../src/utils/aiAnalysis/aiAnalysisBlueprintImport');
 const { createEmptyAiAnalysisContainer } = require('../src/utils/aiAnalysis/aiAnalysisContainer');
+const { toDateKey, taskDatesFromSchedule } = require('../src/utils/aiAnalysis/scheduleDateKeys');
 
-describe('aiAnalysisScheduleCapacity dates (effort → calendar)', () => {
+describe('scheduleCapacity dates (effort → calendar)', () => {
   it('12h effort @ full 8h/day spans 2 weekdays', () => {
     const { schedule, taskDates, completion } = packScheduleCapacity({
       tasks: [{ id: 'T1', effortHours: 12 }],
       edges: [],
       assignments: [{ taskId: 'T1', userId: 'u1' }],
-      projectStart: '2026-09-07', // Monday
+      projectStart: '2026-09-07',
     });
 
     assert.equal(taskDates.T1.startDate, '2026-09-07');
@@ -88,6 +91,7 @@ describe('aiAnalysisScheduleCapacity dates (effort → calendar)', () => {
     assert.equal(t1.dueDate, '2026-09-08');
     assert.equal(t2.startDate, null);
     assert.equal(t2.dueDate, null);
+    assert.ok(Array.isArray(next.resource.capacityConflicts));
   });
 
   it('buildExecutionPlanFromContainer works include startDate/dueDate', () => {
@@ -111,7 +115,17 @@ describe('aiAnalysisScheduleCapacity dates (effort → calendar)', () => {
     const plan = buildExecutionPlanFromContainer(container);
     assert.equal(plan.works.length, 1);
     assert.equal(plan.works[0].startDate, '2026-09-07');
-    assert.equal(plan.works[0].dueDate, '2026-09-08');
+    assert.equal(plan.works[0].endDate, '2026-09-08');
+  });
+
+  it('scheduleDateKeys helpers derive keys for blueprint import', () => {
+    assert.equal(toDateKey('2026-09-07T00:00:00.000Z'), '2026-09-07');
+    const dates = taskDatesFromSchedule([
+      { taskId: 'T2', dateKey: '2026-09-09', hours: 4 },
+      { taskId: 'T2', dateKey: '2026-09-10', hours: 4 },
+    ]);
+    assert.equal(dates.T2.startDate, '2026-09-09');
+    assert.equal(dates.T2.dueDate, '2026-09-10');
   });
 
   it('mapBlueprintTasksToImportPlan maps startDate/dueDate onto rows', () => {

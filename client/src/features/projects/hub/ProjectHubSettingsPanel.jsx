@@ -32,12 +32,7 @@ import {
 import { ensureProjectHubRoleCatalog } from './useProjectHubQueries';
 
 /** Status DA có thể sửa trên Hub Settings — không gồm closed (dùng luồng Complete). */
-const PROFILE_EDITABLE_STATUSES = Object.freeze([
-  'planning',
-  'ready_for_planning',
-  'in_development',
-  'on_hold',
-]);
+const PROFILE_EDITABLE_STATUSES = Object.freeze(['draft', 'active', 'on_hold']);
 
 const SPRINT_WEEKDAYS = Object.freeze([
   'monday',
@@ -180,6 +175,7 @@ export default function ProjectHubSettingsPanel({
   canArchiveProject = false,
   canArchiveWithoutComplete = false,
   isProjectCompleted = false,
+  isDraftProject = false,
   projectStillActive = true,
   onRequestArchive = null,
   isDarkMode = false,
@@ -204,7 +200,7 @@ export default function ProjectHubSettingsPanel({
   const [projectType, setProjectType] = useState('software');
   const [category, setCategory] = useState('internal');
   const [projectPriority, setProjectPriority] = useState('medium');
-  const [projectStatus, setProjectStatus] = useState('ready_for_planning');
+  const [projectStatus, setProjectStatus] = useState('draft');
   const [tagsInput, setTagsInput] = useState('');
   const [estimatedDurationDays, setEstimatedDurationDays] = useState('');
   const [workingCalendar, setWorkingCalendar] = useState('standard');
@@ -300,10 +296,14 @@ export default function ProjectHubSettingsPanel({
     setCategory(PROJECT_CATEGORIES.includes(nextCategory) ? nextCategory : 'internal');
     const nextPriority = String(src.priority || 'medium').trim().toLowerCase();
     setProjectPriority(PROJECT_PRIORITIES.includes(nextPriority) ? nextPriority : 'medium');
-    const nextStatus = String(src.status || 'ready_for_planning').trim().toLowerCase();
-    setProjectStatus(
-      PROFILE_EDITABLE_STATUSES.includes(nextStatus) ? nextStatus : 'ready_for_planning'
-    );
+    const nextStatus = String(src.status || 'draft').trim().toLowerCase();
+    const coerced =
+      nextStatus === 'planning' || nextStatus === 'ready_for_planning'
+        ? 'draft'
+        : nextStatus === 'in_development'
+          ? 'active'
+          : nextStatus;
+    setProjectStatus(PROFILE_EDITABLE_STATUSES.includes(coerced) ? coerced : 'draft');
     setTagsInput(tagsToInputValue(src.tags));
     const duration = src.estimatedDurationDays;
     setEstimatedDurationDays(
@@ -1383,12 +1383,21 @@ export default function ProjectHubSettingsPanel({
               id="project-hub-settings-danger-title"
               className={`text-sm font-bold ${titleCls}`}
             >
-              {t('workspace.projectHubSettingsDangerTitle')}
+              {isDraftProject
+                ? t('workspace.projectHubSettingsDangerDraftTitle')
+                : t('workspace.projectHubSettingsDangerTitle')}
             </h4>
             <p className={`mt-1 text-xs leading-relaxed ${muted}`}>
-              {t('workspace.projectHubSettingsDangerHint')}
+              {isDraftProject
+                ? t('workspace.projectHubSettingsDangerDraftHint')
+                : t('workspace.projectHubSettingsDangerHint')}
             </p>
-            {!canArchiveNow && !isProjectCompleted && !canArchiveWithoutComplete ? (
+            {!canArchiveNow && isDraftProject && !canArchiveWithoutComplete ? (
+              <p className="mt-2 text-xs text-muted-foreground" role="status">
+                {t('workspace.projectHubSettingsDeleteDraftNeedPerm')}
+              </p>
+            ) : null}
+            {!canArchiveNow && !isDraftProject && !isProjectCompleted && !canArchiveWithoutComplete ? (
               <p className="mt-2 text-xs text-muted-foreground" role="status">
                 {t('workspace.projectHubSettingsArchiveNeedComplete')}
               </p>
@@ -1399,7 +1408,9 @@ export default function ProjectHubSettingsPanel({
               onClick={() => onRequestArchive?.()}
               className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {t('workspace.projectHubArchiveProject')}
+              {isDraftProject
+                ? t('workspace.projectHubDeleteDraft')
+                : t('workspace.projectHubArchiveProject')}
             </button>
           </section>
         ) : null}

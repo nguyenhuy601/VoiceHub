@@ -1,7 +1,5 @@
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
-const { uploadsDir } = require('../config/uploadsPath');
 
 const ALLOWED_EXTENSIONS = new Set([
   '.jpg',
@@ -40,20 +38,6 @@ function resolveExtension(file) {
   return '';
 }
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-    cb(null, uploadsDir);
-  },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    const ext = resolveExtension(file) || '.jpg';
-    cb(null, `avatar-${uniqueSuffix}${ext}`);
-  },
-});
-
 const fileFilter = (_req, file, cb) => {
   const ext = resolveExtension(file);
   const mime = String(file.mimetype || '').toLowerCase();
@@ -69,9 +53,11 @@ const fileFilter = (_req, file, cb) => {
 };
 
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter,
 });
 
 module.exports = upload;
+module.exports.resolveExtension = resolveExtension;
+module.exports.MIME_TO_EXT = MIME_TO_EXT;

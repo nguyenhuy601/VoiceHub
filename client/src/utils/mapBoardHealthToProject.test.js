@@ -5,8 +5,11 @@ import {
   buildBoardIdToProjectIndex,
   enrichBoardHealthList,
   enrichBoardHealthRow,
+  enrichOverdueItems,
+  isRedundantBoardHealthName,
   projectRefFromBoardDetailPayload,
   resolveBoardHealthProject,
+  resolveOverdueScopeLabel,
 } from './mapBoardHealthToProject.js';
 
 describe('mapBoardHealthToProject', () => {
@@ -130,5 +133,63 @@ describe('mapBoardHealthToProject', () => {
     assert.equal(enriched.projectId, 'projFromBe');
     assert.equal(enriched.projectTitle, 'Sales AR Q4');
     assert.equal(enriched.projectCode, 'SALES-AR');
+  });
+
+  it('enrichOverdueItems maps project title; resolveOverdueScopeLabel hides Main', () => {
+    const out = enrichOverdueItems(
+      [
+        {
+          id: 't1',
+          title: '[OV-DEMO] Review',
+          boardId: 'boardA',
+          boardName: 'Main',
+          projectTitle: '',
+        },
+        {
+          id: 't2',
+          title: 'Other',
+          boardId: 'unknown',
+          boardName: 'Main',
+        },
+      ],
+      [],
+      projects
+    );
+    assert.equal(out[0].projectTitle, 'Sales AR Q4');
+    assert.equal(out[0].projectId, 'projA');
+    assert.equal(resolveOverdueScopeLabel(out[0]), 'Sales AR Q4');
+    assert.equal(resolveOverdueScopeLabel(out[1]), '');
+    assert.equal(resolveOverdueScopeLabel({ boardName: 'Main' }), '');
+    assert.equal(resolveOverdueScopeLabel({ boardName: 'Sprint Board' }), 'Sprint Board');
+  });
+
+  it('isRedundantBoardHealthName: Main and projectCode are redundant', () => {
+    assert.equal(isRedundantBoardHealthName('Main'), true);
+    assert.equal(isRedundantBoardHealthName('SM', { projectCode: 'SM' }), true);
+    assert.equal(isRedundantBoardHealthName('sm', { projectCode: 'SM' }), true);
+    assert.equal(
+      isRedundantBoardHealthName('Sales AR Q4', { projectTitle: 'Sales AR Q4' }),
+      true
+    );
+    assert.equal(isRedundantBoardHealthName('Sprint Board', { projectCode: 'SM' }), false);
+  });
+
+  it('resolveOverdueScopeLabel prefers title/code over board abbr', () => {
+    assert.equal(
+      resolveOverdueScopeLabel({
+        projectTitle: 'Sales AR Q4',
+        projectCode: 'SALES-AR',
+        boardName: 'SALES-AR',
+      }),
+      'Sales AR Q4'
+    );
+    assert.equal(
+      resolveOverdueScopeLabel({
+        projectTitle: '',
+        projectCode: 'SALES-AR',
+        boardName: 'SALES-AR',
+      }),
+      'SALES-AR'
+    );
   });
 });

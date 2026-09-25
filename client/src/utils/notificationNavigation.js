@@ -10,10 +10,10 @@ import {
  * Normalize legacy in-app paths (collaborate → dual suite, /voice → communicate).
  * @param {string} pathname
  * @param {string} [search]
- * @returns {string}
+ * @returns {string | null}
  */
 export function normalizeLegacyAppPath(pathname, search = '') {
-  const path = String(pathname || '').replace(/\/+/g, '/');
+  let path = String(pathname || '').replace(/\/+/g, '/').trim();
   const qsRaw = typeof search === 'string' ? search.replace(/^\?/, '') : '';
   const qs = qsRaw ? `?${qsRaw}` : '';
 

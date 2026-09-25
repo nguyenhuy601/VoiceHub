@@ -29,6 +29,16 @@ export function isProjectCompletedStatus(status) {
   return st === 'closed' || st === 'completed' || st === 'cancelled' || st === 'canceled' || st === 'archived';
 }
 
+/** True when lifecycle status is draft (incl. legacy planning / ready_for_planning). */
+export function isProjectDraftStatus(status) {
+  const st = String(status || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  if (!st) return false;
+  return st === 'draft' || st === 'planning' || st === 'ready_for_planning';
+}
+
 function applyReadOnly(caps, readOnly) {
   if (!readOnly) return { ...caps, readOnly: false };
   return {
@@ -139,6 +149,9 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
         canArchiveProject: flagOrPerm(caps, 'canManageBoard', ['project:archive', 'project:delete']),
         canArchiveWithoutComplete: permissions.includes('project:delete'),
         canChangeDeliveryPhase: flagOrPerm(caps, 'canChangeDeliveryPhase', ['delivery_phase:change']),
+        canSignOffUat: flagOrPerm(caps, 'canSignOffUat', ['uat:sign_off']),
+        // SoD: chỉ tin flag BE (role matrix) — không suy từ permissions dump (creator/admin).
+        canAcceptHandover: caps?.canAcceptHandover === true,
         allowedIssueTypes: allowedIssueTypesFromCaps(caps),
         permissions,
       },
@@ -180,6 +193,8 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
       canArchiveProject: fallback,
       canArchiveWithoutComplete: fallback,
       canChangeDeliveryPhase: fallback,
+      canSignOffUat: fallback,
+      canAcceptHandover: false,
       allowedIssueTypes: fallback ? ['story', 'task', 'bug'] : [],
       permissions: [],
     },

@@ -83,6 +83,22 @@ async function transitionArtifact(req, res) {
   }
 }
 
+async function bulkTransitionArtifacts(req, res) {
+  try {
+    const data = await deliveryPlanningService.bulkTransitionArtifacts({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      fromStatus: req.body?.fromStatus,
+      toStatus: req.body?.toStatus || req.body?.status,
+      note: req.body?.note,
+      kind: req.body?.kind || req.query?.kind,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
 async function listBaselines(req, res) {
   try {
     const data = await deliveryPlanningService.listBaselines({
@@ -126,8 +142,81 @@ async function suggest(req, res) {
       userId: getUserId(req),
       projectId: req.params.projectId,
       kind: req.body?.kind || req.query.kind,
+      view: req.body?.view || req.query.view,
     });
     return res.json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function confirmSuggestions(req, res) {
+  try {
+    const data = await deliveryPlanningService.confirmSuggestions({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      suggestions: req.body?.suggestions || [],
+      kind: req.body?.kind || req.query.kind,
+      view: req.body?.view || req.query.view,
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function forkArtifact(req, res) {
+  try {
+    const data = await deliveryPlanningService.forkArtifactVersion({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      artifactId: req.params.artifactId,
+      note: req.body?.note,
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function bulkDump(req, res) {
+  try {
+    const data = await deliveryPlanningService.bulkDumpArtifacts({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      body: req.body || {},
+    });
+    const dryRun =
+      req.body?.dryRun === true ||
+      req.body?.dryRun === 'true' ||
+      req.body?.dryRun === 1 ||
+      req.body?.dryRun === '1';
+    return res.status(dryRun ? 200 : 201).json({ success: true, data });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+async function dumpTemplate(req, res) {
+  try {
+    const seedFromRa =
+      req.query.seedFromRa === '1' ||
+      req.query.seedFromRa === 'true' ||
+      req.query.seedFromRa === true;
+    const buf = await deliveryPlanningService.buildDumpWorkbookTemplate({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      seedFromRa,
+    });
+    const filename = seedFromRa
+      ? 'planning-workbook-seed-ra.xlsx'
+      : 'planning-workbook-template.xlsx';
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(buf);
   } catch (err) {
     return handleError(res, err);
   }
@@ -151,9 +240,14 @@ module.exports = {
   createArtifact,
   updateArtifact,
   transitionArtifact,
+  bulkTransitionArtifacts,
   listBaselines,
   cutBaseline,
   getSummary,
   suggest,
+  confirmSuggestions,
+  forkArtifact,
+  bulkDump,
+  dumpTemplate,
   publishWbs,
 };

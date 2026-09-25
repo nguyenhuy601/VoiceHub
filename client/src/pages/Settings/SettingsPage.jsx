@@ -19,10 +19,8 @@ import SettingsFigmaLayout from '../../components/Settings/SettingsFigmaLayout';
 import useUiRole from '../../hooks/useUiRole';
 import { settingsTabsForRole } from '../../config/roleMeta';
 import SettingsRbacMatrix from '../../components/Settings/SettingsRbacMatrix';
-import SettingsActiveSessions from '../../components/Settings/SettingsActiveSessions';
 import SettingsApiKeysPanel from '../../components/Settings/SettingsApiKeysPanel';
 import CapabilityProfilePanel from '../../components/Settings/CapabilityProfilePanel';
-import ProfileOverviewPanel from '../../components/Settings/ProfileOverviewPanel';
 import { FIGMA_SETTINGS_CARD, FIGMA_SETTINGS_INPUT } from '../../components/Settings/figmaSettingsClasses';
 import { hasBackendCapability } from '../../config/backendCapabilities';
 import { useOrganizationsMy } from '../../hooks/queries/useOrganizationsMy';
@@ -32,14 +30,6 @@ import { queryKeys } from '../../lib/queryKeys';
 
 const isValidMongoObjectId = (s) =>
   typeof s === 'string' && /^[a-fA-F0-9]{24}$/.test(s);
-
-const SECURITY_LABEL_KEYS = {
-  '2fa': 'sec2fa',
-  'strong-password': 'secStrongPwd',
-  'auto-logout': 'secAutoLogout',
-  'block-unknown-ip': 'secBlockIp',
-  'new-device-email': 'secNewDevice',
-};
 
 const NOTIF_LABEL_KEYS = {
   'new-message': 'notifNewMsg',
@@ -75,30 +65,9 @@ function SettingsPage() {
   useEffect(() => {
     const tab = String(searchParams.get('tab') || '').trim();
     if (tab === 'capability') setFigmaTab('capability');
-    if (tab === 'overview') setFigmaTab('overview');
+    // Legacy tabs đã ẩn khỏi sidebar Cài đặt
+    if (tab === 'overview' || tab === 'security') setFigmaTab('profile');
   }, [searchParams]);
-  const [sessions, setSessions] = useState([]);
-  useEffect(() => {
-    setSessions([
-      {
-        id: '1',
-        device: 'Chrome · Windows',
-        location: 'TP.HCM, VN',
-        lastSeen: t('settingsPage.sessionActive'),
-        ip: '203.162.xx.xx',
-        current: true,
-      },
-      {
-        id: '2',
-        device: 'Safari · iPhone',
-        location: 'Ha Noi, VN',
-        lastSeen: t('settingsPage.timeHourAgo', { n: 2 }),
-        ip: '113.160.xx.xx',
-        current: false,
-      },
-    ]);
-  }, [t]);
-
   const [apiKeyDeleteConfirm, setApiKeyDeleteConfirm] = useState(null);
   const [roleDeleteConfirm, setRoleDeleteConfirm] = useState(null);
   const [userRole, setUserRole] = useState('admin'); // 'admin', 'manager', 'user'
@@ -122,13 +91,6 @@ function SettingsPage() {
     { id: 'gdrive', name: 'Google Drive', icon: '📁', connected: false, color: 'from-blue-500 to-cyan-500' },
     { id: 'github', name: 'GitHub', icon: '🐙', connected: true, color: 'from-green-500 to-emerald-500' },
     { id: 'jira', name: 'Jira', icon: '📊', connected: false, color: 'from-orange-500 to-yellow-500' },
-  ]);
-  const [securitySettings, setSecuritySettings] = useState([
-    { id: '2fa', checked: true },
-    { id: 'strong-password', checked: true },
-    { id: 'auto-logout', checked: false },
-    { id: 'block-unknown-ip', checked: false },
-    { id: 'new-device-email', checked: true },
   ]);
   const [notificationSettings, setNotificationSettings] = useState([
     { id: 'new-message', checked: true },
@@ -341,10 +303,6 @@ function SettingsPage() {
   }, [integrations]);
 
   useEffect(() => {
-    localStorage.setItem('settings:security', JSON.stringify(securitySettings));
-  }, [securitySettings]);
-
-  useEffect(() => {
     localStorage.setItem('settings:notifications', JSON.stringify(notificationSettings));
   }, [notificationSettings]);
 
@@ -424,16 +382,6 @@ function SettingsPage() {
     toast.success(t('settingsPage.toastDeleteKey'));
   };
 
-  const handleRevokeSession = (sessionId) => {
-    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-    toast.success(t('settingsPage.toastRevokeSession'));
-  };
-
-  const handleRevokeAllOtherSessions = () => {
-    setSessions((prev) => prev.filter((s) => s.current));
-    toast.success(t('settingsPage.toastRevokeAllSessions'));
-  };
-
   const handleCreateApiKey = () => {
     const id = `k${Date.now()}`;
     const keyValue = `vh_${id}_${Math.random().toString(36).slice(2, 10)}`;
@@ -453,12 +401,6 @@ function SettingsPage() {
   const handleToggleIntegration = (integrationId) => {
     setIntegrations((prev) => prev.map((item) => (
       item.id === integrationId ? { ...item, connected: !item.connected } : item
-    )));
-  };
-
-  const handleToggleSecuritySetting = (settingId) => {
-    setSecuritySettings((prev) => prev.map((item) => (
-      item.id === settingId ? { ...item, checked: !item.checked } : item
     )));
   };
 
@@ -751,40 +693,7 @@ function SettingsPage() {
         </div>
       )}
 
-      {figmaTab === 'overview' && (
-        <ProfileOverviewPanel onEditCapability={() => setFigmaTab('capability')} />
-      )}
-
       {figmaTab === 'capability' && <CapabilityProfilePanel />}
-
-      {figmaTab === 'security' && (
-        <div className="max-w-xl space-y-5">
-          <div>
-            <h2 className="mb-1 font-display text-xl font-bold text-foreground">{t('settingsPage.tabSecurity')}</h2>
-            <p className="text-sm text-muted-foreground">{t('settingsPage.securityPolicyTitle')}</p>
-          </div>
-          <div className={`${FIGMA_SETTINGS_CARD} space-y-3`}>
-            {securitySettings.map((setting) => (
-              <label key={setting.id} className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background p-3">
-                <span className="text-sm text-foreground">
-                  {t(`settingsPage.${SECURITY_LABEL_KEYS[setting.id]}`)}
-                </span>
-                <input
-                  type="checkbox"
-                  checked={setting.checked}
-                  onChange={() => handleToggleSecuritySetting(setting.id)}
-                  className="h-5 w-5 rounded"
-                />
-              </label>
-            ))}
-          </div>
-          <SettingsActiveSessions
-            sessions={sessions}
-            onRevokeSession={handleRevokeSession}
-            onRevokeAllOthers={handleRevokeAllOtherSessions}
-          />
-        </div>
-      )}
 
       {figmaTab === 'notifications' && (
         <div className="max-w-xl space-y-5">

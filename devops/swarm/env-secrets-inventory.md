@@ -34,8 +34,8 @@ Output overlay: `devops/swarm/.env` (gitignored). Stack vẫn đọc root `.env`
 - `PADDLEOCR_BASE_URL`
 - `LLM_PROVIDER`
 
-## Webhook
-- `WEBHOOK_SECRET`
+## Notification (S2S)
+- `NOTIFICATION_INTERNAL_TOKEN`
 - `NOTIFICATION_SERVICE_URL`
 
 ## Swarm secret recommendation

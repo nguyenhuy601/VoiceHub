@@ -17,7 +17,7 @@ Urgent production hotfix.
 ## Related Rules
 
 - `.cursor/rules/clean-code.mdc`
-- `.cursor/rules/role-solution-architect.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `researcher`)
 
 ## Input
 

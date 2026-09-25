@@ -41,6 +41,8 @@ const PACK_WIZARD_SELECT = [
   'approvedAt',
   'overview',
   'planningReadiness',
+  'aiAnalysisActiveSnapshotId',
+  'aiAnalysisSnapshotMeta',
 ].join(' ');
 
 function hasStoredReadiness(row) {
@@ -193,6 +195,8 @@ function toRequirementPackWizardItem(row) {
       sourcePackVersion: null,
     },
     planningReadiness: readiness,
+    aiAnalysisActiveSnapshotId: row.aiAnalysisActiveSnapshotId || null,
+    aiAnalysisSnapshotMeta: row.aiAnalysisSnapshotMeta || null,
   };
 }
 

@@ -16,7 +16,7 @@ After code ships with no AC request.
 
 ## Related Rules
 
-- `.cursor/rules/role-qa.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `reviewer`)
 
 ## Input
 

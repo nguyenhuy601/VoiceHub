@@ -3,7 +3,10 @@ const assert = require('node:assert/strict');
 
 const {
   canTransitionArtifactStatus,
+  canResubmitFromChangesRequested,
   permissionForArtifactTransition,
+  isArtifactContentEditableStatus,
+  isReviewNoteRequired,
   normalizeArtifactKind,
   ARTIFACT_STATUS_TRANSITIONS,
 } = require('../src/constants/analysisArtifact');
@@ -27,6 +30,33 @@ describe('analysisArtifactLifecycle', () => {
     assert.equal(canTransitionArtifactStatus('po_review', 'approved'), true);
     assert.equal(canTransitionArtifactStatus('approved', 'draft'), false);
     assert.deepEqual(ARTIFACT_STATUS_TRANSITIONS.approved, []);
+  });
+
+  it('supports changes_requested without returning to draft', () => {
+    assert.equal(canTransitionArtifactStatus('tech_review', 'changes_requested'), true);
+    assert.equal(canTransitionArtifactStatus('po_review', 'changes_requested'), true);
+    assert.equal(canTransitionArtifactStatus('rejected', 'draft'), false);
+    assert.deepEqual(ARTIFACT_STATUS_TRANSITIONS.rejected, []);
+    assert.equal(canTransitionArtifactStatus('changes_requested', 'tech_review'), true);
+  });
+
+  it('resubmit only to the gate that requested changes', () => {
+    assert.equal(canResubmitFromChangesRequested('changes_requested', 'tech_review', 'tech_review'), true);
+    assert.equal(canResubmitFromChangesRequested('changes_requested', 'po_review', 'tech_review'), false);
+    assert.equal(canResubmitFromChangesRequested('changes_requested', 'tech_review', ''), true);
+  });
+
+  it('requires note for changes_requested and rejected', () => {
+    assert.equal(isReviewNoteRequired('changes_requested'), true);
+    assert.equal(isReviewNoteRequired('rejected'), true);
+    assert.equal(isReviewNoteRequired('approved'), false);
+  });
+
+  it('content editable only draft and changes_requested', () => {
+    assert.equal(isArtifactContentEditableStatus('draft'), true);
+    assert.equal(isArtifactContentEditableStatus('changes_requested'), true);
+    assert.equal(isArtifactContentEditableStatus('rejected'), false);
+    assert.equal(isArtifactContentEditableStatus('ba_review'), false);
   });
 
   it('maps transitions to analysis permissions', () => {
@@ -63,17 +93,40 @@ describe('analysis permission matrix by projectRole', () => {
     assert.equal(hasPermission(perms, 'delivery_phase:change'), false);
   });
 
-  it('PO can po_review and cut_srs', () => {
+  it('PO can po_review and cut_srs — không upload Raw/Analysis', () => {
     const perms = defaultPermissionsForRoleKey('product_owner');
     assert.equal(hasPermission(perms, 'analysis:po_review'), true);
     assert.equal(hasPermission(perms, 'analysis:cut_srs'), true);
     assert.equal(hasPermission(perms, 'analysis:tech_review'), false);
+    assert.equal(hasPermission(perms, 'analysis:document_upload'), false);
+    assert.equal(hasPermission(perms, 'analysis:artifact_import'), false);
+    assert.equal(hasPermission(perms, 'analysis:artifact_edit'), true);
   });
 
-  it('PM can change delivery phase', () => {
+  it('PM can change delivery phase — không upload Raw/Analysis; không đứng cổng PO', () => {
     const perms = defaultPermissionsForRoleKey('project_manager');
     assert.equal(hasPermission(perms, 'delivery_phase:change'), true);
     assert.equal(hasPermission(perms, 'analysis:cut_srs'), true);
+    assert.equal(hasPermission(perms, 'analysis:po_review'), false);
+    assert.equal(hasPermission(perms, 'analysis:document_upload'), false);
+    assert.equal(hasPermission(perms, 'analysis:artifact_import'), false);
+  });
+
+  it('matrixPermissionsFromRoleKeys ignores stale doc import perms on PM/PO', () => {
+    const {
+      matrixPermissionsFromRoleKeys,
+      unionPermissionsFromRoles,
+    } = require('../src/utils/project/projectPermissionMatrix');
+    const stalePm = {
+      key: 'project_manager',
+      permissions: ['analysis:document_upload', 'analysis:artifact_import', 'analysis:ba_review'],
+    };
+    const matrixOnly = matrixPermissionsFromRoleKeys([stalePm]);
+    assert.equal(hasPermission(matrixOnly, 'analysis:document_upload'), false);
+    assert.equal(hasPermission(matrixOnly, 'analysis:artifact_import'), false);
+    // union still additive (legacy) — nên import gate KHÔNG dùng union
+    const unioned = unionPermissionsFromRoles([stalePm]);
+    assert.equal(hasPermission(unioned, 'analysis:document_upload'), true);
   });
 
   it('Tech lead can tech_review', () => {

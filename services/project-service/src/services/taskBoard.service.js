@@ -18,7 +18,7 @@ const {
 } = require('./taskWorkspaceScope');
 const { canAssignOwnerTeam, normalizeOwnerTeamId } = require('./ownerTeamId');
 const { emitTeamChannelProvisionIfNeeded } = require('../utils/project/projectTeamChannelProvision');
-const { isDoneListTitle, buildBoardCapabilities } = require('./boardCapabilities');
+const { isDoneListTitle, isReadyForQaListTitle, buildBoardCapabilities } = require('./boardCapabilities');
 const { assertProjectWritable } = require('../utils/project/projectCloseGate');
 const { assertCanSetCardAssignee } = require('./goldenAssignPolicy');
 const {
@@ -90,6 +90,79 @@ function oidToStr(v) {
   if (v == null || v === '') return null;
   if (typeof v === 'object' && v._id) return String(v._id);
   return String(v);
+}
+
+function doneMoveDenied() {
+  const err = new Error('Chỉ QA/PM/TL mới được kéo thẻ sang cột Done');
+  err.statusCode = 403;
+  err.errorCode = 'PROJECT_ACCESS_DENIED';
+  return err;
+}
+
+function readyToDoneNotReady(evaluation) {
+  const reason = String(evaluation?.reason || 'not_ready');
+  const err = new Error(
+    reason === 'no_active_test_cases'
+      ? 'Chưa gắn test case — Pass hết TC rồi Confirm Done (không kéo Done)'
+      : `Chưa sẵn sàng Done (${reason}) — Pass hết TC và đóng bug, rồi Confirm Done`
+  );
+  err.statusCode = 409;
+  err.errorCode = 'READY_TO_DONE_NOT_READY';
+  err.details = evaluation || null;
+  return err;
+}
+
+/**
+ * Ensure board has a Ready for QA column (between In Progress and Done when possible).
+ * Additive for boards created before DEFAULT_LIST_TITLES included QA.
+ */
+async function ensureReadyForQaList(boardOid) {
+  if (!boardOid) return;
+  const existing = await TaskBoardList.find({ boardId: boardOid, isArchived: false })
+    .select('_id title statusKey order')
+    .sort({ order: 1, createdAt: 1 })
+    .lean();
+  const hasQa = existing.some(
+    (l) =>
+      isReadyForQaListTitle(l.title) ||
+      String(l.statusKey || '')
+        .trim()
+        .toLowerCase() === 'qa'
+  );
+  if (hasQa) return;
+
+  const doneIdx = existing.findIndex(
+    (l) =>
+      isDoneListTitle(l.title) ||
+      ['done', 'completed'].includes(
+        String(l.statusKey || '')
+          .trim()
+          .toLowerCase()
+      )
+  );
+  let order;
+  if (doneIdx >= 0) {
+    const doneOrder = Number(existing[doneIdx].order) || (doneIdx + 1) * 1000;
+    const prevOrder =
+      doneIdx > 0
+        ? Number(existing[doneIdx - 1].order) || doneOrder - 1000
+        : doneOrder - 1000;
+    order = Math.floor((prevOrder + doneOrder) / 2);
+    if (!Number.isFinite(order) || order >= doneOrder || order <= prevOrder) {
+      order = doneOrder - 500;
+    }
+  } else {
+    order = (existing.length + 1) * 1000;
+  }
+
+  await TaskBoardList.create({
+    boardId: boardOid,
+    title: 'Ready for QA',
+    statusKey: 'qa',
+    order,
+    isArchived: false,
+    isDefault: false,
+  });
 }
 
 /** Gắn subtasks[] trên card cha từ cùng list (không N+1). */
@@ -842,6 +915,10 @@ async function getBoardDetailScopedCards({ userId, board, boardOid, epicId, feat
     'createdAt',
     'updatedAt',
     'changeRequestIds',
+    'fixSuggestion',
+    'retestStatus',
+    'sourceTestCaseId',
+    'qaReworkNote',
   ].join(' ');
 
   const cards = await Task.find(cardFilter)
@@ -937,6 +1014,9 @@ async function getBoardDetailScopedCards({ userId, board, boardOid, epicId, feat
     epicId: c.epicId || null,
     featureId: c.featureId || null,
     issueType: normalizeIssueType(c.issueType),
+    sourceWbsArtifactId: c.sourceWbsArtifactId ? String(c.sourceWbsArtifactId) : null,
+    sourceFrKey: c.sourceFrKey || '',
+    sourceUcKey: c.sourceUcKey || '',
     projectId: c.projectId || board.projectId || null,
     sprintId: c.sprintId || null,
     status: c.status,
@@ -948,6 +1028,7 @@ async function getBoardDetailScopedCards({ userId, board, boardOid, epicId, feat
       ? c.changeRequestIds.map((id) => String(id))
       : [],
     comments: [],
+    qaReworkNote: String(c.qaReworkNote || '').trim(),
   }));
 
   const changeRequestService = require('./changeRequest.service');
@@ -986,6 +1067,7 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
 
   // Board cũ: bỏ cờ isDefault (không còn list hệ thống bảo vệ)
   await TaskBoardList.updateMany({ boardId: boardOid, isDefault: true }, { $set: { isDefault: false } });
+  await ensureReadyForQaList(boardOid);
   const lists = await fetchActiveLists(boardOid);
   const listIds = lists.map((l) => l._id);
   const userOid = toOid(userId);
@@ -1224,6 +1306,9 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
     epicId: c.epicId || null,
     featureId: c.featureId || null,
     issueType: normalizeIssueType(c.issueType),
+    sourceWbsArtifactId: c.sourceWbsArtifactId ? String(c.sourceWbsArtifactId) : null,
+    sourceFrKey: c.sourceFrKey || '',
+    sourceUcKey: c.sourceUcKey || '',
     projectId: c.projectId || board.projectId || null,
     sprintId: c.sprintId || null,
     status: c.status,
@@ -1241,6 +1326,7 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
           createdAt: cm.createdAt,
         }))
       : [],
+    qaReworkNote: String(c.qaReworkNote || '').trim(),
   }));
 
   const featureCards = featureItems.map((f, idx) => {
@@ -1384,6 +1470,9 @@ async function createCard({
   startDate,
   hoursOverride,
   hoursRationale,
+  sourceWbsArtifactId,
+  sourceFrKey,
+  sourceUcKey,
 }) {
   const board = await ensureBoardCreateCards(boardId, userId);
   if (!board) {
@@ -1526,6 +1615,9 @@ async function createCard({
     featureId: featureOid,
     issueType: normalizedIssueType,
     sprintId: sprintId || null,
+    sourceWbsArtifactId: sourceWbsArtifactId || null,
+    sourceFrKey: String(sourceFrKey || '').trim().slice(0, 120),
+    sourceUcKey: String(sourceUcKey || '').trim().slice(0, 120),
     attachments: Array.isArray(attachments)
       ? attachments
           .map((a) => ({
@@ -1675,7 +1767,7 @@ async function movePlanningFeatureCard({ userId, cardId, toListId, position, ind
 
   const movingToDone = isDoneListTitle(list.title);
   if (movingToDone && !caps.canMoveToDone) {
-    throw new Error('Chỉ PM/TL/Admin mới được kéo thẻ sang cột Xong (duyệt)');
+    throw doneMoveDenied();
   }
 
   const isAssignee = feature.assigneeId && String(feature.assigneeId) === String(userId);
@@ -1760,9 +1852,27 @@ async function moveTaskCard({ userId, card, cardId, toListId, position, index, o
   const list = await TaskBoardList.findOne({ _id: targetListId, boardId: board._id, isArchived: false }).lean();
   if (!list) throw new Error('List đích không hợp lệ');
 
-  const movingToDone = isDoneListTitle(list.title);
+  const listStatusKey = String(list.statusKey || '')
+    .trim()
+    .toLowerCase();
+  const movingToDone =
+    isDoneListTitle(list.title) || listStatusKey === 'done' || listStatusKey === 'completed';
   if (movingToDone && !caps.canMoveToDone) {
-    throw new Error('Chỉ PM/TL/Admin mới được kéo thẻ sang cột Xong (duyệt)');
+    throw doneMoveDenied();
+  }
+
+  // DEC D4 — gate drag Done nếu !ready (story/task); bug vẫn kéo Done theo role.
+  if (movingToDone && board.projectId) {
+    const issueType = String(card.issueType || '')
+      .trim()
+      .toLowerCase();
+    if (issueType !== 'bug') {
+      const { evaluateForWorkItem } = require('./readyToDone.service');
+      const evaluation = await evaluateForWorkItem(board.projectId, cardId);
+      if (!evaluation?.ready) {
+        throw readyToDoneNotReady(evaluation);
+      }
+    }
   }
 
   const isAssignee = card.assigneeId && String(card.assigneeId) === String(userId);
@@ -1908,6 +2018,21 @@ async function moveTaskCard({ userId, card, cardId, toListId, position, index, o
     card.ownerTeamId = nextOwner;
   }
 
+  // Parent returned to Ready for QA after rework — clear face chip + sync stale done status.
+  const movingToReadyForQa =
+    isReadyForQaListTitle(list.title) ||
+    listStatusKey === 'qa' ||
+    listStatusKey === 'review';
+  if (movingToReadyForQa) {
+    card.qaReworkNote = '';
+    card.completedAt = null;
+    if (toStatusKey) {
+      card.status = toStatusKey;
+    } else if (['done', 'completed'].includes(String(card.status || '').toLowerCase())) {
+      card.status = 'todo';
+    }
+  }
+
   if (
     isWorkflowEngineV2Enabled() &&
     board.workflowId &&
@@ -2011,6 +2136,24 @@ async function moveTaskCard({ userId, card, cardId, toListId, position, index, o
     title: 'Thẻ được chuyển',
     content: `Thẻ "${moved.title}" vừa được chuyển vào danh sách`,
   }).catch((err) => logger.warn('[task-board] notify watchers failed: %s', err.message));
+  if (
+    board.projectId &&
+    String(beforeMove.listId || '') !== String(targetListId || '')
+  ) {
+    const { scheduleDeliveryNotify, maybeNotifyReadyForQa } = require('../utils/work/deliveryNotify');
+    scheduleDeliveryNotify(() =>
+      maybeNotifyReadyForQa({
+        actorId: userId,
+        projectId: board.projectId,
+        organizationId: board.organizationId,
+        boardId: board._id,
+        taskId: cardId,
+        taskTitle: moved.title,
+        toList: list,
+        fromList,
+      })
+    );
+  }
   if (board.projectId) {
     const { diffTaskFields } = require('../utils/work/workHistoryDiff');
     const { appendFieldChanges } = require('./workHistory.service');
