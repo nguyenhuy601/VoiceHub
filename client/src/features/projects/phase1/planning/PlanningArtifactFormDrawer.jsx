@@ -13,9 +13,8 @@ import {
   planningFieldLabelKey,
 } from './planningWorkbookFields';
 import PlanningRolesFormSection from './PlanningRolesFormSection';
-
-const IMPACT_OPTS = ['low', 'medium', 'high'];
-const DEP_OPTS = ['FS', 'SS', 'FF', 'SF'];
+import Phase1ChoiceInput from '../shared/Phase1ChoiceInput';
+import { choiceOptions } from '../shared/phase1ChoiceFields';
 
 function FormFields({ draft, setDraft, kind, isEdit, readOnly = false, t }) {
   const disabled = Boolean(readOnly);
@@ -55,48 +54,20 @@ function FormFields({ draft, setDraft, kind, isEdit, readOnly = false, t }) {
           );
         }
 
-        if (f.input === 'selectDep') {
+        if (choiceOptions(f.key)) {
           return (
             <label key={f.key} className="block text-sm">
               <span className="text-xs font-medium text-muted-foreground">
                 {label}
                 {f.required ? ' *' : ''}
               </span>
-              <select
+              <Phase1ChoiceInput
+                fieldKey={f.key}
                 className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-                value={draft[f.key] || 'FS'}
+                value={draft[f.key] || ''}
                 disabled={disabled}
-                onChange={(e) => setField(f.key, e.target.value)}
-              >
-                {DEP_OPTS.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
-            </label>
-          );
-        }
-
-        if (f.input === 'selectImpact') {
-          return (
-            <label key={f.key} className="block text-sm">
-              <span className="text-xs font-medium text-muted-foreground">
-                {label}
-                {f.required ? ' *' : ''}
-              </span>
-              <select
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm disabled:opacity-60"
-                value={draft[f.key] || 'medium'}
-                disabled={disabled}
-                onChange={(e) => setField(f.key, e.target.value)}
-              >
-                {IMPACT_OPTS.map((o) => (
-                  <option key={o} value={o}>
-                    {t(`workspace.phase1PlanningImpact_${o}`)}
-                  </option>
-                ))}
-              </select>
+                onChange={(next) => setField(f.key, next)}
+              />
             </label>
           );
         }
@@ -151,6 +122,7 @@ export default function PlanningArtifactFormDrawer({
   onSubmit,
   onTransition,
   variant = 'modal',
+  fieldError = '',
 }) {
   const { t } = useAppStrings();
   const [draft, setDraft] = useState(() => emptyPlanningDraft(kind));
@@ -194,7 +166,13 @@ export default function PlanningArtifactFormDrawer({
   );
 
   const footer = (
-    <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border bg-[#FAFAFA] px-4 py-3 dark:bg-slate-900/50">
+    <div className="shrink-0 border-t border-border bg-[#FAFAFA] px-4 py-3 dark:bg-slate-900/50">
+      {fieldError ? (
+        <p className="mb-2 text-sm text-destructive" role="alert">
+          {fieldError}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap justify-end gap-2">
       <button
         type="button"
         className="rounded-full border border-[#D9D9D9] bg-white px-4 py-1.5 text-sm text-[#595959] hover:bg-[#FAFAFA] disabled:opacity-50"
@@ -227,6 +205,7 @@ export default function PlanningArtifactFormDrawer({
               : t('workspace.phase1Approve')}
         </button>
       ) : null}
+      </div>
     </div>
   );
 

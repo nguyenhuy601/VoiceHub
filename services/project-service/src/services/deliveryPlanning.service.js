@@ -14,6 +14,7 @@ const { evaluatePlanningBaselineReadiness } = require('../constants/planningBase
 const { normalizePlanningStructured } = require('../utils/planning/resourceStructured');
 const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
 const { assertUserProjectPermission } = require('./projectAccess.service');
+const logger = require('@enterprise/shared/utils/logger');
 
 async function assertProjectMemberAccess({ userId, projectId }) {
   const project = await Project.findById(projectId).lean();
@@ -133,9 +134,17 @@ async function createArtifact({ userId, projectId, body = {} }) {
     err.statusCode = 400;
     throw err;
   }
-  const structured = normalizePlanningStructured(
-    kind,
-    body.structured && typeof body.structured === 'object' ? body.structured : {}
+  const rawStructured =
+    body.structured && typeof body.structured === 'object' ? body.structured : {};
+  const structured = normalizePlanningStructured(kind, rawStructured);
+  const {
+    formatErrors,
+    resourceRoleEffortErrors,
+    raiseColumnErrors,
+  } = require('../utils/project/artifactColumnRules');
+  raiseColumnErrors(
+    [...formatErrors(kind, structured), ...resourceRoleEffortErrors(kind, rawStructured)],
+    'ARTIFACT_FIELD_INVALID'
   );
   const doc = await PlanningArtifact.create({
     organizationId: project.organizationId,
@@ -177,17 +186,59 @@ async function updateArtifact({ userId, projectId, artifactId, body = {} }) {
     err.statusCode = 404;
     throw err;
   }
+
+  /** Soft-delete: chỉ draft / changes_requested / rejected. */
+  if (body.softDelete === true || body.isActive === false) {
+    const st = String(doc.status || '').toLowerCase();
+    if (!['draft', 'changes_requested', 'rejected'].includes(st)) {
+      const err = new Error('Chỉ xóa được planning artifact draft / changes_requested / rejected');
+      err.statusCode = 400;
+      err.errorCode = 'SOFT_DELETE_STATUS_BLOCKED';
+      throw err;
+    }
+    doc.isActive = false;
+    doc.updatedBy = userId;
+    await doc.save();
+    await recordPlanningAudit({
+      organizationId: doc.organizationId,
+      actorUserId: userId,
+      action: 'planning.artifact.soft_deleted',
+      resourceId: doc._id,
+      before: { status: st, isActive: true },
+      after: { status: st, isActive: false },
+      meta: { projectId: String(projectId) },
+    });
+    return serializeDoc(doc);
+  }
+
   if (!isPlanningContentEditableStatus(doc.status)) {
     const err = new Error('Chỉ sửa được planning artifact draft / changes_requested / rejected');
     err.statusCode = 400;
     throw err;
   }
   const before = { title: doc.title, status: doc.status };
+  const nextStructured =
+    body.structured !== undefined && typeof body.structured === 'object'
+      ? normalizePlanningStructured(doc.kind, body.structured)
+      : doc.structured;
+  const rawStructured =
+    body.structured !== undefined && typeof body.structured === 'object'
+      ? body.structured
+      : doc.structured;
+  const {
+    formatErrors,
+    resourceRoleEffortErrors,
+    raiseColumnErrors,
+  } = require('../utils/project/artifactColumnRules');
+  raiseColumnErrors(
+    [...formatErrors(doc.kind, nextStructured || {}), ...resourceRoleEffortErrors(doc.kind, rawStructured)],
+    'ARTIFACT_FIELD_INVALID'
+  );
   if (body.title !== undefined) doc.title = String(body.title || '').trim().slice(0, 240);
   if (body.summary !== undefined) doc.summary = String(body.summary || '').trim().slice(0, 2000);
   if (body.body !== undefined) doc.body = String(body.body || '').trim().slice(0, 20000);
   if (body.structured !== undefined && typeof body.structured === 'object') {
-    doc.structured = normalizePlanningStructured(doc.kind, body.structured);
+    doc.structured = nextStructured;
   }
   if (body.parentExternalKey !== undefined) {
     doc.parentExternalKey = String(body.parentExternalKey || '').trim().slice(0, 64);
@@ -207,33 +258,11 @@ async function updateArtifact({ userId, projectId, artifactId, body = {} }) {
 }
 
 function applyReviewStamp(doc, from, to, stamp, { techSkipped = false } = {}) {
-  if (
-    from === 'ba_review' &&
-    (to === 'tech_review' ||
-      to === 'pm_review' ||
-      to === 'po_review' ||
-      to === 'rejected' ||
-      to === 'changes_requested')
-  ) {
-    doc.review.ba = stamp;
-  }
-  if (from === 'draft' && (to === 'pm_review' || to === 'ba_review')) {
-    /* submit — no stamp yet */
-  }
-  if (
-    from === 'tech_review' &&
-    (to === 'pm_review' || to === 'po_review' || to === 'rejected' || to === 'changes_requested')
-  ) {
-    doc.review.tech = stamp;
-  }
-  if (
-    from === 'pm_review' &&
-    (to === 'tech_review' || to === 'po_review' || to === 'rejected' || to === 'changes_requested')
-  ) {
-    doc.review.pm = stamp;
-  }
-  if (from === 'po_review' && (to === 'approved' || to === 'rejected' || to === 'changes_requested')) {
-    doc.review.po = stamp;
+  const { planningReviewFieldUpdates } = require('../utils/planningReviewStamp');
+  const updates = planningReviewFieldUpdates(from, to, stamp);
+  for (const [path, value] of Object.entries(updates)) {
+    const [, key] = path.split('.');
+    doc.review[key] = value;
   }
   if (techSkipped && (to === 'po_review' || to === 'pm_review') && from !== 'tech_review') {
     doc.review.tech = doc.review.tech?.userId
@@ -264,6 +293,7 @@ async function transitionArtifact({ userId, projectId, artifactId, toStatus, not
     assertGateStampSoD,
     notifyNextGateReviewers,
   } = require('../utils/phase1GatePolicy');
+  const { priorStampsForPlanningTransition } = require('../utils/planningReviewStamp');
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
   const bypass = resolved.isOrgAdmin || resolved.isCreator;
@@ -324,11 +354,16 @@ async function transitionArtifact({ userId, projectId, artifactId, toStatus, not
     await assertPlanningPerm({ userId, projectId, permission: perm });
   }
 
-  const prior = [];
-  if (from === 'tech_review') prior.push(doc.review?.ba, doc.review?.pm);
-  if (from === 'po_review') prior.push(doc.review?.ba, doc.review?.tech, doc.review?.pm);
-  if (from === 'pm_review' && to === 'tech_review') prior.push(doc.review?.ba);
-  assertGateStampSoD({ actorUserId: userId, priorStamps: prior, bypass });
+  const prior = priorStampsForPlanningTransition(from, to, doc.review);
+  // SoD stays on even for org admin (DEC D6). Permission bypass above is separate.
+  assertGateStampSoD({ actorUserId: userId, priorStamps: prior, bypass: false });
+
+  const fromKey = String(from || '').toLowerCase();
+  if ((fromKey === 'draft' || fromKey === 'changes_requested') && to === 'pm_review') {
+    const { submitErrors, raiseColumnErrors } = require('../utils/project/artifactColumnRules');
+    const saved = doc.structured && typeof doc.structured === 'object' ? doc.structured : {};
+    raiseColumnErrors(submitErrors(doc.kind, saved), 'ARTIFACT_SUBMIT_INCOMPLETE');
+  }
 
   const beforeStatus = doc.status;
   const gateNote = String(note || '').trim().slice(0, 1000);
@@ -446,6 +481,12 @@ async function bulkTransitionArtifacts({
     await assertPlanningPerm({ userId, projectId, permission: perm });
   }
 
+  const {
+    planningReviewFieldUpdates,
+    priorStampsForPlanningTransition,
+  } = require('../utils/planningReviewStamp');
+  const { assertGateStampSoD } = require('../utils/phase1GatePolicy');
+
   const gateNote = String(note || '').trim().slice(0, 1000);
   const stamp = { userId, at: new Date(), note: gateNote };
   const filter = { projectId, isActive: true, status: from };
@@ -470,25 +511,21 @@ async function bulkTransitionArtifacts({
     status: to,
     updatedBy: userId,
     updatedAt: new Date(),
+    ...planningReviewFieldUpdates(from, to, stamp),
   };
-  if (from === 'ba_review' && (to === 'tech_review' || to === 'rejected')) {
-    $set['review.ba'] = stamp;
-  }
-  if (from === 'tech_review' && (to === 'pm_review' || to === 'rejected')) {
-    $set['review.tech'] = stamp;
-  }
-  if (from === 'pm_review' && (to === 'po_review' || to === 'rejected')) {
-    $set['review.pm'] = stamp;
-  }
-  if (from === 'po_review' && (to === 'approved' || to === 'rejected')) {
-    $set['review.po'] = stamp;
-  }
   if (to === 'rejected' && gateNote) {
     $set.rejectionReason = gateNote;
   }
 
-  const ids = await PlanningArtifact.find(filter).select('_id').limit(500).lean();
-  const idList = ids.map((r) => r._id);
+  const candidates = await PlanningArtifact.find(filter).select('_id review').limit(500).lean();
+  for (const row of candidates) {
+    assertGateStampSoD({
+      actorUserId: userId,
+      priorStamps: priorStampsForPlanningTransition(from, to, row.review),
+      bypass: false,
+    });
+  }
+  const idList = candidates.map((r) => r._id);
   let updated = 0;
   if (idList.length) {
     const res = await PlanningArtifact.updateMany(
@@ -1113,6 +1150,12 @@ async function confirmWorkItemSuggestions({ userId, projectId, suggestions = [] 
         sourceWbsArtifactId: sourceWbsArtifactId || null,
         sourceFrKey: sourceFrKey || '',
         sourceUcKey: sourceUcKey || '',
+        estimateHours:
+          s.estimateHours != null && Number.isFinite(Number(s.estimateHours))
+            ? Number(s.estimateHours)
+            : undefined,
+        assigneeId: s.assigneeId ? String(s.assigneeId) : undefined,
+        startDate: s.startDate || undefined,
       });
       created.push({
         id: String(card._id || card.id),
@@ -1308,6 +1351,27 @@ async function planningSummary({ userId, projectId }) {
     };
   }
   const readiness = evaluatePlanningBaselineReadiness(artifacts);
+  const wbsAll = artifacts.filter((a) => a.kind === 'WBS');
+  const usedAsParent = new Set(
+    wbsAll.map((w) => String(w.parentExternalKey || '').trim()).filter(Boolean)
+  );
+  const wbsLeaves = wbsAll.filter((w) => {
+    const key = String(w.externalKey || '').trim();
+    if (!key) return true;
+    return !usedAsParent.has(key);
+  });
+  let leafWithEffort = 0;
+  let leafWithAssignee = 0;
+  let leafEffortSum = 0;
+  for (const leaf of wbsLeaves) {
+    const st = leaf.structured && typeof leaf.structured === 'object' ? leaf.structured : {};
+    const h = Number(st.effortHours);
+    if (Number.isFinite(h) && h >= 0) {
+      leafWithEffort += 1;
+      leafEffortSum += h;
+    }
+    if (st.assigneeUserId) leafWithAssignee += 1;
+  }
   return {
     byKind,
     baselineCount: baselines.length,
@@ -1318,6 +1382,12 @@ async function planningSummary({ userId, projectId }) {
       missingRecommended: readiness.missingRecommended,
       requiredDraftOnly: readiness.requiredDraftOnly,
       requiredAbsent: readiness.requiredAbsent,
+    },
+    staffing: {
+      wbsLeafCount: wbsLeaves.length,
+      leafWithEffort,
+      leafWithAssignee,
+      leafEffortHoursSum: Math.round(leafEffortSum * 100) / 100,
     },
     activeBaseline: baselines[0]
       ? {
@@ -1398,13 +1468,188 @@ async function forkArtifactVersion({ userId, projectId, artifactId, note = '' })
   return serializeDoc(doc);
 }
 
+function projectIsoDate(value) {
+  if (!value) return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  const match = String(value).trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : '';
+}
+
+/**
+ * Dry-run and confirm share one scan. Pool errors do not invent a person.
+ */
+async function buildImportFieldSuggestions({ userId, project, rows, members, skipKeys, decisions }) {
+  const {
+    collectResourceRoleKeys,
+    collectLeafRoleKeys,
+    suggestPlanningImportFields,
+    suggestionsForConfirm,
+  } = require('../utils/planning/planningImportFieldSuggest');
+  const resourceRoleKeys = collectResourceRoleKeys(rows);
+  const fromDate = projectIsoDate(project?.startDate);
+  const toDate = projectIsoDate(project?.expectedEndDate);
+  const hasProjectWindow = Boolean(fromDate && toDate);
+  let poolUnavailable = false;
+  const candidatesByRole = {};
+  if (hasProjectWindow) {
+    const roleKeys = collectLeafRoleKeys(rows, resourceRoleKeys);
+    const { listStaffingMatchCandidatesForImport } = require('./projectMemberCandidate.service');
+    for (const roleKey of roleKeys) {
+      try {
+        candidatesByRole[roleKey] = await listStaffingMatchCandidatesForImport({
+          organizationId: project.organizationId,
+          actorUserId: userId,
+          projectId: project._id || project.id,
+          roleKey,
+          fromDate,
+          toDate,
+        });
+      } catch (err) {
+        if (err && err.statusCode === 400) {
+          candidatesByRole[roleKey] = [];
+          continue;
+        }
+        poolUnavailable = true;
+        logger.warn(
+          'planning import field suggest pool_unavailable projectId=%s',
+          String(project._id || project.id || '')
+        );
+        break;
+      }
+    }
+  }
+  const options = {
+    members,
+    candidatesByRole: poolUnavailable ? {} : candidatesByRole,
+    resourceRoleKeys,
+    hasProjectWindow,
+    poolUnavailable,
+    skipKeys,
+  };
+  if (Array.isArray(decisions) && decisions.length) {
+    return suggestionsForConfirm(rows, options, decisions);
+  }
+  return suggestPlanningImportFields(rows, options);
+}
+
+async function loadRaSeedContext(projectId) {
+  const existing = await PlanningArtifact.find({ projectId, isActive: true })
+    .select('kind externalKey')
+    .lean();
+  const existingKeys = new Set(existing.map((a) => `${a.kind}:${a.externalKey}`));
+
+  let frs = [];
+  let nfrs = [];
+  let assumptions = [];
+  try {
+    const AnalysisArtifact = require('../models/AnalysisArtifact');
+    frs = await AnalysisArtifact.find({
+      projectId,
+      kind: 'FR',
+      status: 'approved',
+      isActive: true,
+    })
+      .select('externalKey title summary')
+      .limit(40)
+      .lean();
+    nfrs = await AnalysisArtifact.find({
+      projectId,
+      kind: 'NFR',
+      status: 'approved',
+      isActive: true,
+      'structured.category': { $regex: /^constraint$/i },
+    })
+      .select('externalKey title summary structured')
+      .limit(20)
+      .lean();
+  } catch {
+    frs = [];
+    nfrs = [];
+  }
+  try {
+    const RequirementPack = require('../models/RequirementPack');
+    const pack = await RequirementPack.findOne({
+      projectId,
+      status: { $in: ['ACTIVE', 'active', 'approved', 'APPROVED'] },
+    })
+      .select('assumptions')
+      .lean();
+    assumptions = Array.isArray(pack?.assumptions) ? pack.assumptions : [];
+  } catch {
+    assumptions = [];
+  }
+  return { existingKeys, frs, nfrs, assumptions };
+}
+
+/**
+ * Write the same RA seed frame as the workbook, as draft artifacts.
+ * Does not change delivery phase and does not run import suggestions.
+ */
+async function seedPlanningDraftsFromApprovedRa({ userId, projectId }) {
+  const { buildSeedMapsFromRa, draftRowsFromRaSeed } = require('../utils/planning/planningWorkbookBuilder');
+  const { existingKeys, frs, nfrs, assumptions } = await loadRaSeedContext(projectId);
+  const seed = buildSeedMapsFromRa({ frs, nfrs, assumptions, existingKeys: new Set() });
+  const rows = draftRowsFromRaSeed(seed, existingKeys);
+  const skippedBecauseExisting = countSeedRows(seed) - rows.length;
+  const created = [];
+  const failed = [];
+  const byKind = {};
+  for (const row of rows) {
+    try {
+      await createArtifact({
+        userId,
+        projectId,
+        body: { ...row, source: 'import' },
+      });
+      created.push(row.kind);
+      byKind[row.kind] = (byKind[row.kind] || 0) + 1;
+    } catch (e) {
+      failed.push({
+        externalKey: row.externalKey,
+        kind: row.kind,
+        message: e.message || 'skip',
+        errorCode: e.code === 11000 ? 'DUPLICATE' : e.errorCode,
+      });
+    }
+  }
+  return {
+    seedFromRa: true,
+    created: created.length,
+    skipped: skippedBecauseExisting + failed.length,
+    byKind,
+  };
+}
+
+function countSeedRows(seed) {
+  const byKind = seed?.byKind && typeof seed.byKind === 'object' ? seed.byKind : {};
+  let n = 0;
+  for (const [kind, list] of Object.entries(byKind)) {
+    if (kind === 'RESOURCE_ROLES' || !Array.isArray(list)) continue;
+    n += list.filter((row) => String(row?.externalKey || '').trim()).length;
+  }
+  return n;
+}
+
+function isSeedFromRaBody(body) {
+  return (
+    body?.seedFromRa === true ||
+    body?.seedFromRa === 'true' ||
+    body?.seedFromRa === 1 ||
+    body?.seedFromRa === '1'
+  );
+}
+
 /**
  * RULE-22 — bulk dump Planning artifacts (draft).
  * DEC D-WB4: dryRun=true → validate + preview, no DB writes.
+ * seedFromRa=true → write the RA seed frame as drafts, no Excel file.
  */
 async function bulkDumpArtifacts({ userId, projectId, body = {} }) {
   const project = await assertProjectMemberAccess({ userId, projectId });
   await assertPlanningPerm({ userId, projectId, permission: 'planning:artifact_edit' });
+  if (isSeedFromRaBody(body)) {
+    return seedPlanningDraftsFromApprovedRa({ userId, projectId, project });
+  }
   const { parsePlanningDumpPayload } = require('../utils/planning/planningDumpParse');
   const parsed = parsePlanningDumpPayload(body);
   const dryRun =
@@ -1430,6 +1675,7 @@ async function bulkDumpArtifacts({ userId, projectId, body = {} }) {
         parseErrors: structuredErrors,
         preview: [],
         meta: parsed.meta || null,
+        fieldSuggestions: [],
       };
     }
     const err = new Error(structuredErrors[0]?.message || 'Không có dòng dump hợp lệ');
@@ -1439,19 +1685,44 @@ async function bulkDumpArtifacts({ userId, projectId, body = {} }) {
     throw err;
   }
 
-  let assigneeReport = null;
+  let members = [];
   try {
-    const { applyAssigneeResolution } = require('../utils/planning/planningAssigneeResolve');
-    const members = await loadOrgAssigneeDirectory(project.organizationId, userId);
-    assigneeReport = applyAssigneeResolution(parsed.rows, members);
+    members = await loadOrgAssigneeDirectory(project.organizationId, userId);
   } catch {
-    assigneeReport = null;
+    members = [];
   }
 
   const existing = await PlanningArtifact.find({ projectId, isActive: true })
     .select('kind externalKey')
     .lean();
   const existingKeys = new Set(existing.map((a) => `${a.kind}:${a.externalKey}`));
+  let fieldSuggestions = await buildImportFieldSuggestions({
+    userId,
+    project,
+    rows: parsed.rows,
+    members,
+    skipKeys: existingKeys,
+    decisions: dryRun ? [] : body.suggestionDecisions,
+  });
+  if (dryRun) {
+    const { isWarnV1 } = require('../utils/project/schedulePolicy');
+    if (isWarnV1(project)) {
+      const { suggestFsPredecessorRevisions } = require('../utils/planning/planningFsScheduleSuggest');
+      fieldSuggestions = fieldSuggestions.concat(suggestFsPredecessorRevisions(parsed.rows));
+    }
+  }
+  if (!dryRun) {
+    const { applyDecisionsToRows } = require('../utils/planning/planningImportFieldSuggest');
+    applyDecisionsToRows(parsed.rows, fieldSuggestions, body.suggestionDecisions);
+  }
+
+  let assigneeReport = null;
+  try {
+    const { applyAssigneeResolution } = require('../utils/planning/planningAssigneeResolve');
+    assigneeReport = applyAssigneeResolution(parsed.rows, members);
+  } catch {
+    assigneeReport = null;
+  }
 
   const previewRow = (row) => ({
     kind: row.kind,
@@ -1502,6 +1773,7 @@ async function bulkDumpArtifacts({ userId, projectId, body = {} }) {
             ],
           }
         : null,
+      fieldSuggestions,
     };
   }
 
@@ -1564,52 +1836,7 @@ async function buildDumpWorkbookTemplate({ userId, projectId, seedFromRa = false
 
   let seed = null;
   if (seedFromRa) {
-    const existing = await PlanningArtifact.find({ projectId, isActive: true })
-      .select('kind externalKey')
-      .lean();
-    const existingKeys = new Set(existing.map((a) => `${a.kind}:${a.externalKey}`));
-
-    let frs = [];
-    let nfrs = [];
-    let assumptions = [];
-    try {
-      const AnalysisArtifact = require('../models/AnalysisArtifact');
-      frs = await AnalysisArtifact.find({
-        projectId,
-        kind: 'FR',
-        status: 'approved',
-        isActive: true,
-      })
-        .select('externalKey title summary')
-        .limit(40)
-        .lean();
-      nfrs = await AnalysisArtifact.find({
-        projectId,
-        kind: 'NFR',
-        status: 'approved',
-        isActive: true,
-        'structured.category': { $regex: /^constraint$/i },
-      })
-        .select('externalKey title summary structured')
-        .limit(20)
-        .lean();
-    } catch {
-      frs = [];
-      nfrs = [];
-    }
-    try {
-      const RequirementPack = require('../models/RequirementPack');
-      const pack = await RequirementPack.findOne({
-        projectId,
-        status: { $in: ['ACTIVE', 'active', 'approved', 'APPROVED'] },
-      })
-        .select('assumptions')
-        .lean();
-      assumptions = Array.isArray(pack?.assumptions) ? pack.assumptions : [];
-    } catch {
-      assumptions = [];
-    }
-
+    const { existingKeys, frs, nfrs, assumptions } = await loadRaSeedContext(projectId);
     const { buildSeedMapsFromRa } = require('../utils/planning/planningWorkbookBuilder');
     seed = buildSeedMapsFromRa({ frs, nfrs, assumptions, existingKeys });
   }

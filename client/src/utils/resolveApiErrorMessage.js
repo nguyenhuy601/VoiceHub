@@ -36,6 +36,16 @@ export function resolveApiErrorMessage(errorLike, optsOrFallback = {}) {
   const fallback = opts.fallback ?? t('errors.generic');
 
   const data = errorLike?.data || errorLike?.response?.data || {};
+  const details = Array.isArray(data?.details) ? data.details : [];
+  const columnLines = details
+    .filter((row) => row && row.field && row.code)
+    .map((row) => {
+      const key = `workspace.artifactColumn_${row.code}`;
+      const label = t(key);
+      const text = label && label !== key ? label : row.message || row.code;
+      return `${row.field}: ${text}`;
+    });
+  if (columnLines.length) return columnLines.join(' · ');
   const code = data?.errorCode || data?.code || '';
   if (code) {
     const mapped = t(`errors.codes.${code}`);

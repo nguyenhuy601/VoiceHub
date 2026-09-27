@@ -106,6 +106,12 @@ function suggestWorkItemsFromWbs(input = {}) {
       sourceFrKey: sourceFrKey || undefined,
       issueType: 'story',
       reason: sourceFrKey ? 'from_wbs_with_fr' : 'from_wbs',
+      estimateHours:
+        st.effortHours != null && Number.isFinite(Number(st.effortHours))
+          ? Number(st.effortHours)
+          : undefined,
+      assigneeId: asId(st.assigneeUserId) || undefined,
+      startDate: st.startDate ? String(st.startDate).slice(0, 10) : undefined,
     });
   }
 

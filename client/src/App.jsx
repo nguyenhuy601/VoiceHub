@@ -174,7 +174,7 @@ function App() {
         >
           <Route index element={<ProjectPickerPage />} />
           <Route path="requirements" element={<CollaborateRequirementsPage />} />
-          <Route path=":projectId/planning/:planningModule" element={<Phase1Shell />} />
+          <Route path=":projectId/planning/:planningModule/*" element={<Phase1Shell />} />
           <Route path=":projectId/:module" element={<ProjectModuleRoute />} />
           <Route path=":projectId" element={<ProjectIdToOverviewRedirect />} />
         </Route>

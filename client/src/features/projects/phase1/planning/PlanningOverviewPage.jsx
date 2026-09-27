@@ -104,6 +104,8 @@ export default function PlanningOverviewPage({ projectId, organizationId }) {
         <PlanningWorkbookImportPanel
           projectId={projectId}
           canEdit={Boolean(capabilities.canEditPlanning)}
+          planningRowCount={totals.total}
+          summaryLoading={summaryLoading}
         />
       </Phase1OverviewSection>
 

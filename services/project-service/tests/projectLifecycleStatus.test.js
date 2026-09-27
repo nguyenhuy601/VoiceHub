@@ -14,12 +14,6 @@ describe('coerceProjectLifecycleStatus', () => {
     }
   });
 
-  it('maps legacy 5-value statuses to new enum', () => {
-    assert.equal(coerceProjectLifecycleStatus('planning'), 'draft');
-    assert.equal(coerceProjectLifecycleStatus('ready_for_planning'), 'draft');
-    assert.equal(coerceProjectLifecycleStatus('in_development'), 'active');
-  });
-
   it('maps legacy terminals to closed', () => {
     assert.equal(coerceProjectLifecycleStatus('cancelled'), 'closed');
     assert.equal(coerceProjectLifecycleStatus('canceled'), 'closed');
@@ -27,9 +21,10 @@ describe('coerceProjectLifecycleStatus', () => {
     assert.equal(coerceProjectLifecycleStatus('archived'), 'closed');
   });
 
-  it('maps legacy draft aliases new/created to draft', () => {
-    assert.equal(coerceProjectLifecycleStatus('new'), 'draft');
-    assert.equal(coerceProjectLifecycleStatus('created'), 'draft');
+  it('maps legacy draft/new to planning', () => {
+    assert.equal(coerceProjectLifecycleStatus('draft'), 'planning');
+    assert.equal(coerceProjectLifecycleStatus('new'), 'planning');
+    assert.equal(coerceProjectLifecycleStatus('created'), 'planning');
   });
 
   it('returns null for unknown', () => {
@@ -42,7 +37,6 @@ describe('isProjectClosedStatus', () => {
   it('treats legacy cancelled as closed', () => {
     assert.equal(isProjectClosedStatus('closed'), true);
     assert.equal(isProjectClosedStatus('cancelled'), true);
-    assert.equal(isProjectClosedStatus('active'), false);
     assert.equal(isProjectClosedStatus('in_development'), false);
   });
 });

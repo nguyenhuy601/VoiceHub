@@ -15,9 +15,13 @@ const STORAGE_KEY = 'vh.phase1.ganttExpanded';
 /**
  * CSS Gantt for Planning artifacts — collapsed by default (≤ ~28vh when open).
  */
-export default function PlanningGanttPanel({ artifacts = [], onSelect, kind = '' }) {
+export default function PlanningGanttPanel({
+  artifacts = [],
+  onSelect,
+  kind = '',
+  forceExpanded = false,
+}) {
   const { t } = useAppStrings();
-  const defaultExpanded = String(kind).toUpperCase() === 'SCHEDULE';
   const [expanded, setExpanded] = useState(() => {
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -26,7 +30,7 @@ export default function PlanningGanttPanel({ artifacts = [], onSelect, kind = ''
     } catch {
       /* ignore */
     }
-    return defaultExpanded;
+    return false;
   });
 
   useEffect(() => {
@@ -52,30 +56,34 @@ export default function PlanningGanttPanel({ artifacts = [], onSelect, kind = ''
     );
   }
 
+  const open = forceExpanded || expanded;
+
   return (
-    <div className="overflow-hidden rounded-lg border border-sky-500/30 bg-sky-500/5">
+    <div className="overflow-hidden rounded-lg border border-border bg-surface">
       <div className="flex items-center justify-between gap-2 border-b border-border/60 px-2.5 py-1.5">
         <div className="min-w-0">
           <h2 className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
             {t('workspace.phase1GanttTitle')}
             {kind ? <span className={kindChipClass(kind)}>{kind}</span> : null}
           </h2>
-          {expanded ? (
+          {open ? (
             <p className="text-[10px] text-muted-foreground">
               {formatPlanningDay(window.start)} → {formatPlanningDay(window.end)}
             </p>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px]"
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? t('workspace.phase1GanttCollapse') : t('workspace.phase1GanttExpand')}
-        </button>
+        {forceExpanded ? null : (
+          <button
+            type="button"
+            className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px]"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {open ? t('workspace.phase1GanttCollapse') : t('workspace.phase1GanttExpand')}
+          </button>
+        )}
       </div>
-      {expanded ? (
-        <div className="max-h-[28vh] overflow-auto">
+      {open ? (
+        <div className={forceExpanded ? 'max-h-[60vh] overflow-auto' : 'max-h-[28vh] overflow-auto'}>
           <div className="overflow-x-auto">
             <div className="min-w-[720px] p-2">
               <div className="relative mb-1 h-5" style={{ width: TRACK_PX, marginLeft: 140 }}>
@@ -103,12 +111,18 @@ export default function PlanningGanttPanel({ artifacts = [], onSelect, kind = ''
                   const id = String(row.id || row._id);
                   const range = resolvePlanningBarRange(row);
                   const style = barStyleInWindow(range, window, TRACK_PX);
+                  const assignee = String(
+                    row?.structured?.assigneeUserId || row?.assigneeUserId || ''
+                  ).trim();
+                  const barLabel = assignee
+                    ? `${row.title || ''} · ${assignee.slice(0, 8)}`
+                    : row.title;
                   return (
                     <li key={id} className="flex items-center gap-2">
                       <button
                         type="button"
                         className="w-[140px] shrink-0 truncate text-left text-[11px] font-medium hover:underline"
-                        title={`${row.externalKey} — ${row.title}`}
+                        title={`${row.externalKey} — ${row.title}${assignee ? ` · ${assignee}` : ''}`}
                         onClick={() => onSelect?.(row)}
                       >
                         <span className={kindChipClass(row.kind)}>{row.kind}</span>{' '}
@@ -121,11 +135,11 @@ export default function PlanningGanttPanel({ artifacts = [], onSelect, kind = ''
                             range.isMilestone ? 'bg-amber-600' : 'bg-primary'
                           }`}
                           style={style}
-                          title={`${row.title} · ${formatPhase1StatusLabel(row.status, t)}`}
+                          title={`${barLabel} · ${formatPhase1StatusLabel(row.status, t)}`}
                           onClick={() => onSelect?.(row)}
                         >
                           {range.isMilestone ? '◆ ' : ''}
-                          {row.title}
+                          {barLabel}
                         </button>
                       </div>
                       <span className={`shrink-0 ${statusBadgeClass(row.status)}`}>

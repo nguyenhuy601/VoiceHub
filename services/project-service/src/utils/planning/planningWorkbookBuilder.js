@@ -1,7 +1,6 @@
 /**
  * Build Planning multi-sheet workbook (empty sample or seedFromRa).
  * DEC D-WB2: seed only when explicitly requested — no DB writes.
- * v1.1: writes physical headers (ID/Name/Description/…).
  */
 
 const { PLANNING_ARTIFACT_KINDS } = require('../../constants/planningArtifact');
@@ -9,11 +8,16 @@ const {
   PLANNING_WORKBOOK_SCHEMA_VERSION,
   META_SHEET,
   RESOURCE_ROLES_SHEET,
-  PHYSICAL_HEADERS,
+  SHEET_COLUMNS,
+  RESOURCE_ROLES_COLUMNS,
   defaultSampleRow,
   defaultResourceRolesSample,
-  physicalRowFromDomain,
 } = require('../../constants/planningWorkbookCatalog');
+const {
+  displayHeaderForKey,
+  exportHeadersForColumns,
+} = require('../../constants/planningWorkbookAliases');
+const { FIELD_GUIDE_SHEET, fieldGuideAoa, labelSuggestedHeader } = require('./planningFieldGuide');
 
 function cell(v) {
   if (v == null) return '';
@@ -21,11 +25,11 @@ function cell(v) {
   return v;
 }
 
-function domainRowToPhysicalCells(kind, row) {
-  const phys = physicalRowFromDomain(kind, row);
+function rowToSheetObject(kind, row) {
+  const cols = SHEET_COLUMNS[kind] || [];
   const out = {};
-  for (const h of PHYSICAL_HEADERS) {
-    out[h] = cell(phys[h]);
+  for (const c of cols) {
+    out[c.key] = cell(row[c.key]);
   }
   return out;
 }
@@ -60,34 +64,34 @@ function buildPlanningWorkbookBuffer(opts = {}) {
     {
       Key: 'instructions',
       Value:
-        'Fill kind sheets (headers: ID, Name, Description, Ref/Notes, Start, End, Hours, Extra*). RESOURCE_ROLES ID = RESOURCE.ID. Import on Duyệt & baseline (dryRun preview first).',
+        'See sheet 01_FieldGuide for which columns to fill and which to leave blank so import can suggest Due Date and Assignee. Fill kind sheets (headers: Key, Parent Key, Title…). RESOURCE_ROLES links roles to RESOURCE Key. Import previews before confirm. Legacy camelCase headers still accepted.',
     },
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(metaRows), META_SHEET);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fieldGuideAoa()), FIELD_GUIDE_SHEET);
 
-  const headers = [...PHYSICAL_HEADERS];
   for (const kind of PLANNING_ARTIFACT_KINDS) {
+    const cols = SHEET_COLUMNS[kind];
+    const internalKeys = cols.map((c) => c.key);
+    const headers = exportHeadersForColumns(cols).map((header) => labelSuggestedHeader(kind, header));
     let dataRows = Array.isArray(byKind[kind]) ? byKind[kind] : [];
     if (!dataRows.length) {
       dataRows = [defaultSampleRow(kind)];
     }
-    const sheetRows = dataRows.map((r) =>
-      domainRowToPhysicalCells(kind, { ...defaultSampleRow(kind), ...r })
-    );
-    const aoa = [headers, ...sheetRows.map((r) => headers.map((h) => r[h] ?? ''))];
+    const sheetRows = dataRows.map((r) => rowToSheetObject(kind, { ...defaultSampleRow(kind), ...r }));
+    const aoa = [headers, ...sheetRows.map((r) => internalKeys.map((k) => r[k] ?? ''))];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), kind);
   }
 
+  const roleInternal = RESOURCE_ROLES_COLUMNS.map((c) => c.key);
+  const roleHeaders = roleInternal.map((k) => displayHeaderForKey(k));
   let roleRows = Array.isArray(seed.resourceRoles) ? seed.resourceRoles : [];
   if (!roleRows.length) {
     roleRows = defaultResourceRolesSample();
   }
   const roleAoa = [
-    headers,
-    ...roleRows.map((r) => {
-      const phys = domainRowToPhysicalCells(RESOURCE_ROLES_SHEET, r);
-      return headers.map((h) => phys[h] ?? '');
-    }),
+    roleHeaders,
+    ...roleRows.map((r) => roleInternal.map((h) => cell(r[h]))),
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(roleAoa), RESOURCE_ROLES_SHEET);
 
@@ -140,6 +144,11 @@ function buildSeedMapsFromRa(input = {}) {
       sourceFrKey: fr.externalKey || '',
       effortHours: '',
       skillKeys: '',
+      startDate: '',
+      endDate: '',
+      assigneeEmail: '',
+      assigneeName: '',
+      roleKey: '',
     });
   }
 
@@ -176,7 +185,93 @@ function buildSeedMapsFromRa(input = {}) {
   return { byKind, resourceRoles };
 }
 
+function splitSkillKeys(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map((item) => String(item || '').trim()).filter(Boolean);
+  }
+  return String(raw || '')
+    .split(/[,;|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function roleForResourceStructured(role) {
+  const count = Number(role?.count);
+  const effortHours = Number(role?.effortHours);
+  return {
+    roleKey: String(role?.roleKey || '').trim(),
+    title: String(role?.title || '').trim(),
+    count: Number.isFinite(count) ? count : 1,
+    skillKeys: splitSkillKeys(role?.skillKeys),
+    effortHours: Number.isFinite(effortHours) ? effortHours : 0,
+    notes: String(role?.notes || ''),
+  };
+}
+
+/**
+ * Flat seed maps → PlanningArtifact create payloads.
+ * RESOURCE_ROLES is not a kind: roles land on RES-PLAN.structured.roles.
+ * @param {{ byKind?: Record<string, object[]>, resourceRoles?: object[] }} seed
+ * @param {Set<string>|string[]} existingKeys kind:externalKey already stored
+ */
+function draftRowsFromRaSeed(seed = {}, existingKeys) {
+  const byKind = seed.byKind && typeof seed.byKind === 'object' ? seed.byKind : {};
+  const skip =
+    existingKeys instanceof Set
+      ? existingKeys
+      : new Set(Array.isArray(existingKeys) ? existingKeys : []);
+  const rolesByResource = new Map();
+  for (const role of Array.isArray(seed.resourceRoles) ? seed.resourceRoles : []) {
+    const resourceKey = String(role?.resourceExternalKey || '').trim();
+    if (!resourceKey) continue;
+    if (!rolesByResource.has(resourceKey)) rolesByResource.set(resourceKey, []);
+    rolesByResource.get(resourceKey).push(roleForResourceStructured(role));
+  }
+
+  const rows = [];
+  for (const [kind, list] of Object.entries(byKind)) {
+    if (kind === 'RESOURCE_ROLES') continue;
+    if (!Array.isArray(list)) continue;
+    const cols = SHEET_COLUMNS[kind] || [];
+    for (const raw of list) {
+      const externalKey = String(raw?.externalKey || '').trim();
+      if (!externalKey || skip.has(`${kind}:${externalKey}`)) continue;
+      const structured = {};
+      let parentExternalKey = '';
+      let body = '';
+      for (const col of cols) {
+        if (col.key === 'externalKey' || col.key === 'title' || col.key === 'summary') continue;
+        if (col.topLevel && col.key === 'body') {
+          body = raw.body == null ? '' : String(raw.body);
+          continue;
+        }
+        if (col.key === 'parentExternalKey') {
+          parentExternalKey = raw.parentExternalKey == null ? '' : String(raw.parentExternalKey);
+          continue;
+        }
+        if (col.structured) {
+          structured[col.key] = raw[col.key] == null ? '' : raw[col.key];
+        }
+      }
+      if (kind === 'RESOURCE') {
+        structured.roles = rolesByResource.get(externalKey) || [];
+      }
+      rows.push({
+        kind,
+        externalKey,
+        title: String(raw.title || '').trim(),
+        summary: raw.summary == null ? '' : String(raw.summary),
+        parentExternalKey,
+        ...(body ? { body } : {}),
+        structured,
+      });
+    }
+  }
+  return rows;
+}
+
 module.exports = {
   buildPlanningWorkbookBuffer,
   buildSeedMapsFromRa,
+  draftRowsFromRaSeed,
 };

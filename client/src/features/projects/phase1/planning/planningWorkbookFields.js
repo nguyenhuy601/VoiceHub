@@ -22,6 +22,7 @@ export const PLANNING_SHEET_FIELDS = Object.freeze({
     { key: 'assigneeName', structured: true, input: 'text' },
     { key: 'sourceFrKey', structured: true, input: 'text' },
     { key: 'skillKeys', structured: true, input: 'text' },
+    { key: 'roleKey', structured: true, input: 'text' },
   ],
   ARCHITECTURE: [
     ...COMMON,
@@ -76,6 +77,7 @@ const LABEL_KEYS = Object.freeze({
   assigneeName: 'workspace.phase1PlanningFieldAssigneeName',
   sourceFrKey: 'workspace.phase1PlanningFieldSourceFrKey',
   skillKeys: 'workspace.phase1PlanningFieldSkillKeys',
+  roleKey: 'workspace.phase1PlanningFieldRoleKey',
   body: 'workspace.phase1PlanningFieldBody',
   techStack: 'workspace.phase1PlanningFieldTechStack',
   diagramRef: 'workspace.phase1PlanningFieldDiagramRef',

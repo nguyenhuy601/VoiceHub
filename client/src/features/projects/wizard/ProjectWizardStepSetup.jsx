@@ -47,6 +47,16 @@ export default function ProjectWizardStepSetup({
     .map((v) => t(v.labelKey) || v.labelFallback)
     .join(', ');
   const datesInvalid = isProjectDateRangeInvalid(form.startDate, form.dueDate);
+  const todayVn = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const startYmd = String(form.startDate || '').trim().slice(0, 10);
+  const dueYmd = String(form.dueDate || '').trim().slice(0, 10);
+  const datesBeforeToday =
+    (startYmd && startYmd < todayVn) || (dueYmd && dueYmd < todayVn);
 
   if (setupPanel === 'workTypes') {
     return (
@@ -211,6 +221,11 @@ export default function ProjectWizardStepSetup({
         {datesInvalid ? (
           <p className="text-sm text-destructive" role="alert">
             {t('adminTasks.wizardProjectDateRangeInvalid')}
+          </p>
+        ) : null}
+        {datesBeforeToday ? (
+          <p className="text-sm text-amber-700 dark:text-amber-300" role="status">
+            {t('workspace.scheduleWarnDateBeforeToday')}
           </p>
         ) : null}
       </div>

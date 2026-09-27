@@ -12,12 +12,14 @@ const { uniqueMemberships, clampPoolLimit } = require('../utils/staffing/orgReso
 const {
   INTAKE_LEAD_ROLE_KEYS,
   resolveRequestedIntakeRoleKeys,
+  resolveStaffingMatchRoleKey,
   parseRoleSuggestOffset,
   sliceRoleSuggestPage,
   parseRoleSuggestFitAvailable,
   filterRoleSuggestFitAvailable,
   rankRoleSuggestCandidate,
   toRoleSuggestPublicItem,
+  pinAssigneeFirst,
   sortRoleSuggestItems,
 } = require('../utils/staffing/rankRoleSuggestCandidates');
 const { summarizeProjectRoleStaffing } = require('../utils/project/projectStaffingSummary');
@@ -332,8 +334,46 @@ async function assertCanSuggestIntakeRoles(actorUserId, organizationId) {
 }
 
 /**
+ * Hours left in the project window. Reuses computeUserRangeCapacity.
+ * Null when either date is missing so the suggest payload stays unchanged.
+ * Calendar fetch does not require org capacity admin.
+ */
+async function loadStaffingMatchAvailableHours({
+  organizationId,
+  userIds,
+  loadByUser,
+  fromDate,
+  toDate,
+} = {}) {
+  const hasFrom = fromDate != null && String(fromDate).trim() !== '';
+  const hasTo = toDate != null && String(toDate).trim() !== '';
+  if (!hasFrom || !hasTo) return null;
+
+  const { resolvePlanningWindow } = require('../utils/requirement/resolvePlanningWindow');
+  const { fetchOrgWorkingCalendar } = require('./governance.service');
+  const { computeUserRangeCapacity } = require('../utils/staffing/rangeCapacityMath');
+
+  const window = await resolvePlanningWindow({ fromDate, toDate });
+  const calendarPack = await fetchOrgWorkingCalendar(organizationId);
+  const hoursByUser = new Map();
+  for (const uid of userIds) {
+    const load = loadByUser.get(uid) || {};
+    const cap = computeUserRangeCapacity({
+      flatSegments: Array.isArray(load.flat) ? load.flat : [],
+      fromMs: window.fromMs,
+      toMs: window.toMs,
+      calendar: calendarPack.workingCalendar,
+      holidays: Array.isArray(calendarPack.holidays) ? calendarPack.holidays : [],
+    });
+    hoursByUser.set(String(uid), cap.availableHours);
+  }
+  return hoursByUser;
+}
+
+/**
  * Org-wide ranked candidates for wizard intake (PO / PM / BA).
  * Auth: org member + canCreateTask — not org-wide capacity admin.
+ * staffingMatch + fromDate/toDate adds availableHours under planning:view.
  */
 async function listOrgRoleSuggestCandidates({
   organizationId,
@@ -342,6 +382,11 @@ async function listOrgRoleSuggestCandidates({
   limit,
   offset,
   fitAvailable,
+  projectId,
+  allowDeliveryRole = false,
+  assigneeUserId,
+  fromDate,
+  toDate,
 } = {}) {
   const orgId = String(organizationId || '').trim();
   if (!orgId) {
@@ -349,10 +394,15 @@ async function listOrgRoleSuggestCandidates({
     err.statusCode = 400;
     throw err;
   }
-  const requestedKeys = resolveRequestedIntakeRoleKeys(projectRoleKeys);
+  const staffingMatch = Boolean(allowDeliveryRole);
+  const requestedKeys = staffingMatch
+    ? resolveStaffingMatchRoleKey(projectRoleKeys)
+    : resolveRequestedIntakeRoleKeys(projectRoleKeys);
   if (!requestedKeys) {
     const err = new Error(
-      'projectRoleKeys phải là 1–3 vai trò intake: product_owner, project_manager, business_analyst'
+      staffingMatch
+        ? 'projectRoleKeys phải là một vai trò dự án'
+        : 'projectRoleKeys phải là 1–3 vai trò intake: product_owner, project_manager, business_analyst'
     );
     err.statusCode = 400;
     err.errorCode = 'VALIDATION_REQUIRED';
@@ -363,7 +413,24 @@ async function listOrgRoleSuggestCandidates({
   const pageLimit = clampPoolLimit(limit, { defaultLimit: 3, maxLimit: 50 });
   const onlyFitAvailable = parseRoleSuggestFitAvailable(fitAvailable, false);
 
-  await assertCanSuggestIntakeRoles(actorUserId, orgId);
+  if (staffingMatch) {
+    const pid = String(projectId || '').trim();
+    if (!pid) {
+      const err = new Error('projectId là bắt buộc');
+      err.statusCode = 400;
+      err.errorCode = 'VALIDATION_REQUIRED';
+      throw err;
+    }
+    const { assertUserProjectPermission } = require('./projectAccess.service');
+    await assertUserProjectPermission({
+      userId: actorUserId,
+      projectId: pid,
+      permission: 'planning:view',
+      message: 'Không có quyền xem danh sách phân công',
+    });
+  } else {
+    await assertCanSuggestIntakeRoles(actorUserId, orgId);
+  }
 
   let membershipsRaw = [];
   try {
@@ -391,7 +458,10 @@ async function listOrgRoleSuggestCandidates({
 
   const [enabledPositionKeys, roleDocs] = await Promise.all([
     fetchEnabledPositionKeys(orgId).catch(() => null),
-    ProjectRole.find({ organizationId: orgId, key: { $in: [...INTAKE_LEAD_ROLE_KEYS] } })
+    ProjectRole.find({
+      organizationId: orgId,
+      key: { $in: [...new Set([...INTAKE_LEAD_ROLE_KEYS, ...requestedKeys])] },
+    })
       .select('_id key')
       .lean(),
   ]);
@@ -435,14 +505,26 @@ async function listOrgRoleSuggestCandidates({
   const loadByUser = new Map();
   for (const uid of userIds) {
     const rows = rowsByUser.get(uid) || [];
-    const allocatedPct = allocatedPctOnDay(flattenSegments(rows), asOfMs);
+    const flat = flattenSegments(rows);
+    const allocatedPct = allocatedPctOnDay(flat, asOfMs);
+    const availablePct = availablePctOnDay(flat, asOfMs);
     const allocationStatus = computeAllocationStatus(rows);
     const availability =
       allocationStatus === 'overallocated'
         ? 'overallocated'
         : classifyAvailability(allocatedPct);
-    loadByUser.set(uid, { allocatedPct, availability });
+    loadByUser.set(uid, { allocatedPct, availablePct, availability, flat });
   }
+
+  const hoursByUser = staffingMatch
+    ? await loadStaffingMatchAvailableHours({
+        organizationId: orgId,
+        userIds,
+        loadByUser,
+        fromDate,
+        toDate,
+      })
+    : null;
 
   const requested = new Set(requestedKeys);
   const byRole = emptyRoleSuggestByRole();
@@ -454,7 +536,11 @@ async function listOrgRoleSuggestCandidates({
       const uid = m.userId;
       const identity = identityFromProfile(profileMap.get(uid), uid);
       const priorSet = priorKeysByUser.get(uid);
-      const load = loadByUser.get(uid) || { allocatedPct: 0, availability: 'available' };
+      const load = loadByUser.get(uid) || {
+        allocatedPct: 0,
+        availablePct: 100,
+        availability: 'available',
+      };
       const scored = rankRoleSuggestCandidate(
         {
           userId: uid,
@@ -465,13 +551,20 @@ async function listOrgRoleSuggestCandidates({
         },
         { projectRoleKey: roleKey, enabledPositionKeys }
       );
-      return toRoleSuggestPublicItem({
+      const publicLoad = {
         ...scored,
         allocatedPct: load.allocatedPct,
+        availablePct: load.availablePct,
         availability: load.availability,
-      });
+      };
+      if (hoursByUser && hoursByUser.has(String(uid))) {
+        publicLoad.availableHours = hoursByUser.get(String(uid));
+      }
+      return toRoleSuggestPublicItem(publicLoad);
     });
-    const sorted = sortRoleSuggestItems(ranked);
+    const sorted = staffingMatch
+      ? pinAssigneeFirst(sortRoleSuggestItems(ranked), assigneeUserId)
+      : sortRoleSuggestItems(ranked);
     const pool = onlyFitAvailable ? filterRoleSuggestFitAvailable(sorted) : sorted;
     const page = sliceRoleSuggestPage(pool, {
       offset: pageOffset,
@@ -500,7 +593,53 @@ async function listOrgRoleSuggestCandidates({
   };
 }
 
+/**
+ * Internal pool for Planning Excel import. Same staffingMatch ranking, no new route.
+ * Returns score + suggestReasons + availableHours only.
+ */
+async function listStaffingMatchCandidatesForImport({
+  organizationId,
+  actorUserId,
+  projectId,
+  roleKey,
+  fromDate,
+  toDate,
+} = {}) {
+  const key = String(roleKey || '').trim().toLowerCase();
+  const collected = [];
+  let offset = 0;
+  const limit = 50;
+  for (let page = 0; page < 4; page += 1) {
+    const result = await listOrgRoleSuggestCandidates({
+      organizationId,
+      actorUserId,
+      projectRoleKeys: key,
+      projectId,
+      allowDeliveryRole: true,
+      fromDate,
+      toDate,
+      limit,
+      offset,
+      fitAvailable: false,
+    });
+    const bag = result?.byRole && typeof result.byRole === 'object' ? result.byRole : {};
+    const items = Array.isArray(bag[key]) ? bag[key] : [];
+    collected.push(...items);
+    const hasMore = Boolean(result?.paging?.hasMoreByRole?.[key]);
+    if (!hasMore) break;
+    offset += items.length || limit;
+  }
+  return collected.map((item) => ({
+    userId: String(item?.userId || ''),
+    displayName: String(item?.displayName || '').trim(),
+    availableHours: item?.availableHours,
+    score: Number(item?.score) || 0,
+    suggestReasons: Array.isArray(item?.suggestReasons) ? item.suggestReasons.filter(Boolean) : [],
+  }));
+}
+
 module.exports = {
   listMemberCandidates,
   listOrgRoleSuggestCandidates,
+  listStaffingMatchCandidatesForImport,
 };
