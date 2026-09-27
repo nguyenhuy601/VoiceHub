@@ -65,6 +65,17 @@ function resolveRequestedIntakeRoleKeys(raw) {
   return INTAKE_LEAD_ROLE_KEYS.filter((k) => set.has(k));
 }
 
+const STAFFING_ROLE_KEY = /^[a-z][a-z0-9_]{0,63}$/;
+
+/** Một vai trò dự án (developer, tech_lead, …) cho bước phân công. */
+function resolveStaffingMatchRoleKey(raw) {
+  const parsed = parseIntakeRoleKeys(raw);
+  if (parsed.length !== 1) return null;
+  const key = parsed[0];
+  if (!STAFFING_ROLE_KEY.test(key)) return null;
+  return [key];
+}
+
 function parseRoleSuggestOffset(raw) {
   if (raw == null || raw === '') return 0;
   const n = Number(raw);
@@ -176,11 +187,28 @@ function toRoleSuggestPublicItem(ranked = {}) {
   if (ranked.allocatedPct != null && Number.isFinite(Number(ranked.allocatedPct))) {
     out.allocatedPct = Math.round(Number(ranked.allocatedPct) * 100) / 100;
   }
+  if (ranked.availablePct != null && Number.isFinite(Number(ranked.availablePct))) {
+    out.availablePct = Math.round(Number(ranked.availablePct) * 100) / 100;
+  }
+  if (ranked.availableHours != null && ranked.availableHours !== '' && Number.isFinite(Number(ranked.availableHours))) {
+    out.availableHours = Math.round(Number(ranked.availableHours) * 100) / 100;
+  }
   const availability = String(ranked.availability || '').trim().toLowerCase();
   if (availability === 'available' || availability === 'partial' || availability === 'overallocated') {
     out.availability = availability;
   }
   return out;
+}
+
+function pinAssigneeFirst(items = [], assigneeUserId) {
+  const id = String(assigneeUserId || '').trim();
+  if (!id) return Array.isArray(items) ? items : [];
+  const list = Array.isArray(items) ? items.slice() : [];
+  const idx = list.findIndex((row) => String(row?.userId || '') === id);
+  if (idx <= 0) return list;
+  const [hit] = list.splice(idx, 1);
+  list.unshift(hit);
+  return list;
 }
 
 function sortRoleSuggestItems(items = []) {
@@ -197,6 +225,7 @@ module.exports = {
   isExactIntakeRoleKeys,
   isAllowedIntakeRoleKeys,
   resolveRequestedIntakeRoleKeys,
+  resolveStaffingMatchRoleKey,
   parseRoleSuggestOffset,
   sliceRoleSuggestPage,
   parseRoleSuggestFitAvailable,
@@ -206,5 +235,6 @@ module.exports = {
   verifiedExperienceMatchesRole,
   rankRoleSuggestCandidate,
   toRoleSuggestPublicItem,
+  pinAssigneeFirst,
   sortRoleSuggestItems,
 };

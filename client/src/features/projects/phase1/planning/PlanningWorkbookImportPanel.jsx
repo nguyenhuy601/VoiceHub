@@ -10,32 +10,35 @@ import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import PlanningWorkbookPreviewModal from './PlanningWorkbookPreviewModal';
 
-function unwrap(res) {
-  return res?.data?.data ?? res?.data ?? res;
+function intakeLockStorageKey(projectId) {
+  return `vh-planning-intake:${projectId}`;
 }
 
-/** ZIP/OOXML local-file header — rejects text stubs like "undefined" from bad downloads. */
-function isZipXlsxBytes(bytes) {
-  return (
-    bytes &&
-    bytes.length >= 4 &&
-    bytes[0] === 0x50 &&
-    bytes[1] === 0x4b &&
-    (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07) &&
-    (bytes[3] === 0x04 || bytes[3] === 0x06 || bytes[3] === 0x08)
-  );
-}
-
-function bytesToBase64(bytes) {
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+function readIntakeLock(projectId) {
+  if (!projectId || typeof sessionStorage === 'undefined') return null;
+  try {
+    const value = sessionStorage.getItem(intakeLockStorageKey(projectId));
+    return value === 'seed' || value === 'upload' ? value : null;
+  } catch {
+    return null;
   }
-  return btoa(binary);
 }
 
-export default function PlanningWorkbookImportPanel({ projectId, canEdit }) {
+function writeIntakeLock(projectId, mode) {
+  if (!projectId || typeof sessionStorage === 'undefined') return;
+  try {
+    sessionStorage.setItem(intakeLockStorageKey(projectId), mode);
+  } catch {
+    /* private mode */
+  }
+}
+
+export default function PlanningWorkbookImportPanel({
+  projectId,
+  canEdit,
+  planningRowCount = 0,
+  summaryLoading = false,
+}) {
   const { t } = useAppStrings();
   const queryClient = useQueryClient();
   const [dumpText, setDumpText] = useState('');
@@ -44,6 +47,8 @@ export default function PlanningWorkbookImportPanel({ projectId, canEdit }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [intakeLock, setIntakeLock] = useState(() => readIntakeLock(projectId));
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['planningArtifacts', projectId] });
@@ -99,26 +104,56 @@ export default function PlanningWorkbookImportPanel({ projectId, canEdit }) {
     );
   }
 
-  const downloadTemplate = async (seedFromRa) => {
+  const seedFromRa = async () => {
+    if (!projectId || seeding || intakeLock === 'upload' || dumpPreview || hasPlanningRows) return;
+    setSeeding(true);
     try {
-      // apiClient interceptor returns response.data (Blob when responseType: 'blob')
-      const data = await planningAPI.downloadDumpTemplate(projectId, { seedFromRa });
+      const data = unwrap(await planningAPI.seedDraftsFromRa(projectId));
+      invalidate();
+      toast.success(
+        t('workspace.phase1DumpSeedFromRaOk', {
+          created: data?.created ?? 0,
+          skipped: data?.skipped ?? 0,
+        })
+      );
+      writeIntakeLock(projectId, 'seed');
+      setIntakeLock('seed');
+    } catch (err) {
+      toast.error(
+        resolveApiErrorMessage(err, {
+          t,
+          fallback: t('workspace.phase1DumpSeedFromRaFail'),
+        })
+      );
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  const downloadTemplate = async (seedFromRaFile) => {
+    try {
+      const res = await planningAPI.downloadDumpTemplate(projectId, { seedFromRa: seedFromRaFile });
       const blob =
-        data instanceof Blob
-          ? data
-          : data?.data instanceof Blob
-            ? data.data
-            : new Blob([data?.data ?? data], {
-                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-              });
-      if (!(blob instanceof Blob) || blob.size < 64) {
-        toast.error(t('workspace.phase1DumpTemplateEmpty'));
-        return;
+        res instanceof Blob
+          ? res
+          : new Blob([res?.data ?? res], {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
+      if (blob.type && blob.type.includes('application/json')) {
+        const text = await blob.text();
+        let msg = 'Không tải được workbook.';
+        try {
+          const parsed = JSON.parse(text);
+          msg = parsed.message || msg;
+        } catch {
+          /* keep fallback */
+        }
+        throw new Error(msg);
       }
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = seedFromRa
+      a.download = seedFromRaFile
         ? 'planning-workbook-seed-ra.xlsx'
         : 'planning-workbook-template.xlsx';
       a.click();
@@ -128,14 +163,16 @@ export default function PlanningWorkbookImportPanel({ projectId, canEdit }) {
     }
   };
 
-  const confirmImport = async () => {
+  const confirmImport = async (suggestionDecisions) => {
     if (!pendingXlsxBase64) return;
     setConfirming(true);
     try {
+      const decisions = Array.isArray(suggestionDecisions) ? suggestionDecisions : [];
       const res = await planningAPI.bulkDumpArtifacts(projectId, {
         format: 'xlsx',
         base64: pendingXlsxBase64,
         dryRun: false,
+        ...(decisions.length ? { suggestionDecisions: decisions } : {}),
       });
       const data = unwrap(res);
       invalidate();
@@ -147,12 +184,28 @@ export default function PlanningWorkbookImportPanel({ projectId, canEdit }) {
         })
       );
       notifyDumpAssignee(data);
+      writeIntakeLock(projectId, 'upload');
+      setIntakeLock('upload');
     } catch (err) {
       toast.error(resolveApiErrorMessage(err));
     } finally {
       setConfirming(false);
     }
   };
+
+  const hasPlanningRows = Number(planningRowCount) > 0;
+  const rowsBlockWrites = summaryLoading || hasPlanningRows;
+  const uploadChosen = !hasPlanningRows && (intakeLock === 'upload' || Boolean(dumpPreview));
+  const seedDisabled = seeding || uploading || confirming || uploadChosen || rowsBlockWrites;
+  const uploadDisabled =
+    uploading || seeding || confirming || intakeLock === 'seed' || rowsBlockWrites;
+  const lockNote = hasPlanningRows
+    ? t('workspace.phase1DumpLockHasRows')
+    : intakeLock === 'seed'
+      ? t('workspace.phase1DumpLockAfterSeed')
+      : uploadChosen
+        ? t('workspace.phase1DumpLockAfterUpload')
+        : '';
 
   return (
     <div className="space-y-3">
@@ -172,52 +225,61 @@ export default function PlanningWorkbookImportPanel({ projectId, canEdit }) {
         >
           {t('workspace.phase1DumpDownloadSeedRa')}
         </button>
+        <button
+          type="button"
+          className="rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+          onClick={seedFromRa}
+          disabled={seedDisabled}
+          title={
+            hasPlanningRows
+              ? t('workspace.phase1DumpLockHasRows')
+              : uploadChosen
+                ? t('workspace.phase1DumpLockAfterUpload')
+                : undefined
+          }
+        >
+          {seeding ? t('common.loading') : t('workspace.phase1DumpSeedFromRa')}
+        </button>
         <label
-          className={`cursor-pointer rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs ${
-            uploading ? 'pointer-events-none opacity-50' : ''
+          className={`rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs ${
+            uploadDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
           }`}
+          title={
+            hasPlanningRows
+              ? t('workspace.phase1DumpLockHasRows')
+              : intakeLock === 'seed'
+                ? t('workspace.phase1DumpLockAfterSeed')
+                : undefined
+          }
         >
           {uploading ? t('common.loading') : t('workspace.phase1DumpUploadExcel')}
           <input
             type="file"
             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="hidden"
-            disabled={uploading}
+            disabled={uploadDisabled}
             onChange={async (e) => {
               const file = e.target.files?.[0];
               e.target.value = '';
-              if (!file) return;
+              if (!file || hasPlanningRows || intakeLock === 'seed') return;
               setUploading(true);
-              clearPreview();
               try {
                 const buf = await file.arrayBuffer();
                 const bytes = new Uint8Array(buf);
-                if (!isZipXlsxBytes(bytes)) {
-                  toast.error(t('workspace.phase1DumpInvalidXlsx'));
-                  return;
-                }
-                const base64 = bytesToBase64(bytes);
+                let binary = '';
+                bytes.forEach((b) => {
+                  binary += String.fromCharCode(b);
+                });
+                const base64 = btoa(binary);
                 const res = await planningAPI.bulkDumpArtifacts(projectId, {
                   format: 'xlsx',
                   base64,
                   dryRun: true,
                 });
                 const data = unwrap(res);
-                const parseErrors = Array.isArray(data?.errors)
-                  ? data.errors
-                  : Array.isArray(data?.parseErrors)
-                    ? data.parseErrors
-                    : [];
-                const wouldCreate = Number(data?.wouldCreate ?? 0);
-                if (wouldCreate > 0 && parseErrors.length === 0) {
-                  setPendingXlsxBase64(base64);
-                } else {
-                  setPendingXlsxBase64(null);
-                }
-                setDumpPreview(data || { errors: parseErrors, preview: [], wouldCreate: 0 });
-                if (wouldCreate > 0 && parseErrors.length === 0) {
-                  notifyDumpAssignee(data);
-                }
+                setPendingXlsxBase64(base64);
+                setDumpPreview(data);
+                notifyDumpAssignee(data);
               } catch (err) {
                 clearPreview();
                 toast.error(resolveApiErrorMessage(err));
@@ -228,6 +290,7 @@ export default function PlanningWorkbookImportPanel({ projectId, canEdit }) {
           />
         </label>
       </div>
+      {lockNote ? <p className="text-[11px] text-muted-foreground">{lockNote}</p> : null}
 
       <button
         type="button"
@@ -250,7 +313,7 @@ export default function PlanningWorkbookImportPanel({ projectId, canEdit }) {
           <button
             type="button"
             className="rounded-lg bg-primary px-2.5 py-1 text-xs text-primary-foreground disabled:opacity-50"
-            disabled={!dumpText.trim() || dumpMut.isPending}
+            disabled={!dumpText.trim() || dumpMut.isPending || hasPlanningRows || summaryLoading}
             onClick={() => dumpMut.mutate()}
           >
             {t('workspace.phase1DumpSubmit')}

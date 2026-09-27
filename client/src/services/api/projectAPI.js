@@ -89,13 +89,11 @@ export function mapBoardsToPickerRows(boards = [], projectMeta = {}) {
  * projectId ≠ boardId (defaultBoardId trên response create/list).
  */
 export const projectAPI = {
-  create: (payload = {}, config = {}) => {
+  create: (payload = {}) => {
     const body = { ...(payload || {}) };
     delete body.workspaceSlug;
     delete body.slug;
-    return apiClient.post('/projects', body, {
-      skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
-    });
+    return apiClient.post('/projects', body);
   },
 
   list: (params = {}) => {
@@ -346,10 +344,13 @@ export const projectAPI = {
     ),
 
   /** Phase 3 — Department Capacity */
-  getDepartmentCapacity: (organizationId, params = {}) =>
+  getDepartmentCapacity: (organizationId, params = {}, config = {}) =>
     apiClient.get(
       '/projects/resources/capacity',
-      withOrg(organizationId, { params: { ...params, organizationId } })
+      withOrg(organizationId, {
+        params: { ...params, organizationId },
+        skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      })
     ),
 
   /** Phase 3 — Resource Planner (org-scoped). config.skipPermissionDeniedToast cho best-effort badge. */

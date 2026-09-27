@@ -183,28 +183,8 @@ const projectSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['draft', 'active', 'on_hold', 'closed'],
-      default: 'draft',
-      index: true,
-    },
-    /**
-     * Status within the current deliveryPhase (orthogonal to Project.status).
-     * New creates default not_started; review/approve transitions are later plans.
-     */
-    phaseStatus: {
-      type: String,
-      enum: ['not_started', 'in_progress', 'review', 'approved', 'blocked', 'completed'],
-      default: 'not_started',
-      index: true,
-    },
-    /**
-     * Intake analysis path chosen at project create (manual BA vs AI).
-     * Declaration only — does not auto-trigger AI jobs.
-     */
-    analysisMode: {
-      type: String,
-      enum: ['manual', 'ai'],
-      default: 'manual',
+      enum: ['planning', 'ready_for_planning', 'in_development', 'on_hold', 'closed'],
+      default: 'planning',
       index: true,
     },
     /**
@@ -302,6 +282,14 @@ const projectSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /**
+     * Phase 2 Manual path — PM staging table awaiting PO approve before development.
+     * { status, methodology, rows[], submittedAt, submittedBy, reviewedAt, reviewedBy, note }
+     */
+    phase2ManualStaging: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
     projectType: {
       type: String,
       enum: ['software', 'integration', 'maintenance', 'research', 'other'],
@@ -329,6 +317,12 @@ const projectSchema = new mongoose.Schema(
     expectedEndDate: {
       type: Date,
       default: null,
+    },
+    /** warn_v1 chỉ gán lúc tạo. Document cũ để null và không áp luật lịch mới. */
+    schedulePolicy: {
+      type: String,
+      default: null,
+      maxlength: 32,
     },
     estimatedDurationDays: {
       type: Number,

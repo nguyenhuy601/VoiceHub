@@ -50,6 +50,11 @@ export const planningAPI = {
   bulkDumpArtifacts: (projectId, body = {}) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning/artifacts/bulk`, body),
 
+  seedDraftsFromRa: (projectId) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning/artifacts/bulk`, {
+      seedFromRa: true,
+    }),
+
   downloadDumpTemplate: (projectId, { seedFromRa = false } = {}) =>
     apiClient.get(`/projects/${encodeURIComponent(projectId)}/planning/dump-template.xlsx`, {
       responseType: 'blob',

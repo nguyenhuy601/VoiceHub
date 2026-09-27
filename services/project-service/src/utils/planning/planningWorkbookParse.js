@@ -1,7 +1,6 @@
 /**
  * Parse multi-sheet Planning workbook → dump rows (+ structured errors).
  * DEC D-WB3: RESOURCE_ROLES merged into RESOURCE.structured.roles.
- * v1.1: physical headers (ID/Name/…) → domain via catalog map; dual-read camelCase.
  */
 
 const { normalizeDumpRow } = require('./planningDumpParse');
@@ -12,12 +11,11 @@ const {
   PLANNING_WORKBOOK_MAX_ROWS_TOTAL,
   SHEET_COLUMNS,
   RESOURCE_ROLES_COLUMNS,
-  META_NAME_HEURISTIC_KEYS,
   isMultiSheetPlanningWorkbook,
   requiredKeysForSheet,
-  domainItemFromPhysicalRow,
-  physicalLabelForDomain,
 } = require('../../constants/planningWorkbookCatalog');
+const { remapRowHeadersToInternalKeys } = require('../../constants/planningWorkbookAliases');
+const { formatErrors } = require('../project/artifactColumnRules');
 
 function asTrimmed(raw, max = 240) {
   return String(raw ?? '')
@@ -38,9 +36,7 @@ function splitSkillKeys(raw) {
 }
 
 /**
- * Map flat domain sheet row → normalizeDumpRow input using catalog.
- * @param {string} kind
- * @param {Record<string, unknown>} item domain-keyed
+ * Map flat sheet row → normalizeDumpRow input using catalog.
  */
 function mapKindSheetRow(kind, item) {
   const cols = SHEET_COLUMNS[kind] || [];
@@ -81,8 +77,7 @@ function validateRequired(kind, item, sheet, excelRow, errors) {
   const required = requiredKeysForSheet(kind);
   for (const key of required) {
     if (!asTrimmed(item[key], 500)) {
-      const label = physicalLabelForDomain(kind, key);
-      pushError(errors, sheet, excelRow, 'REQUIRED', `Thiếu cột bắt buộc: ${label}`);
+      pushError(errors, sheet, excelRow, 'REQUIRED', `Thiếu cột bắt buộc: ${key}`);
       return false;
     }
   }
@@ -92,18 +87,24 @@ function validateRequired(kind, item, sheet, excelRow, errors) {
 function parseResourceRolesSheet(jsonRows, errors) {
   const byResource = new Map();
   jsonRows.slice(0, PLANNING_WORKBOOK_MAX_ROWS_PER_SHEET).forEach((rawItem, idx) => {
+    const item = remapRowHeadersToInternalKeys(rawItem);
     const excelRow = idx + 2;
-    const item = domainItemFromPhysicalRow(RESOURCE_ROLES_SHEET, rawItem);
     const resourceExternalKey = asTrimmed(item.resourceExternalKey, 64);
     const roleKey = asTrimmed(item.roleKey, 64);
     const title = asTrimmed(item.title, 240);
     if (!resourceExternalKey && !roleKey && !title) return;
     for (const c of RESOURCE_ROLES_COLUMNS) {
       if (c.required && !asTrimmed(item[c.key], 240)) {
-        const label = physicalLabelForDomain(RESOURCE_ROLES_SHEET, c.key);
-        pushError(errors, RESOURCE_ROLES_SHEET, excelRow, 'REQUIRED', `Thiếu ${label}`);
+        pushError(errors, RESOURCE_ROLES_SHEET, excelRow, 'REQUIRED', `Thiếu ${c.key}`);
         return;
       }
+    }
+    const roleFormatErrors = formatErrors('RESOURCE', { effortHours: item.effortHours });
+    if (roleFormatErrors.length) {
+      for (const err of roleFormatErrors) {
+        pushError(errors, RESOURCE_ROLES_SHEET, excelRow, err.code, `${err.field}: ${err.message}`);
+      }
+      return;
     }
     const role = {
       roleKey,
@@ -117,37 +118,6 @@ function parseResourceRolesSheet(jsonRows, errors) {
     byResource.get(resourceExternalKey).push(role);
   });
   return byResource;
-}
-
-/**
- * Parse 00_Meta: Key/Value (VoiceHub) or template Name-column heuristic.
- * @param {object[]} metaJson
- * @returns {Record<string, string>}
- */
-function parseMetaRows(metaJson) {
-  const meta = {};
-  const rows = Array.isArray(metaJson) ? metaJson : [];
-  let hasKeyValue = false;
-  for (const r of rows) {
-    const k = asTrimmed(r.Key || r.key, 64);
-    if (k) {
-      hasKeyValue = true;
-      meta[k] = asTrimmed(r.Value ?? r.value, 2000);
-    }
-  }
-  if (hasKeyValue) return meta;
-
-  // Template layout: universal headers; sparse Name column values
-  const nameValues = [];
-  for (const r of rows) {
-    const domain = domainItemFromPhysicalRow('WBS', r);
-    const name = asTrimmed(domain.title || r.Name || r.name, 500);
-    if (name) nameValues.push(name);
-  }
-  nameValues.slice(0, META_NAME_HEURISTIC_KEYS.length).forEach((val, i) => {
-    meta[META_NAME_HEURISTIC_KEYS[i]] = val;
-  });
-  return meta;
 }
 
 /**
@@ -199,8 +169,7 @@ function parsePlanningWorkbookXlsx(fileBuffer) {
           sheet: '',
           row: 0,
           code: 'NOT_WORKBOOK',
-          message:
-            'Không phải Planning workbook đa sheet (thiếu 00_Meta / WBS…). Tải lại «workbook trống» hoặc «seed từ RA» rồi upload — đừng dùng file tải lỗi (nội dung "undefined").',
+          message: 'Không phải Planning workbook đa sheet',
         },
       ],
       format: 'xlsx_workbook',
@@ -208,13 +177,16 @@ function parsePlanningWorkbookXlsx(fileBuffer) {
     };
   }
 
-  let meta = {};
+  const meta = {};
   if (sheetNames.includes(META_SHEET)) {
     const metaJson = XLSX.utils.sheet_to_json(workbook.Sheets[META_SHEET], {
       defval: '',
       raw: false,
     });
-    meta = parseMetaRows(metaJson);
+    for (const r of metaJson) {
+      const k = asTrimmed(r.Key || r.key, 64);
+      if (k) meta[k] = asTrimmed(r.Value ?? r.value, 2000);
+    }
   }
 
   let rolesByResource = new Map();
@@ -238,10 +210,23 @@ function parsePlanningWorkbookXlsx(fileBuffer) {
     jsonRows.slice(0, PLANNING_WORKBOOK_MAX_ROWS_PER_SHEET).forEach((rawItem, idx) => {
       if (rows.length >= PLANNING_WORKBOOK_MAX_ROWS_TOTAL) return;
       const excelRow = idx + 2;
-      const hasAny = Object.values(rawItem).some((v) => String(v || '').trim());
+      const item = remapRowHeadersToInternalKeys(rawItem);
+      const hasAny = Object.values(item).some((v) => String(v || '').trim());
       if (!hasAny) return;
-      const item = domainItemFromPhysicalRow(kind, rawItem);
       if (!validateRequired(kind, item, kind, excelRow, errors)) return;
+      const formatFields = {};
+      for (const col of SHEET_COLUMNS[kind] || []) {
+        const raw = item[col.key];
+        if (raw === undefined || raw === null || String(raw).trim() === '') continue;
+        formatFields[col.key] = raw;
+      }
+      const rowFormatErrors = formatErrors(kind, formatFields);
+      if (rowFormatErrors.length) {
+        for (const err of rowFormatErrors) {
+          pushError(errors, kind, excelRow, err.code, `${err.field}: ${err.message}`);
+        }
+        return;
+      }
       const mapped = mapKindSheetRow(kind, item);
       if (!mapped) {
         pushError(errors, kind, excelRow, 'INVALID', 'kind/externalKey/title không hợp lệ');
@@ -279,5 +264,4 @@ module.exports = {
   parsePlanningWorkbookXlsx,
   mapKindSheetRow,
   parseResourceRolesSheet,
-  parseMetaRows,
 };

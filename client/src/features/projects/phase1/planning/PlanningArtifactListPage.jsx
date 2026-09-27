@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
@@ -8,11 +8,14 @@ import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
 import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
 import PlanningResourcePanel from './PlanningResourcePanel';
+import Modal from '../../../../components/Shared/Modal';
 import PlanningGanttPanel from './PlanningGanttPanel';
 import PlanningArtifactFormDrawer from './PlanningArtifactFormDrawer';
 import PlanningSuggestFromRaModal from './PlanningSuggestFromRaModal';
 import Phase1SplitWorkspace from '../shared/Phase1SplitWorkspace';
 import Phase1InlineActionBar from '../shared/Phase1InlineActionBar';
+import Phase1ChoiceInput from '../shared/Phase1ChoiceInput';
+import { choiceOptions } from '../shared/phase1ChoiceFields';
 import {
   Phase1DataTableToolbar,
   Phase1SortableTh,
@@ -62,6 +65,7 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
   const { capabilities } = useProjectCapabilities(projectId);
   const [filter, setFilter] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [columnError, setColumnError] = useState('');
   const [selected, setSelected] = useState(null);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [error, setError] = useState(null);
@@ -72,6 +76,8 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
   const [activeColId, setActiveColId] = useState(null);
   const [inlineDraft, setInlineDraft] = useState(null);
   const [inlineBaseline, setInlineBaseline] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
   const canEdit = capabilities.canEditPlanning;
   const canReview = Boolean(capabilities.canReviewPlanning);
@@ -109,26 +115,92 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
   };
 
   const createMut = useMutation({
-    mutationFn: (body) => planningAPI.createArtifact(projectId, { ...body, kind }),
-    onSuccess: () => {
+    mutationFn: ({ _inlineAdd, ...body }) =>
+      planningAPI.createArtifact(projectId, { ...body, kind }),
+    onSuccess: (res, vars) => {
       invalidate();
       setCreateOpen(false);
       toast.success(t('workspace.phase1ArtifactCreated'));
+      const data = res?.data?.data ?? res?.data ?? res;
+      const id = String(data?.id || data?._id || '');
+      if (vars?._inlineAdd && id) {
+        const row = { ...data, status: 'draft', kind, title: data?.title || 'Untitled' };
+        // Inline + : sửa trên bảng — không mở side panel.
+        setSelected(null);
+        const draft = draftFromPlanningArtifact(row);
+        setInlineDraft(draft);
+        setInlineBaseline(draft);
+        setEditingId(id);
+        setActiveColId('title');
+      }
+    },
+    onMutate: () => setColumnError(''),
+    onError: (err) => {
+      const message = resolveApiErrorMessage(err, { t });
+      setColumnError(message);
+      toast.error(message);
+    },
+  });
+
+  const softDeleteMut = useMutation({
+    mutationFn: async (ids) => {
+      const list = Array.isArray(ids) ? ids : [ids];
+      for (const id of list) {
+        await planningAPI.updateArtifact(projectId, id, { softDelete: true });
+      }
+    },
+    onSuccess: () => {
+      invalidate();
+      setSelectedIds(new Set());
+      toast.success(t('workspace.phase1SoftDeleteOk') || 'Đã xóa (soft) dòng draft');
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
+
+  const addInlineRow = useCallback(() => {
+    if (!canEdit || createMut.isPending) return;
+    const key = `${String(kind || 'ROW')}-${Date.now().toString(36).toUpperCase()}`.slice(0, 64);
+    createMut.mutate({
+      externalKey: key,
+      title: 'Untitled',
+      summary: '',
+      _inlineAdd: true,
+    });
+  }, [canEdit, createMut, kind]);
+
+  const toggleSelectId = useCallback((id, checked) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const selectedDeletableIds = useMemo(() => {
+    return [...selectedIds].filter((id) => {
+      const row = rows.find((r) => String(r.id || r._id) === id);
+      return row && CONTENT_EDITABLE.has(String(row.status || ''));
+    });
+  }, [selectedIds, rows]);
 
   const updateMut = useMutation({
     mutationFn: ({ id, body }) => planningAPI.updateArtifact(projectId, id, body),
     onSuccess: () => {
       invalidate();
       toast.success(t('workspace.phase1ArtifactUpdated'));
+      setColumnError('');
       setEditingId(null);
       setActiveColId(null);
       setInlineDraft(null);
       setInlineBaseline(null);
     },
-    onError: (err) => toast.error(resolveApiErrorMessage(err)),
+    onMutate: () => setColumnError(''),
+    onError: (err) => {
+      const message = resolveApiErrorMessage(err, { t });
+      setColumnError(message);
+      toast.error(message);
+    },
   });
 
   const transitionMut = useMutation({
@@ -137,6 +209,7 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
     onSuccess: (_data, vars) => {
       invalidate();
       toast.success(t('workspace.phase1ArtifactGateOk', { status: vars?.toStatus || '' }));
+      setColumnError('');
       setEditingId(null);
       setActiveColId(null);
       setInlineDraft(null);
@@ -145,7 +218,12 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
         setSelected((prev) => (prev ? { ...prev, status: vars.toStatus } : prev));
       }
     },
-    onError: (err) => toast.error(resolveApiErrorMessage(err)),
+    onMutate: () => setColumnError(''),
+    onError: (err) => {
+      const message = resolveApiErrorMessage(err, { t });
+      setColumnError(message);
+      toast.error(message);
+    },
   });
 
   const filtered = useMemo(() => {
@@ -171,6 +249,7 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
     setActiveColId(null);
     setInlineDraft(null);
     setInlineBaseline(null);
+    setSelectedIds(new Set());
   }, [filter, kind]);
 
   useEffect(() => {
@@ -225,7 +304,8 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
     const target = resolvePlanningInlineEditTarget({ id: colId });
     if (!target) return;
     const id = String(row.id || row._id);
-    setSelected(row);
+    // Sửa trên bảng — đóng side phải.
+    setSelected(null);
     if (editingId !== id) {
       const draft = draftFromPlanningArtifact(row);
       setInlineDraft(draft);
@@ -288,6 +368,15 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
                 {t('workspace.phase1DumpGoImport')}
               </button>
             ) : null}
+            {showGantt ? (
+              <button
+                type="button"
+                className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm"
+                onClick={() => setTimelineOpen(true)}
+              >
+                {t('workspace.phase1PlanningViewTimeline')}
+              </button>
+            ) : null}
             {SUGGEST_FROM_RA_KINDS.has(String(kind || '').toUpperCase()) ? (
               <button
                 type="button"
@@ -320,10 +409,6 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
         </div>
       ) : null}
 
-      {showGantt ? (
-        <PlanningGanttPanel artifacts={filtered} onSelect={selectRow} kind={kind} />
-      ) : null}
-
       {kind === 'RESOURCE' && resourceRow ? (
         <PlanningResourcePanel
           projectId={projectId}
@@ -333,11 +418,64 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
         />
       ) : null}
 
+      {selectedIds.size > 0 && canEdit ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm">
+          <span className="text-xs text-muted-foreground">
+            {(t('workspace.phase1SelectedCount') || '{count} đã chọn').replace(
+              '{count}',
+              String(selectedIds.size)
+            )}
+          </span>
+          {selectedIds.size === 1 ? (
+            <button
+              type="button"
+              className="rounded border border-border px-2 py-0.5 text-xs font-semibold"
+              onClick={() => {
+                const id = [...selectedIds][0];
+                const row = rows.find((r) => String(r.id || r._id) === id);
+                if (row) beginInline(row, 'title');
+              }}
+            >
+              {t('common.edit') || 'Sửa'}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="rounded border border-destructive/40 px-2 py-0.5 text-xs font-semibold text-destructive disabled:opacity-50"
+            disabled={!selectedDeletableIds.length || softDeleteMut.isPending}
+            onClick={() => {
+              if (!selectedDeletableIds.length) {
+                toast.error(
+                  t('workspace.phase1SoftDeleteBlocked') ||
+                    'Chỉ xóa được draft / changes_requested / rejected'
+                );
+                return;
+              }
+              softDeleteMut.mutate(selectedDeletableIds);
+            }}
+          >
+            {t('common.delete') || 'Xóa'}
+          </button>
+          <button
+            type="button"
+            className="text-xs text-muted-foreground hover:underline"
+            onClick={() => setSelectedIds(new Set())}
+          >
+            {t('common.cancel')}
+          </button>
+        </div>
+      ) : null}
+
       <div className={PHASE1_TABLE_FRAME}>
         <div className={PHASE1_TABLE_SHELL}>
           <table className={PHASE1_TABLE}>
             <thead className="sticky top-0 z-10">
               <tr>
+                {canEdit ? (
+                  <th className={`${PHASE1_TD} w-8 px-1`}>
+                    <span className="sr-only">Select</span>
+                  </th>
+                ) : null}
                 {listColumns.map((col) => (
                   <Phase1SortableTh
                     key={col.id}
@@ -357,6 +495,7 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
                 const rowEditable = canEdit && CONTENT_EDITABLE.has(String(row.status));
                 const isEditing = editingId === id;
                 const isSelected = selected && String(selected.id || selected._id) === id && !isEditing;
+                const checked = selectedIds.has(id);
                 return (
                   <tr
                     key={id}
@@ -365,6 +504,19 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
                     }`}
                     onClick={() => selectRow(row)}
                   >
+                    {canEdit ? (
+                      <td
+                        className={`${PHASE1_TD} w-8 px-1`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => toggleSelectId(id, e.target.checked)}
+                          aria-label={`Select ${row.externalKey || id}`}
+                        />
+                      </td>
+                    ) : null}
                     {listColumns.map((col) => {
                       const target = resolvePlanningInlineEditTarget(col);
                       const isActive = isEditing && activeColId === col.id && Boolean(target);
@@ -394,6 +546,16 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
                                   setInlineDraft((d) => ({ ...d, [target.key]: e.target.value }))
                                 }
                               />
+                            ) : choiceOptions(target.key) ? (
+                              <Phase1ChoiceInput
+                                fieldKey={target.key}
+                                className={CELL_INPUT}
+                                value={inlineDraft[target.key] || ''}
+                                autoFocus
+                                onChange={(next) =>
+                                  setInlineDraft((d) => ({ ...d, [target.key]: next }))
+                                }
+                              />
                             ) : (
                               <input
                                 className={CELL_INPUT}
@@ -414,10 +576,24 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
                   </tr>
                 );
               })}
+              {canEdit ? (
+                <tr>
+                  <td colSpan={listColumns.length + 1} className={`${PHASE1_TD} py-2`}>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                      disabled={createMut.isPending}
+                      onClick={addInlineRow}
+                    >
+                      + {t('workspace.phase1AddInlineRow') || 'Thêm dòng'}
+                    </button>
+                  </td>
+                </tr>
+              ) : null}
               {!filtered.length && !isLoading ? (
                 <tr>
                   <td
-                    colSpan={listColumns.length}
+                    colSpan={listColumns.length + (canEdit ? 1 : 0)}
                     className={`${PHASE1_TD} py-8 text-center text-muted-foreground`}
                   >
                     {t('workspace.phase1EmptyPlanning')}
@@ -467,6 +643,11 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
             }
           />
         ) : null}
+        {columnError ? (
+          <p className="px-1 text-sm text-destructive" role="alert">
+            {columnError}
+          </p>
+        ) : null}
         <Phase1TablePagination
           page={safePage}
           pageCount={pageCount}
@@ -503,6 +684,7 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
               nextStatus={null}
               onClose={() => setSelected(null)}
               onSubmit={() => {}}
+              fieldError={columnError}
               variant="pane"
             />
           ) : null
@@ -521,8 +703,25 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
         nextStatus={null}
         onClose={() => setCreateOpen(false)}
         onSubmit={(body) => createMut.mutate(body)}
+        fieldError={columnError}
         variant="modal"
       />
+      <Modal
+        isOpen={timelineOpen}
+        onClose={() => setTimelineOpen(false)}
+        title={t('workspace.phase1GanttTitle')}
+        size="xl"
+      >
+        <PlanningGanttPanel
+          artifacts={filtered}
+          onSelect={(row) => {
+            selectRow(row);
+            setTimelineOpen(false);
+          }}
+          kind={kind}
+          forceExpanded
+        />
+      </Modal>
       <PlanningSuggestFromRaModal
         projectId={projectId}
         kind={kind}

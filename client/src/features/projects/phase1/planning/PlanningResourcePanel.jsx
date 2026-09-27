@@ -129,6 +129,7 @@ export default function PlanningResourcePanel({ projectId, artifact, canEdit, on
   const [panelOpen, setPanelOpen] = useState(false);
   const [openRoleIdx, setOpenRoleIdx] = useState(null);
   const [roles, setRoles] = useState([emptyRole()]);
+  const [fieldError, setFieldError] = useState('');
 
   useEffect(() => {
     const raw = Array.isArray(artifact?.structured?.roles) ? artifact.structured.roles : [];
@@ -187,19 +188,30 @@ export default function PlanningResourcePanel({ projectId, artifact, canEdit, on
               .split(',')
               .map((s) => s.trim())
               .filter(Boolean),
-            effortHours: r.effortHours === '' ? null : Number(r.effortHours),
+            effortHours:
+              r.effortHours === '' || r.effortHours == null
+                ? null
+                : Number.isFinite(Number(r.effortHours))
+                  ? Number(r.effortHours)
+                  : r.effortHours,
             notes: r.notes,
           })),
       };
       return planningAPI.updateArtifact(projectId, artifactId, { structured });
     },
     onSuccess: () => {
+      setFieldError('');
       toast.success(t('workspace.phase1ResourceRolesSaved'));
       setPanelOpen(false);
       setOpenRoleIdx(null);
       onSaved?.();
     },
-    onError: (err) => toast.error(resolveApiErrorMessage(err)),
+    onMutate: () => setFieldError(''),
+    onError: (err) => {
+      const message = resolveApiErrorMessage(err, { t });
+      setFieldError(message);
+      toast.error(message);
+    },
   });
 
   if (!artifactId) return null;
@@ -210,6 +222,11 @@ export default function PlanningResourcePanel({ projectId, artifact, canEdit, on
 
   return (
     <section className="overflow-hidden rounded-xl border border-emerald-500/30 bg-emerald-500/5 shadow-sm">
+      {fieldError ? (
+        <p className="px-3 pt-2 text-sm text-destructive" role="alert">
+          {fieldError}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 px-3 py-2.5">
         <button
           type="button"
