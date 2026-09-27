@@ -14,6 +14,7 @@ const {
   assertCheckpointForResume,
 } = require('../checkpoint/checkpointStore');
 const { PlanningRun } = require('../run/PlanningRun.model');
+const { publishGatePreview } = require('../engines/g4/pipelineProgress');
 const {
   assertCallbackConfigured,
   notifyRunAccepted,
@@ -461,9 +462,10 @@ async function processRunAsync(runId) {
         snapshot: run.input?.snapshot || run.input?.snapshotPayload || null,
         snapshotId: run.snapshotId,
         runId,
-        g4Opts: run.input?.g4Opts || {},
+        g4Opts: whatG4Opts(run, cpState),
         resumeState: run.job === 'phase_how' ? cpState : null,
         selectiveToolNames: isSelectiveHow ? selectiveNames : null,
+        onProgress: (evt) => reportPipelineProgress(runId, evt),
         onCheckpoint: (agentState) =>
           saveCheckpoint(runId, {
             ...agentState,
@@ -474,6 +476,10 @@ async function processRunAsync(runId) {
             job: run.job,
           }),
       });
+      if (phaseOut?.paused) {
+        await pauseRunForDataGate(run, phaseOut);
+        return;
+      }
       const output = {
         job: run.job,
         currentJob: run.job,
@@ -705,7 +711,12 @@ async function getRun(req, res) {
     if (!doc) {
       return res.status(404).json({ success: false, message: 'Run not found' });
     }
-    return res.json({ success: true, data: toPublicRun(doc) });
+    const offset = req.query?.rowOffset;
+    const page =
+      offset != null && String(offset) !== ''
+        ? { offset, limit: req.query?.rowLimit }
+        : null;
+    return res.json({ success: true, data: toPublicRun(doc, page) });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -726,11 +737,109 @@ async function cancelRun(req, res) {
   }
 }
 
+function whatG4Opts(run, cpState) {
+  if (run.job !== 'phase_what') return run.input?.g4Opts || {};
+  const { resolveAiG4Policy } = require('../config/aiG4Policy');
+  const pipelineOn = resolveAiG4Policy().pipelineEnabled;
+  const passed = cpState?.dataGateDecision === 'pass' && cpState?.g4Partial;
+  return {
+    ...(run.input?.g4Opts || {}),
+    pauseAtDataGate: Boolean(pipelineOn && !passed),
+    priorPartial: passed ? cpState.g4Partial : null,
+  };
+}
+
+async function reportPipelineProgress(runId, evt) {
+  if (evt?.step == null || !evt?.substep) return;
+  await PlanningRun.updateOne(
+    { _id: runId },
+    {
+      $set: {
+        pipelineStep: evt.step,
+        pipelineSubstep: String(evt.substep),
+        gate: null,
+      },
+    }
+  ).catch((err) => {
+    console.warn('[planning] pipeline progress', err?.message || err);
+  });
+}
+
+async function pauseRunForDataGate(run, phaseOut) {
+  const runId = String(run._id || run.runId);
+  const gatePreview = publishGatePreview(phaseOut.gatePreview);
+  await saveCheckpoint(runId, {
+    job: run.job,
+    projectId: run.projectId,
+    packId: run.packId,
+    organizationId: run.organizationId,
+    approvedSrsVersion: run.approvedSrsVersion,
+    snapshotId: run.snapshotId,
+    g4Partial: phaseOut.partial,
+    gatePreview: phaseOut.gatePreview || null,
+    dataGateDecision: null,
+    gate: 'data_review',
+    currentNode: 'gate:data_review',
+    status: 'waiting_human',
+    history: phaseOut.history,
+  });
+  await PlanningRun.findByIdAndUpdate(runId, {
+    $set: {
+      status: 'waiting_human',
+      currentNode: 'gate:data_review',
+      pipelineStep: 2,
+      pipelineSubstep: 'gate_preview',
+      gate: 'data_review',
+      gatePreview: phaseOut.gatePreview || gatePreview,
+      executionLeaseOwner: null,
+      executionLeaseExpiresAt: null,
+    },
+  });
+  console.info(`[planning] pause runId=${runId} gate=data_review`);
+}
+
 async function resumeRun(req, res) {
   try {
     const existing = await getRunById(req.params.runId);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Run not found' });
+    }
+
+    const decision = String(req.body?.decision || '').trim().toLowerCase();
+    if (decision === 'reject') {
+      const cancelled = await cancelRunStore(req.params.runId);
+      if (!cancelled) {
+        return res.status(404).json({ success: false, message: 'Run not found' });
+      }
+      await PlanningRun.updateOne(
+        { _id: req.params.runId },
+        { $set: { error: { code: 'data_gate_rejected', message: 'data_gate_rejected' } } }
+      );
+      console.info(
+        `[planning] resume runId=${req.params.runId} gate=data_review decision=reject`
+      );
+      const updated = await getRunById(req.params.runId);
+      return res.json({ success: true, data: toPublicRun(updated) });
+    }
+    if (decision === 'pass') {
+      const loaded = await loadCheckpoint(req.params.runId);
+      const prior = loaded?.checkpoint?.state;
+      if (!prior?.g4Partial) {
+        return res.status(409).json({
+          success: false,
+          message: 'Missing data-gate partial',
+          errorCode: 'CHECKPOINT_MISSING',
+        });
+      }
+      await saveCheckpoint(req.params.runId, {
+        ...prior,
+        dataGateDecision: 'pass',
+        gate: null,
+        status: 'queued',
+      });
+      console.info(
+        `[planning] resume runId=${req.params.runId} gate=data_review decision=pass`
+      );
     }
 
     // callback_pending: deliver only — G15 key not required

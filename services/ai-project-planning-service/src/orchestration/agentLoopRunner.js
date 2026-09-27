@@ -482,6 +482,9 @@ async function runWhatPhase({
       budget,
       stopReason,
       feasibilitySignal,
+      ...(g4Opts.priorPartial
+        ? { g4Partial: g4Opts.priorPartial, dataGateDecision: 'pass', gate: null }
+        : {}),
       ...extra,
     });
   }
@@ -497,20 +500,19 @@ async function runWhatPhase({
     history.push(`stop:${stopReason}`);
   }
 
-  if (!stopReason) {
+  const priorPartial = g4Opts.priorPartial || null;
+  const snapshotPayload =
+    snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
+      ? snapshot
+      : null;
+  if (!stopReason && !snapshotPayload) {
+    const err = new Error('Snapshot payload required for WHAT phase (Track A)');
+    err.code = 'SNAPSHOT_PAYLOAD_REQUIRED';
+    throw err;
+  }
+  if (!stopReason && !priorPartial) {
     onProgress?.({ node: 'understand', phase: PHASE_WHAT });
     history.push('understand');
-
-    // Track A: never rebuild from pack alone — boundary already enforced
-    const snapshotPayload =
-      snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
-        ? snapshot
-        : null;
-    if (!snapshotPayload) {
-      const err = new Error('Snapshot payload required for WHAT phase (Track A)');
-      err.code = 'SNAPSHOT_PAYLOAD_REQUIRED';
-      throw err;
-    }
 
     const snapshotCorpus = buildCorpusFromSnapshot(snapshotPayload);
     const fallbackPackText = String(
@@ -545,14 +547,56 @@ async function runWhatPhase({
     onProgress?.({ node: 'plan', phase: PHASE_WHAT });
     history.push('plan');
     await persist('plan');
+  }
 
+  if (!stopReason) {
     onProgress?.({ node: 'execute', phase: PHASE_WHAT, tool: 'RequirementAnalysisTool' });
     const { runG4Understanding } = require('../engines/g4Understanding');
     const g4Out = await runG4Understanding({
       snapshot: snapshotPayload,
       pack,
       ...g4Opts,
+      onProgress: async (evt) => {
+        if (!onProgress) return;
+        await onProgress({
+          ...evt,
+          phase: PHASE_WHAT,
+          node: evt.substep || evt.node,
+        });
+      },
     });
+    if (g4Out?.paused) {
+      history.push('gate:data_review');
+      if (onProgress) {
+        await onProgress({
+          phase: PHASE_WHAT,
+          node: 'gate_preview',
+          step: 2,
+          substep: 'gate_preview',
+        });
+      }
+      await persist('gate:data_review', {
+        g4Partial: g4Out.partial,
+        gatePreview: g4Out.gatePreview,
+        dataGateDecision: null,
+        gate: 'data_review',
+        status: 'waiting_human',
+      });
+      return {
+        phase: PHASE_WHAT,
+        paused: true,
+        gate: 'data_review',
+        gatePreview: g4Out.gatePreview,
+        partial: g4Out.partial,
+        history,
+        container: next,
+        toolResults,
+        contextPackage,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        hitl: 'data_review',
+        stopReason: 'data_gate',
+      };
+    }
     history.push('execute:g4');
 
     onProgress?.({ node: 'observe', phase: PHASE_WHAT });
@@ -594,6 +638,11 @@ async function runWhatPhase({
         error: g4Understanding.meta?.lastError || null,
         partial: Boolean(g4Understanding.meta?.partial),
         conflictAmbiguityGate,
+        computeStatus: 'completed',
+        callbackStatus: 'pending',
+        stage: 'finalizing',
+        llm: g4Understanding.meta?.llm || null,
+        candidateCount: g4Understanding.meta?.candidateCount ?? null,
       },
     };
 
@@ -619,7 +668,12 @@ async function runWhatPhase({
     }
     history.push('evaluateLocal');
 
-    onProgress?.({ node: 'feasibility', phase: PHASE_WHAT });
+    onProgress?.({
+      node: 'feasibility',
+      phase: PHASE_WHAT,
+      step: 4,
+      substep: 'feasibility',
+    });
     feasibilitySignal = buildFeasibilitySignal({
       toolResults,
       container: next,

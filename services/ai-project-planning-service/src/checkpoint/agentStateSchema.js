@@ -64,6 +64,11 @@ const ALLOWED_KEYS = new Set([
   'corpus',
   'currentToolIndex',
   'currentToolName',
+  // Data-gate pause (WHAT) — partial prefix, not the public preview
+  'g4Partial',
+  'dataGateDecision',
+  'gate',
+  'gatePreview',
 ]);
 
 function asArray(value) {

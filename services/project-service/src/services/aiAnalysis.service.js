@@ -173,9 +173,15 @@ async function getAiAnalysisSummary({ userId, organizationId, packId }) {
     pack.markModified('aiAnalysis');
     await pack.save();
   }
+  const { attachLiveRunToPackAiAnalysis } = require('../utils/aiAnalysis/attachLiveRun');
+  const enriched = await attachLiveRunToPackAiAnalysis({
+    aiAnalysis: container,
+    aiAnalysisActiveSnapshotId: pack.aiAnalysisActiveSnapshotId,
+  });
   return {
-    ...summarizeAiAnalysis(container),
+    ...summarizeAiAnalysis(enriched.aiAnalysis || container),
     snapshot: pack.aiAnalysisSnapshotMeta || null,
+    liveRun: enriched.liveRun || null,
   };
 }
 
@@ -485,7 +491,19 @@ async function applyRemotePhaseRunResult({
     throw invalid;
   }
   if (String(pack.aiAnalysisActiveSnapshotId || '') !== String(snapshotId)) {
-    return { applied: false, stale: true, reason: 'snapshot_not_active', job, runId };
+    const stale = new Error(
+      'Remote result snapshotId does not match active analysis snapshot'
+    );
+    stale.statusCode = 409;
+    stale.errorCode = 'REMOTE_RESULT_SNAPSHOT_STALE';
+    stale.details = {
+      reason: 'snapshot_not_active',
+      snapshotId: String(snapshotId),
+      activeSnapshotId: String(pack.aiAnalysisActiveSnapshotId || ''),
+      job,
+      runId,
+    };
+    throw stale;
   }
   const phaseMeta = pack.aiAnalysis?.phaseRuns?.[job] || {};
   if (String(phaseMeta.remoteRunId || '') === String(runId) && phaseMeta.status !== 'pending') {
@@ -584,6 +602,75 @@ async function applyRemotePhaseRunResult({
  * WHAT under WHAT_G4_ENABLED: remote G4 on ai-project-planning-service (202).
  * prepare_only stays local Stage1.
  */
+async function resumeWhatDataGate({
+  organizationId,
+  packId,
+  decision,
+  runId,
+}) {
+  const decisionNorm = String(decision || '').trim().toLowerCase();
+  if (decisionNorm !== 'pass' && decisionNorm !== 'reject') {
+    const err = new Error('decision must be pass or reject');
+    err.statusCode = 400;
+    err.errorCode = 'DATA_GATE_DECISION_INVALID';
+    throw err;
+  }
+  const pack = await loadPackForAiAnalysis({ packId, organizationId });
+  const container = ensurePackContainer(pack);
+  const phaseWhat = container.phaseRuns?.phase_what || {};
+  const bound = String(phaseWhat.remoteRunId || '');
+  if (!bound || bound !== String(runId || '').trim()) {
+    const err = new Error('runId does not belong to this pack');
+    err.statusCode = 409;
+    err.errorCode = 'RUN_PACK_MISMATCH';
+    throw err;
+  }
+
+  const s2s = await aiProjectPlanningClient.resumeRun(bound, { decision: decisionNorm });
+  if (s2s.status < 200 || s2s.status >= 300) {
+    const err = new Error(s2s.data?.message || 'Data gate resume rejected');
+    err.statusCode = s2s.status >= 400 ? s2s.status : 502;
+    err.errorCode = s2s.data?.errorCode || 'DATA_GATE_RESUME_FAILED';
+    throw err;
+  }
+
+  if (decisionNorm === 'reject') {
+    container.phaseRuns = {
+      ...(container.phaseRuns || {}),
+      phase_what: {
+        ...phaseWhat,
+        status: 'failed',
+        error: { code: 'data_gate_rejected', message: 'data_gate_rejected' },
+      },
+    };
+    pack.aiAnalysis = container;
+    pack.aiAnalysisStatus = 'failed';
+    pack.markModified('aiAnalysis');
+    await pack.save();
+    return {
+      accepted: true,
+      remote: true,
+      job: 'phase_what',
+      status: 'failed',
+      runId: bound,
+      decision: 'reject',
+      httpStatus: 200,
+      mode: 'g4',
+    };
+  }
+
+  return {
+    accepted: true,
+    remote: true,
+    job: 'phase_what',
+    status: 'pending',
+    runId: bound,
+    decision: 'pass',
+    httpStatus: 202,
+    mode: 'g4',
+  };
+}
+
 async function startPhaseAiPlanningRun({
   userId,
   organizationId,
@@ -592,12 +679,24 @@ async function startPhaseAiPlanningRun({
   force = false,
   mode = '',
   feedback = '',
+  action = '',
+  decision = '',
+  runId = '',
 }) {
   await assertRequirementPermission({
     userId,
     organizationId,
     permission: 'requirement:run-ai-planning',
   });
+
+  if (String(action || '').trim().toLowerCase() === 'resume_data_gate') {
+    return resumeWhatDataGate({
+      organizationId,
+      packId,
+      decision,
+      runId,
+    });
+  }
 
   const phaseJob = String(phase || 'how').trim().toLowerCase() === 'what' ? 'phase_what' : 'phase_how';
   const modeNorm = String(mode || '').trim().toLowerCase();

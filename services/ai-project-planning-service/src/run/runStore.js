@@ -1,4 +1,10 @@
 const { PlanningRun, RUN_STATUSES } = require('./PlanningRun.model');
+const { publishGatePreview } = require('../engines/g4/pipelineProgress');
+const {
+  deriveComputeStatus,
+  deriveCallbackStatus,
+  deriveStage,
+} = require('./runStatusDerive');
 
 const TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'expired']);
 
@@ -137,7 +143,8 @@ async function resumeRun(runId) {
   return existing.toObject();
 }
 
-function toPublicRun(doc) {
+/** Browser/S2S whitelist — no checkpoint / input dump. */
+function toPublicRun(doc, page) {
   if (!doc) return null;
   const id = doc._id != null ? String(doc._id) : doc.runId;
   return {
@@ -149,6 +156,13 @@ function toPublicRun(doc) {
     approvedSrsVersion: doc.approvedSrsVersion,
     status: doc.status,
     currentNode: doc.currentNode,
+    pipelineStep: doc.pipelineStep ?? null,
+    pipelineSubstep: doc.pipelineSubstep || null,
+    gate: doc.gate || null,
+    gatePreview: publishGatePreview(doc.gatePreview, page),
+    stage: deriveStage(doc),
+    computeStatus: deriveComputeStatus(doc),
+    callbackStatus: deriveCallbackStatus(doc),
     iteration: doc.iteration,
     attempt: doc.attempt,
     trigger: doc.trigger,

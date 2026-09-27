@@ -77,7 +77,12 @@ function applyG4UnderstandingToContainer(container, g4Understanding, meta = {}) 
     completedAt: meta.completedAt || new Date().toISOString(),
     durationMs: meta.durationMs ?? g4Understanding?.meta?.durationMs ?? null,
     error: meta.error || null,
-    partial: Boolean(g4Understanding?.meta?.partial),
+    partial: Boolean(g4Understanding?.meta?.partial || meta.partial),
+    computeStatus: meta.computeStatus || 'completed',
+    callbackStatus: meta.callbackStatus || 'acked',
+    stage: meta.stage || 'completed',
+    llm: g4Understanding?.meta?.llm || meta.llm || null,
+    candidateCount: g4Understanding?.meta?.candidateCount ?? meta.candidateCount ?? null,
   };
   return next;
 }

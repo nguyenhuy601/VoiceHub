@@ -23,6 +23,7 @@ const {
   runAiAnalysisJob,
   confirmAiAnalysisJob,
   exportAiAnalysisSheet11,
+  startPhaseAiPlanningRun,
 } = require('../services/aiAnalysis.service');
 const {
   assertRequirementPermission,
@@ -190,7 +191,14 @@ async function getPack(req, res) {
       return res.status(400).json({ success: false, message: 'organizationId và packId bắt buộc' });
     }
     const view = String(req.query?.view || 'full').trim();
-    const pack = await getRequirementPack({ userId, organizationId, packId, view });
+    const pack = await getRequirementPack({
+      userId,
+      organizationId,
+      packId,
+      view,
+      gateRowOffset: req.query?.gateRowOffset,
+      gateRowLimit: req.query?.gateRowLimit,
+    });
     return res.json({ success: true, data: pack });
   } catch (err) {
     return jsonError(res, err);
@@ -448,6 +456,36 @@ async function confirmAiAnalysis(req, res) {
   }
 }
 
+async function startPhaseAiPlanning(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const data = await startPhaseAiPlanningRun({
+      userId,
+      organizationId,
+      packId,
+      phase: req.body?.phase || 'how',
+      force: Boolean(req.body?.force),
+      mode: req.body?.mode || '',
+      feedback: req.body?.feedback || '',
+      action: req.body?.action || '',
+      decision: req.body?.decision || '',
+      runId: req.body?.runId || '',
+    });
+    const httpStatus = Number(data?.httpStatus) === 200 ? 200 : 202;
+    return res.status(httpStatus).json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
 async function exportAiAnalysis(req, res) {
   try {
     const organizationId = resolveOrgId(req);
@@ -494,5 +532,6 @@ module.exports = {
   getAiAnalysis,
   runAiAnalysis,
   confirmAiAnalysis,
+  startPhaseAiPlanning,
   exportAiAnalysis,
 };

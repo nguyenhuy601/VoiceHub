@@ -89,8 +89,14 @@ async function runWhatPhaseLangGraph({
     goal: finalState.goal || initialFields.goal,
     constraints: finalState.constraints || initialFields.constraints,
     budget: finalState.budget || budget,
-    stopReason: finalState.stopReason || STOP_REASONS.COMPLETE,
-    hitl: 'gate1',
+    stopReason: finalState.paused
+      ? 'data_gate'
+      : finalState.stopReason || STOP_REASONS.COMPLETE,
+    hitl: finalState.paused ? 'data_review' : 'gate1',
+    paused: Boolean(finalState.paused),
+    gate: finalState.paused ? 'data_review' : null,
+    gatePreview: finalState.gatePreview || null,
+    partial: finalState.g4Partial || null,
     durationMs: Math.max(0, Date.now() - startedAt),
     stub: false,
     agentCore: 'langgraph',

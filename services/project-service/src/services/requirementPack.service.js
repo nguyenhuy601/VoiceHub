@@ -88,7 +88,14 @@ async function getRequirementPackWizard({ packId, organizationId }) {
  * @param {{ userId: string, organizationId: string, packId: string, view?: string }} args
  * @param {string} [args.view='full'] `full` (default) | `wizard`
  */
-async function getRequirementPack({ userId, organizationId, packId, view = 'full' }) {
+async function getRequirementPack({
+  userId,
+  organizationId,
+  packId,
+  view = 'full',
+  gateRowOffset,
+  gateRowLimit,
+}) {
   await assertRequirementPermission({ userId, organizationId, permission: 'requirement:view' });
   if (normalizePackView(view) === 'wizard') {
     return getRequirementPackWizard({ packId, organizationId });
@@ -99,7 +106,13 @@ async function getRequirementPack({ userId, organizationId, packId, view = 'full
     err.statusCode = 404;
     throw err;
   }
-  return attachPlanningReadiness(ensurePackPreviewViews(pack));
+  const { attachLiveRunToPackAiAnalysis } = require('../utils/aiAnalysis/attachLiveRun');
+  const page =
+    gateRowOffset != null && String(gateRowOffset) !== ''
+      ? { offset: gateRowOffset, limit: gateRowLimit }
+      : null;
+  const withLive = await attachLiveRunToPackAiAnalysis(pack, page);
+  return attachPlanningReadiness(ensurePackPreviewViews(withLive));
 }
 
 /**

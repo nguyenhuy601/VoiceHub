@@ -52,11 +52,15 @@ export const requirementAPI = {
 
   getPack: (organizationId, packId, options = {}) => {
     const view = String(options.view || '').trim();
+    const params = {};
+    if (view) params.view = view;
+    if (options.gateRowOffset != null && options.gateRowOffset !== '') {
+      params.gateRowOffset = options.gateRowOffset;
+      params.gateRowLimit = options.gateRowLimit;
+    }
     return apiClient.get(
       `/projects/requirements/${encodeURIComponent(packId)}`,
-      withOrg(organizationId, {
-        params: view ? { view } : {},
-      })
+      withOrg(organizationId, { params })
     );
   },
 
@@ -159,8 +163,23 @@ export const requirementAPI = {
       body,
       {
         ...withOrg(organizationId),
-        // Stage2 G4 remote / HOW phase-run (5m).
-        timeout: options.timeout ?? 300000,
+      timeout: options.timeout ?? 120000,
+      }
+    ),
+
+  resumePhaseWhatDataGate: (organizationId, packId, { runId, decision }) =>
+    apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/phase-run`,
+      {
+        phase: 'what',
+        mode: 'g4',
+        action: 'resume_data_gate',
+        decision,
+        runId,
+      },
+      {
+        ...withOrg(organizationId),
+        timeout: 30000,
       }
     ),
 

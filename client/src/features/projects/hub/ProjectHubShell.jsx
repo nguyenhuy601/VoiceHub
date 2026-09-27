@@ -1,4 +1,5 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, LayoutGrid, Loader2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
@@ -6,7 +7,7 @@ import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
-import { isProjectCompletedStatus, resolveHubCapabilities } from './hubCaps';
+import { isProjectCompletedStatus, isProjectDraftStatus, resolveHubCapabilities } from './hubCaps';
 import { resolveOverviewVisibility } from './overviewVisibility';
 import ProjectHubMembersPanel from './ProjectHubMembersPanel';
 import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
@@ -24,7 +25,8 @@ import ProjectHubArchiveProjectModal from './ProjectHubArchiveProjectModal';
 import ProjectHubOverviewCharts from './ProjectHubOverviewCharts';
 import useSprintAutoCompletePrompt from './useSprintAutoCompletePrompt';
 import { isBoardSprintReady } from './projectHubHierarchy';
-import { isProjectChatTabEnabled } from '../../../utils/suitePathUtils';
+import { buildProjectsPickerPath, isProjectChatTabEnabled } from '../../../utils/suitePathUtils';
+import { writeStoredLastProjectId } from '../picker/projectPickerRemember';
 import {
   PROJECT_HUB_TABS,
   buildOverviewDashboardCharts,
@@ -951,6 +953,7 @@ export default function ProjectHubShell({
   onModuleChange = null,
 }) {
   const { t } = useAppStrings();
+  const navigate = useNavigate();
   const [tab, setTabState] = useState(() =>
     activeModule && typeof activeModule === 'string' ? activeModule : 'overview'
   );
@@ -1082,6 +1085,9 @@ export default function ProjectHubShell({
     return listHubHealthCards(cards, lists, 'inReview', { limit: 8 });
   }, [overviewPayload?.healthPreview?.inReview, cards, lists]);
   const isProjectCompleted = isProjectCompletedStatus(
+    projectPayload?.status || resolvedBoard?.status
+  );
+  const isDraftProject = isProjectDraftStatus(
     projectPayload?.status || resolvedBoard?.status
   );
   const workLooksComplete = summary.total > 0 && summary.donePercent === 100;
@@ -2133,8 +2139,19 @@ export default function ProjectHubShell({
           earlyArchive={!isProjectCompleted && Boolean(hubCaps.canArchiveWithoutComplete)}
           onClose={() => setArchiveProjectOpen(false)}
           onArchived={() => {
-            toast.success(t('workspace.projectHubArchiveSuccess'));
+            const deletedDraft = isDraftProject;
+            toast.success(
+              deletedDraft
+                ? t('workspace.projectHubDeleteDraftSuccess')
+                : t('workspace.projectHubArchiveSuccess')
+            );
             setArchiveProjectOpen(false);
+            if (deletedDraft) {
+              writeStoredLastProjectId('');
+              void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+              navigate(buildProjectsPickerPath(organizationId), { replace: true });
+              return;
+            }
             onBack?.();
           }}
         />
