@@ -2,10 +2,10 @@
  * Map list column id → artifact form path for inline cell edit.
  */
 import { getArtifactFieldCatalog } from '../ra/artifactFieldCatalog.js';
+import { choiceOptions } from './phase1ChoiceFields.js';
 
 const COL_ALIASES = Object.freeze({
   expectedOutcome: 'expectedBusinessOutcome',
-  relatedCr: 'customerRequirementIds',
   customerRequirementIds: 'customerRequirementIds',
   relatedFr: 'relatedFrKeys',
   relatedBg: 'relatedBgKey',
@@ -17,9 +17,19 @@ const COL_ALIASES = Object.freeze({
   processName: 'processName',
   description: 'description',
   statement: 'statement',
+  scopeDescription: 'description',
+  workbookSource: 'source',
+  analysisStatus: 'status',
+  nfrScope: 'scope',
+  acceptance: 'acceptanceCriteria',
+  module: 'moduleLabel',
+  capability: 'capabilityLabel',
+  feature: 'featureLabel',
+  parent: 'parentExternalKey',
+  postcondition: 'postconditions',
 });
 
-const LOCKED_COLS = new Set(['id', 'status', 'source', 'importSet', 'analysisStatus']);
+const LOCKED_COLS = new Set(['id', 'status', 'source', 'importSet']);
 
 /**
  * @param {{ id: string, isStatus?: boolean }} col
@@ -28,10 +38,15 @@ const LOCKED_COLS = new Set(['id', 'status', 'source', 'importSet', 'analysisSta
  */
 export function resolveRaInlineEditTarget(col, kind) {
   if (!col || LOCKED_COLS.has(col.id) || col.isStatus) return null;
-  if (col.id === 'title') return { scope: 'top', key: 'title' };
+  if (col.id === 'title' || col.id === 'artifact') return { scope: 'top', key: 'title' };
   if (col.id === 'summary') return { scope: 'top', key: 'summary', multiline: true };
 
-  const key = COL_ALIASES[col.id] || col.id;
+  const kindKey = String(kind || '').trim().toUpperCase();
+  let key = COL_ALIASES[col.id] || col.id;
+  if (col.id === 'precondition' && kindKey === 'FR') key = 'preconditions';
+  if (col.id === 'exception' && kindKey === 'UC') key = 'exceptionFlow';
+  if (col.id === 'businessRule' && kindKey === 'UC') key = 'businessRules';
+
   const cat = getArtifactFieldCatalog(kind);
   const field = cat?.structured?.find((f) => f.key === key);
   if (!field) return null;
@@ -40,6 +55,7 @@ export function resolveRaInlineEditTarget(col, kind) {
     key,
     multiline: field.control === 'textarea',
     tags: field.control === 'tags',
+    choice: Boolean(choiceOptions(key)),
   };
 }
 

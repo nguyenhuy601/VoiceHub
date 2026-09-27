@@ -71,6 +71,39 @@ export const PHASE1_PLANNING_MODULES = Object.freeze([
     module: 'planning-resources',
     labelKey: 'workspace.phaseNavPlanningResources',
     pathSeg: 'planning/resources',
+    /** Staffing pipeline — 5 tab con under「Kế hoạch nguồn lực」(no sibling nav). */
+    children: [
+      {
+        key: 'planning-resources-wbs',
+        module: 'planning-resources',
+        labelKey: 'workspace.phaseNavPlanningResourcesWbs',
+        pathSeg: 'planning/resources/wbs',
+      },
+      {
+        key: 'planning-resources-effort',
+        module: 'planning-resources',
+        labelKey: 'workspace.phaseNavPlanningResourcesEffort',
+        pathSeg: 'planning/resources/effort',
+      },
+      {
+        key: 'planning-resources-match',
+        module: 'planning-resources',
+        labelKey: 'workspace.phaseNavPlanningResourcesMatch',
+        pathSeg: 'planning/resources/match',
+      },
+      {
+        key: 'planning-resources-capacity',
+        module: 'planning-resources',
+        labelKey: 'workspace.phaseNavPlanningResourcesCapacity',
+        pathSeg: 'planning/resources/capacity',
+      },
+      {
+        key: 'planning-resources-schedule',
+        module: 'planning-resources',
+        labelKey: 'workspace.phaseNavPlanningResourcesSchedule',
+        pathSeg: 'planning/resources/schedule',
+      },
+    ],
   },
   {
     key: 'planning-dependencies',
@@ -134,6 +167,25 @@ export const PLANNING_SUB_TO_MODULE = Object.freeze({
   approval: 'planning-approval',
 });
 
+/** Staffing step segment under planning/resources/* */
+export const PLANNING_RESOURCES_STEPS = Object.freeze([
+  'wbs',
+  'effort',
+  'match',
+  'capacity',
+  'schedule',
+]);
+
+export function resolvePlanningResourcesStep(splatOrStep) {
+  const raw = String(splatOrStep || '')
+    .trim()
+    .toLowerCase()
+    .split('/')
+    .filter(Boolean)[0];
+  if (PLANNING_RESOURCES_STEPS.includes(raw)) return raw;
+  return 'wbs';
+}
+
 export const ARTIFACT_KIND_BY_MODULE = Object.freeze({
   'analysis-bg': 'BG',
   'analysis-br': 'BR',
@@ -185,8 +237,6 @@ export function buildPhase1ModulePath(projectId, pathSeg, query = {}) {
   // organizationId omitted from Phase 1 module URLs (resolve via project hub payload).
   const boardId = String(query.boardId || '').trim();
   if (boardId) params.set('boardId', boardId);
-  const packId = String(query.packId || '').trim();
-  if (packId) params.set('packId', packId);
   const artifact = String(query.artifact || query.artifactId || '').trim();
   if (artifact) params.set('artifact', artifact);
   const sourceUcKey = String(query.sourceUcKey || query.uc || '').trim();

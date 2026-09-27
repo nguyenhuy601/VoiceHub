@@ -4,6 +4,8 @@ import {
   Activity,
   ArrowLeftRight,
   Calendar,
+  ChevronDown,
+  ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   FileSpreadsheet,
@@ -57,7 +59,6 @@ import { fetchProjectHubProject } from '../../features/projects/hub/useProjectHu
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys';
 import { coerceDeliveryPhase } from '../../utils/projectPhaseNav';
-import useTaskWorkspaceScope from '../../hooks/useTaskWorkspaceScope';
 
 const COLLAPSE_KEY = 'voicehub:sidebar-collapsed';
 
@@ -113,10 +114,12 @@ const MODULE_ICONS = {
   'planning-approval': Activity,
 };
 
-function NavItem({ item, collapsed, suiteColor, isActive }) {
+function NavItem({ item, collapsed, suiteColor, isActive, expanded, onToggleExpand }) {
   const Icon = item.icon || LayoutDashboard;
   const locked = Boolean(item.locked);
   const readOnly = Boolean(item.readOnly) && !locked;
+  const indent = !collapsed && item.navIndent ? Number(item.navIndent) : 0;
+  const hasChildren = Boolean(item.hasChildren);
   const content = (
     <>
       {isActive && !locked && (
@@ -125,6 +128,7 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
           style={{ background: suiteColor, boxShadow: `0 0 8px ${suiteColor}88` }}
         />
       )}
+      {indent > 0 ? <span className="w-3 shrink-0" aria-hidden /> : null}
       <Icon size={15} className="shrink-0" style={{ color: isActive && !locked ? suiteColor : undefined }} />
       {!collapsed && (
         <span
@@ -132,11 +136,34 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
           style={{
             fontWeight: isActive && !locked ? 500 : 400,
             color: locked ? 'rgba(255,255,255,0.28)' : isActive ? '#E2E8F0' : undefined,
+            fontSize: indent > 0 ? '0.75rem' : undefined,
           }}
         >
           {item.label}
         </span>
       )}
+      {hasChildren && !collapsed && !locked ? (
+        <span
+          className="shrink-0 text-white/40"
+          aria-hidden
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleExpand?.(item.key);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggleExpand?.(item.key);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+        >
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </span>
+      ) : null}
       {readOnly && !collapsed ? (
         <span
           aria-hidden="true"
@@ -178,8 +205,19 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
     : readOnly
       ? item.readOnlyHint || undefined
       : undefined;
+  const targetPath =
+    hasChildren && item.defaultChildPathSeg
+      ? item.path.replace(item.pathSeg, item.defaultChildPathSeg)
+      : item.path;
   return (
-    <Link to={item.path} className="group relative block" title={linkTitle}>
+    <Link
+      to={targetPath}
+      className="group relative block"
+      title={linkTitle}
+      onClick={() => {
+        if (hasChildren) onToggleExpand?.(item.key, true);
+      }}
+    >
       <div className={className} style={style}>
         {content}
       </div>
@@ -190,6 +228,7 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
 export default function ProjectsSidebar({ landingDemo = false } = {}) {
   const [collapsed, setCollapsed] = useState(false);
   const [showSuitePicker, setShowSuitePicker] = useState(false);
+  const [expandedNavParents, setExpandedNavParents] = useState(() => new Set(['planning-resources']));
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useAppStrings();
@@ -221,11 +260,6 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
     projectRow,
     workspaceOrgId,
   });
-
-  const { canCreateProjectCapability, loading: createProjectScopeLoading } =
-    useTaskWorkspaceScope(orgId);
-  const showCreateProjectNav =
-    !createProjectScopeLoading && Boolean(canCreateProjectCapability);
 
   useEffect(() => {
     if (orgId) writeStoredLastOrganizationId(orgId);
@@ -265,18 +299,16 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   };
 
   const preItems = useMemo(() => {
-    return getProjectsPreSelectNavItems()
-      .filter((item) => item.key !== 'new' || showCreateProjectNav)
-      .map((item) => ({
-        ...item,
-        label: t(item.labelKey),
-        icon: MODULE_ICONS[item.key] || FolderKanban,
-        path:
-          item.key === 'new'
-            ? buildProjectsNewPath()
-            : buildProjectsPickerPath(),
-      }));
-  }, [t, showCreateProjectNav]);
+    return getProjectsPreSelectNavItems().map((item) => ({
+      ...item,
+      label: t(item.labelKey),
+      icon: MODULE_ICONS[item.key] || FolderKanban,
+      path:
+        item.key === 'new'
+          ? buildProjectsNewPath(orgId, { from: 'sidebar' })
+          : buildProjectsPickerPath(orgId),
+    }));
+  }, [orgId, t]);
 
   const boardId = boardQueryFromSearch(searchParams);
 
@@ -339,10 +371,45 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
       return false;
     }
     if (item.pathSeg && item.pathSeg.includes('/')) {
+      if (item.navChildOf) {
+        return location.pathname.includes(`/${item.pathSeg}`);
+      }
+      if (item.hasChildren) {
+        return location.pathname.includes(`/${item.pathSeg}`);
+      }
       return location.pathname.includes(`/${item.pathSeg}`);
     }
     return item.module === activeModule;
   };
+
+  const toggleNavParent = (key, forceOpen = false) => {
+    setExpandedNavParents((prev) => {
+      const next = new Set(prev);
+      if (forceOpen) next.add(key);
+      else if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    for (const item of postItems) {
+      if (item.navChildOf && location.pathname.includes(`/${item.pathSeg}`)) {
+        setExpandedNavParents((prev) => {
+          if (prev.has(item.navChildOf)) return prev;
+          const next = new Set(prev);
+          next.add(item.navChildOf);
+          return next;
+        });
+      }
+    }
+  }, [location.pathname, postItems]);
+
+  const visibleSectionItems = (items) =>
+    items.filter((item) => {
+      if (!item.navChildOf) return true;
+      return expandedNavParents.has(item.navChildOf);
+    });
 
   return (
     <>
@@ -515,13 +582,15 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
                       {section.label}
                     </div>
                   ) : null}
-                  {section.items.map((item) => (
+                  {visibleSectionItems(section.items).map((item) => (
                     <NavItem
                       key={item.key}
                       item={item}
                       collapsed={railCollapsed}
                       suiteColor={suiteColor}
                       isActive={isItemActive(item)}
+                      expanded={expandedNavParents.has(item.key)}
+                      onToggleExpand={toggleNavParent}
                     />
                   ))}
                 </div>

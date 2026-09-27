@@ -1,3 +1,4 @@
+import { choiceOptions, showChoice } from './phase1ChoiceFields';
 import { formatPhase1StatusLabel, priorityBadgeClass, statusBadgeClass } from './phase1UiTokens';
 import { PHASE1_TABLE_COLORS as C } from './phase1TableColors';
 import { splitPhase1KeyList } from './phase1ClientTable';
@@ -40,7 +41,14 @@ export function renderPhase1TableCell({ col, row, display, full, t }) {
   if (col?.id === 'priority' || col?.isPriority) {
     const raw = String(full || display || '').trim();
     if (!raw) return '—';
-    return <span className={priorityBadgeClass(raw)}>{raw}</span>;
+    return <span className={priorityBadgeClass(raw)}>{showChoice('priority', raw, t)}</span>;
+  }
+
+  if (choiceOptions(col?.id === 'analysisStatus' ? 'status' : col?.id) && col?.id !== 'priority') {
+    const fieldKey = col.id === 'analysisStatus' ? 'status' : col.id;
+    const raw = String(full || display || '').trim();
+    if (!raw) return '—';
+    return showChoice(fieldKey, raw, t);
   }
 
   if (col?.id === 'stakeholder') {

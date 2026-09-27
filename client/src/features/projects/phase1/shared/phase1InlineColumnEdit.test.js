@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { getArtifactListColumnCatalog } from '../ra/artifactListColumns.js';
 import {
   readInlineFormValue,
   resolvePlanningInlineEditTarget,
@@ -18,6 +19,33 @@ describe('phase1InlineColumnEdit', () => {
     assert.equal(resolveRaInlineEditTarget({ id: 'status', isStatus: true }, 'BG'), null);
   });
 
+  it('maps scope content columns, including analysis status', () => {
+    const description = resolveRaInlineEditTarget({ id: 'scopeDescription' }, 'SCOPE');
+    assert.equal(description?.key, 'description');
+    assert.equal(description?.multiline, true);
+    const source = resolveRaInlineEditTarget({ id: 'workbookSource' }, 'SCOPE');
+    assert.equal(source?.key, 'source');
+    const analysis = resolveRaInlineEditTarget({ id: 'analysisStatus' }, 'SCOPE');
+    assert.equal(analysis?.key, 'status');
+    assert.equal(analysis?.choice, true);
+    const scopeType = resolveRaInlineEditTarget({ id: 'scopeType' }, 'SCOPE');
+    assert.equal(scopeType?.choice, true);
+    assert.equal(resolveRaInlineEditTarget({ id: 'source' }, 'SCOPE'), null);
+    assert.equal(resolveRaInlineEditTarget({ id: 'importSet' }, 'SCOPE'), null);
+  });
+
+  it('maps kind-specific columns on FR and UC', () => {
+    assert.equal(resolveRaInlineEditTarget({ id: 'precondition' }, 'FR')?.key, 'preconditions');
+    assert.equal(resolveRaInlineEditTarget({ id: 'precondition' }, 'UC')?.key, 'precondition');
+    assert.equal(resolveRaInlineEditTarget({ id: 'exception' }, 'UC')?.key, 'exceptionFlow');
+    assert.equal(resolveRaInlineEditTarget({ id: 'businessRule' }, 'UC')?.key, 'businessRules');
+    assert.deepEqual(resolveRaInlineEditTarget({ id: 'artifact' }, 'FR'), {
+      scope: 'top',
+      key: 'title',
+    });
+    assert.equal(resolveRaInlineEditTarget({ id: 'priority' }, 'FR')?.choice, true);
+  });
+
   it('aliases expectedOutcome → expectedBusinessOutcome', () => {
     const t = resolveRaInlineEditTarget({ id: 'expectedOutcome' }, 'BG');
     assert.equal(t?.scope, 'structured');
@@ -30,6 +58,22 @@ describe('phase1InlineColumnEdit', () => {
     assert.equal(readInlineFormValue(form, { scope: 'top', key: 'title' }), 'A');
     form = writeInlineFormValue(form, { scope: 'structured', key: 'priority' }, 'Critical');
     assert.equal(form.structured.priority, 'Critical');
+  });
+
+  it('every analysis content column can be edited', () => {
+    const locked = new Set(['id', 'status', 'source', 'importSet']);
+    const missed = [];
+    for (const kind of ['BG', 'BR', 'BPM', 'FR', 'UC', 'NFR', 'SCOPE', 'INTERFACE', 'DATA', 'GLOSSARY', 'ASSUMPTION']) {
+      for (const col of getArtifactListColumnCatalog(kind)) {
+        const target = resolveRaInlineEditTarget(col, kind);
+        if (locked.has(col.id)) {
+          if (target) missed.push(`${kind}:${col.id} should be locked`);
+        } else if (!target) {
+          missed.push(`${kind}:${col.id}`);
+        }
+      }
+    }
+    assert.deepEqual(missed, []);
   });
 
   it('planning locks status/externalKey', () => {

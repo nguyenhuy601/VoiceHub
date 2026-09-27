@@ -63,7 +63,7 @@ const SECTION_SHELL =
 const SECTION_HEAD =
   'border-b border-[#E8E8E8] bg-[#E8F4FC] px-3.5 py-2.5 dark:border-slate-700 dark:bg-slate-800/80';
 
-export default function ImportSetFileLibrary({ projectId, importSets = [] }) {
+export default function ImportSetFileLibrary({ projectId, importSets = [], canUpload = false }) {
   const { t } = useAppStrings();
   const [busyId, setBusyId] = useState('');
   const [detailId, setDetailId] = useState('');
@@ -158,8 +158,16 @@ export default function ImportSetFileLibrary({ projectId, importSets = [] }) {
           {!isLoading && rows.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
               {hasIncompleteDraft
-                ? t('workspace.phase1FileLibraryEmptyDraft')
-                : t('workspace.phase1FileLibraryEmpty')}
+                ? t(
+                    canUpload
+                      ? 'workspace.phase1FileLibraryEmptyDraft'
+                      : 'workspace.phase1FileLibraryEmptyDraftViewer'
+                  )
+                : t(
+                    canUpload
+                      ? 'workspace.phase1FileLibraryEmpty'
+                      : 'workspace.phase1FileLibraryEmptyViewer'
+                  )}
             </p>
           ) : null}
 

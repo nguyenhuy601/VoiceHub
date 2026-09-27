@@ -17,10 +17,51 @@ const {
 
 const ASSET_PATH = path.join(__dirname, '../../../assets', ANALYSIS_TEMPLATE_FILE_NAME);
 
+const CHOICE_LISTS = Object.freeze({
+  Priority: ['Critical', 'High', 'Medium', 'Low'],
+  Level: ['Module', 'Capability', 'Feature', 'Requirement'],
+  Status: ['Draft', 'Reviewed', 'Approved'],
+  'Analysis Status': ['Analyzed', 'Clarification', 'Rejected'],
+  Relationship: ['Derived', 'Refined', 'Split', 'Merged', 'Duplicate'],
+  'Scope Type': ['In Scope', 'Out of Scope'],
+  Direction: ['in', 'out', 'inout'],
+  Category: ['Performance', 'Security', 'Usability', 'Reliability', 'Maintainability'],
+});
+
+function columnLetter(index) {
+  let n = index;
+  let letters = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letters = String.fromCharCode(65 + rem) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letters;
+}
+
+function applyChoiceLists(ws) {
+  const header = ws.getRow(1);
+  header.eachCell((cell, colNumber) => {
+    const list = CHOICE_LISTS[String(cell.value || '').trim()];
+    if (!list) return;
+    const letter = columnLetter(colNumber);
+    ws.dataValidations.add(`${letter}2:${letter}200`, {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`"${list.join(',')}"`],
+      showErrorMessage: true,
+      errorStyle: 'warning',
+      errorTitle: 'Ngoài danh sách',
+      error: 'Có thể chọn trong danh sách hoặc giữ giá trị tự nhập.',
+    });
+  });
+}
+
 function addSheet(wb, name, columns, rows = []) {
   const ws = wb.addWorksheet(name);
   ws.addRow(columns);
   for (const row of rows) ws.addRow(row);
+  applyChoiceLists(ws);
   return ws;
 }
 
@@ -408,11 +449,7 @@ async function writeRequirementAnalysisTemplateAsset() {
 }
 
 async function loadRequirementAnalysisTemplateBuffer() {
-  try {
-    return await fs.promises.readFile(ASSET_PATH);
-  } catch {
-    return buildRequirementAnalysisTemplateBuffer();
-  }
+  return buildRequirementAnalysisTemplateBuffer();
 }
 
 function getRequirementAnalysisTemplateAssetPath() {

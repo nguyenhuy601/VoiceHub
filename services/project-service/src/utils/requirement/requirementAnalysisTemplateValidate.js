@@ -11,7 +11,6 @@ const {
   ANALYSIS_FR_VALID_PARENT_LEVELS,
   ANALYSIS_TRACE_RELATIONSHIPS,
   ANALYSIS_TYPES,
-  ANALYSIS_PRIORITIES,
   MAX_FILE_BYTES = 5 * 1024 * 1024,
 } = (() => {
   const c = require('../../constants/requirementAnalysisTemplate.constants');
@@ -19,6 +18,21 @@ const {
 })();
 const { normalizeAnalysisFrLevel } = require('./requirementAnalysisTemplateParse');
 const { normId } = require('./requirementTemplateTextNorm');
+const { formatErrors } = require('../project/artifactColumnRules');
+
+function pushFormatIssues(issues, kind, fields, sheet, row, columnByField = {}) {
+  for (const err of formatErrors(kind, fields)) {
+    issues.push(
+      issue({
+        code: 'ARTIFACT_FIELD_INVALID',
+        sheet,
+        row,
+        column: columnByField[err.field] || err.field,
+        message: `${err.field}: ${err.message}`,
+      })
+    );
+  }
+}
 
 function issue({ code, sheet = '', row = null, column = '', message, severity = 'error' }) {
   return { code, sheet, row, column, message, severity };
@@ -128,7 +142,8 @@ function validateAnalysisWorkbook({ fileName, fileSize, parsed }) {
           sheet: ANALYSIS_SHEETS.FR,
           row: row._rowNumber,
           column: 'Level',
-          message: `Invalid Level: ${row.level}. Expected Module|Capability|Feature|Requirement`,
+          message: `Mức «${row.level}» không nằm trong Module, Capability, Feature, Requirement. Giá trị tự nhập vẫn được giữ.`,
+          severity: 'warning',
         })
       );
     }
@@ -145,19 +160,14 @@ function validateAnalysisWorkbook({ fileName, fileSize, parsed }) {
       );
     }
 
-    const pri = String(row.priority || '').trim();
-    if (pri && !ANALYSIS_PRIORITIES.includes(pri)) {
-      issues.push(
-        issue({
-          code: 'RA_FR_PRIORITY_INVALID',
-          sheet: ANALYSIS_SHEETS.FR,
-          row: row._rowNumber,
-          column: 'Priority',
-          message: `Invalid Priority: ${pri}`,
-          severity: 'warning',
-        })
-      );
-    }
+    pushFormatIssues(
+      issues,
+      'FR',
+      { level: row.level, priority: row.priority },
+      ANALYSIS_SHEETS.FR,
+      row._rowNumber,
+      { level: 'Level', priority: 'Priority' }
+    );
   }
 
   for (const row of frList) {
@@ -243,6 +253,14 @@ function validateAnalysisWorkbook({ fileName, fileSize, parsed }) {
         })
       );
     }
+    pushFormatIssues(
+      issues,
+      'NFR',
+      { category: row.category, priority: row.priority },
+      ANALYSIS_SHEETS.NFR,
+      row._rowNumber,
+      { category: 'Category', priority: 'Priority' }
+    );
     if (String(row.target || '').trim() && !String(row.source || '').trim()) {
       issues.push(
         issue({
@@ -255,6 +273,27 @@ function validateAnalysisWorkbook({ fileName, fileSize, parsed }) {
         })
       );
     }
+  }
+
+  for (const row of Array.isArray(parsed?.scope) ? parsed.scope : []) {
+    pushFormatIssues(
+      issues,
+      'SCOPE',
+      {
+        scopeType: row.scopeType || row.type,
+        description: row.description,
+        dateRaised: row.dateRaised,
+      },
+      ANALYSIS_SHEETS.SCOPE,
+      row._rowNumber,
+      { scopeType: 'Scope Type', description: 'Description', dateRaised: 'Date Raised' }
+    );
+  }
+
+  for (const row of Array.isArray(parsed?.businessProcesses) ? parsed.businessProcesses : []) {
+    pushFormatIssues(issues, 'BPM', { step: row.step }, ANALYSIS_SHEETS.BPM, row._rowNumber, {
+      step: 'Step',
+    });
   }
 
   const artifactIds = new Set([

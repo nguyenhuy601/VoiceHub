@@ -11,7 +11,10 @@ const {
   ARTIFACT_TRACE_LINK_TYPES,
   CUSTOMER_DOC_CLASSES,
   canTransitionArtifactStatus,
+  canResubmitFromChangesRequested,
   permissionForArtifactTransition,
+  isArtifactContentEditableStatus,
+  isReviewNoteRequired,
 } = require('../constants/analysisArtifact');
 const {
   isProjectRbacV2Enabled,
@@ -20,10 +23,6 @@ const {
 const { assertUserProjectPermission, assertUserAnyProjectPermission } =
   require('./projectAccess.service');
 const { clampOverviewForPack } = require('../utils/requirement/requirementOverviewClamp');
-const objectStorage = require('../utils/common/objectStorage');
-const {
-  buildCustomerDocumentStoragePath,
-} = require('../utils/analysis/customerDocumentStorage');
 const {
   isPhase1SetGateEnabled,
 } = require('../constants/analysisImportSet');
@@ -47,6 +46,17 @@ async function assertProjectMemberAccess({ userId, projectId }) {
 
 async function assertAnalysisPerm({ userId, projectId, permission, message }) {
   if (!isProjectRbacV2Enabled()) return;
+  const key = String(permission || '').trim().toLowerCase();
+  if (key === 'analysis:document_upload' || key === 'analysis:artifact_import') {
+    const { assertUserProjectRoleMatrixPermission } = require('./projectAccess.service');
+    await assertUserProjectRoleMatrixPermission({
+      userId,
+      projectId,
+      permission: key,
+      message: message || `Thiếu quyền ${key} — chỉ BA được tải Raw/Analysis`,
+    });
+    return;
+  }
   await assertUserProjectPermission({
     userId,
     projectId,
@@ -75,24 +85,64 @@ async function listCustomerDocuments({ userId, projectId }) {
   return rows.map(serializeDoc);
 }
 
-async function createCustomerDocument({
-  userId,
-  projectId,
-  body = {},
-  fileBuffer = null,
-  fileName = null,
-  mimeType = null,
-  sizeBytes = null,
-}) {
+/**
+ * Download Import Set / customer doc bytes from MinIO (extend GET customer-documents).
+ */
+async function downloadCustomerDocument({ userId, projectId, documentId }) {
+  await assertProjectMemberAccess({ userId, projectId });
+  await assertAnalysisPerm({
+    userId,
+    projectId,
+    permission: 'analysis:view',
+  });
+  const id = String(documentId || '').trim();
+  if (!id) {
+    const err = new Error('documentId là bắt buộc');
+    err.statusCode = 400;
+    err.errorCode = 'VALIDATION_INVALID_ID';
+    throw err;
+  }
+  const doc = await CustomerDocument.findOne({
+    _id: id,
+    projectId,
+    isActive: true,
+  }).lean();
+  if (!doc) {
+    const err = new Error('Tài liệu không tồn tại');
+    err.statusCode = 404;
+    throw err;
+  }
+  const storageKey = String(doc.storageKey || '').trim();
+  if (!storageKey) {
+    const err = new Error('Tài liệu chưa có file trên storage');
+    err.statusCode = 404;
+    err.errorCode = 'DOCUMENT_NO_STORAGE';
+    throw err;
+  }
+  const objectStorage = require('../utils/common/objectStorage');
+  if (!objectStorage.isEnabled()) {
+    const err = new Error('Object storage chưa bật — không tải được file');
+    err.statusCode = 503;
+    err.errorCode = 'OBJECT_STORAGE_DISABLED';
+    throw err;
+  }
+  const stream = await objectStorage.getObjectStream(storageKey);
+  return {
+    stream,
+    fileName: String(doc.filename || 'document.xlsx').slice(0, 260),
+    mimeType: String(doc.mimeType || 'application/octet-stream').slice(0, 120),
+    sizeBytes: doc.sizeBytes ?? null,
+  };
+}
+
+async function createCustomerDocument({ userId, projectId, body = {} }) {
   const project = await assertProjectMemberAccess({ userId, projectId });
   await assertAnalysisPerm({
     userId,
     projectId,
     permission: 'analysis:document_upload',
   });
-
-  const hasBinary = Buffer.isBuffer(fileBuffer) && fileBuffer.length > 0;
-  const filename = String(fileName || body.filename || '').trim();
+  const filename = String(body.filename || '').trim();
   if (!filename) {
     const err = new Error('filename là bắt buộc');
     err.statusCode = 400;
@@ -101,177 +151,18 @@ async function createCustomerDocument({
   const docClass = CUSTOMER_DOC_CLASSES.includes(String(body.docClass || '').trim())
     ? String(body.docClass).trim()
     : 'other';
-
-  let storageKey = String(body.storageKey || '').trim().slice(0, 512);
-  let resolvedMime = String(mimeType || body.mimeType || '').trim().slice(0, 120);
-  let resolvedSize =
-    sizeBytes != null
-      ? Number(sizeBytes)
-      : body.sizeBytes != null
-        ? Number(body.sizeBytes)
-        : null;
-
-  if (hasBinary) {
-    if (!objectStorage.isEnabled()) {
-      const err = new Error('Object storage (MinIO) chưa được cấu hình');
-      err.statusCode = 503;
-      err.errorCode = 'STORAGE_NOT_CONFIGURED';
-      throw err;
-    }
-    storageKey = buildCustomerDocumentStoragePath({
-      projectId,
-      docClass,
-      filename,
-    });
-    await objectStorage.putObject(
-      storageKey,
-      fileBuffer,
-      resolvedMime || 'application/octet-stream'
-    );
-    if (resolvedSize == null) resolvedSize = fileBuffer.length;
-  }
-
   const doc = await CustomerDocument.create({
     organizationId: project.organizationId,
     projectId,
-    packId: null,
-    filename: filename.slice(0, 260),
-    mimeType: resolvedMime,
-    storageKey,
-    sizeBytes: resolvedSize,
+    filename,
+    mimeType: String(body.mimeType || '').trim().slice(0, 120),
+    storageKey: String(body.storageKey || '').trim().slice(0, 512),
+    sizeBytes: body.sizeBytes != null ? Number(body.sizeBytes) : null,
     docClass,
     notes: String(body.notes || '').trim().slice(0, 2000),
     uploadedBy: userId,
   });
   return serializeDoc(doc);
-}
-
-/**
- * Pack-scoped upload (HITL before Project board).
- */
-async function createCustomerDocumentForPack({
-  userId,
-  organizationId,
-  packId,
-  body = {},
-  fileBuffer = null,
-  fileName = null,
-  mimeType = null,
-  sizeBytes = null,
-}) {
-  const {
-    assertRequirementImportOrCreateProjectScope,
-  } = require('./requirementAccess.service');
-  const RequirementPack = require('../models/RequirementPack');
-
-  await assertRequirementImportOrCreateProjectScope({ userId, organizationId });
-
-  const pack = await RequirementPack.findOne({
-    _id: packId,
-    organizationId,
-    isActive: true,
-  }).lean();
-  if (!pack) {
-    const err = new Error('Requirement pack không tồn tại');
-    err.statusCode = 404;
-    throw err;
-  }
-
-  const hasBinary = Buffer.isBuffer(fileBuffer) && fileBuffer.length > 0;
-  const filename = String(fileName || body.filename || '').trim();
-  if (!filename) {
-    const err = new Error('filename là bắt buộc');
-    err.statusCode = 400;
-    throw err;
-  }
-  const docClass = CUSTOMER_DOC_CLASSES.includes(String(body.docClass || '').trim())
-    ? String(body.docClass).trim()
-    : 'other';
-
-  let storageKey = String(body.storageKey || '').trim().slice(0, 512);
-  let resolvedMime = String(mimeType || body.mimeType || '').trim().slice(0, 120);
-  let resolvedSize =
-    sizeBytes != null
-      ? Number(sizeBytes)
-      : body.sizeBytes != null
-        ? Number(body.sizeBytes)
-        : null;
-
-  if (hasBinary) {
-    if (!objectStorage.isEnabled()) {
-      const err = new Error('Object storage (MinIO) chưa được cấu hình');
-      err.statusCode = 503;
-      err.errorCode = 'STORAGE_NOT_CONFIGURED';
-      throw err;
-    }
-    storageKey = buildCustomerDocumentStoragePath({
-      packId,
-      docClass,
-      filename,
-    });
-    await objectStorage.putObject(
-      storageKey,
-      fileBuffer,
-      resolvedMime || 'application/octet-stream'
-    );
-    if (resolvedSize == null) resolvedSize = fileBuffer.length;
-  }
-
-  const doc = await CustomerDocument.create({
-    organizationId,
-    projectId: null,
-    packId,
-    filename: filename.slice(0, 260),
-    mimeType: resolvedMime,
-    storageKey,
-    sizeBytes: resolvedSize,
-    docClass,
-    notes: String(body.notes || '').trim().slice(0, 2000),
-    uploadedBy: userId,
-  });
-  return serializeDoc(doc);
-}
-
-async function listCustomerDocumentsForPack({ userId, organizationId, packId }) {
-  const { assertRequirementPermission } = require('./requirementAccess.service');
-  await assertRequirementPermission({
-    userId,
-    organizationId,
-    permission: 'requirement:view',
-  });
-  const rows = await CustomerDocument.find({
-    packId,
-    organizationId,
-    isActive: true,
-  })
-    .sort({ createdAt: -1 })
-    .lean();
-  return rows.map(serializeDoc);
-}
-
-/**
- * After Gate 2 create-project — attach pack docs to the new board.
- */
-async function linkPackDocumentsToProject({ organizationId, packId, projectId }) {
-  const orgId = String(organizationId || '').trim();
-  const pid = String(projectId || '').trim();
-  const pack = String(packId || '').trim();
-  if (!orgId || !pid || !pack) {
-    return { matched: 0, modified: 0 };
-  }
-  const result = await CustomerDocument.updateMany(
-    {
-      organizationId: orgId,
-      packId: pack,
-      isActive: true,
-      $or: [{ projectId: null }, { projectId: { $exists: false } }],
-    },
-    { $set: { projectId: pid } }
-  );
-  return {
-    matched: result.matchedCount ?? result.n ?? 0,
-    modified: result.modifiedCount ?? result.nModified ?? 0,
-  };
 }
 
 async function listArtifacts({ userId, projectId, kind, status }) {
@@ -307,12 +198,16 @@ function assertCanAuthorKind({ permissions, kind, isBypass }) {
     err.statusCode = 403;
     throw err;
   }
-  // PO without full BA import: only BG/SCOPE (still has artifact_import in matrix)
-  // Enforced softly: if user has ba_review they are BA; PO_AUTHOR kinds always ok for import holders
+  // PO (artifact_edit, no BA import): chỉ BG/SCOPE. BA (ba_review / submit) full kinds.
   if (PO_AUTHOR_KINDS.includes(k)) return;
-  if (!hasPermission(permissions, 'analysis:submit_ba_review') && !hasPermission(permissions, 'analysis:ba_review')) {
-    // PO-only: block non BG/SCOPE
-    if (hasPermission(permissions, 'analysis:po_review') && !hasPermission(permissions, 'analysis:ba_review')) {
+  if (
+    !hasPermission(permissions, 'analysis:submit_ba_review') &&
+    !hasPermission(permissions, 'analysis:ba_review')
+  ) {
+    if (
+      hasPermission(permissions, 'analysis:po_review') &&
+      !hasPermission(permissions, 'analysis:ba_review')
+    ) {
       const err = new Error('PO chỉ được tạo/sửa BG và SCOPE');
       err.statusCode = 403;
       throw err;
@@ -352,6 +247,8 @@ async function createArtifact({ userId, projectId, body = {} }) {
     ? String(body.source).trim()
     : 'manual';
   const structured = body.structured && typeof body.structured === 'object' ? body.structured : {};
+  const { formatErrors, raiseColumnErrors } = require('../utils/project/artifactColumnRules');
+  raiseColumnErrors(formatErrors(kind, structured), 'ARTIFACT_FIELD_INVALID');
   const contentHash = hashContent({ kind, externalKey, title, structured, body: body.body });
 
   try {
@@ -390,10 +287,11 @@ async function updateArtifactDraft({ userId, projectId, artifactId, body = {} })
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
   const bypass = resolved.isOrgAdmin || resolved.isCreator;
   if (!bypass) {
-    await assertAnalysisPerm({
+    await assertUserAnyProjectPermission({
       userId,
       projectId,
-      permission: 'analysis:artifact_edit',
+      permissions: ['analysis:artifact_edit', 'analysis:artifact_import'],
+      message: 'Không có quyền sửa analysis artifact',
     });
   }
   const doc = await AnalysisArtifact.findOne({ _id: artifactId, projectId, isActive: true });
@@ -402,9 +300,30 @@ async function updateArtifactDraft({ userId, projectId, artifactId, body = {} })
     err.statusCode = 404;
     throw err;
   }
-  if (!['draft', 'rejected'].includes(doc.status)) {
+
+  /** Soft-delete: chỉ draft / changes_requested / rejected (bảo vệ approved/baseline). */
+  if (body.softDelete === true || body.isActive === false) {
+    const st = String(doc.status || '').toLowerCase();
+    if (!['draft', 'changes_requested', 'rejected'].includes(st)) {
+      const err = new Error('Chỉ xóa được artifact draft / changes_requested / rejected');
+      err.statusCode = 400;
+      err.errorCode = 'SOFT_DELETE_STATUS_BLOCKED';
+      throw err;
+    }
+    assertCanAuthorKind({
+      permissions: resolved.permissions,
+      kind: doc.kind,
+      isBypass: bypass,
+    });
+    doc.isActive = false;
+    doc.updatedBy = userId;
+    await doc.save();
+    return serializeDoc(doc);
+  }
+
+  if (!isArtifactContentEditableStatus(doc.status)) {
     const err = new Error(
-      'Chỉ sửa được artifact draft/rejected. Sau khi cắt SRS, đổi yêu cầu đã duyệt qua Change Request (Phase 2).'
+      'Chỉ sửa được artifact draft hoặc đang yêu cầu chỉnh sửa. Sau khi cắt SRS, đổi yêu cầu đã duyệt qua Change Request (Phase 2).'
     );
     err.statusCode = 400;
     err.errorCode = 'STATUS_NOT_EDITABLE';
@@ -437,10 +356,6 @@ async function updateArtifactDraft({ userId, projectId, artifactId, body = {} })
   if (resolvedUpdate.structured !== undefined) {
     doc.structured = resolvedUpdate.structured;
     doc.markModified('structured');
-  }
-  if (doc.status === 'rejected' && resolvedUpdate.reopen === true) {
-    doc.status = 'draft';
-    doc.rejectionReason = '';
   }
   doc.updatedBy = userId;
   doc.contentHash = hashContent({
@@ -478,15 +393,51 @@ async function transitionArtifactStatus({
     err.errorCode = 'ARTIFACT_TRANSITION_DENIED';
     throw err;
   }
+  if (!canResubmitFromChangesRequested(from, to, doc.changesRequestedFrom)) {
+    const err = new Error(
+      `Chỉ gửi lại về cổng ${doc.changesRequestedFrom || 'tech_review'} sau khi chỉnh sửa`
+    );
+    err.statusCode = 400;
+    err.errorCode = 'ARTIFACT_RESUBMIT_GATE';
+    throw err;
+  }
+  if (isReviewNoteRequired(to) && !String(note || '').trim()) {
+    const err = new Error('Bắt buộc ghi lý do khi yêu cầu chỉnh sửa hoặc từ chối');
+    err.statusCode = 400;
+    err.errorCode = 'ARTIFACT_NOTE_REQUIRED';
+    throw err;
+  }
   const perm = permissionForArtifactTransition(from, to);
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
+  const {
+    projectHasAnalysisTechReviewer,
+    assertGateStampSoD,
+    notifyNextGateReviewers,
+  } = require('../utils/phase1GatePolicy');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
   const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const techRequired = await projectHasAnalysisTechReviewer(projectId);
+
+  if (from === 'ba_review' && to === 'tech_review' && !techRequired && !bypass) {
+    const err = new Error(
+      'Project không có Tech Reviewer — duyệt thẳng sang po_review (skip Tech)'
+    );
+    err.statusCode = 409;
+    err.errorCode = 'ARTIFACT_TECH_SKIP';
+    throw err;
+  }
+  if (from === 'ba_review' && to === 'po_review' && techRequired && !bypass) {
+    const err = new Error('Project có Tech Reviewer — phải qua tech_review trước');
+    err.statusCode = 409;
+    err.errorCode = 'ARTIFACT_TECH_REQUIRED';
+    throw err;
+  }
+
   if (!bypass && perm) {
     await assertAnalysisPerm({ userId, projectId, permission: perm });
   }
   // RULE-11: author cannot ba_review own artifact
-  if (to === 'tech_review' && from === 'ba_review') {
+  if (from === 'ba_review' && (to === 'tech_review' || to === 'po_review' || to === 'rejected' || to === 'changes_requested')) {
     if (String(doc.createdBy) === String(userId) && !bypass) {
       const err = new Error('Không được BA review artifact do chính mình tạo');
       err.statusCode = 403;
@@ -494,31 +445,123 @@ async function transitionArtifactStatus({
       throw err;
     }
   }
-  if (from === 'ba_review' && to === 'rejected') {
-    if (String(doc.createdBy) === String(userId) && !bypass) {
-      const err = new Error('Không được BA review artifact do chính mình tạo');
-      err.statusCode = 403;
-      throw err;
-    }
+
+  const prior = [];
+  if (from === 'tech_review') prior.push(doc.review?.ba);
+  if (from === 'po_review') {
+    prior.push(doc.review?.ba, doc.review?.tech);
+  }
+  if (to === 'approved' || to === 'po_review' || (from === 'tech_review' && to !== 'rejected')) {
+    assertGateStampSoD({ actorUserId: userId, priorStamps: prior, bypass });
+  }
+
+  const fromKey = String(from || '').toLowerCase();
+  if ((fromKey === 'draft' || fromKey === 'changes_requested') && to === 'ba_review') {
+    const { submitErrors, raiseColumnErrors } = require('../utils/project/artifactColumnRules');
+    const saved =
+      doc.structured && typeof doc.structured === 'object' ? doc.structured : {};
+    raiseColumnErrors(submitErrors(doc.kind, saved), 'ARTIFACT_SUBMIT_INCOMPLETE');
   }
 
   const gateNote = String(note || '').trim().slice(0, 1000);
   const stamp = { userId, at: new Date(), note: gateNote };
-  if (from === 'ba_review' && (to === 'tech_review' || to === 'rejected')) {
+  if (from === 'ba_review' && (to === 'tech_review' || to === 'po_review' || to === 'rejected' || to === 'changes_requested')) {
     doc.review.ba = stamp;
+    if (to === 'po_review' && !techRequired) {
+      doc.review.tech = { skipped: true, at: new Date(), note: 'tech_optional_skip' };
+    }
   }
-  if (from === 'tech_review' && (to === 'po_review' || to === 'rejected')) {
+  if (from === 'tech_review' && (to === 'po_review' || to === 'rejected' || to === 'changes_requested')) {
     doc.review.tech = stamp;
   }
-  if (from === 'po_review' && (to === 'approved' || to === 'rejected')) {
+  if (from === 'po_review' && (to === 'approved' || to === 'rejected' || to === 'changes_requested')) {
     doc.review.po = stamp;
+  }
+  if (to === 'changes_requested') {
+    doc.changesRequestedFrom = from;
+    doc.rejectionReason = gateNote;
   }
   if (to === 'rejected') {
     doc.rejectionReason = gateNote || doc.rejectionReason;
+    doc.changesRequestedFrom = '';
+  }
+  if (from === 'changes_requested' && (to === 'ba_review' || to === 'tech_review' || to === 'po_review')) {
+    doc.changesRequestedFrom = '';
   }
   doc.status = to;
   doc.updatedBy = userId;
   await doc.save();
+
+  const project = await Project.findById(projectId).select('organizationId').lean();
+
+  if (to === 'changes_requested') {
+    try {
+      const { notifySystemKind, projectHubActionUrl } = require('../clients/notification.client');
+      const { userIdsWithProjectPermission } = require('../utils/phase1GatePolicy');
+      const editors = await userIdsWithProjectPermission(projectId, 'analysis:artifact_edit');
+      const authorId = String(doc.createdBy || '').trim();
+      const targets = [...new Set([...(editors || []), authorId].filter(Boolean))];
+      const kindSeg = (() => {
+        const k = String(doc.kind || '')
+          .trim()
+          .toUpperCase();
+        const map = {
+          SCOPE: 'analysis-scope',
+          BG: 'analysis-bg',
+          BR: 'analysis-br',
+          BPM: 'analysis-bpm',
+          FR: 'analysis-fr',
+          UC: 'analysis-uc',
+          NFR: 'analysis-nfr',
+          INTERFACE: 'analysis-interface',
+          DATA: 'analysis-data',
+          GLOSSARY: 'analysis-glossary',
+          ASSUMPTION: 'analysis-assumption',
+        };
+        return map[k] || 'analysis-reviews';
+      })();
+      if (targets.length) {
+        await notifySystemKind({
+          userIds: targets,
+          kind: 'analysis_changes_requested',
+          title: 'Yêu cầu chỉnh sửa Analysis',
+          content: `Artifact “${String(doc.title || doc.externalKey || '').trim() || '—'}” cần chỉnh sửa: ${gateNote.slice(0, 200)}`,
+          data: {
+            projectId: String(projectId),
+            organizationId: String(project?.organizationId || ''),
+            artifactId: String(doc._id),
+            kind: 'analysis_changes_requested',
+            artifactKind: String(doc.kind || ''),
+            returnTo: from,
+          },
+          actionUrl: projectHubActionUrl({
+            projectId,
+            organizationId: project?.organizationId,
+            pathSuffix: `${kindSeg}?artifact=${encodeURIComponent(String(doc._id))}`,
+          }),
+          excludeUserId: userId,
+        });
+      }
+    } catch {
+      /* non-blocking */
+    }
+  } else if (to === 'tech_review' || to === 'po_review') {
+    const nextPermission =
+      to === 'tech_review'
+        ? 'analysis:tech_review'
+        : 'analysis:po_review';
+    await notifyNextGateReviewers({
+      projectId,
+      organizationId: project?.organizationId,
+      actorUserId: userId,
+      nextPermission,
+      title: 'Artifact chờ duyệt',
+      content: `Artifact “${String(doc.title || doc.externalKey || '').trim() || '—'}” chờ cổng tiếp theo.`,
+      kind: 'analysis_gate_pending',
+      actionPath: 'phase1/analysis-reviews',
+    });
+  }
+
   return serializeDoc(doc);
 }
 
@@ -588,38 +631,18 @@ async function computeGapReport({ userId, projectId }) {
     ArtifactTraceLink.find({ projectId, isActive: true }).lean(),
   ]);
   const byKind = (k) => artifacts.filter((a) => a.kind === k);
-  const frReqs = byKind('FR').filter(
-    (a) => String(a.structured?.level || '').toLowerCase() === 'requirement'
-  );
-  const ucs = byKind('UC');
-  const brs = byKind('BR');
   const bgs = byKind('BG');
-  const frIds = new Set(frReqs.map((a) => String(a._id)));
-  const ucCovers = new Set();
-  for (const link of links) {
-    if (link.linkType !== 'implements') continue;
-    const from = artifacts.find((a) => String(a._id) === String(link.fromArtifactId));
-    const to = artifacts.find((a) => String(a._id) === String(link.toArtifactId));
-    if (from?.kind === 'UC' && to?.kind === 'FR') ucCovers.add(String(to._id));
-  }
-  // Also structured.relatedFrKeys on UC
-  for (const uc of ucs) {
-    const keys = Array.isArray(uc.structured?.relatedFrKeys) ? uc.structured.relatedFrKeys : [];
-    for (const key of keys) {
-      const fr = frReqs.find((f) => f.externalKey === key);
-      if (fr) ucCovers.add(String(fr._id));
-    }
-  }
-  const frMissingUc = frReqs.filter((f) => !ucCovers.has(String(f._id)));
-  const brMissingBg = brs.filter((br) => {
-    const has = links.some(
-      (l) =>
-        l.linkType === 'derives' &&
-        String(l.fromArtifactId) === String(br._id) &&
-        bgs.some((bg) => String(bg._id) === String(l.toArtifactId))
-    );
-    return !has;
-  });
+  const brs = byKind('BR');
+  const ucs = byKind('UC');
+  const {
+    summarizeTraceGaps,
+  } = require('../utils/analysis/traceGaps');
+  const {
+    frMissingUc,
+    brMissingBg,
+    frMissingCr,
+    bpmMissingBr,
+  } = summarizeTraceGaps({ artifacts, links });
   const criticalGaps = [];
   if (!byKind('SCOPE').some((s) => String(s.structured?.scopeType || '').toLowerCase() === 'in' || s.structured?.scopeType === 'in')) {
     // also accept scopeType in
@@ -630,13 +653,20 @@ async function computeGapReport({ userId, projectId }) {
     if (!hasIn) criticalGaps.push({ code: 'NO_IN_SCOPE', message: 'Chưa có dòng In-Scope' });
   }
 
-  const project = await Project.findById(projectId).select('deliveryPhase phase1RequiredKinds').lean();
-  const { evaluateReadyForPhase2, evaluateRaReadiness } = require('../constants/phase2Gate');
+  const project = await Project.findById(projectId)
+    .select('deliveryPhase phase1RequiredKinds phase2ManualStaging')
+    .lean();
+  const {
+    evaluateReadyForPhase2,
+    evaluateRaReadiness,
+    summarizeReviewAttention,
+  } = require('../constants/phase2Gate');
   const { coerceDeliveryPhase } = require('../constants/projectDeliveryPhase');
 
   let srsBaselineExists = false;
   let planningBaselineExists = false;
   let planningSummary = null;
+  let planArts = [];
   try {
     const SrsBaseline = require('../models/SrsBaseline');
     const srsCount = await SrsBaseline.countDocuments({ projectId, isActive: true });
@@ -650,7 +680,7 @@ async function computeGapReport({ userId, projectId }) {
     planningBaselineExists = planCount > 0;
     const PlanningArtifact = require('../models/PlanningArtifact');
     const { PLANNING_ARTIFACT_KINDS } = require('../constants/planningArtifact');
-    const planArts = await PlanningArtifact.find({ projectId, isActive: true }).lean();
+    planArts = await PlanningArtifact.find({ projectId, isActive: true }).lean();
     const byKind = {};
     for (const k of PLANNING_ARTIFACT_KINDS) {
       const ofKind = planArts.filter((a) => a.kind === k);
@@ -663,6 +693,7 @@ async function computeGapReport({ userId, projectId }) {
     planningSummary = { byKind, planningBaselineExists, baselineCount: planCount };
   } catch {
     planningBaselineExists = false;
+    planArts = [];
   }
 
   const requiredKinds = Array.isArray(project?.phase1RequiredKinds)
@@ -681,32 +712,33 @@ async function computeGapReport({ userId, projectId }) {
     criticalGapCount: criticalGaps.length,
     requiredKinds,
   });
+  const { ANALYSIS_ARTIFACT_KINDS } = require('../constants/analysisArtifact');
+  const { PLANNING_ARTIFACT_KINDS } = require('../constants/planningArtifact');
+  const reviewAttention = summarizeReviewAttention({
+    artifacts,
+    allowedKinds: ANALYSIS_ARTIFACT_KINDS,
+  });
+  const planningReviewAttention = summarizeReviewAttention({
+    artifacts: planArts,
+    allowedKinds: PLANNING_ARTIFACT_KINDS,
+  });
 
   const { constraints, assumptions } = await collectConstraintsAssumptions({
     projectId,
     artifacts,
   });
 
+  const counts = {};
+  for (const k of ANALYSIS_ARTIFACT_KINDS) {
+    counts[k] = byKind(k).length;
+  }
+
   return {
-    counts: {
-      BG: bgs.length,
-      BR: brs.length,
-      BPM: byKind('BPM').length,
-      FR: byKind('FR').length,
-      UC: ucs.length,
-      NFR: byKind('NFR').length,
-      SCOPE: byKind('SCOPE').length,
-    },
-    frMissingUc: frMissingUc.map((a) => ({
-      id: String(a._id),
-      externalKey: a.externalKey,
-      title: a.title,
-    })),
-    brMissingBg: brMissingBg.map((a) => ({
-      id: String(a._id),
-      externalKey: a.externalKey,
-      title: a.title,
-    })),
+    counts,
+    frMissingUc,
+    brMissingBg,
+    frMissingCr,
+    bpmMissingBr,
     criticalGaps,
     criticalGapCount: criticalGaps.length,
     readyForPhase2: readiness.readyForPhase2,
@@ -717,6 +749,8 @@ async function computeGapReport({ userId, projectId }) {
       blockingReasons: ra.blockingReasons,
       requiredKinds: ra.requiredKinds,
     },
+    reviewAttention,
+    planningReviewAttention,
     planningReadiness: {
       planningBaselineExists,
       byKind: planningSummary?.byKind || {},
@@ -725,6 +759,14 @@ async function computeGapReport({ userId, projectId }) {
     planningBaselineExists,
     constraints,
     assumptions,
+    phase2ManualStaging: (() => {
+      try {
+        const { summarizeStaging } = require('./phase2ManualStaging.service');
+        return summarizeStaging(project);
+      } catch {
+        return null;
+      }
+    })(),
   };
 }
 
@@ -817,7 +859,6 @@ async function bulkTransitionArtifacts({
   fromStatus,
   toStatus,
   note = '',
-  artifactIds = null,
 }) {
   await assertProjectMemberAccess({ userId, projectId });
   const from = String(fromStatus || '')
@@ -832,6 +873,13 @@ async function bulkTransitionArtifacts({
     err.errorCode = 'ARTIFACT_TRANSITION_DENIED';
     throw err;
   }
+  // Bulk chỉ cho Approve bước tiếp theo — không bulk Request changes / Reject (cần note từng item).
+  if (to === 'changes_requested' || to === 'rejected' || from === 'changes_requested') {
+    const err = new Error('Không bulk Yêu cầu chỉnh sửa / Từ chối — dùng chuyển từng artifact kèm lý do');
+    err.statusCode = 400;
+    err.errorCode = 'ARTIFACT_BULK_NOTE_REQUIRED';
+    throw err;
+  }
 
   const perm = permissionForArtifactTransition(from, to);
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
@@ -841,55 +889,26 @@ async function bulkTransitionArtifacts({
     await assertAnalysisPerm({ userId, projectId, permission: perm });
   }
 
-  const {
-    buildBulkTransitionFilter,
-  } = require('../utils/analysis/bulkTransitionArtifactIds');
-
   const gateNote = String(note || '').trim().slice(0, 1000);
   const stamp = { userId, at: new Date(), note: gateNote };
+  const filter = { projectId, isActive: true, status: from };
   let skippedFourEyes = 0;
 
   // Four-eyes: BA cannot promote own artifact to tech_review
-  let excludeCreatedBy = null;
   if (from === 'ba_review' && to === 'tech_review' && !bypass) {
-    const baseFilter = buildBulkTransitionFilter({
-      projectId,
-      fromStatus: from,
-      artifactIds,
-    }).filter;
     const ownCount = await AnalysisArtifact.countDocuments({
-      ...baseFilter,
+      ...filter,
       createdBy: userId,
     });
     skippedFourEyes = ownCount;
-    excludeCreatedBy = userId;
+    filter.createdBy = { $ne: userId };
   }
 
-  const { filter, idFilterActive } = buildBulkTransitionFilter({
+  const candidateCount = await AnalysisArtifact.countDocuments({
     projectId,
-    fromStatus: from,
-    artifactIds,
-    excludeCreatedBy,
+    isActive: true,
+    status: from,
   });
-
-  if (idFilterActive && (!filter._id || !filter._id.$in?.length)) {
-    return {
-      fromStatus: from,
-      toStatus: to,
-      candidateCount: 0,
-      updated: 0,
-      skipped: 0,
-      skippedReasons: [],
-      truncated: false,
-      idFilter: true,
-    };
-  }
-
-  const candidateCount = await AnalysisArtifact.countDocuments(
-    idFilterActive
-      ? filter
-      : { projectId, isActive: true, status: from }
-  );
 
   const $set = {
     status: to,
@@ -926,7 +945,7 @@ async function bulkTransitionArtifacts({
     toStatus: to,
     candidateCount,
     updated,
-    skipped: Math.max(0, candidateCount - updated) + skippedFourEyes,
+    skipped: Math.max(0, candidateCount - updated),
     skippedReasons:
       skippedFourEyes > 0
         ? [
@@ -937,7 +956,6 @@ async function bulkTransitionArtifacts({
           ]
         : [],
     truncated: idList.length >= 500,
-    idFilter: idFilterActive,
   };
 }
 
@@ -1027,15 +1045,58 @@ async function seedArtifactsFromRequirementPack({
     isActive: true,
     version: 1,
   })
-    .select('kind externalKey')
+    .select('kind externalKey status source title summary structured')
     .lean();
-  const existingKeys = new Set(existingRows.map((a) => `${a.kind}::${a.externalKey}`));
+  const existingByKey = new Map(existingRows.map((a) => [`${a.kind}::${a.externalKey}`, a]));
   const pendingCreates = [];
+  const pendingStructuredMerges = [];
+
+  const isEmptyStructuredValue = (v) => {
+    if (v == null) return true;
+    if (Array.isArray(v)) return v.length === 0;
+    return String(v).trim() === '';
+  };
 
   const upsert = async (payload) => {
+    const { formatErrors } = require('../utils/project/artifactColumnRules');
+    if (formatErrors(payload.kind, payload.structured || {}).length) return;
     const key = `${payload.kind}::${payload.externalKey}`;
-    if (existingKeys.has(key)) return;
-    existingKeys.add(key);
+    const existing = existingByKey.get(key);
+    if (existing) {
+      // Re-import: backfill structured trống trên draft seed — không đè giá trị BA đã sửa.
+      const st = String(existing.status || '').toLowerCase();
+      const src = String(existing.source || '');
+      if (st === 'draft' && src === 'seed_from_pack' && payload.structured) {
+        const prev =
+          existing.structured && typeof existing.structured === 'object' ? existing.structured : {};
+        const next = { ...prev };
+        let changed = false;
+        for (const [sk, sv] of Object.entries(payload.structured)) {
+          if (isEmptyStructuredValue(sv)) continue;
+          if (!isEmptyStructuredValue(next[sk])) continue;
+          next[sk] = sv;
+          changed = true;
+        }
+        const titleEmpty = !String(existing.title || '').trim() && String(payload.title || '').trim();
+        const summaryEmpty =
+          !String(existing.summary || '').trim() && String(payload.summary || '').trim();
+        if (changed || titleEmpty || summaryEmpty) {
+          pendingStructuredMerges.push({
+            _id: existing._id,
+            structured: next,
+            title: titleEmpty ? payload.title : undefined,
+            summary: summaryEmpty ? payload.summary : undefined,
+          });
+        }
+      }
+      return;
+    }
+    existingByKey.set(key, {
+      kind: payload.kind,
+      externalKey: payload.externalKey,
+      status: 'draft',
+      source: 'seed_from_pack',
+    });
     pendingCreates.push({
       organizationId: orgId,
       projectId,
@@ -1054,8 +1115,14 @@ async function seedArtifactsFromRequirementPack({
     seeded += 1;
   };
 
+  const businessGoals = Array.isArray(pack.businessGoals) ? pack.businessGoals : [];
+  // Overview-derived BG-001 is only a legacy fallback. When 02_BG rows exist, do not
+  // pre-claim BG-001 (would skip the full Excel row via existingKeys).
   const overview = pack.overview || {};
-  if (overview.projectObjective || overview.businessScope) {
+  if (
+    businessGoals.length === 0 &&
+    (overview.projectObjective || overview.businessScope)
+  ) {
     await upsert({
       kind: 'BG',
       externalKey: 'BG-001',
@@ -1072,7 +1139,6 @@ async function seedArtifactsFromRequirementPack({
     });
   }
 
-  const businessGoals = Array.isArray(pack.businessGoals) ? pack.businessGoals : [];
   for (const bg of businessGoals) {
     const externalKey = String(bg.externalId || bg.externalKey || '').trim();
     if (!externalKey) continue;
@@ -1100,18 +1166,27 @@ async function seedArtifactsFromRequirementPack({
   }
 
   const scopes = Array.isArray(pack.scope) ? pack.scope : [];
+  const { normalizeScopeType } = require('../utils/requirement/requirementTemplateTextNorm');
   let sc = 1;
   for (const row of scopes) {
     const desc = String(row.description || '').trim();
     if (!desc) continue;
-    const type = String(row.type || row.scopeType || 'in').toLowerCase().includes('out')
-      ? 'out'
-      : 'in';
+    const type = normalizeScopeType(row.type || row.scopeType) || 'in';
     await upsert({
       kind: 'SCOPE',
       externalKey: `SC-${String(sc).padStart(3, '0')}`,
       title: desc.slice(0, 240),
-      structured: { scopeType: type, description: desc },
+      structured: {
+        scopeType: type,
+        description: desc,
+        source: String(row.source || '').slice(0, 240),
+        dateRaised: String(row.dateRaised || '').slice(0, 64),
+        status: String(row.status || '').slice(0, 64),
+        baNote: String(row.baNote || '').slice(0, 2000),
+        customerRequirementIds: Array.isArray(row.customerRequirementIds)
+          ? row.customerRequirementIds
+          : [],
+      },
     });
     sc += 1;
   }
@@ -1152,12 +1227,6 @@ async function seedArtifactsFromRequirementPack({
           : [],
         brIds: Array.isArray(fr.brIds) ? fr.brIds : [],
         bpmIds: Array.isArray(fr.bpmIds) ? fr.bpmIds : [],
-        evidenceIds: Array.isArray(fr.evidenceIds) ? fr.evidenceIds.map(String).slice(0, 20) : [],
-        groundingStatus: fr.groundingStatus ? String(fr.groundingStatus) : undefined,
-        groundingScore:
-          fr.groundingScore != null && Number.isFinite(Number(fr.groundingScore))
-            ? Number(fr.groundingScore)
-            : undefined,
       },
     });
   }
@@ -1174,6 +1243,7 @@ async function seedArtifactsFromRequirementPack({
       title: String(nfr.requirement || nfr.name || externalKey).slice(0, 240),
       structured: {
         category: nfr.category || '',
+        requirement: nfr.requirement || nfr.name || '',
         target: nfr.target || '',
         measurement: nfr.measurement || '',
         priority: nfr.priority || 'Medium',
@@ -1187,14 +1257,12 @@ async function seedArtifactsFromRequirementPack({
         customerRequirementIds: Array.isArray(nfr.customerRequirementIds)
           ? nfr.customerRequirementIds
           : [],
-        evidenceIds: Array.isArray(nfr.evidenceIds)
-          ? nfr.evidenceIds.map(String).slice(0, 20)
-          : [],
-        groundingStatus: nfr.groundingStatus ? String(nfr.groundingStatus) : undefined,
-        groundingScore:
-          nfr.groundingScore != null && Number.isFinite(Number(nfr.groundingScore))
-            ? Number(nfr.groundingScore)
-            : undefined,
+        relatedFrKeys: Array.isArray(nfr.relatedFrIds)
+          ? nfr.relatedFrIds
+          : String(nfr.relatedFr || '')
+              .split(/[,;]+/)
+              .map((s) => s.trim())
+              .filter(Boolean),
       },
     });
   }
@@ -1230,11 +1298,15 @@ async function seedArtifactsFromRequirementPack({
   }
 
   const businessProcesses = Array.isArray(pack.businessProcesses) ? pack.businessProcesses : [];
+  const usedBpmKeys = new Set();
+  const { allocateBpmExternalKey } = require('../utils/requirement/bpmSeedKey');
   for (const bpm of businessProcesses) {
     const externalKey = String(bpm.externalId || bpm.externalKey || '').trim();
     if (!externalKey) continue;
     const step = String(bpm.step || '').trim();
-    const key = step ? `${externalKey}-S${step}` : externalKey;
+    // Hậu tố chỉ khi Excel trùng BPM ID + Step trong cùng pack. Key đã có trong DB
+    // phải giữ nguyên để upsert bỏ qua — nếu đổi key, publish tạo bản draft thứ hai.
+    const key = allocateBpmExternalKey(externalKey, step, usedBpmKeys, bpm._rowNumber);
     await upsert({
       kind: 'BPM',
       externalKey: key.slice(0, 64),
@@ -1301,6 +1373,105 @@ async function seedArtifactsFromRequirementPack({
     });
   }
 
+  const interfaces = Array.isArray(pack.interfaces) ? pack.interfaces : [];
+  for (const row of interfaces) {
+    const externalKey = String(row.externalId || row.externalKey || '').trim();
+    if (!externalKey) continue;
+    const name = String(row.name || row.interfaceName || externalKey).trim();
+    await upsert({
+      kind: 'INTERFACE',
+      externalKey,
+      title: name.slice(0, 240),
+      summary: String(row.description || '').slice(0, 2000),
+      structured: {
+        interfaceName: name,
+        interfaceType: String(row.interfaceType || '').slice(0, 120),
+        direction: String(row.direction || 'inout').slice(0, 64),
+        protocol: String(row.protocol || '').slice(0, 120),
+        description: String(row.description || ''),
+        relatedArtifactIds: Array.isArray(row.relatedArtifactIds) ? row.relatedArtifactIds : [],
+        customerRequirementIds: Array.isArray(row.customerRequirementIds)
+          ? row.customerRequirementIds
+          : [],
+        status: String(row.status || '').slice(0, 64),
+        baNote: String(row.baNote || '').slice(0, 2000),
+      },
+    });
+  }
+
+  const dataEntities = Array.isArray(pack.dataEntities) ? pack.dataEntities : [];
+  for (const row of dataEntities) {
+    const externalKey = String(row.externalId || row.externalKey || '').trim();
+    if (!externalKey) continue;
+    const entity = String(row.entity || externalKey).trim();
+    await upsert({
+      kind: 'DATA',
+      externalKey,
+      title: entity.slice(0, 240),
+      summary: String(row.attributes || '').slice(0, 2000),
+      structured: {
+        entity,
+        attributes: String(row.attributes || ''),
+        validationRules: String(row.validationRules || ''),
+        description: String(row.description || ''),
+        relatedArtifactIds: Array.isArray(row.relatedArtifactIds) ? row.relatedArtifactIds : [],
+        customerRequirementIds: Array.isArray(row.customerRequirementIds)
+          ? row.customerRequirementIds
+          : [],
+        status: String(row.status || '').slice(0, 64),
+        baNote: String(row.baNote || '').slice(0, 2000),
+      },
+    });
+  }
+
+  const glossaryRows = Array.isArray(pack.glossary) ? pack.glossary : [];
+  for (const row of glossaryRows) {
+    const term = String(row.term || '').trim();
+    if (!term) continue;
+    const externalKey = String(row.externalId || row.externalKey || '').trim() || `GL-${term}`;
+    await upsert({
+      kind: 'GLOSSARY',
+      externalKey: externalKey.slice(0, 120),
+      title: term.slice(0, 240),
+      summary: String(row.definition || '').slice(0, 2000),
+      structured: {
+        term,
+        definition: String(row.definition || ''),
+        relatedArtifactIds: Array.isArray(row.relatedArtifactIds) ? row.relatedArtifactIds : [],
+        status: String(row.status || '').slice(0, 64),
+        baNote: String(row.baNote || '').slice(0, 2000),
+      },
+    });
+  }
+
+  const assumptionRows = Array.isArray(pack.assumptions) ? pack.assumptions : [];
+  let asmSeq = 0;
+  for (const row of assumptionRows) {
+    if (!row || typeof row !== 'object') continue;
+    const text = String(row.text || row.assumption || '').trim();
+    if (!text) continue;
+    asmSeq += 1;
+    const externalKey =
+      String(row.externalId || row.externalKey || '').trim() ||
+      `ASM-${String(asmSeq).padStart(3, '0')}`;
+    await upsert({
+      kind: 'ASSUMPTION',
+      externalKey: externalKey.slice(0, 120),
+      title: text.slice(0, 240),
+      summary: String(row.impactIfInvalid || '').slice(0, 2000),
+      structured: {
+        text,
+        impactIfInvalid: String(row.impactIfInvalid || ''),
+        relatedArtifactIds: Array.isArray(row.relatedArtifactIds) ? row.relatedArtifactIds : [],
+        customerRequirementIds: Array.isArray(row.customerRequirementIds)
+          ? row.customerRequirementIds
+          : [],
+        status: String(row.status || '').slice(0, 64),
+        baNote: String(row.baNote || '').slice(0, 2000),
+      },
+    });
+  }
+
   // Merge Traceability sheet CR refs onto matching artifacts (structured)
   const traceRows = Array.isArray(pack.traceabilityLinks) ? pack.traceabilityLinks : [];
   if (traceRows.length) {
@@ -1351,6 +1522,18 @@ async function seedArtifactsFromRequirementPack({
     }
   }
 
+  if (pendingStructuredMerges.length) {
+    await Promise.all(
+      pendingStructuredMerges.map((row) => {
+        const $set = { structured: row.structured, updatedBy: userId };
+        if (row.title != null) $set.title = row.title;
+        if (row.summary != null) $set.summary = row.summary;
+        return AnalysisArtifact.updateOne({ _id: row._id, projectId, isActive: true }, { $set });
+      })
+    );
+    seeded += pendingStructuredMerges.length;
+  }
+
   const allArts = await AnalysisArtifact.find({ projectId, isActive: true }).lean();
   const artByKey = new Map(allArts.map((a) => [String(a.externalKey), a]));
   let linksSeeded = 0;
@@ -1397,6 +1580,55 @@ async function seedArtifactsFromRequirementPack({
     const bgKey = String(br.relatedBg || '').trim();
     if (brKey && bgKey) queueLink(brKey, bgKey, 'derives');
   }
+  // Wave B/C — formal links from seeded artifact soft keys
+  const asKeys = (value) => {
+    if (Array.isArray(value)) return value.map((v) => String(v || '').trim()).filter(Boolean);
+    if (value == null || value === '') return [];
+    return String(value)
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  };
+  const bpmKeysMatching = (prefix) => {
+    const p = String(prefix || '').trim();
+    if (!p) return [];
+    const out = [];
+    for (const key of artByKey.keys()) {
+      if (key === p || key.startsWith(`${p}-`)) out.push(key);
+    }
+    return out;
+  };
+  for (const art of allArts) {
+    const ek = String(art.externalKey || '').trim();
+    if (!ek) continue;
+    const st = art.structured && typeof art.structured === 'object' ? art.structured : {};
+    if (art.kind === 'FR') {
+      for (const brId of asKeys(st.brIds)) queueLink(ek, brId, 'implements');
+      for (const bpmPrefix of asKeys(st.bpmIds)) {
+        for (const bpmKey of bpmKeysMatching(bpmPrefix)) {
+          queueLink(ek, bpmKey, 'implements');
+        }
+      }
+    }
+    if (art.kind === 'BPM') {
+      const brKey = String(st.relatedBrKey || st.relatedBr || '').trim();
+      if (brKey) queueLink(ek, brKey, 'derives');
+    }
+    if (art.kind === 'NFR') {
+      for (const frKey of asKeys(st.relatedFrKeys)) {
+        queueLink(ek, frKey, 'constrains');
+      }
+    }
+    if (art.kind === 'SCOPE') {
+      // Formal scopes when target Analysis ID matches soft CR/analysis key (rare); soft CR still shown on hub.
+      for (const targetKey of asKeys(st.customerRequirementIds)) {
+        queueLink(ek, targetKey, 'scopes');
+      }
+      for (const targetKey of asKeys(st.relatedArtifactIds || st.relatedArtifactKeys)) {
+        queueLink(ek, targetKey, 'scopes');
+      }
+    }
+  }
   if (pendingLinks.length) {
     try {
       const inserted = await ArtifactTraceLink.insertMany(pendingLinks, { ordered: false });
@@ -1428,6 +1660,8 @@ async function advanceToPhase2({
   applyAssignees = false,
   skipReadyGate = false,
   publishWbs = true,
+  /** DEC D1 — materialize board Tasks from WBS leaves after publish */
+  seedBoardTasks = true,
   /** Explicit override khi wizard create-project mới (không có Phase1 plan path) */
   forcePackImport = false,
 }) {
@@ -1457,9 +1691,12 @@ async function advanceToPhase2({
     throw err;
   }
 
-  const chosen = String(mode || 'manual').trim().toLowerCase() === 'ai' ? 'ai' : 'manual';
+  // automation | manual (legacy advance) = map code path; ai = optional pack wizard path
+  const modeRaw = String(mode || 'manual').trim().toLowerCase();
+  const chosen = modeRaw === 'ai' ? 'ai' : modeRaw === 'automation' ? 'automation' : 'manual';
   let importStats = null;
   let wbsPublish = null;
+  let boardSeed = null;
 
   if (chosen === 'ai') {
     const pid = String(packId || '').trim();
@@ -1526,6 +1763,34 @@ async function advanceToPhase2({
     }
   }
 
+  if (seedBoardTasks) {
+    try {
+      const deliveryPlanningService = require('./deliveryPlanning.service');
+      boardSeed = await deliveryPlanningService.seedBoardTasksFromPublishedWbs({
+        userId,
+        projectId,
+      });
+      if (
+        boardSeed &&
+        boardSeed.leafCount > 0 &&
+        boardSeed.created === 0 &&
+        !boardSeed.existingFromWbs &&
+        !(boardSeed.skipped || []).length
+      ) {
+        const err = new Error(
+          boardSeed.message || 'Không seed được Task từ WBS leaf — kiểm tra Planning publish'
+        );
+        err.statusCode = 400;
+        err.errorCode = 'PHASE2_SEED_TASKS_EMPTY';
+        err.details = boardSeed;
+        throw err;
+      }
+    } catch (e) {
+      if (e.errorCode === 'PHASE2_SEED_TASKS_EMPTY') throw e;
+      boardSeed = { created: 0, error: e.message, errorCode: e.errorCode };
+    }
+  }
+
   const {
     canTransitionDeliveryPhase,
     coerceDeliveryPhase,
@@ -1544,17 +1809,22 @@ async function advanceToPhase2({
   }
 
   projectDoc.deliveryPhase = 'development';
-  // Lifecycle status is orthogonal to deliveryPhase but must stay in Project enum
-  // (draft | active | on_hold | closed). Coerce legacy 5-value statuses.
-  const { coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
-  const st = String(projectDoc.status || '').trim().toLowerCase();
-  const coerced = coerceProjectLifecycleStatus(st);
-  if (coerced === 'draft' || st === 'planning' || st === 'ready_for_planning') {
-    projectDoc.status = 'active';
-  } else if (coerced) {
-    projectDoc.status = coerced;
-  } else if (!['draft', 'active', 'on_hold', 'closed'].includes(st)) {
-    projectDoc.status = 'active';
+  // Lifecycle status is orthogonal to deliveryPhase but must stay in Project enum.
+  // Legacy/bad rows (e.g. status "draft") fail validation on save — coerce into Phase 2.
+  const PROJECT_STATUS = new Set([
+    'planning',
+    'ready_for_planning',
+    'in_development',
+    'on_hold',
+    'closed',
+  ]);
+  if (!PROJECT_STATUS.has(String(projectDoc.status || ''))) {
+    projectDoc.status = 'in_development';
+  } else if (
+    projectDoc.status === 'planning' ||
+    projectDoc.status === 'ready_for_planning'
+  ) {
+    projectDoc.status = 'in_development';
   }
   if (methodology) {
     const m = String(methodology).trim().toLowerCase();
@@ -1570,6 +1840,7 @@ async function advanceToPhase2({
     mode: chosen,
     importStats,
     wbsPublish,
+    boardSeed,
     methodology: projectDoc.methodology,
   };
 }
@@ -1610,6 +1881,94 @@ async function getSrsDraft({ userId, projectId }) {
       NFR: group('NFR'),
     },
     artifactCount: artifacts.length,
+  };
+}
+
+/**
+ * Export SRS working set or a baseline as IEEE-mapped xlsx buffer.
+ * @param {{ userId: string, projectId: string, baselineId?: string, srsVersion?: string }} args
+ */
+async function exportSrsWorkbook({ userId, projectId, baselineId, srsVersion }) {
+  const project = await assertProjectMemberAccess({ userId, projectId });
+  await assertAnalysisPerm({ userId, projectId, permission: 'analysis:view' });
+
+  let baseline = null;
+  let artifacts = [];
+  if (baselineId) {
+    baseline = await SrsBaseline.findOne({ _id: baselineId, projectId, isActive: true }).lean();
+    if (!baseline) {
+      const err = new Error('SRS Baseline không tồn tại');
+      err.statusCode = 404;
+      throw err;
+    }
+    const ids = Array.isArray(baseline.artifactIds) ? baseline.artifactIds : [];
+    artifacts = ids.length
+      ? await AnalysisArtifact.find({ _id: { $in: ids }, projectId }).lean()
+      : [];
+    // Fallback: snapshot-only (artifact soft-deleted) — rebuild minimal rows
+    if (!artifacts.length && Array.isArray(baseline.artifactSnapshot)) {
+      artifacts = baseline.artifactSnapshot.map((s) => ({
+        _id: s.artifactId,
+        kind: s.kind,
+        externalKey: s.externalKey,
+        title: s.title,
+        version: s.version,
+        structured: {},
+        summary: '',
+      }));
+    }
+  } else {
+    artifacts = await AnalysisArtifact.find({
+      projectId,
+      isActive: true,
+      status: 'approved',
+    })
+      .sort({ kind: 1, externalKey: 1 })
+      .lean();
+  }
+
+  let traceLinks = [];
+  try {
+    const links = await ArtifactTraceLink.find({ projectId }).lean();
+    const idSet = new Set(artifacts.map((a) => String(a._id)));
+    const byId = new Map(artifacts.map((a) => [String(a._id), a]));
+    // Also load any referenced artifacts for keys
+    const allIds = [
+      ...new Set(
+        links.flatMap((l) => [String(l.fromArtifactId || ''), String(l.toArtifactId || '')]).filter(Boolean)
+      ),
+    ];
+    const extra = await AnalysisArtifact.find({ _id: { $in: allIds }, projectId })
+      .select('_id kind externalKey')
+      .lean();
+    for (const a of extra) byId.set(String(a._id), a);
+    traceLinks = links.map((l) => {
+      const from = byId.get(String(l.fromArtifactId));
+      const to = byId.get(String(l.toArtifactId));
+      return {
+        fromKind: from?.kind || '',
+        fromKey: from?.externalKey || '',
+        toKind: to?.kind || '',
+        toKey: to?.externalKey || '',
+        linkType: l.linkType,
+      };
+    });
+    void idSet;
+  } catch {
+    traceLinks = [];
+  }
+
+  const { buildSrsExportWorkbook } = require('../utils/requirement/srsBaselineExportWorkbook');
+  const buffer = await buildSrsExportWorkbook({
+    project,
+    srsVersion: srsVersion || baseline?.srsVersion || 'working',
+    artifacts,
+    traceLinks,
+    baseline,
+  });
+  return {
+    buffer,
+    fileName: `SRS_${String(project.code || projectId).slice(0, 32)}_${String(srsVersion || baseline?.srsVersion || 'working').replace(/[^\w.-]+/g, '_')}.xlsx`,
   };
 }
 
@@ -1663,13 +2022,14 @@ async function startDeliveryPlanning({ userId, projectId }) {
   }
   projectDoc.deliveryPhase = 'delivery_planning';
   projectDoc.phase1RaApprovedAt = new Date();
-  // Coerce legacy status so save() validates against draft|active|on_hold|closed.
+  // Legacy seed may have status=draft (not in enum) — coerce so save() validates.
   const { coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
   const coercedStatus = coerceProjectLifecycleStatus(projectDoc.status);
-  if (coercedStatus) {
-    projectDoc.status = coercedStatus;
-  } else if (!['draft', 'active', 'on_hold', 'closed'].includes(String(projectDoc.status || ''))) {
-    projectDoc.status = 'draft';
+  if (coercedStatus) projectDoc.status = coercedStatus;
+  else if (!['planning', 'ready_for_planning', 'in_development', 'on_hold', 'closed'].includes(
+    String(projectDoc.status || '')
+  )) {
+    projectDoc.status = 'planning';
   }
   await projectDoc.save();
   return {
@@ -1718,7 +2078,7 @@ async function previewAnalysisImport({ userId, projectId, fileBuffer, fileName }
     XLSX_MIME,
   } = require('../utils/requirement/requirementExcelPreview');
   const { pickPlanningReadinessSummary } = require('../utils/requirement/requirementPlanningReadiness');
-  const { mapParsedToPackPayload } = require('./requirementImport.service');
+  const { mapParsedToPackPayload } = require('../utils/requirement/mapParsedToPackPayload');
 
   const peekedType = peekWorkbookTemplateType(buffer);
   if (!isAnalysisTemplateType(peekedType)) {
@@ -1871,22 +2231,31 @@ async function confirmAnalysisImport({ userId, projectId, sessionId, importSetId
   const analysisMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const analysisBuffer =
     session.fileBuffer && Buffer.isBuffer(session.fileBuffer) ? session.fileBuffer : null;
-  let analysisStorageKey = `pending/${projectId}/${Date.now()}-analysis`.slice(0, 512);
-  let analysisContentHash = '';
-  let analysisSize = analysisBuffer ? analysisBuffer.length : null;
-  if (analysisBuffer && analysisBuffer.length > 0) {
-    const stored = await importSetService.persistImportSetFileBuffer({
-      projectId,
-      setId: draftSet._id,
-      slot: 'analysis',
-      fileName: session.fileName || 'Requirement_Analysis.xlsx',
-      mimeType: analysisMime,
-      buffer: analysisBuffer,
-    });
-    if (stored.storageKey) analysisStorageKey = stored.storageKey;
-    analysisContentHash = stored.contentHash;
-    analysisSize = stored.sizeBytes;
+  if (!analysisBuffer || analysisBuffer.length === 0) {
+    const err = new Error(
+      'Thiếu nội dung file Analysis — upload lại trước khi confirm (không tạo key pending/ ảo)'
+    );
+    err.statusCode = 400;
+    err.errorCode = 'STORAGE_REQUIRED';
+    throw err;
   }
+  const stored = await importSetService.persistImportSetFileBuffer({
+    projectId,
+    setId: draftSet._id,
+    slot: 'analysis',
+    fileName: session.fileName || 'Requirement_Analysis.xlsx',
+    mimeType: analysisMime,
+    buffer: analysisBuffer,
+  });
+  if (!stored?.storageKey) {
+    const err = new Error('Không lưu được file Analysis lên object storage');
+    err.statusCode = 503;
+    err.errorCode = 'STORAGE_REQUIRED';
+    throw err;
+  }
+  const analysisStorageKey = stored.storageKey;
+  const analysisContentHash = stored.contentHash || '';
+  const analysisSize = stored.sizeBytes ?? analysisBuffer.length;
 
   const analysisDoc = await CustomerDocument.create({
     organizationId: project.organizationId,
@@ -1938,6 +2307,10 @@ async function confirmAnalysisImport({ userId, projectId, sessionId, importSetId
     if (payload.businessProcesses) pack.businessProcesses = payload.businessProcesses;
     if (payload.useCases) pack.useCases = payload.useCases;
     if (payload.traceabilityLinks) pack.traceabilityLinks = payload.traceabilityLinks;
+    if (payload.interfaces) pack.interfaces = payload.interfaces;
+    if (payload.dataEntities) pack.dataEntities = payload.dataEntities;
+    if (payload.glossary) pack.glossary = payload.glossary;
+    if (payload.assumptions) pack.assumptions = payload.assumptions;
     pack.updatedBy = userId;
     await pack.save();
   }
@@ -2002,10 +2375,8 @@ async function confirmAnalysisImport({ userId, projectId, sessionId, importSetId
 
 module.exports = {
   listCustomerDocuments,
+  downloadCustomerDocument,
   createCustomerDocument,
-  createCustomerDocumentForPack,
-  listCustomerDocumentsForPack,
-  linkPackDocumentsToProject,
   listArtifacts,
   getArtifact,
   createArtifact,
@@ -2020,7 +2391,17 @@ module.exports = {
   seedArtifactsFromRequirementPack,
   advanceToPhase2,
   getSrsDraft,
+  exportSrsWorkbook,
   startDeliveryPlanning,
   previewAnalysisImport,
   confirmAnalysisImport,
+  // Phase 2 Manual staging (re-export for controller)
+  buildPhase2StagingPreview: (...args) =>
+    require('./phase2ManualStaging.service').buildPhase2StagingPreview(...args),
+  submitPhase2ManualStaging: (...args) =>
+    require('./phase2ManualStaging.service').submitPhase2ManualStaging(...args),
+  reviewPhase2ManualStaging: (...args) =>
+    require('./phase2ManualStaging.service').reviewPhase2ManualStaging(...args),
+  savePhase2StagingDraft: (...args) =>
+    require('./phase2ManualStaging.service').savePhase2StagingDraft(...args),
 };

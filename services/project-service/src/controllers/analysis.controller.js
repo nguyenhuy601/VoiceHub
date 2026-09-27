@@ -62,16 +62,10 @@ async function listCustomerDocuments(req, res) {
 
 async function createCustomerDocument(req, res) {
   try {
-    const file = req.file;
-    const body = req.body || {};
     const data = await analysisService.createCustomerDocument({
       userId: getUserId(req),
       projectId: req.params.projectId,
-      body,
-      fileBuffer: file?.buffer || null,
-      fileName: file?.originalname || null,
-      mimeType: file?.mimetype || null,
-      sizeBytes: file?.size != null ? file.size : null,
+      body: req.body || {},
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -156,7 +150,6 @@ async function bulkTransitionArtifacts(req, res) {
       fromStatus: req.body?.fromStatus,
       toStatus: req.body?.toStatus || req.body?.status,
       note: req.body?.note || '',
-      artifactIds: req.body?.artifactIds ?? req.body?.ids ?? null,
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -228,9 +221,49 @@ async function cutSrsBaseline(req, res) {
 
 async function advancePhase2(req, res) {
   try {
+    const action = String(req.body?.action || 'advance')
+      .trim()
+      .toLowerCase();
+    const userId = getUserId(req);
+    const projectId = req.params.projectId;
+
+    if (action === 'preview_staging') {
+      const data = await analysisService.buildPhase2StagingPreview({ userId, projectId });
+      return res.json({ success: true, data });
+    }
+    if (action === 'save_staging') {
+      const data = await analysisService.savePhase2StagingDraft({
+        userId,
+        projectId,
+        methodology: req.body?.methodology,
+        rows: req.body?.rows,
+        note: req.body?.note,
+      });
+      return res.json({ success: true, data });
+    }
+    if (action === 'submit_staging') {
+      const data = await analysisService.submitPhase2ManualStaging({
+        userId,
+        projectId,
+        methodology: req.body?.methodology,
+        rows: req.body?.rows,
+        note: req.body?.note,
+      });
+      return res.json({ success: true, data });
+    }
+    if (action === 'approve_staging' || action === 'request_changes') {
+      const data = await analysisService.reviewPhase2ManualStaging({
+        userId,
+        projectId,
+        decision: action === 'approve_staging' ? 'approve' : 'request_changes',
+        note: req.body?.note,
+      });
+      return res.json({ success: true, data });
+    }
+
     const data = await analysisService.advanceToPhase2({
-      userId: getUserId(req),
-      projectId: req.params.projectId,
+      userId,
+      projectId,
       mode: req.body?.mode,
       packId: req.body?.packId,
       methodology: req.body?.methodology,

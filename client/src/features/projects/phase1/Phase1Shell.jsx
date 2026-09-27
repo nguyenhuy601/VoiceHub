@@ -17,6 +17,7 @@ import {
   buildPhase1ModulePath,
   isPhase1DeliveryPhase,
   isPlanningUnlocked,
+  resolvePlanningResourcesStep,
 } from './nav/phase1NavConfig';
 import { PHASE_MODULE_LABEL_KEYS } from '../../../utils/projectPhaseNav';
 import {
@@ -28,7 +29,6 @@ import {
 import { useAppStrings } from '../../../locales/appStrings';
 import Phase1OverviewPage from './overview/Phase1OverviewPage';
 import CustomerRequirementsPage from './ra/CustomerRequirementsPage';
-import AiCustomerDocumentsPanel from './ra/AiCustomerDocumentsPanel';
 import ArtifactListPage from './ra/ArtifactListPage';
 import TraceabilityPage from './ra/TraceabilityPage';
 import SrsPage from './ra/SrsPage';
@@ -37,7 +37,7 @@ import PlanningArtifactListPage from './planning/PlanningArtifactListPage';
 import PlanningApprovalPage from './planning/PlanningApprovalPage';
 import PlanningOverviewPage from './planning/PlanningOverviewPage';
 import PlanningTcFromUcPanel from './planning/PlanningTcFromUcPanel';
-import Phase2GateBanner from '../phase/Phase2GateBanner';
+import PlanningResourcesShell from './planning/PlanningResourcesShell';
 import SpaceCalendarModule from '../../spaceModules/SpaceCalendarModule';
 import SpaceDocumentsModule from '../../spaceModules/SpaceDocumentsModule';
 import SpaceProjectChatModule from '../../spaceModules/SpaceProjectChatModule';
@@ -51,7 +51,7 @@ export default function Phase1Shell({
   module: moduleProp,
   planningSub: planningSubProp,
 } = {}) {
-  const { projectId: projectIdParam, module: moduleParam, planningModule } =
+  const { projectId: projectIdParam, module: moduleParam, planningModule, '*': planningSplat } =
     useParams();
   const [searchParams] = useSearchParams();
   const { t } = useAppStrings();
@@ -63,6 +63,11 @@ export default function Phase1Shell({
     (planningSub
       ? PLANNING_SUB_TO_MODULE[String(planningSub).toLowerCase()] || `planning-${planningSub}`
       : String(moduleParam || 'overview').toLowerCase());
+
+  const resourcesStep =
+    module === 'planning-resources'
+      ? resolvePlanningResourcesStep(planningSplat)
+      : null;
 
   const { data: projectRow, isPending: projectPending } = useQuery({
     queryKey: queryKeys.projectHub.project(projectId),
@@ -80,7 +85,6 @@ export default function Phase1Shell({
   const caps = projectRow?.capabilities || {};
   const canViewAnalysis = Boolean(caps.canViewAnalysis);
   const canViewPlanning = Boolean(caps.canViewPlanning);
-  const canChangeDeliveryPhase = Boolean(caps.canChangeDeliveryPhase);
   const orgId = resolveProjectOrganizationId({
     search: searchParams,
     projectRow,
@@ -108,27 +112,11 @@ export default function Phase1Shell({
   }
 
   if (String(module).startsWith('planning') && !planningUnlocked) {
-    return (
-      <Navigate
-        to={buildPhase1ModulePath(projectId, 'overview', {
-          packId: searchParams.get('packId') || '',
-          boardId: searchParams.get('boardId') || '',
-        })}
-        replace
-      />
-    );
+    return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
   }
 
   if (projectRow && !isModuleAllowedForPhase(module, deliveryPhase)) {
-    return (
-      <Navigate
-        to={buildPhase1ModulePath(projectId, 'overview', {
-          packId: searchParams.get('packId') || '',
-          boardId: searchParams.get('boardId') || '',
-        })}
-        replace
-      />
-    );
+    return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
   }
 
   // Deep-link / bookmark: không mount analysis/planning UI khi thiếu view perm (tránh 403).
@@ -137,56 +125,33 @@ export default function Phase1Shell({
     isAnalysisViewModule(module) &&
     !canViewAnalysis
   ) {
-    return (
-      <Navigate
-        to={buildPhase1ModulePath(projectId, 'overview', {
-          packId: searchParams.get('packId') || '',
-          boardId: searchParams.get('boardId') || '',
-        })}
-        replace
-      />
-    );
+    return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
   }
   if (projectRow && isPlanningViewModule(module) && !canViewPlanning) {
-    return (
-      <Navigate
-        to={buildPhase1ModulePath(projectId, 'overview', {
-          packId: searchParams.get('packId') || '',
-          boardId: searchParams.get('boardId') || '',
-        })}
-        replace
-      />
-    );
+    return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
   }
 
   let body = null;
   if (module === 'planning-overview') {
-    body = <PlanningOverviewPage projectId={projectId} organizationId={orgId} />;
+    body = (
+      <PlanningOverviewPage projectId={projectId} organizationId={orgId} />
+    );
   } else if (module === 'overview') {
     body = (
       <Phase1OverviewPage
         projectId={projectId}
         organizationId={orgId}
         deliveryPhase={deliveryPhase}
-        analysisMode={projectRow?.analysisMode}
       />
     );
   } else if (module === 'customer-documents') {
-    const mode = String(projectRow?.analysisMode || '').toLowerCase();
-    body =
-      mode === 'ai' ? (
-        <AiCustomerDocumentsPanel
-          projectId={projectId}
-          organizationId={orgId}
-          packId={String(searchParams.get('packId') || '').trim() || undefined}
-        />
-      ) : (
-        <CustomerRequirementsPage
-          projectId={projectId}
-          organizationId={orgId}
-          readOnly={raReadOnly}
-        />
-      );
+    body = (
+      <CustomerRequirementsPage
+        projectId={projectId}
+        organizationId={orgId}
+        readOnly={raReadOnly}
+      />
+    );
   } else if (ARTIFACT_KIND_BY_MODULE[module]) {
     const kind = ARTIFACT_KIND_BY_MODULE[module];
     const labelKey = PHASE_MODULE_LABEL_KEYS[module];
@@ -205,6 +170,14 @@ export default function Phase1Shell({
     body = <SrsPage projectId={projectId} readOnly={raReadOnly} />;
   } else if (module === 'analysis-reviews') {
     body = <ApprovalHubPage projectId={projectId} readOnly={raReadOnly} />;
+  } else if (module === 'planning-resources') {
+    body = (
+      <PlanningResourcesShell
+        projectId={projectId}
+        organizationId={orgId}
+        step={resourcesStep}
+      />
+    );
   } else if (PLANNING_KIND_BY_MODULE[module]) {
     const kind = PLANNING_KIND_BY_MODULE[module];
     const labelKey = PHASE_MODULE_LABEL_KEYS[module];
@@ -249,16 +222,6 @@ export default function Phase1Shell({
         {raReadOnly && module !== 'overview' && !String(module).startsWith('planning') ? (
           <div className="shrink-0 border-b border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-muted-foreground sm:px-4">
             {t('workspace.phase1RaReadOnlyBanner')}
-          </div>
-        ) : null}
-        {deliveryPhase === 'delivery_planning' ? (
-          <div className="shrink-0 px-3 pt-3 sm:px-4">
-            <Phase2GateBanner
-              projectId={projectId}
-              organizationId={orgId}
-              deliveryPhase={deliveryPhase}
-              canChangePhase={canChangeDeliveryPhase}
-            />
           </div>
         ) : null}
         {body}
