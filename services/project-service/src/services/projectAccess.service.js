@@ -91,12 +91,14 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
     ? await ProjectRole.find({ _id: { $in: roleIds } }).select('key permissions canAssign').lean()
     : [];
 
-  // Org admin / creator: full permission dump for most ops, but keep roles for
-  // BA-only gates (import Raw/Analysis) + viewer role badges.
+  // API enforcement vẫn bypass creator/org-admin. Capabilities trả cho UI chỉ theo role key
+  // (PO / PM / BA / Tech…) để không hiện nút của vai khác.
+  const roleUiCapabilities = permissionsToBoardCapabilities(matrixPermissionsFromRoleKeys(roles));
+
   if (isOrgAdmin || isCreator) {
     return {
       permissions: [...PROJECT_PERMISSION_KEYS],
-      capabilities: permissionsToBoardCapabilities([], { isCreator: true, isOrgAdmin: true }),
+      capabilities: roleUiCapabilities,
       isOrgAdmin,
       isCreator,
       informationLevel: 'confidential',
@@ -145,7 +147,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
 
   return {
     permissions: normalizePermissionList(perms),
-    capabilities: permissionsToBoardCapabilities(perms, { isCreator, isOrgAdmin }),
+    capabilities: permissionsToBoardCapabilities(matrixPermissionsFromRoleKeys(roles)),
     isOrgAdmin,
     isCreator,
     informationLevel,

@@ -766,17 +766,32 @@ export default function ProjectHubDeliveryPhasePanel({
               return (
                 <li key={id}>
                   <label
-                    className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2.5 text-sm transition ${
+                    className={`flex items-start gap-2 rounded-xl border px-2.5 py-2.5 text-sm transition ${
                       isOn ? tone.on : tone.idle
-                    } ${disabled ? 'cursor-default opacity-75' : 'hover:brightness-[0.98]'}`}
+                    } ${
+                      allowed && !disabled
+                        ? 'cursor-pointer hover:brightness-[0.98]'
+                        : 'cursor-default'
+                    }`}
                   >
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={isOn}
-                      disabled={disabled}
-                      onChange={(e) => onToggleChecklist(id, e.target.checked)}
-                    />
+                    {allowed ? (
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={isOn}
+                        disabled={disabled}
+                        onChange={(e) => onToggleChecklist(id, e.target.checked)}
+                      />
+                    ) : (
+                      <span
+                        className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
+                          isOn ? 'border-primary bg-primary text-primary-foreground' : 'border-border'
+                        }`}
+                        aria-hidden
+                      >
+                        {isOn ? '✓' : ''}
+                      </span>
+                    )}
                     <span className="min-w-0 flex-1">
                       <span className="font-semibold text-foreground">
                         {t(`workspace.phaseQaChecklist_${id}`)}
