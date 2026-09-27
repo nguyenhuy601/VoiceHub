@@ -512,6 +512,7 @@ export default function ProjectHubPage({
         invalidateProjectHub(projectId, selectedTaskBoardId);
         queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
       }
+      return updated;
     } catch (err) {
       if (!isHoursSoftWarning(err)) {
         toast.error(resolveApiErrorMessage(err, t('taskBoard.updateCardFail')));

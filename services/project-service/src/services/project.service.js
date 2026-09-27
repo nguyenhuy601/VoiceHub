@@ -38,6 +38,13 @@ const {
 const { buildBoardIdentityPatch, resolveBoardScope } = require('../utils/project/boardIdentityPatch');
 const { buildProjectInitFields, coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
 const {
+  WARN_V1,
+  omitClientSchedulePolicy,
+  todayYmdInVietnam,
+  dateWarningsForProject,
+  attachScheduleWarnings,
+} = require('../utils/project/schedulePolicy');
+const {
   assertPatchDoesNotCloseActiveSprint,
   assertProjectWritable,
   assertMustCompleteBeforeArchive,
@@ -65,15 +72,11 @@ const {
 } = require('../utils/project/projectListMembershipScope');
 const { attachListProjectCardSummaries } = require('../utils/project/listProjectCardSummary');
 const { isCardListView, toProjectListCardItem, CARD_LIST_PROJECT_SELECT } = require('../utils/project/projectListCardView');
-const {
-  FALLBACK_BOARD_TITLE,
-  resolveDefaultBoardTitle,
-  resolveBoardTitle,
-} = require('../utils/project/defaultBoardTitle');
 
-/** @deprecated Prefer resolveDefaultBoardTitle(projectCode). Kept for legacy imports. */
-const DEFAULT_BOARD_TITLE = FALLBACK_BOARD_TITLE;
-const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Done']);
+const DEFAULT_BOARD_TITLE = 'Main';
+/** Default Kanban columns — Ready for QA between In Progress and Done (DEC D4 / Phase 3). */
+const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Ready for QA', 'Done']);
+const DEFAULT_LIST_STATUS_KEYS = Object.freeze(['todo', 'in_progress', 'qa', 'done']);
 
 const LEAD_ROLE_SLOT_KEYS = Object.freeze({
   projectManagerId: DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER,
@@ -130,11 +133,10 @@ async function logActivity({
 }
 
 async function seedDefaultLists(boardId) {
-  const STATUS_KEYS = ['todo', 'in_progress', 'done'];
   const rows = DEFAULT_LIST_TITLES.map((title, idx) => ({
     boardId,
     title,
-    statusKey: STATUS_KEYS[idx] || '',
+    statusKey: DEFAULT_LIST_STATUS_KEYS[idx] || '',
     order: (idx + 1) * 1000,
     isArchived: false,
     isDefault: idx === 0,
@@ -144,7 +146,7 @@ async function seedDefaultLists(boardId) {
 }
 
 /**
- * Create Project + default Board (Main) + lists + PM ownership (status draft).
+ * Create Project + default Board (Main) + lists + PM ownership (status ready_for_planning).
  * projectId !== boardId.
  */
 function normalizeBudgetStub(raw) {
@@ -200,7 +202,6 @@ async function createProject({
   relatedDepartmentIds,
   requiredProjectRoles,
   budgetStub,
-  analysisMode,
 }) {
   const scope = await fetchTaskWorkspaceScope(userId, organizationId);
   if (!scope || !canCreateProjectInScope(scope)) {
@@ -247,7 +248,7 @@ async function createProject({
   }
 
   const init = buildProjectInitFields({
-    status: 'draft',
+    status: 'ready_for_planning',
     projectType,
     category,
     priority,
@@ -263,7 +264,6 @@ async function createProject({
     sprintStartDay,
     wipLimit,
     customer,
-    analysisMode,
   });
   if (!init.ok) throw new Error(init.message);
   // RULE-W1: public create always starts Phase 1 Requirement Analysis
@@ -336,6 +336,7 @@ async function createProject({
     isActive: true,
     ...init.fields,
     dueDate: init.fields.dueDate !== undefined ? init.fields.dueDate : due,
+    schedulePolicy: WARN_V1,
     ...(normalizedRoles !== undefined ? { requiredProjectRoles: normalizedRoles } : {}),
     ...(normalizedBudget !== undefined ? { budgetStub: normalizedBudget } : {}),
   });
@@ -346,7 +347,7 @@ async function createProject({
     teamId: project.teamId,
     scopeType: project.scopeType,
     scopeId: project.scopeId,
-    title: resolveDefaultBoardTitle(code),
+    title: DEFAULT_BOARD_TITLE,
     background: project.background,
     createdBy: userId,
     isActive: true,
@@ -912,60 +913,95 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       payload.priorityConfig
     );
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  const { resolveUserProjectPermissions } = require('./projectAccess.service');
+  const {
+    isProjectRbacV2Enabled,
+    hasPermission,
+    matrixPermissionsFromRoleKeys,
+  } = require('../utils/project/projectPermissionMatrix');
   if (!isProjectRbacV2Enabled()) {
     return payload;
   }
-  const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const perms = resolved.permissions || [];
   const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  // Nút trên UI theo role key (PO / PM / BA / Tech). Không dùng creator/admin dump —
+  // dump đó làm PM thấy nút duyệt BA, Tech, PO.
+  const roleMatrixPerms = matrixPermissionsFromRoleKeys(resolved.roles || []);
+  const roleHas = (key) => hasPermission(roleMatrixPerms, key);
+  const canImportFromRole =
+    roleHas('analysis:artifact_import') && roleHas('analysis:document_upload');
+  /** Draft / gửi lại changes_requested — chỉ BA theo role matrix (không creator/admin bypass). */
+  const canBaAuthorFromRole =
+    roleHas('analysis:submit_ba_review') ||
+    roleHas('analysis:artifact_import') ||
+    roleHas('analysis:ba_review');
+  let hasAnalysisTechReviewer = false;
+  let hasPlanningTechReviewer = false;
+  try {
+    const {
+      projectHasAnalysisTechReviewer,
+      projectHasPlanningTechReviewer,
+    } = require('../utils/phase1GatePolicy');
+    hasAnalysisTechReviewer = await projectHasAnalysisTechReviewer(projectId);
+    hasPlanningTechReviewer = await projectHasPlanningTechReviewer(projectId);
+  } catch {
+    /* non-blocking */
+  }
   return {
     ...payload,
     capabilities: {
       ...resolved.capabilities,
-      permissions: perms,
-      canManagePlanning: bypass || hasPermission(perms, 'project:edit'),
-      canManageMembers: bypass || hasPermission(perms, 'members:manage'),
+      permissions: roleMatrixPerms,
+      canManagePlanning: roleHas('project:edit'),
+      canManageMembers: roleHas('members:manage'),
       canViewMembers:
-        bypass ||
-        hasPermission(perms, 'members:view') ||
-        hasPermission(perms, 'members:manage'),
-      canManageSettings: bypass || hasPermission(perms, 'settings:update'),
+        bypass || roleHas('members:view') || roleHas('members:manage'),
+      canManageSettings: roleHas('settings:update') || roleHas('project:edit'),
       canManageSprints:
-        bypass ||
-        hasPermission(perms, 'sprint:create') ||
-        hasPermission(perms, 'sprint:start') ||
-        hasPermission(perms, 'sprint:close'),
-      canDeleteSprint: bypass || hasPermission(perms, 'sprint:delete'),
-      canCreateEpic: bypass || hasPermission(perms, 'epic:create'),
-      canUpdateEpic: bypass || hasPermission(perms, 'epic:update'),
-      canDeleteEpic: bypass || hasPermission(perms, 'epic:delete'),
-      canCreateStory: bypass || hasPermission(perms, 'story:create'),
-      canUpdateStory: bypass || hasPermission(perms, 'story:update'),
-      canCreateTask: bypass || hasPermission(perms, 'task:create'),
-      canCreateBug: bypass || hasPermission(perms, 'bug:create'),
-      canPrioritizeBacklog: bypass || hasPermission(perms, 'backlog:prioritize'),
-      canUpdateBacklog: bypass || hasPermission(perms, 'backlog:update'),
-      canEstimate: bypass || hasPermission(perms, 'task:estimate'),
-      canViewAnalysis: bypass || hasPermission(perms, 'analysis:view'),
-      canEditAnalysis: bypass || hasPermission(perms, 'analysis:artifact_edit'),
-      canImportAnalysis: bypass || hasPermission(perms, 'analysis:artifact_import'),
-      canReviewAnalysisBa: bypass || hasPermission(perms, 'analysis:ba_review'),
-      canReviewAnalysisTech: bypass || hasPermission(perms, 'analysis:tech_review'),
-      canReviewAnalysisPo: bypass || hasPermission(perms, 'analysis:po_review'),
-      canChangeDeliveryPhase: bypass || hasPermission(perms, 'delivery_phase:change'),
-      canSignOffUat: bypass || hasPermission(perms, 'uat:sign_off'),
-      canCutSrs: bypass || hasPermission(perms, 'analysis:cut_srs'),
-      canViewPlanning: bypass || hasPermission(perms, 'planning:view'),
-      canEditPlanning: bypass || hasPermission(perms, 'planning:artifact_edit'),
-      canReviewPlanning: bypass ||
-        hasPermission(perms, 'planning:ba_review') ||
-        hasPermission(perms, 'planning:tech_review') ||
-        hasPermission(perms, 'planning:pm_review') ||
-        hasPermission(perms, 'planning:po_review'),
-      canCutPlanningBaseline: bypass || hasPermission(perms, 'planning:cut_baseline'),
-      canPublishPlanningWbs: bypass || hasPermission(perms, 'planning:publish_wbs'),
+        roleHas('sprint:create') ||
+        roleHas('sprint:start') ||
+        roleHas('sprint:close') ||
+        roleHas('project:edit'),
+      canDeleteSprint: roleHas('sprint:delete') || roleHas('project:edit'),
+      canCreateEpic: roleHas('epic:create'),
+      canUpdateEpic: roleHas('epic:update'),
+      canDeleteEpic: roleHas('epic:delete'),
+      canCreateStory: roleHas('story:create'),
+      canUpdateStory: roleHas('story:update'),
+      canCreateTask: roleHas('task:create'),
+      canCreateBug: roleHas('bug:create'),
+      canPrioritizeBacklog: roleHas('backlog:prioritize'),
+      canUpdateBacklog: roleHas('backlog:update'),
+      canEstimate: roleHas('task:estimate'),
+      canViewAnalysis: bypass || roleHas('analysis:view'),
+      canEditAnalysis: roleHas('analysis:artifact_edit'),
+      canImportAnalysis: canImportFromRole,
+      /** BA chủ trì draft / sửa sau request-changes — role matrix, không bypass creator. */
+      canBaAuthorAnalysis: canBaAuthorFromRole,
+      canReviewAnalysisBa: roleHas('analysis:ba_review'),
+      canReviewAnalysisTech: roleHas('analysis:tech_review'),
+      canReviewAnalysisPo: roleHas('analysis:po_review'),
+      viewerProjectRoleKeys: Array.isArray(resolved.roles)
+        ? resolved.roles.map((r) => String(r?.key || '').trim()).filter(Boolean)
+        : [],
+      hasAnalysisTechReviewer,
+      hasPlanningTechReviewer,
+      canChangeDeliveryPhase: roleHas('delivery_phase:change'),
+      canSignOffUat: roleHas('uat:sign_off'),
+      /** SoD Phase 4 — chỉ role matrix product_owner (handover:accept); không creator/admin dump. */
+      canAcceptHandover: roleHas('handover:accept'),
+      canCutSrs: roleHas('analysis:cut_srs'),
+      canViewPlanning: bypass || roleHas('planning:view'),
+      canEditPlanning: roleHas('planning:artifact_edit'),
+      canReviewPlanning:
+        roleHas('planning:tech_review') ||
+        roleHas('planning:pm_review') ||
+        roleHas('planning:po_review'),
+      canReviewPlanningTech: roleHas('planning:tech_review'),
+      canReviewPlanningPm: roleHas('planning:pm_review'),
+      canReviewPlanningPo: roleHas('planning:po_review'),
+      canCutPlanningBaseline: roleHas('planning:cut_baseline'),
+      canPublishPlanningWbs: roleHas('planning:publish_wbs'),
     },
   };
 }
@@ -1049,7 +1085,20 @@ async function resolveReleaseLabelForProject(projectId) {
   return `REL-${y}${m}${day}`;
 }
 
+function withSprintScheduleWarnings(project, sprintObj) {
+  if (!sprintObj) return sprintObj;
+  const warnings = dateWarningsForProject(project, {
+    startDate: sprintObj.startDate,
+    endDate: sprintObj.endDate,
+    todayYmd: todayYmdInVietnam(),
+    subjectKey: String(sprintObj._id || ''),
+    endField: 'endDate',
+  });
+  return attachScheduleWarnings(sprintObj, warnings);
+}
+
 async function patchProject({ userId, projectId, patch }) {
+  omitClientSchedulePolicy(patch);
   const project = await Project.findById(projectId);
   if (!project || project.isActive === false) throw new Error('Project không tồn tại');
   assertProjectWritable(project);
@@ -1069,6 +1118,8 @@ async function patchProject({ userId, projectId, patch }) {
     'deployEvidence'
   );
   const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  let canPhaseActor = false;
+  let canAcceptActor = false;
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -1076,24 +1127,30 @@ async function patchProject({ userId, projectId, patch }) {
     if (Object.prototype.hasOwnProperty.call(patch || {}, 'releaseLabel')) {
       delete patch.releaseLabel;
     }
+    canPhaseActor =
+      hasPermission(resolved.permissions, 'delivery_phase:change') ||
+      resolved.isOrgAdmin ||
+      resolved.isCreator;
+    // SoD: chỉ membership role có handover:accept (PO) — không creator/admin bypass
+    const { matrixPermissionsFromRoleKeys } = require('../utils/project/projectPermissionMatrix');
+    canAcceptActor = hasPermission(
+      matrixPermissionsFromRoleKeys(resolved.roles || []),
+      'handover:accept'
+    );
     const phaseLikePatch =
       hasDeliveryPhasePatch || hasHandoverChecklistPatch || hasDeployEvidencePatch;
     if (phaseLikePatch) {
-      const canPhase =
-        hasPermission(resolved.permissions, 'delivery_phase:change') ||
-        resolved.isOrgAdmin ||
-        resolved.isCreator;
-      if (!canPhase && hasDeliveryPhasePatch) {
+      if (!canPhaseActor && hasDeliveryPhasePatch) {
         const err = new Error('Không có quyền đổi deliveryPhase (delivery_phase:change)');
         err.statusCode = 403;
         throw err;
       }
-      if (!canPhase && hasHandoverChecklistPatch) {
+      if (hasHandoverChecklistPatch && !canPhaseActor && !canAcceptActor) {
         const err = new Error('Không có quyền cập nhật checklist bàn giao');
         err.statusCode = 403;
         throw err;
       }
-      if (!canPhase && hasDeployEvidencePatch) {
+      if (!canPhaseActor && hasDeployEvidencePatch) {
         const err = new Error('Không có quyền cập nhật bằng chứng deploy');
         err.statusCode = 403;
         throw err;
@@ -1110,7 +1167,7 @@ async function patchProject({ userId, projectId, patch }) {
       throw err;
     }
     if (!canSettings && phaseLikePatch) {
-      // PM may change phase / checklist / deploy evidence without full settings:update
+      // PM/PO may change phase / checklist / deploy evidence without full settings:update
       const allowedKeys = new Set(['deliveryPhase', 'handoverChecklist', 'deployEvidence']);
       const extra = Object.keys(patch || {}).filter(
         (k) => patch[k] !== undefined && !allowedKeys.has(k)
@@ -1124,6 +1181,8 @@ async function patchProject({ userId, projectId, patch }) {
   } else {
     const canAdmin = await userCanAdminProject(userId, project.toObject());
     if (!canAdmin) throw new Error('Không có quyền sửa settings dự án');
+    canPhaseActor = true;
+    canAcceptActor = true;
   }
 
   // Always strip client releaseLabel even in legacy RBAC path
@@ -1199,8 +1258,6 @@ async function patchProject({ userId, projectId, patch }) {
   if (init.ok === false && Object.keys(patch || {}).some((k) =>
     [
       'status',
-      'phaseStatus',
-      'analysisMode',
       'deliveryPhase',
       'projectType',
       'category',
@@ -1232,8 +1289,26 @@ async function patchProject({ userId, projectId, patch }) {
   }
   if (hasHandoverChecklistPatch) {
     const { RELEASE_HANDOVER_CHECKLIST } = require('../constants/projectDeliveryPhase');
+    const {
+      assertHandoverChecklistAuthz,
+      assertDeployVerifiedEvidence,
+      buildChecklistMetaPatch,
+    } = require('../utils/work/handoverChecklistPolicy');
     const checklistIds = RELEASE_HANDOVER_CHECKLIST.map((row) => row.id);
+    const prevChecklist = normalizeHandoverChecklist(project.handoverChecklist, checklistIds);
     const nextChecklist = normalizeHandoverChecklist(patch.handoverChecklist, checklistIds);
+    const authz = assertHandoverChecklistAuthz({
+      prevChecklist,
+      nextChecklist,
+      canPhase: canPhaseActor,
+      canAccept: canAcceptActor,
+    });
+    if (!authz.ok) {
+      const err = new Error(authz.message);
+      err.statusCode = authz.statusCode;
+      err.errorCode = authz.errorCode;
+      throw err;
+    }
     // Plan D RULE-01 — cannot claim Production verify before UAT Pass
     if (nextChecklist.deployment_verified === true && String(project.uatStatus || '') !== 'pass') {
       const err = new Error('Chỉ tick “Đã verify deploy” sau khi UAT Pass (Staging)');
@@ -1241,7 +1316,31 @@ async function patchProject({ userId, projectId, patch }) {
       err.errorCode = 'DEPLOY_VERIFY_BEFORE_UAT';
       throw err;
     }
+    const { normalizeDeployEvidence } = require('../utils/work/normalizeDeployEvidence');
+    const effectiveEvidence = hasDeployEvidencePatch
+      ? normalizeDeployEvidence(patch.deployEvidence, {
+          userId,
+          releaseLabel: project.releaseLabel,
+        })
+      : project.deployEvidence;
+    const evidenceGate = assertDeployVerifiedEvidence({
+      prevChecklist,
+      nextChecklist,
+      deployEvidence: effectiveEvidence,
+    });
+    if (!evidenceGate.ok) {
+      const err = new Error(evidenceGate.message);
+      err.statusCode = evidenceGate.statusCode;
+      err.errorCode = evidenceGate.errorCode;
+      throw err;
+    }
     $set.handoverChecklist = nextChecklist;
+    $set.handoverChecklistMeta = buildChecklistMetaPatch({
+      prevChecklist,
+      nextChecklist,
+      prevMeta: project.handoverChecklistMeta,
+      userId,
+    });
   }
   if (hasDeployEvidencePatch) {
     const { normalizeDeployEvidence } = require('../utils/work/normalizeDeployEvidence');
@@ -1320,6 +1419,7 @@ async function patchProject({ userId, projectId, patch }) {
     $set.releaseLabel = await resolveReleaseLabelForProject(project._id);
   }
 
+  delete $set.schedulePolicy;
   const beforeSnap = project.toObject();
   Object.assign(project, $set);
   await project.save();
@@ -1362,12 +1462,27 @@ async function patchProject({ userId, projectId, patch }) {
   const boards = await TaskBoard.find({ projectId: project._id, isActive: true })
     .sort({ createdAt: 1 })
     .lean();
-  return {
+  const dateTouched =
+    Object.prototype.hasOwnProperty.call(patch || {}, 'startDate') ||
+    Object.prototype.hasOwnProperty.call(patch || {}, 'expectedEndDate') ||
+    Object.prototype.hasOwnProperty.call(patch || {}, 'dueDate');
+  let saved = {
     ...project.toObject(),
     projectId: String(project._id),
     defaultBoardId: boards[0] ? String(boards[0]._id) : null,
     boards,
   };
+  if (dateTouched) {
+    const warnings = dateWarningsForProject(project, {
+      startDate: project.startDate,
+      endDate: project.expectedEndDate,
+      todayYmd: todayYmdInVietnam(),
+      subjectKey: String(project._id),
+      endField: 'expectedEndDate',
+    });
+    saved = attachScheduleWarnings(saved, warnings);
+  }
+  return saved;
 }
 
 async function archiveProject({ userId, projectId }) {
@@ -1477,7 +1592,7 @@ async function createBoardInProject({
     teamId: project.teamId,
     scopeType: project.scopeType,
     scopeId: project.scopeId,
-    title: resolveBoardTitle({ title, projectCode: project.projectCode }),
+    title: String(title || DEFAULT_BOARD_TITLE).trim() || DEFAULT_BOARD_TITLE,
     background: String(background || project.background || '').trim(),
     createdBy: userId,
     isActive: true,
@@ -1794,7 +1909,7 @@ async function createProjectSprint({
     autoComplete: Boolean(autoComplete),
     createdBy: userId,
   });
-  return row.toObject();
+  return withSprintScheduleWarnings(project, row.toObject());
 }
 
 async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
@@ -1847,7 +1962,7 @@ async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
     sprint.reviewNotes = String(patch.reviewNotes || '').trim().slice(0, 4000);
   }
   await sprint.save();
-  return sprint.toObject();
+  return withSprintScheduleWarnings(project, sprint.toObject());
 }
 
 async function deleteProjectSprint({ userId, projectId, sprintId }) {
@@ -1933,8 +2048,6 @@ async function attachProjectIdentityToBoard(board) {
 
 module.exports = {
   DEFAULT_BOARD_TITLE,
-  resolveDefaultBoardTitle,
-  resolveBoardTitle,
   DEFAULT_LIST_TITLES,
   createProject,
   listProjects,

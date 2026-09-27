@@ -1443,6 +1443,26 @@ async function createList({ userId, boardId, title }) {
   return row.toObject();
 }
 
+async function decorateCardScheduleWarnings(projectId, card) {
+  if (!projectId || !card) return card;
+  const Project = require('../models/Project');
+  const {
+    todayYmdInVietnam,
+    cardDateWarningsForProject,
+    attachScheduleWarnings,
+  } = require('../utils/project/schedulePolicy');
+  const project = await Project.findById(projectId).select('schedulePolicy').lean();
+  const warnings = cardDateWarningsForProject(project, {
+    assigneeId: card.assigneeId,
+    estimateHours: card.estimateHours,
+    startDate: card.startDate,
+    dueDate: card.dueDate,
+    todayYmd: todayYmdInVietnam(),
+    subjectKey: String(card._id || ''),
+  });
+  return attachScheduleWarnings(card, warnings);
+}
+
 async function createCard({
   userId,
   boardId,
@@ -1681,7 +1701,7 @@ async function createCard({
       changes: [{ field: 'issue', from: null, to: created.title }],
     });
   }
-  return created;
+  return decorateCardScheduleWarnings(board.projectId, created);
 }
 
 function primaryFromAssignmentsOr(assigneeId, assignments) {
@@ -2599,7 +2619,7 @@ async function updateCard({
       changes: diffTaskPatch(beforeDoc, next),
     });
   }
-  return out;
+  return decorateCardScheduleWarnings(board.projectId, out);
 }
 
 /**
@@ -2798,7 +2818,7 @@ async function copyCard({ userId, cardId, toListId }) {
     title: 'Thẻ được sao chép',
     content: `Thẻ "${created.title}" vừa được thêm`,
   });
-  return created;
+  return decorateCardScheduleWarnings(board.projectId, created);
 }
 
 async function archiveCard({ userId, cardId }) {
