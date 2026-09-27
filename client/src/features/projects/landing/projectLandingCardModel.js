@@ -33,18 +33,6 @@ export function normalizeProjectStatus(status) {
     .toLowerCase();
 }
 
-/** Map legacy 5-value status → draft|active|on_hold|closed for display. */
-export function coerceProjectStatusForUi(status) {
-  const st = normalizeProjectStatus(status);
-  if (!st) return '';
-  if (st === 'planning' || st === 'ready_for_planning') return 'draft';
-  if (st === 'in_development') return 'active';
-  if (st === 'cancelled' || st === 'canceled' || st === 'completed' || st === 'archived') {
-    return 'closed';
-  }
-  return st;
-}
-
 export function normalizeProjectPriority(priority) {
   return String(priority || '')
     .trim()
@@ -59,10 +47,34 @@ export function normalizeProjectHealth(health) {
 
 /** Locale path under workspace.* */
 export function projectStatusLabelKey(status) {
-  const st = coerceProjectStatusForUi(status);
-  const allowed = new Set(['draft', 'active', 'on_hold', 'closed']);
+  const st = normalizeProjectStatus(status);
+  const allowed = new Set([
+    'planning',
+    'ready_for_planning',
+    'in_development',
+    'on_hold',
+    'closed',
+  ]);
   if (!allowed.has(st)) return null;
   return `workspace.projectHubProjectStatus_${st}`;
+}
+
+/**
+ * Nhãn trạng thái trên thẻ landing — ưu tiên deliveryPhase khi Phase 4
+ * (status DB vẫn có thể là in_development).
+ * @param {object} project
+ * @returns {string|null}
+ */
+export function resolveLandingStatusLabelKey(project) {
+  const status = normalizeProjectStatus(project?.status);
+  if (status === 'closed') return projectStatusLabelKey(status);
+  const phase = String(project?.deliveryPhase || '')
+    .trim()
+    .toLowerCase();
+  if (phase === 'release_handover') {
+    return 'workspace.projectHubProjectStatus_handover';
+  }
+  return projectStatusLabelKey(status);
 }
 
 export function projectPriorityLabelKey(priority) {
@@ -126,9 +138,9 @@ function normalizeLandingProgressPercent(progressRaw) {
 /**
  * Gợi ý bước tiếp trên thẻ landing — % board ≠ cổng Phase 3/4 (RR / UAT / handover).
  * @param {object} project — list card payload
- * @returns {string|null} locale key under workspace.*
+ * @returns {{ key: string, params: Record<string, number|string>|null }|null}
  */
-export function resolveLandingNextHintKey(project) {
+export function resolveLandingNextHint(project) {
   const status = normalizeProjectStatus(project?.status);
   if (status === 'closed') return null;
 
@@ -145,31 +157,45 @@ export function resolveLandingNextHintKey(project) {
   const atFullBoard = progress != null && progress >= 100;
 
   if (phase === 'release_handover') {
-    return 'workspace.projectLandingNext_phase4Handover';
+    if (progress != null && progress < 100) {
+      return {
+        key: 'workspace.projectLandingNext_phase4HandoverBoardOpen',
+        params: { remainingPct: 100 - progress, pct: progress },
+      };
+    }
+    return { key: 'workspace.projectLandingNext_phase4Handover', params: null };
   }
 
   if (phase === 'qa_uat') {
     if (rr !== 'confirmed') {
-      return atFullBoard
-        ? 'workspace.projectLandingNext_confirmReleaseReadyAt100'
-        : 'workspace.projectLandingNext_confirmReleaseReady';
+      return {
+        key: atFullBoard
+          ? 'workspace.projectLandingNext_confirmReleaseReadyAt100'
+          : 'workspace.projectLandingNext_confirmReleaseReady',
+        params: null,
+      };
     }
     if (uat !== 'pass') {
-      return 'workspace.projectLandingNext_uatPass';
+      return { key: 'workspace.projectLandingNext_uatPass', params: null };
     }
-    return 'workspace.projectLandingNext_advancePhase4';
+    return { key: 'workspace.projectLandingNext_advancePhase4', params: null };
   }
 
   if (phase === 'development' && atFullBoard) {
-    return 'workspace.projectLandingNext_advanceQaUat';
+    return { key: 'workspace.projectLandingNext_advanceQaUat', params: null };
   }
 
   // BE card cũ chưa trả deliveryPhase — vẫn gợi ý khi board đã 100%.
   if (atFullBoard && !phase) {
-    return 'workspace.projectLandingNext_boardCompleteOpenGates';
+    return { key: 'workspace.projectLandingNext_boardCompleteOpenGates', params: null };
   }
 
   return null;
+}
+
+/** @returns {string|null} locale key under workspace.* */
+export function resolveLandingNextHintKey(project) {
+  return resolveLandingNextHint(project)?.key || null;
 }
 
 /**
@@ -193,7 +219,7 @@ export function buildProjectLandingCard(p, locale = 'vi', idx = 0) {
   const deadlineRaw = resolveLandingDeadlineRaw(p);
   const pmUserId = String(p?.pm?.userId || '').trim();
   const pmDisplayName = String(p?.pm?.displayName || '').trim();
-  const nextHintLabelKey = resolveLandingNextHintKey(p);
+  const nextHint = resolveLandingNextHint(p);
 
   return {
     id,
@@ -212,14 +238,15 @@ export function buildProjectLandingCard(p, locale = 'vi', idx = 0) {
     defaultBoardId: String(p?.defaultBoardId || p?.boards?.[0]?._id || ''),
     projectCode: String(p?.projectCode || '').trim(),
     status,
-    statusLabelKey: projectStatusLabelKey(status),
+    statusLabelKey: resolveLandingStatusLabelKey(p),
     priority,
     priorityLabelKey: projectPriorityLabelKey(priority),
     health,
     healthLabelKey: projectHealthLabelKey(health),
     healthDotClass: projectHealthDotClass(health),
     progressPercent,
-    nextHintLabelKey,
+    nextHintLabelKey: nextHint?.key || null,
+    nextHintParams: nextHint?.params || null,
     deadlineRaw,
     deadlineLabel: formatLandingDeadline(deadlineRaw, locale),
     pmUserId,

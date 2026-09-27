@@ -8,7 +8,9 @@ import {
   projectPriorityLabelKey,
   projectStatusLabelKey,
   resolveLandingDeadlineRaw,
+  resolveLandingNextHint,
   resolveLandingNextHintKey,
+  resolveLandingStatusLabelKey,
 } from './projectLandingCardModel.js';
 
 test('buildProjectLandingCard maps Tier 1–2 fields', () => {
@@ -18,7 +20,7 @@ test('buildProjectLandingCard maps Tier 1–2 fields', () => {
       title: 'Cafe Ops',
       projectCode: 'QLDAC-1',
       description: 'Desc',
-      status: 'active',
+      status: 'in_development',
       priority: 'high',
       health: 'on_track',
       progressPercent: 68.2,
@@ -33,7 +35,7 @@ test('buildProjectLandingCard maps Tier 1–2 fields', () => {
   assert.equal(card.name, 'Cafe Ops');
   assert.equal(card.projectCode, 'QLDAC-1');
   assert.equal(card.progressPercent, 68);
-  assert.equal(card.statusLabelKey, 'workspace.projectHubProjectStatus_active');
+  assert.equal(card.statusLabelKey, 'workspace.projectHubProjectStatus_in_development');
   assert.equal(card.priorityLabelKey, 'workspace.projectHubPriorityHigh');
   assert.equal(card.healthLabelKey, 'workspace.projectLandingHealth_on_track');
   assert.equal(card.healthDotClass, 'bg-success');
@@ -47,7 +49,7 @@ test('buildProjectLandingCard null-safe progress and pm', () => {
   const card = buildProjectLandingCard({
     _id: 'p2',
     title: 'X',
-    status: 'draft',
+    status: 'planning',
     progressPercent: null,
     pm: null,
   });
@@ -74,13 +76,34 @@ test('resolveLandingDeadlineRaw prefers expectedEndDate', () => {
 
 test('label key helpers', () => {
   assert.equal(projectStatusLabelKey('on_hold'), 'workspace.projectHubProjectStatus_on_hold');
-  assert.equal(projectStatusLabelKey('draft'), 'workspace.projectHubProjectStatus_draft');
-  assert.equal(projectStatusLabelKey('ready_for_planning'), 'workspace.projectHubProjectStatus_draft');
-  assert.equal(projectStatusLabelKey('in_development'), 'workspace.projectHubProjectStatus_active');
   assert.equal(projectStatusLabelKey('nope'), null);
   assert.equal(projectPriorityLabelKey('urgent'), 'workspace.projectHubPriorityUrgent');
   assert.equal(projectHealthLabelKey('delayed'), 'workspace.projectLandingHealth_delayed');
   assert.equal(projectHealthDotClass('at_risk'), 'bg-warning');
+});
+
+test('resolveLandingStatusLabelKey — Phase 4 shows handover label', () => {
+  assert.equal(
+    resolveLandingStatusLabelKey({
+      status: 'in_development',
+      deliveryPhase: 'release_handover',
+    }),
+    'workspace.projectHubProjectStatus_handover'
+  );
+  assert.equal(
+    resolveLandingStatusLabelKey({
+      status: 'closed',
+      deliveryPhase: 'release_handover',
+    }),
+    'workspace.projectHubProjectStatus_closed'
+  );
+  assert.equal(
+    resolveLandingStatusLabelKey({
+      status: 'in_development',
+      deliveryPhase: 'development',
+    }),
+    'workspace.projectHubProjectStatus_in_development'
+  );
 });
 
 test('resolveLandingNextHintKey — Phase 3 gates after 100% board', () => {
@@ -127,6 +150,16 @@ test('resolveLandingNextHintKey — Phase 3 gates after 100% board', () => {
     }),
     'workspace.projectLandingNext_phase4Handover'
   );
+  assert.deepEqual(
+    resolveLandingNextHint({
+      deliveryPhase: 'release_handover',
+      progressPercent: 69,
+    }),
+    {
+      key: 'workspace.projectLandingNext_phase4HandoverBoardOpen',
+      params: { remainingPct: 31, pct: 69 },
+    }
+  );
   assert.equal(
     resolveLandingNextHintKey({
       deliveryPhase: 'development',
@@ -162,4 +195,17 @@ test('buildProjectLandingCard exposes nextHintLabelKey for Phase 3 at 100%', () 
     uatStatus: 'none',
   });
   assert.equal(card.nextHintLabelKey, 'workspace.projectLandingNext_confirmReleaseReadyAt100');
+});
+
+test('buildProjectLandingCard Phase 4 incomplete board', () => {
+  const card = buildProjectLandingCard({
+    _id: 'qlsv',
+    title: 'Quản lý sinh viên',
+    status: 'in_development',
+    deliveryPhase: 'release_handover',
+    progressPercent: 69,
+  });
+  assert.equal(card.statusLabelKey, 'workspace.projectHubProjectStatus_handover');
+  assert.equal(card.nextHintLabelKey, 'workspace.projectLandingNext_phase4HandoverBoardOpen');
+  assert.deepEqual(card.nextHintParams, { remainingPct: 31, pct: 69 });
 });

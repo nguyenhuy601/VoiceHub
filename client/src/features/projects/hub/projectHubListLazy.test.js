@@ -8,6 +8,7 @@ import {
   hasLocalChildCards,
   isScrollNearBottom,
   LIST_ROOT_PAGE_SIZE,
+  listViewportNeedsMoreRoots,
   nextRootLimit,
   removeIdFromSetRef,
   shouldFetchListChildren,
@@ -109,6 +110,25 @@ test('sliceTreeRoots / nextRootLimit: 5 root / trang', () => {
   assert.equal(nextRootLimit(0, 7), 5);
   assert.equal(nextRootLimit(7, 7), 7);
   assert.equal(sliceTreeRoots(null, 5).length, 0);
+});
+
+test('listViewportNeedsMoreRoots: chưa layout không được coi là đã tràn', () => {
+  assert.equal(
+    listViewportNeedsMoreRoots({ scrollHeight: 400, clientHeight: 0, hasMoreRoots: true }),
+    false
+  );
+  assert.equal(
+    listViewportNeedsMoreRoots({ scrollHeight: 400, clientHeight: 400, hasMoreRoots: true }),
+    true
+  );
+  assert.equal(
+    listViewportNeedsMoreRoots({ scrollHeight: 900, clientHeight: 400, hasMoreRoots: true }),
+    false
+  );
+  assert.equal(
+    listViewportNeedsMoreRoots({ scrollHeight: 400, clientHeight: 400, hasMoreRoots: false }),
+    false
+  );
 });
 
 test('isScrollNearBottom: gần đáy theo threshold', () => {

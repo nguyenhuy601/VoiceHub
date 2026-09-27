@@ -10,7 +10,7 @@ import { taskAPI } from '../../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import { TASK_BOARD_LABELS } from '../../board/taskBoardCardLabels';
 import { FIGMA_ORG_TASK_MODAL_INPUT } from '../../../../components/Organization/figmaOrganizationClasses';
-import { dueDateTone, formatHubDateShort, listsForStatusSelect, resolveHubActor } from '../projectHubUtils';
+import { dueDateTone, formatHubDateShort, listsForStatusSelect, resolveHubActor, toastScheduleWarnings } from '../projectHubUtils';
 import { listIdToPlanningStatus, planningStatusToListId } from '../planningBoardStatus';
 import { normalizePriorityConfig } from '../projectPriorityConfig';
 import { isReadyForQaList } from '../qaTestCaseCardScope';
@@ -471,7 +471,8 @@ export default function OverviewTab() {
           onBlur={async () => {
             const prev = dateInputValueFromIso(resolveWorkItemStartDate(workItem));
             if (startDateLocal === prev) return;
-            await save(buildWorkItemDatePatch({ isPlanning, startDate: startDateLocal || null }));
+            const saved = await save(buildWorkItemDatePatch({ isPlanning, startDate: startDateLocal || null }));
+            toastScheduleWarnings(saved, toast, t);
           }}
         />
       </DetailRow>
@@ -486,7 +487,8 @@ export default function OverviewTab() {
           onBlur={async () => {
             const prev = dateInputValueFromIso(resolvedDueDate);
             if (dueDateLocal === prev) return;
-            await save(buildWorkItemDatePatch({ isPlanning, dueDate: dueDateLocal || null }));
+            const saved = await save(buildWorkItemDatePatch({ isPlanning, dueDate: dueDateLocal || null }));
+            toastScheduleWarnings(saved, toast, t);
           }}
         />
       </DetailRow>

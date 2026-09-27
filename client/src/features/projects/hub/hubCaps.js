@@ -29,16 +29,6 @@ export function isProjectCompletedStatus(status) {
   return st === 'closed' || st === 'completed';
 }
 
-/** True when lifecycle status is draft (incl. legacy planning / ready_for_planning). */
-export function isProjectDraftStatus(status) {
-  const st = String(status || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
-  if (!st) return false;
-  return st === 'draft' || st === 'planning' || st === 'ready_for_planning';
-}
-
 function applyReadOnly(caps, readOnly) {
   if (!readOnly) return { ...caps, readOnly: false };
   return {
