@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ReviewNoteDialog from '../../../../components/Shared/ReviewNoteDialog';
 import { useAppStrings } from '../../../../locales/appStrings';
+import Phase1ChoiceInput from '../shared/Phase1ChoiceInput';
+import { choiceOptions } from '../shared/phase1ChoiceFields';
 import {
   buildArtifactFormState,
   buildArtifactUpdateBody,
@@ -43,6 +45,7 @@ export default function ArtifactDetailPanel({
   onOpenRelated,
   /** When true, fields are read-only (side peek). Edit happens in Modal. */
   viewOnly = false,
+  fieldError = '',
 }) {
   const { t } = useAppStrings();
   const catalog = useMemo(() => getArtifactFieldCatalog(kind), [kind]);
@@ -122,6 +125,20 @@ export default function ArtifactDetailPanel({
         </label>
       );
     }
+    if (choiceOptions(field.key)) {
+      return (
+        <label key={field.key} className="block">
+          <span className="text-xs text-muted-foreground">{label}</span>
+          <Phase1ChoiceInput
+            fieldKey={field.key}
+            className={inputClass}
+            value={value}
+            disabled={disabled}
+            onChange={onChange}
+          />
+        </label>
+      );
+    }
     return (
       <label key={field.key} className="block">
         <span className="text-xs text-muted-foreground">{label}</span>
@@ -150,24 +167,6 @@ export default function ArtifactDetailPanel({
               </span>
             ) : null}
             <p className="font-mono text-[11px] text-muted-foreground">{artifact?.externalKey}</p>
-            {Array.isArray(artifact?.structured?.evidenceIds) &&
-            artifact.structured.evidenceIds.length > 0 ? (
-              <span
-                className="rounded border border-emerald-600/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-900 dark:text-emerald-100"
-                title={artifact.structured.evidenceIds.join(', ')}
-              >
-                {t('requirements.phase1HasEvidence') || 'Có evidence'}
-              </span>
-            ) : null}
-            {artifact?.structured?.groundingStatus === 'fail' ? (
-              <span className="rounded border border-amber-600/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-950 dark:text-amber-100">
-                {t('requirements.phase1Ungrounded') || 'Ungrounded'}
-              </span>
-            ) : artifact?.structured?.groundingStatus === 'pass' ? (
-              <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {t('requirements.phase1Grounded') || 'Grounded'}
-              </span>
-            ) : null}
           </div>
           <h2 className="truncate text-sm font-semibold">{form.top.title || artifact?.title}</h2>
           <span
@@ -347,6 +346,11 @@ export default function ArtifactDetailPanel({
         </div>
       </div>
 
+      {fieldError ? (
+        <p className="border-t border-border px-4 pt-3 text-sm text-destructive" role="alert">
+          {fieldError}
+        </p>
+      ) : null}
       {contentEditable || nextStatus || canRequestChanges || canReject ? (
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-[#FAFAFA] px-4 py-3 dark:bg-slate-900/50">
           {contentEditable ? (

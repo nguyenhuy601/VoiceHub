@@ -34,6 +34,7 @@ import {
   paginatePhase1Rows,
   sortPhase1Rows,
 } from '../shared/phase1ClientTable';
+import Phase1ChoiceInput from '../shared/Phase1ChoiceInput';
 import {
   readInlineFormValue,
   resolveRaInlineEditTarget,
@@ -76,6 +77,7 @@ export default function ArtifactListPage({
   const { capabilities } = useProjectCapabilities(projectId);
   const [selectedId, setSelectedId] = useState(null);
   const [filter, setFilter] = useState('');
+  const [creating, setCreating] = useState(false);
   const [createDraft, setCreateDraft] = useState({ externalKey: '', title: '', summary: '' });
   const [visibleColumnIds, setVisibleColumnIds] = useState(
     () => loadVisibleColumnIds(kind) || getDefaultVisibleColumnIds(kind)
@@ -84,10 +86,12 @@ export default function ArtifactListPage({
   const [sortDir, setSortDir] = useState('asc');
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
+  const [columnError, setColumnError] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [activeColId, setActiveColId] = useState(null);
   const [inlineForm, setInlineForm] = useState(null);
   const [inlineBaseline, setInlineBaseline] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const createPaneRef = useRef(null);
 
   useEffect(() => {
@@ -99,6 +103,7 @@ export default function ArtifactListPage({
     setActiveColId(null);
     setInlineForm(null);
     setInlineBaseline(null);
+    setSelectedIds(new Set());
   }, [kind]);
 
   useEffect(() => {
@@ -134,8 +139,17 @@ export default function ArtifactListPage({
     setInlineBaseline(null);
   }, []);
 
+  const closeDetail = useCallback(() => {
+    setSelectedId(null);
+    setCreating(false);
+    setCreateOpen(false);
+    stopInlineEdit();
+    clearArtifactQuery();
+  }, [clearArtifactQuery, stopInlineEdit]);
+
   const selectRow = useCallback(
     (id) => {
+      setCreating(false);
       setCreateOpen(false);
       setSelectedId(id);
       const next = new URLSearchParams(searchParams);
@@ -147,6 +161,7 @@ export default function ArtifactListPage({
 
   const openCreate = useCallback(() => {
     setSelectedId(null);
+    setCreating(true);
     setCreateOpen(true);
     stopInlineEdit();
     setCreateDraft({ externalKey: '', title: '', summary: '' });
@@ -156,6 +171,7 @@ export default function ArtifactListPage({
   useEffect(() => {
     const fromQuery = String(searchParams.get('artifact') || '').trim();
     if (!fromQuery) return;
+    setCreating(false);
     setCreateOpen(false);
     setSelectedId((prev) => (prev === fromQuery ? prev : fromQuery));
   }, [searchParams]);
@@ -236,16 +252,83 @@ export default function ArtifactListPage({
   );
 
   const createMut = useMutation({
-    mutationFn: (body) => analysisAPI.createArtifact(projectId, { ...body, kind }),
-    onSuccess: () => {
+    mutationFn: ({ _inlineAdd, ...body }) =>
+      analysisAPI.createArtifact(projectId, { ...body, kind }),
+    onSuccess: (res, vars) => {
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, kind] });
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
+      setCreating(false);
       setCreateOpen(false);
       setCreateDraft({ externalKey: '', title: '', summary: '' });
       toast.success(t('workspace.phase1ArtifactCreated'));
+      const data = res?.data?.data ?? res?.data ?? res;
+      const id = String(data?.id || data?._id || '');
+      if (vars?._inlineAdd && id) {
+        // Inline + : sửa trên bảng — không mở side panel (view-only).
+        setSelectedId(null);
+        clearArtifactQuery();
+        const form = buildArtifactFormState(
+          { ...data, status: 'draft', kind, title: data?.title || 'Untitled' },
+          kind
+        );
+        setInlineForm(form);
+        setInlineBaseline(form);
+        setEditingId(id);
+        setActiveColId('title');
+      }
+    },
+    onMutate: () => setColumnError(''),
+    onError: (err) => {
+      const message = resolveApiErrorMessage(err, { t });
+      setColumnError(message);
+      toast.error(message);
+    },
+  });
+
+  const softDeleteMut = useMutation({
+    mutationFn: async (ids) => {
+      const list = Array.isArray(ids) ? ids : [ids];
+      for (const id of list) {
+        await analysisAPI.updateArtifact(projectId, id, { softDelete: true });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, kind] });
+      queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
+      queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
+      setSelectedIds(new Set());
+      toast.success(t('workspace.phase1SoftDeleteOk') || 'Đã xóa (soft) dòng draft');
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
+
+  const addInlineRow = useCallback(() => {
+    if (!canEdit || createMut.isPending) return;
+    const key = `${String(kind || 'ROW')}-${Date.now().toString(36).toUpperCase()}`.slice(0, 64);
+    createMut.mutate({
+      externalKey: key,
+      title: 'Untitled',
+      summary: '',
+      _inlineAdd: true,
+    });
+  }, [canEdit, createMut, kind]);
+
+  const toggleSelectId = useCallback((id, checked) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const selectedDeletableIds = useMemo(() => {
+    const ok = new Set(['draft', 'changes_requested', 'rejected']);
+    return [...selectedIds].filter((id) => {
+      const row = rows.find((r) => String(r.id || r._id) === id);
+      return row && ok.has(String(row.status || '').toLowerCase());
+    });
+  }, [selectedIds, rows]);
 
   const updateMut = useMutation({
     mutationFn: ({ id, body }) => analysisAPI.updateArtifact(projectId, id, body),
@@ -254,9 +337,15 @@ export default function ArtifactListPage({
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
       queryClient.invalidateQueries({ queryKey: ['analysisArtifact', projectId, selectedId] });
       toast.success(t('workspace.phase1ArtifactSaved'));
+      setColumnError('');
       stopInlineEdit();
     },
-    onError: (err) => toast.error(resolveApiErrorMessage(err)),
+    onMutate: () => setColumnError(''),
+    onError: (err) => {
+      const message = resolveApiErrorMessage(err, { t });
+      setColumnError(message);
+      toast.error(message);
+    },
   });
 
   const transitionMut = useMutation({
@@ -268,9 +357,15 @@ export default function ArtifactListPage({
       queryClient.invalidateQueries({ queryKey: ['analysisArtifact', projectId, selectedId] });
       queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
       toast.success(t('workspace.phase1ArtifactGateOk', { status: vars?.toStatus || '' }));
+      setColumnError('');
       stopInlineEdit();
     },
-    onError: (err) => toast.error(resolveApiErrorMessage(err)),
+    onMutate: () => setColumnError(''),
+    onError: (err) => {
+      const message = resolveApiErrorMessage(err, { t });
+      setColumnError(message);
+      toast.error(message);
+    },
   });
 
   const selectedNext = useMemo(() => {
@@ -396,7 +491,9 @@ export default function ArtifactListPage({
       const target = resolveRaInlineEditTarget({ id: colId }, kind);
       if (!target) return;
       const id = String(row.id || row._id);
-      selectRow(id);
+      // Sửa trên bảng — đóng side phải (chỉ xem Related khi click dòng, không lúc edit).
+      setSelectedId(null);
+      clearArtifactQuery();
       if (editingId !== id) {
         const form = buildArtifactFormState(row, kind);
         setInlineForm(form);
@@ -405,7 +502,7 @@ export default function ArtifactListPage({
       }
       setActiveColId(colId);
     },
-    [canEdit, kind, editingId, selectRow]
+    [canEdit, kind, editingId, clearArtifactQuery]
   );
 
   const onCancelInline = () => {
@@ -461,11 +558,64 @@ export default function ArtifactListPage({
         <p className="text-sm text-destructive">{resolveApiErrorMessage(error)}</p>
       ) : null}
 
+      {selectedIds.size > 0 && canEdit ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm">
+          <span className="text-xs text-muted-foreground">
+            {(t('workspace.phase1SelectedCount') || '{count} đã chọn').replace(
+              '{count}',
+              String(selectedIds.size)
+            )}
+          </span>
+          {selectedIds.size === 1 ? (
+            <button
+              type="button"
+              className="rounded border border-border px-2 py-0.5 text-xs font-semibold"
+              onClick={() => {
+                const id = [...selectedIds][0];
+                const row = rows.find((r) => String(r.id || r._id) === id);
+                if (row) beginInlineEdit(row, 'title');
+              }}
+            >
+              {t('common.edit') || 'Sửa'}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="rounded border border-destructive/40 px-2 py-0.5 text-xs font-semibold text-destructive disabled:opacity-50"
+            disabled={!selectedDeletableIds.length || softDeleteMut.isPending}
+            onClick={() => {
+              if (!selectedDeletableIds.length) {
+                toast.error(
+                  t('workspace.phase1SoftDeleteBlocked') ||
+                    'Chỉ xóa được draft / changes_requested / rejected'
+                );
+                return;
+              }
+              softDeleteMut.mutate(selectedDeletableIds);
+            }}
+          >
+            {t('common.delete') || 'Xóa'}
+          </button>
+          <button
+            type="button"
+            className="text-xs text-muted-foreground hover:underline"
+            onClick={() => setSelectedIds(new Set())}
+          >
+            {t('common.cancel')}
+          </button>
+        </div>
+      ) : null}
+
       <div className={PHASE1_TABLE_FRAME}>
         <div className={PHASE1_TABLE_SHELL}>
           <table className={PHASE1_TABLE}>
             <thead className="sticky top-0 z-10">
               <tr>
+                {canEdit ? (
+                  <th className={`${PHASE1_TD} w-8 px-1`}>
+                    <span className="sr-only">Select</span>
+                  </th>
+                ) : null}
                 {columns.map((col) => (
                   <Phase1SortableTh
                     key={col.id}
@@ -485,6 +635,7 @@ export default function ArtifactListPage({
                 const isEditing = editingId === id;
                 const isSelected = selectedId === id && !isEditing;
                 const rowEditable = canEdit && isArtifactContentEditable(row.status);
+                const checked = selectedIds.has(id);
                 return (
                   <tr
                     key={id}
@@ -497,6 +648,19 @@ export default function ArtifactListPage({
                     }`}
                     onClick={() => selectRow(id)}
                   >
+                    {canEdit ? (
+                      <td
+                        className={`${PHASE1_TD} w-8 px-1`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => toggleSelectId(id, e.target.checked)}
+                          aria-label={`Select ${row.externalKey || id}`}
+                        />
+                      </td>
+                    ) : null}
                     {columns.map((col) => {
                       const target = resolveRaInlineEditTarget(col, kind);
                       const isActive = isEditing && activeColId === col.id && Boolean(target);
@@ -540,6 +704,16 @@ export default function ArtifactListPage({
                                   )
                                 }
                               />
+                            ) : target.choice ? (
+                              <Phase1ChoiceInput
+                                fieldKey={target.key}
+                                className={CELL_INPUT}
+                                value={readInlineFormValue(inlineForm, target)}
+                                autoFocus
+                                onChange={(next) =>
+                                  setInlineForm((f) => writeInlineFormValue(f, target, next))
+                                }
+                              />
                             ) : (
                               <input
                                 className={CELL_INPUT}
@@ -562,10 +736,27 @@ export default function ArtifactListPage({
                   </tr>
                 );
               })}
+              {canEdit ? (
+                <tr>
+                  <td
+                    colSpan={columns.length + 1}
+                    className={`${PHASE1_TD} py-2`}
+                  >
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                      disabled={createMut.isPending}
+                      onClick={addInlineRow}
+                    >
+                      + {t('workspace.phase1AddInlineRow') || 'Thêm dòng'}
+                    </button>
+                  </td>
+                </tr>
+              ) : null}
               {!isLoading && filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={columns.length}
+                    colSpan={columns.length + (canEdit ? 1 : 0)}
                     className={`${PHASE1_TD} py-8 text-center text-muted-foreground`}
                   >
                     {t('workspace.phase1EmptyArtifacts')}
@@ -608,6 +799,11 @@ export default function ArtifactListPage({
             }
           />
         ) : null}
+        {columnError ? (
+          <p className="px-1 text-sm text-destructive" role="alert">
+            {columnError}
+          </p>
+        ) : null}
         <Phase1TablePagination
           page={safePage}
           pageCount={pageCount}
@@ -640,6 +836,7 @@ export default function ArtifactListPage({
           clearArtifactQuery();
         }}
         onSave={undefined}
+        fieldError={columnError}
         onTransition={
           canRequestChanges
             ? (toStatus, note) => transitionMut.mutate({ id: selectedId, toStatus, note })
@@ -665,7 +862,10 @@ export default function ArtifactListPage({
 
       <Modal
         isOpen={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false);
+          setCreating(false);
+        }}
         title={t('workspace.phase1CreateArtifact')}
         size="md"
       >
@@ -692,7 +892,10 @@ export default function ArtifactListPage({
             <button
               type="button"
               className="rounded-full border border-[#D9D9D9] bg-white px-4 py-1.5 text-sm"
-              onClick={() => setCreateOpen(false)}
+              onClick={() => {
+                setCreateOpen(false);
+                setCreating(false);
+              }}
             >
               {t('common.cancel')}
             </button>

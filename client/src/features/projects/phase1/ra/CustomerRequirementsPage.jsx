@@ -715,7 +715,7 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
       ) : null}
 
       {listFilter === 'live' ? (
-        <ImportSetFileLibrary projectId={projectId} importSets={sets} />
+        <ImportSetFileLibrary projectId={projectId} importSets={sets} canUpload={canUpload} />
       ) : null}
 
       {/* Import Set queue */}

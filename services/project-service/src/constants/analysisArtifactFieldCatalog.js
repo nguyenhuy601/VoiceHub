@@ -487,6 +487,14 @@ function resolveArtifactDraftUpdate(input = {}) {
 
   const cat = getArtifactFieldCatalog(kind);
   if (!cat) {
+    const legacyStructured =
+      body.structured !== undefined && typeof body.structured === 'object' && !Array.isArray(body.structured)
+        ? { ...existingStructured, ...body.structured }
+        : undefined;
+    assertPersistedColumnFormat(
+      kind,
+      legacyStructured !== undefined ? legacyStructured : existingStructured
+    );
     return {
       mode: 'legacy',
       top: {
@@ -494,10 +502,7 @@ function resolveArtifactDraftUpdate(input = {}) {
         ...(body.summary !== undefined ? { summary: body.summary } : {}),
         ...(body.body !== undefined ? { body: body.body } : {}),
       },
-      structured:
-        body.structured !== undefined && typeof body.structured === 'object' && !Array.isArray(body.structured)
-          ? { ...existingStructured, ...body.structured }
-          : undefined,
+      structured: legacyStructured,
       reopen: body.reopen === true,
       rejectedTop: [],
       rejectedStructured: [],
@@ -555,6 +560,8 @@ function resolveArtifactDraftUpdate(input = {}) {
     }
   }
 
+  assertPersistedColumnFormat(kind, structured !== undefined ? structured : existingStructured);
+
   return {
     mode: 'catalog',
     top,
@@ -563,6 +570,11 @@ function resolveArtifactDraftUpdate(input = {}) {
     rejectedTop: picked.rejectedTop || [],
     rejectedStructured: picked.rejectedStructured || [],
   };
+}
+
+function assertPersistedColumnFormat(kind, structured) {
+  const { formatErrors, raiseColumnErrors } = require('../utils/project/artifactColumnRules');
+  raiseColumnErrors(formatErrors(kind, structured || {}), 'ARTIFACT_FIELD_INVALID');
 }
 
 module.exports = {

@@ -112,7 +112,7 @@ export const MODULE_TO_HUB_TAB = {
 export function normalizeProjectModule(raw) {
   const value = String(raw || '').trim();
   if (!value) return 'overview';
-  if (value.toLowerCase() === 'report') return 'overview';
+  if (value.toLowerCase() === 'report') return 'activity';
   if (HUB_TAB_TO_MODULE[value]) return HUB_TAB_TO_MODULE[value];
   const lower = value.toLowerCase();
   if (lower === 'changerequests' || lower === 'change-requests') return 'change-requests';
@@ -180,13 +180,28 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
         // Overview stays interactive (gates / Start Planning / planning CTAs).
         const itemReadOnly =
           Boolean(g.readOnly) && String(m.key || m.module || '') !== 'overview';
-        phase1Items.push({
+        const children = Array.isArray(m.children) ? m.children : [];
+        const parentItem = {
           ...item(m.key, m.labelKey, m.module, groupId, m.pathSeg),
           locked: Boolean(g.locked),
           lockHintKey: g.lockHintKey,
           readOnly: itemReadOnly,
           readOnlyHintKey: itemReadOnly ? g.readOnlyHintKey : undefined,
-        });
+          hasChildren: children.length > 0,
+          defaultChildPathSeg: children[0]?.pathSeg || m.pathSeg,
+        };
+        phase1Items.push(parentItem);
+        for (const child of children) {
+          phase1Items.push({
+            ...item(child.key, child.labelKey, child.module || m.module, groupId, child.pathSeg),
+            locked: Boolean(g.locked),
+            lockHintKey: g.lockHintKey,
+            readOnly: itemReadOnly,
+            readOnlyHintKey: itemReadOnly ? g.readOnlyHintKey : undefined,
+            navChildOf: m.key,
+            navIndent: 1,
+          });
+        }
       }
     }
     for (const m of PHASE1_COLLAB_MODULES) {
@@ -262,6 +277,7 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
     item('list', 'workspace.projectHubTabList', 'list', PROJECT_MENU_GROUPS.WORK),
     item('planning', 'workspace.projectHubTabPlanning', 'planning', PROJECT_MENU_GROUPS.WORK),
     item('board', 'workspace.projectHubTabBoard', 'board', PROJECT_MENU_GROUPS.WORK),
+    item('chat', 'workspace.projectHubTabChat', 'chat', PROJECT_MENU_GROUPS.COLLAB),
     item('timeline', 'workspace.projectHubTabTimeline', 'timeline', PROJECT_MENU_GROUPS.WORK),
     item(
       'changeRequests',
@@ -276,12 +292,11 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
       PROJECT_MENU_GROUPS.WORK
     ),
     item('requirements', 'nav.requirements', 'requirements', PROJECT_MENU_GROUPS.WORK),
+    item('members', 'workspace.projectHubTabMembers', 'members', PROJECT_MENU_GROUPS.OPS),
     item('files', 'workspace.projectHubTabFiles', 'files', PROJECT_MENU_GROUPS.WORK),
-    item('chat', 'workspace.projectHubTabChat', 'chat', PROJECT_MENU_GROUPS.COLLAB),
+    item('activity', 'workspace.projectHubTabReport', 'activity', PROJECT_MENU_GROUPS.OPS),
     item('calendar', 'nav.calendar', 'calendar', PROJECT_MENU_GROUPS.COLLAB),
     item('documents', 'nav.documents', 'documents', PROJECT_MENU_GROUPS.COLLAB),
-    item('members', 'workspace.projectHubTabMembers', 'members', PROJECT_MENU_GROUPS.OPS),
-    item('activity', 'workspace.projectHubTabActivity', 'activity', PROJECT_MENU_GROUPS.OPS),
     item('settings', 'workspace.projectHubTabSettings', 'settings', PROJECT_MENU_GROUPS.OPS),
   ];
 

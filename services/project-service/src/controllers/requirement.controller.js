@@ -15,21 +15,15 @@ const {
   rejectRequirementPack,
   createProjectFromRequirementPack,
   deleteRequirementPack,
-  createIntakeDraftPack,
 } = require('../services/requirementPack.service');
-const analysisService = require('../services/analysis.service');
+const { runAiPlanningHeuristic, approveStaffingProposal, discardStaffingProposal } = require('../services/aiPlanning.service');
 const {
   getAiAnalysisSummary,
   getAiAnalysisWizardJob,
   runAiAnalysisJob,
   confirmAiAnalysisJob,
   exportAiAnalysisSheet11,
-  startPhaseAiPlanningRun,
 } = require('../services/aiAnalysis.service');
-const {
-  createOrReuseAiAnalysisSnapshot,
-  getActiveAiAnalysisSnapshotMeta,
-} = require('../services/aiAnalysisSnapshot.service');
 const {
   assertRequirementPermission,
   resolveRequirementAccess,
@@ -253,20 +247,7 @@ async function approvePack(req, res) {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
     const packId = String(req.params.packId || '').trim();
-    const forceApprove =
-      req.body?.forceApprove === true ||
-      req.body?.forceApprove === 'true' ||
-      req.body?.forceApprove === 1;
-    const overrideReason = String(
-      req.body?.overrideReason || req.body?.reason || ''
-    ).trim();
-    const pack = await approveRequirementPack({
-      userId,
-      organizationId,
-      packId,
-      forceApprove,
-      overrideReason,
-    });
+    const pack = await approveRequirementPack({ userId, organizationId, packId });
     return res.json({ success: true, data: pack });
   } catch (err) {
     return jsonError(res, err);
@@ -306,22 +287,8 @@ async function createProjectFromPack(req, res) {
       organizationId,
       packId,
       title: req.body?.title,
-      startDate: req.body?.startDate,
-      dueDate: req.body?.dueDate ?? req.body?.deadline,
       importWorkItems: Boolean(req.body?.importWorkItems),
       leafAssignments: req.body?.leafAssignments,
-      applyAssignees: req.body?.applyAssignees !== false,
-      taskIds: Array.isArray(req.body?.taskIds) ? req.body.taskIds : null,
-      forceApprove:
-        req.body?.forceApprove === true ||
-        req.body?.forceApprove === 'true' ||
-        req.body?.forceApprove === 1,
-      overrideReason: String(
-        req.body?.overrideReason || req.body?.reason || ''
-      ).trim(),
-      idempotencyKey: req.body?.idempotencyKey
-        ? String(req.body.idempotencyKey).trim()
-        : null,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -329,67 +296,69 @@ async function createProjectFromPack(req, res) {
   }
 }
 
-async function createIntakeDraft(req, res) {
+async function runAiPlanning(req, res) {
   try {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
-    if (!organizationId) {
-      return res.status(400).json({ success: false, message: 'organizationId bắt buộc' });
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
     }
-    const pack = await createIntakeDraftPack({
+    const phase = req.body?.phase;
+    const pack = await runAiPlanningHeuristic({
       userId,
       organizationId,
-      title: req.body?.title,
-      description: req.body?.description,
-      customerName: req.body?.customerName,
-      startDate: req.body?.startDate,
-      dueDate: req.body?.dueDate ?? req.body?.deadline,
-      priority: req.body?.priority,
-      sourceFileName: req.body?.sourceFileName,
-      importSessionId: req.body?.importSessionId,
-      analysisMode: req.body?.analysisMode,
-      projectId: req.body?.projectId,
+      packId,
+      phase,
     });
-    return res.status(201).json({ success: true, data: pack });
+    return res.json({ success: true, data: pack });
   } catch (err) {
     return jsonError(res, err);
   }
 }
 
-async function listPackCustomerDocuments(req, res) {
+async function approveAiStaffing(req, res) {
   try {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
     const packId = String(req.params.packId || '').trim();
-    const data = await analysisService.listCustomerDocumentsForPack({
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const pack = await approveStaffingProposal({
       userId,
       organizationId,
       packId,
     });
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: pack });
   } catch (err) {
     return jsonError(res, err);
   }
 }
 
-async function uploadPackCustomerDocument(req, res) {
+async function discardAiStaffing(req, res) {
   try {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
     const packId = String(req.params.packId || '').trim();
-    const file = req.file;
-    const body = req.body || {};
-    const data = await analysisService.createCustomerDocumentForPack({
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const pack = await discardStaffingProposal({
       userId,
       organizationId,
       packId,
-      body,
-      fileBuffer: file?.buffer || null,
-      fileName: file?.originalname || null,
-      mimeType: file?.mimetype || null,
-      sizeBytes: file?.size != null ? file.size : null,
     });
-    return res.status(201).json({ success: true, data });
+    return res.json({ success: true, data: pack });
   } catch (err) {
     return jsonError(res, err);
   }
@@ -424,64 +393,14 @@ async function getAiAnalysis(req, res) {
         message: 'organizationId và packId bắt buộc',
       });
     }
-    const view = String(req.query?.view || 'summary').trim().toLowerCase();
-    if (view === 'wizard') {
-      const job = String(req.query?.job || '').trim();
-      const data = await getAiAnalysisWizardJob({
-        userId,
-        organizationId,
-        packId,
-        job,
-      });
+    const view = String(req.query?.view || '').trim().toLowerCase();
+    const job = String(req.query?.job || '').trim();
+    if (view === 'summary' || !job) {
+      const data = await getAiAnalysisSummary({ userId, organizationId, packId });
       return res.json({ success: true, data });
     }
-    const data = await getAiAnalysisSummary({ userId, organizationId, packId });
+    const data = await getAiAnalysisWizardJob({ userId, organizationId, packId, job });
     return res.json({ success: true, data });
-  } catch (err) {
-    return jsonError(res, err);
-  }
-}
-
-async function createAiAnalysisSnapshot(req, res) {
-  try {
-    const organizationId = resolveOrgId(req);
-    const userId = resolveUserId(req);
-    const packId = String(req.params.packId || '').trim();
-    if (!organizationId || !packId) {
-      return res.status(400).json({
-        success: false,
-        message: 'organizationId và packId bắt buộc',
-      });
-    }
-    const { meta } = await createOrReuseAiAnalysisSnapshot({
-      userId,
-      organizationId,
-      packId,
-      force: Boolean(req.body?.force),
-    });
-    return res.json({ success: true, data: meta });
-  } catch (err) {
-    return jsonError(res, err);
-  }
-}
-
-async function getAiAnalysisSnapshot(req, res) {
-  try {
-    const organizationId = resolveOrgId(req);
-    const userId = resolveUserId(req);
-    const packId = String(req.params.packId || '').trim();
-    if (!organizationId || !packId) {
-      return res.status(400).json({
-        success: false,
-        message: 'organizationId và packId bắt buộc',
-      });
-    }
-    const meta = await getActiveAiAnalysisSnapshotMeta({
-      userId,
-      organizationId,
-      packId,
-    });
-    return res.json({ success: true, data: meta });
   } catch (err) {
     return jsonError(res, err);
   }
@@ -492,23 +411,20 @@ async function runAiAnalysis(req, res) {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
     const packId = String(req.params.packId || '').trim();
-    if (!organizationId || !packId) {
+    const jobId = String(req.params.jobId || '').trim();
+    if (!organizationId || !packId || !jobId) {
       return res.status(400).json({
         success: false,
-        message: 'organizationId và packId bắt buộc',
+        message: 'organizationId, packId và jobId bắt buộc',
       });
     }
     const data = await runAiAnalysisJob({
       userId,
       organizationId,
       packId,
-      job: req.body?.job,
+      job: jobId,
       force: Boolean(req.body?.force),
     });
-    // Remote planning (AI_PLANNING_REMOTE=1) → 202 Accepted
-    if (data?.accepted && data?.httpStatus === 202) {
-      return res.status(202).json({ success: true, data });
-    }
     return res.json({ success: true, data });
   } catch (err) {
     return jsonError(res, err);
@@ -520,19 +436,18 @@ async function confirmAiAnalysis(req, res) {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
     const packId = String(req.params.packId || '').trim();
-    if (!organizationId || !packId) {
+    const jobId = String(req.params.jobId || '').trim();
+    if (!organizationId || !packId || !jobId) {
       return res.status(400).json({
         success: false,
-        message: 'organizationId và packId bắt buộc',
+        message: 'organizationId, packId và jobId bắt buộc',
       });
     }
     const data = await confirmAiAnalysisJob({
       userId,
       organizationId,
       packId,
-      job: req.body?.job,
-      phase: req.body?.phase,
-      edits: req.body?.edits ?? null,
+      job: jobId,
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -610,14 +525,11 @@ module.exports = {
   rejectPack,
   deletePack,
   createProjectFromPack,
-  createIntakeDraft,
-  listPackCustomerDocuments,
-  uploadPackCustomerDocument,
+  runAiPlanning,
+  approveAiStaffing,
+  discardAiStaffing,
   getAiAnalysis,
-  createAiAnalysisSnapshot,
-  getAiAnalysisSnapshot,
   runAiAnalysis,
   confirmAiAnalysis,
-  startPhaseAiPlanning,
-  exportAiAnalysisSheet11: exportAiAnalysisSheet11Ctrl,
+  exportAiAnalysis,
 };

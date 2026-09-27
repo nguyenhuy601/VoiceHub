@@ -23,10 +23,6 @@ const {
 const { assertUserProjectPermission, assertUserAnyProjectPermission } =
   require('./projectAccess.service');
 const { clampOverviewForPack } = require('../utils/requirement/requirementOverviewClamp');
-const objectStorage = require('../utils/common/objectStorage');
-const {
-  buildCustomerDocumentStoragePath,
-} = require('../utils/analysis/customerDocumentStorage');
 const {
   isPhase1SetGateEnabled,
 } = require('../constants/analysisImportSet');
@@ -139,74 +135,14 @@ async function downloadCustomerDocument({ userId, projectId, documentId }) {
   };
 }
 
-/**
- * Download Import Set / customer doc bytes from MinIO (extend GET customer-documents).
- */
-async function downloadCustomerDocument({ userId, projectId, documentId }) {
-  await assertProjectMemberAccess({ userId, projectId });
-  await assertAnalysisPerm({
-    userId,
-    projectId,
-    permission: 'analysis:view',
-  });
-  const id = String(documentId || '').trim();
-  if (!id) {
-    const err = new Error('documentId là bắt buộc');
-    err.statusCode = 400;
-    err.errorCode = 'VALIDATION_INVALID_ID';
-    throw err;
-  }
-  const doc = await CustomerDocument.findOne({
-    _id: id,
-    projectId,
-    isActive: true,
-  }).lean();
-  if (!doc) {
-    const err = new Error('Tài liệu không tồn tại');
-    err.statusCode = 404;
-    throw err;
-  }
-  const storageKey = String(doc.storageKey || '').trim();
-  if (!storageKey) {
-    const err = new Error('Tài liệu chưa có file trên storage');
-    err.statusCode = 404;
-    err.errorCode = 'DOCUMENT_NO_STORAGE';
-    throw err;
-  }
-  const objectStorage = require('../utils/common/objectStorage');
-  if (!objectStorage.isEnabled()) {
-    const err = new Error('Object storage chưa bật — không tải được file');
-    err.statusCode = 503;
-    err.errorCode = 'OBJECT_STORAGE_DISABLED';
-    throw err;
-  }
-  const stream = await objectStorage.getObjectStream(storageKey);
-  return {
-    stream,
-    fileName: String(doc.filename || 'document.xlsx').slice(0, 260),
-    mimeType: String(doc.mimeType || 'application/octet-stream').slice(0, 120),
-    sizeBytes: doc.sizeBytes ?? null,
-  };
-}
-
-async function createCustomerDocument({
-  userId,
-  projectId,
-  body = {},
-  fileBuffer = null,
-  fileName = null,
-  mimeType = null,  
-  sizeBytes = null,
-}) {
+async function createCustomerDocument({ userId, projectId, body = {} }) {
   const project = await assertProjectMemberAccess({ userId, projectId });
   await assertAnalysisPerm({
     userId,
     projectId,
     permission: 'analysis:document_upload',
   });
-
-  const hasBinary = Buffer.isBuffer(fileBuffer) && fileBuffer.length > 0;
-  const filename = String(fileName || body.filename || '').trim();
+  const filename = String(body.filename || '').trim();
   if (!filename) {
     const err = new Error('filename là bắt buộc');
     err.statusCode = 400;
@@ -215,177 +151,18 @@ async function createCustomerDocument({
   const docClass = CUSTOMER_DOC_CLASSES.includes(String(body.docClass || '').trim())
     ? String(body.docClass).trim()
     : 'other';
-
-  let storageKey = String(body.storageKey || '').trim().slice(0, 512);
-  let resolvedMime = String(mimeType || body.mimeType || '').trim().slice(0, 120);
-  let resolvedSize =
-    sizeBytes != null
-      ? Number(sizeBytes)
-      : body.sizeBytes != null
-        ? Number(body.sizeBytes)
-        : null;
-
-  if (hasBinary) {
-    if (!objectStorage.isEnabled()) {
-      const err = new Error('Object storage (MinIO) chưa được cấu hình');
-      err.statusCode = 503;
-      err.errorCode = 'STORAGE_NOT_CONFIGURED';
-      throw err;
-    }
-    storageKey = buildCustomerDocumentStoragePath({
-      projectId,
-      docClass,
-      filename,
-    });
-    await objectStorage.putObject(
-      storageKey,
-      fileBuffer,
-      resolvedMime || 'application/octet-stream'
-    );
-    if (resolvedSize == null) resolvedSize = fileBuffer.length;
-  }
-
   const doc = await CustomerDocument.create({
     organizationId: project.organizationId,
     projectId,
-    packId: null,
-    filename: filename.slice(0, 260),
-    mimeType: resolvedMime,
-    storageKey,
-    sizeBytes: resolvedSize,
+    filename,
+    mimeType: String(body.mimeType || '').trim().slice(0, 120),
+    storageKey: String(body.storageKey || '').trim().slice(0, 512),
+    sizeBytes: body.sizeBytes != null ? Number(body.sizeBytes) : null,
     docClass,
     notes: String(body.notes || '').trim().slice(0, 2000),
     uploadedBy: userId,
   });
   return serializeDoc(doc);
-}
-
-/**
- * Pack-scoped upload (HITL before Project board).
- */
-async function createCustomerDocumentForPack({
-  userId,
-  organizationId,
-  packId,
-  body = {},
-  fileBuffer = null,
-  fileName = null,
-  mimeType = null,
-  sizeBytes = null,
-}) {
-  const {
-    assertRequirementImportOrCreateProjectScope,
-  } = require('./requirementAccess.service');
-  const RequirementPack = require('../models/RequirementPack');
-
-  await assertRequirementImportOrCreateProjectScope({ userId, organizationId });
-
-  const pack = await RequirementPack.findOne({
-    _id: packId,
-    organizationId,
-    isActive: true,
-  }).lean();
-  if (!pack) {
-    const err = new Error('Requirement pack không tồn tại');
-    err.statusCode = 404;
-    throw err;
-  }
-
-  const hasBinary = Buffer.isBuffer(fileBuffer) && fileBuffer.length > 0;
-  const filename = String(fileName || body.filename || '').trim();
-  if (!filename) {
-    const err = new Error('filename là bắt buộc');
-    err.statusCode = 400;
-    throw err;
-  }
-  const docClass = CUSTOMER_DOC_CLASSES.includes(String(body.docClass || '').trim())
-    ? String(body.docClass).trim()
-    : 'other';
-
-  let storageKey = String(body.storageKey || '').trim().slice(0, 512);
-  let resolvedMime = String(mimeType || body.mimeType || '').trim().slice(0, 120);
-  let resolvedSize =
-    sizeBytes != null
-      ? Number(sizeBytes)
-      : body.sizeBytes != null
-        ? Number(body.sizeBytes)
-        : null;
-
-  if (hasBinary) {
-    if (!objectStorage.isEnabled()) {
-      const err = new Error('Object storage (MinIO) chưa được cấu hình');
-      err.statusCode = 503;
-      err.errorCode = 'STORAGE_NOT_CONFIGURED';
-      throw err;
-    }
-    storageKey = buildCustomerDocumentStoragePath({
-      packId,
-      docClass,
-      filename,
-    });
-    await objectStorage.putObject(
-      storageKey,
-      fileBuffer,
-      resolvedMime || 'application/octet-stream'
-    );
-    if (resolvedSize == null) resolvedSize = fileBuffer.length;
-  }
-
-  const doc = await CustomerDocument.create({
-    organizationId,
-    projectId: null,
-    packId,
-    filename: filename.slice(0, 260),
-    mimeType: resolvedMime,
-    storageKey,
-    sizeBytes: resolvedSize,
-    docClass,
-    notes: String(body.notes || '').trim().slice(0, 2000),
-    uploadedBy: userId,
-  });
-  return serializeDoc(doc);
-}
-
-async function listCustomerDocumentsForPack({ userId, organizationId, packId }) {
-  const { assertRequirementPermission } = require('./requirementAccess.service');
-  await assertRequirementPermission({
-    userId,
-    organizationId,
-    permission: 'requirement:view',
-  });
-  const rows = await CustomerDocument.find({
-    packId,
-    organizationId,
-    isActive: true,
-  })
-    .sort({ createdAt: -1 })
-    .lean();
-  return rows.map(serializeDoc);
-}
-
-/**
- * After Gate 2 create-project — attach pack docs to the new board.
- */
-async function linkPackDocumentsToProject({ organizationId, packId, projectId }) {
-  const orgId = String(organizationId || '').trim();
-  const pid = String(projectId || '').trim();
-  const pack = String(packId || '').trim();
-  if (!orgId || !pid || !pack) {
-    return { matched: 0, modified: 0 };
-  }
-  const result = await CustomerDocument.updateMany(
-    {
-      organizationId: orgId,
-      packId: pack,
-      isActive: true,
-      $or: [{ projectId: null }, { projectId: { $exists: false } }],
-    },
-    { $set: { projectId: pid } }
-  );
-  return {
-    matched: result.matchedCount ?? result.n ?? 0,
-    modified: result.modifiedCount ?? result.nModified ?? 0,
-  };
 }
 
 async function listArtifacts({ userId, projectId, kind, status }) {
@@ -470,6 +247,8 @@ async function createArtifact({ userId, projectId, body = {} }) {
     ? String(body.source).trim()
     : 'manual';
   const structured = body.structured && typeof body.structured === 'object' ? body.structured : {};
+  const { formatErrors, raiseColumnErrors } = require('../utils/project/artifactColumnRules');
+  raiseColumnErrors(formatErrors(kind, structured), 'ARTIFACT_FIELD_INVALID');
   const contentHash = hashContent({ kind, externalKey, title, structured, body: body.body });
 
   try {
@@ -521,6 +300,27 @@ async function updateArtifactDraft({ userId, projectId, artifactId, body = {} })
     err.statusCode = 404;
     throw err;
   }
+
+  /** Soft-delete: chỉ draft / changes_requested / rejected (bảo vệ approved/baseline). */
+  if (body.softDelete === true || body.isActive === false) {
+    const st = String(doc.status || '').toLowerCase();
+    if (!['draft', 'changes_requested', 'rejected'].includes(st)) {
+      const err = new Error('Chỉ xóa được artifact draft / changes_requested / rejected');
+      err.statusCode = 400;
+      err.errorCode = 'SOFT_DELETE_STATUS_BLOCKED';
+      throw err;
+    }
+    assertCanAuthorKind({
+      permissions: resolved.permissions,
+      kind: doc.kind,
+      isBypass: bypass,
+    });
+    doc.isActive = false;
+    doc.updatedBy = userId;
+    await doc.save();
+    return serializeDoc(doc);
+  }
+
   if (!isArtifactContentEditableStatus(doc.status)) {
     const err = new Error(
       'Chỉ sửa được artifact draft hoặc đang yêu cầu chỉnh sửa. Sau khi cắt SRS, đổi yêu cầu đã duyệt qua Change Request (Phase 2).'
@@ -653,6 +453,14 @@ async function transitionArtifactStatus({
   }
   if (to === 'approved' || to === 'po_review' || (from === 'tech_review' && to !== 'rejected')) {
     assertGateStampSoD({ actorUserId: userId, priorStamps: prior, bypass });
+  }
+
+  const fromKey = String(from || '').toLowerCase();
+  if ((fromKey === 'draft' || fromKey === 'changes_requested') && to === 'ba_review') {
+    const { submitErrors, raiseColumnErrors } = require('../utils/project/artifactColumnRules');
+    const saved =
+      doc.structured && typeof doc.structured === 'object' ? doc.structured : {};
+    raiseColumnErrors(submitErrors(doc.kind, saved), 'ARTIFACT_SUBMIT_INCOMPLETE');
   }
 
   const gateNote = String(note || '').trim().slice(0, 1000);
@@ -845,7 +653,9 @@ async function computeGapReport({ userId, projectId }) {
     if (!hasIn) criticalGaps.push({ code: 'NO_IN_SCOPE', message: 'Chưa có dòng In-Scope' });
   }
 
-  const project = await Project.findById(projectId).select('deliveryPhase phase1RequiredKinds').lean();
+  const project = await Project.findById(projectId)
+    .select('deliveryPhase phase1RequiredKinds phase2ManualStaging')
+    .lean();
   const {
     evaluateReadyForPhase2,
     evaluateRaReadiness,
@@ -949,6 +759,14 @@ async function computeGapReport({ userId, projectId }) {
     planningBaselineExists,
     constraints,
     assumptions,
+    phase2ManualStaging: (() => {
+      try {
+        const { summarizeStaging } = require('./phase2ManualStaging.service');
+        return summarizeStaging(project);
+      } catch {
+        return null;
+      }
+    })(),
   };
 }
 
@@ -1041,7 +859,6 @@ async function bulkTransitionArtifacts({
   fromStatus,
   toStatus,
   note = '',
-  artifactIds = null,
 }) {
   await assertProjectMemberAccess({ userId, projectId });
   const from = String(fromStatus || '')
@@ -1072,55 +889,26 @@ async function bulkTransitionArtifacts({
     await assertAnalysisPerm({ userId, projectId, permission: perm });
   }
 
-  const {
-    buildBulkTransitionFilter,
-  } = require('../utils/analysis/bulkTransitionArtifactIds');
-
   const gateNote = String(note || '').trim().slice(0, 1000);
   const stamp = { userId, at: new Date(), note: gateNote };
+  const filter = { projectId, isActive: true, status: from };
   let skippedFourEyes = 0;
 
   // Four-eyes: BA cannot promote own artifact to tech_review
-  let excludeCreatedBy = null;
   if (from === 'ba_review' && to === 'tech_review' && !bypass) {
-    const baseFilter = buildBulkTransitionFilter({
-      projectId,
-      fromStatus: from,
-      artifactIds,
-    }).filter;
     const ownCount = await AnalysisArtifact.countDocuments({
-      ...baseFilter,
+      ...filter,
       createdBy: userId,
     });
     skippedFourEyes = ownCount;
-    excludeCreatedBy = userId;
+    filter.createdBy = { $ne: userId };
   }
 
-  const { filter, idFilterActive } = buildBulkTransitionFilter({
+  const candidateCount = await AnalysisArtifact.countDocuments({
     projectId,
-    fromStatus: from,
-    artifactIds,
-    excludeCreatedBy,
+    isActive: true,
+    status: from,
   });
-
-  if (idFilterActive && (!filter._id || !filter._id.$in?.length)) {
-    return {
-      fromStatus: from,
-      toStatus: to,
-      candidateCount: 0,
-      updated: 0,
-      skipped: 0,
-      skippedReasons: [],
-      truncated: false,
-      idFilter: true,
-    };
-  }
-
-  const candidateCount = await AnalysisArtifact.countDocuments(
-    idFilterActive
-      ? filter
-      : { projectId, isActive: true, status: from }
-  );
 
   const $set = {
     status: to,
@@ -1157,7 +945,7 @@ async function bulkTransitionArtifacts({
     toStatus: to,
     candidateCount,
     updated,
-    skipped: Math.max(0, candidateCount - updated) + skippedFourEyes,
+    skipped: Math.max(0, candidateCount - updated),
     skippedReasons:
       skippedFourEyes > 0
         ? [
@@ -1168,7 +956,6 @@ async function bulkTransitionArtifacts({
           ]
         : [],
     truncated: idList.length >= 500,
-    idFilter: idFilterActive,
   };
 }
 
@@ -1271,6 +1058,8 @@ async function seedArtifactsFromRequirementPack({
   };
 
   const upsert = async (payload) => {
+    const { formatErrors } = require('../utils/project/artifactColumnRules');
+    if (formatErrors(payload.kind, payload.structured || {}).length) return;
     const key = `${payload.kind}::${payload.externalKey}`;
     const existing = existingByKey.get(key);
     if (existing) {
@@ -1377,13 +1166,12 @@ async function seedArtifactsFromRequirementPack({
   }
 
   const scopes = Array.isArray(pack.scope) ? pack.scope : [];
+  const { normalizeScopeType } = require('../utils/requirement/requirementTemplateTextNorm');
   let sc = 1;
   for (const row of scopes) {
     const desc = String(row.description || '').trim();
     if (!desc) continue;
-    const type = String(row.type || row.scopeType || 'in').toLowerCase().includes('out')
-      ? 'out'
-      : 'in';
+    const type = normalizeScopeType(row.type || row.scopeType) || 'in';
     await upsert({
       kind: 'SCOPE',
       externalKey: `SC-${String(sc).padStart(3, '0')}`,
@@ -1439,12 +1227,6 @@ async function seedArtifactsFromRequirementPack({
           : [],
         brIds: Array.isArray(fr.brIds) ? fr.brIds : [],
         bpmIds: Array.isArray(fr.bpmIds) ? fr.bpmIds : [],
-        evidenceIds: Array.isArray(fr.evidenceIds) ? fr.evidenceIds.map(String).slice(0, 20) : [],
-        groundingStatus: fr.groundingStatus ? String(fr.groundingStatus) : undefined,
-        groundingScore:
-          fr.groundingScore != null && Number.isFinite(Number(fr.groundingScore))
-            ? Number(fr.groundingScore)
-            : undefined,
       },
     });
   }
@@ -1525,17 +1307,14 @@ async function seedArtifactsFromRequirementPack({
 
   const businessProcesses = Array.isArray(pack.businessProcesses) ? pack.businessProcesses : [];
   const usedBpmKeys = new Set();
+  const { allocateBpmExternalKey } = require('../utils/requirement/bpmSeedKey');
   for (const bpm of businessProcesses) {
     const externalKey = String(bpm.externalId || bpm.externalKey || '').trim();
     if (!externalKey) continue;
     const step = String(bpm.step || '').trim();
-    let key = step ? `${externalKey}-S${step}` : externalKey;
-    // Tránh nuốt dòng khi Excel trùng BPM ID + Step (vd. hai quy trình cùng BPM-002-S1).
-    if (usedBpmKeys.has(key) || existingByKey.has(`BPM::${key}`)) {
-      const suffix = String(bpm._rowNumber || usedBpmKeys.size + 1);
-      key = `${key}-${suffix}`.slice(0, 64);
-    }
-    usedBpmKeys.add(key);
+    // Hậu tố chỉ khi Excel trùng BPM ID + Step trong cùng pack. Key đã có trong DB
+    // phải giữ nguyên để upsert bỏ qua — nếu đổi key, publish tạo bản draft thứ hai.
+    const key = allocateBpmExternalKey(externalKey, step, usedBpmKeys, bpm._rowNumber);
     await upsert({
       kind: 'BPM',
       externalKey: key.slice(0, 64),
@@ -1920,7 +1699,9 @@ async function advanceToPhase2({
     throw err;
   }
 
-  const chosen = String(mode || 'manual').trim().toLowerCase() === 'ai' ? 'ai' : 'manual';
+  // automation | manual (legacy advance) = map code path; ai = optional pack wizard path
+  const modeRaw = String(mode || 'manual').trim().toLowerCase();
+  const chosen = modeRaw === 'ai' ? 'ai' : modeRaw === 'automation' ? 'automation' : 'manual';
   let importStats = null;
   let wbsPublish = null;
   let boardSeed = null;
@@ -2036,17 +1817,22 @@ async function advanceToPhase2({
   }
 
   projectDoc.deliveryPhase = 'development';
-  // Lifecycle status is orthogonal to deliveryPhase but must stay in Project enum
-  // (draft | active | on_hold | closed). Coerce legacy 5-value statuses.
-  const { coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
-  const st = String(projectDoc.status || '').trim().toLowerCase();
-  const coerced = coerceProjectLifecycleStatus(st);
-  if (coerced === 'draft' || st === 'planning' || st === 'ready_for_planning') {
-    projectDoc.status = 'active';
-  } else if (coerced) {
-    projectDoc.status = coerced;
-  } else if (!['draft', 'active', 'on_hold', 'closed'].includes(st)) {
-    projectDoc.status = 'active';
+  // Lifecycle status is orthogonal to deliveryPhase but must stay in Project enum.
+  // Legacy/bad rows (e.g. status "draft") fail validation on save — coerce into Phase 2.
+  const PROJECT_STATUS = new Set([
+    'planning',
+    'ready_for_planning',
+    'in_development',
+    'on_hold',
+    'closed',
+  ]);
+  if (!PROJECT_STATUS.has(String(projectDoc.status || ''))) {
+    projectDoc.status = 'in_development';
+  } else if (
+    projectDoc.status === 'planning' ||
+    projectDoc.status === 'ready_for_planning'
+  ) {
+    projectDoc.status = 'in_development';
   }
   if (methodology) {
     const m = String(methodology).trim().toLowerCase();
@@ -2244,13 +2030,14 @@ async function startDeliveryPlanning({ userId, projectId }) {
   }
   projectDoc.deliveryPhase = 'delivery_planning';
   projectDoc.phase1RaApprovedAt = new Date();
-  // Coerce legacy status so save() validates against draft|active|on_hold|closed.
+  // Legacy seed may have status=draft (not in enum) — coerce so save() validates.
   const { coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
   const coercedStatus = coerceProjectLifecycleStatus(projectDoc.status);
-  if (coercedStatus) {
-    projectDoc.status = coercedStatus;
-  } else if (!['draft', 'active', 'on_hold', 'closed'].includes(String(projectDoc.status || ''))) {
-    projectDoc.status = 'draft';
+  if (coercedStatus) projectDoc.status = coercedStatus;
+  else if (!['planning', 'ready_for_planning', 'in_development', 'on_hold', 'closed'].includes(
+    String(projectDoc.status || '')
+  )) {
+    projectDoc.status = 'planning';
   }
   await projectDoc.save();
   return {
@@ -2528,6 +2315,10 @@ async function confirmAnalysisImport({ userId, projectId, sessionId, importSetId
     if (payload.businessProcesses) pack.businessProcesses = payload.businessProcesses;
     if (payload.useCases) pack.useCases = payload.useCases;
     if (payload.traceabilityLinks) pack.traceabilityLinks = payload.traceabilityLinks;
+    if (payload.interfaces) pack.interfaces = payload.interfaces;
+    if (payload.dataEntities) pack.dataEntities = payload.dataEntities;
+    if (payload.glossary) pack.glossary = payload.glossary;
+    if (payload.assumptions) pack.assumptions = payload.assumptions;
     pack.updatedBy = userId;
     await pack.save();
   }
@@ -2594,9 +2385,6 @@ module.exports = {
   listCustomerDocuments,
   downloadCustomerDocument,
   createCustomerDocument,
-  createCustomerDocumentForPack,
-  listCustomerDocumentsForPack,
-  linkPackDocumentsToProject,
   listArtifacts,
   getArtifact,
   createArtifact,
@@ -2615,4 +2403,13 @@ module.exports = {
   startDeliveryPlanning,
   previewAnalysisImport,
   confirmAnalysisImport,
+  // Phase 2 Manual staging (re-export for controller)
+  buildPhase2StagingPreview: (...args) =>
+    require('./phase2ManualStaging.service').buildPhase2StagingPreview(...args),
+  submitPhase2ManualStaging: (...args) =>
+    require('./phase2ManualStaging.service').submitPhase2ManualStaging(...args),
+  reviewPhase2ManualStaging: (...args) =>
+    require('./phase2ManualStaging.service').reviewPhase2ManualStaging(...args),
+  savePhase2StagingDraft: (...args) =>
+    require('./phase2ManualStaging.service').savePhase2StagingDraft(...args),
 };

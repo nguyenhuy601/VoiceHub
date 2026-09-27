@@ -15,6 +15,7 @@ const {
   normId,
   normKey,
   normProse,
+  normalizeScopeType,
 } = require('./requirementTemplateTextNorm');
 
 const FR_LEVEL_MAP = Object.freeze({
@@ -305,8 +306,7 @@ function parseAnalysisWorkbook(buffer) {
   const scopeSheet = mapSheet(ANALYSIS_SHEETS.SCOPE);
   const scope = scopeSheet.rows
     .map((row) => {
-      const rawType = normalizeHeader(row['Scope Type']);
-      const type = rawType.includes('out') ? 'out' : 'in';
+      const type = normalizeScopeType(row['Scope Type']);
       const description = normProse(row.Description);
       if (!description) return null;
       const source = normProse(row.Source);
