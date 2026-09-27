@@ -9,7 +9,7 @@ import { organizationAPI } from '../../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
 import { flattenOrgStructureDepartments } from '../../../utils/orgMemberStructureScope';
-import { toDateInputValue, isProjectDateRangeInvalid } from './projectHubUtils';
+import { toDateInputValue, isProjectDateRangeInvalid, toastScheduleWarnings, formatHubProjectStatus } from './projectHubUtils';
 import ProjectHubSettingsPopover from './ProjectHubSettingsPopover';
 import ProjectHubWorkTypeHierarchy from './ProjectHubWorkTypeHierarchy';
 import ProjectHubDelegationSection from './ProjectHubDelegationSection';
@@ -593,8 +593,9 @@ export default function ProjectHubSettingsPanel({
       if (visibilityMode === 'custom') {
         body.visibilityPolicy = visibilityPolicy;
       }
+      let savedProject = null;
       if (resolvedProjectId) {
-        await projectAPI.patch(resolvedProjectId, {
+        savedProject = await projectAPI.patch(resolvedProjectId, {
           ...body,
           priorityConfig: { items: priorityItems },
         });
@@ -631,6 +632,7 @@ export default function ProjectHubSettingsPanel({
         );
       }
       toast.success(t('workspace.projectHubSettingsSaved'));
+      toastScheduleWarnings(savedProject, toast, t);
       onSaved?.();
     } catch (err) {
       toast.error(
@@ -839,7 +841,7 @@ export default function ProjectHubSettingsPanel({
         >
           {PROFILE_EDITABLE_STATUSES.map((value) => (
             <option key={value} value={value}>
-              {t(`workspace.projectHubProjectStatus_${value}`)}
+              {formatHubProjectStatus(value, t)}
             </option>
           ))}
         </select>

@@ -1277,20 +1277,19 @@ export default function ProjectHubTimelinePanel({
         apiCtx={apiCtx}
         locale={locale}
         initialPanel="detail"
-        canCreateTask={Boolean(hubCaps?.canCreateTask || canManage)}
-        canEstimate={Boolean(canManage || hubCaps?.canEstimate)}
-        canComment={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
-        }
-        canUpdateTask={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
-        }
-        canChangeStatus={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:change_status'))
-        }
+        canCreateTask={Boolean(hubCaps?.canCreateTask)}
+        canEstimate={Boolean(hubCaps?.canEstimate)}
+        canComment={Boolean(
+          Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment')
+        )}
+        canUpdateTask={Boolean(
+          Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update')
+        )}
+        canChangeStatus={Boolean(
+          Array.isArray(hubCaps?.permissions) &&
+            (hubCaps.permissions.includes('task:change_status') ||
+              hubCaps.permissions.includes('task:drag_to_done'))
+        )}
         onClose={() => setDetailIssue(null)}
         onOpenWorkItem={(card) => {
           if (card) setDetailIssue(card);

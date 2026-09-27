@@ -284,6 +284,7 @@ function KanbanListColumn({
   onMenuClick,
   cardSortableIds,
   isCardsOver,
+  canDragList = false,
   children,
 }) {
   const { t } = useAppStrings();
@@ -292,6 +293,7 @@ function KanbanListColumn({
     useDraggable({
       id: listColId(listId),
       data: { type: 'list', listId },
+      disabled: !canDragList,
     });
   const { setNodeRef: setCardsDropRef } = useDroppable({
     id: listCardsDropId(listId),
@@ -320,19 +322,21 @@ function KanbanListColumn({
       } ${isListColOver || isCardsOver ? 'ring-2 ring-cyan-400/50' : ''} ${isDragging ? 'opacity-60' : ''}`}
     >
       <div className="flex items-center gap-1 px-2 py-2">
-        <button
-          type="button"
-          ref={setActivatorNodeRef}
-          {...listeners}
-          {...attributes}
-          className={`shrink-0 cursor-grab rounded p-0.5 active:cursor-grabbing ${
-            isDarkMode ? 'text-slate-500 hover:bg-white/10' : 'text-slate-400 hover:bg-slate-200'
-          }`}
-          aria-label={t('taskBoard.dragListAria')}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
+        {canDragList ? (
+          <button
+            type="button"
+            ref={setActivatorNodeRef}
+            {...listeners}
+            {...attributes}
+            className={`shrink-0 cursor-grab rounded p-0.5 active:cursor-grabbing ${
+              isDarkMode ? 'text-slate-500 hover:bg-white/10' : 'text-slate-400 hover:bg-slate-200'
+            }`}
+            aria-label={t('taskBoard.dragListAria')}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+        ) : null}
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{repairUtf8Mojibake(list.title)}</h3>
         <span
           className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
@@ -380,6 +384,7 @@ function KanbanSortableCard({
   isWorkflowDone = false,
   isCelebratingDone = false,
   readyAccent = false,
+  canDrag = false,
   onOpenDetail,
   onOpenMenu,
   onToggleComplete,
@@ -389,6 +394,7 @@ function KanbanSortableCard({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
     data: { type: 'card', cardId: String(card._id), listId: String(card.listId) },
+    disabled: !canDrag,
   });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -401,8 +407,8 @@ function KanbanSortableCard({
   return (
     <div ref={setNodeRef} style={style} className="touch-none">
       <div
-        {...listeners}
-        {...attributes}
+        {...(canDrag ? listeners : {})}
+        {...(canDrag ? attributes : {})}
         role="button"
         tabIndex={0}
         onClick={() => onOpenDetail(card)}
@@ -484,6 +490,8 @@ export default function TaskBoardWorkspacePanel({
       (Array.isArray(boardCapabilities?.permissions) &&
         boardCapabilities.permissions.includes('task:drag_to_done'))
   );
+  const canDragCards = Boolean(boardCapabilities?.canMoveCards);
+  const canDragLists = Boolean(boardCapabilities?.canManageLists);
 
   useEffect(() => {
     if (!hubSprintCard || !hubProjectId) {
@@ -1945,7 +1953,7 @@ export default function TaskBoardWorkspacePanel({
                                     }}
                                     className="rounded-md bg-[#5865F2] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
                                   >
-                                    Thêm thẻ
+                                    {t('taskBoard.addCard')}
                                   </button>
                                   <button
                                     type="button"
@@ -1980,7 +1988,7 @@ export default function TaskBoardWorkspacePanel({
                                 }`}
                               >
                                 <Plus className="h-3.5 w-3.5" />
-                                Thêm thẻ
+                                {t('taskBoard.addCard')}
                               </button>
                             ) : null}
                           </div>
@@ -1992,6 +2000,7 @@ export default function TaskBoardWorkspacePanel({
                               card={card}
                               isDarkMode={isDarkMode}
                               cardShell={cardShell}
+                              canDrag={canDragCards}
                               isWorkflowDone={isCardInWorkflowEnd(card)}
                               isCelebratingDone={celebratingDoneIds.has(String(card._id))}
                               readyAccent={
@@ -2048,6 +2057,7 @@ export default function TaskBoardWorkspacePanel({
                     listColumnShell={listColumnShell}
                     columnEnterClass={COLUMN_ENTER}
                     onMenuClick={(e) => openListMenu(list, e)}
+                    canDragList={canDragLists}
                     cardSortableIds={cardSortableIds}
                     isCardsOver={cardsOverListId === listKey}
                   >
@@ -2075,6 +2085,7 @@ export default function TaskBoardWorkspacePanel({
                         card={card}
                         isDarkMode={isDarkMode}
                         cardShell={cardShell}
+                        canDrag={canDragCards}
                         isWorkflowDone={isCardInWorkflowEnd(card)}
                         isCelebratingDone={celebratingDoneIds.has(String(card._id))}
                         readyAccent={
@@ -2148,7 +2159,7 @@ export default function TaskBoardWorkspacePanel({
                             }}
                             className="rounded-md bg-[#5865F2] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
                           >
-                            Thêm thẻ
+                            {t('taskBoard.addCard')}
                           </button>
                           <button
                             type="button"
@@ -2176,7 +2187,7 @@ export default function TaskBoardWorkspacePanel({
                         }`}
                       >
                         <Plus className="h-3.5 w-3.5" />
-                        Thêm thẻ
+                        {t('taskBoard.addCard')}
                       </button>
                     ) : null}
                   </div>
@@ -2278,7 +2289,7 @@ export default function TaskBoardWorkspacePanel({
                   }`}
                 >
                   <Plus className="h-4 w-4 shrink-0" />
-                  Thêm danh sách khác
+                  {t('taskBoard.addList')}
                 </button>
               ) : null}
             </div>
@@ -2470,10 +2481,12 @@ export default function TaskBoardWorkspacePanel({
         }}
         onUpdateCard={async (cardId, patch) => {
           const keys = Object.keys(patch || {});
-          if (!(keys.length === 1 && keys[0] === 'comments')) {
-            await onUpdateCard?.(cardId, patch);
-          }
+          const saved =
+            keys.length === 1 && keys[0] === 'comments'
+              ? undefined
+              : await onUpdateCard?.(cardId, patch);
           setDetailCard((prev) => (prev && String(prev._id) === String(cardId) ? { ...prev, ...patch } : prev));
+          return saved;
         }}
       />
 

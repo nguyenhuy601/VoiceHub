@@ -7,7 +7,7 @@ import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
-import { isProjectCompletedStatus, isProjectDraftStatus, resolveHubCapabilities } from './hubCaps';
+import { isProjectCompletedStatus, resolveHubCapabilities } from './hubCaps';
 import { resolveOverviewVisibility } from './overviewVisibility';
 import ProjectHubMembersPanel from './ProjectHubMembersPanel';
 import ProjectHubSettingsPanel from './ProjectHubSettingsPanel';
@@ -1087,7 +1087,6 @@ export default function ProjectHubShell({
   const isProjectCompleted = isProjectCompletedStatus(
     projectPayload?.status || resolvedBoard?.status
   );
-  const isDraftProject = isProjectDraftStatus(projectPayload?.status || resolvedBoard?.status);
   const workLooksComplete = summary.total > 0 && summary.donePercent === 100;
   const informationLevel = String(
     projectPayload?.access?.informationLevel ||
@@ -1202,7 +1201,7 @@ export default function ProjectHubShell({
   );
 
   useSprintAutoCompletePrompt(sprints, {
-    enabled: Boolean(hubCaps?.canManageSprints || canManage) && Boolean(projectId),
+    enabled: Boolean(hubCaps?.canManageSprints) && Boolean(projectId),
     onPromptComplete: (sprintId) => {
       const id = String(sprintId || '').trim();
       if (!id) return;
@@ -1247,7 +1246,8 @@ export default function ProjectHubShell({
       if (item.id === 'changeRequests' && !hubCaps.canViewChangeRequests) return false;
       if (item.id === 'testCases' && !hubCaps.canViewWorkItems) return false;
       if (item.id === 'planning' && !hubCaps.canViewBacklog) return false;
-      if (item.id === 'timeline' && !hubCaps.canViewBacklog) return false;
+      // Timeline: SoT P2 default — show with work-items view (not gated on backlog:view)
+      if (item.id === 'timeline' && !hubCaps.canViewWorkItems) return false;
       if ((item.id === 'list' || item.id === 'board') && !hubCaps.canViewWorkItems) return false;
       if (item.id === 'files' && !hubCaps.canViewFiles) return false;
       if (item.id === 'activity' && !hubCaps.canViewActivityTab) return false;
@@ -1271,7 +1271,7 @@ export default function ProjectHubShell({
 
   const showListPanel = Boolean(visitedTabs.list) && hubCaps.canViewWorkItems;
   const showPlanningPanel = Boolean(visitedTabs.planning) && hubCaps.canViewBacklog;
-  const showTimelinePanel = Boolean(visitedTabs.timeline) && hubCaps.canViewBacklog;
+  const showTimelinePanel = Boolean(visitedTabs.timeline) && hubCaps.canViewWorkItems;
   const showChangeRequestsPanel =
     Boolean(visitedTabs.changeRequests) && hubCaps.canViewChangeRequests;
   const showTestCasesPanel = Boolean(visitedTabs.testCases) && hubCaps.canViewWorkItems;
@@ -1582,27 +1582,15 @@ export default function ProjectHubShell({
         <button
           type="button"
           onClick={() => setArchiveProjectOpen(true)}
-          title={
-            isDraftProject
-              ? t('workspace.projectHubDeleteDraft')
-              : t('workspace.projectHubArchiveProject')
-          }
+          title={t('workspace.projectHubArchiveProject')}
           className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
             isDarkMode
               ? 'border-rose-400/50 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25'
               : 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
           }`}
         >
-          <span className="hidden sm:inline">
-            {isDraftProject
-              ? t('workspace.projectHubDeleteDraft')
-              : t('workspace.projectHubArchiveProject')}
-          </span>
-          <span className="sm:hidden">
-            {isDraftProject
-              ? t('workspace.projectHubDeleteDraftShort')
-              : t('workspace.projectHubArchiveProjectShort')}
-          </span>
+          <span className="hidden sm:inline">{t('workspace.projectHubArchiveProject')}</span>
+          <span className="sm:hidden">{t('workspace.projectHubArchiveProjectShort')}</span>
         </button>
       ) : null}
       {tab === 'board' && hubCaps?.canManageSprints && activeSprint?._id ? (
@@ -2043,11 +2031,10 @@ export default function ProjectHubShell({
             boardCards={cards}
             boardLists={lists}
             onPatchBoardCards={onPatchBoardCards}
-            canCreate={Boolean(hubCaps.canCreateTask || hubCaps.canCreateBug || canManage)}
+            canCreate={Boolean(hubCaps.canCreateTask || hubCaps.canCreateBug)}
             canExecute={Boolean(
               hubCaps.canCreateTask ||
                 hubCaps.canCreateBug ||
-                canManage ||
                 (Array.isArray(hubCaps.permissions) &&
                   (hubCaps.permissions.includes('task:change_status') ||
                     hubCaps.permissions.includes('task:update') ||
@@ -2070,7 +2057,7 @@ export default function ProjectHubShell({
             organizationId={organizationId}
             projectPayload={projectPayload}
             membersActive={tab === 'members'}
-            canManage={hubCaps.canManageMembers || canManage}
+            canManage={Boolean(hubCaps.canManageMembers)}
             isDarkMode={isDarkMode}
             onMembersChanged={() => {
               setMembersEpoch((n) => n + 1);
@@ -2091,12 +2078,11 @@ export default function ProjectHubShell({
             projectPayload={projectPayload}
             organizationId={organizationId}
             apiCtx={apiCtx}
-            canManage={hubCaps.canManageSettings || canManage}
+            canManage={Boolean(hubCaps.canManageSettings)}
             canManageDelivery={Boolean(hubCaps.canManageDelivery)}
             canArchiveProject={Boolean(hubCaps.canArchiveProject)}
             canArchiveWithoutComplete={Boolean(hubCaps.canArchiveWithoutComplete)}
             isProjectCompleted={isProjectCompleted}
-            isDraftProject={isDraftProject}
             projectStillActive={projectStillActive}
             onRequestArchive={() => setArchiveProjectOpen(true)}
             isDarkMode={isDarkMode}
@@ -2114,7 +2100,7 @@ export default function ProjectHubShell({
               ? sprints.find((s) => String(s._id) === String(completeSprintId)) || null
               : null
           }
-          canManageSprints={Boolean(hubCaps?.canManageSprints || canManage)}
+          canManageSprints={Boolean(hubCaps?.canManageSprints)}
           onClose={() => setCompleteSprintId(null)}
           onCompleted={() => {
             toast.success(t('workspace.projectHubPlanSprintClosed'));
@@ -2147,18 +2133,10 @@ export default function ProjectHubShell({
           isOpen={archiveProjectOpen}
           projectId={projectId}
           projectTitle={resolvedBoard?.title || projectPayload?.title || ''}
-          draftDelete={isDraftProject}
-          earlyArchive={
-            !isDraftProject && !isProjectCompleted && Boolean(hubCaps.canArchiveWithoutComplete)
-          }
+          earlyArchive={!isProjectCompleted && Boolean(hubCaps.canArchiveWithoutComplete)}
           onClose={() => setArchiveProjectOpen(false)}
           onArchived={() => {
-            const deletedDraft = isDraftProject;
-            toast.success(
-              deletedDraft
-                ? t('workspace.projectHubDeleteDraftSuccess')
-                : t('workspace.projectHubArchiveSuccess')
-            );
+            toast.success(t('workspace.projectHubArchiveSuccess'));
             setArchiveProjectOpen(false);
             if (deletedDraft) {
               writeStoredLastProjectId('');
@@ -2188,22 +2166,20 @@ export default function ProjectHubShell({
             isDarkMode={isDarkMode}
             locale={locale}
             workTypeConfig={projectPayload?.workTypeConfig}
-            canCreateTask={Boolean(hubCaps?.canCreateTask || canManage)}
-            canComment={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
-            }
-            canUpdateTask={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) &&
+            canCreateTask={Boolean(hubCaps?.canCreateTask)}
+            canComment={Boolean(
+              Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment')
+            )}
+            canUpdateTask={Boolean(
+              Array.isArray(hubCaps?.permissions) &&
                 (hubCaps.permissions.includes('task:update') ||
-                  hubCaps.permissions.includes('bug:create')))
-            }
-            canChangeStatus={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) &&
-                hubCaps.permissions.includes('task:change_status'))
-            }
+                  hubCaps.permissions.includes('bug:create'))
+            )}
+            canChangeStatus={Boolean(
+              Array.isArray(hubCaps?.permissions) &&
+                (hubCaps.permissions.includes('task:change_status') ||
+                  hubCaps.permissions.includes('task:drag_to_done'))
+            )}
             canViewMembers={hubCaps.canViewMembers}
             onClose={() => setCrWorkIssue(null)}
             onOpenWorkItem={(card) => {
@@ -2231,7 +2207,7 @@ export default function ProjectHubShell({
               if (keys.length === 1 && keys[0] === 'comments') return;
               if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
                 try {
-                  await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+                  return await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
                 } catch (err) {
                   toast.error(
                     resolveApiErrorMessage(err, {
@@ -2268,23 +2244,21 @@ export default function ProjectHubShell({
             apiCtx={apiCtx}
             locale={locale}
             initialPanel="detail"
-            canCreateTask={Boolean(hubCaps?.canCreateTask || canManage)}
-            canEstimate={Boolean(canManage || hubCaps?.canEstimate)}
-            canComment={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
-            }
-            canUpdateTask={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) &&
+            canCreateTask={Boolean(hubCaps?.canCreateTask)}
+            canEstimate={Boolean(hubCaps?.canEstimate)}
+            canComment={Boolean(
+              Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment')
+            )}
+            canUpdateTask={Boolean(
+              Array.isArray(hubCaps?.permissions) &&
                 (hubCaps.permissions.includes('task:update') ||
-                  hubCaps.permissions.includes('bug:create')))
-            }
-            canChangeStatus={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) &&
-                hubCaps.permissions.includes('task:change_status'))
-            }
+                  hubCaps.permissions.includes('bug:create'))
+            )}
+            canChangeStatus={Boolean(
+              Array.isArray(hubCaps?.permissions) &&
+                (hubCaps.permissions.includes('task:change_status') ||
+                  hubCaps.permissions.includes('task:drag_to_done'))
+            )}
             canViewMembers={hubCaps.canViewMembers}
             onClose={() => setOverviewWorkIssue(null)}
             onOpenWorkItem={(card) => {
@@ -2304,7 +2278,7 @@ export default function ProjectHubShell({
               if (keys.length === 1 && keys[0] === 'comments') return;
               if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
                 try {
-                  await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+                  return await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
                 } catch (err) {
                   toast.error(
                     resolveApiErrorMessage(err, {

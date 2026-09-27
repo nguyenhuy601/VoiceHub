@@ -41,12 +41,13 @@ import {
   hasLocalChildCards,
   isScrollNearBottom,
   LIST_ROOT_PAGE_SIZE,
+  listViewportNeedsMoreRoots,
   nextRootLimit,
   removeIdFromSetRef,
   shouldFetchListChildren,
   sliceTreeRoots,
 } from './projectHubListLazy';
-import { unwrapPlanningEntity } from './projectHubUtils';
+import { toastScheduleWarnings, unwrapPlanningEntity } from './projectHubUtils';
 import { listIdToPlanningStatus, planningStatusToListId } from './planningBoardStatus';
 import { buildWorkItemDatePatch } from './WorkItemDetail/workItemDetailUtils';
 import {
@@ -197,34 +198,35 @@ export default function ProjectHubListPanel({
   loadedIdsRef.current = loadedIds;
   loadingIdsRef.current = loadingIds;
 
-  const canCreateEpic = Boolean(canManage || hubCaps?.canCreateEpic);
-  const canDeleteEpic = Boolean(canManage || hubCaps?.canDeleteEpic);
-  const canUpdateBacklog = Boolean(canManage || hubCaps?.canUpdateBacklog);
-  const canCreateStory = Boolean(canManage || hubCaps?.canCreateStory);
-  const canCreateTask = Boolean(canManage || hubCaps?.canCreateTask);
-  const canCreateBug = Boolean(canManage || hubCaps?.canCreateBug);
+  const canCreateEpic = Boolean(hubCaps?.canCreateEpic);
+  const canDeleteEpic = Boolean(hubCaps?.canDeleteEpic);
+  const canUpdateBacklog = Boolean(hubCaps?.canUpdateBacklog);
+  const canCreateStory = Boolean(hubCaps?.canCreateStory);
+  const canCreateTask = Boolean(hubCaps?.canCreateTask);
+  const canCreateBug = Boolean(hubCaps?.canCreateBug);
   const canChangeStatus = Boolean(
-    canManage ||
-      hubCaps?.canUpdateBacklog ||
+    hubCaps?.canUpdateBacklog ||
       hubCaps?.canCreateTask ||
       hubCaps?.canUpdateStory ||
+      hubCaps?.canCreateBug ||
       (Array.isArray(hubCaps?.permissions) &&
         (hubCaps.permissions.includes('task:change_status') ||
-          hubCaps.permissions.includes('task:update')))
+          hubCaps.permissions.includes('task:update') ||
+          hubCaps.permissions.includes('task:drag_to_done')))
   );
-  const canDeleteIssue = Boolean(canManage || canUpdateBacklog);
+  const canDeleteIssue = Boolean(canUpdateBacklog || canDeleteEpic);
   const hasBoardColumn = Boolean(boardId && defaultListId);
 
   const createCaps = useMemo(
     () => ({
       epic: canCreateEpic,
-      feature: Boolean(canManage || canUpdateBacklog),
+      feature: Boolean(canUpdateBacklog || canCreateEpic),
       story: canCreateStory,
       task: canCreateTask,
       bug: canCreateBug,
       subtask: canCreateTask,
     }),
-    [canCreateEpic, canManage, canUpdateBacklog, canCreateStory, canCreateTask, canCreateBug]
+    [canCreateEpic, canUpdateBacklog, canCreateStory, canCreateTask, canCreateBug]
   );
 
   const rootCreateTypes = useMemo(
@@ -374,13 +376,27 @@ export default function ProjectHubListPanel({
     return () => el.removeEventListener('scroll', onScroll);
   }, [listActive, hasMoreRoots, tree.length]);
 
-  // Viewport cao hơn nội dung → không scroll được: reveal thêm trang đến khi đủ hoặc hết root.
+  // Khung chưa layout (clientHeight 0) hoặc vừa khít nội dung thì chưa có thanh kéo — đo lại sau resize.
   useEffect(() => {
-    if (!listActive || !hasMoreRoots) return;
+    if (!listActive || !hasMoreRoots) return undefined;
     const el = tableScrollRef.current;
-    if (!el) return;
-    if (el.scrollHeight > el.clientHeight + 1) return;
-    setVisibleRootLimit((prev) => nextRootLimit(prev, tree.length));
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const revealIfShort = () => {
+      if (
+        !listViewportNeedsMoreRoots({
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+          hasMoreRoots: true,
+        })
+      ) {
+        return;
+      }
+      setVisibleRootLimit((prev) => nextRootLimit(prev, tree.length));
+    };
+    revealIfShort();
+    const observer = new ResizeObserver(() => revealIfShort());
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [listActive, hasMoreRoots, tree.length, flatRows.length, visibleRootLimit]);
 
   const activeDragNode = activeDragId ? findNodeById(tree, activeDragId) : null;
@@ -981,11 +997,13 @@ export default function ProjectHubListPanel({
         patchCards((cards) =>
           cards.map((c) => (entityId(c) === id ? { ...c, ...patch } : c))
         );
+        let saved = null;
         if (onUpdateCard) {
-          await onUpdateCard(id, patch);
+          saved = await onUpdateCard(id, patch);
         } else {
-          await taskAPI.updateBoardCard(id, patch, apiCtx || {});
+          saved = await taskAPI.updateBoardCard(id, patch, apiCtx || {});
         }
+        toastScheduleWarnings(saved, toast, t);
       } else if (isPlanning && projectId) {
         patchPlanning((items) =>
           items.map((row) => (entityId(row) === id ? { ...row, ...patch } : row))
@@ -1017,11 +1035,13 @@ export default function ProjectHubListPanel({
         patchCards((cards) =>
           cards.map((c) => (entityId(c) === id ? { ...c, ...patch } : c))
         );
+        let saved = null;
         if (onUpdateCard) {
-          await onUpdateCard(id, patch);
+          saved = await onUpdateCard(id, patch);
         } else {
-          await taskAPI.updateBoardCard(id, patch, apiCtx || {});
+          saved = await taskAPI.updateBoardCard(id, patch, apiCtx || {});
         }
+        toastScheduleWarnings(saved, toast, t);
       } else if (isPlanning && projectId) {
         patchPlanning((items) =>
           items.map((row) => (entityId(row) === id ? { ...row, ...patch } : row))
@@ -1335,7 +1355,11 @@ export default function ProjectHubListPanel({
                   hasBoardColumn={hasBoardColumn}
                   busy={isRowBusy(entityId(node.raw) || node.id)}
                   canChangeStatus={canChangeStatus}
-                  canAssign={Boolean(canCreateTask || canManage)}
+                  canAssign={Boolean(
+                    canCreateTask ||
+                      (Array.isArray(hubCaps?.permissions) &&
+                        hubCaps.permissions.includes('task:assign'))
+                  )}
                   gridStyle={gridStyle}
                   assignableMembers={assignableMembers}
                   membersLoading={membersLoading}
@@ -1421,7 +1445,12 @@ export default function ProjectHubListPanel({
             {t('workspace.projectHubBacklogCreate')}
           </button>
           <div className="mx-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span>{t('workspace.projectHubListCount', { n: rootCount, total: rootCount })}</span>
+            <span>
+              {t('workspace.projectHubListCount', {
+                n: Math.min(rootCount, visibleRootLimit),
+                total: rootCount,
+              })}
+            </span>
             <button
               type="button"
               className="rounded p-1 hover:bg-muted hover:text-foreground"
@@ -1501,19 +1530,17 @@ export default function ProjectHubListPanel({
         apiCtx={apiCtx}
         initialPanel="detail"
         canCreateTask={canCreateTask}
-        canEstimate={Boolean(canManage || hubCaps?.canEstimate)}
-        canComment={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
-        }
-        canUpdateTask={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) &&
+        canEstimate={Boolean(hubCaps?.canEstimate)}
+        canComment={Boolean(
+          Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment')
+        )}
+        canUpdateTask={Boolean(
+          Array.isArray(hubCaps?.permissions) &&
             (hubCaps.permissions.includes('task:update') ||
-              hubCaps.permissions.includes('bug:create')))
-        }
+              hubCaps.permissions.includes('bug:create'))
+        )}
         canChangeStatus={canChangeStatus}
-        canViewMembers={Boolean(hubCaps?.canViewMembers || canManage)}
+        canViewMembers={Boolean(hubCaps?.canViewMembers)}
         onClose={() => {
           setDetailIssueId('');
           setDetailIssueKind('');
@@ -1536,9 +1563,8 @@ export default function ProjectHubListPanel({
             cards.map((c) => (entityId(c) === String(cardId) ? { ...c, ...patch } : c))
           );
           const keys = Object.keys(patch || {});
-          if (!(keys.length === 1 && keys[0] === 'comments')) {
-            await onUpdateCard?.(cardId, patch);
-          }
+          if (keys.length === 1 && keys[0] === 'comments') return undefined;
+          return onUpdateCard?.(cardId, patch);
         }}
       />
     </div>

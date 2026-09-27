@@ -250,7 +250,13 @@ export const REQUIRED_PHASE1_WORKSPACE_KEYS = [
   'phase1DumpSubmit',
   'phase1DumpDownloadTemplate',
   'phase1DumpDownloadSeedRa',
+  'phase1DumpSeedFromRa',
+  'phase1DumpSeedFromRaOk',
+  'phase1DumpSeedFromRaFail',
   'phase1DumpUploadExcel',
+  'phase1DumpLockAfterSeed',
+  'phase1DumpLockAfterUpload',
+  'phase1DumpLockHasRows',
   'phase1DumpPreviewTitle',
   'phase1DumpPreviewErrors',
   'phase1DumpConfirmImport',
@@ -437,6 +443,78 @@ export const REQUIRED_PHASE1_WORKSPACE_KEYS = [
   'phaseNavSrsBaselines',
   'phaseNavPlanningApproval',
   'phaseNavPlanningOverview',
+  'phaseNavPlanningResources',
+  'phaseNavPlanningResourcesWbs',
+  'phaseNavPlanningResourcesEffort',
+  'phaseNavPlanningResourcesMatch',
+  'phaseNavPlanningResourcesCapacity',
+  'phaseNavPlanningResourcesSchedule',
+  'phase1StaffingPipelineHint',
+  'phase1StaffingWbsIntro',
+  'phase1StaffingWbsEmpty',
+  'phase1StaffingNoNotes',
+  'phase1StaffingOpenSiblingWbs',
+  'phase1StaffingOpenSiblingSchedule',
+  'phase1StaffingEffortIntro',
+  'phase1StaffingEffortDeltaWarn',
+  'phase1StaffingEffortDeltaOk',
+  'phase1StaffingSelectLeaf',
+  'phase1StaffingStep2a',
+  'phase1StaffingStep2b',
+  'phase1StaffingStep2c',
+  'phase1StaffingNotes',
+  'phase1StaffingSkills',
+  'phase1StaffingEffortHours',
+  'phase1StaffingManday',
+  'phase1StaffingReadyForMatch',
+  'phase1StaffingNotReadyForMatch',
+  'phase1StaffingResourceRoles',
+  'phase1StaffingMatchIntro',
+  'phase1StaffingMatchHitl',
+  'phase1StaffingNoRole',
+  'phase1StaffingNeedRoleForMatch',
+  'phase1StaffingNoOrg',
+  'phase1StaffingPoolDenied',
+  'phase1StaffingPoolEmpty',
+  'phase1StaffingAssign',
+  'phase1StaffingAssigned',
+  'phase1StaffingClearAssignee',
+  'phase1StaffingAssigneeSaved',
+  'phase1StaffingAssigneeCleared',
+  'phase1StaffingAvailablePct',
+  'phase1StaffingAvailableUnknown',
+  'phase1StaffingBulkAccept',
+  'phase1StaffingBulkRunning',
+  'phase1StaffingBulkNeedWindow',
+  'phase1StaffingBulkPages',
+  'phase1StaffingBulkResult',
+  'phase1StaffingReasonPosition',
+  'phase1StaffingReasonVerified',
+  'phase1StaffingReasonPriorRole',
+  'phase1StaffingRemainingHours',
+  'phase1StaffingSkipMissingRole',
+  'phase1StaffingSkipMissingEffort',
+  'phase1StaffingSkipHours',
+  'phase1StaffingCapacityIntro',
+  'phase1StaffingCapacityAdvisory',
+  'phase1StaffingCapacityDenied',
+  'phase1StaffingNeedAssigneeForCapacity',
+  'phase1StaffingNoAssignee',
+  'phase1StaffingOverloadWarn',
+  'phase1StaffingBackToMatch',
+  'phase1StaffingAvailablePctLabel',
+  'phase1StaffingLeaveDate',
+  'phase1StaffingAllocations',
+  'phase1StaffingAllocEmpty',
+  'phase1StaffingCapacityLoaded',
+  'phase1StaffingScheduleIntro',
+  'phase1StaffingStartDate',
+  'phase1StaffingEndDate',
+  'phase1StaffingSuggestEnd',
+  'phase1StaffingSuggestHours',
+  'phase1StaffingSuggestNeedStart',
+  'phase1StaffingSuggestNeedEffort',
+  'phase1StaffingSuggestFilled',
   'phase1SuggestTasksCta',
   'phase1SuggestTasksTitle',
   'phase1FileLibraryHint',
@@ -477,40 +555,30 @@ describe('phase1 workspace locale keys', () => {
     });
   }
 
-  it('vi catalog is not leftover English for core overview CTAs', () => {
-    const vi = STRINGS.vi.workspace;
-    assert.notEqual(vi.phase1OverviewTitle, 'Phase 1 Overview');
-    assert.notEqual(vi.phase1StartPlanning, 'Start Planning');
-    assert.ok(!String(vi.phase1RaApprovedBody).includes('Planning is ready to start'));
-  });
-
-  it('vi RA column/nav labels are localized (not raw English leftovers)', () => {
+  it('vi phase labels are Vietnamese and en labels stay English', () => {
     const vi = STRINGS.vi.workspace;
     const en = STRINGS.en.workspace;
-    const mustDiffer = [
-      'phase1ColKey',
-      'phase1ColActor',
-      'phase1ColAcceptance',
-      'phase1ColMainFlow',
-      'phase1ColStakeholder',
-      'phase1ColEntity',
-      'phase1ColImportSet',
-      'phase1FieldTrigger',
-      'phase1FieldCrIds',
-      'phase1FieldAcceptanceCriteria',
-      'phaseNavAnalysisFr',
-      'phaseNavAnalysisInterface',
-      'phaseNavAnalysisGlossary',
-      'phaseNavAnalysisAssumption',
-    ];
-    for (const key of mustDiffer) {
-      assert.ok(vi[key], `missing vi ${key}`);
-      assert.ok(en[key], `missing en ${key}`);
-      assert.notEqual(vi[key], en[key], `${key} should differ vi vs en`);
+    const pairs = {
+      phase1OverviewTitle: ['Giai đoạn 1 — Tổng quan', 'Phase 1 — Overview'],
+      phase1StartPlanning: ['Bắt đầu lập kế hoạch', 'Start Planning'],
+      phase1ColKey: ['Mã', 'Key'],
+      phase1ColActor: ['Tác nhân', 'Actor'],
+      phase1ColAcceptance: ['Tiêu chí chấp nhận', 'Acceptance criteria'],
+      phase1ColMainFlow: ['Luồng chính', 'Main flow'],
+      phase1ColStakeholder: ['Bên liên quan', 'Stakeholder'],
+      phase1ColEntity: ['Thực thể', 'Entity'],
+      phase1ColImportSet: ['Bộ nhập', 'Import set'],
+      phase1ColAnalysisStatus: ['Trạng thái phân tích', 'Analysis status'],
+      phase1FieldTrigger: ['Kích hoạt', 'Trigger'],
+      phase1FieldCrIds: ['Mã CR', 'CR IDs'],
+      phase1FieldAcceptanceCriteria: ['Tiêu chí chấp nhận', 'Acceptance criteria'],
+      projectHubTabBoard: ['Bảng', 'Board'],
+      projectHubTabPlanning: ['Backlog', 'Backlog'],
+      phaseQaTestCasesTitle: ['Ca kiểm thử', 'Test case'],
+    };
+    for (const [key, [viLabel, enLabel]] of Object.entries(pairs)) {
+      assert.equal(vi[key], viLabel, `vi ${key}`);
+      assert.equal(en[key], enLabel, `en ${key}`);
     }
-    assert.equal(vi.phase1ColKey, 'Mã');
-    assert.equal(en.phase1ColKey, 'ID');
-    assert.equal(vi.phase1ColAnalysisStatus, 'Trạng thái phân tích');
-    assert.equal(en.phase1FieldCrIds, 'Customer Requirement IDs');
   });
 });
