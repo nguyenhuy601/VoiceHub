@@ -2,12 +2,19 @@
  * HITL journey stepper — Input → Gate1 → HOW → Gate2 → Create project.
  */
 const STEPS = Object.freeze([
-  { id: 'intake', labelKey: 'requirements.hitlStepIntake' },
-  { id: 'gate1', labelKey: 'requirements.hitlStepGate1' },
-  { id: 'how', labelKey: 'requirements.hitlStepHow' },
-  { id: 'gate2', labelKey: 'requirements.hitlStepGate2' },
-  { id: 'create', labelKey: 'requirements.hitlStepCreate' },
+  { id: 'intake', labelKey: 'requirements.hitlStepIntake', fallback: 'Đầu vào' },
+  { id: 'gate1', labelKey: 'requirements.hitlStepGate1', fallback: 'Gate 1' },
+  { id: 'how', labelKey: 'requirements.hitlStepHow', fallback: 'HOW' },
+  { id: 'gate2', labelKey: 'requirements.hitlStepGate2', fallback: 'Gate 2' },
+  { id: 'create', labelKey: 'requirements.hitlStepCreate', fallback: 'Tạo dự án' },
 ]);
+
+/** t() trả về chính key khi thiếu bản dịch — chuỗi đó vẫn truthy nên `||` không chạy. */
+function textOr(t, key, fallback) {
+  const value = typeof t === 'function' ? t(key) : '';
+  if (value == null || value === '' || value === key) return fallback;
+  return value;
+}
 
 /**
  * @param {{ packStatus?: string, projectPlanStatus?: string, t: Function }} props
@@ -31,7 +38,7 @@ export default function RequirementHitlJourney({ packStatus = '', projectPlanSta
 
   return (
     <nav
-      aria-label={t('requirements.hitlJourneyLabel') || 'AI Project HITL'}
+      aria-label={textOr(t, 'requirements.hitlJourneyLabel', 'AI Project HITL')}
       className="mb-4 rounded-lg border border-border bg-muted/20 px-3 py-2"
     >
       <ol className="flex flex-wrap items-center gap-1 text-[11px] sm:gap-2 sm:text-xs">
@@ -54,7 +61,7 @@ export default function RequirementHitlJourney({ packStatus = '', projectPlanSta
                       : 'text-muted-foreground'
                 }
               >
-                {t(step.labelKey) || step.id}
+                {textOr(t, step.labelKey, step.fallback)}
               </span>
             </li>
           );

@@ -1,15 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import {
-  FileSearch,
-  Loader2,
-  ListChecks,
-  Send,
-  Sparkles,
-  CheckCircle2,
-  Eye,
-} from 'lucide-react';
+import { Loader2, ListChecks, Sparkles, Eye } from 'lucide-react';
 import { requirementAPI } from '../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
@@ -17,9 +9,20 @@ import { buildPhase1ModulePath } from './nav/phase1NavConfig';
 import { buildCollaborateRequirementsPath } from '../../../utils/suitePathUtils';
 import { approveRequirementPackWithGate1, formatGate1ApproveError } from '../../requirements/approveRequirementPackWithGate1';
 import RequirementHitlJourney from '../../requirements/RequirementHitlJourney';
+import { waitForPhaseWhatJob } from './hooks/usePhaseWhatRunMonitor';
+import Phase1AiRequirementProgress from './Phase1AiRequirementProgress';
+import Phase1DataGateReviewModal from './Phase1DataGateReviewModal';
+import Phase1Gate1ReviewModal from './Phase1Gate1ReviewModal';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
+}
+
+/** t() trả về chính key khi thiếu bản dịch — `|| fallback` không bắt được. */
+function textOr(t, key, vars) {
+  const value = typeof t === 'function' ? t(key, vars) : undefined;
+  if (value == null || value === '' || value === key) return '';
+  return value;
 }
 
 /**
@@ -38,7 +41,8 @@ export default function RequirementPhase1PipelinePanel({
   canApprove = false,
   onPipelineDone,
 }) {
-  const { t } = useAppStrings();
+  const { t: translate } = useAppStrings();
+  const t = useCallback((key, vars) => textOr(translate, key, vars), [translate]);
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [busyStage, setBusyStage] = useState(null);
@@ -46,8 +50,13 @@ export default function RequirementPhase1PipelinePanel({
   const [projectPlanStatus, setProjectPlanStatus] = useState('');
   const [stage1Meta, setStage1Meta] = useState(null);
   const [stage2Meta, setStage2Meta] = useState(null);
-  const [loop1Feedback, setLoop1Feedback] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [runMonitor, setRunMonitor] = useState(null);
+  const [pipeline, setPipeline] = useState(null);
+  const [activeRunId, setActiveRunId] = useState('');
+  const [dataGateOpen, setDataGateOpen] = useState(false);
+  const [dataGatePreview, setDataGatePreview] = useState(null);
+  const [gate1Open, setGate1Open] = useState(false);
 
   const isAi = String(analysisMode || '').toLowerCase() === 'ai';
   const gate1Done = packStatus === 'approved' || packStatus === 'project_linked';
@@ -135,139 +144,224 @@ export default function RequirementPhase1PipelinePanel({
     return pack;
   }, [organizationId, packId]);
 
-  useEffect(() => {
-    if (!isAi || !organizationId || !packId) return undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        if (!cancelled) await refresh();
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isAi, organizationId, packId, refresh]);
+  const showDataGate = useCallback((live) => {
+    setActiveRunId(String(live?.runId || ''));
+    setDataGatePreview(live?.gatePreview || null);
+    setDataGateOpen(true);
+    setPipeline({
+      step: Number(live?.pipelineStep) || 2,
+      substep: live?.pipelineSubstep || 'gate_preview',
+    });
+  }, []);
 
-  const runStage1 = async () => {
-    if (!canRun || busy || !organizationId || !packId) return;
-    setBusy(true);
-    setBusyStage(1);
-    setErrorMsg('');
+  const loadGatePage = useCallback(
+    async ({ offset, limit }) => {
+      const packRes = await requirementAPI.getPack(organizationId, packId, {
+        view: 'full',
+        gateRowOffset: offset,
+        gateRowLimit: limit,
+      });
+      const pack = unwrap(packRes);
+      return pack?.liveRun?.gatePreview || null;
+    },
+    [organizationId, packId]
+  );
+
+  const followRun = useCallback(async (signal, { keepBusy = false } = {}) => {
+    if (!keepBusy) {
+      setBusy(true);
+      setBusyStage(2);
+    }
+    let softHintShown = false;
     try {
-      const res = await requirementAPI.startPhaseAiPlanning(organizationId, packId, {
-        phase: 'what',
-        mode: 'prepare_only',
+      const result = await waitForPhaseWhatJob({
+        refresh,
+        signal,
+        onTick: (tick) => {
+          setRunMonitor({
+            stage: tick.stage || '',
+            computeStatus: tick.computeStatus || '',
+            callbackStatus: tick.callbackStatus || '',
+          });
+          if (tick.pipelineStep) {
+            setPipeline({ step: tick.pipelineStep, substep: tick.pipelineSubstep || null });
+          }
+          if (tick.liveRun?.runId) setActiveRunId(String(tick.liveRun.runId));
+          if (tick.softHint && !softHintShown) {
+            softHintShown = true;
+            toast(
+              t('requirements.phase1Stage2StillRunning') ||
+                'AI analysis vẫn đang chạy — bạn có thể rời màn hình và quay lại sau.'
+            );
+          }
+        },
       });
-      const data = unwrap(res);
-      setStage1Meta({
-        intakeCorpusChars: Number(data?.intakeCorpusChars) || 0,
-        excerptsCount: Number(data?.excerptsCount) || 0,
-        skippedCount: Number(data?.skippedCount) || 0,
-        missing: data?.readiness?.missing || [],
-        prefillApplied: Boolean(data?.readiness?.prefillApplied),
-        status: String(data?.status || ''),
-      });
-      if (data?.status) setPackStatus(String(data.status));
+      if (result?.awaitingGate === 'data_review') {
+        showDataGate(result.liveRun);
+        return;
+      }
       toast.success(
-        t('requirements.phase1Stage1Ok') || 'Đoạn 1: đã chuẩn bị dữ liệu đầu vào.'
+        t('requirements.phase1RunOk') || 'AI Requirement đã xong — mở review Gate 1.'
       );
+      setPipeline({ step: 5, substep: null });
+      setGate1Open(true);
+      onPipelineDone?.(result?.phaseWhat);
       await refresh();
     } catch (error) {
+      if (error?.code === 'PHASE_WHAT_ABORTED') return;
       const msg = resolveApiErrorMessage(error, {
         t,
-        fallback: t('requirements.phase1Stage1Fail') || 'Không chuẩn bị được Đoạn 1.',
+        fallback: t('requirements.phase1RunFail') || 'Không chạy được AI Requirement.',
       });
       setErrorMsg(msg);
       toast.error(msg);
     } finally {
-      setBusy(false);
-      setBusyStage(null);
+      if (!keepBusy) {
+        setBusy(false);
+        setBusyStage(null);
+        setRunMonitor(null);
+      }
     }
-  };
+  }, [onPipelineDone, refresh, showDataGate, t]);
 
-  const runStage2 = async () => {
-    if (!canRun || busy || !organizationId || !packId) return;
+  const followRunRef = useRef(followRun);
+  followRunRef.current = followRun;
+
+  useEffect(() => {
+    if (!isAi || !organizationId || !packId) return undefined;
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const pack = await refresh();
+        if (ac.signal.aborted || !pack) return;
+        const phase = pack?.aiAnalysis?.phaseRuns?.phase_what;
+        const live = pack?.liveRun;
+        const status = String(pack?.status || '');
+        if (phase?.status === 'pending' && phase?.remoteRunId) {
+          setActiveRunId(String(phase.remoteRunId));
+          if (live?.status === 'waiting_human' && live?.gate === 'data_review') {
+            showDataGate({ ...live, runId: live.runId || phase.remoteRunId });
+            return;
+          }
+          await followRunRef.current(ac.signal);
+          return;
+        }
+        if (phase?.status === 'ready' && status !== 'approved' && status !== 'project_linked') {
+          setPipeline({ step: 5, substep: null });
+          setGate1Open(true);
+        }
+        if (status === 'approved' || status === 'project_linked') {
+          setPipeline({ step: 6, substep: null });
+        }
+      } catch (error) {
+        if (error?.code === 'PHASE_WHAT_ABORTED') return;
+      }
+    })();
+    return () => ac.abort();
+  }, [isAi, organizationId, packId, refresh, showDataGate]);
+
+  const runAiRequirement = async () => {
+    if (!canRun || busy || dataGateOpen || !organizationId || !packId) return;
     setBusy(true);
-    setBusyStage(2);
+    setBusyStage(1);
     setErrorMsg('');
+    setGate1Open(false);
+    setPipeline({ step: 1, substep: 'prepare' });
     try {
-      const feedback = String(loop1Feedback || '').trim().slice(0, 2000);
+      const prepRes = await requirementAPI.startPhaseAiPlanning(organizationId, packId, {
+        phase: 'what',
+        mode: 'prepare_only',
+      });
+      const prepared = unwrap(prepRes);
+      const missing = prepared?.readiness?.missing || [];
+      setStage1Meta({
+        intakeCorpusChars: Number(prepared?.intakeCorpusChars) || 0,
+        excerptsCount: Number(prepared?.excerptsCount) || 0,
+        skippedCount: Number(prepared?.skippedCount) || 0,
+        missing,
+        prefillApplied: Boolean(prepared?.readiness?.prefillApplied),
+        status: String(prepared?.status || ''),
+      });
+      if (prepared?.status) setPackStatus(String(prepared.status));
+      const blocking = missing.filter(
+        (code) => code === 'empty_intake_corpus' || code === 'no_analysis_snapshot'
+      );
+      if (blocking.length) {
+        const msg =
+          t('requirements.phase1InputBlocked', { codes: blocking.join(', ') }) ||
+          `Thiếu dữ liệu đầu vào: ${blocking.join(', ')}`;
+        setErrorMsg(msg);
+        toast.error(msg);
+        return;
+      }
+
+      setBusyStage(2);
+      setPipeline({ step: 2, substep: 'parse' });
       const res = await requirementAPI.startPhaseAiPlanning(organizationId, packId, {
         phase: 'what',
         mode: 'g4',
         force: Boolean(stage2Meta?.done),
-        ...(feedback ? { feedback } : {}),
       });
       const data = unwrap(res);
       const acceptedRemote =
         res?.status === 202 ||
         (data?.accepted === true && data?.remote === true) ||
         data?.httpStatus === 202;
-
-      if (acceptedRemote) {
-        const deadline = Date.now() + 300_000;
-        let ready = false;
-        while (Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 2000));
-          const pack = await refresh();
-          const phaseWhat = pack?.aiAnalysis?.phaseRuns?.phase_what;
-          if (phaseWhat?.status === 'ready') {
-            ready = true;
-            break;
-          }
-          if (phaseWhat?.status === 'failed') {
-            throw new Error(
-              phaseWhat?.error?.message ||
-                t('requirements.phase1Stage2Fail') ||
-                'G4 Understanding failed'
-            );
-          }
-        }
-        if (!ready) {
-          throw new Error(
-            t('requirements.phase1Stage2Timeout') ||
-              'G4 Understanding đang chạy quá lâu — thử làm mới trang.'
-          );
-        }
-        toast.success(
-          t('requirements.phase1Stage2G4Ok') ||
-            'Đoạn 2: G4 Understanding sẵn sàng — tiếp tục Gate 1.'
-        );
-      } else {
-        setStage2Meta({
-          done: true,
-          toolsRan: Boolean(data?.toolsRan),
-          gateAPassed: Boolean(data?.gateAPassed),
-          factsCount: Number(data?.factsCount) || 0,
-          proposedDeltaCount: Number(data?.proposedDeltaCount) || 0,
-          seededArtifactCount: Number(data?.seededArtifactCount) || 0,
-          skippedLlm: Boolean(data?.skippedLlm),
-          status: String(data?.status || ''),
-        });
-        toast.success(
-          t('requirements.phase1Stage2Ok') ||
-            'Đoạn 2: tools + đề xuất SRS đã đổ vào pack/artifacts.'
-        );
+      if (!acceptedRemote) {
+        const msg = t('requirements.phase1RunFail') || 'Không chạy được AI Requirement.';
+        setErrorMsg(msg);
+        toast.error(msg);
+        return;
       }
-      if (data?.status) setPackStatus(String(data.status));
-      if (data?.feedbackApplied) setLoop1Feedback('');
-      onPipelineDone?.(data);
-      await refresh();
-      if (projectId) {
-        navigate(buildPhase1ModulePath(projectId, 'analysis-fr', { organizationId }));
-      }
+      if (data?.runId) setActiveRunId(String(data.runId));
+      await followRun(undefined, { keepBusy: true });
     } catch (error) {
       const msg = resolveApiErrorMessage(error, {
         t,
-        fallback: t('requirements.phase1Stage2Fail') || 'Không chạy được Đoạn 2.',
+        fallback: t('requirements.phase1RunFail') || 'Không chạy được AI Requirement.',
       });
       setErrorMsg(msg);
       toast.error(msg);
     } finally {
       setBusy(false);
       setBusyStage(null);
+      setRunMonitor(null);
+    }
+  };
+
+  const decideDataGate = async (decision) => {
+    if (!organizationId || !packId || !activeRunId || busy) return;
+    setBusy(true);
+    setDataGateOpen(false);
+    try {
+      await requirementAPI.resumePhaseWhatDataGate(organizationId, packId, {
+        runId: activeRunId,
+        decision,
+      });
+      if (decision === 'reject') {
+        toast(
+          t('requirements.phase1DataGateRejected') ||
+            'Đã dừng ở cổng dữ liệu. Sửa artifact rồi chạy lại.'
+        );
+        setPipeline(null);
+        await refresh();
+        return;
+      }
+      setBusyStage(2);
+      setPipeline({ step: 3, substep: 'semantic' });
+      await followRun(undefined, { keepBusy: true });
+    } catch (error) {
+      setDataGateOpen(true);
+      const msg = resolveApiErrorMessage(error, {
+        t,
+        fallback: t('requirements.phase1RunFail') || 'Không chạy được AI Requirement.',
+      });
+      setErrorMsg(msg);
+      toast.error(msg);
+    } finally {
+      setBusy(false);
+      setBusyStage(null);
+      setRunMonitor(null);
     }
   };
 
@@ -301,6 +395,8 @@ export default function RequirementPhase1PipelinePanel({
         t,
       });
       setPackStatus('approved');
+      setGate1Open(false);
+      setPipeline({ step: 6, substep: null });
       toast.success(t('requirements.approveOk') || 'Gate 1 đã duyệt (SRS Canonical).');
       onPipelineDone?.({ status: 'approved' });
       await refresh();
@@ -335,7 +431,10 @@ export default function RequirementPhase1PipelinePanel({
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>
-          {t('requirements.understandingPackStatus') || 'Pack'}: {packStatus || '—'}
+          {t('requirements.understandingPackStatus') || 'Pack'}:{' '}
+          {packStatus
+            ? t(`requirements.status.${packStatus}`) || packStatus
+            : '—'}
         </span>
         {stage1Meta ? (
           <>
@@ -431,57 +530,44 @@ export default function RequirementPhase1PipelinePanel({
       {errorMsg ? (
         <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">{errorMsg}</p>
       ) : null}
+      {runMonitor && busyStage === 2 ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {t('requirements.phase1JobMonitor', {
+            stage: runMonitor.stage || '—',
+            compute: runMonitor.computeStatus || '—',
+            callback: runMonitor.callbackStatus || '—',
+          }) ||
+            `Job: ${runMonitor.stage || '—'} · compute ${runMonitor.computeStatus || '—'} · callback ${runMonitor.callbackStatus || '—'}`}
+          {runMonitor.computeStatus === 'completed' &&
+          runMonitor.callbackStatus &&
+          runMonitor.callbackStatus !== 'acked'
+            ? ` — ${t('requirements.phase1Finalizing') || 'Đang ghi kết quả…'}`
+            : null}
+        </p>
+      ) : null}
+
+      <Phase1AiRequirementProgress
+        step={gate1Done ? 6 : pipeline?.step || (stage2Meta?.done ? 5 : 0)}
+        substep={gate1Done ? null : pipeline?.substep || null}
+        t={t}
+      />
 
       {!gate1Done ? (
-        <div className="mt-3 space-y-2">
-          <label className="block text-xs text-muted-foreground">
-            {t('requirements.phase1Loop1Label') ||
-              'Loop 1 — Feedback khi chạy lại Đoạn 2 (tuỳ chọn)'}
-            <textarea
-              value={loop1Feedback}
-              onChange={(e) => setLoop1Feedback(e.target.value.slice(0, 2000))}
-              rows={2}
-              disabled={busy}
-              placeholder={
-                t('requirements.phase1Loop1Placeholder') ||
-                'VD: Bổ sung FR đăng nhập MFA; làm rõ actor…'
-              }
-              className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground disabled:opacity-40"
-            />
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={!canRun || busy}
-              onClick={runStage1}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-40"
-            >
-              {busyStage === 1 ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <FileSearch className="h-4 w-4" />
-              )}
-              {t('requirements.phase1Stage1Cta') || 'Đoạn 1: Chuẩn bị input'}
-            </button>
-            <button
-              type="button"
-              disabled={!canRun || busy}
-              onClick={runStage2}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
-            >
-              {busyStage === 2 ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-              {stage2Meta?.done
-                ? t('requirements.phase1Stage2Rerun') || 'Chạy lại Đoạn 2 (Loop 1)'
-                : t('requirements.phase1Stage2Cta') || 'Đoạn 2: Tools + đề xuất SRS'}
-            </button>
-          </div>
+        <div className="mt-3">
+          <button
+            type="button"
+            disabled={!canRun || busy || dataGateOpen}
+            onClick={runAiRequirement}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {t('requirements.phase1RunCta') || 'Chạy AI Requirement'}
+          </button>
         </div>
       ) : (
         <p className="mt-3 text-xs text-emerald-700 dark:text-emerald-300">
+          {t('requirements.phase1ToPhase2') || 'Sang Phase 2'}
+          {' — '}
           {t('requirements.understandingGate1Done') ||
             'Gate 1 đã duyệt — có thể chạy AI Planning (HOW).'}
         </p>
@@ -515,29 +601,37 @@ export default function RequirementPhase1PipelinePanel({
           <Eye className="h-4 w-4" />
           {t('requirements.phase1PreviewCta') || 'Preview pack (làm tay)'}
         </button>
-        {!gate1Done && packStatus !== 'under_review' ? (
+        {!gate1Done && stage2Meta?.done ? (
           <button
             type="button"
-            disabled={!canSubmit || busy}
-            onClick={submitGate1}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-40"
+            onClick={() => setGate1Open(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50"
           >
-            <Send className="h-4 w-4" />
-            {t('requirements.understandingGate1Cta') || 'Gửi duyệt Gate 1'}
-          </button>
-        ) : null}
-        {!gate1Done && packStatus === 'under_review' ? (
-          <button
-            type="button"
-            disabled={!canApprove || busy}
-            onClick={approveGate1}
-            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-600/40 px-3 py-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300 disabled:opacity-40"
-          >
-            <CheckCircle2 className="h-4 w-4" />
-            {t('requirements.phase1ApproveCta') || 'Duyệt Gate 1'}
+            {t('requirements.phase1OpenGate1') || 'Mở review Gate 1'}
           </button>
         ) : null}
       </div>
+      <Phase1DataGateReviewModal
+        open={dataGateOpen}
+        preview={dataGatePreview}
+        busy={busy}
+        t={t}
+        onLoadPage={loadGatePage}
+        onPass={() => decideDataGate('pass')}
+        onReject={() => decideDataGate('reject')}
+      />
+      <Phase1Gate1ReviewModal
+        open={gate1Open && !gate1Done}
+        packStatus={packStatus}
+        canSubmit={canSubmit}
+        canApprove={canApprove}
+        summary={stage2Meta}
+        busy={busy}
+        t={t}
+        onClose={() => setGate1Open(false)}
+        onSubmit={submitGate1}
+        onApprove={approveGate1}
+      />
     </section>
   );
 }

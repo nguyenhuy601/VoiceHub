@@ -59,10 +59,16 @@ async function startRun(body) {
   return { status: res.status, data: res.data };
 }
 
-async function getRun(runId) {
+async function getRun(runId, query = {}) {
   const base = assertConfigured();
+  const params = {};
+  if (query.rowOffset != null && query.rowOffset !== '') {
+    params.rowOffset = query.rowOffset;
+    params.rowLimit = query.rowLimit;
+  }
   const res = await axios.get(`${base}/internal/runs/${encodeURIComponent(String(runId))}`, {
     headers: internalHeaders(),
+    params,
     timeout: 10000,
     validateStatus: () => true,
   });

@@ -50,6 +50,9 @@ const WhatPhaseState = Annotation.Root({
   startedAt: field(),
   hitl: field(),
   g4Opts: field(),
+  paused: field(),
+  gatePreview: field(),
+  g4Partial: field(),
 });
 
 async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
@@ -74,6 +77,9 @@ async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
     stopReason: state.stopReason,
     feasibilitySignal: state.feasibilitySignal,
     g4Understanding: state.g4Understanding,
+    ...(state.g4Opts?.priorPartial
+      ? { g4Partial: state.g4Opts.priorPartial, dataGateDecision: 'pass', gate: null }
+      : {}),
     ...extra,
   });
 }
@@ -98,6 +104,10 @@ function buildWhatPhaseGraph(hooks = {}) {
     if (preStop.stop) {
       const history = [...(state.history || []), `stop:${preStop.reason}`];
       return { history, stopReason: preStop.reason };
+    }
+
+    if (state.g4Opts?.priorPartial) {
+      return { history: [...(state.history || []), 'resume:data_gate'] };
     }
 
     onProgress?.({ node: 'understand', phase: 'what' });
@@ -165,7 +175,46 @@ function buildWhatPhaseGraph(hooks = {}) {
       snapshot: state.snapshot,
       pack: state.pack,
       ...(state.g4Opts || {}),
+      onProgress: async (evt) => {
+        if (!onProgress) return;
+        await onProgress({
+          ...evt,
+          phase: 'what',
+          node: evt.substep || evt.node,
+        });
+      },
     });
+    if (g4Out?.paused) {
+      const history = [...(state.history || []), 'gate:data_review'];
+      if (onProgress) {
+        await onProgress({
+          phase: 'what',
+          node: 'gate_preview',
+          step: 2,
+          substep: 'gate_preview',
+        });
+      }
+      await persistNode(
+        { ...state, history },
+        'gate:data_review',
+        onCheckpoint,
+        {
+          g4Partial: g4Out.partial,
+          gatePreview: g4Out.gatePreview,
+          dataGateDecision: null,
+          gate: 'data_review',
+          status: 'waiting_human',
+        }
+      );
+      return {
+        paused: true,
+        stopReason: 'data_gate',
+        gatePreview: g4Out.gatePreview,
+        g4Partial: g4Out.partial,
+        history,
+        hitl: 'data_review',
+      };
+    }
     const { evaluateConflictAmbiguityGate } = require('../validation/evaluateConflictAmbiguityGate');
     const conflictAmbiguityGate = evaluateConflictAmbiguityGate({
       g4Understanding: g4Out.g4Understanding,
@@ -275,6 +324,11 @@ function buildWhatPhaseGraph(hooks = {}) {
         conflictAmbiguityGate: state.conflictAmbiguityGate,
         agentCore: 'langgraph',
         stopReason,
+        computeStatus: 'completed',
+        callbackStatus: 'pending',
+        stage: 'finalizing',
+        llm: state.g4Understanding?.meta?.llm || null,
+        candidateCount: state.g4Understanding?.meta?.candidateCount ?? null,
       },
     };
 
@@ -308,7 +362,11 @@ function buildWhatPhaseGraph(hooks = {}) {
   graph.addEdge(START, 'understand');
   graph.addEdge('understand', 'plan');
   graph.addEdge('plan', 'executeG4');
-  graph.addEdge('executeG4', 'observe');
+  graph.addConditionalEdges(
+    'executeG4',
+    (state) => (state.paused ? 'endGate' : 'observe'),
+    { endGate: END, observe: 'observe' }
+  );
   graph.addEdge('observe', 'evaluateLocal');
   graph.addEdge('evaluateLocal', 'emitFeasibility');
   graph.addEdge('emitFeasibility', END);

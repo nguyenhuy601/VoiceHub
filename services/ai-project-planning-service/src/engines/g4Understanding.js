@@ -1,6 +1,7 @@
 /**
- * G4 Requirement Understanding pipeline:
- * projection → LLM extract (optional chunks) → RequirementAnalysisTool → validate relationships.
+ * G4 Requirement Understanding entry:
+ * Default = semantic pipeline (AI_G4_PIPELINE=1).
+ * AI_G4_PIPELINE=0 → legacy chunk path (rollback).
  */
 
 const { requirementUnderstandingSkill } = require('../skills/requirementUnderstanding.skill');
@@ -10,37 +11,14 @@ const { invokeTool } = require('../registry/toolRegistry');
 const { registerDefaultTools } = require('../tools/registerDefaultTools');
 const { validateRelationships } = require('../validation/relationshipValidator');
 const { createEvidence } = require('../evidence/evidence');
-const { listFrs } = require('../tools/requirementAnalysis');
+const { resolveAiG4Policy } = require('../config/aiG4Policy');
+const { projectWhatSnapshot } = require('./g4UnderstandingLegacyProjection');
 
-const PROMPT_VERSION = 'g4-understanding-v1';
+/** @deprecated retained for rollback path only */
+const PROMPT_VERSION_LEGACY = 'g4-understanding-v1';
 const FR_CHUNK_SIZE = 16;
 const MAX_LLM_CHUNKS = 6;
 const DEFAULT_WALL_MS = 180_000;
-
-function projectWhatSnapshot(snapshot = {}) {
-  const frs = listFrs(snapshot).slice(0, 200);
-  return {
-    snapshotId: snapshot.snapshotId || snapshot.id || null,
-    packId: snapshot.packId || null,
-    overview: {
-      requirementName: snapshot.overview?.requirementName || snapshot.overview?.name || null,
-      summary: snapshot.overview?.summary || snapshot.overview?.description || null,
-    },
-    functionalRequirements: frs.map((fr, i) => ({
-      id: String(fr.id || fr._id || fr.externalId || `FR-${i + 1}`),
-      title: fr.title || fr.name || null,
-      description: String(fr.description || '').slice(0, 400),
-      ac: String(fr.ac || fr.acceptanceCriteria || '').slice(0, 200),
-      priority: fr.priority || null,
-      module: fr.module || null,
-      feature: fr.feature || null,
-      parentId: fr.parentId || fr.parentExternalId || null,
-      dependency: fr.dependency || fr.dependsOn || null,
-      level: fr.level || 'Requirement',
-    })),
-    // RULE-06: no employees / calendar in WHAT projection
-  };
-}
 
 function chunkArray(items, size) {
   const out = [];
@@ -74,9 +52,6 @@ function mergeLlmCandidates(chunksData = []) {
   return { relationships, ambiguities, assumptions };
 }
 
-/**
- * Attach evidence stubs to LLM relationship candidates (RULE-10).
- */
 function attachLlmRelationshipEvidence(rels, snapshotId) {
   return (rels || []).map((rel) => {
     if (Array.isArray(rel.evidence) && rel.evidence.length) return rel;
@@ -93,10 +68,8 @@ function attachLlmRelationshipEvidence(rels, snapshotId) {
   });
 }
 
-/**
- * @param {{ snapshot?: object, pack?: object, env?: object, generateJsonFn?: Function, wallMs?: number, forceHeuristic?: boolean }} opts
- */
-async function runG4Understanding(opts = {}) {
+/** Legacy chunk×wall path — only when AI_G4_PIPELINE=0 */
+async function runG4UnderstandingLegacy(opts = {}) {
   registerDefaultTools();
   const startedAt = Date.now();
   const env = opts.env || process.env;
@@ -124,18 +97,16 @@ async function runG4Understanding(opts = {}) {
         lastError = 'wall_budget';
         break;
       }
-      const prompt = buildExtractPrompt(projected, chunk);
       const result = await generate({
-        prompt,
+        prompt: buildExtractPrompt(projected, chunk),
         numPredict: 512,
         numCtx: 4096,
         timeoutMs: Math.min(120000, wallMs - (Date.now() - startedAt)),
         env,
       });
       llmCalls += result.skipped ? 0 : 1;
-      if (result.ok && result.data) {
-        llmChunkData.push(result.data);
-      } else if (!result.skipped) {
+      if (result.ok && result.data) llmChunkData.push(result.data);
+      else if (!result.skipped) {
         partial = true;
         lastError = result.error || 'ollama_error';
       }
@@ -143,34 +114,22 @@ async function runG4Understanding(opts = {}) {
   }
 
   const llmMerged = mergeLlmCandidates(llmChunkData);
-
   const toolOut = await invokeTool(
     'RequirementAnalysisTool',
     { ...projected, snapshotId: projected.snapshotId, packId: projected.packId },
-    {
-      contextName: 'understanding',
-      requiresSatisfied: { snapshot: true },
-    }
+    { contextName: 'understanding', requiresSatisfied: { snapshot: true } }
   );
-
   const toolResult = toolOut?.result || {};
   const toolEvidence = Array.isArray(toolOut?.evidence) ? toolOut.evidence : [];
-
   const requirements = Array.isArray(toolResult.requirements)
     ? toolResult.requirements
     : projected.functionalRequirements;
-
   const llmRels = attachLlmRelationshipEvidence(llmMerged.relationships, projected.snapshotId);
   const combinedRels = [
     ...(Array.isArray(toolResult.relationships) ? toolResult.relationships : []),
     ...llmRels,
   ];
-
-  const validation = validateRelationships({
-    requirements,
-    relationships: combinedRels,
-  });
-
+  const validation = validateRelationships({ requirements, relationships: combinedRels });
   const ambiguities = [
     ...(Array.isArray(toolResult.ambiguities) ? toolResult.ambiguities : []),
     ...llmMerged.ambiguities,
@@ -179,7 +138,6 @@ async function runG4Understanding(opts = {}) {
     ...(Array.isArray(toolResult.assumptions) ? toolResult.assumptions : []),
     ...llmMerged.assumptions,
   ];
-
   if (!validation.ok) {
     for (const err of validation.errors) {
       if (err.code === 'REL_CIRCULAR') {
@@ -191,12 +149,10 @@ async function runG4Understanding(opts = {}) {
       }
     }
   }
-
   const evidence = [
     ...toolEvidence,
     ...validation.accepted.flatMap((r) => r.evidence || []),
   ];
-
   const g4Understanding = {
     requirements,
     relationships: validation.accepted,
@@ -209,28 +165,33 @@ async function runG4Understanding(opts = {}) {
       model: llmCalls > 0 ? modelInfo.model : null,
       skillId: skillLoad.skill?.skillId || requirementUnderstandingSkill.skillId,
       skillVersion: skillLoad.skill?.version || requirementUnderstandingSkill.version,
-      promptVersion: PROMPT_VERSION,
+      promptVersion: PROMPT_VERSION_LEGACY,
       llmCalls,
       partial: Boolean(partial || !validation.ok),
       lastError,
       durationMs: Math.max(0, Date.now() - startedAt),
       validationOk: validation.ok,
+      pipeline: 'legacy_chunk',
     },
   };
+  return { g4Understanding, projected, validation, skill: skillLoad.skill, model: modelInfo };
+}
 
-  return {
-    g4Understanding,
-    projected,
-    validation,
-    skill: skillLoad.skill,
-    model: modelInfo,
-  };
+async function runG4Understanding(opts = {}) {
+  const env = opts.env || process.env;
+  const policy = resolveAiG4Policy(env);
+  if (!policy.pipelineEnabled) {
+    return runG4UnderstandingLegacy(opts);
+  }
+  const { runG4Pipeline } = require('./g4/runG4Pipeline');
+  return runG4Pipeline(opts);
 }
 
 module.exports = {
-  PROMPT_VERSION,
+  PROMPT_VERSION: PROMPT_VERSION_LEGACY,
   FR_CHUNK_SIZE,
   MAX_LLM_CHUNKS,
   projectWhatSnapshot,
   runG4Understanding,
+  runG4UnderstandingLegacy,
 };

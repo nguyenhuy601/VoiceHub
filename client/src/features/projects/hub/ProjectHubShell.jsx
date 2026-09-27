@@ -1,4 +1,5 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, LayoutGrid, Loader2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
@@ -24,7 +25,8 @@ import ProjectHubArchiveProjectModal from './ProjectHubArchiveProjectModal';
 import ProjectHubOverviewCharts from './ProjectHubOverviewCharts';
 import useSprintAutoCompletePrompt from './useSprintAutoCompletePrompt';
 import { isBoardSprintReady } from './projectHubHierarchy';
-import { isProjectChatTabEnabled } from '../../../utils/suitePathUtils';
+import { buildProjectsPickerPath, isProjectChatTabEnabled } from '../../../utils/suitePathUtils';
+import { writeStoredLastProjectId } from '../picker/projectPickerRemember';
 import {
   PROJECT_HUB_TABS,
   buildOverviewDashboardCharts,
@@ -951,6 +953,7 @@ export default function ProjectHubShell({
   onModuleChange = null,
 }) {
   const { t } = useAppStrings();
+  const navigate = useNavigate();
   const [tab, setTabState] = useState(() =>
     activeModule && typeof activeModule === 'string' ? activeModule : 'overview'
   );
@@ -2150,12 +2153,19 @@ export default function ProjectHubShell({
           }
           onClose={() => setArchiveProjectOpen(false)}
           onArchived={() => {
+            const deletedDraft = isDraftProject;
             toast.success(
-              isDraftProject
+              deletedDraft
                 ? t('workspace.projectHubDeleteDraftSuccess')
                 : t('workspace.projectHubArchiveSuccess')
             );
             setArchiveProjectOpen(false);
+            if (deletedDraft) {
+              writeStoredLastProjectId('');
+              void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+              navigate(buildProjectsPickerPath(organizationId), { replace: true });
+              return;
+            }
             onBack?.();
           }}
         />
