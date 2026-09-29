@@ -13,6 +13,12 @@ function buildSemanticPrompt(batch = []) {
     JSON.stringify(
       batch.map((c) => ({
         frId: c.frId,
+        name: c.name || null,
+        description: c.description || null,
+        moduleLabel: c.module || null,
+        actor: Array.isArray(c.actors) ? c.actors.join(', ') : c.actors || null,
+        acceptanceCriteria: c.acceptanceCriteria || null,
+        priority: c.priority || null,
         text: c.text,
         signals: {
           actors: c.actors,

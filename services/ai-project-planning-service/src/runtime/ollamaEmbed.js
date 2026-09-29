@@ -58,22 +58,47 @@ async function embedText(opts = {}) {
     };
   }
 
+  const timeout = Number(env.G7_EMBED_TIMEOUT_MS || 60000);
+  const httpOpts = { timeout, validateStatus: () => true };
+
   try {
-    const res = await http.post(
+    const legacy = await http.post(
       `${baseUrl}/api/embeddings`,
       { model, prompt: text },
-      { timeout: Number(env.G7_EMBED_TIMEOUT_MS || 60000), validateStatus: () => true }
+      httpOpts
     );
-    const embedding = res.data?.embedding;
-    if (res.status >= 200 && res.status < 300 && Array.isArray(embedding) && embedding.length) {
-      return { ok: true, embedding, model, embeddingVersion: version };
+    const legacyVector = legacy.data?.embedding;
+    if (
+      legacy.status >= 200 &&
+      legacy.status < 300 &&
+      Array.isArray(legacyVector) &&
+      legacyVector.length
+    ) {
+      return { ok: true, embedding: legacyVector, model, embeddingVersion: version };
     }
+
+    const modern = await http.post(
+      `${baseUrl}/api/embed`,
+      { model, input: text },
+      httpOpts
+    );
+    const modernVector = modern.data?.embeddings?.[0];
+    if (
+      modern.status >= 200 &&
+      modern.status < 300 &&
+      Array.isArray(modernVector) &&
+      modernVector.length
+    ) {
+      return { ok: true, embedding: modernVector, model, embeddingVersion: version };
+    }
+
+    const status = modern.status || legacy.status;
     return {
       ok: false,
       embedding: [],
       model,
       embeddingVersion: version,
-      error: `embed_http_${res.status}`,
+      error: `embed_http_${status}`,
     };
   } catch (error) {
     return {

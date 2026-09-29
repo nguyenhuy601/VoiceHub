@@ -79,10 +79,10 @@ describe('buildWhatIntakePromptBlock', () => {
 
   it('respects maxChars budget', () => {
     const block = buildWhatIntakePromptBlock(
-      { excerpts: [{ filename: 'big.txt', text: 'x'.repeat(5000) }] },
+      { excerpts: [{ filename: 'big.txt', text: 'x'.repeat(5000), method: 'utf8' }] },
       { maxChars: 500 }
     );
-    assert.match(block, /INTAKE_CORPUS/);
+    assert.match(block, /DOCUMENT_CORPUS/);
     assert.ok(block.length <= 500);
   });
 
@@ -90,7 +90,9 @@ describe('buildWhatIntakePromptBlock', () => {
     const block = buildWhatIntakePromptBlock(
       {
         aiAnalysis: {
-          intakeCorpus: { excerpts: [{ filename: 'a.txt', text: 'from pack' }] },
+          intakeCorpus: {
+            excerpts: [{ filename: 'a.txt', text: 'from pack', method: 'utf8' }],
+          },
         },
       },
       { maxChars: 8000 }
@@ -98,10 +100,25 @@ describe('buildWhatIntakePromptBlock', () => {
     assert.match(block, /from pack/);
   });
 
+  it('excludes xlsx workbook flatten from requirement prompts', () => {
+    const block = buildWhatIntakePromptBlock(
+      {
+        excerpts: [
+          { filename: 'raw.xlsx', text: 'A | B | C', method: 'xlsx' },
+          { filename: 'note.txt', text: 'plain note', method: 'utf8' },
+        ],
+      },
+      { maxChars: 8000 }
+    );
+    assert.match(block, /plain note/);
+    assert.equal(block.includes('A | B | C'), false);
+    assert.equal(block.includes('INTAKE_CORPUS'), false);
+  });
+
   it('maxChars 0 disables inject', () => {
     assert.equal(
       buildWhatIntakePromptBlock(
-        { excerpts: [{ filename: 'a.txt', text: 'hi' }] },
+        { excerpts: [{ filename: 'a.txt', text: 'hi', method: 'utf8' }] },
         { maxChars: 0 }
       ),
       ''
@@ -113,7 +130,9 @@ describe('buildWhatIntakePromptBlock', () => {
     process.env.WHAT_INTAKE_PROMPT_MAX_CHARS = '0';
     assert.equal(resolveWhatIntakePromptMaxChars(), 0);
     assert.equal(
-      buildWhatIntakePromptBlock({ excerpts: [{ filename: 'a.txt', text: 'hi' }] }),
+      buildWhatIntakePromptBlock({
+        excerpts: [{ filename: 'a.txt', text: 'hi', method: 'utf8' }],
+      }),
       ''
     );
   });

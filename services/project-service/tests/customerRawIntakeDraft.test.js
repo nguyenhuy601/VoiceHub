@@ -1,5 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const XLSX = require('xlsx');
 
 const {
@@ -27,6 +29,24 @@ function buildWorkbookBuffer(sheets) {
   }
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
+
+describe('wizard intake routes', () => {
+  const routesSrc = fs.readFileSync(
+    path.join(__dirname, '../src/routes/requirement.routes.js'),
+    'utf8'
+  );
+  const controllerSrc = fs.readFileSync(
+    path.join(__dirname, '../src/controllers/requirement.controller.js'),
+    'utf8'
+  );
+
+  it('registers intake-draft and pack customer-documents', () => {
+    assert.match(routesSrc, /router\.post\('\/intake-draft', controller\.createIntakeDraft\)/);
+    assert.match(routesSrc, /'\/:packId\/customer-documents'/);
+    assert.match(controllerSrc, /createIntakeDraftPack/);
+    assert.match(controllerSrc, /uploadPackCustomerDocument/);
+  });
+});
 
 describe('isCustomerRawTemplateType', () => {
   it('accepts CustomerRaw variants', () => {

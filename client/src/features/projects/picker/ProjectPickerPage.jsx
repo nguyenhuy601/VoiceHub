@@ -43,7 +43,7 @@ export default function ProjectPickerPage() {
     loading: projectsLoading,
     isError: projectsError,
     reload: reloadProjects,
-  } = useOrgProjectsList(orgId, { excludeClosed: true });
+  } = useOrgProjectsList(orgId, { excludeClosed: false });
   const { canCreateProjectCapability, loading: scopeLoading } = useTaskWorkspaceScope(orgId);
   const { access: requirementAccess, loading: requirementAccessLoading } =
     useRequirementAccess(orgId);

@@ -11,7 +11,19 @@ const {
 } = require('../utils/requirement/requirementExcelPreview');
 const { buildSyntheticExcelPreviewFromPack } = require('../utils/requirement/requirementPackPreviewFallback');
 const objectStorage = require('../utils/common/objectStorage');
-const { assertRequirementPermission } = require('./requirementAccess.service');
+const {
+  assertRequirementPermission,
+  assertRequirementImportOrCreateProjectScope,
+} = require('./requirementAccess.service');
+const {
+  peekCustomerRawTemplateType,
+  parseCustomerRawContext,
+  isCustomerRawTemplateType,
+} = require('../utils/requirement/customerRawContextParse');
+const { CUSTOMER_RAW_TEMPLATE_TYPE } = require('../constants/customerRawTemplate.constants');
+const {
+  mapCustomerRawToProjectIntakeDraft,
+} = require('../utils/requirement/mapCustomerRawToProjectIntakeDraft');
 const {
   pickPlanningReadinessSummary,
   assertPreviewReadyForImport,
@@ -19,8 +31,6 @@ const {
 const { mapParsedToPackPayload } = require('../utils/requirement/mapParsedToPackPayload');
 
 async function previewRequirementImport({ userId, organizationId, fileBuffer, fileName }) {
-  await assertRequirementPermission({ userId, organizationId, permission: 'requirement:import' });
-
   const buffer = Buffer.isBuffer(fileBuffer) ? fileBuffer : Buffer.from(fileBuffer || []);
   const {
     peekWorkbookTemplateType,
@@ -28,9 +38,40 @@ async function previewRequirementImport({ userId, organizationId, fileBuffer, fi
     parseAnalysisWorkbook,
   } = require('../utils/requirement/requirementAnalysisTemplateParse');
   const { validateAnalysisWorkbook } = require('../utils/requirement/requirementAnalysisTemplateValidate');
+  const peekedMeta = peekWorkbookTemplateType(buffer);
+  const peekedType = peekCustomerRawTemplateType(buffer) || peekedMeta;
+  if (isCustomerRawTemplateType(peekedType)) {
+    await assertRequirementImportOrCreateProjectScope({ userId, organizationId });
+    const raw = parseCustomerRawContext(buffer);
+    return {
+      sessionId: '',
+      fileName: String(fileName || '').slice(0, 255),
+      templateVersion: raw.templateVersion || '',
+      templateType: CUSTOMER_RAW_TEMPLATE_TYPE,
+      valid: true,
+      canRunAiAnalysis: false,
+      errorCount: 0,
+      warningCount: 0,
+      infoCount: 0,
+      issues: [],
+      summary: {
+        functionalRequirements: Array.isArray(raw.functionalRequirements)
+          ? raw.functionalRequirements.length
+          : 0,
+      },
+      previewTree: null,
+      excelPreview: null,
+      projectIntakeDraft: mapCustomerRawToProjectIntakeDraft(raw),
+      expiresAt: null,
+      newSkillsDetected: [],
+      newSkillsCount: 0,
+      skillResolveEnabled: false,
+    };
+  }
 
-  const peekedType = peekWorkbookTemplateType(buffer);
-  const useAnalysis = isAnalysisTemplateType(peekedType);
+  await assertRequirementPermission({ userId, organizationId, permission: 'requirement:import' });
+
+  const useAnalysis = isAnalysisTemplateType(peekedMeta);
 
   let parsed;
   let validation;

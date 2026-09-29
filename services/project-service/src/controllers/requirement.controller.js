@@ -15,8 +15,9 @@ const {
   rejectRequirementPack,
   createProjectFromRequirementPack,
   deleteRequirementPack,
+  createIntakeDraftPack,
+  uploadPackCustomerDocument,
 } = require('../services/requirementPack.service');
-const { runAiPlanningHeuristic, approveStaffingProposal, discardStaffingProposal } = require('../services/aiPlanning.service');
 const {
   getAiAnalysisSummary,
   getAiAnalysisWizardJob,
@@ -130,6 +131,59 @@ async function previewImport(req, res) {
       fileName: req.file.originalname || '',
     });
     return res.status(200).json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function createIntakeDraft(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const body = req.body || {};
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'organizationId bắt buộc' });
+    }
+    const pack = await createIntakeDraftPack({
+      userId,
+      organizationId,
+      title: body.title,
+      description: body.description,
+      customerName: body.customerName,
+      startDate: body.startDate,
+      dueDate: body.dueDate,
+      priority: body.priority,
+      sourceFileName: body.sourceFileName,
+      importSessionId: body.importSessionId,
+      analysisMode: body.analysisMode,
+      projectId: body.projectId,
+    });
+    return res.status(201).json({ success: true, data: pack });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function uploadPackCustomerDocumentCtrl(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const data = await uploadPackCustomerDocument({
+      userId,
+      organizationId,
+      packId,
+      file: req.file,
+      docClass: req.body?.docClass,
+      notes: req.body?.notes,
+    });
+    return res.status(201).json({ success: true, data });
   } catch (err) {
     return jsonError(res, err);
   }
@@ -308,14 +362,10 @@ async function runAiPlanning(req, res) {
         message: 'organizationId và packId bắt buộc',
       });
     }
-    const phase = req.body?.phase;
-    const pack = await runAiPlanningHeuristic({
-      userId,
-      organizationId,
-      packId,
-      phase,
-    });
-    return res.json({ success: true, data: pack });
+    const err = new Error('AI planning heuristic đã gỡ — dùng phase_what / phase_how');
+    err.statusCode = 410;
+    err.errorCode = 'LEGACY_AI_PLANNING_REMOVED';
+    throw err;
   } catch (err) {
     return jsonError(res, err);
   }
@@ -332,12 +382,10 @@ async function approveAiStaffing(req, res) {
         message: 'organizationId và packId bắt buộc',
       });
     }
-    const pack = await approveStaffingProposal({
-      userId,
-      organizationId,
-      packId,
-    });
-    return res.json({ success: true, data: pack });
+    const err = new Error('AI planning heuristic đã gỡ — dùng phase_what / phase_how');
+    err.statusCode = 410;
+    err.errorCode = 'LEGACY_AI_PLANNING_REMOVED';
+    throw err;
   } catch (err) {
     return jsonError(res, err);
   }
@@ -354,12 +402,10 @@ async function discardAiStaffing(req, res) {
         message: 'organizationId và packId bắt buộc',
       });
     }
-    const pack = await discardStaffingProposal({
-      userId,
-      organizationId,
-      packId,
-    });
-    return res.json({ success: true, data: pack });
+    const err = new Error('AI planning heuristic đã gỡ — dùng phase_what / phase_how');
+    err.statusCode = 410;
+    err.errorCode = 'LEGACY_AI_PLANNING_REMOVED';
+    throw err;
   } catch (err) {
     return jsonError(res, err);
   }
@@ -516,6 +562,8 @@ async function exportAiAnalysis(req, res) {
 module.exports = {
   downloadTemplate,
   previewImport,
+  createIntakeDraft,
+  uploadPackCustomerDocumentCtrl,
   confirmImport,
   getAccess,
   listPacks,
@@ -534,4 +582,5 @@ module.exports = {
   confirmAiAnalysis,
   startPhaseAiPlanning,
   exportAiAnalysis,
+  startPhaseAiPlanning,
 };

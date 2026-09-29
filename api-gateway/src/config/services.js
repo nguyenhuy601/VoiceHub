@@ -200,11 +200,49 @@ function isAuthInternalS2SPath(path) {
   );
 }
 
+/**
+ * Header token/cờ nội bộ do client có thể gắn. Gateway không forward;
+ * S2S Docker gọi thẳng service, không đi qua proxy này.
+ */
+const CLIENT_SUPPLIED_INTERNAL_HEADERS = [
+  'x-internal-token',
+  'x-chat-internal-token',
+  'x-internal-notification-token',
+  'x-realtime-token',
+  'x-vh-org-documents-internal',
+];
+
+function stripClientSuppliedInternalHeaders(headers) {
+  if (!headers || typeof headers !== 'object') return;
+  for (const name of CLIENT_SUPPLIED_INTERNAL_HEADERS) {
+    delete headers[name];
+  }
+}
+
+/**
+ * Browser không được gọi /internal trừ 3 prefix S2S.
+ * Segment `internal` (không phân biệt hoa thường) để chặn biến thể chữ hoa.
+ */
+function isUserBlockedInternalPath(path) {
+  const raw = String(path || '').split('?')[0].replace(/\/+/g, '/');
+  if (!raw) return false;
+  const withApi = raw.startsWith('/api') ? raw : normalizePath(raw);
+  const hasInternal = withApi
+    .split('/')
+    .some((segment) => segment.toLowerCase() === 'internal');
+  if (!hasInternal) return false;
+  if (isAuthInternalS2SPath(withApi) || isAuthInternalS2SPath(raw)) return false;
+  return true;
+}
+
 module.exports = {
   services,
   getServiceByPath,
   isPublicRoute,
   isAuthInternalS2SPath,
+  isUserBlockedInternalPath,
+  stripClientSuppliedInternalHeaders,
+  CLIENT_SUPPLIED_INTERNAL_HEADERS,
   normalizePath,
   resolveReqApiPath,
   isWorkspaceTaskBoardPath,

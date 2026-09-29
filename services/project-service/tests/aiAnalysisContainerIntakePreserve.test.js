@@ -24,6 +24,12 @@ describe('ensureAiAnalysisContainer intake preserve', () => {
       ],
       skillCatalogStub: { version: 'v1', skills: [] },
       sources: { skillCatalog: { version: 'v1', skillCount: 0 } },
+      workbookDiagnostic: {
+        status: 'SUCCESS',
+        reasonCodes: [],
+        rows: { validFr: 54 },
+        mappingDiagnostic: { status: 'COMPLETE', mapped: ['id', 'requirement'], missing: [] },
+      },
       phaseRuns: { phase_what: { status: 'ready', mode: 'prepare_only' } },
       analyses: {
         evidenceSpans: [{ id: 'e-span-1-1', snippet: 'hello' }],
@@ -36,6 +42,8 @@ describe('ensureAiAnalysisContainer intake preserve', () => {
     assert.equal(out.intakeCorpus.excerpts.length, 1);
     assert.equal(out.inputDocuments.length, 1);
     assert.equal(out.inputDocuments[0].filename, 'a.xlsx');
+    assert.equal(out.workbookDiagnostic.status, 'SUCCESS');
+    assert.equal(out.workbookDiagnostic.rows.validFr, 54);
     assert.equal(out.skillCatalogStub.version, 'v1');
     assert.equal(out.phaseRuns.phase_what.mode, 'prepare_only');
     assert.equal(out.analyses.evidenceSpans[0].id, 'e-span-1-1');

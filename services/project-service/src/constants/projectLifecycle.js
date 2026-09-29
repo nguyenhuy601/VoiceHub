@@ -30,7 +30,7 @@ const LEGACY_TERMINAL_PROJECT_STATUSES = Object.freeze([
  */
 const LEGACY_STATUS_MAP = Object.freeze({
   planning: 'draft',
-  ready_for_planning: 'draft',
+  ready_for_planning: 'ready',
   in_development: 'active',
   new: 'draft',
   created: 'draft',

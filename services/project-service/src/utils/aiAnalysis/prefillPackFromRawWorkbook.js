@@ -1,13 +1,21 @@
 /**
- * Prefill RequirementPack sheets from Customer Requirement Raw xlsx buffer.
- * Only fills empty fields / appends new FR ids — does not wipe existing sheets.
+ * Prefill from one Excel buffer.
+ * RULE-PREFILL-01: prefillWorkbook is pure per-file — no pack mutate, no multi-file merge.
  */
 
 const {
   parseCustomerRawContext,
+  peekCustomerRawTemplateType,
 } = require('../requirement/customerRawContextParse');
+const { CUSTOMER_RAW_TEMPLATE_TYPE } = require('../../constants/customerRawTemplate.constants');
 const { parseRequirementWorkbook } = require('../requirement/requirementTemplateParse');
 const { normId, normProse } = require('../requirement/requirementTemplateTextNorm');
+const { extractWorkbookFr } = require('../requirement/workbookFrExtract');
+const {
+  extractWorkbookCompanion,
+  emptyCustomerRawRows,
+} = require('../requirement/workbookCompanionExtract');
+const { failedDiagnostic } = require('../requirement/workbookDiagnostic');
 
 function mergeOverview(existing = {}, fromRaw = {}) {
   const next = { ...(existing || {}) };
@@ -43,113 +51,270 @@ function mergeByExternalId(existingList, incomingList) {
   return list;
 }
 
+function scopeFromContext(ctx = {}) {
+  const scope = [];
+  if (ctx.inScope) scope.push({ type: 'in', scopeType: 'in', description: ctx.inScope });
+  if (ctx.outOfScope) {
+    scope.push({ type: 'out', scopeType: 'out', description: ctx.outOfScope });
+  }
+  if (!scope.length && ctx.businessScope) {
+    scope.push({ type: 'in', scopeType: 'in', description: ctx.businessScope });
+  }
+  return scope;
+}
+
+function emptyResult(meta = {}) {
+  return {
+    functionalRequirements: [],
+    nonFunctionalRequirements: [],
+    customerRawRows: emptyCustomerRawRows(),
+    workbookDiagnostic: null,
+    overview: {},
+    scope: [],
+    meta: {
+      applied: false,
+      source: 'none',
+      ...meta,
+    },
+  };
+}
+
 /**
- * @param {object} pack — plain pack object
+ * Pure per-workbook extract. Does not read or write a pack.
+ *
  * @param {Buffer} buffer
- * @param {{ filename?: string }} opts
- * @returns {{ pack: object, meta: { applied: boolean, source: string, reason?: string } }}
+ * @param {{ filename?: string, documentId?: string }} [metadata]
+ * @returns {{
+ *   functionalRequirements: object[],
+ *   nonFunctionalRequirements: object[],
+ *   customerRawRows: object,
+ *   workbookDiagnostic: object|null,
+ *   overview: object,
+ *   scope: object[],
+ *   meta: object,
+ * }}
  */
-function prefillPackFromRawWorkbook(packInput, buffer, opts = {}) {
-  const pack = packInput && typeof packInput === 'object' ? { ...packInput } : {};
+function prefillWorkbook(buffer, metadata = {}) {
+  const filename = metadata.filename ? String(metadata.filename).slice(0, 260) : undefined;
+  const documentId = metadata.documentId != null ? String(metadata.documentId) : undefined;
+
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
-    return { pack, meta: { applied: false, source: 'none', reason: 'empty_buffer' } };
+    return emptyResult({
+      reason: 'empty_buffer',
+      filename,
+      documentId,
+    });
   }
 
-  // Prefer full requirement workbook parse when sheets exist; else Customer Raw context-only.
+  const frExtracted = extractWorkbookFr(buffer, { fileName: filename });
+  const companion = extractWorkbookCompanion(buffer, { filename, documentId });
+  const base = {
+    functionalRequirements: frExtracted.functionalRequirements || [],
+    nonFunctionalRequirements: companion.nonFunctionalRequirements || [],
+    customerRawRows: companion.customerRawRows || emptyCustomerRawRows(),
+    workbookDiagnostic: frExtracted.diagnostic || null,
+    overview: {},
+    scope: [],
+    meta: {
+      applied: false,
+      source: 'none',
+      filename,
+      documentId,
+    },
+  };
+
+  const isCustomerRaw =
+    peekCustomerRawTemplateType(buffer) === CUSTOMER_RAW_TEMPLATE_TYPE;
+
+  if (isCustomerRaw) {
+    try {
+      const raw = parseCustomerRawContext(buffer);
+      const overview = mergeOverview({}, raw.context || {});
+      if (raw.meta?.projectName && !overview.requirementName) {
+        overview.requirementName = normProse(raw.meta.projectName);
+      }
+      const scope = scopeFromContext(raw.context || {});
+      const frCount = base.functionalRequirements.length;
+      const hasOverview = Boolean(
+        overview.projectObjective || overview.requirementName || overview.businessScope
+      );
+      const applied = frCount > 0 || hasOverview || scope.length > 0
+        || base.nonFunctionalRequirements.length > 0
+        || (base.customerRawRows.businessRequests || []).length > 0
+        || (base.customerRawRows.references || []).length > 0;
+      return {
+        ...base,
+        overview,
+        scope,
+        workbookDiagnostic: raw.workbookDiagnostic || base.workbookDiagnostic,
+        meta: {
+          applied,
+          source: applied ? 'customer_raw' : 'none',
+          reason: applied ? undefined : 'customer_raw_empty',
+          filename,
+          documentId,
+          frCount,
+        },
+      };
+    } catch (err) {
+      return {
+        ...base,
+        workbookDiagnostic:
+          base.workbookDiagnostic
+          || failedDiagnostic('PARSER_ERROR', err.message || 'parse_fail', filename),
+        meta: {
+          applied: base.functionalRequirements.length > 0,
+          source: base.functionalRequirements.length > 0 ? 'customer_raw' : 'none',
+          reason: String(err.message || 'parse_fail').slice(0, 120),
+          filename,
+          documentId,
+        },
+      };
+    }
+  }
+
+  // Non-Customer-Raw: try full requirement workbook, then FR extractor alone.
   let parsed = null;
-  let source = 'requirement_workbook';
   try {
     parsed = parseRequirementWorkbook(buffer);
     const frCount = Array.isArray(parsed?.functionalRequirements)
       ? parsed.functionalRequirements.length
       : 0;
     const hasOverview = Boolean(
-      parsed?.overview &&
-        (parsed.overview.projectObjective ||
-          parsed.overview.requirementName ||
-          parsed.overview.businessScope)
+      parsed?.overview
+      && (parsed.overview.projectObjective
+        || parsed.overview.requirementName
+        || parsed.overview.businessScope)
     );
-    if (!frCount && !hasOverview) {
-      parsed = null;
-    }
+    if (!frCount && !hasOverview) parsed = null;
   } catch {
     parsed = null;
   }
 
-  if (!parsed) {
-    try {
-      const raw = parseCustomerRawContext(buffer);
-      if (!raw?.isCustomerRaw && !raw?.context) {
-        return { pack, meta: { applied: false, source: 'none', reason: 'not_customer_raw' } };
-      }
-      const ctx = raw.context || {};
-      pack.overview = mergeOverview(pack.overview, ctx);
-      if (
-        (!Array.isArray(pack.scope) || !pack.scope.length) &&
-        (ctx.inScope || ctx.outOfScope || ctx.businessScope)
-      ) {
-        const scope = [];
-        if (ctx.inScope) scope.push({ type: 'in', scopeType: 'in', description: ctx.inScope });
-        if (ctx.outOfScope) {
-          scope.push({ type: 'out', scopeType: 'out', description: ctx.outOfScope });
-        }
-        if (!scope.length && ctx.businessScope) {
-          scope.push({ type: 'in', scopeType: 'in', description: ctx.businessScope });
-        }
-        pack.scope = scope;
-      }
-      return {
-        pack,
-        meta: {
-          applied: true,
-          source: 'customer_raw_context',
-          filename: opts.filename,
-        },
-      };
-    } catch (err) {
-      return {
-        pack,
-        meta: {
-          applied: false,
-          source: 'none',
-          reason: String(err.message || 'parse_fail').slice(0, 120),
-        },
-      };
-    }
+  if (parsed) {
+    const overview = mergeOverview({}, parsed.overview || {});
+    const scope = Array.isArray(parsed.scope) ? parsed.scope : [];
+    const functionalRequirements = mergeByExternalId(
+      parsed.functionalRequirements || [],
+      base.functionalRequirements
+    );
+    const nonFunctionalRequirements = mergeByExternalId(
+      parsed.nonFunctionalRequirements || parsed.nfrs || [],
+      base.nonFunctionalRequirements
+    );
+    return {
+      functionalRequirements,
+      nonFunctionalRequirements,
+      customerRawRows: base.customerRawRows,
+      workbookDiagnostic: base.workbookDiagnostic,
+      overview,
+      scope,
+      businessGoals: Array.isArray(parsed.businessGoals) ? parsed.businessGoals : [],
+      businessRules: Array.isArray(parsed.businessRules) ? parsed.businessRules : [],
+      businessProcesses: Array.isArray(parsed.businessProcesses) ? parsed.businessProcesses : [],
+      useCases: Array.isArray(parsed.useCases) ? parsed.useCases : [],
+      meta: {
+        applied: true,
+        source: 'requirement_workbook',
+        filename,
+        documentId,
+        frCount: functionalRequirements.length,
+      },
+    };
   }
 
-  pack.overview = mergeOverview(pack.overview, parsed.overview || {});
-  if ((!Array.isArray(pack.scope) || !pack.scope.length) && Array.isArray(parsed.scope)) {
-    pack.scope = parsed.scope;
-  } else if (Array.isArray(parsed.scope) && Array.isArray(pack.scope)) {
-    // append missing descriptions
-    const have = new Set(pack.scope.map((s) => normProse(s.description || '').toLowerCase()));
-    for (const row of parsed.scope) {
-      const d = normProse(row.description || '');
-      if (d && !have.has(d.toLowerCase())) pack.scope.push(row);
+  const applied = base.functionalRequirements.length > 0
+    || base.nonFunctionalRequirements.length > 0;
+  return {
+    ...base,
+    meta: {
+      applied,
+      source: applied ? 'workbook_fr' : 'none',
+      reason: applied ? undefined : 'no_structured_rows',
+      filename,
+      documentId,
+      frCount: base.functionalRequirements.length,
+    },
+  };
+}
+
+/**
+ * Legacy adapter: applies one workbook result onto a pack copy.
+ * Prefer prefillWorkbook + aggregateWorkbookResults for multi-file packs.
+ *
+ * @param {object} packInput
+ * @param {Buffer} buffer
+ * @param {{ filename?: string, documentId?: string }} opts
+ */
+function prefillPackFromRawWorkbook(packInput, buffer, opts = {}) {
+  const pack = packInput && typeof packInput === 'object' ? { ...packInput } : {};
+  const result = prefillWorkbook(buffer, {
+    filename: opts.filename,
+    documentId: opts.documentId,
+  });
+
+  if (!result.meta?.applied && !result.functionalRequirements.length) {
+    if (result.workbookDiagnostic) {
+      const ai = pack.aiAnalysis && typeof pack.aiAnalysis === 'object'
+        ? { ...pack.aiAnalysis }
+        : {};
+      ai.workbookDiagnostic = result.workbookDiagnostic;
+      pack.aiAnalysis = ai;
     }
+    return {
+      pack,
+      meta: {
+        applied: false,
+        source: result.meta?.source || 'none',
+        reason: result.meta?.reason,
+        filename: opts.filename,
+      },
+    };
   }
 
+  pack.overview = mergeOverview(pack.overview, result.overview || {});
+  if ((!Array.isArray(pack.scope) || !pack.scope.length) && Array.isArray(result.scope) && result.scope.length) {
+    pack.scope = result.scope;
+  }
   pack.functionalRequirements = mergeByExternalId(
     pack.functionalRequirements,
-    parsed.functionalRequirements
+    result.functionalRequirements
   );
   pack.nonFunctionalRequirements = mergeByExternalId(
     pack.nonFunctionalRequirements || pack.nfrs,
-    parsed.nonFunctionalRequirements || parsed.nfrs
+    result.nonFunctionalRequirements
   );
-  pack.businessGoals = mergeByExternalId(pack.businessGoals, parsed.businessGoals);
-  pack.businessRules = mergeByExternalId(pack.businessRules, parsed.businessRules);
-  pack.businessProcesses = mergeByExternalId(pack.businessProcesses, parsed.businessProcesses);
-  pack.useCases = mergeByExternalId(pack.useCases, parsed.useCases);
+  if (Array.isArray(result.businessGoals)) {
+    pack.businessGoals = mergeByExternalId(pack.businessGoals, result.businessGoals);
+  }
+  if (Array.isArray(result.businessRules)) {
+    pack.businessRules = mergeByExternalId(pack.businessRules, result.businessRules);
+  }
+  if (Array.isArray(result.businessProcesses)) {
+    pack.businessProcesses = mergeByExternalId(pack.businessProcesses, result.businessProcesses);
+  }
+  if (Array.isArray(result.useCases)) {
+    pack.useCases = mergeByExternalId(pack.useCases, result.useCases);
+  }
+
+  const ai = pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
+  if (result.workbookDiagnostic) ai.workbookDiagnostic = result.workbookDiagnostic;
+  if (result.customerRawRows) ai.customerRawRows = result.customerRawRows;
+  pack.aiAnalysis = ai;
 
   return {
     pack,
-    meta: { applied: true, source, filename: opts.filename },
+    meta: {
+      applied: true,
+      source: result.meta?.source || 'workbook',
+      filename: opts.filename,
+      frCount: result.functionalRequirements.length,
+    },
   };
 }
 
 module.exports = {
+  prefillWorkbook,
   prefillPackFromRawWorkbook,
   mergeOverview,
   mergeByExternalId,

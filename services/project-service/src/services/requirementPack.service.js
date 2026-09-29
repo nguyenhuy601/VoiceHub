@@ -615,6 +615,91 @@ async function createIntakeDraftPack({
   return attachPlanningReadiness(pack.toObject());
 }
 
+/**
+ * Wizard intake upload — persist bytes and a pack-scoped CustomerDocument.
+ */
+async function uploadPackCustomerDocument({
+  userId,
+  organizationId,
+  packId,
+  file,
+  docClass,
+  notes,
+}) {
+  const {
+    assertRequirementImportOrCreateProjectScope,
+  } = require('./requirementAccess.service');
+  await assertRequirementImportOrCreateProjectScope({ userId, organizationId });
+
+  const id = String(packId || '').trim();
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    const err = new Error('packId không hợp lệ');
+    err.statusCode = 400;
+    err.errorCode = 'REQ_PACK_ID_INVALID';
+    throw err;
+  }
+  const pack = await RequirementPack.findOne({ _id: id, organizationId, isActive: true })
+    .select('_id projectId organizationId')
+    .lean();
+  if (!pack) {
+    const err = new Error('Requirement pack không tồn tại');
+    err.statusCode = 404;
+    err.errorCode = 'REQ_PACK_NOT_FOUND';
+    throw err;
+  }
+  if (!file?.buffer || !Buffer.isBuffer(file.buffer) || !file.buffer.length) {
+    const err = new Error('file bắt buộc');
+    err.statusCode = 400;
+    err.errorCode = 'REQ_DOC_FILE_REQUIRED';
+    throw err;
+  }
+
+  const { normalizeIntakeDocClass, buildCustomerDocumentStoragePath } = require('../utils/analysis/customerDocumentStorage');
+  const normalizedClass = normalizeIntakeDocClass(docClass) || 'other';
+  const objectStorage = require('../utils/common/objectStorage');
+  if (!objectStorage.isEnabled()) {
+    const err = new Error('Object storage chưa cấu hình');
+    err.statusCode = 503;
+    err.errorCode = 'REQ_STORAGE_UNAVAILABLE';
+    throw err;
+  }
+
+  const filename = String(file.originalname || 'upload').slice(0, 260);
+  const storageKey = buildCustomerDocumentStoragePath({
+    projectId: pack.projectId ? String(pack.projectId) : '',
+    packId: id,
+    docClass: normalizedClass,
+    filename,
+  });
+  const mimeType = String(file.mimetype || 'application/octet-stream').slice(0, 120);
+  await objectStorage.putObject(storageKey, file.buffer, mimeType);
+
+  const CustomerDocument = require('../models/CustomerDocument');
+  const doc = await CustomerDocument.create({
+    organizationId,
+    projectId: pack.projectId || null,
+    packId: id,
+    filename,
+    mimeType,
+    storageKey,
+    sizeBytes: file.size != null ? Number(file.size) : file.buffer.length,
+    docClass: normalizedClass,
+    notes: String(notes || '').trim().slice(0, 2000),
+    uploadedBy: userId,
+    isActive: true,
+  });
+
+  return {
+    id: String(doc._id),
+    packId: id,
+    projectId: pack.projectId ? String(pack.projectId) : null,
+    filename: doc.filename,
+    docClass: doc.docClass,
+    storageKey: doc.storageKey,
+    sizeBytes: doc.sizeBytes,
+  };
+}
+
 module.exports = {
   listRequirementPacks,
   getRequirementPack,
@@ -625,4 +710,5 @@ module.exports = {
   createProjectFromRequirementPack,
   deleteRequirementPack,
   createIntakeDraftPack,
+  uploadPackCustomerDocument,
 };

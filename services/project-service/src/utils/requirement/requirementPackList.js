@@ -20,6 +20,7 @@ const PACK_LIST_SELECT = [
   'overview.platform',
   'overview.startDate',
   'overview.priority',
+  'overview.analysisMode',
   'aiPlanning.status',
   'aiPlanning.generatedAt',
   'planningReadiness',
@@ -139,6 +140,7 @@ function toRequirementPackListItem(row) {
       startDate: overview.startDate || null,
       platform: Array.isArray(overview.platform) ? overview.platform : [],
       priority: overview.priority || '',
+      analysisMode: String(overview.analysisMode || '').trim().toLowerCase(),
     },
     aiPlanning: {
       status: planning.status || 'none',

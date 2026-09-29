@@ -29,10 +29,22 @@ import {
   PROJECT_PRIORITIES,
   PROJECT_TYPES,
 } from '../../adminTasks/createProjectSeed';
-import { ensureProjectHubRoleCatalog } from './useProjectHubQueries';
+import { coerceDeliveryPhase } from '../../../utils/projectPhaseNav';
 
-/** Status DA có thể sửa trên Hub Settings — không gồm closed (dùng luồng Complete). */
-const PROFILE_EDITABLE_STATUSES = Object.freeze(['draft', 'active', 'on_hold']);
+/** Status đúng một phase. Dropdown chỉ status đó và on_hold — không chọn lệch phase. */
+const STATUS_FOR_DELIVERY_PHASE = Object.freeze({
+  requirement_analysis: 'draft',
+  delivery_planning: 'ready',
+  development: 'in_development',
+  qa_uat: 'qa_uat',
+  release_handover: 'release_handover',
+});
+
+function statusChoicesForPhase(deliveryPhase) {
+  const phase = coerceDeliveryPhase(deliveryPhase);
+  const aligned = STATUS_FOR_DELIVERY_PHASE[phase] || 'in_development';
+  return Object.freeze([aligned, 'on_hold']);
+}
 
 const SPRINT_WEEKDAYS = Object.freeze([
   'monday',
@@ -237,6 +249,9 @@ export default function ProjectHubSettingsPanel({
     'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary';
 
   const resolvedProjectId = String(projectId || board?.projectId || '').trim();
+  const statusChoices = statusChoicesForPhase(
+    (projectPayload || board || {}).deliveryPhase
+  );
 
   useEffect(() => {
     const src = projectPayload || board || {};
@@ -297,13 +312,14 @@ export default function ProjectHubSettingsPanel({
     const nextPriority = String(src.priority || 'medium').trim().toLowerCase();
     setProjectPriority(PROJECT_PRIORITIES.includes(nextPriority) ? nextPriority : 'medium');
     const nextStatus = String(src.status || 'draft').trim().toLowerCase();
-    const coerced =
-      nextStatus === 'planning' || nextStatus === 'ready_for_planning'
-        ? 'draft'
-        : nextStatus === 'in_development'
-          ? 'active'
-          : nextStatus;
-    setProjectStatus(PROFILE_EDITABLE_STATUSES.includes(coerced) ? coerced : 'draft');
+    const statusAlias = {
+      planning: 'draft',
+      ready_for_planning: 'ready',
+      active: 'in_development',
+    };
+    const coerced = statusAlias[nextStatus] || nextStatus;
+    const choices = statusChoicesForPhase(src.deliveryPhase || board?.deliveryPhase);
+    setProjectStatus(choices.includes(coerced) ? coerced : choices[0]);
     setTagsInput(tagsToInputValue(src.tags));
     const duration = src.estimatedDurationDays;
     setEstimatedDurationDays(
@@ -839,7 +855,7 @@ export default function ProjectHubSettingsPanel({
           disabled={!profileHydrated || saving}
           onChange={(e) => setProjectStatus(e.target.value)}
         >
-          {PROFILE_EDITABLE_STATUSES.map((value) => (
+          {statusChoices.map((value) => (
             <option key={value} value={value}>
               {formatHubProjectStatus(value, t)}
             </option>

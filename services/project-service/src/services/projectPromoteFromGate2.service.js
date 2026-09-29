@@ -112,7 +112,7 @@ async function promoteProjectFromGate2({
     key &&
     priorPromote &&
     String(priorPromote.idempotencyKey || '') === key &&
-    project.status === 'active'
+    project.status === 'in_development'
   ) {
     return {
       pack: attachPlanningReadiness(pack.toObject()),
@@ -151,7 +151,7 @@ async function promoteProjectFromGate2({
   }
 
   // Promote lifecycle + delivery phase (development = Phase 2 hub).
-  project.status = 'active';
+  project.status = 'in_development';
   project.deliveryPhase = 'development';
   await project.save();
 

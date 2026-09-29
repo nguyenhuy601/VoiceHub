@@ -105,27 +105,67 @@ function buildCorpusFromSnapshot(snapshot) {
     });
   }
 
-  // srs_canonical — FR name + description
-  const frs = [
-    ...(Array.isArray(projected.functionalRequirements)
-      ? projected.functionalRequirements
-      : []),
-    ...(Array.isArray(snapshot.functionalRequirements)
-      ? snapshot.functionalRequirements
-      : []),
-  ];
+  // srs_canonical — RULE-G7-02: projected.srs.functionalRequirements is SoT when present
+  // (including []). Fallback to top-level only when the property is missing.
+  const srsFrProp = projected?.srs?.functionalRequirements;
+  const frs =
+    srsFrProp !== undefined && srsFrProp !== null
+      ? Array.isArray(srsFrProp)
+        ? srsFrProp
+        : []
+      : Array.isArray(snapshot.functionalRequirements)
+        ? snapshot.functionalRequirements
+        : Array.isArray(projected.functionalRequirements)
+          ? projected.functionalRequirements
+          : [];
   const seenFr = new Set();
+  let skippedMissingExternalId = 0;
   for (const fr of frs) {
-    const id = String(fr?.id || fr?.frId || '').trim();
-    if (!id || seenFr.has(id)) continue;
-    seenFr.add(id);
+    // RULE-G7-01: sourceId MUST be externalId — never fall back to id/frId.
+    const externalId = String(fr?.externalId || '').trim();
+    if (!externalId) {
+      skippedMissingExternalId += 1;
+      continue;
+    }
+    if (seenFr.has(externalId)) continue;
+    seenFr.add(externalId);
+    const name = String(fr.name || fr.title || '').trim();
+    const description = String(fr.description || '').trim();
+    const moduleLabel = String(fr.moduleLabel || fr.module || '').trim();
+    const actor = String(fr.actor || '').trim();
+    const acceptanceCriteria = String(
+      fr.acceptanceCriteria || fr.ac || ''
+    ).trim();
+    const priority = String(fr.priority || '').trim();
+    const labeled = [
+      name ? `name: ${name}` : '',
+      description ? `description: ${description}` : '',
+      moduleLabel ? `module: ${moduleLabel}` : '',
+      actor ? `actor: ${actor}` : '',
+      acceptanceCriteria ? `ac: ${acceptanceCriteria}` : '',
+      priority ? `priority: ${priority}` : '',
+    ].filter(Boolean);
     pushDoc(docs, {
-      id,
-      sourceId: id,
+      id: externalId,
+      sourceId: externalId,
       docType: 'srs_canonical',
-      text: [fr.name || fr.title, fr.description].filter(Boolean).join(' '),
-      metadata: { ...metaBase },
+      text: labeled.join('\n'),
+      metadata: {
+        ...metaBase,
+        name: name || undefined,
+        description: description || undefined,
+        moduleLabel: moduleLabel || undefined,
+        actor: actor || undefined,
+        acceptanceCriteria: acceptanceCriteria || undefined,
+        priority: priority || undefined,
+      },
     });
+  }
+  if (skippedMissingExternalId > 0) {
+    console.warn(
+      '[g7_corpus] skipped FR rows missing externalId=',
+      skippedMissingExternalId
+    );
   }
 
   // employee_history — role/domain/months only (no PII / email)

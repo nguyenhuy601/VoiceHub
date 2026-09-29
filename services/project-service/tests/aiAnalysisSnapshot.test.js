@@ -98,6 +98,25 @@ describe('aiAnalysisSnapshot', () => {
     assert.equal(isSnapshotPipelineEnabled(), true);
   });
 
+  it('persists the active snapshot pin on RequirementPack', () => {
+    const RequirementPack = require('../src/models/RequirementPack');
+    assert.ok(RequirementPack.schema.path('aiAnalysisActiveSnapshotId'));
+    assert.ok(RequirementPack.schema.path('aiAnalysisSnapshotMeta'));
+    const serviceSrc = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../src/services/aiAnalysisSnapshot.service.js'),
+      'utf8'
+    );
+    const stage1Src = require('node:fs').readFileSync(
+      require('node:path').join(__dirname, '../src/services/requirementPhase1Pipeline.service.js'),
+      'utf8'
+    );
+    assert.match(serviceSrc, /created\?\.snapshot/);
+    assert.match(
+      stage1Src,
+      /runPhase1Stage1PrepareInput[\s\S]*ensureActiveAiAnalysisSnapshot[\s\S]*buildPhase1Readiness/
+    );
+  });
+
   it('same packContentHash yields identical projected employee/srs version pins', () => {
     const pack = samplePack();
     const hash = buildPackContentHash(pack);

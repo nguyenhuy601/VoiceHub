@@ -10,6 +10,7 @@ const {
   CUSTOMER_RAW_SHEET_COLUMNS,
 } = require('../../constants/customerRawTemplate.constants');
 const { normHeader, normProse } = require('./requirementTemplateTextNorm');
+const { extractFromWorkbook } = require('./workbookFrExtract');
 
 /** Normalized Field label → canonical context key. */
 const CONTEXT_LABEL_ALIASES = Object.freeze({
@@ -136,6 +137,24 @@ function parseContextSheet(workbook) {
   return { context, present: true, rowCount };
 }
 
+/** Customer Raw 03_Requirement headers → pack FR fields. */
+const REQUIREMENT_HEADER_FIELDS = Object.freeze({
+  'requirement id': 'externalId',
+  requirement: 'name',
+  'module / area': 'moduleLabel',
+  'user / actor': 'actor',
+  'acceptance / expected result': 'acceptanceCriteria',
+  priority: 'priority',
+});
+
+/**
+ * Map structured requirement rows onto functionalRequirements.
+ * 03_Requirement is one sheet alias. Rows without an id are not invented.
+ */
+function parseRequirementSheet(workbook) {
+  return extractFromWorkbook(workbook, {}).functionalRequirements;
+}
+
 /**
  * Peek Meta / sheet fingerprint for Customer Raw routing (import preview).
  * @param {Buffer|ArrayBuffer|Uint8Array} fileBuffer
@@ -175,6 +194,8 @@ function parseCustomerRawContext(fileBuffer) {
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const meta = readMeta(workbook);
   const { context, present, rowCount } = parseContextSheet(workbook);
+  const extracted = extractFromWorkbook(workbook, {});
+  const functionalRequirements = extracted.functionalRequirements;
   let templateType = meta.templateType || '';
   let isCustomerRaw = isCustomerRawTemplateType(templateType);
   if (!isCustomerRaw && looksLikeCustomerRawWorkbook(workbook)) {
@@ -189,6 +210,8 @@ function parseCustomerRawContext(fileBuffer) {
     context,
     contextSheetPresent: present,
     contextValueCount: rowCount,
+    functionalRequirements,
+    workbookDiagnostic: extracted.diagnostic,
     expectedContextColumns: CUSTOMER_RAW_SHEET_COLUMNS[CUSTOMER_RAW_SHEETS.CONTEXT],
     templateTypeCanonical: CUSTOMER_RAW_TEMPLATE_TYPE,
   };
@@ -203,4 +226,6 @@ module.exports = {
   CONTEXT_LABEL_ALIASES,
   readMeta,
   parseContextSheet,
+  parseRequirementSheet,
+  REQUIREMENT_HEADER_FIELDS,
 };

@@ -5,15 +5,15 @@
 const { listFrs } = require('../../tools/requirementAnalysis');
 
 function normalizeFr(fr, index) {
-  const id = String(fr?.id || fr?._id || fr?.externalId || `FR-${index + 1}`).trim();
+  const id = String(fr?.externalId || fr?.id || fr?._id || `FR-${index + 1}`).trim();
   return {
     id,
     title: fr?.title || fr?.name || null,
     description: String(fr?.description || fr?.desc || '').trim(),
     ac: String(fr?.ac || fr?.acceptanceCriteria || '').trim(),
     priority: fr?.priority || null,
-    module: fr?.module || fr?.moduleName || null,
-    feature: fr?.feature || fr?.featureName || null,
+    module: fr?.module || fr?.moduleName || fr?.moduleLabel || null,
+    feature: fr?.feature || fr?.featureName || fr?.featureLabel || null,
     level: fr?.level || 'Requirement',
     parentId: fr?.parentId || fr?.parentExternalId || null,
     dependency: fr?.dependency || fr?.dependsOn || fr?.dependencies || null,

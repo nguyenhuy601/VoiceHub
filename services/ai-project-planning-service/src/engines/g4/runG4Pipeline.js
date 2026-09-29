@@ -110,6 +110,29 @@ async function runG4Pipeline(opts = {}) {
   const policy = resolveAiG4Policy(env);
   const generate = opts.generateJsonFn || generateJson;
   const snapshot = opts.snapshot || opts.pack || {};
+  if (!hasResumePartial(opts.priorPartial)) {
+    const { listFrs } = require('../../tools/requirementAnalysis');
+    let listedFrs;
+    try {
+      listedFrs = listFrs(snapshot);
+    } catch (err) {
+      if (err.code === 'SNAPSHOT_FR_MISMATCH') {
+        return {
+          blocked: true,
+          errorCode: 'SNAPSHOT_FR_MISMATCH',
+          functionalRequirements: [],
+        };
+      }
+      throw err;
+    }
+    if (!Array.isArray(listedFrs) || listedFrs.length === 0) {
+      return {
+        blocked: true,
+        errorCode: 'REQUIREMENT_NOT_READY',
+        functionalRequirements: [],
+      };
+    }
+  }
   const skillLoad = loadSkillStub(requirementUnderstandingSkill);
   const modelInfo = selectModel(env);
 

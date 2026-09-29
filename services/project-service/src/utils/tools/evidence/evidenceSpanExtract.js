@@ -1,5 +1,5 @@
 /**
- * Wave A — Split intakeCorpus excerpts into evidence spans with stable ids.
+ * Wave A — Evidence spans from structured FR location map, then unstructured docs.
  * Pure / deterministic: no Mongo, HTTP, LLM, Date.now().
  */
 
@@ -17,6 +17,12 @@ function resolveCorpus(source) {
   if (Array.isArray(source.excerpts)) return source;
   if (source.aiAnalysis?.intakeCorpus) return source.aiAnalysis.intakeCorpus;
   if (source.intakeCorpus) return source.intakeCorpus;
+  return null;
+}
+
+function resolvePack(source) {
+  if (!source || typeof source !== 'object') return null;
+  if (source.aiAnalysis || source.functionalRequirements) return source;
   return null;
 }
 
@@ -60,28 +66,113 @@ function makeSnippet(text) {
   return `${full.slice(0, SNIPPET_MAX - 1)}…`;
 }
 
-/**
- * @param {object} source — corpus `{ excerpts }` or pack with `aiAnalysis.intakeCorpus`
- * @param {{ maxSpans?: number, chunkMax?: number }} [opts]
- * @returns {{ spans: object[], spanCount: number, schemaVersion: string }}
- */
-function extractEvidenceSpans(source, opts = {}) {
-  const corpus = resolveCorpus(source);
-  const excerpts = Array.isArray(corpus?.excerpts) ? corpus.excerpts : [];
-  const maxSpans = Number.isFinite(opts.maxSpans)
-    ? Math.max(1, Math.min(200, Math.floor(opts.maxSpans)))
-    : MAX_SPANS;
-  const chunkMax = Number.isFinite(opts.chunkMax)
-    ? Math.max(80, Math.min(4000, Math.floor(opts.chunkMax)))
-    : CHUNK_MAX;
+function isUnstructuredExcerpt(ex) {
+  const method = String(ex?.method || '').toLowerCase();
+  if (method === 'xlsx' || method === 'xls') return false;
+  const filename = String(ex?.filename || '').toLowerCase();
+  if (/\.xlsx?$/i.test(filename)) return false;
+  return Boolean(String(ex?.text || '').trim());
+}
 
+function frByExternalId(pack) {
+  const map = new Map();
+  for (const row of Array.isArray(pack?.functionalRequirements) ? pack.functionalRequirements : []) {
+    const id = String(row?.externalId || '').trim();
+    if (id) map.set(id, row);
+  }
+  return map;
+}
+
+function snippetFromFields(fields) {
+  if (!fields || typeof fields !== 'object') return '';
+  const preferred = [
+    'Requirement',
+    'Request Title',
+    'Customer Requirement',
+    'Name',
+    'Customer Notes',
+    'Source',
+  ];
+  for (const key of preferred) {
+    if (fields[key]) return String(fields[key]);
+  }
+  const values = Object.values(fields).filter(Boolean);
+  return values.length ? String(values[0]) : '';
+}
+
+/**
+ * Structured citations from frSourceMap + customerRawRows.
+ */
+function extractStructuredSpans(pack, maxSpans) {
+  const spans = [];
+  const diagnostic = pack?.aiAnalysis?.workbookDiagnostic;
+  const frMap = frByExternalId(pack);
+  const locations = Array.isArray(diagnostic?.frSourceMap) ? diagnostic.frSourceMap : [];
+  const reqSources = Array.isArray(pack?.aiAnalysis?.customerRawRows?.requirementSources)
+    ? pack.aiAnalysis.customerRawRows.requirementSources
+    : [];
+  const sourceById = new Map(
+    reqSources.map((row) => [String(row.externalId || '').trim(), row])
+  );
+
+  for (const loc of locations) {
+    if (spans.length >= maxSpans) break;
+    const externalId = String(loc?.externalId || '').trim();
+    if (!externalId) continue;
+    const fr = frMap.get(externalId);
+    const extra = sourceById.get(externalId);
+    const snippet = makeSnippet(
+      (fr && (fr.name || fr.description))
+        || snippetFromFields(extra?.fields)
+        || externalId
+    );
+    spans.push({
+      id: `e-fr-${externalId}`,
+      externalId,
+      sheet: loc.sheet ? String(loc.sheet) : undefined,
+      row: Number.isFinite(Number(loc.row)) ? Number(loc.row) : undefined,
+      filename: loc.sheet ? String(loc.sheet) : 'structured',
+      snippet,
+      text: snippet,
+      source: 'fr_source_map',
+    });
+  }
+
+  const rawRows = pack?.aiAnalysis?.customerRawRows || {};
+  for (const kind of ['businessRequests', 'references']) {
+    for (const row of Array.isArray(rawRows[kind]) ? rawRows[kind] : []) {
+      if (spans.length >= maxSpans) break;
+      const externalId = String(row?.externalId || '').trim();
+      if (!externalId) continue;
+      if (spans.some((s) => s.externalId === externalId && s.source === kind)) continue;
+      const snippet = makeSnippet(snippetFromFields(row.fields) || externalId);
+      spans.push({
+        id: `e-${kind === 'businessRequests' ? 'br' : 'ref'}-${externalId}`,
+        externalId,
+        sheet: row.sheet ? String(row.sheet) : undefined,
+        row: Number.isFinite(Number(row.row)) ? Number(row.row) : undefined,
+        filename: row.sheet ? String(row.sheet) : kind,
+        snippet,
+        text: snippet,
+        source: kind,
+      });
+    }
+  }
+
+  return spans;
+}
+
+/**
+ * Unstructured PDF/TXT/image corpus only (no xlsx flatten).
+ */
+function extractUnstructuredSpans(corpus, maxSpans, chunkMax) {
+  const excerpts = (Array.isArray(corpus?.excerpts) ? corpus.excerpts : [])
+    .filter(isUnstructuredExcerpt);
   const spans = [];
   for (let ei = 0; ei < excerpts.length && spans.length < maxSpans; ei += 1) {
     const ex = excerpts[ei];
-    if (!ex) continue;
     const filename = String(ex.filename || `excerpt-${ei + 1}`).slice(0, 260);
     const full = String(ex.text || '');
-    if (!full.trim()) continue;
     const chunks = splitIntoChunks(full, chunkMax);
     let offset = 0;
     for (let ci = 0; ci < chunks.length && spans.length < maxSpans; ci += 1) {
@@ -100,10 +191,35 @@ function extractEvidenceSpans(source, opts = {}) {
         charStart: start,
         charEnd: end,
         documentId: ex.documentId ? String(ex.documentId) : undefined,
+        source: 'unstructured_corpus',
       });
     }
   }
+  return spans;
+}
 
+/**
+ * @param {object} source — pack or corpus `{ excerpts }`
+ * @param {{ maxSpans?: number, chunkMax?: number }} [opts]
+ * @returns {{ spans: object[], spanCount: number, schemaVersion: string }}
+ */
+function extractEvidenceSpans(source, opts = {}) {
+  const maxSpans = Number.isFinite(opts.maxSpans)
+    ? Math.max(1, Math.min(200, Math.floor(opts.maxSpans)))
+    : MAX_SPANS;
+  const chunkMax = Number.isFinite(opts.chunkMax)
+    ? Math.max(80, Math.min(4000, Math.floor(opts.chunkMax)))
+    : CHUNK_MAX;
+
+  const pack = resolvePack(source);
+  const structured = pack ? extractStructuredSpans(pack, maxSpans) : [];
+  const remaining = Math.max(0, maxSpans - structured.length);
+  const corpus = resolveCorpus(source);
+  const unstructured = remaining > 0
+    ? extractUnstructuredSpans(corpus, remaining, chunkMax)
+    : [];
+
+  const spans = [...structured, ...unstructured];
   return {
     schemaVersion: 'evidenceSpans.v1',
     spans,
@@ -119,9 +235,13 @@ function toPersistedEvidenceSpans(spans) {
     id: String(s.id),
     filename: String(s.filename || '').slice(0, 260),
     snippet: makeSnippet(s.snippet || s.text || ''),
+    externalId: s.externalId ? String(s.externalId) : undefined,
+    sheet: s.sheet ? String(s.sheet) : undefined,
+    row: Number.isFinite(Number(s.row)) ? Number(s.row) : undefined,
     excerptIndex: Number.isFinite(s.excerptIndex) ? s.excerptIndex : undefined,
     chunkIndex: Number.isFinite(s.chunkIndex) ? s.chunkIndex : undefined,
     documentId: s.documentId ? String(s.documentId) : undefined,
+    source: s.source ? String(s.source) : undefined,
   }));
 }
 

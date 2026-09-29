@@ -64,30 +64,54 @@ function assemblePhase1KnowledgeContext({
       if (!snippet.trim()) continue;
       citations.push({
         id: String(s.id || `c-evidence-${i + 1}`),
-        source: 'evidence_span',
+        source: s.source || 'evidence_span',
         filename: String(s.filename || '').slice(0, 260),
         snippet,
         charCount: String(s.text || s.snippet || '').length,
+        externalId: s.externalId ? String(s.externalId) : undefined,
+        sheet: s.sheet ? String(s.sheet) : undefined,
+        row: Number.isFinite(Number(s.row)) ? Number(s.row) : undefined,
       });
     }
   } else {
-    const corpus = pack?.aiAnalysis?.intakeCorpus;
-    const excerpts = Array.isArray(corpus?.excerpts) ? corpus.excerpts : [];
-    for (let i = 0; i < excerpts.length && citations.length < k; i += 1) {
-      const ex = excerpts[i];
-      if (!ex) continue;
-      const filename = String(ex.filename || `excerpt-${i + 1}`).slice(0, 260);
-      const full = String(ex.text || '');
-      if (!full.trim()) continue;
-      const snippet =
-        full.length > SNIPPET_MAX ? `${full.slice(0, SNIPPET_MAX - 1)}…` : full;
-      citations.push({
-        id: `c-corpus-${i + 1}`,
-        source: 'intake_corpus',
-        filename,
-        snippet,
-        charCount: full.length,
-      });
+    // Prefer structured spans built from frSourceMap when pack carries them.
+    const { extractEvidenceSpans } = require('../tools/evidence/evidenceSpanExtract');
+    const structured = extractEvidenceSpans(pack, { maxSpans: k });
+    if (structured.spanCount > 0) {
+      for (const s of structured.spans) {
+        if (citations.length >= k) break;
+        citations.push({
+          id: String(s.id),
+          source: s.source || 'evidence_span',
+          filename: String(s.filename || '').slice(0, 260),
+          snippet: String(s.snippet || '').slice(0, SNIPPET_MAX),
+          charCount: String(s.text || s.snippet || '').length,
+          externalId: s.externalId ? String(s.externalId) : undefined,
+          sheet: s.sheet ? String(s.sheet) : undefined,
+          row: Number.isFinite(Number(s.row)) ? Number(s.row) : undefined,
+        });
+      }
+    } else {
+      const corpus = pack?.aiAnalysis?.intakeCorpus;
+      const excerpts = Array.isArray(corpus?.excerpts) ? corpus.excerpts : [];
+      for (let i = 0; i < excerpts.length && citations.length < k; i += 1) {
+        const ex = excerpts[i];
+        if (!ex) continue;
+        const method = String(ex.method || '').toLowerCase();
+        const filename = String(ex.filename || `excerpt-${i + 1}`).slice(0, 260);
+        if (method === 'xlsx' || /\.xlsx?$/i.test(filename)) continue;
+        const full = String(ex.text || '');
+        if (!full.trim()) continue;
+        const snippet =
+          full.length > SNIPPET_MAX ? `${full.slice(0, SNIPPET_MAX - 1)}…` : full;
+        citations.push({
+          id: `c-corpus-${i + 1}`,
+          source: 'intake_corpus',
+          filename,
+          snippet,
+          charCount: full.length,
+        });
+      }
     }
   }
 

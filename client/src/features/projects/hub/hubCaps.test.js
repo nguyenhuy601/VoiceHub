@@ -6,8 +6,8 @@ test('isProjectDraftStatus: draft + legacy planning', () => {
   assert.equal(isProjectDraftStatus('draft'), true);
   assert.equal(isProjectDraftStatus('Draft'), true);
   assert.equal(isProjectDraftStatus('planning'), true);
-  assert.equal(isProjectDraftStatus('ready_for_planning'), true);
-  assert.equal(isProjectDraftStatus('ready-for-planning'), true);
+  assert.equal(isProjectDraftStatus('ready_for_planning'), false);
+  assert.equal(isProjectDraftStatus('ready-for-planning'), false);
   assert.equal(isProjectDraftStatus('active'), false);
   assert.equal(isProjectDraftStatus('on_hold'), false);
   assert.equal(isProjectDraftStatus('closed'), false);

@@ -36,7 +36,12 @@ const {
   allocateUniqueProjectCode,
 } = require('@enterprise/shared/utils/projectCodeGenerate');
 const { buildBoardIdentityPatch, resolveBoardScope } = require('../utils/project/boardIdentityPatch');
-const { buildProjectInitFields, coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
+const {
+  buildProjectInitFields,
+  coerceProjectLifecycleStatus,
+  alignedLifecycleFields,
+  STATUS_FOR_DELIVERY_PHASE,
+} = require('../utils/project/projectInitFields');
 const {
   WARN_V1,
   omitClientSchedulePolicy,
@@ -146,7 +151,7 @@ async function seedDefaultLists(boardId) {
 }
 
 /**
- * Create Project + default Board (Main) + lists + PM ownership (status ready_for_planning).
+ * Create Project + default Board (Main) + lists + PM ownership (status draft, phase requirement_analysis).
  * projectId !== boardId.
  */
 function normalizeBudgetStub(raw) {
@@ -248,7 +253,7 @@ async function createProject({
   }
 
   const init = buildProjectInitFields({
-    status: 'ready_for_planning',
+    status: 'draft',
     projectType,
     category,
     priority,
@@ -554,6 +559,64 @@ function toOidList(ids = []) {
     .map((id) => new mongoose.Types.ObjectId(id));
 }
 
+const PRESERVED_PROJECT_STATUSES = Object.freeze([
+  'on_hold',
+  'closed',
+  'cancelled',
+  'canceled',
+  'completed',
+  'archived',
+]);
+
+/** List GET: doc lệch phase/status trong org → status của phase. Bỏ qua on_hold và closed. */
+async function alignOrgProjectStatusToPhase(orgOid) {
+  const phases = Object.keys(STATUS_FOR_DELIVERY_PHASE);
+  await Promise.all([
+    ...phases.map((phase) => {
+      const status = STATUS_FOR_DELIVERY_PHASE[phase];
+      return Project.updateMany(
+        {
+          organizationId: orgOid,
+          deliveryPhase: phase,
+          status: { $nin: [status, ...PRESERVED_PROJECT_STATUSES] },
+        },
+        { $set: { status } }
+      );
+    }),
+    Project.updateMany(
+      {
+        organizationId: orgOid,
+        $or: [
+          { deliveryPhase: null },
+          { deliveryPhase: '' },
+          { deliveryPhase: { $exists: false } },
+        ],
+        status: { $nin: PRESERVED_PROJECT_STATUSES },
+      },
+      { $set: { deliveryPhase: 'development', status: 'in_development' } }
+    ),
+  ]);
+}
+
+/** GET một dự án: gắn status/phase trước khi trả, kể cả phase đang trống. */
+async function alignOneProjectStatusToPhase(projectId) {
+  if (!mongoose.Types.ObjectId.isValid(String(projectId || ''))) return;
+  const doc = await Project.findById(projectId).select('status deliveryPhase').lean();
+  if (!doc) return;
+  const aligned = alignedLifecycleFields({
+    status: doc.status,
+    deliveryPhase: doc.deliveryPhase,
+  });
+  const $set = {};
+  if (String(doc.status || '') !== aligned.status) $set.status = aligned.status;
+  const storedPhase = doc.deliveryPhase == null ? '' : String(doc.deliveryPhase);
+  if (aligned.deliveryPhase && storedPhase !== aligned.deliveryPhase) {
+    $set.deliveryPhase = aligned.deliveryPhase;
+  }
+  if (!Object.keys($set).length) return;
+  await Project.updateOne({ _id: doc._id }, { $set });
+}
+
 async function listProjects({
   userId,
   organizationId,
@@ -587,6 +650,8 @@ async function listProjects({
     ? new mongoose.Types.ObjectId(String(organizationId))
     : null;
   if (!userOid || !orgOid) return [];
+
+  await alignOrgProjectStatusToPhase(orgOid);
 
   let allowArchived = false;
   if (includeArchived) {
@@ -800,6 +865,7 @@ async function listProjects({
 }
 
 async function getProject({ userId, projectId }) {
+  await alignOneProjectStatusToPhase(projectId);
   const project = await Project.findById(projectId).lean();
   if (!project || project.isActive === false) {
     const err = new Error('Project không tồn tại');
@@ -1284,6 +1350,16 @@ async function patchProject({ userId, projectId, patch }) {
     ...(built.ok ? built.$set : {}),
     ...(init.ok ? init.fields : {}),
   };
+  const aligned = alignedLifecycleFields({
+    status: Object.prototype.hasOwnProperty.call($set, 'status') ? $set.status : project.status,
+    deliveryPhase: Object.prototype.hasOwnProperty.call($set, 'deliveryPhase')
+      ? $set.deliveryPhase
+      : project.deliveryPhase,
+  });
+  $set.status = aligned.status;
+  if (aligned.status !== 'on_hold' && aligned.status !== 'closed') {
+    $set.deliveryPhase = aligned.deliveryPhase;
+  }
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'requiredProjectRoles')) {
     $set.requiredProjectRoles = normalizeRequiredProjectRoles(patch.requiredProjectRoles);
   }
