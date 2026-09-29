@@ -20,6 +20,7 @@ const PACK_LIST_SELECT = [
   'overview.platform',
   'overview.startDate',
   'overview.priority',
+  'overview.analysisMode',
   'planningReadiness',
 ].join(' ');
 
@@ -135,6 +136,7 @@ function toRequirementPackListItem(row) {
       startDate: overview.startDate || null,
       platform: Array.isArray(overview.platform) ? overview.platform : [],
       priority: overview.priority || '',
+      analysisMode: String(overview.analysisMode || '').trim().toLowerCase(),
     },
     // Legacy AI Planning removed — stub for older clients
     aiPlanning: {

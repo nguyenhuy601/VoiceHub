@@ -96,4 +96,55 @@ describe('evidenceSpanExtract', () => {
       else process.env.PHASE1_REQUIRE_EVIDENCE = prev;
     }
   });
+
+  it('builds citations from frSourceMap without pipe-joined excel prose', () => {
+    const pack = {
+      functionalRequirements: [
+        { externalId: 'CR-001', name: 'Search courses', description: '' },
+      ],
+      aiAnalysis: {
+        workbookDiagnostic: {
+          frSourceMap: [
+            { externalId: 'CR-001', sheet: '03_Requirement', row: 2 },
+          ],
+        },
+        customerRawRows: {
+          requirementSources: [
+            {
+              externalId: 'CR-001',
+              sheet: '03_Requirement',
+              row: 2,
+              fields: { Source: 'Customer', 'Customer Notes': 'Urgent' },
+            },
+          ],
+          businessRequests: [],
+          references: [],
+        },
+        intakeCorpus: {
+          excerpts: [
+            {
+              filename: 'raw.xlsx',
+              method: 'xlsx',
+              text: 'Requirement ID | Requirement | A | B | C',
+            },
+          ],
+        },
+      },
+    };
+    const { spans } = extractEvidenceSpans(pack);
+    assert.ok(spans.length >= 1);
+    assert.equal(spans[0].externalId, 'CR-001');
+    assert.equal(spans[0].sheet, '03_Requirement');
+    assert.equal(spans[0].row, 2);
+    assert.equal(spans[0].snippet.includes('|'), false);
+    assert.ok(!spans.some((s) => String(s.snippet || '').includes('A | B | C')));
+  });
+
+  it('still cites unstructured txt when no structured map exists', () => {
+    const { spans } = extractEvidenceSpans({
+      excerpts: [{ filename: 'note.txt', method: 'utf8', text: 'Plain customer note' }],
+    });
+    assert.equal(spans.length, 1);
+    assert.match(spans[0].snippet, /Plain customer note/);
+  });
 });

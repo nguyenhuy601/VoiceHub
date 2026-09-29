@@ -1,8 +1,60 @@
+const crypto = require('crypto');
 const { createEvidence } = require('../evidence/evidence');
 const { computeCoverage, buildGaps } = require('../engines/requirementGaps');
 
+function canonicalText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function canonicalExternalId(raw) {
+  const s = canonicalText(raw).replace(/\s/g, '');
+  if (!s) return '';
+  const match = s.match(/^([A-Za-z]+)-?(.*)$/);
+  if (!match) return s.toUpperCase();
+  return match[2] ? `${match[1].toUpperCase()}-${match[2]}` : `${match[1].toUpperCase()}-`;
+}
+
+function hashFunctionalRequirements(rows) {
+  const canonical = (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      externalId: canonicalExternalId(row?.externalId),
+      name: canonicalText(row?.name),
+      description: canonicalText(row?.description),
+      moduleLabel: canonicalText(row?.moduleLabel),
+      actor: canonicalText(row?.actor),
+      acceptanceCriteria: canonicalText(row?.acceptanceCriteria),
+    }))
+    .sort((a, b) => a.externalId.localeCompare(b.externalId));
+  return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+function snapshotFrMismatch() {
+  const err = new Error('Functional requirement snapshot does not match the top-level list');
+  err.code = 'SNAPSHOT_FR_MISMATCH';
+  return err;
+}
+
+function isCanonicalFrList(rows) {
+  return Array.isArray(rows) && rows.some((row) => String(row?.externalId || '').trim());
+}
+
 function listFrs(snapshot = {}) {
-  if (Array.isArray(snapshot.functionalRequirements)) return snapshot.functionalRequirements;
+  const srs = snapshot?.projected?.srs?.functionalRequirements;
+  const hasProjected = snapshot?.projected && typeof snapshot.projected === 'object';
+  const top = Array.isArray(snapshot.functionalRequirements) ? snapshot.functionalRequirements : null;
+  if (Array.isArray(srs)) {
+    // Normalized projections use id/title and still carry projected.srs. They are not a second canonical list.
+    const topIsCanonical = !top || top.length === 0 || isCanonicalFrList(top);
+    if (top && topIsCanonical && (top.length !== srs.length || hashFunctionalRequirements(top) !== hashFunctionalRequirements(srs))) {
+      throw snapshotFrMismatch();
+    }
+    return srs;
+  }
+  if (hasProjected) {
+    if (top && top.length) throw snapshotFrMismatch();
+    return [];
+  }
+  if (top) return top;
   if (Array.isArray(snapshot.frList)) return snapshot.frList;
   if (Array.isArray(snapshot.requirements)) return snapshot.requirements;
   return [];

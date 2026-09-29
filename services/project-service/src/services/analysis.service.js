@@ -1817,23 +1817,7 @@ async function advanceToPhase2({
   }
 
   projectDoc.deliveryPhase = 'development';
-  // Lifecycle status is orthogonal to deliveryPhase but must stay in Project enum.
-  // Legacy/bad rows (e.g. status "draft") fail validation on save — coerce into Phase 2.
-  const PROJECT_STATUS = new Set([
-    'planning',
-    'ready_for_planning',
-    'in_development',
-    'on_hold',
-    'closed',
-  ]);
-  if (!PROJECT_STATUS.has(String(projectDoc.status || ''))) {
-    projectDoc.status = 'in_development';
-  } else if (
-    projectDoc.status === 'planning' ||
-    projectDoc.status === 'ready_for_planning'
-  ) {
-    projectDoc.status = 'in_development';
-  }
+  assignStatusForPhase(projectDoc, 'development');
   if (methodology) {
     const m = String(methodology).trim().toLowerCase();
     if (['scrum', 'kanban', 'waterfall'].includes(m)) {
@@ -1981,6 +1965,21 @@ async function exportSrsWorkbook({ userId, projectId, baselineId, srsVersion }) 
 }
 
 /**
+ * Ghi status của phase. Giữ `on_hold` và `closed`.
+ */
+function assignStatusForPhase(projectDoc, phase) {
+  const { statusForDeliveryPhase } = require('../utils/project/projectInitFields');
+  const st = String(projectDoc.status || '')
+    .trim()
+    .toLowerCase();
+  if (st === 'on_hold' || st === 'closed') return false;
+  const next = statusForDeliveryPhase(phase);
+  if (!next || projectDoc.status === next) return false;
+  projectDoc.status = next;
+  return true;
+}
+
+/**
  * PM/PO: Start Delivery Planning after RA approved (manual phase change).
  */
 async function startDeliveryPlanning({ userId, projectId }) {
@@ -2017,9 +2016,11 @@ async function startDeliveryPlanning({ userId, projectId }) {
   }
   const from = String(projectDoc.deliveryPhase || '');
   if (from === 'delivery_planning') {
+    if (assignStatusForPhase(projectDoc, 'delivery_planning')) await projectDoc.save();
     return {
       projectId: String(projectDoc._id),
       deliveryPhase: 'delivery_planning',
+      status: projectDoc.status,
       alreadyStarted: true,
     };
   }
@@ -2030,19 +2031,12 @@ async function startDeliveryPlanning({ userId, projectId }) {
   }
   projectDoc.deliveryPhase = 'delivery_planning';
   projectDoc.phase1RaApprovedAt = new Date();
-  // Legacy seed may have status=draft (not in enum) — coerce so save() validates.
-  const { coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
-  const coercedStatus = coerceProjectLifecycleStatus(projectDoc.status);
-  if (coercedStatus) projectDoc.status = coercedStatus;
-  else if (!['planning', 'ready_for_planning', 'in_development', 'on_hold', 'closed'].includes(
-    String(projectDoc.status || '')
-  )) {
-    projectDoc.status = 'planning';
-  }
+  assignStatusForPhase(projectDoc, 'delivery_planning');
   await projectDoc.save();
   return {
     projectId: String(projectDoc._id),
     deliveryPhase: projectDoc.deliveryPhase,
+    status: projectDoc.status,
     phase1RaApprovedAt: projectDoc.phase1RaApprovedAt,
     alreadyStarted: false,
   };

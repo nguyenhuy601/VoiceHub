@@ -378,4 +378,21 @@ describe('AI planning remote cutover', () => {
     assert.doesNotMatch(source, /runScheduleCapacity\s*\(/);
     assert.match(source, /validateAssignmentsAgainstShortlist/);
   });
+
+  it('registers POST phase-run on the requirements router', () => {
+    const routesSrc = readFileSync(
+      join(__dirname, '../src/routes/requirement.routes.js'),
+      'utf8'
+    );
+    const controllerSrc = readFileSync(
+      join(__dirname, '../src/controllers/requirement.controller.js'),
+      'utf8'
+    );
+    assert.match(
+      routesSrc,
+      /router\.post\('\/:packId\/ai-analysis\/phase-run', controller\.startPhaseAiPlanning\)/
+    );
+    assert.match(controllerSrc, /startPhaseAiPlanning,/);
+    assert.match(controllerSrc, /startPhaseAiPlanningRun,/);
+  });
 });

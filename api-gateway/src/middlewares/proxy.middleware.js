@@ -1,5 +1,9 @@
 const httpProxy = require('http-proxy');
-const { getServiceByPath, resolveReqApiPath } = require('../config/services');
+const {
+  getServiceByPath,
+  resolveReqApiPath,
+  stripClientSuppliedInternalHeaders,
+} = require('../config/services');
 const { buildApiErrorBody } = require('@enterprise/shared/middleware/httpErrorResponse');
 const { URL } = require('url');
 
@@ -180,6 +184,7 @@ const proxyMiddleware = (req, res, next) => {
   delete req.headers['x-gateway-internal-token'];
   delete req.headers['x-user-id'];
   delete req.headers['x-user-email'];
+  stripClientSuppliedInternalHeaders(req.headers);
 
   const gatewayToken = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
   if (gatewayToken) {

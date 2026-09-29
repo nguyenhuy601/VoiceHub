@@ -5,16 +5,10 @@ const {
   PROJECT_STATUSES,
   PHASE_STATUSES,
   ANALYSIS_MODES,
-  LEGACY_STATUS_MAP,
-  DEFAULT_PROJECT_STATUS_NEW,
-  DEFAULT_PHASE_STATUS_NEW,
-  DEFAULT_ANALYSIS_MODE,
 } = require('../src/constants/projectLifecycle');
 const {
   buildProjectInitFields,
   coerceProjectLifecycleStatus,
-  coercePhaseStatus,
-  coerceAnalysisMode,
 } = require('../src/utils/project/projectInitFields');
 
 describe('projectLifecycle constants', () => {
@@ -34,63 +28,37 @@ describe('projectLifecycle constants', () => {
 });
 
 describe('buildProjectInitFields lifecycle defaults', () => {
-  it('defaults new projects to draft / not_started / manual', () => {
+  it('defaults omitted status to draft', () => {
     const init = buildProjectInitFields({});
     assert.equal(init.ok, true);
-    assert.equal(init.fields.status, DEFAULT_PROJECT_STATUS_NEW);
-    assert.equal(init.fields.phaseStatus, DEFAULT_PHASE_STATUS_NEW);
-    assert.equal(init.fields.analysisMode, DEFAULT_ANALYSIS_MODE);
-  });
-
-  it('accepts analysisMode ai on create', () => {
-    const init = buildProjectInitFields({ analysisMode: 'ai' });
-    assert.equal(init.ok, true);
-    assert.equal(init.fields.analysisMode, 'ai');
-  });
-
-  it('rejects invalid analysisMode', () => {
-    const init = buildProjectInitFields({ analysisMode: 'hybrid' });
-    assert.equal(init.ok, false);
-  });
-
-  it('rejects invalid phaseStatus', () => {
-    const init = buildProjectInitFields({ phaseStatus: 'nope' }, { partial: true });
-    assert.equal(init.ok, false);
-  });
-
-  it('partial patch can set phaseStatus and analysisMode', () => {
-    const init = buildProjectInitFields(
-      { phaseStatus: 'in_progress', analysisMode: 'ai' },
-      { partial: true }
-    );
-    assert.equal(init.ok, true);
-    assert.equal(init.fields.phaseStatus, 'in_progress');
-    assert.equal(init.fields.analysisMode, 'ai');
-  });
-
-  it('coerces legacy status on create body', () => {
-    const init = buildProjectInitFields({ status: 'ready_for_planning' });
-    assert.equal(init.ok, true);
     assert.equal(init.fields.status, 'draft');
+  });
+
+  it('coerces ready_for_planning to ready and planning to draft', () => {
+    const draft = buildProjectInitFields({ status: 'draft' });
+    assert.equal(draft.ok, true);
+    assert.equal(draft.fields.status, 'draft');
+    const ready = buildProjectInitFields({ status: 'ready_for_planning' });
+    assert.equal(ready.ok, true);
+    assert.equal(ready.fields.status, 'ready');
+    const planning = buildProjectInitFields({ status: 'planning' });
+    assert.equal(planning.ok, true);
+    assert.equal(planning.fields.status, 'draft');
+  });
+
+  it('rejects unknown status', () => {
+    const init = buildProjectInitFields({ status: 'nope' });
+    assert.equal(init.ok, false);
   });
 });
 
 describe('coerce helpers', () => {
-  it('maps all LEGACY_STATUS_MAP keys', () => {
-    for (const [from, to] of Object.entries(LEGACY_STATUS_MAP)) {
-      assert.equal(coerceProjectLifecycleStatus(from), to, from);
-    }
-  });
-
-  it('coercePhaseStatus rejects unknown', () => {
-    assert.equal(coercePhaseStatus('review'), 'review');
-    assert.equal(coercePhaseStatus(''), null);
-    assert.equal(coercePhaseStatus('xyz'), null);
-  });
-
-  it('coerceAnalysisMode defaults empty to manual', () => {
-    assert.equal(coerceAnalysisMode(''), 'manual');
-    assert.equal(coerceAnalysisMode('AI'), 'ai');
-    assert.equal(coerceAnalysisMode('nope'), null);
+  it('maps ready_for_planning to ready and planning/new/created to draft', () => {
+    assert.equal(coerceProjectLifecycleStatus('draft'), 'draft');
+    assert.equal(coerceProjectLifecycleStatus('ready_for_planning'), 'ready');
+    assert.equal(coerceProjectLifecycleStatus('planning'), 'draft');
+    assert.equal(coerceProjectLifecycleStatus('new'), 'draft');
+    assert.equal(coerceProjectLifecycleStatus('created'), 'draft');
+    assert.equal(coerceProjectLifecycleStatus('cancelled'), 'closed');
   });
 });

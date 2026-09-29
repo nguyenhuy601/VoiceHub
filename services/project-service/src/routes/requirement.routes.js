@@ -1,18 +1,26 @@
 const express = require('express');
 const controller = require('../controllers/requirement.controller');
 const { requirementImportUpload } = require('../middleware/requirementImportUpload');
+const { customerDocumentUpload } = require('../middleware/customerDocumentUpload');
 
 const router = express.Router();
 
 router.get('/import/template', controller.downloadTemplate);
 router.post('/import/preview', requirementImportUpload.single('file'), controller.previewImport);
 router.post('/import/confirm', controller.confirmImport);
+router.post('/intake-draft', controller.createIntakeDraft);
+router.post(
+  '/:packId/customer-documents',
+  customerDocumentUpload.single('file'),
+  controller.uploadPackCustomerDocumentCtrl
+);
 
 router.get('/access', controller.getAccess);
 router.get('/', controller.listPacks);
 router.get('/:packId/source-file', controller.downloadSourceFile);
 /** AI Analysis Blueprint — trước /:packId để không bị nuốt path */
 router.get('/:packId/ai-analysis/export', controller.exportAiAnalysis);
+router.post('/:packId/ai-analysis/phase-run', controller.startPhaseAiPlanning);
 router.get('/:packId/ai-analysis', controller.getAiAnalysis);
 router.post('/:packId/ai-analysis/jobs/:jobId/run', controller.runAiAnalysis);
 router.post('/:packId/ai-analysis/jobs/:jobId/confirm', controller.confirmAiAnalysis);

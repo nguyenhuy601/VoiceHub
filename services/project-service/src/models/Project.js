@@ -183,8 +183,8 @@ const projectSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['planning', 'ready_for_planning', 'in_development', 'on_hold', 'closed'],
-      default: 'planning',
+      enum: ['draft', 'ready', 'in_development', 'qa_uat', 'release_handover', 'on_hold', 'closed'],
+      default: 'draft',
       index: true,
     },
     /**

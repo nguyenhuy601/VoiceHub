@@ -4,17 +4,29 @@
 
 const {
   DELIVERY_PHASES,
+  DEFAULT_DELIVERY_PHASE_EXISTING,
   DEFAULT_DELIVERY_PHASE_NEW,
   coerceDeliveryPhase,
 } = require('../../constants/projectDeliveryPhase');
 
+/** Một deliveryPhase một status. `on_hold` / `closed` không gắn phase. */
 const PROJECT_STATUSES = Object.freeze([
-  'planning',
-  'ready_for_planning',
+  'draft',
+  'ready',
   'in_development',
+  'qa_uat',
+  'release_handover',
   'on_hold',
   'closed',
 ]);
+
+const STATUS_FOR_DELIVERY_PHASE = Object.freeze({
+  requirement_analysis: 'draft',
+  delivery_planning: 'ready',
+  development: 'in_development',
+  qa_uat: 'qa_uat',
+  release_handover: 'release_handover',
+});
 
 const PROJECT_CATEGORIES = Object.freeze(['internal', 'customer']);
 const PROJECT_PRIORITIES = Object.freeze(['low', 'medium', 'high', 'urgent']);
@@ -54,13 +66,13 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
   const fields = {};
 
   if (body.status !== undefined) {
-    const st = String(body.status || '').trim().toLowerCase();
-    if (!PROJECT_STATUSES.includes(st)) {
+    const st = coerceProjectLifecycleStatus(body.status);
+    if (!st) {
       return { ok: false, message: 'status dự án không hợp lệ' };
     }
     fields.status = st;
   } else if (!partial) {
-    fields.status = 'ready_for_planning';
+    fields.status = 'draft';
   }
 
   if (body.deliveryPhase !== undefined) {
@@ -206,24 +218,64 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
 }
 
 /**
- * Dual-read legacy Project.status → current enum (or null if already valid / unknown).
- * `draft` = seed/legacy early lifecycle → `planning`.
+ * Status đúng với deliveryPhase. `null` khi phase không thuộc map.
+ * Không áp cho `on_hold` / `closed`.
+ */
+function statusForDeliveryPhase(phase) {
+  const key = String(phase || '')
+    .trim()
+    .toLowerCase();
+  return STATUS_FOR_DELIVERY_PHASE[key] || null;
+}
+
+/**
+ * Alias trước enum: `ready_for_planning` → `ready`, `planning` / `new` / `created` → `draft`,
+ * `active` (Gate 2 cũ) → `in_development`, terminal cũ → `closed`.
  */
 function coerceProjectLifecycleStatus(raw) {
   const st = String(raw || '')
     .trim()
     .toLowerCase();
   if (!st) return null;
+  if (st === 'ready_for_planning') return 'ready';
+  if (st === 'planning' || st === 'new' || st === 'created') return 'draft';
+  if (st === 'active') return 'in_development';
   if (PROJECT_STATUSES.includes(st)) return st;
-  if (st === 'draft' || st === 'new' || st === 'created') return 'planning';
   if (st === 'cancelled' || st === 'canceled' || st === 'completed' || st === 'archived') {
     return 'closed';
   }
   return null;
 }
 
+/**
+ * Status bám deliveryPhase. `on_hold` / `closed` (kể cả alias đóng) giữ status
+ * và không bịa phase khi phase đang trống. Phase trống hoặc lạ trên doc còn lại
+ * = development (cùng rule đọc của hub).
+ * @returns {{ status: string, deliveryPhase: string|null }}
+ */
+function alignedLifecycleFields({ status, deliveryPhase } = {}) {
+  const st = coerceProjectLifecycleStatus(status);
+  if (st === 'on_hold' || st === 'closed') {
+    const rawPhase = String(deliveryPhase || '')
+      .trim()
+      .toLowerCase();
+    return {
+      status: st,
+      deliveryPhase: DELIVERY_PHASES.includes(rawPhase) ? rawPhase : null,
+    };
+  }
+  const known = coerceDeliveryPhase(deliveryPhase);
+  const phase =
+    known && STATUS_FOR_DELIVERY_PHASE[known] ? known : DEFAULT_DELIVERY_PHASE_EXISTING;
+  return {
+    status: STATUS_FOR_DELIVERY_PHASE[phase],
+    deliveryPhase: phase,
+  };
+}
+
 module.exports = {
   PROJECT_STATUSES,
+  STATUS_FOR_DELIVERY_PHASE,
   PROJECT_CATEGORIES,
   PROJECT_PRIORITIES,
   PROJECT_METHODOLOGIES,
@@ -231,4 +283,6 @@ module.exports = {
   WEEKDAYS,
   buildProjectInitFields,
   coerceProjectLifecycleStatus,
+  statusForDeliveryPhase,
+  alignedLifecycleFields,
 };

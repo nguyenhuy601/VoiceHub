@@ -123,14 +123,16 @@ async function materializeWhatToArtifacts({ userId, pack }) {
 }
 
 /**
- * Load MinIO buffers → extract corpus + optional Raw xlsx prefill; persist on pack.
+ * Load MinIO buffers → prefillWorkbook per xlsx → aggregate → corpus; persist on pack once.
  */
 async function prepareIntakeCorpusAndPrefill({ pack, organizationId, packId }) {
   const { buildIntakeCorpus } = require('../utils/aiAnalysis/buildIntakeCorpus');
+  const { prefillWorkbook } = require('../utils/aiAnalysis/prefillPackFromRawWorkbook');
   const {
-    prefillPackFromRawWorkbook,
-  } = require('../utils/aiAnalysis/prefillPackFromRawWorkbook');
+    aggregateWorkbookResults,
+  } = require('../utils/requirement/aggregateWorkbookResults');
   const { clampOverviewForPack } = require('../utils/requirement/requirementOverviewClamp');
+  const { failedDiagnostic } = require('../utils/requirement/workbookDiagnostic');
 
   const filter = {
     organizationId,
@@ -141,54 +143,104 @@ async function prepareIntakeCorpusAndPrefill({ pack, organizationId, packId }) {
     ],
   };
   const docs = await CustomerDocument.find(filter)
-    .select('_id filename docClass mimeType storageKey packId projectId')
-    .sort({ createdAt: 1 })
+    .select('_id filename docClass mimeType storageKey packId projectId createdAt')
+    .sort({ createdAt: 1, _id: 1 })
     .lean();
 
-  // Prefill from first customer_raw xlsx when possible
-  const rawDoc = docs.find(
-    (d) =>
-      String(d.docClass || '') === 'customer_raw' &&
-      /\.xlsx?$/i.test(String(d.filename || ''))
+  const xlsxDocs = docs.filter(
+    (d) => d?.storageKey && /\.xlsx?$/i.test(String(d.filename || ''))
   );
-  if (rawDoc?.storageKey) {
-    try {
-      const objectStorage = require('../utils/common/objectStorage');
-      if (objectStorage.isEnabled()) {
-        const buf = await objectStorage.getObjectBuffer(rawDoc.storageKey);
-        const { pack: merged, meta } = prefillPackFromRawWorkbook(
-          pack.toObject ? pack.toObject() : pack,
-          buf,
-          { filename: rawDoc.filename }
-        );
-        if (meta.applied) {
-          pack.overview = merged.overview || pack.overview;
-          pack.scope = merged.scope || pack.scope;
-          pack.functionalRequirements =
-            merged.functionalRequirements || pack.functionalRequirements;
-          pack.nonFunctionalRequirements =
-            merged.nonFunctionalRequirements || pack.nonFunctionalRequirements;
-          pack.businessGoals = merged.businessGoals || pack.businessGoals;
-          pack.businessRules = merged.businessRules || pack.businessRules;
-          pack.businessProcesses = merged.businessProcesses || pack.businessProcesses;
-          pack.useCases = merged.useCases || pack.useCases;
-          pack.markModified('overview');
-          pack.markModified('scope');
-          pack.markModified('functionalRequirements');
-          pack.markModified('nonFunctionalRequirements');
-          pack.markModified('businessGoals');
-          pack.markModified('businessRules');
-          pack.markModified('businessProcesses');
-          pack.markModified('useCases');
-        }
+  const workbookResults = [];
+  const objectStorage = require('../utils/common/objectStorage');
+  if (objectStorage.isEnabled()) {
+    for (const doc of xlsxDocs) {
+      const documentId = String(doc._id);
+      const filename = String(doc.filename || '').slice(0, 260);
+      try {
+        const buf = await objectStorage.getObjectBuffer(doc.storageKey);
+        const result = prefillWorkbook(buf, { filename, documentId });
+        result.meta = {
+          ...(result.meta || {}),
+          documentId,
+          filename,
+          createdAt: doc.createdAt,
+        };
+        workbookResults.push(result);
+      } catch (err) {
+        workbookResults.push({
+          functionalRequirements: [],
+          nonFunctionalRequirements: [],
+          customerRawRows: {
+            businessRequests: [],
+            references: [],
+            requirementSources: [],
+          },
+          workbookDiagnostic: failedDiagnostic(
+            'PARSER_ERROR',
+            err.message || 'get_failed',
+            filename
+          ),
+          overview: {},
+          scope: [],
+          meta: {
+            applied: false,
+            source: 'none',
+            reason: String(err.message || 'get_failed').slice(0, 120),
+            documentId,
+            filename,
+            createdAt: doc.createdAt,
+          },
+        });
+        // eslint-disable-next-line no-console
+        console.warn('[phase_what] workbook prefill skipped', {
+          packId: String(packId),
+          documentId,
+          message: err.message,
+        });
       }
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[phase_what] raw prefill skipped', {
-        packId: String(packId),
-        message: err.message,
-      });
     }
+  }
+
+  if (workbookResults.length) {
+    const aggregated = aggregateWorkbookResults(workbookResults);
+    pack.overview = { ...(pack.overview || {}), ...(aggregated.overview || {}) };
+    if (Array.isArray(aggregated.scope) && aggregated.scope.length) {
+      if (!Array.isArray(pack.scope) || !pack.scope.length) pack.scope = aggregated.scope;
+    }
+    pack.functionalRequirements = aggregated.functionalRequirements;
+    pack.nonFunctionalRequirements = aggregated.nonFunctionalRequirements;
+    if (aggregated.businessGoals?.length) pack.businessGoals = aggregated.businessGoals;
+    if (aggregated.businessRules?.length) pack.businessRules = aggregated.businessRules;
+    if (aggregated.businessProcesses?.length) {
+      pack.businessProcesses = aggregated.businessProcesses;
+    }
+    if (aggregated.useCases?.length) pack.useCases = aggregated.useCases;
+
+    const containerDiag = ensureAiAnalysisContainer(pack.aiAnalysis);
+    containerDiag.workbookDiagnostic = aggregated.workbookDiagnostic;
+    containerDiag.workbookDiagnostics = aggregated.workbookDiagnostics;
+    containerDiag.customerRawRows = aggregated.customerRawRows;
+    pack.aiAnalysis = containerDiag;
+    pack.markModified('overview');
+    pack.markModified('scope');
+    pack.markModified('functionalRequirements');
+    pack.markModified('nonFunctionalRequirements');
+    pack.markModified('businessGoals');
+    pack.markModified('businessRules');
+    pack.markModified('businessProcesses');
+    pack.markModified('useCases');
+    pack.markModified('aiAnalysis');
+
+    // eslint-disable-next-line no-console
+    console.info('[phase_what] workbook aggregate', {
+      packId: String(packId),
+      fileCount: aggregated.meta.fileCount,
+      aggregateStatus: aggregated.meta.aggregateStatus,
+      validFr: aggregated.meta.validFr,
+      nfrCount: aggregated.meta.nfrCount,
+      businessRequestCount: aggregated.meta.businessRequestCount,
+      referenceCount: aggregated.meta.referenceCount,
+    });
   }
 
   const corpus = await buildIntakeCorpus(docs);

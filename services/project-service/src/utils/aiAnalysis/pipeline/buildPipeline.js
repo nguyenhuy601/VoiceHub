@@ -18,6 +18,7 @@ const {
 } = require('./jobFilters');
 const { splitContext } = require('./splitContext');
 const { projectSnapshotForJob } = require('./jobProjectionProfiles');
+const { hashFunctionalRequirements } = require('../../requirement/workbookDiagnostic');
 
 /**
  * Build immutable snapshot body from live pack + pool + calendar (called once at create).
@@ -39,6 +40,12 @@ function buildSnapshotPayload({
   const merged = semanticMerge(canonical);
   const commonFiltered = applyCommonFilter(canonical, merged, { packStatus });
   const preparedByJob = buildPreparedByJobSummary(commonFiltered);
+  const frRows = projected?.srs?.functionalRequirements || [];
+  ingestion.validation = {
+    ...(ingestion.validation || {}),
+    functionalRequirementCount: frRows.length,
+    functionalRequirementHash: hashFunctionalRequirements(frRows),
+  };
   const versions = buildDatasetVersions({
     packVersionNumber: pack?.versionNumber,
     packContentHash,

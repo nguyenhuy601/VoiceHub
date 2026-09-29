@@ -25,17 +25,30 @@ describe('aiG4Policy', () => {
 });
 
 describe('candidateSelector + signals', () => {
-  it('extracts signals from Vietnamese course FR', () => {
+  it('prefers structured actor field over prose heuristics', () => {
     const fr = {
       id: 'FR-023',
       description:
         'Hệ thống cho phép giảng viên tạo học phần, nhập mã học phần, tên học phần, số tín chỉ và trạng thái hoạt động.',
       ac: 'AC1',
       module: 'Course Management',
+      actorsRaw: 'Lecturer',
     };
     const s = extractFrSignals(fr);
     assert.equal(s.frId, 'FR-023');
-    assert.ok(s.actors.some((a) => /giảng viên|giang vien/i.test(a)));
+    assert.deepEqual(s.actors, ['Lecturer']);
+    assert.equal(s.module, 'Course Management');
+    assert.equal(s.hasAcceptanceCriteria, true);
+  });
+
+  it('fills actors from generic prose only when the actor field is empty', () => {
+    const fr = {
+      id: 'FR-024',
+      description: 'The system lets a student create and view a course account.',
+      ac: 'Listed',
+    };
+    const s = extractFrSignals(fr);
+    assert.ok(s.actors.some((a) => /student/i.test(a)));
     assert.ok(s.objects.includes('Course'));
   });
 

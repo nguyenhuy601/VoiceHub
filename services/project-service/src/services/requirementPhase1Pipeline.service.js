@@ -10,6 +10,7 @@ const {
   materializeWhatToArtifacts,
 } = require('./whatRequirementPhase.service');
 const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+const { isRequirementReady } = require('../utils/requirement/workbookDiagnostic');
 
 function countSheetRows(pack) {
   const fr = Array.isArray(pack?.functionalRequirements)
@@ -50,7 +51,6 @@ function buildPhase1Readiness(pack, stage1Meta = {}) {
   const prefillApplied = sheets.fr + sheets.nfr + sheets.bg + sheets.scope > 0;
 
   if (docsCount <= 0) missing.push('no_customer_documents');
-  if (intakeCorpusChars <= 0) missing.push('empty_intake_corpus');
   if (!snapshotId) missing.push('no_analysis_snapshot');
   if (!prefillApplied && intakeCorpusChars > 0) {
     missing.push('no_structured_sheets_yet');
@@ -67,6 +67,16 @@ function buildPhase1Readiness(pack, stage1Meta = {}) {
   // Do not treat empty stub skills as "missing" — full org/calendar supplement is out of scope.
   if (!systemSourcesPresent) missing.push('system_supplement_partial');
 
+  const workbookDiagnostic = pack?.aiAnalysis?.workbookDiagnostic || null;
+  const workbookDiagnostics = Array.isArray(pack?.aiAnalysis?.workbookDiagnostics)
+    ? pack.aiAnalysis.workbookDiagnostics
+    : [];
+  const customerRawRows = pack?.aiAnalysis?.customerRawRows || null;
+  const documentReadiness = workbookDiagnostic
+    ? (workbookDiagnostic.status === 'FAILED' ? 'NOT_READY' : 'READY')
+    : (docsCount > 0 || intakeCorpusChars > 0 ? 'READY' : 'NOT_READY');
+  const requirementReadiness = isRequirementReady(workbookDiagnostic) ? 'READY' : 'NOT_READY';
+
   return {
     docsCount,
     intakeCorpusChars,
@@ -78,6 +88,18 @@ function buildPhase1Readiness(pack, stage1Meta = {}) {
     skillCatalogSkillCount: Array.isArray(stub?.skills) ? stub.skills.length : 0,
     snapshotId,
     missing,
+    documentReadiness,
+    requirementReadiness,
+    functionalRequirementCount: Number(workbookDiagnostic?.rows?.validFr) || sheets.fr,
+    nfrCount: sheets.nfr,
+    businessRequestCount: Array.isArray(customerRawRows?.businessRequests)
+      ? customerRawRows.businessRequests.length
+      : 0,
+    referenceCount: Array.isArray(customerRawRows?.references)
+      ? customerRawRows.references.length
+      : 0,
+    workbookDiagnostic,
+    workbookDiagnostics,
     packStatus: String(pack?.status || stage1Meta.status || ''),
   };
 }
@@ -128,6 +150,18 @@ async function runPhase1Stage1PrepareInput({ userId, organizationId, packId }) {
         message: err.message,
       });
     }
+  }
+
+  if (pack) {
+    const { ensureActiveAiAnalysisSnapshot } = require('./aiAnalysisSnapshot.service');
+    await ensureActiveAiAnalysisSnapshot({
+      userId,
+      organizationId,
+      packId,
+      pack,
+      refreshOnFrDrift: true,
+    });
+    pack = await RequirementPack.findOne({ _id: packId, organizationId });
   }
 
   const readiness = buildPhase1Readiness(pack, base);

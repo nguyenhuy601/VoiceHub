@@ -161,9 +161,28 @@ function resolveCorpusFromSource(source) {
 }
 
 /**
- * Capped INTAKE_CORPUS block for WHAT LLM prompts.
+ * RULE-PROMPT-01: workbook structured excerpts (method=xlsx) never enter
+ * requirement reasoning / data-analysis prompts. PDF/TXT/image (utf8/ocr) stay.
+ */
+function isUnstructuredDocumentExcerpt(ex) {
+  if (!ex || typeof ex !== 'object') return false;
+  const method = String(ex.method || '').toLowerCase();
+  if (method === 'xlsx' || method === 'xls') return false;
+  const filename = String(ex.filename || '').toLowerCase();
+  if (/\.xlsx?$/i.test(filename)) return false;
+  // Keep utf8 / ocr / unknown prose from txt/md/pdf/png
+  return Boolean(String(ex.text || '').trim());
+}
+
+function filterUnstructuredExcerpts(excerpts) {
+  return (Array.isArray(excerpts) ? excerpts : []).filter(isUnstructuredDocumentExcerpt);
+}
+
+/**
+ * Capped document block for WHAT requirement prompts.
+ * Excludes Excel flatten (xlsx). Keeps PDF/TXT/image excerpts.
  * @param {object} source — corpus `{ excerpts }` or pack `{ aiAnalysis: { intakeCorpus } }`
- * @param {{ maxChars?: number }} [opts]
+ * @param {{ maxChars?: number, includeWorkbook?: boolean }} [opts]
  * @returns {string} empty when disabled/empty; otherwise length <= maxChars
  */
 function buildWhatIntakePromptBlock(source, opts = {}) {
@@ -176,14 +195,20 @@ function buildWhatIntakePromptBlock(source, opts = {}) {
   const corpus = resolveCorpusFromSource(source);
   if (!corpus || !Array.isArray(corpus.excerpts) || !corpus.excerpts.length) return '';
 
-  const header = '--- INTAKE_CORPUS ---\n';
-  const footer = '\n--- END_INTAKE_CORPUS ---';
+  const excerpts =
+    opts.includeWorkbook === true
+      ? corpus.excerpts
+      : filterUnstructuredExcerpts(corpus.excerpts);
+  if (!excerpts.length) return '';
+
+  const header = '--- DOCUMENT_CORPUS ---\n';
+  const footer = '\n--- END_DOCUMENT_CORPUS ---';
   const overhead = header.length + footer.length;
   if (overhead >= maxChars) return '';
 
   let room = maxChars - overhead;
   const parts = [];
-  for (const ex of corpus.excerpts) {
+  for (const ex of excerpts) {
     if (room <= 0) break;
     const filename = String(ex.filename || 'file').slice(0, 260);
     const text = String(ex.text || '');
@@ -211,4 +236,6 @@ module.exports = {
   formatIntakeCorpusBlock,
   resolveWhatIntakePromptMaxChars,
   buildWhatIntakePromptBlock,
+  isUnstructuredDocumentExcerpt,
+  filterUnstructuredExcerpts,
 };

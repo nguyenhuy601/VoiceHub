@@ -24,9 +24,12 @@ describe('mongoose 9 pre(validate) without next', () => {
     assert.equal(doc.status, 'closed');
   });
 
-  it('coerces ready_for_planning and in_development before enum validate', async () => {
+  it('coerces ready_for_planning to ready and new to draft', async () => {
     const schema = new mongoose.Schema({
-      status: { type: String, enum: ['draft', 'active', 'on_hold', 'closed'] },
+      status: {
+        type: String,
+        enum: ['draft', 'ready', 'in_development', 'qa_uat', 'release_handover', 'on_hold', 'closed'],
+      },
     });
     schema.pre('validate', function coerceLegacyStatus() {
       const coerced = coerceProjectLifecycleStatus(this.status);
@@ -36,13 +39,17 @@ describe('mongoose 9 pre(validate) without next', () => {
       mongoose.models.Mongoose9ValidateHookLegacy ||
       mongoose.model('Mongoose9ValidateHookLegacy', schema);
 
-    const draftDoc = new Model({ status: 'ready_for_planning' });
+    const draftDoc = new Model({ status: 'draft' });
     await assert.doesNotReject(() => draftDoc.validate());
     assert.equal(draftDoc.status, 'draft');
 
-    const activeDoc = new Model({ status: 'in_development' });
-    await assert.doesNotReject(() => activeDoc.validate());
-    assert.equal(activeDoc.status, 'active');
+    const readyDoc = new Model({ status: 'ready_for_planning' });
+    await assert.doesNotReject(() => readyDoc.validate());
+    assert.equal(readyDoc.status, 'ready');
+
+    const legacyNew = new Model({ status: 'new' });
+    await assert.doesNotReject(() => legacyNew.validate());
+    assert.equal(legacyNew.status, 'draft');
   });
 
   it('gọi next() khi next undefined → TypeError (pattern cũ)', () => {

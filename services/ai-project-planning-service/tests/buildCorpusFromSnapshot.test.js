@@ -12,9 +12,19 @@ describe('buildCorpusFromSnapshot', () => {
       snapshotId: 'snap-1',
       projected: {
         skillCatalog: { version: 'v1', skills: ['React'] },
-        functionalRequirements: [
-          { id: 'FR-1', name: 'Login', description: 'User signs in' },
-        ],
+        srs: {
+          functionalRequirements: [
+            {
+              externalId: 'FR-1',
+              name: 'Login',
+              description: 'User signs in',
+              moduleLabel: 'Auth',
+              actor: 'User',
+              acceptanceCriteria: 'Token issued',
+              priority: 'High',
+            },
+          ],
+        },
         evidenceSpans: [{ id: 'EV-1', text: 'acceptance: login works' }],
       },
     });
@@ -22,7 +32,11 @@ describe('buildCorpusFromSnapshot', () => {
     const docs = buildCorpusFromSnapshot(snapshot);
     assert.ok(docs.some((d) => d.docType === 'skill_def' && /React/i.test(d.text)));
     assert.ok(docs.some((d) => d.docType === 'metric_def' && d.sourceId === 'available_capacity'));
-    assert.ok(docs.some((d) => d.docType === 'srs_canonical' && d.sourceId === 'FR-1'));
+    const fr = docs.find((d) => d.docType === 'srs_canonical' && d.sourceId === 'FR-1');
+    assert.ok(fr);
+    assert.match(fr.text, /name: Login/);
+    assert.match(fr.text, /ac: Token issued/);
+    assert.equal(fr.metadata.moduleLabel, 'Auth');
     assert.ok(docs.some((d) => d.docType === 'evidence_span' && d.sourceId === 'EV-1'));
     assert.ok(docs.every((d) => d.metadata?.snapshotId === 'snap-1'));
   });
@@ -69,5 +83,39 @@ describe('buildCorpusFromSnapshot', () => {
       g1Catalogs: { metricCatalog: [] },
     });
     assert.ok(docs.length <= CORPUS_CAP);
+  });
+
+  it('uses empty projected.srs.functionalRequirements and does not fall back to top-level', () => {
+    const docs = buildCorpusFromSnapshot({
+      snapshotId: 'snap',
+      functionalRequirements: [
+        { externalId: 'CR-OLD', name: 'Should not appear' },
+      ],
+      projected: {
+        srs: { functionalRequirements: [] },
+        skillCatalog: { version: 'v1', skills: [] },
+      },
+      g1Catalogs: { metricCatalog: [] },
+    });
+    assert.ok(!docs.some((d) => d.docType === 'srs_canonical'));
+  });
+
+  it('skips FR rows that lack externalId', () => {
+    const docs = buildCorpusFromSnapshot({
+      snapshotId: 'snap',
+      projected: {
+        srs: {
+          functionalRequirements: [
+            { id: 'legacy-id', name: 'No external id' },
+            { externalId: 'CR-001', name: 'Kept' },
+          ],
+        },
+        skillCatalog: { version: 'v1', skills: [] },
+      },
+      g1Catalogs: { metricCatalog: [] },
+    });
+    const frDocs = docs.filter((d) => d.docType === 'srs_canonical');
+    assert.equal(frDocs.length, 1);
+    assert.equal(frDocs[0].sourceId, 'CR-001');
   });
 });

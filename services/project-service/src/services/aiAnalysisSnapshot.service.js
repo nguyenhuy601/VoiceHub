@@ -278,7 +278,26 @@ function assertSnapshotRequired(snapshot) {
 }
 
 /**
+ * True when the active snapshot's projected SRS FR matches the pack rows.
+ * Missing diagnostic hash on older snapshots is ignored; count and canonical hash are not.
+ */
+function packSnapshotFrAligned(pack, snapshotDoc) {
+  if (!snapshotDoc) return false;
+  const { assertSnapshotFrAlignment } = require('../utils/requirement/workbookDiagnostic');
+  const snap = typeof snapshotDoc.toObject === 'function' ? snapshotDoc.toObject() : snapshotDoc;
+  try {
+    assertSnapshotFrAlignment(pack?.functionalRequirements || [], snap);
+    return true;
+  } catch (err) {
+    if (err?.errorCode === 'SNAPSHOT_FR_MISMATCH') return false;
+    throw err;
+  }
+}
+
+/**
  * Load active snapshot or create/reuse one — pack already known; no pack re-select.
+ * refreshOnFrDrift is for prepare, after FR are persisted. G4 must not pass it:
+ * a drifted snapshot at G4 time stays a mismatch.
  * @returns {{ pack, snapshotDoc, snapshotId, meta }}
  */
 async function ensureActiveAiAnalysisSnapshot({
@@ -286,6 +305,7 @@ async function ensureActiveAiAnalysisSnapshot({
   organizationId,
   packId,
   pack: packIn = null,
+  refreshOnFrDrift = false,
 }) {
   let pack = packIn;
   if (!pack) {
@@ -304,7 +324,9 @@ async function ensureActiveAiAnalysisSnapshot({
     packId,
     pack,
   });
-  if (snapshotDoc) {
+  const shouldRefresh =
+    Boolean(refreshOnFrDrift) && snapshotDoc && !packSnapshotFrAligned(pack, snapshotDoc);
+  if (snapshotDoc && !shouldRefresh) {
     return {
       pack,
       snapshotDoc,
@@ -317,6 +339,7 @@ async function ensureActiveAiAnalysisSnapshot({
     userId,
     organizationId,
     packId,
+    force: Boolean(shouldRefresh),
   });
   // Reload pack — createOrReuse mutates aiAnalysisActiveSnapshotId
   pack = await loadPackOrThrow({ packId, organizationId });
@@ -325,8 +348,17 @@ async function ensureActiveAiAnalysisSnapshot({
     packId,
     pack,
   });
+  if (!snapshotDoc && created?.snapshot) {
+    snapshotDoc = created.snapshot;
+  }
   if (!snapshotDoc) {
     assertSnapshotRequired(null);
+  }
+  if (String(pack.aiAnalysisActiveSnapshotId || '') !== String(snapshotDoc._id)) {
+    pack.aiAnalysisActiveSnapshotId = snapshotDoc._id;
+    pack.aiAnalysisSnapshotMeta = created?.meta || toMeta(snapshotDoc);
+    pack.markModified('aiAnalysisSnapshotMeta');
+    await pack.save();
   }
   return {
     pack,
@@ -342,6 +374,7 @@ module.exports = {
   loadActiveSnapshotDocument,
   assertSnapshotRequired,
   ensureActiveAiAnalysisSnapshot,
+  packSnapshotFrAligned,
   toMeta,
   buildSkillCatalogStub,
   isSnapshotPipelineEnabled,

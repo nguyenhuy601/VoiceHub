@@ -109,6 +109,13 @@ const requirementPackSchema = new mongoose.Schema(
       budget: { type: Number, default: null },
       budgetCurrency: { type: String, trim: true, default: '', maxlength: 8 },
       priority: { type: String, trim: true, default: 'Medium', maxlength: 32 },
+      /** Wizard create mode — strict schema must keep this or it is stripped on save. */
+      analysisMode: {
+        type: String,
+        enum: ['manual', 'ai', ''],
+        default: '',
+        maxlength: 16,
+      },
     },
     staffingPlan: {
       requiredSkills: { type: [staffingSkillSchema], default: [] },
@@ -229,6 +236,13 @@ const requirementPackSchema = new mongoose.Schema(
       default: 'none',
     },
     aiAnalysisId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    /** Active snapshot pin. Strict schema strips unknown paths on save (same class as overview.analysisMode). */
+    aiAnalysisActiveSnapshotId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    aiAnalysisSnapshotMeta: { type: mongoose.Schema.Types.Mixed, default: null },
     projectId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
     importSetId: {
       type: mongoose.Schema.Types.ObjectId,

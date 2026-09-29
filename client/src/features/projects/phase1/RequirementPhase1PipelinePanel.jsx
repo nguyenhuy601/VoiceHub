@@ -18,6 +18,46 @@ function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
+const GATE1_REVIEW_CAP = 40;
+
+function clipReviewText(value) {
+  const raw = Array.isArray(value)
+    ? value
+        .map((item) =>
+          typeof item === 'string'
+            ? item
+            : item?.text || item?.criterion || item?.description || ''
+        )
+        .filter(Boolean)
+        .join('; ')
+    : value;
+  const text = String(raw || '').trim();
+  if (text.length <= 240) return text;
+  return `${text.slice(0, 240)}…`;
+}
+
+function mapGate1ReviewRow(row, index) {
+  return {
+    id: String(row?.id || row?.externalId || row?.frId || `R-${index + 1}`).trim(),
+    title: String(row?.title || row?.name || '').trim(),
+    description: clipReviewText(row?.description),
+    ac: clipReviewText(row?.ac || row?.acceptanceCriteria),
+  };
+}
+
+function buildGate1ReviewItems(pack, g4) {
+  const g4Reqs = Array.isArray(g4?.requirements) ? g4.requirements : [];
+  const frs = Array.isArray(pack?.functionalRequirements) ? pack.functionalRequirements : [];
+  const gateRows = Array.isArray(pack?.liveRun?.gatePreview?.rows)
+    ? pack.liveRun.gatePreview.rows
+    : [];
+  const source = g4Reqs.length ? g4Reqs : frs.length ? frs : gateRows;
+  return source
+    .slice(0, GATE1_REVIEW_CAP)
+    .map(mapGate1ReviewRow)
+    .filter((row) => row.id || row.title || row.description || row.ac);
+}
+
 /** t() trả về chính key khi thiếu bản dịch — `|| fallback` không bắt được. */
 function textOr(t, key, vars) {
   const value = typeof t === 'function' ? t(key, vars) : undefined;
@@ -96,12 +136,18 @@ export default function RequirementPhase1PipelinePanel({
       phaseWhat?.status === 'ready' &&
       (phaseWhat?.mode === 'g4' || Array.isArray(g4?.requirements));
     if (g4Ready || (phaseWhat?.mode === 'tools_propose' && phaseWhat?.status === 'ready')) {
+      const reviewItems = buildGate1ReviewItems(pack, g4);
       setStage2Meta((prev) => ({
         ...(prev || {}),
         done: true,
         pending: false,
         mode: phaseWhat?.mode || 'g4',
-        g4RequirementCount: Array.isArray(g4?.requirements) ? g4.requirements.length : 0,
+        reviewItems,
+        g4RequirementCount: reviewItems.length
+          ? reviewItems.length
+          : Array.isArray(g4?.requirements)
+            ? g4.requirements.length
+            : 0,
         g4RelationshipCount: Array.isArray(g4?.relationships) ? g4.relationships.length : 0,
         llmCalls: Number(g4?.meta?.llmCalls) || prev?.llmCalls || 0,
         partial: Boolean(g4?.meta?.partial),
@@ -185,6 +231,10 @@ export default function RequirementPhase1PipelinePanel({
           });
           if (tick.pipelineStep) {
             setPipeline({ step: tick.pipelineStep, substep: tick.pipelineSubstep || null });
+          }
+          const callbackDone = tick.callbackStatus === 'acked';
+          if (tick.computeStatus === 'completed' && !callbackDone) {
+            setPipeline({ step: 4, substep: 'feasibility' });
           }
           if (tick.liveRun?.runId) setActiveRunId(String(tick.liveRun.runId));
           if (tick.softHint && !softHintShown) {
@@ -283,9 +333,21 @@ export default function RequirementPhase1PipelinePanel({
         status: String(prepared?.status || ''),
       });
       if (prepared?.status) setPackStatus(String(prepared.status));
-      const blocking = missing.filter(
-        (code) => code === 'empty_intake_corpus' || code === 'no_analysis_snapshot'
-      );
+      const requirementReadiness = prepared?.readiness?.requirementReadiness;
+      if (requirementReadiness !== 'READY') {
+        const diag = prepared?.readiness?.workbookDiagnostic;
+        const codes = [
+          ...(Array.isArray(diag?.reasonCodes) ? diag.reasonCodes : []),
+          diag?.mappingDiagnostic?.failureReason,
+        ].filter(Boolean);
+        const msg =
+          t('requirements.phase1InputBlocked', { codes: codes.join(', ') || 'NOT_READY' }) ||
+          `Requirement chưa sẵn sàng: ${codes.join(', ') || 'NOT_READY'}`;
+        setErrorMsg(msg);
+        toast.error(msg);
+        return;
+      }
+      const blocking = missing.filter((code) => code === 'no_analysis_snapshot');
       if (blocking.length) {
         const msg =
           t('requirements.phase1InputBlocked', { codes: blocking.join(', ') }) ||
@@ -296,7 +358,6 @@ export default function RequirementPhase1PipelinePanel({
       }
 
       setBusyStage(2);
-      setPipeline({ step: 2, substep: 'parse' });
       const res = await requirementAPI.startPhaseAiPlanning(organizationId, packId, {
         phase: 'what',
         mode: 'g4',

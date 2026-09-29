@@ -303,6 +303,12 @@ function ensureAiAnalysisContainer(raw) {
   if (g4Src && typeof g4Src === 'object') {
     analyses.g4Understanding = g4Src;
   }
+  if (Array.isArray(working.analyses?.evidenceSpans)) {
+    analyses.evidenceSpans = working.analyses.evidenceSpans;
+  }
+  if (working.analyses?.phase1Knowledge && typeof working.analyses.phase1Knowledge === 'object') {
+    analyses.phase1Knowledge = working.analyses.phase1Knowledge;
+  }
 
   const planningSrc = working.planning && typeof working.planning === 'object' ? working.planning : {};
   const resourceSrc = working.resource && typeof working.resource === 'object' ? working.resource : {};
@@ -352,6 +358,9 @@ function ensureAiAnalysisContainer(raw) {
   }
   if (working.intakeCorpus != null) out.intakeCorpus = working.intakeCorpus;
   if (working.inputDocuments != null) out.inputDocuments = working.inputDocuments;
+  if (working.workbookDiagnostic != null) out.workbookDiagnostic = working.workbookDiagnostic;
+  if (working.skillCatalogStub != null) out.skillCatalogStub = working.skillCatalogStub;
+  if (working.sources != null) out.sources = working.sources;
   if (working.gate1Override != null) out.gate1Override = working.gate1Override;
 
   return out;

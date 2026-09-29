@@ -287,7 +287,12 @@ function buildWhatPhaseGraph(hooks = {}) {
   });
 
   graph.addNode('emitFeasibility', async (state) => {
-    onProgress?.({ node: 'feasibility', phase: 'what' });
+    onProgress?.({
+      node: 'feasibility',
+      phase: 'what',
+      step: 4,
+      substep: 'feasibility',
+    });
     const feasibilitySignal = buildFeasibilitySignal({
       toolResults: state.toolResults,
       container: state.container,

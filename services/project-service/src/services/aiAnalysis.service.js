@@ -760,6 +760,11 @@ async function startPhaseAiPlanningRun({
     throw err;
   }
 
+  if (phaseJob === 'phase_what') {
+    const { assertG4CanStart } = require('../utils/requirement/workbookDiagnostic');
+    assertG4CanStart(packForPhase, snapshotDoc);
+  }
+
   let container = ensurePackContainer(packForPhase);
   const existing = container.phaseRuns?.[phaseJob];
   if (

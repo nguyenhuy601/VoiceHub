@@ -99,6 +99,13 @@ test('resolveLandingStatusLabelKey — Phase 4 shows handover label', () => {
   );
   assert.equal(
     resolveLandingStatusLabelKey({
+      status: 'draft',
+      deliveryPhase: '',
+    }),
+    'workspace.projectHubProjectStatus_in_development'
+  );
+  assert.equal(
+    resolveLandingStatusLabelKey({
       status: 'in_development',
       deliveryPhase: 'development',
     }),

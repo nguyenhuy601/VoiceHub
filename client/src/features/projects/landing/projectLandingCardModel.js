@@ -2,6 +2,7 @@
  * Map GET /projects list item → landing card view-model (Tier 1–2).
  */
 import { displayDepartmentName } from '../../../utils/orgEntityDisplay.js';
+import { landingStatusForUi } from './projectLandingActive.js';
 
 const GRAD_PAIRS = [
   ['#1D4ED8', '#3B82F6'],
@@ -49,9 +50,13 @@ export function normalizeProjectHealth(health) {
 export function projectStatusLabelKey(status) {
   const st = normalizeProjectStatus(status);
   const allowed = new Set([
+    'draft',
     'planning',
+    'ready',
     'ready_for_planning',
     'in_development',
+    'qa_uat',
+    'release_handover',
     'on_hold',
     'closed',
   ]);
@@ -66,15 +71,15 @@ export function projectStatusLabelKey(status) {
  * @returns {string|null}
  */
 export function resolveLandingStatusLabelKey(project) {
-  const status = normalizeProjectStatus(project?.status);
-  if (status === 'closed') return projectStatusLabelKey(status);
+  const effective = landingStatusForUi(project);
+  if (effective === 'closed') return projectStatusLabelKey(effective);
   const phase = String(project?.deliveryPhase || '')
     .trim()
     .toLowerCase();
-  if (phase === 'release_handover') {
+  if (phase === 'release_handover' || effective === 'release_handover') {
     return 'workspace.projectHubProjectStatus_handover';
   }
-  return projectStatusLabelKey(status);
+  return projectStatusLabelKey(effective);
 }
 
 export function projectPriorityLabelKey(priority) {
