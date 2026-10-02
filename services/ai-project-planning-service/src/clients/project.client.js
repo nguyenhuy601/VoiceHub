@@ -87,9 +87,47 @@ async function notifyJobResult(payload) {
   return { status: response.status, data: response.data };
 }
 
+/**
+ * @param {{ snapshotId: string, packId: string, organizationId: string }} opts
+ */
+async function fetchAnalysisSnapshotHydrate({
+  snapshotId,
+  packId,
+  organizationId,
+}) {
+  assertCallbackConfigured();
+  const base = projectBase();
+  const sid = encodeURIComponent(String(snapshotId || '').trim());
+  const response = await axios.get(
+    `${base}/api/projects/internal/ai-planning/snapshots/${sid}`,
+    {
+      headers: {
+        ...internalHeaders(),
+        'x-organization-id': String(organizationId || '').trim(),
+      },
+      params: {
+        packId: String(packId || '').trim(),
+        organizationId: String(organizationId || '').trim(),
+      },
+      timeout: 30_000,
+      validateStatus: () => true,
+    }
+  );
+  if (response.status >= 400 || response.data?.success !== true) {
+    const error = new Error(
+      response.data?.message || 'Snapshot hydrate failed'
+    );
+    error.code = response.data?.errorCode || 'SNAPSHOT_HYDRATE_FAILED';
+    error.statusCode = response.status >= 400 ? response.status : 502;
+    throw error;
+  }
+  return response.data.data;
+}
+
 module.exports = {
   notifyRunAccepted,
   notifyJobResult,
   assertCallbackConfigured,
   requestMaterializeApprovedPlan,
+  fetchAnalysisSnapshotHydrate,
 };

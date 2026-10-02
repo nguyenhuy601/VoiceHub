@@ -1,0 +1,34 @@
+{
+  "id": "case-002-leave",
+  "legacyG4Input": {
+    "snapshotId": "snap-leave-002",
+    "packId": "pack-leave",
+    "functionalRequirements": [
+      {
+        "id": "FR-LEAVE-01",
+        "title": "Request leave",
+        "description": "Employee submits annual leave request"
+      }
+    ],
+    "actors": [{ "id": "ACT-EMP", "name": "Employee" }, { "id": "ACT-MGR", "name": "Manager" }],
+    "domain": { "name": "Leave Management" }
+  },
+  "expectedSemantic": {
+    "requirements": [
+      {
+        "id": "FR-LEAVE-01",
+        "title": "Request leave",
+        "description": "Employee submits annual leave request"
+      }
+    ],
+    "relationships": [],
+    "ambiguities": [],
+    "assumptions": [],
+    "semanticItems": [],
+    "conflicts": [],
+    "evidence": { "items": [] },
+    "facts": {},
+    "signalsMeta": null,
+    "meta": {}
+  }
+}

@@ -1,6 +1,10 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { whitelistLiveRun, phaseNeedsLiveRun } = require('../src/utils/aiAnalysis/attachLiveRun');
+const {
+  whitelistLiveRun,
+  phaseNeedsLiveRun,
+  resolveInFlightPhaseRun,
+} = require('../src/utils/aiAnalysis/attachLiveRun');
 
 describe('wave1 attachLiveRun', () => {
   it('whitelistLiveRun strips heavy fields', () => {
@@ -77,5 +81,35 @@ describe('wave1 attachLiveRun', () => {
     assert.equal(phaseNeedsLiveRun({ status: 'pending', remoteRunId: 'x' }), true);
     assert.equal(phaseNeedsLiveRun({ status: 'ready', remoteRunId: 'x' }), false);
     assert.equal(phaseNeedsLiveRun({ status: 'pending' }), false);
+    assert.equal(phaseNeedsLiveRun({ status: 'waiting_human', remoteRunId: 'x' }), true);
+  });
+
+  it('resolveInFlightPhaseRun prefers what over how', () => {
+    const picked = resolveInFlightPhaseRun({
+      phase_what: { status: 'pending', remoteRunId: 'what-run' },
+      phase_how: { status: 'pending', remoteRunId: 'how-run' },
+    });
+    assert.equal(picked.key, 'phase_what');
+    assert.equal(picked.meta.remoteRunId, 'what-run');
+  });
+
+  it('resolveInFlightPhaseRun uses phase_how when what done', () => {
+    const picked = resolveInFlightPhaseRun({
+      phase_what: { status: 'ready', remoteRunId: 'what-run' },
+      phase_how: { status: 'pending', remoteRunId: 'how-run' },
+    });
+    assert.equal(picked.key, 'phase_how');
+    assert.equal(picked.meta.remoteRunId, 'how-run');
+  });
+
+  it('resolveInFlightPhaseRun null when neither in-flight', () => {
+    assert.equal(
+      resolveInFlightPhaseRun({
+        phase_what: { status: 'ready', remoteRunId: 'what-run' },
+        phase_how: { status: 'ready', remoteRunId: 'how-run' },
+      }),
+      null
+    );
   });
 });
+

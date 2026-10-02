@@ -10,10 +10,6 @@ const {
   END,
   MemorySaver,
 } = require('@langchain/langgraph');
-const {
-  assembleContextPackageAsync,
-} = require('../retrieval/contextAssembly');
-const { buildCorpusFromSnapshot } = require('../retrieval/buildCorpusFromSnapshot');
 const { decideEvaluateAction } = require('./evaluatePolicy');
 const {
   resolveAgentBudget,
@@ -38,6 +34,7 @@ const WhatPhaseState = Annotation.Root({
   history: field(),
   toolResults: field(),
   g4Understanding: field(),
+  proposalFragment: field(),
   conflictAmbiguityGate: field(),
   evaluate: field(),
   feasibilitySignal: field(),
@@ -50,9 +47,14 @@ const WhatPhaseState = Annotation.Root({
   startedAt: field(),
   hitl: field(),
   g4Opts: field(),
+  understandingPartial: field(),
+  corpusContentHash: field(),
   paused: field(),
   gatePreview: field(),
   g4Partial: field(),
+  srsProposal: field(),
+  engineResultsById: field(),
+  semanticStatuses: field(),
 });
 
 async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
@@ -77,9 +79,6 @@ async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
     stopReason: state.stopReason,
     feasibilitySignal: state.feasibilitySignal,
     g4Understanding: state.g4Understanding,
-    ...(state.g4Opts?.priorPartial
-      ? { g4Partial: state.g4Opts.priorPartial, dataGateDecision: 'pass', gate: null }
-      : {}),
     ...extra,
   });
 }
@@ -106,11 +105,12 @@ function buildWhatPhaseGraph(hooks = {}) {
       return { history, stopReason: preStop.reason };
     }
 
-    if (state.g4Opts?.priorPartial) {
-      return { history: [...(state.history || []), 'resume:data_gate'] };
-    }
-
-    onProgress?.({ node: 'understand', phase: 'what' });
+    await onProgress?.({
+      step: 1,
+      substep: 'prepare',
+      node: 'prepare',
+      phase: 'what',
+    });
     const snapshotPayload = state.snapshot;
     if (!snapshotPayload || typeof snapshotPayload !== 'object') {
       const err = new Error('Snapshot payload required for WHAT phase (Track A)');
@@ -118,47 +118,52 @@ function buildWhatPhaseGraph(hooks = {}) {
       throw err;
     }
 
-    const snapshotCorpus = buildCorpusFromSnapshot(snapshotPayload);
-    const fallbackPackText = String(
-      snapshotPayload?.overview?.requirementName ||
-        state.pack?.overview?.requirementName ||
-        ''
+    // Step 2 — Requirement Understanding (normalize…quality). Step 3 ingest owned by G4 (RULE-DL-09).
+    const { resolveAiG4Policy } = require('../config/aiG4Policy');
+    const { runUnderstandPrefix } = require('../engines/g4/runG4Pipeline');
+    const policy = resolveAiG4Policy(process.env);
+    const understandingPartial = await runUnderstandPrefix(
+      {
+        onProgress: async (evt) => {
+          if (!onProgress) return;
+          await onProgress({
+            ...evt,
+            phase: 'what',
+            node: evt.substep || evt.node,
+          });
+        },
+      },
+      policy,
+      snapshotPayload
     );
-    try {
-      const { ingestSnapshotToQdrant } = require('../retrieval/ingestSnapshotToQdrant');
-      const { getG7RagMode } = require('../retrieval/g7PipelineSchemas');
-      const mode = getG7RagMode();
-      if ((mode === 'qdrant' || mode === 'hybrid') && state.snapshotId) {
-        await ingestSnapshotToQdrant({
-          snapshot: snapshotPayload,
-          snapshotId: state.snapshotId,
-        });
-      }
-    } catch (ingestErr) {
-      const { getG7RagMode } = require('../retrieval/g7PipelineSchemas');
-      if (getG7RagMode() === 'qdrant') throw ingestErr;
-      console.warn('[g7_ingest] what soft', ingestErr?.message || ingestErr);
-    }
 
-    const contextPackage = await assembleContextPackageAsync({
-      query: 'what_requirements',
-      corpus: snapshotCorpus.length
-        ? snapshotCorpus
-        : fallbackPackText
-          ? [{ id: 'snap_overview', text: fallbackPackText }]
-          : [],
-      snapshotId: state.snapshotId,
+    const history = [...(state.history || []), 'step2:understanding'];
+    const next = {
+      ...state,
+      understandingPartial,
+      history,
+    };
+    await persistNode(next, 'step2:understanding', onCheckpoint, {
+      understandingPartial,
     });
-    const history = [...(state.history || []), 'understand'];
-    const next = { ...state, corpus: snapshotCorpus, contextPackage, history };
-    await persistNode(next, 'understand', onCheckpoint, { corpus: snapshotCorpus });
-    return { corpus: snapshotCorpus, contextPackage, history };
+    return {
+      understandingPartial,
+      history,
+    };
   });
 
   graph.addNode('plan', async (state) => {
     if (state.stopReason) return {};
-    onProgress?.({ node: 'plan', phase: 'what' });
-    const history = [...(state.history || []), 'plan'];
+    // Node-only: Step 4 business progress starts inside G4 after Step 3 (semantic/conflict).
+    await onProgress?.({
+      node: 'agent_understand',
+      phase: 'what',
+    });
+    await onProgress?.({
+      node: 'plan',
+      phase: 'what',
+    });
+    const history = [...(state.history || []), 'agent_understand', 'plan'];
     await persistNode({ ...state, history }, 'plan', onCheckpoint);
     return { history };
   });
@@ -170,11 +175,18 @@ function buildWhatPhaseGraph(hooks = {}) {
       phase: 'what',
       tool: 'RequirementAnalysisTool',
     });
-    const { runG4Understanding } = require('../engines/g4Understanding');
-    const g4Out = await runG4Understanding({
+    const { runFrSemanticTask } = require('../semantic/runFrSemanticTask');
+    const frSem = await runFrSemanticTask({
       snapshot: state.snapshot,
       pack: state.pack,
-      ...(state.g4Opts || {}),
+      g4Opts: {
+        ...(state.g4Opts || {}),
+        pauseAtDataGate: false,
+        priorPartial: state.understandingPartial || null,
+        priorCorpusHash: state.corpusContentHash || null,
+        snapshotId: state.snapshotId,
+      },
+      runId: state.runId,
       onProgress: async (evt) => {
         if (!onProgress) return;
         await onProgress({
@@ -184,70 +196,53 @@ function buildWhatPhaseGraph(hooks = {}) {
         });
       },
     });
-    if (g4Out?.paused) {
-      const history = [...(state.history || []), 'gate:data_review'];
-      if (onProgress) {
-        await onProgress({
-          phase: 'what',
-          node: 'gate_preview',
-          step: 2,
-          substep: 'gate_preview',
-        });
-      }
-      await persistNode(
-        { ...state, history },
-        'gate:data_review',
-        onCheckpoint,
-        {
-          g4Partial: g4Out.partial,
-          gatePreview: g4Out.gatePreview,
-          dataGateDecision: null,
-          gate: 'data_review',
-          status: 'waiting_human',
-        }
-      );
-      return {
-        paused: true,
-        stopReason: 'data_gate',
-        gatePreview: g4Out.gatePreview,
-        g4Partial: g4Out.partial,
-        history,
-        hitl: 'data_review',
-      };
-    }
-    const { evaluateConflictAmbiguityGate } = require('../validation/evaluateConflictAmbiguityGate');
-    const conflictAmbiguityGate = evaluateConflictAmbiguityGate({
-      g4Understanding: g4Out.g4Understanding,
-      validation: g4Out.validation,
-    });
-    const g4Understanding = {
-      ...g4Out.g4Understanding,
-      conflictAmbiguityGate,
-      meta: {
-        ...(g4Out.g4Understanding.meta || {}),
-        conflictAmbiguityGate,
-      },
-    };
+    const g4Out = frSem.g4Out || frSem.meta?.g4Out || {};
+    const g4Understanding = frSem.g4Understanding;
+    const conflictAmbiguityGate = frSem.conflictAmbiguityGate;
+    const proposalFragment = frSem.proposalFragment || null;
+    const contextPackage = g4Out.contextPackage || state.contextPackage || null;
+    const corpusContentHash = g4Out.corpusContentHash || state.corpusContentHash || null;
     const toolResults = [
       ...(state.toolResults || []),
-      { toolName: 'RequirementAnalysisTool', facts: g4Understanding.facts || {} },
+      { toolName: 'RequirementAnalysisTool', facts: g4Understanding?.facts || {} },
     ];
-    const history = [...(state.history || []), 'execute:g4'];
+    const history = [
+      ...(state.history || []),
+      'step3:semantic_fetch',
+      'execute:g4',
+      'semantic_task:fr',
+    ];
 
     const container =
       state.container && typeof state.container === 'object'
         ? { ...state.container }
         : { analyses: {}, phaseRuns: {} };
-    container.analyses = {
-      ...(container.analyses || {}),
-      g4Understanding,
-    };
+    container.analyses = { ...(container.analyses || {}) };
+    if (container.analyses.g4Understanding) {
+      delete container.analyses.g4Understanding;
+    }
 
     await persistNode(
-      { ...state, container, toolResults, history, g4Understanding, conflictAmbiguityGate },
+      {
+        ...state,
+        container,
+        toolResults,
+        history,
+        g4Understanding,
+        conflictAmbiguityGate,
+        proposalFragment,
+        contextPackage,
+        corpusContentHash,
+      },
       'execute:g4',
       onCheckpoint,
-      { g4Understanding, conflictAmbiguityGate }
+      {
+        g4Understanding,
+        conflictAmbiguityGate,
+        proposalFragment,
+        contextPackage,
+        corpusContentHash,
+      }
     );
     return {
       container,
@@ -255,23 +250,38 @@ function buildWhatPhaseGraph(hooks = {}) {
       history,
       g4Understanding,
       conflictAmbiguityGate,
+      proposalFragment,
+      contextPackage,
+      corpusContentHash,
     };
   });
 
   graph.addNode('observe', async (state) => {
-    onProgress?.({ node: 'observe', phase: 'what' });
+    onProgress?.({
+      node: 'observe',
+      phase: 'what',
+      step: 4,
+      substep: 'observe',
+    });
     return { history: [...(state.history || []), 'observe'] };
   });
 
   graph.addNode('evaluateLocal', async (state) => {
-    onProgress?.({ node: 'evaluateLocal', phase: 'what' });
+    onProgress?.({
+      node: 'evaluateLocal',
+      phase: 'what',
+      step: 4,
+      substep: 'evaluate_local',
+    });
     const g4 = state.g4Understanding || {};
+    const proposalFr = state.srsProposal?.generated?.functionalRequirements?.items || [];
     const evaluate = {
       kind: 'evaluate_local',
-      enoughInfoToContinue: Array.isArray(g4.requirements)
-        ? g4.requirements.length > 0
-        : false,
-      reason: 'g4_understanding',
+      enoughInfoToContinue:
+        proposalFr.length > 0 ||
+        (Array.isArray(g4.requirements) ? g4.requirements.length > 0 : false),
+      reason: proposalFr.length ? 'proposal_fr' : 'g4_understanding',
+      frCount: proposalFr.length || (Array.isArray(g4.requirements) ? g4.requirements.length : 0),
     };
     const decision = decideEvaluateAction({
       evaluate,
@@ -291,7 +301,8 @@ function buildWhatPhaseGraph(hooks = {}) {
       node: 'feasibility',
       phase: 'what',
       step: 4,
-      substep: 'feasibility',
+      // Step 4 UI ends at meta_gate; feasibility is internal finalize (no FE substep)
+      substep: 'meta_gate',
     });
     const feasibilitySignal = buildFeasibilitySignal({
       toolResults: state.toolResults,
@@ -319,7 +330,7 @@ function buildWhatPhaseGraph(hooks = {}) {
       phase_what: {
         ...(container.phaseRuns?.phase_what || {}),
         status: state.stopReason ? 'stopped' : 'ready',
-        mode: 'g4',
+        mode: 'requirement',
         remoteRunId: state.runId || null,
         snapshotId: state.snapshotId || null,
         generatedAt: new Date().toISOString(),
@@ -336,10 +347,45 @@ function buildWhatPhaseGraph(hooks = {}) {
         candidateCount: state.g4Understanding?.meta?.candidateCount ?? null,
       },
     };
+    if (container.analyses?.g4Understanding) {
+      delete container.analyses.g4Understanding;
+    }
+
+    let proposalFragment = state.proposalFragment || null;
+    if (!proposalFragment && state.g4Understanding) {
+      const {
+        buildFunctionalRequirementProposal,
+      } = require('../requirementAnalysis/functionalRequirements/buildFunctionalRequirementProposal');
+      const {
+        validateFunctionalRequirements,
+      } = require('../requirementAnalysis/functionalRequirements/validateFunctionalRequirements');
+      const { synthesis: _s, ...sem } = state.g4Understanding;
+      const validated = validateFunctionalRequirements({ g4Understanding: sem });
+      proposalFragment = buildFunctionalRequirementProposal({
+        validated,
+        generationId: state.runId || null,
+      });
+    }
+
+    // srsProposal already produced by engine_* + metaGate nodes
+    let srsProposal = state.srsProposal || null;
+    if (srsProposal) {
+      container.analyses = { ...(container.analyses || {}), srsProposal };
+      container.phaseRuns = {
+        ...(container.phaseRuns || {}),
+        phase_what: {
+          ...(container.phaseRuns?.phase_what || {}),
+          readyForGate1: Boolean(srsProposal.completeness?.readyForGate1),
+          analysisEngineGraph: true,
+        },
+      };
+    }
 
     const next = {
       ...state,
       container,
+      proposalFragment,
+      srsProposal,
       feasibilitySignal,
       feasibility,
       stopReason,
@@ -351,29 +397,40 @@ function buildWhatPhaseGraph(hooks = {}) {
       feasibilitySignal,
       feasibility,
       g4Understanding: state.g4Understanding,
+      proposalFragment,
+      srsProposal,
       status: 'callback_pending',
       stopReason,
     });
     return {
       container,
+      proposalFragment,
+      srsProposal,
       feasibilitySignal,
       feasibility,
       stopReason,
       history,
       hitl: 'gate1',
+      g4Understanding: state.g4Understanding,
     };
   });
+
+  const {
+    attachAnalysisEngineNodes,
+    wireAnalysisEngineEdges,
+  } = require('./analysisEngineNodes');
+  attachAnalysisEngineNodes(graph, { onProgress });
 
   graph.addEdge(START, 'understand');
   graph.addEdge('understand', 'plan');
   graph.addEdge('plan', 'executeG4');
-  graph.addConditionalEdges(
-    'executeG4',
-    (state) => (state.paused ? 'endGate' : 'observe'),
-    { endGate: END, observe: 'observe' }
-  );
-  graph.addEdge('observe', 'evaluateLocal');
-  graph.addEdge('evaluateLocal', 'emitFeasibility');
+  graph.addEdge('executeG4', 'observe');
+  // Step 2+: observe → derive → engines → evaluateLocal → metaGate → feasibility
+  wireAnalysisEngineEdges(graph, {
+    entryNode: 'observe',
+    evaluateNode: 'evaluateLocal',
+    exitNode: 'emitFeasibility',
+  });
   graph.addEdge('emitFeasibility', END);
 
   return graph.compile({ checkpointer });

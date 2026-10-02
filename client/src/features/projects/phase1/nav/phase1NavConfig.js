@@ -1,7 +1,18 @@
 /**
- * Phase 1 UX nav SSOT — 2 nested groups under one Phase 1 workspace.
+ * Phase 1 UX nav SSOT — nested groups under one Phase 1 workspace.
+ * Optional Phase 0 (AI HITL) when aiHitlIncomplete.
  * BE deliveryPhase remains requirement_analysis | delivery_planning.
  */
+
+/** Phase 0 — AI HITL Monitor & Duyệt (AI drafts only). */
+export const PHASE1_AI_HITL_MODULES = Object.freeze([
+  {
+    key: 'ai-hitl',
+    module: 'ai-hitl',
+    labelKey: 'workspace.phaseNavAiHitl',
+    pathSeg: 'ai-hitl',
+  },
+]);
 
 export const PHASE1_RA_MODULES = Object.freeze([
   { key: 'overview', module: 'overview', labelKey: 'workspace.projectHubTabOverview', pathSeg: 'overview' },
@@ -241,15 +252,36 @@ export function buildPhase1ModulePath(projectId, pathSeg, query = {}) {
   if (artifact) params.set('artifact', artifact);
   const sourceUcKey = String(query.sourceUcKey || query.uc || '').trim();
   if (sourceUcKey) params.set('sourceUcKey', sourceUcKey);
+  const packId = String(query.packId || '').trim();
+  if (packId) params.set('packId', packId);
+  if (query.startWhat === true || query.startWhat === 1 || query.startWhat === '1') {
+    params.set('startWhat', '1');
+  }
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
 
-export function getPhase1SidebarGroups({ planningLocked = true, raReadOnly = false } = {}) {
+export function getPhase1SidebarGroups({
+  planningLocked = true,
+  raReadOnly = false,
+  aiHitlIncomplete = false,
+} = {}) {
+  // Phase 0: chỉ AI HITL — không hiện RA/Planning bị mờ/khóa.
+  if (aiHitlIncomplete) {
+    return [
+      {
+        id: 'ai_hitl',
+        labelKey: 'workspace.phase0GroupAiHitl',
+        locked: false,
+        items: PHASE1_AI_HITL_MODULES,
+      },
+    ];
+  }
+
   const raItems = raReadOnly
     ? PHASE1_RA_MODULES.filter((m) => m.key === 'srs-baselines' || m.key === 'overview')
     : PHASE1_RA_MODULES;
-  return [
+  const groups = [
     {
       id: 'requirement_analysis',
       labelKey: 'workspace.phase1GroupRequirementAnalysis',
@@ -259,12 +291,15 @@ export function getPhase1SidebarGroups({ planningLocked = true, raReadOnly = fal
       readOnlyHintKey: 'workspace.phase1RaReadOnlyNavHint',
       items: raItems,
     },
-    {
+  ];
+  // Planning chỉ hiện khi đã Start Planning — không hiện nhóm khóa trong RA.
+  if (!planningLocked) {
+    groups.push({
       id: 'planning',
       labelKey: 'workspace.phase1GroupPlanning',
-      locked: Boolean(planningLocked),
-      lockHintKey: 'workspace.phase1PlanningLockedHint',
+      locked: false,
       items: PHASE1_PLANNING_MODULES,
-    },
-  ];
+    });
+  }
+  return groups;
 }

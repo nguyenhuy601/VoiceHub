@@ -1,9 +1,14 @@
 /**
- * G17 — Ollama /api/generate wrapper (JSON extract + usage meta).
- * Does not compute business metrics.
+ * G17 — LLM generate wrapper (JSON extract + usage meta).
+ * Providers: ollama (/api/generate) | openai_compatible (DashScope chat.completions).
  */
 
 const axios = require('axios');
+const {
+  isOpenAiCompatibleProvider,
+  chatCompletionsText,
+  chatModel: sharedChatModel,
+} = require('@enterprise/shared/llm/openaiCompatibleClient');
 
 const DEFAULT_MODEL = 'qwen2.5:3b-instruct';
 const DEFAULT_TIMEOUT_MS = 180000;
@@ -27,6 +32,9 @@ function ollamaBaseUrl(env = process.env) {
 }
 
 function ollamaModel(env = process.env) {
+  if (isOpenAiCompatibleProvider(env)) {
+    return sharedChatModel(env, 'qwen3.8-max');
+  }
   return String(env.OLLAMA_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
 }
 
@@ -58,6 +66,48 @@ function extractJsonPayload(text) {
   }
 }
 
+async function generateJsonViaOpenAi(opts, env, model, http) {
+  const timeout =
+    opts.timeoutMs != null && Number.isFinite(Number(opts.timeoutMs))
+      ? Math.max(5000, Math.min(600000, Number(opts.timeoutMs)))
+      : DEFAULT_TIMEOUT_MS;
+  const predict =
+    opts.numPredict != null && Number.isFinite(Number(opts.numPredict))
+      ? Math.max(32, Math.min(2048, Math.round(Number(opts.numPredict))))
+      : DEFAULT_NUM_PREDICT;
+
+  const chat = await chatCompletionsText({
+    prompt: String(opts.prompt || ''),
+    temperature: opts.temperature != null ? Number(opts.temperature) : 0.1,
+    timeoutMs: timeout,
+    maxTokens: predict,
+    model,
+    env,
+    axiosImpl: http,
+  });
+
+  const usage = {
+    promptEvalCount: Number(chat.usage?.promptTokens) || 0,
+    evalCount: Number(chat.usage?.completionTokens) || 0,
+  };
+
+  if (!chat.ok) {
+    return {
+      ok: false,
+      model,
+      data: null,
+      error: chat.error || 'openai_error',
+      usage,
+    };
+  }
+
+  const data = extractJsonPayload(chat.text);
+  if (data == null) {
+    return { ok: false, model, data: null, error: 'ollama_json_parse', usage };
+  }
+  return { ok: true, model, data, usage };
+}
+
 /**
  * @param {{ prompt: string, temperature?: number, timeoutMs?: number, numPredict?: number, numCtx?: number, env?: NodeJS.ProcessEnv, axiosImpl?: object }} opts
  */
@@ -75,6 +125,10 @@ async function generateJson(opts = {}) {
       error: 'llm_skipped',
       usage: { promptEvalCount: 0, evalCount: 0 },
     };
+  }
+
+  if (isOpenAiCompatibleProvider(env)) {
+    return generateJsonViaOpenAi(opts, env, model, http);
   }
 
   const baseUrl = ollamaBaseUrl(env);

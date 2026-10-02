@@ -211,6 +211,7 @@ async function createProject({
   relatedDepartmentIds,
   requiredProjectRoles,
   budgetStub,
+  analysisMode,
 }) {
   const scope = await fetchTaskWorkspaceScope(userId, organizationId);
   if (!scope || !canCreateProjectInScope(scope)) {
@@ -325,6 +326,13 @@ async function createProject({
   const normalizedBudget =
     budgetStub !== undefined ? normalizeBudgetStub(budgetStub) : undefined;
 
+  const resolvedAnalysisMode =
+    String(analysisMode || '')
+      .trim()
+      .toLowerCase() === 'ai'
+      ? 'ai'
+      : 'manual';
+
   const project = await Project.create({
     organizationId,
     teamId: null,
@@ -344,10 +352,18 @@ async function createProject({
     createdBy: userId,
     isActive: true,
     ...init.fields,
+    // AI birth = Phase 0 draft; manual = Phase 1 RA (same phase/status, analysisMode differs for tab).
+    status: 'draft',
+    analysisMode: resolvedAnalysisMode,
     dueDate: init.fields.dueDate !== undefined ? init.fields.dueDate : due,
     schedulePolicy: WARN_V1,
     ...(normalizedRoles !== undefined ? { requiredProjectRoles: normalizedRoles } : {}),
     ...(normalizedBudget !== undefined ? { budgetStub: normalizedBudget } : {}),
+  });
+  logger.info('[createProject] created', {
+    projectId: String(project._id),
+    analysisMode: resolvedAnalysisMode,
+    deliveryPhase: project.deliveryPhase,
   });
 
   const board = await TaskBoard.create({
@@ -575,6 +591,9 @@ const PRESERVED_PROJECT_STATUSES = Object.freeze([
 /** List GET: doc lệch phase/status trong org → status của phase. Bỏ qua on_hold và closed. */
 async function alignOrgProjectStatusToPhase(orgOid) {
   const phases = Object.keys(STATUS_FOR_DELIVERY_PHASE);
+  const missingPhaseClause = {
+    $or: [{ deliveryPhase: null }, { deliveryPhase: '' }, { deliveryPhase: { $exists: false } }],
+  };
   await Promise.all([
     ...phases.map((phase) => {
       const status = STATUS_FOR_DELIVERY_PHASE[phase];
@@ -587,15 +606,27 @@ async function alignOrgProjectStatusToPhase(orgOid) {
         { $set: { status } }
       );
     }),
+    // Draft / AI Phase 0 missing phase → RA (do not promote to development).
     Project.updateMany(
       {
         organizationId: orgOid,
-        $or: [
-          { deliveryPhase: null },
-          { deliveryPhase: '' },
-          { deliveryPhase: { $exists: false } },
+        $and: [
+          missingPhaseClause,
+          { status: { $nin: PRESERVED_PROJECT_STATUSES } },
+          { $or: [{ status: 'draft' }, { analysisMode: 'ai' }] },
         ],
-        status: { $nin: PRESERVED_PROJECT_STATUSES },
+      },
+      { $set: { deliveryPhase: 'requirement_analysis', status: 'draft' } }
+    ),
+    // Other missing-phase docs → development (legacy hub rule).
+    Project.updateMany(
+      {
+        organizationId: orgOid,
+        $and: [
+          missingPhaseClause,
+          { status: { $nin: [...PRESERVED_PROJECT_STATUSES, 'draft'] } },
+          { analysisMode: { $ne: 'ai' } },
+        ],
       },
       { $set: { deliveryPhase: 'development', status: 'in_development' } }
     ),
@@ -605,11 +636,12 @@ async function alignOrgProjectStatusToPhase(orgOid) {
 /** GET một dự án: gắn status/phase trước khi trả, kể cả phase đang trống. */
 async function alignOneProjectStatusToPhase(projectId) {
   if (!mongoose.Types.ObjectId.isValid(String(projectId || ''))) return;
-  const doc = await Project.findById(projectId).select('status deliveryPhase').lean();
+  const doc = await Project.findById(projectId).select('status deliveryPhase analysisMode').lean();
   if (!doc) return;
   const aligned = alignedLifecycleFields({
     status: doc.status,
     deliveryPhase: doc.deliveryPhase,
+    analysisMode: doc.analysisMode,
   });
   const $set = {};
   if (String(doc.status || '') !== aligned.status) $set.status = aligned.status;

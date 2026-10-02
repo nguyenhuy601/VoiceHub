@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import {
   Activity,
   ArrowLeftRight,
+  Bot,
   Calendar,
   ChevronDown,
   ChevronRight,
@@ -59,6 +60,8 @@ import { fetchProjectHubProject } from '../../features/projects/hub/useProjectHu
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys';
 import { coerceDeliveryPhase } from '../../utils/projectPhaseNav';
+import { isAiHitlIncomplete } from '../../features/projects/phase1/aiHitl/aiHitlNavState';
+import { loadLinkedPackForAiNav } from '../../features/projects/phase1/aiHitl/loadLinkedPackForAiNav';
 
 const COLLAPSE_KEY = 'voicehub:sidebar-collapsed';
 
@@ -100,6 +103,8 @@ const MODULE_ICONS = {
   'analysis-reviews': Activity,
   srsBaselines: FolderKanban,
   'srs-baselines': FolderKanban,
+  'ai-hitl': Bot,
+  aiHitl: Bot,
   deliveryPlanning: FolderKanban,
   'delivery-planning': FolderKanban,
   'planning-overview': LayoutDashboard,
@@ -261,6 +266,18 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
     workspaceOrgId,
   });
 
+  const needsAiHitlPack =
+    Boolean(projectId && orgId && projectRow) &&
+    (String(projectRow?.deliveryPhase || '').trim().toLowerCase() === 'requirement_analysis' ||
+      !projectRow?.deliveryPhase);
+
+  const { data: linkedPack } = useQuery({
+    queryKey: ['aiHitlNavLinkedPack', String(orgId || ''), String(projectId || '')],
+    queryFn: () => loadLinkedPackForAiNav(orgId, projectId),
+    enabled: needsAiHitlPack,
+    staleTime: 30_000,
+  });
+
   useEffect(() => {
     if (orgId) writeStoredLastOrganizationId(orgId);
   }, [orgId]);
@@ -269,7 +286,15 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   const projectTitle = projectRow
     ? String(projectRow?.title || projectRow?.name || '').trim()
     : '';
-  const deliveryPhase = projectRow ? coerceDeliveryPhase(projectRow.deliveryPhase) : null;
+  const aiHitlIncomplete = Boolean(
+    projectRow && isAiHitlIncomplete({ project: projectRow, pack: linkedPack || null })
+  );
+  // Phase 0: empty deliveryPhase coerces to development — force RA nav while HITL incomplete.
+  const deliveryPhase = projectRow
+    ? aiHitlIncomplete
+      ? 'requirement_analysis'
+      : coerceDeliveryPhase(projectRow.deliveryPhase)
+    : null;
   const projectCapabilities = projectRow?.capabilities || null;
 
   const suiteColor = SUITE_COLORS.projects || '#8B5CF6';
@@ -311,31 +336,56 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   }, [orgId, t]);
 
   const boardId = boardQueryFromSearch(searchParams);
+  const packIdQs = String(searchParams.get('packId') || '').trim();
 
   const postItems = useMemo(() => {
     if (!projectId || !projectRow || deliveryPhase == null) return [];
     return getProjectsPostSelectNavItems(projectId, {
       deliveryPhase,
       capabilities: projectCapabilities,
-    }).map((item) => ({
-      ...item,
-      label: t(item.labelKey),
-      lockHint: item.lockHintKey ? t(item.lockHintKey) : '',
-      readOnlyHint: item.readOnlyHintKey ? t(item.readOnlyHintKey) : '',
-      readOnlyBadge: item.readOnly ? t('workspace.phase1RaReadOnlyBadge') : '',
-      icon: MODULE_ICONS[item.key] || MODULE_ICONS[item.module] || LayoutDashboard,
-      path: item.pathSeg
-        ? `/app/projects/${encodeURIComponent(projectId)}/${item.pathSeg}${
-            boardId ? `?boardId=${encodeURIComponent(boardId)}` : ''
-          }`
-        : buildProjectsModulePath(projectId, item.module, {
-            boardId,
-          }),
-    }));
-  }, [projectId, orgId, boardId, t, deliveryPhase, projectCapabilities, projectRow]);
+      aiHitlIncomplete,
+    }).map((item) => {
+      const params = new URLSearchParams();
+      if (boardId) params.set('boardId', boardId);
+      if (
+        (item.module === 'ai-hitl' || item.pathSeg === 'ai-hitl') &&
+        packIdQs
+      ) {
+        params.set('packId', packIdQs);
+      }
+      const qs = params.toString();
+      return {
+        ...item,
+        label: t(item.labelKey),
+        lockHint: item.lockHintKey ? t(item.lockHintKey) : '',
+        readOnlyHint: item.readOnlyHintKey ? t(item.readOnlyHintKey) : '',
+        readOnlyBadge: item.readOnly ? t('workspace.phase1RaReadOnlyBadge') : '',
+        icon: MODULE_ICONS[item.key] || MODULE_ICONS[item.module] || LayoutDashboard,
+        path: item.pathSeg
+          ? `/app/projects/${encodeURIComponent(projectId)}/${item.pathSeg}${
+              qs ? `?${qs}` : ''
+            }`
+          : buildProjectsModulePath(projectId, item.module, {
+              boardId,
+              ...(item.module === 'ai-hitl' && packIdQs ? { packId: packIdQs } : {}),
+            }),
+      };
+    });
+  }, [
+    projectId,
+    orgId,
+    boardId,
+    packIdQs,
+    t,
+    deliveryPhase,
+    projectCapabilities,
+    projectRow,
+    aiHitlIncomplete,
+  ]);
 
   const groupedPost = useMemo(() => {
     const groups = [
+      PROJECT_MENU_GROUPS.PHASE0_AI_HITL,
       PROJECT_MENU_GROUPS.PHASE1_RA,
       PROJECT_MENU_GROUPS.PHASE1_PLANNING,
       PROJECT_MENU_GROUPS.WORK,

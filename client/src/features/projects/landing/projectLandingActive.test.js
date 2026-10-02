@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  isAiPhase0DraftProject,
   isProjectActiveForUi,
   isProjectCompletedForUi,
   isProjectDraftForUi,
   isProjectFinishedForUi,
   isProjectListableForUi,
   isProjectReadyForPlanningForUi,
+  landingStatusForUi,
 } from './projectLandingActive.js';
 
 describe('projectLandingActive', () => {
@@ -20,26 +22,62 @@ describe('projectLandingActive', () => {
     assert.equal(isProjectListableForUi(closed), true);
   });
 
-  it('treats requirement_analysis as draft, not ready', () => {
-    const ra = { status: 'ready', deliveryPhase: 'requirement_analysis', isActive: true };
+  it('AI + requirement_analysis → draft tab only', () => {
+    const ra = {
+      status: 'draft',
+      deliveryPhase: 'requirement_analysis',
+      analysisMode: 'ai',
+      isActive: true,
+    };
     assert.equal(isProjectDraftForUi(ra), true);
+    assert.equal(isAiPhase0DraftProject(ra), true);
     assert.equal(isProjectReadyForPlanningForUi(ra), false);
     assert.equal(isProjectActiveForUi(ra), false);
-    assert.equal(isProjectListableForUi({ status: 'draft', deliveryPhase: 'requirement_analysis', isActive: true }), true);
   });
 
-  it('treats a missing phase as development, same as the hub', () => {
+  it('manual + requirement_analysis → active tab (not draft)', () => {
+    const man = {
+      status: 'draft',
+      deliveryPhase: 'requirement_analysis',
+      analysisMode: 'manual',
+      isActive: true,
+    };
+    assert.equal(isProjectDraftForUi(man), false);
+    assert.equal(isProjectActiveForUi(man), true);
+    assert.equal(isProjectListableForUi(man), true);
+  });
+
+  it('status=draft + empty phase + ai → draft (not active)', () => {
+    const ai = { status: 'draft', deliveryPhase: '', analysisMode: 'ai', isActive: true };
+    assert.equal(landingStatusForUi(ai), 'draft');
+    assert.equal(isProjectDraftForUi(ai), true);
+    assert.equal(isProjectActiveForUi(ai), false);
+  });
+
+  it('legacy draft + empty phase (no analysisMode) → draft tab', () => {
     const legacy = { status: 'draft', deliveryPhase: '', isActive: true };
-    assert.equal(isProjectActiveForUi(legacy), true);
-    assert.equal(isProjectDraftForUi(legacy), false);
-    assert.equal(isProjectReadyForPlanningForUi(legacy), false);
-    assert.equal(isProjectActiveForUi({ status: 'draft', isActive: true }), true);
-    assert.equal(isProjectDraftForUi({ status: 'planning', isActive: true }), false);
-    assert.equal(isProjectListableForUi({ status: 'draft', isActive: true }), true);
+    assert.equal(isProjectDraftForUi(legacy), true);
+    assert.equal(isProjectActiveForUi(legacy), false);
+  });
+
+  it('legacy draft + RA (no analysisMode) → draft tab', () => {
+    assert.equal(
+      isProjectDraftForUi({
+        status: 'draft',
+        deliveryPhase: 'requirement_analysis',
+        isActive: true,
+      }),
+      true
+    );
   });
 
   it('treats delivery_planning and ready_for_planning as the not-yet-active tab', () => {
-    const planning = { status: 'draft', deliveryPhase: 'delivery_planning', isActive: true };
+    const planning = {
+      status: 'draft',
+      deliveryPhase: 'delivery_planning',
+      analysisMode: 'ai',
+      isActive: true,
+    };
     assert.equal(isProjectReadyForPlanningForUi(planning), true);
     assert.equal(isProjectDraftForUi(planning), false);
     assert.equal(isProjectActiveForUi(planning), false);

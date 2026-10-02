@@ -24,6 +24,8 @@ router.post('/:packId/ai-analysis/phase-run', controller.startPhaseAiPlanning);
 router.get('/:packId/ai-analysis', controller.getAiAnalysis);
 router.post('/:packId/ai-analysis/jobs/:jobId/run', controller.runAiAnalysis);
 router.post('/:packId/ai-analysis/jobs/:jobId/confirm', controller.confirmAiAnalysis);
+/** Gate2 — confirm phase_how without job id (FE: POST …/ai-analysis/confirm { phase: 'how' }). */
+router.post('/:packId/ai-analysis/confirm', controller.confirmAiAnalysisPhase);
 router.get('/:packId', controller.getPack);
 router.post('/:packId/submit', controller.submitPack);
 router.post('/:packId/approve', controller.approvePack);

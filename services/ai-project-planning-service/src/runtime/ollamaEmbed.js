@@ -4,8 +4,8 @@
 
 const axios = require('axios');
 
-const DEFAULT_EMBED_MODEL = 'nomic-embed-text';
-const DEFAULT_EMBED_VERSION = 'ollama-nomic-v1';
+const DEFAULT_EMBED_MODEL = 'qwen3-embedding:0.6b';
+const DEFAULT_EMBED_VERSION = 'ollama-qwen3-emb-0.6b';
 
 function embedModel(env = process.env) {
   return (

@@ -6,6 +6,7 @@ import CreateProjectWizard from '../../features/projects/CreateProjectWizard';
 import { taskAPI } from '../../services/api/taskAPI';
 import {
   buildProjectsModulePath,
+  buildProjectsAiHitlPath,
   buildProjectsPickerPath,
   buildCollaborateRequirementsPath,
   readStoredLastOrganizationId,
@@ -53,8 +54,16 @@ export default function CreateProjectWizardPage() {
     const title = String(params.get('title') || '').trim();
     const description = String(params.get('description') || '').trim();
     const projectCode = String(params.get('projectCode') || '').trim();
-    if (!title && !description && !projectCode) return null;
-    return { title, description, projectCode, body: description };
+    const analysisMode = String(params.get('analysisMode') || '').trim().toLowerCase();
+    const mode = analysisMode === 'ai' || analysisMode === 'manual' ? analysisMode : '';
+    if (!title && !description && !projectCode && !mode) return null;
+    return {
+      title,
+      description,
+      projectCode,
+      body: description,
+      ...(mode ? { analysisMode: mode } : {}),
+    };
   }, [params]);
 
   useEffect(() => {
@@ -75,6 +84,16 @@ export default function CreateProjectWizardPage() {
     );
   };
 
+  const goAiHitl = ({ projectId, boardId, packId }) => {
+    navigate(
+      buildProjectsAiHitlPath(projectId, {
+        boardId,
+        ...(packId ? { packId } : {}),
+        startWhat: '1',
+      })
+    );
+  };
+
   const onCreated = async (result) => {
     if (result?._hitlIncomplete && !result?.projectId) {
       return;
@@ -83,6 +102,7 @@ export default function CreateProjectWizardPage() {
     const packId = String(result?.packId || result?.pack?._id || '').trim();
     const boardId = String(result?.defaultBoardId || result?.board?._id || '').trim();
     const projectId = String(result?.projectId || result?._id || '').trim();
+    const analysisMode = String(result?.analysisMode || '').trim().toLowerCase();
 
     if (organizationId) {
       await queryClient.invalidateQueries({
@@ -101,7 +121,13 @@ export default function CreateProjectWizardPage() {
       }
     }
 
-    // 1A: draft project → Phase1Shell overview (Understanding / Gate 1 on project).
+    // AI birth → dedicated HITL workspace + auto-start WHAT
+    if (projectId && analysisMode === 'ai') {
+      goAiHitl({ projectId, boardId, packId });
+      return;
+    }
+
+    // Manual draft → Phase1Shell overview
     if (projectId) {
       goPhase1Overview({ projectId, boardId, packId });
       return;

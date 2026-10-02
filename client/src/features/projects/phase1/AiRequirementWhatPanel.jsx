@@ -5,6 +5,7 @@ import { Loader2, RefreshCw } from 'lucide-react';
 import { requirementAPI } from '../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
+import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -23,6 +24,7 @@ export default function AiRequirementWhatPanel({
   onReady,
 }) {
   const { t } = useAppStrings();
+  const { shouldPausePolling } = useNetworkStatus();
   const [searchParams, setSearchParams] = useSearchParams();
   const [busy, setBusy] = useState(false);
   const [phaseStatus, setPhaseStatus] = useState('');
@@ -76,12 +78,12 @@ export default function AiRequirementWhatPanel({
   }, [isAi, organizationId, packId, refresh]);
 
   useEffect(() => {
-    if (phaseStatus !== 'pending') return undefined;
+    if (phaseStatus !== 'pending' || shouldPausePolling) return undefined;
     const timer = setInterval(() => {
       refresh().catch(() => {});
     }, 2500);
     return () => clearInterval(timer);
-  }, [phaseStatus, refresh]);
+  }, [phaseStatus, refresh, shouldPausePolling]);
 
   const startWhat = useCallback(
     async ({ silent = false, force = false } = {}) => {

@@ -20,8 +20,8 @@ function ambiguousSnapshot() {
   };
 }
 
-describe('data gate pause', () => {
-  it('pauses before semantic LLM and caps flagged preview', async () => {
+describe('data gate removed (RULE-R01/R07)', () => {
+  it('never pauses when pauseAtDataGate=true — quality continues to semantic', async () => {
     let calls = 0;
     const steps = [];
     const out = await runG4Pipeline({
@@ -30,47 +30,27 @@ describe('data gate pause', () => {
       env: {
         AI_G4_PIPELINE: '1',
         AI_PLANNING_LLM: '1',
+        AI_G4_CONFLICT_ENABLED: '0',
+        AI_G4_SYNTHESIS_ENABLED: '0',
       },
       onProgress: async (evt) => {
         steps.push(evt.substep);
       },
       generateJsonFn: async () => {
         calls += 1;
-        throw new Error('semantic should not run');
+        return { ok: false, error: 'ollama_timeout' };
       },
     });
-    assert.equal(calls, 0);
-    assert.equal(out.paused, true);
-    assert.equal(out.gate, 'data_review');
-    assert.equal(out.g4Understanding, undefined);
-    assert.ok(out.gatePreview.frCount >= 1);
-    assert.ok(out.gatePreview.rowTotal >= 1);
-    assert.equal(out.gatePreview.rows[0].frId, 'FR-2');
-    assert.ok(Array.isArray(out.gatePreview.rows[0].actors));
-    assert.equal(out.gatePreview.signals, undefined);
+    assert.equal(out.paused, undefined);
+    assert.notEqual(out.gate, 'data_review');
+    assert.ok(out.g4Understanding);
     assert.ok(steps.indexOf('quality') >= 0);
-    assert.ok(steps.indexOf('quality') < steps.indexOf('gate_preview'));
-    assert.equal(steps.includes('semantic'), false);
-    assert.ok(out.partial?.selection);
-    assert.ok(out.partial?.projected);
-
-    const signals = Array.from({ length: 35 }, (_, i) => ({
-      frId: `FR-${i}`,
-      text: `flagged ${i}`,
-      flags: ['missing_actor'],
-    }));
-    const preview = buildGatePreview({
-      functionalRequirements: signals.map((s) => ({ id: s.frId, title: s.text })),
-      signals,
-      duplicates: ['FR-1'],
-      selection: { counts: { candidates: 35, clear: 0 }, candidates: signals, clear: [] },
-    });
-    assert.equal(preview.flagged.length, FLAGGED_CAP);
-    assert.equal(preview.frCount, 35);
-    assert.equal(preview.quality.missingActor, 35);
+    assert.ok(steps.indexOf('semantic') >= 0);
+    assert.equal(steps.includes('gate_preview'), false);
+    assert.ok(calls >= 1);
   });
 
-  it('resumes from priorPartial and calls semantic once', async () => {
+  it('runs semantic from priorPartial without creating data_review pause', async () => {
     let calls = 0;
     const priorPartial = {
       functionalRequirements: [{ id: 'FR-9', title: 'Resume FR', description: 'actor missing' }],
@@ -116,7 +96,24 @@ describe('data gate pause', () => {
     assert.equal(out.g4Understanding.requirements.length >= 0, true);
   });
 
-  it('toPublicRun publishes progress fields and omits checkpoint input signals', () => {
+  it('buildGatePreview still caps flagged rows (helper retained, not HITL)', () => {
+    const signals = Array.from({ length: 35 }, (_, i) => ({
+      frId: `FR-${i}`,
+      text: `flagged ${i}`,
+      flags: ['missing_actor'],
+    }));
+    const preview = buildGatePreview({
+      functionalRequirements: signals.map((s) => ({ id: s.frId, title: s.text })),
+      signals,
+      duplicates: ['FR-1'],
+      selection: { counts: { candidates: 35, clear: 0 }, candidates: signals, clear: [] },
+    });
+    assert.equal(preview.flagged.length, FLAGGED_CAP);
+    assert.equal(preview.frCount, 35);
+    assert.equal(preview.quality.missingActor, 35);
+  });
+
+  it('toPublicRun still omits checkpoint/input for legacy waiting_human docs', () => {
     const flagged = Array.from({ length: 40 }, (_, i) => ({
       frId: `FR-${i}`,
       title: `t${i}`,
@@ -152,17 +149,7 @@ describe('data gate pause', () => {
     assert.equal(pub.pipelineSubstep, 'gate_preview');
     assert.equal(pub.gate, 'data_review');
     assert.equal(pub.gatePreview.flagged.length, FLAGGED_CAP);
-    assert.equal(pub.gatePreview.rowTotal, 25);
-    assert.equal(pub.gatePreview.rows, undefined);
     assert.equal(pub.checkpoint, undefined);
     assert.equal(pub.input, undefined);
-    assert.equal(pub.gatePreview.signals, undefined);
-
-    const paged = toPublicRun(doc, { offset: 0, limit: 20 });
-    assert.equal(paged.gatePreview.rows.length, 20);
-    assert.equal(paged.gatePreview.rows[0].frId, 'FR-0');
-    assert.deepEqual(paged.gatePreview.rows[0].actors, ['BA']);
-    assert.equal(paged.gatePreview.rows[0].signals, undefined);
-    assert.equal(paged.gatePreview.rows[0].text, undefined);
   });
 });

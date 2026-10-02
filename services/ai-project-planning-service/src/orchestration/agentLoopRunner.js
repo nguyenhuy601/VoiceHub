@@ -23,6 +23,12 @@ const {
 } = require('./agentBudget');
 const { buildInitialAgentFields } = require('../checkpoint/agentStateSchema');
 const { isAgentCoreF2Enabled } = require('./agentCoreFlag');
+const { buildLoop1ChildHistory } = require('../contracts/loopStateContract');
+const {
+  mergeGenerationHealth,
+  buildGenerationHealthFromMeta,
+} = require('../contracts/generationHealthContract');
+const { normalizeGenerationId } = require('../contracts/runLineageContract');
 
 const PHASE_HOW = 'how';
 const PHASE_WHAT = 'what';
@@ -54,6 +60,9 @@ async function runAgentPhase({
   budget = null,
   goal = null,
   constraints = null,
+  humanFeedback = null,
+  parentRunId = null,
+  generationId = null,
 } = {}) {
   const { assertSnapshotBoundary } = require('../knowledge/assertSnapshotBoundary');
   const bound = assertSnapshotBoundary({
@@ -109,12 +118,15 @@ async function runAgentPhase({
       snapshot: boundSnapshot,
       snapshotId: bound.snapshotId,
       runId,
+      parentRunId,
+      generationId: generationId || normalizeGenerationId(runId),
       onProgress,
       onCheckpoint,
       g4Opts,
       budget,
       goal,
       constraints,
+      humanFeedback: humanFeedback || null,
     };
     if (isAgentCoreF2Enabled()) {
       const { runWhatPhaseLangGraph } = require('./runWhatPhaseLangGraph');
@@ -301,6 +313,13 @@ async function runHowPhase({
       budget,
       startedAt,
       baseIteration: history.length,
+      onToolStart: async ({ toolName }) => {
+        await onProgress?.({
+          node: 'call_tool',
+          phase: PHASE_HOW,
+          tool: toolName,
+        });
+      },
       onToolDone: async ({ nextIndex, toolName, container: c, toolResults: tr, history: h }) => {
         next = c;
         toolResults.length = 0;
@@ -439,9 +458,27 @@ async function runWhatPhase({
   budget: budgetOverride = null,
   goal: goalOverride = null,
   constraints: constraintsOverride = null,
+  humanFeedback = null,
+  parentRunId = null,
+  generationId = null,
 } = {}) {
   const startedAt = Date.now();
   const budget = resolveAgentBudget({ budget: budgetOverride || undefined });
+  const feedbackText = String(
+    humanFeedback?.rawText ||
+      humanFeedback?.text ||
+      g4Opts.humanFeedback?.rawText ||
+      g4Opts.humanFeedback?.text ||
+      ''
+  ).trim();
+  const isLoop1 = Boolean(
+    feedbackText &&
+      (humanFeedback?.kind === 'requirement_feedback' ||
+        g4Opts.loop1Reenter ||
+        humanFeedback)
+  );
+  const resolvedGenerationId =
+    normalizeGenerationId(generationId) || normalizeGenerationId(runId);
   const initialFields = buildInitialAgentFields({
     phase: PHASE_WHAT,
     runId,
@@ -450,22 +487,36 @@ async function runWhatPhase({
     constraints: constraintsOverride,
     budget,
   });
+  if (isLoop1 && feedbackText) {
+    initialFields.currentGoal = `Gate1 Loop1 revise: ${feedbackText.slice(0, 400)}`;
+    const prev = Array.isArray(initialFields.constraints)
+      ? [...initialFields.constraints]
+      : [];
+    prev.push({ type: 'loop1_feedback', text: feedbackText.slice(0, 2000) });
+    initialFields.constraints = prev;
+  }
   const next =
     container && typeof container === 'object' && !Array.isArray(container)
       ? structuredClone(container)
       : { analyses: {}, phaseRuns: {} };
   if (next.jobs != null) delete next.jobs;
-  const history = [];
+  // Loop1: seed transition triad on child (never stamp parent CP)
+  const history = isLoop1 ? buildLoop1ChildHistory() : [];
   const toolResults = [];
   let contextPackage = null;
+  let corpusContentHash = g4Opts.priorCorpusHash || null;
   let stopReason = null;
   let feasibilitySignal = null;
+  let generationHealth = null;
 
   async function persist(currentNode, extra = {}) {
     if (!onCheckpoint) return;
     await onCheckpoint({
       runId,
       snapshotId,
+      parentRunId: parentRunId || null,
+      generationId: resolvedGenerationId,
+      generationHealth,
       job: 'phase_what',
       currentNode,
       iteration: history.length,
@@ -482,9 +533,12 @@ async function runWhatPhase({
       budget,
       stopReason,
       feasibilitySignal,
-      ...(g4Opts.priorPartial
-        ? { g4Partial: g4Opts.priorPartial, dataGateDecision: 'pass', gate: null }
-        : {}),
+      humanFeedback:
+        humanFeedback ||
+        (feedbackText
+          ? { kind: 'requirement_feedback', source: 'gate1', rawText: feedbackText }
+          : null),
+      lastFeedback: feedbackText || null,
       ...extra,
     });
   }
@@ -500,7 +554,6 @@ async function runWhatPhase({
     history.push(`stop:${stopReason}`);
   }
 
-  const priorPartial = g4Opts.priorPartial || null;
   const snapshotPayload =
     snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
       ? snapshot
@@ -510,127 +563,212 @@ async function runWhatPhase({
     err.code = 'SNAPSHOT_PAYLOAD_REQUIRED';
     throw err;
   }
-  if (!stopReason && !priorPartial) {
-    onProgress?.({ node: 'understand', phase: PHASE_WHAT });
-    history.push('understand');
 
-    const snapshotCorpus = buildCorpusFromSnapshot(snapshotPayload);
-    const fallbackPackText = String(
-      snapshotPayload?.overview?.requirementName ||
-        pack?.overview?.requirementName ||
-        ''
-    );
-    try {
-      const { ingestSnapshotToQdrant } = require('../retrieval/ingestSnapshotToQdrant');
-      const { getG7RagMode } = require('../retrieval/g7PipelineSchemas');
-      const mode = getG7RagMode();
-      if ((mode === 'qdrant' || mode === 'hybrid') && snapshotId) {
-        await ingestSnapshotToQdrant({ snapshot: snapshotPayload, snapshotId });
-      }
-    } catch (ingestErr) {
-      const { getG7RagMode } = require('../retrieval/g7PipelineSchemas');
-      const mode = getG7RagMode();
-      if (mode === 'qdrant') throw ingestErr;
-      console.warn('[g7_ingest] what soft', ingestErr?.message || ingestErr);
-    }
-    contextPackage = await assembleContextPackageAsync({
-      query: 'what_requirements',
-      corpus: snapshotCorpus.length
-        ? snapshotCorpus
-        : fallbackPackText
-          ? [{ id: 'snap_overview', text: fallbackPackText }]
-          : [],
-      snapshotId,
+  let understandingPartial = null;
+  const reusePartial =
+    isLoop1 &&
+    g4Opts.priorPartial &&
+    typeof g4Opts.priorPartial === 'object' &&
+    g4Opts.priorPartial.selection &&
+    g4Opts.priorPartial.projected;
+  const reuseContext =
+    isLoop1 && g4Opts.reuseContextPackage && typeof g4Opts.reuseContextPackage === 'object';
+
+  if (!stopReason) {
+    // --- Step 1: Input ---
+    await onProgress?.({
+      step: 1,
+      substep: 'prepare',
+      node: 'prepare',
+      phase: PHASE_WHAT,
     });
-    await persist('understand', { corpus: snapshotCorpus });
 
-    onProgress?.({ node: 'plan', phase: PHASE_WHAT });
+    if (reusePartial && reuseContext) {
+      // RULE-R03 Loop 1: re-enter Step 4 with Agent State reuse (skip Step 2/3)
+      understandingPartial = g4Opts.priorPartial;
+      contextPackage = g4Opts.reuseContextPackage;
+      history.push('loop1:reenter_step4', 'step2:skipped', 'step3:skipped');
+      await persist('loop1:reenter_step4', {
+        understandingPartial,
+        humanFeedback,
+      });
+      console.info(
+        `[phase_what] loop1 feedbackApplied reenter=step4 runId=${runId || ''}`
+      );
+    } else {
+      // --- Step 2: Requirement Understanding (parse…quality only) ---
+      const { resolveAiG4Policy } = require('../config/aiG4Policy');
+      const { runUnderstandPrefix } = require('../engines/g4/runG4Pipeline');
+      const policy = resolveAiG4Policy(g4Opts.env || process.env);
+      understandingPartial = await runUnderstandPrefix(
+        {
+          onProgress: async (evt) => {
+            if (!onProgress) return;
+            await onProgress({
+              ...evt,
+              phase: PHASE_WHAT,
+              node: evt.substep || evt.node,
+            });
+          },
+        },
+        policy,
+        snapshotPayload
+      );
+      history.push('step2:understanding');
+      await persist('step2:understanding', { understandingPartial });
+      // Step 3 (Qdrant ingest + context) owned by G4 after quality (RULE-DL-09)
+      if (isLoop1) {
+        history.push('loop1:reenter_step4');
+        console.info(
+          `[phase_what] loop1 feedbackApplied full_prepare_then_step4 runId=${runId || ''}`
+        );
+      }
+    }
+
+    // --- Step 4 markers (node-only until G4 finishes Step 3 progress) ---
+    // RULE-P01: do not advance business step to 4 before semantic/conflict (step 3)
+    // or those events are dropped as backward_substep.
+    await onProgress?.({
+      node: 'agent_understand',
+      phase: PHASE_WHAT,
+    });
+    history.push('agent_understand');
+    await onProgress?.({
+      node: 'plan',
+      phase: PHASE_WHAT,
+    });
     history.push('plan');
-    await persist('plan');
+    await persist('plan', {
+      currentGoal: initialFields.currentGoal,
+      constraints: initialFields.constraints,
+      humanFeedback: humanFeedback || null,
+    });
   }
 
   if (!stopReason) {
-    onProgress?.({ node: 'execute', phase: PHASE_WHAT, tool: 'RequirementAnalysisTool' });
-    const { runG4Understanding } = require('../engines/g4Understanding');
-    const g4Out = await runG4Understanding({
+    await onProgress?.({
+      node: 'execute',
+      phase: PHASE_WHAT,
+      tool: 'RequirementAnalysisTool',
+    });
+    const { runFrSemanticTask } = require('../semantic/runFrSemanticTask');
+    const frSem = await runFrSemanticTask({
       snapshot: snapshotPayload,
       pack,
-      ...g4Opts,
+      g4Opts: {
+        ...g4Opts,
+        pauseAtDataGate: false,
+        loop1Reenter: Boolean(isLoop1 || g4Opts.loop1Reenter),
+        // Skip Step 2 prefix inside G4 — already done above / Loop1 reuse
+        priorPartial: understandingPartial,
+        priorCorpusHash: corpusContentHash,
+        snapshotId,
+        reuseContextPackage: contextPackage,
+      },
+      runId,
       onProgress: async (evt) => {
         if (!onProgress) return;
         await onProgress({
           ...evt,
           phase: PHASE_WHAT,
           node: evt.substep || evt.node,
+          tool: evt.tool != null ? evt.tool : null,
         });
       },
     });
-    if (g4Out?.paused) {
-      history.push('gate:data_review');
-      if (onProgress) {
-        await onProgress({
-          phase: PHASE_WHAT,
-          node: 'gate_preview',
-          step: 2,
-          substep: 'gate_preview',
-        });
-      }
-      await persist('gate:data_review', {
-        g4Partial: g4Out.partial,
-        gatePreview: g4Out.gatePreview,
-        dataGateDecision: null,
-        gate: 'data_review',
-        status: 'waiting_human',
-      });
-      return {
+    const g4Out = frSem.g4Out || frSem.meta?.g4Out || {};
+    if (g4Out.contextPackage) contextPackage = g4Out.contextPackage;
+    if (g4Out.corpusContentHash) corpusContentHash = g4Out.corpusContentHash;
+    history.push('step3:semantic_fetch');
+    if (frSem.blocked || g4Out?.blocked) {
+      history.push('execute:g4:blocked');
+      stopReason = g4Out.errorCode || STOP_REASONS.COMPLETE;
+      const phaseBlocked = {
         phase: PHASE_WHAT,
-        paused: true,
-        gate: 'data_review',
-        gatePreview: g4Out.gatePreview,
-        partial: g4Out.partial,
-        history,
         container: next,
+        history,
         toolResults,
         contextPackage,
+        g4Understanding: {
+          requirements: [],
+          meta: { blocked: true, errorCode: g4Out.errorCode },
+          conflictAmbiguityGate: { passed: false, reason: g4Out.errorCode },
+        },
+        proposalFragment: null,
+        hitl: 'gate1',
+        stopReason,
         durationMs: Math.max(0, Date.now() - startedAt),
-        hitl: 'data_review',
-        stopReason: 'data_gate',
+        stub: false,
+        errorCode: g4Out.errorCode,
       };
+      return phaseBlocked;
     }
-    history.push('execute:g4');
+    history.push('execute:g4', 'semantic_task:fr');
 
-    onProgress?.({ node: 'observe', phase: PHASE_WHAT });
+    onProgress?.({
+      node: 'observe',
+      phase: PHASE_WHAT,
+      step: 4,
+      substep: 'observe',
+    });
     history.push('observe');
 
-    const { evaluateConflictAmbiguityGate } = require('../validation/evaluateConflictAmbiguityGate');
-    const conflictAmbiguityGate = evaluateConflictAmbiguityGate({
-      g4Understanding: g4Out.g4Understanding,
-      validation: g4Out.validation,
-    });
-    const g4Understanding = {
-      ...g4Out.g4Understanding,
-      conflictAmbiguityGate,
-      meta: {
-        ...(g4Out.g4Understanding.meta || {}),
-        conflictAmbiguityGate,
-      },
-    };
+    const conflictAmbiguityGate = frSem.conflictAmbiguityGate;
+    const g4Understanding = frSem.g4Understanding;
+    generationHealth = mergeGenerationHealth(
+      generationHealth,
+      buildGenerationHealthFromMeta({
+        partial: Boolean(g4Understanding?.meta?.partial || frSem.partial),
+        llmFailed: Boolean(g4Understanding?.meta?.llmFailed),
+        task: 'semantic',
+        coverage: g4Understanding?.meta?.coverage || null,
+        failedTasks: g4Understanding?.meta?.failedTasks,
+      })
+    );
     toolResults.push({
       toolName: 'RequirementAnalysisTool',
-      facts: g4Understanding.facts || {},
+      facts: g4Understanding?.facts || {},
     });
-    await persist('execute:g4', { g4Understanding, conflictAmbiguityGate });
-
-    next.analyses = {
-      ...(next.analyses || {}),
+    await persist('execute:g4', {
       g4Understanding,
-    };
+      conflictAmbiguityGate,
+      generationHealth,
+    });
+
+    // W0+: do not persist analyses.g4Understanding — callback reduces to srsProposal
+    const proposalFragment = frSem.proposalFragment || null;
+    if (next.analyses?.g4Understanding) delete next.analyses.g4Understanding;
+
+    let srsProposal = null;
+    try {
+      const { finalizeWhatSrsProposal } = require('./finalizeWhatSrsProposal');
+      const finalized = await finalizeWhatSrsProposal({
+        proposalFragment,
+        pack,
+        snapshot,
+        rawRecord: pack?.aiAnalysis?.analyses?.customerRawRecord || null,
+        runId,
+        onProgress,
+        g4Understanding,
+      });
+      srsProposal = finalized.srsProposal;
+      if (srsProposal) {
+        next.analyses = { ...(next.analyses || {}), srsProposal };
+      }
+    } catch (pipeErr) {
+      console.warn('[phase_what] analysis engine pipeline failed', pipeErr?.message || pipeErr);
+      // RAW_DERIVE_FAILED: abort phase_what → failed callback → FE toast + thoát chạy
+      if (pipeErr?.code === 'RAW_DERIVE_FAILED') {
+        throw pipeErr;
+      }
+    }
+
     next.phaseRuns = {
       ...(next.phaseRuns || {}),
       phase_what: {
         ...(next.phaseRuns?.phase_what || {}),
         status: 'ready',
-        mode: 'g4',
+        mode: 'requirement',
         remoteRunId: runId || null,
         snapshotId: snapshotId || null,
         generatedAt: new Date().toISOString(),
@@ -643,6 +781,8 @@ async function runWhatPhase({
         stage: 'finalizing',
         llm: g4Understanding.meta?.llm || null,
         candidateCount: g4Understanding.meta?.candidateCount ?? null,
+        readyForGate1: Boolean(srsProposal?.completeness?.readyForGate1),
+        analysisEngineGraph: true,
       },
     };
 
@@ -672,7 +812,8 @@ async function runWhatPhase({
       node: 'feasibility',
       phase: PHASE_WHAT,
       step: 4,
-      substep: 'feasibility',
+      // Step 4 UI ends at meta_gate; feasibility is internal finalize
+      substep: 'meta_gate',
     });
     feasibilitySignal = buildFeasibilitySignal({
       toolResults,
@@ -689,13 +830,43 @@ async function runWhatPhase({
     history.push('feasibilitySignal');
     stopReason = STOP_REASONS.COMPLETE;
 
+    // S6: engine/meta success must not clear prior partial
+    generationHealth = mergeGenerationHealth(generationHealth, {
+      partial: false,
+      failedTasks: [],
+    });
+
+    // PLAN B: durable Loop1 reuse (pack), not parent G15 checkpoint
+    const { buildLoop1ReuseArtifact } = require('../knowledge/loop1ReuseArtifact');
+    const loop1Reuse = buildLoop1ReuseArtifact({
+      snapshotId,
+      sourceRunId: runId,
+      corpusContentHash,
+      contextPackage,
+      priorPartial: understandingPartial,
+    });
+    if (loop1Reuse) {
+      next.phaseRuns = {
+        ...(next.phaseRuns || {}),
+        phase_what: {
+          ...(next.phaseRuns?.phase_what || {}),
+          loop1Reuse,
+        },
+      };
+    }
+
     const phaseOut = {
       phase: PHASE_WHAT,
       container: next,
       history,
       toolResults,
       contextPackage,
+      corpusContentHash,
+      loop1Reuse,
+      understandingPartial,
       g4Understanding,
+      proposalFragment,
+      srsProposal,
       evaluate,
       feasibilitySignal,
       feasibility,
@@ -703,6 +874,9 @@ async function runWhatPhase({
       constraints: initialFields.constraints,
       budget,
       stopReason,
+      generationHealth,
+      parentRunId: parentRunId || null,
+      generationId: resolvedGenerationId,
       hitl: 'gate1',
       durationMs: Math.max(0, Date.now() - startedAt),
       stub: false,
@@ -712,6 +886,7 @@ async function runWhatPhase({
       feasibilitySignal,
       feasibility,
       g4Understanding,
+      generationHealth,
       phaseOut,
       status: 'callback_pending',
       stopReason,

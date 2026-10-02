@@ -498,14 +498,15 @@ describe('snapshot FR alignment', () => {
       path.join(__dirname, '../src/services/aiAnalysis.service.js'),
       'utf8'
     );
-    const guardAt = src.indexOf('assertG4CanStart');
+    // Call site (not require) — lazy prepare may refresh snapshot before this guard.
+    const guardAt = src.lastIndexOf('assertG4CanStart(');
     const startAt = src.indexOf('aiProjectPlanningClient.startRun');
     assert.ok(guardAt > 0 && startAt > guardAt);
     const between = src.slice(guardAt, startAt);
     assert.equal(between.includes('buildSnapshotPayload'), false);
     assert.equal(between.includes('ensureActiveAiAnalysisSnapshot'), false);
-    const g4Call = src.slice(src.lastIndexOf('ensureActiveAiAnalysisSnapshot', guardAt), guardAt);
-    assert.equal(g4Call.includes('refreshOnFrDrift'), false);
+    assert.match(src, /ensurePreparedIntakeForWhat/);
+    assert.match(src, /refreshOnFrDrift:\s*true/);
     const aligned = {
       projected: { srs: { functionalRequirements: packFr } },
       ingestionValidation: {

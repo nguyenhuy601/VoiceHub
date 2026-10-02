@@ -1,4 +1,7 @@
 const { applyRemoteHowJobResult } = require('../services/aiAnalysis.service');
+const {
+  hydrateAnalysisSnapshotForPlanning,
+} = require('../services/aiPlanningSnapshotHydrate.service');
 
 async function applyJobResult(req, res) {
   try {
@@ -21,4 +24,27 @@ async function applyJobResult(req, res) {
   }
 }
 
-module.exports = { applyJobResult };
+/**
+ * GET /internal/ai-planning/snapshots/:snapshotId?packId=&organizationId=
+ */
+async function hydrateSnapshot(req, res) {
+  try {
+    const data = await hydrateAnalysisSnapshotForPlanning({
+      snapshotId: req.params.snapshotId,
+      packId: req.query.packId || req.body?.packId,
+      organizationId:
+        req.query.organizationId ||
+        req.body?.organizationId ||
+        req.headers['x-organization-id'],
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to hydrate analysis snapshot',
+      errorCode: error.errorCode || error.code || 'SNAPSHOT_HYDRATE_FAILED',
+    });
+  }
+}
+
+module.exports = { applyJobResult, hydrateSnapshot };

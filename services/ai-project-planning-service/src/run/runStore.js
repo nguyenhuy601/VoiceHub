@@ -16,6 +16,27 @@ function buildActiveKey(packId, job) {
  * G19 Run store — lifecycle + snapshot binding (RULE-09: snapshotId immutable per run).
  */
 
+/**
+ * Replay lookup for client Idempotency-Key / requestKey.
+ */
+async function findByIdempotencyKey({ packId, job, idempotencyKey }) {
+  const key = String(idempotencyKey || '').trim();
+  if (!key) return null;
+  return PlanningRun.findOne({
+    packId: String(packId || '').trim(),
+    job: String(job || '').trim(),
+    idempotencyKey: key,
+  })
+    .sort({ createdAt: -1 })
+    .exec();
+}
+
+async function findActiveRun({ packId, job }) {
+  return PlanningRun.findOne({
+    activeKey: buildActiveKey(packId, job),
+  }).exec();
+}
+
 async function createQueuedRun(input = {}) {
   const snapshotId = String(input.snapshotId || '').trim();
   if (!snapshotId) {
@@ -32,13 +53,35 @@ async function createQueuedRun(input = {}) {
     throw err;
   }
 
+  const idempotencyKey =
+    input.idempotencyKey != null && String(input.idempotencyKey).trim()
+      ? String(input.idempotencyKey).trim().slice(0, 256)
+      : null;
+
+  if (idempotencyKey) {
+    const prior = await findByIdempotencyKey({ packId, job, idempotencyKey });
+    if (prior) {
+      prior.__idempotentReplay = true;
+      return prior;
+    }
+  }
+
   try {
+    const parentRunId =
+      input.parentRunId != null && String(input.parentRunId).trim()
+        ? String(input.parentRunId).trim()
+        : null;
+    const runIdForGen = input.runId != null ? String(input.runId).trim() : null;
+    const generationId = runIdForGen || null;
+
     return await PlanningRun.create({
     ...(input.runId ? { _id: input.runId } : {}),
     projectId: input.projectId != null ? String(input.projectId) : null,
     packId,
     organizationId,
     snapshotId,
+    parentRunId,
+    generationId,
     approvedSrsVersion:
       input.approvedSrsVersion != null ? String(input.approvedSrsVersion) : null,
     snapshotPayloadRef:
@@ -47,8 +90,7 @@ async function createQueuedRun(input = {}) {
     initiatedBy: input.initiatedBy != null ? String(input.initiatedBy) : null,
     job,
     activeKey: buildActiveKey(packId, job),
-    idempotencyKey:
-      input.idempotencyKey != null ? String(input.idempotencyKey) : null,
+    idempotencyKey,
     input: input.input || null,
     status: 'queued',
     currentNode: null,
@@ -57,6 +99,47 @@ async function createQueuedRun(input = {}) {
   });
   } catch (error) {
     if (error?.code === 11000 && error?.keyPattern?.activeKey) {
+      const active = await findActiveRun({ packId, job });
+      // RULE-R07: legacy Data Gate pause must not block new WHAT runs.
+      if (
+        active &&
+        String(active.status) === 'waiting_human' &&
+        String(active.gate || '') === 'data_review'
+      ) {
+        await cancelRun(String(active._id));
+        const parentRunIdRetry =
+          input.parentRunId != null && String(input.parentRunId).trim()
+            ? String(input.parentRunId).trim()
+            : null;
+        const runIdRetry = input.runId != null ? String(input.runId).trim() : null;
+        return PlanningRun.create({
+          ...(input.runId ? { _id: input.runId } : {}),
+          projectId: input.projectId != null ? String(input.projectId) : null,
+          packId,
+          organizationId,
+          snapshotId,
+          parentRunId: parentRunIdRetry,
+          generationId: runIdRetry || null,
+          approvedSrsVersion:
+            input.approvedSrsVersion != null ? String(input.approvedSrsVersion) : null,
+          snapshotPayloadRef:
+            input.snapshotPayloadRef != null ? String(input.snapshotPayloadRef) : null,
+          trigger: input.trigger || 'manual',
+          initiatedBy: input.initiatedBy != null ? String(input.initiatedBy) : null,
+          job,
+          activeKey: buildActiveKey(packId, job),
+          idempotencyKey,
+          input: input.input || null,
+          status: 'queued',
+          currentNode: null,
+          iteration: 0,
+          attempt: 0,
+        });
+      }
+      if (active) {
+        active.__idempotentReplay = true;
+        return active;
+      }
       const conflict = new Error('An active run already exists for this pack and job');
       conflict.code = 'ACTIVE_RUN_EXISTS';
       throw conflict;
@@ -153,11 +236,15 @@ function toPublicRun(doc, page) {
     packId: doc.packId,
     organizationId: doc.organizationId,
     snapshotId: doc.snapshotId,
+    parentRunId: doc.parentRunId || null,
+    generationId: doc.generationId || id || null,
     approvedSrsVersion: doc.approvedSrsVersion,
     status: doc.status,
     currentNode: doc.currentNode,
+    currentTool: doc.currentTool || null,
     pipelineStep: doc.pipelineStep ?? null,
     pipelineSubstep: doc.pipelineSubstep || null,
+    progressUpdatedAt: doc.progressUpdatedAt || null,
     gate: doc.gate || null,
     gatePreview: publishGatePreview(doc.gatePreview, page),
     stage: deriveStage(doc),
@@ -184,6 +271,8 @@ function toPublicRun(doc, page) {
 module.exports = {
   buildActiveKey,
   createQueuedRun,
+  findByIdempotencyKey,
+  findActiveRun,
   getRunById,
   transitionStatus,
   cancelRun,

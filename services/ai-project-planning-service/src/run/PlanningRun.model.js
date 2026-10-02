@@ -19,6 +19,10 @@ const planningRunSchema = new mongoose.Schema(
     packId: { type: String, default: null, maxlength: 128, index: true },
     organizationId: { type: String, default: null, maxlength: 128, index: true },
     snapshotId: { type: String, required: true, maxlength: 128, immutable: true, index: true },
+    /** Loop1 lineage — parent WHAT runId (scalar only; G15 remains AgentState SoT). */
+    parentRunId: { type: String, default: null, maxlength: 128, index: true },
+    /** Proposal-generation identity; currently 1 run = 1 generation (= String(_id)). */
+    generationId: { type: String, default: null, maxlength: 128 },
     approvedSrsVersion: { type: String, default: null, maxlength: 128 },
     snapshotPayloadRef: { type: String, default: null, maxlength: 256 },
     trigger: { type: String, default: 'manual', maxlength: 64 },
@@ -30,8 +34,13 @@ const planningRunSchema = new mongoose.Schema(
       index: true,
     },
     currentNode: { type: String, default: null },
+    /** Active tool name while call_tool activity (presentation; not business progress). */
+    currentTool: { type: String, default: null, maxlength: 128 },
     pipelineStep: { type: Number, default: null },
     pipelineSubstep: { type: String, default: null, maxlength: 64 },
+    /** Monotonic progress event version for stale-event protection. */
+    progressVersion: { type: Number, default: 0 },
+    progressUpdatedAt: { type: Date, default: null },
     gate: { type: String, default: null, maxlength: 64 },
     gatePreview: { type: mongoose.Schema.Types.Mixed, default: null },
     iteration: { type: Number, default: 0 },

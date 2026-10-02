@@ -35,9 +35,11 @@ function buildSemanticPrompt(batch = []) {
 
 function buildConflictPrompt(batch = []) {
   return [
-    'You are Conflict/Gap Projection (G4). Return JSON only.',
-    'Explain semantic conflicts or gaps. No effort/schedule.',
-    'Schema: { "conflicts":[{ "frIds":[], "issue", "evidence":[{"type","id"}] }] }',
+    'You are Conflict Verification (G4). Return JSON only.',
+    'Verify each potential conflict pair using only the provided FR pair + normalized facts.',
+    'Do NOT invent workbook-wide context. No effort/schedule.',
+    'Schema: { "verdicts":[{ "pairKey", "verdict":"CONFIRMED"|"REJECTED"|"UNCLEAR", "reason", "evidence":[{"type","id"}] }] }',
+    'Also accept legacy: { "conflicts":[{ "frIds":[], "issue", "evidence":[] }] } mapped as CONFIRMED.',
     JSON.stringify(batch),
   ].join('\n');
 }
@@ -110,7 +112,7 @@ async function runConflictProjection(opts = {}) {
   const batch = opts.batch || [];
   const policy = opts.policy || {};
   if (!batch.length || !policy.enabled) {
-    return { ok: true, skipped: true, conflicts: [], error: null, llmCalls: 0 };
+    return { ok: true, skipped: true, conflicts: [], verdicts: [], error: null, llmCalls: 0 };
   }
   const result = await generate({
     prompt: buildConflictPrompt(batch),
@@ -124,12 +126,44 @@ async function runConflictProjection(opts = {}) {
       ok: false,
       skipped: Boolean(result.skipped),
       conflicts: [],
+      verdicts: [],
       error: result.error || 'ollama_error',
       llmCalls: result.skipped ? 0 : 1,
     };
   }
-  const conflicts = Array.isArray(result.data?.conflicts) ? result.data.conflicts : [];
-  return { ok: true, skipped: false, conflicts, error: null, llmCalls: 1 };
+  const verdictsRaw = Array.isArray(result.data?.verdicts) ? result.data.verdicts : [];
+  const legacy = Array.isArray(result.data?.conflicts) ? result.data.conflicts : [];
+  const verdicts = [];
+  for (const v of verdictsRaw) {
+    const verdict = String(v?.verdict || '').toUpperCase();
+    if (!['CONFIRMED', 'REJECTED', 'UNCLEAR'].includes(verdict)) continue;
+    verdicts.push({
+      pairKey: v.pairKey || null,
+      frIds: Array.isArray(v.frIds) ? v.frIds : [],
+      verdict,
+      reason: v.reason || null,
+      evidence: Array.isArray(v.evidence) ? v.evidence : [],
+    });
+  }
+  for (const c of legacy) {
+    verdicts.push({
+      pairKey: null,
+      frIds: Array.isArray(c.frIds) ? c.frIds : [],
+      verdict: 'CONFIRMED',
+      reason: c.issue || null,
+      evidence: Array.isArray(c.evidence) ? c.evidence : [],
+    });
+  }
+  const conflicts = verdicts
+    .filter((v) => v.verdict === 'CONFIRMED')
+    .map((v) => ({
+      frIds: v.frIds,
+      issue: v.reason,
+      evidence: v.evidence,
+      pairKey: v.pairKey,
+      verdict: v.verdict,
+    }));
+  return { ok: true, skipped: false, conflicts, verdicts, error: null, llmCalls: 1 };
 }
 
 module.exports = {

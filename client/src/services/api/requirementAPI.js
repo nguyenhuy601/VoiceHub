@@ -71,10 +71,10 @@ export const requirementAPI = {
       skipGlobalErrorHandling: true,
     }),
 
-  submitPack: (organizationId, packId) =>
+  submitPack: (organizationId, packId, body = {}) =>
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/submit`,
-      {},
+      body,
       withOrg(organizationId)
     ),
 
@@ -157,15 +157,26 @@ export const requirementAPI = {
       withOrg(organizationId)
     ),
 
-  startPhaseAiPlanning: (organizationId, packId, body = {}, options = {}) =>
-    apiClient.post(
+  startPhaseAiPlanning: (organizationId, packId, body = {}, options = {}) => {
+    const idempotencyKey =
+      options.idempotencyKey ||
+      body.idempotencyKey ||
+      (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `phase-run-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+    const { idempotencyKey: _omit, ...restBody } = body || {};
+    return apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/phase-run`,
-      body,
-      {
-        ...withOrg(organizationId),
-      timeout: options.timeout ?? 120000,
-      }
-    ),
+      restBody,
+      withOrg(organizationId, {
+        timeout: options.timeout ?? 120000,
+        headers: {
+          ...(options.headers || {}),
+          'Idempotency-Key': String(idempotencyKey),
+        },
+      })
+    );
+  },
 
   resumePhaseWhatDataGate: (organizationId, packId, { runId, decision }) =>
     apiClient.post(

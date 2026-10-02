@@ -36,9 +36,10 @@ function skillIdOf(s, name) {
 
 /**
  * @param {object|null|undefined} snapshot
+ * @param {{ frOverride?: object[]|null }} [opts] — quality-valid normalized FR set (not LLM candidates)
  * @returns {object[]}
  */
-function buildCorpusFromSnapshot(snapshot) {
+function buildCorpusFromSnapshot(snapshot, opts = {}) {
   if (!snapshot || typeof snapshot !== 'object') return [];
 
   const docs = [];
@@ -50,6 +51,7 @@ function buildCorpusFromSnapshot(snapshot) {
     ? snapshot.g1Catalogs
     : {};
   const metaBase = snapshotId ? { snapshotId } : {};
+  const frOverride = Array.isArray(opts.frOverride) ? opts.frOverride : null;
 
   // skill_def — run-scoped catalog
   const skillCat =
@@ -105,24 +107,28 @@ function buildCorpusFromSnapshot(snapshot) {
     });
   }
 
-  // srs_canonical — RULE-G7-02: projected.srs.functionalRequirements is SoT when present
-  // (including []). Fallback to top-level only when the property is missing.
-  const srsFrProp = projected?.srs?.functionalRequirements;
-  const frs =
-    srsFrProp !== undefined && srsFrProp !== null
-      ? Array.isArray(srsFrProp)
-        ? srsFrProp
-        : []
-      : Array.isArray(snapshot.functionalRequirements)
-        ? snapshot.functionalRequirements
-        : Array.isArray(projected.functionalRequirements)
-          ? projected.functionalRequirements
-          : [];
+  // srs_canonical — quality-valid override (RULE-DL-06) or projected.srs (RULE-G7-02)
+  let frs;
+  if (frOverride) {
+    frs = frOverride;
+  } else {
+    const srsFrProp = projected?.srs?.functionalRequirements;
+    frs =
+      srsFrProp !== undefined && srsFrProp !== null
+        ? Array.isArray(srsFrProp)
+          ? srsFrProp
+          : []
+        : Array.isArray(snapshot.functionalRequirements)
+          ? snapshot.functionalRequirements
+          : Array.isArray(projected.functionalRequirements)
+            ? projected.functionalRequirements
+            : [];
+  }
   const seenFr = new Set();
   let skippedMissingExternalId = 0;
   for (const fr of frs) {
-    // RULE-G7-01: sourceId MUST be externalId — never fall back to id/frId.
-    const externalId = String(fr?.externalId || '').trim();
+    // RULE-G7-01: sourceId MUST be externalId — normalized rows use `id`.
+    const externalId = String(fr?.externalId || (frOverride ? fr?.id : '') || '').trim();
     if (!externalId) {
       skippedMissingExternalId += 1;
       continue;

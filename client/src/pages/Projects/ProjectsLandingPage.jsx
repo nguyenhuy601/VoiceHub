@@ -6,12 +6,12 @@ import ProjectsLandingGrid from '../../features/projects/landing/ProjectsLanding
 import { isProjectListableForUi } from '../../features/projects/landing/projectLandingActive';
 import {
   boardQueryFromSearch,
-  buildCollaborateProjectHubPath,
-  buildCollaborateProjectsNewAiPath,
   buildCollaborateProjectsNewPath,
   orgQueryFromSearch,
   readStoredLastOrganizationId,
 } from '../../utils/suitePathUtils';
+import { resolveAiProjectEntryPath } from '../../features/projects/phase1/aiHitl/aiHitlNavState';
+import { loadLinkedPackForAiNav } from '../../features/projects/phase1/aiHitl/loadLinkedPackForAiNav';
 import {
   buildBoardIdToProjectIndex,
   projectRefFromBoardDetailPayload,
@@ -159,15 +159,32 @@ export default function ProjectsLandingPage() {
       toast.error(t('taskBoard.createProjectDenied'));
       return;
     }
-    navigate(buildCollaborateProjectsNewAiPath(orgId));
+    navigate(buildCollaborateProjectsNewPath(orgId, { analysisMode: 'ai' }));
   }, [canCreateWithAi, navigate, orgId, t]);
 
   const handleSelect = useCallback(
-    (project) => {
+    async (project) => {
       const projectId = String(project?._id || project?.projectId || '').trim();
       if (!projectId) return;
       const boardId = String(project?.defaultBoardId || project?.boards?.[0]?._id || '').trim();
-      navigate(buildCollaborateProjectHubPath(projectId, { organizationId: orgId, boardId }));
+      const phase = String(project?.deliveryPhase || '').trim().toLowerCase();
+      let pack = null;
+      if (!phase || phase === 'requirement_analysis') {
+        try {
+          pack = await loadLinkedPackForAiNav(orgId, projectId);
+        } catch {
+          pack = null;
+        }
+      }
+      navigate(
+        resolveAiProjectEntryPath({
+          projectId,
+          project,
+          pack,
+          boardId,
+          organizationId: orgId,
+        })
+      );
     },
     [navigate, orgId]
   );

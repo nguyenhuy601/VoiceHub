@@ -46,7 +46,7 @@ describe('whatG4Policy', () => {
     assert.equal(next.phaseRuns.phase_what.confirmedAt, '2026-01-01T00:00:00.000Z');
   });
 
-  it('applyG4UnderstandingToContainer writes analyses + phase_what', () => {
+  it('applyG4UnderstandingToContainer writes srsProposal (not g4Understanding)', () => {
     const g4 = {
       requirements: [{ id: 'FR-1' }],
       relationships: [],
@@ -59,7 +59,12 @@ describe('whatG4Policy', () => {
       remoteRunId: 'run1',
       snapshotId: 'snap1',
     });
-    assert.deepEqual(next.analyses.g4Understanding.requirements, [{ id: 'FR-1' }]);
+    assert.equal(next.analyses.g4Understanding, undefined);
+    assert.ok(next.analyses.srsProposal);
+    assert.equal(
+      next.analyses.srsProposal.generated.functionalRequirements.items[0].id,
+      'FR-1'
+    );
     assert.equal(next.phaseRuns.phase_what.status, 'ready');
     assert.equal(next.phaseRuns.phase_what.mode, 'g4');
     assert.equal(hasReadyG4Understanding(next), true);

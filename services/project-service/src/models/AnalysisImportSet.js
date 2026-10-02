@@ -61,6 +61,8 @@ const analysisImportSetSchema = new mongoose.Schema(
       tech: { type: reviewGateSchema, default: () => ({}) },
       po: { type: reviewGateSchema, default: () => ({}) },
     },
+    /** Customer Raw form check (sheets+headers only) — RULE-FORM-01 */
+    rawFormValidation: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { timestamps: true }
 );

@@ -40,7 +40,6 @@ function isCanonicalFrList(rows) {
 
 function listFrs(snapshot = {}) {
   const srs = snapshot?.projected?.srs?.functionalRequirements;
-  const hasProjected = snapshot?.projected && typeof snapshot.projected === 'object';
   const top = Array.isArray(snapshot.functionalRequirements) ? snapshot.functionalRequirements : null;
   if (Array.isArray(srs)) {
     // Normalized projections use id/title and still carry projected.srs. They are not a second canonical list.
@@ -50,10 +49,7 @@ function listFrs(snapshot = {}) {
     }
     return srs;
   }
-  if (hasProjected) {
-    if (top && top.length) throw snapshotFrMismatch();
-    return [];
-  }
+  // projected may exist for G1 skillCatalog only — do not treat that as FR SoT
   if (top) return top;
   if (Array.isArray(snapshot.frList)) return snapshot.frList;
   if (Array.isArray(snapshot.requirements)) return snapshot.requirements;

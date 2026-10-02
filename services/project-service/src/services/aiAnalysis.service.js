@@ -435,6 +435,7 @@ async function applyRemoteHowJobResult({
   result,
   error,
   g4Understanding = null,
+  proposalFragment = null,
 }) {
   const jobKey = String(jobRaw || '').trim();
   if (jobKey === 'phase_how' || jobKey === 'phase_what') {
@@ -452,6 +453,11 @@ async function applyRemoteHowJobResult({
           g4Understanding ||
           result?.g4Understanding ||
           result?.result?.g4Understanding ||
+          null,
+        proposalFragment:
+          proposalFragment ||
+          result?.proposalFragment ||
+          result?.result?.proposalFragment ||
           null,
       },
       error,
@@ -518,8 +524,8 @@ async function applyRemotePhaseRunResult({
       throw invalid;
     }
     const {
-      applyG4UnderstandingToContainer,
-    } = require('../utils/aiAnalysis/whatG4Policy');
+      applyRequirementProposalToContainer,
+    } = require('../utils/aiAnalysis/whatRequirementPolicy');
     const incoming = result.container;
     if (incoming.jobs != null) {
       /* strip — RULE-PO-03 */
@@ -527,24 +533,69 @@ async function applyRemotePhaseRunResult({
     if (incoming.planning) container.planning = incoming.planning;
     if (incoming.resource) container.resource = incoming.resource;
     if (incoming.analyses) {
-      container.analyses = { ...(container.analyses || {}), ...incoming.analyses };
+      const { g4Understanding: _dropG4, ...restAnalyses } = incoming.analyses;
+      const prevG4 = container.analyses?.g4Understanding;
+      container.analyses = { ...(container.analyses || {}), ...restAnalyses };
+      // Never accept new g4Understanding writes; keep prior legacy only
+      if (prevG4) container.analyses.g4Understanding = prevG4;
+      else delete container.analyses.g4Understanding;
     }
     if (incoming.phaseRuns) {
       container.phaseRuns = { ...(container.phaseRuns || {}), ...incoming.phaseRuns };
     }
-    const g4 =
-      result.g4Understanding ||
-      result.result?.g4Understanding ||
-      incoming.analyses?.g4Understanding ||
+    const proposalFragment =
+      result.proposalFragment || result.result?.proposalFragment || null;
+    const g4 = result.g4Understanding || result.result?.g4Understanding || null;
+    const fullSrsProposal =
+      result.srsProposal ||
+      result.result?.srsProposal ||
+      incoming.analyses?.srsProposal ||
       null;
-    if (job === 'phase_what' && g4) {
-      container = applyG4UnderstandingToContainer(container, g4, {
-        remoteRunId: String(runId),
-        snapshotId: String(snapshotId),
-        status: 'ready',
-        mode: 'g4',
-        durationMs: result?.meta?.durationMs || result?.result?.durationMs || null,
-      });
+    const legacyPopulate =
+      String(process.env.PHASE1_LEGACY_POPULATE_NON_FR || '').trim() === '1';
+    if (job === 'phase_what' && (fullSrsProposal || proposalFragment || g4)) {
+      try {
+        container = applyRequirementProposalToContainer(
+          container,
+          fullSrsProposal || proposalFragment || g4,
+          {
+            remoteRunId: String(runId),
+            snapshotId: String(snapshotId),
+            status: 'ready',
+            mode: 'requirement',
+            generationId: String(runId),
+            durationMs: result?.meta?.durationMs || result?.result?.durationMs || null,
+            expectedReviewVersion: container.analyses?.srsProposal?.reviewVersion,
+            pack,
+            snapshot: pack.aiAnalysis?.intakeSnapshot || null,
+            rawRecord: pack.aiAnalysis?.analyses?.customerRawRecord || null,
+            // Hot path: APS delivers full srsProposal; populateNonFr only via legacy flag
+            populateNonFr: legacyPopulate && !fullSrsProposal,
+          }
+        );
+      } catch (casErr) {
+        if (
+          casErr.errorCode === 'STALE_GENERATION' ||
+          casErr.errorCode === 'STALE_PROPOSAL_VERSION'
+        ) {
+          return { applied: false, stale: true, errorCode: casErr.errorCode, job, runId };
+        }
+        throw casErr;
+      }
+      // PLAN B: durable Loop1 reuse (survives parent G15 delete)
+      const {
+        attachLoop1ReuseToContainer,
+      } = require('../utils/aiAnalysis/loop1ReuseArtifact');
+      const loop1Reuse =
+        result.loop1Reuse ||
+        result.result?.loop1Reuse ||
+        incoming.phaseRuns?.phase_what?.loop1Reuse ||
+        null;
+      container = attachLoop1ReuseToContainer(
+        container,
+        loop1Reuse,
+        String(snapshotId)
+      );
     } else {
       const feas =
         result?.feasibility ||
@@ -555,7 +606,7 @@ async function applyRemotePhaseRunResult({
         ...(container.phaseRuns || {}),
         [job]: {
           status: 'ready',
-          mode: job === 'phase_what' ? 'g4' : undefined,
+          mode: job === 'phase_what' ? 'requirement' : undefined,
           remoteRunId: String(runId),
           snapshotId: String(snapshotId),
           hitl: result?.result?.hitl || (job === 'phase_how' ? 'gate2' : 'gate1'),
@@ -594,6 +645,34 @@ async function applyRemotePhaseRunResult({
   pack.aiAnalysis = container;
   pack.markModified('aiAnalysis');
   await pack.save();
+
+  if (status === 'completed' && pack.projectId) {
+    const { notifyAiHitlGateReviewers } = require('../utils/phase1GatePolicy');
+    if (job === 'phase_what') {
+      void notifyAiHitlGateReviewers({
+        projectId: String(pack.projectId),
+        organizationId: pack.organizationId,
+        actorUserId: null,
+        packId: String(packId),
+        nextPermission: 'requirement:submit',
+        title: 'Gate 1 — AI đã xong, chờ BA duyệt',
+        content: 'Proposal sẵn sàng trên trang AI HITL.',
+        kind: 'ai_hitl_gate1_ba',
+      });
+    } else if (job === 'phase_how') {
+      void notifyAiHitlGateReviewers({
+        projectId: String(pack.projectId),
+        organizationId: pack.organizationId,
+        actorUserId: null,
+        packId: String(packId),
+        nextPermission: 'requirement:run-ai-planning',
+        title: 'Gate 2 — kế hoạch AI sẵn sàng duyệt',
+        content: 'HOW đã xong — mở trang AI HITL để xác nhận Gate 2.',
+        kind: 'ai_hitl_gate2',
+      });
+    }
+  }
+
   return { applied: true, idempotent: false, job, runId, status, phase: true };
 }
 
@@ -601,6 +680,11 @@ async function applyRemotePhaseRunResult({
  * Start agentic HOW / WHAT phase run.
  * WHAT under WHAT_G4_ENABLED: remote G4 on ai-project-planning-service (202).
  * prepare_only stays local Stage1.
+ */
+/**
+ * RULE-R07: Data Gate HITL removed.
+ * resume_data_gate (pass|reject) cancels legacy waiting_human:data_review and releases activeKey.
+ * Caller should start a new WHAT phase-run afterward.
  */
 async function resumeWhatDataGate({
   organizationId,
@@ -626,47 +710,43 @@ async function resumeWhatDataGate({
     throw err;
   }
 
-  const s2s = await aiProjectPlanningClient.resumeRun(bound, { decision: decisionNorm });
+  // Prefer cancel endpoint; fall back to resume decision that APS maps to cancel.
+  let s2s = await aiProjectPlanningClient.cancelRun(bound);
   if (s2s.status < 200 || s2s.status >= 300) {
-    const err = new Error(s2s.data?.message || 'Data gate resume rejected');
+    s2s = await aiProjectPlanningClient.resumeRun(bound, { decision: decisionNorm });
+  }
+  if (s2s.status < 200 || s2s.status >= 300) {
+    const err = new Error(s2s.data?.message || 'Legacy data-gate cleanup rejected');
     err.statusCode = s2s.status >= 400 ? s2s.status : 502;
-    err.errorCode = s2s.data?.errorCode || 'DATA_GATE_RESUME_FAILED';
+    err.errorCode = s2s.data?.errorCode || 'DATA_GATE_CLEANUP_FAILED';
     throw err;
   }
 
-  if (decisionNorm === 'reject') {
-    container.phaseRuns = {
-      ...(container.phaseRuns || {}),
-      phase_what: {
-        ...phaseWhat,
-        status: 'failed',
-        error: { code: 'data_gate_rejected', message: 'data_gate_rejected' },
+  container.phaseRuns = {
+    ...(container.phaseRuns || {}),
+    phase_what: {
+      ...phaseWhat,
+      status: 'cancelled',
+      error: {
+        code: 'data_gate_removed',
+        message: 'Data Gate removed — start a new WHAT run',
       },
-    };
-    pack.aiAnalysis = container;
-    pack.aiAnalysisStatus = 'failed';
-    pack.markModified('aiAnalysis');
-    await pack.save();
-    return {
-      accepted: true,
-      remote: true,
-      job: 'phase_what',
-      status: 'failed',
-      runId: bound,
-      decision: 'reject',
-      httpStatus: 200,
-      mode: 'g4',
-    };
-  }
+    },
+  };
+  pack.aiAnalysis = container;
+  pack.aiAnalysisStatus = 'idle';
+  pack.markModified('aiAnalysis');
+  await pack.save();
 
   return {
     accepted: true,
     remote: true,
     job: 'phase_what',
-    status: 'pending',
+    status: 'cancelled',
     runId: bound,
-    decision: 'pass',
-    httpStatus: 202,
+    decision: decisionNorm,
+    legacyDataGateCleanup: true,
+    httpStatus: 200,
     mode: 'g4',
   };
 }
@@ -682,6 +762,8 @@ async function startPhaseAiPlanningRun({
   action = '',
   decision = '',
   runId = '',
+  idempotencyKey = '',
+  parentRunId: parentRunIdHint = '',
 }) {
   await assertRequirementPermission({
     userId,
@@ -761,12 +843,101 @@ async function startPhaseAiPlanningRun({
   }
 
   if (phaseJob === 'phase_what') {
-    const { assertG4CanStart } = require('../utils/requirement/workbookDiagnostic');
+    const {
+      ensureFormValidationOnPack,
+      ensurePreparedIntakeForWhat,
+    } = require('./whatRequirementPhase.service');
+    const { assertG4CanStart, countValidFr } = require('../utils/requirement/workbookDiagnostic');
+
+    await ensureFormValidationOnPack(packForPhase);
+    if (typeof packForPhase.isModified === 'function' && packForPhase.isModified('aiAnalysis')) {
+      await packForPhase.save();
+    }
+
+    // Self-heal: formOk + validFr=0 → prepare from raw XLSX, then re-read before G4.
+    const prepared = await ensurePreparedIntakeForWhat({
+      pack: packForPhase,
+      organizationId,
+      packId,
+    });
+    if (prepared.didPrepare) {
+      const reloaded = await RequirementPack.findOne({ _id: packId, organizationId });
+      if (!reloaded) {
+        const err = new Error('RequirementPack không tồn tại');
+        err.statusCode = 404;
+        err.errorCode = 'PACK_NOT_FOUND';
+        throw err;
+      }
+      packForPhase = reloaded;
+      if (isSnapshotPipelineEnabled()) {
+        const refreshed = await ensureActiveAiAnalysisSnapshot({
+          userId,
+          organizationId,
+          packId,
+          pack: packForPhase,
+          refreshOnFrDrift: true,
+        });
+        packForPhase = refreshed.pack || packForPhase;
+        snapshotDoc = refreshed.snapshotDoc;
+        assertSnapshotRequired(snapshotDoc);
+        if (snapshotDoc) snapshotId = String(snapshotDoc._id);
+      }
+      // eslint-disable-next-line no-console
+      console.info('[phase_what] post-prepare intake', {
+        packId: String(packId),
+        validFr: countValidFr(packForPhase),
+        snapshotId: snapshotId || null,
+      });
+    }
+
     assertG4CanStart(packForPhase, snapshotDoc);
   }
 
   let container = ensurePackContainer(packForPhase);
   const existing = container.phaseRuns?.[phaseJob];
+  const clientKey = String(idempotencyKey || '').trim().slice(0, 256);
+
+  // Loop State S7: Idempotency-Key is authoritative even when force=true (double-click revise).
+  if (
+    clientKey &&
+    String(existing?.clientIdempotencyKey || '') === clientKey &&
+    String(existing?.remoteRunId || '')
+  ) {
+    return {
+      accepted: true,
+      remote: true,
+      job: phaseJob,
+      status: existing.status || 'pending',
+      runId: existing.remoteRunId,
+      parentRunId: existing.parentRunId || null,
+      snapshotId: existing.snapshotId || snapshotId,
+      schemaVersion: container.schemaVersion,
+      mode: phaseJob === 'phase_what' ? 'g4' : undefined,
+      idempotentReplay: true,
+      httpStatus: 202,
+    };
+  }
+
+  // Authority: current phase_what remoteRunId (FE parentRunId is hint only).
+  const authorityParent = String(
+    container.phaseRuns?.phase_what?.remoteRunId ||
+      container.phaseRuns?.phase_what?.runId ||
+      ''
+  ).trim();
+  const hintParent = String(parentRunIdHint || '').trim();
+  if (hintParent && authorityParent && hintParent !== authorityParent) {
+    const err = new Error(
+      'parentRunId does not match current phase_what run for this pack'
+    );
+    err.statusCode = 409;
+    err.errorCode = 'PARENT_RUN_MISMATCH';
+    throw err;
+  }
+  const resolvedParentRunId =
+    phaseJob === 'phase_what' && (force || feedback)
+      ? authorityParent || hintParent || null
+      : null;
+
   if (
     !force &&
     existing?.status === 'pending' &&
@@ -781,6 +952,8 @@ async function startPhaseAiPlanningRun({
       snapshotId,
       schemaVersion: container.schemaVersion,
       mode: phaseJob === 'phase_what' ? 'g4' : undefined,
+      idempotentReplay: true,
+      httpStatus: 202,
     };
   }
 
@@ -794,8 +967,17 @@ async function startPhaseAiPlanningRun({
       snapshotId: String(snapshotId),
       startedAt: new Date().toISOString(),
       error: null,
+      ...(resolvedParentRunId ? { parentRunId: resolvedParentRunId } : {}),
+      ...(clientKey ? { clientIdempotencyKey: clientKey } : {}),
     },
   };
+  // WHAT re-run: drop prior Gate1 proposal so Review UI cannot show stale Duyệt data
+  if (phaseJob === 'phase_what') {
+    const analyses = { ...(container.analyses || {}) };
+    delete analyses.g4Understanding;
+    delete analyses.srsProposal;
+    container.analyses = analyses;
+  }
   packForPhase.aiAnalysis = container;
   packForPhase.aiAnalysisStatus = 'pending';
   packForPhase.markModified('aiAnalysis');
@@ -810,22 +992,91 @@ async function startPhaseAiPlanningRun({
     ? buildPackObjectFromSnapshot(packForPhase, snapshotObject, {})
     : packForPhase.toObject();
 
-  const snapshotPayload = {
-    ...(snapshotObject || {}),
-    snapshotId,
-    packId: String(packId),
-    functionalRequirements:
-      packForJob.functionalRequirements ||
-      snapshotObject?.functionalRequirements ||
-      [],
-    overview: packForJob.overview || snapshotObject?.overview || {},
-  };
+  const snapFr = Array.isArray(snapshotObject?.projected?.srs?.functionalRequirements)
+    ? snapshotObject.projected.srs.functionalRequirements.length
+    : 0;
+  const snapNfr = Array.isArray(snapshotObject?.projected?.srs?.nonFunctionalRequirements)
+    ? snapshotObject.projected.srs.nonFunctionalRequirements.length
+    : 0;
+  const liveFr = Array.isArray(packForPhase.functionalRequirements)
+    ? packForPhase.functionalRequirements.length
+    : 0;
+  const liveNfr = Array.isArray(packForPhase.nonFunctionalRequirements)
+    ? packForPhase.nonFunctionalRequirements.length
+    : 0;
+  const jobFr = Array.isArray(packForJob.functionalRequirements)
+    ? packForJob.functionalRequirements.length
+    : 0;
+  const jobNfr = Array.isArray(packForJob.nonFunctionalRequirements)
+    ? packForJob.nonFunctionalRequirements.length
+    : 0;
+  // eslint-disable-next-line no-console
+  console.info(
+    '[phase_what] intake counts fr=%d nfr=%d snapFr=%d snapNfr=%d jobFr=%d jobNfr=%d',
+    liveFr,
+    liveNfr,
+    snapFr,
+    snapNfr,
+    jobFr,
+    jobNfr
+  );
 
   const { buildPhaseToolData } = require('../utils/aiAnalysis/pipeline/buildPhaseToolData');
+  const { PIPELINE_VERSION } = require('../utils/aiAnalysis/pipeline/pipelineConstants');
+  // HOW: still pin toolData employees at start for observability; APS can also hydrate from snapshot.
   const toolData = buildPhaseToolData(snapshotObject, phaseJob);
   if (phaseJob === 'phase_how') {
     const n = Array.isArray(toolData.employees) ? toolData.employees.length : 0;
     console.info(`[phase_how] toolData employees=${n} snapshotId=${snapshotId}`);
+  }
+
+  const { sanitizePhase1Feedback } = require('../utils/aiAnalysis/phase1KnowledgeContext');
+  const feedbackClean = sanitizePhase1Feedback(feedback);
+  const rejectReason = String(packForPhase.rejectionReason || '').trim();
+  const loop1Text =
+    feedbackClean ||
+    (phaseJob === 'phase_what' && force && rejectReason ? rejectReason.slice(0, 2000) : '');
+
+  // RULE-DL-07: new runs forbid embedded input.snapshot / input.pack — APS hydrates via S2S
+  const slimInput = {
+    container,
+    toolData: phaseJob === 'phase_how' ? toolData : {},
+    packContentHash:
+      snapshotObject?.packContentHash ||
+      packForPhase.aiAnalysisSnapshotMeta?.packContentHash ||
+      null,
+    pipelineVersion: snapshotObject?.pipelineVersion ?? PIPELINE_VERSION,
+    inputFingerprint:
+      toolData.inputFingerprint || `${phaseJob}:${snapshotId}`,
+    ...(loop1Text
+      ? (() => {
+          const {
+            readLoop1ReuseFromPack,
+            toLoop1G4OptsSeed,
+          } = require('../utils/aiAnalysis/loop1ReuseArtifact');
+          const reuse = readLoop1ReuseFromPack(
+            packForPhase.aiAnalysis,
+            snapshotId
+          );
+          const reuseSeed = toLoop1G4OptsSeed(reuse) || {};
+          return {
+            feedback: loop1Text,
+            humanFeedback: {
+              kind: 'requirement_feedback',
+              source: 'gate1',
+              text: loop1Text,
+            },
+            g4Opts: {
+              loop1Reenter: true,
+              ...reuseSeed,
+            },
+          };
+        })()
+      : {}),
+  };
+  if (slimInput.snapshot != null || slimInput.pack != null) {
+    delete slimInput.snapshot;
+    delete slimInput.pack;
   }
 
   let s2s;
@@ -836,20 +1087,23 @@ async function startPhaseAiPlanningRun({
       packId: String(packId),
       organizationId: String(organizationId),
       snapshotId,
+      parentRunId: resolvedParentRunId || undefined,
       approvedSrsVersion: packForPhase.approvedSrsVersion || packForPhase.version || null,
       snapshotPayloadRef: snapshotId,
       trigger: force ? 'force_rerun' : 'phase_run',
       initiatedBy: userId != null ? String(userId) : null,
       job: phaseJob,
-      requestKey: `${String(packId)}:${phaseJob}:${snapshotId}`,
-      input: {
-        container,
-        pack: packForJob,
-        snapshot: snapshotPayload,
-        toolData,
-        inputFingerprint:
-          toolData.inputFingerprint || `${phaseJob}:${snapshotId}`,
-      },
+      requestKey:
+        clientKey ||
+        (resolvedParentRunId
+          ? `${String(packId)}:${phaseJob}:loop1_revise:${resolvedParentRunId}`
+          : `${String(packId)}:${phaseJob}:${snapshotId}`),
+      idempotencyKey:
+        clientKey ||
+        (resolvedParentRunId
+          ? `${String(packId)}:${phaseJob}:loop1_revise:${resolvedParentRunId}`
+          : undefined),
+      input: slimInput,
     });
   } catch (err) {
     container.phaseRuns[phaseJob] = {
@@ -877,10 +1131,13 @@ async function startPhaseAiPlanningRun({
     job: phaseJob,
     status: 'pending',
     runId: expectedRunId,
+    parentRunId: resolvedParentRunId || null,
+    generationId: expectedRunId,
     snapshotId,
     schemaVersion: container.schemaVersion,
     httpStatus: 202,
     mode: phaseJob === 'phase_what' ? 'g4' : undefined,
+    ...(loop1Text ? { feedbackApplied: true } : {}),
   };
 }
 

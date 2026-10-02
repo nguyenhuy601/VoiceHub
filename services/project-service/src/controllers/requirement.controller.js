@@ -290,7 +290,15 @@ async function submitPack(req, res) {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
     const packId = String(req.params.packId || '').trim();
-    const pack = await submitRequirementPack({ userId, organizationId, packId });
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const pack = await submitRequirementPack({
+      userId,
+      organizationId,
+      packId,
+      reviewDecisions: body.reviewDecisions || body.srsProposalReview || null,
+      expectedReviewVersion:
+        body.expectedReviewVersion != null ? body.expectedReviewVersion : body.reviewVersion,
+    });
     return res.json({ success: true, data: pack });
   } catch (err) {
     return jsonError(res, err);
@@ -502,6 +510,30 @@ async function confirmAiAnalysis(req, res) {
   }
 }
 
+/** Gate2 phase confirm — body.phase=how (no jobId). */
+async function confirmAiAnalysisPhase(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const data = await confirmAiAnalysisJob({
+      userId,
+      organizationId,
+      packId,
+      phase: req.body?.phase || 'how',
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
 async function startPhaseAiPlanning(req, res) {
   try {
     const organizationId = resolveOrgId(req);
@@ -513,6 +545,12 @@ async function startPhaseAiPlanning(req, res) {
         message: 'organizationId và packId bắt buộc',
       });
     }
+    const idempotencyKey = String(
+      req.get('Idempotency-Key') ||
+        req.get('idempotency-key') ||
+        req.body?.idempotencyKey ||
+        ''
+    ).trim();
     const data = await startPhaseAiPlanningRun({
       userId,
       organizationId,
@@ -524,6 +562,8 @@ async function startPhaseAiPlanning(req, res) {
       action: req.body?.action || '',
       decision: req.body?.decision || '',
       runId: req.body?.runId || '',
+      parentRunId: req.body?.parentRunId || '',
+      idempotencyKey,
     });
     const httpStatus = Number(data?.httpStatus) === 200 ? 200 : 202;
     return res.status(httpStatus).json({ success: true, data });
@@ -580,6 +620,7 @@ module.exports = {
   getAiAnalysis,
   runAiAnalysis,
   confirmAiAnalysis,
+  confirmAiAnalysisPhase,
   exportAiAnalysis,
   startPhaseAiPlanning,
 };

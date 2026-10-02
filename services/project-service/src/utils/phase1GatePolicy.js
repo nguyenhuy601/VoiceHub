@@ -105,12 +105,25 @@ async function notifyNextGateReviewers({
   content,
   kind,
   actionPath = 'phase1/analysis-reviews',
+  packId = '',
 }) {
   if (!nextPermission) return;
   try {
     const { notifySystemKind, projectHubActionUrl } = require('../clients/notification.client');
     const userIds = await userIdsWithProjectPermission(projectId, nextPermission);
     if (!userIds.length) return;
+    const pid = String(packId || '').trim();
+    const actionUrl = pid
+      ? projectHubActionUrl({
+          projectId,
+          organizationId,
+          pathSuffix: `${String(actionPath || 'ai-hitl').replace(/^\/+/, '')}?packId=${encodeURIComponent(pid)}`,
+        })
+      : projectHubActionUrl({
+          projectId,
+          organizationId,
+          module: actionPath,
+        });
     await notifySystemKind({
       userIds,
       kind: kind || 'phase1_gate_pending',
@@ -119,19 +132,45 @@ async function notifyNextGateReviewers({
       data: {
         projectId: String(projectId),
         organizationId: String(organizationId || ''),
+        packId: pid,
         kind: kind || 'phase1_gate_pending',
         nextPermission,
       },
-      actionUrl: projectHubActionUrl({
-        projectId,
-        organizationId,
-        module: actionPath,
-      }),
+      actionUrl,
       excludeUserId: actorUserId,
     });
   } catch {
     /* non-blocking */
   }
+}
+
+const AI_HITL_ACTION_PATH = 'ai-hitl';
+
+/**
+ * AI HITL pack gates — deep-link to ai-hitl workspace.
+ */
+async function notifyAiHitlGateReviewers({
+  projectId,
+  organizationId,
+  actorUserId,
+  packId,
+  nextPermission,
+  title,
+  content,
+  kind,
+}) {
+  if (!projectId || !nextPermission) return;
+  await notifyNextGateReviewers({
+    projectId,
+    organizationId,
+    actorUserId,
+    nextPermission,
+    title,
+    content,
+    kind: kind || 'ai_hitl_gate_pending',
+    actionPath: AI_HITL_ACTION_PATH,
+    packId,
+  });
 }
 
 module.exports = {
@@ -142,4 +181,6 @@ module.exports = {
   assertGateStampSoD,
   userIdsWithProjectPermission,
   notifyNextGateReviewers,
+  notifyAiHitlGateReviewers,
+  AI_HITL_ACTION_PATH,
 };

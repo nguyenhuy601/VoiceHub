@@ -10,6 +10,8 @@ import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { requirementAPI } from '../../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
+import CustomerRawFormPanel from './CustomerRawFormPanel';
+import { formatCustomerRawFormIssues } from '../../../../utils/customerRawFormSummary';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -73,6 +75,10 @@ export default function ImportSetUploadWizard({
   const [preview, setPreview] = useState(null);
   const [rawName, setRawName] = useState(draftSet?.rawDocument?.filename || '');
   const [confirmResult, setConfirmResult] = useState(null);
+  const [rawFormValidation, setRawFormValidation] = useState(
+    draftSet?.rawFormValidation || null
+  );
+  const [rawFormError, setRawFormError] = useState(null);
 
   const hasRaw = draftHasRaw(localDraft, rawName);
   const setIdForHint = String(localDraft?.id || draftSet?.id || '{setId}');
@@ -87,15 +93,18 @@ export default function ImportSetUploadWizard({
       setPreview(null);
       setConfirmResult(null);
       setBusy(false);
+      setRawFormError(null);
       return;
     }
     if (!open) return;
 
     setLocalDraft(draftSet);
     setRawName(draftSet?.rawDocument?.filename || '');
+    setRawFormValidation(draftSet?.rawFormValidation || null);
     if (justOpened) {
       setPreview(null);
       setConfirmResult(null);
+      setRawFormError(null);
       // Đã có Raw trên draft → nhảy thẳng bước Analysis (không bắt tải Raw lại).
       setStep(draftHasRaw(draftSet) ? 'analysis' : 'raw');
     }
@@ -126,19 +135,32 @@ export default function ImportSetUploadWizard({
     async (file) => {
       if (!file || !projectId) return;
       setBusy(true);
+      setRawFormError(null);
       try {
         const attached = unwrap(await analysisAPI.attachRawImportSet(projectId, file));
         setLocalDraft(attached);
         setRawName(file.name || attached?.rawDocument?.filename || '');
+        setRawFormValidation(attached?.rawFormValidation || null);
         toast.success(t('workspace.phase1RawAttached'));
         setStep('analysis');
       } catch (err) {
         const msg = resolveApiErrorMessage(err);
-        // Slot Raw đã đầy (mở lại wizard) → coi như xong bước 1.
-        if (/đã có file Raw|SLOT_RAW_TAKEN|already has/i.test(String(msg || ''))) {
+        const formValidation =
+          err?.data?.details?.formValidation ||
+          err?.details?.formValidation ||
+          err?.response?.data?.details?.formValidation ||
+          null;
+        if (formValidation) {
+          setRawFormError(formValidation);
+          setRawFormValidation(formValidation);
+          const issues = formatCustomerRawFormIssues(formValidation, t);
+          toast.error(issues[0] || msg);
+        } else if (/đã có file Raw|SLOT_RAW_TAKEN|already has/i.test(String(msg || ''))) {
+          // Slot Raw đã đầy (mở lại wizard) → coi như xong bước 1.
           toast.success(t('workspace.phase1RawAlreadyAttached'));
           setLocalDraft((prev) => prev || draftSet);
           setRawName((n) => n || draftSet?.rawDocument?.filename || file.name || '');
+          setRawFormValidation(draftSet?.rawFormValidation || null);
           setStep('analysis');
         } else {
           toast.error(msg);
@@ -309,6 +331,9 @@ export default function ImportSetUploadWizard({
 
         {step === 'raw' ? (
           <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+            {(rawFormError || rawFormValidation) && (
+              <CustomerRawFormPanel formValidation={rawFormError || rawFormValidation} />
+            )}
             {hasRaw ? (
               <>
                 <p className="text-sm text-foreground">{t('workspace.phase1RawAlreadyAttached')}</p>
@@ -370,6 +395,9 @@ export default function ImportSetUploadWizard({
 
         {step === 'analysis' ? (
           <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+            {rawFormValidation ? (
+              <CustomerRawFormPanel formValidation={rawFormValidation} />
+            ) : null}
             <p className="text-sm text-muted-foreground">
               {t('workspace.phase1ImportWizardAnalysisHint')}
             </p>

@@ -50,12 +50,26 @@ describe('statusForDeliveryPhase', () => {
   });
 });
 describe('alignedLifecycleFields', () => {
-  it('maps an empty phase to development', () => {
+  it('maps draft + empty phase to requirement_analysis (Phase 0 / nháp)', () => {
     assert.deepEqual(alignedLifecycleFields({ status: 'draft', deliveryPhase: '' }), {
-      status: 'in_development',
-      deliveryPhase: 'development',
+      status: 'draft',
+      deliveryPhase: 'requirement_analysis',
     });
     assert.deepEqual(alignedLifecycleFields({ status: 'draft', deliveryPhase: null }), {
+      status: 'draft',
+      deliveryPhase: 'requirement_analysis',
+    });
+    assert.deepEqual(
+      alignedLifecycleFields({ status: 'in_development', deliveryPhase: '', analysisMode: 'ai' }),
+      {
+        status: 'draft',
+        deliveryPhase: 'requirement_analysis',
+      }
+    );
+  });
+
+  it('maps non-draft empty phase to development', () => {
+    assert.deepEqual(alignedLifecycleFields({ status: 'ready', deliveryPhase: '' }), {
       status: 'in_development',
       deliveryPhase: 'development',
     });

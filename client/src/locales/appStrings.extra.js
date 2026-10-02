@@ -127,6 +127,8 @@ export const extraStrings = {
     api: {
       emptyResponse: 'Máy chủ không phản hồi. Vui lòng thử lại sau.',
       networkError: 'Lỗi kết nối mạng. Vui lòng kiểm tra kết nối và thử lại.',
+      networkOffline: 'Mất kết nối mạng. Đã tạm dừng đồng bộ — sẽ tiếp tục khi online lại.',
+      networkReconnecting: 'Đang kết nối lại…',
       channelPermissionUnavailable:
         'Tạm thời không kiểm tra được quyền kênh (organization-service). Kiểm tra service đang chạy, GATEWAY_INTERNAL_TOKEN đồng bộ, rồi thử lại.',
       serviceUnavailable: 'Dịch vụ tạm thời không khả dụng. Vui lòng thử lại sau.',
@@ -655,6 +657,8 @@ export const extraStrings = {
     api: {
       emptyResponse: 'Server did not respond. Please try again later.',
       networkError: 'Network error. Please check your connection and try again.',
+      networkOffline: 'You are offline. Sync paused — will resume when the connection returns.',
+      networkReconnecting: 'Reconnecting…',
       channelPermissionUnavailable:
         'Could not verify channel permissions (organization-service). Check the service, GATEWAY_INTERNAL_TOKEN sync, then retry.',
       serviceUnavailable: 'Service temporarily unavailable. Please try again later.',

@@ -6,56 +6,31 @@ import { requirementAPI } from '../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { buildPhase1ModulePath } from './nav/phase1NavConfig';
-import { buildCollaborateRequirementsPath } from '../../../utils/suitePathUtils';
-import { approveRequirementPackWithGate1, formatGate1ApproveError } from '../../requirements/approveRequirementPackWithGate1';
+import {
+  buildCollaborateRequirementsPath,
+  buildProjectsAiHitlPath,
+} from '../../../utils/suitePathUtils';
 import RequirementHitlJourney from '../../requirements/RequirementHitlJourney';
 import { waitForPhaseWhatJob } from './hooks/usePhaseWhatRunMonitor';
 import Phase1AiRequirementProgress from './Phase1AiRequirementProgress';
-import Phase1DataGateReviewModal from './Phase1DataGateReviewModal';
-import Phase1Gate1ReviewModal from './Phase1Gate1ReviewModal';
+import { buildGate1ProposalItems } from './buildGate1ProposalItems';
+import {
+  formatElapsed,
+  resolveWhatProgressViewModel,
+} from './aiHitl/whatProgressViewModel';
+import {
+  formatCustomerRawFormTooltip,
+  isCustomerRawFormOk,
+  isLlmInsufficientReason,
+  labelLlmInsufficientReason,
+} from '../../../utils/customerRawFormSummary';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
-const GATE1_REVIEW_CAP = 40;
-
-function clipReviewText(value) {
-  const raw = Array.isArray(value)
-    ? value
-        .map((item) =>
-          typeof item === 'string'
-            ? item
-            : item?.text || item?.criterion || item?.description || ''
-        )
-        .filter(Boolean)
-        .join('; ')
-    : value;
-  const text = String(raw || '').trim();
-  if (text.length <= 240) return text;
-  return `${text.slice(0, 240)}…`;
-}
-
-function mapGate1ReviewRow(row, index) {
-  return {
-    id: String(row?.id || row?.externalId || row?.frId || `R-${index + 1}`).trim(),
-    title: String(row?.title || row?.name || '').trim(),
-    description: clipReviewText(row?.description),
-    ac: clipReviewText(row?.ac || row?.acceptanceCriteria),
-  };
-}
-
-function buildGate1ReviewItems(pack, g4) {
-  const g4Reqs = Array.isArray(g4?.requirements) ? g4.requirements : [];
-  const frs = Array.isArray(pack?.functionalRequirements) ? pack.functionalRequirements : [];
-  const gateRows = Array.isArray(pack?.liveRun?.gatePreview?.rows)
-    ? pack.liveRun.gatePreview.rows
-    : [];
-  const source = g4Reqs.length ? g4Reqs : frs.length ? frs : gateRows;
-  return source
-    .slice(0, GATE1_REVIEW_CAP)
-    .map(mapGate1ReviewRow)
-    .filter((row) => row.id || row.title || row.description || row.ac);
+function buildGate1ReviewBundle(pack, g4, proposal) {
+  return buildGate1ProposalItems({ pack, g4, proposal });
 }
 
 /** t() trả về chính key khi thiếu bản dịch — `|| fallback` không bắt được. */
@@ -77,8 +52,6 @@ export default function RequirementPhase1PipelinePanel({
   packId,
   analysisMode = 'manual',
   canRun = false,
-  canSubmit = false,
-  canApprove = false,
   onPipelineDone,
 }) {
   const { t: translate } = useAppStrings();
@@ -94,18 +67,20 @@ export default function RequirementPhase1PipelinePanel({
   const [runMonitor, setRunMonitor] = useState(null);
   const [pipeline, setPipeline] = useState(null);
   const [activeRunId, setActiveRunId] = useState('');
-  const [dataGateOpen, setDataGateOpen] = useState(false);
-  const [dataGatePreview, setDataGatePreview] = useState(null);
-  const [gate1Open, setGate1Open] = useState(false);
+  const [formValidation, setFormValidation] = useState(null);
 
   const isAi = String(analysisMode || '').toLowerCase() === 'ai';
   const gate1Done = packStatus === 'approved' || packStatus === 'project_linked';
-
+  const formBlocksAi =
+    formValidation != null && formValidation.ok === false;
+  const formOk = isCustomerRawFormOk(formValidation);
+  const canClickAi = Boolean(canRun) && !formBlocksAi;
   const refresh = useCallback(async () => {
     if (!organizationId || !packId) return null;
     const packRes = await requirementAPI.getPack(organizationId, packId, { view: 'full' });
     const pack = unwrap(packRes);
     setPackStatus(String(pack?.status || ''));
+    setFormValidation(pack?.aiAnalysis?.formValidation || null);
     const planStatus =
       pack?.aiAnalysis?.phaseRuns?.phase_how?.projectPlanStatus ||
       pack?.aiAnalysis?.analyses?.projectPlan?.status ||
@@ -129,26 +104,50 @@ export default function RequirementPhase1PipelinePanel({
     }
     const phaseWhat = pack?.aiAnalysis?.phaseRuns?.phase_what;
     const g4 = pack?.aiAnalysis?.analyses?.g4Understanding;
+    const proposal = pack?.aiAnalysis?.analyses?.srsProposal;
     const aiCtx = pack?.aiAnalysis?.analyses?.requirementAiContext;
     const knowledgeMeta = pack?.aiAnalysis?.analyses?.phase1Knowledge;
     const gateA = pack?.aiAnalysis?.analyses?.requirementTools?.gateA || aiCtx?.gateA;
     const g4Ready =
       phaseWhat?.status === 'ready' &&
-      (phaseWhat?.mode === 'g4' || Array.isArray(g4?.requirements));
+      (phaseWhat?.mode === 'g4' ||
+        phaseWhat?.mode === 'requirement' ||
+        Array.isArray(g4?.requirements) ||
+        Array.isArray(proposal?.generated?.functionalRequirements?.items));
     if (g4Ready || (phaseWhat?.mode === 'tools_propose' && phaseWhat?.status === 'ready')) {
-      const reviewItems = buildGate1ReviewItems(pack, g4);
+      const gate1Bundle = buildGate1ReviewBundle(pack, g4, proposal);
+      const reviewItems = gate1Bundle.items;
       setStage2Meta((prev) => ({
         ...(prev || {}),
         done: true,
         pending: false,
-        mode: phaseWhat?.mode || 'g4',
+        mode: phaseWhat?.mode || 'requirement',
         reviewItems,
-        g4RequirementCount: reviewItems.length
-          ? reviewItems.length
-          : Array.isArray(g4?.requirements)
-            ? g4.requirements.length
+        proposalItems: reviewItems,
+        proposalBySection: gate1Bundle.bySection || {},
+        proposalSections: gate1Bundle.sections,
+        sectionReviews:
+          gate1Bundle.sectionReviews || proposal?.completeness?.sectionReviews || [],
+        softGaps: gate1Bundle.softGaps || proposal?.completeness?.softGaps || [],
+        readyForGate1: proposal?.completeness?.readyForGate1 !== false,
+        reviewComplete: Boolean(proposal?.review?.summary?.complete),
+        reviewVersion: proposal?.reviewVersion ?? 0,
+        isCustomerRawIntake: Boolean(
+          pack?.aiAnalysis?.formValidation?.recognizedAsCustomerRaw ||
+            pack?.aiAnalysis?.workbookDiagnostic?.intakeKind === 'customer_raw' ||
+            pack?.aiAnalysis?.intakeKind === 'customer_raw'
+        ),
+        g4RequirementCount: Array.isArray(
+          proposal?.generated?.functionalRequirements?.items
+        )
+          ? proposal.generated.functionalRequirements.items.length
+          : reviewItems.filter((r) => r.section === 'functionalRequirements').length ||
+            (Array.isArray(g4?.requirements) ? g4.requirements.length : 0),
+        g4RelationshipCount: Array.isArray(g4?.relationships)
+          ? g4.relationships.length
+          : Array.isArray(proposal?.generated?.functionalRequirements?.relations)
+            ? proposal.generated.functionalRequirements.relations.length
             : 0,
-        g4RelationshipCount: Array.isArray(g4?.relationships) ? g4.relationships.length : 0,
         llmCalls: Number(g4?.meta?.llmCalls) || prev?.llmCalls || 0,
         partial: Boolean(g4?.meta?.partial),
         status: String(pack?.status || ''),
@@ -176,7 +175,7 @@ export default function RequirementPhase1PipelinePanel({
           0,
         groundingPassCount: Number(phaseWhat.groundingPassCount) || prev?.groundingPassCount || 0,
         groundingFailCount: Number(phaseWhat.groundingFailCount) || prev?.groundingFailCount || 0,
-        contextPersisted: Boolean(aiCtx) || Boolean(g4),
+        contextPersisted: Boolean(aiCtx) || Boolean(g4) || Boolean(proposal),
       }));
     } else if (phaseWhat?.status === 'pending') {
       setStage2Meta((prev) => ({
@@ -190,27 +189,31 @@ export default function RequirementPhase1PipelinePanel({
     return pack;
   }, [organizationId, packId]);
 
-  const showDataGate = useCallback((live) => {
-    setActiveRunId(String(live?.runId || ''));
-    setDataGatePreview(live?.gatePreview || null);
-    setDataGateOpen(true);
-    setPipeline({
-      step: Number(live?.pipelineStep) || 2,
-      substep: live?.pipelineSubstep || 'gate_preview',
-    });
-  }, []);
-
-  const loadGatePage = useCallback(
-    async ({ offset, limit }) => {
-      const packRes = await requirementAPI.getPack(organizationId, packId, {
-        view: 'full',
-        gateRowOffset: offset,
-        gateRowLimit: limit,
-      });
-      const pack = unwrap(packRes);
-      return pack?.liveRun?.gatePreview || null;
+  const goAiHitl = useCallback(
+    (extra = {}) => {
+      if (!projectId) return;
+      navigate(
+        buildProjectsAiHitlPath(projectId, {
+          packId,
+          ...extra,
+        })
+      );
     },
-    [organizationId, packId]
+    [navigate, packId, projectId]
+  );
+
+  const openAiHitlMonitor = useCallback(
+    (live) => {
+      setActiveRunId(String(live?.runId || ''));
+      if (live?.pipelineStep != null) {
+        setPipeline({
+          step: Number(live.pipelineStep) || 2,
+          substep: live?.pipelineSubstep || 'quality',
+        });
+      }
+      goAiHitl();
+    },
+    [goAiHitl]
   );
 
   const followRun = useCallback(async (signal, { keepBusy = false } = {}) => {
@@ -224,20 +227,34 @@ export default function RequirementPhase1PipelinePanel({
         refresh,
         signal,
         onTick: (tick) => {
+          const vm = resolveWhatProgressViewModel(
+            tick.liveRun,
+            tick.phaseWhat,
+            Date.now(),
+            undefined,
+            tick.pack?.status || packStatus
+          );
           setRunMonitor({
-            stage: tick.stage || '',
-            computeStatus: tick.computeStatus || '',
-            callbackStatus: tick.callbackStatus || '',
+            macroStep: vm.macroStep,
+            substep: vm.substep,
+            descriptionKey: vm.descriptionKey,
+            descriptionFallback: vm.descriptionFallback,
+            activity: vm.activity,
+            elapsedMs: vm.elapsedMs,
+            showSoftHint: vm.showSoftHint,
+            waitingHuman: vm.waitingHuman,
+            showSpinner: vm.showSpinner,
           });
-          if (tick.pipelineStep) {
+          if (vm.macroStep) {
+            setPipeline({
+              step: vm.macroStep,
+              substep: vm.substep || null,
+            });
+          } else if (tick.pipelineStep) {
             setPipeline({ step: tick.pipelineStep, substep: tick.pipelineSubstep || null });
           }
-          const callbackDone = tick.callbackStatus === 'acked';
-          if (tick.computeStatus === 'completed' && !callbackDone) {
-            setPipeline({ step: 4, substep: 'feasibility' });
-          }
           if (tick.liveRun?.runId) setActiveRunId(String(tick.liveRun.runId));
-          if (tick.softHint && !softHintShown) {
+          if ((tick.softHint || vm.showSoftHint) && !softHintShown) {
             softHintShown = true;
             toast(
               t('requirements.phase1Stage2StillRunning') ||
@@ -247,16 +264,17 @@ export default function RequirementPhase1PipelinePanel({
         },
       });
       if (result?.awaitingGate === 'data_review') {
-        showDataGate(result.liveRun);
+        // RULE-R01/R07: Data Gate removed — open Monitor; workspace cleans up legacy pause
+        openAiHitlMonitor(result.liveRun);
         return;
       }
       toast.success(
         t('requirements.phase1RunOk') || 'AI Requirement đã xong — mở review Gate 1.'
       );
       setPipeline({ step: 5, substep: null });
-      setGate1Open(true);
       onPipelineDone?.(result?.phaseWhat);
       await refresh();
+      goAiHitl();
     } catch (error) {
       if (error?.code === 'PHASE_WHAT_ABORTED') return;
       const msg = resolveApiErrorMessage(error, {
@@ -272,7 +290,7 @@ export default function RequirementPhase1PipelinePanel({
         setRunMonitor(null);
       }
     }
-  }, [onPipelineDone, refresh, showDataGate, t]);
+  }, [goAiHitl, onPipelineDone, openAiHitlMonitor, packStatus, refresh, t]);
 
   const followRunRef = useRef(followRun);
   followRunRef.current = followRun;
@@ -290,15 +308,15 @@ export default function RequirementPhase1PipelinePanel({
         if (phase?.status === 'pending' && phase?.remoteRunId) {
           setActiveRunId(String(phase.remoteRunId));
           if (live?.status === 'waiting_human' && live?.gate === 'data_review') {
-            showDataGate({ ...live, runId: live.runId || phase.remoteRunId });
+            openAiHitlMonitor({ ...live, runId: live.runId || phase.remoteRunId });
             return;
           }
-          await followRunRef.current(ac.signal);
+          // In-flight WHAT — prefer dedicated monitor page
+          goAiHitl();
           return;
         }
         if (phase?.status === 'ready' && status !== 'approved' && status !== 'project_linked') {
           setPipeline({ step: 5, substep: null });
-          setGate1Open(true);
         }
         if (status === 'approved' || status === 'project_linked') {
           setPipeline({ step: 6, substep: null });
@@ -308,14 +326,16 @@ export default function RequirementPhase1PipelinePanel({
       }
     })();
     return () => ac.abort();
-  }, [isAi, organizationId, packId, refresh, showDataGate]);
+  }, [goAiHitl, isAi, openAiHitlMonitor, organizationId, packId, refresh]);
 
   const runAiRequirement = async () => {
-    if (!canRun || busy || dataGateOpen || !organizationId || !packId) return;
+    if (!canClickAi || busy || !organizationId || !packId) return;
     setBusy(true);
     setBusyStage(1);
     setErrorMsg('');
-    setGate1Open(false);
+    setRunMonitor(null);
+    // Clear previous WHAT result on UI before this run (stale Gate1 / stage2 meta)
+    setStage2Meta(null);
     setPipeline({ step: 1, substep: 'prepare' });
     try {
       const prepRes = await requirementAPI.startPhaseAiPlanning(organizationId, packId, {
@@ -324,6 +344,8 @@ export default function RequirementPhase1PipelinePanel({
       });
       const prepared = unwrap(prepRes);
       const missing = prepared?.readiness?.missing || [];
+      const prepForm = prepared?.readiness?.formValidation || prepared?.formValidation;
+      if (prepForm) setFormValidation(prepForm);
       setStage1Meta({
         intakeCorpusChars: Number(prepared?.intakeCorpusChars) || 0,
         excerptsCount: Number(prepared?.excerptsCount) || 0,
@@ -333,16 +355,9 @@ export default function RequirementPhase1PipelinePanel({
         status: String(prepared?.status || ''),
       });
       if (prepared?.status) setPackStatus(String(prepared.status));
-      const requirementReadiness = prepared?.readiness?.requirementReadiness;
-      if (requirementReadiness !== 'READY') {
-        const diag = prepared?.readiness?.workbookDiagnostic;
-        const codes = [
-          ...(Array.isArray(diag?.reasonCodes) ? diag.reasonCodes : []),
-          diag?.mappingDiagnostic?.failureReason,
-        ].filter(Boolean);
-        const msg =
-          t('requirements.phase1InputBlocked', { codes: codes.join(', ') || 'NOT_READY' }) ||
-          `Requirement chưa sẵn sàng: ${codes.join(', ') || 'NOT_READY'}`;
+      // RULE-FORM-01: only block on form INVALID — not content volume / requirementReadiness
+      if (prepForm && prepForm.ok === false) {
+        const msg = formatCustomerRawFormTooltip(prepForm, t);
         setErrorMsg(msg);
         toast.error(msg);
         return;
@@ -390,89 +405,6 @@ export default function RequirementPhase1PipelinePanel({
     }
   };
 
-  const decideDataGate = async (decision) => {
-    if (!organizationId || !packId || !activeRunId || busy) return;
-    setBusy(true);
-    setDataGateOpen(false);
-    try {
-      await requirementAPI.resumePhaseWhatDataGate(organizationId, packId, {
-        runId: activeRunId,
-        decision,
-      });
-      if (decision === 'reject') {
-        toast(
-          t('requirements.phase1DataGateRejected') ||
-            'Đã dừng ở cổng dữ liệu. Sửa artifact rồi chạy lại.'
-        );
-        setPipeline(null);
-        await refresh();
-        return;
-      }
-      setBusyStage(2);
-      setPipeline({ step: 3, substep: 'semantic' });
-      await followRun(undefined, { keepBusy: true });
-    } catch (error) {
-      setDataGateOpen(true);
-      const msg = resolveApiErrorMessage(error, {
-        t,
-        fallback: t('requirements.phase1RunFail') || 'Không chạy được AI Requirement.',
-      });
-      setErrorMsg(msg);
-      toast.error(msg);
-    } finally {
-      setBusy(false);
-      setBusyStage(null);
-      setRunMonitor(null);
-    }
-  };
-
-  const submitGate1 = async () => {
-    if (!canSubmit || busy || !organizationId || !packId) return;
-    setBusy(true);
-    try {
-      await requirementAPI.submitPack(organizationId, packId);
-      setPackStatus('under_review');
-      toast.success(t('requirements.submitOk') || 'Đã gửi duyệt Gate 1.');
-      await refresh();
-    } catch (error) {
-      toast.error(
-        resolveApiErrorMessage(error, {
-          t,
-          fallback: t('requirements.submitFail') || 'Gửi duyệt thất bại.',
-        })
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const approveGate1 = async () => {
-    if (!canApprove || busy || !organizationId || !packId) return;
-    setBusy(true);
-    try {
-      await approveRequirementPackWithGate1({
-        orgId: organizationId,
-        packId,
-        t,
-      });
-      setPackStatus('approved');
-      setGate1Open(false);
-      setPipeline({ step: 6, substep: null });
-      toast.success(t('requirements.approveOk') || 'Gate 1 đã duyệt (SRS Canonical).');
-      onPipelineDone?.({ status: 'approved' });
-      await refresh();
-    } catch (error) {
-      toast.error(
-        formatGate1ApproveError(error, {
-          t,
-          fallback: t('requirements.approveFail') || 'Duyệt Gate 1 thất bại.',
-        })
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
   if (!isAi || !packId) return null;
 
   return (
@@ -483,11 +415,11 @@ export default function RequirementPhase1PipelinePanel({
         t={t}
       />
       <h3 className="text-sm font-semibold text-foreground">
-        {t('requirements.phase1PipelineTitle') || 'AI Requirement (G4)'}
+        {t('requirements.phase1PipelineTitle') || 'AI Requirement'}
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
         {t('requirements.phase1PipelineHintG4') ||
-          'Đoạn 1: chuẩn bị input. Đoạn 2: G4 Understanding (remote) → Gate 1 duyệt một lần. Không chạy 4 job WHAT riêng.'}
+          'Một nút chạy hết AI Requirement. Sau bước hiểu yêu cầu, review dữ liệu rồi mới chạy semantic. Gate 1 mở khi xong.'}
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -592,19 +524,30 @@ export default function RequirementPhase1PipelinePanel({
         <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">{errorMsg}</p>
       ) : null}
       {runMonitor && busyStage === 2 ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          {t('requirements.phase1JobMonitor', {
-            stage: runMonitor.stage || '—',
-            compute: runMonitor.computeStatus || '—',
-            callback: runMonitor.callbackStatus || '—',
-          }) ||
-            `Job: ${runMonitor.stage || '—'} · compute ${runMonitor.computeStatus || '—'} · callback ${runMonitor.callbackStatus || '—'}`}
-          {runMonitor.computeStatus === 'completed' &&
-          runMonitor.callbackStatus &&
-          runMonitor.callbackStatus !== 'acked'
-            ? ` — ${t('requirements.phase1Finalizing') || 'Đang ghi kết quả…'}`
-            : null}
-        </p>
+        <div className="mt-2 space-y-1 text-xs text-muted-foreground" aria-live="polite">
+          <p>
+            {t(runMonitor.descriptionKey) ||
+              runMonitor.descriptionFallback ||
+              t('requirements.aiHitlMonitorProcessing') ||
+              'Đang xử lý…'}
+            {runMonitor.elapsedMs != null ? (
+              <span className="ml-2 tabular-nums">{formatElapsed(runMonitor.elapsedMs)}</span>
+            ) : null}
+          </p>
+          {runMonitor.activity?.kind === 'call_tool' && runMonitor.activity?.toolName ? (
+            <p className="font-medium text-foreground">
+              {(
+                t('requirements.aiHitlMonitorCallingTool') || 'Đang gọi tool: {tool}'
+              ).replace('{tool}', runMonitor.activity.toolName)}
+            </p>
+          ) : null}
+          {runMonitor.waitingHuman ? (
+            <p className="text-amber-800 dark:text-amber-200">
+              {t('requirements.aiHitlMonitorDataGateHint') ||
+                'AI đang chờ Data Gate — chuyển tab Duyệt để Pass/Reject.'}
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       <Phase1AiRequirementProgress
@@ -617,13 +560,25 @@ export default function RequirementPhase1PipelinePanel({
         <div className="mt-3">
           <button
             type="button"
-            disabled={!canRun || busy || dataGateOpen}
+            disabled={!canClickAi || busy}
+            title={
+              formBlocksAi
+                ? formatCustomerRawFormTooltip(formValidation, t)
+                : formOk
+                  ? formatCustomerRawFormTooltip(formValidation, t)
+                  : undefined
+            }
             onClick={runAiRequirement}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             {t('requirements.phase1RunCta') || 'Chạy AI Requirement'}
           </button>
+          {formBlocksAi ? (
+            <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+              {formatCustomerRawFormTooltip(formValidation, t)}
+            </p>
+          ) : null}
         </div>
       ) : (
         <p className="mt-3 text-xs text-emerald-700 dark:text-emerald-300">
@@ -635,6 +590,15 @@ export default function RequirementPhase1PipelinePanel({
       )}
 
       <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={!projectId}
+          onClick={() => goAiHitl()}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+        >
+          <Eye className="h-4 w-4" />
+          {t('requirements.aiHitlOpenWorkspace') || 'Mở AI HITL (Monitor & Duyệt)'}
+        </button>
         <button
           type="button"
           disabled={!projectId}
@@ -665,34 +629,13 @@ export default function RequirementPhase1PipelinePanel({
         {!gate1Done && stage2Meta?.done ? (
           <button
             type="button"
-            onClick={() => setGate1Open(true)}
+            onClick={() => goAiHitl()}
             className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50"
           >
             {t('requirements.phase1OpenGate1') || 'Mở review Gate 1'}
           </button>
         ) : null}
       </div>
-      <Phase1DataGateReviewModal
-        open={dataGateOpen}
-        preview={dataGatePreview}
-        busy={busy}
-        t={t}
-        onLoadPage={loadGatePage}
-        onPass={() => decideDataGate('pass')}
-        onReject={() => decideDataGate('reject')}
-      />
-      <Phase1Gate1ReviewModal
-        open={gate1Open && !gate1Done}
-        packStatus={packStatus}
-        canSubmit={canSubmit}
-        canApprove={canApprove}
-        summary={stage2Meta}
-        busy={busy}
-        t={t}
-        onClose={() => setGate1Open(false)}
-        onSubmit={submitGate1}
-        onApprove={approveGate1}
-      />
     </section>
   );
 }

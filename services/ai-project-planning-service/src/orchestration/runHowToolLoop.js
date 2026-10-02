@@ -26,6 +26,7 @@ const {
  * @param {object} [opts.pack]
  * @param {object} [opts.toolData]
  * @param {string|null} [opts.snapshotId]
+ * @param {(info: object) => Promise<void>|void} [opts.onToolStart]
  * @param {(info: object) => Promise<void>|void} [opts.onToolDone]
  * @param {object} [opts.budget] — Track B override
  * @param {number} [opts.startedAt]
@@ -77,6 +78,9 @@ async function runHowToolLoop(opts = {}) {
     const step = steps[i];
     const toolName = step.toolName;
     console.info(`[how_seek] tool=${toolName} index=${i}/${steps.length}`);
+    if (typeof opts.onToolStart === 'function') {
+      await opts.onToolStart({ index: i, toolName });
+    }
     const stepStarted = Date.now();
     const toolContext = buildToolContext({ pack, toolData, container });
     toolContext.container = container;

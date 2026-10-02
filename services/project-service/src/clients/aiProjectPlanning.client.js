@@ -1,8 +1,12 @@
 const axios = require('axios');
+const { withSafeGetRetry } = require('@enterprise/shared/http/s2sSafeGet');
 
 /**
  * S2S client → ai-project-planning-service (RULE-11 remote planning).
  * Uses x-gateway-internal-token (= GATEWAY_INTERNAL_TOKEN).
+ *
+ * Retry ownership: GET uses withSafeGetRetry; POST startRun / cancel / resume
+ * are NOT transport-retried (idempotency handled at APS / phase-run layer).
  */
 
 function planningBase() {
@@ -51,6 +55,12 @@ function serializeRemoteRunInput(body = {}) {
 async function startRun(body) {
   const base = assertConfigured();
   const payload = serializeRemoteRunInput(body);
+  if (body.idempotencyKey) {
+    payload.idempotencyKey = String(body.idempotencyKey).trim();
+  }
+  if (body.requestKey) {
+    payload.requestKey = String(body.requestKey).trim();
+  }
   const res = await axios.post(`${base}/internal/runs`, payload, {
     headers: internalHeaders(),
     timeout: Number(process.env.AI_PLANNING_S2S_TIMEOUT_MS || 15000),
@@ -66,12 +76,26 @@ async function getRun(runId, query = {}) {
     params.rowOffset = query.rowOffset;
     params.rowLimit = query.rowLimit;
   }
-  const res = await axios.get(`${base}/internal/runs/${encodeURIComponent(String(runId))}`, {
-    headers: internalHeaders(),
-    params,
-    timeout: 10000,
-    validateStatus: () => true,
-  });
+  const res = await withSafeGetRetry(
+    async () => {
+      const r = await axios.get(
+        `${base}/internal/runs/${encodeURIComponent(String(runId))}`,
+        {
+          headers: internalHeaders(),
+          params,
+          timeout: 10000,
+          validateStatus: () => true,
+        }
+      );
+      if (r.status === 429 || r.status >= 500) {
+        const err = new Error(`planning getRun HTTP ${r.status}`);
+        err.response = r;
+        throw err;
+      }
+      return r;
+    },
+    { method: 'get' }
+  );
   return { status: res.status, data: res.data };
 }
 

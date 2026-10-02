@@ -1,5 +1,5 @@
 /**
- * Gate 2 promote: draft Project → active + seed P2 (Blueprint) + P3/P4 skeleton.
+ * Gate 2 promote: seed Phase 1 RA → seed Phase 2 board → development + P3/P4 skeleton.
  */
 
 const Project = require('../models/Project');
@@ -129,6 +129,33 @@ async function promoteProjectFromGate2({
   const boardId = project.defaultBoardId || null;
   const normalizedLeafAssignments = normalizeCreatePackLeafAssignments(leafAssignments);
 
+  // 1) Seed Phase 1 RA artifacts + link customer docs.
+  let analysisSeed = null;
+  try {
+    const { seedArtifactsFromRequirementPack, linkPackDocumentsToProject } = require('./analysis.service');
+    analysisSeed = await seedArtifactsFromRequirementPack({
+      userId,
+      projectId,
+      pack: pack.toObject(),
+    });
+    const linkedDocs = await linkPackDocumentsToProject({
+      organizationId,
+      packId,
+      projectId,
+    });
+    analysisSeed = {
+      ...(analysisSeed && typeof analysisSeed === 'object' ? analysisSeed : {}),
+      linkedDocumentCount: linkedDocs.modified,
+    };
+  } catch (seedErr) {
+    logger.warn(
+      '[promote] analysis seed failed project=%s: %s',
+      projectId,
+      seedErr?.message || seedErr
+    );
+  }
+
+  // 2) Seed Phase 2 board tasks + members from Blueprint.
   let importStats = null;
   if (importWorkItems) {
     importStats = await importRequirementPackWorkItems({
@@ -150,7 +177,7 @@ async function promoteProjectFromGate2({
     });
   }
 
-  // Promote lifecycle + delivery phase (development = Phase 2 hub).
+  // 3) Promote lifecycle → Phase 2 hub (development).
   project.status = 'in_development';
   project.deliveryPhase = 'development';
   await project.save();
@@ -160,6 +187,7 @@ async function promoteProjectFromGate2({
     await pack.save();
   }
 
+  // 4) P3/P4 skeleton (non-blocking).
   let phase34 = null;
   try {
     phase34 = await seedPhase34FromPlan({
@@ -170,31 +198,6 @@ async function promoteProjectFromGate2({
   } catch (seedErr) {
     logger.warn(
       '[promote] phase34 seed failed project=%s: %s',
-      projectId,
-      seedErr?.message || seedErr
-    );
-  }
-
-  let analysisSeed = null;
-  try {
-    const { seedArtifactsFromRequirementPack, linkPackDocumentsToProject } = require('./analysis.service');
-    analysisSeed = await seedArtifactsFromRequirementPack({
-      userId,
-      projectId,
-      pack: pack.toObject(),
-    });
-    const linkedDocs = await linkPackDocumentsToProject({
-      organizationId,
-      packId,
-      projectId,
-    });
-    analysisSeed = {
-      ...(analysisSeed && typeof analysisSeed === 'object' ? analysisSeed : {}),
-      linkedDocumentCount: linkedDocs.modified,
-    };
-  } catch (seedErr) {
-    logger.warn(
-      '[promote] analysis seed failed project=%s: %s',
       projectId,
       seedErr?.message || seedErr
     );

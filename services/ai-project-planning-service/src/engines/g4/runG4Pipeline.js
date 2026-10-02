@@ -1,6 +1,9 @@
 /**
- * G4 Understanding pipeline (Waves 2–5):
+ * G4 Semantic Engine (FR path capability).
  * Normalize → Signals → Candidates → [data gate] → Semantic LLM → Validate → Conflict → Evidence → Synthesis
+ *
+ * Persistence: NONE — callers must reduce into analyses.srsProposal (never write g4Understanding).
+ * Preferred entry for FR analysis: requirementAnalysis/functionalRequirements/analyzeFunctionalRequirements.
  */
 
 const { resolveAiG4Policy } = require('../../config/aiG4Policy');
@@ -19,6 +22,8 @@ const {
   needsSemanticLlm,
   needsConflictLlm,
 } = require('./candidateSelector');
+const { emitConstraintFactsFromSignals } = require('./normalizedConstraintFact');
+const { buildPotentialConflictRelations } = require('./conflictRelations');
 const { packByTokenBudget } = require('./tokenPack');
 const {
   runSemanticProjection,
@@ -26,7 +31,7 @@ const {
 } = require('./semanticProjection');
 const { buildEvidenceBundle } = require('./evidenceBuilder');
 const { runSynthesis } = require('./synthesis');
-const { substepMeta, buildGatePreview } = require('./pipelineProgress');
+const { substepMeta } = require('./pipelineProgress');
 
 const PROMPT_VERSION = 'g4-semantic-pipeline-v1';
 
@@ -67,8 +72,15 @@ async function runUnderstandPrefix(opts, policy, snapshot) {
   }
 
   await emitProgress(opts.onProgress, 'filter');
+  // Structured facts only — emitter returns [] when no actor_policy SoT (W1 inventory)
+  const constraintFacts = [
+    ...emitConstraintFactsFromSignals(signals),
+    ...(Array.isArray(opts.constraintFacts) ? opts.constraintFacts : []),
+  ];
+  const conflictBuilt = buildPotentialConflictRelations(constraintFacts);
   const selection = selectCandidates(signals, {
     enabled: policy.candidateSelection.enabled,
+    conflictRelations: conflictBuilt.relations,
   });
 
   await emitProgress(opts.onProgress, 'quality');
@@ -85,6 +97,8 @@ async function runUnderstandPrefix(opts, policy, snapshot) {
     duplicates,
     signals,
     selection,
+    constraintFacts,
+    conflictRelations: conflictBuilt.relations,
     projected,
     toolResult,
     toolEvidence,
@@ -102,6 +116,7 @@ function hasResumePartial(priorPartial) {
 
 /**
  * @param {{ snapshot?: object, pack?: object, env?: object, generateJsonFn?: Function, forceHeuristic?: boolean, skipLlm?: boolean, onProgress?: Function, pauseAtDataGate?: boolean, priorPartial?: object }} opts
+ * RULE-R01/R07: Data Gate HITL removed — `pauseAtDataGate` is ignored; quality → semantic straight.
  */
 async function runG4Pipeline(opts = {}) {
   registerDefaultTools();
@@ -140,23 +155,90 @@ async function runG4Pipeline(opts = {}) {
     ? opts.priorPartial
     : await runUnderstandPrefix(opts, policy, snapshot);
 
-  if (opts.pauseAtDataGate && !hasResumePartial(opts.priorPartial)) {
-    await emitProgress(opts.onProgress, 'gate_preview');
-    return {
-      paused: true,
-      gate: 'data_review',
-      gatePreview: buildGatePreview(prefix),
-      partial: prefix,
-    };
-  }
-
   const {
     functionalRequirements,
     selection,
     projected,
     toolResult,
     toolEvidence,
+    constraintFacts = [],
   } = prefix;
+
+  // RULE-DL-06/09: G4 owns Qdrant ingest after quality — corpus = quality-valid set (not candidates)
+  let contextPackage = opts.reuseContextPackage || null;
+  let corpusContentHash =
+    opts.priorCorpusHash || prefix.corpusContentHash || null;
+  const snapshotId = String(
+    opts.snapshotId ||
+      projected?.snapshotId ||
+      snapshot?.snapshotId ||
+      snapshot?.id ||
+      ''
+  ).trim();
+  try {
+    const {
+      ingestSnapshotToQdrant,
+      isIngestAfterQualityEnabled,
+    } = require('../../retrieval/ingestSnapshotToQdrant');
+    const { buildCorpusFromSnapshot } = require('../../retrieval/buildCorpusFromSnapshot');
+    const { assembleContextPackageAsync } = require('../../retrieval/contextAssembly');
+    const { getG7RagMode } = require('../../retrieval/g7PipelineSchemas');
+
+    const validFrs = Array.isArray(functionalRequirements)
+      ? functionalRequirements
+      : [];
+    const corpus = buildCorpusFromSnapshot(
+      { ...(snapshot && typeof snapshot === 'object' ? snapshot : {}), snapshotId },
+      { frOverride: validFrs }
+    );
+
+    // PLAN B / C6: Loop1 with reuseContextPackage + priorCorpusHash → no re-ingest
+    const loop1SkipIngest = Boolean(
+      opts.reuseContextPackage &&
+        opts.priorCorpusHash &&
+        (opts.loop1Reenter || opts.skipIngest === true)
+    );
+    if (isIngestAfterQualityEnabled(env) && snapshotId && !loop1SkipIngest) {
+      const mode = getG7RagMode(env);
+      if (mode === 'qdrant' || mode === 'hybrid') {
+        const ingestOut = await ingestSnapshotToQdrant({
+          snapshot,
+          snapshotId,
+          frOverride: validFrs,
+          corpus,
+          priorCorpusHash: corpusContentHash,
+          afterQuality: true,
+          env,
+          embedFn: opts.embedFn,
+          qdrant: opts.qdrant,
+        });
+        corpusContentHash = ingestOut.corpusContentHash || corpusContentHash;
+      }
+    } else if (loop1SkipIngest && opts.priorCorpusHash) {
+      corpusContentHash = String(opts.priorCorpusHash);
+    }
+
+    if (!contextPackage) {
+      const fallbackText = String(
+        projected?.overview?.requirementName ||
+          snapshot?.overview?.requirementName ||
+          ''
+      );
+      contextPackage = await assembleContextPackageAsync({
+        query: 'what_requirements',
+        corpus: corpus.length
+          ? corpus
+          : fallbackText
+            ? [{ id: 'snap_overview', text: fallbackText }]
+            : [],
+        snapshotId,
+      });
+    }
+  } catch (ingestErr) {
+    const { getG7RagMode } = require('../../retrieval/g7PipelineSchemas');
+    if (getG7RagMode(env) === 'qdrant') throw ingestErr;
+    console.warn('[g7_ingest] g4 soft', ingestErr?.message || ingestErr);
+  }
 
   let llmCalls = 0;
   let llmFailed = 0;
@@ -200,12 +282,31 @@ async function runG4Pipeline(opts = {}) {
     needsConflictLlm(selection) &&
     policy.llm.conflictAnalysis.enabled
   ) {
-    const conflictBatch = selection.candidates.filter((c) =>
-      c.reasons?.includes('conflict')
-    );
+    const relationBatch = Array.isArray(selection.conflicts?.relations)
+      ? selection.conflicts.relations.slice(0, 20)
+      : [];
     const conf = await runConflictProjection({
       generateJson: generate,
-      batch: conflictBatch.slice(0, 20),
+      // Slim context: potential pairs only (not full FR list)
+      batch: relationBatch.length
+        ? relationBatch.map((rel) => ({
+            pairKey: rel.pairKey,
+            frIds: rel.frIds,
+            targetKey: rel.targetKey,
+            constraintType: rel.constraintType,
+            relation: rel.relation,
+            evidence: rel.evidence,
+            facts: (constraintFacts || []).filter((f) =>
+              (rel.frIds || []).includes(String(f.frId))
+            ),
+          }))
+        : selection.candidates
+            .filter(
+              (c) =>
+                c.reasons?.includes('potential_conflict') ||
+                c.reasons?.includes('conflict')
+            )
+            .slice(0, 20),
       policy: policy.llm.conflictAnalysis,
       env,
     });
@@ -343,10 +444,14 @@ async function runG4Pipeline(opts = {}) {
     skill: skillLoad.skill,
     model: modelInfo,
     selection,
+    contextPackage,
+    corpusContentHash,
   };
 }
 
 module.exports = {
   PROMPT_VERSION,
   runG4Pipeline,
+  runUnderstandPrefix,
+  hasResumePartial,
 };

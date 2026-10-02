@@ -31,7 +31,7 @@ function forcePromptMessage(code, t) {
   if (code === 'G4_UNDERSTANDING_MISSING') {
     return (
       t('requirements.gate1ForceG4Prompt') ||
-      'Thiếu G4 Understanding. Nhập lý do để force duyệt Gate 1 (hoặc Cancel):'
+      'Thiếu kết quả AI Requirement. Nhập lý do để force duyệt Gate 1 (hoặc Cancel):'
     );
   }
   return (
