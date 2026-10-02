@@ -10,7 +10,11 @@ const { buildSnapshotPayload } = require('../utils/aiAnalysis/pipeline/buildPipe
 const {
   isSnapshotPipelineEnabled,
   SKILL_CATALOG_VERSION,
+  PIPELINE_VERSION,
 } = require('../utils/aiAnalysis/pipeline/pipelineConstants');
+const {
+  isSnapshotProjectionCompatible,
+} = require('../utils/aiAnalysis/pipeline/snapshotCompatibility');
 
 const DEFAULT_POOL_LIMIT = 200;
 
@@ -146,15 +150,33 @@ async function createOrReuseAiAnalysisSnapshot({
     }).sort({ createdAt: -1 });
 
     if (existing) {
-      if (String(pack.aiAnalysisActiveSnapshotId || '') !== String(existing._id)) {
-        pack.aiAnalysisActiveSnapshotId = existing._id;
-        pack.aiAnalysisSnapshotMeta = toMeta(existing);
-        pack.markModified('aiAnalysisSnapshotMeta');
-        await pack.save();
+      const leanExisting =
+        typeof existing.toObject === 'function' ? existing.toObject() : existing;
+      const compat = isSnapshotProjectionCompatible(leanExisting, {
+        packContentHash,
+        pipelineVersion: PIPELINE_VERSION,
+      });
+      if (compat.ok) {
+        if (String(pack.aiAnalysisActiveSnapshotId || '') !== String(existing._id)) {
+          pack.aiAnalysisActiveSnapshotId = existing._id;
+          pack.aiAnalysisSnapshotMeta = toMeta(existing);
+          pack.markModified('aiAnalysisSnapshotMeta');
+          await pack.save();
+        }
+        const lean = { ...leanExisting, _reused: true };
+        console.info(
+          '[snapshot_compat] reused snapshotId=%s packId=%s',
+          String(existing._id),
+          String(packId)
+        );
+        return { snapshot: existing, meta: { ...toMeta(lean), reused: true } };
       }
-      const lean = existing.toObject();
-      lean._reused = true;
-      return { snapshot: existing, meta: { ...toMeta(lean), reused: true } };
+      console.info(
+        '[snapshot_compat] recreated reason=%s snapshotId=%s packId=%s',
+        compat.reason || 'unknown',
+        String(existing._id),
+        String(packId)
+      );
     }
   }
 
@@ -324,8 +346,26 @@ async function ensureActiveAiAnalysisSnapshot({
     packId,
     pack,
   });
+  const packObj = typeof pack.toObject === 'function' ? pack.toObject() : pack;
+  const liveHash = buildPackContentHash(packObj);
+  const snapHash = snapshotDoc ? String(snapshotDoc.packContentHash || '') : '';
+  const contentDrift = Boolean(snapshotDoc) && snapHash !== liveHash;
+  const snapLean =
+    snapshotDoc && typeof snapshotDoc.toObject === 'function'
+      ? snapshotDoc.toObject()
+      : snapshotDoc;
+  const compat = snapshotDoc
+    ? isSnapshotProjectionCompatible(snapLean, {
+        packContentHash: liveHash,
+        pipelineVersion: PIPELINE_VERSION,
+      })
+    : { ok: false, reason: 'missing_snapshot' };
+  const projectionIncompatible = Boolean(snapshotDoc) && !compat.ok;
   const shouldRefresh =
-    Boolean(refreshOnFrDrift) && snapshotDoc && !packSnapshotFrAligned(pack, snapshotDoc);
+    projectionIncompatible ||
+    (Boolean(refreshOnFrDrift) &&
+      snapshotDoc &&
+      (!packSnapshotFrAligned(pack, snapshotDoc) || contentDrift));
   if (snapshotDoc && !shouldRefresh) {
     return {
       pack,
@@ -333,6 +373,13 @@ async function ensureActiveAiAnalysisSnapshot({
       snapshotId: String(snapshotDoc._id),
       meta: toMeta(snapshotDoc),
     };
+  }
+  if (projectionIncompatible) {
+    console.info(
+      '[snapshot_compat] ensureActive recreate reason=%s packId=%s',
+      compat.reason || 'unknown',
+      String(packId)
+    );
   }
 
   const created = await createOrReuseAiAnalysisSnapshot({

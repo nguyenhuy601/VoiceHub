@@ -19,7 +19,7 @@ const BAN_EMPLOYEE_RE =
 
 /**
  * @param {object} raw
- * @returns {{ kind: string, impactScope: string[], bannedEmployeeIds: string[], rawText: string }}
+ * @returns {{ kind: string, source: string, impactScope: string[], bannedEmployeeIds: string[], rawText: string }}
  */
 function parseFeedback(raw = {}) {
   const kindRaw = String(raw.kind || raw.type || '').toLowerCase();
@@ -60,8 +60,15 @@ function parseFeedback(raw = {}) {
     }
   }
 
+  const sourceRaw = String(raw.source || '').trim().toLowerCase();
+  let source = sourceRaw === 'gate1' || sourceRaw === 'gate2' ? sourceRaw : null;
+  if (!source) {
+    source = kind === 'requirement_feedback' ? 'gate1' : 'gate2';
+  }
+
   return {
     kind,
+    source,
     impactScope,
     bannedEmployeeIds,
     rawText: text,

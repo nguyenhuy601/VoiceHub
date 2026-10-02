@@ -27,9 +27,21 @@ import {
   isWriteHttpMethod,
 } from '../utils/landingEmbedMode';
 import { getBrowserFrontendOrigin, resolveApiBaseUrl } from '../utils/browserOrigin';
+import {
+  ensureNetworkControllerStarted,
+  networkController,
+} from '../lib/network/networkController.js';
+import {
+  attachOfflineRequestGate,
+  attachSuccessReporter,
+  tryTransportRetry,
+} from '../lib/network/attachRetryInterceptors.js';
+import { toastNetworkAware } from '../lib/network/toastNetworkAware.js';
 
 // Import toast để show error notifications
 import toast from 'react-hot-toast';
+
+ensureNetworkControllerStarted();
 
 function apiT() {
   return createTranslator(readStoredLocale());
@@ -160,6 +172,9 @@ api.interceptors.request.use(
   }
 );
 
+attachOfflineRequestGate(api, { networkController });
+attachSuccessReporter(api, networkController);
+
 /* ========================================
    RESPONSE INTERCEPTOR
    Chạy SAU KHI nhận response từ server
@@ -195,35 +210,25 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    if (error?.code === 'NETWORK_OFFLINE' || error?.isNetworkOffline) {
+      const t = apiT();
+      const message = t('api.networkOffline') || t('api.networkError');
+      toastNetworkAware(toast, message, networkController);
+      return Promise.reject(
+        buildRejectedError({ message, code: 'NETWORK_OFFLINE' }, 'errors.generic')
+      );
+    }
+
+    try {
+      const retried = await tryTransportRetry(error, api, { networkController });
+      if (retried !== null && retried !== undefined) {
+        return retried;
+      }
+    } catch (retryErr) {
+      error = retryErr;
+    }
 
     const config = error?.config;
-    const cacheMsg = String(error?.message || '').toLowerCase();
-    const likelyCacheFailure =
-      cacheMsg.includes('cache') || cacheMsg.includes('err_cache');
-    if (
-      config &&
-      !config.__cacheBustRetry &&
-      !config.__skipNetworkRetry &&
-      !error.response &&
-      (likelyCacheFailure || error.code === 'ERR_NETWORK')
-    ) {
-      const method = String(config.method || 'get').toLowerCase();
-      if (method === 'get' || method === 'head') {
-        config.__cacheBustRetry = true;
-        config.headers = {
-          ...config.headers,
-          'Cache-Control': 'no-store, no-cache',
-          Pragma: 'no-cache',
-        };
-        config.params = { ...(config.params || {}), _nc: Date.now() };
-        try {
-          return await api.request(config);
-        } catch (retryErr) {
-          error = retryErr;
-        }
-      }
-
-    }
 
     const requestUrlEarly = error.config?.url || '';
     const isOptionalProfileMiss =
@@ -258,7 +263,7 @@ api.interceptors.response.use(
         baseURL: error.config?.baseURL,
         timeout: error.config?.timeout,
       });
-      toast.error(message, { duration: 5000 });
+      toastNetworkAware(toast, message, networkController);
       return Promise.reject(buildRejectedError({ message, code: 'ERR_EMPTY_RESPONSE' }, 'errors.generic'));
     }
 
@@ -267,7 +272,7 @@ api.interceptors.response.use(
       const t = apiT();
       const message = t('api.networkError');
       console.error('[API] ❌ Network error');
-      toast.error(message);
+      toastNetworkAware(toast, message, networkController);
       return Promise.reject(buildRejectedError({ message, code: 'ERR_NETWORK' }, 'errors.generic'));
     }
 

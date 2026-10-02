@@ -67,9 +67,21 @@ if [[ -z "$OLLAMA_CID" ]]; then
   OLLAMA_CID="$(docker ps -q -f "name=voicehub-extra-ollama" | head -1 || true)"
 fi
 if [[ -n "$OLLAMA_CID" ]]; then
-  MODEL="${OLLAMA_MODEL:-qwen2.5:3b-instruct}"
-  echo "  container=$OLLAMA_CID model=$MODEL"
-  docker exec "$OLLAMA_CID" ollama pull "$MODEL" || echo "[WARN] ollama pull thất bại — thử lại sau khi ollama healthy"
+  # shellcheck disable=SC1091
+  PROVIDER="$(grep -E '^LLM_PROVIDER=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  EMBED_MODEL="${G7_EMBEDDING_MODEL:-qwen3-embedding:0.6b}"
+  case "$PROVIDER" in
+    openai|openai_compatible|dashscope)
+      echo "  LLM_PROVIDER=$PROVIDER — skip pull chat (DashScope); embed local=$EMBED_MODEL"
+      docker exec "$OLLAMA_CID" ollama pull "$EMBED_MODEL" || echo "[WARN] ollama pull embed thất bại — G7 hybrid cần model này"
+      ;;
+    *)
+      MODEL="${OLLAMA_MODEL:-qwen2.5:3b-instruct}"
+      echo "  container=$OLLAMA_CID chat=$MODEL embed=$EMBED_MODEL"
+      docker exec "$OLLAMA_CID" ollama pull "$MODEL" || echo "[WARN] ollama pull chat thất bại — thử lại sau khi ollama healthy"
+      docker exec "$OLLAMA_CID" ollama pull "$EMBED_MODEL" || echo "[WARN] ollama pull embed thất bại — G7 hybrid cần model này"
+      ;;
+  esac
 else
   echo "[WARN] Chưa thấy container ollama extra — kiểm tra: docker compose -f docker-compose.swarm-extra.yml ps"
 fi

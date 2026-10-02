@@ -113,6 +113,26 @@ async function callOllama(prompt) {
     };
   }
 
+  const {
+    isOpenAiCompatibleProvider,
+    chatCompletionsText,
+    chatModel,
+  } = require('@enterprise/shared/llm/openaiCompatibleClient');
+
+  if (isOpenAiCompatibleProvider()) {
+    const model = chatModel(process.env, 'qwen3.8-max');
+    const chat = await chatCompletionsText({
+      prompt,
+      temperature: 0.2,
+      maxTokens: 1024,
+      model,
+    });
+    if (!chat.ok) {
+      throw new Error(chat.error || 'openai_error');
+    }
+    return { response: chat.text };
+  }
+
   const baseUrl = String(process.env.OLLAMA_BASE_URL || '').trim().replace(/\/+$/, '');
   const model = process.env.OLLAMA_MODEL || 'qwen2.5:3b-instruct';
 

@@ -363,6 +363,31 @@ describe('execution claim and cancel fence', () => {
     }
   });
 
+  it('claim from queued preserves pipeline progress (Data Gate resume)', async () => {
+    const stub = installRunModelStub(
+      executableRun({
+        job: 'phase_what',
+        attempt: 1,
+        pipelineStep: 3,
+        pipelineSubstep: 'semantic',
+        gate: null,
+        gatePreview: { frCount: 1 },
+      })
+    );
+    try {
+      await claimRunExecution(stub.state._id, {
+        now: new Date('2026-09-19T00:00:00.000Z'),
+        executionLeaseOwner: 'worker-resume',
+      });
+      assert.equal(stub.state.status, 'running');
+      assert.equal(stub.state.pipelineStep, 3);
+      assert.equal(stub.state.pipelineSubstep, 'semantic');
+      assert.equal(stub.state.gatePreview, null);
+    } finally {
+      stub.restore();
+    }
+  });
+
   it('reclaims stale running but skips an active lease', async () => {
     const now = new Date('2026-09-19T00:00:00.000Z');
     const stale = installRunModelStub(

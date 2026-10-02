@@ -112,6 +112,8 @@ function perFileSummary(result) {
     validFr: Number(diagnostic?.rows?.validFr) || (result?.functionalRequirements || []).length || 0,
     reasonCodes: Array.isArray(diagnostic?.reasonCodes) ? [...diagnostic.reasonCodes] : [],
     mappingFailure: diagnostic?.mappingDiagnostic?.failureReason || null,
+    source: result?.meta?.source || null,
+    intakeKind: result?.meta?.intakeKind || diagnostic?.intakeKind || null,
   };
 }
 
@@ -264,6 +266,9 @@ function aggregateWorkbookResults(results = []) {
     frSourceMap,
     reasonCodes,
   });
+  if (workbookDiagnostics.some((f) => f.intakeKind === 'customer_raw' || f.source === 'customer_raw')) {
+    workbookDiagnostic.intakeKind = 'customer_raw';
+  }
 
   return {
     functionalRequirements,

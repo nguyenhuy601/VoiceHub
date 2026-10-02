@@ -2,13 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { Loader2 } from 'lucide-react';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
-import { requirementAPI } from '../../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
-import useRequirementAccess from '../../../../hooks/useRequirementAccess';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
-import RequirementPhase1PipelinePanel from '../RequirementPhase1PipelinePanel';
 import {
   buildPhase1ModulePath,
   isPlanningUnlocked,
@@ -87,36 +84,7 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { capabilities, isLoading: capsLoading } = useProjectCapabilities(projectId);
-  const { access: requirementAccess } = useRequirementAccess(organizationId);
   const planningUnlocked = isPlanningUnlocked(deliveryPhase);
-
-  const { data: aiPack } = useQuery({
-    queryKey: ['phase1OverviewAiPack', String(organizationId || ''), String(projectId || '')],
-    queryFn: async () => {
-      const listed = unwrap(await requirementAPI.listPacks(organizationId, {}));
-      const list = Array.isArray(listed) ? listed : listed?.items || listed?.packs || [];
-      const hit = list.find((pack) => {
-        const raw = pack?.projectId;
-        const linked =
-          raw && typeof raw === 'object' ? raw._id || raw.id || '' : raw;
-        return String(linked || '') === String(projectId);
-      });
-      const packId = String(hit?._id || hit?.id || '').trim();
-      if (!packId) return null;
-      const listedMode = String(hit?.overview?.analysisMode || '').trim().toLowerCase();
-      if (listedMode === 'manual') return null;
-      if (listedMode === 'ai') return { packId, analysisMode: 'ai' };
-      const full = unwrap(
-        await requirementAPI.getPack(organizationId, packId, { view: 'full' })
-      );
-      const mode = String(full?.overview?.analysisMode || '').trim().toLowerCase();
-      // Legacy AI creates stored analysisMode then Mongoose stripped it (no schema path).
-      if (mode === 'manual') return null;
-      return { packId, analysisMode: 'ai' };
-    },
-    enabled: Boolean(organizationId && projectId),
-    staleTime: 30_000,
-  });
 
   const {
     data: gaps,
@@ -188,18 +156,6 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
             fallback: t('workspace.phase1ShellLoadFail'),
           })}
           onRetry={() => void refetchGaps()}
-        />
-      ) : null}
-
-      {aiPack?.packId ? (
-        <RequirementPhase1PipelinePanel
-          projectId={projectId}
-          organizationId={organizationId}
-          packId={aiPack.packId}
-          analysisMode="ai"
-          canRun={Boolean(requirementAccess?.canRunAiPlanning)}
-          canSubmit={Boolean(requirementAccess?.canSubmit)}
-          canApprove={Boolean(requirementAccess?.canApprove)}
         />
       ) : null}
 

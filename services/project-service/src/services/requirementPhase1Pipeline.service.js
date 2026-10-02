@@ -72,10 +72,18 @@ function buildPhase1Readiness(pack, stage1Meta = {}) {
     ? pack.aiAnalysis.workbookDiagnostics
     : [];
   const customerRawRows = pack?.aiAnalysis?.customerRawRows || null;
+  const formValidation = pack?.aiAnalysis?.formValidation || null;
   const documentReadiness = workbookDiagnostic
     ? (workbookDiagnostic.status === 'FAILED' ? 'NOT_READY' : 'READY')
     : (docsCount > 0 || intakeCorpusChars > 0 ? 'READY' : 'NOT_READY');
-  const requirementReadiness = isRequirementReady(workbookDiagnostic) ? 'READY' : 'NOT_READY';
+  // RULE-FORM-01 / RULE-NO-FR-HIERARCHY-RAW-01: Raw form OK ⇒ READY (ignore validFr)
+  const { isCustomerRawIntakePack } = require('../utils/requirement/workbookDiagnostic');
+  const requirementReadiness =
+    formValidation?.ok === true || isCustomerRawIntakePack(pack)
+      ? 'READY'
+      : isRequirementReady(workbookDiagnostic)
+        ? 'READY'
+        : 'NOT_READY';
 
   return {
     docsCount,
@@ -100,6 +108,7 @@ function buildPhase1Readiness(pack, stage1Meta = {}) {
       : 0,
     workbookDiagnostic,
     workbookDiagnostics,
+    formValidation,
     packStatus: String(pack?.status || stage1Meta.status || ''),
   };
 }
@@ -163,6 +172,18 @@ async function runPhase1Stage1PrepareInput({ userId, organizationId, packId }) {
     });
     pack = await RequirementPack.findOne({ _id: packId, organizationId });
   }
+
+  const frCount = Array.isArray(pack?.functionalRequirements) ? pack.functionalRequirements.length : 0;
+  const nfrCount = Array.isArray(pack?.nonFunctionalRequirements)
+    ? pack.nonFunctionalRequirements.length
+    : 0;
+  // eslint-disable-next-line no-console
+  console.info(
+    '[phase1] stage1 intake counts fr=%d nfr=%d snapId=%s',
+    frCount,
+    nfrCount,
+    pack?.aiAnalysisActiveSnapshotId ? String(pack.aiAnalysisActiveSnapshotId) : ''
+  );
 
   const readiness = buildPhase1Readiness(pack, base);
 
@@ -229,6 +250,14 @@ async function runPhase1Stage2ToolsThenPropose({
     throw err;
   }
 
+  // Prefill before snapshot when Stage1 skipped / corpus empty (RULE-PREFILL-BEFORE-SNAPSHOT-01)
+  const corpus = pack.aiAnalysis?.intakeCorpus;
+  if (!corpus || !Array.isArray(corpus.excerpts) || !corpus.excerpts.length) {
+    const { prepareIntakeCorpusAndPrefill } = require('./whatRequirementPhase.service');
+    await prepareIntakeCorpusAndPrefill({ pack, organizationId, packId });
+    pack = await RequirementPack.findOne({ _id: packId, organizationId });
+  }
+
   const {
     ensureActiveAiAnalysisSnapshot,
     buildSkillCatalogStub,
@@ -238,6 +267,7 @@ async function runPhase1Stage2ToolsThenPropose({
     organizationId,
     packId,
     pack,
+    refreshOnFrDrift: true,
   });
   pack = await RequirementPack.findOne({ _id: packId, organizationId });
   if (!pack) {
@@ -245,14 +275,6 @@ async function runPhase1Stage2ToolsThenPropose({
     err.statusCode = 404;
     err.errorCode = 'PACK_NOT_FOUND';
     throw err;
-  }
-
-  // Ensure corpus exists (Stage1 may have been skipped)
-  const corpus = pack.aiAnalysis?.intakeCorpus;
-  if (!corpus || !Array.isArray(corpus.excerpts) || !corpus.excerpts.length) {
-    const { prepareIntakeCorpusAndPrefill } = require('./whatRequirementPhase.service');
-    await prepareIntakeCorpusAndPrefill({ pack, organizationId, packId });
-    pack = await RequirementPack.findOne({ _id: packId, organizationId });
   }
 
   let toolsRan = false;

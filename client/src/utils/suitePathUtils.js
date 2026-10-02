@@ -284,10 +284,14 @@ export function buildProjectsNewPath(orgId = '', query = {}) {
   const description = String(query?.description || '').trim();
   const projectCode = String(query?.projectCode || '').trim();
   const briefId = String(query?.briefId || '').trim();
+  const analysisMode = String(query?.analysisMode || '').trim().toLowerCase();
   if (title) params.set('title', title);
   if (description) params.set('description', description);
   if (projectCode) params.set('projectCode', projectCode);
   if (briefId) params.set('briefId', briefId);
+  if (analysisMode === 'ai' || analysisMode === 'manual') {
+    params.set('analysisMode', analysisMode);
+  }
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
@@ -300,6 +304,25 @@ export function buildProjectsNewAiPath(orgId = '', query = {}) {
   if (projectId) params.set('projectId', projectId);
   const packId = String(query?.packId || '').trim();
   if (packId) params.set('packId', packId);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+/**
+ * AI HITL Phase 0 workspace (in Projects suite shell).
+ * /app/projects/:projectId/ai-hitl?packId=&startWhat=1
+ */
+export function buildProjectsAiHitlPath(projectId, query = {}) {
+  const pid = String(projectId || '').trim();
+  if (!pid) return buildProjectsPickerPath(query?.organizationId || query?.orgId || '');
+  const base = `/app/projects/${encodeURIComponent(pid)}/ai-hitl`;
+  const params = new URLSearchParams();
+  const boardId = String(query?.boardId || '').trim();
+  const packId = String(query?.packId || '').trim();
+  const startWhat = String(query?.startWhat || '').trim();
+  if (boardId) params.set('boardId', boardId);
+  if (packId) params.set('packId', packId);
+  if (startWhat) params.set('startWhat', startWhat);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }

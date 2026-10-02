@@ -19,6 +19,9 @@ const {
 const { splitContext } = require('./splitContext');
 const { projectSnapshotForJob } = require('./jobProjectionProfiles');
 const { hashFunctionalRequirements } = require('../../requirement/workbookDiagnostic');
+const {
+  REQUIRED_PROJECTED_SRS_SECTIONS,
+} = require('./projectAnalysisSections');
 
 /**
  * Build immutable snapshot body from live pack + pool + calendar (called once at create).
@@ -161,8 +164,23 @@ function sliceFrList(frList, allowedIds) {
 }
 
 /**
- * Pack-shaped view for LLM/engine jobs from frozen snapshot (+ optional FR overlay).
- * Restricts FR/NFR to jobFiltered / prepared SoT when provided.
+ * Legacy helper — kept for unit tests; analysis-freeze must NOT use live overflow (RULE-DL-02).
+ */
+function preferNonEmpty(snapArr, liveArr) {
+  const s = Array.isArray(snapArr) ? snapArr : null;
+  const l = Array.isArray(liveArr) ? liveArr : [];
+  if (s && s.length > 0) return s;
+  if (l.length > 0) return l;
+  return s || l || [];
+}
+
+function arrayOrEmpty(v) {
+  return Array.isArray(v) ? v : [];
+}
+
+/**
+ * Analysis-freeze pack-shaped view from snapshot only (RULE-DL-02).
+ * Not a full Pack clone — overview + engine sections + HOW planning slices from projected.
  */
 function buildPackObjectFromSnapshot(
   livePack,
@@ -173,16 +191,17 @@ function buildPackObjectFromSnapshot(
     livePack && typeof livePack.toObject === 'function'
       ? livePack.toObject()
       : { ...(livePack || {}) };
-  const srs = snapshot?.projected?.srs;
-  if (!srs) return packObj;
+  const projected = snapshot?.projected && typeof snapshot.projected === 'object'
+    ? snapshot.projected
+    : {};
+  const srs = projected.srs && typeof projected.srs === 'object' ? projected.srs : {};
 
   const key = String(job || '').trim();
   const prepared = key ? snapshot?.preparedByJob?.[key] : null;
 
-  let frSource =
-    Array.isArray(overlayFrList) && overlayFrList.length
-      ? overlayFrList
-      : srs.functionalRequirements || packObj.functionalRequirements;
+  let frSource = Array.isArray(overlayFrList) && overlayFrList.length
+    ? overlayFrList
+    : arrayOrEmpty(srs.functionalRequirements);
 
   const frIdSet = new Set();
   if (Array.isArray(jobFiltered?.fr) && jobFiltered.fr.length) {
@@ -200,7 +219,6 @@ function buildPackObjectFromSnapshot(
   if (frIdSet.size && !(Array.isArray(overlayFrList) && overlayFrList.length)) {
     frSource = sliceFrList(frSource, frIdSet);
   } else if (frIdSet.size && Array.isArray(overlayFrList) && overlayFrList.length) {
-    // Overlay path: prefer jobFiltered FR order/ids when present
     if (Array.isArray(jobFiltered?.fr) && jobFiltered.fr.length) {
       frSource = jobFiltered.fr;
     } else {
@@ -208,39 +226,80 @@ function buildPackObjectFromSnapshot(
     }
   }
 
-  let nfr =
-    srs.nonFunctionalRequirements || packObj.nonFunctionalRequirements || [];
-  if (Array.isArray(jobFiltered?.nonFunctionalRequirements)) {
+  let nfr = arrayOrEmpty(srs.nonFunctionalRequirements);
+  if (Array.isArray(jobFiltered?.nonFunctionalRequirements) && jobFiltered.nonFunctionalRequirements.length) {
     nfr = jobFiltered.nonFunctionalRequirements;
   } else if (prepared?.nfrCount != null && Number.isFinite(Number(prepared.nfrCount))) {
-    nfr = (nfr || []).slice(0, Number(prepared.nfrCount));
+    nfr = nfr.slice(0, Number(prepared.nfrCount));
   }
 
-  return {
-    ...packObj,
+  const entities = arrayOrEmpty(srs.entities);
+
+  const freeze = {
+    _id: packObj._id,
+    packId: packObj._id != null ? String(packObj._id) : packObj.packId,
+    organizationId: packObj.organizationId,
+    projectId: packObj.projectId,
+    versionNumber: Number(srs.versionNumber || packObj.versionNumber) || 1,
+    templateVersion: String(srs.templateVersion || packObj.templateVersion || ''),
+    status: packObj.status,
+    approvedSrsVersion: packObj.approvedSrsVersion || null,
     overview: {
-      ...(packObj.overview || {}),
-      requirementName: srs.overview?.name || packObj.overview?.requirementName,
-      projectObjective: srs.overview?.objective || packObj.overview?.projectObjective,
-      platform: srs.overview?.platform || packObj.overview?.platform,
-      priority: srs.overview?.priority || packObj.overview?.priority,
-      startDate: srs.overview?.startDate || packObj.overview?.startDate,
-      deadline: srs.overview?.deadline || packObj.overview?.deadline,
-      businessScope: srs.overview?.businessScope || packObj.overview?.businessScope,
+      requirementName: srs.overview?.name || srs.overview?.requirementName || '',
+      projectObjective: srs.overview?.objective || srs.overview?.projectObjective || '',
+      platform: srs.overview?.platform,
+      priority: srs.overview?.priority,
+      startDate: srs.overview?.startDate || null,
+      deadline: srs.overview?.deadline || null,
+      businessScope: srs.overview?.businessScope || '',
     },
     functionalRequirements: frSource,
     nonFunctionalRequirements: nfr,
+    businessGoals: arrayOrEmpty(srs.businessGoals),
+    businessRules: arrayOrEmpty(srs.businessRules),
+    scope: arrayOrEmpty(srs.scope),
+    businessProcesses: arrayOrEmpty(srs.businessProcesses),
+    processes: arrayOrEmpty(srs.businessProcesses),
+    interfaces: arrayOrEmpty(srs.interfaces),
+    useCases: arrayOrEmpty(srs.useCases),
+    entities,
+    domainEntities: entities,
+    dataEntities: entities,
+    glossary: arrayOrEmpty(srs.glossary),
+    glossaryTerms: arrayOrEmpty(srs.glossary),
+    assumptions: arrayOrEmpty(srs.assumptions),
     staffingPlan: {
-      ...(packObj.staffingPlan || {}),
       ...(srs.staffingPlan || {}),
     },
-    technology: srs.technology || packObj.technology,
-    requirementSkills: srs.requirementSkills || packObj.requirementSkills,
+    technology: arrayOrEmpty(srs.technology),
+    requirementSkills: arrayOrEmpty(srs.requirementSkills),
+    // HOW planning slices — from projected, not live Mongo
+    employees: arrayOrEmpty(projected.employees),
+    skillCatalog: projected.skillCatalog || { skills: [] },
+    calendar: projected.calendar || { workingCalendar: {}, holidays: [] },
   };
+
+  // Ensure every required section key exists even if older partial srs
+  for (const section of REQUIRED_PROJECTED_SRS_SECTIONS) {
+    if (section === 'functionalRequirements') {
+      freeze.functionalRequirements = arrayOrEmpty(freeze.functionalRequirements);
+    } else if (section === 'nonFunctionalRequirements') {
+      freeze.nonFunctionalRequirements = arrayOrEmpty(freeze.nonFunctionalRequirements);
+    } else if (section === 'entities') {
+      freeze.entities = arrayOrEmpty(freeze.entities);
+      freeze.domainEntities = freeze.entities;
+      freeze.dataEntities = freeze.entities;
+    } else if (!(section in freeze) || !Array.isArray(freeze[section])) {
+      freeze[section] = [];
+    }
+  }
+
+  return freeze;
 }
 
 module.exports = {
   buildSnapshotPayload,
   buildJobInputFromSnapshot,
   buildPackObjectFromSnapshot,
+  preferNonEmpty,
 };

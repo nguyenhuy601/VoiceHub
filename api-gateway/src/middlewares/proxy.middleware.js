@@ -4,6 +4,12 @@ const { applyTrustedIdentityHeaders } = require('./forwardHeaders');
 const { buildApiErrorBody } = require('@enterprise/shared/middleware/httpErrorResponse');
 const { URL } = require('url');
 
+/**
+ * Gateway proxy: forward once — do NOT retry business requests here.
+ * Transport retry lives on FE HTTP client (GET/safe) and S2S GET helpers.
+ * Nested FE×Gateway×Service retries would multiply load (retry storm).
+ */
+
 const isProd = process.env.NODE_ENV === 'production';
 
 // Cache proxy instances để tránh tạo lại mỗi request

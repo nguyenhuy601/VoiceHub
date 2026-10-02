@@ -1,6 +1,7 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import AdminNavigationSidebar from './AdminNavigationSidebar';
 import JoinOrganizationModal from './JoinOrganizationModal';
+import NetworkOfflineBanner from './NetworkOfflineBanner';
 import ShellRoleBanner from './ShellRoleBanner';
 import TopHeader from './TopHeader';
 import { ShellLayoutProvider } from '../../context/ShellLayoutContext';
@@ -21,6 +22,7 @@ function AdminShellLayoutInner() {
     <div className={FIGMA_SHELL_ROOT}>
       <TopHeader />
       <ShellRoleBanner />
+      <NetworkOfflineBanner />
       <JoinOrganizationModal />
       <div className={FIGMA_SHELL_BODY}>
         <AdminNavigationSidebar isFullAccess={isFullAccess} />

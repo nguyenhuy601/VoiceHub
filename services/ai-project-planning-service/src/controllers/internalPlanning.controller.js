@@ -13,8 +13,20 @@ const {
   deleteCheckpoint,
   assertCheckpointForResume,
 } = require('../checkpoint/checkpointStore');
+const { clearCheckpointIfTerminal } = require('../checkpoint/checkpointLifecycle');
+const {
+  buildLoop1ChildHistory,
+  buildLoop2ReplanHistory,
+  hasLoop1ChildTriad,
+  FEEDBACK_SOURCES,
+} = require('../contracts/loopStateContract');
+const {
+  assertParentRunAllowed,
+  normalizeGenerationId,
+} = require('../contracts/runLineageContract');
 const { PlanningRun } = require('../run/PlanningRun.model');
 const { publishGatePreview } = require('../engines/g4/pipelineProgress');
+const { reduceProgressState } = require('../run/progressStateReducer');
 const {
   assertCallbackConfigured,
   notifyRunAccepted,
@@ -154,45 +166,106 @@ async function startRun(req, res) {
     const snapshotId = String(body.snapshotId || '').trim();
     const job = validateStartBody(body);
 
+    const idempotencyKey =
+      String(body.idempotencyKey || body.requestKey || '').trim() ||
+      `${String(body.packId)}:${job}:${snapshotId}:${String(
+        body.input?.inputFingerprint || ''
+      )}`;
+
+    let parentRunId = null;
+    const rawParent = body.parentRunId != null ? String(body.parentRunId).trim() : '';
+    if (rawParent) {
+      const parent = await getRunById(rawParent);
+      const allowed = assertParentRunAllowed(parent, {
+        packId: body.packId,
+        organizationId: body.organizationId,
+      });
+      parentRunId = allowed.parentRunId;
+    }
+
     const doc = await createQueuedRun({
       runId: body.runId,
       projectId: body.projectId,
       packId: body.packId,
       organizationId: body.organizationId,
       snapshotId,
+      parentRunId,
       approvedSrsVersion: body.approvedSrsVersion,
       snapshotPayloadRef: body.snapshotPayloadRef || body.snapshot?.ref,
       trigger: body.trigger || 'manual',
       initiatedBy: body.initiatedBy,
       job,
       input: body.input,
-      idempotencyKey:
-        body.requestKey ||
-        `${String(body.packId)}:${job}:${snapshotId}:${String(
-          body.input?.inputFingerprint || ''
-        )}`,
+      idempotencyKey,
     });
+
+    const childId = String(doc._id);
+    const generationId = normalizeGenerationId(childId);
+    if (!doc.generationId || String(doc.generationId) !== generationId) {
+      await PlanningRun.updateOne({ _id: childId }, { $set: { generationId } });
+      doc.generationId = generationId;
+    }
 
     const publicRun = toPublicRun(doc);
-    // Acceptance notification is advisory; final job-result callback is authoritative.
-    notifyRunAccepted(publicRun).catch(() => {});
+    const isReplay = Boolean(doc.__idempotentReplay);
 
-    // Execute from the persisted immutable input without blocking the 202 response.
-    setImmediate(() => {
-      processRunAsync(String(doc._id)).catch((err) => {
-        console.error('[planning] processRunAsync', err?.message || err);
+    if (!isReplay) {
+      const rawFb = body.input?.humanFeedback || body.input?.feedback || null;
+      if (job === 'phase_what' && rawFb) {
+        const humanFeedback = parseFeedback(
+          typeof rawFb === 'object'
+            ? { kind: 'requirement_feedback', source: FEEDBACK_SOURCES.GATE1, ...rawFb }
+            : {
+                kind: 'requirement_feedback',
+                source: FEEDBACK_SOURCES.GATE1,
+                text: String(rawFb),
+              }
+        );
+        await saveCheckpoint(childId, {
+          runId: childId,
+          parentRunId,
+          generationId,
+          job,
+          projectId: body.projectId,
+          packId: body.packId,
+          organizationId: body.organizationId,
+          approvedSrsVersion: body.approvedSrsVersion,
+          snapshotId,
+          humanFeedback,
+          lastFeedback: humanFeedback,
+          history: buildLoop1ChildHistory(),
+          status: 'queued',
+          currentNode: 'loop1:seed',
+        });
+        console.info(
+          `[planning] loop1:child parent=${parentRunId || ''} child=${childId}`
+        );
+      }
+
+      // Acceptance notification is advisory; final job-result callback is authoritative.
+      notifyRunAccepted(publicRun).catch(() => {});
+
+      // Execute from the persisted immutable input without blocking the 202 response.
+      setImmediate(() => {
+        processRunAsync(String(doc._id)).catch((err) => {
+          console.error('[planning] processRunAsync', err?.message || err);
+        });
       });
-    });
+    }
 
     return res.status(202).json({
       success: true,
       runId: publicRun.runId,
       status: publicRun.status,
+      idempotentReplay: isReplay || undefined,
       data: publicRun,
     });
   } catch (err) {
     const status =
-      err.code === 'ACTIVE_RUN_EXISTS'
+      err.code === 'ACTIVE_RUN_EXISTS' ||
+      err.code === 'PARENT_RUN_MISMATCH' ||
+      err.code === 'PARENT_RUN_NOT_FOUND' ||
+      err.code === 'PARENT_RUN_INVALID_JOB'
         ? 409
         : [
               'SNAPSHOT_REQUIRED',
@@ -294,10 +367,16 @@ async function deliverRunCallback(
       },
       { new: true }
     ).lean();
-    // G15: drop Redis state when run completes successfully (keep on failed for resume).
-    if (finalStatus === 'completed') {
-      await deleteCheckpoint(runId);
-    }
+    // S5: TERMINAL → delete; RESUMABLE failed keeps CP (classifier).
+    await clearCheckpointIfTerminal(
+      runId,
+      {
+        status: finalStatus,
+        error: updated?.error || run.error,
+        checkpoint: (await loadCheckpoint(runId))?.checkpoint?.state || null,
+      },
+      { deleteCheckpoint }
+    );
     return updated;
   } catch (error) {
     const errorPatch = {
@@ -391,23 +470,45 @@ async function claimRunExecution(
     executionLeaseOwner = `execution:${randomUUID()}`,
   } = {}
 ) {
+  // Claim from queued — clear HITL leftovers (gate preview) but NEVER wipe pipeline
+  // progress. Data Gate resume re-enters queued; wiping step/substep made FE flash
+  // "step 1 / prepare" until the next semantic progress event.
+  const freshClaim = await PlanningRun.findOneAndUpdate(
+    {
+      _id: runId,
+      status: 'queued',
+      attempt: { $lt: EXECUTION_MAX_ATTEMPTS },
+    },
+    {
+      $set: {
+        status: 'running',
+        currentNode: 'execute',
+        startedAt: now,
+        executionClaimedAt: now,
+        executionLeaseOwner,
+        executionLeaseExpiresAt: new Date(now.getTime() + EXECUTION_LEASE_MS),
+        gate: null,
+        gatePreview: null,
+        currentTool: null,
+      },
+      $inc: { attempt: 1 },
+    },
+    { new: true }
+  ).lean();
+  if (freshClaim) return { run: freshClaim, executionLeaseOwner };
+
+  // Lease reclaim while already running — do not wipe in-flight progress
   const run = await PlanningRun.findOneAndUpdate(
     {
       _id: runId,
       attempt: { $lt: EXECUTION_MAX_ATTEMPTS },
-      $or: [
-        { status: 'queued' },
-        {
-          status: 'running',
-          executionLeaseExpiresAt: { $lte: now },
-        },
-      ],
+      status: 'running',
+      executionLeaseExpiresAt: { $lte: now },
     },
     {
       $set: {
         status: 'running',
         currentNode: 'execute_how',
-        startedAt: now,
         executionClaimedAt: now,
         executionLeaseOwner,
         executionLeaseExpiresAt: new Date(now.getTime() + EXECUTION_LEASE_MS),
@@ -438,11 +539,17 @@ async function processRunAsync(runId) {
   if (run.job === 'phase_how' || run.job === 'phase_what') {
     try {
       const {
+        hydrateRunInputFromSnapshot,
+      } = require('../knowledge/hydrateRunInputFromSnapshot');
+      const {
         hydrateToolDataFromSnapshot,
       } = require('../knowledge/hydrateToolDataFromSnapshot');
+      const hydrated = await hydrateRunInputFromSnapshot(run);
+      const runtimeSnapshot = hydrated.snapshot;
+      const runtimePack = hydrated.pack;
       const toolData = hydrateToolDataFromSnapshot(
         run.input?.toolData,
-        run.input?.snapshot || run.input?.snapshotPayload || null
+        runtimeSnapshot
       );
 
       const loadedCp = await loadCheckpoint(runId);
@@ -453,18 +560,72 @@ async function processRunAsync(runId) {
         Array.isArray(selectiveNames) &&
         selectiveNames.length > 0;
 
+      let humanFeedback = null;
+      const rawFb = run.input?.humanFeedback || run.input?.feedback || null;
+      const generationId =
+        normalizeGenerationId(run.generationId || runId) || String(runId);
+      const parentRunId =
+        run.parentRunId != null ? String(run.parentRunId).trim() : null;
+      if (rawFb) {
+        humanFeedback = parseFeedback(
+          typeof rawFb === 'object'
+            ? {
+                kind: 'requirement_feedback',
+                source: FEEDBACK_SOURCES.GATE1,
+                ...rawFb,
+              }
+            : {
+                kind: 'requirement_feedback',
+                source: FEEDBACK_SOURCES.GATE1,
+                text: String(rawFb),
+              }
+        );
+        const priorHistory = Array.isArray(cpState?.history) ? cpState.history : [];
+        const history = hasLoop1ChildTriad(priorHistory)
+          ? priorHistory
+          : buildLoop1ChildHistory(priorHistory);
+        await saveCheckpoint(runId, {
+          ...(cpState || {}),
+          job: run.job,
+          projectId: run.projectId,
+          packId: run.packId,
+          organizationId: run.organizationId,
+          approvedSrsVersion: run.approvedSrsVersion,
+          snapshotId: run.snapshotId,
+          parentRunId,
+          generationId,
+          humanFeedback,
+          lastFeedback: humanFeedback,
+          history,
+        });
+      }
+
       const { runAgentPhase } = require('../orchestration/agentLoopRunner');
       const phaseOut = await runAgentPhase({
         phase: run.job === 'phase_what' ? 'what' : 'how',
         container: cpState?.container || run.input?.container,
-        pack: cpState?.pack || run.input?.pack,
+        pack: cpState?.pack || runtimePack,
         toolData: cpState?.toolData || toolData,
-        snapshot: run.input?.snapshot || run.input?.snapshotPayload || null,
+        snapshot: runtimeSnapshot,
         snapshotId: run.snapshotId,
         runId,
-        g4Opts: whatG4Opts(run, cpState),
+        parentRunId,
+        generationId,
+        g4Opts: {
+          ...whatG4Opts(run, cpState),
+          ...(run.input?.g4Opts || {}),
+          loop1Reenter: Boolean(humanFeedback?.kind === 'requirement_feedback'),
+          priorPartial:
+            run.input?.g4Opts?.priorPartial ||
+            cpState?.understandingPartial ||
+            cpState?.g4Partial ||
+            null,
+          reuseContextPackage:
+            run.input?.g4Opts?.reuseContextPackage || cpState?.contextPackage || null,
+        },
         resumeState: run.job === 'phase_how' ? cpState : null,
         selectiveToolNames: isSelectiveHow ? selectiveNames : null,
+        humanFeedback,
         onProgress: (evt) => reportPipelineProgress(runId, evt),
         onCheckpoint: (agentState) =>
           saveCheckpoint(runId, {
@@ -474,17 +635,26 @@ async function processRunAsync(runId) {
             organizationId: run.organizationId,
             approvedSrsVersion: run.approvedSrsVersion,
             job: run.job,
+            parentRunId: agentState.parentRunId || parentRunId,
+            generationId: agentState.generationId || generationId,
+            humanFeedback: agentState.humanFeedback || humanFeedback,
           }),
       });
       if (phaseOut?.paused) {
         await pauseRunForDataGate(run, phaseOut);
         return;
       }
+      const loop1Reuse =
+        phaseOut.loop1Reuse ||
+        phaseOut.container?.phaseRuns?.phase_what?.loop1Reuse ||
+        null;
       const output = {
         job: run.job,
         currentJob: run.job,
         container: phaseOut.container,
         g4Understanding: phaseOut.g4Understanding || null,
+        proposalFragment: phaseOut.proposalFragment || null,
+        loop1Reuse,
         result: {
           phase: phaseOut.phase,
           history: phaseOut.history,
@@ -492,7 +662,10 @@ async function processRunAsync(runId) {
           durationMs: phaseOut.durationMs,
           feasibility: phaseOut.feasibility,
           g4Understanding: phaseOut.g4Understanding || null,
+          proposalFragment: phaseOut.proposalFragment || null,
           selective: Boolean(phaseOut.selective),
+          loop1Reuse,
+          corpusContentHash: phaseOut.corpusContentHash || null,
         },
         meta: {
           llmCalls: phaseOut.g4Understanding?.meta?.llmCalls || 0,
@@ -513,6 +686,8 @@ async function processRunAsync(runId) {
         snapshotId: run.snapshotId,
         result: output,
         g4Understanding: phaseOut.g4Understanding || null,
+        proposalFragment: phaseOut.proposalFragment || null,
+        loop1Reuse,
       };
       await saveCheckpoint(runId, {
         job: run.job,
@@ -543,13 +718,26 @@ async function processRunAsync(runId) {
         code: error.code || 'AGENT_PHASE_FAILED',
         message: error.message,
       };
-      await saveCheckpoint(runId, {
+      const failedState = {
         job: run.job,
         snapshotId: run.snapshotId,
         status: 'failed',
         currentNode: 'failed',
         unresolvedIssues: [callbackError],
-      }).catch(() => {});
+        parentRunId: run.parentRunId || null,
+        generationId: normalizeGenerationId(run.generationId || runId),
+      };
+      await saveCheckpoint(runId, failedState).catch(() => {});
+      const loadedFail = await loadCheckpoint(runId).catch(() => null);
+      await clearCheckpointIfTerminal(
+        runId,
+        {
+          status: 'failed',
+          error: callbackError,
+          checkpoint: loadedFail?.checkpoint?.state || failedState,
+        },
+        { deleteCheckpoint }
+      );
       await stageCallback(
         run,
         executionLeaseOwner,
@@ -728,9 +916,11 @@ async function cancelRun(req, res) {
     if (!doc) {
       return res.status(404).json({ success: false, message: 'Run not found' });
     }
-    if (doc.status === 'cancelled') {
-      await deleteCheckpoint(req.params.runId);
-    }
+    await clearCheckpointIfTerminal(
+      req.params.runId,
+      { status: doc.status, error: doc.error, checkpoint: null, explicitTerminal: doc.status === 'cancelled' },
+      { deleteCheckpoint }
+    );
     return res.json({ success: true, data: toPublicRun(doc) });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -739,30 +929,118 @@ async function cancelRun(req, res) {
 
 function whatG4Opts(run, cpState) {
   if (run.job !== 'phase_what') return run.input?.g4Opts || {};
-  const { resolveAiG4Policy } = require('../config/aiG4Policy');
-  const pipelineOn = resolveAiG4Policy().pipelineEnabled;
-  const passed = cpState?.dataGateDecision === 'pass' && cpState?.g4Partial;
+  const inputOpts =
+    run.input?.g4Opts && typeof run.input.g4Opts === 'object' ? run.input.g4Opts : {};
+  const isLoop1 = Boolean(
+    inputOpts.loop1Reenter ||
+      run.input?.humanFeedback ||
+      run.input?.feedback
+  );
+  // RULE-R01/R07: never pause at Data Gate.
+  // Loop1: keep durable priorPartial/reuse from pack seed (PLAN B).
+  // Non-Loop1: ignore legacy g4Partial resume (data_gate removed).
   return {
-    ...(run.input?.g4Opts || {}),
-    pauseAtDataGate: Boolean(pipelineOn && !passed),
-    priorPartial: passed ? cpState.g4Partial : null,
+    ...inputOpts,
+    pauseAtDataGate: false,
+    ...(isLoop1
+      ? {}
+      : { priorPartial: null }),
   };
 }
 
-async function reportPipelineProgress(runId, evt) {
-  if (evt?.step == null || !evt?.substep) return;
+/** RULE-R07: cancel legacy waiting_human:data_review and release activeKey. */
+async function cancelLegacyDataGateRun(runId, reason = 'data_gate_removed') {
+  const cancelled = await cancelRunStore(runId);
+  if (!cancelled) return null;
   await PlanningRun.updateOne(
     { _id: runId },
     {
       $set: {
-        pipelineStep: evt.step,
-        pipelineSubstep: String(evt.substep),
+        error: { code: reason, message: reason },
         gate: null,
       },
     }
-  ).catch((err) => {
+  );
+  try {
+    await deleteCheckpoint(runId);
+  } catch {
+    /* ignore */
+  }
+  console.info(`[planning] legacy data_gate cleanup runId=${runId} reason=${reason}`);
+  return cancelled;
+}
+
+async function reportPipelineProgress(runId, evt) {
+  try {
+    const doc = await PlanningRun.findById(runId)
+      .select(
+        'pipelineStep pipelineSubstep currentNode currentTool progressVersion status'
+      )
+      .lean();
+    if (!doc) return;
+
+    const result = reduceProgressState(doc, evt, { runId: String(runId), now: new Date() });
+    if (result.action === 'ignore') {
+      if (result.reason === 'stale_seq' || result.reason === 'backward_substep') {
+        console.info(
+          JSON.stringify({
+            event: 'what.progress.stale',
+            runId: String(runId),
+            reason: result.reason,
+            seq: result.event?.seq,
+            progressVersion: doc.progressVersion || 0,
+          })
+        );
+      }
+      return;
+    }
+    if (result.action === 'idempotent') return;
+
+    const next = result.next;
+    const $set = {
+      progressVersion: next.progressVersion,
+      progressUpdatedAt: next.progressUpdatedAt,
+    };
+    if (next.pipelineStep != null) $set.pipelineStep = next.pipelineStep;
+    if (next.pipelineSubstep) {
+      $set.pipelineSubstep = next.pipelineSubstep;
+      // Clear gate flag when advancing business progress (not waiting_human pause)
+      if (result.event?.status !== 'waiting_human') {
+        $set.gate = null;
+      }
+    }
+    if (next.currentNode != null) $set.currentNode = next.currentNode;
+    if (Object.prototype.hasOwnProperty.call(next, 'currentTool')) {
+      $set.currentTool = next.currentTool;
+    }
+
+    await PlanningRun.updateOne({ _id: runId }, { $set });
+
+    if (
+      result.from.pipelineSubstep !== next.pipelineSubstep ||
+      result.from.pipelineStep !== next.pipelineStep
+    ) {
+      console.info(
+        JSON.stringify({
+          event: 'what.progress.transition',
+          runId: String(runId),
+          from: {
+            step: result.from.pipelineStep,
+            substep: result.from.pipelineSubstep,
+          },
+          to: {
+            step: next.pipelineStep,
+            substep: next.pipelineSubstep,
+          },
+          node: next.currentNode || null,
+          tool: next.currentTool || null,
+          seq: next.progressVersion,
+        })
+      );
+    }
+  } catch (err) {
     console.warn('[planning] pipeline progress', err?.message || err);
-  });
+  }
 }
 
 async function pauseRunForDataGate(run, phaseOut) {
@@ -806,40 +1084,36 @@ async function resumeRun(req, res) {
     }
 
     const decision = String(req.body?.decision || '').trim().toLowerCase();
-    if (decision === 'reject') {
-      const cancelled = await cancelRunStore(req.params.runId);
+    const isLegacyDataGate =
+      String(existing.status) === 'waiting_human' &&
+      String(existing.gate || '') === 'data_review';
+
+    // RULE-R07: Data Gate removed — pass/reject both cancel + release activeKey.
+    if (
+      isLegacyDataGate &&
+      (decision === 'reject' || decision === 'pass' || decision === 'cancel')
+    ) {
+      const cancelled = await cancelLegacyDataGateRun(
+        req.params.runId,
+        decision === 'pass' ? 'data_gate_removed_pass' : 'data_gate_removed'
+      );
       if (!cancelled) {
         return res.status(404).json({ success: false, message: 'Run not found' });
       }
-      await PlanningRun.updateOne(
-        { _id: req.params.runId },
-        { $set: { error: { code: 'data_gate_rejected', message: 'data_gate_rejected' } } }
-      );
-      console.info(
-        `[planning] resume runId=${req.params.runId} gate=data_review decision=reject`
-      );
       const updated = await getRunById(req.params.runId);
-      return res.json({ success: true, data: toPublicRun(updated) });
-    }
-    if (decision === 'pass') {
-      const loaded = await loadCheckpoint(req.params.runId);
-      const prior = loaded?.checkpoint?.state;
-      if (!prior?.g4Partial) {
-        return res.status(409).json({
-          success: false,
-          message: 'Missing data-gate partial',
-          errorCode: 'CHECKPOINT_MISSING',
-        });
-      }
-      await saveCheckpoint(req.params.runId, {
-        ...prior,
-        dataGateDecision: 'pass',
-        gate: null,
-        status: 'queued',
+      return res.json({
+        success: true,
+        data: toPublicRun(updated),
+        legacyDataGateCleanup: true,
       });
-      console.info(
-        `[planning] resume runId=${req.params.runId} gate=data_review decision=pass`
-      );
+    }
+    if (decision === 'reject' && String(existing.gate || '') === 'data_review') {
+      const cancelled = await cancelLegacyDataGateRun(req.params.runId);
+      if (!cancelled) {
+        return res.status(404).json({ success: false, message: 'Run not found' });
+      }
+      const updated = await getRunById(req.params.runId);
+      return res.json({ success: true, data: toPublicRun(updated), legacyDataGateCleanup: true });
     }
 
     // callback_pending: deliver only — G15 key not required
@@ -880,7 +1154,11 @@ async function submitFeedback(req, res) {
       return res.status(404).json({ success: false, message: 'Run not found' });
     }
 
-    const parsed = parseFeedback(req.body || {});
+    const parsed = parseFeedback({
+      ...(req.body || {}),
+      kind: (req.body && req.body.kind) || 'planning_feedback',
+      source: (req.body && req.body.source) || FEEDBACK_SOURCES.GATE2,
+    });
     existing.lastFeedback = parsed;
     existing.status = 'replanning';
     const { resolveToolsForImpactScope } = require('../feedback/selectiveReplan');
@@ -900,7 +1178,10 @@ async function submitFeedback(req, res) {
       status: 'replanning',
       snapshotId: existing.snapshotId,
       runId: String(existing._id),
+      generationId: normalizeGenerationId(existing.generationId || existing._id),
+      parentRunId: existing.parentRunId || prior.parentRunId || null,
       job: existing.job,
+      history: buildLoop2ReplanHistory(prior.history),
     });
 
     return res.json({

@@ -22,6 +22,7 @@ export const PROJECT_MENU_GROUPS = {
   WORK: 'work',
   COLLAB: 'collab',
   OPS: 'ops',
+  PHASE0_AI_HITL: 'phase0_ai_hitl',
   PHASE1_RA: 'phase1_ra',
   PHASE1_PLANNING: 'phase1_planning',
 };
@@ -58,6 +59,7 @@ export const PROJECT_MODULE_KEYS = [
   'traceability',
   'analysis-reviews',
   'srs-baselines',
+  'ai-hitl',
   'delivery-planning',
   'planning-overview',
   'planning-wbs',
@@ -168,14 +170,23 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
   const applyCapabilityFilter = (items) =>
     filterNavItemsByCapabilities(items, capabilities);
 
-  if (isPhase1DeliveryPhase(deliveryPhase)) {
+  const aiHitlIncomplete = Boolean(opts.aiHitlIncomplete);
+  if (isPhase1DeliveryPhase(deliveryPhase) || aiHitlIncomplete) {
     const planningLocked = !isPlanningUnlocked(deliveryPhase);
-    const raReadOnly = isPlanningUnlocked(deliveryPhase);
-    const groups = getPhase1SidebarGroups({ planningLocked, raReadOnly });
+    const raReadOnly = isPlanningUnlocked(deliveryPhase) && !aiHitlIncomplete;
+    const groups = getPhase1SidebarGroups({
+      planningLocked,
+      raReadOnly,
+      aiHitlIncomplete,
+    });
     const phase1Items = [];
     for (const g of groups) {
       const groupId =
-        g.id === 'planning' ? PROJECT_MENU_GROUPS.PHASE1_PLANNING : PROJECT_MENU_GROUPS.PHASE1_RA;
+        g.id === 'ai_hitl'
+          ? PROJECT_MENU_GROUPS.PHASE0_AI_HITL
+          : g.id === 'planning'
+            ? PROJECT_MENU_GROUPS.PHASE1_PLANNING
+            : PROJECT_MENU_GROUPS.PHASE1_RA;
       for (const m of g.items) {
         // Overview stays interactive (gates / Start Planning / planning CTAs).
         const itemReadOnly =
@@ -310,6 +321,7 @@ export function getProjectMenuGroupLabelKey(group) {
   if (group === PROJECT_MENU_GROUPS.WORK) return 'nav.projectGroupWork';
   if (group === PROJECT_MENU_GROUPS.COLLAB) return 'nav.projectGroupCollab';
   if (group === PROJECT_MENU_GROUPS.OPS) return 'nav.projectGroupOps';
+  if (group === PROJECT_MENU_GROUPS.PHASE0_AI_HITL) return 'workspace.phase0GroupAiHitl';
   if (group === PROJECT_MENU_GROUPS.PHASE1_RA) return 'workspace.phase1GroupRequirementAnalysis';
   if (group === PROJECT_MENU_GROUPS.PHASE1_PLANNING) return 'workspace.phase1GroupPlanning';
   return '';

@@ -20,6 +20,10 @@ const ALLOWED_KEYS = new Set([
   'job',
   'approvedSrsVersion',
   'snapshotId',
+  // Loop State Contract S1/S4/S6
+  'parentRunId',
+  'generationId',
+  'generationHealth',
   'context',
   'contextPackage',
   // Track B AgentState core
@@ -228,6 +232,21 @@ function normalizeAgentState(raw = {}) {
   }
   if (isPlainObject(src.feasibilitySignal)) {
     out.feasibilitySignal = { ...src.feasibilitySignal, notG13: true };
+  }
+
+  if (src.parentRunId != null && String(src.parentRunId).trim()) {
+    out.parentRunId = String(src.parentRunId).trim();
+  }
+  if (src.generationId != null && String(src.generationId).trim()) {
+    out.generationId = String(src.generationId).trim();
+  } else if (out.runId) {
+    out.generationId = String(out.runId);
+  }
+  if (isPlainObject(src.generationHealth)) {
+    const {
+      normalizeGenerationHealth,
+    } = require('../contracts/generationHealthContract');
+    out.generationHealth = normalizeGenerationHealth(src.generationHealth);
   }
 
   return out;

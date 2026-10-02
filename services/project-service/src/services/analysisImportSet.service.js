@@ -31,9 +31,6 @@ const {
 } = require('../constants/analysisImportSet');
 const { CUSTOMER_RAW_TEMPLATE_TYPE } = require('../constants/customerRawTemplate.constants');
 const {
-  peekWorkbookTemplateType,
-} = require('../utils/requirement/requirementAnalysisTemplateParse');
-const {
   DELETED_REASON_SET_CASCADE,
   buildDeletedBatchId,
   buildMemberRestoreFilter,
@@ -125,6 +122,7 @@ function serializeSet(doc, extras = {}) {
       tech: serializeReviewGate(o.review?.tech),
       po: serializeReviewGate(o.review?.po),
     },
+    rawFormValidation: o.rawFormValidation || null,
     ...extras,
   };
 }
@@ -516,17 +514,30 @@ async function attachRawDocument({
   });
 
   const buffer = Buffer.isBuffer(fileBuffer) ? fileBuffer : Buffer.from(fileBuffer || []);
-  const peeked = peekWorkbookTemplateType(buffer);
-  const normalized = String(peeked || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '');
-  if (normalized !== String(CUSTOMER_RAW_TEMPLATE_TYPE).toLowerCase()) {
+  const {
+    validateCustomerRawForm,
+  } = require('../utils/requirement/customerRawFormValidate');
+  const formValidation = validateCustomerRawForm(buffer);
+  if (!formValidation.ok) {
+    const parts = [];
+    if (!formValidation.recognizedAsCustomerRaw) {
+      parts.push(`TemplateType phải là ${CUSTOMER_RAW_TEMPLATE_TYPE}`);
+    }
+    if (formValidation.missingSheets?.length) {
+      parts.push(`Thiếu sheet: ${formValidation.missingSheets.join(', ')}`);
+    }
+    const headerMiss = formValidation.missingHeadersBySheet || {};
+    for (const [sheet, cols] of Object.entries(headerMiss)) {
+      parts.push(`${sheet} thiếu cột: ${(cols || []).join(', ')}`);
+    }
     const err = new Error(
-      `File Raw phải có TemplateType=${CUSTOMER_RAW_TEMPLATE_TYPE} (nhận: ${peeked || 'empty'})`
+      parts.length
+        ? `File Raw sai form template — ${parts.join('; ')}`
+        : `File Raw phải đúng form ${CUSTOMER_RAW_TEMPLATE_TYPE}`
     );
     err.statusCode = 400;
-    err.errorCode = 'IMPORT_SET_INVALID_RAW_TEMPLATE';
+    err.errorCode = 'IMPORT_SET_INVALID_RAW_FORM';
+    err.details = { formValidation };
     throw err;
   }
 
@@ -574,7 +585,9 @@ async function attachRawDocument({
   });
 
   draft.rawDocumentId = doc._id;
+  draft.rawFormValidation = formValidation;
   draft.updatedBy = userId;
+  draft.markModified('rawFormValidation');
   await draft.save();
 
   return enrichSet(draft.toObject());

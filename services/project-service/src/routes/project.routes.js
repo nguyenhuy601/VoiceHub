@@ -103,6 +103,11 @@ router.post(
   internalGatewayAuth,
   aiPlanningInternal.applyJobResult
 );
+router.get(
+  '/internal/ai-planning/snapshots/:snapshotId',
+  internalGatewayAuth,
+  aiPlanningInternal.hydrateSnapshot
+);
 router.get('/audit-events', governance.listAuditEvents);
 router.delete('/audit-events/:eventId', governance.deleteAuditEvent);
 router.get('/governance/director-health', governance.directorHealth);

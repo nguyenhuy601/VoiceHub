@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
-import { Navigate, useParams, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo } from 'react';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { SpaceProvider, SPACE_KIND } from '../../../context/SpaceContext';
 import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
@@ -45,6 +45,8 @@ import SpaceCalendarModule from '../../spaceModules/SpaceCalendarModule';
 import SpaceDocumentsModule from '../../spaceModules/SpaceDocumentsModule';
 import SpaceProjectChatModule from '../../spaceModules/SpaceProjectChatModule';
 import ProjectHubPage from '../../../pages/Projects/ProjectHubPage';
+import AiHitlWorkspacePage from './aiHitl/AiHitlWorkspacePage';
+import { resolvePostHitlProjectPath } from './aiHitl/aiHitlNavState';
 
 /**
  * Nested Phase 1 body for RA + Planning modules (and collab).
@@ -57,6 +59,8 @@ export default function Phase1Shell({
   const { projectId: projectIdParam, module: moduleParam, planningModule, '*': planningSplat } =
     useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { t } = useAppStrings();
   const projectId = String(projectIdParam || '').trim();
 
@@ -98,6 +102,25 @@ export default function Phase1Shell({
     search: searchParams,
     projectRow,
   });
+  const boardId = String(searchParams.get('boardId') || projectRow?.defaultBoardId || '').trim();
+
+  const postPromotePath = useMemo(
+    () =>
+      resolvePostHitlProjectPath({
+        projectId,
+        project: { deliveryPhase: 'development' },
+        boardId,
+      }),
+    [projectId, boardId]
+  );
+
+  const onHitlPromoted = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.project(projectId) });
+    queryClient.invalidateQueries({
+      queryKey: ['aiHitlNavLinkedPack', String(orgId || ''), String(projectId || '')],
+    });
+    navigate(postPromotePath, { replace: true });
+  }, [navigate, orgId, postPromotePath, projectId, queryClient]);
 
   useEffect(() => {
     if (orgId) writeStoredLastOrganizationId(orgId);
@@ -134,7 +157,8 @@ export default function Phase1Shell({
     );
   }
 
-  if (projectRow && !isPhase1DeliveryPhase(deliveryPhase)) {
+  // Phase 0 AI HITL may still be RA (or empty phase before heal) — allow in-shell host.
+  if (projectRow && module !== 'ai-hitl' && !isPhase1DeliveryPhase(deliveryPhase)) {
     return <Navigate to={buildProjectsModulePath(projectId, 'overview')} replace />;
   }
 
@@ -142,7 +166,11 @@ export default function Phase1Shell({
     return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
   }
 
-  if (projectRow && !isModuleAllowedForPhase(module, deliveryPhase)) {
+  if (
+    projectRow &&
+    module !== 'ai-hitl' &&
+    !isModuleAllowedForPhase(module, deliveryPhase)
+  ) {
     return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
   }
 
@@ -159,7 +187,15 @@ export default function Phase1Shell({
   }
 
   let body = null;
-  if (module === 'planning-overview') {
+  if (module === 'ai-hitl') {
+    body = (
+      <AiHitlWorkspacePage
+        projectId={projectId}
+        organizationId={orgId}
+        onPromoted={onHitlPromoted}
+      />
+    );
+  } else if (module === 'planning-overview') {
     body = (
       <PlanningOverviewPage projectId={projectId} organizationId={orgId} />
     );

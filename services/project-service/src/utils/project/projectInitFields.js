@@ -249,11 +249,12 @@ function coerceProjectLifecycleStatus(raw) {
 
 /**
  * Status bám deliveryPhase. `on_hold` / `closed` (kể cả alias đóng) giữ status
- * và không bịa phase khi phase đang trống. Phase trống hoặc lạ trên doc còn lại
- * = development (cùng rule đọc của hub).
+ * và không bịa phase khi phase đang trống.
+ * Draft / AI (`analysisMode=ai`) với phase trống → requirement_analysis (Phase 0),
+ * không ép development (tránh nuốt nháp AI).
  * @returns {{ status: string, deliveryPhase: string|null }}
  */
-function alignedLifecycleFields({ status, deliveryPhase } = {}) {
+function alignedLifecycleFields({ status, deliveryPhase, analysisMode } = {}) {
   const st = coerceProjectLifecycleStatus(status);
   if (st === 'on_hold' || st === 'closed') {
     const rawPhase = String(deliveryPhase || '')
@@ -262,6 +263,18 @@ function alignedLifecycleFields({ status, deliveryPhase } = {}) {
     return {
       status: st,
       deliveryPhase: DELIVERY_PHASES.includes(rawPhase) ? rawPhase : null,
+    };
+  }
+  const rawPhase = String(deliveryPhase || '')
+    .trim()
+    .toLowerCase();
+  const mode = String(analysisMode || '')
+    .trim()
+    .toLowerCase();
+  if (!rawPhase && (st === 'draft' || mode === 'ai')) {
+    return {
+      status: 'draft',
+      deliveryPhase: 'requirement_analysis',
     };
   }
   const known = coerceDeliveryPhase(deliveryPhase);

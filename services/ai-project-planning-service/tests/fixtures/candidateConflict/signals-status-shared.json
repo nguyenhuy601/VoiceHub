@@ -1,0 +1,62 @@
+[
+  {
+    "frId": "FR-01",
+    "flags": ["missing_actor"],
+    "actors": [],
+    "actions": ["update"],
+    "objects": ["Enrollment"],
+    "fields": ["status"],
+    "priority": "medium",
+    "text": "Update enrollment status"
+  },
+  {
+    "frId": "FR-02",
+    "flags": ["missing_ac"],
+    "actors": ["Admin"],
+    "actions": ["view"],
+    "objects": ["Enrollment"],
+    "fields": ["status"],
+    "priority": "medium",
+    "text": "View enrollment status"
+  },
+  {
+    "frId": "FR-03",
+    "flags": [],
+    "actors": ["Student"],
+    "actions": ["filter"],
+    "objects": ["Enrollment"],
+    "fields": ["status"],
+    "priority": "low",
+    "text": "Filter by enrollment status"
+  },
+  {
+    "frId": "FR-04",
+    "flags": ["missing_actor", "missing_ac"],
+    "actors": [],
+    "actions": ["create"],
+    "objects": ["Course"],
+    "fields": ["name"],
+    "priority": "high",
+    "text": "Create course"
+  },
+  {
+    "frId": "FR-05",
+    "flags": [],
+    "actors": ["Lecturer"],
+    "actions": ["list"],
+    "objects": ["Course"],
+    "fields": ["code"],
+    "priority": "medium",
+    "text": "List courses"
+  },
+  {
+    "frId": "FR-06",
+    "flags": ["thin_text"],
+    "actors": ["Admin"],
+    "actions": ["view"],
+    "objects": ["Report"],
+    "fields": [],
+    "priority": "low",
+    "text": "View"
+  }
+]

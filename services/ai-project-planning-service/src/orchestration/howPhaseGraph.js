@@ -219,6 +219,13 @@ function buildHowPhaseGraph(hooks = {}) {
       budget,
       startedAt: state.startedAt,
       baseIteration: historyBase.length,
+      onToolStart: async ({ toolName }) => {
+        await onProgress?.({
+          node: 'call_tool',
+          phase: 'how',
+          tool: toolName,
+        });
+      },
       onToolDone: async ({ nextIndex, toolName, container, toolResults, history: h }) => {
         await persistNode(
           {

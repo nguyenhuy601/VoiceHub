@@ -4,6 +4,7 @@ import { Loader2, Play, CheckCircle2 } from 'lucide-react';
 import { requirementAPI } from '../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
+import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -21,6 +22,7 @@ export default function AiPlanningRunPanel({
   onPlanStatusChange,
 }) {
   const { t } = useAppStrings();
+  const { shouldPausePolling } = useNetworkStatus();
   const [busy, setBusy] = useState(false);
   const [phaseStatus, setPhaseStatus] = useState('');
   const [planStatus, setPlanStatus] = useState('');
@@ -57,12 +59,12 @@ export default function AiPlanningRunPanel({
   }, [organizationId, packId, refresh]);
 
   useEffect(() => {
-    if (phaseStatus !== 'pending') return undefined;
+    if (phaseStatus !== 'pending' || shouldPausePolling) return undefined;
     const timer = setInterval(() => {
       refresh().catch(() => {});
     }, 2000);
     return () => clearInterval(timer);
-  }, [phaseStatus, refresh]);
+  }, [phaseStatus, refresh, shouldPausePolling]);
 
   const startHow = async () => {
     if (!canRun || busy || !organizationId || !packId) return;
@@ -85,47 +87,39 @@ export default function AiPlanningRunPanel({
     }
   };
 
-  const confirmPlan = async () => {
-    if (busy || !organizationId || !packId) return;
+  /** RULE-03: one CTA — confirm Gate 2 then promote (idempotent; retry-safe). */
+  const confirmAndPromote = async () => {
+    if (!canPromote || busy || !organizationId || !packId) return;
     setBusy(true);
     try {
-      await requirementAPI.confirmPhaseGate2(organizationId, packId);
-      setPlanStatus('confirmed');
-      onPlanStatusChange?.('confirmed');
-      toast.success(t('requirements.gate2BannerConfirmed') || 'Gate 2: phase HOW confirmed.');
-      await refresh();
-    } catch (error) {
-      toast.error(
-        resolveApiErrorMessage(error, {
-          t,
-          fallback: t('requirements.aiAnalysisConfirmFail') || 'Confirm thất bại.',
-        })
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const promote = async () => {
-    if (!canPromote || busy || planStatus !== 'confirmed') return;
-    setBusy(true);
-    try {
+      if (planStatus !== 'confirmed') {
+        await requirementAPI.confirmPhaseGate2(organizationId, packId);
+        setPlanStatus('confirmed');
+        onPlanStatusChange?.('confirmed');
+      }
       const res = await requirementAPI.createProjectFromPack(organizationId, packId, {
         importWorkItems: true,
         applyAssignees: true,
       });
       const data = unwrap(res);
+      setPackStatus('project_linked');
       toast.success(
-        t('requirements.promoteProjectSuccess') || 'Dự án đã kích hoạt (sau Gate 2).'
+        t('requirements.gate2ConfirmAndPromoteSuccess') ||
+          t('requirements.promoteProjectSuccess') ||
+          'Đã xác nhận Gate 2 và kích hoạt dự án.'
       );
       onPromoted?.(data);
     } catch (error) {
       toast.error(
         resolveApiErrorMessage(error, {
           t,
-          fallback: t('requirements.createProjectFromPackFail') || 'Promote thất bại.',
+          fallback:
+            t('requirements.gate2ConfirmAndPromoteFail') ||
+            t('requirements.createProjectFromPackFail') ||
+            'Xác nhận Gate 2 / kích hoạt thất bại.',
         })
       );
+      await refresh().catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -170,25 +164,19 @@ export default function AiPlanningRunPanel({
           )}
           {t('requirements.aiPlanningStart') || 'Chạy AI Planning'}
         </button>
-        {phaseReady && planStatus !== 'confirmed' ? (
+        {phaseReady && canPromote && packStatus !== 'project_linked' ? (
           <button
             type="button"
             disabled={busy}
-            onClick={confirmPlan}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-40"
-          >
-            <CheckCircle2 className="h-4 w-4" />
-            {t('requirements.gate2ConfirmPlan') || 'Confirm plan (Gate 2)'}
-          </button>
-        ) : null}
-        {planStatus === 'confirmed' && canPromote && packStatus !== 'project_linked' ? (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={promote}
+            onClick={confirmAndPromote}
             className="inline-flex items-center gap-1.5 rounded-md border border-emerald-600/40 px-3 py-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300 disabled:opacity-40"
           >
-            {t('requirements.promoteProject') || 'Kích hoạt dự án'}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            {planStatus === 'confirmed'
+              ? t('requirements.promoteProjectRetry') ||
+                t('requirements.gate2ConfirmAndPromote') ||
+                'Thử kích hoạt lại'
+              : t('requirements.gate2ConfirmAndPromote') || 'Xác nhận Gate 2 & kích hoạt'}
           </button>
         ) : null}
       </div>

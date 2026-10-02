@@ -12,8 +12,8 @@ function minimalSnapshot(extra = {}) {
     snapshotId: SNAP_ID,
     overview: { requirementName: 'Demo', startDate: '2026-01-01', deadline: '2026-03-01' },
     functionalRequirements: [
-      { id: 'FR-1', title: 'Login', description: 'User logs in', parentId: 'M1' },
-      { id: 'M1', title: 'Auth', level: 'Module' },
+      { id: 'FR-1', externalId: 'FR-1', title: 'Login', description: 'User logs in', parentId: 'M1' },
+      { id: 'M1', externalId: 'M1', title: 'Auth', level: 'Module' },
     ],
     ...extra,
   };
@@ -88,8 +88,8 @@ describe('runAgentPhase', () => {
       pack: {
         overview: { requirementName: 'Demo' },
         functionalRequirements: [
-          { id: 'FR-1', title: 'Login', description: 'User logs in', parentId: 'M1' },
-          { id: 'M1', title: 'Auth', level: 'Module' },
+          { id: 'FR-1', externalId: 'FR-1', title: 'Login', description: 'User logs in', parentId: 'M1' },
+          { id: 'M1', externalId: 'M1', title: 'Auth', level: 'Module' },
         ],
       },
       snapshot: minimalSnapshot(),
@@ -103,9 +103,11 @@ describe('runAgentPhase', () => {
     assert.ok(Array.isArray(result.g4Understanding.requirements));
     assert.ok(result.g4Understanding.conflictAmbiguityGate);
     assert.equal(typeof result.g4Understanding.conflictAmbiguityGate.passed, 'boolean');
-    assert.ok(result.container.analyses?.g4Understanding);
-    assert.equal(result.container.phaseRuns?.phase_what?.mode, 'g4');
-    assert.ok(result.container.phaseRuns?.phase_what?.conflictAmbiguityGate);
+    // W0+: container must NOT persist g4Understanding — proposalFragment for callback
+    assert.equal(result.container.analyses?.g4Understanding, undefined);
+    assert.ok(result.proposalFragment?.section === 'functionalRequirements' || result.g4Understanding.requirements);
+    assert.equal(result.container.phaseRuns?.phase_what?.mode, 'requirement');
+    assert.ok(result.container.phaseRuns?.phase_what);
     assert.equal(result.container.jobs, undefined);
   });
 });

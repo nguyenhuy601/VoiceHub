@@ -301,7 +301,24 @@ function ensureAiAnalysisContainer(raw) {
   }
   const g4Src = working.analyses?.g4Understanding;
   if (g4Src && typeof g4Src === 'object') {
+    // Legacy read-only preserve for old packs — new runs must not write this field
     analyses.g4Understanding = g4Src;
+  }
+  const srsProposalSrc = working.analyses?.srsProposal;
+  if (srsProposalSrc && typeof srsProposalSrc === 'object') {
+    analyses.srsProposal = srsProposalSrc;
+  }
+  if (working.analyses?.approvedSrsVersionManifest && typeof working.analyses.approvedSrsVersionManifest === 'object') {
+    analyses.approvedSrsVersionManifest = working.analyses.approvedSrsVersionManifest;
+  }
+  if (working.analyses?.srsDraft && typeof working.analyses.srsDraft === 'object') {
+    analyses.srsDraft = working.analyses.srsDraft;
+  }
+  if (working.analyses?.approvedSrs && typeof working.analyses.approvedSrs === 'object') {
+    analyses.approvedSrs = working.analyses.approvedSrs;
+  }
+  if (working.analyses?.customerRawRecord && typeof working.analyses.customerRawRecord === 'object') {
+    analyses.customerRawRecord = working.analyses.customerRawRecord;
   }
   if (Array.isArray(working.analyses?.evidenceSpans)) {
     analyses.evidenceSpans = working.analyses.evidenceSpans;
@@ -359,6 +376,9 @@ function ensureAiAnalysisContainer(raw) {
   if (working.intakeCorpus != null) out.intakeCorpus = working.intakeCorpus;
   if (working.inputDocuments != null) out.inputDocuments = working.inputDocuments;
   if (working.workbookDiagnostic != null) out.workbookDiagnostic = working.workbookDiagnostic;
+  if (working.workbookDiagnostics != null) out.workbookDiagnostics = working.workbookDiagnostics;
+  if (working.customerRawRows != null) out.customerRawRows = working.customerRawRows;
+  if (working.formValidation != null) out.formValidation = working.formValidation;
   if (working.skillCatalogStub != null) out.skillCatalogStub = working.skillCatalogStub;
   if (working.sources != null) out.sources = working.sources;
   if (working.gate1Override != null) out.gate1Override = working.gate1Override;

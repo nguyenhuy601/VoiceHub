@@ -203,6 +203,16 @@ const projectSchema = new mongoose.Schema(
       default: 'requirement_analysis',
       index: true,
     },
+    /**
+     * Birth path: ai = Phase 0 draft (HITL); manual = Phase 1 RA (not draft tab).
+     * Additive — missing on legacy docs.
+     */
+    analysisMode: {
+      type: String,
+      enum: ['manual', 'ai'],
+      default: 'manual',
+      index: true,
+    },
     /** Plan A — project Release Ready gate (HITL). */
     releaseReadyStatus: {
       type: String,

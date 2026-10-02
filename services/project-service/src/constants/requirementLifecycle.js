@@ -84,7 +84,8 @@ const REQUIREMENT_BA_ORG_ROLES = REQUIREMENT_ADMIN_ORG_ROLES;
 const VALID_STATUS_TRANSITIONS = Object.freeze({
   draft: ['under_review'],
   under_review: ['approved', 'rejected', 'draft'],
-  approved: ['project_linked'],
+  /** Sensitive Gate1 BA edit after PO approve → PO re-approval (RULE-03). */
+  approved: ['project_linked', 'under_review'],
   rejected: ['draft'],
   project_linked: [],
 });

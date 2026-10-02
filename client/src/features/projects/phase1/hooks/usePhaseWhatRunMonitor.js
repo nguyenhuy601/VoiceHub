@@ -1,6 +1,13 @@
 /**
  * Poll phase_what job until pack ready/failed — no hard wall failure (Wave 1).
+ * Pauses while NetworkController is OFFLINE; resumes with current status only.
  */
+
+import { networkController } from '../../../../lib/network/networkController.js';
+import {
+  sleepRespectingOffline,
+  waitWhileOffline,
+} from '../../../../lib/network/waitWhileOffline.js';
 
 const POLL_MS = 2000;
 const SOFT_HINT_MS = 180_000;
@@ -30,6 +37,9 @@ export async function waitForPhaseWhatJob(opts = {}) {
       err.code = 'PHASE_WHAT_ABORTED';
       throw err;
     }
+
+    await waitWhileOffline({ controller: networkController, signal });
+
     const pack = await refresh();
     const phaseWhat = pack?.aiAnalysis?.phaseRuns?.phase_what || {};
     const liveRun = pack?.liveRun || null;
@@ -70,7 +80,7 @@ export async function waitForPhaseWhatJob(opts = {}) {
     }
     if (status === 'failed') {
       const err = new Error(
-        phaseWhat?.error?.message || liveRun?.error?.message || 'G4 Understanding failed'
+        phaseWhat?.error?.message || liveRun?.error?.message || 'AI Requirement failed'
       );
       err.code = 'PHASE_WHAT_FAILED';
       err.phaseWhat = phaseWhat;
@@ -86,7 +96,7 @@ export async function waitForPhaseWhatJob(opts = {}) {
       });
     }
 
-    await new Promise((r) => setTimeout(r, pollMs));
+    await sleepRespectingOffline(pollMs, { controller: networkController, signal });
   }
 }
 

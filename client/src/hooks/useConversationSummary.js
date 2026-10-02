@@ -1,6 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
 import conversationSummaryService from '../services/conversationSummaryService';
 import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
+import { networkController } from '../lib/network/networkController.js';
+import {
+  sleepRespectingOffline,
+  waitWhileOffline,
+} from '../lib/network/waitWhileOffline.js';
 
 const POLL_MS = 2000;
 const MAX_POLLS = 90;
@@ -58,6 +63,8 @@ export function useConversationSummary({ organizationId, roomId, currentUserId, 
 
         for (let i = 0; i < MAX_POLLS; i++) {
           if (abortRef.current) return;
+          await waitWhileOffline({ controller: networkController });
+          if (abortRef.current) return;
           const poll = await conversationSummaryService.getById(summaryId, userHeaders);
           const row = poll?.data?.data ?? poll?.data ?? poll;
           const st = row?.status;
@@ -71,7 +78,7 @@ export function useConversationSummary({ organizationId, roomId, currentUserId, 
             setError(row?.error || t?.('chat.summaryFailed') || 'Tóm tắt thất bại');
             return;
           }
-          await new Promise((r) => setTimeout(r, POLL_MS));
+          await sleepRespectingOffline(POLL_MS, { controller: networkController });
         }
 
         setPhase('failed');

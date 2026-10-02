@@ -171,7 +171,13 @@ function assertTransition(current, next) {
   }
 }
 
-async function submitRequirementPack({ userId, organizationId, packId }) {
+async function submitRequirementPack({
+  userId,
+  organizationId,
+  packId,
+  reviewDecisions = null,
+  expectedReviewVersion = null,
+}) {
   await assertRequirementPermission({ userId, organizationId, permission: 'requirement:submit' });
   const pack = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true });
   if (!pack) {
@@ -179,12 +185,120 @@ async function submitRequirementPack({ userId, organizationId, packId }) {
     err.statusCode = 404;
     throw err;
   }
-  assertTransition(pack.status, 'under_review');
+
+  const {
+    detectSensitiveGate1Edits,
+    applySensitiveReapprovalState,
+  } = require('../utils/srsProposal/sensitiveGate1Sections');
+  const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+
+  let proposalPreview =
+    pack.aiAnalysis?.analyses?.srsProposal ||
+    ensureAiAnalysisContainer(pack.aiAnalysis).analyses?.srsProposal ||
+    null;
+  const sensitiveDetection = detectSensitiveGate1Edits(proposalPreview, reviewDecisions);
+  const reapprovalPlan = applySensitiveReapprovalState(
+    { status: pack.status, aiAnalysis: pack.aiAnalysis },
+    sensitiveDetection
+  );
+
+  if (pack.status === 'approved') {
+    if (!reapprovalPlan.allowFromApproved) {
+      const err = new Error(
+        'Pack đã approved — chỉ Submit lại khi BA edit Functional Requirement / Business Rule / Actor / Scope'
+      );
+      err.statusCode = 409;
+      err.errorCode = 'REQ_SENSITIVE_REAPPROVAL_REQUIRED';
+      throw err;
+    }
+    assertTransition(pack.status, 'under_review');
+  } else {
+    assertTransition(pack.status, 'under_review');
+  }
   assertPackReadyForSubmit(pack);
+
+  // W7-A: optional BA item decisions on existing POST submit (no new route)
+  if (reviewDecisions && typeof reviewDecisions === 'object') {
+    const { applyReviewDecision, computeReviewSummary, isReviewComplete } = require('../utils/srsProposal/review');
+    const { materializeSrsDraft } = require('../utils/srsProposal/approvedSrsVersionManifest');
+    let container = ensureAiAnalysisContainer(
+      reapprovalPlan.aiAnalysis || pack.aiAnalysis
+    );
+    let proposal = container.analyses?.srsProposal;
+    if (proposal) {
+      const entries = Array.isArray(reviewDecisions)
+        ? reviewDecisions
+        : Object.entries(reviewDecisions).map(([logicalId, decision]) => ({
+            logicalId,
+            ...(decision || {}),
+          }));
+      for (const entry of entries) {
+        const { logicalId, ...decision } = entry;
+        if (!logicalId) continue;
+        proposal = applyReviewDecision(proposal, logicalId, decision, {
+          userId,
+          expectedReviewVersion:
+            expectedReviewVersion != null ? expectedReviewVersion : proposal.reviewVersion,
+        });
+      }
+      proposal.review = proposal.review || {};
+      proposal.review.summary = computeReviewSummary(proposal);
+      container.analyses = { ...(container.analyses || {}), srsProposal: proposal };
+      if (isReviewComplete(proposal) && !container.analyses.srsDraft) {
+        container.analyses.srsDraft = materializeSrsDraft(proposal, { userId });
+      }
+      if (sensitiveDetection.hasSensitiveEdit) {
+        container.gate1 = {
+          ...(container.gate1 || {}),
+          poReapprovalRequired: true,
+          sensitiveSectionsEdited: sensitiveDetection.sections,
+          reapprovalRequestedAt: new Date().toISOString(),
+        };
+      }
+      pack.aiAnalysis = container;
+      pack.markModified('aiAnalysis');
+    } else if (reapprovalPlan.aiAnalysis) {
+      pack.aiAnalysis = reapprovalPlan.aiAnalysis;
+      pack.markModified('aiAnalysis');
+    }
+  } else if (reapprovalPlan.aiAnalysis && reapprovalPlan.clearPoStamp) {
+    pack.aiAnalysis = reapprovalPlan.aiAnalysis;
+    pack.markModified('aiAnalysis');
+  }
+
+  if (reapprovalPlan.clearPoStamp) {
+    pack.approvedBy = undefined;
+    pack.approvedAt = undefined;
+    logger.info('[requirement] Gate1 sensitive re-approval', {
+      packId: String(packId),
+      userId: String(userId),
+      sections: sensitiveDetection.sections,
+    });
+  }
+
   pack.status = 'under_review';
   pack.submittedBy = userId;
   pack.submittedAt = new Date();
   await pack.save();
+
+  if (pack.projectId) {
+    const { notifyAiHitlGateReviewers } = require('../utils/phase1GatePolicy');
+    void notifyAiHitlGateReviewers({
+      projectId: String(pack.projectId),
+      organizationId,
+      actorUserId: userId,
+      packId: String(packId),
+      nextPermission: 'requirement:approve',
+      title: sensitiveDetection.hasSensitiveEdit
+        ? 'Gate 1 cần PO duyệt lại (BA đã sửa mục nhạy cảm)'
+        : 'Gate 1 — chờ PO duyệt',
+      content: sensitiveDetection.hasSensitiveEdit
+        ? `BA đã chỉnh: ${(sensitiveDetection.sections || []).join(', ') || 'mục nhạy cảm'}.`
+        : 'BA đã gửi duyệt gói yêu cầu.',
+      kind: 'ai_hitl_gate1_po',
+    });
+  }
+
   return attachPlanningReadiness(pack.toObject());
 }
 
@@ -227,35 +341,81 @@ async function approveRequirementPack({
     pack.markModified('aiAnalysis');
   }
 
-  // G4 Gate1: materialize FR + mark phase_what approved for HOW unlock
+  // Requirement proposal Gate1: materialize FR from srsProposal + mark phase_what approved
   {
     const {
       isWhatG4Enabled,
       markPhaseWhatGate1Approved,
       hasReadyG4Understanding,
-    } = require('../utils/aiAnalysis/whatG4Policy');
+    } = require('../utils/aiAnalysis/whatRequirementPolicy');
     const { materializeG4IntoPack } = require('../utils/aiAnalysis/materializeG4IntoPack');
     const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+    const {
+      materializeSrsDraft,
+      approveSrsDraft,
+    } = require('../utils/srsProposal/approvedSrsVersionManifest');
+    const { isReviewComplete, computeReviewSummary } = require('../utils/srsProposal/review');
     if (isWhatG4Enabled() && hasReadyG4Understanding(pack)) {
-      const g4 = pack.aiAnalysis?.analyses?.g4Understanding;
+      const analyses = pack.aiAnalysis?.analyses || {};
+      const proposal = analyses.srsProposal || null;
+      const legacyG4 = analyses.g4Understanding || null;
+      const seedSource = proposal || legacyG4;
       const { pack: seeded, meta } = materializeG4IntoPack(
         pack.toObject ? pack.toObject() : pack,
-        g4
+        seedSource
       );
       if (!meta.skipped && Array.isArray(seeded.functionalRequirements)) {
         pack.functionalRequirements = seeded.functionalRequirements;
         pack.markModified('functionalRequirements');
       }
       let container = ensureAiAnalysisContainer(pack.aiAnalysis);
+      // PO approve: create ApprovedSrsVersionManifest only after draft (not at materialize)
+      if (proposal && isReviewComplete(proposal)) {
+        try {
+          let draft = container.analyses?.srsDraft;
+          if (!draft) {
+            draft = materializeSrsDraft(proposal, { userId });
+            container.analyses = { ...(container.analyses || {}), srsDraft: draft };
+          }
+          // T-X18: do not overwrite existing approved manifest on proposal rerun
+          if (!container.analyses.approvedSrsVersionManifest) {
+            const { approvedSrs, approvedSrsVersionManifest } = approveSrsDraft(draft, {
+              userId,
+              packId: String(packId),
+              projectId: pack.projectId ? String(pack.projectId) : null,
+              approvedSrsVersion: String(
+                pack.versionNumber ?? pack.version ?? container.approvedSrsVersion ?? '1'
+              ),
+            });
+            container.analyses.approvedSrs = approvedSrs;
+            container.analyses.approvedSrsVersionManifest = approvedSrsVersionManifest;
+          }
+        } catch (matErr) {
+          if (matErr.errorCode !== 'REVIEW_NOT_COMPLETE') throw matErr;
+        }
+      } else if (proposal) {
+        // Ensure review summary is stamped for Gate1 item UX
+        container.analyses = {
+          ...(container.analyses || {}),
+          srsProposal: {
+            ...proposal,
+            review: {
+              ...(proposal.review || {}),
+              summary: computeReviewSummary(proposal),
+            },
+          },
+        };
+      }
       container = markPhaseWhatGate1Approved(container, {
-        source: 'g4_gate1',
+        source: 'srs_proposal_gate1',
         at: new Date().toISOString(),
       });
       pack.aiAnalysis = container;
       pack.markModified('aiAnalysis');
-      logger.info('[requirement] Gate1 G4 mark phase_what approved', {
+      logger.info('[requirement] Gate1 mark phase_what approved', {
         packId: String(packId),
         seededFr: meta.seededFr,
+        reviewComplete: proposal ? isReviewComplete(proposal) : false,
       });
     }
   }
@@ -282,6 +442,21 @@ async function approveRequirementPack({
     });
   }
 
+  // Clear re-approval flag after successful PO approve
+  {
+    const shell = pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
+    if (shell.gate1 && typeof shell.gate1 === 'object') {
+      shell.gate1 = {
+        ...shell.gate1,
+        poReapprovalRequired: false,
+        poApprovedAt: new Date().toISOString(),
+        poApprovedBy: String(userId),
+      };
+      pack.aiAnalysis = shell;
+      pack.markModified('aiAnalysis');
+    }
+  }
+
   await pack.save();
   return attachPlanningReadiness(pack.toObject());
 }
@@ -299,7 +474,33 @@ async function rejectRequirementPack({ userId, organizationId, packId, reason = 
   pack.rejectedBy = userId;
   pack.rejectedAt = new Date();
   pack.rejectionReason = String(reason || '').slice(0, 2000);
+  // Loop 1: keep reason on aiAnalysis so revise CTA can re-seed feedback
+  const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+  const container = ensureAiAnalysisContainer(pack);
+  container.gate1 = {
+    ...(container.gate1 || {}),
+    lastRejectReason: pack.rejectionReason,
+    lastRejectedAt: new Date().toISOString(),
+    lastRejectedBy: userId != null ? String(userId) : null,
+  };
+  pack.aiAnalysis = container;
+  pack.markModified('aiAnalysis');
   await pack.save();
+
+  if (pack.projectId) {
+    const { notifyAiHitlGateReviewers } = require('../utils/phase1GatePolicy');
+    void notifyAiHitlGateReviewers({
+      projectId: String(pack.projectId),
+      organizationId,
+      actorUserId: userId,
+      packId: String(packId),
+      nextPermission: 'requirement:submit',
+      title: 'Gate 1 — pack bị từ chối (cần BA xử lý / AI revise)',
+      content: String(reason || 'PO đã từ chối gói yêu cầu.').slice(0, 500),
+      kind: 'ai_hitl_gate1_rejected',
+    });
+  }
+
   return attachPlanningReadiness(pack.toObject());
 }
 

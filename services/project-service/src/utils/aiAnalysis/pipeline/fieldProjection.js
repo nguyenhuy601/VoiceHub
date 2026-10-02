@@ -8,11 +8,19 @@ const {
   buildProjectContextSlice,
   buildRequirementFrSlices,
 } = require('../aiAnalysisFrSlice');
+const {
+  attachSourceIdentity,
+  projectAllAnalysisSections,
+} = require('./projectAnalysisSections');
 
-function projectFrNode(row) {
+function projectFrNode(row, index = 0) {
   if (!row || typeof row !== 'object') return null;
+  const identity = attachSourceIdentity(row, {
+    section: 'functionalRequirements',
+    index,
+  });
   return {
-    externalId: String(row.externalId || '').trim(),
+    ...identity,
     level: String(row.level || '').trim(),
     parentExternalId: String(row.parentExternalId || '').trim(),
     name: String(row.name || '').trim(),
@@ -33,10 +41,14 @@ function projectFrNode(row) {
   };
 }
 
-function projectNfr(row) {
+function projectNfr(row, index = 0) {
   if (!row || typeof row !== 'object') return null;
+  const identity = attachSourceIdentity(row, {
+    section: 'nonFunctionalRequirements',
+    index,
+  });
   return {
-    externalId: String(row.externalId || '').trim(),
+    ...identity,
     category: String(row.category || '').trim(),
     requirement: String(row.requirement || '').trim(),
     priority: String(row.priority || '').trim() || undefined,
@@ -124,9 +136,14 @@ function projectAllSources({ pack, poolItems = [], calendar = {}, skillCatalog =
   const overview = pack?.overview || {};
   const staffing = pack?.staffingPlan || {};
   const frProjected = (pack?.functionalRequirements || [])
-    .map(projectFrNode)
+    .map((row, i) => projectFrNode(row, i))
     .filter(Boolean)
     .slice(0, 500);
+  const nfrProjected = (pack?.nonFunctionalRequirements || [])
+    .map((row, i) => projectNfr(row, i))
+    .filter(Boolean)
+    .slice(0, 100);
+  const analysisSections = projectAllAnalysisSections(pack);
 
   return {
     srs: {
@@ -140,10 +157,8 @@ function projectAllSources({ pack, poolItems = [], calendar = {}, skillCatalog =
       },
       functionalRequirements: frProjected,
       frSlices: buildRequirementFrSlices(pack, { maxItems: 200 }),
-      nonFunctionalRequirements: (pack?.nonFunctionalRequirements || [])
-        .map(projectNfr)
-        .filter(Boolean)
-        .slice(0, 100),
+      nonFunctionalRequirements: nfrProjected,
+      ...analysisSections,
       staffingPlan: {
         requiredSkills: (staffing.requiredSkills || []).slice(0, 40).map((s) => ({
           name: String(s.name || '').trim(),

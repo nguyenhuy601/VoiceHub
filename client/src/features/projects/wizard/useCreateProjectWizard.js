@@ -428,7 +428,14 @@ export default function useCreateProjectWizard({
       const packId = String(pack?._id || pack?.id || '').trim();
       if (!packId) {
         toast.error(t('adminTasks.createFail') || 'Không tạo được requirement pack.');
-        return { projectId, defaultBoardId, packId: '', project, _hitlIncomplete: true };
+        return {
+          projectId,
+          defaultBoardId,
+          packId: '',
+          project,
+          analysisMode: form.analysisMode || 'manual',
+          _hitlIncomplete: true,
+        };
       }
 
       const queue = buildIntakeUploadQueue(form.intakeFiles);
@@ -454,6 +461,7 @@ export default function useCreateProjectWizard({
           packId,
           pack,
           project,
+          analysisMode: form.analysisMode || 'manual',
           _intakeUpload: { total: queue.length, failed: failCount },
           _hitlIncomplete: true,
         };

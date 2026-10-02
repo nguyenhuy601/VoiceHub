@@ -5,12 +5,10 @@ import { useAppStrings } from '../../../locales/appStrings';
 import ProjectsLandingGrid from '../landing/ProjectsLandingGrid';
 import { isProjectListableForUi } from '../landing/projectLandingActive';
 import {
-  buildProjectsModulePath,
   buildProjectsNewPath,
   orgQueryFromSearch,
   readStoredLastOrganizationId,
 } from '../../../utils/suitePathUtils';
-import { phaseHomeModule } from '../../../utils/projectPhaseNav';
 import {
   readStoredLastProjectId,
   writeStoredLastProjectId,
@@ -21,6 +19,8 @@ import useOrganizationDetail from '../../../hooks/useOrganizationDetail';
 import useOrgProjectsList from '../../../hooks/useOrgProjectsList';
 import useTaskWorkspaceScope from '../../../hooks/useTaskWorkspaceScope';
 import { resolveLandingCreateActions } from '../landing/projectsLandingCreateActions';
+import { resolveAiProjectEntryPath } from '../phase1/aiHitl/aiHitlNavState';
+import { loadLinkedPackForAiNav } from '../phase1/aiHitl/loadLinkedPackForAiNav';
 
 function isMyProject(project) {
   const mb = project?.myMembership;
@@ -73,16 +73,27 @@ export default function ProjectPickerPage() {
   }, [rememberedId, projects]);
 
   const enterProject = useCallback(
-    (project) => {
+    async (project) => {
       const projectId = String(project?._id || project?.projectId || '').trim();
       if (!projectId) return;
       writeStoredLastProjectId(projectId);
       const boardId = String(project?.defaultBoardId || project?.boards?.[0]?._id || '').trim();
-      const homeModule = phaseHomeModule(project?.deliveryPhase);
+      const phase = String(project?.deliveryPhase || '').trim().toLowerCase();
+      let pack = null;
+      if (!phase || phase === 'requirement_analysis') {
+        try {
+          pack = await loadLinkedPackForAiNav(orgId, projectId);
+        } catch {
+          pack = null;
+        }
+      }
       navigate(
-        buildProjectsModulePath(projectId, homeModule, {
-          organizationId: orgId,
+        resolveAiProjectEntryPath({
+          projectId,
+          project,
+          pack,
           boardId,
+          organizationId: orgId,
         })
       );
     },
@@ -106,11 +117,8 @@ export default function ProjectPickerPage() {
       toast.error(t('organizations.selectOrgFirst'));
       return;
     }
-    toast(
-      t('workspace.phase2AiNeedsProject') ||
-        'AI từ Excel SRS chạy trên dự án Phase 1 đã sẵn sàng gate — mở Overview khi banner Phase 2 hiện.'
-    );
-  }, [orgId, t]);
+    navigate(buildProjectsNewPath(orgId, { analysisMode: 'ai' }));
+  }, [navigate, orgId, t]);
 
   if (!orgId) {
     return (

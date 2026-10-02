@@ -594,7 +594,7 @@ export const ADMIN_DOMAINS = [
             path: '/app/admin/projects',
             labelKey: 'adminDomains.projects.overview',
             end: true,
-            implementation: 'tasks-boards',
+            implementation: 'tasks-projects-overview',
           },
           {
             id: 'settings',

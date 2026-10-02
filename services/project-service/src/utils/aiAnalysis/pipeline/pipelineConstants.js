@@ -1,9 +1,10 @@
 /**
  * AI Analysis snapshot pipeline — feature flag + version pins.
  * Bump PIPELINE_VERSION / SKILL_CATALOG_VERSION when maps or projection contracts change.
+ * v3 — Data Lineage P0: projected.srs analysis sections + source identity (RULE-DL-05).
  */
 
-const PIPELINE_VERSION = 2;
+const PIPELINE_VERSION = 3;
 
 /** Skill catalog pin when Skill Registry is off — bump when whitelist maps change. */
 const SKILL_CATALOG_VERSION = 'cap-whitelist-v2';

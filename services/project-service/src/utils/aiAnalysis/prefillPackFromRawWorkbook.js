@@ -146,7 +146,6 @@ function prefillWorkbook(buffer, metadata = {}) {
         ...base,
         overview,
         scope,
-        workbookDiagnostic: raw.workbookDiagnostic || base.workbookDiagnostic,
         meta: {
           applied,
           source: applied ? 'customer_raw' : 'none',
@@ -154,20 +153,35 @@ function prefillWorkbook(buffer, metadata = {}) {
           filename,
           documentId,
           frCount,
+          intakeKind: 'customer_raw',
         },
+        workbookDiagnostic: (() => {
+          const diag = raw.workbookDiagnostic || base.workbookDiagnostic;
+          if (diag && typeof diag === 'object') {
+            return { ...diag, intakeKind: 'customer_raw' };
+          }
+          return diag;
+        })(),
       };
     } catch (err) {
       return {
         ...base,
-        workbookDiagnostic:
-          base.workbookDiagnostic
-          || failedDiagnostic('PARSER_ERROR', err.message || 'parse_fail', filename),
+        workbookDiagnostic: (() => {
+          const diag =
+            base.workbookDiagnostic
+            || failedDiagnostic('PARSER_ERROR', err.message || 'parse_fail', filename);
+          if (diag && typeof diag === 'object') {
+            return { ...diag, intakeKind: 'customer_raw' };
+          }
+          return diag;
+        })(),
         meta: {
           applied: base.functionalRequirements.length > 0,
           source: base.functionalRequirements.length > 0 ? 'customer_raw' : 'none',
           reason: String(err.message || 'parse_fail').slice(0, 120),
           filename,
           documentId,
+          intakeKind: 'customer_raw',
         },
       };
     }

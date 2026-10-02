@@ -32,12 +32,88 @@ function getWhatJobOrder() {
   return [...AI_ANALYSIS_WHAT_JOBS];
 }
 
+function persistFormValidationOnPack(pack, formValidation) {
+  if (!pack || !formValidation) return formValidation;
+  const container = ensureAiAnalysisContainer(pack.aiAnalysis);
+  container.formValidation = formValidation;
+  pack.aiAnalysis = container;
+  if (typeof pack.markModified === 'function') {
+    pack.markModified('aiAnalysis');
+  }
+  return formValidation;
+}
+
+/**
+ * Hydrate pack.aiAnalysis.formValidation from ImportSet or customer_raw buffer.
+ * RULE-FORM-01: form validation may hydrate before FR prepare; G4 still requires FR via
+ * ensurePreparedIntakeForWhat + assertRequiredIntakeSections.
+ */
+async function ensureFormValidationOnPack(pack) {
+  if (!pack) return null;
+  const existing = pack.aiAnalysis?.formValidation;
+  if (existing && typeof existing === 'object') {
+    return existing;
+  }
+
+  const projectId = pack.projectId || null;
+  try {
+    const AnalysisImportSet = require('../models/AnalysisImportSet');
+    if (projectId) {
+      const set = await AnalysisImportSet.findOne({
+        projectId,
+        status: { $in: ['draft', 'pending_review', 'active'] },
+        rawFormValidation: { $ne: null },
+      })
+        .sort({ updatedAt: -1 })
+        .select('rawFormValidation')
+        .lean();
+      if (set?.rawFormValidation && typeof set.rawFormValidation === 'object') {
+        return persistFormValidationOnPack(pack, set.rawFormValidation);
+      }
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[ensureFormValidationOnPack] importSet lookup failed', err.message);
+  }
+
+  try {
+    const filter = {
+      docClass: 'customer_raw',
+      isActive: { $ne: false },
+      $or: [
+        ...(pack._id ? [{ packId: pack._id }] : []),
+        ...(projectId ? [{ projectId }] : []),
+      ],
+    };
+    if (!filter.$or.length) return pack.aiAnalysis?.formValidation || null;
+
+    const doc = await CustomerDocument.findOne(filter)
+      .sort({ createdAt: -1 })
+      .select('storageKey filename')
+      .lean();
+    if (!doc?.storageKey) return pack.aiAnalysis?.formValidation || null;
+
+    const objectStorage = require('../utils/common/objectStorage');
+    if (!objectStorage.isEnabled()) return pack.aiAnalysis?.formValidation || null;
+
+    const { validateCustomerRawForm } = require('../utils/requirement/customerRawFormValidate');
+    const buf = await objectStorage.getObjectBuffer(doc.storageKey);
+    const formValidation = validateCustomerRawForm(buf);
+    return persistFormValidationOnPack(pack, formValidation);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[ensureFormValidationOnPack] raw buffer validate failed', err.message);
+    return pack.aiAnalysis?.formValidation || null;
+  }
+}
+
 /**
  * List intake docs for WHAT corpus metadata (filenames only in snapshot).
  */
 async function loadInputDocumentsForPack({ organizationId, packId, projectId }) {
   const filter = {
     organizationId,
+
     isActive: true,
     $or: [{ packId }, ...(projectId ? [{ projectId }] : [])],
   };
@@ -123,6 +199,77 @@ async function materializeWhatToArtifacts({ userId, pack }) {
 }
 
 /**
+ * Lazy intake prepare before phase_what G4 when formOk (or raw intake) but FR still empty.
+ * Does not run LLM. Caller must re-read pack after didPrepare=true.
+ *
+ * @returns {Promise<{ didPrepare: boolean, validFr: number }>}
+ */
+async function ensurePreparedIntakeForWhat({ pack, organizationId, packId }) {
+  const {
+    countValidFr,
+    isCustomerRawIntakePack,
+  } = require('../utils/requirement/workbookDiagnostic');
+
+  const form = pack?.aiAnalysis?.formValidation;
+  const formOk = form?.ok === true;
+  const isRaw = formOk || isCustomerRawIntakePack(pack);
+  const validFrBefore = countValidFr(pack);
+
+  if (validFrBefore > 0) {
+    return { didPrepare: false, validFr: validFrBefore };
+  }
+  if (!isRaw) {
+    return { didPrepare: false, validFr: 0 };
+  }
+
+  const filter = {
+    organizationId,
+    isActive: true,
+    $or: [
+      { packId },
+      ...(pack.projectId ? [{ projectId: pack.projectId }] : []),
+    ],
+  };
+  const docs = await CustomerDocument.find(filter)
+    .select('_id filename storageKey docClass')
+    .lean();
+  const xlsxDocs = (docs || []).filter(
+    (d) => d?.storageKey && /\.xlsx?$/i.test(String(d.filename || ''))
+  );
+
+  if (!xlsxDocs.length) {
+    const err = new Error(
+      'Intake source unavailable — no raw workbook linked for FR extract'
+    );
+    err.statusCode = 422;
+    err.errorCode = 'INTAKE_SOURCE_UNAVAILABLE';
+    err.reasonCodes = ['INTAKE_SOURCE_UNAVAILABLE', 'SOURCE_UNAVAILABLE'];
+    throw err;
+  }
+
+  const objectStorage = require('../utils/common/objectStorage');
+  if (!objectStorage.isEnabled()) {
+    const err = new Error(
+      'Intake source unavailable — object storage is not enabled'
+    );
+    err.statusCode = 422;
+    err.errorCode = 'INTAKE_SOURCE_UNAVAILABLE';
+    err.reasonCodes = ['INTAKE_SOURCE_UNAVAILABLE', 'SOURCE_UNAVAILABLE'];
+    throw err;
+  }
+
+  // eslint-disable-next-line no-console
+  console.info('[phase_what] lazy prepare intake (formOk/raw + validFr=0)', {
+    packId: String(packId),
+    xlsxCount: xlsxDocs.length,
+    formOk,
+  });
+
+  await prepareIntakeCorpusAndPrefill({ pack, organizationId, packId });
+  return { didPrepare: true, validFr: 0 };
+}
+
+/**
  * Load MinIO buffers → prefillWorkbook per xlsx → aggregate → corpus; persist on pack once.
  */
 async function prepareIntakeCorpusAndPrefill({ pack, organizationId, packId }) {
@@ -152,12 +299,23 @@ async function prepareIntakeCorpusAndPrefill({ pack, organizationId, packId }) {
   );
   const workbookResults = [];
   const objectStorage = require('../utils/common/objectStorage');
+  const {
+    validateCustomerRawForm,
+  } = require('../utils/requirement/customerRawFormValidate');
+  let formValidation = pack?.aiAnalysis?.formValidation || null;
+
   if (objectStorage.isEnabled()) {
     for (const doc of xlsxDocs) {
       const documentId = String(doc._id);
       const filename = String(doc.filename || '').slice(0, 260);
       try {
         const buf = await objectStorage.getObjectBuffer(doc.storageKey);
+        if (
+          !formValidation?.ok &&
+          (doc.docClass === 'customer_raw' || /customer.?raw/i.test(filename))
+        ) {
+          formValidation = validateCustomerRawForm(buf);
+        }
         const result = prefillWorkbook(buf, { filename, documentId });
         result.meta = {
           ...(result.meta || {}),
@@ -220,6 +378,7 @@ async function prepareIntakeCorpusAndPrefill({ pack, organizationId, packId }) {
     containerDiag.workbookDiagnostic = aggregated.workbookDiagnostic;
     containerDiag.workbookDiagnostics = aggregated.workbookDiagnostics;
     containerDiag.customerRawRows = aggregated.customerRawRows;
+    if (formValidation) containerDiag.formValidation = formValidation;
     pack.aiAnalysis = containerDiag;
     pack.markModified('overview');
     pack.markModified('scope');
@@ -241,6 +400,13 @@ async function prepareIntakeCorpusAndPrefill({ pack, organizationId, packId }) {
       businessRequestCount: aggregated.meta.businessRequestCount,
       referenceCount: aggregated.meta.referenceCount,
     });
+  }
+
+  if (formValidation) {
+    const containerForm = ensureAiAnalysisContainer(pack.aiAnalysis);
+    containerForm.formValidation = formValidation;
+    pack.aiAnalysis = containerForm;
+    pack.markModified('aiAnalysis');
   }
 
   const corpus = await buildIntakeCorpus(docs);
@@ -407,12 +573,11 @@ async function prepareUnderstandingOnly({ userId, organizationId, packId }) {
     throw err;
   }
 
-  const { ensureActiveAiAnalysisSnapshot } = require('./aiAnalysisSnapshot.service');
-  await ensureActiveAiAnalysisSnapshot({
-    userId,
+  // RULE-PREFILL-BEFORE-SNAPSHOT-01: fill FR/NFR from Raw before freezing snapshot
+  const { corpus } = await prepareIntakeCorpusAndPrefill({
+    pack,
     organizationId,
     packId,
-    pack,
   });
   pack = await RequirementPack.findOne({ _id: packId, organizationId });
   if (!pack) {
@@ -422,12 +587,33 @@ async function prepareUnderstandingOnly({ userId, organizationId, packId }) {
     throw err;
   }
 
-  const { corpus } = await prepareIntakeCorpusAndPrefill({
-    pack,
+  const { ensureActiveAiAnalysisSnapshot } = require('./aiAnalysisSnapshot.service');
+  await ensureActiveAiAnalysisSnapshot({
+    userId,
     organizationId,
     packId,
+    pack,
+    refreshOnFrDrift: true,
   });
   pack = await RequirementPack.findOne({ _id: packId, organizationId });
+  if (!pack) {
+    const err = new Error('RequirementPack không tồn tại');
+    err.statusCode = 404;
+    err.errorCode = 'PACK_NOT_FOUND';
+    throw err;
+  }
+
+  const frCount = Array.isArray(pack.functionalRequirements) ? pack.functionalRequirements.length : 0;
+  const nfrCount = Array.isArray(pack.nonFunctionalRequirements)
+    ? pack.nonFunctionalRequirements.length
+    : 0;
+  // eslint-disable-next-line no-console
+  console.info(
+    '[understanding] intake counts fr=%d nfr=%d snapId=%s',
+    frCount,
+    nfrCount,
+    pack?.aiAnalysisActiveSnapshotId ? String(pack.aiAnalysisActiveSnapshotId) : ''
+  );
 
   let toolsRan = false;
   try {
@@ -498,6 +684,8 @@ module.exports = {
   runWhatRequirementPhaseBackground,
   materializeWhatToArtifacts,
   prepareIntakeCorpusAndPrefill,
+  ensurePreparedIntakeForWhat,
   prepareUnderstandingOnly,
   patchPhaseWhat,
+  ensureFormValidationOnPack,
 };
