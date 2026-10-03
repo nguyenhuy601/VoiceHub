@@ -202,6 +202,16 @@ function parseCustomerRawContext(fileBuffer) {
     isCustomerRaw = true;
     if (!templateType) templateType = CUSTOMER_RAW_TEMPLATE_TYPE;
   }
+  let canonicalRaw = null;
+  if (isCustomerRaw) {
+    try {
+      const { buildCanonicalRaw } = require('./buildCanonicalRaw');
+      canonicalRaw = buildCanonicalRaw(workbook, {});
+    } catch (err) {
+      console.warn('[canonical_raw_built] parse_fail', err?.message || err);
+    }
+  }
+
   return {
     templateType,
     templateVersion: meta.templateVersion || '',
@@ -214,6 +224,7 @@ function parseCustomerRawContext(fileBuffer) {
     workbookDiagnostic: extracted.diagnostic,
     expectedContextColumns: CUSTOMER_RAW_SHEET_COLUMNS[CUSTOMER_RAW_SHEETS.CONTEXT],
     templateTypeCanonical: CUSTOMER_RAW_TEMPLATE_TYPE,
+    canonicalRaw,
   };
 }
 

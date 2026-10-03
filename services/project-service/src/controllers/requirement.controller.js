@@ -298,6 +298,9 @@ async function submitPack(req, res) {
       reviewDecisions: body.reviewDecisions || body.srsProposalReview || null,
       expectedReviewVersion:
         body.expectedReviewVersion != null ? body.expectedReviewVersion : body.reviewVersion,
+      expectedRevisionIds: body.expectedRevisionIds || null,
+      withdrawSubmissionId: body.withdrawSubmissionId || null,
+      requestId: req.headers['x-request-id'] || body.requestId || '',
     });
     return res.json({ success: true, data: pack });
   } catch (err) {

@@ -68,6 +68,49 @@ describe('buildPackObjectFromSnapshot analysis freeze', () => {
     assert.equal(view.overview.requirementName, 'Snap');
   });
 
+  it('keeps Customer Raw intake markers + canonicalRaw for derive gate', () => {
+    const livePack = {
+      functionalRequirements: [{ externalId: 'FR-1', name: 'A', level: 'Requirement' }],
+      nonFunctionalRequirements: [],
+      overview: { expectedUsers: 'HR, Admin' },
+      aiAnalysis: {
+        workbookDiagnostic: { intakeKind: 'customer_raw' },
+        customerRawRows: {
+          businessRequests: [{ requestId: 'BRQ-001', businessGoal: 'G' }],
+        },
+        canonicalRaw: { registryVersion: 'raw-sem-v1', templateVersion: '1.1-raw' },
+      },
+    };
+    const snapshot = {
+      canonicalRaw: {
+        registryVersion: 'raw-sem-v1',
+        templateVersion: '1.1-raw',
+        content: { businessGoals: ['Snap goal'] },
+      },
+      projected: {
+        srs: {
+          functionalRequirements: [{ externalId: 'FR-1', name: 'A' }],
+          nonFunctionalRequirements: [],
+          businessGoals: [],
+          businessRules: [],
+          scope: [],
+          businessProcesses: [],
+          interfaces: [],
+          useCases: [],
+          entities: [],
+          glossary: [],
+          assumptions: [],
+          overview: { name: 'Emp', expectedUsers: 'HR' },
+        },
+      },
+    };
+    const view = buildPackObjectFromSnapshot(livePack, snapshot);
+    assert.equal(view.aiAnalysis?.workbookDiagnostic?.intakeKind, 'customer_raw');
+    assert.equal(view.aiAnalysis?.customerRawRows?.businessRequests?.[0]?.requestId, 'BRQ-001');
+    assert.equal(view.aiAnalysis?.canonicalRaw?.content?.businessGoals?.[0], 'Snap goal');
+    assert.equal(view.overview.expectedUsers, 'HR');
+  });
+
   it('keeps snap rows when present; ignores divergent live UC', () => {
     const livePack = {
       functionalRequirements: [{ externalId: 'FR-L' }],

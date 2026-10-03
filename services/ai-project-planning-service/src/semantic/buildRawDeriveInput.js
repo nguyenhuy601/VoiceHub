@@ -2,10 +2,11 @@
  * Build per-section input slices from Customer Raw pack for LLM/deterministic derive.
  * Caps rows to keep prompts bounded.
  * Prefer Raw + normalized FR + Requirement Understanding + evidence (not Raw→LLM alone).
- * BG uses dedicated V2 contract (buildBgDeriveInput) — not the shared raw dump.
+ * LLM sections use slim V2 contracts (buildDeriveInputForSection) — not the shared raw dump.
  */
 
 const { buildBgDeriveInput, profileBgDeriveInput } = require('./buildBgDeriveInput');
+const { buildDeriveInputForSection } = require('./buildSectionDeriveInputs');
 
 const FR_CAP = 40;
 const BRQ_CAP = 20;
@@ -205,63 +206,9 @@ function buildRawDeriveInput(engineId, pack, opts = {}) {
       'Project Analysis candidates ONLY from functionalRequirements + requirementUnderstanding + evidenceRefs + overview. Do not invent features without source ids.',
   };
 
-  if (id === 'bg') {
-    return buildBgDeriveInput(pack, opts);
-  }
-  if (id === 'br') {
-    return {
-      ...base,
-      focus: 'business_rules',
-      overview: {
-        constraint: overview.constraint,
-        assumption: overview.assumption,
-        businessScope: overview.businessScope,
-      },
-    };
-  }
-  if (id === 'bpm') {
-    return {
-      ...base,
-      focus: 'business_processes',
-      businessRequests: brqAll.slice(0, BRQ_CAP),
-    };
-  }
-  if (id === 'uc') {
-    return {
-      ...base,
-      focus: 'use_cases',
-      targetUsers: overview.expectedUsers,
-      businessRequests: brqAll.slice(0, BRQ_CAP),
-    };
-  }
-  if (id === 'data') {
-    return {
-      ...base,
-      focus: 'domain_entities',
-      overview: {
-        businessDomain: overview.businessScope,
-        projectName: overview.projectName,
-      },
-      businessRequests: brqAll.slice(0, 8),
-    };
-  }
-  if (id === 'interface') {
-    return {
-      ...base,
-      focus: 'external_interfaces',
-      overview: {
-        platform: overview.platform,
-        existingSystem: overview.existingSystem,
-        integration: overview.integration,
-      },
-      functionalRequirements: frAll
-        .filter((r) => /api|sso|integrat|email|sms|payment|external/i.test(`${r.name} ${r.description}`))
-        .slice(0, 20)
-        .concat(frAll.slice(0, 10))
-        .filter((row, index, arr) => arr.findIndex((x) => x.id === row.id) === index)
-        .slice(0, FR_CAP),
-      nonFunctionalRequirements: nfrAll.slice(0, NFR_CAP),
-    };
+  // LLM Analysis sections: slim V2 (BG contract + per-sec builders). Legacy dump unused.
+  if (['bg', 'br', 'uc', 'bpm', 'data', 'interface'].includes(id)) {
+    return buildDeriveInputForSection(id, pack, opts);
   }
   if (id === 'actors') {
     return {

@@ -22,6 +22,8 @@ module.exports = {
   ...require('./approvedSrsVersionManifest'),
   ...require('./metaGate'),
   ...require('./gate1ReadinessPolicy'),
+  ...require('./artifactRevision'),
+  ...require('./gateSubmissionManifest'),
   contracts: require('./contracts'),
   engines: require('./engines'),
 };

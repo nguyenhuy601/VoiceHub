@@ -1,5 +1,6 @@
 /**
  * LLM derive Analysis sections from Customer Raw pack slices (RULE-RAW-DERIVE-01…05).
+ * Same pipeline for every unlocked sec; input/output shaped per section (BG as reference).
  */
 
 const { getSemanticTask, TASK_POLICIES } = require('./semanticTaskRegistry');
@@ -13,30 +14,37 @@ const {
   isCriticalRawDeriveSection,
 } = require('./rawSectionDerivePolicy');
 const { isLlmEnabled } = require('../runtime/ollamaGenerate');
+const {
+  SECTION_BY_ENGINE,
+  RESULT_KEY_BY_ENGINE,
+  RESULT_ALIASES,
+  PREFIX_BY_ENGINE,
+  SECTION_LABEL,
+  resolveSectionMaxTokens,
+  resolveSectionTimeoutMs,
+  resolveDeriveNumCtx,
+} = require('./sectionDeriveRegistry');
+const { applySectionDeriveQuality } = require('./sectionDeriveQuality');
 
-/** BG V2: prefer planning timeout; default 240s (derive previously stuck at 180s). */
+/** @deprecated use resolveSectionTimeoutMs('bg') — kept for tests */
 function resolveBgDeriveTimeoutMs(env = process.env) {
-  const raw = env.OLLAMA_PLANNING_TIMEOUT_MS || env.OLLAMA_TIMEOUT_MS;
-  const n = Number(raw);
-  if (Number.isFinite(n) && n >= 5000) return Math.min(600000, n);
-  return 240000;
+  return resolveSectionTimeoutMs('bg', env);
 }
 
-/** BG V2: smaller num_predict — goals JSON, not full SRS. */
+/** @deprecated use resolveSectionMaxTokens('bg') — kept for tests */
 function resolveBgDeriveMaxTokens(env = process.env) {
-  const n = Number(env.PHASE1_BG_DERIVE_MAX_TOKENS);
-  if (Number.isFinite(n) && n >= 256) return Math.min(2048, Math.floor(n));
-  return 768;
+  return resolveSectionMaxTokens('bg', env);
 }
 
-const SECTION_LABEL = Object.freeze({
-  bg: 'BG',
-  br: 'BR',
-  bpm: 'BPM',
-  uc: 'UC',
-  data: 'Data',
-  interface: 'Interface',
-});
+/**
+ * Opt-in only: deterministic BG from BRQ (not the main WHAT path).
+ * Default OFF — real LLM derive. Set PHASE1_BG_BRQ_SEED=1 to enable.
+ */
+function isBgBrqSeedEnabled(env = process.env) {
+  if (String(env.PHASE1_BG_FORCE_LLM || '').trim() === '1') return false;
+  const raw = String(env.PHASE1_BG_BRQ_SEED ?? '0').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'on';
+}
 
 /**
  * Hard-fail phase_what when an active LLM derive section fails or returns empty.
@@ -61,53 +69,25 @@ function assertCriticalDeriveOk(engineId, result, env = process.env) {
   throw err;
 }
 
-const SECTION_BY_ENGINE = Object.freeze({
-  bg: 'businessGoals',
-  br: 'businessRules',
-  bpm: 'processes',
-  uc: 'useCases',
-  data: 'entities',
-  interface: 'interfaces',
-});
-
-const RESULT_KEY_BY_ENGINE = Object.freeze({
-  bg: 'goals',
-  br: 'rules',
-  bpm: 'processes',
-  uc: 'useCases',
-  data: 'entities',
-  interface: 'interfaces',
-});
-
-const PREFIX_BY_ENGINE = Object.freeze({
-  bg: 'BG',
-  br: 'BR',
-  bpm: 'BPM',
-  uc: 'UC',
-  data: 'ENT',
-  interface: 'IF',
-});
-
 function buildDerivePrompt(engineId, input, task) {
-  const schemaHint = task?.semanticSchema ? JSON.stringify(task.semanticSchema) : '{}';
   const resultKey = RESULT_KEY_BY_ENGINE[engineId] || 'items';
-  const isBgV2 = engineId === 'bg' && input?.mode === 'raw_derive_v2';
-  if (isBgV2) {
+  const section = SECTION_BY_ENGINE[engineId] || engineId;
+  const isV2 = input?.mode === 'raw_derive_v2';
+  // V2: compact instruction + input only (no full schema dump — was wasting tokens/time).
+  if (isV2) {
     return [
-      `SemanticTask=bg mode=raw_derive_v2 section=businessGoals`,
-      'Derive business goal CANDIDATES only. Prefer businessRequests.businessGoal as primary signal.',
-      'Use businessThemes + requirements (id/name/module/actor) to enrich, split, or normalize — not invent.',
-      'Do not invent FR ids; relatedFrIds must reference requirements[].id or BRQ ids.',
-      'Every goal MUST include relatedFrIds and sourceRefs (FR-/BRQ- ids).',
-      `Put the array under key "${resultKey}".`,
+      `SemanticTask=${engineId} mode=raw_derive_v2 section=${section}`,
+      'Derive CANDIDATES only from the Input. Do not invent FR ids not present in Input.',
+      'Every item MUST include sourceRefs and/or relatedFrIds when possible.',
+      `Put the array under key "${resultKey}". JSON object only — no markdown.`,
       task?.promptPolicy || '',
       input?.deriveInstruction || '',
-      `Schema hint: ${schemaHint}`,
       `Input: ${JSON.stringify(input)}`,
     ].join('\n');
   }
+  const schemaHint = task?.semanticSchema ? JSON.stringify(task.semanticSchema) : '{}';
   return [
-    `SemanticTask=${engineId} mode=raw_derive section=${SECTION_BY_ENGINE[engineId]}`,
+    `SemanticTask=${engineId} mode=raw_derive section=${section}`,
     'Customer Raw has NO Analysis sheets. Derive this section as CANDIDATE proposals.',
     'Project ONLY from functionalRequirements + requirementUnderstanding + evidenceRefs + overview.',
     'Do not invent FR ids that are not in functionalRequirements / understanding.',
@@ -120,11 +100,28 @@ function buildDerivePrompt(engineId, input, task) {
 }
 
 function extractArray(engineId, data) {
+  if (Array.isArray(data)) return data;
   if (!data || typeof data !== 'object') return [];
   const key = RESULT_KEY_BY_ENGINE[engineId];
   if (key && Array.isArray(data[key])) return data[key];
   if (Array.isArray(data.items)) return data.items;
+  const aliases = RESULT_ALIASES[engineId] || [];
+  for (const alias of aliases) {
+    if (Array.isArray(data[alias])) return data[alias];
+  }
   return [];
+}
+
+function resolveDeriveLogicalId(engineId, row, index) {
+  const prefix = PREFIX_BY_ENGINE[engineId] || 'ITEM';
+  const raw = String(
+    row.goalId || row.ruleId || row.processId || row.ucId || row.entityId || row.ifId || row.id || ''
+  ).trim();
+  if (!raw) return `${prefix}-${index + 1}`;
+  // BG may keep BRQ-* lineage; other secs must not use CR/FR/NFR as their own id.
+  if (engineId === 'bg') return raw;
+  if (/^(CR|FR|NFR)-/i.test(raw)) return `${prefix}-${index + 1}`;
+  return raw;
 }
 
 function mapRowToItem(engineId, row, index) {
@@ -147,25 +144,29 @@ function mapRowToItem(engineId, row, index) {
     row.ruleCondition ||
     `Derived ${prefix}-${index + 1}`;
 
-  const description =
+  let description =
     row.description ||
     row.ruleAction ||
     row.rationale ||
     row.mainFlow ||
     (Array.isArray(row.businessSteps) ? row.businessSteps.map((s) => s.name || s).join('; ') : '') ||
+    (Array.isArray(row.steps) ? row.steps.map((s) => (typeof s === 'string' ? s : s.name || '')).join('; ') : '') ||
     '';
+  if (!description && Array.isArray(row.attributes) && row.attributes.length) {
+    description = row.attributes.map(String).join(', ');
+  }
 
   return stampProposalItem(
     {
-      logicalId: row.goalId || row.ruleId || row.processId || row.ucId || row.entityId || row.ifId || row.id || `${prefix}-${index + 1}`,
+      logicalId: resolveDeriveLogicalId(engineId, row, index),
       title: String(title).slice(0, 240),
       description: typeof description === 'string' ? description.slice(0, 2000) : String(description || '').slice(0, 2000),
-      actor: row.actor || undefined,
+      actor: row.actor || row.primaryActor || undefined,
       relatedFrIds: related,
       sourceRefs,
       attributes: row.attributes,
       steps: row.mainFlow || row.businessSteps || row.steps,
-      classification: row.category || row.direction || undefined,
+      classification: row.category || row.direction || row.protocol || undefined,
       status: 'PROPOSED',
     },
     {
@@ -181,14 +182,31 @@ function mapRowToItem(engineId, row, index) {
   );
 }
 
+function existingSheetRows(engineId, pack) {
+  if (engineId === 'bg') return pack.businessGoals || pack.goals;
+  if (engineId === 'br') return pack.businessRules;
+  if (engineId === 'bpm') return pack.businessProcesses || pack.processes;
+  if (engineId === 'uc') return pack.useCases;
+  if (engineId === 'data') return pack.entities || pack.domainEntities;
+  if (engineId === 'interface') return pack.interfaces;
+  return [];
+}
+
+function sourceRowCount(input) {
+  return (
+    input?.requirements?.length ||
+    input?.frSlim?.length ||
+    input?.integrationSignals?.length ||
+    input?.functionalRequirements?.length ||
+    input?.businessRequests?.length ||
+    input?.brqSlim?.length ||
+    input?.modules?.length ||
+    0
+  );
+}
+
 /**
  * Derive one LLM section from Raw pack.
- * @param {{
- *   engineId: string,
- *   pack: object,
- *   env?: NodeJS.ProcessEnv,
- *   invokeFn?: typeof invokeSemanticRuntime,
- * }} opts
  */
 async function runRawSectionDerive(opts = {}) {
   const engineId = String(opts.engineId || '');
@@ -219,43 +237,179 @@ async function runRawSectionDerive(opts = {}) {
     };
   }
 
+  /**
+   * PERF: grounded-first for secs with strong FR signals (not invent).
+   * Default ON for data/interface/uc/bpm — keeps LLM for bg+br. Disable via PHASE1_<SEC>_GROUNDED_FIRST=0.
+   */
+  const groundedCfg = {
+    data: { envKey: 'PHASE1_DATA_GROUNDED_FIRST', min: 3 },
+    interface: { envKey: 'PHASE1_INTERFACE_GROUNDED_FIRST', min: 2 },
+    uc: { envKey: 'PHASE1_UC_GROUNDED_FIRST', min: 2 },
+    bpm: { envKey: 'PHASE1_BPM_GROUNDED_FIRST', min: 2 },
+  }[engineId];
+  if (groundedCfg) {
+    const flag = String(env[groundedCfg.envKey] ?? '1').trim().toLowerCase();
+    const groundedOn = flag !== '0' && flag !== 'false' && flag !== 'off';
+    if (groundedOn) {
+      const inputPreview = buildRawDeriveInput(engineId, pack, {
+        proposal: opts.proposal,
+        g4Understanding: opts.g4Understanding,
+        evidence: opts.evidence,
+        snapshot: opts.snapshot,
+      });
+      const seeded = applySectionDeriveQuality(engineId, [], pack, inputPreview);
+      if (seeded.rows.length >= groundedCfg.min) {
+        const items = seeded.rows.map((row, i) => mapRowToItem(engineId, row, i));
+        // eslint-disable-next-line no-console
+        console.info(
+          '[raw_derive] section=%s items=%d llmCalls=0 reason=GROUNDED_FIRST',
+          engineId,
+          items.length
+        );
+        return {
+          status: TASK_POLICIES.RUN,
+          reason: 'GROUNDED_FIRST',
+          items,
+          llmCalls: 0,
+          generationMs: 0,
+          evalCount: 0,
+          promptChars: 0,
+          maxTokens: 0,
+          quality: { ...seeded.quality, seeded: true, reason: 'GROUNDED_FIRST' },
+          coverage: {
+            status: 'AVAILABLE',
+            reason: 'GROUNDED_FIRST',
+            sourceStats: {
+              sourceRows: sourceRowCount(inputPreview),
+              mappedRows: items.length,
+              orphanRows: 0,
+            },
+          },
+          section,
+        };
+      }
+    }
+  }
+
+  // Opt-in shortcut only (PHASE1_BG_BRQ_SEED=1). Default path is real LLM.
+  if (engineId === 'bg' && isBgBrqSeedEnabled(env)) {
+    const { buildDeterministicBgGoalsFromBrq } = require('./buildBgDeriveInput');
+    const seeded = buildDeterministicBgGoalsFromBrq(pack, { snapshot: opts.snapshot });
+    const minGoals = Number(env.PHASE1_BG_BRQ_SEED_MIN);
+    const need = Number.isFinite(minGoals) && minGoals >= 1 ? Math.floor(minGoals) : 2;
+    if (seeded.items.length >= need) {
+      const items = seeded.items.map((row, i) => mapRowToItem(engineId, row, i));
+      // eslint-disable-next-line no-console
+      console.info(
+        '[raw_derive] section=bg items=%d llmCalls=0 reason=BRQ_SEED brqWithGoal=%d',
+        items.length,
+        seeded.brqWithGoal
+      );
+      return {
+        status: TASK_POLICIES.RUN,
+        reason: 'BRQ_SEED',
+        items,
+        llmCalls: 0,
+        generationMs: 0,
+        evalCount: 0,
+        promptChars: 0,
+        maxTokens: 0,
+        coverage: {
+          status: 'AVAILABLE',
+          reason: 'BRQ_SEED',
+          sourceStats: {
+            sourceRows: seeded.brqWithGoal,
+            mappedRows: items.length,
+            orphanRows: 0,
+          },
+        },
+        section,
+      };
+    }
+  }
+
   const task = getSemanticTask(engineId);
   const input = buildRawDeriveInput(engineId, pack, {
     proposal: opts.proposal,
     g4Understanding: opts.g4Understanding,
     evidence: opts.evidence,
+    snapshot: opts.snapshot,
   });
   const prompt = buildDerivePrompt(engineId, input, task);
+  const isV2 = input?.mode === 'raw_derive_v2';
+  const maxTokens = resolveSectionMaxTokens(engineId, env);
+  const timeoutMs = resolveSectionTimeoutMs(engineId, env);
+  const numCtx = resolveDeriveNumCtx(env);
 
-  const isBgV2 = engineId === 'bg' && input?.mode === 'raw_derive_v2';
-  const maxTokens = isBgV2 ? resolveBgDeriveMaxTokens(env) : 4096;
-  const timeoutMs = isBgV2 ? resolveBgDeriveTimeoutMs(env) : undefined;
-
-  if (isBgV2) {
+  if (isV2 && engineId === 'bg') {
     const profile = profileBgDeriveInput(input, prompt);
     // eslint-disable-next-line no-console
     console.info('[bg_input_profile] %s', JSON.stringify(profile));
-  }
-
-  const startedAt = Date.now();
-  const runtime = await invokeFn({ prompt, env, maxTokens, timeoutMs });
-  const generationMs = Date.now() - startedAt;
-
-  if (isBgV2) {
+  } else if (isV2) {
     // eslint-disable-next-line no-console
     console.info(
-      '[bg_input_profile] generationMs=%d ok=%s reason=%s promptChars=%d maxTokens=%d timeoutMs=%d',
-      generationMs,
-      Boolean(runtime?.ok),
-      runtime?.reason || null,
+      '[sec_input_profile] section=%s promptChars=%d maxTokens=%d numCtx=%d timeoutMs=%d sourceRows=%d',
+      engineId,
       prompt.length,
       maxTokens,
-      timeoutMs
+      numCtx,
+      timeoutMs,
+      sourceRowCount(input)
     );
   }
 
+  const startedAt = Date.now();
+  const runtime = await invokeFn({ prompt, env, maxTokens, timeoutMs, numCtx });
+  const generationMs = Date.now() - startedAt;
+
+  // eslint-disable-next-line no-console
+  console.info(
+    '[raw_derive_timing] section=%s generationMs=%d ok=%s reason=%s promptChars=%d maxTokens=%d evalCount=%d',
+    engineId,
+    generationMs,
+    Boolean(runtime?.ok),
+    runtime?.reason || null,
+    prompt.length,
+    maxTokens,
+    Number(runtime?.usage?.evalCount) || 0
+  );
+
   if (!runtime?.ok || runtime.skipped) {
     const reason = runtime?.reason || 'DERIVE_EMPTY';
+    // data/interface: grounded seed when LLM fails — keeps section usable on 3B drift/timeout
+    if ((engineId === 'data' || engineId === 'interface') && reason !== 'LLM_DISABLED') {
+      const qualityPass = applySectionDeriveQuality(engineId, [], pack, input);
+      if (qualityPass.rows.length) {
+        const items = qualityPass.rows.map((row, i) => mapRowToItem(engineId, row, i));
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[raw_derive] section=%s items=%d llmCalls=%d reason=%s fallback=%s',
+          engineId,
+          items.length,
+          runtime?.skipped ? 0 : 1,
+          reason,
+          qualityPass.quality?.reason
+        );
+        return {
+          status: TASK_POLICIES.RUN,
+          reason: qualityPass.quality?.reason || reason,
+          items,
+          llmCalls: runtime?.skipped ? 0 : 1,
+          generationMs,
+          quality: qualityPass.quality,
+          coverage: {
+            status: 'AVAILABLE',
+            reason: qualityPass.quality?.reason || reason,
+            sourceStats: {
+              sourceRows: sourceRowCount(input),
+              mappedRows: items.length,
+              orphanRows: 0,
+            },
+          },
+          section,
+        };
+      }
+    }
     // eslint-disable-next-line no-console
     console.warn(
       '[raw_derive] section=%s items=0 llmCalls=%d reason=%s error=%s',
@@ -269,6 +423,7 @@ async function runRawSectionDerive(opts = {}) {
       reason,
       items: [],
       llmCalls: runtime?.skipped ? 0 : 1,
+      generationMs,
       coverage: {
         status: 'NO_DATA',
         reason: reason === 'LLM_DISABLED' ? 'LLM_DISABLED' : 'DERIVE_EMPTY',
@@ -278,30 +433,38 @@ async function runRawSectionDerive(opts = {}) {
   }
 
   const rawItems = extractArray(engineId, runtime.data);
-  const items = rawItems.map((row, i) => mapRowToItem(engineId, row, i));
+  const qualityPass = applySectionDeriveQuality(engineId, rawItems, pack, input);
+  const items = qualityPass.rows.map((row, i) => mapRowToItem(engineId, row, i));
+  const qualityReason = qualityPass.quality?.reason || null;
+  const okReason = qualityReason || (items.length ? 'ok' : 'DERIVE_EMPTY');
 
   // eslint-disable-next-line no-console
   console.info(
-    '[raw_derive] section=%s items=%d llmCalls=1 reason=%s',
+    '[raw_derive] section=%s items=%d llmCalls=1 reason=%s generationMs=%d filtered=%d seeded=%s',
     engineId,
     items.length,
-    items.length ? 'ok' : 'DERIVE_EMPTY'
+    okReason,
+    generationMs,
+    Number(qualityPass.quality?.filtered) || 0,
+    Boolean(qualityPass.quality?.seeded)
   );
 
   return {
     status: items.length ? TASK_POLICIES.RUN : TASK_POLICIES.SKIP,
-    reason: items.length ? null : 'DERIVE_EMPTY',
+    reason: items.length ? qualityReason : 'DERIVE_EMPTY',
     items,
     llmCalls: 1,
+    generationMs,
+    evalCount: Number(runtime?.usage?.evalCount) || 0,
+    promptEvalCount: Number(runtime?.usage?.promptEvalCount) || 0,
+    promptChars: prompt.length,
+    maxTokens,
+    quality: qualityPass.quality,
     coverage: {
       status: items.length ? 'AVAILABLE' : 'NO_DATA',
-      reason: items.length ? null : 'DERIVE_EMPTY',
+      reason: items.length ? qualityReason : 'DERIVE_EMPTY',
       sourceStats: {
-        sourceRows:
-          input.requirements?.length ||
-          input.functionalRequirements?.length ||
-          input.businessRequests?.length ||
-          0,
+        sourceRows: sourceRowCount(input),
         mappedRows: items.length,
         orphanRows: 0,
       },
@@ -312,7 +475,7 @@ async function runRawSectionDerive(opts = {}) {
 }
 
 /**
- * Run active LLM derive sections in order (default UC → BG).
+ * Run active LLM derive sections in unlock order from PHASE1_RAW_DERIVE_SECTIONS.
  * Critical sections (active set) throw RAW_DERIVE_FAILED on empty/fail → abort phase_what.
  */
 async function runAllRawSectionDerives(opts = {}) {
@@ -322,21 +485,7 @@ async function runAllRawSectionDerives(opts = {}) {
   const byId = {};
   for (const engineId of order) {
     if (!shouldRawDeriveSection(engineId, pack, env)) continue;
-    // Skip if sheet already has rows
-    const existing =
-      engineId === 'bg'
-        ? pack.businessGoals || pack.goals
-        : engineId === 'br'
-          ? pack.businessRules
-          : engineId === 'bpm'
-            ? pack.businessProcesses || pack.processes
-            : engineId === 'uc'
-              ? pack.useCases
-              : engineId === 'data'
-                ? pack.entities || pack.domainEntities
-                : engineId === 'interface'
-                  ? pack.interfaces
-                  : [];
+    const existing = existingSheetRows(engineId, pack);
     if (Array.isArray(existing) && existing.length) {
       byId[engineId] = {
         status: TASK_POLICIES.SKIP,
@@ -355,6 +504,7 @@ async function runAllRawSectionDerives(opts = {}) {
       proposal: opts.proposal,
       g4Understanding: opts.g4Understanding,
       evidence: opts.evidence,
+      snapshot: opts.snapshot,
     });
     assertCriticalDeriveOk(engineId, byId[engineId], env);
   }
@@ -367,7 +517,10 @@ module.exports = {
   runAllRawSectionDerives,
   buildDerivePrompt,
   mapRowToItem,
+  resolveDeriveLogicalId,
+  extractArray,
   assertCriticalDeriveOk,
   resolveBgDeriveTimeoutMs,
   resolveBgDeriveMaxTokens,
+  isBgBrqSeedEnabled,
 };

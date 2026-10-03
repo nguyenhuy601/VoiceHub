@@ -12,6 +12,7 @@ import {
   formatGate1ApproveError,
 } from '../../../requirements/approveRequirementPackWithGate1';
 import { buildGate1ProposalItems } from '../buildGate1ProposalItems';
+import { attachConflictAmbiguityToGate1Bundle } from '../gate1/resolveConflictAmbiguityUi';
 import AiHitlMonitorPanel from './AiHitlMonitorPanel';
 import AiHitlReviewPanel from './AiHitlReviewPanel';
 import { resolveAiHitlReviewMode } from './aiHitlReviewMode';
@@ -30,7 +31,17 @@ function buildGate1Summary(pack) {
   const g4 = pack?.aiAnalysis?.analyses?.g4Understanding;
   const proposal = pack?.aiAnalysis?.analyses?.srsProposal;
   const phaseWhat = pack?.aiAnalysis?.phaseRuns?.phase_what;
-  const bundle = buildGate1ProposalItems({ pack, g4, proposal });
+  const bundle = attachConflictAmbiguityToGate1Bundle(
+    buildGate1ProposalItems({ pack, g4, proposal }),
+    pack,
+    g4
+  );
+  const decisions = proposal?.review?.decisions || {};
+  const expectedRevisionIds = {};
+  for (const [logicalId, d] of Object.entries(decisions)) {
+    if (d?.revisionId) expectedRevisionIds[logicalId] = String(d.revisionId);
+  }
+
   return {
     done: true,
     proposalItems: bundle.items,
@@ -39,9 +50,13 @@ function buildGate1Summary(pack) {
     proposalSections: bundle.sections,
     sectionReviews: bundle.sectionReviews || proposal?.completeness?.sectionReviews || [],
     softGaps: bundle.softGaps || proposal?.completeness?.softGaps || [],
+    conflictAmbiguity: bundle.conflictAmbiguity || null,
     readyForGate1: proposal?.completeness?.readyForGate1 !== false,
     reviewComplete: Boolean(proposal?.review?.summary?.complete),
     reviewVersion: proposal?.reviewVersion ?? 0,
+    expectedRevisionIds,
+    activeSubmissionId: pack?.aiAnalysis?.gate1?.activeSubmissionId || null,
+    activeReviewId: pack?.aiAnalysis?.gate1?.activeReviewId || null,
     isCustomerRawIntake: Boolean(
       pack?.aiAnalysis?.formValidation?.recognizedAsCustomerRaw ||
         pack?.aiAnalysis?.workbookDiagnostic?.intakeKind === 'customer_raw' ||
@@ -406,13 +421,20 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     }
   };
 
-  const onGate1Submit = async ({ reviewDecisions, reviewVersion }) => {
+  const onGate1Submit = async ({
+    reviewDecisions,
+    reviewVersion,
+    expectedRevisionIds,
+    withdrawSubmissionId,
+  }) => {
     if (!organizationId || !packId || busy) return;
     setBusy(true);
     try {
       await requirementAPI.submitPack(organizationId, packId, {
         reviewDecisions,
         expectedReviewVersion: reviewVersion,
+        expectedRevisionIds: expectedRevisionIds || undefined,
+        withdrawSubmissionId: withdrawSubmissionId || undefined,
       });
       toast.success(t('requirements.understandingGate1Submitted') || 'Đã gửi duyệt Gate 1.');
       await refresh();

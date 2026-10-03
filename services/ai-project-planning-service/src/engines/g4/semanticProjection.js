@@ -82,17 +82,31 @@ async function runSemanticProjection(opts = {}) {
   const batch = opts.batch || [];
   const policy = opts.policy || {};
   if (!batch.length || !policy.enabled) {
-    return { ok: true, skipped: true, items: [], error: null, llmCalls: 0 };
+    return { ok: true, skipped: true, items: [], error: null, llmCalls: 0, evalCount: 0, durationMs: 0, promptChars: 0 };
   }
+  const prompt = buildSemanticPrompt(batch);
+  const t0 = Date.now();
   const result = await generate({
-    prompt: buildSemanticPrompt(batch),
+    prompt,
     numPredict: policy.maxOutputTokens || 512,
     numCtx: policy.numCtx || 4096,
     timeoutMs: policy.timeoutMs || 60_000,
     env: opts.env,
   });
+  const durationMs = Math.max(0, Date.now() - t0);
+  const evalCount = Number(result.usage?.evalCount) || 0;
+  const promptChars = prompt.length;
   if (result.skipped) {
-    return { ok: false, skipped: true, items: [], error: result.error || 'llm_skipped', llmCalls: 0 };
+    return {
+      ok: false,
+      skipped: true,
+      items: [],
+      error: result.error || 'llm_skipped',
+      llmCalls: 0,
+      evalCount,
+      durationMs,
+      promptChars,
+    };
   }
   if (!result.ok) {
     return {
@@ -101,10 +115,22 @@ async function runSemanticProjection(opts = {}) {
       items: [],
       error: result.error || 'ollama_error',
       llmCalls: 1,
+      evalCount,
+      durationMs,
+      promptChars,
     };
   }
   const items = normalizeSemanticItems(result.data, opts.requireEvidence !== false);
-  return { ok: true, skipped: false, items, error: null, llmCalls: 1 };
+  return {
+    ok: true,
+    skipped: false,
+    items,
+    error: null,
+    llmCalls: 1,
+    evalCount,
+    durationMs,
+    promptChars,
+  };
 }
 
 async function runConflictProjection(opts = {}) {
@@ -112,21 +138,40 @@ async function runConflictProjection(opts = {}) {
   const batch = opts.batch || [];
   const policy = opts.policy || {};
   if (!batch.length || !policy.enabled) {
-    return { ok: true, skipped: true, conflicts: [], verdicts: [], error: null, llmCalls: 0 };
+    return {
+      ok: true,
+      skipped: true,
+      conflicts: [],
+      verdicts: [],
+      error: null,
+      llmCalls: 0,
+      evalCount: 0,
+      durationMs: 0,
+      promptChars: 0,
+      skipReason: 'no_batch_or_disabled',
+    };
   }
+  const prompt = buildConflictPrompt(batch);
+  const t0 = Date.now();
   const result = await generate({
-    prompt: buildConflictPrompt(batch),
+    prompt,
     numPredict: policy.maxOutputTokens || 384,
     numCtx: policy.numCtx || 4096,
     timeoutMs: policy.timeoutMs || 45_000,
     env: opts.env,
   });
+  const durationMs = Math.max(0, Date.now() - t0);
+  const evalCount = Number(result.usage?.evalCount) || 0;
+  const promptChars = prompt.length;
   if (!result.ok || result.skipped) {
     return {
       ok: false,
       skipped: Boolean(result.skipped),
       conflicts: [],
       verdicts: [],
+      evalCount,
+      durationMs,
+      promptChars,
       error: result.error || 'ollama_error',
       llmCalls: result.skipped ? 0 : 1,
     };
@@ -163,7 +208,17 @@ async function runConflictProjection(opts = {}) {
       pairKey: v.pairKey,
       verdict: v.verdict,
     }));
-  return { ok: true, skipped: false, conflicts, verdicts, error: null, llmCalls: 1 };
+  return {
+    ok: true,
+    skipped: false,
+    conflicts,
+    verdicts,
+    error: null,
+    llmCalls: 1,
+    evalCount,
+    durationMs,
+    promptChars,
+  };
 }
 
 module.exports = {

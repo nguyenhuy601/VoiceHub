@@ -14,26 +14,30 @@ async function enrichRunInputWithG1Catalogs(run) {
     run?.input && typeof run.input === 'object' ? { ...run.input } : {};
   const rawSnapshot = input.snapshot || input.snapshotPayload || null;
 
-  const attachInput =
-    rawSnapshot && typeof rawSnapshot === 'object'
-      ? {
-          ...rawSnapshot,
-          pack: input.pack || rawSnapshot.pack,
-          staffingPlan:
-            rawSnapshot.staffingPlan ||
-            input.pack?.staffingPlan ||
-            rawSnapshot.pack?.staffingPlan,
-          requirementSkills:
-            rawSnapshot.requirementSkills ||
-            input.pack?.requirementSkills ||
-            rawSnapshot.pack?.requirementSkills,
-        }
-      : {
-          pack: input.pack || null,
-          staffingPlan: input.pack?.staffingPlan,
-          requirementSkills: input.pack?.requirementSkills,
-          projected: input.pack?.projected || undefined,
-        };
+  // Slim WHAT/HOW starts (RULE-DL-07) have no embedded snapshot/pack.
+  // Do NOT invent input.snapshot here — that forces hydrate into embedded_legacy
+  // with an empty pack and skips Customer Raw derive (BG/scope).
+  if (!rawSnapshot || typeof rawSnapshot !== 'object') {
+    return {
+      run,
+      snapshot: null,
+      g1Warnings: [],
+      g1Catalogs: null,
+    };
+  }
+
+  const attachInput = {
+    ...rawSnapshot,
+    pack: input.pack || rawSnapshot.pack,
+    staffingPlan:
+      rawSnapshot.staffingPlan ||
+      input.pack?.staffingPlan ||
+      rawSnapshot.pack?.staffingPlan,
+    requirementSkills:
+      rawSnapshot.requirementSkills ||
+      input.pack?.requirementSkills ||
+      rawSnapshot.pack?.requirementSkills,
+  };
 
   const { snapshot, g1Warnings, g1Catalogs } = attachG1Catalogs(attachInput);
 

@@ -1,7 +1,60 @@
 /**
- * Gate 1 — Conflict/Ambiguity must be clear (or forceApprove + overrideReason).
- * Track A. Pure; no Mongo.
+ * Gate 1 — Requirement Integrity Gate enforce (RULE-RIG).
+ * Hard-block only; warnings (e.g. REL_EVIDENCE_REQUIRED) do not 409.
+ * Legacy export names / errorCodes kept for compat wave.
  */
+
+const HARD_BLOCK_KINDS = new Set(['data_integrity', 'relationship_integrity']);
+const LEGACY_BLOCK_KINDS = new Set(['ambiguity', 'conflict']);
+const HARD_REL_CODES = new Set([
+  'REL_CIRCULAR',
+  'REL_TARGET_MISSING',
+  'REL_MISSING_ENDPOINT',
+]);
+
+function isHardBlockingItem(item) {
+  if (!item || typeof item !== 'object') return false;
+  const blockKind = String(item.blockKind || '');
+  if (HARD_BLOCK_KINDS.has(blockKind)) return true;
+  if (blockKind === 'ambiguity') {
+    // Legacy: only incomplete_fields is integrity; vague semantic was mislabeled
+    const kind = String(item.kind || 'incomplete_fields');
+    return kind === 'incomplete_fields' || kind === 'ambiguity' || !item.kind;
+  }
+  if (blockKind === 'conflict') {
+    const code = String(item.code || '');
+    if (code === 'REL_EVIDENCE_REQUIRED') return false;
+    return !code || HARD_REL_CODES.has(code) || Boolean(item.kind);
+  }
+  // Untyped legacy row with incomplete_fields
+  if (String(item.kind || '') === 'incomplete_fields') return true;
+  if (HARD_REL_CODES.has(String(item.code || ''))) return true;
+  return false;
+}
+
+function normalizeGateShape(raw, source) {
+  if (!raw || typeof raw !== 'object' || typeof raw.passed !== 'boolean') {
+    return null;
+  }
+  const warnings = Array.isArray(raw.warnings)
+    ? raw.warnings
+    : Array.isArray(raw.findings)
+      ? raw.findings
+      : [];
+  const rawBlocking = Array.isArray(raw.blocking) ? raw.blocking : [];
+  const blocking = rawBlocking.filter(isHardBlockingItem);
+  // Prefer recomputed pass from hard blocking (B2: ignore evidence warnings)
+  const passed = blocking.length === 0;
+  return {
+    passed,
+    blocking,
+    warnings,
+    ambiguities: Array.isArray(raw.ambiguities) ? raw.ambiguities : [],
+    conflicts: Array.isArray(raw.conflicts) ? raw.conflicts : [],
+    source,
+    gateKind: raw.gateKind || 'requirement_integrity',
+  };
+}
 
 /**
  * @param {object} pack
@@ -10,29 +63,31 @@
 function resolveConflictAmbiguityFromPack(pack) {
   const analyses = pack?.aiAnalysis?.analyses || pack?.analyses || {};
   const g4 = analyses.g4Understanding;
-  const fromG4 = g4?.conflictAmbiguityGate || g4?.meta?.conflictAmbiguityGate;
-  if (fromG4 && typeof fromG4 === 'object' && typeof fromG4.passed === 'boolean') {
-    return {
-      passed: fromG4.passed === true,
-      blocking: Array.isArray(fromG4.blocking) ? fromG4.blocking : [],
-      ambiguities: Array.isArray(fromG4.ambiguities) ? fromG4.ambiguities : [],
-      conflicts: Array.isArray(fromG4.conflicts) ? fromG4.conflicts : [],
-      source: 'analyses.g4Understanding.conflictAmbiguityGate',
-    };
-  }
+
+  const fromG4 =
+    g4?.requirementIntegrityGate ||
+    g4?.conflictAmbiguityGate ||
+    g4?.meta?.requirementIntegrityGate ||
+    g4?.meta?.conflictAmbiguityGate;
+  const normalizedG4 = normalizeGateShape(
+    fromG4,
+    g4?.requirementIntegrityGate
+      ? 'analyses.g4Understanding.requirementIntegrityGate'
+      : 'analyses.g4Understanding.conflictAmbiguityGate'
+  );
+  if (normalizedG4) return normalizedG4;
 
   const phaseWhat =
     pack?.aiAnalysis?.phaseRuns?.phase_what || pack?.phaseRuns?.phase_what || {};
-  const fromPhase = phaseWhat.conflictAmbiguityGate;
-  if (fromPhase && typeof fromPhase === 'object' && typeof fromPhase.passed === 'boolean') {
-    return {
-      passed: fromPhase.passed === true,
-      blocking: Array.isArray(fromPhase.blocking) ? fromPhase.blocking : [],
-      ambiguities: Array.isArray(fromPhase.ambiguities) ? fromPhase.ambiguities : [],
-      conflicts: Array.isArray(fromPhase.conflicts) ? fromPhase.conflicts : [],
-      source: 'phaseRuns.phase_what.conflictAmbiguityGate',
-    };
-  }
+  const fromPhase =
+    phaseWhat.requirementIntegrityGate || phaseWhat.conflictAmbiguityGate;
+  const normalizedPhase = normalizeGateShape(
+    fromPhase,
+    phaseWhat.requirementIntegrityGate
+      ? 'phaseRuns.phase_what.requirementIntegrityGate'
+      : 'phaseRuns.phase_what.conflictAmbiguityGate'
+  );
+  if (normalizedPhase) return normalizedPhase;
 
   // Derive lightly from raw g4 arrays if gate object missing (legacy)
   if (g4 && typeof g4 === 'object') {
@@ -40,32 +95,44 @@ function resolveConflictAmbiguityFromPack(pack) {
     const rejected = Array.isArray(g4.rejectedRelationships)
       ? g4.rejectedRelationships
       : [];
-    const conflicts = rejected.filter(
-      (r) =>
-        r.validationError === 'REL_CIRCULAR' ||
-        r.validationError === 'REL_TARGET_MISSING'
+    const dataIssues = ambiguities.filter(
+      (a) => String(a?.kind || '') === 'incomplete_fields' || !a?.kind
     );
-    if (ambiguities.length || conflicts.length) {
+    const conflicts = rejected.filter((r) =>
+      HARD_REL_CODES.has(String(r.validationError || r.code || ''))
+    );
+    if (dataIssues.length || conflicts.length) {
       const blocking = [
-        ...ambiguities.map((a) => ({ ...a, blockKind: 'ambiguity' })),
-        ...conflicts.map((c) => ({ ...c, blockKind: 'conflict' })),
+        ...dataIssues.map((a) => ({
+          ...a,
+          blockKind: 'data_integrity',
+          kind: a.kind || 'incomplete_fields',
+        })),
+        ...conflicts.map((c) => ({
+          ...c,
+          blockKind: 'relationship_integrity',
+          code: c.validationError || c.code,
+        })),
       ];
       return {
         passed: false,
         blocking,
-        ambiguities,
+        warnings: [],
+        ambiguities: dataIssues,
         conflicts,
         source: 'derived_g4_arrays',
+        gateKind: 'requirement_integrity',
       };
     }
-    // G4 present with no issues
     if (Array.isArray(g4.requirements) || g4.meta) {
       return {
         passed: true,
         blocking: [],
+        warnings: [],
         ambiguities: [],
         conflicts: [],
         source: 'derived_g4_clean',
+        gateKind: 'requirement_integrity',
       };
     }
   }
@@ -108,7 +175,6 @@ function assertGate1ConflictAmbiguityOrOverride({
   const reason = String(overrideReason || '').trim().slice(0, 2000);
 
   if (!gate) {
-    // No Phase1 G4 yet — leave to existing G4/GateA asserts; do not double-block
     return { ok: true, gate: null, override: null, missing: true };
   }
 
@@ -119,7 +185,7 @@ function assertGate1ConflictAmbiguityOrOverride({
   if (forced) {
     if (!reason) {
       const err = new Error(
-        'overrideReason bắt buộc khi forceApprove khi còn conflict/ambiguity'
+        'overrideReason bắt buộc khi forceApprove khi còn lỗi Requirement Integrity'
       );
       err.statusCode = 400;
       err.errorCode = 'CONFLICT_AMBIGUITY_OVERRIDE_REASON_REQUIRED';
@@ -138,7 +204,7 @@ function assertGate1ConflictAmbiguityOrOverride({
   }
 
   const err = new Error(
-    'Còn conflict/ambiguity chưa xử lý — làm rõ SRS hoặc forceApprove kèm lý do trước Gate 1.'
+    'Requirement Integrity Gate: còn lỗi cấu trúc (missing fields / relationship) — bổ sung dữ liệu hoặc forceApprove kèm lý do trước Gate 1.'
   );
   err.statusCode = 409;
   err.errorCode = 'CONFLICT_AMBIGUITY_BLOCKING';
@@ -146,7 +212,9 @@ function assertGate1ConflictAmbiguityOrOverride({
     gate: {
       passed: false,
       blocking: gate.blocking.slice(0, 30),
+      warnings: Array.isArray(gate.warnings) ? gate.warnings.slice(0, 20) : [],
       source: gate.source,
+      gateKind: gate.gateKind || 'requirement_integrity',
     },
   };
   throw err;
@@ -156,4 +224,7 @@ module.exports = {
   assertGate1ConflictAmbiguityOrOverride,
   resolveConflictAmbiguityFromPack,
   isGate1ConflictAmbiguityEnforceEnabled,
+  isHardBlockingItem,
+  HARD_BLOCK_KINDS,
+  LEGACY_BLOCK_KINDS,
 };

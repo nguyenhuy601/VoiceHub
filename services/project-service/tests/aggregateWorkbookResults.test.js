@@ -148,4 +148,48 @@ describe('aggregateWorkbookResults', () => {
     );
     assert.equal(computeAggregateStatus([{ status: 'SUCCESS' }], 1), 'SUCCESS');
   });
+
+  it('keeps richest canonicalRaw by requirements count (Semantic Contract P1)', () => {
+    const a = {
+      ...frResult({
+        documentId: 'a',
+        createdAt: 1,
+        status: 'SUCCESS',
+        frs: [{ externalId: 'CR-001', name: 'A', level: 'Requirement' }],
+      }),
+      canonicalRaw: {
+        registryVersion: 'raw-sem-v1',
+        counts: { requirements: 2 },
+      },
+      meta: {
+        documentId: 'a',
+        createdAt: 1,
+        applied: true,
+        intakeKind: 'customer_raw',
+        source: 'customer_raw',
+      },
+    };
+    const b = {
+      ...frResult({
+        documentId: 'b',
+        createdAt: 2,
+        status: 'SUCCESS',
+        frs: [{ externalId: 'CR-002', name: 'B', level: 'Requirement' }],
+      }),
+      canonicalRaw: {
+        registryVersion: 'raw-sem-v1',
+        counts: { requirements: 45 },
+      },
+      meta: {
+        documentId: 'b',
+        createdAt: 2,
+        applied: true,
+        intakeKind: 'customer_raw',
+        source: 'customer_raw',
+      },
+    };
+    const out = aggregateWorkbookResults([a, b]);
+    assert.equal(out.canonicalRaw.counts.requirements, 45);
+    assert.equal(out.workbookDiagnostic.intakeKind, 'customer_raw');
+  });
 });

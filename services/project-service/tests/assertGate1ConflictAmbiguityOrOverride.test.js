@@ -65,6 +65,63 @@ describe('assertGate1ConflictAmbiguityOrOverride Track A', () => {
     });
     assert.equal(gate.passed, true);
   });
+
+  it('B2: warnings-only (REL_EVIDENCE) does not block', () => {
+    const out = assertGate1ConflictAmbiguityOrOverride({
+      pack: {
+        aiAnalysis: {
+          analyses: {
+            g4Understanding: {
+              conflictAmbiguityGate: {
+                passed: false,
+                blocking: [],
+                warnings: [
+                  {
+                    severity: 'warn',
+                    code: 'REL_EVIDENCE_REQUIRED',
+                    kind: 'missing_evidence',
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      env: { GATE1_CONFLICT_AMBIGUITY_ENFORCE: '1' },
+    });
+    assert.equal(out.ok, true);
+    assert.equal(out.gate.passed, true);
+  });
+
+  it('R1: data_integrity incomplete_fields still blocks', () => {
+    assert.throws(
+      () =>
+        assertGate1ConflictAmbiguityOrOverride({
+          pack: {
+            aiAnalysis: {
+              analyses: {
+                g4Understanding: {
+                  requirementIntegrityGate: {
+                    passed: false,
+                    blocking: [
+                      {
+                        blockKind: 'data_integrity',
+                        kind: 'incomplete_fields',
+                        requirementId: 'CR-001',
+                        missing: ['Description'],
+                      },
+                    ],
+                    warnings: [],
+                  },
+                },
+              },
+            },
+          },
+          env: { GATE1_CONFLICT_AMBIGUITY_ENFORCE: '1' },
+        }),
+      (err) => err.errorCode === 'CONFLICT_AMBIGUITY_BLOCKING'
+    );
+  });
 });
 
 describe('assertRequirementGate1Approve integrates conflict gate', () => {

@@ -16,6 +16,12 @@ const {
   emptyCustomerRawRows,
 } = require('../requirement/workbookCompanionExtract');
 const { failedDiagnostic } = require('../requirement/workbookDiagnostic');
+const {
+  buildSectionInput,
+  frSectionToPackRows,
+  nfrSectionToPackRows,
+} = require('../requirement/sectionInputContract');
+const { clampOverviewForPack } = require('../requirement/requirementOverviewClamp');
 
 function mergeOverview(existing = {}, fromRaw = {}) {
   const next = { ...(existing || {}) };
@@ -33,9 +39,17 @@ function mergeOverview(existing = {}, fromRaw = {}) {
   for (const [key, value] of Object.entries(map)) {
     const v = normProse(value || '');
     if (!v) continue;
+    if (key === 'platform') {
+      if (!Array.isArray(next.platform) || !next.platform.length) next.platform = v;
+      continue;
+    }
+    if (key === 'budget') {
+      if (next.budget == null || next.budget === '') next.budget = v;
+      continue;
+    }
     if (!String(next[key] || '').trim()) next[key] = v;
   }
-  return next;
+  return clampOverviewForPack(next);
 }
 
 function mergeByExternalId(existingList, incomingList) {
@@ -61,6 +75,17 @@ function scopeFromContext(ctx = {}) {
     scope.push({ type: 'in', scopeType: 'in', description: ctx.businessScope });
   }
   return scope;
+}
+
+/** Deterministic scope from Section Input (prefer over ad-hoc context keys). */
+function scopeFromCanonicalRaw(canonicalRaw) {
+  if (!canonicalRaw) return [];
+  const section = buildSectionInput('scope', canonicalRaw);
+  return (section.items || []).map((row) => ({
+    type: row.type || 'in',
+    scopeType: row.type || 'in',
+    description: row.description || '',
+  }));
 }
 
 function emptyResult(meta = {}) {
@@ -133,19 +158,40 @@ function prefillWorkbook(buffer, metadata = {}) {
       if (raw.meta?.projectName && !overview.requirementName) {
         overview.requirementName = normProse(raw.meta.projectName);
       }
-      const scope = scopeFromContext(raw.context || {});
-      const frCount = base.functionalRequirements.length;
+      const canonicalRaw = raw.canonicalRaw || null;
+      // Prefer Section Input from canonicalRaw; dual-read pack extract as fallback
+      let functionalRequirements = base.functionalRequirements;
+      let nonFunctionalRequirements = base.nonFunctionalRequirements;
+      let scope = scopeFromContext(raw.context || {});
+      if (canonicalRaw) {
+        const frSec = buildSectionInput('fr', canonicalRaw);
+        const frRows = frSectionToPackRows(frSec);
+        if (frRows.length) {
+          functionalRequirements = mergeByExternalId(frRows, functionalRequirements);
+        }
+        const nfrSec = buildSectionInput('nfr', canonicalRaw);
+        const nfrRows = nfrSectionToPackRows(nfrSec);
+        if (nfrRows.length) {
+          nonFunctionalRequirements = mergeByExternalId(nfrRows, nonFunctionalRequirements);
+        }
+        const scopeCanon = scopeFromCanonicalRaw(canonicalRaw);
+        if (scopeCanon.length) scope = scopeCanon;
+      }
+      const frCount = functionalRequirements.length;
       const hasOverview = Boolean(
         overview.projectObjective || overview.requirementName || overview.businessScope
       );
       const applied = frCount > 0 || hasOverview || scope.length > 0
-        || base.nonFunctionalRequirements.length > 0
+        || nonFunctionalRequirements.length > 0
         || (base.customerRawRows.businessRequests || []).length > 0
         || (base.customerRawRows.references || []).length > 0;
       return {
         ...base,
+        functionalRequirements,
+        nonFunctionalRequirements,
         overview,
         scope,
+        canonicalRaw,
         meta: {
           applied,
           source: applied ? 'customer_raw' : 'none',
@@ -314,6 +360,7 @@ function prefillPackFromRawWorkbook(packInput, buffer, opts = {}) {
   const ai = pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
   if (result.workbookDiagnostic) ai.workbookDiagnostic = result.workbookDiagnostic;
   if (result.customerRawRows) ai.customerRawRows = result.customerRawRows;
+  if (result.canonicalRaw) ai.canonicalRaw = result.canonicalRaw;
   pack.aiAnalysis = ai;
 
   return {

@@ -13,6 +13,7 @@ const {
   LLM_DERIVE_SECTIONS,
 } = require('../src/semantic/rawSectionDerivePolicy');
 const { buildRawDeriveInput } = require('../src/semantic/buildRawDeriveInput');
+const { extractArray } = require('../src/semantic/runRawSectionDerive');
 
 describe('rawSectionDerivePolicy', () => {
   it('detects Customer Raw via formValidation.ok', () => {
@@ -30,6 +31,29 @@ describe('rawSectionDerivePolicy', () => {
         aiAnalysis: { workbookDiagnostic: { intakeKind: 'customer_raw' } },
       }),
       true
+    );
+  });
+
+  it('detects Customer Raw via canonicalRaw (hydrate freeze)', () => {
+    assert.equal(
+      isCustomerRawIntakePack({
+        functionalRequirements: [{ externalId: 'FR-1' }],
+        aiAnalysis: {
+          canonicalRaw: { registryVersion: 'raw-sem-v1', templateVersion: '1.1-raw' },
+        },
+      }),
+      true
+    );
+  });
+
+  it('freeze pack without aiAnalysis markers → false (derive would no-op)', () => {
+    assert.equal(
+      isCustomerRawIntakePack({
+        functionalRequirements: [{ externalId: 'FR-1', name: 'A' }],
+        nonFunctionalRequirements: [],
+        overview: { projectObjective: 'x' },
+      }),
+      false
     );
   });
 
@@ -82,7 +106,7 @@ describe('rawSectionDerivePolicy', () => {
     assert.ok(LLM_DERIVE_SECTIONS.includes('uc'));
   });
 
-  it('locks UC/BR/BPM/Data/Interface/Actor by default; BG+scope active', () => {
+  it('locks LLM secs by default; BG + scope/actors/assumption deterministic active', () => {
     const pack = {
       functionalRequirements: [{ externalId: 'CR-001', name: 'Search' }],
       aiAnalysis: {
@@ -96,7 +120,8 @@ describe('rawSectionDerivePolicy', () => {
     assert.equal(shouldRawDeriveSection('bpm', pack, env), false);
     assert.equal(shouldRawDeriveSection('data', pack, env), false);
     assert.equal(shouldRawDeriveSection('interface', pack, env), false);
-    assert.equal(shouldRawDeriveSection('actors', pack, env), false);
+    assert.equal(shouldRawDeriveSection('actors', pack, env), true);
+    assert.equal(shouldRawDeriveSection('assumption', pack, env), true);
     assert.equal(shouldRawDeriveSection('bg', pack, env), true);
     assert.equal(shouldRawDeriveSection('scope', pack, env), true);
     assert.equal(
@@ -154,16 +179,17 @@ describe('buildRawDeriveInput', () => {
     },
   };
 
-  it('UC input includes FR + BRQ + targetUsers', () => {
+  it('UC input V2: slim FR + overview (no legacy dump)', () => {
     const input = buildRawDeriveInput('uc', pack);
-    assert.equal(input.mode, 'raw_derive');
+    assert.equal(input.mode, 'raw_derive_v2');
     assert.equal(input.focus, 'use_cases');
-    assert.ok(input.functionalRequirements.some((r) => r.id === 'CR-001' && r.actor === 'Admin'));
-    assert.ok(input.businessRequests.some((r) => r.id === 'BRQ-001' && r.businessGoal));
-    assert.match(input.targetUsers, /Admin/);
+    assert.ok(input.frSlim.some((r) => r.id === 'CR-001' && r.actor === 'Admin'));
+    assert.match(String(input.overview?.expectedUsers || ''), /Admin/);
+    assert.ok(!('requirementUnderstanding' in input));
+    assert.ok(!('functionalRequirements' in input));
   });
 
-  it('UC input includes requirementUnderstanding + evidenceRefs when provided', () => {
+  it('UC V2 stays slim even when G4 understanding provided', () => {
     const input = buildRawDeriveInput('uc', pack, {
       g4Understanding: {
         requirements: [{ id: 'CR-001', title: 'Admin create student', actors: ['Admin'] }],
@@ -178,10 +204,10 @@ describe('buildRawDeriveInput', () => {
         conflicts: [],
       },
     });
-    assert.ok(input.requirementUnderstanding);
-    assert.equal(input.requirementUnderstanding.semanticItems[0].frId, 'CR-001');
-    assert.ok(input.evidenceRefs.some((e) => e.frId === 'CR-001'));
-    assert.match(String(input.deriveInstruction), /ONLY from/);
+    assert.equal(input.mode, 'raw_derive_v2');
+    assert.ok(input.frSlim.some((r) => r.id === 'CR-001'));
+    assert.equal(input.requirementUnderstanding, undefined);
+    assert.match(String(input.deriveInstruction), /use cases/i);
   });
 
   it('BG input V2: slim FR/BRQ, no AC/desc/NFR/understanding dump', () => {
@@ -218,14 +244,32 @@ describe('buildRawDeriveInput', () => {
     assert.ok(input.sourceRefs['CR-001']?.includes('E-1'));
   });
 
-  it('interface input keeps integration overview', () => {
+  it('interface input V2 keeps platform/integration signals', () => {
     const input = buildRawDeriveInput('interface', pack);
-    assert.equal(input.overview.integration, 'University SSO');
+    assert.equal(input.mode, 'raw_derive_v2');
+    assert.equal(input.projectContext.integration, 'University SSO');
+    assert.ok(input.integrationSignals?.length >= 1);
   });
 
   it('actors input exposes FR actors + targetUsers', () => {
     const input = buildRawDeriveInput('actors', pack);
     assert.equal(input.focus, 'actors');
     assert.ok(input.functionalRequirements.every((r) => 'actor' in r));
+  });
+});
+
+describe('extractArray BG shapes', () => {
+  it('accepts bare JSON array from small models', () => {
+    const rows = extractArray('bg', [
+      { goalId: 'BG-1', statement: 'A' },
+      { goalId: 'BG-2', statement: 'B' },
+    ]);
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].goalId, 'BG-1');
+  });
+
+  it('accepts goals key and businessGoals alias', () => {
+    assert.equal(extractArray('bg', { goals: [{ statement: 'G' }] }).length, 1);
+    assert.equal(extractArray('bg', { businessGoals: [{ statement: 'G' }] }).length, 1);
   });
 });

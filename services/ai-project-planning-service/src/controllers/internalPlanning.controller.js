@@ -545,8 +545,29 @@ async function processRunAsync(runId) {
         hydrateToolDataFromSnapshot,
       } = require('../knowledge/hydrateToolDataFromSnapshot');
       const hydrated = await hydrateRunInputFromSnapshot(run);
-      const runtimeSnapshot = hydrated.snapshot;
-      const runtimePack = hydrated.pack;
+      let runtimeSnapshot = hydrated.snapshot || {};
+      const runtimePack = hydrated.pack || {};
+      // Semantic Contract: ensure canonicalRaw visible on snapshot for G4/section input
+      if (
+        !runtimeSnapshot.canonicalRaw &&
+        runtimePack.aiAnalysis?.canonicalRaw
+      ) {
+        runtimeSnapshot.canonicalRaw = runtimePack.aiAnalysis.canonicalRaw;
+      }
+      // G1 catalogs after S2S hydrate (do not invent snapshot before hydrate)
+      try {
+        const { attachG1Catalogs } = require('../knowledge/attachG1Catalogs');
+        const g1 = attachG1Catalogs({
+          ...runtimeSnapshot,
+          pack: runtimePack,
+          staffingPlan: runtimePack.staffingPlan || runtimeSnapshot.staffingPlan,
+          requirementSkills:
+            runtimePack.requirementSkills || runtimeSnapshot.requirementSkills,
+        });
+        if (g1?.snapshot) runtimeSnapshot = g1.snapshot;
+      } catch (g1After) {
+        console.warn('[planning] attachG1Catalogs after hydrate', g1After?.message || g1After);
+      }
       const toolData = hydrateToolDataFromSnapshot(
         run.input?.toolData,
         runtimeSnapshot

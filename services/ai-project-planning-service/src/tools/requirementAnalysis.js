@@ -39,6 +39,16 @@ function isCanonicalFrList(rows) {
 }
 
 function listFrs(snapshot = {}) {
+  // Semantic Contract P1: Customer Raw canonicalRaw.functional_behavior is FR intake SoT
+  if (snapshot?.canonicalRaw && typeof snapshot.canonicalRaw === 'object') {
+    try {
+      const { resolveFrListForG4 } = require('../semantic/sectionInputContract');
+      const fromCanon = resolveFrListForG4(snapshot, null);
+      if (Array.isArray(fromCanon) && fromCanon.length) return fromCanon;
+    } catch {
+      /* dual-read pack/projected */
+    }
+  }
   const srs = snapshot?.projected?.srs?.functionalRequirements;
   const top = Array.isArray(snapshot.functionalRequirements) ? snapshot.functionalRequirements : null;
   if (Array.isArray(srs)) {

@@ -43,6 +43,7 @@ async function emitProgress(onProgress, substep) {
 }
 
 async function runUnderstandPrefix(opts, policy, snapshot) {
+  registerDefaultTools();
   await emitProgress(opts.onProgress, 'parse');
   const { functionalRequirements, duplicates } = normalizeSnapshotFrs(snapshot, {
     maxFr: policy.input.maxFr,
@@ -198,8 +199,16 @@ async function runG4Pipeline(opts = {}) {
         opts.priorCorpusHash &&
         (opts.loop1Reenter || opts.skipIngest === true)
     );
-    if (isIngestAfterQualityEnabled(env) && snapshotId && !loop1SkipIngest) {
-      const mode = getG7RagMode(env);
+    // PERF: PHASE1_RAG=stub|off wins over G7_RAG_MODE=hybrid (avoid DNS/embed ~10s+ soft-fail).
+    const phase1Rag = String(env.PHASE1_RAG || 'stub').trim().toLowerCase();
+    const forceStubRag = phase1Rag === 'stub' || phase1Rag === 'off' || phase1Rag === '0';
+    const mode = forceStubRag ? 'stub' : getG7RagMode(env);
+    if (
+      !forceStubRag &&
+      isIngestAfterQualityEnabled(env) &&
+      snapshotId &&
+      !loop1SkipIngest
+    ) {
       if (mode === 'qdrant' || mode === 'hybrid') {
         const ingestOut = await ingestSnapshotToQdrant({
           snapshot,
@@ -224,7 +233,7 @@ async function runG4Pipeline(opts = {}) {
           snapshot?.overview?.requirementName ||
           ''
       );
-      contextPackage = await assembleContextPackageAsync({
+      const assembleInput = {
         query: 'what_requirements',
         corpus: corpus.length
           ? corpus
@@ -232,7 +241,12 @@ async function runG4Pipeline(opts = {}) {
             ? [{ id: 'snap_overview', text: fallbackText }]
             : [],
         snapshotId,
-      });
+        env,
+        mode: forceStubRag ? 'stub' : mode,
+      };
+      contextPackage = forceStubRag
+        ? require('../../retrieval/contextAssembly').assembleContextPackage(assembleInput)
+        : await assembleContextPackageAsync(assembleInput);
     }
   } catch (ingestErr) {
     const { getG7RagMode } = require('../../retrieval/g7PipelineSchemas');
@@ -246,16 +260,39 @@ async function runG4Pipeline(opts = {}) {
   let lastError = null;
   const semanticItems = [];
   let conflicts = [];
+  const stageTimings = {
+    g4_semantic: { ms: 0, calls: 0, evalCount: 0, promptChars: 0 },
+    g4_conflict: { ms: 0, calls: 0, evalCount: 0, promptChars: 0, skipReason: null },
+    g4_synthesis: { ms: 0, calls: 0, evalCount: 0, promptChars: 0, skipReason: null },
+  };
 
   const skipLlm = Boolean(opts.forceHeuristic || opts.skipLlm || !policy.pipelineEnabled);
 
   await emitProgress(opts.onProgress, 'semantic');
+  // PERF: skip semantic LLM when candidate pack is too large for 3B (baseline: 18k chars → 60s timeout, evalCount=0).
+  const maxPromptChars = Number(env.AI_G4_SEMANTIC_MAX_PROMPT_CHARS) || 10000;
   if (!skipLlm && needsSemanticLlm(selection) && policy.llm.semanticProjection.enabled) {
     const batches = packByTokenBudget(selection.candidates, {
       maxInputTokens: policy.llm.semanticProjection.maxInputTokens,
       maxCalls: policy.llm.semanticProjection.maxCalls,
     });
     for (const batch of batches) {
+      const { buildSemanticPrompt } = require('./semanticProjection');
+      const estChars = buildSemanticPrompt(batch).length;
+      if (estChars > maxPromptChars) {
+        stageTimings.g4_semantic.skipReason = 'prompt_too_large';
+        stageTimings.g4_semantic.promptChars = estChars;
+        partial = true;
+        lastError = 'semantic_prompt_too_large';
+        // eslint-disable-next-line no-console
+        console.info(
+          '[g4] skip semantic promptChars=%d max=%d candidates=%d',
+          estChars,
+          maxPromptChars,
+          batch.length
+        );
+        break;
+      }
       const sem = await runSemanticProjection({
         generateJson: generate,
         batch,
@@ -264,6 +301,10 @@ async function runG4Pipeline(opts = {}) {
         env,
       });
       llmCalls += sem.llmCalls || 0;
+      stageTimings.g4_semantic.ms += Number(sem.durationMs) || 0;
+      stageTimings.g4_semantic.calls += Number(sem.llmCalls) || 0;
+      stageTimings.g4_semantic.evalCount += Number(sem.evalCount) || 0;
+      stageTimings.g4_semantic.promptChars += Number(sem.promptChars) || 0;
       if (!sem.ok) {
         llmFailed += 1;
         partial = true;
@@ -274,6 +315,12 @@ async function runG4Pipeline(opts = {}) {
       }
       semanticItems.push(...(sem.items || []));
     }
+  } else {
+    stageTimings.g4_semantic.skipReason = skipLlm
+      ? 'skip_llm'
+      : !needsSemanticLlm(selection)
+        ? 'no_candidates'
+        : 'disabled';
   }
 
   await emitProgress(opts.onProgress, 'conflict');
@@ -311,6 +358,10 @@ async function runG4Pipeline(opts = {}) {
       env,
     });
     llmCalls += conf.llmCalls || 0;
+    stageTimings.g4_conflict.ms += Number(conf.durationMs) || 0;
+    stageTimings.g4_conflict.calls += Number(conf.llmCalls) || 0;
+    stageTimings.g4_conflict.evalCount += Number(conf.evalCount) || 0;
+    stageTimings.g4_conflict.promptChars += Number(conf.promptChars) || 0;
     if (!conf.ok) {
       llmFailed += 1;
       partial = true;
@@ -318,6 +369,12 @@ async function runG4Pipeline(opts = {}) {
     } else {
       conflicts = conf.conflicts || [];
     }
+  } else {
+    stageTimings.g4_conflict.skipReason = skipLlm
+      ? 'skip_llm'
+      : !needsConflictLlm(selection)
+        ? 'no_relations'
+        : 'disabled';
   }
 
   const requirements = Array.isArray(toolResult.requirements)
@@ -379,12 +436,22 @@ async function runG4Pipeline(opts = {}) {
       env,
     });
     llmCalls += syn.llmCalls || 0;
+    stageTimings.g4_synthesis.ms += Number(syn.durationMs) || 0;
+    stageTimings.g4_synthesis.calls += Number(syn.llmCalls) || 0;
+    stageTimings.g4_synthesis.evalCount += Number(syn.evalCount) || 0;
+    stageTimings.g4_synthesis.promptChars += Number(syn.promptChars) || 0;
     if (syn.ok) synthesis = syn.summary;
     else {
       llmFailed += 1;
       partial = true;
       lastError = syn.error || lastError;
     }
+  } else {
+    stageTimings.g4_synthesis.skipReason = skipLlm
+      ? 'skip_llm'
+      : !(semanticItems.length > 0 || conflicts.length > 0)
+        ? 'no_semantic_or_conflict'
+        : 'disabled';
   }
 
   await emitProgress(opts.onProgress, 'evidence');
@@ -425,6 +492,7 @@ async function runG4Pipeline(opts = {}) {
       validationOk: validation.ok,
       candidateCount: selection.counts.candidates,
       clearCount: selection.counts.clear,
+      stageTimings,
       llm: {
         status: llmStatus,
         calls: llmCalls,
@@ -434,7 +502,8 @@ async function runG4Pipeline(opts = {}) {
   };
 
   console.info(
-    `[g4] stage=pipeline candidates=${selection.counts.candidates} llmCalls=${llmCalls} partial=${g4Understanding.meta.partial}`
+    `[g4] stage=pipeline candidates=${selection.counts.candidates} llmCalls=${llmCalls} partial=${g4Understanding.meta.partial} stageTimings=%s`,
+    JSON.stringify(stageTimings)
   );
 
   return {

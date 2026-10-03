@@ -71,6 +71,56 @@ async function recordMutationAudit({
   });
 }
 
+/**
+ * Gate1 Review Trust — business audit with revision pointers only (no proposal blob).
+ */
+async function recordGate1Audit({
+  organizationId,
+  actorUserId,
+  action,
+  reviewId,
+  packId,
+  logicalId = null,
+  fromRevisionId = null,
+  toRevisionId = null,
+  note = null,
+  reasonCode = null,
+  snapshotId = null,
+  reviewPolicyVersion = 'GATE1-SOP-1.0',
+  requestId = '',
+  idempotencyKey = '',
+}) {
+  const resourceId = String(reviewId || packId || '').slice(0, 64);
+  if (!resourceId) return null;
+  const meta = {
+    gate: 'BA_GATE_1',
+    reviewId: reviewId || null,
+    packId: packId ? String(packId) : null,
+    logicalId: logicalId || null,
+    fromRevisionId: fromRevisionId || null,
+    toRevisionId: toRevisionId || null,
+    reasonCode: reasonCode || null,
+    note: note != null ? String(note).slice(0, 500) : null,
+    snapshotId: snapshotId || null,
+    reviewPolicyVersion,
+    idempotencyKey: idempotencyKey || null,
+  };
+  // Pointer-only before/after — never embed srsProposal
+  const before = fromRevisionId ? { revisionId: fromRevisionId } : null;
+  const after = toRevisionId ? { revisionId: toRevisionId } : null;
+  return recordAudit({
+    organizationId,
+    actorUserId,
+    action,
+    resourceType: 'gate_review',
+    resourceId,
+    before,
+    after,
+    requestId,
+    meta,
+  });
+}
+
 async function listAuditEvents({
   userId,
   organizationId,
@@ -103,6 +153,7 @@ async function denyDeleteAudit() {
 module.exports = {
   recordAudit,
   recordMutationAudit,
+  recordGate1Audit,
   listAuditEvents,
   denyDeleteAudit,
   isProjectAuditV1Enabled,

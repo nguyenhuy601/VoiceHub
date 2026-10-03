@@ -18,6 +18,7 @@ const { applyRawSectionDerive } = require('../semantic/applyRawSectionDerive');
 const {
   isCustomerRawIntakePack,
   shouldRawDeriveSection,
+  isLlmDeriveSection,
 } = require('../semantic/rawSectionDerivePolicy');
 
 function packRowsForEngine(engineId, pack = {}) {
@@ -94,6 +95,7 @@ async function runAnalysisEnginePipeline(opts = {}) {
     invokeFn: opts.invokeFn,
     g4Understanding: opts.g4Understanding || null,
     evidence: opts.evidence || opts.g4Understanding?.evidence || null,
+    snapshot: opts.snapshot || null,
   });
   proposal = derived.proposal;
   const resultsById = { ...(derived.resultsById || {}) };
@@ -184,6 +186,11 @@ async function runAnalysisEnginePipeline(opts = {}) {
     }
     if (isCustomerRawIntakePack(pack) && !rows.length && shouldRawDeriveSection(entry.id, pack, env)) {
       semanticStatuses[entry.id] = 'raw_derive_pending';
+      continue;
+    }
+    // Customer Raw LLM sections: deriveRawSections only (no parallel runSemanticTask).
+    if (isCustomerRawIntakePack(pack) && isLlmDeriveSection(entry.id)) {
+      semanticStatuses[entry.id] = semanticStatuses[entry.id] || 'derive_path_only';
       continue;
     }
     const policy = resolveTaskPolicy(entry.id, {

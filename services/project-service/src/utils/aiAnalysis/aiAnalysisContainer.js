@@ -382,6 +382,10 @@ function ensureAiAnalysisContainer(raw) {
   if (working.skillCatalogStub != null) out.skillCatalogStub = working.skillCatalogStub;
   if (working.sources != null) out.sources = working.sources;
   if (working.gate1Override != null) out.gate1Override = working.gate1Override;
+  // Semantic Contract P1 — intake SoT on pack (hydrate → APS derive)
+  if (working.canonicalRaw != null) out.canonicalRaw = working.canonicalRaw;
+  // Plan 0.5 Loop1 durable reuse seed
+  if (working.loop1Reuse != null) out.loop1Reuse = working.loop1Reuse;
 
   return out;
 }

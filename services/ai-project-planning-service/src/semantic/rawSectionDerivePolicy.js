@@ -2,38 +2,42 @@
  * Customer Raw → Analysis section derive policy (RULE-RAW-DERIVE-01…05).
  * Analysis workbook path keeps no-cross-fill / RULE-EMPTY.
  *
- * Temporary wave: only BG LLM derive active (workflow test on small model).
- * Unlock via PHASE1_RAW_DERIVE_SECTIONS=uc,bg,br,bpm,data,interface (comma list)
- * and PHASE1_RAW_DERIVE_DETERMINISTIC=scope,actors.
+ * Unlock sequentially via PHASE1_RAW_DERIVE_SECTIONS (comma list, run order).
+ * Recommended order: bg → br → uc → bpm → data → interface (same pipeline, per-sec input).
+ * Deterministic: PHASE1_RAW_DERIVE_DETERMINISTIC=scope,actors,assumption.
  */
 
 /** Full LLM catalog (registry / docs). Runtime active set may be smaller. */
 const LLM_DERIVE_SECTIONS = Object.freeze([
-  'uc',
   'bg',
   'br',
+  'uc',
   'bpm',
   'data',
   'interface',
 ]);
 
-/** Default active LLM derive order — BG only (temp lock UC + others). */
+/** Default active LLM derive order — BG only; unlock next secs after success+timing. */
 const DEFAULT_ACTIVE_LLM_DERIVE_SECTIONS = Object.freeze(['bg']);
 
 /** Default locked LLM sections (skipped until unlock). */
 const DEFAULT_LOCKED_LLM_DERIVE_SECTIONS = Object.freeze([
-  'uc',
   'br',
+  'uc',
   'bpm',
   'data',
   'interface',
 ]);
 
-/** Deterministic catalog. */
-const DETERMINISTIC_RAW_SECTIONS = Object.freeze(['actors', 'scope']);
+/** Deterministic catalog (no LLM). */
+const DETERMINISTIC_RAW_SECTIONS = Object.freeze(['actors', 'scope', 'assumption']);
 
-/** Default: keep scope; lock actors temporarily. */
-const DEFAULT_ACTIVE_DETERMINISTIC_RAW_SECTIONS = Object.freeze(['scope']);
+/** Default: scope + actors + assumption (Customer Raw fill). */
+const DEFAULT_ACTIVE_DETERMINISTIC_RAW_SECTIONS = Object.freeze([
+  'scope',
+  'actors',
+  'assumption',
+]);
 
 const LLM_DERIVE_SET = new Set(LLM_DERIVE_SECTIONS);
 const DETERMINISTIC_RAW_SET = new Set(DETERMINISTIC_RAW_SECTIONS);
@@ -60,7 +64,7 @@ function parseSectionList(raw, fallback) {
 }
 
 /**
- * Active LLM derive engines in run order (default: uc → bg).
+ * Active LLM derive engines in run order (default: bg).
  * @param {NodeJS.ProcessEnv} [env]
  */
 function getActiveLlmDeriveSections(env = process.env) {
@@ -124,6 +128,15 @@ function isCustomerRawIntakePack(pack) {
   const list = pack?.aiAnalysis?.workbookDiagnostics;
   if (Array.isArray(list)) {
     if (list.some((d) => d?.intakeKind === 'customer_raw' || d?.source === 'customer_raw')) {
+      return true;
+    }
+  }
+
+  // Semantic Contract: snapshot/pack canonicalRaw is Customer Raw intake SoT
+  const cr = pack?.aiAnalysis?.canonicalRaw;
+  if (cr && typeof cr === 'object') {
+    const tt = String(cr.templateType || cr.templateVersion || '').toLowerCase();
+    if (tt.includes('customer') || tt.includes('1.1-raw') || cr.registryVersion) {
       return true;
     }
   }

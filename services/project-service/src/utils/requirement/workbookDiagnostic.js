@@ -202,6 +202,16 @@ function isCustomerRawIntakePack(pack) {
   return false;
 }
 
+/**
+ * Semantic Contract P1: Customer Raw packs must carry aiAnalysis.canonicalRaw.
+ * True when intake is raw but SoT missing (e.g. prefilled before registry deploy).
+ */
+function packNeedsCanonicalRawBackfill(pack) {
+  if (!isCustomerRawIntakePack(pack)) return false;
+  const cr = pack?.aiAnalysis?.canonicalRaw;
+  return !(cr && typeof cr === 'object' && cr.registryVersion);
+}
+
 /** WHAT/G4 required intake sections — FR required, NFR optional. */
 const REQUIRED_WHAT_INTAKE_SECTIONS = Object.freeze({
   functionalRequirements: true,
@@ -317,6 +327,7 @@ module.exports = {
   failedDiagnostic,
   isRequirementReady,
   isCustomerRawIntakePack,
+  packNeedsCanonicalRawBackfill,
   countValidFr,
   assertRequiredIntakeSections,
   hashFunctionalRequirements,

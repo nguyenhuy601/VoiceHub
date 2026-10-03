@@ -10,11 +10,60 @@ const {
 } = require('../src/knowledge/hydrateRunInputFromSnapshot');
 
 describe('hydrateRunInputFromSnapshot', () => {
-  it('uses embedded_legacy when input.snapshot present', async () => {
+  it('prefers S2S hydrate when run meta present even if input.snapshot stub exists', async () => {
+    const out = await hydrateRunInputFromSnapshot(
+      {
+        snapshotId: 'S1',
+        packId: 'P1',
+        organizationId: 'O1',
+        input: {
+          // Poisoned stub (e.g. enrichRunInputWithG1Catalogs before hydrate)
+          snapshot: { snapshotId: 'S1', projected: { srs: {} } },
+          pack: {},
+        },
+      },
+      {
+        fetchFn: async () => ({
+          snapshot: {
+            snapshotId: 'S1',
+            canonicalRaw: {
+              registryVersion: 'raw-sem-v1',
+              counts: { requirements: 45, businessRequests: 7 },
+            },
+            projected: {
+              srs: {
+                functionalRequirements: [{ externalId: 'FR-HYDRATE' }],
+              },
+            },
+          },
+          pack: {
+            functionalRequirements: [{ externalId: 'FR-HYDRATE' }],
+            aiAnalysis: {
+              workbookDiagnostic: { intakeKind: 'customer_raw' },
+              customerRawRows: { businessRequests: [{ requestId: 'BRQ-1' }] },
+              canonicalRaw: {
+                registryVersion: 'raw-sem-v1',
+                counts: { requirements: 45, businessRequests: 7 },
+              },
+            },
+          },
+          packContentHash: 'abc',
+          pipelineVersion: 4,
+        }),
+      }
+    );
+    assert.equal(out.mode, 'hydrate');
+    assert.equal(out.pack.functionalRequirements[0].externalId, 'FR-HYDRATE');
+    assert.equal(out.pack.aiAnalysis.workbookDiagnostic.intakeKind, 'customer_raw');
+    assert.equal(out.snapshot.canonicalRaw.registryVersion, 'raw-sem-v1');
+    assert.equal(out.pack.aiAnalysis.canonicalRaw.counts.requirements, 45);
+  });
+
+  it('uses embedded_legacy only when meta missing but input.snapshot present', async () => {
     const out = await hydrateRunInputFromSnapshot({
-      snapshotId: 'S1',
-      packId: 'P1',
-      organizationId: 'O1',
+      snapshotId: '',
+      packId: '',
+      organizationId: '',
       input: {
         snapshot: { snapshotId: 'S1', projected: { srs: {} } },
         pack: { functionalRequirements: [{ externalId: 'FR-1' }] },

@@ -776,6 +776,8 @@ async function runWhatPhase({
         error: g4Understanding.meta?.lastError || null,
         partial: Boolean(g4Understanding.meta?.partial),
         conflictAmbiguityGate,
+        requirementIntegrityGate:
+          frSem.requirementIntegrityGate || conflictAmbiguityGate || null,
         computeStatus: 'completed',
         callbackStatus: 'pending',
         stage: 'finalizing',

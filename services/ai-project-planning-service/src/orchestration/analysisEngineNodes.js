@@ -21,6 +21,7 @@ const { applyRawSectionDerive } = require('../semantic/applyRawSectionDerive');
 const {
   isCustomerRawIntakePack,
   shouldRawDeriveSection,
+  isLlmDeriveSection,
 } = require('../semantic/rawSectionDerivePolicy');
 const { shouldApplyEngineSectionWrite } = require('../srsProposal/preserveDerivedSections');
 
@@ -202,8 +203,21 @@ async function runOneEngineNode(engineId, state, env = process.env) {
         sourceEmpty: !packRows.length,
         env,
       });
+  // PERF: sheet/pack already populated section — do not re-LLM (was ~130s on NFR×10).
+  const sectionItems = entry?.writesSection
+    ? proposal.generated?.[entry.writesSection]?.items || []
+    : [];
+  const sheetAlreadyPresent = Array.isArray(sectionItems) && sectionItems.length > 0;
+  if (sheetAlreadyPresent && semanticStatus === TASK_POLICIES.RUN) {
+    semanticStatus = 'skip_sheet_present';
+  }
+  // Customer Raw LLM sections: only deriveRawSections (not parallel runSemanticTask).
+  const skipLegacySemantic =
+    isCustomerRawIntakePack(pack) && isLlmDeriveSection(engineId);
   if (
     !rawPending &&
+    !sheetAlreadyPresent &&
+    !skipLegacySemantic &&
     engineId !== 'fr' &&
     engineId !== 'glossary' &&
     engineId !== 'assumption' &&
@@ -253,10 +267,13 @@ async function runOneEngineNode(engineId, state, env = process.env) {
  * RULE: do not fold this into metaGate.
  */
 async function runDeriveRawSectionsNode(state) {
+  const { markStage, startSpan } = require('./whatTiming');
+  let whatTiming = state.whatTiming || null;
   let proposal = ensureProposal(state);
   let resultsById = { ...(state.engineResultsById || {}) };
   const pack = state.pack || {};
   const env = state.env || process.env;
+  const endDerive = startSpan();
   const derived = await applyRawSectionDerive({
     proposal,
     pack,
@@ -264,9 +281,26 @@ async function runDeriveRawSectionsNode(state) {
     env,
     g4Understanding: state.g4Understanding || null,
     evidence: state.g4Understanding?.evidence || null,
+    snapshot: state.snapshot || null,
   });
+  const wallMs = endDerive();
   proposal = derived.proposal;
   resultsById = { ...resultsById, ...(derived.resultsById || {}) };
+  const bgMeta = derived.timingMeta?.bg_derive || {};
+  if (whatTiming) {
+    whatTiming = markStage(whatTiming, 'bg_derive', {
+      ms: wallMs,
+      wallMs,
+      evalCount: bgMeta.evalCount || 0,
+      promptEvalCount: bgMeta.promptEvalCount || 0,
+      promptChars: bgMeta.promptChars || 0,
+      maxTokens: bgMeta.maxTokens ?? null,
+      reason: bgMeta.reason || null,
+      items: bgMeta.items || 0,
+      llmCalls: bgMeta.llmCalls || 0,
+      bySection: bgMeta.bySection || null,
+    });
+  }
   return {
     srsProposal: proposal,
     engineResultsById: resultsById,
@@ -275,6 +309,7 @@ async function runDeriveRawSectionsNode(state) {
       ...(derived.deriveStatuses || {}),
     },
     history: [...(state.history || []), DERIVE_NODE_ID],
+    whatTiming,
   };
 }
 
@@ -283,6 +318,9 @@ async function runDeriveRawSectionsNode(state) {
  * RULE-META-01: no LLM, no applyRawSectionDerive, no domain candidate production.
  */
 async function runMetaGateNode(state) {
+  const { markStage, startSpan } = require('./whatTiming');
+  let whatTiming = state.whatTiming || null;
+  const endMeta = startSpan();
   let proposal = ensureProposal(state);
   const resultsById = { ...(state.engineResultsById || {}) };
   proposal = runMetaGate(proposal, { resultsById });
@@ -303,11 +341,16 @@ async function runMetaGateNode(state) {
     },
   };
 
+  if (whatTiming) {
+    whatTiming = markStage(whatTiming, 'meta', { ms: endMeta() });
+  }
+
   return {
     srsProposal: proposal,
     engineResultsById: resultsById,
     container,
     history: [...(state.history || []), META_GATE_NODE_ID],
+    whatTiming,
   };
 }
 
@@ -323,8 +366,18 @@ function attachAnalysisEngineNodes(graph, hooks = {}) {
     const nodeName = engineGraphNodeName(engineId);
     graph.addNode(nodeName, async (state) => {
       if (state.stopReason || state.paused) return {};
+      const { markStage, startSpan } = require('./whatTiming');
       onProgress?.({ node: nodeName, phase: 'what', engineId });
-      return runOneEngineNode(engineId, state, process.env);
+      const endEng = startSpan();
+      const out = await runOneEngineNode(engineId, state, process.env);
+      let whatTiming = state.whatTiming || out.whatTiming || null;
+      if (whatTiming) {
+        const prevMs = Number(whatTiming.stages?.engines?.ms) || 0;
+        whatTiming = markStage(whatTiming, 'engines', {
+          ms: prevMs + endEng(),
+        });
+      }
+      return { ...out, whatTiming };
     });
   }
 

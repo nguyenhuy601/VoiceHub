@@ -37,6 +37,7 @@ function rawPack(overrides = {}) {
       projectObjective: 'Manage students',
       expectedUsers: 'Admin, Student, Lecturer',
       integration: 'University SSO',
+      assumption: 'SSO đã sẵn sàng; dữ liệu sinh viên được cung cấp từ phòng đào tạo',
     },
     aiAnalysis: {
       formValidation: { ok: true, recognizedAsCustomerRaw: true, templateType: 'CustomerRaw' },
@@ -52,6 +53,13 @@ function rawPack(overrides = {}) {
         ],
         references: [],
         requirementSources: [],
+      },
+      canonicalRaw: {
+        constraints: {
+          assumption: 'Người dùng có tài khoản SSO hợp lệ',
+          platform_constraint: 'Web desktop trước',
+        },
+        content: { scopeOut: ['Mobile app native'] },
       },
     },
     ...overrides,
@@ -146,11 +154,13 @@ describe('rawSectionDerivePipeline', () => {
     assert.ok(out.proposal?.completeness?.gateDecision?.coverage?.FR >= 1);
 
     const actors = out.proposal?.generated?.actors?.items || [];
-    assert.equal(actors.length, 0, 'actors locked temporarily');
-    assert.equal(
-      out.proposal?.generated?.actors?.meta?.coverage?.reason || out.deriveStatuses?.actors,
-      'DERIVE_LOCKED'
-    );
+    assert.ok(actors.length >= 2, 'actors from FR + expectedUsers');
+    assert.notEqual(out.deriveStatuses?.actors, 'DERIVE_LOCKED');
+
+    const assumptions = out.proposal?.generated?.assumptions?.items || [];
+    assert.ok(assumptions.length >= 1, 'assumptions from overview/canonicalRaw');
+    assert.notEqual(out.deriveStatuses?.assumption, 'DERIVE_LOCKED');
+
     assert.equal(out.deriveStatuses?.br, 'DERIVE_LOCKED');
     assert.equal(out.deriveStatuses?.bpm, 'DERIVE_LOCKED');
 

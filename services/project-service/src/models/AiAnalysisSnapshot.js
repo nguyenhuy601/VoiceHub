@@ -30,6 +30,8 @@ const aiAnalysisSnapshotSchema = new mongoose.Schema(
     sourcesResolved: { type: [mongoose.Schema.Types.Mixed], default: [] },
     projected: { type: mongoose.Schema.Types.Mixed, default: null },
     canonical: { type: mongoose.Schema.Types.Mixed, default: null },
+    /** Customer Raw Semantic Contract intake SoT (not canonicalizeProjected). */
+    canonicalRaw: { type: mongoose.Schema.Types.Mixed, default: null },
     merged: { type: mongoose.Schema.Types.Mixed, default: null },
     commonFiltered: { type: mongoose.Schema.Types.Mixed, default: null },
     /** Slim per-job prepared slices (ids + filterMeta) — preprocess artifacts for later AI/Tools */

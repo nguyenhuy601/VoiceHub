@@ -31,6 +31,8 @@ describe('ensureAiAnalysisContainer intake preserve', () => {
         mappingDiagnostic: { status: 'COMPLETE', mapped: ['id', 'requirement'], missing: [] },
       },
       phaseRuns: { phase_what: { status: 'ready', mode: 'prepare_only' } },
+      canonicalRaw: { registryVersion: 'raw-sem-v1', templateVersion: '1.1-raw' },
+      loop1Reuse: { schemaVersion: 1, snapshotId: 's1' },
       analyses: {
         evidenceSpans: [{ id: 'e-span-1-1', snippet: 'hello' }],
         phase1Knowledge: { stub: true, citationCount: 1 },
@@ -48,5 +50,7 @@ describe('ensureAiAnalysisContainer intake preserve', () => {
     assert.equal(out.phaseRuns.phase_what.mode, 'prepare_only');
     assert.equal(out.analyses.evidenceSpans[0].id, 'e-span-1-1');
     assert.equal(out.analyses.phase1Knowledge.citationCount, 1);
+    assert.equal(out.canonicalRaw.registryVersion, 'raw-sem-v1');
+    assert.equal(out.loop1Reuse.schemaVersion, 1);
   });
 });

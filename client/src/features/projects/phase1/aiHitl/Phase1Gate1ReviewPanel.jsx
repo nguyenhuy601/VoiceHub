@@ -55,7 +55,14 @@ export default function Phase1Gate1ReviewPanel({
 }) {
   const underReview = packStatus === 'under_review';
   const showApprove = underReview && canApprove;
-  const showSubmit = !underReview && canSubmit;
+  // Wave A: BA may submit from draft/approved; under_review re-submit withdraws active submission
+  const activeSubmissionId = summary?.activeSubmissionId || null;
+  const showSubmit =
+    Boolean(canSubmit) &&
+    (packStatus === 'draft' ||
+      packStatus === 'approved' ||
+      packStatus === 'changes_requested' ||
+      (underReview && (Boolean(activeSubmissionId) || !canApprove)));
 
   const bySection = useMemo(() => bySectionFromSummary(summary), [summary]);
   const sectionTabs = useMemo(() => {
@@ -77,6 +84,8 @@ export default function Phase1Gate1ReviewPanel({
     if (!active) return;
     setActiveSection((prev) => {
       if (prev && sectionTabs.some((tab) => tab.key === prev)) return prev;
+      const withConflict = sectionTabs.find((tab) => tab.hasConflict || tab.conflictCount > 0);
+      if (withConflict?.key) return withConflict.key;
       const withItems = sectionTabs.find(
         (tab) => (bySection[tab.key]?.length || tab.count || 0) > 0
       );
@@ -90,6 +99,9 @@ export default function Phase1Gate1ReviewPanel({
 
   const readyForGate1 = summary?.readyForGate1 !== false;
   const reviewComplete = Boolean(summary?.reviewComplete);
+  const conflictGate = summary?.conflictAmbiguity || null;
+  const conflictBlocking = Array.isArray(conflictGate?.blocking) ? conflictGate.blocking : [];
+  const conflictOpen = Boolean(conflictGate && conflictGate.passed === false && conflictBlocking.length);
   const activeTab = sectionTabs.find((tab) => tab.key === activeSection) || null;
   const activeRows = bySection[activeSection] || [];
   const activeLabel = activeTab?.label || activeSection || '—';
@@ -97,6 +109,9 @@ export default function Phase1Gate1ReviewPanel({
   const totalArtifacts = sectionTabs.reduce((sum, tab) => sum + (Number(tab.count) || 0), 0);
   const missingCount = sectionTabs.filter(
     (tab) => tab.missing || !(bySection[tab.key]?.length || tab.count)
+  ).length;
+  const conflictSectionCount = sectionTabs.filter(
+    (tab) => tab.hasConflict || Number(tab.conflictCount) > 0
   ).length;
 
   const setDecision = (logicalId, patch) => {
@@ -107,9 +122,17 @@ export default function Phase1Gate1ReviewPanel({
   };
 
   const handleSubmit = () => {
-    if (typeof onSubmit === 'function') {
-      onSubmit({ reviewDecisions: decisions, reviewVersion: summary?.reviewVersion });
+    if (typeof onSubmit !== 'function') return;
+    const expectedRevisionIds = { ...(summary?.expectedRevisionIds || {}) };
+    for (const [logicalId, d] of Object.entries(decisions)) {
+      if (d?.revisionId) expectedRevisionIds[logicalId] = String(d.revisionId);
     }
+    onSubmit({
+      reviewDecisions: decisions,
+      reviewVersion: summary?.reviewVersion,
+      expectedRevisionIds,
+      withdrawSubmissionId: underReview && activeSubmissionId ? activeSubmissionId : null,
+    });
   };
 
   return (
@@ -137,6 +160,16 @@ export default function Phase1Gate1ReviewPanel({
             })}
           </span>
         ) : null}
+        {conflictOpen ? (
+          <span className="font-medium text-amber-800 dark:text-amber-200">
+            {labelOf(
+              t,
+              'requirements.phase1Gate1IntegrityMeta',
+              'Integrity: {count} lỗi cấu trúc · {sections} phần',
+              { count: conflictBlocking.length, sections: conflictSectionCount || 1 }
+            )}
+          </span>
+        ) : null}
         {summary?.poReapprovalRequired ? (
           <span className="font-medium text-foreground">
             {labelOf(t, 'requirements.phase1Gate1PoReapproval', 'Cần PO duyệt lại (mục nhạy cảm)')}
@@ -149,6 +182,7 @@ export default function Phase1Gate1ReviewPanel({
           {sectionTabs.map((tab) => {
             const isMissing = Boolean(tab.missing) || !(bySection[tab.key]?.length || tab.count);
             const isActive = activeSection === tab.key;
+            const hasConflict = Boolean(tab.hasConflict) || Number(tab.conflictCount) > 0;
             return (
               <button
                 key={tab.key}
@@ -156,16 +190,25 @@ export default function Phase1Gate1ReviewPanel({
                 onClick={() => setActiveSection(tab.key)}
                 className={`rounded-md border px-2 py-1 text-xs ${
                   isActive
-                    ? 'border-primary bg-primary/10 text-foreground'
-                    : isMissing
-                      ? 'border-dashed border-border text-muted-foreground'
-                      : 'border-border text-muted-foreground'
+                    ? hasConflict
+                      ? 'border-amber-600 bg-amber-500/20 text-foreground'
+                      : 'border-primary bg-primary/10 text-foreground'
+                    : hasConflict
+                      ? 'border-amber-500/60 bg-amber-500/10 text-amber-900 dark:text-amber-100'
+                      : isMissing
+                        ? 'border-dashed border-border text-muted-foreground'
+                        : 'border-border text-muted-foreground'
                 }`}
               >
                 {tab.label}
                 {isMissing
                   ? ` · ${labelOf(t, 'requirements.phase1Gate1TabMissing', 'Thiếu')}`
                   : ` (${tab.count})`}
+                {hasConflict
+                  ? ` · ${labelOf(t, 'requirements.phase1Gate1TabIntegrity', 'Integrity')} ${
+                      tab.conflictCount || ''
+                    }`
+                  : ''}
               </button>
             );
           })}
