@@ -17,7 +17,7 @@ Non-sensitive copy tweaks.
 ## Related Rules
 
 - `.cursor/rules/voicehub-constraints.mdc`
-- `.cursor/rules/role-rbac.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc`; skill `authorization-analysis`
 
 ## Input
 

@@ -44,6 +44,35 @@ export const planningAPI = {
   suggest: (projectId, body = {}) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning/suggest`, body),
 
+  confirmSuggestions: (projectId, body = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning/suggest/confirm`, body),
+
+  bulkDumpArtifacts: (projectId, body = {}) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning/artifacts/bulk`, body),
+
+  seedDraftsFromRa: (projectId) =>
+    apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning/artifacts/bulk`, {
+      seedFromRa: true,
+    }),
+
+  downloadDumpTemplate: (projectId, { seedFromRa = false } = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/planning/dump-template.xlsx`, {
+      responseType: 'blob',
+      params: seedFromRa ? { seedFromRa: '1' } : {},
+    }),
+
+  forkArtifactVersion: (projectId, artifactId, body = {}) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/planning/artifacts/${encodeURIComponent(artifactId)}/fork-version`,
+      body
+    ),
+
+  bulkTransitionArtifacts: (projectId, body = {}) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/planning/artifacts/bulk-transition`,
+      body
+    ),
+
   publishWbs: (projectId) =>
     apiClient.post(`/projects/${encodeURIComponent(projectId)}/planning/publish-wbs`),
 };

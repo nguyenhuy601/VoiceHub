@@ -20,16 +20,16 @@ export const DEVELOPMENT_MODULES = Object.freeze([
   'list',
   'planning',
   'board',
+  'chat',
   'timeline',
   'change-requests',
   'requirements',
-  'files',
-  'chat',
-  'calendar',
-  'documents',
   'members',
+  'files',
   'activity',
   'settings',
+  'calendar',
+  'documents',
 ]);
 
 export const PLANNING_SUBMODULES = Object.freeze([
@@ -42,16 +42,23 @@ export const PLANNING_SUBMODULES = Object.freeze([
   'planning-milestones',
   'planning-releases',
   'planning-risks',
+  'planning-test-cases',
   'planning-approval',
   'planning/overview',
   'planning/wbs',
   'planning/architecture',
   'planning/resources',
+  'planning/resources/wbs',
+  'planning/resources/effort',
+  'planning/resources/match',
+  'planning/resources/capacity',
+  'planning/resources/schedule',
   'planning/dependencies',
   'planning/schedule',
   'planning/milestones',
   'planning/releases',
   'planning/risks',
+  'planning/test-cases',
   'planning/approval',
 ]);
 
@@ -66,9 +73,14 @@ export const PHASE_NAV_MODULES = Object.freeze({
     'analysis-uc',
     'analysis-nfr',
     'analysis-scope',
+    'analysis-interface',
+    'analysis-data',
+    'analysis-glossary',
+    'analysis-assumption',
     'traceability',
     'analysis-reviews',
     'srs-baselines',
+    'ai-hitl',
     'requirements',
     ...PLANNING_SUBMODULES,
     ...COLLAB_MIN,
@@ -83,7 +95,12 @@ export const PHASE_NAV_MODULES = Object.freeze({
     'analysis-uc',
     'analysis-nfr',
     'analysis-scope',
+    'analysis-interface',
+    'analysis-data',
+    'analysis-glossary',
+    'analysis-assumption',
     'srs-baselines',
+    'ai-hitl',
     'traceability',
     'analysis-reviews',
     'delivery-planning',
@@ -99,11 +116,39 @@ export const PHASE_NAV_MODULES = Object.freeze({
     'overview',
     'list',
     'board',
+    'test-cases',
+    'change-requests',
     'files',
     ...COLLAB_MIN,
     'activity',
   ]),
-  release_handover: Object.freeze(['overview', 'files', ...COLLAB_MIN, 'activity']),
+  release_handover: Object.freeze([
+    'overview',
+    'handover',
+    'deploy-evidence',
+    'release-notes',
+    'list',
+    'board',
+    'test-cases',
+    'change-requests',
+    'files',
+    ...COLLAB_MIN,
+    'activity',
+  ]),
+});
+
+/** FE mirror of BE RELEASE_HANDOVER_CHECKLIST item ids (static checklist UX). */
+export const RELEASE_HANDOVER_CHECKLIST_IDS = Object.freeze([
+  'release_notes',
+  'deployment_verified',
+  'acceptance_signed_off',
+  'handover_completed',
+]);
+
+/** Forward-only advances used by hub delivery phase panel. */
+export const DELIVERY_PHASE_FORWARD = Object.freeze({
+  development: Object.freeze(['qa_uat']),
+  qa_uat: Object.freeze(['release_handover']),
 });
 
 export const PHASE_MODULE_LABEL_KEYS = Object.freeze({
@@ -115,6 +160,10 @@ export const PHASE_MODULE_LABEL_KEYS = Object.freeze({
   'analysis-uc': 'workspace.phaseNavAnalysisUc',
   'analysis-nfr': 'workspace.phaseNavAnalysisNfr',
   'analysis-scope': 'workspace.phaseNavAnalysisScope',
+  'analysis-interface': 'workspace.phaseNavAnalysisInterface',
+  'analysis-data': 'workspace.phaseNavAnalysisData',
+  'analysis-glossary': 'workspace.phaseNavAnalysisGlossary',
+  'analysis-assumption': 'workspace.phaseNavAnalysisAssumption',
   traceability: 'workspace.phaseNavTraceability',
   'analysis-reviews': 'workspace.phaseNavAnalysisReviews',
   'srs-baselines': 'workspace.phaseNavSrsBaselines',
@@ -128,7 +177,12 @@ export const PHASE_MODULE_LABEL_KEYS = Object.freeze({
   'planning-milestones': 'workspace.phaseNavPlanningMilestones',
   'planning-releases': 'workspace.phaseNavPlanningReleases',
   'planning-risks': 'workspace.phaseNavPlanningRisks',
+  'planning-test-cases': 'workspace.phaseNavPlanningTestCases',
   'planning-approval': 'workspace.phaseNavPlanningApproval',
+  handover: 'workspace.phaseNavHandover',
+  'deploy-evidence': 'workspace.phaseNavDeployEvidence',
+  acceptance: 'workspace.phaseNavAcceptance',
+  'release-notes': 'workspace.phaseNavReleaseNotes',
 });
 
 /** Modules that still fall back to placeholder if Phase1Shell not used */
@@ -153,6 +207,8 @@ export function isModuleAllowedForPhase(moduleKey, deliveryPhase) {
 }
 
 export function phaseHomeModule(deliveryPhase) {
+  const phase = coerceDeliveryPhase(deliveryPhase);
+  if (phase === 'development' || phase === 'qa_uat') return 'board';
   return 'overview';
 }
 
@@ -180,6 +236,10 @@ export const ANALYSIS_VIEW_MODULES = Object.freeze([
   'analysis-uc',
   'analysis-nfr',
   'analysis-scope',
+  'analysis-interface',
+  'analysis-data',
+  'analysis-glossary',
+  'analysis-assumption',
   'traceability',
   'analysis-reviews',
   'srs-baselines',

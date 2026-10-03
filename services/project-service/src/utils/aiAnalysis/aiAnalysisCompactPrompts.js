@@ -29,30 +29,66 @@ function capsRowsCompact(caps = []) {
     .join('\n');
 }
 
-function buildPassADataCapabilityPrompt({ context, frRows }) {
+function buildPassADataCapabilityPrompt({ context, frRows, intakeBlock = '' }) {
+  const verified =
+    context?.requirementAiContext != null
+      ? require('../tools/buildRequirementAiContext').formatVerifiedFactsBlock(
+          context.requirementAiContext
+        )
+      : '';
   return [
     'BA. Extract entities + capabilities from FR rows.',
     FR_LANGUAGE_CUE,
     'Return ONLY JSON:',
     '{"entities":[{"name":"","relatedFrIds":[],"crud":{"create":false,"read":true,"update":false,"delete":false}}],"caps":[{"name":"","module":"","sourceFrIds":[],"complexity":"low|medium|high"}]}',
     'Use only FR ids from input. Max 20 entities, 24 caps. crud optional. No markdown.',
-    `Context:${JSON.stringify(context || {})}`,
+    'Do NOT invent coverage/completeness/conflict scores — use VERIFIED_FACTS only.',
+    'When INTAKE_CORPUS is present, use it as customer source context; prefer FR ids from input.',
+    verified,
+    intakeBlock || '',
+    `Context:${JSON.stringify({
+      name: context?.name,
+      objective: context?.objective,
+      platform: context?.platform,
+      priority: context?.priority,
+      verifiedFacts: context?.verifiedFacts || context?.requirementAiContext?.factsSummary,
+      gateA: context?.gateA || context?.requirementAiContext?.gateA,
+    })}`,
     'FR:',
     frRows,
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
-function buildPassBGapPrompt({ context, flagRows, frRows }) {
+function buildPassBGapPrompt({ context, flagRows, frRows, intakeBlock = '' }) {
+  const verified =
+    context?.requirementAiContext != null
+      ? require('../tools/buildRequirementAiContext').formatVerifiedFactsBlock(
+          context.requirementAiContext
+        )
+      : '';
   return [
     'BA. List requirement gaps for flagged FRs.',
     FR_LANGUAGE_CUE,
     'Return ONLY JSON: {"gaps":[{"type":"incomplete|ambiguous|missing_nfr|missing_integration|missing_requirement","relatedFrIds":[],"issue":"","severity":"low|medium|high"}]}',
     'Max 12 gaps. Use only FR ids from input. No markdown.',
-    `Context:${JSON.stringify(context || {})}`,
+    'Do NOT invent metric scores — use VERIFIED_FACTS only.',
+    'When INTAKE_CORPUS is present, use it as customer source context; prefer FR ids from input.',
+    verified,
+    intakeBlock || '',
+    `Context:${JSON.stringify({
+      name: context?.name,
+      objective: context?.objective,
+      verifiedFacts: context?.verifiedFacts || context?.requirementAiContext?.factsSummary,
+      gateA: context?.gateA || context?.requirementAiContext?.gateA,
+    })}`,
     `Flags:${flagRows || ''}`,
     'FR:',
     frRows,
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function buildPassCWbsPrompt({ capsRows }) {

@@ -33,6 +33,13 @@ const VISIBILITY_KEYS = [
   { key: 'adminRequirements', labelKey: 'visibilityAdmin' },
 ];
 
+/** Stable prefix — avoid new `sk` identity each render (load effect storm). */
+const ACCESS_POLICY_KEY_PREFIX = 'adminDomains.requirements.accessPolicy.';
+
+function accessPolicyKey(suffix) {
+  return `${ACCESS_POLICY_KEY_PREFIX}${suffix}`;
+}
+
 function defaultPolicy() {
   return {
     version: 1,
@@ -126,7 +133,7 @@ function toggleVisibility(policy, personaKey, visKey, checked) {
 export default function RequirementAccessPolicyPanel({ orgId }) {
   const { t } = useAppStrings();
   const queryClient = useQueryClient();
-  const sk = (suffix) => `adminDomains.requirements.accessPolicy.${suffix}`;
+  const sk = accessPolicyKey;
   const [policy, setPolicy] = useState(defaultPolicy);
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -153,12 +160,15 @@ export default function RequirementAccessPolicyPanel({ orgId }) {
       );
     } catch (error) {
       toast.error(
-        resolveApiErrorMessage(error, { t, fallback: t(sk('loadFail')) })
+        resolveApiErrorMessage(error, {
+          t,
+          fallback: t(accessPolicyKey('loadFail')),
+        })
       );
     } finally {
       setLoading(false);
     }
-  }, [orgId, t, sk]);
+  }, [orgId, t]);
 
   useEffect(() => {
     load();
@@ -166,11 +176,11 @@ export default function RequirementAccessPolicyPanel({ orgId }) {
 
   const previewLines = useMemo(
     () => [
-      t(sk('previewBa')),
-      t(sk('previewPm')),
-      t(sk('previewOperator')),
+      t(accessPolicyKey('previewBa')),
+      t(accessPolicyKey('previewPm')),
+      t(accessPolicyKey('previewOperator')),
     ],
-    [t, sk]
+    [t]
   );
 
   const save = async () => {

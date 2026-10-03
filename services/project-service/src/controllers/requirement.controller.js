@@ -15,6 +15,8 @@ const {
   rejectRequirementPack,
   createProjectFromRequirementPack,
   deleteRequirementPack,
+  createIntakeDraftPack,
+  uploadPackCustomerDocument,
 } = require('../services/requirementPack.service');
 const {
   getAiAnalysisSummary,
@@ -22,6 +24,7 @@ const {
   runAiAnalysisJob,
   confirmAiAnalysisJob,
   exportAiAnalysisSheet11,
+  startPhaseAiPlanningRun,
 } = require('../services/aiAnalysis.service');
 const {
   assertRequirementPermission,
@@ -133,6 +136,59 @@ async function previewImport(req, res) {
   }
 }
 
+async function createIntakeDraft(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const body = req.body || {};
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'organizationId bắt buộc' });
+    }
+    const pack = await createIntakeDraftPack({
+      userId,
+      organizationId,
+      title: body.title,
+      description: body.description,
+      customerName: body.customerName,
+      startDate: body.startDate,
+      dueDate: body.dueDate,
+      priority: body.priority,
+      sourceFileName: body.sourceFileName,
+      importSessionId: body.importSessionId,
+      analysisMode: body.analysisMode,
+      projectId: body.projectId,
+    });
+    return res.status(201).json({ success: true, data: pack });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function uploadPackCustomerDocumentCtrl(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const data = await uploadPackCustomerDocument({
+      userId,
+      organizationId,
+      packId,
+      file: req.file,
+      docClass: req.body?.docClass,
+      notes: req.body?.notes,
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
 async function confirmImport(req, res) {
   try {
     const organizationId = resolveOrgId(req);
@@ -189,7 +245,14 @@ async function getPack(req, res) {
       return res.status(400).json({ success: false, message: 'organizationId và packId bắt buộc' });
     }
     const view = String(req.query?.view || 'full').trim();
-    const pack = await getRequirementPack({ userId, organizationId, packId, view });
+    const pack = await getRequirementPack({
+      userId,
+      organizationId,
+      packId,
+      view,
+      gateRowOffset: req.query?.gateRowOffset,
+      gateRowLimit: req.query?.gateRowLimit,
+    });
     return res.json({ success: true, data: pack });
   } catch (err) {
     return jsonError(res, err);
@@ -227,7 +290,18 @@ async function submitPack(req, res) {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
     const packId = String(req.params.packId || '').trim();
-    const pack = await submitRequirementPack({ userId, organizationId, packId });
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const pack = await submitRequirementPack({
+      userId,
+      organizationId,
+      packId,
+      reviewDecisions: body.reviewDecisions || body.srsProposalReview || null,
+      expectedReviewVersion:
+        body.expectedReviewVersion != null ? body.expectedReviewVersion : body.reviewVersion,
+      expectedRevisionIds: body.expectedRevisionIds || null,
+      withdrawSubmissionId: body.withdrawSubmissionId || null,
+      requestId: req.headers['x-request-id'] || body.requestId || '',
+    });
     return res.json({ success: true, data: pack });
   } catch (err) {
     return jsonError(res, err);
@@ -279,14 +353,70 @@ async function createProjectFromPack(req, res) {
       organizationId,
       packId,
       title: req.body?.title,
-      startDate: req.body?.startDate,
-      dueDate: req.body?.dueDate ?? req.body?.deadline,
       importWorkItems: Boolean(req.body?.importWorkItems),
       leafAssignments: req.body?.leafAssignments,
-      applyAssignees: req.body?.applyAssignees !== false,
-      taskIds: Array.isArray(req.body?.taskIds) ? req.body.taskIds : null,
     });
     return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function runAiPlanning(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const err = new Error('AI planning heuristic đã gỡ — dùng phase_what / phase_how');
+    err.statusCode = 410;
+    err.errorCode = 'LEGACY_AI_PLANNING_REMOVED';
+    throw err;
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function approveAiStaffing(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const err = new Error('AI planning heuristic đã gỡ — dùng phase_what / phase_how');
+    err.statusCode = 410;
+    err.errorCode = 'LEGACY_AI_PLANNING_REMOVED';
+    throw err;
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function discardAiStaffing(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const err = new Error('AI planning heuristic đã gỡ — dùng phase_what / phase_how');
+    err.statusCode = 410;
+    err.errorCode = 'LEGACY_AI_PLANNING_REMOVED';
+    throw err;
   } catch (err) {
     return jsonError(res, err);
   }
@@ -321,18 +451,13 @@ async function getAiAnalysis(req, res) {
         message: 'organizationId và packId bắt buộc',
       });
     }
-    const view = String(req.query?.view || 'summary').trim().toLowerCase();
-    if (view === 'wizard') {
-      const job = String(req.query?.job || '').trim();
-      const data = await getAiAnalysisWizardJob({
-        userId,
-        organizationId,
-        packId,
-        job,
-      });
+    const view = String(req.query?.view || '').trim().toLowerCase();
+    const job = String(req.query?.job || '').trim();
+    if (view === 'summary' || !job) {
+      const data = await getAiAnalysisSummary({ userId, organizationId, packId });
       return res.json({ success: true, data });
     }
-    const data = await getAiAnalysisSummary({ userId, organizationId, packId });
+    const data = await getAiAnalysisWizardJob({ userId, organizationId, packId, job });
     return res.json({ success: true, data });
   } catch (err) {
     return jsonError(res, err);
@@ -344,17 +469,18 @@ async function runAiAnalysis(req, res) {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
     const packId = String(req.params.packId || '').trim();
-    if (!organizationId || !packId) {
+    const jobId = String(req.params.jobId || '').trim();
+    if (!organizationId || !packId || !jobId) {
       return res.status(400).json({
         success: false,
-        message: 'organizationId và packId bắt buộc',
+        message: 'organizationId, packId và jobId bắt buộc',
       });
     }
     const data = await runAiAnalysisJob({
       userId,
       organizationId,
       packId,
-      job: req.body?.job,
+      job: jobId,
       force: Boolean(req.body?.force),
     });
     return res.json({ success: true, data });
@@ -364,6 +490,31 @@ async function runAiAnalysis(req, res) {
 }
 
 async function confirmAiAnalysis(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    const jobId = String(req.params.jobId || '').trim();
+    if (!organizationId || !packId || !jobId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId, packId và jobId bắt buộc',
+      });
+    }
+    const data = await confirmAiAnalysisJob({
+      userId,
+      organizationId,
+      packId,
+      job: jobId,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+/** Gate2 phase confirm — body.phase=how (no jobId). */
+async function confirmAiAnalysisPhase(req, res) {
   try {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
@@ -378,8 +529,7 @@ async function confirmAiAnalysis(req, res) {
       userId,
       organizationId,
       packId,
-      job: req.body?.job,
-      edits: req.body?.edits ?? null,
+      phase: req.body?.phase || 'how',
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -387,7 +537,45 @@ async function confirmAiAnalysis(req, res) {
   }
 }
 
-async function exportAiAnalysisSheet11Ctrl(req, res) {
+async function startPhaseAiPlanning(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    const packId = String(req.params.packId || '').trim();
+    if (!organizationId || !packId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organizationId và packId bắt buộc',
+      });
+    }
+    const idempotencyKey = String(
+      req.get('Idempotency-Key') ||
+        req.get('idempotency-key') ||
+        req.body?.idempotencyKey ||
+        ''
+    ).trim();
+    const data = await startPhaseAiPlanningRun({
+      userId,
+      organizationId,
+      packId,
+      phase: req.body?.phase || 'how',
+      force: Boolean(req.body?.force),
+      mode: req.body?.mode || '',
+      feedback: req.body?.feedback || '',
+      action: req.body?.action || '',
+      decision: req.body?.decision || '',
+      runId: req.body?.runId || '',
+      parentRunId: req.body?.parentRunId || '',
+      idempotencyKey,
+    });
+    const httpStatus = Number(data?.httpStatus) === 200 ? 200 : 202;
+    return res.status(httpStatus).json({ success: true, data });
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
+async function exportAiAnalysis(req, res) {
   try {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
@@ -417,6 +605,8 @@ async function exportAiAnalysisSheet11Ctrl(req, res) {
 module.exports = {
   downloadTemplate,
   previewImport,
+  createIntakeDraft,
+  uploadPackCustomerDocumentCtrl,
   confirmImport,
   getAccess,
   listPacks,
@@ -427,8 +617,13 @@ module.exports = {
   rejectPack,
   deletePack,
   createProjectFromPack,
+  runAiPlanning,
+  approveAiStaffing,
+  discardAiStaffing,
   getAiAnalysis,
   runAiAnalysis,
   confirmAiAnalysis,
-  exportAiAnalysisSheet11: exportAiAnalysisSheet11Ctrl,
+  confirmAiAnalysisPhase,
+  exportAiAnalysis,
+  startPhaseAiPlanning,
 };

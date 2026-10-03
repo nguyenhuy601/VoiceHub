@@ -16,6 +16,11 @@ import {
   resolveHubActor,
   HUB_GRID_CELL_BORDER,
 } from './projectHubUtils';
+import {
+  crPriorityBadgeClass,
+  crStatusBadgeClass,
+  crStatusRowClass,
+} from './phase3HubUiTokens';
 import { listAllowedCrStatusTransitions, labelCrWorkStatus } from './projectHubCrWorkflow';
 import ProjectHubChangeRequestDetailDrawer from './ProjectHubChangeRequestDetailDrawer';
 import ProjectHubChangeRequestFormModal from './ProjectHubChangeRequestFormModal';
@@ -38,7 +43,15 @@ const CR_TYPES = [
   'technical_change',
   'other',
 ];
-const CR_STATUSES = ['draft', 'pending', 'reviewing', 'approved', 'rejected', 'deferred'];
+const CR_STATUSES = [
+  'draft',
+  'pending',
+  'reviewing',
+  'approved',
+  'applied',
+  'rejected',
+  'deferred',
+];
 const CR_PRIORITIES = ['low', 'medium', 'high', 'critical'];
 
 const COLUMNS = [
@@ -539,7 +552,7 @@ export default function ProjectHubChangeRequestsPanel({
           <div
             role="row"
             style={gridStyle}
-            className="sticky top-0 z-10 border-b border-border bg-surface px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+            className="sticky top-0 z-10 border-b border-border/50 bg-muted/40 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur-sm"
           >
             {crColumns.map((col) => (
               <ResizableTableHeader key={col.id} column={col} onResizeStart={onResizeStart}>
@@ -580,14 +593,14 @@ export default function ProjectHubChangeRequestsPanel({
                 (s, i, arr) => s && arr.indexOf(s) === i
               );
               const cellSelect =
-                'max-w-full rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px] font-semibold text-foreground';
+                'max-w-full rounded-md border border-border/60 bg-background px-1.5 py-1 text-[11px] font-semibold text-foreground shadow-sm outline-none transition-colors focus:border-primary';
               return (
                 <div
                   key={id}
                   role="row"
                   tabIndex={0}
                   style={gridStyle}
-                  className="w-full cursor-pointer items-center border-b border-border px-3 py-2 text-left text-xs hover:bg-muted/40"
+                  className={`w-full cursor-pointer items-center border-b border-border/40 px-3 py-2.5 text-left text-xs odd:bg-muted/10 hover:bg-muted/35 ${crStatusRowClass(row.status)}`}
                   onClick={() => setDetailId(id)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -614,7 +627,7 @@ export default function ProjectHubChangeRequestsPanel({
                         ))}
                       </select>
                     ) : (
-                      <span className="truncate">{priorityLabel(row.priority)}</span>
+                      <span className={crPriorityBadgeClass(row.priority)}>{priorityLabel(row.priority)}</span>
                     )}
                   </span>
                   <span className={`min-w-0 ${HUB_GRID_CELL_BORDER}`} onClick={stopRowClick} onMouseDown={stopRowClick}>
@@ -633,7 +646,7 @@ export default function ProjectHubChangeRequestsPanel({
                         ))}
                       </select>
                     ) : (
-                      <span className="truncate">{statusLabel(row.status)}</span>
+                      <span className={crStatusBadgeClass(row.status)}>{statusLabel(row.status)}</span>
                     )}
                   </span>
                   <span className={`min-w-0 truncate ${HUB_GRID_CELL_BORDER}`}>

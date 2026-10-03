@@ -9,7 +9,6 @@
   - `task-ai.sync`
   - `voicehub.task.from_file`
   - `voicehub.notification.dispatch`
-  - `voicehub.webhook.delivery`
 - API latency p95 on gateway.
 - Socket reconnect rate and disconnect reasons.
 

@@ -585,11 +585,29 @@ class MessageController {
       });
       stream.pipe(res);
     } catch (error) {
+      if (isFirebaseBillingOrPermissionError(error)) {
+        return sendServiceError(res, 503, {
+          errorCode: 'CHAT_STORAGE_UNAVAILABLE',
+          messageUser:
+            error.messageUser ||
+            'Kho lưu trữ tạm thời không đọc được file này. Thử tải lên lại hoặc kiểm tra MinIO/Firebase.',
+          message: error.message,
+        });
+      }
       const status = Number(error?.statusCode) || 500;
       if (status === 404) {
         return sendServiceError(res, 404, {
           errorCode: 'MESSAGE_NOT_FOUND',
           messageUser: 'Không tìm thấy tệp đính kèm.',
+          message: error.message,
+        });
+      }
+      if (status === 503) {
+        return sendServiceError(res, 503, {
+          errorCode: error.errorCode || 'CHAT_STORAGE_UNAVAILABLE',
+          messageUser:
+            error.messageUser ||
+            'Kho lưu trữ tạm thời không khả dụng. Vui lòng thử lại sau.',
           message: error.message,
         });
       }

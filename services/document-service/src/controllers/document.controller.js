@@ -3,6 +3,7 @@ const documentService = require('../services/document.service');
 const Document = require('../models/Document');
 const { logger } = require('@enterprise/shared');
 const { assertOrganizationMember } = require('../utils/verifyOrgAccess');
+const { buildDocumentListFilter, isValidObjectId } = require('../utils/documentListFilter');
 
 function safeMessage(error, fallback) {
   const status = Number(error?.statusCode) || 500;
@@ -19,6 +20,8 @@ class DocumentController {
         description,
         organizationId,
         serverId,
+        projectId,
+        departmentId,
         fileUrl,
         fileSize,
         mimeType,
@@ -46,12 +49,21 @@ class DocumentController {
         }
       }
 
+      if (projectId && !isValidObjectId(projectId)) {
+        return res.status(400).json({ success: false, message: 'Invalid projectId' });
+      }
+      if (departmentId && !isValidObjectId(departmentId)) {
+        return res.status(400).json({ success: false, message: 'Invalid departmentId' });
+      }
+
       const document = await documentService.createDocument({
         name,
         description,
         uploadedBy,
         organizationId,
         serverId,
+        projectId,
+        departmentId,
         fileUrl,
         fileSize,
         mimeType,
@@ -126,9 +138,14 @@ class DocumentController {
         });
       }
 
-      const { organizationId, serverId, uploadedBy, tags, isPublic, page, limit } = req.query;
-
-      const filter = { isActive: true };
+      const { organizationId, page, limit } = req.query;
+      const { filter, error: filterError } = buildDocumentListFilter(req.query, userId);
+      if (filterError) {
+        return res.status(filterError.statusCode).json({
+          success: false,
+          message: filterError.message,
+        });
+      }
 
       if (organizationId) {
         try {
@@ -140,23 +157,6 @@ class DocumentController {
             message: status === 403 ? 'Forbidden' : accessErr.message,
           });
         }
-        filter.organizationId = organizationId;
-      }
-      if (serverId) filter.serverId = serverId;
-      if (uploadedBy) {
-        if (String(uploadedBy) !== String(userId)) {
-          return res.status(403).json({
-            success: false,
-            message: 'Forbidden',
-          });
-        }
-        filter.uploadedBy = uploadedBy;
-      }
-      if (tags) filter.tags = { $in: tags.split(',') };
-      if (isPublic !== undefined) filter.isPublic = isPublic === 'true';
-
-      if (!organizationId && !serverId && !uploadedBy) {
-        filter.uploadedBy = userId;
       }
 
       const result = await documentService.getDocuments(filter, {

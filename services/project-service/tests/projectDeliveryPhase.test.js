@@ -9,6 +9,9 @@ const {
   DEFAULT_DELIVERY_PHASE_EXISTING,
   DEFAULT_DELIVERY_PHASE_NEW,
   DEVELOPMENT_MODULES,
+  QA_UAT_MODULES,
+  RELEASE_HANDOVER_CHECKLIST,
+  listForwardPhases,
 } = require('../src/constants/projectDeliveryPhase');
 
 describe('projectDeliveryPhase', () => {
@@ -51,6 +54,14 @@ describe('projectDeliveryPhase', () => {
       true
     );
     assert.equal(canTransitionDeliveryPhase('development', 'qa_uat'), true);
+    assert.equal(canTransitionDeliveryPhase('qa_uat', 'release_handover'), true);
     assert.equal(canTransitionDeliveryPhase('requirement_analysis', 'qa_uat'), false);
+  });
+
+  it('lists forward phases and QA/UAT modules', () => {
+    assert.deepEqual(listForwardPhases('qa_uat'), ['release_handover']);
+    assert.ok(QA_UAT_MODULES.includes('test-cases'));
+    assert.ok(QA_UAT_MODULES.includes('change-requests'));
+    assert.ok(RELEASE_HANDOVER_CHECKLIST.length > 0);
   });
 });

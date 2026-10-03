@@ -24,13 +24,14 @@ import {
   FIGMA_VOICE_CTRL_DIVIDER,
   FIGMA_VOICE_CTRL_END,
   FIGMA_VOICE_CTRL_PILL,
+  FIGMA_VOICE_GRID_SOLO_TILE,
+  FIGMA_VOICE_GRID_SOLO_WRAP,
   FIGMA_VOICE_ROOM_ROOT,
   FIGMA_VOICE_STATUS_DOT,
   FIGMA_VOICE_TILE_BASE,
   FIGMA_VOICE_TILE_IDLE,
   FIGMA_VOICE_TILE_SPEAKING,
-  FIGMA_VOICE_TOP_BAR,
-  FIGMA_VOICE_TOP_META,
+  FIGMA_VOICE_TOP_BAR_FULL,
   FIGMA_VOICE_WIFI_BADGE,
   FIGMA_VOICE_WIFI_ICON,
   FIGMA_VOICE_WIFI_TEXT,
@@ -158,6 +159,7 @@ export default function OrganizationVoiceChannelView({
   onControlActionsReady,
   onRoomSessionEnd,
   onDisconnect,
+  compactSuite = false,
   micDeviceId: micDeviceIdProp = '',
   speakerDeviceId: speakerDeviceIdProp = '',
   speakerVolume: speakerVolumeProp,
@@ -989,7 +991,9 @@ export default function OrganizationVoiceChannelView({
   const stageTone = isDarkMode
     ? {
         root: FIGMA_VOICE_ROOM_ROOT,
-        top: 'relative mx-5 mt-5 flex shrink-0 flex-wrap items-center gap-2 rounded-full border border-white/10 bg-surface-raised/95 px-4 py-2 text-sm text-foreground shadow-xl backdrop-blur-md',
+        top: compactSuite
+          ? FIGMA_VOICE_TOP_BAR_FULL
+          : 'relative mx-5 mt-5 flex shrink-0 flex-wrap items-center gap-2 rounded-full border border-white/10 bg-surface-raised/95 px-4 py-2 text-sm text-foreground shadow-xl backdrop-blur-md',
         panel: 'border-white/10 bg-[#111827]',
         tile: `${FIGMA_VOICE_TILE_BASE} ${FIGMA_VOICE_TILE_IDLE}`,
         tileActive: FIGMA_VOICE_TILE_SPEAKING,
@@ -999,7 +1003,9 @@ export default function OrganizationVoiceChannelView({
       }
     : {
         root: 'relative flex min-h-0 flex-1 flex-col bg-slate-50 text-slate-950',
-        top: 'mx-5 mt-5 flex shrink-0 flex-wrap items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-sm shadow-xl backdrop-blur-md',
+        top: compactSuite
+          ? FIGMA_VOICE_TOP_BAR_FULL
+          : 'mx-5 mt-5 flex shrink-0 flex-wrap items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-sm shadow-xl backdrop-blur-md',
         panel: 'border-slate-200 bg-white',
         tile: 'relative flex min-h-[190px] flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-5',
         tileActive: 'border-success shadow-[0_0_22px_rgba(16,185,129,0.18)]',
@@ -1023,7 +1029,7 @@ export default function OrganizationVoiceChannelView({
 
   return (
     <div
-      className={`relative flex h-full min-h-[520px] flex-1 overflow-hidden rounded-none ${stageTone.root}`}
+      className={`relative flex h-full min-h-0 flex-1 overflow-hidden rounded-none ${stageTone.root}`}
       onClick={unlockAllRemoteAudio}
       role="presentation"
     >
@@ -1057,7 +1063,7 @@ export default function OrganizationVoiceChannelView({
       />
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className={`${stageTone.top} shadow-xl backdrop-blur-md`}>
+        <div className={compactSuite ? stageTone.top : `${stageTone.top} shadow-xl backdrop-blur-md`}>
           <span
             className={connected || landingDemo ? FIGMA_VOICE_STATUS_DOT : 'h-2 w-2 shrink-0 rounded-full bg-warning shadow-[0_0_6px] shadow-warning'}
             title={statusText}
@@ -1082,14 +1088,26 @@ export default function OrganizationVoiceChannelView({
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-28 pt-5">
-          <div className="grid content-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+        <div
+          className={`min-h-0 flex-1 overflow-y-auto px-5 pb-28 ${
+            compactSuite ? 'flex items-center justify-center pt-4' : 'pt-5'
+          }`}
+        >
+          <div
+            className={
+              compactSuite && participantRows.length <= 1
+                ? FIGMA_VOICE_GRID_SOLO_WRAP
+                : 'grid w-full content-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]'
+            }
+          >
             {participantRows.map((p) => (
               <div
                 key={p.id}
-                className={`relative flex min-h-[190px] flex-col items-center justify-center rounded-2xl border p-5 transition ${
-                  p.speaking ? stageTone.tileActive : stageTone.tile
-                }`}
+                className={`relative flex flex-col items-center justify-center rounded-2xl border p-5 transition ${
+                  compactSuite && participantRows.length <= 1
+                    ? FIGMA_VOICE_GRID_SOLO_TILE
+                    : 'min-h-[190px]'
+                } ${p.speaking ? stageTone.tileActive : stageTone.tile}`}
               >
                 <UserAvatar
                   avatar={p.avatar}
@@ -1163,6 +1181,7 @@ export default function OrganizationVoiceChannelView({
         </div>
       </div>
 
+      {compactSuite ? null : (
       <aside className={`hidden h-full w-[280px] shrink-0 flex-col border-l lg:flex ${stageTone.panel}`}>
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
           <div>
@@ -1199,6 +1218,7 @@ export default function OrganizationVoiceChannelView({
           </div>
         </div>
       </aside>
+      )}
     </div>
   );
 }

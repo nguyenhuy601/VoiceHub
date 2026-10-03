@@ -22,6 +22,7 @@ export const PROJECT_MENU_GROUPS = {
   WORK: 'work',
   COLLAB: 'collab',
   OPS: 'ops',
+  PHASE0_AI_HITL: 'phase0_ai_hitl',
   PHASE1_RA: 'phase1_ra',
   PHASE1_PLANNING: 'phase1_planning',
 };
@@ -34,6 +35,7 @@ export const PROJECT_MODULE_KEYS = [
   'board',
   'timeline',
   'change-requests',
+  'test-cases',
   'requirements',
   'files',
   'chat',
@@ -50,9 +52,14 @@ export const PROJECT_MODULE_KEYS = [
   'analysis-uc',
   'analysis-nfr',
   'analysis-scope',
+  'analysis-interface',
+  'analysis-data',
+  'analysis-glossary',
+  'analysis-assumption',
   'traceability',
   'analysis-reviews',
   'srs-baselines',
+  'ai-hitl',
   'delivery-planning',
   'planning-overview',
   'planning-wbs',
@@ -63,7 +70,11 @@ export const PROJECT_MODULE_KEYS = [
   'planning-milestones',
   'planning-releases',
   'planning-risks',
+  'planning-test-cases',
   'planning-approval',
+  'handover',
+  'deploy-evidence',
+  'release-notes',
 ];
 
 /** Map legacy hub tab ids to path modules */
@@ -74,6 +85,7 @@ export const HUB_TAB_TO_MODULE = {
   board: 'board',
   timeline: 'timeline',
   changeRequests: 'change-requests',
+  testCases: 'test-cases',
   chat: 'chat',
   members: 'members',
   files: 'files',
@@ -88,6 +100,7 @@ export const MODULE_TO_HUB_TAB = {
   board: 'board',
   timeline: 'timeline',
   'change-requests': 'changeRequests',
+  'test-cases': 'testCases',
   chat: 'chat',
   members: 'members',
   files: 'files',
@@ -101,10 +114,13 @@ export const MODULE_TO_HUB_TAB = {
 export function normalizeProjectModule(raw) {
   const value = String(raw || '').trim();
   if (!value) return 'overview';
-  if (value.toLowerCase() === 'report') return 'overview';
+  if (value.toLowerCase() === 'report') return 'activity';
   if (HUB_TAB_TO_MODULE[value]) return HUB_TAB_TO_MODULE[value];
   const lower = value.toLowerCase();
   if (lower === 'changerequests' || lower === 'change-requests') return 'change-requests';
+  if (lower === 'testcases' || lower === 'test-cases') return 'test-cases';
+  if (lower === 'deployevidence' || lower === 'deploy-evidence') return 'deploy-evidence';
+  if (lower === 'releasenotes' || lower === 'release-notes') return 'release-notes';
   if (PROJECT_MODULE_KEYS.includes(lower)) return lower;
   if (lower.startsWith('planning-')) return lower;
   return 'overview';
@@ -120,8 +136,6 @@ export function getCompanyNavItems(opts = {}) {
     { key: 'home', labelKey: 'nav.companyHome', path: '/app/company/home', group: null },
     { key: 'chat', labelKey: 'nav.messages', path: '/app/company/chat', group: null },
     { key: 'documents', labelKey: 'nav.documents', path: '/app/company/documents', group: null },
-    { key: 'calendar', labelKey: 'nav.calendar', path: '/app/company/calendar', group: null },
-    { key: 'approvals', labelKey: 'nav.approvals', path: '/app/company/approvals', group: null },
   ];
 }
 
@@ -156,19 +170,49 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
   const applyCapabilityFilter = (items) =>
     filterNavItemsByCapabilities(items, capabilities);
 
-  if (isPhase1DeliveryPhase(deliveryPhase)) {
+  const aiHitlIncomplete = Boolean(opts.aiHitlIncomplete);
+  if (isPhase1DeliveryPhase(deliveryPhase) || aiHitlIncomplete) {
     const planningLocked = !isPlanningUnlocked(deliveryPhase);
-    const groups = getPhase1SidebarGroups({ planningLocked });
+    const raReadOnly = isPlanningUnlocked(deliveryPhase) && !aiHitlIncomplete;
+    const groups = getPhase1SidebarGroups({
+      planningLocked,
+      raReadOnly,
+      aiHitlIncomplete,
+    });
     const phase1Items = [];
     for (const g of groups) {
       const groupId =
-        g.id === 'planning' ? PROJECT_MENU_GROUPS.PHASE1_PLANNING : PROJECT_MENU_GROUPS.PHASE1_RA;
+        g.id === 'ai_hitl'
+          ? PROJECT_MENU_GROUPS.PHASE0_AI_HITL
+          : g.id === 'planning'
+            ? PROJECT_MENU_GROUPS.PHASE1_PLANNING
+            : PROJECT_MENU_GROUPS.PHASE1_RA;
       for (const m of g.items) {
-        phase1Items.push({
+        // Overview stays interactive (gates / Start Planning / planning CTAs).
+        const itemReadOnly =
+          Boolean(g.readOnly) && String(m.key || m.module || '') !== 'overview';
+        const children = Array.isArray(m.children) ? m.children : [];
+        const parentItem = {
           ...item(m.key, m.labelKey, m.module, groupId, m.pathSeg),
           locked: Boolean(g.locked),
           lockHintKey: g.lockHintKey,
-        });
+          readOnly: itemReadOnly,
+          readOnlyHintKey: itemReadOnly ? g.readOnlyHintKey : undefined,
+          hasChildren: children.length > 0,
+          defaultChildPathSeg: children[0]?.pathSeg || m.pathSeg,
+        };
+        phase1Items.push(parentItem);
+        for (const child of children) {
+          phase1Items.push({
+            ...item(child.key, child.labelKey, child.module || m.module, groupId, child.pathSeg),
+            locked: Boolean(g.locked),
+            lockHintKey: g.lockHintKey,
+            readOnly: itemReadOnly,
+            readOnlyHintKey: itemReadOnly ? g.readOnlyHintKey : undefined,
+            navChildOf: m.key,
+            navIndent: 1,
+          });
+        }
       }
     }
     for (const m of PHASE1_COLLAB_MODULES) {
@@ -186,6 +230,19 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
 
   const all = [
     item('overview', 'workspace.projectHubTabOverview', 'overview', PROJECT_MENU_GROUPS.WORK),
+    item('handover', PHASE_MODULE_LABEL_KEYS.handover, 'handover', PROJECT_MENU_GROUPS.WORK),
+    item(
+      'deployEvidence',
+      PHASE_MODULE_LABEL_KEYS['deploy-evidence'],
+      'deploy-evidence',
+      PROJECT_MENU_GROUPS.WORK
+    ),
+    item(
+      'releaseNotes',
+      PHASE_MODULE_LABEL_KEYS['release-notes'],
+      'release-notes',
+      PROJECT_MENU_GROUPS.WORK
+    ),
     item(
       'customerDocuments',
       PHASE_MODULE_LABEL_KEYS['customer-documents'],
@@ -231,6 +288,7 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
     item('list', 'workspace.projectHubTabList', 'list', PROJECT_MENU_GROUPS.WORK),
     item('planning', 'workspace.projectHubTabPlanning', 'planning', PROJECT_MENU_GROUPS.WORK),
     item('board', 'workspace.projectHubTabBoard', 'board', PROJECT_MENU_GROUPS.WORK),
+    item('chat', 'workspace.projectHubTabChat', 'chat', PROJECT_MENU_GROUPS.COLLAB),
     item('timeline', 'workspace.projectHubTabTimeline', 'timeline', PROJECT_MENU_GROUPS.WORK),
     item(
       'changeRequests',
@@ -238,13 +296,18 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
       'change-requests',
       PROJECT_MENU_GROUPS.WORK
     ),
+    item(
+      'testCases',
+      'workspace.phaseQaTestCasesTitle',
+      'test-cases',
+      PROJECT_MENU_GROUPS.WORK
+    ),
     item('requirements', 'nav.requirements', 'requirements', PROJECT_MENU_GROUPS.WORK),
+    item('members', 'workspace.projectHubTabMembers', 'members', PROJECT_MENU_GROUPS.OPS),
     item('files', 'workspace.projectHubTabFiles', 'files', PROJECT_MENU_GROUPS.WORK),
-    item('chat', 'workspace.projectHubTabChat', 'chat', PROJECT_MENU_GROUPS.COLLAB),
+    item('activity', 'workspace.projectHubTabReport', 'activity', PROJECT_MENU_GROUPS.OPS),
     item('calendar', 'nav.calendar', 'calendar', PROJECT_MENU_GROUPS.COLLAB),
     item('documents', 'nav.documents', 'documents', PROJECT_MENU_GROUPS.COLLAB),
-    item('members', 'workspace.projectHubTabMembers', 'members', PROJECT_MENU_GROUPS.OPS),
-    item('activity', 'workspace.projectHubTabActivity', 'activity', PROJECT_MENU_GROUPS.OPS),
     item('settings', 'workspace.projectHubTabSettings', 'settings', PROJECT_MENU_GROUPS.OPS),
   ];
 
@@ -258,6 +321,7 @@ export function getProjectMenuGroupLabelKey(group) {
   if (group === PROJECT_MENU_GROUPS.WORK) return 'nav.projectGroupWork';
   if (group === PROJECT_MENU_GROUPS.COLLAB) return 'nav.projectGroupCollab';
   if (group === PROJECT_MENU_GROUPS.OPS) return 'nav.projectGroupOps';
+  if (group === PROJECT_MENU_GROUPS.PHASE0_AI_HITL) return 'workspace.phase0GroupAiHitl';
   if (group === PROJECT_MENU_GROUPS.PHASE1_RA) return 'workspace.phase1GroupRequirementAnalysis';
   if (group === PROJECT_MENU_GROUPS.PHASE1_PLANNING) return 'workspace.phase1GroupPlanning';
   return '';

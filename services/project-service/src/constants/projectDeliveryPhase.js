@@ -17,11 +17,19 @@ const DEFAULT_DELIVERY_PHASE_EXISTING = 'development';
 /** New Project.create default */
 const DEFAULT_DELIVERY_PHASE_NEW = 'requirement_analysis';
 
+const RELEASE_HANDOVER_CHECKLIST = Object.freeze([
+  Object.freeze({ id: 'release_notes', labelKey: 'project.releaseHandover.releaseNotes' }),
+  Object.freeze({ id: 'deployment_verified', labelKey: 'project.releaseHandover.deploymentVerified' }),
+  Object.freeze({ id: 'acceptance_signed_off', labelKey: 'project.releaseHandover.acceptanceSignedOff' }),
+  Object.freeze({ id: 'handover_completed', labelKey: 'project.releaseHandover.handoverCompleted' }),
+]);
+
 const PHASE_HOME_MODULE = Object.freeze({
   requirement_analysis: 'overview',
   delivery_planning: 'overview',
-  development: 'overview',
-  qa_uat: 'overview',
+  /** Phase 2 — Board là mặt phẳng thực thi chính */
+  development: 'board',
+  qa_uat: 'board',
   release_handover: 'overview',
 });
 
@@ -34,16 +42,16 @@ const DEVELOPMENT_MODULES = Object.freeze([
   'list',
   'planning',
   'board',
+  'chat',
   'timeline',
   'change-requests',
   'requirements',
-  'files',
-  'chat',
-  'calendar',
-  'documents',
   'members',
+  'files',
   'activity',
   'settings',
+  'calendar',
+  'documents',
 ]);
 
 const COLLAB_MIN = Object.freeze(['chat', 'calendar', 'documents', 'settings', 'members']);
@@ -64,6 +72,11 @@ const PLANNING_SUBMODULES = Object.freeze([
   'planning/wbs',
   'planning/architecture',
   'planning/resources',
+  'planning/resources/wbs',
+  'planning/resources/effort',
+  'planning/resources/match',
+  'planning/resources/capacity',
+  'planning/resources/schedule',
   'planning/dependencies',
   'planning/schedule',
   'planning/milestones',
@@ -119,6 +132,8 @@ const QA_UAT_MODULES = Object.freeze([
   'overview',
   'list',
   'board',
+  'test-cases',
+  'change-requests',
   'files',
   ...COLLAB_MIN,
   'activity',
@@ -126,6 +141,13 @@ const QA_UAT_MODULES = Object.freeze([
 
 const RELEASE_HANDOVER_MODULES = Object.freeze([
   'overview',
+  'handover',
+  'deploy-evidence',
+  'release-notes',
+  'list',
+  'board',
+  'test-cases',
+  'change-requests',
   'files',
   ...COLLAB_MIN,
   'activity',
@@ -188,10 +210,18 @@ function canTransitionDeliveryPhase(from, to) {
   return next.includes(b);
 }
 
+function listForwardPhases(from) {
+  const phase = coerceDeliveryPhase(from, { missingAsExisting: false });
+  if (!phase) return [];
+  const index = DELIVERY_PHASES.indexOf(phase);
+  return DELIVERY_PHASES.slice(index + 1);
+}
+
 module.exports = {
   DELIVERY_PHASES,
   DEFAULT_DELIVERY_PHASE_EXISTING,
   DEFAULT_DELIVERY_PHASE_NEW,
+  RELEASE_HANDOVER_CHECKLIST,
   PHASE_HOME_MODULE,
   DEVELOPMENT_MODULES,
   REQUIREMENT_ANALYSIS_MODULES,
@@ -205,4 +235,5 @@ module.exports = {
   isModuleAllowedForPhase,
   phaseHomeModule,
   canTransitionDeliveryPhase,
+  listForwardPhases,
 };

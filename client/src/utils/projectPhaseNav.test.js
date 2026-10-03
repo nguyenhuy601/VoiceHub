@@ -10,6 +10,7 @@ import {
   filterNavItemsByCapabilities,
   isAnalysisViewModule,
   isPlanningViewModule,
+  phaseHomeModule,
   DEVELOPMENT_MODULES,
 } from './projectPhaseNav.js';
 
@@ -24,14 +25,60 @@ describe('projectPhaseNav', () => {
     assert.equal(isModuleAllowedForPhase('board', 'requirement_analysis'), false);
   });
 
+  it('phase home: board for Phase 2 development/qa', () => {
+    assert.equal(phaseHomeModule('development'), 'board');
+    assert.equal(phaseHomeModule('qa_uat'), 'board');
+    assert.equal(phaseHomeModule('requirement_analysis'), 'overview');
+    assert.equal(phaseHomeModule(''), 'board');
+  });
+
   it('allows analysis-bg in requirement_analysis', () => {
     assert.equal(isModuleAllowedForPhase('analysis-bg', 'requirement_analysis'), true);
     assert.equal(isModuleAllowedForPhase('analysis-bg', 'development'), false);
   });
 
+  it('allows IF/DATA/Glossary/Assumption tabs in Phase 1 RA + Planning', () => {
+    for (const mod of [
+      'analysis-interface',
+      'analysis-data',
+      'analysis-glossary',
+      'analysis-assumption',
+    ]) {
+      assert.equal(isModuleAllowedForPhase(mod, 'requirement_analysis'), true);
+      assert.equal(isModuleAllowedForPhase(mod, 'delivery_planning'), true);
+      assert.equal(isModuleAllowedForPhase(mod, 'development'), false);
+      assert.equal(isAnalysisViewModule(mod), true);
+    }
+  });
+
   it('development modules match legacy suite set', () => {
     assert.ok(DEVELOPMENT_MODULES.includes('list'));
     assert.ok(DEVELOPMENT_MODULES.includes('change-requests'));
+  });
+
+  it('qa_uat allows test-cases and change-requests', () => {
+    assert.equal(isModuleAllowedForPhase('test-cases', 'qa_uat'), true);
+    assert.equal(isModuleAllowedForPhase('change-requests', 'qa_uat'), true);
+    assert.equal(isModuleAllowedForPhase('test-cases', 'development'), false);
+    assert.equal(isModuleAllowedForPhase('change-requests', 'development'), true);
+  });
+
+  it('release_handover primary tabs + lookup modules', () => {
+    for (const mod of [
+      'overview',
+      'handover',
+      'deploy-evidence',
+      'release-notes',
+      'board',
+      'test-cases',
+      'change-requests',
+    ]) {
+      assert.equal(isModuleAllowedForPhase(mod, 'release_handover'), true);
+    }
+    assert.equal(isModuleAllowedForPhase('acceptance', 'release_handover'), false);
+    assert.equal(isModuleAllowedForPhase('handover', 'qa_uat'), false);
+    assert.equal(isModuleAllowedForPhase('deploy-evidence', 'development'), false);
+    assert.equal(phaseHomeModule('release_handover'), 'overview');
   });
 
   it('filters nav items by phase', () => {

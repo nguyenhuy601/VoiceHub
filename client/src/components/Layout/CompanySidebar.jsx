@@ -45,9 +45,11 @@ export default function CompanySidebar({ landingDemo = false } = {}) {
       if (departmentId) next.set('departmentId', departmentId);
       if (clearTeam) {
         next.delete('teamId');
+        next.delete('channelId');
         writeStoredCompanyTeamId('');
       } else if (nextTeamId) {
         next.set('teamId', String(nextTeamId));
+        next.delete('channelId');
         writeStoredCompanyTeamId(nextTeamId);
       }
       const pathname =

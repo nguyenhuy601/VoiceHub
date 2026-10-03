@@ -67,10 +67,70 @@ export function attachmentDisplayName(message, fallback) {
 
 export function formatFileSize(bytes) {
   const n = Number(bytes);
-  if (!Number.isFinite(n) || n <= 0) return '-';
+  if (!Number.isFinite(n) || n <= 0) return '';
   if (n < 1024) return `${Math.round(n)} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Ghép meta Drive file → attachment ref (storagePath / url) để mở giống task board. */
+export function toDriveAttachmentRef(file) {
+  if (!file || typeof file !== 'object') return null;
+  const raw = file.raw && typeof file.raw === 'object' ? file.raw : {};
+  const fileMeta = raw.fileMeta && typeof raw.fileMeta === 'object' ? raw.fileMeta : {};
+  const url = String(
+    file.url || raw.url || fileMeta.storagePath || fileMeta.url || ''
+  ).trim();
+  const storagePath = String(
+    file.storagePath || raw.storagePath || fileMeta.storagePath || ''
+  ).trim();
+  return {
+    ...raw,
+    name: file.name || raw.name || fileMeta.originalName,
+    url: url || storagePath,
+    storagePath: storagePath || (url && !/^https?:\/\//i.test(url) ? url : ''),
+    documentId: file.documentId || raw.documentId || fileMeta.documentId,
+    mimeType: file.mimeType || raw.mimeType || fileMeta.mimeType || raw.contentType,
+  };
+}
+
+/** URL mở được trên Drive (file đính kèm / thư viện / project attachment). */
+export function resolveOrgFileOpenUrl(file) {
+  if (!file || typeof file !== 'object') return '';
+  const raw = file.raw && typeof file.raw === 'object' ? file.raw : {};
+  const fileMeta = raw.fileMeta && typeof raw.fileMeta === 'object' ? raw.fileMeta : {};
+  const candidates = [
+    file.url,
+    file.fileUrl,
+    file.downloadUrl,
+    file.signedReadUrl,
+    file.readUrl,
+    raw.url,
+    raw.fileUrl,
+    raw.downloadUrl,
+    raw.signedReadUrl,
+    raw.readUrl,
+    raw.content,
+    fileMeta.url,
+    fileMeta.signedReadUrl,
+  ];
+  for (const c of candidates) {
+    const s = String(c || '').trim();
+    if (!s) continue;
+    if (/^https?:\/\//i.test(s) || s.startsWith('blob:') || s.startsWith('data:')) return s;
+    // Relative same-origin (upload path)
+    if (s.startsWith('/') && !s.startsWith('//')) return s;
+  }
+  return '';
+}
+
+function resolveDocByteSize(doc) {
+  const candidates = [doc?.fileSize, doc?.byteSize, doc?.size, doc?.fileMeta?.byteSize];
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
 }
 
 export function mimeToLabel(mimeType, messageType) {
@@ -89,9 +149,16 @@ export function mimeToLabel(mimeType, messageType) {
 /**
  * Gom mọi kênh từ cây structure GET /organizations/:id/structure
  */
+function toIdSet(ids) {
+  if (ids instanceof Set) return ids;
+  return new Set((ids || []).map(String).filter(Boolean));
+}
+
 export function flattenChannelsFromStructure(branches) {
   const list = [];
-  const pushChannels = (channels) => {
+  const pushChannels = (channels, meta = {}) => {
+    const departmentId = String(meta.departmentId || '').trim();
+    const teamId = String(meta.teamId || '').trim();
     for (const ch of channels || []) {
       const id = String(ch?._id || ch?.id || '').trim();
       if (!id) continue;
@@ -100,6 +167,10 @@ export function flattenChannelsFromStructure(branches) {
         id,
         name: String(ch?.name || ch?.title || id),
         type: String(ch?.type || 'chat').toLowerCase(),
+        department: String(ch?.department || ch?.departmentId || departmentId),
+        departmentId: String(ch?.department || ch?.departmentId || departmentId),
+        team: String(ch?.team || ch?.teamId || teamId),
+        teamId: String(ch?.team || ch?.teamId || teamId),
       });
     }
   };
@@ -108,9 +179,11 @@ export function flattenChannelsFromStructure(branches) {
     for (const division of branch?.divisions || []) {
       pushChannels(division?.channels);
       for (const department of division?.departments || []) {
-        pushChannels(department?.channels);
+        const departmentId = String(department?._id || department?.id || '').trim();
+        pushChannels(department?.channels, { departmentId, teamId: '' });
         for (const team of department?.teams || []) {
-          pushChannels(team?.channels);
+          const teamId = String(team?._id || team?.id || '').trim();
+          pushChannels(team?.channels, { departmentId, teamId });
         }
       }
     }
@@ -160,6 +233,7 @@ export function mapMessageToOrgFile(message, channelByRoomId, t, locale) {
     categoryLabel: '',
     channelName: ch?.name || t('documents.orgUnknownChannel'),
     departmentId: String(ch?.department || ch?.departmentId || message?.departmentId || '').trim(),
+    teamId: String(ch?.team || ch?.teamId || message?.teamId || '').trim(),
     roomId,
     url,
     messageType: String(message?.messageType || 'file'),
@@ -179,17 +253,20 @@ export function mapMessageToOrgFile(message, channelByRoomId, t, locale) {
 
 export function mapLibraryDocumentToOrgFile(doc, t, locale) {
   const id = String(doc._id || doc.id || '');
+  const sizeBytes = resolveDocByteSize(doc);
   return {
     id: `lib-${id}`,
     source: 'library',
     name: String(doc.name || doc.title || t('documents.orgUntitledFile')),
-    size: formatFileSize(doc.fileSize),
-    sizeBytes: Number(doc.fileSize) || 0,
+    size: formatFileSize(sizeBytes),
+    sizeBytes,
     typeLabel: mimeToLabel(doc.mimeType, 'file'),
     category: 'library',
     categoryLabel: '',
     channelName: t('documents.orgCategoryLibrary'),
     departmentId: String(doc.departmentId || doc.department || '').trim(),
+    teamId: String(doc.teamId || doc.team || '').trim(),
+    projectId: String(doc.projectId || '').trim(),
     roomId: '',
     url: String(doc.fileUrl || doc.url || '').trim(),
     messageType: 'file',
@@ -205,4 +282,64 @@ export function mapLibraryDocumentToOrgFile(doc, t, locale) {
       t('documents.orgMemberFallback'),
     raw: doc,
   };
+}
+
+/**
+ * Thu hẹp list file theo corpus phòng/team/membership. Không mở rộng ngoài ACL overview.
+ */
+export function filterOrgFilesByScope(files, options = {}) {
+  const list = Array.isArray(files) ? files : [];
+  const teamId = String(options.teamId || '').trim();
+  const deptId = String(options.departmentId || '').trim();
+  const projectId = String(options.projectId || '').trim();
+  if (projectId) {
+    return list.filter((f) => String(f?.projectId || f?.raw?.projectId || '').trim() === projectId);
+  }
+  const teamChannelSet = toIdSet(options.teamChannelIds);
+  const deptChannelSet = toIdSet(options.departmentChannelIds);
+  const memberDepts = Array.isArray(options.memberDepartmentIds)
+    ? options.memberDepartmentIds.map(String).filter(Boolean)
+    : [];
+  const memberChannels = toIdSet(options.memberChannelIds);
+
+  if (teamId) {
+    return list.filter((f) => {
+      if (String(f?.source || '') === 'project') {
+        const projDept = String(f?.departmentId || '').trim();
+        return !projDept || projDept === deptId;
+      }
+      if (isSharedFilesCategory(f?.category) && !String(f?.roomId || '').trim()) return true;
+      const fileTeam = String(f?.teamId || f?.raw?.teamId || '').trim();
+      if (fileTeam && fileTeam === teamId) return true;
+      const roomId = String(f?.roomId || '').trim();
+      return Boolean(roomId && teamChannelSet.has(roomId));
+    });
+  }
+
+  if (deptId) {
+    return list.filter((f) => {
+      if (String(f?.source || '') === 'project') {
+        const projDept = String(f?.departmentId || '').trim();
+        return !projDept || projDept === deptId;
+      }
+      if (isSharedFilesCategory(f?.category)) return true;
+      const fileDept = String(f?.departmentId || f?.raw?.departmentId || '').trim();
+      if (fileDept && fileDept === deptId) return true;
+      const roomId = String(f?.roomId || '').trim();
+      return Boolean(roomId && deptChannelSet.has(roomId));
+    });
+  }
+
+  if (memberDepts.length || memberChannels.size) {
+    const deptSet = new Set(memberDepts);
+    return list.filter((f) => {
+      if (String(f?.source || '') === 'project') return true;
+      const roomId = String(f?.roomId || '').trim();
+      if (roomId && memberChannels.has(roomId)) return true;
+      const fileDept = String(f?.departmentId || f?.raw?.departmentId || '').trim();
+      return Boolean(fileDept && deptSet.has(fileDept));
+    });
+  }
+
+  return list;
 }

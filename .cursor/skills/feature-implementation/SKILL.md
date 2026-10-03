@@ -18,8 +18,7 @@ Design-only; do not create a new skill per feature name.
 
 - `.cursor/rules/senior-dev-engineering.mdc`
 - `.cursor/rules/clean-code.mdc`
-- `.cursor/rules/role-backend.mdc`
-- `.cursor/rules/role-frontend.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `implementer`)
 - `.cursor/rules/voicehub-constraints.mdc`
 - `.cursor/rules/enterprise-admin-ui.mdc`
 
@@ -35,7 +34,7 @@ AC/plan step, layer (FE/BE), service name if BE
 4. Implement with VoiceHub layers; FE: loading/empty/error/retry, i18n, design system.
 5. Validate locally (lint/build as available).
 6. Test via plan section 5 or regression-testing skill.
-7. Self-review against clean-code; optional code-review agent.
+7. Self-review against clean-code; optional reviewer agent.
 8. Honor Review Gates: stop when plan says Stop for review.
 9. FE page removal: follow remove-page-cleanup.mdc checklist.
 

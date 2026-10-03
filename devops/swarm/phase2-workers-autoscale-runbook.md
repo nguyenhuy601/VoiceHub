@@ -14,7 +14,6 @@ Scale queue workers **thủ công** trên Docker Swarm (không HPA/autoscaler pl
 |--------|-----|-------------|-----------|
 | project-worker | 1 | 2–3 | any |
 | notification-dispatch-worker | 1 | 2–3 | IO-bound |
-| webhook-delivery-worker | 1 | 2–3 | IO-bound |
 | ai-task-extract-worker | 1 | 2 | `node.labels.ai == true` |
 | ai-task-sync-worker | 1 | 2 | `node.labels.ai == true` |
 
@@ -30,7 +29,6 @@ Scale queue workers **thủ công** trên Docker Swarm (không HPA/autoscaler pl
 # Root .env (ví dụ staging burst window)
 TASK_WORKER_REPLICAS=2
 NOTIFICATION_DISPATCH_WORKER_REPLICAS=2
-WEBHOOK_DELIVERY_WORKER_REPLICAS=2
 AI_TASK_EXTRACT_WORKER_REPLICAS=2
 AI_TASK_SYNC_WORKER_REPLICAS=2
 
@@ -64,10 +62,10 @@ bash devops/scripts/rabbit-queue-depth.sh
 - DLQ không spike bất thường (so với retry exhausted)
 - Worker replicas **N/N** ổn định, không restart loop
 
-## Burst test (notification / webhook)
+## Burst test (notification)
 
 1. Baseline: `rabbitmqctl list_queues`
-2. Burst publish (no-op webhook events — unknown `event_type` → ack nhanh), rồi poll queue:
+2. Burst publish notification dispatch jobs, rồi poll queue:
 
 ```bash
 watch -n5 bash devops/scripts/rabbit-queue-depth.sh
@@ -90,17 +88,8 @@ Khi scale in về 1 replica: không xóa queue; chỉ giảm consumer count.
 docker service scale \
   voicehub_project-worker=1 \
   voicehub_notification-dispatch-worker=1 \
-  voicehub_webhook-delivery-worker=1 \
   voicehub_ai-task-extract-worker=1 \
   voicehub_ai-task-sync-worker=1
-```
-
-**Ops note:** Nếu webhook worker báo `PRECONDITION_FAILED` trên `voicehub.webhook.delivery.dlq` (classic vs quorum), xóa DLQ classic rồi force-update worker:
-
-```bash
-RAB=$(docker ps -q -f name=voicehub-rabbit_rabbitmq-1 | head -1)
-docker exec "$RAB" rabbitmqctl delete_queue voicehub.webhook.delivery.dlq
-docker service update --force voicehub_webhook-delivery-worker
 ```
 
 ## References

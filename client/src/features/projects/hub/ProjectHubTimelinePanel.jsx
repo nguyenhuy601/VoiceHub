@@ -823,7 +823,7 @@ export default function ProjectHubTimelinePanel({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex shrink-0 flex-col border-r border-border" style={{ width: WORK_COL_PX }}>
           <div
-            className="flex shrink-0 items-end border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+            className="flex shrink-0 items-end border-b border-border/50 bg-muted/40 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
             style={{ height: HEADER_PX }}
           >
             {t('workspace.projectHubTimelineWork')}
@@ -854,7 +854,7 @@ export default function ProjectHubTimelinePanel({
               return (
                 <div
                   key={node.id}
-                  className={`relative flex items-center gap-1 border-b border-border px-2 ${nodeRowToneClass(index, hovered)}`}
+                  className={`relative flex items-center gap-1 border-b border-border/35 px-2 ${nodeRowToneClass(index, hovered)}`}
                   style={{ height: TIMELINE_ROW_PX, paddingLeft: 8 + depth * 16 }}
                   onMouseEnter={() => setHoveredRowId(node.id)}
                   onMouseLeave={() => setHoveredRowId((id) => (id === node.id ? null : id))}
@@ -1277,20 +1277,19 @@ export default function ProjectHubTimelinePanel({
         apiCtx={apiCtx}
         locale={locale}
         initialPanel="detail"
-        canCreateTask={Boolean(hubCaps?.canCreateTask || canManage)}
-        canEstimate={Boolean(canManage || hubCaps?.canEstimate)}
-        canComment={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
-        }
-        canUpdateTask={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
-        }
-        canChangeStatus={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:change_status'))
-        }
+        canCreateTask={Boolean(hubCaps?.canCreateTask)}
+        canEstimate={Boolean(hubCaps?.canEstimate)}
+        canComment={Boolean(
+          Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment')
+        )}
+        canUpdateTask={Boolean(
+          Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update')
+        )}
+        canChangeStatus={Boolean(
+          Array.isArray(hubCaps?.permissions) &&
+            (hubCaps.permissions.includes('task:change_status') ||
+              hubCaps.permissions.includes('task:drag_to_done'))
+        )}
         onClose={() => setDetailIssue(null)}
         onOpenWorkItem={(card) => {
           if (card) setDetailIssue(card);

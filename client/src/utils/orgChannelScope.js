@@ -50,8 +50,48 @@ export function channelsForDepartment(channels, departmentId) {
   });
 }
 
+/**
+ * Mọi kênh org thuộc phòng (kênh phòng + kênh team con) — dùng corpus Drive cấp phòng.
+ * Khác `channelsForDepartment` (chỉ kênh dept-only, phục vụ rail chat).
+ */
+export function channelsUnderDepartment(channels, departmentId) {
+  const dept = String(departmentId || '');
+  if (!dept) return [];
+  const seen = new Set();
+  return (channels || []).filter((ch) => {
+    if (isProjectScopedChannel(ch)) return false;
+    if (String(ch.department || '') !== dept) return false;
+    const id = String(ch._id || ch.id || '');
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
 export function isDeptOnlyChannel(channel) {
   return Boolean(channel?.department) && !String(channel?.team || '') && !isProjectScopedChannel(channel);
+}
+
+/**
+ * Rail company: copy phòng vs team (nhân sự line). Không áp cho project channel.
+ * @returns {'dept' | 'team' | null}
+ */
+export function resolveLineChatScope({
+  departmentWorkspaceActive = false,
+  selectedTeamId = '',
+  channel = null,
+} = {}) {
+  if (isProjectScopedChannel(channel)) return null;
+  if (String(selectedTeamId || '')) return 'team';
+  if (departmentWorkspaceActive) return 'dept';
+  return null;
+}
+
+/** `channelId` trên URL chỉ giữ khi thuộc đúng team — tránh stale roomId kênh phòng. */
+export function channelBelongsToTeamScope(channel, teamId) {
+  const team = String(teamId || '');
+  if (!team || !channel) return false;
+  return String(channel.team || '') === team && !isProjectScopedChannel(channel);
 }
 
 /**

@@ -9,6 +9,12 @@ export const queryKeys = {
     all: ['org'],
     shell: (orgId) => ['org', String(orgId || ''), 'shell'],
     documentsOverview: (orgId) => ['org', String(orgId || ''), 'documents-overview'],
+    libraryDocuments: (orgId, projectId = '') => [
+      'org',
+      String(orgId || ''),
+      'library-documents',
+      String(projectId || ''),
+    ],
     detail: (orgId) => ['org', String(orgId || ''), 'detail'],
     levels: (orgId) => ['org', String(orgId || ''), 'levels'],
     structure: (orgId, includeInactive = false) => [

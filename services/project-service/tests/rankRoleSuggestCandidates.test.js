@@ -5,8 +5,10 @@ const {
   PRIOR_ROLE_BOOST,
   isExactIntakeRoleKeys,
   isAllowedIntakeRoleKeys,
+  resolveStaffingMatchRoleKey,
   rankRoleSuggestCandidate,
   toRoleSuggestPublicItem,
+  pinAssigneeFirst,
   sortRoleSuggestItems,
 } = require('../src/utils/staffing/rankRoleSuggestCandidates');
 
@@ -32,6 +34,15 @@ describe('isAllowedIntakeRoleKeys', () => {
   it('T2 product_owner only → allowed; developer → false', () => {
     assert.equal(isAllowedIntakeRoleKeys('product_owner'), true);
     assert.equal(isAllowedIntakeRoleKeys('developer'), false);
+  });
+});
+
+describe('resolveStaffingMatchRoleKey', () => {
+  it('accepts one delivery role and rejects intake bundles', () => {
+    assert.deepEqual(resolveStaffingMatchRoleKey('developer'), ['developer']);
+    assert.deepEqual(resolveStaffingMatchRoleKey('tech_lead'), ['tech_lead']);
+    assert.equal(resolveStaffingMatchRoleKey('product_owner,project_manager'), null);
+    assert.equal(resolveStaffingMatchRoleKey(''), null);
   });
 });
 
@@ -121,12 +132,49 @@ describe('rankRoleSuggestCandidate', () => {
       suggestReasons: [],
       priorRoleKeys: [],
       allocatedPct: 120,
+      availablePct: 0,
       availability: 'overallocated',
       experience: { work: 'nope' },
     });
     assert.equal(pub.allocatedPct, 120);
+    assert.equal(pub.availablePct, 0);
     assert.equal(pub.availability, 'overallocated');
     assert.equal(Object.prototype.hasOwnProperty.call(pub, 'experience'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(pub, 'availableHours'), false);
+  });
+
+  it('whitelist thêm availableHours khi là số, bỏ qua khi không phải số', () => {
+    const withHours = toRoleSuggestPublicItem({
+      userId: 'u5',
+      displayName: 'Lan',
+      score: 1,
+      suggestReasons: [],
+      priorRoleKeys: [],
+      availableHours: 32.456,
+    });
+    assert.equal(withHours.availableHours, 32.46);
+    const skipped = toRoleSuggestPublicItem({
+      userId: 'u6',
+      displayName: 'Nam',
+      score: 1,
+      suggestReasons: [],
+      priorRoleKeys: [],
+      availableHours: 'nope',
+    });
+    assert.equal(Object.prototype.hasOwnProperty.call(skipped, 'availableHours'), false);
+  });
+
+  it('pins the current assignee ahead of score order', () => {
+    const pinned = pinAssigneeFirst(
+      [
+        { userId: 'a', score: 20 },
+        { userId: 'b', score: 5 },
+      ],
+      'b'
+    );
+    assert.equal(pinned[0].userId, 'b');
+    assert.equal(pinned[1].userId, 'a');
+    assert.equal(pinAssigneeFirst(pinned, 'b')[0].userId, 'b');
   });
 
   it('sort score desc', () => {

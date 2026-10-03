@@ -9,7 +9,7 @@ import { organizationAPI } from '../../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
 import { flattenOrgStructureDepartments } from '../../../utils/orgMemberStructureScope';
-import { toDateInputValue, isProjectDateRangeInvalid } from './projectHubUtils';
+import { toDateInputValue, isProjectDateRangeInvalid, toastScheduleWarnings, formatHubProjectStatus } from './projectHubUtils';
 import ProjectHubSettingsPopover from './ProjectHubSettingsPopover';
 import ProjectHubWorkTypeHierarchy from './ProjectHubWorkTypeHierarchy';
 import ProjectHubDelegationSection from './ProjectHubDelegationSection';
@@ -29,15 +29,22 @@ import {
   PROJECT_PRIORITIES,
   PROJECT_TYPES,
 } from '../../adminTasks/createProjectSeed';
-import { ensureProjectHubRoleCatalog } from './useProjectHubQueries';
+import { coerceDeliveryPhase } from '../../../utils/projectPhaseNav';
 
-/** Status DA có thể sửa trên Hub Settings — không gồm closed (dùng luồng Complete). */
-const PROFILE_EDITABLE_STATUSES = Object.freeze([
-  'planning',
-  'ready_for_planning',
-  'in_development',
-  'on_hold',
-]);
+/** Status đúng một phase. Dropdown chỉ status đó và on_hold — không chọn lệch phase. */
+const STATUS_FOR_DELIVERY_PHASE = Object.freeze({
+  requirement_analysis: 'draft',
+  delivery_planning: 'ready',
+  development: 'in_development',
+  qa_uat: 'qa_uat',
+  release_handover: 'release_handover',
+});
+
+function statusChoicesForPhase(deliveryPhase) {
+  const phase = coerceDeliveryPhase(deliveryPhase);
+  const aligned = STATUS_FOR_DELIVERY_PHASE[phase] || 'in_development';
+  return Object.freeze([aligned, 'on_hold']);
+}
 
 const SPRINT_WEEKDAYS = Object.freeze([
   'monday',
@@ -180,6 +187,7 @@ export default function ProjectHubSettingsPanel({
   canArchiveProject = false,
   canArchiveWithoutComplete = false,
   isProjectCompleted = false,
+  isDraftProject = false,
   projectStillActive = true,
   onRequestArchive = null,
   isDarkMode = false,
@@ -204,7 +212,7 @@ export default function ProjectHubSettingsPanel({
   const [projectType, setProjectType] = useState('software');
   const [category, setCategory] = useState('internal');
   const [projectPriority, setProjectPriority] = useState('medium');
-  const [projectStatus, setProjectStatus] = useState('ready_for_planning');
+  const [projectStatus, setProjectStatus] = useState('draft');
   const [tagsInput, setTagsInput] = useState('');
   const [estimatedDurationDays, setEstimatedDurationDays] = useState('');
   const [workingCalendar, setWorkingCalendar] = useState('standard');
@@ -241,6 +249,9 @@ export default function ProjectHubSettingsPanel({
     'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary';
 
   const resolvedProjectId = String(projectId || board?.projectId || '').trim();
+  const statusChoices = statusChoicesForPhase(
+    (projectPayload || board || {}).deliveryPhase
+  );
 
   useEffect(() => {
     const src = projectPayload || board || {};
@@ -300,10 +311,15 @@ export default function ProjectHubSettingsPanel({
     setCategory(PROJECT_CATEGORIES.includes(nextCategory) ? nextCategory : 'internal');
     const nextPriority = String(src.priority || 'medium').trim().toLowerCase();
     setProjectPriority(PROJECT_PRIORITIES.includes(nextPriority) ? nextPriority : 'medium');
-    const nextStatus = String(src.status || 'ready_for_planning').trim().toLowerCase();
-    setProjectStatus(
-      PROFILE_EDITABLE_STATUSES.includes(nextStatus) ? nextStatus : 'ready_for_planning'
-    );
+    const nextStatus = String(src.status || 'draft').trim().toLowerCase();
+    const statusAlias = {
+      planning: 'draft',
+      ready_for_planning: 'ready',
+      active: 'in_development',
+    };
+    const coerced = statusAlias[nextStatus] || nextStatus;
+    const choices = statusChoicesForPhase(src.deliveryPhase || board?.deliveryPhase);
+    setProjectStatus(choices.includes(coerced) ? coerced : choices[0]);
     setTagsInput(tagsToInputValue(src.tags));
     const duration = src.estimatedDurationDays;
     setEstimatedDurationDays(
@@ -593,8 +609,9 @@ export default function ProjectHubSettingsPanel({
       if (visibilityMode === 'custom') {
         body.visibilityPolicy = visibilityPolicy;
       }
+      let savedProject = null;
       if (resolvedProjectId) {
-        await projectAPI.patch(resolvedProjectId, {
+        savedProject = await projectAPI.patch(resolvedProjectId, {
           ...body,
           priorityConfig: { items: priorityItems },
         });
@@ -631,6 +648,7 @@ export default function ProjectHubSettingsPanel({
         );
       }
       toast.success(t('workspace.projectHubSettingsSaved'));
+      toastScheduleWarnings(savedProject, toast, t);
       onSaved?.();
     } catch (err) {
       toast.error(
@@ -837,9 +855,9 @@ export default function ProjectHubSettingsPanel({
           disabled={!profileHydrated || saving}
           onChange={(e) => setProjectStatus(e.target.value)}
         >
-          {PROFILE_EDITABLE_STATUSES.map((value) => (
+          {statusChoices.map((value) => (
             <option key={value} value={value}>
-              {t(`workspace.projectHubProjectStatus_${value}`)}
+              {formatHubProjectStatus(value, t)}
             </option>
           ))}
         </select>
@@ -1383,12 +1401,21 @@ export default function ProjectHubSettingsPanel({
               id="project-hub-settings-danger-title"
               className={`text-sm font-bold ${titleCls}`}
             >
-              {t('workspace.projectHubSettingsDangerTitle')}
+              {isDraftProject
+                ? t('workspace.projectHubSettingsDangerDraftTitle')
+                : t('workspace.projectHubSettingsDangerTitle')}
             </h4>
             <p className={`mt-1 text-xs leading-relaxed ${muted}`}>
-              {t('workspace.projectHubSettingsDangerHint')}
+              {isDraftProject
+                ? t('workspace.projectHubSettingsDangerDraftHint')
+                : t('workspace.projectHubSettingsDangerHint')}
             </p>
-            {!canArchiveNow && !isProjectCompleted && !canArchiveWithoutComplete ? (
+            {!canArchiveNow && isDraftProject && !canArchiveWithoutComplete ? (
+              <p className="mt-2 text-xs text-muted-foreground" role="status">
+                {t('workspace.projectHubSettingsDeleteDraftNeedPerm')}
+              </p>
+            ) : null}
+            {!canArchiveNow && !isDraftProject && !isProjectCompleted && !canArchiveWithoutComplete ? (
               <p className="mt-2 text-xs text-muted-foreground" role="status">
                 {t('workspace.projectHubSettingsArchiveNeedComplete')}
               </p>
@@ -1399,7 +1426,9 @@ export default function ProjectHubSettingsPanel({
               onClick={() => onRequestArchive?.()}
               className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {t('workspace.projectHubArchiveProject')}
+              {isDraftProject
+                ? t('workspace.projectHubDeleteDraft')
+                : t('workspace.projectHubArchiveProject')}
             </button>
           </section>
         ) : null}

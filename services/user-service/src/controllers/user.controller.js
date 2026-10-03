@@ -6,6 +6,14 @@ const { isEncryptionEnabled } = require('@enterprise/shared/utils/fieldCrypto');
 const { readPiiFromProfile } = require('../utils/profilePii');
 const { authEmailFromReq, withAuthEmailFallback } = require('../utils/withAuthEmailFallback');
 const { uploadsDir } = require('../config/uploadsPath');
+const objectStorage = require('../utils/objectStorage');
+const {
+  buildAvatarKey,
+  isLegacyUploadsPath,
+  contentTypeFromAvatarPath,
+  legacyDiskFileName,
+} = require('../utils/avatarStoragePath');
+const { resolveExtension } = require('../middleware/upload');
 const {
   fetchAuthSummaryByUserId,
   fetchAuthSummaryByUserIds,
@@ -651,13 +659,35 @@ class UserController {
       if (!profile?.avatar) {
         return res.status(404).json({ success: false, message: 'Avatar not found' });
       }
-      const rel = String(profile.avatar).replace(/^\/uploads\//, '').replace(/^uploads\//, '');
-      const safeName = path.basename(rel);
-      const filePath = path.join(uploadsDir, safeName);
-      if (!filePath.startsWith(uploadsDir) || !fs.existsSync(filePath)) {
+
+      const avatarRef = String(profile.avatar).trim();
+
+      if (isLegacyUploadsPath(avatarRef)) {
+        const safeName = legacyDiskFileName(avatarRef);
+        const filePath = path.join(uploadsDir, safeName);
+        if (!filePath.startsWith(uploadsDir) || !fs.existsSync(filePath)) {
+          return res.status(404).json({ success: false, message: 'Avatar file not found' });
+        }
+        return res.sendFile(filePath);
+      }
+
+      if (!objectStorage.isEnabled()) {
+        return res.status(503).json({
+          success: false,
+          message: 'Object storage (MinIO) is not configured',
+          errorCode: 'AVATAR_STORAGE_UNAVAILABLE',
+        });
+      }
+
+      const exists = await objectStorage.objectExists(avatarRef);
+      if (!exists) {
         return res.status(404).json({ success: false, message: 'Avatar file not found' });
       }
-      return res.sendFile(filePath);
+
+      const stream = await objectStorage.getObjectStream(avatarRef);
+      res.setHeader('Content-Type', contentTypeFromAvatarPath(avatarRef));
+      res.setHeader('Cache-Control', 'private, max-age=300');
+      return stream.pipe(res);
     } catch (error) {
       logger.error('Get user avatar error:', error);
       return sendError(res, error, 404, 'Không thể tải ảnh đại diện', 'USER_AVATAR_GET_FAILED');
@@ -670,14 +700,41 @@ class UserController {
       if (!userId) {
         return res.status(401).json({ success: false, message: 'Unauthorized' });
       }
-      if (!req.file) {
+      if (!req.file?.buffer?.length) {
         return res.status(400).json({ success: false, message: 'No file uploaded' });
       }
+      if (!objectStorage.isEnabled()) {
+        return res.status(503).json({
+          success: false,
+          message: 'Object storage (MinIO) is not configured',
+          errorCode: 'AVATAR_STORAGE_UNAVAILABLE',
+          messageUser: 'Không thể tải ảnh đại diện lên (storage chưa sẵn sàng).',
+        });
+      }
 
-      const avatarUrl = `/uploads/${req.file.filename}`;
-      const userProfile = await userService.updateUserProfile(userId, { avatar: avatarUrl });
+      const ext = resolveExtension(req.file) || '.jpg';
+      const mime = String(req.file.mimetype || '').toLowerCase();
+      const contentType = mime.startsWith('image/')
+        ? mime
+        : contentTypeFromAvatarPath(`file${ext}`);
+      const storageKey = buildAvatarKey(userId, ext);
+
+      const previous = await userService.getUserProfileById(userId);
+      const previousAvatar = previous?.avatar ? String(previous.avatar).trim() : '';
+
+      await objectStorage.putObject(storageKey, req.file.buffer, contentType);
+
+      const userProfile = await userService.updateUserProfile(userId, { avatar: storageKey });
       const plain = safeProfilePayload(userProfile);
-      const avatar = plain?.avatar || avatarUrl;
+      const avatar = plain?.avatar || storageKey;
+
+      if (
+        previousAvatar &&
+        previousAvatar !== storageKey &&
+        !isLegacyUploadsPath(previousAvatar)
+      ) {
+        objectStorage.deleteObject(previousAvatar).catch(() => {});
+      }
 
       res.json({
         success: true,

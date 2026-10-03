@@ -5,6 +5,11 @@
 
 const axios = require('axios');
 const { logger } = require('@enterprise/shared');
+const {
+  isOpenAiCompatibleProvider,
+  chatCompletionsText,
+  chatModel: sharedChatModel,
+} = require('@enterprise/shared/llm/openaiCompatibleClient');
 
 const DEFAULT_MODEL = 'qwen2.5:3b-instruct';
 const DEFAULT_TIMEOUT_MS = 240000;
@@ -39,6 +44,9 @@ function ollamaBaseUrl() {
 }
 
 function ollamaModel() {
+  if (isOpenAiCompatibleProvider()) {
+    return sharedChatModel(process.env, 'qwen3.8-max');
+  }
   return String(process.env.OLLAMA_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
 }
 
@@ -114,6 +122,30 @@ async function generateJson({ prompt, temperature = 0.1, timeoutMs, numPredict, 
   if (!isAiPlanningLlmEnabled() || llmProvider() === 'mock') {
     return { ok: false, model, data: null, skipped: true, error: 'llm_skipped' };
   }
+
+  if (isOpenAiCompatibleProvider()) {
+    const timeout = timeoutMs != null ? clampTimeoutMs(timeoutMs, DEFAULT_TIMEOUT_MS) : planningTimeoutMs();
+    const predict =
+      numPredict != null && Number.isFinite(Number(numPredict))
+        ? Math.max(32, Math.min(2048, Math.round(Number(numPredict))))
+        : DEFAULT_NUM_PREDICT;
+    const chat = await chatCompletionsText({
+      prompt: String(prompt || ''),
+      temperature,
+      timeoutMs: timeout,
+      maxTokens: predict,
+      model,
+    });
+    if (!chat.ok) {
+      return { ok: false, model, data: null, error: chat.error || 'openai_error' };
+    }
+    const data = extractJsonPayload(chat.text);
+    if (data == null) {
+      return { ok: false, model, data: null, error: 'ollama_json_parse' };
+    }
+    return { ok: true, model, data };
+  }
+
   const baseUrl = ollamaBaseUrl();
   if (!baseUrl) {
     return { ok: false, model, data: null, skipped: true, error: 'ollama_base_url_missing' };
@@ -176,6 +208,9 @@ async function warmOllamaModel() {
   }
   if (!isAiPlanningLlmEnabled() || llmProvider() === 'mock') {
     return { ok: false, skipped: true, error: 'llm_skipped' };
+  }
+  if (isOpenAiCompatibleProvider()) {
+    return { ok: false, skipped: true, error: 'warmup_remote_noop' };
   }
   const baseUrl = ollamaBaseUrl();
   if (!baseUrl) {

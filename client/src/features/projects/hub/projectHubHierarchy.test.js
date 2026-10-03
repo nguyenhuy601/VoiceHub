@@ -147,6 +147,45 @@ test('buildListTree: Epic → card → subtask', () => {
   assert.equal(tree[0].children[0].children[0].workType, 'subtask');
 });
 
+test('buildListTree: parentTaskId object populate vẫn nest (không flat root)', () => {
+  const cfg = defaultWorkTypeConfig();
+  const tree = buildListTree({
+    epics: [],
+    features: [],
+    cards: [
+      { _id: 'c1', title: 'Parent', issueType: 'task' },
+      {
+        _id: 'c2',
+        title: 'Child',
+        issueType: 'task',
+        parentTaskId: { _id: 'c1', title: 'Parent' },
+      },
+    ],
+    config: cfg,
+  });
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0].raw._id, 'c1');
+  assert.equal(tree[0].children.length, 1);
+  assert.equal(tree[0].children[0].raw._id, 'c2');
+});
+
+test('buildListTree: epicId không có Epic planning → synthetic epic gom card', () => {
+  const cfg = defaultWorkTypeConfig();
+  const tree = buildListTree({
+    epics: [],
+    features: [],
+    cards: [
+      { _id: 'c1', title: 'Task A', issueType: 'task', epicId: 'e-missing' },
+      { _id: 'c2', title: 'Task B', issueType: 'task', epicId: 'e-missing' },
+    ],
+    config: cfg,
+  });
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0].workType, 'epic');
+  assert.equal(tree[0].raw.synthetic, true);
+  assert.equal(tree[0].children.length, 2);
+});
+
 test('isBacklogLevelTwoIssue: story/task/bug/feature kể cả trong Epic; ẩn sub-task', () => {
   const cfg = defaultWorkTypeConfig();
   const epicIds = new Set(['e1']);

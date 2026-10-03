@@ -183,8 +183,8 @@ const projectSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['planning', 'ready_for_planning', 'in_development', 'on_hold', 'closed'],
-      default: 'planning',
+      enum: ['draft', 'ready', 'in_development', 'qa_uat', 'release_handover', 'on_hold', 'closed'],
+      default: 'draft',
       index: true,
     },
     /**
@@ -203,6 +203,85 @@ const projectSchema = new mongoose.Schema(
       default: 'requirement_analysis',
       index: true,
     },
+    /**
+     * Birth path: ai = Phase 0 draft (HITL); manual = Phase 1 RA (not draft tab).
+     * Additive — missing on legacy docs.
+     */
+    analysisMode: {
+      type: String,
+      enum: ['manual', 'ai'],
+      default: 'manual',
+      index: true,
+    },
+    /** Plan A — project Release Ready gate (HITL). */
+    releaseReadyStatus: {
+      type: String,
+      enum: ['none', 'confirmed'],
+      default: 'none',
+      index: true,
+    },
+    releaseReadyAt: {
+      type: Date,
+      default: null,
+    },
+    releaseReadyBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    /** Plan C — dedupe stamp for release_ready_proposed notify. */
+    releaseReadyNotifiedAt: {
+      type: Date,
+      default: null,
+    },
+    /** Plan A — UAT sign-off after Release Ready. */
+    uatStatus: {
+      type: String,
+      enum: ['none', 'pass', 'fail'],
+      default: 'none',
+      index: true,
+    },
+    uatSignedAt: {
+      type: Date,
+      default: null,
+    },
+    uatSignedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    uatNote: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 2000,
+    },
+    /** Plan B — handover checklist ticks (id → boolean). */
+    handoverChecklist: {
+      type: mongoose.Schema.Types.Mixed,
+      default: () => ({}),
+    },
+    /** Chuẩn Vàng — per-item audit { [id]: { at, byUserId } }. */
+    handoverChecklistMeta: {
+      type: mongoose.Schema.Types.Mixed,
+      default: () => ({}),
+    },
+    /** Plan B — product release label (server-set on first handover). */
+    releaseLabel: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 64,
+    },
+    /** Plan D E5 — last Production verify evidence (flat; no Deployment entity). */
+    deployEvidence: {
+      at: { type: Date, default: null },
+      byUserId: { type: mongoose.Schema.Types.ObjectId, default: null },
+      env: { type: String, trim: true, default: '', maxlength: 64 },
+      releaseLabelRef: { type: String, trim: true, default: '', maxlength: 64 },
+      notes: { type: String, trim: true, default: '', maxlength: 2000 },
+      pipelineUrl: { type: String, trim: true, default: '', maxlength: 500 },
+    },
     /** Template-driven required analysis kinds for Phase 1 gate (empty = default PHASE1_REQUIRED_KINDS) */
     phase1RequiredKinds: {
       type: [{ type: String, trim: true, uppercase: true, maxlength: 16 }],
@@ -211,6 +290,14 @@ const projectSchema = new mongoose.Schema(
     /** Stamp when PM/PO starts Delivery Planning after RA approved */
     phase1RaApprovedAt: {
       type: Date,
+      default: null,
+    },
+    /**
+     * Phase 2 Manual path — PM staging table awaiting PO approve before development.
+     * { status, methodology, rows[], submittedAt, submittedBy, reviewedAt, reviewedBy, note }
+     */
+    phase2ManualStaging: {
+      type: mongoose.Schema.Types.Mixed,
       default: null,
     },
     projectType: {
@@ -240,6 +327,12 @@ const projectSchema = new mongoose.Schema(
     expectedEndDate: {
       type: Date,
       default: null,
+    },
+    /** warn_v1 chỉ gán lúc tạo. Document cũ để null và không áp luật lịch mới. */
+    schedulePolicy: {
+      type: String,
+      default: null,
+      maxlength: 32,
     },
     estimatedDurationDays: {
       type: Number,

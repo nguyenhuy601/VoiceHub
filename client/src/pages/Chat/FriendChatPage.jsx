@@ -102,6 +102,7 @@ import {
   loadDmChatLayoutPrefs,
   saveDmChatLayoutPrefs,
 } from '../../utils/dmChatLayoutPrefs';
+import { persistDmConversationCache } from '../../utils/dmMessageCache';
 import { useFriendDmRealtime } from '../../hooks/useFriendDmRealtime';
 import { useFriendChatPageFocus } from '../../hooks/useFriendChatPageFocus';
 import FriendChatFigmaView from '../../components/Chat/FriendChatFigmaView';
@@ -234,7 +235,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const [searchParams] = useSearchParams();
   const [friends, setFriends] = useState([]);
   const [selectedFriendId, setSelectedFriendId] = useState(null);
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessagesState] = useState([]);
   const [message, setMessage] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [deleteMsgConfirmId, setDeleteMsgConfirmId] = useState(null);
@@ -337,6 +338,13 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const [showNewDmModal, setShowNewDmModal] = useState(false);
   const [inviteActingKey, setInviteActingKey] = useState('');
   const queryClient = useQueryClient();
+  const setMessages = useCallback((updater) => {
+    setMessagesState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      persistDmConversationCache(queryClient, selectedFriendId, next);
+      return next;
+    });
+  }, [queryClient, selectedFriendId]);
   const { pendingList, pendingCount, refetch: refetchPending } = useFriendPending({
     enabled: !landingDemo && suiteLayout && showFriendInvites,
   });

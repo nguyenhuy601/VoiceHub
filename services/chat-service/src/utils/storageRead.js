@@ -68,6 +68,7 @@ function guessContentTypeFromFileName(fileName) {
 async function openStorageObjectReadStream(storagePath) {
   const normalizedPath = assertAllowedStoragePath(storagePath);
   const fileName = guessFileNameFromPath(normalizedPath);
+  const { isFirebaseBillingOrPermissionError } = require('./storageUpload');
 
   if (objectStorage.isEnabled() && (await objectStorage.objectExists(normalizedPath))) {
     return {
@@ -78,15 +79,32 @@ async function openStorageObjectReadStream(storagePath) {
   }
 
   if (firebaseStorage.isEnabled()) {
-    const bucket = firebaseStorage.getBucket();
-    const file = bucket.file(normalizedPath);
-    const [exists] = await file.exists();
-    if (exists) {
-      return {
-        stream: file.createReadStream(),
-        backend: 'firebase',
-        fileName,
-      };
+    try {
+      const bucket = firebaseStorage.getBucket();
+      const file = bucket.file(normalizedPath);
+      const [exists] = await file.exists();
+      if (exists) {
+        return {
+          stream: file.createReadStream(),
+          backend: 'firebase',
+          fileName,
+        };
+      }
+    } catch (err) {
+      if (isFirebaseBillingOrPermissionError(err)) {
+        const e = new Error(
+          objectStorage.isEnabled()
+            ? 'File không có trên MinIO và Firebase billing đang tắt — không đọc được object.'
+            : 'Kho lưu trữ Firebase tạm ngưng (billing/permission).'
+        );
+        e.statusCode = 503;
+        e.errorCode = 'CHAT_STORAGE_UNAVAILABLE';
+        e.messageUser = objectStorage.isEnabled()
+          ? 'Không mở được file: bản lưu MinIO không có và Firebase đang tắt billing. Hãy tải lên lại file hoặc bật lại Firebase.'
+          : 'Kho lưu trữ Firebase tạm ngưng. Bật MinIO dev hoặc kích hoạt lại billing Firebase.';
+        throw e;
+      }
+      throw err;
     }
   }
 

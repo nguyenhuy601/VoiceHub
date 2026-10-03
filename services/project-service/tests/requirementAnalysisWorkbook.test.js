@@ -24,7 +24,7 @@ const {
 } = require('../src/utils/requirement/requirementAnalysisTemplateValidate');
 
 describe('requirementAnalysisWorkbook', () => {
-  it('builds Meta/README + 7 BA sheets only', async () => {
+  it('builds Meta/README + BA sheets including optional Scope', async () => {
     const buf = await buildRequirementAnalysisTemplateBuffer();
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(Buffer.from(buf));
@@ -37,6 +37,11 @@ describe('requirementAnalysisWorkbook', () => {
     assert.ok(wb.getWorksheet(ANALYSIS_SHEETS.FR));
     assert.ok(wb.getWorksheet(ANALYSIS_SHEETS.UC));
     assert.ok(wb.getWorksheet(ANALYSIS_SHEETS.NFR));
+    assert.ok(wb.getWorksheet(ANALYSIS_SHEETS.SCOPE));
+    assert.ok(wb.getWorksheet(ANALYSIS_SHEETS.INTERFACES));
+    assert.ok(wb.getWorksheet(ANALYSIS_SHEETS.DATA));
+    assert.ok(wb.getWorksheet(ANALYSIS_SHEETS.GLOSSARY));
+    assert.ok(wb.getWorksheet(ANALYSIS_SHEETS.ASSUMPTIONS));
     assert.equal(wb.getWorksheet('01_Project_Context'), undefined);
     assert.equal(wb.getWorksheet('11_AI_Analysis_Output'), undefined);
     assert.equal(ANALYSIS_TEMPLATE_FILE_NAME, 'Requirement_Analysis.xlsx');
@@ -45,7 +50,7 @@ describe('requirementAnalysisWorkbook', () => {
     assert.equal(String(meta.getRow(3).getCell(2).value || ''), ANALYSIS_TEMPLATE_VERSION);
   });
 
-  it('parses Capability hierarchy and Traceability CR links', async () => {
+  it('parses Capability hierarchy, Traceability CR links, Scope, and DEC-A sheets', async () => {
     const buf = await buildRequirementAnalysisTemplateBuffer();
     const parsed = parseAnalysisWorkbook(Buffer.from(buf));
     assert.equal(isAnalysisTemplateType(parsed.templateType), true);
@@ -57,6 +62,13 @@ describe('requirementAnalysisWorkbook', () => {
         (t) => t.analysisId === 'FR-001' && t.customerRequirementId === 'CR-001'
       )
     );
+    assert.ok((parsed.scope || []).length >= 1);
+    assert.ok(parsed.scope.some((s) => s.type === 'in'));
+    assert.ok(parsed.scope.some((s) => s.type === 'out'));
+    assert.ok((parsed.interfaces || []).some((r) => r.externalId === 'IF-001'));
+    assert.ok((parsed.dataEntities || []).some((r) => r.externalId === 'DATA-001'));
+    assert.ok((parsed.glossary || []).some((r) => r.term === 'SSO'));
+    assert.ok((parsed.assumptions || []).some((r) => r.externalId === 'ASM-001'));
   });
 
   it('validates built template without errors', async () => {

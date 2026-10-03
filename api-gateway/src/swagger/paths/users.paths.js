@@ -58,7 +58,7 @@ module.exports = {
       },
       successExample: {
         success: true,
-        data: { avatarUrl: '/uploads/avatar-123.jpg' },
+        data: { avatarUrl: 'users/{userId}/avatars/1737000000000-123456789.jpg' },
       },
     }),
   },

@@ -520,7 +520,7 @@ function buildDataChunks(frSlices, chunkSize = ENTITY_CHUNK_SIZE) {
   return chunks.slice(0, ENTITY_MAX_CHUNKS);
 }
 
-function buildDataPrompt({ context, dataHints, frChunk, chunkIndex, chunkTotal }) {
+function buildDataPrompt({ context, dataHints, frChunk, chunkIndex, chunkTotal, intakeBlock = '' }) {
   return [
     'You are a software BA. Extract data entities and CRUD from requirements.',
     FR_LANGUAGE_CUE,
@@ -531,11 +531,15 @@ function buildDataPrompt({ context, dataHints, frChunk, chunkIndex, chunkTotal }
     'sensitivity (public|internal|confidential|restricted|pii),',
     'relatedFrIds (FR ids from input only — never invent), relatedCapabilityIds (optional, often empty).',
     'Do not invent entities without a related FR. Cap attributes per entity.',
+    'When INTAKE_CORPUS is present, use it as customer source context; prefer FR ids from input.',
+    intakeBlock || '',
     `Chunk ${chunkIndex + 1}/${chunkTotal}.`,
     `Context: ${JSON.stringify(context)}`,
     `DataHints: ${JSON.stringify(dataHints)}`,
     `Requirements: ${JSON.stringify(frChunk)}`,
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function canStartChunk(elapsedMs, wallMs, chunkTimeoutMs) {
@@ -595,6 +599,13 @@ async function runDataAnalysis(pack, opts = {}) {
   let wallBudgetSkipMeta = null;
   const chunkTimeout = opts.chunkTimeoutMs ?? Math.min(analysisChunkTimeoutMs(), wallMs);
   const countFrInputs = (c) => (Array.isArray(c) ? c.length : 0);
+  let intakeBlock = '';
+  try {
+    const { buildWhatIntakePromptBlock } = require('./buildIntakeCorpus');
+    intakeBlock = buildWhatIntakePromptBlock(pack);
+  } catch {
+    intakeBlock = '';
+  }
 
   for (let i = 0; i < chunks.length; i += 1) {
     const elapsed = Date.now() - started;
@@ -615,6 +626,7 @@ async function runDataAnalysis(pack, opts = {}) {
       frChunk: chunks[i],
       chunkIndex: i,
       chunkTotal: chunks.length,
+      intakeBlock,
     });
     const result = await generateJson({
       prompt,
@@ -716,6 +728,7 @@ module.exports = {
   buildHeuristicDataEntities,
   buildHeuristicDataFlows,
   buildDataChunks,
+  buildDataPrompt,
   canStartChunk,
   runDataAnalysis,
   applyDataToContainer,

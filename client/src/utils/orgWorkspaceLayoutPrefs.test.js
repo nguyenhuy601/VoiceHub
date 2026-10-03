@@ -9,8 +9,12 @@ import {
   ORG_RIGHT_PANEL_MAX_W,
   ORG_RIGHT_PANEL_MIN_W,
   isWideContentTab,
+  loadCompanyChatRailPrefs,
   loadOrgWorkspaceLayoutPrefs,
+  saveCompanyChatRailPrefs,
   saveOrgWorkspaceLayoutPrefs,
+  CHAT_RAIL_BASE_W,
+  CHAT_RAIL_MAX_W,
 } from './orgWorkspaceLayoutPrefs.js';
 
 const STORAGE_KEY = 'vh.orgWorkspace.layout.v1';
@@ -75,5 +79,16 @@ describe('orgWorkspaceLayoutPrefs', () => {
     assert.equal(isWideContentTab('announcement'), false);
     assert.equal(isWideContentTab('members'), false);
     assert.equal(ORG_RIGHT_PANEL_MAX_W > ORG_RIGHT_PANEL_BASE_W, true);
+  });
+
+  it('chat rail mặc định RHS đóng, clamp width', () => {
+    const fresh = loadCompanyChatRailPrefs();
+    assert.equal(fresh.leftOpen, true);
+    assert.equal(fresh.rightOpen, false);
+    assert.equal(fresh.leftWidth, CHAT_RAIL_BASE_W);
+    saveCompanyChatRailPrefs({ rightOpen: true, leftWidth: 9999 });
+    const p = loadCompanyChatRailPrefs();
+    assert.equal(p.rightOpen, true);
+    assert.equal(p.leftWidth, CHAT_RAIL_MAX_W);
   });
 });

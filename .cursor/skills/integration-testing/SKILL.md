@@ -16,7 +16,7 @@ Pure unit of a single function.
 
 ## Related Rules
 
-- `.cursor/rules/role-qa.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `reviewer`)
 - `.cursor/rules/voicehub-constraints.mdc`
 
 ## Input

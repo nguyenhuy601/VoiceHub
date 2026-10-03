@@ -27,12 +27,12 @@ resolve_swarm_images() {
   export PROJECT_SERVICE_IMAGE="$(_swarm_image project-service)"
   export AI_TASK_SERVICE_IMAGE="$(_swarm_image ai-task-service)"
   export AI_TASK_WORKER_IMAGE="$(_swarm_image ai-task-worker)"
+  export AI_PROJECT_PLANNING_SERVICE_IMAGE="$(_swarm_image ai-project-planning-service)"
   export SUMMARY_SERVICE_IMAGE="$(_swarm_image summary-service)"
   export SUMMARY_WORKER_IMAGE="$(_swarm_image summary-worker)"
   export DOCUMENT_SERVICE_IMAGE="$(_swarm_image document-service)"
   export VOICE_SERVICE_IMAGE="$(_swarm_image voice-service)"
   export NOTIFICATION_SERVICE_IMAGE="$(_swarm_image notification-service)"
-  export WEBHOOK_SERVICE_IMAGE="$(_swarm_image webhook-service)"
   export SOCKET_SERVICE_IMAGE="$(_swarm_image socket-service)"
 
   if [[ -n "${REGISTRY:-}" && -n "${OWNER:-}" ]]; then

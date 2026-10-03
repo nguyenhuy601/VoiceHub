@@ -47,7 +47,11 @@
     "./config/reportServiceFlags": "./config/reportServiceFlags.js",
     "./utils/dashboardReadModelShape": "./utils/dashboardReadModelShape.js",
     "./pagination/pageToken": "./pagination/pageToken.js",
-    "./pagination/*": "./pagination/*.js"
+    "./pagination/*": "./pagination/*.js",
+    "./http/s2sSafeGet": "./http/s2sSafeGet.js",
+    "./http/*": "./http/*.js",
+    "./llm/openaiCompatibleClient": "./llm/openaiCompatibleClient.js",
+    "./llm/*": "./llm/*.js"
   },
   "scripts": {
     "test": "node tests/fieldCrypto.test.js"

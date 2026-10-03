@@ -1,5 +1,4 @@
 import apiClient from './apiClient';
-import { organizationAPI } from './organizationAPI';
 
 function withOrg(organizationId, config = {}) {
   const orgId = String(organizationId || '').trim();
@@ -53,11 +52,15 @@ export const requirementAPI = {
 
   getPack: (organizationId, packId, options = {}) => {
     const view = String(options.view || '').trim();
+    const params = {};
+    if (view) params.view = view;
+    if (options.gateRowOffset != null && options.gateRowOffset !== '') {
+      params.gateRowOffset = options.gateRowOffset;
+      params.gateRowLimit = options.gateRowLimit;
+    }
     return apiClient.get(
       `/projects/requirements/${encodeURIComponent(packId)}`,
-      withOrg(organizationId, {
-        params: view ? { view } : {},
-      })
+      withOrg(organizationId, { params })
     );
   },
 
@@ -68,17 +71,17 @@ export const requirementAPI = {
       skipGlobalErrorHandling: true,
     }),
 
-  submitPack: (organizationId, packId) =>
+  submitPack: (organizationId, packId, body = {}) =>
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/submit`,
-      {},
+      body,
       withOrg(organizationId)
     ),
 
-  approvePack: (organizationId, packId) =>
+  approvePack: (organizationId, packId, body = {}) =>
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/approve`,
-      {},
+      body,
       withOrg(organizationId)
     ),
 
@@ -108,26 +111,94 @@ export const requirementAPI = {
       }
     ),
 
+  createIntakeDraft: (organizationId, body = {}) =>
+    apiClient.post('/projects/requirements/intake-draft', body, withOrg(organizationId)),
+
+  listPackCustomerDocuments: (organizationId, packId) =>
+    apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/customer-documents`,
+      withOrg(organizationId)
+    ),
+
+  uploadPackCustomerDocument: (organizationId, packId, file, { docClass, notes } = {}) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (docClass) form.append('docClass', docClass);
+    if (notes) form.append('notes', notes);
+    return apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/customer-documents`,
+      form,
+      {
+        ...withOrg(organizationId),
+        headers: { 'Content-Type': 'multipart/form-data' },
+      }
+    );
+  },
+
   getAiAnalysis: (organizationId, packId, params = {}) =>
     apiClient.get(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,
       withOrg(organizationId, { params })
     ),
 
-  runAiAnalysis: (organizationId, packId, job, options = {}) =>
+  createAiAnalysisSnapshot: (organizationId, packId, body = {}) =>
     apiClient.post(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/run`,
-      { job, ...(options.force ? { force: true } : {}) },
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/snapshot`,
+      body,
       {
         ...withOrg(organizationId),
-        timeout: options.timeout ?? 300000,
+        timeout: 120000,
       }
     ),
 
-  confirmAiAnalysis: (organizationId, packId, job, edits = null) =>
+  getAiAnalysisSnapshot: (organizationId, packId) =>
+    apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/snapshot`,
+      withOrg(organizationId)
+    ),
+
+  startPhaseAiPlanning: (organizationId, packId, body = {}, options = {}) => {
+    const idempotencyKey =
+      options.idempotencyKey ||
+      body.idempotencyKey ||
+      (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `phase-run-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+    const { idempotencyKey: _omit, ...restBody } = body || {};
+    return apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/phase-run`,
+      restBody,
+      withOrg(organizationId, {
+        timeout: options.timeout ?? 120000,
+        headers: {
+          ...(options.headers || {}),
+          'Idempotency-Key': String(idempotencyKey),
+        },
+      })
+    );
+  },
+
+  resumePhaseWhatDataGate: (organizationId, packId, { runId, decision }) =>
+    apiClient.post(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/phase-run`,
+      {
+        phase: 'what',
+        mode: 'g4',
+        action: 'resume_data_gate',
+        decision,
+        runId,
+      },
+      {
+        ...withOrg(organizationId),
+        timeout: 30000,
+      }
+    ),
+
+  /** Gate2 — confirm phase_how (phase-only; no job id). */
+  confirmPhaseGate2: (organizationId, packId) =>
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/confirm`,
-      edits != null ? { job, edits } : { job },
+      { phase: 'how' },
       withOrg(organizationId)
     ),
 
@@ -140,4 +211,18 @@ export const requirementAPI = {
         skipGlobalErrorHandling: true,
       }
     ),
+
+  getAiAnalysis: (organizationId, packId, options = {}) => {
+    const view = String(options.view || '').trim();
+    const job = String(options.job || '').trim();
+    return apiClient.get(
+      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,
+      withOrg(organizationId, {
+        params: {
+          ...(view ? { view } : {}),
+          ...(job ? { job } : {}),
+        },
+      })
+    );
+  },
 };

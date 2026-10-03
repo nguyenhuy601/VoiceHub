@@ -49,6 +49,18 @@ function isAuthPublicUrl(url) {
 }
 
 import { resolveApiBaseUrl } from '../../utils/browserOrigin';
+import {
+  ensureNetworkControllerStarted,
+  networkController,
+} from '../../lib/network/networkController.js';
+import {
+  attachOfflineRequestGate,
+  attachSuccessReporter,
+  tryTransportRetry,
+} from '../../lib/network/attachRetryInterceptors.js';
+import { toastNetworkAware } from '../../lib/network/toastNetworkAware.js';
+
+ensureNetworkControllerStarted();
 
 // Đồng bộ với services/api.js — https://voicehub.local luôn dùng /api same-origin.
 const API_URL = resolveApiBaseUrl();
@@ -92,10 +104,8 @@ apiClient.interceptors.request.use(
   }
 );
 
-function isLikelyBrowserCacheFailure(error) {
-  const msg = String(error?.message || '').toLowerCase();
-  return msg.includes('cache') || msg.includes('err_cache');
-}
+attachOfflineRequestGate(apiClient, { networkController });
+attachSuccessReporter(apiClient, networkController);
 
 function toNormalizedError(error, fallbackKey = 'errors.generic') {
   const t = apiT();
@@ -122,36 +132,26 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    const config = error?.config;
-    if (
-      config &&
-      !config.__cacheBustRetry &&
-      !error.response &&
-      (isLikelyBrowserCacheFailure(error) || error.code === 'ERR_NETWORK')
-    ) {
-      const method = String(config.method || 'get').toLowerCase();
-      if (method === 'get' || method === 'head') {
-        config.__cacheBustRetry = true;
-        const prevHeaders =
-          config.headers && typeof config.headers.toJSON === 'function'
-            ? config.headers.toJSON()
-            : { ...(config.headers || {}) };
-        config.headers = {
-          ...prevHeaders,
-          'Cache-Control': 'no-store, no-cache',
-          Pragma: 'no-cache',
-        };
-        if (!isAuthPublicUrl(config.url)) {
-          applyAuthHeader(config);
-        }
-        config.params = { ...(config.params || {}), _nc: Date.now() };
-        try {
-          return await apiClient.request(config);
-        } catch (retryErr) {
-          error = retryErr;
-        }
+    if (error?.code === 'NETWORK_OFFLINE' || error?.isNetworkOffline) {
+      if (isLandingEmbedActive()) {
+        return rejectLandingEmbedSilent(error);
       }
+      const t = apiT();
+      const message = t('api.networkOffline') || t('api.networkError');
+      toastNetworkAware(toast, message, networkController);
+      return Promise.reject(toNormalizedError({ ...error, code: 'NETWORK_OFFLINE', message }, 'errors.generic'));
     }
+
+    try {
+      const retried = await tryTransportRetry(error, apiClient, { networkController });
+      if (retried !== null && retried !== undefined) {
+        return retried;
+      }
+    } catch (retryErr) {
+      error = retryErr;
+    }
+
+    const config = error?.config;
 
     if (isLandingEmbedActive()) {
       return rejectLandingEmbedSilent(error);
@@ -163,6 +163,11 @@ apiClient.interceptors.response.use(
 
     const t = apiT();
     const message = resolveApiErrorMessage(error, { t });
+
+    if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
+      toastNetworkAware(toast, message || t('api.networkError'), networkController);
+      return Promise.reject(toNormalizedError(error, 'errors.generic'));
+    }
     
     // Handle specific error codes
     if (error.response?.status === 401) {
@@ -194,7 +199,7 @@ apiClient.interceptors.response.use(
         toast.error(t('errors.notFound'));
       }
     } else if (error.response?.status >= 500) {
-      toast.error(t('errors.server'));
+      toastNetworkAware(toast, message || t('errors.server'), networkController);
     } else {
       const errorCode = String(
         error.response?.data?.errorCode || error.response?.data?.code || ''

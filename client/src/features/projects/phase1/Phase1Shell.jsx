@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
-import { Navigate, useParams, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo } from 'react';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SpaceProvider, SPACE_KIND } from '../../../context/SpaceContext';
 import { fetchProjectHubProject } from '../hub/useProjectHubQueries';
 import { queryKeys } from '../../../lib/queryKeys';
@@ -17,6 +17,7 @@ import {
   buildPhase1ModulePath,
   isPhase1DeliveryPhase,
   isPlanningUnlocked,
+  resolvePlanningResourcesStep,
 } from './nav/phase1NavConfig';
 import { PHASE_MODULE_LABEL_KEYS } from '../../../utils/projectPhaseNav';
 import {
@@ -34,10 +35,15 @@ import SrsPage from './ra/SrsPage';
 import ApprovalHubPage from './ra/ApprovalHubPage';
 import PlanningArtifactListPage from './planning/PlanningArtifactListPage';
 import PlanningApprovalPage from './planning/PlanningApprovalPage';
+import PlanningOverviewPage from './planning/PlanningOverviewPage';
+import PlanningTcFromUcPanel from './planning/PlanningTcFromUcPanel';
+import PlanningResourcesShell from './planning/PlanningResourcesShell';
 import SpaceCalendarModule from '../../spaceModules/SpaceCalendarModule';
 import SpaceDocumentsModule from '../../spaceModules/SpaceDocumentsModule';
 import SpaceProjectChatModule from '../../spaceModules/SpaceProjectChatModule';
 import ProjectHubPage from '../../../pages/Projects/ProjectHubPage';
+import AiHitlWorkspacePage from './aiHitl/AiHitlWorkspacePage';
+import { resolvePostHitlProjectPath } from './aiHitl/aiHitlNavState';
 
 /**
  * Nested Phase 1 body for RA + Planning modules (and collab).
@@ -47,9 +53,11 @@ export default function Phase1Shell({
   module: moduleProp,
   planningSub: planningSubProp,
 } = {}) {
-  const { projectId: projectIdParam, module: moduleParam, planningModule } =
+  const { projectId: projectIdParam, module: moduleParam, planningModule, '*': planningSplat } =
     useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { t } = useAppStrings();
   const projectId = String(projectIdParam || '').trim();
 
@@ -60,13 +68,22 @@ export default function Phase1Shell({
       ? PLANNING_SUB_TO_MODULE[String(planningSub).toLowerCase()] || `planning-${planningSub}`
       : String(moduleParam || 'overview').toLowerCase());
 
-  const { data: projectRow } = useQuery({
+  const resourcesStep =
+    module === 'planning-resources'
+      ? resolvePlanningResourcesStep(planningSplat)
+      : null;
+
+  const { data: projectRow, isPending: projectPending } = useQuery({
     queryKey: queryKeys.projectHub.project(projectId),
     queryFn: () => fetchProjectHubProject(projectId),
     enabled: Boolean(projectId),
-    staleTime: 30_000,
+    // Planning deep-links must not use a stale deliveryPhase after Start Planning / phase PATCH.
+    staleTime: String(module).startsWith('planning') ? 0 : 30_000,
+    refetchOnMount: String(module).startsWith('planning') ? 'always' : true,
   });
-  const deliveryPhase = coerceDeliveryPhase(projectRow?.deliveryPhase);
+  const deliveryPhase = projectRow
+    ? coerceDeliveryPhase(projectRow.deliveryPhase)
+    : null;
   const planningUnlocked = isPlanningUnlocked(deliveryPhase);
   const raReadOnly = deliveryPhase === 'delivery_planning';
   const caps = projectRow?.capabilities || {};
@@ -76,6 +93,25 @@ export default function Phase1Shell({
     search: searchParams,
     projectRow,
   });
+  const boardId = String(searchParams.get('boardId') || projectRow?.defaultBoardId || '').trim();
+
+  const postPromotePath = useMemo(
+    () =>
+      resolvePostHitlProjectPath({
+        projectId,
+        project: { deliveryPhase: 'development' },
+        boardId,
+      }),
+    [projectId, boardId]
+  );
+
+  const onHitlPromoted = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.project(projectId) });
+    queryClient.invalidateQueries({
+      queryKey: ['aiHitlNavLinkedPack', String(orgId || ''), String(projectId || '')],
+    });
+    navigate(postPromotePath, { replace: true });
+  }, [navigate, orgId, postPromotePath, projectId, queryClient]);
 
   useEffect(() => {
     if (orgId) writeStoredLastOrganizationId(orgId);
@@ -85,7 +121,17 @@ export default function Phase1Shell({
     return <Navigate to={buildProjectsPickerPath(orgId)} replace />;
   }
 
-  if (projectRow && !isPhase1DeliveryPhase(deliveryPhase)) {
+  // Avoid redirecting planning → hub while project row is still refetching.
+  if (projectPending && !projectRow) {
+    return (
+      <div className="flex min-h-[8rem] items-center justify-center p-4 text-sm text-muted-foreground">
+        {t('common.loading')}
+      </div>
+    );
+  }
+
+  // Phase 0 AI HITL may still be RA (or empty phase before heal) — allow in-shell host.
+  if (projectRow && module !== 'ai-hitl' && !isPhase1DeliveryPhase(deliveryPhase)) {
     return <Navigate to={buildProjectsModulePath(projectId, 'overview')} replace />;
   }
 
@@ -93,7 +139,11 @@ export default function Phase1Shell({
     return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
   }
 
-  if (projectRow && !isModuleAllowedForPhase(module, deliveryPhase)) {
+  if (
+    projectRow &&
+    module !== 'ai-hitl' &&
+    !isModuleAllowedForPhase(module, deliveryPhase)
+  ) {
     return <Navigate to={buildPhase1ModulePath(projectId, 'overview')} replace />;
   }
 
@@ -110,21 +160,26 @@ export default function Phase1Shell({
   }
 
   let body = null;
-  if (module === 'overview' || module === 'planning-overview') {
-    body =
-      module === 'planning-overview' ? (
-        <Phase1OverviewPage
-          projectId={projectId}
-          organizationId={orgId}
-          deliveryPhase={deliveryPhase}
-        />
-      ) : (
-        <Phase1OverviewPage
-          projectId={projectId}
-          organizationId={orgId}
-          deliveryPhase={deliveryPhase}
-        />
-      );
+  if (module === 'ai-hitl') {
+    body = (
+      <AiHitlWorkspacePage
+        projectId={projectId}
+        organizationId={orgId}
+        onPromoted={onHitlPromoted}
+      />
+    );
+  } else if (module === 'planning-overview') {
+    body = (
+      <PlanningOverviewPage projectId={projectId} organizationId={orgId} />
+    );
+  } else if (module === 'overview') {
+    body = (
+      <Phase1OverviewPage
+        projectId={projectId}
+        organizationId={orgId}
+        deliveryPhase={deliveryPhase}
+      />
+    );
   } else if (module === 'customer-documents') {
     body = (
       <CustomerRequirementsPage
@@ -151,6 +206,14 @@ export default function Phase1Shell({
     body = <SrsPage projectId={projectId} readOnly={raReadOnly} />;
   } else if (module === 'analysis-reviews') {
     body = <ApprovalHubPage projectId={projectId} readOnly={raReadOnly} />;
+  } else if (module === 'planning-resources') {
+    body = (
+      <PlanningResourcesShell
+        projectId={projectId}
+        organizationId={orgId}
+        step={resourcesStep}
+      />
+    );
   } else if (PLANNING_KIND_BY_MODULE[module]) {
     const kind = PLANNING_KIND_BY_MODULE[module];
     const labelKey = PHASE_MODULE_LABEL_KEYS[module];
@@ -161,6 +224,8 @@ export default function Phase1Shell({
         title={labelKey ? t(labelKey) : kind}
       />
     );
+  } else if (module === 'planning-test-cases') {
+    body = <PlanningTcFromUcPanel projectId={projectId} />;
   } else if (module === 'planning-approval') {
     body = <PlanningApprovalPage projectId={projectId} />;
   } else if (module === 'chat') {
@@ -189,7 +254,14 @@ export default function Phase1Shell({
 
   return (
     <SpaceProvider kind={SPACE_KIND.PROJECT} organizationId={orgId} projectId={projectId}>
-      {body}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
+        {raReadOnly && module !== 'overview' && !String(module).startsWith('planning') ? (
+          <div className="shrink-0 border-b border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-muted-foreground sm:px-4">
+            {t('workspace.phase1RaReadOnlyBanner')}
+          </div>
+        ) : null}
+        {body}
+      </div>
     </SpaceProvider>
   );
 }

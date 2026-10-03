@@ -81,6 +81,13 @@ const planningItemSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       required: true,
     },
+    /** RULE-11 — plan-time PlanningArtifact that seeded this execution item. */
+    sourceArtifactId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PlanningArtifact',
+      default: null,
+      index: true,
+    },
     /** Work-group chat channel (kind 'workgroup'). Set on Feature only. */
     workGroupChannelId: {
       type: mongoose.Schema.Types.ObjectId,

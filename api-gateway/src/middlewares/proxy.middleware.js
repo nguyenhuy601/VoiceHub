@@ -1,7 +1,17 @@
 const httpProxy = require('http-proxy');
-const { getServiceByPath, resolveReqApiPath } = require('../config/services');
+const {
+  getServiceByPath,
+  resolveReqApiPath,
+  stripClientSuppliedInternalHeaders,
+} = require('../config/services');
 const { buildApiErrorBody } = require('@enterprise/shared/middleware/httpErrorResponse');
 const { URL } = require('url');
+
+/**
+ * Gateway proxy: forward once — do NOT retry business requests here.
+ * Transport retry lives on FE HTTP client (GET/safe) and S2S GET helpers.
+ * Nested FE×Gateway×Service retries would multiply load (retry storm).
+ */
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -180,6 +190,7 @@ const proxyMiddleware = (req, res, next) => {
   delete req.headers['x-gateway-internal-token'];
   delete req.headers['x-user-id'];
   delete req.headers['x-user-email'];
+  stripClientSuppliedInternalHeaders(req.headers);
 
   const gatewayToken = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
   if (gatewayToken) {

@@ -5,6 +5,7 @@ export { default as ConfirmDialog } from './ConfirmDialog';
 export { default as GlassCard } from './GlassCard';
 export { default as GradientButton } from './GradientButton';
 export { default as Modal } from './Modal';
+export { default as ReviewNoteDialog } from './ReviewNoteDialog';
 export { default as NotificationModal } from './NotificationModal';
 export { default as Toast } from './Toast';
 export { default as VoiceHubToaster } from './VoiceHubToaster';

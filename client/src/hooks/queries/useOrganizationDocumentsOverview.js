@@ -17,12 +17,38 @@ const unwrapOverview = (payload) => {
   return raw?.data ?? raw;
 };
 
+/** Chuẩn hoá kênh từ GET /channels (structure overview thường không nhúng channels). */
+function channelMetaFromLiveList(channels) {
+  const list = [];
+  for (const ch of channels || []) {
+    const id = String(ch?._id || ch?.id || '').trim();
+    if (!id) continue;
+    const departmentId = String(ch?.department || ch?.departmentId || '').trim();
+    const teamId = String(ch?.team || ch?.teamId || '').trim();
+    list.push({
+      _id: id,
+      id,
+      name: String(ch?.name || ch?.title || id),
+      type: String(ch?.type || 'chat').toLowerCase(),
+      department: departmentId,
+      departmentId,
+      team: teamId,
+      teamId,
+    });
+  }
+  return list;
+}
+
 /** Map payload BFF → danh sách file (dùng chung hook + loadWorkspaceDocuments). */
-export function buildOrgFilesFromOverview(overview, t, locale) {
+export function buildOrgFilesFromOverview(overview, t, locale, options = {}) {
   if (!overview) return [];
   const branches = Array.isArray(overview.branches) ? overview.branches : [];
-  const channels = flattenChannelsFromStructure(branches);
-  const channelByRoomId = new Map(channels.map((ch) => [ch._id, ch]));
+  const fromStructure = flattenChannelsFromStructure(branches);
+  const fromLive = channelMetaFromLiveList(options.channels);
+  const channelByRoomId = new Map();
+  for (const ch of [...fromStructure, ...fromLive]) {
+    if (!channelByRoomId.has(ch._id)) channelByRoomId.set(ch._id, ch);
+  }
   const messages = Array.isArray(overview.attachmentMessages) ? overview.attachmentMessages : [];
   const attachmentFiles = messages.map((m) => mapMessageToOrgFile(m, channelByRoomId, t, locale));
   const libraryList = Array.isArray(overview.libraryDocuments) ? overview.libraryDocuments : [];

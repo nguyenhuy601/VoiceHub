@@ -191,7 +191,13 @@ async function getDashboardStatistics({ orgOid, userId, scope }) {
     boards: boardRows.map((row) =>
       mapBoardStatsRow(row, titleById, projectIdByBoardId, projectById)
     ),
-    overdueItems: formatOverdueItems(overdueRaw, titleById, orgIdStr),
+    overdueItems: formatOverdueItems(
+      overdueRaw,
+      titleById,
+      orgIdStr,
+      projectIdByBoardId,
+      projectById
+    ),
     membershipRole: scope?.membershipRole ? String(scope.membershipRole) : null,
   };
 }

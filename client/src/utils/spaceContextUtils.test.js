@@ -137,7 +137,7 @@ describe('suitePathUtils dual suite', () => {
   it('maps collaborate legacy paths', () => {
     assert.equal(
       mapCollaboratePathToDualSuite('/app/collaborate/workspaces', '?organizationId=o1'),
-      '/app/company/workspaces?organizationId=o1'
+      '/app/company/workspaces'
     );
     assert.match(
       mapCollaboratePathToDualSuite('/app/collaborate/projects/pid1', '?tab=board'),
@@ -150,17 +150,17 @@ describe('suitePathUtils dual suite', () => {
       buildProjectsModulePath('p1', 'changeRequests', { organizationId: 'o1' }),
       '/app/projects/p1/change-requests'
     );
-    assert.equal(buildCompanyWorkspacePath({ organizationId: 'o1', tab: 'calendar' }), '/app/company/workspaces?organizationId=o1&tab=calendar');
+    assert.equal(buildCompanyWorkspacePath({ organizationId: 'o1', tab: 'calendar' }), '/app/company/workspaces?tab=calendar');
   });
 
   it('builds company home path with dept/team', () => {
     assert.equal(
       buildCompanyHomePath({ organizationId: 'o1', departmentId: 'd1' }),
-      '/app/company/home?organizationId=o1&departmentId=d1'
+      '/app/company/home?departmentId=d1'
     );
     assert.equal(
       buildCompanyHomePath({ organizationId: 'o1', departmentId: 'd1', teamId: 't1' }),
-      '/app/company/home?organizationId=o1&departmentId=d1&teamId=t1'
+      '/app/company/home?departmentId=d1&teamId=t1'
     );
   });
 });
@@ -168,7 +168,7 @@ describe('suitePathUtils dual suite', () => {
 describe('suiteNavConfig', () => {
   it('company nav has home + scoped modules', () => {
     const keys = getCompanyNavItems().map((i) => i.key);
-    assert.deepEqual(keys, ['home', 'chat', 'documents', 'calendar', 'approvals']);
+    assert.deepEqual(keys, ['home', 'chat', 'documents']);
   });
 
   it('projects pre-select nav', () => {
@@ -193,6 +193,56 @@ describe('suiteNavConfig', () => {
     assert.ok(items.some((i) => i.group === PROJECT_MENU_GROUPS.PHASE1_RA));
     assert.equal(items.some((i) => i.module === 'board'), false);
     assert.equal(items.some((i) => i.module === 'list'), false);
+    const fr = items.find((i) => i.module === 'analysis-fr');
+    assert.ok(fr);
+    assert.equal(Boolean(fr.readOnly), false);
+  });
+
+  it('aiHitlIncomplete shows Phase 0 only (omits Phase 1 RA/Planning)', () => {
+    const items = getProjectsPostSelectNavItems('proj1', {
+      deliveryPhase: 'requirement_analysis',
+      aiHitlIncomplete: true,
+    });
+    const hitl = items.find((i) => i.module === 'ai-hitl');
+    assert.ok(hitl);
+    assert.equal(hitl.group, PROJECT_MENU_GROUPS.PHASE0_AI_HITL);
+    assert.equal(Boolean(hitl.locked), false);
+    assert.equal(items.some((i) => i.group === PROJECT_MENU_GROUPS.PHASE1_RA), false);
+    assert.equal(items.some((i) => i.group === PROJECT_MENU_GROUPS.PHASE1_PLANNING), false);
+    assert.equal(items.some((i) => i.module === 'analysis-fr'), false);
+    assert.equal(items.some((i) => i.module === 'planning-wbs'), false);
+  });
+
+  it('requirement_analysis omits Planning group (no dimmed lock)', () => {
+    const items = getProjectsPostSelectNavItems('proj1', {
+      deliveryPhase: 'requirement_analysis',
+    });
+    assert.ok(items.some((i) => i.group === PROJECT_MENU_GROUPS.PHASE1_RA));
+    assert.equal(items.some((i) => i.group === PROJECT_MENU_GROUPS.PHASE1_PLANNING), false);
+    assert.equal(items.some((i) => i.module === 'planning-wbs'), false);
+  });
+
+  it('normalizeProjectModule keeps ai-hitl', () => {
+    assert.equal(normalizeProjectModule('ai-hitl'), 'ai-hitl');
+  });
+
+  it('after Start Planning: RA thu gọn Overview+SRS (SRS readOnly); Planning mở', () => {
+    // DEC P1-H: raReadOnly → chỉ giữ overview + srs-baselines trong nhóm RA.
+    const items = getProjectsPostSelectNavItems('proj1', {
+      deliveryPhase: 'delivery_planning',
+    });
+    const overview = items.find((i) => i.module === 'overview');
+    const srs = items.find((i) => i.module === 'srs-baselines');
+    const wbs = items.find((i) => i.module === 'planning-wbs');
+    assert.ok(overview);
+    assert.equal(Boolean(overview.readOnly), false);
+    assert.ok(srs);
+    assert.equal(srs.readOnly, true);
+    assert.equal(items.some((i) => i.module === 'analysis-fr'), false);
+    assert.equal(items.some((i) => i.module === 'customer-documents'), false);
+    assert.ok(wbs);
+    assert.equal(Boolean(wbs.readOnly), false);
+    assert.equal(Boolean(wbs.locked), false);
   });
 
   it('normalizes hub tab to module', () => {
@@ -200,15 +250,15 @@ describe('suiteNavConfig', () => {
     assert.equal(HUB_TAB_TO_MODULE.changeRequests, 'change-requests');
   });
 
-  it('maps legacy report module to overview', () => {
-    assert.equal(normalizeProjectModule('report'), 'overview');
+  it('maps legacy report module to activity', () => {
+    assert.equal(normalizeProjectModule('report'), 'activity');
     assert.equal(
       getProjectsPostSelectNavItems('proj1').some((i) => i.key === 'report'),
       false
     );
   });
 
-  it('locks analysis modules when canViewAnalysis is false (phase 1)', () => {
+  it('locks analysis modules when canViewAnalysis is false (phase 1 RA)', () => {
     const items = getProjectsPostSelectNavItems('proj1', {
       deliveryPhase: 'requirement_analysis',
       capabilities: { canViewAnalysis: false, canViewPlanning: false },
@@ -216,14 +266,23 @@ describe('suiteNavConfig', () => {
     assert.ok(items.some((i) => i.module === 'overview'));
     const fr = items.find((i) => i.module === 'analysis-fr');
     const docs = items.find((i) => i.module === 'customer-documents');
-    const wbs = items.find((i) => i.module === 'planning-wbs');
     assert.ok(fr);
     assert.equal(fr.locked, true);
     assert.ok(docs);
     assert.equal(docs.locked, true);
+    // Planning group omitted during RA — capability lock only applies when planning is visible.
+    assert.equal(items.some((i) => i.module === 'planning-wbs'), false);
+    assert.ok(items.some((i) => i.module === 'chat'));
+  });
+
+  it('locks planning modules when canViewPlanning is false (delivery_planning)', () => {
+    const items = getProjectsPostSelectNavItems('proj1', {
+      deliveryPhase: 'delivery_planning',
+      capabilities: { canViewAnalysis: true, canViewPlanning: false },
+    });
+    const wbs = items.find((i) => i.module === 'planning-wbs');
     assert.ok(wbs);
     assert.equal(wbs.locked, true);
-    assert.ok(items.some((i) => i.module === 'chat'));
   });
 
   it('shows analysis modules when role-backed canViewAnalysis is true (phase 1)', () => {

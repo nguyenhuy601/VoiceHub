@@ -1,5 +1,6 @@
 /**
  * Shared readiness helpers for requirement import preview / confirm (WHAT-only).
+ * AI gate (`canRunAiAnalysis`) — NhatHuy; label blocked keys — Phase1 CongDanh.
  */
 
 export function getPlanningReadinessTone(readiness) {
@@ -11,6 +12,7 @@ export function getPlanningReadinessTone(readiness) {
   return 'warning';
 }
 
+/** Pack / readiness đủ WHAT (AI analysis sẵn sàng hoặc mọi leaf đã staff). */
 export function isPackWhatReady(readiness) {
   if (!readiness) return false;
   if (readiness.canRunAiAnalysis === true) return true;
@@ -20,13 +22,18 @@ export function isPackWhatReady(readiness) {
 export function canConfirmRequirementImport(preview) {
   if (!preview?.valid || Number(preview.errorCount) > 0) return false;
   if (preview.canRunAiAnalysis === false) return false;
-  return true;
+  return isPackWhatReady(preview.planningReadiness);
 }
 
-/** Confirm CTA: Continue Anyway when warnings-only (0 errors). */
+/**
+ * Suffix i18n cho nút confirm (`stringKey(variant, suffix)` → requirements.*).
+ */
 export function getConfirmImportLabelKey(preview) {
-  if (preview?.valid && Number(preview.warningCount) > 0 && Number(preview.errorCount || 0) === 0) {
-    return 'continueAnyway';
+  if (!preview?.valid || Number(preview.errorCount) > 0) {
+    return 'confirmImportBlockedValidation';
+  }
+  if (preview.canRunAiAnalysis === false || !isPackWhatReady(preview.planningReadiness)) {
+    return 'confirmImportBlockedStaffing';
   }
   return 'confirmImport';
 }

@@ -11,13 +11,18 @@ pnpm-lock.yaml
 # Environment Variables
 # ========================
 
+/services/ai-project-planning-service/.env
 
 # Cloudflare Origin CA (P5 — never commit)
 devops/nginx/certs/cf-origin.pem
 devops/nginx/certs/cf-origin-key.pem
 
-# Ignore local docs/scripts in this workspace
-docs/
+# Ignore local docs/scripts in this workspace (keep SoT docs tracked)
+docs/*
+!docs/ARCHITECTURE.md
+!docs/MIGRATION.md
+!docs/STRUCTURE.md
+!docs/LICENSE
 scripts/
 
 # ========================
@@ -131,3 +136,14 @@ docker-compose.override.yml
 *.pem
 .vercel
 *.tsbuildinfo
+
+# ========================
+# Local scratch / agent noise (không commit)
+# ========================
+/tmp/
+/deep-research-report.md
+/summary 1.md
+devops/nginx/dev-https-runtime-*.conf
+# Plan Mode local drafts (repo chỉ track vài plan đã chốt)
+.cursor/plans/*.plan.md
+!.cursor/plans/.gitkeep

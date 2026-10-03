@@ -16,7 +16,7 @@ Only executing existing tests.
 
 ## Related Rules
 
-- `.cursor/rules/role-qa.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `reviewer`)
 
 ## Input
 
@@ -30,7 +30,7 @@ Requirement + business rules + AC
 
 ## Expected output
 
-Test case table/list per role-qa format
+Test case table/list per reviewer / test-case-generation format
 
 ## Tools
 

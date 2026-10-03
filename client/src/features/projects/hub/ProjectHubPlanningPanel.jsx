@@ -27,6 +27,7 @@ import {
   buildSprintMemberIdsBySprintId,
   countIssuesByStatusBucket,
   defaultSprintDateRange,
+  toastScheduleWarnings,
   formatHubDate,
   mergeIssueWithOverlay,
   unwrapPlanningEntity,
@@ -131,33 +132,28 @@ export default function ProjectHubPlanningPanel({
     'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
   const cardCls = 'rounded-xl border border-border bg-surface px-3 py-2.5';
 
-  const canCreateEpic = Boolean(canManage || hubCaps?.canCreateEpic);
-  const canDeleteEpic = Boolean(canManage || hubCaps?.canDeleteEpic);
-  const canUpdateBacklog = Boolean(canManage || hubCaps?.canUpdateBacklog);
-  const canCreateStory = Boolean(canManage || hubCaps?.canCreateStory);
-  const canCreateTask = Boolean(canManage || hubCaps?.canCreateTask);
-  const canCreateBug = Boolean(canManage || hubCaps?.canCreateBug);
+  const canCreateEpic = Boolean(hubCaps?.canCreateEpic);
+  const canDeleteEpic = Boolean(hubCaps?.canDeleteEpic);
+  const canUpdateBacklog = Boolean(hubCaps?.canUpdateBacklog);
+  const canCreateStory = Boolean(hubCaps?.canCreateStory);
+  const canCreateTask = Boolean(hubCaps?.canCreateTask);
+  const canCreateBug = Boolean(hubCaps?.canCreateBug);
   const canLinkEpic = Boolean(
-    canManage || hubCaps?.canUpdateEpic || hubCaps?.canUpdateStory || hubCaps?.canUpdateBacklog
+    hubCaps?.canUpdateEpic || hubCaps?.canUpdateStory || hubCaps?.canUpdateBacklog
   );
-  const canManageSprints = Boolean(canManage || hubCaps?.canManageSprints);
+  const canManageSprints = Boolean(hubCaps?.canManageSprints);
   const hubPerms = Array.isArray(hubCaps?.permissions) ? hubCaps.permissions : [];
-  const canDeleteSprint = Boolean(
-    canManage ||
-      hubCaps?.canDeleteSprint ||
-      hubPerms.includes('sprint:delete') ||
-      canManageSprints
-  );
+  const canDeleteSprint = Boolean(hubCaps?.canDeleteSprint || hubPerms.includes('sprint:delete'));
   const canChangeStatus = Boolean(
-    canManage ||
-      hubCaps?.canUpdateBacklog ||
+    hubCaps?.canUpdateBacklog ||
       hubCaps?.canCreateTask ||
       hubCaps?.canCreateBug ||
       hubCaps?.canUpdateStory ||
       hubPerms.includes('task:change_status') ||
-      hubPerms.includes('task:update')
+      hubPerms.includes('task:update') ||
+      hubPerms.includes('task:drag_to_done')
   );
-  const canDeleteIssue = Boolean(canManage || canUpdateBacklog);
+  const canDeleteIssue = Boolean(canUpdateBacklog || hubCaps?.canDeleteEpic);
   const hasBoardColumn = Boolean(boardId && defaultListId);
   const { config: workTypeConfig } = useProjectWorkTypes(projectId, {
     serverConfig: serverWorkTypeConfig,
@@ -165,7 +161,7 @@ export default function ProjectHubPlanningPanel({
   const allowedCreateTypes = useMemo(() => {
     const menu = visibleCreateMenuTypes(workTypeConfig, {
       epic: canCreateEpic,
-      feature: Boolean(canManage || canUpdateBacklog),
+      feature: Boolean(canUpdateBacklog || canCreateEpic),
       story: canCreateStory,
       task: canCreateTask,
       bug: canCreateBug,
@@ -177,7 +173,6 @@ export default function ProjectHubPlanningPanel({
   }, [
     workTypeConfig,
     canCreateEpic,
-    canManage,
     canUpdateBacklog,
     canCreateStory,
     canCreateTask,
@@ -478,8 +473,9 @@ export default function ProjectHubPlanningPanel({
     }
     setBusy(true);
     try {
-      await projectAPI.patchSprint(projectId, editSprint._id, patch);
+      const savedSprint = await projectAPI.patchSprint(projectId, editSprint._id, patch);
       toast.success(t('workspace.projectHubBacklogSprintUpdated'));
+      toastScheduleWarnings(savedSprint, toast, t);
       setEditSprint(null);
       await onReloadSprints?.();
     } catch (err) {
@@ -612,7 +608,7 @@ export default function ProjectHubPlanningPanel({
     if (!text || busy) return;
 
     if (isPlanningCreateType(typeId)) {
-      const allowed = typeId === 'epic' ? canCreateEpic : Boolean(canManage || canUpdateBacklog);
+      const allowed = typeId === 'epic' ? canCreateEpic : Boolean(canUpdateBacklog || canCreateEpic);
       if (!allowed) return;
       setBusy(true);
       try {
@@ -1317,7 +1313,7 @@ export default function ProjectHubPlanningPanel({
           if (keys.length === 1 && keys[0] === 'comments') return;
           if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
             try {
-              await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+              return await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
             } catch (err) {
               toast.error(
                 resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })

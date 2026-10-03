@@ -171,7 +171,7 @@ class TaskBoardController {
       });
       return res.json({ success: true, data });
     } catch (err) {
-      return sendError(res, err, 400, 'Không thể di chuyển card', 'TASK_BOARD_CARD_MOVE_FAILED');
+      return sendError(res, err, err.statusCode || 400, 'Không thể di chuyển card', 'TASK_BOARD_CARD_MOVE_FAILED');
     }
   }
 

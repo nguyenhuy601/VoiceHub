@@ -1,5 +1,9 @@
 const jwt = require('jsonwebtoken');
-const { isPublicRoute, isAuthInternalS2SPath } = require('../config/services');
+const {
+  isPublicRoute,
+  isAuthInternalS2SPath,
+  isUserBlockedInternalPath,
+} = require('../config/services');
 const { isAccessTokenVersionValid } = require('@enterprise/shared/utils/tokenVersionAuth');
 const { fetchTokenVersionFromAuth } = require('../clients/authTokenVersionClient');
 const { sendApiError } = require('@enterprise/shared/middleware/httpErrorResponse');
@@ -51,6 +55,16 @@ async function authMiddlewareAsync(req, res, next) {
       console.log(`[API-Gateway] Public route: ${pathWithoutQuery}`);
     }
     return next();
+  }
+
+  // /internal ngoài allowlist S2S: từ chối trước JWT. Gateway sẽ gắn internal token cho mọi user đã login.
+  if (isUserBlockedInternalPath(pathWithoutQuery) || isUserBlockedInternalPath(fromOriginal)) {
+    console.warn(`[API-Gateway] blocked internal path ${req.method || ''} ${pathWithoutQuery}`);
+    return sendApiError(res, 403, {
+      errorCode: 'ROUTE_NOT_PERMITTED',
+      message: 'Route not permitted',
+      messageUser: 'Không đủ quyền thực hiện thao tác này.',
+    });
   }
 
   // Route S2S /internal/* qua gateway: chỉ kiểm tra internal token (bootstrap IT), không JWT user.

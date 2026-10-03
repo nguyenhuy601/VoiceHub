@@ -13,9 +13,7 @@ import {
   LayoutDashboard,
   MessageCircle,
   Mic,
-  Settings,
   Shield,
-  User,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import useUiRole from '../../hooks/useUiRole';
@@ -40,6 +38,9 @@ import {
   buildCompanyHomePath,
   buildCompanyOverviewPath,
   buildCompanyWorkspacePath,
+  isCompanyChatModulePath,
+  isCompanyDocumentsModulePath,
+  isImmersiveCompanyModulePath,
   buildCollaborateCalendarPath,
   buildCollaborateDocumentsPath,
   buildCollaborateRequirementsPath,
@@ -64,6 +65,19 @@ import {
 } from './figmaShellClasses';
 
 const COLLAPSE_KEY = 'vh_sidebar_collapsed';
+/** Prefs riêng khi đứng Drive — không lẫn collapse chat / menu thường. */
+const DRIVE_NAV_COLLAPSE_KEY = 'vh.companyNav.driveCollapsed.v1';
+
+function readCollapsePref(key, fallback = false) {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const saved = window.localStorage.getItem(key);
+    if (saved != null && saved !== '') return Boolean(JSON.parse(saved));
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
 
 const NAV_ROLE_KEYS = {
   admin: 'nav.roleAdmin',
@@ -230,7 +244,13 @@ export default function FigmaNavigationSidebar({
   landingDemo = false,
   contextSwitch = null,
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    if (isCompanyDocumentsModulePath(window.location.pathname)) {
+      return readCollapsePref(DRIVE_NAV_COLLAPSE_KEY, true);
+    }
+    return readCollapsePref(COLLAPSE_KEY, isImmersiveCompanyModulePath(window.location.pathname));
+  });
   const [showSuitePicker, setShowSuitePicker] = useState(false);
   const [showAIPanel, setShowAIPanel] = useState(false);
   const aiButtonRef = useRef(null);
@@ -277,18 +297,26 @@ export default function FigmaNavigationSidebar({
   }, [location.pathname, closeMobileNav]);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(COLLAPSE_KEY);
-      if (saved) setCollapsed(JSON.parse(saved));
-    } catch {
-      // ignore
+    if (isCompanyDocumentsModulePath(location.pathname)) {
+      setCollapsed(readCollapsePref(DRIVE_NAV_COLLAPSE_KEY, true));
+      return;
     }
-  }, []);
+    setCollapsed(
+      readCollapsePref(COLLAPSE_KEY, isCompanyChatModulePath(location.pathname))
+    );
+  }, [location.pathname]);
 
   const toggleCollapsed = () => {
     const next = !collapsed;
     setCollapsed(next);
-    localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next));
+    const key = isCompanyDocumentsModulePath(location.pathname)
+      ? DRIVE_NAV_COLLAPSE_KEY
+      : COLLAPSE_KEY;
+    try {
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
     if (next) setShowSuitePicker(false);
   };
 
@@ -406,23 +434,7 @@ export default function FigmaNavigationSidebar({
             path: buildCompanyDocumentsPath(activeOrgId, scopeQuery),
             badge: 0,
           },
-          {
-            key: 'calendar',
-            icon: Calendar,
-            label: t('nav.calendar'),
-            path: buildCompanyCalendarPath(activeOrgId, { departmentId: spaceDeptId }),
-            badge: 0,
-          },
         ];
-        if (showApprovalInbox) {
-          items.push({
-            key: 'approvals',
-            icon: ClipboardList,
-            label: t('nav.approvals'),
-            path: buildCompanyApprovalsPath(activeOrgId),
-            badge: 0,
-          });
-        }
         if (showAdminSuite) {
           items.push({
             key: 'company-admin',
@@ -517,29 +529,7 @@ export default function FigmaNavigationSidebar({
       }
       return items;
     }
-    return [
-      {
-        key: 'profile',
-        icon: User,
-        label: t('nav.myProfile'),
-        path: '/app/me/settings',
-        badge: 0,
-      },
-      {
-        key: 'overview',
-        icon: LayoutDashboard,
-        label: t('nav.overview'),
-        path: '/app/me/dashboard',
-        badge: 0,
-      },
-      {
-        key: 'settings',
-        icon: Settings,
-        label: t('nav.systemSettings'),
-        path: '/app/me/settings',
-        badge: 0,
-      },
-    ];
+    return [];
   }, [
     suiteProp,
     t,
@@ -636,29 +626,9 @@ export default function FigmaNavigationSidebar({
     return isActivePath(item.path);
   };
 
-  const handleLogout = async () => {
-    if (landingDemo) {
-      toast(t('nav.toastDemoLogout') || 'Demo mode', { icon: '🔒' });
-      return;
-    }
-    try {
-      await Promise.race([logout(), new Promise((r) => setTimeout(r, 1500))]);
-    } catch {
-      // ignore
-    } finally {
-      try {
-        removeToken();
-      } catch {
-        // ignore
-      }
-      // Toast đăng xuất chỉ trong AuthContext.logout — tránh 2 thông báo
-      navigate('/login');
-    }
-  };
-
   const allowedSuites = useMemo(() => {
-    const base = ['communicate', 'company', 'projects', 'me'];
-    if (showAdminSuite) return ['communicate', 'company', 'projects', 'admin', 'me'];
+    const base = ['communicate', 'company', 'projects'];
+    if (showAdminSuite) return ['communicate', 'company', 'projects', 'admin'];
     return base;
   }, [showAdminSuite]);
   const railCollapsed = collapsed && !mobileNavOpen;
@@ -804,7 +774,9 @@ export default function FigmaNavigationSidebar({
           : contextSwitch
         : null}
 
-      {!railCollapsed && <div className={FIGMA_SIDEBAR_SECTION_LABEL}>{t('nav.mainMenu')}</div>}
+      {!railCollapsed && visibleNavItems.length > 0 ? (
+        <div className={FIGMA_SIDEBAR_SECTION_LABEL}>{t('nav.mainMenu')}</div>
+      ) : null}
 
       <nav className={FIGMA_SIDEBAR_NAV}>
         {visibleNavItems.map((item) => (

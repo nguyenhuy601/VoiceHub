@@ -21,7 +21,7 @@ router.get('/membership/:organizationId/:userId', controller.getMembershipRole);
 /** GET active memberships — RBAC V2 rebind UserRole sau direct-replace (S2S). */
 router.get('/memberships/:organizationId', controller.listActiveMemberships);
 
-/** Tên tổ chức cho webhook / service nội bộ (serverId RBAC = organizationId). */
+/** Tên tổ chức cho service nội bộ (serverId RBAC = organizationId). */
 router.get('/org/:organizationId/summary', controller.getOrgSummary);
 
 /**

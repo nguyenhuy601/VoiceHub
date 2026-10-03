@@ -1,0 +1,39 @@
+---
+description: Giọng báo cáo user + SoT Phase 1–4 (QA–UAT, TC UC, gate Tech optional, DEC D1–D10)
+alwaysApply: true
+---
+
+# Giọng báo cáo & SoT Phase 1–4 (học từ user)
+
+## Cách giải thích / báo cáo
+
+- Nói **theo phase**, ngắn: đã làm → đang làm → bước tiếp.
+- Mô tả **luồng UI** (kéo card, tab, nút); phân biệt **HITL** vs auto.
+- Không giả vờ DEC chưa chốt; DEC D1–D10 đã khóa (xem dưới).
+
+## SoT Phase 3 → 4
+
+1. Dev kéo card → cột **QA**.
+2. Tab Kiểm thử: card QA → gắn TC (catalog theo UC + thủ công).
+3. Pass hết TC → **nút** Confirm Done (**HITL**).
+4. Fail → bug → card **Todo** + note TC → Dev sửa → kéo lại QA.
+5. UAT staging → checklist bàn giao → đóng dự án.
+6. Phase 4 deploy: **chỉ checklist** (không CI/CD trong app).
+
+## Planning → P2 → P3 (DEC khóa)
+
+- Planning **PM chủ trì**, **PO duyệt** baseline → materialize Task từ WBS leaf (D1, D5, D9).
+- TC Planning theo **UC** (`sourceUcKey`); P3 attach TC cùng UC với card; + TC tay (D2).
+- Sprint **kéo tay** từ Backlog (D3).
+- Done: chặn drag nếu !ready (D4).
+
+## Cổng duyệt (D6–D10)
+
+```text
+RA:       BA → [Tech nếu có analysis:tech_review] → PO
+Planning: PM → [Tech nếu có] → PO   (không bắt BA)
+Demo:     logout–login từng account; SoD khác userId giữa stamp
+```
+
+- Notify cổng kế sau mỗi approve (D8).
+- Không dùng “nhất nhất” gộp 3 role để chứng minh dual-gate (D10).

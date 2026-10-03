@@ -8,7 +8,7 @@ import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import useRequirementAccess from '../../../hooks/useRequirementAccess';
 import useRequirementPacks from '../../../hooks/useRequirementPacks';
 import { queryKeys } from '../../../lib/queryKeys';
-import { AI_ANALYSIS_JOBS, areAllAnalysisJobsConfirmed } from '../../requirements/aiAnalysisWizardConstants';
+import { approveRequirementPackWithGate1 } from '../../requirements/approveRequirementPackWithGate1';
 import {
   AI_WIZARD_STEPS,
   canRunAiOnPack,
@@ -90,6 +90,26 @@ export default function useCreateProjectAiWizard({
     [orgId]
   );
 
+  const ensureAiSnapshot = useCallback(
+    async (id) => {
+      const packKey = String(id || '').trim();
+      if (!orgId || !packKey) return null;
+      try {
+        const res = await requirementAPI.createAiAnalysisSnapshot(orgId, packKey);
+        return unwrapRequirementPayload(res);
+      } catch (error) {
+        toast.error(
+          resolveApiErrorMessage(error, {
+            t,
+            fallback: t('aiCreateWizard.snapshotCreateFail'),
+          })
+        );
+        throw error;
+      }
+    },
+    [orgId, t]
+  );
+
   useEffect(() => {
     if (!packsError) return;
     toast.error(t('aiCreateWizard.loadPacksFail'));
@@ -110,8 +130,14 @@ export default function useCreateProjectAiWizard({
         setConfirmForm(emptyConfirmForm(next));
         setInitialPackHydrated(true);
         if (canRunAiOnPack(next)) {
-          setSlideDir('forward');
-          setStep(1);
+          try {
+            await ensureAiSnapshot(want);
+            if (cancelled) return;
+            setSlideDir('forward');
+            setStep(1);
+          } catch {
+            /* toast already shown in ensureAiSnapshot */
+          }
         }
       } catch {
         if (!cancelled) setInitialPackHydrated(true);
@@ -122,7 +148,14 @@ export default function useCreateProjectAiWizard({
     return () => {
       cancelled = true;
     };
-  }, [initialPackId, orgId, accessLoading, canUseAiWizard, initialPackHydrated]);
+  }, [
+    initialPackId,
+    orgId,
+    accessLoading,
+    canUseAiWizard,
+    initialPackHydrated,
+    ensureAiSnapshot,
+  ]);
 
   useEffect(() => {
     if (pack) {
@@ -160,7 +193,13 @@ export default function useCreateProjectAiWizard({
           err.statusCode = 403;
           throw err;
         }
-        const res = await requirementAPI.approvePack(orgId, id);
+        const result = await approveRequirementPackWithGate1({ orgId, packId: id, t });
+        if (!result.ok) {
+          const err = new Error(t('requirements.approveFail'));
+          err.statusCode = 409;
+          throw err;
+        }
+        const res = await requirementAPI.getPack(orgId, id);
         next = unwrapRequirementPayload(res);
       }
 
@@ -182,15 +221,26 @@ export default function useCreateProjectAiWizard({
           toast.error(t('aiCreateWizard.packNotReadyForAi'));
           return false;
         }
+        const id = String(ready?._id || current?._id || '').trim();
+        await ensureAiSnapshot(id);
       } catch (error) {
-        toast.error(resolveApiErrorMessage(error, { t, fallback: t('aiCreateWizard.needPack') }));
+        if (error?.errorCode !== 'AI_SNAPSHOT_CREATE_TOASTED') {
+          const msg = resolveApiErrorMessage(error, {
+            t,
+            fallback: t('aiCreateWizard.needPack'),
+          });
+          // ensureAiSnapshot already toasts on failure — skip duplicate for snapshot errors
+          if (!String(error?.message || '').includes('Snapshot')) {
+            toast.error(msg);
+          }
+        }
         return false;
       }
       setSlideDir('forward');
       setStep((s) => Math.min(AI_WIZARD_STEPS.length - 1, s + 1));
       return true;
     },
-    [ensureLifecycleForWizard, t]
+    [ensureAiSnapshot, ensureLifecycleForWizard, t]
   );
 
   const selectApprovedPack = useCallback(
@@ -244,13 +294,24 @@ export default function useCreateProjectAiWizard({
       try {
         const res = await requirementAPI.getAiAnalysis(orgId, packId, { view: 'summary' });
         const summary = unwrapRequirementPayload(res);
-        if (!areAllAnalysisJobsConfirmed(summary?.jobs)) {
-          toast.error(t('aiCreateWizard.needConfirmAllAnalysisJobs'));
+        const planStatus = String(summary?.phaseRuns?.phase_how?.status || '');
+        if (planStatus !== 'confirmed') {
+          toast.error(
+            t('aiCreateWizard.needConfirmProjectPlan') ||
+              t('requirements.gate2CreateBlocked') ||
+              'Gate 2: confirm phase HOW trước khi tiếp tục.'
+          );
           return;
         }
       } catch (error) {
         toast.error(
-          resolveApiErrorMessage(error, { t, fallback: t('aiCreateWizard.needConfirmAllAnalysisJobs') })
+          resolveApiErrorMessage(error, {
+            t,
+            fallback:
+              t('aiCreateWizard.needConfirmProjectPlan') ||
+              t('requirements.gate2CreateBlocked') ||
+              'Gate 2: confirm projectPlan trước khi tiếp tục.',
+          })
         );
         return;
       } finally {
@@ -286,11 +347,13 @@ export default function useCreateProjectAiWizard({
       }
 
       if (isPhase2Ai) {
+        // RULE-21 — Phase1 plan path: seed qua publish-wbs, không import pack work items
         const res = await projectAPI.advancePhase2(phase2ProjectId, {
           mode: 'ai',
           packId: String(current._id),
-          importWorkItems: true,
-          applyAssignees: true,
+          importWorkItems: false,
+          applyAssignees: false,
+          publishWbs: true,
         });
         const data = res?.data?.data ?? res?.data ?? res;
         toast.success(t('workspace.phase2AdvanceSuccess') || t('requirements.createProjectSuccess'));
@@ -371,7 +434,6 @@ export default function useCreateProjectAiWizard({
     goNext,
     createProject,
     canRunAiOnPack: canRunAiOnPack(pack),
-    analysisJobCount: AI_ANALYSIS_JOBS.length,
     isPhase2Ai,
     existingProjectId: phase2ProjectId,
   };

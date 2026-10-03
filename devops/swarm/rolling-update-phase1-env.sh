@@ -41,8 +41,6 @@ APP_SERVICES=(
   voice-service
   notification-service
   notification-dispatch-worker
-  webhook-service
-  webhook-delivery-worker
   socket-service
 )
 

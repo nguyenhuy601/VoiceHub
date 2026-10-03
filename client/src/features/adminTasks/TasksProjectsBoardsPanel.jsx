@@ -1,18 +1,16 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Archive, Plus, Search } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Archive, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   AdminUserPanelShell,
   adminDangerBtnClass,
   adminInputClass,
-  adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import { taskAPI } from '../../services/api/taskAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { buildCollaborateProjectsNewPath } from '../../utils/suitePathUtils';
 import useAdminOrgBoards, {
   boardCodeOf,
   boardIdOf,
@@ -50,7 +48,6 @@ function scopeLabel(board, t) {
 
 export default function TasksProjectsBoardsPanel({ orgId }) {
   const { t } = useAppStrings();
-  const navigate = useNavigate();
   const { boards, loading, loadBoards } = useAdminOrgBoards(orgId);
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState('');
@@ -84,15 +81,6 @@ export default function TasksProjectsBoardsPanel({ orgId }) {
     }
   };
 
-  const openCreate = () => {
-    const id = String(orgId || '').trim();
-    if (!id) {
-      toast.error(t('organizations.selectOrgFirst') || 'Chọn organization trước.');
-      return;
-    }
-    navigate(buildCollaborateProjectsNewPath(id, { from: 'admin' }));
-  };
-
   return (
     <AdminUserPanelShell title={t('adminDomains.projects.overview')} hint={t('adminTasks.boardsHint')} wide>
       <>
@@ -107,14 +95,6 @@ export default function TasksProjectsBoardsPanel({ orgId }) {
                 className={`${adminInputClass()} pl-9`}
               />
             </div>
-            <button
-              type="button"
-              className={adminPrimaryBtnClass('inline-flex items-center gap-1.5')}
-              onClick={openCreate}
-            >
-              <Plus className="h-4 w-4" />
-              {t('adminTasks.createOpen')}
-            </button>
           </div>
 
           <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">

@@ -1,0 +1,310 @@
+# CI — Continuous Integration (VoiceHub)
+# Chuẩn: Lint → Test → Build → Scan → CI gate
+# Không Artifact push / không Deploy.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  security-events: write
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      shared: ${{ steps.filter.outputs.shared }}
+      client: ${{ steps.filter.outputs.client }}
+      api_gateway: ${{ steps.filter.outputs.api_gateway }}
+      services: ${{ steps.filter.outputs.services }}
+      docker: ${{ steps.filter.outputs.docker }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared:
+              - 'shared/**'
+            client:
+              - 'client/**'
+            api_gateway:
+              - 'api-gateway/**'
+            services:
+              - 'services/**'
+            docker:
+              - 'api-gateway/Dockerfile'
+              - 'services/*/Dockerfile'
+              - '.github/swarm-app-images.json'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/cd.yml'
+
+  # ── Scan ──────────────────────────────────────────────
+  scan:
+    name: "Scan — secrets + fs + env"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Security env (ci profile)
+        run: VOICEHUB_ENV_CHECK=ci bash devops/scripts/check-security-env.sh
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trivy filesystem
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          skip-dirs: node_modules,.git,client/dist,**/node_modules
+
+  # ── Lint ──────────────────────────────────────────────
+  lint-client:
+    name: "Lint — client"
+    needs: changes
+    if: needs.changes.outputs.client == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - working-directory: client
+        run: npm ci
+      - name: ESLint
+        working-directory: client
+        run: npm run lint
+      - name: Vite build
+        working-directory: client
+        env:
+          VITE_API_URL: /api
+        run: npm run build
+
+  # ── Test ──────────────────────────────────────────────
+  test-shared:
+    name: "Test — shared"
+    needs: changes
+    if: needs.changes.outputs.shared == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: shared/package-lock.json
+      - working-directory: shared
+        run: npm ci --ignore-scripts
+      - run: node --test shared/tests/*.test.js
+
+  test-api-gateway:
+    name: "Test — api-gateway"
+    needs: changes
+    if: >-
+      needs.changes.outputs.api_gateway == 'true' ||
+      needs.changes.outputs.shared == 'true' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            api-gateway/package-lock.json
+            shared/package-lock.json
+      - run: |
+          (cd shared && npm ci --ignore-scripts)
+          (cd api-gateway && npm ci --ignore-scripts)
+          (cd api-gateway && node ../shared/postinstall-link.cjs)
+      - working-directory: api-gateway
+        run: |
+          if compgen -G "tests/*.test.js" > /dev/null; then
+            node --test tests/*.test.js
+          fi
+          if compgen -G "src/swagger/*.test.js" > /dev/null; then
+            node --test src/swagger/*.test.js
+          fi
+
+  test-services:
+    name: "Test — changed services"
+    needs: changes
+    if: needs.changes.outputs.services == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - working-directory: shared
+        run: npm ci --ignore-scripts
+      - name: Detect & test service packages
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FORCE_SWARM_APP: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          mapfile -t SWARM_APP < <(node -e 'require("./.github/swarm-app-images.json").forEach(x=>{if(x.image!=="api-gateway")console.log(x.image)})')
+          TARGETS=()
+          if [[ "${FORCE_SWARM_APP}" == "true" ]]; then
+            TARGETS=("${SWARM_APP[@]}")
+          else
+            BEFORE="${BASE_REF:-}"
+            if [[ -z "${BEFORE}" || "${BEFORE}" =~ ^0+$ ]]; then
+              BEFORE="$(git rev-parse HEAD~1 2>/dev/null || true)"
+            fi
+            if [[ -n "${BEFORE}" ]] && git rev-parse --verify "${BEFORE}" >/dev/null 2>&1; then
+              mapfile -t CHANGED < <(git diff --name-only "${BEFORE}"...HEAD -- 'services/' | awk -F/ 'NF>=2 {print $2}' | sort -u)
+            else
+              CHANGED=("${SWARM_APP[@]}")
+            fi
+            for c in "${CHANGED[@]}"; do
+              for s in "${SWARM_APP[@]}"; do
+                [[ "$c" == "$s" ]] && TARGETS+=("$c")
+              done
+            done
+          fi
+          echo "Service targets: ${TARGETS[*]:-none}"
+          for svc in "${TARGETS[@]}"; do
+            dir="services/${svc}"
+            [[ -d "${dir}" && -f "${dir}/package.json" ]] || continue
+            shopt -s nullglob
+            tests=("${dir}/tests"/*.test.js)
+            shopt -u nullglob
+            [[ ${#tests[@]} -eq 0 ]] && { echo "==> skip ${svc}"; continue; }
+            echo "==> test ${svc}"
+            if [[ -f "${dir}/package-lock.json" ]]; then
+              (cd "${dir}" && npm ci --ignore-scripts)
+            else
+              (cd "${dir}" && npm install --ignore-scripts)
+            fi
+            (cd "${dir}" && node ../../shared/postinstall-link.cjs)
+            (cd "${dir}" && node --test tests/*.test.js)
+          done
+
+  # ── Build (verify, no push) ───────────────────────────
+  resolve-docker-matrix:
+    name: "Build — resolve matrix"
+    needs: changes
+    if: >-
+      github.event_name == 'pull_request' && (
+        needs.changes.outputs.docker == 'true' ||
+        needs.changes.outputs.shared == 'true' ||
+        needs.changes.outputs.api_gateway == 'true' ||
+        needs.changes.outputs.services == 'true'
+      )
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+      has_images: ${{ steps.set.outputs.has_images }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: set
+        env:
+          BUILD_ALL: ${{ needs.changes.outputs.shared == 'true' || needs.changes.outputs.docker == 'true' }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          ALL="$(node -e 'console.log(JSON.stringify(require("./.github/swarm-app-images.json")))')"
+          if [[ "${BUILD_ALL}" == "true" ]]; then
+            echo "matrix=$(echo "$ALL" | jq -c '{include:.}')" >> "$GITHUB_OUTPUT"
+            echo "has_images=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mapfile -t CHANGED_PATHS < <(git diff --name-only "${BASE_SHA}"...HEAD)
+          SELECTED='[]'
+          while IFS= read -r row; do
+            image="$(echo "$row" | jq -r '.image')"
+            hit=0
+            if [[ "${image}" == "api-gateway" ]]; then
+              for p in "${CHANGED_PATHS[@]}"; do [[ "$p" == api-gateway/* ]] && hit=1 && break; done
+            else
+              for p in "${CHANGED_PATHS[@]}"; do [[ "$p" == "services/${image}/"* ]] && hit=1 && break; done
+            fi
+            [[ "$hit" -eq 1 ]] && SELECTED="$(echo "$SELECTED" | jq -c --argjson r "$row" '. + [$r]')"
+          done < <(echo "$ALL" | jq -c '.[]')
+          if [[ "$(echo "$SELECTED" | jq 'length')" -eq 0 ]]; then
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            echo "has_images=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=$(echo "$SELECTED" | jq -c '{include:.}')" >> "$GITHUB_OUTPUT"
+            echo "has_images=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-docker:
+    name: "Build — ${{ matrix.image }} (no push)"
+    needs: [changes, resolve-docker-matrix]
+    if: needs.resolve-docker-matrix.outputs.has_images == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.resolve-docker-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: voicehub-${{ matrix.image }}:ci
+          cache-from: type=gha,scope=ci-${{ matrix.image }}
+          cache-to: type=gha,mode=min,scope=ci-${{ matrix.image }}
+
+  # ── Gate ──────────────────────────────────────────────
+  ci-gate:
+    name: CI gate
+    needs:
+      - scan
+      - lint-client
+      - test-shared
+      - test-api-gateway
+      - test-services
+      - build-docker
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate Lint | Test | Build | Scan
+        run: |
+          set -euo pipefail
+          check() {
+            local name="$1" result="$2"
+            echo "$name=$result"
+            if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+              exit 1
+            fi
+          }
+          check scan "${{ needs.scan.result }}"
+          check lint-client "${{ needs.lint-client.result }}"
+          check test-shared "${{ needs.test-shared.result }}"
+          check test-api-gateway "${{ needs.test-api-gateway.result }}"
+          check test-services "${{ needs.test-services.result }}"
+          check build-docker "${{ needs.build-docker.result }}"
+          echo "CI gate PASS (Lint | Test | Build | Scan)"

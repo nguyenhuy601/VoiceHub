@@ -14,8 +14,14 @@ import {
 import { useAppStrings } from '../../../locales/appStrings';
 import { FIGMA_WS_TEAM_CARD, FIGMA_WS_TEAM_GRID } from '../../../components/Organization/figmaOrganizationClasses';
 import { paginateList } from './projectsLandingPagination';
-import { isProjectActiveForUi, isProjectCompletedForUi } from './projectLandingActive';
-import { buildProjectLandingCards } from './projectLandingCardModel';
+import {
+  isProjectActiveForUi,
+  isProjectCompletedForUi,
+  isProjectDraftForUi,
+  isProjectFinishedForUi,
+  isProjectReadyForPlanningForUi,
+} from './projectLandingActive';
+import { buildProjectLandingCards, resolveLandingNextHint } from './projectLandingCardModel';
 
 export default function ProjectsLandingGrid({
   projects = [],
@@ -32,11 +38,35 @@ export default function ProjectsLandingGrid({
 
   const cards = useMemo(() => buildProjectLandingCards(projects, locale), [projects, locale]);
   const activeCards = useMemo(() => cards.filter((card) => isProjectActiveForUi(card.raw)), [cards]);
+  const draftCards = useMemo(() => cards.filter((card) => isProjectDraftForUi(card.raw)), [cards]);
+  const readyCards = useMemo(
+    () => cards.filter((card) => isProjectReadyForPlanningForUi(card.raw)),
+    [cards]
+  );
+  const finishedCards = useMemo(
+    () => cards.filter((card) => isProjectFinishedForUi(card.raw)),
+    [cards]
+  );
   const [activePage, setActivePage] = useState(1);
+  const [draftPage, setDraftPage] = useState(1);
+  const [readyPage, setReadyPage] = useState(1);
+  const [finishedPage, setFinishedPage] = useState(1);
 
   const pagedActive = useMemo(
     () => paginateList(activeCards, activePage),
     [activeCards, activePage]
+  );
+  const pagedDraft = useMemo(
+    () => paginateList(draftCards, draftPage),
+    [draftCards, draftPage]
+  );
+  const pagedReady = useMemo(
+    () => paginateList(readyCards, readyPage),
+    [readyCards, readyPage]
+  );
+  const pagedFinished = useMemo(
+    () => paginateList(finishedCards, finishedPage),
+    [finishedCards, finishedPage]
   );
 
   useEffect(() => {
@@ -44,8 +74,57 @@ export default function ProjectsLandingGrid({
   }, [activeCards.length]);
 
   useEffect(() => {
+    setDraftPage(1);
+  }, [draftCards.length]);
+
+  useEffect(() => {
+    setReadyPage(1);
+  }, [readyCards.length]);
+
+  useEffect(() => {
+    setFinishedPage(1);
+  }, [finishedCards.length]);
+
+  useEffect(() => {
     if (activePage !== pagedActive.page) setActivePage(pagedActive.page);
   }, [activePage, pagedActive.page]);
+
+  useEffect(() => {
+    if (draftPage !== pagedDraft.page) setDraftPage(pagedDraft.page);
+  }, [draftPage, pagedDraft.page]);
+
+  useEffect(() => {
+    if (readyPage !== pagedReady.page) setReadyPage(pagedReady.page);
+  }, [readyPage, pagedReady.page]);
+
+  useEffect(() => {
+    if (finishedPage !== pagedFinished.page) setFinishedPage(pagedFinished.page);
+  }, [finishedPage, pagedFinished.page]);
+
+  const [landingTab, setLandingTab] = useState(null);
+  const resolvedTab =
+    landingTab ??
+    (draftCards.length > 0
+      ? 'draft'
+      : readyCards.length > 0
+        ? 'ready'
+        : activeCards.length > 0
+          ? 'active'
+          : finishedCards.length > 0
+            ? 'finished'
+            : 'active');
+
+  useEffect(() => {
+    const counts = {
+      draft: draftCards.length,
+      ready: readyCards.length,
+      active: activeCards.length,
+      finished: finishedCards.length,
+    };
+    if (counts[resolvedTab] > 0) return;
+    const next = ['draft', 'ready', 'active', 'finished'].find((id) => counts[id] > 0);
+    if (next && next !== resolvedTab) setLandingTab(next);
+  }, [resolvedTab, draftCards.length, readyCards.length, activeCards.length, finishedCards.length]);
 
   const emptyLabel = useProjects
     ? t('workspace.noProjectsYet')
@@ -54,6 +133,11 @@ export default function ProjectsLandingGrid({
     ? t('workspace.createFirstProject')
     : t('workspace.createFirstTeam');
   const createAction = useProjects ? onCreateProject : onCreateTeam;
+  const showEmpty =
+    activeCards.length === 0 &&
+    draftCards.length === 0 &&
+    readyCards.length === 0 &&
+    finishedCards.length === 0;
 
   const renderCard = (card) => {
     const phaseLabel = card.statusLabelKey ? t(card.statusLabelKey) : '';
@@ -61,6 +145,11 @@ export default function ProjectsLandingGrid({
     const priorityLabel = card.priorityLabelKey ? t(card.priorityLabelKey) : '';
     const progressPct = card.progressPercent;
     const showProgress = progressPct != null;
+    // Tính lại mỗi render — tránh useMemo/HMR giữ card cũ thiếu nextHint.
+    const nextHint = resolveLandingNextHint(card.raw);
+    const nextHintLabelKey = card.nextHintLabelKey || nextHint?.key || null;
+    const nextHintParams = card.nextHintParams || nextHint?.params || null;
+    const nextHintText = nextHintLabelKey ? t(nextHintLabelKey, nextHintParams || {}) : '';
 
     return (
       <div
@@ -150,8 +239,25 @@ export default function ProjectsLandingGrid({
                 />
               </div>
             ) : null}
+            {nextHintText ? (
+              <p
+                className="rounded-md border border-amber-500/40 bg-amber-500/15 px-2.5 py-2 text-[0.75rem] font-semibold leading-snug text-amber-950 dark:text-amber-50"
+                role="status"
+              >
+                {nextHintText}
+              </p>
+            ) : null}
           </div>
         )}
+
+        {!phaseLabel && !showProgress && nextHintText ? (
+          <p
+            className="mt-1 rounded-md border border-amber-500/40 bg-amber-500/15 px-2.5 py-2 text-[0.75rem] font-semibold leading-snug text-amber-950 dark:text-amber-50"
+            role="status"
+          >
+            {nextHintText}
+          </p>
+        ) : null}
 
         <div className="mt-1 flex flex-col gap-1.5 text-xs text-muted-foreground">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -244,7 +350,7 @@ export default function ProjectsLandingGrid({
       aria-label={t('workspace.projectsLandingAria')}
     >
       <div className="px-4 py-5 sm:px-6 sm:py-6">
-        {activeCards.length === 0 ? (
+        {showEmpty ? (
           <div
             className="mb-4 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface/60 px-6 py-10 text-center"
             role="status"
@@ -283,22 +389,154 @@ export default function ProjectsLandingGrid({
             </div>
           </div>
         ) : (
-          <div className="mb-6">
-            <div className="mb-3 text-sm font-bold text-foreground">{t('workspace.activeProjects')}</div>
-            <div className={FIGMA_WS_TEAM_GRID}>
-              {pagedActive.items.map((card) => renderCard(card))}
+          <>
+            <div
+              className="mb-4 flex border-b border-border"
+              role="tablist"
+              aria-label={t('workspace.projectsLandingAria')}
+            >
+              {[
+                {
+                  id: 'draft',
+                  label: t('workspace.draftProjects'),
+                  count: draftCards.length,
+                },
+                {
+                  id: 'ready',
+                  label: t('workspace.readyForPlanningProjects'),
+                  count: readyCards.length,
+                },
+                {
+                  id: 'active',
+                  label: t('workspace.activeProjects'),
+                  count: activeCards.length,
+                },
+                {
+                  id: 'finished',
+                  label: t('workspace.completedProjects'),
+                  count: finishedCards.length,
+                },
+              ].map((tab) => {
+                const selected = resolvedTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    id={`projects-landing-tab-${tab.id}`}
+                    aria-selected={selected}
+                    aria-controls="projects-landing-panel"
+                    tabIndex={selected ? 0 : -1}
+                    onClick={() => setLandingTab(tab.id)}
+                    className={`flex-1 border-none bg-transparent py-2.5 text-sm transition ${
+                      selected
+                        ? '-mb-px border-b-2 border-primary font-semibold text-primary'
+                        : 'font-normal text-muted-foreground'
+                    }`}
+                  >
+                    {tab.label}
+                    <span className="ml-1.5 tabular-nums font-normal text-muted-foreground">
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            {renderProjectsPager(
-              pagedActive,
-              setActivePage,
-              t('workspace.projectsLandingPrev'),
-              t('workspace.projectsLandingNext'),
-              t('workspace.projectsLandingPage', {
-                page: pagedActive.page,
-                total: pagedActive.totalPages,
-              })
-            )}
-          </div>
+            <div
+              id="projects-landing-panel"
+              role="tabpanel"
+              aria-labelledby={`projects-landing-tab-${resolvedTab}`}
+            >
+              {resolvedTab === 'draft' && draftCards.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground" role="status">
+                  {t('workspace.draftProjectsEmpty')}
+                </p>
+              ) : null}
+              {resolvedTab === 'ready' && readyCards.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground" role="status">
+                  {t('workspace.readyForPlanningProjectsEmpty')}
+                </p>
+              ) : null}
+              {resolvedTab === 'active' && activeCards.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground" role="status">
+                  {t('workspace.activeProjectsEmpty')}
+                </p>
+              ) : null}
+              {resolvedTab === 'finished' && finishedCards.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground" role="status">
+                  {t('workspace.completedProjectsEmpty')}
+                </p>
+              ) : null}
+              {resolvedTab === 'draft' && draftCards.length > 0 ? (
+                <>
+                  <div className={FIGMA_WS_TEAM_GRID}>
+                    {pagedDraft.items.map((card) => renderCard(card))}
+                  </div>
+                  {renderProjectsPager(
+                    pagedDraft,
+                    setDraftPage,
+                    t('workspace.projectsLandingPrev'),
+                    t('workspace.projectsLandingNext'),
+                    t('workspace.projectsLandingPage', {
+                      page: pagedDraft.page,
+                      total: pagedDraft.totalPages,
+                    })
+                  )}
+                </>
+              ) : null}
+              {resolvedTab === 'ready' && readyCards.length > 0 ? (
+                <>
+                  <div className={FIGMA_WS_TEAM_GRID}>
+                    {pagedReady.items.map((card) => renderCard(card))}
+                  </div>
+                  {renderProjectsPager(
+                    pagedReady,
+                    setReadyPage,
+                    t('workspace.projectsLandingPrev'),
+                    t('workspace.projectsLandingNext'),
+                    t('workspace.projectsLandingPage', {
+                      page: pagedReady.page,
+                      total: pagedReady.totalPages,
+                    })
+                  )}
+                </>
+              ) : null}
+              {resolvedTab === 'active' && activeCards.length > 0 ? (
+                <>
+                  <div className={FIGMA_WS_TEAM_GRID}>
+                    {pagedActive.items.map((card) => renderCard(card))}
+                  </div>
+                  {renderProjectsPager(
+                    pagedActive,
+                    setActivePage,
+                    t('workspace.projectsLandingPrev'),
+                    t('workspace.projectsLandingNext'),
+                    t('workspace.projectsLandingPage', {
+                      page: pagedActive.page,
+                      total: pagedActive.totalPages,
+                    })
+                  )}
+                </>
+              ) : null}
+              {resolvedTab === 'finished' && finishedCards.length > 0 ? (
+                <>
+                  <div className={FIGMA_WS_TEAM_GRID}>
+                    {pagedFinished.items.map((card) => renderCard(card))}
+                  </div>
+                  {renderProjectsPager(
+                    pagedFinished,
+                    setFinishedPage,
+                    t('workspace.projectsLandingPrev'),
+                    t('workspace.projectsLandingNext'),
+                    t('workspace.projectsLandingPage', {
+                      page: pagedFinished.page,
+                      total: pagedFinished.totalPages,
+                    })
+                  )}
+                </>
+              ) : null}
+            </div>
+          </>
         )}
       </div>
     </div>

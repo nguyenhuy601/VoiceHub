@@ -29,6 +29,10 @@ const requirementNodeSchema = new mongoose.Schema(
     customerRequirementIds: { type: [String], default: [] },
     brIds: { type: [String], default: [] },
     bpmIds: { type: [String], default: [] },
+    /** Analysis 05_FR — Dependency / Assumption / Constraint (seed → artifact.structured) */
+    frDependencies: { type: String, trim: true, default: '', maxlength: 2000 },
+    assumption: { type: String, trim: true, default: '', maxlength: 2000 },
+    constraintsNotes: { type: String, trim: true, default: '', maxlength: 2000 },
     status: { type: String, trim: true, default: '', maxlength: 64 },
     baNote: { type: String, trim: true, default: '', maxlength: 2000 },
   },
@@ -105,6 +109,13 @@ const requirementPackSchema = new mongoose.Schema(
       budget: { type: Number, default: null },
       budgetCurrency: { type: String, trim: true, default: '', maxlength: 8 },
       priority: { type: String, trim: true, default: 'Medium', maxlength: 32 },
+      /** Wizard create mode — strict schema must keep this or it is stripped on save. */
+      analysisMode: {
+        type: String,
+        enum: ['manual', 'ai', ''],
+        default: '',
+        maxlength: 16,
+      },
     },
     staffingPlan: {
       requiredSkills: { type: [staffingSkillSchema], default: [] },
@@ -129,6 +140,12 @@ const requirementPackSchema = new mongoose.Schema(
       {
         type: { type: String, enum: ['in', 'out'], required: true },
         description: { type: String, trim: true, default: '', maxlength: 2000 },
+        /** Analysis workbook 08_Scope extras — keep on pack so seed SCOPE artifacts stay complete */
+        source: { type: String, trim: true, default: '', maxlength: 240 },
+        dateRaised: { type: String, trim: true, default: '', maxlength: 64 },
+        status: { type: String, trim: true, default: '', maxlength: 64 },
+        baNote: { type: String, trim: true, default: '', maxlength: 2000 },
+        customerRequirementIds: { type: [String], default: [] },
       },
     ],
     functionalRequirements: { type: [requirementNodeSchema], default: [] },
@@ -198,16 +215,34 @@ const requirementPackSchema = new mongoose.Schema(
     assumptions: [
       {
         externalId: { type: String, trim: true, maxlength: 64 },
+        /** Legacy SRS field */
         assumption: { type: String, trim: true, maxlength: 2000 },
-        impactIfInvalid: { type: String, trim: true, maxlength: 500 },
+        /** Analysis workbook 12_Assumptions.Text */
+        text: { type: String, trim: true, maxlength: 2000 },
+        impactIfInvalid: { type: String, trim: true, maxlength: 2000 },
+        relatedArtifactIds: { type: [String], default: [] },
+        customerRequirementIds: { type: [String], default: [] },
+        status: { type: String, trim: true, default: '', maxlength: 64 },
+        baNote: { type: String, trim: true, default: '', maxlength: 2000 },
       },
     ],
+    /** Analysis workbook optional sheets — Mixed so seed can copy full structured rows */
+    interfaces: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    dataEntities: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    glossary: { type: [mongoose.Schema.Types.Mixed], default: [] },
     aiAnalysisStatus: {
       type: String,
       enum: AI_ANALYSIS_STATUS,
       default: 'none',
     },
     aiAnalysisId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    /** Active snapshot pin. Strict schema strips unknown paths on save (same class as overview.analysisMode). */
+    aiAnalysisActiveSnapshotId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    aiAnalysisSnapshotMeta: { type: mongoose.Schema.Types.Mixed, default: null },
     projectId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
     importSetId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -228,6 +263,8 @@ const requirementPackSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true, index: true },
     deletedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
     deletedAt: { type: Date, default: null },
+    deletedReason: { type: String, trim: true, default: '', maxlength: 64 },
+    deletedBatchId: { type: String, trim: true, default: '', maxlength: 128 },
   },
   { timestamps: true }
 );

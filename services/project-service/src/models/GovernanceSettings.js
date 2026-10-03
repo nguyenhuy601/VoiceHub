@@ -48,6 +48,15 @@ const governanceSettingsSchema = new mongoose.Schema(
         name: { type: String, trim: true, default: '', maxlength: 120 },
       },
     ],
+    /**
+     * RULE-14 — delivery member add trước Plan Baseline.
+     * off | warn (default) | enforce
+     */
+    memberAddBeforePlanBaseline: {
+      type: String,
+      enum: ['off', 'warn', 'enforce'],
+      default: 'warn',
+    },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,

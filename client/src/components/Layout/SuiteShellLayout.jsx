@@ -2,6 +2,7 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { ShellLayoutProvider, useShellLayout } from '../../context/ShellLayoutContext';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import JoinOrganizationModal from './JoinOrganizationModal';
+import NetworkOfflineBanner from './NetworkOfflineBanner';
 import ShellRoleBanner from './ShellRoleBanner';
 import TopHeader from './TopHeader';
 import { FIGMA_SHELL_BODY, FIGMA_SHELL_MAIN, FIGMA_SHELL_ROOT } from './figmaShellClasses';
@@ -22,6 +23,7 @@ function SuiteShellLayoutInner({ sidebar, landingDemo = false }) {
     <div className={FIGMA_SHELL_ROOT}>
       {!landingDemo && !hideChrome && <TopHeader />}
       {!landingDemo && !hideChrome && <ShellRoleBanner />}
+      {!landingDemo && <NetworkOfflineBanner />}
       {!landingDemo && <JoinOrganizationModal />}
       <div className={FIGMA_SHELL_BODY}>
         {!hideChrome ? sidebar : null}

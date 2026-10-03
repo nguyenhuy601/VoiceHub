@@ -182,6 +182,11 @@ export function buildCreateBoardPayload(form, ctx = {}) {
     if (v) payload[key] = v;
   }
 
+  const analysisMode = String(form.analysisMode || '').trim().toLowerCase();
+  if (analysisMode === 'ai' || analysisMode === 'manual') {
+    payload.analysisMode = analysisMode;
+  }
+
   return payload;
 }
 

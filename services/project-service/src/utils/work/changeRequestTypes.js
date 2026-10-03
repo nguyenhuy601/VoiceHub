@@ -15,16 +15,18 @@ const CHANGE_REQUEST_STATUSES = Object.freeze([
   'pending',
   'reviewing',
   'approved',
+  'applied',
   'rejected',
   'deferred',
 ]);
 
-/** Allowed status transitions (Phase 5). Terminal: approved / rejected / deferred. */
+/** Allowed status transitions. */
 const CHANGE_REQUEST_STATUS_TRANSITIONS = Object.freeze({
   draft: Object.freeze(['pending']),
   pending: Object.freeze(['reviewing']),
   reviewing: Object.freeze(['approved', 'rejected', 'deferred']),
-  approved: Object.freeze([]),
+  approved: Object.freeze(['applied']),
+  applied: Object.freeze([]),
   rejected: Object.freeze([]),
   deferred: Object.freeze([]),
 });

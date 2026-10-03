@@ -18,6 +18,15 @@ const PROJECT_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || '').trim()
 if (!PROJECT_SERVICE_URL) throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL');
 const AI_TASK_SERVICE_URL = String(process.env.AI_TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!AI_TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: AI_TASK_SERVICE_URL');
+/**
+ * Optional — AI Project Planning is S2S from project-service (browser never calls it).
+ * If unset, skip proxy registration so existing .env keeps working.
+ */
+const AI_PROJECT_PLANNING_SERVICE_URL = String(
+  process.env.AI_PROJECT_PLANNING_SERVICE_URL || ''
+)
+  .trim()
+  .replace(/\/+$/, '');
 /** Optional — thiếu URL thì không mount route /api/ai/summaries (gateway vẫn boot). */
 const SUMMARY_SERVICE_URL = String(process.env.SUMMARY_SERVICE_URL || '').trim().replace(/\/+$/, '');
 /** Optional — ADR-003 report-service (C2/C4); chỉ mount khi URL + REPORT_AGGREGATOR_MODE. */
@@ -71,6 +80,15 @@ const services = {
     url: AI_TASK_SERVICE_URL,
     routes: ['/api/ai/tasks'],
   },
+  // Internal-only diagnostic proxy (optional). Primary path: project → S2S Docker DNS.
+  ...(AI_PROJECT_PLANNING_SERVICE_URL
+    ? {
+        aiProjectPlanning: {
+          url: AI_PROJECT_PLANNING_SERVICE_URL,
+          routes: ['/api/ai/project-planning'],
+        },
+      }
+    : {}),
   ...(SUMMARY_SERVICE_URL
     ? {
         summary: {
@@ -182,11 +200,49 @@ function isAuthInternalS2SPath(path) {
   );
 }
 
+/**
+ * Header token/cờ nội bộ do client có thể gắn. Gateway không forward;
+ * S2S Docker gọi thẳng service, không đi qua proxy này.
+ */
+const CLIENT_SUPPLIED_INTERNAL_HEADERS = [
+  'x-internal-token',
+  'x-chat-internal-token',
+  'x-internal-notification-token',
+  'x-realtime-token',
+  'x-vh-org-documents-internal',
+];
+
+function stripClientSuppliedInternalHeaders(headers) {
+  if (!headers || typeof headers !== 'object') return;
+  for (const name of CLIENT_SUPPLIED_INTERNAL_HEADERS) {
+    delete headers[name];
+  }
+}
+
+/**
+ * Browser không được gọi /internal trừ 3 prefix S2S.
+ * Segment `internal` (không phân biệt hoa thường) để chặn biến thể chữ hoa.
+ */
+function isUserBlockedInternalPath(path) {
+  const raw = String(path || '').split('?')[0].replace(/\/+/g, '/');
+  if (!raw) return false;
+  const withApi = raw.startsWith('/api') ? raw : normalizePath(raw);
+  const hasInternal = withApi
+    .split('/')
+    .some((segment) => segment.toLowerCase() === 'internal');
+  if (!hasInternal) return false;
+  if (isAuthInternalS2SPath(withApi) || isAuthInternalS2SPath(raw)) return false;
+  return true;
+}
+
 module.exports = {
   services,
   getServiceByPath,
   isPublicRoute,
   isAuthInternalS2SPath,
+  isUserBlockedInternalPath,
+  stripClientSuppliedInternalHeaders,
+  CLIENT_SUPPLIED_INTERNAL_HEADERS,
   normalizePath,
   resolveReqApiPath,
   isWorkspaceTaskBoardPath,

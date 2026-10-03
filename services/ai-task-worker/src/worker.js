@@ -1,15 +1,29 @@
 const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!CHAT_SERVICE_URL) throw new Error('Thiếu biến môi trường: CHAT_SERVICE_URL');
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
+const {
+  isOpenAiCompatibleProvider,
+  openAiBaseUrl,
+  openAiApiKey,
+  chatCompletionsText,
+  chatModel,
+} = require('@enterprise/shared/llm/openaiCompatibleClient');
+
 const OLLAMA_BASE_URL = String(process.env.OLLAMA_BASE_URL || '').trim().replace(/\/+$/, '');
-if (!OLLAMA_BASE_URL) throw new Error('Thiếu biến môi trường: OLLAMA_BASE_URL');
+if (!isOpenAiCompatibleProvider() && !OLLAMA_BASE_URL) {
+  throw new Error('Thiếu biến môi trường: OLLAMA_BASE_URL');
+}
+if (isOpenAiCompatibleProvider() && (!openAiBaseUrl() || !openAiApiKey())) {
+  throw new Error('Thiếu OPENAI_BASE_URL hoặc DASHSCOPE_API_KEY (LLM_PROVIDER=openai_compatible)');
+}
 const USER_SERVICE_URL = String(process.env.USER_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!USER_SERVICE_URL) throw new Error('Thiếu biến môi trường: USER_SERVICE_URL');
 const PROJECT_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || '')
   .trim()
   .replace(/\/+$/, '');
 if (!PROJECT_SERVICE_URL) throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL');
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const amqp = require('amqplib');
 const { assertQueuesResilient } = require('@enterprise/shared/messaging/rabbitQuorum');
@@ -117,6 +131,21 @@ async function callOllama(prompt) {
       }),
     };
   }
+
+  if (isOpenAiCompatibleProvider()) {
+    const model = chatModel(process.env, 'qwen3.8-max');
+    const chat = await chatCompletionsText({
+      prompt,
+      temperature: 0.2,
+      maxTokens: 1024,
+      model,
+    });
+    if (!chat.ok) {
+      throw new Error(chat.error || 'openai_error');
+    }
+    return { response: chat.text };
+  }
+
   const baseUrl = process.env.OLLAMA_BASE_URL;
   const model = process.env.OLLAMA_MODEL || 'qwen2.5:3b-instruct';
 

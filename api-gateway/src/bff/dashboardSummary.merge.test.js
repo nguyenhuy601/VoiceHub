@@ -39,7 +39,15 @@ describe('mergeOrgDashboardStats', () => {
           { id: '2', name: 'Beta', total: 3, done: 1, open: 2, overdue: 0 },
         ],
         overdueItems: [
-          { id: 't1', title: 'Late A', dueDate: '2026-08-01T00:00:00.000Z', boardId: '1' },
+          {
+            id: 't1',
+            title: 'Late A',
+            dueDate: '2026-08-01T00:00:00.000Z',
+            boardId: '1',
+            projectId: 'p1',
+            projectTitle: 'Proj Alpha',
+            projectCode: 'PA',
+          },
           { id: 't2', title: 'Late B', dueDate: '2026-08-03T00:00:00.000Z', boardId: '2' },
         ],
       },
@@ -72,6 +80,10 @@ describe('mergeOrgDashboardStats', () => {
     assert.equal(out.overdueItems.length, 8);
     assert.equal(out.overdueItems[0].title, 'Gamma 0');
     assert.equal(out.overdueItems[0].organizationId, 'b'.repeat(24));
+    const lateA = out.overdueItems.find((i) => i.id === 't1');
+    assert.equal(lateA.projectId, 'p1');
+    assert.equal(lateA.projectTitle, 'Proj Alpha');
+    assert.equal(lateA.projectCode, 'PA');
     const alpha = out.boards.find((b) => b.id === '1');
     assert.equal(alpha.projectId, 'p1');
     assert.equal(alpha.projectTitle, 'Proj Alpha');

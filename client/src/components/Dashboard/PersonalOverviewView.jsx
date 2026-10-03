@@ -109,11 +109,7 @@ export default function PersonalOverviewView({ onNavigate }) {
   const openProject = (project) => {
     const pid = project?.projectId;
     if (!pid || !onNavigate) return;
-    onNavigate(
-      `/app/collaborate/workspaces?projectId=${encodeURIComponent(pid)}${
-        orgMeta.orgId ? `&organizationId=${encodeURIComponent(orgMeta.orgId)}` : ''
-      }`
-    );
+    onNavigate(`/app/collaborate/workspaces?projectId=${encodeURIComponent(pid)}`);
   };
 
   return (

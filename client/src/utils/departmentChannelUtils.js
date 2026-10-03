@@ -1,4 +1,4 @@
-import { channelsForDepartment, channelsForTeam, splitChatVoiceChannels } from './orgChannelScope';
+import { channelsForDepartment, channelsForTeam, splitChatVoiceChannels } from './orgChannelScope.js';
 
 function isReadableChannel(ch, permissionMatrix = null) {
   if (!ch?._id) return false;
@@ -146,6 +146,8 @@ export function preferDefaultTextChannelId(
     );
     const teamText = teamScoped.find((ch) => String(ch.type || 'text').toLowerCase() !== 'voice');
     if (teamText?._id) return String(teamText._id);
+    // Không fallback kênh phòng — tránh lẫn timeline khi đổi team (Bếp 1 / Bếp 2).
+    return '';
   }
 
   if (preferredDepartmentId) {

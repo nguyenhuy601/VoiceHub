@@ -1,0 +1,44 @@
+{
+  "id": "case-001-attendance",
+  "legacyG4Input": {
+    "snapshotId": "snap-attendance-001",
+    "packId": "pack-att",
+    "functionalRequirements": [
+      {
+        "id": "FR-ATT-01",
+        "title": "Check-in attendance",
+        "description": "Employee can check in with GPS"
+      },
+      {
+        "id": "FR-ATT-02",
+        "title": "View attendance history",
+        "description": "Employee views monthly attendance"
+      }
+    ],
+    "actors": [{ "id": "ACT-EMP", "name": "Employee" }],
+    "domain": { "name": "HR Attendance" }
+  },
+  "expectedSemantic": {
+    "requirements": [
+      {
+        "id": "FR-ATT-01",
+        "title": "Check-in attendance",
+        "description": "Employee can check in with GPS"
+      },
+      {
+        "id": "FR-ATT-02",
+        "title": "View attendance history",
+        "description": "Employee views monthly attendance"
+      }
+    ],
+    "relationships": [],
+    "ambiguities": [],
+    "assumptions": [],
+    "semanticItems": [],
+    "conflicts": [],
+    "evidence": { "items": [] },
+    "facts": {},
+    "signalsMeta": null,
+    "meta": {}
+  }
+}

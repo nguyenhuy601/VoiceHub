@@ -1,4 +1,19 @@
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, onlineManager } from '@tanstack/react-query';
+import {
+  ensureNetworkControllerStarted,
+  networkController,
+  NETWORK_STATE,
+} from './network/networkController.js';
+
+ensureNetworkControllerStarted();
+
+/** Keep React Query in sync with NetworkController (pauses refetchInterval when OFFLINE). */
+onlineManager.setEventListener((setOnline) => {
+  setOnline(networkController.getState() !== NETWORK_STATE.OFFLINE);
+  return networkController.subscribe((state) => {
+    setOnline(state !== NETWORK_STATE.OFFLINE);
+  });
+});
 
 /** Badge khi socket chưa kết nối — khi connected dùng snapshot `notification:unread_updated` */
 export const STALE_TIME_BADGE_MS = 30_000;
@@ -50,12 +65,33 @@ export const STALE_TIME_CALENDAR_MS = 45_000;
 
 export const GC_TIME_MS = 10 * 60_000;
 
+function isNetworkishQueryError(error) {
+  const code = String(error?.code || '');
+  return (
+    code === 'NETWORK_OFFLINE' ||
+    code === 'ERR_NETWORK' ||
+    code === 'ERR_EMPTY_RESPONSE' ||
+    code === 'ECONNABORTED' ||
+    Boolean(error?.isNetworkOffline)
+  );
+}
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       gcTime: GC_TIME_MS,
       refetchOnWindowFocus: false,
-      retry: 1,
+      networkMode: 'online',
+      // Transport retry lives on axios; RQ only one soft retry for non-network failures.
+      retry: (failureCount, error) => {
+        if (networkController.shouldBlockRequests()) return false;
+        if (isNetworkishQueryError(error)) return false;
+        return failureCount < 1;
+      },
+    },
+    mutations: {
+      networkMode: 'online',
+      retry: false,
     },
   },
 });

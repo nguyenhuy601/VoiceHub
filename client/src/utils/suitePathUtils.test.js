@@ -6,8 +6,8 @@ import {
   buildProjectsModulePath,
   buildProjectsPickerPath,
   isCompanyChatModulePath,
-  resolveProjectOrganizationId,
-  organizationIdFromProjectRow,
+  isCompanyDocumentsModulePath,
+  isImmersiveCompanyModulePath,
 } from './suitePathUtils.js';
 
 describe('buildProjectsModulePath', () => {
@@ -91,8 +91,8 @@ describe('buildCollaborateProjectHubPath', () => {
 });
 
 describe('buildProjectsPickerPath', () => {
-  it('appends organizationId when present', () => {
-    assert.equal(buildProjectsPickerPath('org9'), '/app/projects?organizationId=org9');
+  it('does not append organizationId (single-company)', () => {
+    assert.equal(buildProjectsPickerPath('org9'), '/app/projects');
     assert.equal(buildProjectsPickerPath(''), '/app/projects');
   });
 });
@@ -107,17 +107,61 @@ describe('isCompanyChatModulePath', () => {
   });
 });
 
+describe('isCompanyDocumentsModulePath', () => {
+  it('matches /app/company/documents only', () => {
+    assert.equal(isCompanyDocumentsModulePath('/app/company/documents'), true);
+    assert.equal(isCompanyDocumentsModulePath('/app/company/documents/'), true);
+    assert.equal(isCompanyDocumentsModulePath('/app/company/documents?tab=documents'), true);
+    assert.equal(isCompanyDocumentsModulePath('/app/company/chat'), false);
+    assert.equal(isImmersiveCompanyModulePath('/app/company/documents'), true);
+    assert.equal(isImmersiveCompanyModulePath('/app/company/home'), false);
+  });
+});
+
 describe('buildCompanyChatPath', () => {
-  it('keeps chat module path with dept announcement tab', () => {
+  it('keeps chat module path with dept announcement tab without organizationId', () => {
     const path = buildCompanyChatPath('org1', {
       departmentId: 'dept1',
       tab: 'announcement',
       channelId: 'ch1',
     });
     assert.match(path, /^\/app\/company\/chat\?/);
-    assert.match(path, /organizationId=org1/);
+    assert.doesNotMatch(path, /organizationId=/);
     assert.match(path, /departmentId=dept1/);
     assert.match(path, /tab=announcement/);
     assert.match(path, /channelId=ch1/);
+  });
+
+  it('keeps teamId on company chat path', () => {
+    const path = buildCompanyChatPath('org1', {
+      departmentId: 'dept1',
+      teamId: 'team-be1',
+      tab: 'chat',
+      channelId: 'ch-team',
+    });
+    assert.match(path, /departmentId=dept1/);
+    assert.match(path, /teamId=team-be1/);
+    assert.match(path, /tab=chat/);
+    assert.match(path, /channelId=ch-team/);
+  });
+
+  it('Be-1 and Be-2 produce different teamId on the same chat path', () => {
+    const be1 = buildCompanyChatPath('org1', {
+      departmentId: 'dept1',
+      teamId: 'team-be1',
+      tab: 'chat',
+      channelId: 'ch-be1',
+    });
+    const be2 = buildCompanyChatPath('org1', {
+      departmentId: 'dept1',
+      teamId: 'team-be2',
+      tab: 'chat',
+      channelId: 'ch-be2',
+    });
+    assert.notEqual(be1, be2);
+    assert.match(be1, /teamId=team-be1/);
+    assert.match(be2, /teamId=team-be2/);
+    assert.doesNotMatch(be1, /teamId=team-be2/);
+    assert.doesNotMatch(be2, /teamId=team-be1/);
   });
 });

@@ -217,6 +217,15 @@ function toChangeRequestDto(
     current: row.current || '',
     requestedChange: row.requestedChange || '',
     impact,
+    srsBaselineId: row.srsBaselineId || null,
+    affectedExternalKeys: Array.isArray(row.affectedExternalKeys)
+      ? row.affectedExternalKeys
+      : [],
+    releaseLabel: row.releaseLabel || '',
+    approvedBy: row.approvedBy || null,
+    approvedAt: row.approvedAt || null,
+    appliedBy: row.appliedBy || null,
+    appliedAt: row.appliedAt || null,
     workItemIds: (Array.isArray(row.workItemIds) ? row.workItemIds : []).map((id) => String(id)),
     approvalRequired: Boolean(approvalRequired),
     createdBy: row.createdBy,
@@ -438,6 +447,8 @@ async function createChangeRequest({
   current,
   requestedChange,
   impact,
+  srsBaselineId,
+  affectedExternalKeys,
 }) {
   const project = await assertCrPermission(userId, projectId, 'change_request:create');
   const name = String(title || '').trim();
@@ -454,6 +465,32 @@ async function createChangeRequest({
   const orgId = project.organizationId;
   const creatorOid = validOid(userId) ? userId : undefined;
   if (!creatorOid) throw badRequest('userId không hợp lệ');
+
+  const SrsBaseline = require('../models/SrsBaseline');
+  const { assertCrSrsLinkFields } = require('../utils/work/crSrsLink');
+  const baselineCount = await SrsBaseline.countDocuments({ projectId });
+  const projectHasSrsBaseline = baselineCount > 0;
+  let baselineBelongsToProject = true;
+  const normalizedBaseline = String(srsBaselineId || '').trim();
+  if (normalizedBaseline && validOid(normalizedBaseline)) {
+    const found = await SrsBaseline.findOne({ _id: normalizedBaseline, projectId }).select('_id').lean();
+    baselineBelongsToProject = Boolean(found);
+  } else if (normalizedBaseline) {
+    baselineBelongsToProject = false;
+  }
+  const link = assertCrSrsLinkFields({
+    type: crType,
+    srsBaselineId,
+    affectedExternalKeys,
+    projectHasSrsBaseline,
+    baselineBelongsToProject,
+  });
+  if (!link.ok) {
+    const err = new Error(link.message);
+    err.statusCode = 400;
+    err.errorCode = link.errorCode;
+    throw err;
+  }
 
   let lastErr;
   for (let attempt = 0; attempt < CODE_RETRY_MAX; attempt += 1) {
@@ -475,6 +512,8 @@ async function createChangeRequest({
         impact: impactDoc,
         workItemIds: [],
         workStatus: '',
+        srsBaselineId: link.srsBaselineId,
+        affectedExternalKeys: link.affectedExternalKeys,
         createdBy: creatorOid,
         updatedBy: creatorOid,
         isActive: true,
@@ -548,6 +587,41 @@ async function patchChangeRequest({ userId, projectId, crId, patch = {} }) {
     const crPriority = normalizeChangeRequestPriority(patch.priority, null);
     if (!crPriority) throw badRequest('priority không hợp lệ');
     item.priority = crPriority;
+  }
+  if (patch.srsBaselineId !== undefined || patch.affectedExternalKeys !== undefined || patch.type !== undefined) {
+    const SrsBaseline = require('../models/SrsBaseline');
+    const { assertCrSrsLinkFields } = require('../utils/work/crSrsLink');
+    const baselineCount = await SrsBaseline.countDocuments({ projectId });
+    const nextBaselineRaw =
+      patch.srsBaselineId !== undefined ? patch.srsBaselineId : item.srsBaselineId;
+    const nextKeys =
+      patch.affectedExternalKeys !== undefined
+        ? patch.affectedExternalKeys
+        : item.affectedExternalKeys;
+    let baselineBelongsToProject = true;
+    const nb = String(nextBaselineRaw || '').trim();
+    if (nb && validOid(nb)) {
+      const found = await SrsBaseline.findOne({ _id: nb, projectId }).select('_id').lean();
+      baselineBelongsToProject = Boolean(found);
+    } else if (nb) {
+      baselineBelongsToProject = false;
+    }
+    const link = assertCrSrsLinkFields({
+      type: item.type,
+      srsBaselineId: nextBaselineRaw,
+      affectedExternalKeys: nextKeys,
+      projectHasSrsBaseline: baselineCount > 0,
+      baselineBelongsToProject,
+    });
+    if (!link.ok) {
+      const err = new Error(link.message);
+      err.statusCode = 400;
+      err.errorCode = link.errorCode;
+      throw err;
+    }
+    item.srsBaselineId = link.srsBaselineId;
+    item.affectedExternalKeys = link.affectedExternalKeys;
+    item.markModified('affectedExternalKeys');
   }
   let statusNotified = '';
   if (patch.status !== undefined) {
@@ -723,7 +797,14 @@ async function applyChangeRequestApprovalResult({ request, actorId }) {
   if (request.status === 'approved') toStatus = 'approved';
   else if (request.status === 'rejected') toStatus = 'rejected';
   else return null;
-  if (fromStatus === toStatus) return item.toObject();
+  if (toStatus === 'approved') {
+    if (validOid(actorId)) item.approvedBy = actorId;
+    item.approvedAt = item.approvedAt || new Date();
+  }
+  if (fromStatus === toStatus) {
+    await item.save();
+    return item.toObject();
+  }
   // Bypass transition matrix for approval completion from reviewing (or any) → terminal
   item.status = toStatus;
   appendStatusActivity(item, fromStatus, toStatus, actorId);
@@ -738,6 +819,43 @@ async function applyChangeRequestApprovalResult({ request, actorId }) {
     });
   }
   return item.toObject();
+}
+
+async function applyApprovedChangeRequest({ userId, projectId, crId }) {
+  const project = await assertCrPermission(userId, projectId, 'change_request:update');
+  if (!validOid(crId)) throw badRequest('crId không hợp lệ');
+  const item = await ChangeRequest.findOne({ _id: crId, projectId, isActive: true });
+  if (!item) throw notFound('Change request không tồn tại');
+  if (String(item.status) !== 'approved') {
+    throw badRequest('Chỉ có thể apply Change Request đã được approved');
+  }
+
+  item.status = 'applied';
+  item.releaseLabel = item.releaseLabel || `CR-v${item.seq}`;
+  item.appliedBy = validOid(userId) ? userId : null;
+  item.appliedAt = new Date();
+  if (validOid(userId)) item.updatedBy = userId;
+  appendStatusActivity(item, 'approved', 'applied', userId);
+  await item.save();
+
+  // Plan C — applying CR may unblock Release Ready
+  try {
+    const { scheduleDeliveryNotify, maybeNotifyReleaseReadyProposed } = require('../utils/work/deliveryNotify');
+    scheduleDeliveryNotify(() =>
+      maybeNotifyReleaseReadyProposed({ actorId: userId, projectId })
+    );
+  } catch {
+    /* ignore */
+  }
+
+  const profileById = await loadCrProfileMap([item], userId, { includeActivity: true });
+  const workItems = await loadWorkItemsSummary(item.workItemIds);
+  return toChangeRequestDto(item, profileById, {
+    includeActivity: true,
+    includeWorkItems: true,
+    approvalRequired: projectRequiresCrApproval(project),
+    workItems,
+  });
 }
 
 async function deleteChangeRequest({ userId, projectId, crId }) {
@@ -798,6 +916,7 @@ module.exports = {
   deleteChangeRequest,
   submitChangeRequestApproval,
   applyChangeRequestApprovalResult,
+  applyApprovedChangeRequest,
   enrichTasksWithChangeRequests,
   syncChangeRequestWorkStatus,
   toChangeRequestDto,

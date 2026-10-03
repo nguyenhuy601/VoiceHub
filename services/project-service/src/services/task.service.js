@@ -1,6 +1,6 @@
 const Task = require('../models/Task');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
-const { taskWebhook } = require('../clients/webhook.client');
+const { notifyTaskAssigned } = require('../clients/notification.client');
 const { emitTaskFactBestEffort, emitStatusTransitionFactBestEffort } = require('../clients/analyticsPublisher.client');
 const {
   isDoneLikeStatus,
@@ -158,15 +158,13 @@ class TaskService {
         status: task.status,
       });
 
-      // Gửi webhook
+      // Báo người được giao việc — dùng clientTask vì title trong doc đã mã hoá at-rest
       if (assigneeId) {
-        await taskWebhook.created(
-          task._id.toString(),
-          clientTask.title,
-          createdBy.toString(),
-          assigneeId.toString(),
-          organizationId?.toString()
-        );
+        await notifyTaskAssigned({
+          actorId: createdBy?.toString(),
+          assigneeId: assigneeId.toString(),
+          task: clientTask,
+        });
       }
 
       logger.info(`Task created: ${task._id}`);

@@ -82,6 +82,7 @@ import SystemConfigHubPanel from '../../features/adminSystemConfig/SystemConfigH
 import SecuritySettingsHubPanel from '../../features/adminSecurity/SecuritySettingsHubPanel';
 import SecuritySessionsHubPanel from '../../features/adminSecurity/SecuritySessionsHubPanel';
 import TasksProjectsBoardsPanel from '../../features/adminTasks/TasksProjectsBoardsPanel';
+import TasksProjectsOverviewPanel from '../../features/adminTasks/TasksProjectsOverviewPanel';
 import TasksProjectSettingsPanel from '../../features/adminTasks/TasksProjectSettingsPanel';
 import TasksProjectTeamPanel from '../../features/adminTasks/TasksProjectTeamPanel';
 import TasksDelegationPanel from '../../features/adminTasks/TasksDelegationPanel';
@@ -272,6 +273,7 @@ const ORG_PANELS = {
 
 const TASK_PANELS = {
   'tasks-boards': TasksProjectsBoardsPanel,
+  'tasks-projects-overview': TasksProjectsOverviewPanel,
   'tasks-project-settings': TasksProjectSettingsPanel,
   'tasks-project-team': TasksProjectTeamPanel,
   'tasks-delegation': TasksDelegationPanel,
