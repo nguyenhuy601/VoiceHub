@@ -208,14 +208,18 @@ async function ensurePreparedIntakeForWhat({ pack, organizationId, packId }) {
   const {
     countValidFr,
     isCustomerRawIntakePack,
+    packNeedsCanonicalRawBackfill,
   } = require('../utils/requirement/workbookDiagnostic');
 
   const form = pack?.aiAnalysis?.formValidation;
   const formOk = form?.ok === true;
   const isRaw = formOk || isCustomerRawIntakePack(pack);
   const validFrBefore = countValidFr(pack);
+  const needsCanonBackfill = packNeedsCanonicalRawBackfill(pack);
 
-  if (validFrBefore > 0) {
+  // Skip only when FR present AND Semantic Contract SoT already on pack.
+  // Packs prefilled before registry deploy have FR but no canonicalRaw — must re-prefill.
+  if (validFrBefore > 0 && !needsCanonBackfill) {
     return { didPrepare: false, validFr: validFrBefore };
   }
   if (!isRaw) {
@@ -259,14 +263,20 @@ async function ensurePreparedIntakeForWhat({ pack, organizationId, packId }) {
   }
 
   // eslint-disable-next-line no-console
-  console.info('[phase_what] lazy prepare intake (formOk/raw + validFr=0)', {
+  console.info('[phase_what] lazy prepare intake', {
     packId: String(packId),
     xlsxCount: xlsxDocs.length,
     formOk,
+    validFrBefore,
+    needsCanonBackfill,
   });
 
   await prepareIntakeCorpusAndPrefill({ pack, organizationId, packId });
-  return { didPrepare: true, validFr: 0 };
+  return {
+    didPrepare: true,
+    validFr: countValidFr(pack) || validFrBefore,
+    canonicalRawBackfill: needsCanonBackfill,
+  };
 }
 
 /**
@@ -378,6 +388,9 @@ async function prepareIntakeCorpusAndPrefill({ pack, organizationId, packId }) {
     containerDiag.workbookDiagnostic = aggregated.workbookDiagnostic;
     containerDiag.workbookDiagnostics = aggregated.workbookDiagnostics;
     containerDiag.customerRawRows = aggregated.customerRawRows;
+    if (aggregated.canonicalRaw) {
+      containerDiag.canonicalRaw = aggregated.canonicalRaw;
+    }
     if (formValidation) containerDiag.formValidation = formValidation;
     pack.aiAnalysis = containerDiag;
     pack.markModified('overview');
@@ -399,6 +412,8 @@ async function prepareIntakeCorpusAndPrefill({ pack, organizationId, packId }) {
       nfrCount: aggregated.meta.nfrCount,
       businessRequestCount: aggregated.meta.businessRequestCount,
       referenceCount: aggregated.meta.referenceCount,
+      hasCanonicalRaw: Boolean(aggregated.canonicalRaw?.registryVersion),
+      canonicalRawFr: aggregated.canonicalRaw?.counts?.requirements ?? null,
     });
   }
 

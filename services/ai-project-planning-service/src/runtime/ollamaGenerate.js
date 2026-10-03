@@ -43,6 +43,63 @@ function ollamaKeepAlive(env = process.env) {
   return raw || DEFAULT_KEEP_ALIVE;
 }
 
+function tryParseJson(slice) {
+  try {
+    return JSON.parse(slice);
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort close truncated JSON from small models (num_predict cut mid-object). */
+function repairTruncatedJson(slice) {
+  let s = String(slice || '').trim();
+  if (!s) return null;
+  const direct = tryParseJson(s);
+  if (direct != null) return direct;
+
+  // Prefer last complete object inside an array (common truncated shape).
+  const arrKey = s.match(/^\s*\{\s*"([^"]+)"\s*:\s*\[/u);
+  if (arrKey) {
+    const key = arrKey[1];
+    const objs = [];
+    const re = /\{[^{}]*\}/gu;
+    let m;
+    while ((m = re.exec(s)) != null) {
+      const one = tryParseJson(m[0]);
+      if (one && typeof one === 'object') objs.push(one);
+    }
+    if (objs.length) return { [key]: objs };
+  }
+
+  // Generic: close open strings/brackets from the truncated end.
+  for (let trim = 0; trim < 80 && s.length > 2; trim += 1) {
+    let candidate = s.slice(0, s.length - trim).replace(/,\s*$/u, '');
+    let inStr = false;
+    let esc = false;
+    const stack = [];
+    for (let i = 0; i < candidate.length; i += 1) {
+      const ch = candidate[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === '{' || ch === '[') stack.push(ch);
+      else if (ch === '}' || ch === ']') stack.pop();
+    }
+    if (inStr) candidate += '"';
+    for (let i = stack.length - 1; i >= 0; i -= 1) {
+      candidate += stack[i] === '{' ? '}' : ']';
+    }
+    const parsed = tryParseJson(candidate);
+    if (parsed != null) return parsed;
+  }
+  return null;
+}
+
 function extractJsonPayload(text) {
   const raw = String(text || '');
   const objStart = raw.indexOf('{');
@@ -58,12 +115,11 @@ function extractJsonPayload(text) {
   }
   if (start < 0) return null;
   const end = raw.lastIndexOf(endChar);
-  if (end <= start) return null;
-  try {
-    return JSON.parse(raw.slice(start, end + 1));
-  } catch {
-    return null;
-  }
+  const primary = end > start ? raw.slice(start, end + 1) : raw.slice(start);
+  const parsed = tryParseJson(primary);
+  if (parsed != null) return parsed;
+  // Truncated completion: repair from start to end of text
+  return repairTruncatedJson(raw.slice(start));
 }
 
 async function generateJsonViaOpenAi(opts, env, model, http) {
@@ -166,6 +222,7 @@ async function generateJson(opts = {}) {
         model,
         prompt: String(opts.prompt || ''),
         stream: false,
+        format: 'json',
         keep_alive: ollamaKeepAlive(env),
         options,
       },

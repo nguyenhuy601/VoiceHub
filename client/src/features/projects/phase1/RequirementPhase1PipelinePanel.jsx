@@ -14,6 +14,7 @@ import RequirementHitlJourney from '../../requirements/RequirementHitlJourney';
 import { waitForPhaseWhatJob } from './hooks/usePhaseWhatRunMonitor';
 import Phase1AiRequirementProgress from './Phase1AiRequirementProgress';
 import { buildGate1ProposalItems } from './buildGate1ProposalItems';
+import { attachConflictAmbiguityToGate1Bundle } from './gate1/resolveConflictAmbiguityUi';
 import {
   formatElapsed,
   resolveWhatProgressViewModel,
@@ -30,7 +31,11 @@ function unwrap(res) {
 }
 
 function buildGate1ReviewBundle(pack, g4, proposal) {
-  return buildGate1ProposalItems({ pack, g4, proposal });
+  return attachConflictAmbiguityToGate1Bundle(
+    buildGate1ProposalItems({ pack, g4, proposal }),
+    pack,
+    g4
+  );
 }
 
 /** t() trả về chính key khi thiếu bản dịch — `|| fallback` không bắt được. */
@@ -129,6 +134,7 @@ export default function RequirementPhase1PipelinePanel({
         sectionReviews:
           gate1Bundle.sectionReviews || proposal?.completeness?.sectionReviews || [],
         softGaps: gate1Bundle.softGaps || proposal?.completeness?.softGaps || [],
+        conflictAmbiguity: gate1Bundle.conflictAmbiguity || null,
         readyForGate1: proposal?.completeness?.readyForGate1 !== false,
         reviewComplete: Boolean(proposal?.review?.summary?.complete),
         reviewVersion: proposal?.reviewVersion ?? 0,

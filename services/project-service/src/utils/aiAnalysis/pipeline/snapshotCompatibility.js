@@ -36,6 +36,19 @@ function isSnapshotProjectionCompatible(snapshot, opts = {}) {
     return { ok: false, reason: 'sections' };
   }
 
+  // RULE-SC: Customer Raw intake on this pipeline must carry canonicalRaw
+  const intakeKind = String(
+    snapshot.ingestionValidation?.intakeKind || ''
+  ).toLowerCase();
+  const isCustomerRawIntake =
+    intakeKind === 'customer_raw' || intakeKind === 'customerraw';
+  if (isCustomerRawIntake && expectedPipeline >= 4) {
+    const cr = snapshot.canonicalRaw;
+    if (!cr || typeof cr !== 'object' || !cr.registryVersion) {
+      return { ok: false, reason: 'canonical_raw' };
+    }
+  }
+
   return { ok: true };
 }
 

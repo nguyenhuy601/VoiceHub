@@ -57,6 +57,27 @@ function buildSnapshotPayload({
     calendar: projected.calendar,
   });
 
+  // Semantic Contract P1 — Customer Raw intake SoT (never overwrite `canonical`)
+  const canonicalRaw =
+    pack?.aiAnalysis?.canonicalRaw &&
+    typeof pack.aiAnalysis.canonicalRaw === 'object'
+      ? pack.aiAnalysis.canonicalRaw
+      : null;
+  const intakeKind =
+    pack?.aiAnalysis?.workbookDiagnostic?.intakeKind ||
+    pack?.aiAnalysis?.canonicalRaw?.templateType ||
+    null;
+  const ingestionValidation = {
+    ...(ingestion.validation || {}),
+    ...(intakeKind ? { intakeKind: String(intakeKind) } : {}),
+    ...(canonicalRaw
+      ? {
+          canonicalRawRegistry: canonicalRaw.registryVersion || null,
+          canonicalRawFr: canonicalRaw.counts?.requirements ?? null,
+        }
+      : {}),
+  };
+
   return {
     packContentHash: String(packContentHash || ''),
     packVersionNumber: Number(pack?.versionNumber) || 1,
@@ -65,10 +86,11 @@ function buildSnapshotPayload({
     sourcesResolved,
     projected,
     canonical,
+    canonicalRaw,
     merged,
     commonFiltered,
     preparedByJob,
-    ingestionValidation: ingestion.validation,
+    ingestionValidation,
     pipelineVersion: PIPELINE_VERSION,
   };
 }
@@ -235,6 +257,18 @@ function buildPackObjectFromSnapshot(
 
   const entities = arrayOrEmpty(srs.entities);
 
+  // Slim aiAnalysis for Customer Raw derive gate (isCustomerRawIntakePack / BG input).
+  // Freeze must not drop intake markers — otherwise deriveRawSections no-ops.
+  const liveAi =
+    packObj.aiAnalysis && typeof packObj.aiAnalysis === 'object' ? packObj.aiAnalysis : {};
+  const canonicalRaw =
+    (snapshot?.canonicalRaw && typeof snapshot.canonicalRaw === 'object'
+      ? snapshot.canonicalRaw
+      : null)
+    || (liveAi.canonicalRaw && typeof liveAi.canonicalRaw === 'object'
+      ? liveAi.canonicalRaw
+      : null);
+
   const freeze = {
     _id: packObj._id,
     packId: packObj._id != null ? String(packObj._id) : packObj.packId,
@@ -252,6 +286,10 @@ function buildPackObjectFromSnapshot(
       startDate: srs.overview?.startDate || null,
       deadline: srs.overview?.deadline || null,
       businessScope: srs.overview?.businessScope || '',
+      expectedUsers:
+        srs.overview?.expectedUsers
+        || packObj.overview?.expectedUsers
+        || '',
     },
     functionalRequirements: frSource,
     nonFunctionalRequirements: nfr,
@@ -277,6 +315,17 @@ function buildPackObjectFromSnapshot(
     employees: arrayOrEmpty(projected.employees),
     skillCatalog: projected.skillCatalog || { skills: [] },
     calendar: projected.calendar || { workingCalendar: {}, holidays: [] },
+    // Intake markers + canonicalRaw (derive gate / BG section input) — not Agent State
+    aiAnalysis: {
+      formValidation: liveAi.formValidation || null,
+      workbookDiagnostic: liveAi.workbookDiagnostic || null,
+      workbookDiagnostics: Array.isArray(liveAi.workbookDiagnostics)
+        ? liveAi.workbookDiagnostics
+        : undefined,
+      customerRawRows: liveAi.customerRawRows || null,
+      canonicalRaw: canonicalRaw || null,
+      loop1Reuse: liveAi.loop1Reuse || null,
+    },
   };
 
   // Ensure every required section key exists even if older partial srs

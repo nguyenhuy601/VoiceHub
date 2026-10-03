@@ -71,4 +71,35 @@ describe('isSnapshotProjectionCompatible', () => {
     assert.equal(r.ok, false);
     assert.equal(r.reason, 'hash');
   });
+
+  it('customer_raw intake on v4 requires canonicalRaw', () => {
+    const snap = {
+      packContentHash: 'h1',
+      pipelineVersion: PIPELINE_VERSION,
+      projected: { srs: srsWithAllSections() },
+      ingestionValidation: { intakeKind: 'customer_raw' },
+    };
+    const missing = isSnapshotProjectionCompatible(snap, { packContentHash: 'h1' });
+    assert.equal(missing.ok, false);
+    assert.equal(missing.reason, 'canonical_raw');
+
+    const ok = isSnapshotProjectionCompatible(
+      {
+        ...snap,
+        canonicalRaw: { registryVersion: 'raw-sem-v1', counts: { requirements: 1 } },
+      },
+      { packContentHash: 'h1' }
+    );
+    assert.equal(ok.ok, true);
+  });
+
+  it('analysis workbook without intakeKind does not require canonicalRaw', () => {
+    const snap = {
+      packContentHash: 'h1',
+      pipelineVersion: PIPELINE_VERSION,
+      projected: { srs: srsWithAllSections() },
+    };
+    const r = isSnapshotProjectionCompatible(snap, { packContentHash: 'h1' });
+    assert.equal(r.ok, true);
+  });
 });

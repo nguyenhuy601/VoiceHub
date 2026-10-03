@@ -9,6 +9,11 @@ const {
 } = require('./agentBudget');
 const { buildInitialAgentFields } = require('../checkpoint/agentStateSchema');
 const { getLangGraphCheckpointer } = require('./langGraphCheckpointer');
+const {
+  createWhatTiming,
+  markStage,
+  logWhatTiming,
+} = require('./whatTiming');
 
 async function runWhatPhaseLangGraph({
   container,
@@ -22,6 +27,8 @@ async function runWhatPhaseLangGraph({
   budget: budgetOverride = null,
   goal: goalOverride = null,
   constraints: constraintsOverride = null,
+  hydrateMs = null,
+  timingRound = null,
 } = {}) {
   const startedAt = Date.now();
   const budget = resolveAgentBudget({ budget: budgetOverride || undefined });
@@ -39,6 +46,16 @@ async function runWhatPhaseLangGraph({
       ? structuredClone(container)
       : { analyses: {}, phaseRuns: {} };
   if (next.jobs != null) delete next.jobs;
+
+  let whatTiming = createWhatTiming({
+    round: timingRound != null ? timingRound : process.env.WHAT_TIMING_ROUND || 0,
+    packId: pack?._id || pack?.id || null,
+    snapshotId,
+    runId,
+  });
+  if (hydrateMs != null && Number.isFinite(Number(hydrateMs))) {
+    whatTiming = markStage(whatTiming, 'hydrate', { ms: Number(hydrateMs) });
+  }
 
   const { checkpointer, kind: checkpointerKind } = await getLangGraphCheckpointer();
   const graph = buildWhatPhaseGraph({ onProgress, onCheckpoint, checkpointer });
@@ -73,9 +90,13 @@ async function runWhatPhaseLangGraph({
       startedAt,
       hitl: 'gate1',
       g4Opts,
+      whatTiming,
     },
     { configurable: { thread_id: threadId } }
   );
+
+  const durationMs = Math.max(0, Date.now() - startedAt);
+  const timing = logWhatTiming(finalState.whatTiming || whatTiming, { totalMs: durationMs });
 
   return {
     phase: 'what',
@@ -98,7 +119,8 @@ async function runWhatPhaseLangGraph({
     gate: null,
     gatePreview: null,
     partial: null,
-    durationMs: Math.max(0, Date.now() - startedAt),
+    durationMs,
+    whatTiming: timing,
     stub: false,
     agentCore: 'langgraph',
     checkpointer: checkpointerKind,

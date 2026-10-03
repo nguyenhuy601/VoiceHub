@@ -203,6 +203,7 @@ function aggregateWorkbookResults(results = []) {
   let businessRules = [];
   let businessProcesses = [];
   let useCases = [];
+  let canonicalRaw = null;
   const frSourceMap = [];
   const reasonCodes = [];
   const workbookDiagnostics = [];
@@ -227,6 +228,15 @@ function aggregateWorkbookResults(results = []) {
       result.nonFunctionalRequirements
     );
     customerRawRows = mergeCustomerRawRows(customerRawRows, result.customerRawRows);
+
+    // Prefer richest Customer Raw canonical (most FR behaviors)
+    if (result.canonicalRaw && typeof result.canonicalRaw === 'object') {
+      const nextCount = Number(result.canonicalRaw.counts?.requirements) || 0;
+      const prevCount = Number(canonicalRaw?.counts?.requirements) || 0;
+      if (!canonicalRaw || nextCount >= prevCount) {
+        canonicalRaw = result.canonicalRaw;
+      }
+    }
 
     if (Array.isArray(diag?.frSourceMap)) {
       for (const loc of diag.frSourceMap) {
@@ -274,6 +284,7 @@ function aggregateWorkbookResults(results = []) {
     functionalRequirements,
     nonFunctionalRequirements,
     customerRawRows,
+    canonicalRaw,
     overview,
     scope,
     businessGoals,

@@ -1,9 +1,16 @@
 /**
  * Resolve runtime snapshot + analysis-freeze pack for a PlanningRun (RULE-DL-01/07).
- * New runs: S2S hydrate. Legacy: embedded input.snapshot only.
+ * Prefer S2S hydrate when run meta is complete; embedded input.snapshot only as legacy fallback.
  */
 
 const projectClient = require('../clients/project.client');
+
+function hasHydrateMeta(run) {
+  const snapshotId = String(run?.snapshotId || '').trim();
+  const packId = String(run?.packId || '').trim();
+  const organizationId = String(run?.organizationId || '').trim();
+  return Boolean(snapshotId && packId && organizationId);
+}
 
 /**
  * @param {object} run — PlanningRun lean
@@ -21,11 +28,34 @@ async function hydrateRunInputFromSnapshot(run, opts = {}) {
   const embeddedSnapshot = input.snapshot || input.snapshotPayload || null;
   const embeddedPack = input.pack || null;
 
+  const snapshotId = String(run?.snapshotId || '').trim();
+  const packId = String(run?.packId || '').trim();
+  const organizationId = String(run?.organizationId || '').trim();
+
+  // RULE-DL-01/07: when run meta is present, always S2S hydrate (ignore poisoned embedded stubs)
+  if (hasHydrateMeta(run)) {
+    const fetchFn = opts.fetchFn || projectClient.fetchAnalysisSnapshotHydrate;
+    const data = await fetchFn({ snapshotId, packId, organizationId });
+    console.info(
+      '[hydrate_snapshot] mode=hydrate snapshotId=%s packId=%s embeddedIgnored=%s',
+      snapshotId,
+      packId,
+      Boolean(embeddedSnapshot)
+    );
+    return {
+      mode: 'hydrate',
+      snapshot: data.snapshot,
+      pack: data.pack,
+      packContentHash: data.packContentHash || null,
+      pipelineVersion: data.pipelineVersion ?? null,
+    };
+  }
+
   if (embeddedSnapshot && typeof embeddedSnapshot === 'object') {
     console.info(
       '[hydrate_snapshot] mode=embedded_legacy snapshotId=%s packId=%s',
-      String(run.snapshotId || embeddedSnapshot.snapshotId || ''),
-      String(run.packId || '')
+      String(run?.snapshotId || embeddedSnapshot.snapshotId || ''),
+      String(run?.packId || '')
     );
     return {
       mode: 'embedded_legacy',
@@ -39,33 +69,14 @@ async function hydrateRunInputFromSnapshot(run, opts = {}) {
     };
   }
 
-  const snapshotId = String(run.snapshotId || '').trim();
-  const packId = String(run.packId || '').trim();
-  const organizationId = String(run.organizationId || '').trim();
-  if (!snapshotId || !packId || !organizationId) {
-    const err = new Error(
-      'Hydrate requires run.snapshotId, run.packId, run.organizationId'
-    );
-    err.code = 'HYDRATE_RUN_META_REQUIRED';
-    throw err;
-  }
-
-  const fetchFn = opts.fetchFn || projectClient.fetchAnalysisSnapshotHydrate;
-  const data = await fetchFn({ snapshotId, packId, organizationId });
-  console.info(
-    '[hydrate_snapshot] mode=hydrate snapshotId=%s packId=%s',
-    snapshotId,
-    packId
+  const err = new Error(
+    'Hydrate requires run.snapshotId, run.packId, run.organizationId'
   );
-  return {
-    mode: 'hydrate',
-    snapshot: data.snapshot,
-    pack: data.pack,
-    packContentHash: data.packContentHash || null,
-    pipelineVersion: data.pipelineVersion ?? null,
-  };
+  err.code = 'HYDRATE_RUN_META_REQUIRED';
+  throw err;
 }
 
 module.exports = {
   hydrateRunInputFromSnapshot,
+  hasHydrateMeta,
 };

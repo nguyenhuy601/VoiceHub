@@ -124,4 +124,54 @@ describe('buildBgDeriveInput V2', () => {
     assert.ok(profile.fr.chars < 2500);
     assert.equal(profile.TOTAL.chars > 200, true);
   });
+
+  it('prefers canonicalRaw section input for BRQ/goals; falls back to pack', () => {
+    const withCanon = {
+      ...pack,
+      aiAnalysis: {
+        ...pack.aiAnalysis,
+        canonicalRaw: {
+          registryVersion: 'raw-sem-v1',
+          content: {
+            functionalBehaviors: [
+              {
+                id: 'FR-C1',
+                functional_behavior: 'Canon FR behavior',
+                actor: 'Employee',
+                functional_scope: 'Attendance',
+                business_request_reference: 'BRQ-C1',
+              },
+            ],
+            businessGoals: ['Canon goal'],
+            businessProblems: ['Canon problem'],
+            businessObjectives: ['Canon objective'],
+            scopeIn: 'In scope A',
+            scopeOut: 'Out scope B',
+          },
+          records: {
+            businessRequests: [
+              {
+                business_request_identity: 'BRQ-C1',
+                business_request_title: 'Canon BRQ',
+                business_goal: 'Canon BRQ goal',
+                business_problem: 'Canon BRQ problem',
+                classification: { priority: 'High' },
+                stakeholder: 'PO',
+              },
+            ],
+          },
+        },
+      },
+    };
+    const input = buildBgDeriveInput(withCanon);
+    assert.equal(input.intakeSource, 'canonical_raw');
+    assert.ok(input.businessRequests.some((b) => b.id === 'BRQ-C1'));
+    assert.ok(input.businessRequests[0].businessGoal.includes('Canon BRQ'));
+    assert.ok(String(input.projectContext.objective || '').includes('Canon'));
+    assert.ok(String(input.projectContext.scope || '').includes('In scope'));
+
+    const legacy = buildBgDeriveInput(pack);
+    assert.equal(legacy.intakeSource, 'pack');
+    assert.ok(legacy.businessRequests[0].businessGoal.includes('attendance'));
+  });
 });

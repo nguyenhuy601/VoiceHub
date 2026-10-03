@@ -13,6 +13,7 @@ const { getRegistryEntry } = require('../srsProposal/contracts/analysisEngineReg
 const { runAllRawSectionDerives } = require('./runRawSectionDerive');
 
 const { buildActorsFromRaw, buildScopeFromRaw } = require('../srsProposal/engines/actorsFromRaw');
+const { buildAssumptionsFromRaw } = require('../srsProposal/engines/assumptionsFromRaw');
 
 const {
 
@@ -66,6 +67,8 @@ const SECTION_BY_ENGINE = Object.freeze({
 
   scope: 'scope',
 
+  assumption: 'assumptions',
+
 });
 
 
@@ -114,7 +117,7 @@ function stampLockedSection(proposal, resultsById, deriveStatuses, engineId) {
 
     },
 
-    { bumpProposalVersion: false, allowLegacyWrite: engineId === 'actors' }
+    { bumpProposalVersion: false, allowLegacyWrite: engineId === 'actors' || engineId === 'assumption' }
 
   );
 
@@ -180,7 +183,24 @@ async function applyRawSectionDerive(opts = {}) {
 
   ) {
 
-    return { proposal, resultsById, deriveStatuses };
+    console.info(
+
+      '[raw_derive_skip] enabled=%s customerRaw=%s hasSource=%s',
+
+      isRawSectionDeriveEnabled(env),
+
+      isCustomerRawIntakePack(pack),
+
+      hasRawDeriveSource(pack)
+
+    );
+
+    return {
+      proposal,
+      resultsById,
+      deriveStatuses,
+      timingMeta: { bg_derive: { ms: 0, llmCalls: 0, reason: 'raw_derive_skip' } },
+    };
 
   }
 
@@ -190,7 +210,7 @@ async function applyRawSectionDerive(opts = {}) {
 
   if (sectionEmpty(proposal, 'scope') && shouldRawDeriveSection('scope', pack, env)) {
 
-    const scopeOut = buildScopeFromRaw(pack, env);
+    const scopeOut = buildScopeFromRaw(pack, env, { snapshot: opts.snapshot });
 
     if (scopeOut.items.length) {
 
@@ -292,6 +312,20 @@ async function applyRawSectionDerive(opts = {}) {
 
       );
 
+      resultsById.actors = {
+
+        execution: { status: 'SUCCESS', diagnostics: [] },
+
+        items: actorsOut.items,
+
+        coverage: actorsOut.coverage,
+
+        validation: { errors: [], warnings: [] },
+
+        meta: { engineId: 'actors', section: 'actors', rawDerive: true },
+
+      };
+
     }
 
     deriveStatuses.actors = actorsOut.coverage?.reason || 'ok';
@@ -300,8 +334,65 @@ async function applyRawSectionDerive(opts = {}) {
 
 
 
+  if (sectionEmpty(proposal, 'assumptions') && shouldRawDeriveSection('assumption', pack, env)) {
+
+    const asmOut = buildAssumptionsFromRaw(pack, { snapshot: opts.snapshot });
+
+    if (asmOut.items.length) {
+
+      proposal = applyProposalFragment(
+
+        proposal,
+
+        {
+
+          section: 'assumptions',
+
+          items: asmOut.items,
+
+          meta: {
+
+            engineId: 'assumption',
+
+            coverage: asmOut.coverage,
+
+            validation: { errors: [], warnings: [] },
+
+            kind: 'raw_derive_deterministic',
+
+          },
+
+        },
+
+        { bumpProposalVersion: false, allowLegacyWrite: true }
+
+      );
+
+      resultsById.assumption = {
+
+        execution: { status: 'SUCCESS', diagnostics: [] },
+
+        items: asmOut.items,
+
+        coverage: asmOut.coverage,
+
+        validation: { errors: [], warnings: [] },
+
+        meta: { engineId: 'assumption', section: 'assumptions', rawDerive: true },
+
+      };
+
+    }
+
+    deriveStatuses.assumption = asmOut.coverage?.reason || 'ok';
+
+  }
+
+
+
   // Active LLM derive (UC → BG by default). Throws RAW_DERIVE_FAILED on critical fail.
 
+  const deriveStartedAt = Date.now();
   const derived = await runAllRawSectionDerives({
 
     pack,
@@ -312,10 +403,11 @@ async function applyRawSectionDerive(opts = {}) {
     proposal,
     g4Understanding: opts.g4Understanding,
     evidence: opts.evidence,
+    snapshot: opts.snapshot,
 
   });
-
-
+  const deriveWallMs = Math.max(0, Date.now() - deriveStartedAt);
+  const bgResult = derived.bg || null;
 
   for (const [engineId, result] of Object.entries(derived)) {
 
@@ -461,7 +553,43 @@ async function applyRawSectionDerive(opts = {}) {
 
 
 
-  return { proposal, resultsById, deriveStatuses };
+  const bySection = {};
+  let deriveLlmCalls = 0;
+  let deriveItems = 0;
+  for (const [engineId, result] of Object.entries(derived || {})) {
+    const genMs = Number(result?.generationMs);
+    const itemsN = Array.isArray(result?.items) ? result.items.length : 0;
+    const calls = Number(result?.llmCalls) || 0;
+    deriveLlmCalls += calls;
+    deriveItems += itemsN;
+    bySection[engineId] = {
+      ms: Number.isFinite(genMs) ? genMs : null,
+      items: itemsN,
+      llmCalls: calls,
+      reason: result?.reason || result?.status || null,
+      promptChars: Number(result?.promptChars) || 0,
+      maxTokens: result?.maxTokens ?? null,
+      quality: result?.quality || null,
+    };
+  }
+
+  const timingMeta = {
+    // Stage name kept for backward logs; ms = full derive wall (all unlocked secs).
+    bg_derive: {
+      ms: deriveWallMs,
+      wallMs: deriveWallMs,
+      evalCount: Number(bgResult?.evalCount) || 0,
+      promptEvalCount: Number(bgResult?.promptEvalCount) || 0,
+      promptChars: Number(bgResult?.promptChars) || 0,
+      maxTokens: bgResult?.maxTokens ?? null,
+      reason: bgResult?.reason || deriveStatuses.bg || null,
+      items: deriveItems,
+      llmCalls: deriveLlmCalls,
+      bySection,
+    },
+  };
+
+  return { proposal, resultsById, deriveStatuses, timingMeta };
 
 }
 

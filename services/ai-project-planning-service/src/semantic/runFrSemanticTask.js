@@ -53,17 +53,23 @@ async function runFrSemanticTask(opts = {}) {
         validateFunctionalRequirements,
       } = require('../requirementAnalysis/functionalRequirements/validateFunctionalRequirements');
 
-      const { evaluateConflictAmbiguityGate } = require('../validation/evaluateConflictAmbiguityGate');
-      const conflictAmbiguityGate = evaluateConflictAmbiguityGate({
+      const {
+        evaluateRequirementIntegrityGate,
+      } = require('../validation/requirementIntegrityGate');
+      // RULE-RIG: persist Integrity Gate; keep conflictAmbiguityGate key for compat.
+      const requirementIntegrityGate = evaluateRequirementIntegrityGate({
         g4Understanding: g4Out.g4Understanding,
         validation: g4Out.validation,
       });
+      const conflictAmbiguityGate = requirementIntegrityGate;
       const g4Understanding = {
         ...g4Out.g4Understanding,
         conflictAmbiguityGate,
+        requirementIntegrityGate,
         meta: {
           ...(g4Out.g4Understanding?.meta || {}),
           conflictAmbiguityGate,
+          requirementIntegrityGate,
         },
       };
 
@@ -80,9 +86,10 @@ async function runFrSemanticTask(opts = {}) {
         semanticOutput: g4Understanding,
         proposalFragment,
         coverage: { status: 'AVAILABLE' },
-        meta: { conflictAmbiguityGate, g4Out },
+        meta: { conflictAmbiguityGate, requirementIntegrityGate, g4Out },
         g4Understanding,
         conflictAmbiguityGate,
+        requirementIntegrityGate,
         g4Out,
       };
     },
@@ -95,6 +102,8 @@ async function runFrSemanticTask(opts = {}) {
       blocked: Boolean(g4Meta.g4Out?.blocked || sem.meta?.blocked),
       g4Understanding: g4Meta.g4Understanding || sem.semanticOutput,
       conflictAmbiguityGate: g4Meta.conflictAmbiguityGate,
+      requirementIntegrityGate:
+        g4Meta.requirementIntegrityGate || g4Meta.conflictAmbiguityGate,
       proposalFragment: sem.proposalFragment || g4Meta.proposalFragment || null,
       g4Out: g4Meta.g4Out,
     };

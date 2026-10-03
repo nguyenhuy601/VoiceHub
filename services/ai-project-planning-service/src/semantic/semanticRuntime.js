@@ -10,6 +10,7 @@ const { generateJson, isLlmEnabled } = require('../runtime/ollamaGenerate');
  *   prompt: string,
  *   schemaValidate?: (obj: object) => { ok: boolean, errors?: object[] },
  *   maxTokens?: number,
+ *   numCtx?: number,
  *   timeoutMs?: number,
  *   env?: NodeJS.ProcessEnv,
  * }} opts
@@ -30,6 +31,7 @@ async function invokeSemanticRuntime(opts = {}) {
   const result = await generateJson({
     prompt: opts.prompt,
     numPredict: opts.maxTokens,
+    numCtx: opts.numCtx,
     timeoutMs: opts.timeoutMs,
     env,
   });

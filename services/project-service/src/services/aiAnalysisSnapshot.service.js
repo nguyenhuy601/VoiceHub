@@ -211,6 +211,7 @@ async function createOrReuseAiAnalysisSnapshot({
     sourcesResolved: payload.sourcesResolved,
     projected: payload.projected,
     canonical: payload.canonical,
+    canonicalRaw: payload.canonicalRaw || null,
     merged: payload.merged,
     commonFiltered: payload.commonFiltered,
     preparedByJob: payload.preparedByJob,

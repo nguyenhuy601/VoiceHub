@@ -854,7 +854,7 @@ async function startPhaseAiPlanningRun({
       await packForPhase.save();
     }
 
-    // Self-heal: formOk + validFr=0 → prepare from raw XLSX, then re-read before G4.
+    // Self-heal: validFr=0 OR missing canonicalRaw on Customer Raw → re-prefill, then re-read before G4.
     const prepared = await ensurePreparedIntakeForWhat({
       pack: packForPhase,
       organizationId,

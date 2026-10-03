@@ -177,6 +177,9 @@ async function submitRequirementPack({
   packId,
   reviewDecisions = null,
   expectedReviewVersion = null,
+  expectedRevisionIds = null,
+  withdrawSubmissionId = null,
+  requestId = '',
 }) {
   await assertRequirementPermission({ userId, organizationId, permission: 'requirement:submit' });
   const pack = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true });
@@ -217,51 +220,39 @@ async function submitRequirementPack({
   }
   assertPackReadyForSubmit(pack);
 
-  // W7-A: optional BA item decisions on existing POST submit (no new route)
-  if (reviewDecisions && typeof reviewDecisions === 'object') {
-    const { applyReviewDecision, computeReviewSummary, isReviewComplete } = require('../utils/srsProposal/review');
-    const { materializeSrsDraft } = require('../utils/srsProposal/approvedSrsVersionManifest');
-    let container = ensureAiAnalysisContainer(
-      reapprovalPlan.aiAnalysis || pack.aiAnalysis
-    );
-    let proposal = container.analyses?.srsProposal;
-    if (proposal) {
-      const entries = Array.isArray(reviewDecisions)
-        ? reviewDecisions
-        : Object.entries(reviewDecisions).map(([logicalId, decision]) => ({
-            logicalId,
-            ...(decision || {}),
-          }));
-      for (const entry of entries) {
-        const { logicalId, ...decision } = entry;
-        if (!logicalId) continue;
-        proposal = applyReviewDecision(proposal, logicalId, decision, {
-          userId,
-          expectedReviewVersion:
-            expectedReviewVersion != null ? expectedReviewVersion : proposal.reviewVersion,
-        });
-      }
-      proposal.review = proposal.review || {};
-      proposal.review.summary = computeReviewSummary(proposal);
-      container.analyses = { ...(container.analyses || {}), srsProposal: proposal };
-      if (isReviewComplete(proposal) && !container.analyses.srsDraft) {
-        container.analyses.srsDraft = materializeSrsDraft(proposal, { userId });
-      }
-      if (sensitiveDetection.hasSensitiveEdit) {
-        container.gate1 = {
-          ...(container.gate1 || {}),
-          poReapprovalRequired: true,
-          sensitiveSectionsEdited: sensitiveDetection.sections,
-          reapprovalRequestedAt: new Date().toISOString(),
-        };
-      }
-      pack.aiAnalysis = container;
-      pack.markModified('aiAnalysis');
-    } else if (reapprovalPlan.aiAnalysis) {
-      pack.aiAnalysis = reapprovalPlan.aiAnalysis;
-      pack.markModified('aiAnalysis');
+  let container = ensureAiAnalysisContainer(
+    reapprovalPlan.aiAnalysis || pack.aiAnalysis
+  );
+  let proposal = container.analyses?.srsProposal || null;
+
+  // Wave A: immutable revisions + GateSubmission when AI proposal exists
+  if (proposal) {
+    const { applyGate1TrustOnSubmit } = require('../utils/srsProposal/gate1SubmitTrust');
+    const trust = await applyGate1TrustOnSubmit({
+      pack: pack.toObject ? pack.toObject() : pack,
+      container,
+      proposal,
+      reviewDecisions,
+      expectedRevisionIds,
+      expectedReviewVersion,
+      userId,
+      organizationId,
+      withdrawSubmissionId,
+      requestId,
+    });
+    container = trust.container;
+    if (sensitiveDetection.hasSensitiveEdit) {
+      container.gate1 = {
+        ...(container.gate1 || {}),
+        poReapprovalRequired: true,
+        sensitiveSectionsEdited: sensitiveDetection.sections,
+        reapprovalRequestedAt: new Date().toISOString(),
+      };
     }
-  } else if (reapprovalPlan.aiAnalysis && reapprovalPlan.clearPoStamp) {
+    pack.aiAnalysis = container;
+    pack.markModified('aiAnalysis');
+  } else if (reapprovalPlan.aiAnalysis) {
+    // Non-AI pack (no srsProposal): no GateSubmission; keep sensitive reapproval shell
     pack.aiAnalysis = reapprovalPlan.aiAnalysis;
     pack.markModified('aiAnalysis');
   }
@@ -317,6 +308,56 @@ async function approveRequirementPack({
     throw err;
   }
   assertTransition(pack.status, 'approved');
+
+  // Wave A: PO must approve against active GateSubmission when srsProposal exists
+  {
+    const {
+      loadActiveGateSubmission,
+      isGate1SubmissionRequiredEnabled,
+    } = require('../utils/srsProposal/gate1SubmitTrust');
+    const GateReview = require('../models/GateReview');
+    const GateSubmission = require('../models/GateSubmission');
+    const proposal = pack.aiAnalysis?.analyses?.srsProposal;
+    if (proposal) {
+      const activeSub = await loadActiveGateSubmission(
+        pack.toObject ? pack.toObject() : pack,
+        organizationId
+      );
+      const required = isGate1SubmissionRequiredEnabled();
+      const hadReviewSession = Boolean(pack.aiAnalysis?.gate1?.activeReviewId);
+      if (!activeSub) {
+        // Legacy compat: never had trust session → allow; withdrawn/missing after session → 409
+        if (required && hadReviewSession) {
+          const err = new Error(
+            'Thiếu GateSubmission active — BA cần submit Gate 1 trước khi PO duyệt'
+          );
+          err.statusCode = 409;
+          err.errorCode = 'GATE_SUBMISSION_REQUIRED';
+          throw err;
+        }
+      } else {
+        // Stamp submission id on gate1 for Approved SRS lineage pointer (Wave A)
+        const shell = pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
+        shell.gate1 = {
+          ...(shell.gate1 || {}),
+          approvedAgainstSubmissionId: activeSub.submissionId,
+          approvedManifestHash: activeSub.manifestHash,
+        };
+        pack.aiAnalysis = shell;
+        pack.markModified('aiAnalysis');
+        await GateSubmission.updateOne(
+          { submissionId: activeSub.submissionId },
+          { $set: { status: 'APPROVED' } }
+        );
+        if (activeSub.reviewId) {
+          await GateReview.updateOne(
+            { reviewId: activeSub.reviewId },
+            { $set: { status: 'APPROVED' } }
+          );
+        }
+      }
+    }
+  }
 
   const { assertRequirementGate1Approve } = require('../utils/tools/assertRequirementGate1Approve');
   const gate1 = assertRequirementGate1Approve({

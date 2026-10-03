@@ -71,14 +71,17 @@ function warningsSafe(block) {
 }
 
 /**
- * Always one review per ANALYSIS_SECTION_KEYS — never legacy actors/domain/context.
+ * One review per ANALYSIS_SECTION_KEYS + Gate1-sensitive actors (legacy write allowed).
+ * domain/context remain excluded from review tabs.
  * @param {object} proposal
  * @param {object} [engineResultsBySection]
  */
 function computeAllSectionReviews(proposal, engineResultsBySection = {}) {
   const generated = proposal?.generated || {};
   const reviews = [];
-  for (const section of ANALYSIS_SECTION_KEYS) {
+  const sections = [...ANALYSIS_SECTION_KEYS];
+  if (!sections.includes('actors')) sections.push('actors');
+  for (const section of sections) {
     const block = generated[section] && typeof generated[section] === 'object' ? generated[section] : {};
     const fromEngine = engineResultsBySection[section];
     reviews.push(

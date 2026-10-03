@@ -10,7 +10,14 @@ function splitUsers(text) {
   return String(text || '')
     .split(/[,;/|]+/)
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter((s) => s && !/^tất cả$/i.test(s));
+}
+
+function addActorName(names, raw) {
+  for (const part of splitUsers(raw)) {
+    const key = part.toLowerCase();
+    if (!names.has(key)) names.set(key, part);
+  }
 }
 
 /**
@@ -25,12 +32,14 @@ function buildActorsFromRaw(pack, env = process.env) {
   const input = buildRawDeriveInput('actors', pack);
   const names = new Map();
   for (const fr of input.functionalRequirements || []) {
-    const actor = String(fr.actor || '').trim();
-    if (actor) names.set(actor.toLowerCase(), actor);
+    addActorName(names, fr.actor || fr.primaryActor || '');
   }
-  for (const u of splitUsers(input.targetUsers)) {
-    if (!names.has(u.toLowerCase())) names.set(u.toLowerCase(), u);
+  // Dual-read pack FR when slim input missed actors
+  for (const fr of Array.isArray(pack?.functionalRequirements) ? pack.functionalRequirements : []) {
+    addActorName(names, fr.actor || fr.primaryActor || fr.userActor || '');
   }
+  addActorName(names, input.targetUsers);
+  addActorName(names, pack?.overview?.expectedUsers || pack?.overview?.targetUsers || '');
   const items = [...names.values()].map((name, i) =>
     stampDerived(
       {
@@ -59,14 +68,60 @@ function buildActorsFromRaw(pack, env = process.env) {
 }
 
 /**
- * Ensure scope items from pack.scope or overview in/out text.
+ * Ensure scope items from canonicalRaw Section Input, pack.scope, or overview.
  * @param {object} pack
  * @param {NodeJS.ProcessEnv} [env]
+ * @param {{ snapshot?: object }} [opts]
  */
-function buildScopeFromRaw(pack, env = process.env) {
+function buildScopeFromRaw(pack, env = process.env, opts = {}) {
   if (!shouldRawDeriveSection('scope', pack, env)) {
     return { items: [], coverage: { status: 'NO_DATA', reason: 'RAW_DERIVE_NOT_APPLICABLE' } };
   }
+
+  // Semantic Contract P1: prefer scope_in / scope_out from canonicalRaw
+  const canonicalRaw =
+    opts.snapshot?.canonicalRaw
+    || pack?.aiAnalysis?.canonicalRaw
+    || null;
+  if (canonicalRaw) {
+    try {
+      const { buildSectionInput } = require('../../semantic/sectionInputContract');
+      const section = buildSectionInput('scope', canonicalRaw);
+      if (section.ok && section.items.length) {
+        const items = section.items.map((row, i) => {
+          const scopeType = row.type === 'out' ? 'out' : 'in';
+          return stampDerived(
+            {
+              logicalId: `SCOPE-${scopeType.toUpperCase()}-${i + 1}`,
+              title: String(row.description || `Scope ${i + 1}`).slice(0, 240),
+              description: String(row.description || ''),
+              scopeType,
+              inScope: scopeType !== 'out',
+              sourceRefs: [],
+            },
+            {
+              engineId: 'scope',
+              section: 'scope',
+              rule: 'RAW_SCOPE_CANONICAL',
+              index: i,
+              defaultPrefix: 'SCOPE',
+            }
+          );
+        });
+        return {
+          items,
+          coverage: {
+            status: 'AVAILABLE',
+            reason: null,
+            sourceStats: { sourceRows: items.length, mappedRows: items.length, orphanRows: 0 },
+          },
+        };
+      }
+    } catch {
+      /* dual-read pack.scope */
+    }
+  }
+
   if (Array.isArray(pack.scope) && pack.scope.length) {
     const items = pack.scope.map((row, i) =>
       stampDerived(
@@ -93,7 +148,7 @@ function buildScopeFromRaw(pack, env = process.env) {
     };
   }
 
-  const input = buildRawDeriveInput('scope', pack);
+  const input = buildRawDeriveInput('scope', pack, { snapshot: opts.snapshot });
   const items = [];
   const o = input.overview || {};
   if (o.businessScope || o.projectObjective) {

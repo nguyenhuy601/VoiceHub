@@ -250,7 +250,10 @@ export function buildGate1ProposalItems(opts = {}) {
 
       if (!items.length) continue;
 
-      if (hasReviewMeta && !reviewableSet.has(key)) continue;
+      // Gate1-sensitive actors are legacy (not in ANALYSIS_SECTION_KEYS / sectionReviews).
+      // Still show items when present — do not hide solely because reviewableSet omits the key.
+      const explicitReview = reviewBySection[key];
+      if (hasReviewMeta && explicitReview && !reviewableSet.has(key)) continue;
 
       bySection[key] = items.map((row, i) => mapItem(row, key, i));
 

@@ -3,10 +3,17 @@ import {
   GATE1_SCROLL_PAGE_SIZE,
   getGate1ColumnsForSection,
 } from './gate1SectionTableConfig';
+import {
+  formatMissingFieldsSuffix,
+  integrityRowLabelFallback,
+  integrityRowLabelKey,
+  normalizeIntegrityBlockKind,
+} from './integrityGateLabels';
 
 function labelOf(t, key, fallback) {
   const value = typeof t === 'function' ? t(key) : '';
-  return value || fallback;
+  if (value == null || value === '' || value === key) return fallback;
+  return value;
 }
 
 /**
@@ -71,7 +78,7 @@ export default function Gate1SectionReviewTable({
                 </th>
               ))}
               <th className="px-2 py-1.5 font-medium whitespace-nowrap">
-                {labelOf(t, 'requirements.phase1ColDecision', 'Decision')}
+                {labelOf(t, 'requirements.phase1ColDecision', 'Quyết định')}
               </th>
             </tr>
           </thead>
@@ -81,11 +88,46 @@ export default function Gate1SectionReviewTable({
               const d = decisions[id] || {};
               const needsConfirm =
                 String(row.status || '').toUpperCase() === 'NEEDS_CONFIRMATION';
+              const hasConflict = Boolean(row.hasConflict);
+              const issues = Array.isArray(row.blockingIssues) ? row.blockingIssues : [];
+              const integrityKind = normalizeIntegrityBlockKind({
+                blockKind: row.integrityKind || row.conflictKind,
+                kind: issues[0]?.kind,
+                code: issues[0]?.code,
+              });
+              const detailLabel = issues
+                .slice(0, 2)
+                .map((issue) =>
+                  integrityKind === 'data_integrity'
+                    ? formatMissingFieldsSuffix(issue)
+                    : issue.message || issue.code || issue.kind
+                )
+                .filter(Boolean)
+                .join(' · ');
               return (
-                <tr key={`${id}-${index}`} className="border-t border-border align-top">
+                <tr
+                  key={`${id}-${index}`}
+                  data-conflict={hasConflict ? '1' : undefined}
+                  data-integrity={hasConflict ? integrityKind : undefined}
+                  className={`border-t align-top ${
+                    hasConflict
+                      ? 'border-amber-500/50 bg-amber-500/10'
+                      : 'border-border'
+                  }`}
+                >
                   {columns.map((col) => (
                     <td key={col.key} className="px-2 py-1.5 text-foreground">
-                      {col.render(row)}
+                      {col.render(row, t)}
+                      {col.key === columns[0]?.key && hasConflict ? (
+                        <div className="mt-1 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                          {labelOf(
+                            t,
+                            integrityRowLabelKey(integrityKind),
+                            integrityRowLabelFallback(integrityKind)
+                          )}
+                          {detailLabel ? `: ${detailLabel}` : ''}
+                        </div>
+                      ) : null}
                     </td>
                   ))}
                   <td className="px-2 py-1.5">
@@ -98,13 +140,21 @@ export default function Gate1SectionReviewTable({
                               type="button"
                               disabled={busy}
                               onClick={() => setDecision(id, { action })}
-                              className={`rounded border px-1.5 py-0.5 capitalize ${
+                              className={`rounded border px-1.5 py-0.5 ${
                                 d.action === action
                                   ? 'border-primary bg-primary/10 text-foreground'
                                   : 'border-border text-muted-foreground'
                               }`}
                             >
-                              {action}
+                              {labelOf(
+                                t,
+                                `requirements.phase1Decision_${action}`,
+                                action === 'accept'
+                                  ? 'Chấp nhận'
+                                  : action === 'edit'
+                                    ? 'Sửa'
+                                    : 'Từ chối'
+                              )}
                             </button>
                           ))}
                         </div>
@@ -112,13 +162,21 @@ export default function Gate1SectionReviewTable({
                           <div className="space-y-1">
                             <input
                               className="w-full rounded border border-border bg-background px-1.5 py-1"
-                              placeholder="note (bắt buộc)"
+                              placeholder={labelOf(
+                                t,
+                                'requirements.phase1DecisionNotePlaceholder',
+                                'Ghi chú (bắt buộc)'
+                              )}
                               value={d.note || ''}
                               onChange={(e) => setDecision(id, { note: e.target.value })}
                             />
                             <input
                               className="w-full rounded border border-border bg-background px-1.5 py-1"
-                              placeholder="resolution (bắt buộc)"
+                              placeholder={labelOf(
+                                t,
+                                'requirements.phase1DecisionResolutionPlaceholder',
+                                'Cách xử lý (bắt buộc)'
+                              )}
                               value={d.resolution || ''}
                               onChange={(e) => setDecision(id, { resolution: e.target.value })}
                             />
@@ -128,7 +186,11 @@ export default function Gate1SectionReviewTable({
                           <textarea
                             className="w-full rounded border border-border bg-background px-1.5 py-1"
                             rows={2}
-                            placeholder="edited description"
+                            placeholder={labelOf(
+                              t,
+                              'requirements.phase1DecisionEditPlaceholder',
+                              'Mô tả đã chỉnh'
+                            )}
                             value={d.editedPayload?.description || ''}
                             onChange={(e) =>
                               setDecision(id, {
@@ -142,7 +204,15 @@ export default function Gate1SectionReviewTable({
                         ) : null}
                       </div>
                     ) : (
-                      <span className="text-muted-foreground">{d.action || '—'}</span>
+                      <span className="text-muted-foreground">
+                        {d.action
+                          ? labelOf(
+                              t,
+                              `requirements.phase1Decision_${d.action}`,
+                              d.action
+                            )
+                          : '—'}
+                      </span>
                     )}
                   </td>
                 </tr>

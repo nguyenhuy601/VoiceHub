@@ -126,11 +126,13 @@ function applyReviewDecision(proposal, logicalId, decision, opts = {}) {
   const next = JSON.parse(JSON.stringify(proposal));
   next.review = next.review || { decisions: {}, locks: {}, summary: {} };
   next.review.decisions = { ...(next.review.decisions || {}) };
+  // Projection only — prefer gateReviewCommands for immutable revision + audit (Wave A).
   next.review.decisions[logicalId] = {
     action: String(decision.action || '').toLowerCase(),
     note: decision.note || null,
     resolution: decision.resolution || null,
     editedPayload: decision.editedPayload || null,
+    revisionId: decision.revisionId || opts.revisionId || null,
     at: new Date().toISOString(),
     by: opts.userId || null,
   };

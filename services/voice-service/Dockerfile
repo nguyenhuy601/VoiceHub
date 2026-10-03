@@ -1,18 +1,28 @@
 # Build context: repo root
 #   docker build -f services/voice-service/Dockerfile -t voicehub-voice-service:latest .
-# mediasoup yêu cầu Node >= 22; bullseye hết LTS (08/2026) → debian-security trả 404
+# mediasoup yêu cầu Node >= 22
+# bookworm: bullseye-security apt 404 (ffmpeg/python3-pip) làm CI build exit 100
 FROM node:22-bookworm
 
 WORKDIR /app
 
-ENV npm_config_fetch_retries=10 \
+# mediasoup postinstall: pip --target invoke/meson (PEP 668 trên bookworm)
+ENV DEBIAN_FRONTEND=noninteractive \
+    npm_config_fetch_retries=10 \
     npm_config_fetch_retry_mintimeout=20000 \
-    npm_config_fetch_retry_maxtimeout=120000
+    npm_config_fetch_retry_maxtimeout=120000 \
+    PIP_BREAK_SYSTEM_PACKAGES=1
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      python3 python3-pip make g++ pkg-config libssl-dev ffmpeg && \
-    pip3 install --no-cache-dir --break-system-packages invoke && \
+      ca-certificates \
+      python3 \
+      python3-pip \
+      make \
+      g++ \
+      pkg-config \
+      libssl-dev \
+      ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 COPY services/voice-service/package*.json ./

@@ -36,6 +36,7 @@ const WhatPhaseState = Annotation.Root({
   g4Understanding: field(),
   proposalFragment: field(),
   conflictAmbiguityGate: field(),
+  requirementIntegrityGate: field(),
   evaluate: field(),
   feasibilitySignal: field(),
   feasibility: field(),
@@ -55,6 +56,7 @@ const WhatPhaseState = Annotation.Root({
   srsProposal: field(),
   engineResultsById: field(),
   semanticStatuses: field(),
+  whatTiming: field(),
 });
 
 async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
@@ -93,6 +95,21 @@ function buildWhatPhaseGraph(hooks = {}) {
   const graph = new StateGraph(WhatPhaseState);
 
   graph.addNode('understand', async (state) => {
+    const {
+      createWhatTiming,
+      markStage,
+      startSpan,
+    } = require('./whatTiming');
+    let whatTiming =
+      state.whatTiming && typeof state.whatTiming === 'object'
+        ? state.whatTiming
+        : createWhatTiming({
+            round: process.env.WHAT_TIMING_ROUND || 0,
+            packId: state.pack?._id || state.pack?.id || null,
+            snapshotId: state.snapshotId,
+            runId: state.runId,
+          });
+
     const budget = state.budget || resolveAgentBudget();
     const preStop = evaluateStopCondition({
       budget,
@@ -102,7 +119,7 @@ function buildWhatPhaseGraph(hooks = {}) {
     });
     if (preStop.stop) {
       const history = [...(state.history || []), `stop:${preStop.reason}`];
-      return { history, stopReason: preStop.reason };
+      return { history, stopReason: preStop.reason, whatTiming };
     }
 
     await onProgress?.({
@@ -117,6 +134,7 @@ function buildWhatPhaseGraph(hooks = {}) {
       err.code = 'SNAPSHOT_PAYLOAD_REQUIRED';
       throw err;
     }
+    const endUnderstand = startSpan();
 
     // Step 2 — Requirement Understanding (normalize…quality). Step 3 ingest owned by G4 (RULE-DL-09).
     const { resolveAiG4Policy } = require('../config/aiG4Policy');
@@ -138,10 +156,18 @@ function buildWhatPhaseGraph(hooks = {}) {
     );
 
     const history = [...(state.history || []), 'step2:understanding'];
+    whatTiming = markStage(whatTiming, 'understand', {
+      ms: endUnderstand(),
+      frCount: Array.isArray(understandingPartial?.functionalRequirements)
+        ? understandingPartial.functionalRequirements.length
+        : 0,
+      candidateCount: understandingPartial?.selection?.counts?.candidates ?? null,
+    });
     const next = {
       ...state,
       understandingPartial,
       history,
+      whatTiming,
     };
     await persistNode(next, 'step2:understanding', onCheckpoint, {
       understandingPartial,
@@ -149,6 +175,7 @@ function buildWhatPhaseGraph(hooks = {}) {
     return {
       understandingPartial,
       history,
+      whatTiming,
     };
   });
 
@@ -170,6 +197,9 @@ function buildWhatPhaseGraph(hooks = {}) {
 
   graph.addNode('executeG4', async (state) => {
     if (state.stopReason) return {};
+    const { markStage, startSpan } = require('./whatTiming');
+    let whatTiming = state.whatTiming || null;
+    const endG4 = startSpan();
     onProgress?.({
       node: 'execute',
       phase: 'what',
@@ -199,6 +229,8 @@ function buildWhatPhaseGraph(hooks = {}) {
     const g4Out = frSem.g4Out || frSem.meta?.g4Out || {};
     const g4Understanding = frSem.g4Understanding;
     const conflictAmbiguityGate = frSem.conflictAmbiguityGate;
+    const requirementIntegrityGate =
+      frSem.requirementIntegrityGate || conflictAmbiguityGate;
     const proposalFragment = frSem.proposalFragment || null;
     const contextPackage = g4Out.contextPackage || state.contextPackage || null;
     const corpusContentHash = g4Out.corpusContentHash || state.corpusContentHash || null;
@@ -222,6 +254,37 @@ function buildWhatPhaseGraph(hooks = {}) {
       delete container.analyses.g4Understanding;
     }
 
+    const g4Ms = endG4();
+    const st = g4Understanding?.meta?.stageTimings || {};
+    if (whatTiming) {
+      whatTiming = markStage(whatTiming, 'g4_semantic', {
+        ms: st.g4_semantic?.ms ?? null,
+        calls: st.g4_semantic?.calls ?? 0,
+        evalCount: st.g4_semantic?.evalCount ?? 0,
+        promptChars: st.g4_semantic?.promptChars ?? 0,
+        skipReason: st.g4_semantic?.skipReason || null,
+      });
+      whatTiming = markStage(whatTiming, 'g4_conflict', {
+        ms: st.g4_conflict?.ms ?? null,
+        calls: st.g4_conflict?.calls ?? 0,
+        evalCount: st.g4_conflict?.evalCount ?? 0,
+        promptChars: st.g4_conflict?.promptChars ?? 0,
+        skipReason: st.g4_conflict?.skipReason || null,
+      });
+      whatTiming = markStage(whatTiming, 'g4_synthesis', {
+        ms: st.g4_synthesis?.ms ?? null,
+        calls: st.g4_synthesis?.calls ?? 0,
+        evalCount: st.g4_synthesis?.evalCount ?? 0,
+        promptChars: st.g4_synthesis?.promptChars ?? 0,
+        skipReason: st.g4_synthesis?.skipReason || null,
+      });
+      whatTiming = markStage(whatTiming, 'g4_total', {
+        ms: g4Understanding?.meta?.durationMs ?? g4Ms,
+        llmCalls: g4Understanding?.meta?.llmCalls ?? 0,
+        wallMs: g4Ms,
+      });
+    }
+
     await persistNode(
       {
         ...state,
@@ -230,15 +293,18 @@ function buildWhatPhaseGraph(hooks = {}) {
         history,
         g4Understanding,
         conflictAmbiguityGate,
+        requirementIntegrityGate,
         proposalFragment,
         contextPackage,
         corpusContentHash,
+        whatTiming,
       },
       'execute:g4',
       onCheckpoint,
       {
         g4Understanding,
         conflictAmbiguityGate,
+        requirementIntegrityGate,
         proposalFragment,
         contextPackage,
         corpusContentHash,
@@ -250,9 +316,11 @@ function buildWhatPhaseGraph(hooks = {}) {
       history,
       g4Understanding,
       conflictAmbiguityGate,
+      requirementIntegrityGate,
       proposalFragment,
       contextPackage,
       corpusContentHash,
+      whatTiming,
     };
   });
 
@@ -338,6 +406,8 @@ function buildWhatPhaseGraph(hooks = {}) {
         error: state.g4Understanding?.meta?.lastError || state.stopReason || null,
         partial: Boolean(state.g4Understanding?.meta?.partial),
         conflictAmbiguityGate: state.conflictAmbiguityGate,
+        requirementIntegrityGate:
+          state.requirementIntegrityGate || state.conflictAmbiguityGate || null,
         agentCore: 'langgraph',
         stopReason,
         computeStatus: 'completed',

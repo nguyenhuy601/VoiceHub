@@ -98,10 +98,27 @@ export function formatGate1ApproveError(error, { t, fallback }) {
     return t('requirements.gateAMissing') || resolveApiErrorMessage(error, { t, fallback });
   }
   if (code === 'CONFLICT_AMBIGUITY_BLOCKING') {
-    return (
+    const blocking =
+      error?.response?.data?.details?.gate?.blocking ||
+      error?.details?.gate?.blocking ||
+      [];
+    const preview = Array.isArray(blocking)
+      ? blocking
+          .slice(0, 5)
+          .map((b) => {
+            const id = b?.requirementId || b?.from || b?.id;
+            const missing = Array.isArray(b?.missing) ? b.missing.join('/') : '';
+            if (id && missing) return `${id}[${missing}]`;
+            return id || b?.message || b?.code;
+          })
+          .filter(Boolean)
+          .join(', ')
+      : '';
+    const base =
+      t('requirements.gate1IntegrityBlocking') ||
       t('requirements.gate1ConflictBlocking') ||
-      resolveApiErrorMessage(error, { t, fallback })
-    );
+      resolveApiErrorMessage(error, { t, fallback });
+    return preview ? `${base} (${preview})` : base;
   }
   if (code === 'G4_UNDERSTANDING_MISSING') {
     return (

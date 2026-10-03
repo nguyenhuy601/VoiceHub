@@ -60,11 +60,11 @@ function resolveAiG4Policy(env = process.env) {
     llm: {
       semanticProjection: readTask(env, 'AI_G4_SEMANTIC', {
         enabled: true,
-        timeoutMs: 60_000,
-        maxInputTokens: 2800,
-        maxOutputTokens: 512,
+        timeoutMs: 45_000,
+        maxInputTokens: 1400,
+        maxOutputTokens: 256,
         numCtx: 4096,
-        maxCalls: 3,
+        maxCalls: 1,
       }),
       conflictAnalysis: readTask(env, 'AI_G4_CONFLICT', {
         enabled: true,
@@ -76,9 +76,9 @@ function resolveAiG4Policy(env = process.env) {
       }),
       synthesis: readTask(env, 'AI_G4_SYNTHESIS', {
         enabled: true,
-        timeoutMs: 60_000,
-        maxInputTokens: 3000,
-        maxOutputTokens: 768,
+        timeoutMs: 45_000,
+        maxInputTokens: 2000,
+        maxOutputTokens: 384,
         numCtx: 4096,
         maxCalls: 1,
       }),

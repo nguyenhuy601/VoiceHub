@@ -63,10 +63,16 @@ describe('Track A conflictAmbiguityGate', () => {
     assert.equal(gate.blocking.length, 0);
   });
 
-  it('fails when ambiguities present — confidence does not clear', () => {
+  it('fails on incomplete_fields as data_integrity — confidence does not clear', () => {
     const gate = evaluateConflictAmbiguityGate({
       g4Understanding: {
-        ambiguities: [{ requirementId: 'FR-1', kind: 'vague', message: 'unclear AC' }],
+        ambiguities: [
+          {
+            requirementId: 'FR-1',
+            kind: 'incomplete_fields',
+            missing: ['Acceptance criteria'],
+          },
+        ],
         evidence: [],
         meta: { validationOk: true },
       },
@@ -74,7 +80,7 @@ describe('Track A conflictAmbiguityGate', () => {
     });
     assert.equal(gate.passed, false);
     assert.equal(gate.confidenceDoesNotClearGate, true);
-    assert.ok(gate.blocking.some((b) => b.blockKind === 'ambiguity'));
+    assert.ok(gate.blocking.some((b) => b.blockKind === 'data_integrity'));
   });
 
   it('fails on circular relationship conflict', () => {
@@ -88,5 +94,10 @@ describe('Track A conflictAmbiguityGate', () => {
     });
     assert.equal(gate.passed, false);
     assert.ok(gate.conflicts.some((c) => c.kind === 'circular_relationship'));
+    assert.ok(
+      gate.blocking.some(
+        (b) => b.blockKind === 'relationship_integrity' && b.code === 'REL_CIRCULAR'
+      )
+    );
   });
 });
