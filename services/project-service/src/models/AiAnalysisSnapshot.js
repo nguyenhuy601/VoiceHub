@@ -37,6 +37,8 @@ const aiAnalysisSnapshotSchema = new mongoose.Schema(
     /** Slim per-job prepared slices (ids + filterMeta) — preprocess artifacts for later AI/Tools */
     preparedByJob: { type: mongoose.Schema.Types.Mixed, default: null },
     ingestionValidation: { type: mongoose.Schema.Types.Mixed, default: null },
+    /** Planned-allocation hours by user/day in planning window — real data only, never invented. */
+    bookedHoursByUserDay: { type: mongoose.Schema.Types.Mixed, default: null },
     pipelineVersion: { type: Number, default: 1 },
     status: {
       type: String,

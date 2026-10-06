@@ -36,10 +36,11 @@ describe('aiAnalysisPipeline', () => {
     const sources = resolveSources();
     assert.deepEqual(
       sources.map((s) => s.id),
-      ['srs_pack', 'employee_pool', 'skill_catalog', 'org_calendar']
+      ['srs_pack', 'employee_pool', 'project_history', 'skill_catalog', 'org_calendar']
     );
     const matching = resolveSources({ job: 'employeeMatching' }).map((s) => s.id);
     assert.ok(matching.includes('employee_pool'));
+    assert.ok(matching.includes('project_history'));
     assert.ok(matching.includes('srs_pack'));
     const hier = resolveSources({ job: 'hierarchyDecomposition' }).map((s) => s.id);
     assert.deepEqual(hier, ['srs_pack']);
@@ -64,6 +65,49 @@ describe('aiAnalysisPipeline', () => {
     assert.equal(emp.employeeId, 'u1');
     assert.ok(emp.workload);
     assert.ok(Array.isArray(emp.history));
+  });
+
+  it('employee projection keeps seniorityBand, counts, and history domain fallback', () => {
+    const emp = projectEmployee({
+      userId: 'u2',
+      jobTitle: 'Backend',
+      projectCount: 2,
+      resourceConfig: { maxConcurrentProjects: 2 },
+      capability: {
+        primaryDomain: 'fintech',
+        seniorityBand: 'senior',
+        businessDomains: ['payments'],
+        skills: [{ name: 'Node.js', level: 4 }],
+        projectExperiences: [
+          {
+            name: 'Pay API',
+            role: 'backend_developer',
+            work: 'Node payments',
+            year: 2024,
+            source: 'closed_board',
+            status: 'verified',
+          },
+          {
+            name: 'CV Portal',
+            role: 'fullstack',
+            work: 'React',
+            year: 2023,
+            source: 'cv_parse',
+            status: 'verified',
+          },
+        ],
+      },
+      isActive: true,
+    });
+    assert.equal(emp.capability.seniorityBand, 'senior');
+    assert.equal(emp.capability.primaryDomain, 'fintech');
+    assert.equal(emp.projectCount, 2);
+    assert.equal(emp.maxConcurrentProjects, 2);
+    assert.equal(emp.history[0].domain, 'fintech');
+    assert.equal(emp.history[0].projectName, 'Pay API');
+    assert.equal(emp.history[0].source, 'closed_board');
+    assert.equal(emp.history[1].source, 'cv_parse');
+    assert.equal(emp.email, undefined);
   });
 
   it('hierarchy profile projection omits employees', () => {
@@ -141,6 +185,65 @@ describe('aiAnalysisPipeline', () => {
     const what = applyJobFilter('requirementAnalysis', common);
     assert.ok(what.filterMeta.focus.includes('hot_fr'));
     assert.equal(what.employees, undefined);
+  });
+
+  it('merged.requiredSkillIds includes requirementSkills canonical ids', () => {
+    const projected = {
+      srs: {
+        overview: { name: 'P' },
+        functionalRequirements: [],
+        staffingPlan: { requiredSkills: [] },
+        requirementSkills: [
+          { externalId: 'FR-1', skillNameSnapshot: 'React', importance: 'required' },
+        ],
+        technology: [],
+      },
+      employees: [],
+      skillCatalog: { version: 'cap-whitelist-v2', skills: ['React'] },
+      calendar: { workingCalendar: {}, holidays: [] },
+    };
+    const canonical = canonicalizeProjected(applyIngestionQuality(projected).projected);
+    const merged = semanticMerge(canonical);
+    assert.ok(merged.requiredSkillIds.includes('SK-003'));
+  });
+
+  it('buildSnapshotPayload pins skillCatalog.version and requiredSkillIds for HOW', () => {
+    const pack = {
+      versionNumber: 1,
+      templateVersion: '1.0',
+      status: 'approved',
+      overview: { requirementName: 'Demo', startDate: '2026-01-01', deadline: '2026-06-01' },
+      staffingPlan: { requiredSkills: [{ name: 'Node.js', requiredLevel: 3 }] },
+      requirementSkills: [{ externalId: 'FR-1', skillNameSnapshot: 'PostgreSQL' }],
+      technology: [],
+      functionalRequirements: [
+        { externalId: 'FR-1', name: 'API', level: 'Requirement', suggestedSkills: ['Node.js'] },
+      ],
+      nonFunctionalRequirements: [],
+    };
+    const payload = buildSnapshotPayload({
+      pack,
+      poolItems: [
+        {
+          userId: 'u1',
+          jobTitle: 'Backend',
+          availability: 'available',
+          availablePct: 80,
+          isActive: true,
+          capability: { skills: [{ name: 'Node.js', level: 4 }] },
+        },
+      ],
+      calendar: { workingCalendar: {}, holidays: [] },
+      skillCatalog: { version: 'cap-whitelist-v2', skills: ['Node.js', 'PostgreSQL'] },
+      packContentHash: 'hash-d',
+      packStatus: 'approved',
+    });
+    assert.equal(payload.projected.skillCatalog.version, 'cap-whitelist-v2');
+    assert.ok(payload.merged.requiredSkillIds.includes('SK-005'));
+    assert.ok(payload.merged.requiredSkillIds.includes('SK-018'));
+    assert.ok(
+      (payload.canonical.employees[0].skillCanonicalIds || []).some((id) => id === 'SK-005')
+    );
   });
 
   it('buildSnapshotPayload persists preparedByJob and pipelineVersion', () => {

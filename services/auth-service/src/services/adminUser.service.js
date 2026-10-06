@@ -123,6 +123,7 @@ async function setUserLocked(userId, locked) {
         'AUTH_PENDING_ACTIVATION'
       );
     }
+    // Mở khóa admin + clear rate-lock (spam MK) — giữ isActive nhưng vẫn chặn login nếu còn lockUntil.
     userAuth.isActive = true;
     userAuth.lockUntil = null;
     userAuth.loginAttempts = 0;

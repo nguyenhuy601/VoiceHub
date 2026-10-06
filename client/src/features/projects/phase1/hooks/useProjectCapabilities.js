@@ -17,6 +17,11 @@ export default function useProjectCapabilities(projectId) {
 
   const caps = useMemo(() => {
     const c = project?.capabilities || {};
+    const viewerProjectRoleKeys = Array.isArray(c.viewerProjectRoleKeys)
+      ? c.viewerProjectRoleKeys
+      : Array.isArray(project?.viewerProjectRoleKeys)
+        ? project.viewerProjectRoleKeys
+        : [];
     return {
       canViewAnalysis: Boolean(c.canViewAnalysis),
       canEditAnalysis: Boolean(c.canEditAnalysis),
@@ -25,6 +30,7 @@ export default function useProjectCapabilities(projectId) {
       canReviewAnalysisBa: Boolean(c.canReviewAnalysisBa),
       canReviewAnalysisTech: Boolean(c.canReviewAnalysisTech),
       canReviewAnalysisPo: Boolean(c.canReviewAnalysisPo),
+      viewerProjectRoleKeys,
       /** Project có ít nhất 1 member với analysis:tech_review — cổng Tech bắt buộc (DEC D6). */
       hasAnalysisTechReviewer: Boolean(c.hasAnalysisTechReviewer),
       hasPlanningTechReviewer: Boolean(c.hasPlanningTechReviewer),

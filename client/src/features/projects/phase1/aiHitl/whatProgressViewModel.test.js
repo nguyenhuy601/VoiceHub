@@ -117,6 +117,30 @@ describe('resolveWhatProgressViewModel', () => {
     assert.equal(vm.state, 'waiting_human');
   });
 
+  it('WHAT ready + under_review → macro 5 (Gate1), not 6', () => {
+    const vm = resolveWhatProgressViewModel(
+      { status: 'succeeded', runId: 'r1' },
+      { status: 'ready', remoteRunId: 'r1' },
+      Date.now(),
+      undefined,
+      'under_review'
+    );
+    assert.equal(vm.macroStep, 5);
+    assert.equal(vm.state, 'waiting_human');
+  });
+
+  it('pack approved → macro 6 (Approved SRS)', () => {
+    const vm = resolveWhatProgressViewModel(
+      null,
+      { status: 'ready' },
+      Date.now(),
+      undefined,
+      'approved'
+    );
+    assert.equal(vm.macroStep, 6);
+    assert.equal(vm.state, 'succeeded');
+  });
+
   it('call_tool activity exposes tool name', () => {
     const vm = resolveWhatProgressViewModel(
       {

@@ -40,14 +40,27 @@ function forcePromptMessage(code, t) {
   );
 }
 
+function forcePromptTitle(code, t) {
+  if (code === 'CONFLICT_AMBIGUITY_BLOCKING' || code === 'CONFLICT_AMBIGUITY_OVERRIDE_REASON_REQUIRED') {
+    return t('requirements.gate1ForceConflictTitle') || 'Force duyệt Gate 1 — Integrity';
+  }
+  if (code === 'G4_UNDERSTANDING_MISSING') {
+    return t('requirements.gate1ForceG4Title') || 'Force duyệt Gate 1 — thiếu G4';
+  }
+  return t('requirements.gate1ForceReasonTitle') || 'Force duyệt Gate 1';
+}
+
 /**
- * Approve pack; if Gate1 policy blocks (409/400 forceable), prompt overrideReason and retry.
+ * Approve pack; if Gate1 policy blocks (409/400 forceable), ask overrideReason via modal callback.
+ * @param {{ requestForceReason: (ctx: { code: string, message: string, title: string }) => Promise<string|null> }} args
+ * — required; no window.prompt bypass.
  */
 export async function approveRequirementPackWithGate1({
   orgId,
   packId,
   t,
   body = {},
+  requestForceReason,
 }) {
   try {
     await requirementAPI.approvePack(orgId, packId, body);
@@ -57,7 +70,20 @@ export async function approveRequirementPackWithGate1({
     if (!GATE1_FORCEABLE_CODES.has(code)) {
       throw error;
     }
-    const reasonRaw = window.prompt(forcePromptMessage(code, t), '');
+    if (typeof requestForceReason !== 'function') {
+      const err = new Error(
+        t('requirements.gate1ForceReasonRequired') ||
+          'Cần nhập lý do force duyệt Gate 1 (modal).'
+      );
+      err.statusCode = 400;
+      err.errorCode = 'GATE1_FORCE_REASON_UI_REQUIRED';
+      throw err;
+    }
+    const reasonRaw = await requestForceReason({
+      code,
+      message: forcePromptMessage(code, t),
+      title: forcePromptTitle(code, t),
+    });
     if (reasonRaw == null) {
       return { ok: false, cancelled: true };
     }
@@ -69,6 +95,7 @@ export async function approveRequirementPackWithGate1({
       return { ok: false, cancelled: false };
     }
     await requirementAPI.approvePack(orgId, packId, {
+      ...body,
       forceApprove: true,
       overrideReason,
     });
@@ -82,7 +109,27 @@ export function readPackGateA(pack) {
   return {
     passed: Boolean(gateA.passed),
     checks: Array.isArray(gateA.checks) ? gateA.checks : [],
+    thresholds: gateA.thresholds || null,
   };
+}
+
+/** Extract failed Gate A check ids from approve 409 details (or pack). */
+export function listFailedGateACheckIds(errorOrGateA) {
+  const fromDetails =
+    errorOrGateA?.response?.data?.details?.gateA?.failedChecks ||
+    errorOrGateA?.details?.gateA?.failedChecks ||
+    errorOrGateA?.failedChecks;
+  if (Array.isArray(fromDetails) && fromDetails.length) {
+    return fromDetails.map((c) => c?.id).filter(Boolean);
+  }
+  const checks =
+    errorOrGateA?.response?.data?.details?.gateA?.checks ||
+    errorOrGateA?.details?.gateA?.checks ||
+    errorOrGateA?.checks;
+  if (Array.isArray(checks)) {
+    return checks.filter((c) => c && c.passed === false).map((c) => c.id).filter(Boolean);
+  }
+  return [];
 }
 
 export function formatGateAApproveError(error, { t, fallback }) {
@@ -92,7 +139,17 @@ export function formatGateAApproveError(error, { t, fallback }) {
 export function formatGate1ApproveError(error, { t, fallback }) {
   const code = readErrorCode(error);
   if (code === 'GATE_A_FAILED') {
-    return t('requirements.gateAFailed') || resolveApiErrorMessage(error, { t, fallback });
+    const failedIds = listFailedGateACheckIds(error);
+    const base = t('requirements.gateAFailed') || resolveApiErrorMessage(error, { t, fallback });
+    if (!failedIds.length) return base;
+    const labels = failedIds
+      .map((id) => {
+        const key = `requirements.gateACheck${id.charAt(0).toUpperCase()}${id.slice(1)}`;
+        const translated = t(key);
+        return translated && translated !== key ? translated : id;
+      })
+      .join(', ');
+    return `${base} (${labels})`;
   }
   if (code === 'GATE_A_MISSING') {
     return t('requirements.gateAMissing') || resolveApiErrorMessage(error, { t, fallback });
@@ -129,4 +186,4 @@ export function formatGate1ApproveError(error, { t, fallback }) {
   return resolveApiErrorMessage(error, { t, fallback });
 }
 
-export { GATE1_FORCEABLE_CODES };
+export { GATE1_FORCEABLE_CODES, forcePromptMessage, forcePromptTitle };

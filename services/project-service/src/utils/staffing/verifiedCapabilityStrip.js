@@ -26,16 +26,34 @@ function stripVerifiedCapability(capability) {
   };
 }
 
-/** Compact capability snippet for pool list rows. */
-function compactProjectExperiencesForPool(experiences, limit = 3) {
+/** Compact capability snippet for pool list rows (AI planning uses up to 8). */
+function compactProjectExperiencesForPool(experiences, limit = 8) {
   return (Array.isArray(experiences) ? experiences : [])
     .filter((row) => row?.status === 'verified')
     .slice(0, limit)
-    .map((row) => ({
-      role: String(row.role || '').slice(0, 64),
-      work: String(row.work || '').slice(0, 120),
-      year: row.year ?? null,
-    }));
+    .map((row) => {
+      const domain = String(row.domain || row.businessDomain || '')
+        .trim()
+        .slice(0, 80);
+      const monthsRaw = row.months;
+      const months =
+        monthsRaw != null && Number.isFinite(Number(monthsRaw))
+          ? Math.max(0, Math.min(600, Math.floor(Number(monthsRaw))))
+          : undefined;
+      const sourceRaw = String(row.source || '').trim();
+      const source = ['cv_parse', 'closed_board', 'excel_import', 'manual'].includes(sourceRaw)
+        ? sourceRaw
+        : undefined;
+      return {
+        name: String(row.name || '').slice(0, 120) || undefined,
+        role: String(row.role || '').slice(0, 64) || undefined,
+        work: String(row.work || '').slice(0, 120) || undefined,
+        year: row.year ?? null,
+        ...(domain ? { domain } : {}),
+        ...(months != null ? { months } : {}),
+        ...(source ? { source } : {}),
+      };
+    });
 }
 
 function stripVerifiedCapabilityForPool(capability, options = {}) {

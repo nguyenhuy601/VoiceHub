@@ -382,6 +382,16 @@ function ensureAiAnalysisContainer(raw) {
   if (working.skillCatalogStub != null) out.skillCatalogStub = working.skillCatalogStub;
   if (working.sources != null) out.sources = working.sources;
   if (working.gate1Override != null) out.gate1Override = working.gate1Override;
+  // Gate1 Review Trust — active review/submission pointers (Wave A)
+  if (working.gate1 != null && typeof working.gate1 === 'object') {
+    out.gate1 = working.gate1;
+  }
+  // Gate2 Planning review lane (PM → PO) — must survive ensure() or lane resets to pm
+  if (working.gate2 != null && typeof working.gate2 === 'object') {
+    out.gate2 = working.gate2;
+  }
+  if (working.gate2Override != null) out.gate2Override = working.gate2Override;
+  if (working.gate2Promote != null) out.gate2Promote = working.gate2Promote;
   // Semantic Contract P1 — intake SoT on pack (hydrate → APS derive)
   if (working.canonicalRaw != null) out.canonicalRaw = working.canonicalRaw;
   // Plan 0.5 Loop1 durable reuse seed

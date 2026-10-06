@@ -11,7 +11,7 @@ const {
 } = require('../../src/utils/tools');
 
 describe('completenessConsistencyGate', () => {
-  it('scores completeness missing fields', () => {
+  it('scores completeness on core FR fields only', () => {
     const registry = createRequirementToolsRegistry();
     const store = createFactStore();
     const result = registry.execute(
@@ -26,8 +26,9 @@ describe('completenessConsistencyGate', () => {
             actor: 'Employee',
             priority: 'High',
             ac: 'Given employee When check-in Then recorded',
-            input: 'location',
-            output: 'status',
+            // Detail FR sheet fields ignored by Gate A Completeness
+            input: '',
+            output: '',
             businessRules: '',
             exceptionFlow: '',
             dependency: '',
@@ -40,10 +41,35 @@ describe('completenessConsistencyGate', () => {
       },
       { factStore: store, allowedModes: ['recipe'] }
     );
-    assert.ok(result.data.overall > 0 && result.data.overall < 1);
-    const item = result.data.items[0];
-    assert.ok(item.missing.includes('Error handling'));
+    assert.equal(result.data.checklistSize, 5);
+    assert.equal(result.data.overall, 1);
+    assert.deepEqual(result.data.items[0].missing, []);
     assert.equal(store.get('completeness.score').value, result.data.overall);
+  });
+
+  it('flags missing core field (AC)', () => {
+    const registry = createRequirementToolsRegistry();
+    const result = registry.execute(
+      'requirement_completeness',
+      {
+        fr: [
+          {
+            id: 'FR-022',
+            level: 'requirement',
+            name: 'Check-out',
+            description: 'Employee check-out',
+            actor: 'Employee',
+            priority: 'High',
+            ac: '',
+            mainFlow: 'scan QR',
+          },
+        ],
+      },
+      { allowedModes: ['recipe'] }
+    );
+    assert.ok(result.data.overall > 0 && result.data.overall < 1);
+    assert.ok(result.data.items[0].missing.includes('Acceptance criteria'));
+    assert.equal(result.data.items[0].missing.length, 1);
   });
 
   it('detects latency conflict FR vs NFR', () => {
@@ -82,6 +108,16 @@ describe('completenessConsistencyGate', () => {
         (c) => c.left === 'FR-021' && c.right === 'NFR-008'
       )
     );
+  });
+
+  it('does not treat px / percent / bare counts as latency', () => {
+    const { parseLatencySeconds } = require('../../src/utils/tools/recipe/requirementConsistency');
+    assert.equal(parseLatencySeconds('chiều rộng ≥768px'), null);
+    assert.equal(parseLatencySeconds('99.5% trong giờ 07:00–19:00'), null);
+    assert.equal(parseLatencySeconds('0 hoặc 1 trưởng phòng'), null);
+    assert.equal(parseLatencySeconds('Giữ audit tối thiểu 12 tháng'), null);
+    assert.equal(parseLatencySeconds('Response < 2s'), 2);
+    assert.equal(parseLatencySeconds('< 2 giây cho danh sách'), 2);
   });
 
   it('Gate A fails when coverage below threshold', () => {

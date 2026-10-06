@@ -17,4 +17,5 @@ module.exports = {
   ...require('./splitContext'),
   ...require('./buildPipeline'),
   ...require('./buildPhaseToolData'),
+  ...require('./buildHistoryMetrics'),
 };

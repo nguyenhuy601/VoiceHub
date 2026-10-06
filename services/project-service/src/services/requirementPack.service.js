@@ -37,6 +37,34 @@ const CREATE_FROM_PACK_ROSTER_KEYS = Object.freeze([
   'developer',
 ]);
 
+/** Normalize pack.projectId (ObjectId | populated doc | string) for authz. */
+function resolveLinkedProjectId(projectId) {
+  if (projectId == null || projectId === '') return null;
+
+  if (typeof projectId === 'object') {
+    // Populated Project doc — recurse on nested id (not self-referential ObjectId)
+    const nested = projectId._id;
+    if (nested != null && nested !== projectId) {
+      return resolveLinkedProjectId(nested);
+    }
+    // mongoose / BSON ObjectId
+    if (typeof projectId.toHexString === 'function') {
+      try {
+        return projectId.toHexString();
+      } catch {
+        /* fall through */
+      }
+    }
+    const raw = typeof projectId.toString === 'function' ? projectId.toString() : String(projectId);
+    const s = String(raw || '').trim();
+    if (s && s !== '[object Object]' && mongoose.isValidObjectId(s)) return s;
+    return null;
+  }
+
+  const s = String(projectId).trim();
+  return s && s !== '[object Object]' ? s : null;
+}
+
 async function listRequirementPacks({ userId, organizationId, status }) {
   await assertRequirementPermission({ userId, organizationId, permission: 'requirement:view' });
   const filter = { organizationId, isActive: true };
@@ -181,13 +209,18 @@ async function submitRequirementPack({
   withdrawSubmissionId = null,
   requestId = '',
 }) {
-  await assertRequirementPermission({ userId, organizationId, permission: 'requirement:submit' });
   const pack = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true });
   if (!pack) {
     const err = new Error('Requirement pack không tồn tại');
     err.statusCode = 404;
     throw err;
   }
+  await assertRequirementPermission({
+    userId,
+    organizationId,
+    permission: 'requirement:submit',
+    projectId: pack.projectId,
+  });
 
   const {
     detectSensitiveGate1Edits,
@@ -215,10 +248,22 @@ async function submitRequirementPack({
       throw err;
     }
     assertTransition(pack.status, 'under_review');
+  } else if (pack.status === 'under_review') {
+    // Wave A: BA re-submit / withdraw+resubmit stays under_review (GateSubmission round).
+    // Do not assertTransition(under_review → under_review) — not in VALID_STATUS_TRANSITIONS.
   } else {
     assertTransition(pack.status, 'under_review');
   }
   assertPackReadyForSubmit(pack);
+
+  const {
+    resolveGate1ReviewLane,
+    assertActorMayActOnLane,
+    stampGate1ReviewLane,
+    REVIEW_LANE,
+  } = require('../utils/srsProposal/gate1ReviewLane');
+  const packLean = pack.toObject ? pack.toObject() : pack;
+  assertActorMayActOnLane('submit', resolveGate1ReviewLane(packLean));
 
   let container = ensureAiAnalysisContainer(
     reapprovalPlan.aiAnalysis || pack.aiAnalysis
@@ -229,7 +274,7 @@ async function submitRequirementPack({
   if (proposal) {
     const { applyGate1TrustOnSubmit } = require('../utils/srsProposal/gate1SubmitTrust');
     const trust = await applyGate1TrustOnSubmit({
-      pack: pack.toObject ? pack.toObject() : pack,
+      pack: packLean,
       container,
       proposal,
       reviewDecisions,
@@ -249,11 +294,19 @@ async function submitRequirementPack({
         reapprovalRequestedAt: new Date().toISOString(),
       };
     }
+    container = stampGate1ReviewLane(container, REVIEW_LANE.PO);
     pack.aiAnalysis = container;
     pack.markModified('aiAnalysis');
   } else if (reapprovalPlan.aiAnalysis) {
     // Non-AI pack (no srsProposal): no GateSubmission; keep sensitive reapproval shell
-    pack.aiAnalysis = reapprovalPlan.aiAnalysis;
+    pack.aiAnalysis = stampGate1ReviewLane(
+      reapprovalPlan.aiAnalysis,
+      REVIEW_LANE.PO
+    );
+    pack.markModified('aiAnalysis');
+  } else {
+    container = stampGate1ReviewLane(container, REVIEW_LANE.PO);
+    pack.aiAnalysis = container;
     pack.markModified('aiAnalysis');
   }
 
@@ -281,11 +334,11 @@ async function submitRequirementPack({
       packId: String(packId),
       nextPermission: 'requirement:approve',
       title: sensitiveDetection.hasSensitiveEdit
-        ? 'Gate 1 cần PO duyệt lại (BA đã sửa mục nhạy cảm)'
-        : 'Gate 1 — chờ PO duyệt',
+        ? 'Gate 1 cần PO xác nhận duyệt lại (BA đã sửa mục nhạy cảm)'
+        : 'Gate 1 — BA đã xác nhận, chờ PO',
       content: sensitiveDetection.hasSensitiveEdit
         ? `BA đã chỉnh: ${(sensitiveDetection.sections || []).join(', ') || 'mục nhạy cảm'}.`
-        : 'BA đã gửi duyệt gói yêu cầu.',
+        : 'Mở tab Duyệt trên AI HITL để PO xác nhận duyệt.',
       kind: 'ai_hitl_gate1_po',
     });
   }
@@ -299,15 +352,40 @@ async function approveRequirementPack({
   packId,
   forceApprove = false,
   overrideReason = '',
+  note = '',
+  contextProjectId = null,
 }) {
-  await assertRequirementPermission({ userId, organizationId, permission: 'requirement:approve' });
   const pack = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true });
   if (!pack) {
     const err = new Error('Requirement pack không tồn tại');
     err.statusCode = 404;
     throw err;
   }
+  // Prefer HITL context project (FE caps) then pack link
+  const linkedPid =
+    resolveLinkedProjectId(contextProjectId) || resolveLinkedProjectId(pack.projectId);
+  await assertRequirementPermission({
+    userId,
+    organizationId,
+    permission: 'requirement:approve',
+    projectId: linkedPid,
+  });
+  // Bind unbound pack to HITL project when PO approves from project workspace
+  if (!pack.projectId && linkedPid && mongoose.isValidObjectId(linkedPid)) {
+    pack.projectId = linkedPid;
+  }
   assertTransition(pack.status, 'approved');
+
+  {
+    const {
+      resolveGate1ReviewLane,
+      assertActorMayActOnLane,
+    } = require('../utils/srsProposal/gate1ReviewLane');
+    assertActorMayActOnLane(
+      'approve',
+      resolveGate1ReviewLane(pack.toObject ? pack.toObject() : pack)
+    );
+  }
 
   // Wave A: PO must approve against active GateSubmission when srsProposal exists
   {
@@ -359,6 +437,30 @@ async function approveRequirementPack({
     }
   }
 
+  // Repair path: hydrate srsProposal → pack sheets + rebuild Gate A before approve policy
+  {
+    const proposalReady = Boolean(pack.aiAnalysis?.analyses?.srsProposal?.generated);
+    const ucEmpty = !Array.isArray(pack.useCases) || pack.useCases.length === 0;
+    const gateAFailed =
+      pack.aiAnalysis?.analyses?.requirementTools?.gateA?.passed === false;
+    if (proposalReady && (ucEmpty || gateAFailed)) {
+      try {
+        const {
+          materializeWhatToArtifacts,
+          rebuildRequirementToolsAfterMaterialize,
+        } = require('./whatRequirementPhase.service');
+        await materializeWhatToArtifacts({ userId, pack });
+        await rebuildRequirementToolsAfterMaterialize(pack);
+      } catch (hydrateErr) {
+        // eslint-disable-next-line no-console
+        console.warn('[approve] hydrate proposal sheets soft-fail', {
+          packId: String(packId),
+          message: hydrateErr.message,
+        });
+      }
+    }
+  }
+
   const { assertRequirementGate1Approve } = require('../utils/tools/assertRequirementGate1Approve');
   const gate1 = assertRequirementGate1Approve({
     pack: pack.toObject ? pack.toObject() : pack,
@@ -373,11 +475,16 @@ async function approveRequirementPack({
   // G6: freeze SRS version on pack.aiAnalysis (Mixed) after Gate1
   {
     const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
-    const shell = ensureAiAnalysisContainer(pack.aiAnalysis);
+    const {
+      stampGate1ReviewLane,
+      REVIEW_LANE,
+    } = require('../utils/srsProposal/gate1ReviewLane');
+    let shell = ensureAiAnalysisContainer(pack.aiAnalysis);
     const frozen = String(
       pack.versionNumber ?? pack.version ?? shell.approvedSrsVersion ?? '1'
     );
     shell.approvedSrsVersion = frozen;
+    shell = stampGate1ReviewLane(shell, REVIEW_LANE.DONE);
     pack.aiAnalysis = shell;
     pack.markModified('aiAnalysis');
   }
@@ -487,11 +594,13 @@ async function approveRequirementPack({
   {
     const shell = pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
     if (shell.gate1 && typeof shell.gate1 === 'object') {
+      const approveNote = String(note || '').trim().slice(0, 2000);
       shell.gate1 = {
         ...shell.gate1,
         poReapprovalRequired: false,
         poApprovedAt: new Date().toISOString(),
         poApprovedBy: String(userId),
+        ...(approveNote ? { poApproveNote: approveNote } : {}),
       };
       pack.aiAnalysis = shell;
       pack.markModified('aiAnalysis');
@@ -502,28 +611,67 @@ async function approveRequirementPack({
   return attachPlanningReadiness(pack.toObject());
 }
 
-async function rejectRequirementPack({ userId, organizationId, packId, reason = '' }) {
-  await assertRequirementPermission({ userId, organizationId, permission: 'requirement:approve' });
+async function rejectRequirementPack({
+  userId,
+  organizationId,
+  packId,
+  reason = '',
+  contextProjectId = null,
+}) {
   const pack = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true });
   if (!pack) {
     const err = new Error('Requirement pack không tồn tại');
     err.statusCode = 404;
     throw err;
   }
-  assertTransition(pack.status, 'rejected');
-  pack.status = 'rejected';
+  const linkedPid =
+    resolveLinkedProjectId(contextProjectId) || resolveLinkedProjectId(pack.projectId);
+  await assertRequirementPermission({
+    userId,
+    organizationId,
+    permission: 'requirement:approve',
+    projectId: linkedPid,
+  });
+
+  {
+    const {
+      resolveGate1ReviewLane,
+      assertActorMayActOnLane,
+    } = require('../utils/srsProposal/gate1ReviewLane');
+    assertActorMayActOnLane(
+      'reject',
+      resolveGate1ReviewLane(pack.toObject ? pack.toObject() : pack)
+    );
+  }
+
+  // Return draft to BA (not terminal rejected) so BA can revise / re-submit
+  assertTransition(pack.status, 'draft');
+  const rejectReason = String(reason || '').slice(0, 2000);
+  pack.status = 'draft';
   pack.rejectedBy = userId;
   pack.rejectedAt = new Date();
-  pack.rejectionReason = String(reason || '').slice(0, 2000);
-  // Loop 1: keep reason on aiAnalysis so revise CTA can re-seed feedback
+  pack.rejectionReason = rejectReason;
+  pack.submittedBy = undefined;
+  pack.submittedAt = undefined;
+  pack.approvedBy = undefined;
+  pack.approvedAt = undefined;
+
   const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
-  const container = ensureAiAnalysisContainer(pack);
+  const {
+    stampGate1ReviewLane,
+    REVIEW_LANE,
+  } = require('../utils/srsProposal/gate1ReviewLane');
+  let container = ensureAiAnalysisContainer(pack.aiAnalysis);
   container.gate1 = {
     ...(container.gate1 || {}),
-    lastRejectReason: pack.rejectionReason,
+    lastRejectReason: rejectReason,
     lastRejectedAt: new Date().toISOString(),
     lastRejectedBy: userId != null ? String(userId) : null,
+    activeSubmissionId: null,
+    activeReviewId: null,
+    poReapprovalRequired: false,
   };
+  container = stampGate1ReviewLane(container, REVIEW_LANE.BA);
   pack.aiAnalysis = container;
   pack.markModified('aiAnalysis');
   await pack.save();
@@ -536,7 +684,7 @@ async function rejectRequirementPack({ userId, organizationId, packId, reason = 
       actorUserId: userId,
       packId: String(packId),
       nextPermission: 'requirement:submit',
-      title: 'Gate 1 — pack bị từ chối (cần BA xử lý / AI revise)',
+      title: 'Gate 1 — PO từ chối, bản duyệt trả về BA',
       content: String(reason || 'PO đã từ chối gói yêu cầu.').slice(0, 500),
       kind: 'ai_hitl_gate1_rejected',
     });
@@ -562,13 +710,8 @@ async function createProjectFromRequirementPack({
   forceApprove = false,
   overrideReason = '',
   idempotencyKey = null,
+  skipCreateProjectPermission = false,
 }) {
-  await assertRequirementPermission({
-    userId,
-    organizationId,
-    permission: 'requirement:create-project',
-  });
-
   const pack = await RequirementPack.findOne({ _id: packId, organizationId, isActive: true });
   if (!pack) {
     const err = new Error('Requirement pack không tồn tại');
@@ -576,7 +719,15 @@ async function createProjectFromRequirementPack({
     throw err;
   }
 
-  if (pack.status !== 'approved') {
+  const { assertMayPromoteGate2Pack } = require('./projectPromoteFromGate2.service');
+  await assertMayPromoteGate2Pack({
+    userId,
+    organizationId,
+    pack,
+    skipCreateProjectPermission,
+  });
+
+  if (pack.status !== 'approved' && pack.status !== 'project_linked') {
     const err = new Error('Pack phải ở trạng thái approved trước khi tạo dự án');
     err.statusCode = 409;
     err.errorCode = 'REQ_INVALID_STATUS_TRANSITION';
@@ -630,6 +781,7 @@ async function createProjectFromRequirementPack({
       forceApprove,
       overrideReason,
       idempotencyKey,
+      skipCreateProjectPermission,
     });
   }
 

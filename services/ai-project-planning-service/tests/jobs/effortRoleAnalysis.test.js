@@ -31,6 +31,32 @@ describe('effortRoleAnalysis engine', () => {
     assert.equal(result.effort.confidence, 0.55);
   });
 
+  it('applies area + scope factors for leaf tasks', () => {
+    const { areaFactor, scopeFactor } = require('../../src/engines/effort');
+    assert.ok(areaFactor({ area: 'qa' }) < 1);
+    assert.ok(areaFactor({ area: 'infrastructure' }) > 1);
+    assert.ok(
+      scopeFactor({ name: 'End-to-end regression suite for checkout', sourceAcIndexes: [0, 1, 2] }) >
+        scopeFactor({ name: 'API', sourceAcIndexes: [] })
+    );
+    const qa = runEffortEngine(
+      containerWithTasks(
+        [
+          {
+            id: 'T-QA',
+            name: 'Write unit tests',
+            area: 'qa',
+            suggestedRoleKey: 'qa_engineer',
+            sourceCapabilityIds: ['CAP-1'],
+          },
+        ],
+        [{ capabilityId: 'CAP-1', complexity: 'medium' }]
+      )
+    );
+    // medium 16 * qa 0.55 ≈ 9
+    assert.equal(qa.tasks[0].effortHours, 9);
+  });
+
   it('blends hours toward history when sampleSize present', () => {
     const without = runEffortEngine(
       containerWithTasks(

@@ -26,6 +26,7 @@ export default function ReviewNoteDialog({
   submitLabel,
   variant = 'generic',
   maxLength = 1000,
+  noteOptional = false,
   layerClassName = 'z-[220]',
 }) {
   const { t } = useAppStrings();
@@ -60,30 +61,30 @@ export default function ReviewNoteDialog({
   if (!isOpen || typeof document === 'undefined') return null;
 
   const trimmed = String(note || '').trim();
-  const canSubmit = trimmed.length > 0;
+  const canSubmit = noteOptional || trimmed.length > 0;
 
   const accentBar =
     variant === 'reject'
       ? 'bg-destructive'
-      : variant === 'request_changes'
+      : variant === 'request_changes' || variant === 'warning'
         ? 'bg-amber-500'
         : 'bg-primary';
 
   const submitTone =
     variant === 'reject'
       ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-      : variant === 'request_changes'
+      : variant === 'request_changes' || variant === 'warning'
         ? 'bg-amber-600 text-[#0f1218] hover:bg-amber-500'
         : 'bg-primary text-primary-foreground hover:bg-primary/90';
 
   const handleSubmit = () => {
-    if (!canSubmit) {
+    if (!noteOptional && !trimmed.length) {
       setError(t('workspace.phase1ReviewNoteRequiredInline'));
       textareaRef.current?.focus();
       return;
     }
+    // Only onSubmit — do NOT call onClose (parent maps onClose → cancel/null).
     onSubmit?.(trimmed.slice(0, maxLength));
-    onClose?.();
   };
 
   return createPortal(
@@ -128,7 +129,14 @@ export default function ReviewNoteDialog({
           <label className="block">
             <span className="mb-1.5 block text-xs font-medium text-foreground">
               {t('workspace.phase1ReviewNoteLabel')}
-              <span className="text-destructive"> *</span>
+              {noteOptional ? (
+                <span className="text-muted-foreground">
+                  {' '}
+                  ({t('common.optional') || 'tuỳ chọn'})
+                </span>
+              ) : (
+                <span className="text-destructive"> *</span>
+              )}
             </span>
             <textarea
               ref={textareaRef}
@@ -159,7 +167,10 @@ export default function ReviewNoteDialog({
               {error ? (
                 <span className="text-destructive">{error}</span>
               ) : (
-                t('workspace.phase1ReviewNoteHint')
+                noteOptional
+                  ? t('workspace.phase1ReviewNoteOptionalHint') ||
+                    t('workspace.phase1ReviewNoteHint')
+                  : t('workspace.phase1ReviewNoteHint')
               )}
             </span>
             <span className="font-mono tabular-nums">

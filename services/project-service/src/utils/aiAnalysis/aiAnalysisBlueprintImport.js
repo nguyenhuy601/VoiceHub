@@ -44,8 +44,43 @@ function resolveBlueprintTaskDates(task, scheduleDatesByTask) {
   return { startDate: null, dueDate: null };
 }
 
+/** Parent-before-child by ancestor depth (epic → feature → story → task). */
+function sortBlueprintTasksParentsFirst(tasks = []) {
+  const byId = new Map(tasks.map((t) => [String(t.id), t]));
+  const depthMemo = new Map();
+
+  function depthOf(id, visiting = new Set()) {
+    const key = String(id);
+    if (depthMemo.has(key)) return depthMemo.get(key);
+    if (visiting.has(key)) return 0;
+    const node = byId.get(key);
+    if (!node) {
+      depthMemo.set(key, 0);
+      return 0;
+    }
+    const parentId = node.parentId != null ? String(node.parentId) : '';
+    if (!parentId || !byId.has(parentId)) {
+      depthMemo.set(key, 0);
+      return 0;
+    }
+    visiting.add(key);
+    const d = 1 + depthOf(parentId, visiting);
+    visiting.delete(key);
+    depthMemo.set(key, d);
+    return d;
+  }
+
+  return [...tasks].sort((a, b) => {
+    const da = depthOf(a.id);
+    const db = depthOf(b.id);
+    if (da !== db) return da - db;
+    return (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || String(a.id).localeCompare(String(b.id));
+  });
+}
+
 /**
  * Build ordered import rows from blueprint tasks (parent before children).
+ * Preserves WBS `level` for epic/feature → PlanningItem and story/task → cards.
  */
 function mapBlueprintTasksToImportPlan(container, { taskIds = null, applyAssignees = true } = {}) {
   const c = ensureAiAnalysisContainer(container);
@@ -63,21 +98,17 @@ function mapBlueprintTasksToImportPlan(container, { taskIds = null, applyAssigne
   }
 
   const scheduleDatesByTask = taskDatesFromSchedule(c.resource?.schedule || []);
-
-  const byId = new Map(tasks.map((t) => [t.id, t]));
-  const sorted = [...tasks].sort((a, b) => {
-    const da = a.parentId && byId.has(a.parentId) ? 1 : 0;
-    const db = b.parentId && byId.has(b.parentId) ? 1 : 0;
-    if (da !== db) return da - db;
-    return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
-  });
+  const byId = new Map(tasks.map((t) => [String(t.id), t]));
+  const sorted = sortBlueprintTasksParentsFirst(tasks);
 
   const rows = sorted.map((t, index) => {
     const dates = resolveBlueprintTaskDates(t, scheduleDatesByTask);
+    const parentId = t.parentId != null ? String(t.parentId) : '';
     return {
       blueprintTaskId: t.id,
-      parentBlueprintTaskId: t.parentId && byId.has(t.parentId) ? t.parentId : null,
+      parentBlueprintTaskId: parentId && byId.has(parentId) ? parentId : null,
       name: t.name,
+      level: t.level != null ? String(t.level) : '',
       area: t.area || '',
       sourceFrIds: Array.isArray(t.sourceFrIds) ? t.sourceFrIds : [],
       sourceCapabilityIds: Array.isArray(t.sourceCapabilityIds) ? t.sourceCapabilityIds : [],
@@ -102,4 +133,5 @@ module.exports = {
   assertBlueprintReadyForProjectCreate,
   mapBlueprintTasksToImportPlan,
   resolveBlueprintTaskDates,
+  sortBlueprintTasksParentsFirst,
 };

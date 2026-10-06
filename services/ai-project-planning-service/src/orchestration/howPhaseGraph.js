@@ -216,6 +216,8 @@ function buildHowPhaseGraph(hooks = {}) {
       pack: state.pack,
       toolData: state.toolData,
       snapshotId: state.snapshotId,
+      runId: state.runId || null,
+      generationId: state.generationId || state.runId || null,
       budget,
       startedAt: state.startedAt,
       baseIteration: historyBase.length,

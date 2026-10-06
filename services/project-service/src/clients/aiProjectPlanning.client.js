@@ -119,11 +119,25 @@ async function resumeRun(runId, body = {}) {
   return { status: res.status, data: res.data };
 }
 
+/**
+ * Gate2 Loop2 — submit planning feedback → selectiveReplan steps on checkpoint.
+ */
+async function submitFeedback(runId, body = {}) {
+  const base = assertConfigured();
+  const res = await axios.post(
+    `${base}/internal/runs/${encodeURIComponent(String(runId))}/feedback`,
+    body,
+    { headers: internalHeaders(), timeout: 15000, validateStatus: () => true }
+  );
+  return { status: res.status, data: res.data };
+}
+
 module.exports = {
   startRun,
   getRun,
   cancelRun,
   resumeRun,
+  submitFeedback,
   planningBase,
   serializeRemoteRunInput,
 };

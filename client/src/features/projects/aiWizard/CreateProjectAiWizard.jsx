@@ -113,6 +113,7 @@ export default function CreateProjectAiWizard({
           to { opacity: 1; transform: translateX(0); }
         }
       `}</style>
+      {wizard.noteDialog}
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div className={`${wizardUi.formPane} min-h-0 flex-1 border-b-0 lg:border-r-0`}>

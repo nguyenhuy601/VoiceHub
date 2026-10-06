@@ -69,6 +69,10 @@ async function ensureOpenGateReview({
   return { review: doc.toObject(), created: true };
 }
 
+/**
+ * Withdraw active GateSubmission. Idempotent when nothing active / already withdrawn.
+ * @returns {{ withdrawn: object|null, skipped: boolean, reason?: string }}
+ */
 async function withdrawActiveSubmission({
   pack,
   organizationId,
@@ -78,13 +82,46 @@ async function withdrawActiveSubmission({
   const activeId =
     pack.aiAnalysis?.gate1?.activeSubmissionId ||
     null;
+
+  // Client asked to withdraw but pack has no pointer — treat as no-op (legacy / stale FE)
   if (!activeId) {
-    const err = new Error('Không có GateSubmission đang active để withdraw');
-    err.statusCode = 409;
-    err.errorCode = 'GATE_SUBMISSION_NOT_ACTIVE';
-    throw err;
+    if (withdrawSubmissionId) {
+      const orphan = await GateSubmission.findOne({
+        submissionId: String(withdrawSubmissionId),
+        packId: pack._id || pack.id,
+        organizationId,
+        status: 'ACTIVE',
+      });
+      if (orphan) {
+        orphan.status = 'WITHDRAWN';
+        orphan.withdrawnAt = new Date();
+        orphan.withdrawnBy = userId;
+        await orphan.save();
+        if (orphan.reviewId) {
+          await GateReview.updateOne(
+            { reviewId: orphan.reviewId, packId: pack._id || pack.id },
+            { $set: { status: 'WITHDRAWN', activeSubmissionId: null } }
+          );
+        }
+        await recordGate1Audit({
+          organizationId,
+          actorUserId: userId,
+          action: GATE1_AUDIT_ACTIONS.REVIEW_WITHDRAWN,
+          reviewId: orphan.reviewId,
+          packId: String(pack._id || pack.id),
+          note: orphan.submissionId,
+          snapshotId: orphan.snapshotId,
+        });
+        return { withdrawn: orphan.toObject(), skipped: false };
+      }
+    }
+    return { withdrawn: null, skipped: true, reason: 'no_active_submission' };
   }
-  if (String(withdrawSubmissionId) !== String(activeId)) {
+
+  if (
+    withdrawSubmissionId &&
+    String(withdrawSubmissionId) !== String(activeId)
+  ) {
     const err = new Error('withdrawSubmissionId không khớp active submission');
     err.statusCode = 409;
     err.errorCode = 'GATE_SUBMISSION_WITHDRAW_MISMATCH';
@@ -94,14 +131,15 @@ async function withdrawActiveSubmission({
 
   const sub = await GateSubmission.findOne({
     submissionId: String(activeId),
-    packId: pack._id,
+    packId: pack._id || pack.id,
     organizationId,
   });
-  if (!sub || sub.status !== 'ACTIVE') {
-    const err = new Error('GateSubmission active không tìm thấy');
-    err.statusCode = 409;
-    err.errorCode = 'GATE_SUBMISSION_NOT_ACTIVE';
-    throw err;
+  if (!sub) {
+    // Stale pointer on pack — clear and continue
+    return { withdrawn: null, skipped: true, reason: 'submission_missing' };
+  }
+  if (sub.status !== 'ACTIVE') {
+    return { withdrawn: null, skipped: true, reason: 'already_inactive' };
   }
 
   sub.status = 'WITHDRAWN';
@@ -112,7 +150,7 @@ async function withdrawActiveSubmission({
 
   if (sub.reviewId) {
     await GateReview.updateOne(
-      { reviewId: sub.reviewId, packId: pack._id },
+      { reviewId: sub.reviewId, packId: pack._id || pack.id },
       { $set: { status: 'WITHDRAWN', activeSubmissionId: null } }
     );
   }
@@ -122,12 +160,12 @@ async function withdrawActiveSubmission({
     actorUserId: userId,
     action: GATE1_AUDIT_ACTIONS.REVIEW_WITHDRAWN,
     reviewId: sub.reviewId,
-    packId: String(pack._id),
+    packId: String(pack._id || pack.id),
     note: sub.submissionId,
     snapshotId: sub.snapshotId,
   });
 
-  return sub.toObject();
+  return { withdrawn: sub.toObject(), skipped: false };
 }
 
 /**
@@ -148,23 +186,14 @@ async function applyGate1TrustOnSubmit({
 }) {
   const activeSubmissionId = container.gate1?.activeSubmissionId || null;
 
-  if (activeSubmissionId && !withdrawSubmissionId) {
-    const err = new Error(
-      'Đã có GateSubmission active — withdraw trước khi submit quyết định mới'
-    );
-    err.statusCode = 409;
-    err.errorCode = 'GATE_SUBMISSION_ACTIVE';
-    err.details = { activeSubmissionId };
-    throw err;
-  }
-
   let forceNewRound = false;
-  if (withdrawSubmissionId) {
+  // Re-submit: auto-withdraw prior ACTIVE (idempotent if none / already withdrawn)
+  if (activeSubmissionId || withdrawSubmissionId) {
     await withdrawActiveSubmission({
       pack: { ...pack, aiAnalysis: container },
       organizationId,
       userId,
-      withdrawSubmissionId,
+      withdrawSubmissionId: withdrawSubmissionId || activeSubmissionId,
     });
     forceNewRound = true;
     container.gate1 = {
@@ -263,6 +292,9 @@ async function applyGate1TrustOnSubmit({
     activeSubmissionId: createdSub.submissionId,
     reviewPolicyVersion: REVIEW_POLICY_VERSION,
     lastSubmittedAt: new Date().toISOString(),
+    // BA confirm → PO lane (SoT; submitRequirementPack also stamps)
+    reviewLane: 'po',
+    reviewLaneUpdatedAt: new Date().toISOString(),
   };
 
   return {

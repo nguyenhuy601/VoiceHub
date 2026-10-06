@@ -33,6 +33,16 @@ describe('ensureAiAnalysisContainer intake preserve', () => {
       phaseRuns: { phase_what: { status: 'ready', mode: 'prepare_only' } },
       canonicalRaw: { registryVersion: 'raw-sem-v1', templateVersion: '1.1-raw' },
       loop1Reuse: { schemaVersion: 1, snapshotId: 's1' },
+      gate1: {
+        activeSubmissionId: 'SUB-abc',
+        activeReviewId: 'G1-REV-1',
+        reviewPolicyVersion: 'GATE1-SOP-1.0',
+      },
+      gate2: {
+        reviewLane: 'po',
+        submittedBy: 'pm-1',
+        reviewVersion: 2,
+      },
       analyses: {
         evidenceSpans: [{ id: 'e-span-1-1', snippet: 'hello' }],
         phase1Knowledge: { stub: true, citationCount: 1 },
@@ -52,5 +62,10 @@ describe('ensureAiAnalysisContainer intake preserve', () => {
     assert.equal(out.analyses.phase1Knowledge.citationCount, 1);
     assert.equal(out.canonicalRaw.registryVersion, 'raw-sem-v1');
     assert.equal(out.loop1Reuse.schemaVersion, 1);
+    assert.equal(out.gate1.activeSubmissionId, 'SUB-abc');
+    assert.equal(out.gate1.activeReviewId, 'G1-REV-1');
+    assert.equal(out.gate2.reviewLane, 'po');
+    assert.equal(out.gate2.submittedBy, 'pm-1');
+    assert.equal(out.gate2.reviewVersion, 2);
   });
 });

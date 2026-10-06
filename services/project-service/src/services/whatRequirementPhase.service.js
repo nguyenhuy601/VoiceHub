@@ -149,13 +149,12 @@ function patchPhaseWhat(container, patch) {
 }
 
 /**
- * Persist pack sheets from applyProposedSrsToPack + seed AnalysisArtifacts.
+ * Persist pack sheets from applyProposedSrsToPack (+ optional AnalysisArtifacts seed).
+ * Sheet hydrate always runs — Gate A must see UC/BG/BR from srsProposal before scoring.
+ * Artifact seed still requires projectId.
  */
 async function materializeWhatToArtifacts({ userId, pack }) {
   const projectId = pack.projectId ? String(pack.projectId) : '';
-  if (!projectId) {
-    return { seeded: 0, skipped: true, reason: 'no_projectId' };
-  }
 
   const { pack: mapped, meta } = applyProposedSrsToPack(
     pack.toObject ? pack.toObject() : pack,
@@ -184,6 +183,16 @@ async function materializeWhatToArtifacts({ userId, pack }) {
   pack.markModified('aiAnalysis');
   await pack.save();
 
+  if (!projectId) {
+    return {
+      seeded: 0,
+      skippedArtifacts: true,
+      reason: 'no_projectId',
+      meta,
+      sheetsTouched: meta?.sheetsTouched || [],
+    };
+  }
+
   const { seedArtifactsFromRequirementPack } = require('./analysis.service');
   const seeded = await seedArtifactsFromRequirementPack({
     userId,
@@ -195,7 +204,50 @@ async function materializeWhatToArtifacts({ userId, pack }) {
     seeded: seeded?.seeded || 0,
     byKind: seeded?.byKind || null,
     meta,
+    sheetsTouched: meta?.sheetsTouched || [],
   };
+}
+
+/**
+ * Rebuild analyses.requirementTools / Gate A after pack sheets were hydrated.
+ * Soft-fail — never throws to caller.
+ */
+async function rebuildRequirementToolsAfterMaterialize(pack) {
+  try {
+    const {
+      isRequirementToolsRecipeEnabled,
+      tryBuildRequirementToolsAnalysis,
+    } = require('../utils/tools');
+    const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+    if (!isRequirementToolsRecipeEnabled() || !pack) {
+      return { rebuilt: false, reason: 'disabled_or_missing_pack' };
+    }
+    const packObj = pack.toObject ? pack.toObject() : pack;
+    const built = tryBuildRequirementToolsAnalysis({
+      pack: packObj,
+      snapshot: null,
+      aiAnalysis: pack.aiAnalysis,
+    });
+    if (!built?.ok || !built.analysis) {
+      return { rebuilt: false, reason: built?.analysis?.meta?.errorCode || 'build_failed' };
+    }
+    const container = ensureAiAnalysisContainer(pack.aiAnalysis);
+    container.analyses = container.analyses || {};
+    container.analyses.requirementTools = built.analysis;
+    pack.aiAnalysis = container;
+    pack.markModified('aiAnalysis');
+    await pack.save();
+    return {
+      rebuilt: true,
+      gateAPassed: built.analysis?.gateA?.passed === true,
+    };
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[materialize] rebuild requirementTools soft-fail', {
+      message: err.message,
+    });
+    return { rebuilt: false, reason: err.message || 'rebuild_error' };
+  }
 }
 
 /**
@@ -573,13 +625,6 @@ async function startWhatRequirementPhase({
  * Does NOT run LLM WHAT jobs or materialize artifacts as baseline.
  */
 async function prepareUnderstandingOnly({ userId, organizationId, packId }) {
-  const { assertRequirementPermission } = require('./requirementAccess.service');
-  await assertRequirementPermission({
-    userId,
-    organizationId,
-    permission: 'requirement:run-ai-planning',
-  });
-
   let pack = await RequirementPack.findOne({ _id: packId, organizationId });
   if (!pack) {
     const err = new Error('RequirementPack không tồn tại');
@@ -587,6 +632,14 @@ async function prepareUnderstandingOnly({ userId, organizationId, packId }) {
     err.errorCode = 'PACK_NOT_FOUND';
     throw err;
   }
+
+  const { assertRequirementPermission } = require('./requirementAccess.service');
+  await assertRequirementPermission({
+    userId,
+    organizationId,
+    permission: 'requirement:run-ai-planning',
+    projectId: pack.projectId ? String(pack.projectId) : null,
+  });
 
   // RULE-PREFILL-BEFORE-SNAPSHOT-01: fill FR/NFR from Raw before freezing snapshot
   const { corpus } = await prepareIntakeCorpusAndPrefill({
@@ -698,6 +751,7 @@ module.exports = {
   startWhatRequirementPhase,
   runWhatRequirementPhaseBackground,
   materializeWhatToArtifacts,
+  rebuildRequirementToolsAfterMaterialize,
   prepareIntakeCorpusAndPrefill,
   ensurePreparedIntakeForWhat,
   prepareUnderstandingOnly,

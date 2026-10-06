@@ -124,4 +124,23 @@ describe('buildPhaseToolData', () => {
     const toolData = buildPhaseToolData(snap, 'how');
     assert.ok(Array.isArray(toolData.employees));
   });
+
+  it('phase_how attaches bookedHoursByUserDay from SNAP (alias meeting)', () => {
+    const pack = samplePack();
+    const snap = buildSnapshotPayload({
+      pack,
+      poolItems: samplePool(),
+      calendar: { holidays: [] },
+      skillCatalog: { version: 'v1', skills: ['PostgreSQL'] },
+      packContentHash: buildPackContentHash(pack),
+      packStatus: 'approved',
+    });
+    snap._id = 'snap-booked';
+    snap.bookedHoursByUserDay = { 'u1|2026-01-02': 4 };
+    const toolData = buildPhaseToolData(snap, 'phase_how');
+    assert.deepEqual(toolData.bookedHoursByUserDay, { 'u1|2026-01-02': 4 });
+    assert.equal(toolData.meetingHoursByUserDay, toolData.bookedHoursByUserDay);
+    assert.ok(toolData.employees.some((e) => Array.isArray(e.skillCanonicalIds)));
+  });
 });
+

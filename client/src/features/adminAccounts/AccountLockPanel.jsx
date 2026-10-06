@@ -53,12 +53,12 @@ export default function AccountLockPanel({ orgId, embedded = false }) {
   const lockUntil = summary?.lockUntil ? new Date(summary.lockUntil) : null;
   const isRateLocked = Boolean(lockUntil && lockUntil > new Date());
   const isAdminLocked = summary?.isActive === false && !summary?.pendingActivation;
-  const isLocked = isAdminLocked || isRateLocked;
+  const isLocked = Boolean(summary?.isLocked) || isAdminLocked || isRateLocked;
 
   let statusPill = <AccountStatusPill tone="success">{t('adminUsers.statusActive')}</AccountStatusPill>;
   if (summary?.pendingActivation) {
     statusPill = <AccountStatusPill tone="warning">{t('adminAccounts.statusPendingActivation')}</AccountStatusPill>;
-  } else if (isAdminLocked) {
+  } else if (isAdminLocked || summary?.isLocked) {
     statusPill = <AccountStatusPill tone="danger">{t('adminAccounts.lockedByAdmin')}</AccountStatusPill>;
   } else if (isRateLocked) {
     statusPill = (

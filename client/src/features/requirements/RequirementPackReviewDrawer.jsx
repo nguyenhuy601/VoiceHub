@@ -15,9 +15,12 @@ import {
   readPackGateA,
   formatGateAApproveError,
 } from './approveRequirementPackWithGate1';
+import GateAChecksPanel from './GateAChecksPanel';
+import useReviewNotePrompt from '../../hooks/useReviewNotePrompt';
 import RequirementInsightsPanel from './RequirementInsightsPanel';
 import RequirementHitlJourney from './RequirementHitlJourney';
 import AiPlanningRunPanel from '../projects/phase1/AiPlanningRunPanel';
+import { resolveGate1ReviewLane, REVIEW_LANE } from '../projects/phase1/aiHitl/gate1ReviewLane';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -38,6 +41,7 @@ export default function RequirementPackReviewDrawer({
   onDeletePack = null,
 }) {
   const { t } = useAppStrings();
+  const { requestNote, noteDialog } = useReviewNotePrompt();
   const navigate = useNavigate();
   const [pack, setPack] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -81,7 +85,9 @@ export default function RequirementPackReviewDrawer({
 
   if (!open) return null;
 
-  const showApprove = canApprove && pack?.status === 'under_review';
+  const reviewLane = pack ? resolveGate1ReviewLane(pack) : '';
+  const showApprove =
+    canApprove && pack?.status === 'under_review' && reviewLane === REVIEW_LANE.PO;
   const showCreateProject = canCreateFromPack && pack?.status === 'approved';
   const showDelete = canApprove && pack?.status === 'approved';
   const showFooter = showApprove || showCreateProject || showDelete;
@@ -154,7 +160,22 @@ export default function RequirementPackReviewDrawer({
     if (!orgId || !packId || busy) return;
     setBusy(true);
     try {
-      const result = await approveRequirementPackWithGate1({ orgId, packId, t });
+      const result = await approveRequirementPackWithGate1({
+        orgId,
+        packId,
+        t,
+        requestForceReason: async ({ title, message }) =>
+          requestNote({
+            title,
+            description: message,
+            placeholder:
+              t('requirements.gate1ForceReasonPlaceholder') ||
+              'Nhập lý do force duyệt Gate 1…',
+            submitLabel: t('requirements.approveForced') || t('requirements.approve'),
+            variant: 'request_changes',
+            maxLength: 2000,
+          }),
+      });
       if (!result.ok) return;
       toast.success(
         result.forced
@@ -172,9 +193,17 @@ export default function RequirementPackReviewDrawer({
 
   const reject = async () => {
     if (!orgId || !packId || busy) return;
-    const reasonRaw = window.prompt(t('requirements.rejectReasonPrompt'), '');
+    const reasonRaw = await requestNote({
+      title: t('requirements.reject') || 'Từ chối gói',
+      description: t('requirements.rejectReasonPrompt') || 'Nhập lý do từ chối',
+      placeholder: t('requirements.rejectReasonPlaceholder') || 'Lý do từ chối…',
+      submitLabel: t('requirements.reject') || 'Từ chối',
+      variant: 'reject',
+      maxLength: 2000,
+    });
     if (reasonRaw == null) return;
     const reason = String(reasonRaw).trim().slice(0, 2000);
+    if (!reason) return;
     setBusy(true);
     try {
       await requirementAPI.rejectPack(orgId, packId, reason);
@@ -256,6 +285,7 @@ export default function RequirementPackReviewDrawer({
             {(() => {
               const gateA = readPackGateA(pack);
               if (!gateA) return null;
+              const failedCount = (gateA.checks || []).filter((c) => c && c.passed === false).length;
               return (
                 <p
                   className={`mt-1 text-xs ${
@@ -264,7 +294,10 @@ export default function RequirementPackReviewDrawer({
                 >
                   {gateA.passed
                     ? t('requirements.gateAPassed') || 'Gate A: đạt'
-                    : t('requirements.gateANotPassed') || 'Gate A: chưa đạt (cần sửa hoặc force duyệt)'}
+                    : failedCount > 0
+                      ? t('requirements.gateAHeaderFailed', { count: failedCount }) ||
+                        `Gate A: chưa đạt · ${failedCount} tiêu chuẩn`
+                      : t('requirements.gateANotPassed') || 'Gate A: chưa đạt (cần sửa hoặc force duyệt)'}
                 </p>
               );
             })()}
@@ -291,6 +324,18 @@ export default function RequirementPackReviewDrawer({
                 projectPlanStatus={projectPlanStatus}
                 t={t}
               />
+              {(() => {
+                const gateA = readPackGateA(pack);
+                if (!gateA) return null;
+                return (
+                  <div className="mb-4">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t('requirements.gateAPanelTitle') || 'Gate A — chất lượng requirement'}
+                    </p>
+                    <GateAChecksPanel gateA={gateA} t={t} />
+                  </div>
+                );
+              })()}
               {showHowPhase ? (
                 <div className="mb-4">
                   <AiPlanningRunPanel
@@ -434,6 +479,7 @@ export default function RequirementPackReviewDrawer({
           </footer>
         ) : null}
       </aside>
+      {noteDialog}
     </>
   );
 }

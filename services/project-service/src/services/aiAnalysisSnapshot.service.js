@@ -101,7 +101,40 @@ async function loadLivePoolAndCalendar({
     calendar = { workingCalendar: {}, holidays: [] };
   }
 
-  return { poolItems, calendar };
+  let bookedHoursByUserDay = {};
+  const window = pool && !Array.isArray(pool) ? pool.window : null;
+  const { toDayMs, flattenSegments } = require('../utils/staffing/allocationOverlap');
+  const fromMs = window?.from ? toDayMs(window.from) : null;
+  const toMs = window?.to ? toDayMs(window.to) : null;
+  const hadPlanningWindow = fromMs != null && toMs != null;
+  if (hadPlanningWindow && poolItems.length) {
+    try {
+      const { loadAllocationRowsByUser } = require('./resourceCapacity.service');
+      const {
+        buildBookedHoursByUserDay,
+      } = require('../utils/staffing/buildBookedHoursByUserDay');
+      const userIds = poolItems.map((row) => row.userId).filter(Boolean);
+      const rowsByUser = await loadAllocationRowsByUser({
+        organizationId,
+        userIds,
+      });
+      const users = userIds.map((uid) => ({
+        userId: uid,
+        flatSegments: flattenSegments(rowsByUser.get(uid) || []),
+      }));
+      bookedHoursByUserDay = buildBookedHoursByUserDay({
+        users,
+        fromMs,
+        toMs,
+        calendar: calendar.workingCalendar || {},
+        holidays: calendar.holidays || [],
+      });
+    } catch {
+      bookedHoursByUserDay = {};
+    }
+  }
+
+  return { poolItems, calendar, bookedHoursByUserDay, hadPlanningWindow };
 }
 
 /**
@@ -116,8 +149,9 @@ function buildSkillCatalogStub(pack) {
     const n = s.skillNameSnapshot || s.rawInput;
     if (n) names.add(String(n).trim());
   }
+  const version = String(SKILL_CATALOG_VERSION || '').trim() || 'cap-whitelist-v2';
   return {
-    version: SKILL_CATALOG_VERSION,
+    version,
     skills: [...names].filter(Boolean).slice(0, 200),
   };
 }
@@ -131,13 +165,14 @@ async function createOrReuseAiAnalysisSnapshot({
   packId,
   force = false,
 }) {
+  const pack = await loadPackOrThrow({ packId, organizationId });
   await assertRequirementPermission({
     userId,
     organizationId,
     permission: 'requirement:run-ai-planning',
+    projectId: pack.projectId ? String(pack.projectId) : null,
   });
 
-  const pack = await loadPackOrThrow({ packId, organizationId });
   const packObj = typeof pack.toObject === 'function' ? pack.toObject() : pack;
   const packContentHash = buildPackContentHash(packObj);
 
@@ -180,11 +215,12 @@ async function createOrReuseAiAnalysisSnapshot({
     }
   }
 
-  const { poolItems, calendar } = await loadLivePoolAndCalendar({
-    organizationId,
-    userId,
-    packId,
-  });
+  const { poolItems, calendar, bookedHoursByUserDay, hadPlanningWindow } =
+    await loadLivePoolAndCalendar({
+      organizationId,
+      userId,
+      packId,
+    });
   const skillCatalog = buildSkillCatalogStub(packObj);
   const payload = buildSnapshotPayload({
     pack: packObj,
@@ -201,6 +237,26 @@ async function createOrReuseAiAnalysisSnapshot({
     { $set: { status: 'superseded', supersededAt: new Date() } }
   );
 
+  const bookedMap =
+    bookedHoursByUserDay &&
+    typeof bookedHoursByUserDay === 'object' &&
+    !Array.isArray(bookedHoursByUserDay) &&
+    Object.keys(bookedHoursByUserDay).length
+      ? bookedHoursByUserDay
+      : null;
+
+  const {
+    summarizeBookedHoursQuality,
+  } = require('../utils/staffing/buildBookedHoursByUserDay');
+  const bookedQuality = summarizeBookedHoursQuality({
+    bookedHoursByUserDay: bookedMap,
+    hadPlanningWindow: Boolean(hadPlanningWindow),
+  });
+  const ingestionValidation = {
+    ...(payload.ingestionValidation || {}),
+    ...bookedQuality,
+  };
+
   const snapshot = await AiAnalysisSnapshot.create({
     organizationId,
     packId,
@@ -215,7 +271,8 @@ async function createOrReuseAiAnalysisSnapshot({
     merged: payload.merged,
     commonFiltered: payload.commonFiltered,
     preparedByJob: payload.preparedByJob,
-    ingestionValidation: payload.ingestionValidation,
+    ingestionValidation,
+    bookedHoursByUserDay: bookedMap,
     pipelineVersion: payload.pipelineVersion,
     status: 'active',
     createdBy: userId,
@@ -224,6 +281,16 @@ async function createOrReuseAiAnalysisSnapshot({
   pack.aiAnalysisActiveSnapshotId = snapshot._id;
   pack.aiAnalysisSnapshotMeta = toMeta(snapshot);
   pack.markModified('aiAnalysisSnapshotMeta');
+
+  // Pin versioned skill catalog stub for Stage1 readiness / G2 supplement (additive).
+  if (!pack.aiAnalysis || typeof pack.aiAnalysis !== 'object') {
+    pack.aiAnalysis = {};
+  }
+  pack.aiAnalysis.skillCatalogStub = {
+    version: String(skillCatalog.version || '').trim(),
+    skills: Array.isArray(skillCatalog.skills) ? skillCatalog.skills : [],
+  };
+  pack.markModified('aiAnalysis');
 
   // Recipe tools (Group A) — additive Baseline Facts; soft-fail never blocks snapshot
   try {

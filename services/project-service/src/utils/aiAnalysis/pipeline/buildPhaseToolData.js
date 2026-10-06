@@ -5,6 +5,8 @@
 
 const { buildJobInputFromSnapshot } = require('./buildPipeline');
 const { fingerprint } = require('./splitContext');
+const { pickBookedHoursByUserDay } = require('./pickBookedHoursByUserDay');
+const { buildHistoryMetricsFromEmployees } = require('./buildHistoryMetrics');
 
 /**
  * @param {object|null} snapshot — AiAnalysisSnapshot lean/toObject
@@ -79,6 +81,8 @@ function buildPhaseToolData(snapshot, phaseJob) {
     calendar,
     overview,
     skillCatalog: matchingTool.skillCatalog || {},
+    // HARD-03: real aggregate only — empty history → sampleSize 0
+    historyMetrics: buildHistoryMetricsFromEmployees(employees),
     filterMeta: {
       ...(matchingTool.filterMeta || {}),
       hydrate: 'phase_how',
@@ -87,13 +91,11 @@ function buildPhaseToolData(snapshot, phaseJob) {
     },
   };
 
-  // Optional passthrough — never invent
-  if (
-    snapshot.meetingHoursByUserDay &&
-    typeof snapshot.meetingHoursByUserDay === 'object' &&
-    !Array.isArray(snapshot.meetingHoursByUserDay)
-  ) {
-    toolData.meetingHoursByUserDay = snapshot.meetingHoursByUserDay;
+  // Single SoT picker — never invent; meetingHours = alias for ScheduleTool
+  const bookedMap = pickBookedHoursByUserDay(toolData, snapshot);
+  if (bookedMap) {
+    toolData.bookedHoursByUserDay = bookedMap;
+    toolData.meetingHoursByUserDay = bookedMap;
   }
 
   toolData.inputFingerprint = fingerprint({

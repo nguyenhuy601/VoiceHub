@@ -85,10 +85,13 @@ export const requirementAPI = {
       withOrg(organizationId)
     ),
 
-  rejectPack: (organizationId, packId, reason = '') =>
+  rejectPack: (organizationId, packId, reason = '', extras = {}) =>
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/reject`,
-      { reason },
+      {
+        reason,
+        ...(extras.projectId ? { projectId: String(extras.projectId) } : {}),
+      },
       withOrg(organizationId)
     ),
 
@@ -194,11 +197,11 @@ export const requirementAPI = {
       }
     ),
 
-  /** Gate2 — confirm phase_how (phase-only; no job id). */
-  confirmPhaseGate2: (organizationId, packId) =>
+  /** Gate2 — confirm phase_how (phase-only; no job id). Optional action for PM→PO lane. */
+  confirmPhaseGate2: (organizationId, packId, body = {}) =>
     apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/confirm`,
-      { phase: 'how' },
+      { phase: 'how', ...body },
       withOrg(organizationId)
     ),
 

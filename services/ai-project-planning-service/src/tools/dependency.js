@@ -7,12 +7,14 @@ const {
 async function dependency(input = {}, context = {}) {
   const snapshotId = input.snapshotId || null;
   const container = context.container || input.container || {};
-  const result = runDependencyEngine(container);
+  const pack = context.pack || input.pack || {};
+  const planningHints = input.planningHints || context.planningHints || null;
+  const result = runDependencyEngine(container, { pack, planningHints });
   const updated = applyDependencyToContainer(container, result);
   const evidence = [
     createEvidence({
       sourceType: 'dependency_model',
-      sourceId: 'heuristic',
+      sourceId: 'srs_then_heuristic',
       snapshotId,
       metric: 'dependency_edge_count',
       value: (result.edges || []).length,

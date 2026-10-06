@@ -38,10 +38,12 @@ import {
   approveRequirementPackWithGate1,
   formatGateAApproveError,
 } from './approveRequirementPackWithGate1';
+import useReviewNotePrompt from '../../hooks/useReviewNotePrompt';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
 import RequirementPackReviewDrawer from './RequirementPackReviewDrawer';
 import { canConfirmRequirementImport, getConfirmImportLabelKey, isPackWhatReady } from '../../utils/requirementImportReadiness';
 import useRequirementPacks from '../../hooks/useRequirementPacks';
+import { resolveGate1ReviewLane, REVIEW_LANE } from '../projects/phase1/aiHitl/gate1ReviewLane';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -136,6 +138,7 @@ export default function RequirementImportWorkspace({
   const { t } = useAppStrings();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { requestNote, noteDialog } = useReviewNotePrompt();
   const isAdmin = variant === 'admin';
   const sk = useCallback((suffix) => stringKey(variant, suffix), [variant]);
   const showImportSection = isAdmin || canSubmit;
@@ -319,7 +322,22 @@ export default function RequirementImportWorkspace({
     if (!orgId || !packId || actionPackId) return;
     setActionPackId(packId);
     try {
-      const result = await approveRequirementPackWithGate1({ orgId, packId, t });
+      const result = await approveRequirementPackWithGate1({
+        orgId,
+        packId,
+        t,
+        requestForceReason: async ({ title, message }) =>
+          requestNote({
+            title,
+            description: message,
+            placeholder:
+              t('requirements.gate1ForceReasonPlaceholder') ||
+              'Nhập lý do force duyệt Gate 1…',
+            submitLabel: t('requirements.approveForced') || t('requirements.approve'),
+            variant: 'request_changes',
+            maxLength: 2000,
+          }),
+      });
       if (!result.ok) return;
       toast.success(
         result.forced
@@ -730,7 +748,9 @@ export default function RequirementImportWorkspace({
           <Eye className="h-3 w-3 shrink-0" aria-hidden />
           {t('requirements.review')}
         </PackRowActionButton>
-        {canSubmit && pack.status === 'draft' ? (
+        {canSubmit &&
+        pack.status === 'draft' &&
+        resolveGate1ReviewLane(pack) === REVIEW_LANE.BA ? (
           <PackRowActionButton
             disabled={actionPackId === pack._id || !canSubmitPackForReview(pack)}
             onClick={() => submitPack(pack._id)}
@@ -740,7 +760,9 @@ export default function RequirementImportWorkspace({
             {t('requirements.submit')}
           </PackRowActionButton>
         ) : null}
-        {canApprove && pack.status === 'under_review' ? (
+        {canApprove &&
+        pack.status === 'under_review' &&
+        resolveGate1ReviewLane(pack) === REVIEW_LANE.PO ? (
           <>
             <PackRowActionButton
               variant="success"
@@ -926,6 +948,7 @@ export default function RequirementImportWorkspace({
           </button>
         </div>
       </Modal>
+      {noteDialog}
     </div>
   );
 }

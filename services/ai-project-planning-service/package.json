@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "worker:wbs-llm": "node src/workers/wbsLlm.worker.js",
     "test": "node scripts/run-tests.js",
     "postinstall": "node ../../shared/postinstall-link.cjs"
   },
@@ -13,6 +14,7 @@
     "@langchain/core": "^1.2.12",
     "@langchain/langgraph": "^1.4.17",
     "@langchain/langgraph-checkpoint-redis": "^1.0.11",
+    "amqplib": "^0.10.9",
     "axios": "^1.7.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",

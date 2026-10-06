@@ -76,21 +76,53 @@ function skillsFromPoolItem(item) {
 
 /**
  * Clean employee projection — no email/avatar/displayName.
+ * Domain on history: PE.domain only, else capability.primaryDomain (real profile field — not invented).
  */
 function projectEmployee(item) {
   if (!item || typeof item !== 'object') return null;
   const userId = String(item.userId || item.employeeId || '').trim();
   if (!userId) return null;
+  const primaryDomain = String(item?.capability?.primaryDomain || '')
+    .trim()
+    .slice(0, 80);
+  const seniorityBand = String(
+    item?.capability?.seniorityBand || item?.capability?.seniority || item?.seniorityBand || ''
+  ).trim();
+  const businessDomains = Array.isArray(item?.capability?.businessDomains)
+    ? item.capability.businessDomains.map((d) => String(d || '').trim()).filter(Boolean).slice(0, 12)
+    : [];
   const history = Array.isArray(item?.capability?.projectExperiences)
-    ? item.capability.projectExperiences.slice(0, 8).map((e) => ({
-        role: String(e.role || e.projectRole || '').trim() || undefined,
-        domain: String(e.domain || e.businessDomain || '').trim() || undefined,
-        months: e.months != null ? Number(e.months) : undefined,
-      }))
+    ? item.capability.projectExperiences.slice(0, 8).map((e) => {
+        const peDomain = String(e.domain || e.businessDomain || '').trim();
+        const domain = peDomain || primaryDomain || undefined;
+        const months =
+          e.months != null && Number.isFinite(Number(e.months))
+            ? Number(e.months)
+            : undefined;
+        const projectName = String(e.name || e.projectName || '').trim() || undefined;
+        const work = String(e.work || '').trim().slice(0, 120) || undefined;
+        const sourceRaw = String(e.source || '').trim();
+        const source = ['cv_parse', 'closed_board', 'excel_import', 'manual'].includes(sourceRaw)
+          ? sourceRaw
+          : undefined;
+        return {
+          role: String(e.role || e.projectRole || '').trim() || undefined,
+          domain: domain || undefined,
+          months,
+          projectName,
+          work,
+          year: e.year != null ? e.year : undefined,
+          ...(source ? { source } : {}),
+        };
+      })
     : [];
 
   const role = String(item.jobTitle || item.membershipRole || '').trim() || undefined;
   const skills = skillsFromPoolItem(item);
+  const maxConcurrentProjects =
+    item.maxConcurrentProjects ?? item.resourceConfig?.maxConcurrentProjects ?? null;
+  const projectCount =
+    item.projectCount ?? item.activeProjectCount ?? item.activeProjects ?? null;
 
   return {
     employeeId: userId,
@@ -110,7 +142,18 @@ function projectEmployee(item) {
     availablePct: item.availablePct,
     capacityRange: item.capacityRange || undefined,
     history,
-    // Matching still reads capability.skills
+    projectCount: projectCount != null && Number.isFinite(Number(projectCount))
+      ? Number(projectCount)
+      : undefined,
+    maxConcurrentProjects:
+      maxConcurrentProjects != null && Number.isFinite(Number(maxConcurrentProjects))
+        ? Number(maxConcurrentProjects)
+        : undefined,
+    resourceConfig:
+      maxConcurrentProjects != null && Number.isFinite(Number(maxConcurrentProjects))
+        ? { maxConcurrentProjects: Number(maxConcurrentProjects) }
+        : undefined,
+    // Matching still reads capability.skills / seniorityBand
     capability: {
       skills: Array.isArray(item?.capability?.skills)
         ? item.capability.skills.slice(0, 20).map((s) => ({
@@ -118,8 +161,10 @@ function projectEmployee(item) {
             level: s.level != null ? Number(s.level) : undefined,
           }))
         : skills,
-      seniority: item?.capability?.seniority,
-      primaryDomain: item?.capability?.primaryDomain,
+      seniority: seniorityBand || item?.capability?.seniority || undefined,
+      seniorityBand: seniorityBand || undefined,
+      primaryDomain: primaryDomain || undefined,
+      businessDomains: businessDomains.length ? businessDomains : undefined,
       projectExperiences: history.length ? history : undefined,
     },
     isActive: item.isActive !== false,

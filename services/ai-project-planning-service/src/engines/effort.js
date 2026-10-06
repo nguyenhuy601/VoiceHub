@@ -1,6 +1,6 @@
 /**
  * Ported from project-service/src/utils/aiAnalysis/aiAnalysisEffort.js.
- * Keep deterministic behavior in parity with the legacy production engine.
+ * Heuristic refinements: area multipliers, name/AC scope, capability complexity.
  */
 const { normalizeRoleKey } = require('./roleKey');
 
@@ -20,6 +20,24 @@ const LEVEL_FROM_COMPLEXITY = Object.freeze({
   low: 2,
   medium: 3,
   high: 4,
+});
+
+/** Area multipliers vs baseline backend leaf (standard SDLC mix). */
+const AREA_HOUR_FACTOR = Object.freeze({
+  backend: 1,
+  api: 1,
+  database: 0.9,
+  auth: 1.05,
+  frontend: 0.95,
+  qa: 0.55,
+  design: 0.7,
+  infrastructure: 1.15,
+  infra: 1.15,
+  devops: 1.1,
+  management: 0.4,
+  analysis: 0.5,
+  external: 0.8,
+  security: 1.1,
 });
 
 function clampEffortHours(raw) {
@@ -45,7 +63,38 @@ function complexityForTask(task, capabilityById) {
     const cap = capabilityById.get(capId);
     if (cap?.complexity) return String(cap.complexity).toLowerCase();
   }
+  const blob = `${task?.name || ''} ${task?.title || ''} ${task?.area || ''}`.toLowerCase();
+  if (/spike|poc|research|investigate|phân\s*tích|thiết\s*kế/.test(blob)) return 'low';
+  if (/migrat|integrat|oauth|sso|payment|security|infra|k8s|redis|queue/.test(blob)) {
+    return 'high';
+  }
+  if (/test|qa|ui\b|form|crud|list|export|report/.test(blob)) return 'low';
   return 'medium';
+}
+
+function areaFactor(task) {
+  const area = String(task?.area || '').toLowerCase().trim();
+  if (area && AREA_HOUR_FACTOR[area] != null) return AREA_HOUR_FACTOR[area];
+  const role = String(task?.suggestedRoleKey || '').toLowerCase();
+  if (/qa|test/.test(role)) return AREA_HOUR_FACTOR.qa;
+  if (/front|ui|ux/.test(role)) return AREA_HOUR_FACTOR.frontend;
+  if (/devops|sre|infra/.test(role)) return AREA_HOUR_FACTOR.infrastructure;
+  return 1;
+}
+
+/** Scope proxy from AC indexes / name length — keeps hours from collapsing to 3 buckets. */
+function scopeFactor(task) {
+  const acCount = Array.isArray(task?.sourceAcIndexes) ? task.sourceAcIndexes.length : 0;
+  const nameLen = String(task?.name || task?.title || '').trim().length;
+  let factor = 1;
+  if (acCount >= 3) factor += 0.25;
+  else if (acCount === 2) factor += 0.12;
+  if (nameLen >= 80) factor += 0.15;
+  else if (nameLen >= 48) factor += 0.08;
+  if (/end[\s-]?to[\s-]?end|e2e|regression|full\s*flow/.test(String(task?.name || '').toLowerCase())) {
+    factor += 0.2;
+  }
+  return Math.min(1.6, factor);
 }
 
 function blendHoursWithHistory(baseHours, complexity, historyMetrics) {
@@ -81,19 +130,30 @@ function runEffortEngine(container, opts = {}) {
   let estimatedHoursTotal = 0;
   let totalStoryPoints = 0;
   let confidenceSum = 0;
+  let usedHistoryAny = false;
   const tasks = Array.isArray(container?.planning?.tasks)
     ? container.planning.tasks.map((t) => ({ ...t }))
     : [];
 
   for (const task of tasks) {
     const complexity = complexityForTask(task, capabilityById);
-    let hours = COMPLEXITY_HOURS[complexity] ?? COMPLEXITY_HOURS.medium;
-    if (!task.parentId && /delivery|epic|root/i.test(task.name || '')) {
+    const hasSeed = Number(task.effortSeedHours) > 0;
+    let hours = hasSeed
+      ? Number(task.effortSeedHours)
+      : COMPLEXITY_HOURS[complexity] ?? COMPLEXITY_HOURS.medium;
+
+    const level = String(task.level || '').toLowerCase();
+    if (level === 'epic' || level === 'feature' || level === 'story') {
+      hours = Math.max(MIN_EFFORT_HOURS, Math.round(hours * 0.25));
+    } else if (!task.parentId && /delivery|epic|root/i.test(task.name || '')) {
       hours = Math.max(MIN_EFFORT_HOURS, Math.round(hours * 0.5));
+    } else {
+      // Leaf: apply area + scope (also when seed present — seed is WBS guess, not final)
+      hours = hours * areaFactor(task) * scopeFactor(task);
     }
-    if (task.area === 'qa') hours = Math.max(MIN_EFFORT_HOURS, Math.round(hours * 0.6));
 
     const blended = blendHoursWithHistory(hours, complexity, historyMetrics);
+    if (blended.usedHistory) usedHistoryAny = true;
     hours = clampEffortHours(Math.min(blended.hours, maxHours));
     const requiredLevel =
       clampRequiredLevel(LEVEL_FROM_COMPLEXITY[complexity] ?? 3) || 3;
@@ -104,6 +164,7 @@ function runEffortEngine(container, opts = {}) {
     task.requiredLevel = requiredLevel;
     task.storyPoints = storyPoints;
     task.confidence = confidence;
+    task.complexity = complexity;
     estimatedHoursTotal += hours;
     totalStoryPoints += storyPoints;
     confidenceSum += confidence;
@@ -134,6 +195,7 @@ function runEffortEngine(container, opts = {}) {
       taskCount: tasks.length,
       maxEffortHours: maxHours,
       historyBlended: Boolean(historyMetrics),
+      usedHistory: usedHistoryAny,
     },
   };
 }
@@ -155,8 +217,12 @@ module.exports = {
   MIN_EFFORT_HOURS,
   COMPLEXITY_HOURS,
   COMPLEXITY_STORY_POINTS,
+  AREA_HOUR_FACTOR,
   clampEffortHours,
   clampRequiredLevel,
+  complexityForTask,
+  areaFactor,
+  scopeFactor,
   runEffortEngine,
   applyEffortToContainer,
 };

@@ -207,6 +207,19 @@ describe('employeeMatching history soft bonus (RULE-F2)', () => {
     assert.ok(bonus <= 0.1);
   });
 
+  it('historyOverlapBonus uses primaryDomain fallback when history domain empty', () => {
+    const bonus = historyOverlapBonus(
+      {
+        primaryDomain: 'react',
+        history: [{ role: 'backend_developer', work: 'api' }],
+      },
+      { suggestedRoleKey: 'backend_developer' },
+      new Set(['react'])
+    );
+    assert.ok(bonus >= 0.06);
+    assert.ok(bonus <= 0.1);
+  });
+
   it('scorePoolItemForTask increases when history overlaps role', () => {
     const task = { id: 't1', suggestedRoleKey: 'backend_developer', sourceCapabilityIds: [] };
     const base = scorePoolItemForTask({

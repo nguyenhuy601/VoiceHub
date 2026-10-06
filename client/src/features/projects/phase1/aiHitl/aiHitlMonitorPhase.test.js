@@ -53,6 +53,17 @@ describe('aiHitlMonitorPhase', () => {
     );
   });
 
+  it('how when pack approved even before phase_how starts', () => {
+    assert.equal(
+      resolveAiHitlMonitorPhase({
+        packStatus: 'approved',
+        phaseWhat: { status: 'ready' },
+        phaseHow: null,
+      }),
+      'how'
+    );
+  });
+
   it('how when phase_how pending after approved', () => {
     assert.equal(
       resolveAiHitlMonitorPhase({
@@ -122,6 +133,15 @@ describe('aiHitlMonitorPhase', () => {
   it('HOW fuzzy match without Tool suffix', () => {
     const idx = resolveActiveStepIndex('how', { currentNode: 'Wbs' }, { status: 'running' });
     assert.equal(HOW_MONITOR_STEPS[idx].id, 'WbsTool');
+  });
+
+  it('HOW call_tool prefers currentTool over understand fallback', () => {
+    const idx = resolveActiveStepIndex(
+      'how',
+      { status: 'running', currentNode: 'call_tool', currentTool: 'DependencyTool' },
+      { status: 'pending' }
+    );
+    assert.equal(HOW_MONITOR_STEPS[idx].id, 'DependencyTool');
   });
 
   it('stepVisualState marks done/current/pending', () => {

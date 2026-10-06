@@ -1205,7 +1205,12 @@ async function submitFeedback(req, res) {
       history: buildLoop2ReplanHistory(prior.history),
     });
 
-    return res.json({
+    // Loop2: kick selective re-execute (HARD-02 one path; ProjectPlan not autoConfirm)
+    setImmediate(() => {
+      processRunAsync(String(existing._id)).catch(() => {});
+    });
+
+    return res.status(202).json({
       success: true,
       data: {
         runId: String(existing._id),

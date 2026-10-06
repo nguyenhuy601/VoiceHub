@@ -3,6 +3,8 @@
  * Providers: ollama (/api/generate) | openai_compatible (DashScope chat.completions).
  */
 
+const http = require('http');
+const https = require('https');
 const axios = require('axios');
 const {
   isOpenAiCompatibleProvider,
@@ -14,6 +16,15 @@ const DEFAULT_MODEL = 'qwen2.5:3b-instruct';
 const DEFAULT_TIMEOUT_MS = 180000;
 const DEFAULT_NUM_PREDICT = 512;
 const DEFAULT_KEEP_ALIVE = '30m';
+
+/** Connection reuse for repeated Ollama calls (External service + HTTP keep-alive). */
+const ollamaHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 4 });
+const ollamaHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 4 });
+const ollamaAxios = axios.create({
+  httpAgent: ollamaHttpAgent,
+  httpsAgent: ollamaHttpsAgent,
+  validateStatus: () => true,
+});
 
 function llmProvider(env = process.env) {
   return String(env.LLM_PROVIDER || 'ollama').trim().toLowerCase();
@@ -164,13 +175,28 @@ async function generateJsonViaOpenAi(opts, env, model, http) {
   return { ok: true, model, data, usage };
 }
 
+function buildUsageFromOllama(body) {
+  const totalNs = Number(body?.total_duration) || 0;
+  const loadNs = Number(body?.load_duration) || 0;
+  const promptNs = Number(body?.prompt_eval_duration) || 0;
+  const evalNs = Number(body?.eval_duration) || 0;
+  return {
+    promptEvalCount: Number(body?.prompt_eval_count) || 0,
+    evalCount: Number(body?.eval_count) || 0,
+    totalDurationMs: totalNs ? Math.round(totalNs / 1e6) : 0,
+    loadDurationMs: loadNs ? Math.round(loadNs / 1e6) : 0,
+    promptEvalDurationMs: promptNs ? Math.round(promptNs / 1e6) : 0,
+    evalDurationMs: evalNs ? Math.round(evalNs / 1e6) : 0,
+  };
+}
+
 /**
  * @param {{ prompt: string, temperature?: number, timeoutMs?: number, numPredict?: number, numCtx?: number, env?: NodeJS.ProcessEnv, axiosImpl?: object }} opts
  */
 async function generateJson(opts = {}) {
   const env = opts.env || process.env;
   const model = ollamaModel(env);
-  const http = opts.axiosImpl || axios;
+  const httpClient = opts.axiosImpl || ollamaAxios;
 
   if (!isLlmEnabled(env) || llmProvider(env) === 'mock') {
     return {
@@ -184,7 +210,7 @@ async function generateJson(opts = {}) {
   }
 
   if (isOpenAiCompatibleProvider(env)) {
-    return generateJsonViaOpenAi(opts, env, model, http);
+    return generateJsonViaOpenAi(opts, env, model, opts.axiosImpl || axios);
   }
 
   const baseUrl = ollamaBaseUrl(env);
@@ -213,10 +239,15 @@ async function generateJson(opts = {}) {
   };
   if (opts.numCtx != null && Number.isFinite(Number(opts.numCtx))) {
     options.num_ctx = Math.max(512, Math.min(32768, Math.round(Number(opts.numCtx))));
+  } else {
+    const envCtx = Number(env.OLLAMA_NUM_CTX);
+    if (Number.isFinite(envCtx) && envCtx >= 512) {
+      options.num_ctx = Math.min(32768, Math.round(envCtx));
+    }
   }
 
   try {
-    const res = await http.post(
+    const res = await httpClient.post(
       `${baseUrl}/api/generate`,
       {
         model,
@@ -226,7 +257,7 @@ async function generateJson(opts = {}) {
         keep_alive: ollamaKeepAlive(env),
         options,
       },
-      { timeout, validateStatus: () => true }
+      { timeout }
     );
     if (!res || res.status < 200 || res.status >= 300) {
       return {
@@ -239,10 +270,7 @@ async function generateJson(opts = {}) {
     }
     const text = String(res.data?.response || '');
     const data = extractJsonPayload(text);
-    const usage = {
-      promptEvalCount: Number(res.data?.prompt_eval_count) || 0,
-      evalCount: Number(res.data?.eval_count) || 0,
-    };
+    const usage = buildUsageFromOllama(res.data);
     if (data == null) {
       return { ok: false, model, data: null, error: 'ollama_json_parse', usage };
     }
@@ -268,5 +296,6 @@ module.exports = {
   ollamaBaseUrl,
   ollamaModel,
   extractJsonPayload,
+  buildUsageFromOllama,
   generateJson,
 };

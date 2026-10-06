@@ -2,11 +2,18 @@
  * AI HITL Monitor — resolve which phase checklist to show + step catalogs.
  * RULE-M01: one phase block at a time.
  * WHAT primary UX = WHAT_MACRO_STEPS (see whatProgressViewModel); flat list for index helpers.
+ * HOW primary UX = HOW_MACRO_STEPS (see howProgressViewModel).
  */
 
 import { WHAT_MACRO_STEPS } from './whatProgressViewModel.js';
+import {
+  HOW_MACRO_STEPS,
+  HOW_MONITOR_STEPS,
+  matchHowStepIndex,
+  resolveHowActiveStepId,
+} from './howProgressViewModel.js';
 
-export { WHAT_MACRO_STEPS };
+export { WHAT_MACRO_STEPS, HOW_MACRO_STEPS, HOW_MONITOR_STEPS };
 
 /** Flat G4 WHAT substeps (mirror APS pipelineProgress.js) — not primary Monitor UI */
 export const WHAT_MONITOR_STEPS = Object.freeze(
@@ -18,24 +25,6 @@ export const WHAT_MONITOR_STEPS = Object.freeze(
     }))
   )
 );
-
-/** HOW agent nodes + G18 tools (mirror jobToToolsMap / agentLoopRunner) */
-export const HOW_MONITOR_STEPS = Object.freeze([
-  { id: 'understand', labelKey: 'requirements.aiHitlHowStep_understand', fallback: 'Understand scope' },
-  { id: 'select', labelKey: 'requirements.aiHitlHowStep_select', fallback: 'Select tools' },
-  { id: 'WbsTool', labelKey: 'requirements.aiHitlHowStep_WbsTool', fallback: 'WBS' },
-  { id: 'DependencyTool', labelKey: 'requirements.aiHitlHowStep_DependencyTool', fallback: 'Dependencies' },
-  { id: 'ArchitectureTool', labelKey: 'requirements.aiHitlHowStep_ArchitectureTool', fallback: 'Architecture' },
-  { id: 'RiskTool', labelKey: 'requirements.aiHitlHowStep_RiskTool', fallback: 'Risks' },
-  { id: 'EffortTool', labelKey: 'requirements.aiHitlHowStep_EffortTool', fallback: 'Effort' },
-  { id: 'SequencingTool', labelKey: 'requirements.aiHitlHowStep_SequencingTool', fallback: 'Sequencing' },
-  { id: 'EmployeeMatchingTool', labelKey: 'requirements.aiHitlHowStep_EmployeeMatchingTool', fallback: 'Staff matching' },
-  { id: 'ScheduleTool', labelKey: 'requirements.aiHitlHowStep_ScheduleTool', fallback: 'Schedule' },
-  { id: 'observe', labelKey: 'requirements.aiHitlHowStep_observe', fallback: 'Observe results' },
-  { id: 'evaluateLocal', labelKey: 'requirements.aiHitlHowStep_evaluateLocal', fallback: 'Local evaluate' },
-  { id: 'feasibility', labelKey: 'requirements.aiHitlHowStep_feasibility', fallback: 'Feasibility' },
-  { id: 'ProjectPlanTool', labelKey: 'requirements.aiHitlHowStep_ProjectPlanTool', fallback: 'Project plan (Gate 2)' },
-]);
 
 const IN_FLIGHT = new Set(['pending', 'running', 'waiting_human', 'stopped']);
 const READY = new Set(['ready', 'completed', 'confirmed']);
@@ -99,26 +88,16 @@ export function resolveAiHitlMonitorPhase({
     return 'how_done';
   }
 
-  if (isReady(whatSt) || pack === 'under_review' || pack === 'approved') {
+  // After PO Gate1 approve — Monitor shows Phase HOW (even before how starts)
+  if (pack === 'approved') {
+    return 'how';
+  }
+
+  if (isReady(whatSt) || pack === 'under_review') {
     return 'what_done';
   }
 
   return 'idle';
-}
-
-function matchHowStepIndex(steps, nodeRaw) {
-  const node = String(nodeRaw || '').trim();
-  if (!node) return -1;
-  const lower = node.toLowerCase();
-  let idx = steps.findIndex((s) => s.id.toLowerCase() === lower);
-  if (idx >= 0) return idx;
-  idx = steps.findIndex((s) => {
-    const id = s.id.toLowerCase();
-    const bare = id.replace(/tool$/, '');
-    const nodeBare = lower.replace(/tool$/, '');
-    return bare === nodeBare || id === `${lower}tool` || bare === lower;
-  });
-  return idx;
 }
 
 /**
@@ -139,10 +118,11 @@ export function resolveActiveStepIndex(phase, liveRun = null, phaseMeta = null) 
   }
 
   if (phase === 'how') {
-    const node =
-      liveRun?.currentNode || liveRun?.stage || liveRun?.pipelineSubstep || phaseMeta?.stage || '';
-    const idx = matchHowStepIndex(HOW_MONITOR_STEPS, node);
-    if (idx >= 0) return idx;
+    const stepId = resolveHowActiveStepId(liveRun, phaseMeta);
+    if (stepId) {
+      const idx = matchHowStepIndex(stepId);
+      if (idx >= 0) return idx;
+    }
     return isInFlight(phaseStatus(phaseMeta)) || isInFlight(norm(liveRun?.status)) ? 0 : -1;
   }
 

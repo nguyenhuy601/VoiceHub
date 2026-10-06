@@ -92,9 +92,13 @@ function semanticMerge(canonical = {}) {
     }
   }
 
-  const requiredSkillIds = (canonical.staffing?.requiredSkills || [])
+  const fromStaffing = (canonical.staffing?.requiredSkills || [])
     .map((s) => s.skillCanonicalId)
     .filter((id) => id && id !== 'SK-UNMAPPED');
+  const fromRequirementSkills = (canonical.requirementSkills || [])
+    .map((s) => s.skillCanonicalId)
+    .filter((id) => id && id !== 'SK-UNMAPPED');
+  const requiredSkillIds = [...new Set([...fromStaffing, ...fromRequirementSkills])];
   const requiredRoleIds = (canonical.staffing?.requiredRoles || [])
     .map((r) => r.roleCanonicalId)
     .filter((id) => id && id !== 'ROLE-UNMAPPED');
@@ -102,7 +106,7 @@ function semanticMerge(canonical = {}) {
   return {
     frLinks: [...byFr.values()],
     edges: links,
-    requiredSkillIds: [...new Set(requiredSkillIds)],
+    requiredSkillIds,
     requiredRoleIds: [...new Set(requiredRoleIds)],
   };
 }

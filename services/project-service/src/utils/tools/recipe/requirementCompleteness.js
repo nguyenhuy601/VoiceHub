@@ -14,18 +14,13 @@ const { listFrLeaves } = require('../projectCanonicalBundle');
 const TOOL_NAME = 'requirement_completeness';
 const TOOL_VERSION = 1;
 
+/** Core FR fields aligned with AI WHAT materialize (detail FR sheet fields are HITL). */
 const CHECKLIST = Object.freeze([
   { key: 'actor', label: 'Actor' },
   { key: 'action', label: 'Action', derive: (fr) => nonEmptyString(fr.mainFlow) || nonEmptyString(fr.name) },
   { key: 'object', label: 'Object', derive: (fr) => nonEmptyString(fr.name) || nonEmptyString(fr.description) },
-  { key: 'input', label: 'Input' },
-  { key: 'output', label: 'Output' },
-  { key: 'businessRules', label: 'Business rule' },
-  { key: 'exceptionFlow', label: 'Error handling' },
   { key: 'priority', label: 'Priority', derive: (fr) => nonEmptyString(fr.priority) },
   { key: 'ac', label: 'Acceptance criteria' },
-  { key: 'dependency', label: 'Dependency', derive: (fr) => nonEmptyString(fr.dependency) || (fr.brIds || []).length > 0 },
-  { key: 'constraint', label: 'Constraint' },
 ]);
 
 function fieldPresent(fr, item) {
@@ -115,8 +110,8 @@ function runRequirementCompleteness(input = {}, ctx = {}) {
 const descriptor = {
   name: TOOL_NAME,
   version: TOOL_VERSION,
-  algorithmVersion: 1,
-  purpose: "Score FR leaf field completeness checklist",
+  algorithmVersion: 2,
+  purpose: 'Score FR leaf core-field completeness (actor/action/object/priority/AC)',
   algorithm: ["list_leaves","field_checklist","aggregate_score"],
   outputKeys: ["overall","items","checklistSize"],
   contextImpact: {},

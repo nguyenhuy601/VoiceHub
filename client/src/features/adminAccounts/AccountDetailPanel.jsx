@@ -97,9 +97,11 @@ export default function AccountDetailPanel({ orgId }) {
                 <InfoCard label={t('adminUsers.colStatus')}>
                   {summary?.pendingActivation
                     ? t('adminAccounts.statusPendingActivation')
-                    : summary?.isActive === false
-                      ? t('adminUsers.statusInactive')
-                      : t('adminUsers.statusActive')}
+                    : summary?.isLocked
+                      ? t('adminUsers.statusLocked')
+                      : summary?.isActive === false
+                        ? t('adminUsers.statusInactive')
+                        : t('adminUsers.statusActive')}
                 </InfoCard>
                 <InfoCard label={t('adminAccounts.colLocked')}>{lockLabel}</InfoCard>
                 <InfoCard label={t('adminAccounts.colMustChange')}>

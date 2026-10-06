@@ -9,6 +9,7 @@ import useRequirementAccess from '../../../hooks/useRequirementAccess';
 import useRequirementPacks from '../../../hooks/useRequirementPacks';
 import { queryKeys } from '../../../lib/queryKeys';
 import { approveRequirementPackWithGate1 } from '../../requirements/approveRequirementPackWithGate1';
+import useReviewNotePrompt from '../../../hooks/useReviewNotePrompt';
 import {
   AI_WIZARD_STEPS,
   canRunAiOnPack,
@@ -45,6 +46,7 @@ export default function useCreateProjectAiWizard({
   onCreated,
 } = {}) {
   const { t } = useAppStrings();
+  const { requestNote, noteDialog } = useReviewNotePrompt();
   const orgId = String(organizationId || '').trim();
   const phase2ProjectId = String(existingProjectId || '').trim();
   const isPhase2Ai = Boolean(phase2ProjectId);
@@ -193,7 +195,22 @@ export default function useCreateProjectAiWizard({
           err.statusCode = 403;
           throw err;
         }
-        const result = await approveRequirementPackWithGate1({ orgId, packId: id, t });
+        const result = await approveRequirementPackWithGate1({
+          orgId,
+          packId: id,
+          t,
+          requestForceReason: async ({ title, message }) =>
+            requestNote({
+              title,
+              description: message,
+              placeholder:
+                t('requirements.gate1ForceReasonPlaceholder') ||
+                'Nhập lý do force duyệt Gate 1…',
+              submitLabel: t('requirements.approveForced') || t('requirements.approve'),
+              variant: 'request_changes',
+              maxLength: 2000,
+            }),
+        });
         if (!result.ok) {
           const err = new Error(t('requirements.approveFail'));
           err.statusCode = 409;
@@ -206,7 +223,7 @@ export default function useCreateProjectAiWizard({
       setPack(next);
       return next;
     },
-    [access.canApprove, access.canSubmit, orgId, t]
+    [access.canApprove, access.canSubmit, orgId, requestNote, t]
   );
 
   const tryAdvanceFromSource = useCallback(
@@ -436,5 +453,6 @@ export default function useCreateProjectAiWizard({
     canRunAiOnPack: canRunAiOnPack(pack),
     isPhase2Ai,
     existingProjectId: phase2ProjectId,
+    noteDialog,
   };
 }
