@@ -3,11 +3,21 @@ const {
   canCreateTaskInScope,
 } = require('./taskWorkspaceScope');
 const { fetchRequirementAccessPolicy } = require('../clients/requirementAccessPolicy.client');
-const { resolveRequirementPersona } = require('../utils/requirement/resolveRequirementPersona');
+const {
+  resolveRequirementPersona,
+  hasProjectRoleKeysOnProject,
+  hasProjectRoleKeys,
+  userHasApproverRoleOnProject,
+} = require('../utils/requirement/resolveRequirementPersona');
 const { createInflightCoalesce } = require('../utils/requirement/inflightCoalesce');
 const {
   canPreviewCustomerRawRequirement,
 } = require('../utils/requirement/customerRawPreviewAuthz');
+const {
+  REQUIREMENT_APPROVER_PROJECT_ROLE_KEYS,
+  REQUIREMENT_SUBMITTER_PROJECT_ROLE_KEYS,
+} = require('../constants/requirementLifecycle');
+const { logger } = require('@enterprise/shared');
 
 const coalescePersonaLoad = createInflightCoalesce();
 
@@ -133,7 +143,7 @@ async function resolveRequirementAccess({ userId, organizationId }) {
   return buildAccessFromPersona(ctx.scope, ctx.persona);
 }
 
-async function canUserRunAiPlanning(uid, orgId) {
+async function canUserRunAiPlanning(uid, orgId, projectId = null) {
   const ctx = await loadPersonaContext(uid, orgId);
   if (!ctx) return { ok: false, via: null };
   if (ctx.persona.actions?.runAiPlanning) {
@@ -141,12 +151,30 @@ async function canUserRunAiPlanning(uid, orgId) {
     if (ctx.persona.isOperator) return { ok: true, via: 'org_admin' };
     return { ok: true, via: 'policy' };
   }
+  const pid = String(projectId || '').trim();
+  if (await hasProjectRoleKeys(uid, orgId, REQUIREMENT_APPROVER_PROJECT_ROLE_KEYS)) {
+    return { ok: true, via: 'project_role:approver' };
+  }
+  if (pid) {
+    const projectApprover = await userHasApproverRoleOnProject(
+      uid,
+      pid,
+      REQUIREMENT_APPROVER_PROJECT_ROLE_KEYS
+    );
+    if (projectApprover.ok) return { ok: true, via: projectApprover.via };
+  }
   return { ok: false, via: null };
 }
 
-async function assertRequirementPermission({ userId, organizationId, permission }) {
+async function assertRequirementPermission({
+  userId,
+  organizationId,
+  permission,
+  projectId = null,
+} = {}) {
   const uid = resolveUserId(userId);
   const orgId = String(organizationId || '').trim();
+  const pid = String(projectId || '').trim();
   if (!uid || !orgId) {
     const err = new Error('userId và organizationId bắt buộc');
     err.statusCode = 400;
@@ -173,10 +201,51 @@ async function assertRequirementPermission({ userId, organizationId, permission 
       break;
     case 'requirement:submit':
       if (actions.submit) return { scope, via: persona.persona };
+      if (
+        pid &&
+        (await hasProjectRoleKeysOnProject(uid, pid, REQUIREMENT_SUBMITTER_PROJECT_ROLE_KEYS))
+      ) {
+        return { scope, via: 'project_role:business_analyst' };
+      }
       break;
     case 'requirement:approve':
       if (actions.approve) {
         return { scope, via: persona.persona };
+      }
+      // Lifecycle keys (not org policy) — policy may wipe projectRoleKeys to []
+      if (
+        await hasProjectRoleKeys(uid, orgId, REQUIREMENT_APPROVER_PROJECT_ROLE_KEYS)
+      ) {
+        return { scope, via: 'project_role:approver' };
+      }
+      if (
+        pid &&
+        (await hasProjectRoleKeysOnProject(uid, pid, REQUIREMENT_APPROVER_PROJECT_ROLE_KEYS))
+      ) {
+        return { scope, via: 'project_role:product_owner' };
+      }
+      // FE SoT: same resolveUserProjectPermissions + role matrix (not creator dump)
+      if (pid) {
+        const projectApprover = await userHasApproverRoleOnProject(
+          uid,
+          pid,
+          REQUIREMENT_APPROVER_PROJECT_ROLE_KEYS
+        );
+        if (projectApprover.ok) {
+          return { scope, via: projectApprover.via || 'project_role:approver' };
+        }
+        logger.warn('[requirement] approve forbidden', {
+          errorCode: 'REQUIREMENT_APPROVE_FORBIDDEN',
+          projectId: pid,
+          viaAttempted: ['persona', 'org_role_keys', 'project_membership', 'project_access_sot'],
+          roleKeys: projectApprover.roleKeys || [],
+        });
+      } else {
+        logger.warn('[requirement] approve forbidden', {
+          errorCode: 'REQUIREMENT_APPROVE_FORBIDDEN',
+          projectId: null,
+          viaAttempted: ['persona', 'org_role_keys'],
+        });
       }
       {
         const err = new Error(
@@ -198,6 +267,28 @@ async function assertRequirementPermission({ userId, organizationId, permission 
       }
     case 'requirement:run-ai-planning':
       if (actions.runAiPlanning) return { scope, via: persona.persona };
+      // Same SoT as approve — project PO/PM may run Phase HOW after Gate 1
+      if (
+        await hasProjectRoleKeys(uid, orgId, REQUIREMENT_APPROVER_PROJECT_ROLE_KEYS)
+      ) {
+        return { scope, via: 'project_role:approver' };
+      }
+      if (
+        pid &&
+        (await hasProjectRoleKeysOnProject(uid, pid, REQUIREMENT_APPROVER_PROJECT_ROLE_KEYS))
+      ) {
+        return { scope, via: 'project_role:product_owner' };
+      }
+      if (pid) {
+        const projectApprover = await userHasApproverRoleOnProject(
+          uid,
+          pid,
+          REQUIREMENT_APPROVER_PROJECT_ROLE_KEYS
+        );
+        if (projectApprover.ok) {
+          return { scope, via: projectApprover.via || 'project_role:approver' };
+        }
+      }
       {
         const err = new Error(
           'Chỉ Product Owner, Product Manager hoặc Project Manager được chạy AI Resource Planning'

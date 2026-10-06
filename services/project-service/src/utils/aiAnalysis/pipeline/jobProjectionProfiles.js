@@ -10,6 +10,8 @@ const EMPLOYEE_PROJECTION_FIELDS = Object.freeze([
   'employeeId',
   'userId',
   'role',
+  'jobTitle',
+  'membershipRole',
   'skills',
   'availability',
   'workload',
@@ -17,6 +19,13 @@ const EMPLOYEE_PROJECTION_FIELDS = Object.freeze([
   'isActive',
   'skillCanonicalIds',
   'roleCanonicalId',
+  'capability',
+  'projectCount',
+  'maxConcurrentProjects',
+  'resourceConfig',
+  'availablePct',
+  'allocatedPct',
+  'capacityRange',
 ]);
 
 /** SRS fields for WHAT / requirement-facing jobs. */

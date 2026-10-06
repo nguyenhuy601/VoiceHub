@@ -20,6 +20,10 @@ export default function AiPlanningRunPanel({
   canPromote = false,
   onPromoted,
   onPlanStatusChange,
+  /** After start HOW — parent should switch to Monitor (HITL workspace). */
+  onHowStarted,
+  /** After start HOW settles (ok/fail) — parent re-fetches pack. */
+  onHowSettled,
 }) {
   const { t } = useAppStrings();
   const { shouldPausePolling } = useNetworkStatus();
@@ -69,21 +73,27 @@ export default function AiPlanningRunPanel({
   const startHow = async () => {
     if (!canRun || busy || !organizationId || !packId) return;
     setBusy(true);
+    // Switch to Monitor immediately — do not wait for APS accept (same pattern as WHAT).
+    setPhaseStatus('pending');
+    onHowStarted?.();
     try {
       await requirementAPI.startPhaseAiPlanning(organizationId, packId, { phase: 'how' });
-      setPhaseStatus('pending');
       toast.success(
         t('requirements.aiPhaseRunStarted') || 'Đã bắt đầu AI Planning (agentic HOW).'
       );
+      await refresh().catch(() => {});
     } catch (error) {
+      setPhaseStatus('');
       toast.error(
         resolveApiErrorMessage(error, {
           t,
           fallback: t('requirements.aiPhaseRunFail') || 'Không start được AI Planning.',
         })
       );
+      await refresh().catch(() => {});
     } finally {
       setBusy(false);
+      onHowSettled?.();
     }
   };
 

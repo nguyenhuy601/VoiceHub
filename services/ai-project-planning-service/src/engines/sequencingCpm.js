@@ -151,6 +151,7 @@ function runSequencingCpm(container, opts = {}) {
         projectDurationHours: 0,
         criticalPath: [],
         nodes: [],
+        tasks: [],
         sumEffortHours: 0,
       },
       criticalWorkIds: [],
@@ -186,6 +187,16 @@ function runSequencingCpm(container, opts = {}) {
   }
   const criticalPath = pickCriticalPath(ids, succs, isCritical, es, ef);
   const criticalWorkIds = nodes.filter((node) => node.isCritical).map((node) => node.workId);
+  // Additive tasks[] for Gate2 / planSummary (ES/EF/LS/LF/totalFloat/critical)
+  const cpmTasks = nodes.map((node) => ({
+    id: node.workId,
+    es: node.es,
+    ef: node.ef,
+    ls: node.ls,
+    lf: node.lf,
+    totalFloat: node.totalFloat,
+    critical: Boolean(node.isCritical),
+  }));
 
   return {
     sequence: { waves },
@@ -193,6 +204,7 @@ function runSequencingCpm(container, opts = {}) {
       projectDurationHours: projectEnd,
       criticalPath,
       nodes,
+      tasks: cpmTasks,
       sumEffortHours,
       comparedToSumEffort: {
         sumEffortHours,
@@ -212,12 +224,28 @@ function runSequencingCpm(container, opts = {}) {
 }
 
 function applySequencingCpmToContainer(container, result) {
+  const theoreticalCpm = result.theoreticalCpm
+    ? {
+        ...result.theoreticalCpm,
+        tasks:
+          result.theoreticalCpm.tasks ||
+          (result.theoreticalCpm.nodes || []).map((node) => ({
+            id: node.workId,
+            es: node.es,
+            ef: node.ef,
+            ls: node.ls,
+            lf: node.lf,
+            totalFloat: node.totalFloat,
+            critical: Boolean(node.isCritical),
+          })),
+      }
+    : result.theoreticalCpm;
   return {
     ...container,
     planning: {
       ...(container?.planning || {}),
       sequence: result.sequence,
-      theoreticalCpm: result.theoreticalCpm,
+      theoreticalCpm,
       criticalWorkIds: result.criticalWorkIds,
     },
   };

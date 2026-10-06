@@ -113,11 +113,13 @@ async function notifyNextGateReviewers({
     const userIds = await userIdsWithProjectPermission(projectId, nextPermission);
     if (!userIds.length) return;
     const pid = String(packId || '').trim();
+    const basePath = String(actionPath || 'ai-hitl').replace(/^\/+/, '');
     const actionUrl = pid
       ? projectHubActionUrl({
           projectId,
           organizationId,
-          pathSuffix: `${String(actionPath || 'ai-hitl').replace(/^\/+/, '')}?packId=${encodeURIComponent(pid)}`,
+          // Gate 1 sequential review: open Duyệt tab directly
+          pathSuffix: `${basePath}?packId=${encodeURIComponent(pid)}&tab=review`,
         })
       : projectHubActionUrl({
           projectId,

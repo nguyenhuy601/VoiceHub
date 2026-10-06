@@ -7,14 +7,25 @@ const { makeFact, makeWarning, makeToolResult, hashInput } = require('../toolCon
 const TOOL_NAME = 'requirement_consistency';
 const TOOL_VERSION = 1;
 
+/**
+ * Parse an explicit latency bound in seconds.
+ * Requires a real time unit (ms/s/giây) — never treat bare numbers, px, %, months as latency.
+ */
 function parseLatencySeconds(text) {
   const s = String(text || '');
-  const m = s.match(/(?:response|latency|thời gian phản hồi)?[^\d]{0,20}(?:<|>|<=|>=|under|dưới|less than)?\s*(\d+(?:\.\d+)?)\s*(ms|s|sec|seconds|giây)?/i);
+  if (!s.trim()) return null;
+  // Reject obvious non-latency dimensions before matching
+  if (/\d+(?:\.\d+)?\s*(px|%)\b/i.test(s) && !/\b(ms|giây|seconds?)\b/i.test(s)) {
+    return null;
+  }
+  const m = s.match(
+    /(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|sec|secs|seconds?|giây)\b/i
+  );
   if (!m) return null;
   const n = Number(m[1]);
-  if (!Number.isFinite(n)) return null;
-  const unit = String(m[2] || 's').toLowerCase();
-  if (unit === 'ms') return n / 1000;
+  if (!Number.isFinite(n) || n < 0) return null;
+  const unit = String(m[2] || '').toLowerCase();
+  if (unit === 'ms' || unit.startsWith('millisecond')) return n / 1000;
   return n;
 }
 

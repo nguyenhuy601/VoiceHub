@@ -326,6 +326,9 @@ async function resolveProjectContext(boardId) {
 
 /**
  * Migrate TaskBoardMember → ProjectMembership (idempotent).
+ * Only for users who still have ZERO ProjectMembership rows — never invent
+ * backend_developer/project_manager from board ACL (editor/owner) when intake
+ * seed already assigned explicit roles (PO/PM/BA).
  */
 async function migrateBoardMembersToProjectRoles(boardId, actorId) {
   const { board, projectId } = await resolveProjectContext(boardId);
@@ -333,8 +336,24 @@ async function migrateBoardMembersToProjectRoles(boardId, actorId) {
   const roleByKey = new Map(roles.map((r) => [r.key, r]));
 
   const members = await TaskBoardMember.find({ boardId }).lean();
+  if (!members.length) return { migrated: 0, totalMembers: 0 };
+
+  const memberUserIds = [
+    ...new Set(members.map((m) => String(m.userId || '').trim()).filter(Boolean)),
+  ];
+  const alreadySeeded = await ProjectMembership.find({
+    projectId,
+    userId: { $in: memberUserIds },
+  })
+    .select('userId')
+    .lean();
+  const seededUserIds = new Set(alreadySeeded.map((r) => String(r.userId)));
+
   let upserted = 0;
   for (const m of members) {
+    const uid = String(m.userId || '').trim();
+    if (!uid || seededUserIds.has(uid)) continue;
+
     const key = LEGACY_TO_PROJECT_ROLE[m.role] || DEFAULT_PROJECT_ROLE_KEYS.WATCHER;
     const role = roleByKey.get(key);
     if (!role) continue;
@@ -358,7 +377,10 @@ async function migrateBoardMembersToProjectRoles(boardId, actorId) {
       },
       { upsert: true }
     );
-    if (res.upsertedCount) upserted += 1;
+    if (res.upsertedCount) {
+      upserted += 1;
+      seededUserIds.add(uid);
+    }
   }
   return { migrated: upserted, totalMembers: members.length };
 }
@@ -569,6 +591,11 @@ async function setUserProjectRoles({
   knownProjectTitle = null,
   /** Skip board/project re-fetch when caller has context */
   knownContext = null,
+  /**
+   * Explicit wipe: when projectRoleKeys resolves empty, delete all ProjectMembership
+   * for this user on the project (default false keeps ACL-only no-op).
+   */
+  clearAllRoles = false,
 }) {
   let pid = projectId ? String(projectId) : '';
   let orgId = null;
@@ -625,10 +652,13 @@ async function setUserProjectRoles({
     await ensureProjectRolesCloned(pid, orgId);
   }
   const keys = [...new Set((projectRoleKeys || []).map((k) => String(k).trim()).filter(Boolean))];
+  // Board ACL labels must never become Project Roles (editor → backend_developer alias).
+  const BOARD_ACL_KEYS = new Set(['owner', 'editor', 'viewer', 'watcher']);
+  const projectOnlyKeys = keys.filter((k) => !BOARD_ACL_KEYS.has(String(k).trim().toLowerCase()));
   if (!skipMasterDataCheck && isMasterDataV1Enabled()) {
     const enabled = await fetchEnabledProjectRoleKeys(orgId);
     const enabledSet = new Set((enabled || []).map(String));
-    for (const k of keys) {
+    for (const k of projectOnlyKeys) {
       const canonical = resolveCanonicalProjectRoleKey(k);
       if (!enabledSet.has(k) && !enabledSet.has(canonical)) {
         const err = new Error(`Project role chưa được bật trong Master Data: ${k}`);
@@ -645,10 +675,93 @@ async function setUserProjectRoles({
         .filter(Boolean)
         .sort();
 
-  const resolvedKeys = [...new Set(keys.map((k) => resolveCanonicalProjectRoleKey(k) || k).filter(Boolean))];
-  let roles = resolvedKeys.length
-    ? await ProjectRole.find({ projectId: pid, key: { $in: resolvedKeys } }).lean()
-    : [];
+  const resolvedKeys = [
+    ...new Set(
+      projectOnlyKeys.map((k) => resolveCanonicalProjectRoleKey(k) || k).filter(Boolean)
+    ),
+  ];
+
+  // ACL-only payload (e.g. leaked boardRole "editor") — do not wipe existing ProjectMembership.
+  // clearAllRoles=true: intentional remove-all Project Roles for this member.
+  if (!resolvedKeys.length) {
+    if (clearAllRoles) {
+      await ProjectMembership.deleteMany({ projectId: pid, userId });
+      /**
+       * listMembers vẫn gọi migrateBoardMembersToProjectRoles: nếu còn TaskBoardMember
+       * mà đã hết ProjectMembership → migrate tái tạo PM/dev từ ACL → «xóa» không có hiệu lực.
+       */
+      try {
+        const boards = await TaskBoard.find({ projectId: pid }).select('_id').lean();
+        const boardIds = (boards || []).map((b) => b._id).filter(Boolean);
+        if (boardIds.length) {
+          await TaskBoardMember.deleteMany({ boardId: { $in: boardIds }, userId });
+        } else if (aclBoardId) {
+          await TaskBoardMember.deleteMany({ boardId: aclBoardId, userId });
+        }
+      } catch {
+        /* best-effort — membership wipe vẫn là SoT */
+      }
+      if (!skipAudit) {
+        try {
+          const auditService = require('./audit.service');
+          await auditService.recordAudit({
+            organizationId: orgId,
+            actorUserId: addedBy || userId,
+            action: 'project.members.roles_updated',
+            resourceType: 'project_member',
+            resourceId: `${pid}:${userId}`,
+            before: { projectRoleKeys: beforeKeys },
+            after: { projectRoleKeys: [] },
+            meta: {
+              projectId: String(pid),
+              memberUserId: String(userId),
+              clearAllRoles: true,
+            },
+          });
+        } catch {
+          /* best-effort */
+        }
+      }
+      try {
+        const { invalidateResolveCacheForProject } = require('./projectAccess.service');
+        invalidateResolveCacheForProject(pid);
+      } catch {
+        /* best-effort */
+      }
+      return {
+        roles: [],
+        resource: null,
+        allocationStatus: 'ok',
+        warnings: [],
+      };
+    }
+    if (aclBoardId && (boardRole || keys.length)) {
+      const { inferBoardRoleFromProjectKeys } = require('../utils/project/createBoardSeed');
+      const aclRole =
+        boardRole && ['owner', 'editor', 'viewer'].includes(String(boardRole).toLowerCase())
+          ? boardRole
+          : inferBoardRoleFromProjectKeys(keys);
+      await ensureBoardMemberAcl({
+        boardId: aclBoardId,
+        userId,
+        boardRole: aclRole,
+        addedBy: addedBy || userId,
+      });
+    }
+    const roleRows = skipRoleRowsRead
+      ? []
+      : boardId
+        ? await listUserProjectRolesOnBoard(boardId, userId)
+        : await listUserProjectRolesOnProject(pid, userId);
+    return {
+      roles: roleRows,
+      resource: null,
+      allocationStatus: 'ok',
+      warnings: [],
+    };
+  }
+
+  let roles = await ProjectRole.find({ projectId: pid, key: { $in: resolvedKeys } }).lean();
   if (roles.length < resolvedKeys.length) {
     const found = new Set(roles.map((r) => String(r.key)));
     for (const k of resolvedKeys) {
@@ -660,7 +773,7 @@ async function setUserProjectRoles({
       }
     }
   }
-  assertResolvedProjectRoleKeys(keys, roles);
+  assertResolvedProjectRoleKeys(projectOnlyKeys, roles);
   const roleIds = new Set(roles.map((r) => String(r._id)));
 
   /** RULE-14 — delivery roles trước Plan Baseline */

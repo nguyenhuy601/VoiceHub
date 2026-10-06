@@ -104,9 +104,11 @@ export default function AccountDetailPanel({ orgId }) {
                   <p className="mt-1 text-sm font-medium">
                     {summary?.pendingActivation
                       ? t('adminAccounts.statusPendingActivation')
-                      : summary?.isActive === false
-                        ? t('adminUsers.statusInactive')
-                        : t('adminUsers.statusActive')}
+                      : summary?.isLocked
+                        ? t('adminUsers.statusLocked')
+                        : summary?.isActive === false
+                          ? t('adminUsers.statusInactive')
+                          : t('adminUsers.statusActive')}
                   </p>
                 </div>
                 <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">

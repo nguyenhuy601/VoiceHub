@@ -83,10 +83,16 @@ async function persistClosedProjectExperiences({ project, closedAt, deps = {} } 
   const evidenceId = String(board?._id || projectId);
   const dueRaw =
     project.expectedEndDate || project.endDate || closedAt || project.closedAt || new Date();
+  const startRaw =
+    project.startDate || project.expectedStartDate || project.createdAt || null;
   const boardLike = {
     _id: evidenceId,
     title: String(project.title || board?.title || 'Dự án').trim() || 'Dự án',
     dueDate: dueRaw,
+    endDate: dueRaw,
+    startDate: startRaw,
+    createdAt: project.createdAt || null,
+    closedAt: closedAt || project.closedAt || null,
   };
 
   const rows = buildClosedBoardExperiences({

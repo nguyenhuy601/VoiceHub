@@ -17,8 +17,9 @@ async function effort(input = {}, context = {}) {
   const roleSkill = runRoleSkillPlanning(pack, container);
   container = applyRoleSkillToContainer(container, roleSkill);
 
+  const historyMetrics = toolData.historyMetrics || null;
   const engineResult = runEffortEngine(container, {
-    historyMetrics: toolData.historyMetrics || null,
+    historyMetrics,
     maxEffortHours: toolData.maxEffortHours,
   });
   const updatedContainer = applyEffortToContainer(container, engineResult);

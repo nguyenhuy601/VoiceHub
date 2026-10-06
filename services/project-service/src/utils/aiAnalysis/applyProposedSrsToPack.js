@@ -52,6 +52,177 @@ function applyDeltasToFrList(frList, deltas) {
   return { frList: list, packNotes: notes };
 }
 
+/** Collect FR ids from proposal UC relatedFrIds and/or sourceRefs.externalId */
+function relatedFrIdsFromProposalUc(item) {
+  const fromRelated = Array.isArray(item?.relatedFrIds)
+    ? item.relatedFrIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (fromRelated.length) return fromRelated;
+  const refs = Array.isArray(item?.sourceRefs) ? item.sourceRefs : [];
+  return refs
+    .map((r) => String(r?.externalId || r?.id || '').trim())
+    .filter(Boolean);
+}
+
+/**
+ * Prefer srsProposal.generated sheets when pack Analysis sheets are still empty.
+ * Customer Raw intake has no UC/BG/BR — those live on the proposal until materialize.
+ */
+function seedSheetsFromSrsProposal(packSheets, container) {
+  const generated = container?.analyses?.srsProposal?.generated;
+  if (!generated || typeof generated !== 'object') return packSheets;
+
+  let {
+    businessGoals,
+    scope,
+    businessRules,
+    businessProcesses,
+    useCases,
+    nonFunctionalRequirements,
+  } = packSheets;
+
+  if (!businessGoals.length && Array.isArray(generated.businessGoals?.items)) {
+    businessGoals = generated.businessGoals.items.slice(0, 40).map((item, idx) => ({
+      externalId: String(item.id || item.logicalId || `BG-${String(idx + 1).padStart(3, '0')}`),
+      title: normProse(item.title || item.name || `Business Goal ${idx + 1}`).slice(0, 240),
+      statement: normProse(item.description || item.statement || item.title || ''),
+      businessProblem: normProse(item.businessProblem || ''),
+      expectedBusinessOutcome: normProse(item.expectedOutcome || item.outcome || ''),
+      successMetric: normProse(item.successMetric || ''),
+      priority: normProse(item.priority || 'Medium') || 'Medium',
+      stakeholder: normProse(item.stakeholder || item.actor || ''),
+      assumption: '',
+      constraint: '',
+      status: 'Draft',
+      baNote: 'seeded:srs_proposal',
+      customerRequirementIds: relatedFrIdsFromProposalUc(item),
+    }));
+  }
+
+  if (!scope.length && Array.isArray(generated.scope?.items)) {
+    scope = generated.scope.items.slice(0, 40).map((item) => {
+      const typeRaw = String(item.type || item.scopeType || 'in').toLowerCase();
+      const type = typeRaw.includes('out') ? 'out' : 'in';
+      return {
+        type,
+        scopeType: type,
+        description: normProse(item.description || item.title || item.text || '').slice(0, 4000),
+      };
+    }).filter((row) => row.description);
+  }
+
+  if (!businessRules.length && Array.isArray(generated.businessRules?.items)) {
+    businessRules = generated.businessRules.items.slice(0, 40).map((item, idx) => ({
+      externalId: String(item.id || item.logicalId || `BR-${String(idx + 1).padStart(3, '0')}`),
+      relatedBg: businessGoals[0]?.externalId || '',
+      title: normProse(item.title || item.name || `Rule ${idx + 1}`).slice(0, 240),
+      description: normProse(item.description || item.rule || item.title || ''),
+      businessRule: normProse(item.rule || item.description || item.title || ''),
+      whenApplies: '',
+      exception: '',
+      stakeholder: '',
+      priority: normProse(item.priority || 'Medium') || 'Medium',
+      successCriteria: '',
+      dependency: '',
+      assumption: '',
+      constraint: '',
+      status: 'Draft',
+      baNote: 'seeded:srs_proposal',
+      customerRequirementIds: relatedFrIdsFromProposalUc(item),
+    }));
+  }
+
+  if (!businessProcesses.length && Array.isArray(generated.processes?.items)) {
+    businessProcesses = generated.processes.items.slice(0, 40).map((item, idx) => ({
+      externalId: String(item.id || item.logicalId || `BPM-${String(idx + 1).padStart(3, '0')}`),
+      relatedBr: '',
+      processName: normProse(item.title || item.name || `Process ${idx + 1}`).slice(0, 240),
+      processDescription: normProse(item.description || ''),
+      trigger: '',
+      actor: normProse(item.actor || ''),
+      precondition: '',
+      step: '1',
+      action: normProse(item.description || item.title || ''),
+      input: '',
+      output: '',
+      businessRule: '',
+      exception: '',
+      relatedCr: '',
+      relatedSystems: '',
+      status: 'Draft',
+      baNote: 'seeded:srs_proposal',
+    }));
+  }
+
+  if (!useCases.length && Array.isArray(generated.useCases?.items)) {
+    useCases = generated.useCases.items.slice(0, 80).map((item, idx) => {
+      const relatedFrIds = relatedFrIdsFromProposalUc(item);
+      return {
+        externalId: String(item.id || item.logicalId || `UC-${String(idx + 1).padStart(3, '0')}`),
+        title: normProse(item.title || item.name || `Use case ${idx + 1}`).slice(0, 240),
+        goal: normProse(item.description || item.goal || ''),
+        actor: normProse(
+          item.actor ||
+            (Array.isArray(item.actors) ? item.actors[0] : '') ||
+            ''
+        ),
+        precondition: '',
+        mainFlow: normProse(
+          (Array.isArray(item.steps) ? item.steps.map((s) => s?.text || s).join('\n') : '') ||
+            item.description ||
+            ''
+        ),
+        alternateFlow: '',
+        exceptionFlow: '',
+        postcondition: '',
+        relatedFrIds,
+        relatedFr: relatedFrIds[0] || '',
+        priority: normProse(item.priority || 'Medium') || 'Medium',
+        status: 'Draft',
+        baNote: 'seeded:srs_proposal',
+        customerRequirementIds: relatedFrIds,
+        evidenceIds: [],
+      };
+    });
+  }
+
+  if (
+    !nonFunctionalRequirements.length &&
+    Array.isArray(generated.nonFunctionalRequirements?.items)
+  ) {
+    nonFunctionalRequirements = generated.nonFunctionalRequirements.items
+      .slice(0, 40)
+      .map((item, idx) => ({
+        externalId: String(item.id || item.logicalId || `NFR-${String(idx + 1).padStart(3, '0')}`),
+        category: normProse(item.category || 'Quality'),
+        requirement: normProse(item.requirement || item.description || item.title || ''),
+        name: normProse(item.title || item.name || `NFR ${idx + 1}`).slice(0, 240),
+        target: normProse(item.target || ''),
+        measurement: normProse(item.measurement || ''),
+        priority: String(item.priority || 'Medium'),
+        scope: '',
+        constraint: '',
+        verification: '',
+        acceptanceCriteria: '',
+        source: 'srs_proposal',
+        status: 'Draft',
+        baNote: 'seeded:srs_proposal',
+        customerRequirementIds: relatedFrIdsFromProposalUc(item),
+        evidenceIds: [],
+      }));
+  }
+
+  return {
+    ...packSheets,
+    businessGoals,
+    scope,
+    businessRules,
+    businessProcesses,
+    useCases,
+    nonFunctionalRequirements,
+  };
+}
+
 /**
  * Best-effort BG / SCOPE / BR / BPM / UC / NFR from overview + insights + capability + gap.
  */
@@ -73,6 +244,25 @@ function enrichSheetsFromAnalyses(pack, container) {
   let nonFunctionalRequirements = ensureArray(
     pack.nonFunctionalRequirements || pack.nfrs
   );
+
+  ({
+    businessGoals,
+    scope,
+    businessRules,
+    businessProcesses,
+    useCases,
+    nonFunctionalRequirements,
+  } = seedSheetsFromSrsProposal(
+    {
+      businessGoals,
+      scope,
+      businessRules,
+      businessProcesses,
+      useCases,
+      nonFunctionalRequirements,
+    },
+    container
+  ));
 
   const understanding = normProse(insights.understanding || '');
   const businessImpact = normProse(
@@ -209,69 +399,81 @@ function enrichSheetsFromAnalyses(pack, container) {
     });
   }
 
-  // FR leaves → lightweight UC when UC empty; fallback clarifications if no Requirement leaves
+  // FR leaves → UC links for Gate A coverage. Prefer proposal UCs; fill uncovered leaves.
   const frList = ensureArray(pack.functionalRequirements);
-  if (!useCases.length) {
-    const leaves = frList.filter((r) => {
-      const level = String(r.level || '').toLowerCase();
-      return level === 'requirement' || level === '';
-    });
-    if (leaves.length) {
-      useCases = leaves.slice(0, 30).map((fr, idx) => ({
-        externalId: `UC-${String(idx + 1).padStart(3, '0')}`,
-        title: normProse(fr.name || fr.externalId || `Use case ${idx + 1}`).slice(0, 240),
-        goal: normProse(fr.description || ''),
-        actor: normProse(fr.actor || ''),
-        precondition: normProse(fr.preconditions || ''),
-        mainFlow: normProse(fr.mainFlow || fr.description || ''),
-        alternateFlow: '',
-        exceptionFlow: normProse(fr.exceptionFlow || ''),
-        postcondition: '',
-        relatedFrIds: fr.externalId ? [String(fr.externalId)] : [],
-        relatedFr: fr.externalId || '',
-        priority: fr.priority || 'Medium',
-        status: 'Draft',
-        baNote: 'seeded:ai_what:fr',
-        customerRequirementIds: Array.isArray(fr.customerRequirementIds)
-          ? fr.customerRequirementIds
-          : [],
-        evidenceIds: Array.isArray(fr.evidenceIds) ? fr.evidenceIds : [],
-      }));
-    } else {
-      const clarifications = Array.isArray(insights.clarifications)
-        ? insights.clarifications
-        : [];
-      const fromClarifications = clarifications
-        .map((c) => normProse(c.text || ''))
-        .filter((t) => t.length >= 3)
-        .slice(0, 20);
-      const fallbackTexts =
-        fromClarifications.length > 0
-          ? fromClarifications
-          : understanding
-            ? [understanding.slice(0, 400)]
-            : [];
-      useCases = fallbackTexts.map((text, idx) => ({
-        externalId: `UC-${String(idx + 1).padStart(3, '0')}`,
-        title: text.slice(0, 240),
-        goal: text.slice(0, 4000),
-        actor: '',
-        precondition: '',
-        mainFlow: text.slice(0, 4000),
-        alternateFlow: '',
-        exceptionFlow: '',
-        postcondition: '',
-        relatedFrIds: [],
-        relatedFr: '',
-        priority: clarifications[idx]?.priority || 'Medium',
-        status: 'Draft',
-        baNote: 'seeded:ai_what:clarification',
-        customerRequirementIds: [],
-        evidenceIds: Array.isArray(clarifications[idx]?.evidenceIds)
-          ? clarifications[idx].evidenceIds
-          : [],
-      }));
+  const leaves = frList.filter((r) => {
+    const level = String(r.level || '').toLowerCase();
+    return level === 'requirement' || level === '';
+  });
+  const coveredFrIds = new Set();
+  for (const uc of useCases) {
+    for (const id of Array.isArray(uc.relatedFrIds) ? uc.relatedFrIds : []) {
+      if (id) coveredFrIds.add(String(id).trim());
     }
+    if (uc.relatedFr) coveredFrIds.add(String(uc.relatedFr).trim());
+  }
+  const uncoveredLeaves = leaves.filter((fr) => {
+    const id = String(fr.externalId || fr.id || '').trim();
+    return id && !coveredFrIds.has(id);
+  });
+
+  if (uncoveredLeaves.length) {
+    const startIdx = useCases.length;
+    const fromFr = uncoveredLeaves.map((fr, idx) => ({
+      externalId: `UC-${String(startIdx + idx + 1).padStart(3, '0')}`,
+      title: normProse(fr.name || fr.externalId || `Use case ${startIdx + idx + 1}`).slice(
+        0,
+        240
+      ),
+      goal: normProse(fr.description || ''),
+      actor: normProse(fr.actor || ''),
+      precondition: normProse(fr.preconditions || ''),
+      mainFlow: normProse(fr.mainFlow || fr.description || ''),
+      alternateFlow: '',
+      exceptionFlow: normProse(fr.exceptionFlow || ''),
+      postcondition: '',
+      relatedFrIds: fr.externalId ? [String(fr.externalId)] : [],
+      relatedFr: fr.externalId || '',
+      priority: fr.priority || 'Medium',
+      status: 'Draft',
+      baNote: 'seeded:ai_what:fr',
+      customerRequirementIds: Array.isArray(fr.customerRequirementIds)
+        ? fr.customerRequirementIds
+        : [],
+      evidenceIds: Array.isArray(fr.evidenceIds) ? fr.evidenceIds : [],
+    }));
+    useCases = useCases.concat(fromFr);
+  } else if (!useCases.length) {
+    const fromClarifications = clarifications
+      .map((c) => normProse(c.text || ''))
+      .filter((t) => t.length >= 3)
+      .slice(0, 20);
+    const fallbackTexts =
+      fromClarifications.length > 0
+        ? fromClarifications
+        : understanding
+          ? [understanding.slice(0, 400)]
+          : [];
+    useCases = fallbackTexts.map((text, idx) => ({
+      externalId: `UC-${String(idx + 1).padStart(3, '0')}`,
+      title: text.slice(0, 240),
+      goal: text.slice(0, 4000),
+      actor: '',
+      precondition: '',
+      mainFlow: text.slice(0, 4000),
+      alternateFlow: '',
+      exceptionFlow: '',
+      postcondition: '',
+      relatedFrIds: [],
+      relatedFr: '',
+      priority: clarifications[idx]?.priority || 'Medium',
+      status: 'Draft',
+      baNote: 'seeded:ai_what:clarification',
+      customerRequirementIds: [],
+      evidenceIds: Array.isArray(clarifications[idx]?.evidenceIds)
+        ? clarifications[idx].evidenceIds
+        : [],
+    }));
   }
 
   // BPM from BR when empty
@@ -492,5 +694,7 @@ module.exports = {
   applyProposedSrsToPack,
   applyDeltasToFrList,
   enrichSheetsFromAnalyses,
+  seedSheetsFromSrsProposal,
+  relatedFrIdsFromProposalUc,
   acceptAllHierarchyProposals,
 };

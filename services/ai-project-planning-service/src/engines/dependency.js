@@ -1,6 +1,8 @@
 /**
- * Dependency analysis — edges from task order / explicit dependsOn.
+ * Dependency analysis — SRS FS first, then explicit dependsOn, then same-area heuristic.
  */
+
+const { buildDependencyEdgesFromSrs } = require('./dependencyFromSrs');
 
 function slugPart(raw) {
   return String(raw || '')
@@ -29,13 +31,14 @@ function parseDependsOn(task) {
   return [];
 }
 
-/**
- * Build edges: explicit dependsOn first, then sequential order within same area.
- */
-function buildHeuristicDependencyEdges(tasks = []) {
+function edgeKey(e) {
+  return `${e.from}->${e.to}`;
+}
+
+function buildExplicitDependsOnEdges(tasks = [], startIdx = 0) {
   const edges = [];
   const known = new Set(tasks.map((t, i) => taskId(t, i)).filter(Boolean));
-  let idx = 0;
+  let idx = startIdx;
 
   for (let i = 0; i < tasks.length; i += 1) {
     const task = tasks[i];
@@ -57,10 +60,17 @@ function buildHeuristicDependencyEdges(tasks = []) {
       });
     }
   }
+  return { edges, nextIdx: idx };
+}
 
+function buildSameAreaHeuristicEdges(tasks = [], existingKeys = new Set(), startIdx = 0) {
+  const edges = [];
+  let idx = startIdx;
   const byArea = new Map();
   for (let i = 0; i < tasks.length; i += 1) {
     const task = tasks[i];
+    const level = String(task.level || '').toLowerCase();
+    if (level === 'epic' || level === 'feature' || level === 'story') continue;
     const id = taskId(task, i);
     const area = String(task.area || 'general').toLowerCase();
     if (!byArea.has(area)) byArea.set(area, []);
@@ -71,8 +81,8 @@ function buildHeuristicDependencyEdges(tasks = []) {
     for (let i = 1; i < list.length; i += 1) {
       const prev = list[i - 1];
       const cur = list[i];
-      const already = edges.some((e) => e.from === cur.id && e.to === prev.id);
-      if (already) continue;
+      const key = `${cur.id}->${prev.id}`;
+      if (existingKeys.has(key)) continue;
       idx += 1;
       edges.push({
         edgeId: `DEP-H-${slugPart(cur.id)}-${slugPart(prev.id)}-${idx}`,
@@ -85,10 +95,34 @@ function buildHeuristicDependencyEdges(tasks = []) {
         evidence: 'same_area_task_order',
         source: 'heuristic',
       });
+      existingKeys.add(key);
     }
   }
-
   return edges;
+}
+
+/**
+ * Single edge list: SRS → explicit → same-area (lower priority).
+ */
+function buildHeuristicDependencyEdges(tasks = [], opts = {}) {
+  const pack = opts.pack || {};
+  const planningHints = opts.planningHints || null;
+
+  const srsEdges = buildDependencyEdgesFromSrs({ tasks, pack, planningHints });
+  const keys = new Set(srsEdges.map(edgeKey));
+
+  const { edges: explicitEdges, nextIdx } = buildExplicitDependsOnEdges(tasks, srsEdges.length);
+  const merged = [...srsEdges];
+  for (const e of explicitEdges) {
+    const key = edgeKey(e);
+    if (keys.has(key)) continue;
+    keys.add(key);
+    merged.push(e);
+  }
+
+  const heuristicEdges = buildSameAreaHeuristicEdges(tasks, keys, nextIdx);
+  merged.push(...heuristicEdges);
+  return merged;
 }
 
 function buildOrderHint(tasks = [], edges = []) {
@@ -118,9 +152,11 @@ function buildOrderHint(tasks = [], edges = []) {
   return order;
 }
 
-function runDependencyEngine(container = {}) {
+function runDependencyEngine(container = {}, opts = {}) {
   const tasks = Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [];
-  const edges = buildHeuristicDependencyEdges(tasks);
+  const pack = opts.pack || container?.pack || {};
+  const planningHints = opts.planningHints || null;
+  const edges = buildHeuristicDependencyEdges(tasks, { pack, planningHints });
   const orderHint = buildOrderHint(tasks, edges);
   return {
     status: 'ready',
@@ -129,10 +165,11 @@ function runDependencyEngine(container = {}) {
     edges,
     orderHint,
     meta: {
-      source: 'heuristic',
+      source: 'srs_then_explicit_then_heuristic',
       llmCalls: 0,
       edgeCount: edges.length,
       taskCount: tasks.length,
+      srsEdgeCount: edges.filter((e) => e.source === 'srs').length,
     },
   };
 }

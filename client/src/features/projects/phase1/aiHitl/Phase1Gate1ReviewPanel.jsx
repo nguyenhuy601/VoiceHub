@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import Gate1SectionReviewTable from '../gate1/Gate1SectionReviewTable';
 import Gate1MissingSectionPanel from '../gate1/Gate1MissingSectionPanel';
+import {
+  areGate1SectionDecisionsComplete,
+  countGate1PendingDecisions,
+} from '../gate1/gate1SectionTableConfig';
+import GateAChecksPanel from '../../../requirements/GateAChecksPanel';
 
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
@@ -43,26 +48,40 @@ export default function Phase1Gate1ReviewPanel({
   packStatus = '',
   canSubmit = false,
   canApprove = false,
+  reviewLaneView = '',
   summary = null,
   busy = false,
+  /** Controlled decisions from parent (AI HITL page) — survives remount */
+  decisions: controlledDecisions = null,
+  setDecision: controlledSetDecision = null,
   t,
   onSubmit,
   onApprove,
+  onReject,
   onClose,
   showClose = false,
   showActions = true,
   className = '',
 }) {
   const underReview = packStatus === 'under_review';
-  const showApprove = underReview && canApprove;
-  // Wave A: BA may submit from draft/approved; under_review re-submit withdraws active submission
+  // Sequential lane: PO final Confirm/Reject only on po lane — never reuse BA CTA
+  const showApprove =
+    Boolean(canApprove) &&
+    (reviewLaneView === 'showPoPanel' ||
+      (!reviewLaneView && underReview));
   const activeSubmissionId = summary?.activeSubmissionId || null;
-  const showSubmit =
+  // Row actions (checkbox + Accept/Edit/Reject) — BA panel only; SoD: approver never gets BA CTA
+  const allowDecide =
     Boolean(canSubmit) &&
-    (packStatus === 'draft' ||
-      packStatus === 'approved' ||
-      packStatus === 'changes_requested' ||
-      (underReview && (Boolean(activeSubmissionId) || !canApprove)));
+    !canApprove &&
+    (reviewLaneView === 'showBaPanel' ||
+      (!reviewLaneView &&
+        (packStatus === 'draft' ||
+          packStatus === 'approved' ||
+          packStatus === 'changes_requested' ||
+          (underReview && Boolean(activeSubmissionId)))));
+  // Footer «Xác nhận duyệt» for BA only
+  const showSubmit = allowDecide;
 
   const bySection = useMemo(() => bySectionFromSummary(summary), [summary]);
   const sectionTabs = useMemo(() => {
@@ -78,7 +97,11 @@ export default function Phase1Gate1ReviewPanel({
   }, [summary, bySection]);
 
   const [activeSection, setActiveSection] = useState('');
-  const [decisions, setDecisions] = useState({});
+  const [localDecisions, setLocalDecisions] = useState({});
+  const seededReviewVersionRef = useRef(null);
+  const isControlled =
+    controlledDecisions != null && typeof controlledSetDecision === 'function';
+  const decisions = isControlled ? controlledDecisions : localDecisions;
 
   useEffect(() => {
     if (!active) return;
@@ -93,12 +116,36 @@ export default function Phase1Gate1ReviewPanel({
     });
   }, [active, sectionTabs, bySection]);
 
+  // Uncontrolled: seed from server once per reviewVersion
   useEffect(() => {
-    if (!active) setDecisions({});
-  }, [active, summary?.reviewVersion]);
+    if (isControlled) return;
+    if (!active) {
+      setLocalDecisions({});
+      seededReviewVersionRef.current = null;
+      return;
+    }
+    const version = summary?.reviewVersion ?? 0;
+    if (seededReviewVersionRef.current === version) return;
+    seededReviewVersionRef.current = version;
+    const fromServer =
+      summary?.reviewDecisions && typeof summary.reviewDecisions === 'object'
+        ? summary.reviewDecisions
+        : {};
+    setLocalDecisions({ ...fromServer });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reseed when reviewVersion changes
+  }, [active, summary?.reviewVersion, isControlled]);
 
   const readyForGate1 = summary?.readyForGate1 !== false;
   const reviewComplete = Boolean(summary?.reviewComplete);
+  const decisionsComplete = useMemo(
+    () => areGate1SectionDecisionsComplete(bySection, decisions),
+    [bySection, decisions]
+  );
+  const pendingDecisionCount = useMemo(
+    () => countGate1PendingDecisions(bySection, decisions),
+    [bySection, decisions]
+  );
+  const canConfirmSubmit = readyForGate1 && decisionsComplete;
   const conflictGate = summary?.conflictAmbiguity || null;
   const conflictBlocking = Array.isArray(conflictGate?.blocking) ? conflictGate.blocking : [];
   const conflictOpen = Boolean(conflictGate && conflictGate.passed === false && conflictBlocking.length);
@@ -115,7 +162,11 @@ export default function Phase1Gate1ReviewPanel({
   ).length;
 
   const setDecision = (logicalId, patch) => {
-    setDecisions((prev) => ({
+    if (isControlled) {
+      controlledSetDecision(logicalId, patch);
+      return;
+    }
+    setLocalDecisions((prev) => ({
       ...prev,
       [logicalId]: { ...(prev[logicalId] || {}), ...patch },
     }));
@@ -123,6 +174,7 @@ export default function Phase1Gate1ReviewPanel({
 
   const handleSubmit = () => {
     if (typeof onSubmit !== 'function') return;
+    if (!areGate1SectionDecisionsComplete(bySection, decisions)) return;
     const expectedRevisionIds = { ...(summary?.expectedRevisionIds || {}) };
     for (const [logicalId, d] of Object.entries(decisions)) {
       if (d?.revisionId) expectedRevisionIds[logicalId] = String(d.revisionId);
@@ -138,21 +190,63 @@ export default function Phase1Gate1ReviewPanel({
   return (
     <div className={className}>
       <p className="text-sm text-muted-foreground">
-        {underReview && !canApprove
+        {reviewLaneView === 'showPoPanel' || (underReview && canApprove)
           ? labelOf(
               t,
-              'requirements.phase1Gate1WaitingPo',
-              'Đã gửi duyệt. Chờ PO duyệt để sang Phase 2.'
+              'requirements.phase1Gate1PoHint',
+              'PO xem lại bản BA đã xác nhận — Xác nhận để sang Phase How, hoặc Từ chối để trả về BA.'
             )
-          : labelOf(
-              t,
-              'requirements.phase1Gate1ModalHint',
-              'BA quyết từng item (Accept/Edit/Reject). PO duyệt sau khi reviewComplete.'
-            )}
+          : underReview && !canApprove
+            ? labelOf(
+                t,
+                'requirements.phase1Gate1WaitingPo',
+                'Đã gửi duyệt. Chờ PO duyệt để sang Phase 2.'
+              )
+            : labelOf(
+                t,
+                'requirements.phase1Gate1ModalHint',
+                'BA quyết từng item (Accept/Edit/Reject). Xác nhận duyệt để chuyển PO.'
+              )}
       </p>
+      {reviewLaneView === 'showPoPanel' && activeSubmissionId ? (
+        <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-900 dark:text-emerald-100">
+          <p className="font-medium">
+            {labelOf(
+              t,
+              'requirements.phase1Gate1BaSubmissionBanner',
+              'Bản BA đã gửi duyệt — xem quyết định từng section (chỉ đọc), rồi Xác nhận hoặc Từ chối.'
+            )}
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            {labelOf(t, 'requirements.phase1Gate1SubmissionId', 'Submission')}:{' '}
+            {activeSubmissionId}
+            {summary?.activeReviewId
+              ? ` · ${labelOf(t, 'requirements.phase1Gate1ReviewId', 'Review')}: ${summary.activeReviewId}`
+              : ''}
+          </p>
+        </div>
+      ) : null}
+      {summary?.gateA ? (
+        <div className="mt-3">
+          <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {labelOf(t, 'requirements.gateAPanelTitle', 'Gate A — chất lượng requirement')}
+          </p>
+          <GateAChecksPanel gateA={summary.gateA} t={t} />
+        </div>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
         <span>readyForGate1: {readyForGate1 ? 'true' : 'false'}</span>
         <span>reviewComplete: {reviewComplete ? 'true' : 'false'}</span>
+        {showSubmit && pendingDecisionCount > 0 ? (
+          <span className="font-medium text-amber-800 dark:text-amber-200">
+            {labelOf(
+              t,
+              'requirements.phase1Gate1PendingDecisions',
+              'Còn {count} dòng chưa quyết định (mọi section)',
+              { count: pendingDecisionCount }
+            )}
+          </span>
+        ) : null}
         {missingCount > 0 ? (
           <span>
             {labelOf(t, 'requirements.phase1Gate1MissingTabs', '{count} section thiếu dữ liệu', {
@@ -236,7 +330,7 @@ export default function Phase1Gate1ReviewPanel({
           rows={activeRows}
           decisions={decisions}
           setDecision={setDecision}
-          showSubmit={showSubmit}
+          showSubmit={allowDecide}
           busy={busy}
           t={t}
         />
@@ -265,22 +359,49 @@ export default function Phase1Gate1ReviewPanel({
           {showSubmit ? (
             <button
               type="button"
-              disabled={busy || !readyForGate1}
+              disabled={busy || !canConfirmSubmit}
               onClick={handleSubmit}
+              title={
+                !decisionsComplete
+                  ? labelOf(
+                      t,
+                      'requirements.phase1Gate1ConfirmBlockedHint',
+                      'Quyết định đủ mọi dòng ở tất cả section trước khi xác nhận duyệt'
+                    )
+                  : !readyForGate1
+                    ? labelOf(
+                        t,
+                        'requirements.phase1Gate1NotReadyHint',
+                        'Chưa sẵn sàng Gate 1 (readyForGate1=false)'
+                      )
+                    : undefined
+              }
               className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
             >
-              {labelOf(t, 'requirements.understandingGate1Cta', 'Gửi duyệt Gate 1')}
+              {labelOf(t, 'requirements.phase1Gate1ConfirmCta', 'Xác nhận duyệt')}
             </button>
           ) : null}
           {showApprove ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onApprove}
-              className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
-            >
-              {labelOf(t, 'requirements.phase1ApproveCta', 'Duyệt Gate 1 (PO)')}
-            </button>
+            <>
+              {typeof onReject === 'function' ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onReject}
+                  className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive disabled:opacity-40"
+                >
+                  {labelOf(t, 'requirements.phase1Gate1PoRejectCta', 'Từ chối')}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onApprove}
+                className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+              >
+                {labelOf(t, 'requirements.phase1Gate1PoConfirmCta', 'Xác nhận')}
+              </button>
+            </>
           ) : null}
         </div>
       ) : null}

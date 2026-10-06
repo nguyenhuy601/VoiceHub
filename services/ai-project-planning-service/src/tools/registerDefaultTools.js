@@ -172,7 +172,8 @@ function registerDefaultTools() {
     description: 'WBS generation from analyses',
     allowedContexts: ['planning'],
     requires: PLANNING_REQUIRES,
-    timeout: 30_000,
+    // Wave M: LLM/queue WBS often 60–180s on CPU 3B — default 30s caused TOOL_TIMEOUT
+    timeout: Number(process.env.HOW_WBS_TOOL_TIMEOUT_MS) || 300_000,
     inputSchema: WbsTool.inputSchema,
     outputSchema: WbsTool.outputSchema,
     evidenceSchema: WbsTool.evidenceSchema,

@@ -290,7 +290,16 @@ async function putMemberRoles(req, res) {
     const userId = asUserId(req);
     const { projectId, memberUserId } = req.params;
     const body = req.body || {};
-    const { projectRoleKeys, boardRole, allocations, joinDate, leaveDate, billable, status } = body;
+    const {
+      projectRoleKeys,
+      boardRole,
+      allocations,
+      joinDate,
+      leaveDate,
+      billable,
+      status,
+      clearAllRoles,
+    } = body;
     if (!userId) return unauthorized(res);
     const project = await projectService.getProject({ userId, projectId });
     const canAdmin = await projectService.userCanAdminProject(userId, project);
@@ -313,6 +322,7 @@ async function putMemberRoles(req, res) {
       leaveDate,
       billable,
       status,
+      clearAllRoles: Boolean(clearAllRoles),
     });
     return res.json({ success: true, data });
   } catch (err) {

@@ -19,6 +19,7 @@ import {
   MessageCircle,
   Plus,
   Settings,
+  Shield,
   Users,
   GanttChart,
 } from 'lucide-react';
@@ -27,6 +28,7 @@ import { useWorkspaceSuite, SUITE } from '../../context/WorkspaceSuiteContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useShellLayout } from '../../context/ShellLayoutContext';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import SidebarPositionFooter from './SidebarPositionFooter';
 import {
   FIGMA_SIDEBAR,
   FIGMA_SIDEBAR_COLLAPSED,
@@ -56,14 +58,88 @@ import {
   resolveProjectOrganizationId,
   writeStoredLastOrganizationId,
 } from '../../utils/suitePathUtils';
-import { fetchProjectHubProject } from '../../features/projects/hub/useProjectHubQueries';
+import {
+  fetchProjectHubProject,
+  fetchProjectHubRoleCatalog,
+} from '../../features/projects/hub/useProjectHubQueries';
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys';
 import { coerceDeliveryPhase } from '../../utils/projectPhaseNav';
 import { isAiHitlIncomplete } from '../../features/projects/phase1/aiHitl/aiHitlNavState';
 import { loadLinkedPackForAiNav } from '../../features/projects/phase1/aiHitl/loadLinkedPackForAiNav';
+import { resolveDeliveryRoleBadges } from './profileDeliveryRoleBadge';
 
 const COLLAPSE_KEY = 'voicehub:sidebar-collapsed';
+
+/** Strip catalog prefix «Dự án —» when showing role chips. */
+function shortProjectRoleLabel(label, key = '') {
+  const raw = String(label || key || '').trim();
+  if (!raw) return key || '—';
+  return raw.replace(/^(Dự án|Project)\s*[—–\-:]\s*/i, '').trim() || raw;
+}
+
+function humanizeRoleKey(key) {
+  return String(key || '')
+    .trim()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Build display chips for the viewer's project roles (footer).
+ * Prefers delivery badges (BA/PO/PM/Tech), then catalog label, then humanized key.
+ */
+function buildViewerRoleChips(roleKeys, catalog = []) {
+  const keys = [
+    ...new Set(
+      (Array.isArray(roleKeys) ? roleKeys : [])
+        .map((k) => String(k || '').trim().toLowerCase())
+        .filter(Boolean)
+    ),
+  ];
+  if (!keys.length) return [];
+
+  const labelByKey = new Map();
+  for (const row of catalog || []) {
+    const k = String(row?.key || '').trim().toLowerCase();
+    if (!k) continue;
+    labelByKey.set(k, shortProjectRoleLabel(row.label || row.name || row.key, k));
+  }
+
+  const delivery = resolveDeliveryRoleBadges(keys);
+  const deliveryByKey = new Map(delivery.map((b) => [b.key, b]));
+  const usedShort = new Set(delivery.map((b) => b.short));
+
+  return keys.map((key) => {
+    const badge = deliveryByKey.get(key);
+    if (badge) {
+      return {
+        key,
+        label: badge.short,
+        title: labelByKey.get(key) || humanizeRoleKey(key),
+        className: badge.className,
+      };
+    }
+    const label = labelByKey.get(key) || humanizeRoleKey(key);
+    const short =
+      label.length <= 12 ? label : label.split(/\s+/)[0] || label.slice(0, 10);
+    if (usedShort.has(short)) {
+      return {
+        key,
+        label,
+        title: label,
+        className: 'bg-white/10 text-white/75 border border-white/15',
+      };
+    }
+    usedShort.add(short);
+    return {
+      key,
+      label: short,
+      title: label,
+      className: 'bg-white/10 text-white/75 border border-white/15',
+    };
+  });
+}
 
 const MODULE_ICONS = {
   overview: LayoutDashboard,
@@ -256,6 +332,27 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
     enabled: Boolean(projectId),
     staleTime: 30_000,
   });
+
+  const viewerRoleKeys = useMemo(() => {
+    const raw =
+      projectRow?.capabilities?.viewerProjectRoleKeys ||
+      projectRow?.viewerProjectRoleKeys ||
+      projectRow?.access?.membership?.projectRoleKeys ||
+      [];
+    return Array.isArray(raw) ? raw : [];
+  }, [projectRow]);
+
+  const { data: roleCatalog = [] } = useQuery({
+    queryKey: queryKeys.projectHub.roleCatalog(projectId),
+    queryFn: () => fetchProjectHubRoleCatalog(projectId),
+    enabled: Boolean(projectId) && viewerRoleKeys.length > 0,
+    staleTime: 120_000,
+  });
+
+  const viewerRoleChips = useMemo(
+    () => buildViewerRoleChips(viewerRoleKeys, roleCatalog),
+    [viewerRoleKeys, roleCatalog]
+  );
 
   const workspaceOrgId = String(
     activeWorkspace?._id || company?.id || company?._id || ''
@@ -647,7 +744,56 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
               ))}
         </nav>
 
-        <div className={FIGMA_SIDEBAR_FOOTER} />
+        <div className={FIGMA_SIDEBAR_FOOTER}>
+          {projectId && viewerRoleChips.length ? (
+            railCollapsed ? (
+              <div
+                className="flex flex-col items-center gap-1 py-0.5"
+                title={viewerRoleChips.map((c) => c.title || c.label).join(' · ')}
+              >
+                <Shield size={14} className="text-white/35" aria-hidden />
+                {viewerRoleChips.slice(0, 2).map((chip) => (
+                  <span
+                    key={chip.key}
+                    className={`inline-flex max-w-full truncate rounded px-1 py-0.5 text-[0.55rem] font-bold tracking-wide ${chip.className}`}
+                  >
+                    {chip.label}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="px-1.5 py-1">
+                <div className="mb-1 flex items-center gap-1.5 text-[0.55rem] font-bold uppercase tracking-wider text-white/25">
+                  <Shield size={10} aria-hidden />
+                  {t('nav.yourRole')}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {viewerRoleChips.map((chip) => (
+                    <span
+                      key={chip.key}
+                      title={chip.title}
+                      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[0.625rem] font-bold tracking-wide ${chip.className}`}
+                    >
+                      {chip.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )
+          ) : projectId && !railCollapsed ? (
+            <div className="px-1.5 py-1">
+              <div className="mb-0.5 flex items-center gap-1.5 text-[0.55rem] font-bold uppercase tracking-wider text-white/25">
+                <Shield size={10} aria-hidden />
+                {t('nav.yourRole')}
+              </div>
+              <p className="text-[0.625rem] text-white/35">
+                {t('nav.projectRoleUnassigned') || 'Chưa gán vai trò dự án'}
+              </p>
+            </div>
+          ) : !projectId ? (
+            <SidebarPositionFooter collapsed={railCollapsed} wrap={false} />
+          ) : null}
+        </div>
       </div>
     </>
   );

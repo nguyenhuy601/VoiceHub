@@ -13,7 +13,7 @@ import { adminUserAPI } from '../../services/api/adminUserAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { memberUserId, unwrapApi } from '../../utils/adminUserUtils';
+import { authSummaryStatusLabel, memberUserId, unwrapApi } from '../../utils/adminUserUtils';
 
 export default function UserLockPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -67,7 +67,9 @@ export default function UserLockPanel({ orgId }) {
     }
   };
 
-  const isLocked = summary?.isActive === false;
+  // isLocked = admin deactivate (isActive=false) hoặc rate-lock spam MK (lockUntil).
+  const isLocked = Boolean(summary?.isLocked);
+  const isAdminInactive = summary?.isActive === false;
 
   return (
     <AdminUserPanelShell title={t('adminDomains.users.lock')} hint={t('adminUsers.lockHint')} wide>
@@ -86,7 +88,7 @@ export default function UserLockPanel({ orgId }) {
                     : 'bg-emerald-500/12 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300'
                 }`}
               >
-                {isLocked ? t('adminUsers.statusInactive') : t('adminUsers.statusActive')}
+                {authSummaryStatusLabel(summary, t)}
               </span>
             </div>
           ) : (
@@ -95,7 +97,7 @@ export default function UserLockPanel({ orgId }) {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={!userId || busy || isLocked}
+              disabled={!userId || busy || isAdminInactive}
               className={adminDangerBtnClass()}
               onClick={() => toggleLock(true)}
             >

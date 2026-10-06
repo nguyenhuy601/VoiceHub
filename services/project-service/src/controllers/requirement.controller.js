@@ -313,7 +313,16 @@ async function approvePack(req, res) {
     const organizationId = resolveOrgId(req);
     const userId = resolveUserId(req);
     const packId = String(req.params.packId || '').trim();
-    const pack = await approveRequirementPack({ userId, organizationId, packId });
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const pack = await approveRequirementPack({
+      userId,
+      organizationId,
+      packId,
+      forceApprove: Boolean(body.forceApprove),
+      overrideReason: body.overrideReason || body.reason || '',
+      note: body.note || body.notes || '',
+      contextProjectId: body.projectId || null,
+    });
     return res.json({ success: true, data: pack });
   } catch (err) {
     return jsonError(res, err);
@@ -330,6 +339,7 @@ async function rejectPack(req, res) {
       organizationId,
       packId,
       reason: req.body?.reason,
+      contextProjectId: req.body?.projectId || null,
     });
     return res.json({ success: true, data: pack });
   } catch (err) {
@@ -355,6 +365,10 @@ async function createProjectFromPack(req, res) {
       title: req.body?.title,
       importWorkItems: Boolean(req.body?.importWorkItems),
       leafAssignments: req.body?.leafAssignments,
+      applyAssignees: req.body?.applyAssignees !== false,
+      forceApprove: Boolean(req.body?.forceApprove),
+      overrideReason: String(req.body?.overrideReason || '').trim(),
+      idempotencyKey: req.body?.idempotencyKey || null,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -530,6 +544,9 @@ async function confirmAiAnalysisPhase(req, res) {
       organizationId,
       packId,
       phase: req.body?.phase || 'how',
+      action: req.body?.action,
+      note: req.body?.note || req.body?.reason || '',
+      reviewDecisions: req.body?.reviewDecisions,
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -566,6 +583,7 @@ async function startPhaseAiPlanning(req, res) {
       decision: req.body?.decision || '',
       runId: req.body?.runId || '',
       parentRunId: req.body?.parentRunId || '',
+      contextProjectId: req.body?.projectId || null,
       idempotencyKey,
     });
     const httpStatus = Number(data?.httpStatus) === 200 ? 200 : 202;

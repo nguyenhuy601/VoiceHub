@@ -127,7 +127,16 @@ async function putMemberRoles(req, res) {
     const userId = asUserId(req);
     const { boardId, memberUserId } = req.params;
     const body = req.body || {};
-    const { projectRoleKeys, boardRole, allocations, joinDate, leaveDate, billable, status } = body;
+    const {
+      projectRoleKeys,
+      boardRole,
+      allocations,
+      joinDate,
+      leaveDate,
+      billable,
+      status,
+      clearAllRoles,
+    } = body;
     await requireBoardAdmin(boardId, userId);
     const data = await setUserProjectRoles({
       boardId,
@@ -140,6 +149,7 @@ async function putMemberRoles(req, res) {
       leaveDate,
       billable,
       status,
+      clearAllRoles: Boolean(clearAllRoles),
     });
     return res.json({ success: true, data });
   } catch (err) {

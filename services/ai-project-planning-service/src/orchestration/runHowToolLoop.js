@@ -82,7 +82,13 @@ async function runHowToolLoop(opts = {}) {
       await opts.onToolStart({ index: i, toolName });
     }
     const stepStarted = Date.now();
-    const toolContext = buildToolContext({ pack, toolData, container });
+    const toolContext = buildToolContext({
+      pack,
+      toolData,
+      container,
+      runId: opts.runId || null,
+      generationId: opts.generationId || opts.runId || null,
+    });
     toolContext.container = container;
     const input = buildToolInput({ container, pack, toolData, snapshotId });
     const toolOut = await invokeTool(toolName, input, toolContext);

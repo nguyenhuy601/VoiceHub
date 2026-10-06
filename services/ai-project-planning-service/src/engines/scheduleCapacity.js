@@ -3,6 +3,7 @@
  */
 const { greedyAssignFromShortlists } = require('./assignment');
 const { buildTaskGraph } = require('./sequencingCpm');
+const { levelScheduleAroundCriticalPath } = require('./scheduleFloatLeveling');
 
 const DAILY_CAP_HOURS = 8;
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -57,6 +58,54 @@ function isMilestoneTask(task) {
   return area === 'milestone' || type === 'milestone';
 }
 
+function isLeafTaskForSchedule(task) {
+  const level = String(task?.level || 'task').toLowerCase();
+  return level !== 'epic' && level !== 'feature' && level !== 'story';
+}
+
+/** Critical ids from CPM + explicit list — used for ready-queue priority. */
+function resolveCriticalTaskIds({ criticalWorkIds = [], theoreticalCpm = null, tasks = [] } = {}) {
+  const ids = new Set((criticalWorkIds || []).map(String).filter(Boolean));
+  const cpm = theoreticalCpm || {};
+  for (const id of cpm.criticalPath || []) ids.add(String(id));
+  const nodes = Array.isArray(cpm.tasks)
+    ? cpm.tasks
+    : Array.isArray(cpm.nodes)
+      ? cpm.nodes
+      : [];
+  for (const node of nodes) {
+    const id = String(node.id || node.workId || node.taskId || '');
+    if (!id) continue;
+    const totalFloat = Number(node.totalFloat);
+    if (node.critical === true || node.isCritical === true || totalFloat === 0) {
+      ids.add(id);
+    }
+  }
+  for (const task of tasks || []) {
+    const id = String(task?.id || task?.taskId || '');
+    if (!id) continue;
+    if (task.critical === true || task.isCritical === true) ids.add(id);
+  }
+  return ids;
+}
+
+function lateFinishByTask(theoreticalCpm) {
+  const map = new Map();
+  const cpm = theoreticalCpm || {};
+  const nodes = Array.isArray(cpm.tasks)
+    ? cpm.tasks
+    : Array.isArray(cpm.nodes)
+      ? cpm.nodes
+      : [];
+  for (const node of nodes) {
+    const id = String(node.id || node.workId || node.taskId || '');
+    if (!id) continue;
+    const lf = Number(node.lateFinish ?? node.LF ?? node.lf);
+    if (Number.isFinite(lf)) map.set(id, lf);
+  }
+  return map;
+}
+
 function packScheduleCapacity({
   tasks = [],
   edges = [],
@@ -65,13 +114,28 @@ function packScheduleCapacity({
   projectDeadline = null,
   meetingHoursByUserDay = null,
   calendar = null,
+  criticalWorkIds = [],
+  theoreticalCpm = null,
 } = {}) {
   const start = nextWorkingDay(toDateKey(projectStart) || toDateKey(new Date()), calendar);
   const deadlineKey = toDateKey(projectDeadline);
-  const taskById = new Map(tasks.map((task) => [String(task.id || task.taskId), task]));
   const assignmentByTask = new Map(assignments.map((item) => [String(item.taskId), item]));
-  const { preds } = buildTaskGraph(tasks, edges);
-  const pending = new Set([...taskById.keys()].filter((id) => assignmentByTask.has(id)));
+  const schedulableTasks = (tasks || []).filter((task) => {
+    const id = String(task.id || task.taskId || '');
+    if (!id || !assignmentByTask.has(id)) return false;
+    return isLeafTaskForSchedule(task);
+  });
+  const taskById = new Map(
+    schedulableTasks.map((task) => [String(task.id || task.taskId), task])
+  );
+  const criticalIds = resolveCriticalTaskIds({
+    criticalWorkIds,
+    theoreticalCpm,
+    tasks: schedulableTasks,
+  });
+  const lfByTask = lateFinishByTask(theoreticalCpm);
+  const { preds } = buildTaskGraph(schedulableTasks, edges);
+  const pending = new Set([...taskById.keys()]);
   const finished = new Set();
   const finishByTask = new Map();
   const used = new Map();
@@ -79,17 +143,39 @@ function packScheduleCapacity({
   const taskDates = {};
   const capacityConflicts = [];
 
+  function compareReady(a, b) {
+    // Critical-path first (standard RCPSP heuristic), then earliest late-finish, then id
+    const aC = criticalIds.has(a) ? 0 : 1;
+    const bC = criticalIds.has(b) ? 0 : 1;
+    if (aC !== bC) return aC - bC;
+    const aLf = lfByTask.has(a) ? lfByTask.get(a) : Number.POSITIVE_INFINITY;
+    const bLf = lfByTask.has(b) ? lfByTask.get(b) : Number.POSITIVE_INFINITY;
+    if (aLf !== bLf) return aLf - bLf;
+    const aH = Number(taskById.get(a)?.effortHours) || 0;
+    const bH = Number(taskById.get(b)?.effortHours) || 0;
+    if (bH !== aH) return bH - aH;
+    return a.localeCompare(b);
+  }
+
   let guard = 0;
   const maxIterations = pending.size * 40 + 10;
   while (pending.size && guard < maxIterations) {
     guard += 1;
     let progressed = false;
-    for (const taskId of [...pending].sort()) {
-      if ([...(preds.get(taskId) || [])].some((id) => !finished.has(id))) continue;
+    const ready = [...pending]
+      .filter((taskId) => {
+        const blockingPreds = [...(preds.get(taskId) || [])].filter((id) => taskById.has(id));
+        return !blockingPreds.some((id) => !finished.has(id));
+      })
+      .sort(compareReady);
+
+    for (const taskId of ready) {
+      if (!pending.has(taskId)) continue;
+      const blockingPreds = [...(preds.get(taskId) || [])].filter((id) => taskById.has(id));
       const assignment = assignmentByTask.get(taskId);
       let remaining = Math.max(0, Number(taskById.get(taskId)?.effortHours) || 0);
       let day = start;
-      for (const predecessor of preds.get(taskId) || []) {
+      for (const predecessor of blockingPreds) {
         if ((finishByTask.get(predecessor) || '') > day) day = finishByTask.get(predecessor);
       }
       day = nextWorkingDay(day, calendar);
@@ -116,6 +202,7 @@ function packScheduleCapacity({
               dateKey: day,
               remainingHours: Math.round(remaining * 100) / 100,
               meetingHours,
+              critical: criticalIds.has(taskId),
             });
           }
           day = nextWorkingDay(addDays(day, 1), calendar);
@@ -132,6 +219,7 @@ function packScheduleCapacity({
           meetingHours,
           dailyCap: DAILY_CAP_HOURS,
           usedAfter: Math.round((used.get(key) + meetingHours) * 100) / 100,
+          ...(criticalIds.has(taskId) ? { critical: true } : {}),
         });
         firstDay ||= day;
         remaining -= hours;
@@ -143,9 +231,16 @@ function packScheduleCapacity({
           taskId,
           userId: assignment.userId,
           remainingHours: Math.round(remaining * 100) / 100,
+          critical: criticalIds.has(taskId),
         });
       }
-      if (firstDay) taskDates[taskId] = { startDate: firstDay, dueDate: day };
+      if (firstDay) {
+        taskDates[taskId] = {
+          startDate: firstDay,
+          dueDate: day,
+          ...(criticalIds.has(taskId) ? { critical: true } : {}),
+        };
+      }
       finishByTask.set(taskId, day);
       finished.add(taskId);
       pending.delete(taskId);
@@ -199,6 +294,7 @@ function packScheduleCapacity({
       scheduleRowCount: schedule.length,
       capacityConflictCount: capacityConflicts.length,
       milestoneCount: milestones.length,
+      criticalTaskCount: [...criticalIds].filter((id) => taskById.has(id)).length,
     },
   };
 }
@@ -245,27 +341,75 @@ function longestCalendarPath(ids, preds, finishByTask) {
 }
 
 function runScheduleCapacity(container, options = {}) {
+  let theoreticalCpm = container?.planning?.theoreticalCpm || options.theoreticalCpm || null;
+  if (!theoreticalCpm || !Array.isArray(theoreticalCpm.nodes || theoreticalCpm.tasks)) {
+    try {
+      const { runSequencingCpm } = require('./sequencingCpm');
+      const seq = runSequencingCpm(container);
+      theoreticalCpm = seq.theoreticalCpm;
+    } catch {
+      theoreticalCpm = theoreticalCpm || null;
+    }
+  }
+
+  const criticalWorkIds =
+    options.criticalWorkIds ||
+    container?.planning?.criticalWorkIds ||
+    theoreticalCpm?.criticalPath ||
+    [];
+
   const assignments = options.assignments || greedyAssignFromShortlists(
     container?.resource?.recommendations || [],
-    { maxTasksPerUser: options.maxTasksPerUser || 12 }
+    {
+      maxTasksPerUser: options.maxTasksPerUser || 12,
+      tasks: container?.planning?.tasks || [],
+      featureOwners: container?.resource?.featureOwners || [],
+      criticalWorkIds,
+    }
   );
+  const packed = packScheduleCapacity({
+    tasks: container?.planning?.tasks || [],
+    edges: container?.analyses?.dependency?.edges || [],
+    assignments,
+    projectStart: options.projectStart,
+    projectDeadline: options.projectDeadline || options.deadline || null,
+    meetingHoursByUserDay:
+      options.meetingHoursByUserDay && typeof options.meetingHoursByUserDay === 'object'
+        ? options.meetingHoursByUserDay
+        : {},
+    calendar: options.calendar,
+    criticalWorkIds,
+    theoreticalCpm,
+  });
+
+  const pastDeadline = (packed.capacityConflicts || []).some((c) => c.type === 'past_deadline');
+
+  const leveled = levelScheduleAroundCriticalPath({
+    schedule: packed.schedule,
+    taskDates: packed.taskDates,
+    theoreticalCpm,
+    completion: packed.completion,
+    dailyCapHours: DAILY_CAP_HOURS,
+    pastDeadline,
+    projectDeadline: packed.completion?.deadline || null,
+  });
+
   return {
     status: 'ready',
     model: null,
     generatedAt: new Date().toISOString(),
     assignments,
-    ...packScheduleCapacity({
-      tasks: container?.planning?.tasks || [],
-      edges: container?.analyses?.dependency?.edges || [],
-      assignments,
-      projectStart: options.projectStart,
-      projectDeadline: options.projectDeadline || options.deadline || null,
-      meetingHoursByUserDay:
-        options.meetingHoursByUserDay && typeof options.meetingHoursByUserDay === 'object'
-          ? options.meetingHoursByUserDay
-          : {},
-      calendar: options.calendar,
-    }),
+    schedule: leveled.schedule,
+    taskDates: leveled.taskDates,
+    capacityConflicts: packed.capacityConflicts,
+    milestones: packed.milestones,
+    completion: leveled.completion,
+    theoreticalCpm,
+    meta: {
+      ...packed.meta,
+      leveledCount: leveled.leveledCount || 0,
+      pastDeadline,
+    },
   };
 }
 
@@ -299,13 +443,16 @@ function applyScheduleCapacityToContainer(container, result) {
       ...(container?.planning || {}),
       completion: result.completion,
       milestones: Array.isArray(result.milestones) ? result.milestones : [],
-      tasks: (container?.planning?.tasks || []).map((task) => ({
-        ...task,
-        startDate:
-          taskDates[String(task?.id || task?.taskId || '').trim()]?.startDate || null,
-        dueDate:
-          taskDates[String(task?.id || task?.taskId || '').trim()]?.dueDate || null,
-      })),
+      tasks: (container?.planning?.tasks || []).map((task) => {
+        const tid = String(task?.id || task?.taskId || '').trim();
+        const dates = taskDates[tid] || {};
+        return {
+          ...task,
+          startDate: dates.startDate || null,
+          dueDate: dates.dueDate || null,
+          ...(dates.leveled ? { leveled: true } : {}),
+        };
+      }),
     },
     resource: {
       ...(container?.resource || {}),
@@ -316,6 +463,9 @@ function applyScheduleCapacityToContainer(container, result) {
         : [],
     },
   };
+  if (result.theoreticalCpm && !next.planning.theoreticalCpm) {
+    next.planning.theoreticalCpm = result.theoreticalCpm;
+  }
   if (result.meta && typeof result.meta === 'object') {
     next.resource.assignmentsMeta = {
       ...(next.resource.assignmentsMeta || {}),
@@ -327,10 +477,12 @@ function applyScheduleCapacityToContainer(container, result) {
 
 module.exports = {
   DAILY_CAP_HOURS,
+  isLeafTaskForSchedule,
   toDateKey,
   packScheduleCapacity,
   longestCalendarPath,
   taskDatesFromSchedule,
+  resolveCriticalTaskIds,
   runScheduleCapacity,
   applyScheduleCapacityToContainer,
   utcNoon,

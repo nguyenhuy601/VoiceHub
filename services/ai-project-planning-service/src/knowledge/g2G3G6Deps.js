@@ -44,13 +44,26 @@ const G2_SOURCE_FIELD_MANIFEST = Object.freeze({
     'performance',
     'isActive',
     'employeeCode',
+    'projectCount',
+    'resourceConfig',
+    'maxConcurrentProjects',
+    'history',
   ]),
   skill_catalog: Object.freeze(['version', 'skills']),
   org_calendar: Object.freeze(['workingCalendar', 'holidays']),
+  /**
+   * View on verified UserProfile.projectExperiences (not a separate DB load).
+   * Origins: cv_parse (personal CV) | closed_board (project/board close) | excel_import | manual.
+   * SNAP also pins derived bookedHoursByUserDay (allocation × calendar) — not a G2 source id.
+   */
   project_history: Object.freeze([
     'role',
     'domain',
     'months',
+    'projectName',
+    'work',
+    'source',
+    'year',
   ]),
 });
 

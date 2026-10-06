@@ -310,6 +310,8 @@ async function runHowPhase({
       pack: pinnedPack,
       toolData: pinnedToolData,
       snapshotId,
+      runId,
+      generationId: runId,
       budget,
       startedAt,
       baseIteration: history.length,

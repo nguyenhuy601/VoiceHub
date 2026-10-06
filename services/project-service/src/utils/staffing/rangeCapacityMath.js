@@ -73,6 +73,8 @@ function computeUserRangeCapacity({
     availableHours,
     peakAllocatedPct,
     avgAvailablePct,
+    /** Alias for HOW matching engine (legacy reader key). */
+    availablePctAvg: avgAvailablePct,
     availability: classifyAvailability(peakAllocatedPct),
   };
 }

@@ -307,6 +307,21 @@ services:
       - AGENT_CORE_HITL_INTERRUPT=${AGENT_CORE_HITL_INTERRUPT:-0}
       - JEV_CONTROL=${JEV_CONTROL:-0}
       - AGENT_CORE_LG_MEMORY=${AGENT_CORE_LG_MEMORY:-1}
+      - HOW_WBS_LLM=${HOW_WBS_LLM:-0}
+      - HOW_WBS_LLM_QUEUE=${HOW_WBS_LLM_QUEUE:-0}
+      - HOW_WBS_LLM_NUM_CTX=${HOW_WBS_LLM_NUM_CTX:-1536}
+      - HOW_WBS_LLM_TIMEOUT_MS=${HOW_WBS_LLM_TIMEOUT_MS:-240000}
+      - HOW_WBS_LLM_MAX_LEAVES_PER_FR=${HOW_WBS_LLM_MAX_LEAVES_PER_FR:-4}
+      - HOW_WBS_LLM_MAX_FR=${HOW_WBS_LLM_MAX_FR:-48}
+      - HOW_WBS_LLM_MAX_FR_FOR_CALL=${HOW_WBS_LLM_MAX_FR_FOR_CALL:-3}
+      - HOW_WBS_LLM_MAX_CHUNKS=${HOW_WBS_LLM_MAX_CHUNKS:-16}
+      - HOW_WBS_LLM_CACHE=${HOW_WBS_LLM_CACHE:-1}
+      - HOW_WBS_LLM_CACHE_TTL_SEC=${HOW_WBS_LLM_CACHE_TTL_SEC:-604800}
+      - HOW_WBS_TOOL_TIMEOUT_MS=${HOW_WBS_TOOL_TIMEOUT_MS:-900000}
+      - HOW_WBS_LLM_JOB_TIMEOUT_MS=${HOW_WBS_LLM_JOB_TIMEOUT_MS:-1800000}
+      - HOW_WBS_LLM_JOB_STALE_MS=${HOW_WBS_LLM_JOB_STALE_MS:-1900000}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - RABBITMQ_WBS_LLM_QUEUE=${RABBITMQ_WBS_LLM_QUEUE:-ai.planning.wbs_llm}
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_URL=${REDIS_URL:-}
@@ -318,6 +333,48 @@ services:
       - enterprise-network
     deploy:
       replicas: ${AI_PROJECT_PLANNING_SERVICE_REPLICAS:-1}
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+  ai-project-planning-wbs-worker:
+    image: ${AI_PROJECT_PLANNING_SERVICE_IMAGE}
+    command: ["node", "src/workers/wbsLlm.worker.js"]
+    env_file:
+      - .env
+      - ./services/ai-project-planning-service/.env
+    environment:
+      - WORKER_ROLE=wbs_llm
+      - HOW_WBS_LLM=1
+      - HOW_WBS_LLM_QUEUE=1
+      - HOW_WBS_LLM_JOB_MEMORY=0
+      - AI_PLANNING_LLM=${AI_PLANNING_LLM:-1}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - RABBITMQ_WBS_LLM_QUEUE=${RABBITMQ_WBS_LLM_QUEUE:-ai.planning.wbs_llm}
+      - RABBITMQ_QUORUM_QUEUES=${RABBITMQ_QUORUM_QUEUES:-true}
+      - HOW_WBS_LLM_NUM_CTX=${HOW_WBS_LLM_NUM_CTX:-1536}
+      - HOW_WBS_LLM_TIMEOUT_MS=${HOW_WBS_LLM_TIMEOUT_MS:-240000}
+      - HOW_WBS_LLM_MAX_LEAVES_PER_FR=${HOW_WBS_LLM_MAX_LEAVES_PER_FR:-4}
+      - HOW_WBS_LLM_MAX_FR=${HOW_WBS_LLM_MAX_FR:-48}
+      - HOW_WBS_LLM_MAX_FR_FOR_CALL=${HOW_WBS_LLM_MAX_FR_FOR_CALL:-3}
+      - HOW_WBS_LLM_MAX_CHUNKS=${HOW_WBS_LLM_MAX_CHUNKS:-16}
+      - HOW_WBS_LLM_CACHE=${HOW_WBS_LLM_CACHE:-1}
+      - HOW_WBS_LLM_CACHE_TTL_SEC=${HOW_WBS_LLM_CACHE_TTL_SEC:-604800}
+      - HOW_WBS_LLM_JOB_TIMEOUT_MS=${HOW_WBS_LLM_JOB_TIMEOUT_MS:-1800000}
+      - HOW_WBS_LLM_JOB_STALE_MS=${HOW_WBS_LLM_JOB_STALE_MS:-1900000}
+    networks:
+      - enterprise-network
+    deploy:
+      replicas: ${AI_PROJECT_PLANNING_WBS_WORKER_REPLICAS:-0}
       restart_policy:
         condition: on-failure
       resources:

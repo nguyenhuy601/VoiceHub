@@ -1,12 +1,14 @@
 /**
  * G16 Feedback parser — requirement_feedback vs planning_feedback + impact scope.
- *
- * Impact scope whitelist: requirement | WBS | architecture | resource | effort | schedule | risk
+ * Gate2 reject default: resource + schedule (Loop2 Who×When).
+ * Structure keywords → WBS/structure scope.
  */
 
 const IMPACT_SCOPE_WHITELIST = [
   'requirement',
   'WBS',
+  'wbs',
+  'structure',
   'architecture',
   'resource',
   'effort',
@@ -16,6 +18,9 @@ const IMPACT_SCOPE_WHITELIST = [
 
 const BAN_EMPLOYEE_RE =
   /\b(ban|exclude|không\s*dùng|khong\s*dung|remove|không\s*assign)\b.*\b(employee|nhân\s*viên|nhan\s*vien)\b|\b(employee|nhân\s*viên)\b.*\b(ban|exclude|không\s*dùng)\b/i;
+
+const STRUCTURE_RE =
+  /\b(wbs|cấu\s*trúc|cau\s*truc|phân\s*rã|phan\s*ra|hierarchy|epic|feature|story|decompose|structure)\b/i;
 
 /**
  * @param {object} raw
@@ -30,7 +35,7 @@ function parseFeedback(raw = {}) {
     kind = 'planning_feedback';
   }
 
-  const text = String(raw.text || raw.message || raw.comment || '').trim();
+  const text = String(raw.text || raw.message || raw.comment || raw.note || '').trim();
   const explicitScope = Array.isArray(raw.impactScope)
     ? raw.impactScope.filter((s) => IMPACT_SCOPE_WHITELIST.includes(s))
     : [];
@@ -41,12 +46,10 @@ function parseFeedback(raw = {}) {
   if (kind === 'requirement_feedback') {
     if (!impactScope.length) impactScope = ['requirement'];
   } else {
-    // planning_feedback defaults
     if (BAN_EMPLOYEE_RE.test(text) || raw.banEmployee || raw.excludeEmployeeId) {
       const scopes = new Set(impactScope);
       scopes.add('resource');
       scopes.add('schedule');
-      // matching → schedule → feasibility; not requirement
       impactScope = Array.from(scopes);
       const id =
         raw.excludeEmployeeId ||
@@ -55,8 +58,23 @@ function parseFeedback(raw = {}) {
         extractEmployeeIdHint(text);
       if (id) bannedEmployeeIds.push(String(id));
     }
+    if (STRUCTURE_RE.test(text)) {
+      const scopes = new Set(impactScope);
+      scopes.add('structure');
+      scopes.add('WBS');
+      impactScope = Array.from(scopes);
+    }
+    // Gate2 Loop2 default: rematch + reschedule; keep any structure scopes already added
     if (!impactScope.length) {
-      impactScope = ['WBS', 'resource', 'effort', 'schedule'];
+      impactScope = ['resource', 'schedule'];
+    } else if (
+      !impactScope.includes('resource') &&
+      !impactScope.includes('schedule') &&
+      (impactScope.includes('structure') ||
+        impactScope.includes('WBS') ||
+        impactScope.includes('wbs'))
+    ) {
+      impactScope = [...impactScope, 'resource', 'schedule'];
     }
   }
 
@@ -72,17 +90,17 @@ function parseFeedback(raw = {}) {
     impactScope,
     bannedEmployeeIds,
     rawText: text,
-    // AC: ban employee must NOT pull requirement understanding
     skipsRequirementUnderstanding: kind === 'planning_feedback' && bannedEmployeeIds.length > 0,
   };
 }
 
 function extractEmployeeIdHint(text) {
-  const m = String(text).match(/\b(EMP-[\w-]+|[a-f0-9]{24})\b/i);
-  return m ? m[1] : null;
+  const m = String(text || '').match(/\b(user|emp|e)[:\s-]?([a-f0-9]{8,24})\b/i);
+  return m ? m[2] : null;
 }
 
 module.exports = {
-  parseFeedback,
   IMPACT_SCOPE_WHITELIST,
+  parseFeedback,
+  extractEmployeeIdHint,
 };

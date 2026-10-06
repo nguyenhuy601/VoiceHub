@@ -10,6 +10,7 @@ const SOURCE_REASONS = Object.freeze({
   employee_pool: 'org_resource_pool_for_matching',
   skill_catalog: 'capability_whitelist_pin',
   org_calendar: 'working_calendar_holidays',
+  project_history: 'verified_pe_history_view_cv_and_closed_board',
 });
 
 /**
@@ -31,6 +32,8 @@ function resolveSources(opts = {}) {
   const out = [{ id: 'srs_pack', reason: SOURCE_REASONS.srs_pack }];
   if (includeEmployees) {
     out.push({ id: 'employee_pool', reason: SOURCE_REASONS.employee_pool });
+    // Document-as-view (no extra fetch) — PE verified: cv_parse + closed_board
+    out.push({ id: 'project_history', reason: SOURCE_REASONS.project_history });
   }
   if (includeSkills) {
     out.push({ id: 'skill_catalog', reason: SOURCE_REASONS.skill_catalog });

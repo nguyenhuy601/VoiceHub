@@ -29,3 +29,32 @@ describe('ensureOrgProjectRoles upsert operators', () => {
     assert.doesNotMatch(setBody, /projectId\s*:/, '$set must not include projectId');
   });
 });
+
+describe('setUserProjectRoles clearAllRoles', () => {
+  it('has explicit clearAllRoles wipe path (empty keys default remains no-op)', () => {
+    const src = fs.readFileSync(
+      path.join(__dirname, '../src/services/projectTeam.service.js'),
+      'utf8'
+    );
+    const start = src.indexOf('async function setUserProjectRoles');
+    assert.ok(start >= 0, 'setUserProjectRoles not found');
+    const fn = src.slice(start, start + 14000);
+
+    assert.match(fn, /clearAllRoles\s*=\s*false/, 'clearAllRoles param default false');
+    assert.match(
+      fn,
+      /if\s*\(\s*clearAllRoles\s*\)\s*\{[\s\S]*?ProjectMembership\.deleteMany\(\s*\{\s*projectId:\s*pid,\s*userId/,
+      'clearAllRoles must deleteMany memberships'
+    );
+    assert.match(
+      fn,
+      /TaskBoardMember\.deleteMany/,
+      'clearAllRoles must drop board ACL so migrate cannot re-seed roles'
+    );
+    assert.match(
+      fn,
+      /\/\/ ACL-only payload[\s\S]*?if\s*\(\s*!resolvedKeys\.length\s*\)/,
+      'empty keys still guarded'
+    );
+  });
+});

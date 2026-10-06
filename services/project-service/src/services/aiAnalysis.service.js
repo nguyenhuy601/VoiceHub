@@ -251,6 +251,9 @@ async function confirmAiAnalysisJob({
   packId,
   job: jobRaw,
   phase: phaseRaw,
+  action: actionRaw = '',
+  note = '',
+  reviewDecisions = null,
   edits = null,
 }) {
   void edits;
@@ -275,33 +278,305 @@ async function confirmAiAnalysisJob({
     throw err;
   }
 
-  await assertRequirementPermission({
-    userId,
-    organizationId,
-    permission: 'requirement:run-ai-planning',
-  });
+  const packForAuthz = await loadPackForAiAnalysis({ packId, organizationId });
+  const projectId = packForAuthz?.projectId ? String(packForAuthz.projectId) : null;
 
   const {
     assertPhaseHowReadyForConfirm,
     markPhaseHowConfirmed,
     migrateJobsProjectionToPhaseRuns,
   } = require('../utils/aiAnalysis/phaseGate2');
+  const {
+    REVIEW_LANE,
+    resolveGate2ReviewLane,
+    assertActorMayActOnLane,
+    stampGate2ReviewLane,
+  } = require('../utils/aiAnalysis/gate2ReviewLane');
+  const { assertGateStampSoD } = require('../utils/phase1GatePolicy');
 
-  const pack = await loadPackForAiAnalysis({ packId, organizationId });
+  const pack = packForAuthz;
   let container = migrateJobsProjectionToPhaseRuns(ensurePackContainer(pack));
   assertPhaseHowReadyForConfirm(container);
+
+  const lane = resolveGate2ReviewLane({ ...(pack.toObject?.() || pack), aiAnalysis: container });
+  const action = String(actionRaw || '').trim().toLowerCase();
+
+  if (!action && lane === REVIEW_LANE.DONE) {
+    return {
+      phase: 'how',
+      job: 'phase_how',
+      status: 'confirmed',
+      reviewLane: REVIEW_LANE.DONE,
+      schemaVersion: pack.aiAnalysis?.schemaVersion,
+    };
+  }
+
+  // Legacy one-shot confirm (no action) while still on PM lane — wizard / older clients.
+  // Explicit HITL always sends action=pm_submit | po_approve | po_reject.
+  const effectiveAction =
+    action || (lane === REVIEW_LANE.PO ? 'po_approve' : action ? action : '');
+
+  if (!action && lane === REVIEW_LANE.PM) {
+    // No sequential action: full confirm (compat). Prefer planning:po_review, else run-ai-planning.
+    try {
+      await assertPlanningGate2Permission({
+        userId,
+        projectId,
+        permission: 'planning:po_review',
+      });
+    } catch (poErr) {
+      if (poErr?.statusCode === 403) {
+        await assertRequirementPermission({
+          userId,
+          organizationId,
+          permission: 'requirement:run-ai-planning',
+          projectId,
+        });
+      } else {
+        throw poErr;
+      }
+    }
+    container = markPhaseHowConfirmed(container);
+    container = stampGate2ReviewLane(container, REVIEW_LANE.DONE, {
+      confirmedBy: String(userId),
+      confirmedAt: new Date().toISOString(),
+    });
+    pack.aiAnalysis = container;
+    pack.aiAnalysisStatus = 'ready';
+    pack.markModified('aiAnalysis');
+    await pack.save();
+    return {
+      phase: 'how',
+      job: 'phase_how',
+      status: 'confirmed',
+      reviewLane: REVIEW_LANE.DONE,
+      schemaVersion: pack.aiAnalysis.schemaVersion,
+    };
+  }
+
+  if (!effectiveAction) {
+    const err = new Error('Gate 2 confirm cần action=pm_submit|po_approve|po_reject');
+    err.statusCode = 400;
+    err.errorCode = 'GATE2_ACTION_REQUIRED';
+    throw err;
+  }
+
+  assertActorMayActOnLane(effectiveAction, lane);
+
+  if (effectiveAction === 'pm_submit') {
+    await assertPlanningGate2Permission({
+      userId,
+      projectId,
+      permission: 'planning:pm_review',
+    });
+    const noteTrim = String(note || '').trim().slice(0, 2000);
+    const decisions =
+      reviewDecisions && typeof reviewDecisions === 'object' && !Array.isArray(reviewDecisions)
+        ? reviewDecisions
+        : {};
+    const prevVersion = Number(container?.gate2?.reviewVersion) || 0;
+    container = stampGate2ReviewLane(container, REVIEW_LANE.PO, {
+      submittedBy: String(userId),
+      submittedAt: new Date().toISOString(),
+      reviewDecisions: decisions,
+      reviewVersion: prevVersion + 1,
+      reviewComplete: true,
+      ...(noteTrim ? { submitNote: noteTrim } : {}),
+      lastRejectReason: null,
+      rejectedBy: null,
+      rejectedAt: null,
+    });
+    pack.aiAnalysis = container;
+    pack.markModified('aiAnalysis');
+    await pack.save();
+    return {
+      phase: 'how',
+      job: 'phase_how',
+      status: String(container.phaseRuns?.phase_how?.status || 'ready'),
+      reviewLane: REVIEW_LANE.PO,
+      schemaVersion: pack.aiAnalysis.schemaVersion,
+    };
+  }
+
+  if (effectiveAction === 'po_reject') {
+    await assertPlanningGate2Permission({
+      userId,
+      projectId,
+      permission: 'planning:po_review',
+    });
+    const reason = String(note || '').trim().slice(0, 2000);
+    if (!reason) {
+      const err = new Error('Cần lý do khi từ chối Gate 2');
+      err.statusCode = 400;
+      err.errorCode = 'GATE2_REJECT_REASON_REQUIRED';
+      throw err;
+    }
+    const prior = pack.aiAnalysis?.gate2 || container.gate2 || {};
+    assertGateStampSoD({
+      actorUserId: userId,
+      priorStamps: [{ userId: prior.submittedBy }],
+    });
+    container = stampGate2ReviewLane(container, REVIEW_LANE.PM, {
+      lastRejectReason: reason,
+      rejectedBy: String(userId),
+      rejectedAt: new Date().toISOString(),
+      submittedBy: null,
+      submittedAt: null,
+      reviewComplete: false,
+    });
+
+    // Loop2 selective replan (HARD-01 no Gate bypass; HARD-02 one path)
+    const howRun =
+      container.phaseRuns?.phase_how ||
+      pack.aiAnalysis?.phaseRuns?.phase_how ||
+      {};
+    const remoteRunId = String(howRun.remoteRunId || howRun.runId || '').trim();
+    let loop2 = { triggered: false };
+    if (remoteRunId) {
+      try {
+        const fb = await aiProjectPlanningClient.submitFeedback(remoteRunId, {
+          kind: 'planning_feedback',
+          source: 'gate2',
+          text: reason,
+          note: reason,
+        });
+        loop2 = {
+          triggered: fb.status >= 200 && fb.status < 300,
+          httpStatus: fb.status,
+          selectiveReplanTools: fb.data?.data?.selectiveReplanTools || null,
+        };
+        if (loop2.triggered) {
+          container.phaseRuns = {
+            ...(container.phaseRuns || {}),
+            phase_how: {
+              ...(howRun || {}),
+              status: 'pending',
+              hitl: 'gate2',
+              loop2ReplanAt: new Date().toISOString(),
+            },
+          };
+        }
+      } catch (loopErr) {
+        console.warn(
+          '[gate2] Loop2 selective replan failed',
+          loopErr?.message || loopErr
+        );
+        loop2 = { triggered: false, error: String(loopErr?.message || loopErr) };
+      }
+    }
+
+    pack.aiAnalysis = container;
+    pack.markModified('aiAnalysis');
+    await pack.save();
+    return {
+      phase: 'how',
+      job: 'phase_how',
+      status: String(container.phaseRuns?.phase_how?.status || 'ready'),
+      reviewLane: REVIEW_LANE.PM,
+      schemaVersion: pack.aiAnalysis.schemaVersion,
+      loop2,
+    };
+  }
+
+  // po_approve
+  await assertPlanningGate2Permission({
+    userId,
+    projectId,
+    permission: 'planning:po_review',
+  });
+  const prior = pack.aiAnalysis?.gate2 || container.gate2 || {};
+  assertGateStampSoD({
+    actorUserId: userId,
+    priorStamps: [{ userId: prior.submittedBy }],
+  });
+  const noteTrim = String(note || '').trim().slice(0, 2000);
   container = markPhaseHowConfirmed(container);
+  container = stampGate2ReviewLane(container, REVIEW_LANE.DONE, {
+    confirmedBy: String(userId),
+    confirmedAt: new Date().toISOString(),
+    ...(noteTrim ? { confirmNote: noteTrim } : {}),
+  });
   pack.aiAnalysis = container;
   pack.aiAnalysisStatus = 'ready';
   pack.markModified('aiAnalysis');
   await pack.save();
 
+  // Auto Phase 2 delivery: board tasks + deliveryPhase=development + P3/P4 skeleton
+  let promote = null;
+  let promoteError = null;
+  try {
+    const { autoPromoteAfterGate2PoApprove } = require('./projectPromoteFromGate2.service');
+    promote = await autoPromoteAfterGate2PoApprove({
+      userId,
+      organizationId,
+      packId,
+    });
+  } catch (promoteErr) {
+    promoteError = {
+      message: String(promoteErr?.message || promoteErr),
+      statusCode: promoteErr?.statusCode || 500,
+      errorCode: promoteErr?.errorCode || 'GATE2_PROMOTE_FAILED',
+    };
+    console.warn('[gate2] auto-promote after po_approve failed', {
+      packId: String(packId),
+      userId: String(userId),
+      message: promoteError.message,
+      errorCode: promoteError.errorCode,
+    });
+  }
+
   return {
     phase: 'how',
     job: 'phase_how',
     status: 'confirmed',
+    reviewLane: REVIEW_LANE.DONE,
     schemaVersion: pack.aiAnalysis.schemaVersion,
+    promoted: Boolean(promote?.promoted),
+    promote: promote
+      ? {
+          promoted: true,
+          projectId: String(promote.project?._id || promote.project?.projectId || ''),
+          deliveryPhase: promote.project?.deliveryPhase || 'development',
+          status: promote.project?.status || 'in_development',
+          importStats: promote.importStats || null,
+          phase34: promote.phase34 || null,
+          defaultBoardId: promote.project?.defaultBoardId || null,
+        }
+      : null,
+    promoteError,
+    project: promote?.project || null,
+    pack: promote?.pack || null,
   };
+}
+
+/**
+ * Gate2 HITL — planning:pm_review / planning:po_review on linked project.
+ */
+async function assertPlanningGate2Permission({ userId, projectId, permission }) {
+  const pid = String(projectId || '').trim();
+  const perm = String(permission || '').trim();
+  if (!pid) {
+    const err = new Error('Gate 2 cần pack gắn projectId');
+    err.statusCode = 409;
+    err.errorCode = 'GATE2_PROJECT_REQUIRED';
+    throw err;
+  }
+  const { resolveUserProjectPermissions } = require('./projectAccess.service');
+  const { hasPermission } = require('../utils/project/projectPermissionMatrix');
+  const resolved = await resolveUserProjectPermissions({ userId, projectId: pid });
+  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  if (!bypass && !hasPermission(resolved.permissions, perm)) {
+    const err = new Error(
+      perm === 'planning:pm_review'
+        ? 'Chỉ Project Manager được gửi duyệt Gate 2'
+        : 'Chỉ Product Owner được duyệt Gate 2'
+    );
+    err.statusCode = 403;
+    err.errorCode = 'GATE2_PLANNING_FORBIDDEN';
+    err.details = { permission: perm };
+    throw err;
+  }
+  return resolved;
 }
 
 async function exportAiAnalysisSheet11({ userId, organizationId, packId }) {
@@ -646,6 +921,43 @@ async function applyRemotePhaseRunResult({
   pack.markModified('aiAnalysis');
   await pack.save();
 
+  // WHAT done: write proposal sheets onto pack BEFORE Gate A (requirementTools) scoring
+  if (status === 'completed' && job === 'phase_what') {
+    try {
+      const {
+        materializeWhatToArtifacts,
+        rebuildRequirementToolsAfterMaterialize,
+      } = require('./whatRequirementPhase.service');
+      await materializeWhatToArtifacts({ userId: null, pack });
+      await rebuildRequirementToolsAfterMaterialize(pack);
+    } catch (matErr) {
+      // eslint-disable-next-line no-console
+      console.warn('[phase_what] materialize/rebuild Gate A soft-fail', {
+        packId: String(packId),
+        message: matErr.message,
+      });
+    }
+    // Sequential Gate1: AI ready → BA review lane
+    try {
+      const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+      const {
+        REVIEW_LANE,
+        stampGate1ReviewLane,
+      } = require('../utils/srsProposal/gate1ReviewLane');
+      let shell = ensureAiAnalysisContainer(pack.aiAnalysis);
+      shell = stampGate1ReviewLane(shell, REVIEW_LANE.BA);
+      pack.aiAnalysis = shell;
+      pack.markModified('aiAnalysis');
+      await pack.save();
+    } catch (laneErr) {
+      // eslint-disable-next-line no-console
+      console.warn('[phase_what] stamp reviewLane=ba soft-fail', {
+        packId: String(packId),
+        message: laneErr.message,
+      });
+    }
+  }
+
   if (status === 'completed' && pack.projectId) {
     const { notifyAiHitlGateReviewers } = require('../utils/phase1GatePolicy');
     if (job === 'phase_what') {
@@ -655,8 +967,8 @@ async function applyRemotePhaseRunResult({
         actorUserId: null,
         packId: String(packId),
         nextPermission: 'requirement:submit',
-        title: 'Gate 1 — AI đã xong, chờ BA duyệt',
-        content: 'Proposal sẵn sàng trên trang AI HITL.',
+        title: 'Gate 1 — AI đã xong, chờ BA xác nhận duyệt',
+        content: 'Output sẵn trên Monitor; mở tab Duyệt để BA xác nhận.',
         kind: 'ai_hitl_gate1_ba',
       });
     } else if (job === 'phase_how') {
@@ -764,11 +1076,34 @@ async function startPhaseAiPlanningRun({
   runId = '',
   idempotencyKey = '',
   parentRunId: parentRunIdHint = '',
+  contextProjectId = null,
 }) {
+  const RequirementPack = require('../models/RequirementPack');
+  const packMeta = await RequirementPack.findOne({
+    _id: packId,
+    organizationId,
+    isActive: true,
+  })
+    .select('projectId')
+    .lean();
+  const rawPid = contextProjectId || packMeta?.projectId || null;
+  let authzProjectId = null;
+  if (rawPid != null && rawPid !== '') {
+    if (typeof rawPid === 'object' && typeof rawPid.toHexString === 'function') {
+      authzProjectId = rawPid.toHexString();
+    } else if (typeof rawPid === 'object' && rawPid._id) {
+      authzProjectId = String(rawPid._id);
+    } else {
+      const s = String(rawPid).trim();
+      authzProjectId = s && s !== '[object Object]' ? s : null;
+    }
+  }
+
   await assertRequirementPermission({
     userId,
     organizationId,
     permission: 'requirement:run-ai-planning',
+    projectId: authzProjectId,
   });
 
   if (String(action || '').trim().toLowerCase() === 'resume_data_gate') {
@@ -971,12 +1306,93 @@ async function startPhaseAiPlanningRun({
       ...(clientKey ? { clientIdempotencyKey: clientKey } : {}),
     },
   };
+  // HOW force re-run: reset Gate2 lane → PM must re-submit after new plan
+  if (phaseJob === 'phase_how' && force) {
+    const prevGate2 =
+      container.gate2 && typeof container.gate2 === 'object' ? { ...container.gate2 } : {};
+    container.gate2 = {
+      ...prevGate2,
+      reviewLane: 'pm',
+      reviewLaneUpdatedAt: new Date().toISOString(),
+      reviewDecisions: {},
+      reviewComplete: false,
+      submittedBy: null,
+      submittedAt: null,
+      resetAt: new Date().toISOString(),
+      resetReason: 'phase_how_force_rerun',
+      resetBy: userId != null ? String(userId) : null,
+    };
+    // eslint-disable-next-line no-console
+    console.info('[phase_how] reset Gate2 review state on force re-run', {
+      packId: String(packId),
+    });
+  }
+
   // WHAT re-run: drop prior Gate1 proposal so Review UI cannot show stale Duyệt data
   if (phaseJob === 'phase_what') {
     const analyses = { ...(container.analyses || {}) };
     delete analyses.g4Understanding;
     delete analyses.srsProposal;
     container.analyses = analyses;
+
+    // Reset sequential Gate1 so BA must confirm again after AI completes (PO-triggered re-run)
+    const prevStatus = String(packForPhase.status || '').trim().toLowerCase();
+    if (prevStatus === 'under_review' || prevStatus === 'rejected') {
+      packForPhase.status = 'draft';
+    }
+    packForPhase.submittedBy = undefined;
+    packForPhase.submittedAt = undefined;
+    if (prevStatus === 'under_review') {
+      packForPhase.approvedBy = undefined;
+      packForPhase.approvedAt = undefined;
+    }
+
+    const prevGate1 = container.gate1 && typeof container.gate1 === 'object' ? { ...container.gate1 } : {};
+    const withdrawId = prevGate1.activeSubmissionId || null;
+    delete prevGate1.reviewLane;
+    delete prevGate1.reviewLaneUpdatedAt;
+    delete prevGate1.approvedAgainstSubmissionId;
+    delete prevGate1.approvedManifestHash;
+    delete prevGate1.poReapprovalRequired;
+    delete prevGate1.poApprovedAt;
+    delete prevGate1.poApprovedBy;
+    container.gate1 = {
+      ...prevGate1,
+      activeSubmissionId: null,
+      activeReviewId: null,
+      resetAt: new Date().toISOString(),
+      resetReason: force ? 'phase_what_force_rerun' : 'phase_what_rerun',
+      resetBy: userId != null ? String(userId) : null,
+    };
+
+    if (withdrawId) {
+      try {
+        const { withdrawActiveSubmission } = require('../utils/srsProposal/gate1SubmitTrust');
+        await withdrawActiveSubmission({
+          pack: {
+            _id: packForPhase._id,
+            aiAnalysis: { gate1: { activeSubmissionId: withdrawId } },
+          },
+          organizationId,
+          userId,
+          withdrawSubmissionId: withdrawId,
+        });
+      } catch (withdrawErr) {
+        // eslint-disable-next-line no-console
+        console.warn('[phase_what] withdraw GateSubmission on re-run soft-fail', {
+          packId: String(packId),
+          message: withdrawErr.message,
+        });
+      }
+    }
+
+    // eslint-disable-next-line no-console
+    console.info('[phase_what] reset Gate1 review state on re-run', {
+      packId: String(packId),
+      prevStatus,
+      nextStatus: packForPhase.status,
+      withdrewSubmission: Boolean(withdrawId),
+    });
   }
   packForPhase.aiAnalysis = container;
   packForPhase.aiAnalysisStatus = 'pending';

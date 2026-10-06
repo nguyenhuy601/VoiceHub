@@ -86,6 +86,27 @@ describe('requirementPhase1Pipeline', () => {
     assert.ok(!readiness.missing.includes('system_supplement_partial'));
   });
 
+  it('Stage1 readiness keeps system_supplement_partial when catalog has no version', () => {
+    const pack = {
+      status: 'draft',
+      aiAnalysisActiveSnapshotId: 'snap1',
+      aiAnalysis: {
+        intakeCorpus: { totalChars: 10, excerpts: [{ filename: 'a.txt', text: 'hi' }] },
+        inputDocuments: [{ documentId: 'd1', filename: 'a.txt' }],
+        skillCatalogStub: { skills: [] },
+        sources: { skillCatalog: { skillCount: 0 } },
+      },
+      functionalRequirements: [{ externalId: 'FR-1' }],
+    };
+    const readiness = buildPhase1Readiness(pack, {
+      intakeCorpusChars: 10,
+      excerptsCount: 1,
+      snapshotId: 'snap1',
+    });
+    assert.equal(readiness.systemSourcesPresent, false);
+    assert.ok(readiness.missing.includes('system_supplement_partial'));
+  });
+
   it('Stage1 readiness detects prefill when FR present', () => {
     const pack = {
       status: 'draft',

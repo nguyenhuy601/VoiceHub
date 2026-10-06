@@ -8,7 +8,11 @@ const assert = require('node:assert/strict');
 const {
   applyProposedSrsToPack,
   applyDeltasToFrList,
+  relatedFrIdsFromProposalUc,
 } = require('../src/utils/aiAnalysis/applyProposedSrsToPack');
+const {
+  projectCanonicalBundle,
+} = require('../src/utils/tools/projectCanonicalBundle');
 
 describe('applyProposedSrsToPack', () => {
   it('maps hierarchy + deltas + overview into Analysis-like sheets', () => {
@@ -132,5 +136,76 @@ describe('applyProposedSrsToPack', () => {
     assert.equal(out.businessGoals[0].externalId, 'BG-009');
     assert.equal(out.scope[0].description, 'Existing scope');
     assert.equal(out.businessRules[0].externalId, 'BR-009');
+  });
+
+  it('materializes srsProposal useCases (sourceRefs → relatedFrIds) onto pack sheets', () => {
+    const pack = {
+      overview: { requirementName: 'HR' },
+      functionalRequirements: [
+        {
+          externalId: 'CR-001',
+          level: 'Requirement',
+          name: 'Create employee',
+          acceptanceCriteria: 'Created',
+        },
+        {
+          externalId: 'CR-002',
+          level: 'Requirement',
+          name: 'Search employee',
+          acceptanceCriteria: 'Found',
+        },
+      ],
+      businessGoals: [],
+      scope: [],
+      businessRules: [],
+      businessProcesses: [],
+      useCases: [],
+      nonFunctionalRequirements: [],
+    };
+    const { pack: out, meta } = applyProposedSrsToPack(pack, {
+      analyses: {
+        hierarchy: { proposedFeatures: [], proposedRequirements: [] },
+        proposedSrs: { deltas: [] },
+        srsProposal: {
+          generated: {
+            useCases: {
+              items: [
+                {
+                  id: 'UC-1',
+                  title: 'Onboard employee',
+                  relatedFrIds: [],
+                  sourceRefs: [
+                    { externalId: 'CR-001', sheet: '03_Requirement' },
+                  ],
+                },
+              ],
+            },
+            businessGoals: {
+              items: [{ id: 'BG-1', title: 'Efficiency', description: 'Faster HR' }],
+            },
+          },
+        },
+      },
+    });
+
+    assert.ok(meta.sheetsTouched.includes('useCases'));
+    assert.ok(out.useCases.length >= 1);
+    const proposalUc = out.useCases.find((u) => u.externalId === 'UC-1');
+    assert.ok(proposalUc);
+    assert.deepEqual(proposalUc.relatedFrIds, ['CR-001']);
+    // Uncovered CR-002 gets FR→UC seed for Gate A coverage
+    assert.ok(out.useCases.some((u) => (u.relatedFrIds || []).includes('CR-002')));
+    assert.equal(out.businessGoals[0].externalId, 'BG-1');
+
+    assert.deepEqual(relatedFrIdsFromProposalUc({
+      relatedFrIds: [],
+      sourceRefs: [{ externalId: 'CR-009' }],
+    }), ['CR-009']);
+
+    const bundle = projectCanonicalBundle({ pack: out, aiAnalysis: {} });
+    const uc1 = bundle.uc.find((u) => u.id === 'UC-1');
+    assert.ok(uc1);
+    assert.ok(uc1.frIds.includes('CR-001'));
+    assert.ok(bundle.traceLinks.some((e) => e.type === 'covers' && e.to === 'CR-001'));
   });
 });

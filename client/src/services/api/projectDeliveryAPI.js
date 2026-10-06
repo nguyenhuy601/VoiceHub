@@ -30,10 +30,12 @@ export const projectDeliveryAPI = {
       ...(options.otRationale != null && String(options.otRationale).trim()
         ? { otRationale: String(options.otRationale).trim() }
         : {}),
+      ...(options.clearAllRoles ? { clearAllRoles: true } : {}),
     }),
-  setProjectMemberRoles: (projectId, memberUserId, projectRoleKeys) =>
+  setProjectMemberRoles: (projectId, memberUserId, projectRoleKeys, options = {}) =>
     apiClient.put(`${projectBase(projectId)}/members/${memberUserId}/roles`, {
       projectRoleKeys,
+      ...(options.clearAllRoles ? { clearAllRoles: true } : {}),
     }),
   listDelegation: (boardId) => apiClient.get(`${boardBase(boardId)}/delegation`),
   upsertDelegationEdge: (boardId, body) =>

@@ -151,7 +151,7 @@ export const projectAPI = {
    * @param {string} projectId
    * @param {string} memberUserId
    * @param {string[]} projectRoleKeys
-   * @param {string|{ boardRole?: string, allocations?: Array, joinDate?: string|null, leaveDate?: string|null, billable?: boolean, status?: string }} [optionsOrBoardRole]
+   * @param {string|{ boardRole?: string, allocations?: Array, joinDate?: string|null, leaveDate?: string|null, billable?: boolean, status?: string, clearAllRoles?: boolean, otOverride?: boolean, otRationale?: string }} [optionsOrBoardRole]
    */
   setMemberRoles: (projectId, memberUserId, projectRoleKeys, optionsOrBoardRole) => {
     const body = { projectRoleKeys };
@@ -169,6 +169,7 @@ export const projectAPI = {
       if (o.otRationale != null && String(o.otRationale).trim()) {
         body.otRationale = String(o.otRationale).trim();
       }
+      if (o.clearAllRoles) body.clearAllRoles = true;
     }
     return apiClient.put(
       `/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberUserId)}/roles`,

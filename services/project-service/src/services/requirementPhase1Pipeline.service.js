@@ -8,6 +8,7 @@ const RequirementPack = require('../models/RequirementPack');
 const {
   prepareUnderstandingOnly,
   materializeWhatToArtifacts,
+  rebuildRequirementToolsAfterMaterialize,
 } = require('./whatRequirementPhase.service');
 const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
 const { isRequirementReady } = require('../utils/requirement/workbookDiagnostic');
@@ -26,7 +27,7 @@ function countSheetRows(pack) {
 
 /**
  * Readiness checklist for Stage 1 (no corpus text).
- * system_supplement_partial only when skill catalog stub was never wired.
+ * system_supplement_partial when skill catalog is unwired or missing a non-empty version.
  */
 function buildPhase1Readiness(pack, stage1Meta = {}) {
   const missing = [];
@@ -56,15 +57,21 @@ function buildPhase1Readiness(pack, stage1Meta = {}) {
     missing.push('no_structured_sheets_yet');
   }
 
-  // System supplement: Part 2 wires skillCatalogStub (may be empty skills[]).
+  // System supplement: stub/sources must be wired AND carry a catalog version string.
   const sources = pack?.aiAnalysis?.sources || pack?.aiAnalysis?.projectAllSources || null;
   const stub = pack?.aiAnalysis?.skillCatalogStub;
+  const stubWired = Boolean(stub && typeof stub === 'object' && Array.isArray(stub.skills));
+  const catalogVersion = String(
+    stub?.version ||
+      sources?.skill_catalog?.version ||
+      sources?.skillCatalog?.version ||
+      ''
+  ).trim();
   const systemSourcesPresent = Boolean(
-    sources?.skill_catalog ||
-      sources?.skillCatalog ||
-      (stub && typeof stub === 'object' && Array.isArray(stub.skills))
+    catalogVersion &&
+      (stubWired || sources?.skill_catalog || sources?.skillCatalog)
   );
-  // Do not treat empty stub skills as "missing" — full org/calendar supplement is out of scope.
+  // Empty skills[] with a version is OK — org/calendar full pin is snapshot-time.
   if (!systemSourcesPresent) missing.push('system_supplement_partial');
 
   const workbookDiagnostic = pack?.aiAnalysis?.workbookDiagnostic || null;
@@ -223,13 +230,6 @@ async function runPhase1Stage2ToolsThenPropose({
   feedback = '',
   generateJsonFn = null,
 }) {
-  const { assertRequirementPermission } = require('./requirementAccess.service');
-  await assertRequirementPermission({
-    userId,
-    organizationId,
-    permission: 'requirement:run-ai-planning',
-  });
-
   const {
     assemblePhase1KnowledgeContext,
     toPersistedKnowledgeMeta,
@@ -249,6 +249,14 @@ async function runPhase1Stage2ToolsThenPropose({
     err.errorCode = 'PACK_NOT_FOUND';
     throw err;
   }
+
+  const { assertRequirementPermission } = require('./requirementAccess.service');
+  await assertRequirementPermission({
+    userId,
+    organizationId,
+    permission: 'requirement:run-ai-planning',
+    projectId: pack.projectId ? String(pack.projectId) : null,
+  });
 
   // Prefill before snapshot when Stage1 skipped / corpus empty (RULE-PREFILL-BEFORE-SNAPSHOT-01)
   const corpus = pack.aiAnalysis?.intakeCorpus;
@@ -275,6 +283,22 @@ async function runPhase1Stage2ToolsThenPropose({
     err.statusCode = 404;
     err.errorCode = 'PACK_NOT_FOUND';
     throw err;
+  }
+
+  // Hydrate Analysis sheets from srsProposal (if any) before Gate A tools
+  try {
+    const hasProposal = Boolean(pack?.aiAnalysis?.analyses?.srsProposal?.generated);
+    const ucEmpty = !Array.isArray(pack.useCases) || pack.useCases.length === 0;
+    if (hasProposal && ucEmpty) {
+      await materializeWhatToArtifacts({ userId, pack });
+      pack = await RequirementPack.findOne({ _id: packId, organizationId });
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[phase1] stage2 pre-tools materialize soft-fail', {
+      packId: String(packId),
+      message: err.message,
+    });
   }
 
   let toolsRan = false;
@@ -539,6 +563,13 @@ async function runPhase1Stage2ToolsThenPropose({
 
   const materialize = await materializeWhatToArtifacts({ userId, pack });
   const seededSkippedNoCite = Number(materialize?.meta?.seededSkippedNoCite) || 0;
+
+  // Re-score Gate A after sheets are written (proposal / FR→UC seeds)
+  const rebuilt = await rebuildRequirementToolsAfterMaterialize(pack);
+  if (rebuilt.rebuilt) {
+    toolsRan = true;
+    requirementTools = pack?.aiAnalysis?.analyses?.requirementTools || requirementTools;
+  }
 
   const gateAPassed = requirementTools?.gateA?.passed === true;
   const factsCount =

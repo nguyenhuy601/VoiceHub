@@ -96,9 +96,16 @@ function mapUc(row) {
     ['name', 'useCaseName', 'title', 'goal']
   );
   if (!base) return null;
+  const relatedFr =
+    row.relatedFr != null && String(row.relatedFr).trim()
+      ? [String(row.relatedFr).trim()]
+      : [];
   return {
     ...base,
-    frIds: asIdList(row.frIds || row.relatedFrKeys),
+    // Prefer explicit frIds; keep relatedFrIds / relatedFr (pack + srsProposal shapes)
+    frIds: asIdList(
+      row.frIds || row.relatedFrKeys || row.relatedFrIds || relatedFr || base.frIds
+    ),
     brIds: asIdList(row.brIds),
     mainFlow: String(row.mainFlow || '').trim(),
     exceptionFlow: String(row.exceptionFlow || '').trim(),

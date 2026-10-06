@@ -40,9 +40,16 @@ async function fetchUserJobTitle(userId) {
   }
 }
 
+function asObjectIdOrRaw(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (mongoose.isValidObjectId(raw)) return new mongoose.Types.ObjectId(raw);
+  return raw;
+}
+
 async function hasProjectRoleKeys(userId, organizationId, roleKeys = []) {
-  const uid = String(userId || '').trim();
-  const orgId = String(organizationId || '').trim();
+  const uid = asObjectIdOrRaw(userId);
+  const orgId = asObjectIdOrRaw(organizationId);
   const keys = Array.isArray(roleKeys) ? roleKeys.filter(Boolean) : [];
   if (!uid || !orgId || !keys.length) return false;
   if (mongoose.connection.readyState !== 1) return false;
@@ -65,6 +72,39 @@ async function hasProjectRoleKeys(userId, organizationId, roleKeys = []) {
       .select('_id')
       .lean();
     return Boolean(membership);
+  } catch {
+    return false;
+  }
+}
+
+/** True if user has one of roleKeys on a specific project (via membership → role key). */
+async function hasProjectRoleKeysOnProject(userId, projectId, roleKeys = []) {
+  const uid = asObjectIdOrRaw(userId);
+  const pid = asObjectIdOrRaw(projectId);
+  const keys = new Set(
+    (Array.isArray(roleKeys) ? roleKeys : [])
+      .map((k) => String(k || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+  if (!uid || !pid || !keys.size) return false;
+  if (mongoose.connection.readyState !== 1) return false;
+
+  try {
+    // Membership-first: roles may be org catalog (projectId null) or project clones.
+    // Do NOT filter ProjectRole by projectId — that misses catalog-backed memberships.
+    const memberships = await ProjectMembership.find({
+      projectId: pid,
+      userId: uid,
+    })
+      .select('projectRoleId')
+      .lean();
+    if (!memberships.length) return false;
+    const roleIds = memberships.map((m) => m.projectRoleId).filter(Boolean);
+    if (!roleIds.length) return false;
+    const roles = await ProjectRole.find({ _id: { $in: roleIds } })
+      .select('key')
+      .lean();
+    return roles.some((r) => keys.has(String(r?.key || '').trim().toLowerCase()));
   } catch {
     return false;
   }
@@ -150,10 +190,86 @@ async function resolveRequirementPersona(input = {}) {
   };
 }
 
+/**
+ * Pure decision — FE SoT for Gate1 project approver (role keys + analysis:po_review matrix).
+ * @param {Array<{ key?: string }>} roles
+ * @param {string[]} [approverRoleKeys]
+ * @returns {{ ok: boolean, via: string|null, roleKeys: string[] }}
+ */
+function evaluateApproverFromProjectRoles(
+  roles = [],
+  approverRoleKeys = ['product_owner', 'project_manager']
+) {
+  const keySet = new Set(
+    (Array.isArray(approverRoleKeys) ? approverRoleKeys : [])
+      .map((k) => String(k || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const list = Array.isArray(roles) ? roles : [];
+  const roleKeys = list
+    .map((r) => String(r?.key || '').trim().toLowerCase())
+    .filter(Boolean);
+
+  if (!keySet.size) {
+    return { ok: false, via: null, roleKeys };
+  }
+
+  if (roleKeys.some((k) => keySet.has(k))) {
+    const matched = roleKeys.find((k) => keySet.has(k));
+    return { ok: true, via: `project_role:${matched}`, roleKeys };
+  }
+
+  const {
+    matrixPermissionsFromRoleKeys,
+    hasPermission,
+  } = require('../project/projectPermissionMatrix');
+  const rolePerms = matrixPermissionsFromRoleKeys(list);
+  if (hasPermission(rolePerms, 'analysis:po_review')) {
+    return { ok: true, via: 'project_permission:analysis:po_review', roleKeys };
+  }
+
+  return { ok: false, via: null, roleKeys };
+}
+
+/**
+ * FE SoT for Gate1 approve: same path as attachProjectCapabilities
+ * (resolveUserProjectPermissions → role keys / matrixPermissionsFromRoleKeys).
+ * Does NOT use creator/org-admin permission dump.
+ *
+ * @param {string} userId
+ * @param {string} projectId
+ * @param {string[]} [approverRoleKeys]
+ * @returns {Promise<{ ok: boolean, via: string|null, roleKeys: string[] }>}
+ */
+async function userHasApproverRoleOnProject(
+  userId,
+  projectId,
+  approverRoleKeys = ['product_owner', 'project_manager']
+) {
+  const uid = String(userId || '').trim();
+  const pid = String(projectId || '').trim();
+  if (!uid || !pid) {
+    return { ok: false, via: null, roleKeys: [] };
+  }
+
+  try {
+    // Lazy require — avoid circular load with projectAccess → …
+    const { resolveUserProjectPermissions } = require('../../services/projectAccess.service');
+    const resolved = await resolveUserProjectPermissions({ userId: uid, projectId: pid });
+    return evaluateApproverFromProjectRoles(resolved?.roles || [], approverRoleKeys);
+  } catch {
+    return { ok: false, via: null, roleKeys: [] };
+  }
+}
+
 module.exports = {
   resolveRequirementPersona,
   jobTitleMatchesMapping,
   membershipRoleMatchesOperator,
   matchSubmitter,
   matchApprover,
+  hasProjectRoleKeys,
+  hasProjectRoleKeysOnProject,
+  userHasApproverRoleOnProject,
+  evaluateApproverFromProjectRoles,
 };

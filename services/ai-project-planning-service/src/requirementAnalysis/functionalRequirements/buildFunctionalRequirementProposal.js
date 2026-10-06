@@ -27,11 +27,15 @@ function buildFunctionalRequirementProposal(opts = {}) {
   const items = requirements.map((r, idx) => {
     const id = String(r.id || r.frId || `FR-${idx + 1}`);
     const derived = Boolean(r.derivedFromBr || r.sourceKind === 'business_rule');
+    const acText = String(r.ac || r.acceptanceCriteria || '').trim();
     const base = {
       logicalId: id,
       id,
       title: r.title || r.name || id,
       description: r.description || r.text || '',
+      // Preserve intake AC (Customer Raw "Acceptance / Expected Result") for Gate1 FR column
+      ac: acText || null,
+      acceptanceCriteria: acText || null,
       status: mapRequirementStatus(r),
       priority: r.priority || null,
       actors: Array.isArray(r.actors) ? r.actors : [],

@@ -15,6 +15,7 @@ import {
   Mic,
   Shield,
 } from 'lucide-react';
+import SidebarPositionFooter from './SidebarPositionFooter';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import useUiRole from '../../hooks/useUiRole';
 import { getRoleMeta } from '../../config/roleMeta';
@@ -62,6 +63,7 @@ import {
   figmaNavItemBg,
   figmaNavItemClass,
   FIGMA_SIDEBAR_EXPAND_BTN,
+  FIGMA_SIDEBAR_FOOTER,
 } from './figmaShellClasses';
 
 const COLLAPSE_KEY = 'vh_sidebar_collapsed';
@@ -828,6 +830,10 @@ export default function FigmaNavigationSidebar({
           collapsed={railCollapsed}
         />
       ) : null}
+
+      <div className={FIGMA_SIDEBAR_FOOTER}>
+        <SidebarPositionFooter collapsed={railCollapsed} wrap={false} />
+      </div>
     </div>
     </>
   );

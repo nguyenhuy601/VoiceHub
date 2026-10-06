@@ -130,7 +130,6 @@ describe('scheduleCapacity dates (effort → calendar)', () => {
 
   it('mapBlueprintTasksToImportPlan maps startDate/dueDate onto rows', () => {
     const base = createEmptyAiAnalysisContainer();
-    base.jobs.projectPlan = { ...base.jobs.projectPlan, status: 'confirmed' };
     base.planning.tasks = [
       {
         id: 'T1',

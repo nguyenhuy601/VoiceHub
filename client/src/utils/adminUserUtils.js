@@ -92,6 +92,18 @@ export function memberStatusLabel(member, t) {
   return t('adminUsers.statusActive');
 }
 
+/**
+ * Nhãn trạng thái từ auth summary (GET admin auth-summary).
+ * `isLocked` gồm cả admin deactivate và rate-lock (spam MK / lockUntil).
+ */
+export function authSummaryStatusLabel(summary, t) {
+  if (!summary) return t('adminUsers.statusActive');
+  if (summary.pendingActivation) return t('adminAccounts.statusPendingActivation');
+  if (summary.isLocked) return t('adminUsers.statusLocked');
+  if (summary.isActive === false) return t('adminUsers.statusInactive');
+  return t('adminUsers.statusActive');
+}
+
 function refId(value) {
   if (value == null || value === '') return '';
   if (typeof value === 'object') {

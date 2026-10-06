@@ -73,6 +73,7 @@ async function recordMutationAudit({
 
 /**
  * Gate1 Review Trust — business audit with revision pointers only (no proposal blob).
+ * Always persists (does not no-op when PROJECT_AUDIT_V1=0) — Gate1 trust must not be bypassed.
  */
 async function recordGate1Audit({
   organizationId,
@@ -91,7 +92,9 @@ async function recordGate1Audit({
   idempotencyKey = '',
 }) {
   const resourceId = String(reviewId || packId || '').slice(0, 64);
-  if (!resourceId) return null;
+  if (!organizationId || !actorUserId || !action || !resourceId) {
+    return null;
+  }
   const meta = {
     gate: 'BA_GATE_1',
     reviewId: reviewId || null,
@@ -108,17 +111,23 @@ async function recordGate1Audit({
   // Pointer-only before/after — never embed srsProposal
   const before = fromRevisionId ? { revisionId: fromRevisionId } : null;
   const after = toRevisionId ? { revisionId: toRevisionId } : null;
-  return recordAudit({
-    organizationId,
-    actorUserId,
-    action,
-    resourceType: 'gate_review',
-    resourceId,
-    before,
-    after,
-    requestId,
-    meta,
-  });
+  try {
+    const doc = await AuditEvent.create({
+      organizationId,
+      actorUserId,
+      action: String(action).slice(0, 96),
+      resourceType: 'gate_review',
+      resourceId,
+      before,
+      after,
+      requestId: String(requestId || '').slice(0, 96),
+      meta,
+    });
+    return doc.toObject();
+  } catch (err) {
+    logger.warn('[audit] Gate1 record failed: %s', err.message);
+    return null;
+  }
 }
 
 async function listAuditEvents({

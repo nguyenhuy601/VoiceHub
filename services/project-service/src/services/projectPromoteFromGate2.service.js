@@ -16,6 +16,45 @@ const {
 const { normalizeCreatePackLeafAssignments } = require('../utils/requirement/requirementPackWorkImport.utils');
 const { seedPhase34FromPlan } = require('./seedPhase34FromPlan.service');
 const { attachPlanningReadiness } = require('../utils/requirement/requirementPlanningReadiness');
+const { isPhaseHowConfirmed } = require('../utils/aiAnalysis/phaseGate2');
+
+/**
+ * Org create-project OR Gate2 PO (planning:po_review) when HOW already confirmed.
+ * Avoids false 403 for Product Owner who may activate delivery after Gate2.
+ */
+async function assertMayPromoteGate2Pack({
+  userId,
+  organizationId,
+  pack,
+  skipCreateProjectPermission = false,
+} = {}) {
+  if (skipCreateProjectPermission) return { via: 'trusted_gate2_po_approve' };
+
+  try {
+    await assertRequirementPermission({
+      userId,
+      organizationId,
+      permission: 'requirement:create-project',
+    });
+    return { via: 'requirement:create-project' };
+  } catch (createErr) {
+    if (Number(createErr?.statusCode) !== 403) throw createErr;
+
+    const projectId = pack?.projectId ? String(pack.projectId) : '';
+    if (!projectId || !isPhaseHowConfirmed(pack?.aiAnalysis || pack)) {
+      throw createErr;
+    }
+
+    const { resolveUserProjectPermissions } = require('./projectAccess.service');
+    const { hasPermission } = require('../utils/project/projectPermissionMatrix');
+    const resolved = await resolveUserProjectPermissions({ userId, projectId });
+    const bypass = resolved.isOrgAdmin || resolved.isCreator;
+    if (bypass || hasPermission(resolved.permissions, 'planning:po_review')) {
+      return { via: 'planning:po_review' };
+    }
+    throw createErr;
+  }
+}
 
 async function promoteProjectFromGate2({
   userId,
@@ -28,13 +67,9 @@ async function promoteProjectFromGate2({
   idempotencyKey = null,
   forceApprove = false,
   overrideReason = '',
+  /** When true — caller already passed Gate2 PO authz (planning:po_review). */
+  skipCreateProjectPermission = false,
 } = {}) {
-  await assertRequirementPermission({
-    userId,
-    organizationId,
-    permission: 'requirement:create-project',
-  });
-
   const pack = await RequirementPack.findOne({
     _id: packId,
     organizationId,
@@ -45,6 +80,13 @@ async function promoteProjectFromGate2({
     err.statusCode = 404;
     throw err;
   }
+
+  await assertMayPromoteGate2Pack({
+    userId,
+    organizationId,
+    pack,
+    skipCreateProjectPermission,
+  });
   if (pack.status !== 'approved' && pack.status !== 'project_linked') {
     const err = new Error('Pack phải approved (Gate 1) trước khi promote');
     err.statusCode = 409;
@@ -126,7 +168,31 @@ async function promoteProjectFromGate2({
     };
   }
 
-  const boardId = project.defaultBoardId || null;
+  const boardId =
+    project.defaultBoardId ||
+    null;
+  let resolvedBoardId = boardId ? String(boardId) : '';
+  if (!resolvedBoardId) {
+    const TaskBoard = require('../models/TaskBoard');
+    const fallbackBoard = await TaskBoard.findOne({
+      projectId: project._id,
+      isActive: { $ne: false },
+    })
+      .select('_id')
+      .sort({ createdAt: 1 })
+      .lean();
+    if (fallbackBoard?._id) {
+      resolvedBoardId = String(fallbackBoard._id);
+      project.defaultBoardId = fallbackBoard._id;
+      await project.save();
+      logger.info(
+        '[promote] healed defaultBoardId project=%s board=%s',
+        projectId,
+        resolvedBoardId
+      );
+    }
+  }
+
   const normalizedLeafAssignments = normalizeCreatePackLeafAssignments(leafAssignments);
 
   // 1) Seed Phase 1 RA artifacts + link customer docs.
@@ -158,12 +224,18 @@ async function promoteProjectFromGate2({
   // 2) Seed Phase 2 board tasks + members from Blueprint.
   let importStats = null;
   if (importWorkItems) {
+    if (!resolvedBoardId) {
+      const err = new Error('Project chưa có board mặc định để import work items');
+      err.statusCode = 409;
+      err.errorCode = 'PROMOTE_BOARD_REQUIRED';
+      throw err;
+    }
     importStats = await importRequirementPackWorkItems({
       userId,
       organizationId,
       pack: pack.toObject(),
       project: project.toObject ? project.toObject() : project,
-      boardId,
+      boardId: resolvedBoardId,
       leafAssignments: normalizedLeafAssignments,
       applyAssignees,
       taskIds,
@@ -171,7 +243,7 @@ async function promoteProjectFromGate2({
     await seedProjectMembersFromAssignees({
       userId,
       projectId,
-      boardId,
+      boardId: resolvedBoardId,
       pack: pack.toObject(),
       leafAssignments: normalizedLeafAssignments,
     });
@@ -218,6 +290,25 @@ async function promoteProjectFromGate2({
     pack.aiAnalysis = container;
     pack.markModified('aiAnalysis');
     await pack.save();
+  } else {
+    // Always stamp promote meta for Gate2 auto-promote observability
+    const container =
+      pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
+    container.gate2Promote = {
+      ...(container.gate2Promote && typeof container.gate2Promote === 'object'
+        ? container.gate2Promote
+        : {}),
+      promotedAt: new Date().toISOString(),
+      projectId,
+      importStats: importStats || null,
+      phase34: phase34 || null,
+      analysisSeed: analysisSeed || null,
+      linkedDocumentCount: analysisSeed?.linkedDocumentCount ?? 0,
+      source: 'gate2_po_approve',
+    };
+    pack.aiAnalysis = container;
+    pack.markModified('aiAnalysis');
+    await pack.save();
   }
 
   return {
@@ -232,6 +323,53 @@ async function promoteProjectFromGate2({
   };
 }
 
+/**
+ * After Gate2 PO approve — seed board + deliveryPhase=development (atomic with confirm).
+ * Prefer draft project promote; legacy pack without projectId uses create-from-pack.
+ */
+async function autoPromoteAfterGate2PoApprove({
+  userId,
+  organizationId,
+  packId,
+  forceApprove = false,
+  overrideReason = '',
+} = {}) {
+  const pack = await RequirementPack.findOne({
+    _id: packId,
+    organizationId,
+    isActive: true,
+  }).lean();
+  if (!pack) {
+    const err = new Error('Requirement pack không tồn tại');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const promoteArgs = {
+    userId,
+    organizationId,
+    packId,
+    importWorkItems: true,
+    applyAssignees: true,
+    forceApprove,
+    overrideReason,
+    skipCreateProjectPermission: true,
+    idempotencyKey: `gate2-po-approve:${String(packId)}`,
+  };
+
+  if (pack.projectId) {
+    return promoteProjectFromGate2(promoteArgs);
+  }
+
+  const { createProjectFromRequirementPack } = require('./requirementPack.service');
+  return createProjectFromRequirementPack({
+    ...promoteArgs,
+    skipCreateProjectPermission: true,
+  });
+}
+
 module.exports = {
   promoteProjectFromGate2,
+  autoPromoteAfterGate2PoApprove,
+  assertMayPromoteGate2Pack,
 };

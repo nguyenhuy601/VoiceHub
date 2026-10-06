@@ -16,24 +16,11 @@ function clip(value, max = 120) {
   return `${text.slice(0, max)}…`;
 }
 
-function joinIds(value) {
-  if (Array.isArray(value)) return value.map(String).filter(Boolean).join(', ');
-  if (value == null || value === '') return '—';
-  return String(value);
-}
-
 function statusLabel(row, t) {
   const raw = String(row?.status || '').trim();
   if (!raw) return '—';
   const code = raw.toUpperCase();
   return tr(t, `requirements.phase1ItemStatus_${code}`, raw);
-}
-
-function originLabel(row, t) {
-  const raw = row?.origin?.type || row?.origin;
-  if (!raw) return '—';
-  const code = String(raw).toUpperCase();
-  return tr(t, `requirements.phase1Origin_${code}`, String(raw));
 }
 
 function provenanceLabel(row, t) {
@@ -71,30 +58,6 @@ function inOutLabel(row, t) {
   return '—';
 }
 
-function directionLabel(directionRaw, t) {
-  const norm = String(directionRaw || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]+/g, '');
-  if (!norm) return '';
-  if (norm === 'in' || norm === 'inbound') {
-    return tr(t, 'requirements.phase1DirectionIn', 'Vào');
-  }
-  if (norm === 'out' || norm === 'outbound') {
-    return tr(t, 'requirements.phase1DirectionOut', 'Ra');
-  }
-  if (norm === 'inout' || norm === 'in/out' || norm === 'both' || norm === 'bidirectional') {
-    return tr(t, 'requirements.phase1DirectionInout', 'Hai chiều');
-  }
-  return String(directionRaw);
-}
-
-function protocolLabel(row, t) {
-  const protocol = row?.protocol ? String(row.protocol) : '';
-  const direction = directionLabel(row?.direction, t);
-  return [protocol, direction].filter(Boolean).join(' / ') || '—';
-}
-
 function sourceClip(row) {
   const refs = Array.isArray(row?.sourceRefs) ? row.sourceRefs : [];
   if (!refs.length) return '—';
@@ -106,10 +69,26 @@ function sourceClip(row) {
   return clip(parts.join(' · ') || JSON.stringify(first), 80);
 }
 
+/**
+ * @typedef {{
+ *   key: string,
+ *   headerKey: string,
+ *   headerFallback: string,
+ *   render: (row: object, t?: function) => string,
+ *   field?: string,
+ *   editable?: boolean,
+ *   defaultPx?: number,
+ *   minPx?: number,
+ * }} Gate1Column
+ */
+
 const COL_ID = {
   key: 'id',
   headerKey: 'requirements.phase1ColId',
   headerFallback: 'ID',
+  editable: false,
+  defaultPx: 88,
+  minPx: 64,
   render: (r) => r.logicalId || r.id || '—',
 };
 
@@ -117,44 +96,39 @@ const COL_TITLE = {
   key: 'title',
   headerKey: 'requirements.phase1ColTitle',
   headerFallback: 'Tiêu đề',
+  field: 'title',
+  editable: true,
+  defaultPx: 220,
+  minPx: 120,
   render: (r) => r.title || '—',
-};
-
-const COL_DESCRIPTION = {
-  key: 'description',
-  headerKey: 'requirements.phase1ColDescription',
-  headerFallback: 'Mô tả',
-  render: (r) => clip(r.description, 160),
 };
 
 const COL_STATUS = {
   key: 'status',
   headerKey: 'requirements.phase1ColItemStatus',
   headerFallback: 'Trạng thái',
+  editable: false,
+  defaultPx: 110,
+  minPx: 80,
   render: statusLabel,
 };
-
-/** @typedef {{ key: string, headerKey: string, headerFallback: string, render: (row: object, t?: function) => string }} Gate1Column */
 
 /** @type {Record<string, Gate1Column[]>} */
 export const GATE1_SECTION_COLUMNS = {
   functionalRequirements: [
     COL_ID,
     COL_TITLE,
-    COL_DESCRIPTION,
     {
       key: 'ac',
       headerKey: 'requirements.phase1ColAc',
-      headerFallback: 'AC',
-      render: (r) => clip(r.ac, 100) || '—',
+      headerFallback: 'Tiêu chí chấp nhận',
+      field: 'ac',
+      editable: true,
+      defaultPx: 260,
+      minPx: 140,
+      render: (r) => clip(r.ac || r.acceptanceCriteria, 100) || '—',
     },
     COL_STATUS,
-    {
-      key: 'origin',
-      headerKey: 'requirements.phase1ColOrigin',
-      headerFallback: 'Nguồn gốc',
-      render: originLabel,
-    },
   ],
   nonFunctionalRequirements: [
     COL_ID,
@@ -163,43 +137,50 @@ export const GATE1_SECTION_COLUMNS = {
       key: 'category',
       headerKey: 'requirements.phase1ColCategory',
       headerFallback: 'Danh mục',
+      field: 'category',
+      editable: true,
+      defaultPx: 140,
+      minPx: 90,
       render: (r) => r.category || '—',
     },
-    COL_DESCRIPTION,
     COL_STATUS,
   ],
-  businessRules: [COL_ID, COL_TITLE, COL_DESCRIPTION, COL_STATUS],
+  businessRules: [COL_ID, COL_TITLE, COL_STATUS],
   actors: [
     COL_ID,
     {
       key: 'title',
       headerKey: 'requirements.phase1ColTitle',
       headerFallback: 'Tiêu đề',
+      field: 'title',
+      editable: true,
+      defaultPx: 220,
+      minPx: 120,
       render: (r) => r.title || r.name || '—',
     },
-    COL_DESCRIPTION,
     COL_STATUS,
   ],
-  businessGoals: [COL_ID, COL_TITLE, COL_DESCRIPTION, COL_STATUS],
+  businessGoals: [COL_ID, COL_TITLE, COL_STATUS],
   processes: [
     COL_ID,
     {
       key: 'title',
       headerKey: 'requirements.phase1ColProcessName',
       headerFallback: 'Tên quy trình',
+      field: 'title',
+      editable: true,
+      defaultPx: 220,
+      minPx: 120,
       render: (r) => r.title || '—',
     },
     {
       key: 'steps',
       headerKey: 'requirements.phase1ColStep',
       headerFallback: 'Bước',
+      editable: false,
+      defaultPx: 100,
+      minPx: 72,
       render: stepsLabel,
-    },
-    {
-      key: 'relatedFr',
-      headerKey: 'requirements.phase1ColRelatedFr',
-      headerFallback: 'FR liên quan',
-      render: (r) => joinIds(r.relatedFrIds),
     },
     COL_STATUS,
   ],
@@ -207,15 +188,12 @@ export const GATE1_SECTION_COLUMNS = {
     COL_ID,
     COL_TITLE,
     {
-      key: 'relatedFr',
-      headerKey: 'requirements.phase1ColRelatedFr',
-      headerFallback: 'FR liên quan',
-      render: (r) => joinIds(r.relatedFrIds),
-    },
-    {
       key: 'provenance',
       headerKey: 'requirements.phase1ColProvenance',
       headerFallback: 'Xuất xứ',
+      editable: false,
+      defaultPx: 160,
+      minPx: 100,
       render: provenanceLabel,
     },
     COL_STATUS,
@@ -226,18 +204,28 @@ export const GATE1_SECTION_COLUMNS = {
       key: 'name',
       headerKey: 'requirements.phase1ColEntity',
       headerFallback: 'Thực thể',
+      field: 'name',
+      editable: true,
+      defaultPx: 160,
+      minPx: 100,
       render: (r) => r.name || r.title || '—',
     },
     {
       key: 'attributes',
       headerKey: 'requirements.phase1ColAttributes',
       headerFallback: 'Thuộc tính',
+      editable: false,
+      defaultPx: 180,
+      minPx: 100,
       render: attributesLabel,
     },
     {
       key: 'provenance',
       headerKey: 'requirements.phase1ColProvenance',
       headerFallback: 'Xuất xứ',
+      editable: false,
+      defaultPx: 160,
+      minPx: 100,
       render: provenanceLabel,
     },
     COL_STATUS,
@@ -249,9 +237,11 @@ export const GATE1_SECTION_COLUMNS = {
       key: 'inOut',
       headerKey: 'requirements.phase1ColScopeType',
       headerFallback: 'Loại phạm vi',
+      editable: false,
+      defaultPx: 130,
+      minPx: 90,
       render: inOutLabel,
     },
-    COL_DESCRIPTION,
     COL_STATUS,
   ],
   interfaces: [
@@ -260,15 +250,12 @@ export const GATE1_SECTION_COLUMNS = {
       key: 'title',
       headerKey: 'requirements.phase1ColInterfaceName',
       headerFallback: 'Tên giao diện',
+      field: 'title',
+      editable: true,
+      defaultPx: 220,
+      minPx: 120,
       render: (r) => r.title || '—',
     },
-    {
-      key: 'protocol',
-      headerKey: 'requirements.phase1ColProtocol',
-      headerFallback: 'Giao thức',
-      render: protocolLabel,
-    },
-    COL_DESCRIPTION,
     COL_STATUS,
   ],
   glossary: [
@@ -277,13 +264,11 @@ export const GATE1_SECTION_COLUMNS = {
       key: 'term',
       headerKey: 'requirements.phase1ColTerm',
       headerFallback: 'Thuật ngữ',
+      field: 'title',
+      editable: true,
+      defaultPx: 180,
+      minPx: 100,
       render: (r) => r.title || r.name || '—',
-    },
-    {
-      key: 'definition',
-      headerKey: 'requirements.phase1ColDefinition',
-      headerFallback: 'Định nghĩa',
-      render: (r) => clip(r.description, 200) || '—',
     },
     COL_STATUS,
   ],
@@ -294,9 +279,12 @@ export const GATE1_SECTION_COLUMNS = {
       key: 'classification',
       headerKey: 'requirements.phase1ColClassification',
       headerFallback: 'Phân loại',
+      field: 'classification',
+      editable: true,
+      defaultPx: 140,
+      minPx: 90,
       render: (r) => r.classification || '—',
     },
-    COL_DESCRIPTION,
     COL_STATUS,
   ],
   traceability: [
@@ -305,12 +293,19 @@ export const GATE1_SECTION_COLUMNS = {
       key: 'analysisId',
       headerKey: 'requirements.phase1ColAnalysisId',
       headerFallback: 'Mã phân tích',
+      field: 'analysisId',
+      editable: true,
+      defaultPx: 130,
+      minPx: 90,
       render: (r) => r.analysisId || '—',
     },
     {
       key: 'source',
       headerKey: 'requirements.phase1ColTraceSource',
       headerFallback: 'Nguồn',
+      editable: false,
+      defaultPx: 180,
+      minPx: 100,
       render: (r) => {
         const up = r.upstreamId ? `← ${r.upstreamId}` : '';
         const src = sourceClip(r);
@@ -321,16 +316,114 @@ export const GATE1_SECTION_COLUMNS = {
       key: 'linkSection',
       headerKey: 'requirements.phase1ColLinkSection',
       headerFallback: 'Mục',
+      field: 'linkSection',
+      editable: true,
+      defaultPx: 120,
+      minPx: 80,
       render: (r) => r.linkSection || r.itemSection || '—',
     },
     COL_STATUS,
   ],
 };
 
+/** Read display/edit value for a Gate1 column from row (+ optional editedPayload). */
+export function getGate1FieldValue(row, col, editedPayload) {
+  const field = col?.field;
+  if (!field) return '';
+  const patch = editedPayload && typeof editedPayload === 'object' ? editedPayload : null;
+  if (patch && Object.prototype.hasOwnProperty.call(patch, field) && patch[field] != null) {
+    return String(patch[field]);
+  }
+  if (field === 'ac') {
+    return String(row?.ac || row?.acceptanceCriteria || '');
+  }
+  if (field === 'title') {
+    return String(row?.title || row?.name || '');
+  }
+  if (field === 'name') {
+    return String(row?.name || row?.title || '');
+  }
+  return String(row?.[field] ?? '');
+}
+
+/** Seed editedPayload from current row values for all editable columns. */
+export function seedGate1EditedPayload(row, columns) {
+  const payload = {};
+  for (const col of columns || []) {
+    if (!col?.editable || !col.field) continue;
+    payload[col.field] = getGate1FieldValue(row, col, null);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'ac')) {
+    payload.acceptanceCriteria = payload.ac;
+  }
+  return payload;
+}
+
+/** Merge one field into editedPayload (keeps ac ↔ acceptanceCriteria in sync). */
+export function patchGate1EditedPayload(prev, field, value) {
+  const next = { ...(prev && typeof prev === 'object' ? prev : {}), [field]: value };
+  if (field === 'ac') next.acceptanceCriteria = value;
+  if (field === 'acceptanceCriteria') next.ac = value;
+  return next;
+}
+
 const FALLBACK_COLUMNS = GATE1_SECTION_COLUMNS.functionalRequirements;
 
 export function getGate1ColumnsForSection(section) {
   return GATE1_SECTION_COLUMNS[String(section || '')] || FALLBACK_COLUMNS;
+}
+
+/** Stable row id — always pass index in the full section `rows` array. */
+export function getGate1RowId(row, index = 0) {
+  return String(row?.logicalId || row?.id || `row-${index}`).trim();
+}
+
+const DECISION_ACTIONS = new Set(['accept', 'edit', 'reject']);
+
+/**
+ * True when every item across all sections has accept|edit|reject.
+ * Empty sections (no rows) are skipped. NEEDS_CONFIRMATION + accept needs note+resolution.
+ */
+export function areGate1SectionDecisionsComplete(bySection, decisions = {}) {
+  if (!bySection || typeof bySection !== 'object') return false;
+  let total = 0;
+  for (const rows of Object.values(bySection)) {
+    if (!Array.isArray(rows)) continue;
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      const id = getGate1RowId(row, i);
+      if (!id) continue;
+      total += 1;
+      const d = decisions[id] || {};
+      const action = String(d.action || '').toLowerCase();
+      if (!DECISION_ACTIONS.has(action)) return false;
+      if (
+        action === 'accept' &&
+        String(row?.status || '').toUpperCase() === 'NEEDS_CONFIRMATION'
+      ) {
+        if (!String(d.note || '').trim() || !String(d.resolution || '').trim()) {
+          return false;
+        }
+      }
+    }
+  }
+  return total > 0;
+}
+
+/** Count items still missing a decision (across sections). */
+export function countGate1PendingDecisions(bySection, decisions = {}) {
+  if (!bySection || typeof bySection !== 'object') return 0;
+  let pending = 0;
+  for (const rows of Object.values(bySection)) {
+    if (!Array.isArray(rows)) continue;
+    for (let i = 0; i < rows.length; i += 1) {
+      const id = getGate1RowId(rows[i], i);
+      if (!id) continue;
+      const action = String(decisions[id]?.action || '').toLowerCase();
+      if (!DECISION_ACTIONS.has(action)) pending += 1;
+    }
+  }
+  return pending;
 }
 
 export const GATE1_SCROLL_PAGE_SIZE = 30;

@@ -7,6 +7,45 @@ import assert from 'node:assert/strict';
 import { buildGate1ProposalItems } from './buildGate1ProposalItems.js';
 
 describe('buildGate1ProposalItems actors', () => {
+  it('fills FR AC from pack when proposal omitted acceptanceCriteria', () => {
+    const proposal = {
+      generated: {
+        functionalRequirements: {
+          items: [
+            {
+              logicalId: 'CR-001',
+              title: 'Create employee',
+              status: 'EXTRACTED',
+            },
+          ],
+        },
+      },
+      completeness: {
+        sectionReviews: [
+          {
+            section: 'functionalRequirements',
+            status: 'REVIEW_REQUIRED',
+            reviewable: true,
+            coverage: { status: 'AVAILABLE' },
+          },
+        ],
+        softGaps: [],
+      },
+    };
+    const pack = {
+      functionalRequirements: [
+        {
+          externalId: 'CR-001',
+          acceptanceCriteria: 'Tạo thành công; mã NV không trùng.',
+        },
+      ],
+    };
+    const out = buildGate1ProposalItems({ proposal, pack });
+    const fr = (out.bySection.functionalRequirements || [])[0];
+    assert.ok(fr);
+    assert.match(fr.ac, /Tạo thành công/);
+  });
+
   it('shows actors items when sectionReviews omit legacy actors', () => {
     const proposal = {
       generated: {

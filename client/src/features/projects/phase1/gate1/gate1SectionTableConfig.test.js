@@ -7,6 +7,12 @@ import assert from 'node:assert/strict';
 import {
   GATE1_SECTION_COLUMNS,
   getGate1ColumnsForSection,
+  getGate1FieldValue,
+  getGate1RowId,
+  areGate1SectionDecisionsComplete,
+  countGate1PendingDecisions,
+  patchGate1EditedPayload,
+  seedGate1EditedPayload,
 } from './gate1SectionTableConfig.js';
 
 const tVi = (key) => {
@@ -55,5 +61,128 @@ describe('gate1SectionTableConfig', () => {
     const cols = getGate1ColumnsForSection('processes');
     const steps = cols.find((c) => c.key === 'steps');
     assert.equal(steps.render({ steps: [1, 2, 3] }, tVi), '3 bước');
+  });
+
+  it('hides bulky text / related-FR columns from section tables', () => {
+    const hidden = new Set(['description', 'relatedFr', 'protocol', 'definition']);
+    for (const [section, cols] of Object.entries(GATE1_SECTION_COLUMNS)) {
+      for (const col of cols) {
+        assert.equal(
+          hidden.has(col.key),
+          false,
+          `${section} still has column ${col.key}`
+        );
+      }
+    }
+  });
+
+  it('FR section does not show origin (Nguồn gốc) column', () => {
+    const cols = getGate1ColumnsForSection('functionalRequirements');
+    assert.equal(
+      cols.some((c) => c.key === 'origin'),
+      false
+    );
+  });
+
+  it('FR editable columns seed editedPayload with ac + acceptanceCriteria', () => {
+    const cols = getGate1ColumnsForSection('functionalRequirements');
+    const row = {
+      logicalId: 'CR-001',
+      title: 'Tạo hồ sơ',
+      ac: 'Mã NV unique',
+      status: 'EXTRACTED',
+    };
+    const payload = seedGate1EditedPayload(row, cols);
+    assert.equal(payload.title, 'Tạo hồ sơ');
+    assert.equal(payload.ac, 'Mã NV unique');
+    assert.equal(payload.acceptanceCriteria, 'Mã NV unique');
+    assert.equal(Object.prototype.hasOwnProperty.call(payload, 'status'), false);
+  });
+
+  it('patchGate1EditedPayload keeps ac and acceptanceCriteria in sync', () => {
+    const next = patchGate1EditedPayload({ title: 'A' }, 'ac', 'AC mới');
+    assert.equal(next.title, 'A');
+    assert.equal(next.ac, 'AC mới');
+    assert.equal(next.acceptanceCriteria, 'AC mới');
+  });
+
+  it('getGate1FieldValue prefers editedPayload over row', () => {
+    const col = { field: 'title', editable: true };
+    assert.equal(
+      getGate1FieldValue({ title: 'Cũ' }, col, { title: 'Mới' }),
+      'Mới'
+    );
+  });
+
+  it('section columns declare defaultPx for resize', () => {
+    for (const [section, cols] of Object.entries(GATE1_SECTION_COLUMNS)) {
+      for (const col of cols) {
+        assert.ok(
+          Number(col.defaultPx) > 0,
+          `${section}.${col.key} missing defaultPx`
+        );
+      }
+    }
+  });
+
+  it('getGate1RowId prefers logicalId then id', () => {
+    assert.equal(getGate1RowId({ logicalId: 'FR-1', id: 'x' }, 0), 'FR-1');
+    assert.equal(getGate1RowId({ id: 'UC-2' }, 3), 'UC-2');
+    assert.equal(getGate1RowId({}, 7), 'row-7');
+  });
+
+  it('areGate1SectionDecisionsComplete requires all sections', () => {
+    const bySection = {
+      functionalRequirements: [
+        { logicalId: 'FR-1', status: 'EXTRACTED' },
+        { logicalId: 'FR-2', status: 'EXTRACTED' },
+      ],
+      useCases: [{ logicalId: 'UC-1', status: 'PROPOSED' }],
+    };
+    assert.equal(areGate1SectionDecisionsComplete(bySection, {}), false);
+    assert.equal(countGate1PendingDecisions(bySection, {}), 3);
+    assert.equal(
+      areGate1SectionDecisionsComplete(bySection, {
+        'FR-1': { action: 'accept' },
+        'FR-2': { action: 'reject' },
+      }),
+      false
+    );
+    assert.equal(
+      areGate1SectionDecisionsComplete(bySection, {
+        'FR-1': { action: 'accept' },
+        'FR-2': { action: 'edit' },
+        'UC-1': { action: 'accept' },
+      }),
+      true
+    );
+    assert.equal(
+      countGate1PendingDecisions(bySection, {
+        'FR-1': { action: 'accept' },
+        'FR-2': { action: 'edit' },
+        'UC-1': { action: 'accept' },
+      }),
+      0
+    );
+  });
+
+  it('NEEDS_CONFIRMATION accept requires note + resolution', () => {
+    const bySection = {
+      functionalRequirements: [
+        { logicalId: 'FR-N', status: 'NEEDS_CONFIRMATION' },
+      ],
+    };
+    assert.equal(
+      areGate1SectionDecisionsComplete(bySection, {
+        'FR-N': { action: 'accept' },
+      }),
+      false
+    );
+    assert.equal(
+      areGate1SectionDecisionsComplete(bySection, {
+        'FR-N': { action: 'accept', note: 'ok', resolution: 'keep' },
+      }),
+      true
+    );
   });
 });

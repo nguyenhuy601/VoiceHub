@@ -99,15 +99,21 @@ async function analyzeFunctionalRequirements(opts = {}) {
   );
   proposalFragment.items = (proposalFragment.items || []).map((item) => {
     const src = extractById.get(String(item.id || item.logicalId));
+    const srcAc = String(src?.ac || src?.acceptanceCriteria || '').trim();
+    const itemAc = String(item?.ac || item?.acceptanceCriteria || '').trim();
+    const ac = itemAc || srcAc || null;
+    const withAc = ac
+      ? { ...item, ac, acceptanceCriteria: ac }
+      : item;
     if (src && (src.derivedFromBr || src.sourceKind === 'business_rule' || src.status === 'PROPOSED')) {
       return {
-        ...item,
+        ...withAc,
         status: 'PROPOSED',
-        derivedFromBr: src.derivedFromBr || item.derivedFromBr,
-        sourceKind: src.sourceKind || item.sourceKind || 'business_rule',
+        derivedFromBr: src.derivedFromBr || withAc.derivedFromBr,
+        sourceKind: src.sourceKind || withAc.sourceKind || 'business_rule',
       };
     }
-    return item;
+    return withAc;
   });
 
   const frAnalysisResult = {
