@@ -1,42 +1,28 @@
 const friendService = require('../services/friend.service');
 const { logger } = require('@enterprise/shared');
-const { checkRateLimit } = require('@enterprise/shared/utils/redisRateLimit');
 const { fetchUserByPhoneInternal } = require('../clients/userService.client');
+const { assertFriendWriteAllowed } = require('../utils/friendWriteLimit');
+const { sendServiceError } = require('../middleware/sendServiceError');
+const { mapFriendError, isExpectedFriendError } = require('../utils/friendErrorMap');
+const { pickFriendSearchProfile } = require('../utils/friendSearchProfile');
 
-/** Chuẩn hóa lỗi từ service: 503 khi MongoDB/service unavailable, 404 khi User not found */
-function errorToStatus(error, defaultMessage = 'An error occurred', defaultStatus = 400) {
-  const msg = error?.message || defaultMessage;
-  if (msg.includes('User not found')) return { status: 404, message: 'Không tìm thấy người dùng' };
-  if (msg.includes('Friend request already sent')) {
-    return { status: 409, message: 'Bạn đã gửi lời mời kết bạn cho người này rồi' };
+const SERVICE_UNAVAILABLE_MESSAGE = 'Dịch vụ tạm thời không khả dụng. Vui lòng thử lại sau.';
+const USER_NOT_FOUND_MESSAGE = 'Không tìm thấy người dùng';
+
+function logFriendFailure(label, error, extra) {
+  if (error?.errorCode === 'FRIEND_RATE_LIMITED') {
+    logger.warn(label, extra || error.errorCode);
+    return;
   }
-  if (msg.includes('Friend request already received')) {
-    return { status: 409, message: 'Người này đã gửi lời mời cho bạn — hãy chấp nhận trong danh sách lời mời' };
-  }
-  if (msg.includes('Already friends')) return { status: 409, message: 'Hai bạn đã là bạn bè' };
-  if (msg.includes('Cannot send friend request to blocked user')) {
-    return { status: 403, message: 'Không thể gửi lời mời tới người đã bị chặn' };
-  }
-  if (msg.includes('Cannot add yourself')) {
-    return { status: 400, message: 'Không thể kết bạn với chính mình' };
-  }
-  if (msg.includes('temporarily unavailable') || msg.includes('Service temporarily unavailable')) {
-    return { status: 503, message: 'Dịch vụ tạm thời không khả dụng. Vui lòng thử lại sau.' };
-  }
-  if (msg.includes('Friend relationship not found')) {
-    return { status: 404, message: 'Không tìm thấy quan hệ bạn bè' };
-  }
-  return { status: defaultStatus, message: msg };
+  logger.error(label, error);
 }
 
-function isExpectedFriendError(error) {
-  const msg = String(error?.message || '');
-  return (
-    msg.includes('Friend request already') ||
-    msg.includes('Already friends') ||
-    msg.includes('Cannot send friend request') ||
-    msg.includes('Cannot add yourself')
-  );
+function sendFriendError(res, error, extra) {
+  const { status, errorCode, message } = mapFriendError(error);
+  if (status >= 500) {
+    return sendServiceError(res, status, { errorCode, messageUser: message, extra });
+  }
+  return sendServiceError(res, status, { errorCode, message, extra });
 }
 
 class FriendController {
@@ -47,17 +33,7 @@ class FriendController {
       const currentUserId = req.user?.id ?? req.user?._id ?? req.userContext?.userId;
       const userId = currentUserId?.toString?.() ?? currentUserId;
 
-      const rl = await checkRateLimit({
-        key: `friend:request:${userId}`,
-        limit: parseInt(process.env.FRIEND_REQUEST_RATE_LIMIT || '20', 10) || 20,
-        windowSec: parseInt(process.env.FRIEND_REQUEST_RATE_WINDOW_SEC || '600', 10) || 600,
-      });
-      if (!rl.allowed) {
-        return res.status(429).json({
-          success: false,
-          message: 'Quá nhiều lời mời kết bạn. Vui lòng thử lại sau.',
-        });
-      }
+      await assertFriendWriteAllowed({ userId, bucket: 'request' });
 
       if (!friendId || !userId) {
         return res.status(400).json({
@@ -78,8 +54,7 @@ class FriendController {
       } else {
         logger.error('Send friend request error:', error);
       }
-      const { status, message } = errorToStatus(error, 'Lỗi khi gửi lời mời');
-      res.status(status).json({ success: false, message });
+      return sendFriendError(res, error);
     }
   }
 
@@ -96,6 +71,8 @@ class FriendController {
         });
       }
 
+      await assertFriendWriteAllowed({ userId, bucket: 'mutate' });
+
       const friend = await friendService.acceptFriendRequest(userId, friendId);
 
       res.json({
@@ -103,9 +80,8 @@ class FriendController {
         data: friend,
       });
     } catch (error) {
-      logger.error('Accept friend request error:', error);
-      const { status, message } = errorToStatus(error, error.message);
-      res.status(status).json({ success: false, message });
+      logFriendFailure('Accept friend request error:', error);
+      return sendFriendError(res, error);
     }
   }
 
@@ -122,6 +98,8 @@ class FriendController {
         });
       }
 
+      await assertFriendWriteAllowed({ userId, bucket: 'mutate' });
+
       const friend = await friendService.rejectFriendRequest(userId, friendId);
 
       res.json({
@@ -129,9 +107,8 @@ class FriendController {
         data: friend,
       });
     } catch (error) {
-      logger.error('Reject friend request error:', error);
-      const { status, message } = errorToStatus(error, error.message);
-      res.status(status).json({ success: false, message });
+      logFriendFailure('Reject friend request error:', error);
+      return sendFriendError(res, error);
     }
   }
 
@@ -168,8 +145,7 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Get friends error:', error);
-      const { status, message } = errorToStatus(error, error.message, 500);
-      res.status(status).json({ success: false, message });
+      return sendFriendError(res, error);
     }
   }
 
@@ -194,8 +170,7 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Get friend requests error:', error);
-      const { status, message } = errorToStatus(error, error.message, 500);
-      res.status(status).json({ success: false, message });
+      return sendFriendError(res, error);
     }
   }
 
@@ -212,6 +187,8 @@ class FriendController {
         });
       }
 
+      await assertFriendWriteAllowed({ userId, bucket: 'mutate' });
+
       const block = await friendService.blockUser(userId, friendId);
 
       res.json({
@@ -219,9 +196,8 @@ class FriendController {
         data: block,
       });
     } catch (error) {
-      logger.error('Block user error:', error);
-      const { status, message } = errorToStatus(error, error.message);
-      res.status(status).json({ success: false, message });
+      logFriendFailure('Block user error:', error);
+      return sendFriendError(res, error);
     }
   }
 
@@ -238,6 +214,8 @@ class FriendController {
         });
       }
 
+      await assertFriendWriteAllowed({ userId, bucket: 'mutate' });
+
       const block = await friendService.unblockUser(userId, friendId);
 
       res.json({
@@ -245,9 +223,8 @@ class FriendController {
         data: block,
       });
     } catch (error) {
-      logger.error('Unblock user error:', error);
-      const { status, message } = errorToStatus(error, error.message);
-      res.status(status).json({ success: false, message });
+      logFriendFailure('Unblock user error:', error);
+      return sendFriendError(res, error);
     }
   }
 
@@ -258,18 +235,41 @@ class FriendController {
         return res.status(400).json({ status: 'fail', message: 'Phone parameter is required' });
       }
 
+      const actorId = req.user?.id || req.user?._id || req.userContext?.userId;
+      if (!actorId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+      await assertFriendWriteAllowed({ userId: actorId, bucket: 'search' });
+
       let response;
       try {
         response = await fetchUserByPhoneInternal(phone);
       } catch (error) {
         if (error?.code === 'NO_INTERNAL_TOKEN') {
-          return res.status(503).json({
-            status: 'fail',
-            message: 'User service internal lookup not configured',
+          logger.warn('Search friend by phone: user-service internal token missing');
+          return sendServiceError(res, 503, {
+            errorCode: 'FRIEND_UNAVAILABLE',
+            messageUser: SERVICE_UNAVAILABLE_MESSAGE,
+            extra: { status: 'fail' },
           });
         }
         if (error.response) {
-          return res.status(error.response.status).json(error.response.data);
+          if (error.response.status === 404) {
+            return sendServiceError(res, 404, {
+              errorCode: 'FRIEND_USER_NOT_FOUND',
+              message: USER_NOT_FOUND_MESSAGE,
+              extra: { status: 'fail' },
+            });
+          }
+          logger.warn('Search friend by phone: user-service responded', error.response.status);
+          return sendServiceError(res, 503, {
+            errorCode: 'FRIEND_UNAVAILABLE',
+            messageUser: SERVICE_UNAVAILABLE_MESSAGE,
+            extra: { status: 'fail' },
+          });
         }
         throw error;
       }
@@ -279,20 +279,20 @@ class FriendController {
         return res.status(404).json({ status: 'fail', message: 'User not found' });
       }
 
-      const actorId = req.user?.id || req.user?._id;
       const relationship = await friendService.getRelationship(actorId, userData.userId || userData._id);
 
       return res.json({
         status: 'success',
         data: {
-          ...userData,
+          ...pickFriendSearchProfile(userData),
           relationship,
         },
       });
     } catch (error) {
-      logger.error('Search friend by phone error:', error);
-      const { status, message } = errorToStatus(error, error.message, 500);
-      return res.status(status).json({ success: false, message });
+      logFriendFailure('Search friend by phone error:', error, {
+        phoneLength: String(req.query?.phone || '').length,
+      });
+      return sendFriendError(res, error);
     }
   }
 
@@ -317,14 +317,9 @@ class FriendController {
       });
     } catch (error) {
       logger.error('Get relationship error:', error);
-      const { status, message } = errorToStatus(error, error.message, 500);
-      res.status(status).json({
-        success: false,
-        message,
-      });
+      return sendFriendError(res, error);
     }
   }
 }
 
 module.exports = new FriendController();
-

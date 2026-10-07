@@ -5,8 +5,8 @@ const app = express();
 
 // Middleware
 app.use(createCorsMiddleware());
-app.use(express.json({ limit: '10mb', strict: true }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '1mb', strict: true }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Set UTF-8 charset cho tất cả JSON responses
 app.set('json spaces', 2);
@@ -24,6 +24,10 @@ app.get('/health', (req, res) => {
 const gatewayUserMiddleware = require('./middlewares/gatewayUser');
 const notificationRoutes = require('./routes/notification.routes');
 app.use('/api/notifications', gatewayUserMiddleware, notificationRoutes);
+
+const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 module.exports = app;
 

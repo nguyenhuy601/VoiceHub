@@ -1,5 +1,6 @@
 const friendService = require('../services/friend.service');
 const { logger } = require('@enterprise/shared');
+const { sendServiceError } = require('../middleware/sendServiceError');
 
 async function ensureAccepted(req, res) {
   try {
@@ -19,11 +20,7 @@ async function ensureAccepted(req, res) {
     return res.json({ success: true, data });
   } catch (error) {
     logger.error('internal ensure-accepted error:', error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to ensure friendships',
-      errorCode: 'FRIEND_ENSURE_FAILED',
-    });
+    return sendServiceError(res, 500, { errorCode: 'FRIEND_ENSURE_FAILED' });
   }
 }
 

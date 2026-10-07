@@ -14,6 +14,7 @@ const {
   cancelGraceIfActive,
   findActiveGrace,
 } = require('./unfriendGrace.service');
+const { clampFriendListQuery } = require('../utils/friendWriteLimit');
 
 function toObjectId(id) {
   if (id == null) return null;
@@ -37,9 +38,17 @@ async function clearFriendsListCache(...userIds) {
   for (const rawId of userIds) {
     const id = String(rawId || '').trim();
     if (!id) continue;
-    await redis.del(`friends:${id}:accepted`);
-    await redis.del(`friends:${id}:blocked`);
-    await redis.del(`friends:${id}`);
+    const pattern = `friends:${id}*`;
+    try {
+      let cursor = '0';
+      do {
+        const [next, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        cursor = String(next);
+        if (keys?.length) await redis.del(...keys);
+      } while (cursor !== '0');
+    } catch (err) {
+      logger.warn('clearFriendsListCache:', err.message);
+    }
   }
 }
 
@@ -447,9 +456,10 @@ class FriendService {
   async getFriends(userId, options = {}) {
     try {
       await ensureMongoReady();
-      const { status = 'accepted', page = 1, limit = 50 } = options;
+      const status = options.status || 'accepted';
+      const { page, limit } = clampFriendListQuery(options.page, options.limit);
 
-      const cacheKey = `friends:${userId}:${status}`;
+      const cacheKey = `friends:${userId}:${status}:${page}:${limit}`;
 
       // Kiểm tra cache
       const redis = getRedisClient();
