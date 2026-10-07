@@ -1,6 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
+import useModalA11y from './useModalA11y';
 import {
   FIGMA_MODAL_BACKDROP,
   FIGMA_MODAL_BODY,
@@ -55,6 +57,16 @@ const Modal = ({
   titleClassName = '',
 }) => {
   const { t } = useAppStrings();
+  const panelRef = useRef(null);
+  const titleId = useId();
+
+  useModalA11y({
+    isOpen,
+    onClose,
+    containerRef: panelRef,
+    initialFocusRef: panelRef,
+    isBusy: !closable,
+  });
 
   useEffect(() => {
     if (!isOpen || typeof document === 'undefined') return undefined;
@@ -87,11 +99,19 @@ const Modal = ({
       onClick={closable ? onClose : undefined}
       role="dialog"
       aria-modal="true"
+      aria-labelledby={title ? titleId : undefined}
     >
       <div className={FIGMA_MODAL_BACKDROP} aria-hidden />
-      <div className={panelClass} onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className={`${panelClass} outline-none`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className={headerClass}>
-          <h2 className={titleClass}>{title}</h2>
+          <h2 id={titleId} className={titleClass}>
+            {title}
+          </h2>
           {closable ? (
             <button
               type="button"
@@ -99,7 +119,7 @@ const Modal = ({
               className={FIGMA_MODAL_CLOSE_BTN}
               aria-label={t('common.close')}
             >
-              ✕
+              <X className="h-4 w-4" aria-hidden />
             </button>
           ) : (
             <span className="h-8 w-8 shrink-0" aria-hidden />

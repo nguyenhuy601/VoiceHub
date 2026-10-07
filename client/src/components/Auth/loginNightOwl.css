@@ -1,0 +1,418 @@
+/* Login night-owl — eye click = night + flashlight; aim beam; click off = day */
+
+.login-night-owl {
+  --login-beam-color: #fef08a;
+}
+
+/* ——— Single centered split card ——— */
+.login-split-shell {
+  display: flex;
+  width: 100%;
+  max-width: 56rem;
+  min-height: 34rem;
+  overflow: hidden;
+  border-radius: 28px;
+  box-shadow:
+    0 25px 50px -12px rgba(15, 23, 42, 0.28),
+    0 0 0 1px color-mix(in srgb, #fff 35%, transparent);
+}
+
+.login-split-shell.is-day {
+  background: color-mix(in srgb, #fff 88%, #e0f2f1);
+}
+
+.login-split-shell.is-night {
+  background: #0c0c14;
+  box-shadow:
+    0 25px 50px -12px rgba(0, 0, 0, 0.65),
+    0 0 0 1px color-mix(in srgb, #fff 8%, transparent);
+}
+
+.login-split-aside {
+  display: none;
+  width: 40%;
+  flex-shrink: 0;
+  padding: 1.15rem;
+}
+
+@media (min-width: 1024px) {
+  .login-split-aside {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+.login-split-main {
+  position: relative;
+  z-index: 20;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.75rem 1.75rem;
+  pointer-events: auto;
+}
+
+.login-split-shell.is-night .login-split-main {
+  background: transparent;
+}
+
+.login-form-stage {
+  position: relative;
+  z-index: 20;
+  width: 100%;
+  max-width: 22rem;
+  pointer-events: auto;
+}
+
+.login-form-stage__close {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.15rem;
+  z-index: 5;
+  display: flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.login-form-stage__close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.login-form-stage__title--night {
+  color: #ffffff !important;
+}
+
+.login-email-block {
+  position: relative;
+}
+
+/* Owl perched on top-left rim of email input */
+.login-owl-mascot {
+  position: absolute;
+  left: 0.85rem;
+  bottom: calc(100% - 0.15rem);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 2.85rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease, filter 0.25s ease;
+}
+
+.login-owl-mascot.is-idle {
+  opacity: 0;
+}
+
+.login-owl-mascot.is-lit {
+  opacity: 1;
+}
+
+.login-owl-mascot__svg {
+  width: 2.75rem;
+  height: 3rem;
+  display: block;
+}
+
+.login-owl-mascot.is-lit .login-owl-mascot__svg {
+  filter: drop-shadow(0 0 12px color-mix(in srgb, #fbbf24 60%, transparent));
+}
+
+.login-owl-mascot.is-lit .login-owl-mascot__iris {
+  filter: drop-shadow(0 0 5px #fbbf24);
+}
+
+/* ——— Cone from fixed flashlight (password eye) ——— */
+.login-flashlight-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+}
+
+.login-flashlight-beam {
+  position: absolute;
+  left: var(--ox);
+  top: var(--oy);
+  width: 350px;
+  height: 160px;
+  transform: translate(0, -50%) rotate(var(--deg));
+  transform-origin: 0% 50%;
+  clip-path: polygon(0 42%, 0 58%, 100% 100%, 100% 0);
+  background: linear-gradient(
+    to right,
+    rgba(254, 240, 138, 0.55) 0%,
+    rgba(253, 224, 71, 0.28) 40%,
+    rgba(250, 204, 21, 0.08) 78%,
+    transparent 100%
+  );
+  filter: blur(0.4px);
+  mix-blend-mode: screen;
+  opacity: 0.95;
+}
+
+.login-flashlight-glow {
+  position: absolute;
+  left: var(--ox);
+  top: var(--oy);
+  width: 1.75rem;
+  height: 1.75rem;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: radial-gradient(circle, #fef08a 0%, #facc1544 50%, transparent 72%);
+  mix-blend-mode: screen;
+}
+
+.login-flashlight-icon {
+  color: #fde047;
+  transition: transform 0.04s linear;
+  transform-origin: center center;
+  filter: drop-shadow(0 0 6px rgba(250, 204, 21, 0.75));
+}
+
+.login-pwd-reveal {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.04em;
+  color: #fef9c3 !important;
+  text-shadow: 0 0 8px rgba(250, 204, 21, 0.55);
+}
+
+/* ——— Left landscape popup (sunset / moonrise layers) ——— */
+.login-aside-popup {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 100%;
+  height: 100%;
+  min-height: 30rem;
+  overflow: hidden;
+  border-radius: 1.15rem;
+  border: 1px solid color-mix(in srgb, #fff 35%, transparent);
+  box-shadow:
+    0 18px 40px -16px rgba(15, 23, 42, 0.35),
+    inset 0 1px 0 color-mix(in srgb, #fff 40%, transparent);
+  /* z-0 sky */
+  background: linear-gradient(165deg, #bddadb 0%, #9ec4c5 48%, #7ea5a6 100%);
+  transition: background 0.8s ease-in-out, border-color 0.8s ease-in-out, box-shadow 0.8s ease-in-out;
+}
+
+.login-aside-popup.is-day {
+  background: linear-gradient(165deg, #bddadb 0%, #9ec4c5 48%, #7ea5a6 100%);
+}
+
+.login-aside-popup.is-night {
+  border-color: color-mix(in srgb, #fff 10%, transparent);
+  background: linear-gradient(165deg, #070b14 0%, #0c1220 50%, #111a2e 100%);
+  box-shadow:
+    0 18px 40px -14px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent);
+}
+
+.login-aside-landscape {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* z-0: stars */
+.login-aside-landscape__stars {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.login-aside-landscape__stars span {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  opacity: 0;
+  transition: opacity 0.8s ease-in-out;
+}
+
+.login-aside-popup.is-night .login-aside-landscape__stars span {
+  opacity: 0.85;
+  animation: login-star-twinkle 2.4s ease-in-out infinite;
+}
+
+.login-aside-landscape__stars span:nth-child(2n) {
+  animation-delay: 0.4s;
+}
+
+.login-aside-landscape__stars span:nth-child(3n) {
+  animation-delay: 0.9s;
+}
+
+@keyframes login-star-twinkle {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* z-10: sun & moon (behind ridge) */
+.login-aside-landscape__celestial {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+}
+
+.login-aside-landscape__sun {
+  position: absolute;
+  top: 11%;
+  left: 14%;
+  width: 3.75rem;
+  height: 3.75rem;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 40% 35%, #fef9c3 0%, #fbbf24 45%, #f59e0b55 70%, transparent 75%);
+  box-shadow: 0 0 35px rgba(251, 191, 36, 0.6);
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  /* day←night: rise delayed so moon sinks first */
+  transition:
+    opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+  transition-delay: 150ms;
+}
+
+.login-aside-popup.is-night .login-aside-landscape__sun {
+  opacity: 0;
+  transform: translateY(7rem) scale(0.75);
+  transition-delay: 0ms;
+}
+
+.login-aside-landscape__moon {
+  position: absolute;
+  top: 10%;
+  right: 16%;
+  left: auto;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 35%, #f8fafc 0%, #e2e8f0 42%, #94a3b833 72%, transparent 78%);
+  box-shadow: 0 0 25px rgba(226, 232, 240, 0.7);
+  opacity: 0;
+  transform: translateY(7rem) scale(0.75);
+  transition:
+    opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  transition-delay: 0ms;
+}
+
+.login-aside-popup.is-night .login-aside-landscape__moon {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition-delay: 150ms;
+}
+
+/* z-20: mountains cover sun/moon when they sink */
+.login-aside-landscape__mountains {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 20;
+  width: 100%;
+  height: 58%;
+}
+
+.login-aside-popup.is-day .login-aside-mtn--far {
+  fill: #9ec5c9;
+}
+.login-aside-popup.is-day .login-aside-mtn--mid {
+  fill: #7fadb3;
+}
+.login-aside-popup.is-day .login-aside-mtn--near {
+  fill: #5f8f96;
+}
+.login-aside-popup.is-day .login-aside-tree {
+  fill: #3d6b72;
+}
+.login-aside-popup.is-day .login-aside-lake {
+  fill: #6a9aa0;
+  opacity: 0.45;
+}
+
+.login-aside-popup.is-night .login-aside-mtn--far {
+  fill: #1a1a2e;
+}
+.login-aside-popup.is-night .login-aside-mtn--mid {
+  fill: #0f0f1c;
+}
+.login-aside-popup.is-night .login-aside-mtn--near {
+  fill: #12121f;
+}
+.login-aside-popup.is-night .login-aside-tree {
+  fill: #080812;
+}
+.login-aside-popup.is-night .login-aside-lake {
+  fill: #1e293b;
+  opacity: 0.35;
+}
+
+/* z-30: copy above scenery */
+.login-aside-popup__copy {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1.5rem 1.35rem 1.75rem;
+  background: linear-gradient(0deg, rgba(15, 23, 42, 0.55) 0%, rgba(15, 23, 42, 0.12) 70%, transparent 100%);
+  transition: background 0.8s ease-in-out;
+}
+
+.login-aside-popup.is-night .login-aside-popup__copy {
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.2) 65%, transparent 100%);
+}
+
+.login-aside-popup__title {
+  margin: 0 0 0.55rem;
+  font-family: var(--font-display, inherit);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  color: #fff;
+  text-align: center;
+}
+
+.login-aside-popup__body {
+  margin: 0 auto;
+  max-width: 18rem;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: color-mix(in srgb, #fff 88%, transparent);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-aside-landscape__sun,
+  .login-aside-landscape__moon,
+  .login-aside-landscape__stars span,
+  .login-owl-mascot,
+  .login-flashlight-icon {
+    transition: none !important;
+    animation: none !important;
+  }
+}
