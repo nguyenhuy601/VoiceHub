@@ -194,10 +194,12 @@ async function assertDmCanSend({ peerId, authorizationHeader, senderId }) {
 }
 
 function dmErrorToJson(err) {
+  const code = err.code || 'dm_forbidden';
   return {
     success: false,
     message: err.message || 'Forbidden',
-    code: err.code || 'dm_forbidden',
+    code,
+    errorCode: err.errorCode || String(code).toUpperCase(),
     ...(err.blockerId ? { blockerId: err.blockerId } : {}),
   };
 }

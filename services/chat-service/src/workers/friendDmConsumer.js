@@ -1,4 +1,5 @@
 const amqp = require('amqplib');
+const mongoose = require('mongoose');
 const { getRedisClient } = require('@enterprise/shared');
 const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
 const { runWithReconnect, waitForAmqpClose } = require('@enterprise/shared/messaging/rabbitReconnect');
@@ -6,6 +7,7 @@ const messageService = require('../services/message.service');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
 const { assertDmCanSend } = require('../utils/verifyDmRelationship');
 const { maybeNotifyDmReceived } = require('../utils/dmPushNotification');
+const { MAX_MESSAGE_CONTENT, USER_MESSAGE_TYPES } = require('../utils/chatErrorMap');
 
 const EXCHANGE = process.env.RABBITMQ_EXCHANGE || 'voicehub.topic';
 const QUEUE = process.env.RABBITMQ_FRIEND_DM_QUEUE || 'voicehub.friend.dm';
@@ -22,6 +24,21 @@ async function isDuplicate(correlationId) {
   return res !== 'OK';
 }
 
+async function isReplyInSameDm(replyToMessageId, senderId, receiverId) {
+  if (!replyToMessageId || !mongoose.isValidObjectId(replyToMessageId)) return false;
+  try {
+    const parent = await messageService.getMessageById(replyToMessageId);
+    if (!parent || parent.roomId) return false;
+    const u1 = String(senderId);
+    const u2 = String(receiverId);
+    const pSend = String(parent.senderId?._id || parent.senderId || '');
+    const pRecv = String(parent.receiverId?._id || parent.receiverId || '');
+    return (pSend === u1 && pRecv === u2) || (pSend === u2 && pRecv === u1);
+  } catch {
+    return false;
+  }
+}
+
 async function processPayload(data) {
   const {
     correlationId,
@@ -34,7 +51,20 @@ async function processPayload(data) {
   } = data;
 
   if (!senderId || !receiverId || !content) {
-    console.error('[friendDmConsumer] invalid payload', data);
+    console.error('[friendDmConsumer] invalid payload', { correlationId: correlationId || null });
+    return;
+  }
+
+  if (typeof content !== 'string' || content.length > MAX_MESSAGE_CONTENT) {
+    await emitRealtimeEvent({
+      event: 'friend:send_failed',
+      userId: String(senderId),
+      payload: {
+        receiverId: String(receiverId),
+        code: 'content_too_long',
+        message: 'Nội dung tin nhắn quá dài.',
+      },
+    });
     return;
   }
 
@@ -67,9 +97,11 @@ async function processPayload(data) {
     senderId,
     receiverId,
     content,
-    messageType: messageType || 'text',
+    messageType: USER_MESSAGE_TYPES.includes(messageType) ? messageType : 'text',
   };
-  if (replyToMessageId) messageData.replyToMessageId = replyToMessageId;
+  if (await isReplyInSameDm(replyToMessageId, senderId, receiverId)) {
+    messageData.replyToMessageId = replyToMessageId;
+  }
   const message = await messageService.createMessage(messageData);
 
   await emitRealtimeEvent({

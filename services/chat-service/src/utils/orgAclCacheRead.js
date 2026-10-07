@@ -1,4 +1,5 @@
 const { getRedisClient } = require('@enterprise/shared');
+const { isTrustedGatewayForward } = require('@enterprise/shared/middleware/gatewayTrust');
 const {
   orgAclCacheKey,
   orgAclCachePattern,
@@ -7,10 +8,19 @@ const {
 
 const ACL_REDIS_TTL_SEC = Number(process.env.ORG_ACL_CACHE_TTL_SEC || DEFAULT_ORG_ACL_CACHE_TTL_SEC);
 
+/**
+ * User id cho ACL: ưu tiên req.user; chỉ tin x-user-id khi gateway forward trusted.
+ */
 function resolveUserIdFromReq(req) {
-  const fromUser = req.user?.id || req.user?.userId || req.user?._id;
-  const fromHeader = req.headers?.['x-user-id'];
-  return String(fromUser || fromHeader || '').trim();
+  const fromUser = req?.user?.id || req?.user?.userId || req?.user?._id;
+  if (fromUser != null && String(fromUser).trim()) {
+    return String(fromUser).trim();
+  }
+  if (isTrustedGatewayForward(req)) {
+    const fromHeader = req?.headers?.['x-user-id'];
+    return String(fromHeader || '').trim();
+  }
+  return '';
 }
 
 /**

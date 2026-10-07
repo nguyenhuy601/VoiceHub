@@ -24,7 +24,7 @@ const messageSchema = new mongoose.Schema(
     },
     messageType: {
       type: String,
-      enum: ['text', 'image', 'file', 'system', 'business_card', 'call_log'],
+      enum: ['text', 'image', 'file', 'system', 'business_card', 'call_log', 'poll'],
       default: 'text',
     },
     isRead: {
@@ -96,6 +96,26 @@ const messageSchema = new mongoose.Schema(
     encV: {
       type: Number,
       default: 0,
+    },
+    /** Khảo sát kênh (votes nội bộ — DTO chỉ trả counts + viewerVote). */
+    poll: {
+      question: { type: String, maxlength: 300 },
+      options: [
+        {
+          id: { type: String, required: true },
+          text: { type: String, maxlength: 120 },
+        },
+      ],
+      allowMulti: { type: Boolean, default: false },
+      closesAt: { type: Date },
+      closed: { type: Boolean, default: false },
+      votes: [
+        {
+          userId: { type: mongoose.Schema.Types.ObjectId, required: true },
+          optionIds: [{ type: String }],
+          at: { type: Date, default: Date.now },
+        },
+      ],
     },
     /** Phản hồi emoji (DM / kênh) */
     reactions: [

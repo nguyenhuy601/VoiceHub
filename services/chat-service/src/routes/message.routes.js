@@ -5,6 +5,12 @@ const messageController = require('../controllers/message.controller');
 const { authenticate } = require('@enterprise/shared/middleware/auth');
 
 const { sendServiceError } = require('../middleware/sendServiceError');
+const { compareGatewayToken } = require('@enterprise/shared/middleware/compareGatewayToken');
+const {
+  messageWriteLimiter,
+  reactionWriteLimiter,
+  voteWriteLimiter,
+} = require('../middleware/userWriteRateLimit');
 
 const CHAT_INTERNAL_TOKEN = process.env.CHAT_INTERNAL_TOKEN || '';
 
@@ -26,7 +32,7 @@ function internalServiceOnly(req, res, next) {
       message: 'Missing x-internal-token',
     });
   }
-  if (token !== CHAT_INTERNAL_TOKEN) {
+  if (!compareGatewayToken(token, CHAT_INTERNAL_TOKEN)) {
     return sendServiceError(res, 403, {
       errorCode: 'MESSAGE_FORBIDDEN',
       messageUser: 'Không đủ quyền thực hiện thao tác này.',
@@ -85,11 +91,12 @@ router.use(authenticate);
 // Signed upload URL (Firebase) — đặt trước POST /
 router.post(
   '/storage/signed-upload',
+  messageWriteLimiter,
   messageController.createSignedUploadUrl.bind(messageController)
 );
 
 // Tạo tin nhắn mới
-router.post('/', messageController.createMessage.bind(messageController));
+router.post('/', messageWriteLimiter, messageController.createMessage.bind(messageController));
 
 // Thống kê (đặt trước /:messageId để không bị nuốt bởi param)
 router.get('/stats/summary', messageController.getMessageStatsSummary.bind(messageController));
@@ -110,23 +117,46 @@ router.get('/:messageId', messageController.getMessageById.bind(messageControlle
 router.patch('/:messageId/read', messageController.markAsRead.bind(messageController));
 
 // Xóa tin nhắn (soft delete)
-router.delete('/:messageId', messageController.deleteMessage.bind(messageController));
+router.delete(
+  '/:messageId',
+  messageWriteLimiter,
+  messageController.deleteMessage.bind(messageController)
+);
 
 // Thu hồi tin nhắn (recall)
-router.patch('/:messageId/recall', messageController.recallMessage.bind(messageController));
+router.patch(
+  '/:messageId/recall',
+  messageWriteLimiter,
+  messageController.recallMessage.bind(messageController)
+);
 
 // Phản hồi emoji
-router.post('/:messageId/reactions', messageController.addReaction.bind(messageController));
+router.post(
+  '/:messageId/reactions',
+  reactionWriteLimiter,
+  messageController.addReaction.bind(messageController)
+);
 router.delete(
   '/:messageId/reactions/:emoji',
+  reactionWriteLimiter,
   messageController.removeReaction.bind(messageController)
 );
 
+router.post(
+  '/:messageId/votes',
+  voteWriteLimiter,
+  messageController.votePoll.bind(messageController)
+);
+
 // Chỉnh sửa tin nhắn
-router.patch('/:messageId/edit', messageController.editMessage.bind(messageController));
+router.patch(
+  '/:messageId/edit',
+  messageWriteLimiter,
+  messageController.editMessage.bind(messageController)
+);
 
 // Alias tương thích: một số client cũ gọi PATCH /messages/:id
-router.patch('/:messageId', messageController.editMessage.bind(messageController));
+router.patch('/:messageId', messageWriteLimiter, messageController.editMessage.bind(messageController));
 
 module.exports = router;
 

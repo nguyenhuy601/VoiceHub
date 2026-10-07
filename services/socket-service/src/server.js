@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const crypto = require('crypto');
+const { compareGatewayToken } = require('@enterprise/shared/middleware/compareGatewayToken');
 
 const USER_SERVICE_URL = String(process.env.USER_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!USER_SERVICE_URL) throw new Error('Thiếu biến môi trường: USER_SERVICE_URL');
@@ -11,13 +11,6 @@ if (process.env.NODE_ENV === 'production') {
     console.error('[socket-service] FATAL: REALTIME_INTERNAL_TOKEN is required in production.');
     process.exit(1);
   }
-}
-
-function tokensMatch(got, expected) {
-  const a = Buffer.from(String(got ?? ''), 'utf8');
-  const b = Buffer.from(String(expected ?? ''), 'utf8');
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
 }
 
 const http = require('http');
@@ -81,7 +74,7 @@ app.post('/internal/realtime/publish', (req, res) => {
   if (!expected) {
     return res.status(503).json({ ok: false, message: 'REALTIME_INTERNAL_TOKEN not configured' });
   }
-  if (!tokensMatch(token, expected)) {
+  if (!compareGatewayToken(token, expected)) {
     return res.status(401).json({ ok: false, message: 'Unauthorized realtime publish' });
   }
 
