@@ -1,6 +1,6 @@
 import { wizardUi } from './projectWizardUi';
 
-/** Step Analysis Mode — Manual vs AI. */
+/** Analysis Mode — Manual vs AI (section trên trang intake). */
 export default function ProjectWizardStepMode({ form, patchForm, t }) {
   const mode = form.analysisMode === 'ai' ? 'ai' : form.analysisMode === 'manual' ? 'manual' : '';
 
@@ -24,10 +24,11 @@ export default function ProjectWizardStepMode({ form, patchForm, t }) {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className={wizardUi.title}>
+        <h2 className="text-lg font-semibold text-foreground">
           {t('adminTasks.wizardModeTitle') || 'Analysis Mode'}
-        </h1>
-        <p className={wizardUi.subtitle}>
+          <span className="ml-0.5 text-destructive">*</span>
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           {t('adminTasks.wizardModeHint') ||
             'Chọn cách phân tích yêu cầu cho dự án này. Có thể đổi quy trình sau khi tạo draft.'}
         </p>

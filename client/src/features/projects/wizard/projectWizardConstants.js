@@ -1,7 +1,7 @@
 import { DEFAULT_PROJECT_ROLE_KEYS } from '../../../utils/roleTaxonomy.js';
 
-/** Phase 1 intake: Import+Identity(+roster) → Analysis Mode. */
-export const PROJECT_WIZARD_STEPS = Object.freeze(['intake', 'mode']);
+/** Phase 1 intake: một trang — Import+Identity(+roster)+Analysis Mode. */
+export const PROJECT_WIZARD_STEPS = Object.freeze(['intake']);
 
 /** @deprecated kept for tests / legacy panels */
 export const PROJECT_WORK_TYPES = Object.freeze([

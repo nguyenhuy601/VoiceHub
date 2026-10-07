@@ -3,6 +3,12 @@ set -euo pipefail
 
 # Build/push Swarm images — context repo root để link @enterprise/shared.
 # Requires docker login to your registry first.
+#
+# Align with CI (build-once): same Dockerfiles + context = repo root + tags
+#   ${REGISTRY}/${OWNER}/voicehub/<service>:${TAG}
+#   ${REGISTRY}/${OWNER}/voicehub/<service>:latest
+# Immutable promote/CD uses release-manifest digests (not this script).
+# Prefer CI main publish for release artifacts; this script is for emergency/local registry push.
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"

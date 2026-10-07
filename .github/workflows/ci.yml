@@ -1,6 +1,8 @@
 # CI — Continuous Integration (VoiceHub)
-# Chuẩn: Lint → Test → Build → Scan → CI gate
-# Không Artifact push / không Deploy.
+# PR:   Lint → Test → Scan(fs) → Build (push=false) → ci-gate
+# main: Lint → Test → Scan(fs) → Build+Push → Scan(image) → Manifest → ci-gate
+# Không dual CI / không release.yml — publish chỉ trên main trong workflow này.
+# CD không rebuild (xem cd.yml).
 
 name: CI
 
@@ -10,15 +12,26 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "On main-like run: publish images + release manifest"
+        type: boolean
+        default: false
+      force_all_images:
+        description: "Force build/publish all Swarm app images"
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
+  packages: write
   pull-requests: read
   security-events: write
+  actions: read
 
 jobs:
   changes:
@@ -30,6 +43,7 @@ jobs:
       api_gateway: ${{ steps.filter.outputs.api_gateway }}
       services: ${{ steps.filter.outputs.services }}
       docker: ${{ steps.filter.outputs.docker }}
+      is_main_publish: ${{ steps.meta.outputs.is_main_publish }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -50,6 +64,22 @@ jobs:
               - '.github/swarm-app-images.json'
               - '.github/workflows/ci.yml'
               - '.github/workflows/cd.yml'
+              - '.github/scripts/**'
+      - id: meta
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PUBLISH_INPUT: ${{ github.event.inputs.publish || 'false' }}
+        run: |
+          set -euo pipefail
+          IS_MAIN_PUBLISH=false
+          if [[ "${EVENT}" == "push" && "${REF}" == "refs/heads/main" ]]; then
+            IS_MAIN_PUBLISH=true
+          elif [[ "${EVENT}" == "workflow_dispatch" && "${PUBLISH_INPUT}" == "true" && "${REF}" == "refs/heads/main" ]]; then
+            IS_MAIN_PUBLISH=true
+          fi
+          echo "is_main_publish=${IS_MAIN_PUBLISH}" >> "$GITHUB_OUTPUT"
+          echo "is_main_publish=${IS_MAIN_PUBLISH}"
 
   # ── Scan ──────────────────────────────────────────────
   scan:
@@ -69,7 +99,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Trivy filesystem
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: fs
           scan-ref: .
@@ -207,16 +237,27 @@ jobs:
             (cd "${dir}" && node --test tests/*.test.js)
           done
 
-  # ── Build (verify, no push) ───────────────────────────
+  # ── Docker matrix (shared script) ─────────────────────
   resolve-docker-matrix:
-    name: "Build — resolve matrix"
+    name: "Docker — resolve matrix"
     needs: changes
     if: >-
-      github.event_name == 'pull_request' && (
-        needs.changes.outputs.docker == 'true' ||
-        needs.changes.outputs.shared == 'true' ||
-        needs.changes.outputs.api_gateway == 'true' ||
-        needs.changes.outputs.services == 'true'
+      (
+        github.event_name == 'pull_request' && (
+          needs.changes.outputs.docker == 'true' ||
+          needs.changes.outputs.shared == 'true' ||
+          needs.changes.outputs.api_gateway == 'true' ||
+          needs.changes.outputs.services == 'true'
+        )
+      ) || (
+        needs.changes.outputs.is_main_publish == 'true' && (
+          needs.changes.outputs.docker == 'true' ||
+          needs.changes.outputs.shared == 'true' ||
+          needs.changes.outputs.api_gateway == 'true' ||
+          needs.changes.outputs.services == 'true' ||
+          github.event.inputs.force_all_images == 'true' ||
+          github.event_name == 'workflow_dispatch'
+        )
       )
     runs-on: ubuntu-latest
     outputs:
@@ -228,40 +269,39 @@ jobs:
           fetch-depth: 0
       - id: set
         env:
-          BUILD_ALL: ${{ needs.changes.outputs.shared == 'true' || needs.changes.outputs.docker == 'true' }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          IS_MAIN: ${{ needs.changes.outputs.is_main_publish }}
+          FORCE_ALL_INPUT: ${{ github.event.inputs.force_all_images || 'false' }}
+          SHARED_CHANGED: ${{ needs.changes.outputs.shared }}
+          DOCKER_CHANGED: ${{ needs.changes.outputs.docker }}
+          PR_BASE: ${{ github.event.pull_request.base.sha || '' }}
+          BEFORE: ${{ github.event.before || '' }}
         run: |
           set -euo pipefail
-          ALL="$(node -e 'console.log(JSON.stringify(require("./.github/swarm-app-images.json")))')"
-          if [[ "${BUILD_ALL}" == "true" ]]; then
-            echo "matrix=$(echo "$ALL" | jq -c '{include:.}')" >> "$GITHUB_OUTPUT"
-            echo "has_images=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          mapfile -t CHANGED_PATHS < <(git diff --name-only "${BASE_SHA}"...HEAD)
-          SELECTED='[]'
-          while IFS= read -r row; do
-            image="$(echo "$row" | jq -r '.image')"
-            hit=0
-            if [[ "${image}" == "api-gateway" ]]; then
-              for p in "${CHANGED_PATHS[@]}"; do [[ "$p" == api-gateway/* ]] && hit=1 && break; done
-            else
-              for p in "${CHANGED_PATHS[@]}"; do [[ "$p" == "services/${image}/"* ]] && hit=1 && break; done
+          EVENT_ARG=pr
+          BASE="${PR_BASE}"
+          if [[ "${IS_MAIN}" == "true" ]]; then
+            EVENT_ARG=push
+            BASE="${BEFORE}"
+            if [[ -z "${BASE}" || "${BASE}" =~ ^0+$ ]]; then
+              BASE="$(git rev-parse HEAD~1 2>/dev/null || true)"
             fi
-            [[ "$hit" -eq 1 ]] && SELECTED="$(echo "$SELECTED" | jq -c --argjson r "$row" '. + [$r]')"
-          done < <(echo "$ALL" | jq -c '.[]')
-          if [[ "$(echo "$SELECTED" | jq 'length')" -eq 0 ]]; then
-            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
-            echo "has_images=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "matrix=$(echo "$SELECTED" | jq -c '{include:.}')" >> "$GITHUB_OUTPUT"
-            echo "has_images=true" >> "$GITHUB_OUTPUT"
           fi
+          EXTRA=()
+          if [[ "${FORCE_ALL_INPUT}" == "true" || "${SHARED_CHANGED}" == "true" || "${DOCKER_CHANGED}" == "true" ]]; then
+            EXTRA+=(--force-all)
+          fi
+          ARGS=(--event "${EVENT_ARG}" --head HEAD --github-output)
+          [[ -n "${BASE}" ]] && ARGS+=(--base "${BASE}")
+          ARGS+=("${EXTRA[@]}")
+          bash .github/scripts/resolve-docker-matrix.sh "${ARGS[@]}"
 
+  # ── PR only: build verify (push=false) ────────────────
   build-docker:
     name: "Build — ${{ matrix.image }} (no push)"
     needs: [changes, resolve-docker-matrix]
-    if: needs.resolve-docker-matrix.outputs.has_images == 'true'
+    if: >-
+      github.event_name == 'pull_request' &&
+      needs.resolve-docker-matrix.outputs.has_images == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -278,20 +318,231 @@ jobs:
           cache-from: type=gha,scope=ci-${{ matrix.image }}
           cache-to: type=gha,mode=min,scope=ci-${{ matrix.image }}
 
+  # ── Main only: build once + push (no second verify build) ─
+  publish-docker:
+    name: "Publish — ${{ matrix.image }}"
+    needs: [changes, resolve-docker-matrix, scan, lint-client, test-shared, test-api-gateway, test-services]
+    if: >-
+      always() &&
+      needs.changes.outputs.is_main_publish == 'true' &&
+      needs.resolve-docker-matrix.result == 'success' &&
+      needs.resolve-docker-matrix.outputs.has_images == 'true' &&
+      needs.scan.result != 'failure' && needs.scan.result != 'cancelled' &&
+      (needs.lint-client.result == 'success' || needs.lint-client.result == 'skipped') &&
+      (needs.test-shared.result == 'success' || needs.test-shared.result == 'skipped') &&
+      (needs.test-api-gateway.result == 'success' || needs.test-api-gateway.result == 'skipped') &&
+      (needs.test-services.result == 'success' || needs.test-services.result == 'skipped')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.resolve-docker-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build & push (one shot)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/voicehub/${{ matrix.image }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/voicehub/${{ matrix.image }}:latest
+          cache-from: type=gha,scope=ci-${{ matrix.image }}
+          cache-to: type=gha,mode=min,scope=ci-${{ matrix.image }}
+      - name: Resolve digest
+        env:
+          IMAGE: ${{ matrix.image }}
+          OWNER: ${{ github.repository_owner }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          REF="ghcr.io/${OWNER}/voicehub/${IMAGE}:${SHA}"
+          DIGEST="$(docker buildx imagetools inspect "${REF}" --format '{{.Manifest.Digest}}' 2>/dev/null || true)"
+          if [[ -z "${DIGEST}" || "${DIGEST}" != sha256:* ]]; then
+            DIGEST="$(docker buildx imagetools inspect "${REF}" | awk '/Digest:/ {print $2; exit}')"
+          fi
+          [[ -n "${DIGEST}" && "${DIGEST}" == sha256:* ]] || { echo "Failed digest for ${REF}"; exit 1; }
+          mkdir -p digests
+          printf '%s' "${DIGEST}" > "digests/${IMAGE}.txt"
+          echo "digest=${DIGEST}"
+      - name: Trivy image
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository_owner }}/voicehub/${{ matrix.image }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}
+          path: digests/${{ matrix.image }}.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  release-manifest:
+    name: "Release — manifest"
+    needs: [changes, resolve-docker-matrix, publish-docker]
+    if: >-
+      always() &&
+      needs.changes.outputs.is_main_publish == 'true' &&
+      (needs.resolve-docker-matrix.result == 'success' || needs.resolve-docker-matrix.result == 'skipped') &&
+      (needs.publish-docker.result == 'success' || needs.publish-docker.result == 'skipped')
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.gen.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Download built digests
+        if: needs.publish-docker.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests-in
+          merge-multiple: true
+      - name: Build built.json from digests
+        id: built
+        env:
+          PUBLISH_RESULT: ${{ needs.publish-docker.result }}
+        run: |
+          set -euo pipefail
+          mkdir -p digests-in
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const dir = 'digests-in';
+          const built = {};
+          if (fs.existsSync(dir)) {
+            for (const f of fs.readdirSync(dir)) {
+              if (!f.endsWith('.txt')) continue;
+              const name = f.replace(/\.txt$/, '');
+              built[name] = fs.readFileSync(path.join(dir, f), 'utf8').trim();
+            }
+          }
+          fs.writeFileSync('built.json', JSON.stringify(built, null, 2));
+          console.log('built services:', Object.keys(built).join(', ') || '(none)');
+          NODE
+      - name: Generate manifest
+        id: gen
+        env:
+          OWNER: ${{ github.repository_owner }}
+          SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DAY="$(date -u +%Y%m%d)"
+          RELEASE_ID="R${DAY}-${RUN_NUMBER}"
+          echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
+
+          mkdir -p prev-manifest
+          PREV_TAG="$(gh release list --limit 20 --json tagName,isDraft \
+            --jq '[.[] | select(.isDraft==false) | .tagName] | map(select(startswith("voicehub-R"))) | .[0] // empty' 2>/dev/null || true)"
+          EXTRA=()
+          if [[ -n "${PREV_TAG}" ]]; then
+            echo "Previous release tag: ${PREV_TAG}"
+            if gh release download "${PREV_TAG}" --pattern release-manifest.json --dir prev-manifest 2>/dev/null; then
+              EXTRA+=(--previous prev-manifest/release-manifest.json)
+            fi
+          else
+            echo "No previous voicehub-R* release found"
+          fi
+
+          node .github/scripts/generate-release-manifest.mjs \
+            --commit "${SHA}" \
+            --release-id "${RELEASE_ID}" \
+            --owner "${OWNER}" \
+            --built built.json \
+            "${EXTRA[@]}" \
+            --out release-manifest.json
+          # Minimal schema checks without ajv
+          node <<'NODE'
+          const fs = require('fs');
+          const catalog = require('./.github/swarm-app-images.json');
+          const m = JSON.parse(fs.readFileSync('release-manifest.json', 'utf8'));
+          const keys = Object.keys(m.services || {});
+          if (keys.length !== catalog.length) {
+            console.error(`Expected ${catalog.length} services, got ${keys.length}`);
+            process.exit(1);
+          }
+          for (const row of catalog) {
+            const s = m.services[row.image];
+            if (!s?.repository || !s?.tag || !s?.digest?.includes('@sha256:')) {
+              console.error(`Invalid entry for ${row.image}`, s);
+              process.exit(1);
+            }
+          }
+          if (!/^R[0-9]{8}-[0-9]+$/.test(m.releaseId)) {
+            console.error('Bad releaseId', m.releaseId);
+            process.exit(1);
+          }
+          console.log('Manifest OK', m.releaseId, keys.length);
+          NODE
+          {
+            echo "## Release ${RELEASE_ID}"
+            echo ""
+            echo "| Service | Digest |"
+            echo "|---------|--------|"
+            node -e 'const m=require("./release-manifest.json"); for (const [k,v] of Object.entries(m.services).sort()) console.log(`| ${k} | \\`${v.digest.split("@").pop()}\\` |`)'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: release-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.gen.outputs.release_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          TAG="voicehub-${RELEASE_ID}"
+          TITLE="VoiceHub ${RELEASE_ID}"
+          BODY="Immutable release for commit \`${SHA}\`.
+
+          Deploy: \`bash devops/swarm/deploy-release.sh --release-id ${RELEASE_ID}\`
+          CD promotes this manifest — CD does **not** rebuild images.
+          "
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" release-manifest.json --clobber
+          else
+            gh release create "${TAG}" release-manifest.json \
+              --title "${TITLE}" \
+              --notes "${BODY}" \
+              --target "${SHA}"
+          fi
+
   # ── Gate ──────────────────────────────────────────────
   ci-gate:
     name: CI gate
     needs:
+      - changes
       - scan
       - lint-client
       - test-shared
       - test-api-gateway
       - test-services
       - build-docker
+      - publish-docker
+      - release-manifest
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Aggregate Lint | Test | Build | Scan
+      - name: Aggregate Lint | Test | Build | Scan | Publish
+        env:
+          IS_MAIN: ${{ needs.changes.outputs.is_main_publish }}
         run: |
           set -euo pipefail
           check() {
@@ -307,4 +558,10 @@ jobs:
           check test-api-gateway "${{ needs.test-api-gateway.result }}"
           check test-services "${{ needs.test-services.result }}"
           check build-docker "${{ needs.build-docker.result }}"
-          echo "CI gate PASS (Lint | Test | Build | Scan)"
+          if [[ "${IS_MAIN}" == "true" ]]; then
+            check publish-docker "${{ needs.publish-docker.result }}"
+            check release-manifest "${{ needs.release-manifest.result }}"
+            echo "CI gate PASS (main: Lint | Test | Scan | Publish | Manifest)"
+          else
+            echo "CI gate PASS (PR: Lint | Test | Build verify | Scan)"
+          fi

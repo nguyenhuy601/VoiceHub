@@ -435,7 +435,7 @@ export default function OrganizationRbacSettings({ orgId }) {
           onClick={() => {
             setCreateOpen(true);
             setCreateName('');
-            setPermDraft({});
+            setGrantsDraft({});
           }}
           disabled={loading}
         >

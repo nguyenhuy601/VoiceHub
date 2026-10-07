@@ -130,6 +130,8 @@ function exportHeadersForColumns(columns = []) {
 
 module.exports = {
   DISPLAY_HEADER_BY_KEY,
+  SUGGESTION_HEADER_MARK,
+  stripSuggestionMark,
   normalizeHeaderToken,
   displayHeaderForKey,
   resolveInternalKeyFromHeader,

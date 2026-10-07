@@ -583,8 +583,6 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
         open={Boolean(orgId) && selectedDomainId === 'org-structure' && orgStructureSetupCompleted === false}
         onCompleted={async (payload) => {
           const levels = Array.isArray(payload?.levels) ? payload.levels : [];
-          setOrgStructureLevels(levels);
-          setOrgStructureSetupCompleted(true);
           await reloadOrgStructureLevels();
           const raw = visibleDomains.find((d) => d.id === 'org-structure');
           const filtered = applyOrgLevelFilterToDomain(raw, levels, { setupCompleted: true });
