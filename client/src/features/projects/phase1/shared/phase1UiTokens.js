@@ -27,7 +27,7 @@ export const STATUS_TONE = Object.freeze({
 
 /** Kind chips — analysis + planning. */
 export const KIND_TONE = Object.freeze({
-  SCOPE: 'border-slate-500/40 bg-slate-500/10 text-slate-800 dark:text-slate-200',
+  SCOPE: 'border-border/60 bg-muted text-foreground',
   BG: 'border-indigo-500/40 bg-indigo-500/10 text-indigo-800 dark:text-indigo-200',
   BR: 'border-teal-500/40 bg-teal-500/10 text-teal-800 dark:text-teal-200',
   BPM: 'border-orange-500/40 bg-orange-500/10 text-orange-800 dark:text-orange-200',
@@ -66,13 +66,13 @@ export const QUEUE_TONE = Object.freeze({
 
 const QUEUE_FALLBACK = 'border-border bg-surface';
 
-/** Optional priority chips — solid High (orange) / Critical (red) + white text (mock). */
+/** Optional priority chips — DS tokens (no raw text-white / hex solids). */
 export const PRIORITY_TONE = Object.freeze({
-  high: 'bg-[#FA8C16] text-white border-transparent',
-  medium: 'bg-[#FAAD14] text-white border-transparent',
-  med: 'bg-[#FAAD14] text-white border-transparent',
-  low: 'bg-[#8C8C8C] text-white border-transparent',
-  critical: 'bg-[#CF1322] text-white border-transparent font-semibold',
+  high: 'bg-warning text-warning-foreground border-transparent',
+  medium: 'bg-amber-500/90 text-primary-foreground border-transparent',
+  med: 'bg-amber-500/90 text-primary-foreground border-transparent',
+  low: 'bg-muted text-muted-foreground border-transparent',
+  critical: 'bg-destructive text-destructive-foreground border-transparent font-semibold',
 });
 
 /** Gate step card tint: done | pending | locked */

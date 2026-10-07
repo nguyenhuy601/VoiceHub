@@ -136,7 +136,7 @@ export default function DeptHeadPanel({ orgId, embedded = false }) {
     <AdminUserFormCard title={t('adminDomains.orgStructure.deptHead')}>
       {structureError || membersError ? (
         <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
             {structureError || resolveApiErrorMessage(membersError, { t, fallback: t('adminOrg.loadFail') })}
           </p>
           <button

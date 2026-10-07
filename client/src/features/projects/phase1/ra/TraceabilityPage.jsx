@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import Modal from '../../../../components/Shared/Modal';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
@@ -64,7 +65,13 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
     enabled: Boolean(projectId),
   });
 
-  const { data: catalog = [] } = useQuery({
+  const {
+    data: catalog = [],
+    isError: catalogError,
+    error: catalogQueryError,
+    refetch: refetchCatalog,
+    isLoading: catalogLoading,
+  } = useQuery({
     queryKey: ['analysisArtifacts', projectId, 'ALL'],
     queryFn: async () => {
       const raw = unwrap(await analysisAPI.listArtifacts(projectId));
@@ -659,12 +666,24 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
         </p>
       </div>
 
+      {catalogLoading ? (
+        <p className="text-sm text-muted-foreground" aria-busy="true">
+          {t('common.loading')}
+        </p>
+      ) : null}
+      {catalogError ? (
+        <AdminLoadErrorState
+          message={resolveApiErrorMessage(catalogQueryError, { t, fallback: t('common.error') })}
+          onRetry={() => void refetchCatalog()}
+        />
+      ) : null}
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {sections.map((sec) => (
           <button
             key={sec.id}
             type="button"
-            className={`flex min-h-[7.5rem] flex-col rounded-xl border p-4 text-left shadow-sm transition ${toneClass(sec.tone)}`}
+            className={`flex min-h-[7.5rem] flex-col rounded-xl border p-4 text-left shadow-sm transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${toneClass(sec.tone)}`}
             onClick={() => openSectionModal(sec.id)}
           >
             <div className="flex items-start justify-between gap-2">

@@ -12,6 +12,9 @@ import {
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminListSkeleton,
+} from '../../components/adminUsers/adminPanelStates';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
@@ -161,7 +164,7 @@ export default function DeptOrgRolesPanel({ orgId, embedded = false }) {
     <AdminUserFormCard title={unitName(selected) || t('adminDomains.orgStructure.deptOrgRoles')}>
       {structureError || membersError ? (
         <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
             {structureError || resolveApiErrorMessage(membersError, { t, fallback: t('adminOrg.loadFail') })}
           </p>
           <button
@@ -174,7 +177,7 @@ export default function DeptOrgRolesPanel({ orgId, embedded = false }) {
         </div>
       ) : catalogError ? (
         <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
             {catalogError}
           </p>
           <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadCatalog()}>
@@ -208,7 +211,7 @@ export default function DeptOrgRolesPanel({ orgId, embedded = false }) {
                 return (
                   <option key={id} value={id}>
                     {label}
-                    {headId === id ? ' (Head)' : ''}
+                    {headId === id ? ` ${t('adminOrg.headSuffix')}` : ''}
                   </option>
                 );
               })}
@@ -231,10 +234,10 @@ export default function DeptOrgRolesPanel({ orgId, embedded = false }) {
           </label>
 
           {loadingAssign ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+            <AdminListSkeleton rows={3} />
           ) : assignError ? (
             <div className="space-y-3">
-              <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
                 {assignError}
               </p>
               <button
@@ -246,12 +249,12 @@ export default function DeptOrgRolesPanel({ orgId, embedded = false }) {
               </button>
             </div>
           ) : customRoles.length ? (
-            <ul className="max-h-64 space-y-1 overflow-auto rounded-xl border border-border/70 p-2">
+            <ul className="max-h-64 space-y-1 overflow-auto rounded-xl border border-border p-2">
               {customRoles.map((role) => {
                 const checked = assignedKeys.includes(role.key);
                 return (
                   <li key={role.key}>
-                    <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/40">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-muted">
                       <input
                         type="checkbox"
                         className="rounded border-border"
@@ -296,7 +299,7 @@ export default function DeptOrgRolesPanel({ orgId, embedded = false }) {
           selectedId={selectedId}
           onSelect={setSelectedId}
           hint={t('adminOrg.deptOrgRolesPickerHint')}
-          subtitleFn={(row) => `${(row.memberIds || []).length} members`}
+          subtitleFn={(row) => t('adminOrg.memberCount', { n: (row.memberIds || []).length })}
         />
         {body}
       </div>

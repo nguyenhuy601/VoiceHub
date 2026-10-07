@@ -1,6 +1,7 @@
 /**
  * Radio list: choose where a new role appears relative to existing catalog rows.
  */
+import { useAppStrings } from '../../locales/appStrings';
 import { adminLabelClass } from './adminUserPanelUi';
 
 /**
@@ -27,13 +28,18 @@ export default function AdminRoleInsertPositionPicker({
   onChange,
   title,
   hint,
-  startLabel = 'Đầu danh sách',
-  endLabel = 'Cuối danh sách',
-  afterPrefix = 'Sau',
+  startLabel = '',
+  endLabel = '',
+  afterPrefix = '',
   loading = false,
   emptyLabel = '',
   previewLabel = '',
 }) {
+  const { t } = useAppStrings();
+  const startText = startLabel || t('adminRbac.roleInsertStart');
+  const endText = endLabel || t('adminRbac.roleInsertEnd');
+  const afterText = afterPrefix || t('adminRbac.roleInsertAfter');
+
   const sorted = [...(roles || [])].sort(
     (a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0)
   );
@@ -69,7 +75,7 @@ export default function AdminRoleInsertPositionPicker({
             onChange={() => onChange({ place: 'start' })}
           />
           <span>
-            <span className="font-medium">{startLabel}</span>
+            <span className="font-medium">{startText}</span>
             {previewLabel && place === 'start' ? (
               <span className="mt-0.5 block text-xs text-red-600">→ {previewLabel}</span>
             ) : null}
@@ -90,7 +96,7 @@ export default function AdminRoleInsertPositionPicker({
               />
               <span className="min-w-0">
                 <span className="font-medium">
-                  {afterPrefix}: {role.label || role.key}
+                  {afterText}: {role.label || role.key}
                 </span>
                 <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                   {role.key}
@@ -117,7 +123,7 @@ export default function AdminRoleInsertPositionPicker({
             onChange={() => onChange({ place: 'end' })}
           />
           <span>
-            <span className="font-medium">{endLabel}</span>
+            <span className="font-medium">{endText}</span>
             {previewLabel && place === 'end' ? (
               <span className="mt-0.5 block text-xs text-red-600">→ {previewLabel}</span>
             ) : null}

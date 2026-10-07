@@ -197,13 +197,13 @@ export default function ProjectHubSprintBoardCard({
             {title || '—'}
           </div>
           {typeof onOpenMenu === 'function' ? (
-            <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+            <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100">
               <button
                 type="button"
                 title={t('taskBoard.editCard')}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => onOpenMenu(card, e)}
-                className="rounded p-0.5 text-muted-foreground hover:bg-muted"
+                className="rounded p-0.5 text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
@@ -212,7 +212,7 @@ export default function ProjectHubSprintBoardCard({
                 title={t('taskBoard.cardActionsTitle')}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => onOpenMenu(card, e)}
-                className="rounded p-0.5 text-muted-foreground hover:bg-muted"
+                className="rounded p-0.5 text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
@@ -284,7 +284,8 @@ export default function ProjectHubSprintBoardCard({
                 e.stopPropagation();
                 onConfirmReadyToDone(card);
               }}
-              className={`${CHIP} border-primary/40 bg-primary/10 text-primary hover:bg-primary/15 disabled:opacity-50`}
+              className={`${CHIP} border-primary/40 bg-primary/10 text-primary transition-colors motion-reduce:transition-none hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50`}
+              aria-busy={confirmingDone || undefined}
             >
               {confirmingDone
                 ? t('common.loading')

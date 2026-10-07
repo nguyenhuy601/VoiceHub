@@ -55,6 +55,10 @@ function computeMenuPos(btnRect, menuH, menuW = MENU_WIDTH) {
   };
 }
 
+function enabledMenuItems(menuEl) {
+  return Array.from(menuEl?.querySelectorAll('[role="menuitem"]:not([disabled])') || []);
+}
+
 /**
  * Menu "..." gom thao tác admin theo nhóm.
  * variant `user` = list nhân sự; `account` = list tài khoản (chỉ route /accounts/*, Khóa cuối).
@@ -111,7 +115,9 @@ export default function AdminUserActionsMenu({
       setOpen(false);
     };
     const onKey = (e) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      btnRef.current?.focus();
     };
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
@@ -120,6 +126,27 @@ export default function AdminUserActionsMenu({
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (open && ready) enabledMenuItems(menuRef.current)[0]?.focus();
+  }, [open, ready]);
+
+  const handleMenuKeyDown = (event) => {
+    const items = enabledMenuItems(menuRef.current);
+    if (!items.length) return;
+    const current = items.indexOf(document.activeElement);
+    let next = -1;
+    if (event.key === 'ArrowDown') next = (current + 1) % items.length;
+    else if (event.key === 'ArrowUp') next = (current - 1 + items.length) % items.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = items.length - 1;
+    else if (event.key === 'Tab') {
+      setOpen(false);
+      return;
+    } else return;
+    event.preventDefault();
+    items[next]?.focus();
+  };
 
   const toggle = () => {
     if (!btnRef.current) return;
@@ -136,14 +163,13 @@ export default function AdminUserActionsMenu({
 
   const q = `?userId=${encodeURIComponent(userId)}`;
 
+  const itemClass = (danger) =>
+    `block w-full px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-muted focus-visible:bg-muted focus-visible:outline-none motion-reduce:transition-none ${
+      danger ? 'font-medium text-destructive' : 'text-foreground'
+    }`;
+
   const ItemLink = ({ to, children, danger }) => (
-    <Link
-      to={to}
-      className={`block px-3 py-2 text-sm transition hover:bg-muted/60 ${
-        danger ? 'font-medium text-red-600 dark:text-red-400' : 'text-foreground'
-      }`}
-      onClick={() => setOpen(false)}
-    >
+    <Link to={to} role="menuitem" tabIndex={-1} className={itemClass(danger)} onClick={() => setOpen(false)}>
       {children}
     </Link>
   );
@@ -151,10 +177,10 @@ export default function AdminUserActionsMenu({
   const ItemButton = ({ onClick, children, danger, disabled = false }) => (
     <button
       type="button"
+      role="menuitem"
+      tabIndex={-1}
       disabled={disabled}
-      className={`block w-full px-3 py-2 text-left text-sm transition hover:bg-muted/60 ${
-        danger ? 'font-medium text-red-600 dark:text-red-400' : 'text-foreground'
-      } ${
+      className={`${itemClass(danger)} ${
         disabled ? 'cursor-not-allowed opacity-50 hover:bg-transparent' : ''
       }`}
       onClick={() => {
@@ -168,8 +194,8 @@ export default function AdminUserActionsMenu({
   );
 
   const Group = ({ label, children }) => (
-    <div className="border-t border-border/70 py-1 first:border-t-0">
-      <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div role="group" aria-label={label} className="border-t border-border py-1 first:border-t-0">
+      <p aria-hidden="true" className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
       {children}
@@ -183,21 +209,24 @@ export default function AdminUserActionsMenu({
         type="button"
         title={t('adminUsers.moreActions')}
         aria-label={t('adminUsers.moreActions')}
+        aria-haspopup="menu"
         aria-expanded={open}
         onClick={(e) => {
           e.stopPropagation();
           toggle();
         }}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition hover:border-border hover:bg-muted/50 hover:text-foreground"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-colors duration-150 hover:border-border hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
       >
-        <MoreHorizontal className="h-4 w-4" />
+        <MoreHorizontal className="h-4 w-4" aria-hidden />
       </button>
       {open && typeof document !== 'undefined'
         ? createPortal(
             <div
               ref={menuRef}
               role="menu"
-              className="fixed z-[10040] w-[220px] overscroll-contain rounded-xl border border-border bg-card py-1 shadow-xl"
+              aria-label={t('adminUsers.moreActions')}
+              onKeyDown={handleMenuKeyDown}
+              className="fixed z-[10040] w-[220px] overscroll-contain rounded-xl border border-border bg-card py-1 shadow-xl motion-safe:animate-fade-in-fast"
               style={{
                 top: pos.top,
                 left: pos.left,

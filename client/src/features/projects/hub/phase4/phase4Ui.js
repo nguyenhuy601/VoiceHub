@@ -1,9 +1,9 @@
-/** Phase 4 shared chrome tokens (soft-blue section cards). */
+/** Phase 4 shared chrome tokens (soft section cards via DS tokens). */
 export const PHASE4_SECTION_SHELL =
-  'overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950';
+  'overflow-hidden rounded-xl border border-border bg-surface shadow-sm';
 
 export const PHASE4_SECTION_HEAD =
-  'border-b border-[#E8E8E8] bg-[#E8F4FC] px-3.5 py-2.5 dark:border-slate-700 dark:bg-slate-800/80';
+  'border-b border-border bg-primary/5 px-3.5 py-2.5';
 
 export const PHASE4_PRIMARY_MODULES = Object.freeze([
   'overview',

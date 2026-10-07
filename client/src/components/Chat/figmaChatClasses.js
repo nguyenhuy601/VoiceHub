@@ -226,10 +226,10 @@ export const FIGMA_CHAT_INVITE_CARD =
 export const FIGMA_CHAT_INVITE_ACTIONS = 'flex gap-2';
 
 export const FIGMA_CHAT_INVITE_ACCEPT_BTN =
-  'h-8 flex-1 rounded-lg border-none bg-primary text-[0.8125rem] font-semibold text-primary-foreground transition-opacity hover:opacity-90';
+  'h-8 flex-1 rounded-lg border-none bg-primary text-[0.8125rem] font-semibold text-primary-foreground motion-safe:transition-colors motion-reduce:transition-none hover:opacity-90';
 
 export const FIGMA_CHAT_INVITE_REJECT_BTN =
-  'h-8 flex-1 rounded-lg border border-border bg-transparent text-[0.8125rem] font-medium text-foreground transition-colors hover:border-destructive hover:text-destructive';
+  'h-8 flex-1 rounded-lg border border-border bg-transparent text-[0.8125rem] font-medium text-foreground motion-safe:transition-colors motion-reduce:transition-none hover:border-destructive hover:text-destructive';
 
 export const FIGMA_CHAT_INVITE_WITHDRAW_BTN =
   'shrink-0 rounded-md border border-border bg-transparent px-2.5 py-1 text-[0.7rem] text-muted-foreground transition-colors hover:border-destructive hover:text-destructive';

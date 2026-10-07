@@ -1,28 +1,42 @@
 /** Huy: Modal setup cơ cấu tổ chức một lần — chọn template rồi Confirm ghi DB. */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   adminInputClass,
   adminLabelClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
+import useModalA11y from '../../components/Shared/useModalA11y';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
 
+/** Bắt buộc hoàn tất setup: không có nút đóng, Esc không đóng (onClose không truyền). */
 export default function OrgStructureSetupModal({ orgId, open, onCompleted }) {
   const { t } = useAppStrings();
   const [templates, setTemplates] = useState([]);
   const [templateId, setTemplateId] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
   const [saving, setSaving] = useState(false);
+  const containerRef = useRef(null);
+  const selectRef = useRef(null);
+
+  useModalA11y({ isOpen: open, containerRef, initialFocusRef: selectRef, isBusy: saving });
 
   useEffect(() => {
     if (!open || !orgId) return undefined;
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadError('');
       try {
         const res = await organizationAPI.listStructureTemplates(orgId);
         const data = unwrapOrgApi(res);
@@ -31,7 +45,7 @@ export default function OrgStructureSetupModal({ orgId, open, onCompleted }) {
         }
       } catch (error) {
         if (!cancelled) {
-          toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') }));
+          setLoadError(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') }));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -40,7 +54,7 @@ export default function OrgStructureSetupModal({ orgId, open, onCompleted }) {
     return () => {
       cancelled = true;
     };
-  }, [open, orgId, t]);
+  }, [open, orgId, t, reloadTick]);
 
   const selected = templates.find((x) => x.id === templateId);
 
@@ -71,25 +85,37 @@ export default function OrgStructureSetupModal({ orgId, open, onCompleted }) {
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[10040] flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="org-structure-setup-title"
-    >
-      <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-xl">
+    <div className="fixed inset-0 z-[10040] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 motion-safe:animate-fade-in-fast" aria-hidden />
+      <div
+        ref={containerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="org-structure-setup-title"
+        aria-describedby="org-structure-setup-hint"
+        className="relative w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-xl motion-safe:animate-scale-in"
+      >
         <h2 id="org-structure-setup-title" className="text-lg font-semibold text-foreground">
           {t('adminOrg.setupTitle')}
         </h2>
-        <p className="mt-2 text-sm text-muted-foreground">{t('adminOrg.setupHint')}</p>
+        <p id="org-structure-setup-hint" className="mt-2 text-sm text-muted-foreground">
+          {t('adminOrg.setupHint')}
+        </p>
 
-        {loading ? (
-          <p className="mt-4 text-sm text-muted-foreground">{t('common.loading')}</p>
+        {loading && !templates.length ? (
+          <AdminListSkeleton rows={3} className="mt-4" />
+        ) : loadError ? (
+          <AdminLoadErrorState
+            className="mt-4"
+            message={loadError}
+            onRetry={() => setReloadTick((n) => n + 1)}
+          />
         ) : (
           <div className="mt-4 space-y-3">
             <label className="block">
               <span className={adminLabelClass()}>{t('adminOrg.template')}</span>
               <select
+                ref={selectRef}
                 className={adminInputClass()}
                 value={templateId}
                 onChange={(e) => setTemplateId(e.target.value)}
@@ -104,7 +130,7 @@ export default function OrgStructureSetupModal({ orgId, open, onCompleted }) {
               </select>
             </label>
             {selected ? (
-              <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-sm">
+              <div className="rounded-xl border border-border bg-muted p-3 text-sm">
                 <p className="text-muted-foreground">{selected.description}</p>
                 <ul className="mt-2 list-inside list-disc text-foreground">
                   {(selected.levels || []).map((l) => (
@@ -124,8 +150,10 @@ export default function OrgStructureSetupModal({ orgId, open, onCompleted }) {
             type="button"
             className={adminPrimaryBtnClass()}
             disabled={!templateId || saving || loading}
+            aria-busy={saving || undefined}
             onClick={confirmSetup}
           >
+            <AdminBusySpinner busy={saving} />
             {saving ? t('common.saving') : t('adminOrg.setupConfirm')}
           </button>
         </div>

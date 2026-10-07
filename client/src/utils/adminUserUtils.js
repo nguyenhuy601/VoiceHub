@@ -77,6 +77,15 @@ export function memberOrgRole(member) {
   return String(member?.role || member?.orgRole || 'member').toLowerCase();
 }
 
+/** Nhãn vai trò tài khoản (membership) theo i18n. */
+export function accountRoleLabel(role, t) {
+  const r = String(role || 'member').toLowerCase();
+  if (r === 'owner') return t('organizations.roleOwner');
+  if (r === 'admin') return t('adminUsers.roleAdmin');
+  if (r === 'hr') return t('adminUsers.roleHr');
+  return t('adminUsers.roleMember');
+}
+
 export function memberStatusKey(member) {
   if (member?.isLocked) return 'locked';
   if (member?.isActive === false) return 'inactive';
@@ -235,19 +244,37 @@ export function unwrapApi(payload) {
   return payload?.data ?? payload;
 }
 
-export function parseCsvInviteRows(text) {
+/** Role được phép gán qua UI Users (RULE-05) — `owner` không gán từ đây. */
+export const CSV_INVITE_ROLES = Object.freeze(['member', 'hr', 'admin']);
+export const CSV_INVITE_MAX_ROWS = 200;
+
+/**
+ * @returns {{ rows: Array<{email:string, firstName:string, lastName:string, role:string}>, truncated: boolean, downgradedCount: number }}
+ */
+export function parseCsvInvite(text) {
   const lines = String(text || '')
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  if (!lines.length) return [];
-  const rows = [];
+  const result = { rows: [], truncated: false, downgradedCount: 0 };
+  if (!lines.length) return result;
   const start = lines[0].toLowerCase().includes('email') ? 1 : 0;
   for (let i = start; i < lines.length; i += 1) {
     const parts = lines[i].split(/[,;\t]/).map((p) => p.trim());
-    const [email, firstName = '', lastName = '', role = 'member'] = parts;
+    const [email, firstName = '', lastName = '', rawRole = ''] = parts;
     if (!email) continue;
-    rows.push({ email, firstName, lastName, role: role || 'member' });
+    if (result.rows.length >= CSV_INVITE_MAX_ROWS) {
+      result.truncated = true;
+      break;
+    }
+    const requested = rawRole.toLowerCase();
+    const role = CSV_INVITE_ROLES.includes(requested) ? requested : 'member';
+    if (requested && role !== requested) result.downgradedCount += 1;
+    result.rows.push({ email, firstName, lastName, role });
   }
-  return rows;
+  return result;
+}
+
+export function parseCsvInviteRows(text) {
+  return parseCsvInvite(text).rows;
 }

@@ -9,6 +9,7 @@ import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { FlaskConical } from 'lucide-react';
 import Modal from '../../../../components/Shared/Modal';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { projectAPI } from '../../../../services/api/projectAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
@@ -148,11 +149,13 @@ export default function PlanningTcFromUcPanel({ projectId, readOnly = false }) {
         ) : null}
       </div>
 
-      {isLoading ? <p className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground" aria-busy="true">
+          {t('common.loading')}
+        </p>
+      ) : null}
       {isError ? (
-        <button type="button" className="text-sm text-destructive" onClick={() => refetch()}>
-          {t('common.retry')}
-        </button>
+        <AdminLoadErrorState message={t('common.error')} onRetry={() => void refetch()} />
       ) : null}
 
       <section className="space-y-2">

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useAppStrings } from '../../locales/appStrings';
 import { useCompanyHomeData } from './useCompanyHomeData';
 import CompanyHomeOverview from './CompanyHomeOverview';
+import { AdminListSkeleton } from '../../components/adminUsers/adminPanelStates';
 import {
   FIGMA_PAGE_INNER,
   FIGMA_PAGE_SHELL,
@@ -29,7 +30,7 @@ export default function DepartmentHomePage() {
     return (
       <div className={FIGMA_PAGE_SHELL}>
         <div className={FIGMA_PAGE_INNER}>
-          <p className={FIGMA_PAGE_SUBTITLE}>{t('common.loading')}</p>
+          <AdminListSkeleton rows={3} />
         </div>
       </div>
     );
@@ -43,7 +44,7 @@ export default function DepartmentHomePage() {
           <p className={FIGMA_PAGE_SUBTITLE}>{t('nav.companyHomeNoDepartment')}</p>
           <Link
             to={paths.workspacesPath}
-            className="mt-3 inline-flex w-fit rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground no-underline"
+            className="mt-3 inline-flex w-fit rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground no-underline transition-colors duration-150 hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none"
           >
             {t('nav.companyWorkspaces')}
           </Link>

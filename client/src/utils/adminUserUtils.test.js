@@ -10,6 +10,11 @@ import {
   memberDisplayName,
   memberLabelById,
   memberDepartmentId,
+  memberMatchesQuery,
+  normalizeSearchText,
+  parseCsvInvite,
+  parseCsvInviteRows,
+  CSV_INVITE_MAX_ROWS,
 } from './adminUserUtils.js';
 import {
   TIER_EXEC,
@@ -29,7 +34,7 @@ test('normalizeSearchText strips Vietnamese accents', () => {
 test('memberLabelById resolves map or falls back to userId', () => {
   const map = new Map([['u1', { displayName: 'Lan', userId: 'u1' }]]);
   assert.equal(memberLabelById(map, 'u1'), 'Lan');
-  assert.equal(memberLabelById(map, 'missing', 'fallback'), 'fallback');
+  assert.equal(memberLabelById(map, 'missing', 'fallback'), 'issing');
   assert.equal(memberLabelById(null, '', '—'), '—');
 });
 
@@ -47,6 +52,36 @@ test('memberMatchesQuery finds by email local and accent-free name', () => {
   assert.equal(memberMatchesQuery(m, 'tranlan'), true);
   assert.equal(memberMatchesQuery(m, 'vh-012'), true);
   assert.equal(memberMatchesQuery(m, 'zzz'), false);
+});
+
+test('parseCsvInvite chỉ nhận role member|hr|admin, còn lại về member', () => {
+  const csv = [
+    'email,firstName,lastName,role',
+    'a@x.com,A,One,HR',
+    'b@x.com,B,Two,owner',
+    'c@x.com,C,Three,superadmin',
+    'd@x.com,D,Four,admin',
+    'e@x.com,E,Five',
+  ].join('\n');
+  const { rows, truncated, downgradedCount } = parseCsvInvite(csv);
+  assert.deepEqual(
+    rows.map((r) => r.role),
+    ['hr', 'member', 'member', 'admin', 'member']
+  );
+  assert.equal(downgradedCount, 2);
+  assert.equal(truncated, false);
+  assert.equal(parseCsvInviteRows(csv).length, 5);
+});
+
+test('parseCsvInvite giới hạn tối đa 200 dòng', () => {
+  const lines = ['email'];
+  for (let i = 0; i < CSV_INVITE_MAX_ROWS + 25; i += 1) lines.push(`u${i}@x.com`);
+  const { rows, truncated } = parseCsvInvite(lines.join('\n'));
+  assert.equal(CSV_INVITE_MAX_ROWS, 200);
+  assert.equal(rows.length, 200);
+  assert.equal(truncated, true);
+  assert.equal(rows[199].email, 'u199@x.com');
+});
 
 test('memberNeedsOnboardingAssignment khi thiếu phòng ban hoặc RBAC', () => {
   const rbac = { u1: [], u2: [{ name: 'Member' }] };

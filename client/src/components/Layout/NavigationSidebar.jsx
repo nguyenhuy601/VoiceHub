@@ -955,7 +955,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                 <button
                   type="button"
                   onClick={handleJoinByLinkSubmit}
-                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition motion-reduce:transition-none ${
                     isDarkMode
                       ? 'bg-cyan-500/25 text-cyan-100 hover:bg-cyan-500/35'
                       : 'bg-cyan-100 text-cyan-900 hover:bg-cyan-200'

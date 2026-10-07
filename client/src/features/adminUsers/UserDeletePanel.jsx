@@ -21,7 +21,8 @@ export default function UserDeletePanel({ orgId, embedded = false }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const { refreshStats } = useCompanyAdminContext();
-  const { members, loadMembers, removeMemberLocally, loading: membersLoading, error: membersError } = useAdminMembers(orgId, { view: 'directory' });
+  // Wave 1: cần systemRole để chặn xóa system admin → admin_table.
+  const { members, loadMembers, removeMemberLocally, loading: membersLoading, error: membersError } = useAdminMembers(orgId, { view: 'admin_table' });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [removeError, setRemoveError] = useState('');
@@ -60,9 +61,11 @@ export default function UserDeletePanel({ orgId, embedded = false }) {
 
   const body = (
     <>
-      {userId && membersLoading ? <p className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
+      {userId && membersLoading ? (
+        <div className="mb-3 h-10 rounded-xl bg-muted motion-safe:animate-pulse" aria-busy="true" aria-label={t('common.loading')} />
+      ) : null}
       {userId && membersError ? (
-        <div className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4">
+        <div className="space-y-3 rounded-xl border border-destructive bg-error-bg p-4" role="alert">
           <p className="text-sm text-destructive">{resolveApiErrorMessage(membersError, { t, fallback: t('adminUsers.removeFail') })}</p>
           <button
             type="button"
@@ -77,12 +80,17 @@ export default function UserDeletePanel({ orgId, embedded = false }) {
         <AdminUserFormCard title={t('adminUsers.removeMember')} hint={t('adminUsers.deleteHint')} danger>
           <p className="mb-4 text-sm text-muted-foreground">
             {t('adminUsers.deleteHint')}{' '}
-            <Link to={lockHref} className="font-medium text-red-500 hover:underline">
+            <Link
+              to={lockHref}
+              className="rounded font-medium text-destructive transition-colors duration-150 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            >
               {t('adminUsers.lockAccountHint')}
             </Link>
           </p>
           {removeError ? (
-            <p className="mb-3 text-sm text-destructive">{removeError}</p>
+            <p className="mb-3 text-sm text-destructive" role="alert">
+              {removeError}
+            </p>
           ) : null}
           <button
             type="button"
@@ -101,6 +109,7 @@ export default function UserDeletePanel({ orgId, embedded = false }) {
         isOpen={open}
         onClose={() => !busy && setOpen(false)}
         onConfirm={confirm}
+        variant="danger"
         title={t('adminUsers.removeMember')}
         message={t('adminUsers.removeConfirm')}
         confirmText={t('adminUsers.removeMember')}

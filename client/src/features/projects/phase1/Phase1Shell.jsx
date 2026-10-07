@@ -1,9 +1,12 @@
 import { useEffect } from 'react';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { Loader2 } from 'lucide-react';
 import { SpaceProvider, SPACE_KIND } from '../../../context/SpaceContext';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import { fetchProjectHubProject } from '../hub/useProjectHubQueries';
 import { queryKeys } from '../../../lib/queryKeys';
+import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import {
   coerceDeliveryPhase,
   isAnalysisViewModule,
@@ -69,7 +72,13 @@ export default function Phase1Shell({
       ? resolvePlanningResourcesStep(planningSplat)
       : null;
 
-  const { data: projectRow, isPending: projectPending } = useQuery({
+  const {
+    data: projectRow,
+    isPending: projectPending,
+    isError: projectError,
+    error: projectQueryError,
+    refetch: refetchProject,
+  } = useQuery({
     queryKey: queryKeys.projectHub.project(projectId),
     queryFn: () => fetchProjectHubProject(projectId),
     enabled: Boolean(projectId),
@@ -101,8 +110,26 @@ export default function Phase1Shell({
   // Avoid redirecting planning → hub while project row is still refetching.
   if (projectPending && !projectRow) {
     return (
-      <div className="flex min-h-[8rem] items-center justify-center p-4 text-sm text-muted-foreground">
-        {t('common.loading')}
+      <div
+        className="flex min-h-[8rem] items-center justify-center gap-2 p-4 text-sm text-muted-foreground"
+        aria-busy="true"
+      >
+        <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+        <span>{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (projectError && !projectRow) {
+    return (
+      <div className="flex min-h-[8rem] items-center justify-center p-4">
+        <AdminLoadErrorState
+          message={resolveApiErrorMessage(projectQueryError, {
+            t,
+            fallback: t('workspace.phase1ShellLoadFail'),
+          })}
+          onRetry={() => void refetchProject()}
+        />
       </div>
     );
   }

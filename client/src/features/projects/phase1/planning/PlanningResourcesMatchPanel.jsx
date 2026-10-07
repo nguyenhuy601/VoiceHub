@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import Modal from '../../../../components/Shared/Modal';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { planningAPI } from '../../../../services/api/planningAPI';
 import { projectAPI } from '../../../../services/api/projectAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
@@ -430,13 +431,20 @@ export default function PlanningResourcesMatchPanel({ projectId, organizationId 
             {!orgId ? (
               <p className="text-xs text-destructive">{t('workspace.phase1StaffingNoOrg')}</p>
             ) : poolQ.isError ? (
-              <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                {poolQ.error?.response?.status === 403
-                  ? t('workspace.phase1StaffingPoolDenied')
-                  : resolveApiErrorMessage(poolQ.error)}
-              </div>
+              poolQ.error?.response?.status === 403 ? (
+                <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+                  {t('workspace.phase1StaffingPoolDenied')}
+                </p>
+              ) : (
+                <AdminLoadErrorState
+                  message={resolveApiErrorMessage(poolQ.error, { t, fallback: t('common.error') })}
+                  onRetry={() => void poolQ.refetch()}
+                />
+              )
             ) : poolQ.isLoading ? (
-              <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+              <p className="text-sm text-muted-foreground" aria-busy="true">
+                {t('common.loading')}
+              </p>
             ) : !(poolQ.data || []).length ? (
               <p className="text-xs text-muted-foreground">{t('workspace.phase1StaffingPoolEmpty')}</p>
             ) : (

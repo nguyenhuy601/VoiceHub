@@ -613,7 +613,11 @@ export const projectAPI = {
       organizationId,
     }),
 
-  getSecurityFlags: () => apiClient.get('/projects/governance/security-flags'),
+  getSecurityFlags: (organizationId) =>
+    apiClient.get(
+      '/projects/governance/security-flags',
+      withOrg(organizationId, { params: { organizationId } })
+    ),
 
   /** Phase 1 analysis gaps + readyForPhase2 */
   getAnalysisGaps: (projectId) =>

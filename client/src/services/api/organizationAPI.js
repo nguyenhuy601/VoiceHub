@@ -205,9 +205,10 @@ export const organizationAPI = {
     );
     return response;
   },
-  listDivisionRoleAccess: async (orgId, divisionId) => {
+  listDivisionRoleAccess: async (orgId, divisionId, config) => {
     const response = await apiClient.get(
-      `/organizations/${orgId}/divisions/${divisionId}/role-access`
+      `/organizations/${orgId}/divisions/${divisionId}/role-access`,
+      config
     );
     return response;
   },
@@ -218,9 +219,10 @@ export const organizationAPI = {
     );
     return response;
   },
-  listDepartmentRoleAccess: async (orgId, departmentId) => {
+  listDepartmentRoleAccess: async (orgId, departmentId, config) => {
     const response = await apiClient.get(
-      `/organizations/${orgId}/departments/${departmentId}/role-access`
+      `/organizations/${orgId}/departments/${departmentId}/role-access`,
+      config
     );
     return response;
   },

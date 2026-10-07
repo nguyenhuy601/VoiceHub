@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import ReviewNoteDialog from '../../../../components/Shared/ReviewNoteDialog';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { planningAPI } from '../../../../services/api/planningAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
@@ -237,14 +238,13 @@ export default function PlanningApprovalPage({ projectId }) {
         <p className="mt-0.5 text-xs text-muted-foreground">{t('workspace.phase1PlanningGateHint')}</p>
       </div>
 
-      {isLoading ? <p className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground" aria-busy="true">
+          {t('common.loading')}
+        </p>
+      ) : null}
       {isError ? (
-        <div className="flex items-center gap-2 text-sm">
-          <span>{t('common.error')}</span>
-          <button type="button" className="rounded border px-2 py-0.5 text-xs" onClick={() => refetch()}>
-            {t('common.retry')}
-          </button>
-        </div>
+        <AdminLoadErrorState message={t('common.error')} onRetry={() => void refetch()} />
       ) : null}
 
       {readiness ? (

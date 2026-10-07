@@ -104,9 +104,13 @@ export default function UserAssignOrgPanel({ orgId, embedded = false }) {
         <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
       ) : null}
       {structureLoading ? (
-        <p className="mb-2 text-sm text-muted-foreground">{t('common.loading')}</p>
+        <div className="mb-3 space-y-2" aria-busy="true" aria-label={t('common.loading')}>
+          {Array.from({ length: 2 }, (_, idx) => (
+            <div key={idx} className="h-10 rounded-xl bg-muted motion-safe:animate-pulse" />
+          ))}
+        </div>
       ) : structureError ? (
-        <div className="mb-2 space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+        <div className="mb-2 space-y-3 rounded-lg border border-destructive bg-error-bg px-3 py-2" role="alert">
           <p className="text-sm text-destructive">{structureError}</p>
           <button
             type="button"
@@ -151,7 +155,7 @@ export default function UserAssignOrgPanel({ orgId, embedded = false }) {
           </select>
         </label>
         {validationMessage ? (
-          <p className="text-xs text-amber-700 dark:text-amber-400">{validationMessage}</p>
+          <p className="text-xs text-warning" role="status">{validationMessage}</p>
         ) : selectedMember ? (
           <p className="text-xs text-muted-foreground">
             {t('adminUsers.assignOrgReady', {
@@ -159,7 +163,13 @@ export default function UserAssignOrgPanel({ orgId, embedded = false }) {
             })}
           </p>
         ) : null}
-        <button type="button" disabled={!canSubmit} className={adminPrimaryBtnClass()} onClick={assign}>
+        <button
+          type="button"
+          disabled={!canSubmit}
+          aria-busy={busy}
+          className={adminPrimaryBtnClass()}
+          onClick={assign}
+        >
           {busy ? t('common.saving') : t('adminUsers.saveAssignment')}
         </button>
       </div>

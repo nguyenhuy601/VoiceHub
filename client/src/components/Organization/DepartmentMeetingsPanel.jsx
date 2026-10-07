@@ -1,12 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Calendar, Plus, Video } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../locales/appStrings';
 import meetingAPI from '../../services/api/meetingAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import {
+  adminInputClass,
+  adminLabelClass,
+  adminPrimaryBtnClass,
+  adminSecondaryBtnClass,
+} from '../adminUsers/adminUserPanelUi';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
+}
+
+function meetingStart(m) {
+  return m?.startTime || m?.startAt || m?.scheduledAt || m?.createdAt || null;
 }
 
 function dayKey(value) {
@@ -26,9 +37,12 @@ function defaultMeetingStartLocal() {
   return toLocalDatetimeInputValue(new Date(Date.now() + 60 * 60 * 1000));
 }
 
+const TITLE_MAX = 200;
+
 /**
  * Calendar + Meetings cấp phòng ban (sự kiện, không voice room cố định).
  * mode=calendar → timeline theo ngày; mode=meetings → danh sách họp + Join.
+ * Danh sách = meeting org mà user là host/participant (API range); không lọc departmentId.
  */
 export default function DepartmentMeetingsPanel({
   organizationId = '',
@@ -36,10 +50,13 @@ export default function DepartmentMeetingsPanel({
   departmentName = '',
   mode = 'meetings',
   canManage = false,
-  isDarkMode = false,
   onAnnounceMeetingJoin,
 }) {
+  void departmentId;
   const { t, locale } = useAppStrings();
+  const formId = useId();
+  const titleId = `${formId}-title`;
+  const startId = `${formId}-start`;
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -48,8 +65,6 @@ export default function DepartmentMeetingsPanel({
   const [title, setTitle] = useState('');
   const [startLocal, setStartLocal] = useState(defaultMeetingStartLocal);
 
-  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
-  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
   const isCalendar = mode === 'calendar';
 
   const load = useCallback(async () => {
@@ -74,15 +89,7 @@ export default function DepartmentMeetingsPanel({
       });
       const data = unwrap(res);
       const list = Array.isArray(data) ? data : data?.items || data?.meetings || [];
-      const deptId = String(departmentId || '').trim();
-      // Chỉ lọc theo departmentId — không match mềm theo title (tránh lẫn phòng khác).
-      const filtered = deptId
-        ? list.filter((m) => {
-            const mid = String(m?.departmentId || m?.department || m?.metadata?.departmentId || '');
-            return mid === deptId;
-          })
-        : list;
-      setItems(filtered);
+      setItems(list);
     } catch (err) {
       const status = Number(err?.response?.status || err?.status || 0);
       const unavailable = status === 503 || status === 502 || status === 0;
@@ -97,7 +104,7 @@ export default function DepartmentMeetingsPanel({
     } finally {
       setLoading(false);
     }
-  }, [organizationId, departmentId, t]);
+  }, [organizationId, t]);
 
   useEffect(() => {
     load();
@@ -106,9 +113,7 @@ export default function DepartmentMeetingsPanel({
   const sorted = useMemo(
     () =>
       [...items].sort(
-        (a, b) =>
-          new Date(a.startAt || a.scheduledAt || a.createdAt || 0).getTime() -
-          new Date(b.startAt || b.scheduledAt || b.createdAt || 0).getTime()
+        (a, b) => new Date(meetingStart(a) || 0).getTime() - new Date(meetingStart(b) || 0).getTime()
       ),
     [items]
   );
@@ -117,7 +122,7 @@ export default function DepartmentMeetingsPanel({
     if (!isCalendar) return [];
     const map = new Map();
     sorted.forEach((m) => {
-      const when = m.startAt || m.scheduledAt || m.createdAt;
+      const when = meetingStart(m);
       const key = dayKey(when) || 'unknown';
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(m);
@@ -138,11 +143,9 @@ export default function DepartmentMeetingsPanel({
     try {
       const res = await meetingAPI.createMeeting({
         organizationId: orgId,
-        title: name,
-        name,
+        title: name.slice(0, TITLE_MAX),
+        name: name.slice(0, TITLE_MAX),
         startAt: start.toISOString(),
-        departmentId: String(departmentId || '').trim() || undefined,
-        metadata: { departmentId: String(departmentId || '').trim() },
       });
       const created = unwrap(res);
       const meetingId = String(created?._id || created?.id || '');
@@ -150,7 +153,7 @@ export default function DepartmentMeetingsPanel({
       setStartLocal(defaultMeetingStartLocal());
       toast.success(t('workspace.deptMeetingCreated'));
       if (meetingId && typeof onAnnounceMeetingJoin === 'function') {
-        const joinPath = `/app/voice?meetingId=${encodeURIComponent(meetingId)}`;
+        const joinPath = `/app/communicate/voice/${encodeURIComponent(meetingId)}`;
         try {
           await onAnnounceMeetingJoin({
             meetingId,
@@ -172,7 +175,7 @@ export default function DepartmentMeetingsPanel({
 
   const Icon = isCalendar ? Calendar : Video;
   const heading = isCalendar ? t('workspace.moduleCalendar') : t('workspace.moduleMeetings');
-  const hint = isCalendar ? t('workspace.deptCalendarHint') : t('workspace.deptMeetingsHint');
+  const hint = t('workspace.deptMeetingsOrgScopeNote') || t('workspace.deptMeetingsHint');
   const emptyCopy = isCalendar ? t('workspace.deptCalendarEmpty') : t('workspace.deptMeetingsEmpty');
   const dateLocale = String(locale || '').toLowerCase() === 'en' ? 'en-US' : 'vi-VN';
   const todayKey = dayKey(new Date());
@@ -180,7 +183,7 @@ export default function DepartmentMeetingsPanel({
 
   const renderMeetingRow = (m, { showJoin = true } = {}) => {
     const id = String(m._id || m.id);
-    const when = m.startAt || m.scheduledAt || m.createdAt;
+    const when = meetingStart(m);
     const whenLabel = when
       ? new Date(when).toLocaleString(dateLocale, {
           hour: '2-digit',
@@ -188,57 +191,47 @@ export default function DepartmentMeetingsPanel({
           ...(isCalendar ? {} : { day: 'numeric', month: 'short' }),
         })
       : '—';
-    const joinPath = id ? `/app/voice?meetingId=${encodeURIComponent(id)}` : '';
+    const joinPath = id ? `/app/communicate/voice/${encodeURIComponent(id)}` : '';
     return (
       <li
         key={id}
-        className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 ${
-          isCalendar
-            ? 'border-amber-500/20 bg-amber-500/5 dark:bg-amber-500/10'
-            : 'border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-500/10'
-        }`}
+        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2.5"
       >
         <div className="min-w-0">
-          <div className={`truncate text-sm font-semibold ${titleCls}`}>
-            {m.title || m.name || id}
-          </div>
-          <div className={`text-xs ${muted}`}>{whenLabel}</div>
+          <div className="truncate text-sm font-semibold text-foreground">{m.title || m.name || id}</div>
+          <div className="text-xs text-muted-foreground">{whenLabel}</div>
         </div>
         {showJoin && joinPath ? (
-          <a
-            href={joinPath}
-            className="shrink-0 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/20"
+          <Link
+            to={joinPath}
+            className="shrink-0 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/20 motion-safe:transition-colors motion-reduce:transition-none"
           >
             {t('workspace.deptMeetingJoin')}
-          </a>
+          </Link>
         ) : null}
       </li>
     );
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden px-4 py-4">
-      <div
-        className={`mb-3 rounded-xl border px-3 py-2.5 ${
-          isCalendar
-            ? 'border-amber-500/25 bg-amber-500/5 dark:bg-amber-500/10'
-            : 'border-emerald-500/25 bg-emerald-500/5 dark:bg-emerald-500/10'
-        }`}
-      >
+    <div className="flex h-full min-h-0 flex-col overflow-hidden px-4 py-4 text-foreground">
+      <div className="mb-3 rounded-xl border border-border bg-card px-3 py-2.5">
         <div className="mb-1 flex flex-wrap items-center gap-2">
-          <Icon
-            size={18}
-            className={isCalendar ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}
-            aria-hidden
-          />
-          <h3 className={`text-sm font-bold ${titleCls}`}>
+          <Icon size={18} className="text-primary" aria-hidden="true" />
+          <h3 className="text-sm font-bold text-foreground">
             {scopeLabel ? `${heading} · ${scopeLabel}` : heading}
           </h3>
-          {loading ? <span className={`text-xs ${muted}`}>…</span> : null}
+          {loading ? (
+            <span
+              className="inline-block h-3 w-10 rounded bg-muted motion-safe:animate-pulse"
+              role="status"
+              aria-label={t('common.loading')}
+            />
+          ) : null}
         </div>
-        <p className={`text-[0.6875rem] leading-relaxed ${muted}`}>{hint}</p>
+        <p className="text-[0.6875rem] leading-relaxed text-muted-foreground">{hint}</p>
         {isCalendar ? (
-          <p className={`mt-1 text-[0.625rem] font-semibold uppercase tracking-wide ${muted}`}>
+          <p className="mt-1 text-[0.625rem] font-semibold uppercase tracking-wide text-muted-foreground">
             {t('workspace.deptCalendarViewOnly')}
           </p>
         ) : null}
@@ -246,62 +239,64 @@ export default function DepartmentMeetingsPanel({
 
       {canManage && !isCalendar ? (
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
-          <label className="flex min-w-[200px] flex-1 flex-col gap-1">
-            <span className={`text-[0.625rem] font-semibold uppercase tracking-wide ${muted}`}>
+          <div className="flex min-w-[200px] flex-1 flex-col gap-1">
+            <label htmlFor={titleId} className={adminLabelClass()}>
               {t('workspace.deptMeetingTitlePh')}
-            </span>
+            </label>
             <input
+              id={titleId}
               value={title}
+              maxLength={TITLE_MAX}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={t('workspace.deptMeetingTitlePh')}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+              className={adminInputClass()}
             />
-          </label>
-          <label className="flex min-w-[180px] flex-col gap-1">
-            <span className={`text-[0.625rem] font-semibold uppercase tracking-wide ${muted}`}>
+          </div>
+          <div className="flex min-w-[180px] flex-col gap-1">
+            <label htmlFor={startId} className={adminLabelClass()}>
               {t('workspace.deptMeetingStartLabel')}
-            </span>
+            </label>
             <input
+              id={startId}
               type="datetime-local"
               value={startLocal}
               onChange={(e) => setStartLocal(e.target.value)}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+              className={adminInputClass('[color-scheme:light] dark:[color-scheme:dark]')}
             />
-          </label>
+          </div>
           <button
             type="button"
             disabled={creating || !title.trim() || !startLocal}
             onClick={handleCreate}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            className={adminPrimaryBtnClass('inline-flex items-center justify-center gap-1.5')}
           >
-            <Plus size={14} aria-hidden />
+            <Plus size={14} aria-hidden="true" />
             {t('workspace.deptMeetingCreate')}
           </button>
         </div>
       ) : null}
 
       {loadError ? (
-        <div className={`rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm ${muted}`}>
+        <div
+          role="alert"
+          className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground"
+        >
           <p className="mb-3">
             {serviceUnavailable
               ? t('workspace.deptMeetingsUnavailable')
               : t('workspace.deptMeetingsLoadFail')}
           </p>
-          <button
-            type="button"
-            onClick={() => load()}
-            className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20"
-          >
+          <button type="button" onClick={() => load()} className={adminSecondaryBtnClass('text-xs')}>
             {t('workspace.deptMeetingsRetry')}
           </button>
         </div>
       ) : sorted.length === 0 && !loading ? (
-        <p className={`rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm ${muted}`}>
+        <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
           {emptyCopy}
         </p>
       ) : isCalendar ? (
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
-          <p className={`text-[0.625rem] font-bold uppercase tracking-wide ${muted}`}>
+          <p className="text-[0.625rem] font-bold uppercase tracking-wide text-muted-foreground">
             {t('workspace.deptCalendarSection')}
           </p>
           {calendarGroups.map(([key, rows]) => {
@@ -318,15 +313,13 @@ export default function DepartmentMeetingsPanel({
               <section key={key} className="flex gap-3">
                 <div
                   className={`w-16 shrink-0 rounded-lg border px-1.5 py-2 text-center ${
-                    isToday
-                      ? 'border-amber-500/40 bg-amber-500/15'
-                      : 'border-border bg-surface'
+                    isToday ? 'border-primary/40 bg-primary/10' : 'border-border bg-muted/40'
                   }`}
                 >
-                  <div className={`text-[0.6rem] font-bold uppercase ${muted}`}>
+                  <div className="text-[0.6rem] font-bold uppercase text-muted-foreground">
                     {isToday ? t('workspace.deptCalendarToday') : label.split(' ')[0]}
                   </div>
-                  <div className={`text-sm font-bold ${titleCls}`}>
+                  <div className="text-sm font-bold text-foreground">
                     {key === 'unknown' ? '—' : key.split('-')[2]}
                   </div>
                 </div>
@@ -339,7 +332,7 @@ export default function DepartmentMeetingsPanel({
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <p className={`mb-2 text-[0.625rem] font-bold uppercase tracking-wide ${muted}`}>
+          <p className="mb-2 text-[0.625rem] font-bold uppercase tracking-wide text-muted-foreground">
             {t('workspace.deptMeetingsSection')}
           </p>
           <ul className="space-y-2">{sorted.map((m) => renderMeetingRow(m))}</ul>

@@ -147,7 +147,7 @@ export default function ProjectHubBacklogIssueRow({
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative grid w-full min-w-0 max-w-full items-center gap-x-2 border-b border-border bg-surface px-2 py-1.5 last:border-b-0 grid-cols-[auto_auto_minmax(0,1fr)_auto] sm:grid-cols-[auto_auto_auto_minmax(0,1fr)_1.25rem_minmax(6.5rem,9rem)_auto] lg:grid-cols-[auto_auto_auto_minmax(0,1fr)_1.25rem_minmax(8rem,11rem)_auto] ${
+      className={`group relative grid w-full min-w-0 max-w-full items-center gap-x-2 border-b border-border bg-surface px-2 py-1.5 last:border-b-0 grid-cols-[auto_auto_minmax(0,1fr)_auto] sm:grid-cols-[auto_auto_auto_minmax(0,1fr)_1.25rem_minmax(6.5rem,9rem)_auto] lg:grid-cols-[auto_auto_auto_minmax(0,1fr)_1.25rem_minmax(8rem,11rem)_auto] transition-colors motion-reduce:transition-none ${
         isDragging ? 'opacity-60' : ''
       } ${selected ? 'bg-primary/10' : 'hover:bg-muted/60'} ${
         epicOpen ? 'z-20' : 'z-0'
@@ -190,7 +190,7 @@ export default function ProjectHubBacklogIssueRow({
           hasChildren && onToggleExpand ? (
             <button
               type="button"
-              className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+              className="inline-flex rounded p-0.5 text-muted-foreground transition-colors motion-reduce:transition-none hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               title={childLabel || undefined}
               aria-label={childLabel || undefined}
               aria-expanded={Boolean(expanded)}
@@ -205,7 +205,7 @@ export default function ProjectHubBacklogIssueRow({
           ) : childTotal > 0 ? (
             <button
               type="button"
-              className="inline-flex rounded p-0.5 text-muted-foreground hover:text-foreground"
+              className="inline-flex rounded p-0.5 text-muted-foreground transition-colors motion-reduce:transition-none hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               title={childLabel}
               aria-label={childLabel}
               onClick={(e) => {

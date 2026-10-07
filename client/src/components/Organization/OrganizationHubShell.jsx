@@ -1,3 +1,4 @@
+import { useId, useRef } from 'react';
 import {
   Building2,
   Calendar,
@@ -68,6 +69,8 @@ export default function OrganizationHubShell({
   className = '',
 }) {
   const { t } = useAppStrings();
+  const viewsIdPrefix = `ws-views-${useId().replace(/:/g, '')}`;
+  const viewTabRefs = useRef({});
   const teamAccentInfo = scopeAccent(selectedTeam);
   const deptAccentInfo = scopeAccent(selectedDepartment);
   const TAB_IDS = departmentMode ? DEPT_TAB_IDS : TEAM_TAB_IDS;
@@ -97,6 +100,26 @@ export default function OrganizationHubShell({
     return 'workspace.moduleAnnouncement';
   })();
 
+  const activeDeptTabId = DEPT_TAB_IDS.some((tab) => tab.id === String(activeTab || ''))
+    ? String(activeTab)
+    : DEPT_TAB_IDS[0].id;
+
+  const focusDeptTabAt = (index) => {
+    const next = DEPT_TAB_IDS[(index + DEPT_TAB_IDS.length) % DEPT_TAB_IDS.length];
+    onDeptTabChange?.(selectedDepartment.id, next.id);
+    viewTabRefs.current[next.id]?.focus();
+  };
+
+  const handleViewsBarKeyDown = (event) => {
+    const currentIndex = DEPT_TAB_IDS.findIndex((tab) => tab.id === activeDeptTabId);
+    if (event.key === 'ArrowRight') focusDeptTabAt(currentIndex + 1);
+    else if (event.key === 'ArrowLeft') focusDeptTabAt(currentIndex - 1);
+    else if (event.key === 'Home') focusDeptTabAt(0);
+    else if (event.key === 'End') focusDeptTabAt(DEPT_TAB_IDS.length - 1);
+    else return;
+    event.preventDefault();
+  };
+
   if (hideChrome) {
     return (
       <div className={`${FIGMA_WS_SHELL_ROOT} ${className}`}>
@@ -114,16 +137,17 @@ export default function OrganizationHubShell({
           <button
             type="button"
             onClick={() => onBackFromSubView?.()}
-            className="mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+            className="mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-muted-foreground transition-colors duration-150 hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             aria-label={
               inTeamContext ? t('workspace.backToWork') : t('workspace.backToDepartments')
             }
           >
-            <ChevronLeft size={18} />
+            <ChevronLeft size={18} aria-hidden />
           </button>
           <div
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[0.6rem] font-bold text-white"
             style={{ background: subAccent.color }}
+            aria-hidden
           >
             {inDepartmentContext && !inTeamContext ? (
               <Building2 size={13} className="text-white" />
@@ -132,7 +156,7 @@ export default function OrganizationHubShell({
             )}
           </div>
           <span className="truncate text-sm font-bold text-foreground">{subScope.name}</span>
-          <ChevronRight size={13} className="shrink-0 text-muted-foreground" />
+          <ChevronRight size={13} className="shrink-0 text-muted-foreground" aria-hidden />
           <span className="text-sm font-medium text-muted-foreground">
             {departmentMode || (inDepartmentContext && !inTeamContext)
               ? t(deptContextLabelKey)
@@ -158,18 +182,25 @@ export default function OrganizationHubShell({
           className={FIGMA_WS_SHELL_VIEWS_BAR}
           role="tablist"
           aria-label={t('workspace.deptViewsBarAria')}
+          onKeyDown={handleViewsBarKeyDown}
         >
           {DEPT_TAB_IDS.map((tab) => {
-            const active = String(activeTab || '') === tab.id;
+            const active = activeDeptTabId === tab.id;
             const Icon = tab.Icon;
             return (
               <button
                 key={tab.id}
+                ref={(el) => {
+                  viewTabRefs.current[tab.id] = el;
+                }}
+                id={`${viewsIdPrefix}-tab-${tab.id}`}
                 type="button"
                 role="tab"
                 aria-selected={active}
+                aria-controls={`${viewsIdPrefix}-panel`}
+                tabIndex={active ? 0 : -1}
                 onClick={() => onDeptTabChange?.(selectedDepartment.id, tab.id)}
-                className={`${FIGMA_WS_SHELL_VIEW_BTN} ${active ? FIGMA_WS_SHELL_VIEW_BTN_ACTIVE : ''}`}
+                className={`${FIGMA_WS_SHELL_VIEW_BTN} ${active ? FIGMA_WS_SHELL_VIEW_BTN_ACTIVE : ''} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none`}
               >
                 <Icon size={14} className="shrink-0" aria-hidden />
                 <span className="truncate">{t(tab.labelKey)}</span>
@@ -179,7 +210,12 @@ export default function OrganizationHubShell({
         </div>
       ) : null}
 
-      <div className={FIGMA_WS_SHELL_CONTENT}>
+      <div
+        className={FIGMA_WS_SHELL_CONTENT}
+        id={showDeptViewsBar ? `${viewsIdPrefix}-panel` : undefined}
+        role={showDeptViewsBar ? 'tabpanel' : undefined}
+        aria-labelledby={showDeptViewsBar ? `${viewsIdPrefix}-tab-${activeDeptTabId}` : undefined}
+      >
         <div className="flex min-h-0 w-full flex-1 overflow-hidden">{children}</div>
       </div>
     </div>

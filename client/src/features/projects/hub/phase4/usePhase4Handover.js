@@ -42,7 +42,13 @@ export default function usePhase4Handover(projectId) {
   const queryClient = useQueryClient();
   const pid = String(projectId || '').trim();
 
-  const { data: projectRow, isLoading } = useQuery({
+  const {
+    data: projectRow,
+    isLoading,
+    isError: isLoadError,
+    error: loadError,
+    refetch: refetchProject,
+  } = useQuery({
     queryKey: queryKeys.projectHub.project(pid),
     queryFn: () => fetchProjectHubProject(pid),
     enabled: Boolean(pid),
@@ -182,9 +188,19 @@ export default function usePhase4Handover(projectId) {
 
   const checklistDone = RELEASE_HANDOVER_CHECKLIST_IDS.filter((id) => checklist[id]).length;
 
+  const loadFailMessage = isLoadError
+    ? resolveApiErrorMessage(loadError, {
+        t,
+        fallback: t('workspace.phase4LoadFail'),
+      })
+    : '';
+
   return {
     projectRow,
     isLoading,
+    isLoadError,
+    loadFailMessage,
+    retryLoad: () => void refetchProject(),
     hubCaps,
     checklist,
     checklistDone,

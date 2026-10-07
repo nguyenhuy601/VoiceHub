@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { ChevronDown, Plus, Trash2, X } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import roleAPI from '../../services/api/roleAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { channelNameToDisplaySlug } from '../../utils/orgEntityDisplay';
@@ -15,6 +15,13 @@ import {
 } from './channelRolePermissionDefs';
 import { roleAccentColor } from './channelRolePermissionDefs';
 import { isProtectedDefaultChannel } from '../../utils/orgChannelScope';
+import Modal from '../Shared/Modal';
+import ConfirmDialog from '../Shared/ConfirmDialog';
+import {
+  adminDangerBtnClass,
+  adminPrimaryBtnClass,
+  adminSecondaryBtnClass,
+} from '../adminUsers/adminUserPanelUi';
 
 const unwrap = (payload) => payload?.data ?? payload;
 
@@ -34,6 +41,7 @@ export default function OrganizationChannelRoleSettingsModal({
   const [assigned, setAssigned] = useState([]);
   const [selectedRoleId, setSelectedRoleId] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -45,6 +53,7 @@ export default function OrganizationChannelRoleSettingsModal({
     ? channelNameToDisplaySlug(channel.name, locale)
     : t('organizations.memberSidebarFilesUnknownChannel');
   const channelProtected = isProtectedDefaultChannel(channel);
+  const formBusy = saving || loading;
 
   const permGroups = useMemo(
     () => channelPermissionGroups({ isVoiceChannel: isVoice, t }),
@@ -54,6 +63,7 @@ export default function OrganizationChannelRoleSettingsModal({
   const loadData = useCallback(async () => {
     if (!organizationId || !channelId) return;
     setLoading(true);
+    setLoadError(false);
     try {
       const [rolesRes, aclRes] = await Promise.all([
         roleAPI.getRolesByOrganization(organizationId),
@@ -103,18 +113,20 @@ export default function OrganizationChannelRoleSettingsModal({
       setSelectedRoleId(assignedRows[0]?.id || '');
     } catch {
       toast.error(t('organizations.channelRolePermLoadFail'));
+      setLoadError(true);
       setOrgRoles([]);
       setAssigned([]);
       setSelectedRoleId('');
     } finally {
       setLoading(false);
     }
-  }, [organizationId, channelId]);
+  }, [organizationId, channelId, t]);
 
   useEffect(() => {
     if (!isOpen) {
       setDeleteConfirm(false);
       setDeleting(false);
+      setLoadError(false);
       return;
     }
     setAddOpen(false);
@@ -146,7 +158,7 @@ export default function OrganizationChannelRoleSettingsModal({
   const selectedRole = assigned.find((r) => r.id === selectedRoleId) || assigned[0] || null;
 
   const setSelectedPerm = (key, allowed) => {
-    if (!selectedRole?.id || !canManageChannelRoles) return;
+    if (!selectedRole?.id || !canManageChannelRoles || formBusy) return;
     setAssigned((prev) =>
       prev.map((row) =>
         row.id === selectedRole.id
@@ -157,7 +169,7 @@ export default function OrganizationChannelRoleSettingsModal({
   };
 
   const handleAddRole = (role) => {
-    if (!role?.id || !canManageChannelRoles) return;
+    if (!role?.id || !canManageChannelRoles || formBusy) return;
     if (assignedIds.has(role.id)) return;
     const row = {
       id: role.id,
@@ -170,7 +182,7 @@ export default function OrganizationChannelRoleSettingsModal({
   };
 
   const handleRemoveSelectedRole = () => {
-    if (!selectedRole?.id || !canManageChannelRoles) return;
+    if (!selectedRole?.id || !canManageChannelRoles || formBusy) return;
     const next = assigned.filter((r) => r.id !== selectedRole.id);
     setAssigned(next);
     setSelectedRoleId(next[0]?.id || '');
@@ -195,107 +207,116 @@ export default function OrganizationChannelRoleSettingsModal({
     }
   };
 
-  if (!isOpen) return null;
-
-  const panelBg = isDarkMode ? 'bg-[#313338]' : 'bg-white';
-  const sidebarBg = isDarkMode ? 'bg-[#2b2d31]' : 'bg-slate-50';
-  const borderCls = isDarkMode ? 'border-[#1e1f22]' : 'border-slate-200';
-  const textMuted = isDarkMode ? 'text-[#949ba4]' : 'text-slate-500';
-  const textMain = isDarkMode ? 'text-[#f2f3f5]' : 'text-slate-900';
-
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/55"
-        aria-label={t('organizations.modalClose')}
-        onClick={onClose}
-      />
-      <div
-        className={`relative flex h-[min(640px,90vh)] w-full max-w-4xl flex-col overflow-hidden rounded-xl shadow-2xl ${panelBg} ${textMain}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="channel-advanced-perms-title"
-      >
-        <header
-          className={`flex shrink-0 items-center justify-between border-b px-4 py-3 ${borderCls}`}
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <h2 id="channel-advanced-perms-title" className="truncate text-base font-bold">
-              {t('organizations.channelRolePermTitle', { channel: channelLabel })}
-            </h2>
-            <ChevronDown className={`h-4 w-4 shrink-0 opacity-50 ${textMuted}`} />
-          </div>
+  const footer = canManageChannelRoles ? (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0 shrink-0">
+        {channelProtected ? (
+          <span
+            className="text-xs text-muted-foreground"
+            title={t('organizations.deleteChannelProtected')}
+          >
+            {t('organizations.deleteChannelProtected')}
+          </span>
+        ) : (
           <button
             type="button"
-            onClick={onClose}
-            className={`rounded-md p-1.5 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}
-            aria-label={t('organizations.modalCloseEsc')}
+            onClick={() => setDeleteConfirm(true)}
+            disabled={formBusy || deleting}
+            className={adminDangerBtnClass()}
+            aria-label={t('organizations.deleteChannelBtn')}
           >
-            <X className="h-5 w-5" />
+            <Trash2 className="h-4 w-4" aria-hidden />
+            {t('organizations.deleteChannelBtn')}
           </button>
-        </header>
+        )}
+      </div>
+      <div className="flex shrink-0 gap-2">
+        <button type="button" onClick={onClose} className={adminSecondaryBtnClass()}>
+          {t('nav.cancel')}
+        </button>
+        <button
+          type="button"
+          disabled={formBusy || deleting || loadError}
+          onClick={handleSave}
+          className={adminPrimaryBtnClass()}
+        >
+          {saving ? t('organizations.saving') : t('organizations.saveChanges')}
+        </button>
+      </div>
+    </div>
+  ) : null;
 
+  return (
+    <>
+      <Modal
+        isOpen={isOpen}
+        onClose={onClose}
+        title={t('organizations.channelRolePermTitle', { channel: channelLabel })}
+        size="lg"
+        fill
+        bodyClassName="!p-0"
+        panelClassName="h-[min(640px,90vh)]"
+        footer={footer}
+      >
         {!canManageChannelRoles ? (
-          <div className={`flex flex-1 items-center justify-center p-6 text-sm ${textMuted}`}>
+          <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
             {t('organizations.channelRolePermManageDenied')}
           </div>
+        ) : loadError ? (
+          <div
+            role="alert"
+            className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
+          >
+            <p className="text-sm text-destructive">
+              {t('organizations.channelRolePermLoadFail')}
+            </p>
+            <button type="button" onClick={loadData} className={adminSecondaryBtnClass()}>
+              {t('common.retry')}
+            </button>
+          </div>
         ) : (
-          <>
-            <div className="flex min-h-0 flex-1">
-            <aside
-              className={`flex w-[220px] shrink-0 flex-col border-r ${borderCls} ${sidebarBg}`}
-            >
-              <div className={`flex items-center justify-between px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide ${textMuted}`}>
+          <div className="flex min-h-0 flex-1">
+            <aside className="flex w-[220px] shrink-0 flex-col border-r border-border bg-muted">
+              <div className="flex items-center justify-between px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
                 <span>{t('organizations.channelRolePermSidebarTitle')}</span>
-                {canManageChannelRoles ? (
-                  <div className="relative">
-                    <button
-                      type="button"
-                      title={t('organizations.channelRolePermAddRole')}
-                      disabled={!availableToAdd.length}
-                      onClick={() => setAddOpen((v) => !v)}
-                      className={`rounded p-0.5 ${
-                        isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-200'
-                      } disabled:opacity-30`}
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                    {addOpen && availableToAdd.length > 0 ? (
-                      <div
-                        className={`absolute right-0 top-full z-20 mt-1 max-h-48 w-52 overflow-y-auto rounded-lg border py-1 shadow-xl ${
-                          isDarkMode
-                            ? 'border-[#1e1f22] bg-[#111214]'
-                            : 'border-slate-200 bg-white'
-                        }`}
-                      >
-                        {availableToAdd.map((role) => (
-                          <button
-                            key={role.id}
-                            type="button"
-                            onClick={() => handleAddRole(role)}
-                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${
-                              isDarkMode ? 'hover:bg-white/[0.06]' : 'hover:bg-slate-50'
-                            }`}
-                          >
-                            <span
-                              className="h-2.5 w-2.5 shrink-0 rounded-full"
-                              style={{ backgroundColor: roleAccentColor(role.id) }}
-                            />
-                            <span className="truncate">{role.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
+                <div className="relative">
+                  <button
+                    type="button"
+                    title={t('organizations.channelRolePermAddRole')}
+                    aria-label={t('organizations.channelRolePermAddRole')}
+                    disabled={!availableToAdd.length || formBusy}
+                    onClick={() => setAddOpen((v) => !v)}
+                    className="rounded p-0.5 text-foreground hover:bg-card disabled:opacity-30"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden />
+                  </button>
+                  {addOpen && availableToAdd.length > 0 && !formBusy ? (
+                    <div className="absolute right-0 top-full z-20 mt-1 max-h-48 w-52 overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-xl">
+                      {availableToAdd.map((role) => (
+                        <button
+                          key={role.id}
+                          type="button"
+                          onClick={() => handleAddRole(role)}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
+                        >
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: roleAccentColor(role.id) }}
+                            aria-hidden
+                          />
+                          <span className="truncate">{role.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <div className="scrollbar-chat min-h-0 flex-1 overflow-y-auto px-2 py-1">
                 {loading ? (
-                  <p className={`px-2 py-3 text-xs ${textMuted}`}>{t('common.loading')}</p>
+                  <p className="px-2 py-3 text-xs text-muted-foreground">{t('common.loading')}</p>
                 ) : assigned.length === 0 ? (
-                  <p className={`px-2 py-3 text-xs leading-relaxed ${textMuted}`}>
+                  <p className="px-2 py-3 text-xs leading-relaxed text-muted-foreground">
                     {t('organizations.channelRolePermEmpty')}
                   </p>
                 ) : (
@@ -308,17 +329,14 @@ export default function OrganizationChannelRoleSettingsModal({
                         onClick={() => setSelectedRoleId(role.id)}
                         className={`mb-0.5 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition ${
                           active
-                            ? isDarkMode
-                              ? 'bg-[#404249] text-white'
-                              : 'bg-white text-slate-900 shadow-sm'
-                            : isDarkMode
-                              ? 'text-[#b5bac1] hover:bg-white/[0.04]'
-                              : 'text-slate-700 hover:bg-slate-100'
+                            ? 'bg-card text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:bg-card/60 hover:text-foreground'
                         }`}
                       >
                         <span
                           className="h-2.5 w-2.5 shrink-0 rounded-full"
                           style={{ backgroundColor: roleAccentColor(role.id, idx) }}
+                          aria-hidden
                         />
                         <span className="truncate font-medium">{role.name}</span>
                       </button>
@@ -328,11 +346,12 @@ export default function OrganizationChannelRoleSettingsModal({
               </div>
 
               {selectedRole && canManageChannelRoles ? (
-                <div className={`border-t px-3 py-2 ${borderCls}`}>
+                <div className="border-t border-border px-3 py-2">
                   <button
                     type="button"
                     onClick={handleRemoveSelectedRole}
-                    className="w-full rounded-md px-2 py-1.5 text-left text-xs font-medium text-rose-400 hover:bg-rose-500/10"
+                    disabled={formBusy}
+                    className="w-full rounded-md px-2 py-1.5 text-left text-xs font-medium text-destructive hover:bg-muted disabled:opacity-50"
                   >
                     {t('organizations.channelRolePermRemoveRole', { role: selectedRole.name })}
                   </button>
@@ -340,37 +359,35 @@ export default function OrganizationChannelRoleSettingsModal({
               ) : null}
             </aside>
 
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-card text-foreground">
               {loading ? (
-                <div className={`flex flex-1 items-center justify-center text-sm ${textMuted}`}>
+                <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
                   {t('common.loading')}
                 </div>
               ) : !selectedRole ? (
-                <div className={`flex flex-1 items-center justify-center p-6 text-sm ${textMuted}`}>
+                <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
                   {t('organizations.channelRolePermAddRoleHint')}
                 </div>
               ) : (
                 <div className="scrollbar-chat min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                  <p className={`mb-4 text-xs ${textMuted}`}>
+                  <p className="mb-4 text-xs text-muted-foreground">
                     {t('organizations.channelRolePermScopeNote', { channel: channelLabel })}
                   </p>
 
                   {permGroups.map((group) => (
                     <section key={group.id} className="mb-6">
-                      <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-[#949ba4]">
+                      <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
                         {group.title}
                       </h3>
                       <div className="space-y-4">
                         {group.items.map((item) => (
                           <div
                             key={item.id}
-                            className={`flex items-start justify-between gap-4 border-b pb-4 ${
-                              isDarkMode ? 'border-[#3f4147]/60' : 'border-slate-100'
-                            }`}
+                            className="flex items-start justify-between gap-4 border-b border-border pb-4"
                           >
                             <div className="min-w-0 flex-1">
-                              <div className="text-sm font-semibold">{item.title}</div>
-                              <p className={`mt-1 text-xs leading-relaxed ${textMuted}`}>
+                              <div className="text-sm font-semibold text-foreground">{item.title}</div>
+                              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                                 {item.description}
                               </p>
                             </div>
@@ -378,7 +395,7 @@ export default function OrganizationChannelRoleSettingsModal({
                               allowed={Boolean(selectedRole.permissions[item.key])}
                               onChange={(v) => setSelectedPerm(item.key, v)}
                               isDarkMode={isDarkMode}
-                              disabled={!canManageChannelRoles}
+                              disabled={!canManageChannelRoles || formBusy}
                             />
                           </div>
                         ))}
@@ -388,91 +405,20 @@ export default function OrganizationChannelRoleSettingsModal({
                 </div>
               )}
             </div>
-            </div>
-
-            {deleteConfirm ? (
-              <div
-                className={`shrink-0 border-t px-4 py-2.5 text-xs ${borderCls} ${
-                  isDarkMode ? 'bg-rose-950/30 text-[#fca5a5]' : 'bg-rose-50 text-rose-700'
-                }`}
-              >
-                {t('organizations.deleteChannelMsg')}
-              </div>
-            ) : null}
-
-            <footer
-              className={`flex shrink-0 items-center justify-between gap-3 border-t px-4 py-3 ${borderCls}`}
-            >
-              <div className="min-w-0 shrink-0">
-                {canManageChannelRoles ? (
-                  channelProtected ? (
-                    <span
-                      className={`text-xs ${textMuted}`}
-                      title={t('organizations.deleteChannelProtected')}
-                    >
-                      {t('organizations.deleteChannelProtected')}
-                    </span>
-                  ) : deleteConfirm ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={deleting}
-                        onClick={() => setDeleteConfirm(false)}
-                        className={`rounded-lg px-3 py-2 text-sm font-semibold ${
-                          isDarkMode
-                            ? 'bg-white/10 text-white hover:bg-white/15'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                        }`}
-                      >
-                        {t('nav.cancel')}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={deleting || !onDeleteChannel}
-                        onClick={handleConfirmDelete}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        {deleting ? t('organizationSettings.deleting') : t('common.delete')}
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setDeleteConfirm(true)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-rose-600/40 bg-rose-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      {t('organizations.deleteChannelBtn')}
-                    </button>
-                  )
-                ) : null}
-              </div>
-              <div className="flex shrink-0 gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className={`rounded-lg px-4 py-2 text-sm font-semibold ${
-                    isDarkMode
-                      ? 'bg-white/10 text-white hover:bg-white/15'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                  }`}
-                >
-                  {t('nav.cancel')}
-                </button>
-                <button
-                  type="button"
-                  disabled={saving || loading || deleting}
-                  onClick={handleSave}
-                  className="rounded-lg bg-[#5865f2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4752c4] disabled:opacity-50"
-                >
-                  {saving ? t('organizations.saving') : t('organizations.saveChanges')}
-                </button>
-              </div>
-            </footer>
-          </>
+          </div>
         )}
-      </div>
-    </div>
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={deleteConfirm}
+        onClose={() => setDeleteConfirm(false)}
+        onConfirm={handleConfirmDelete}
+        title={t('organizations.deleteChannelTitle')}
+        message={t('organizations.deleteChannelMsg')}
+        confirmText={t('common.delete')}
+        cancelText={t('nav.cancel')}
+        variant="danger"
+      />
+    </>
   );
 }

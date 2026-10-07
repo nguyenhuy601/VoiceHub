@@ -183,7 +183,7 @@ export default function PersonalOverviewView({ onNavigate }) {
                 <button
                   type="button"
                   onClick={() => onNavigate?.('/app/me/settings')}
-                  className="inline-flex h-10 min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  className="inline-flex h-10 min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm font-medium text-foreground motion-safe:transition-colors motion-reduce:transition-none hover:border-primary/40 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 >
                   {t('dashboard.personalOpenSettings')}
                   <ChevronRight size={16} aria-hidden />

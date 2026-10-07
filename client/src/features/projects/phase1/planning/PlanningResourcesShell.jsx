@@ -80,7 +80,7 @@ export default function PlanningResourcesShell({
           {prev ? (
             <Link
               to={buildPhase1ModulePath(projectId, `planning/resources/${prev}`)}
-              className="rounded-lg border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/40"
+              className="rounded-lg border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               ← {t(STEP_LABEL_KEYS[prev])}
             </Link>
@@ -88,7 +88,7 @@ export default function PlanningResourcesShell({
           {next ? (
             <Link
               to={buildPhase1ModulePath(projectId, `planning/resources/${next}`)}
-              className="rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted/40"
+              className="rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted/40 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {t(STEP_LABEL_KEYS[next])} →
             </Link>

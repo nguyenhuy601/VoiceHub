@@ -2,13 +2,23 @@ import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
 import useAdminMeetings from '../../hooks/useAdminMeetings';
-import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  adminDenseRowClass,
+  adminManageLinkClass,
+  adminPrimaryBtnClass,
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
+} from '../../components/adminUsers/adminUserPanelUi';
 import {
   formatMeetingWhen,
   meetingId,
   meetingStatus,
+  meetingStatusLabel,
   meetingTitle,
 } from '../../utils/adminVoiceUtils';
+import { adminMeetingHubLink } from '../../utils/adminHubLinks';
+
+const MEETING_OPS_HUB = '/app/admin/voice/meeting-ops';
 
 export default function MeetingHistoryPanel({ orgId }) {
   const { t, locale } = useAppStrings();
@@ -34,7 +44,7 @@ export default function MeetingHistoryPanel({ orgId }) {
         placeholder={t('adminVoice.searchMeeting')}
         className="w-full max-w-md rounded-lg border border-border bg-background px-3 py-2 text-sm"
       />
-      <div className="overflow-auto rounded-xl border border-border">
+      <AdminDenseTableCard>
         {loading ? (
           <p className="px-3 py-4 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : error ? (
@@ -45,9 +55,9 @@ export default function MeetingHistoryPanel({ orgId }) {
             </button>
           </div>
         ) : (
-          <>
+          <AdminDenseTableScroll>
             <table className="min-w-full text-sm">
-              <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
+              <thead className="sticky top-0 z-10 bg-muted text-left text-xs uppercase text-muted-foreground backdrop-blur">
                 <tr>
                   <th className="px-3 py-2">{t('adminVoice.colTitle')}</th>
                   <th className="px-3 py-2">{t('adminVoice.colStatus')}</th>
@@ -59,33 +69,21 @@ export default function MeetingHistoryPanel({ orgId }) {
                 {filtered.map((m) => {
                   const id = meetingId(m);
                   return (
-                    <tr key={id} className="border-t border-border/60">
+                    <tr key={id} className={adminDenseRowClass()}>
                       <td className="px-3 py-2 font-medium">{meetingTitle(m)}</td>
-                      <td className="px-3 py-2 text-muted-foreground">{meetingStatus(m)}</td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {meetingStatusLabel(meetingStatus(m), t)}
+                      </td>
                       <td className="px-3 py-2 text-muted-foreground">
                         {formatMeetingWhen(m.endedAt || m.startTime || m.createdAt, locale)}
                       </td>
                       <td className="px-3 py-2">
-                        <div className="flex flex-wrap gap-1">
-                          <Link
-                            to={`/app/admin/voice/recording?meetingId=${encodeURIComponent(id)}`}
-                            className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
-                          >
-                            {t('adminDomains.voice.recording')}
-                          </Link>
-                          <Link
-                            to={`/app/admin/voice/transcript?meetingId=${encodeURIComponent(id)}`}
-                            className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
-                          >
-                            {t('adminDomains.voice.transcript')}
-                          </Link>
-                          <Link
-                            to={`/app/admin/voice/ai-summary?meetingId=${encodeURIComponent(id)}`}
-                            className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
-                          >
-                            {t('adminDomains.voice.aiSummary')}
-                          </Link>
-                        </div>
+                        <Link
+                          to={adminMeetingHubLink(MEETING_OPS_HUB, id, 'recording')}
+                          className={adminManageLinkClass()}
+                        >
+                          {t('adminDomains.voice.meetingOpsHub')}
+                        </Link>
                       </td>
                     </tr>
                   );
@@ -95,9 +93,9 @@ export default function MeetingHistoryPanel({ orgId }) {
             {!filtered.length ? (
               <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminVoice.noMeetings')}</p>
             ) : null}
-          </>
+          </AdminDenseTableScroll>
         )}
-      </div>
+      </AdminDenseTableCard>
     </div>
   );
 }

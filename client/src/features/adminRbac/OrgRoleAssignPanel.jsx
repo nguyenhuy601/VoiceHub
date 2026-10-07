@@ -6,10 +6,18 @@ import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
 import {
   AdminUserFormCard,
   AdminUserPanelShell,
+  adminDangerBtnClass,
   adminInputClass,
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
+import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
@@ -28,15 +36,19 @@ export default function OrgRoleAssignPanel({ orgId }) {
   const roleKeyParam = useMemo(() => String(searchParams.get('roleKey') || '').trim(), [searchParams]);
 
   const [loading, setLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
   const [roles, setRoles] = useState([]);
   const [selectedRoleKey, setSelectedRoleKey] = useState(roleKeyParam || '');
   const [assignBusy, setAssignBusy] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
 
   const [assignedRoleKeys, setAssignedRoleKeys] = useState([]);
+  const [assignmentsError, setAssignmentsError] = useState('');
 
   const loadCatalog = async () => {
     if (!orgId) return;
     setLoading(true);
+    setCatalogError('');
     try {
       const res = await orgRoleCatalogAPI.listCatalog(orgId);
       const list = res?.data?.roles || [];
@@ -47,7 +59,7 @@ export default function OrgRoleAssignPanel({ orgId }) {
         if (found?.key) setSelectedRoleKey(found.key);
       }
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
+      setCatalogError(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
       setRoles([]);
     } finally {
       setLoading(false);
@@ -55,6 +67,7 @@ export default function OrgRoleAssignPanel({ orgId }) {
   };
 
   const loadAssignmentsForUser = async (uid) => {
+    setAssignmentsError('');
     if (!orgId || !uid) {
       setAssignedRoleKeys([]);
       return;
@@ -64,7 +77,7 @@ export default function OrgRoleAssignPanel({ orgId }) {
       const items = res?.data?.assignments || [];
       setAssignedRoleKeys(unique(items.map((x) => x.roleKey)));
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
+      setAssignmentsError(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
       setAssignedRoleKeys([]);
     }
   };
@@ -103,8 +116,11 @@ export default function OrgRoleAssignPanel({ orgId }) {
   const removeRole = () => {
     if (!selectedRoleKey || !userIdParam) return;
     const next = assignedRoleKeys.filter((k) => String(k) !== String(selectedRoleKey));
-    setUserAssignments(next);
+    return setUserAssignments(next);
   };
+
+  const selectedRole = roles.find((r) => r.key === selectedRoleKey) || null;
+  const selectedRoleAssigned = assignedRoleKeys.includes(selectedRoleKey);
 
   return (
     <AdminUserPanelShell
@@ -116,10 +132,12 @@ export default function OrgRoleAssignPanel({ orgId }) {
         <AdminUserPicker orgId={orgId} selectedUserId={userIdParam} hint={t('adminRbac.orgRoleAssignPickerHint')} />
 
         <AdminUserFormCard title={t('adminDomains.rbac.orgRoleAssign')}>
-          {loading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          {loading && !roles.length ? (
+            <AdminListSkeleton rows={3} />
+          ) : catalogError ? (
+            <AdminLoadErrorState message={catalogError} onRetry={() => loadCatalog()} />
           ) : !roles.length ? (
-            <p className="text-sm text-muted-foreground">{t('adminRbac.orgRoleCatalogEmpty')}</p>
+            <AdminEmptyState message={t('adminRbac.orgRoleCatalogEmpty')} />
           ) : (
             <>
               <label className="mb-3 block">
@@ -138,33 +156,43 @@ export default function OrgRoleAssignPanel({ orgId }) {
                 </select>
               </label>
 
-              <div className="mb-3 rounded-lg border border-border bg-muted/40 p-3 text-sm">
-                <div className="font-medium text-foreground">{t('adminRbac.orgRoleCurrentRoles')}</div>
-                <div className="mt-1 text-muted-foreground">
-                  {userIdParam
-                    ? assignedRoleKeys.length
-                      ? assignedRoleKeys.join(', ')
-                      : t('adminUsers.taxonomyNone')
-                    : t('adminUsers.selectUserFirst')}
+              {assignmentsError ? (
+                <AdminLoadErrorState
+                  className="mb-3"
+                  message={assignmentsError}
+                  onRetry={() => loadAssignmentsForUser(userIdParam)}
+                />
+              ) : (
+                <div className="mb-3 rounded-lg border border-border bg-muted p-3 text-sm">
+                  <div className="font-medium text-foreground">{t('adminRbac.orgRoleCurrentRoles')}</div>
+                  <div className="mt-1 text-muted-foreground">
+                    {userIdParam
+                      ? assignedRoleKeys.length
+                        ? assignedRoleKeys.join(', ')
+                        : t('adminUsers.taxonomyNone')
+                      : t('adminUsers.selectUserFirst')}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   disabled={!userIdParam || !selectedRoleKey || assignBusy}
+                  aria-busy={assignBusy || undefined}
                   className={adminPrimaryBtnClass()}
                   onClick={addRole}
                 >
+                  <AdminBusySpinner busy={assignBusy} />
                   {assignBusy ? t('common.saving') : t('adminDomains.rbac.orgRoleAssign')}
                 </button>
                 <button
                   type="button"
-                  disabled={!userIdParam || !selectedRoleKey || assignBusy}
-                  className={adminSecondaryBtnClass()}
-                  onClick={removeRole}
+                  disabled={!userIdParam || !selectedRoleKey || !selectedRoleAssigned || assignBusy}
+                  className={adminDangerBtnClass()}
+                  onClick={() => setConfirmRevoke(true)}
                 >
-                  {t('adminDomains.rbac.orgRoleDelete') || 'Remove'}
+                  {t('adminRbac.orgRoleRevoke')}
                 </button>
               </div>
 
@@ -177,7 +205,18 @@ export default function OrgRoleAssignPanel({ orgId }) {
           )}
         </AdminUserFormCard>
       </div>
+      <ConfirmDialog
+        isOpen={confirmRevoke}
+        onClose={() => setConfirmRevoke(false)}
+        onConfirm={removeRole}
+        variant="danger"
+        title={t('adminRbac.orgRoleRevokeConfirmTitle')}
+        message={t('adminRbac.orgRoleRevokeConfirmMessage', {
+          role: selectedRole?.label || selectedRoleKey,
+        })}
+        confirmText={t('adminRbac.orgRoleRevoke')}
+        cancelText={t('common.cancel')}
+      />
     </AdminUserPanelShell>
   );
 }
-

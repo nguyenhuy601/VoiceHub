@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  Bell,
+  Calendar,
+  CheckSquare,
+  ClipboardList,
+  FileText,
+  Folder,
+  ListChecks,
+  MessageCircle,
+  Star,
+  Users,
+} from 'lucide-react';
 import {
   buildCollaborateDocumentsPath,
   buildCollaborateTasksPath,
@@ -13,8 +26,17 @@ import { useNotificationsInfinite } from '../../hooks/queries';
 import { getToken } from '../../utils/tokenStorage';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
-import { resolveVoiceRoomInvitePath, isVoiceRoomInviteNotification, resolveNotificationAppPath } from '../../utils/notificationNavigation';
+import { queryKeys } from '../../lib/queryKeys';
+import {
+  resolveVoiceRoomInvitePath,
+  isVoiceRoomInviteNotification,
+  resolveNotificationAppPath,
+} from '../../utils/notificationNavigation';
 import { mapNotificationUiType } from '../../utils/notificationP0Policy';
+import {
+  adminPrimaryBtnClass,
+  adminSecondaryBtnClass,
+} from '../../components/adminUsers/adminUserPanelUi';
 
 function parseNotificationDataField(raw) {
   if (!raw) return {};
@@ -28,6 +50,26 @@ function parseNotificationDataField(raw) {
   }
 }
 
+const ICON_BY_TYPE = {
+  task: CheckSquare,
+  task_assigned: CheckSquare,
+  task_completed: CheckSquare,
+  mention: MessageCircle,
+  message: MessageCircle,
+  deadline: Calendar,
+  meeting: Calendar,
+  file: Folder,
+  document: FileText,
+  friend: Users,
+  system: Bell,
+  org_join_application: Users,
+};
+
+function NotificationTypeIcon({ type, rawType, size = 18, className = '' }) {
+  const Icon = ICON_BY_TYPE[type] || ICON_BY_TYPE[rawType] || Bell;
+  return <Icon size={size} className={className} aria-hidden="true" />;
+}
+
 /**
  * Thông báo tổ chức trong khung giữa workspace — danh sách trái, chi tiết phải.
  */
@@ -39,6 +81,7 @@ export default function OrganizationNotificationsWorkspacePanel({
 }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { isAuthenticated, loading: authLoading } = useAuth();
   const hasToken = Boolean(getToken());
   const [filter, setFilter] = useState('all');
@@ -57,32 +100,20 @@ export default function OrganizationNotificationsWorkspacePanel({
       Boolean(organizationId),
   });
 
-  const getRelativeTime = (input) => {
-    if (!input) return t('time.justNow');
-    const target = new Date(input).getTime();
-    if (!Number.isFinite(target)) return t('time.justNow');
-    const diffMinutes = Math.max(1, Math.floor((Date.now() - target) / 60000));
-    if (diffMinutes < 60) return t('time.minutesAgo', { n: diffMinutes });
-    const diffHours = Math.floor(diffMinutes / 60);
-    if (diffHours < 24) return t('time.hoursAgo', { n: diffHours });
-    const diffDays = Math.floor(diffHours / 24);
-    return t('time.daysAgo', { n: diffDays });
-  };
-
-  const iconByType = {
-    task: '✅',
-    task_assigned: '✅',
-    task_completed: '✅',
-    mention: '💬',
-    message: '💬',
-    deadline: '⏰',
-    meeting: '📅',
-    file: '📁',
-    document: '📁',
-    friend: '👥',
-    system: '🔔',
-    org_join_application: '🏢',
-  };
+  const getRelativeTime = useCallback(
+    (input) => {
+      if (!input) return t('time.justNow');
+      const target = new Date(input).getTime();
+      if (!Number.isFinite(target)) return t('time.justNow');
+      const diffMinutes = Math.max(1, Math.floor((Date.now() - target) / 60000));
+      if (diffMinutes < 60) return t('time.minutesAgo', { n: diffMinutes });
+      const diffHours = Math.floor(diffMinutes / 60);
+      if (diffHours < 24) return t('time.hoursAgo', { n: diffHours });
+      const diffDays = Math.floor(diffHours / 24);
+      return t('time.daysAgo', { n: diffDays });
+    },
+    [t]
+  );
 
   const toViewNotification = useCallback(
     (item) => {
@@ -94,7 +125,6 @@ export default function OrganizationNotificationsWorkspacePanel({
         id,
         type,
         rawType,
-        icon: iconByType[type] || iconByType[rawType] || '🔔',
         title: item?.title || t('notifications.defaultTitle'),
         message: item?.content || item?.message || '',
         time: getRelativeTime(item?.createdAt),
@@ -103,12 +133,11 @@ export default function OrganizationNotificationsWorkspacePanel({
         actionUrl: String(item?.actionUrl || '').trim(),
         organizationSlug:
           data?.workspaceSlug || data?.organizationSlug || organizationSlug || '',
-        organizationId:
-          data?.workspaceId || data?.organizationId || organizationId || '',
+        organizationId: data?.workspaceId || data?.organizationId || organizationId || '',
         data,
       };
     },
-    [t, organizationId, organizationSlug]
+    [t, organizationId, organizationSlug, getRelativeTime]
   );
 
   useEffect(() => {
@@ -119,11 +148,31 @@ export default function OrganizationNotificationsWorkspacePanel({
 
   const notifFilterOptions = useMemo(
     () => [
-      { id: 'all', label: t('notifications.filterAll'), icon: '📋' },
-      { id: 'unread', label: t('notifications.filterUnread'), icon: '⭐' },
-      { id: 'task', label: t('notifications.filterTasks'), icon: '✅' },
-      { id: 'deadline', label: t('notifications.filterDeadline'), icon: '⏰' },
-      { id: 'mention', label: t('common.mentions'), icon: '💬' },
+      {
+        id: 'all',
+        label: t('notifications.filterAll'),
+        icon: <ClipboardList size={12} aria-hidden="true" className="inline" />,
+      },
+      {
+        id: 'unread',
+        label: t('notifications.filterUnread'),
+        icon: <Star size={12} aria-hidden="true" className="inline" />,
+      },
+      {
+        id: 'task',
+        label: t('notifications.filterTasks'),
+        icon: <ListChecks size={12} aria-hidden="true" className="inline" />,
+      },
+      {
+        id: 'deadline',
+        label: t('notifications.filterDeadline'),
+        icon: <Calendar size={12} aria-hidden="true" className="inline" />,
+      },
+      {
+        id: 'mention',
+        label: t('common.mentions'),
+        icon: <MessageCircle size={12} aria-hidden="true" className="inline" />,
+      },
     ],
     [t]
   );
@@ -147,29 +196,32 @@ export default function OrganizationNotificationsWorkspacePanel({
     [filteredNotifications, selectedId]
   );
 
-  const muted = isDarkMode ? 'text-[#8e9297]' : 'text-slate-500';
-  const title = isDarkMode ? 'text-white' : 'text-slate-900';
-  const listBorder = isDarkMode ? 'border-white/[0.06]' : 'border-slate-200/80';
-  const listItemActive = isDarkMode
-    ? 'bg-cyan-500/15 border-cyan-500/40 text-white'
-    : 'bg-cyan-50 border-cyan-300 text-slate-900';
-  const listItemIdle = isDarkMode
-    ? 'border-transparent hover:bg-white/[0.05] text-slate-200'
-    : 'border-transparent hover:bg-slate-50 text-slate-800';
+  const invalidateNotificationCaches = useCallback(async () => {
+    const orgId = String(organizationId || '').trim();
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.notifications.infinite('organization', orgId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.notifications.badge('organization', orgId),
+      }),
+    ]);
+  }, [organizationId, queryClient]);
 
   const handleMarkAsRead = async (id) => {
     if (!id) return;
     try {
       await api.patch(`/notifications/${id}/read`);
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+      await invalidateNotificationCaches();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.markReadErr') }));
     }
   };
 
-  const handleOpenTarget = (notif) => {
+  const handleOpenTarget = async (notif) => {
     if (!notif) return;
-    if (!notif.read) handleMarkAsRead(notif.id);
+    if (!notif.read) await handleMarkAsRead(notif.id);
 
     if (isVoiceRoomInviteNotification(notif)) {
       const invitePath = resolveVoiceRoomInvitePath(notif);
@@ -202,11 +254,17 @@ export default function OrganizationNotificationsWorkspacePanel({
     navigate('/app/collaborate/workspaces');
   };
 
+  const showSkeleton =
+    fetchEnabled && notifInfiniteQuery.isLoading && notifications.length === 0;
+  const showError = fetchEnabled && notifInfiniteQuery.isError && notifications.length === 0;
+  const showEmpty =
+    fetchEnabled && !showSkeleton && !showError && filteredNotifications.length === 0;
+
   return (
-    <div className="flex h-full min-h-0 flex-col px-3 py-3">
+    <div className="flex h-full min-h-0 flex-col px-3 py-3 text-foreground">
       <div className="mb-3">
-        <h3 className={`text-sm font-semibold ${title}`}>{t('notifications.titleOrganization')}</h3>
-        <p className={`text-[11px] ${muted}`}>{t('notifications.scopeOrganizationHint')}</p>
+        <h3 className="text-sm font-semibold text-foreground">{t('notifications.titleOrganization')}</h3>
+        <p className="text-[11px] text-muted-foreground">{t('notifications.scopeOrganizationHint')}</p>
       </div>
 
       <PageSearchToolbar
@@ -225,89 +283,131 @@ export default function OrganizationNotificationsWorkspacePanel({
           onChange={setFilter}
           isDarkMode={isDarkMode}
           size="sm"
+          className="motion-safe:[&_button]:transition-colors motion-reduce:[&_button]:transition-none"
         />
       </PageSearchToolbar>
 
-      <div className={`flex min-h-0 flex-1 overflow-hidden rounded-xl border ${listBorder}`}>
-        <div
-          className={`flex w-[min(100%,300px)] shrink-0 flex-col border-r ${listBorder} ${
-            isDarkMode ? 'bg-[#0f1219]' : 'bg-slate-50/80'
-          }`}
-        >
+      <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex w-[min(100%,300px)] shrink-0 flex-col border-r border-border bg-muted/40">
           <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto p-2">
             {!fetchEnabled ? (
-              <p className={`py-8 text-center text-xs ${muted}`}>{t('notifications.loading')}</p>
-            ) : notifInfiniteQuery.isLoading && notifications.length === 0 ? (
-              <p className={`py-8 text-center text-xs ${muted}`}>{t('notifications.loading')}</p>
-            ) : filteredNotifications.length === 0 ? (
-              <p className={`py-8 text-center text-xs ${muted}`}>{t('notifications.emptyOrg')}</p>
+              <p className="py-8 text-center text-xs text-muted-foreground">{t('notifications.loading')}</p>
+            ) : showSkeleton ? (
+              <div className="space-y-2" role="status" aria-live="polite">
+                <span className="sr-only">{t('notifications.loading')}</span>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-14 rounded-lg bg-muted motion-safe:animate-pulse motion-reduce:animate-none"
+                  />
+                ))}
+              </div>
+            ) : showError ? (
+              <div role="alert" className="rounded-lg border border-border px-3 py-6 text-center">
+                <p className="mb-3 text-xs text-muted-foreground">
+                  {resolveApiErrorMessage(notifInfiniteQuery.error, {
+                    t,
+                    fallback: t('notifications.loadFail'),
+                  })}
+                </p>
+                <button
+                  type="button"
+                  className={adminSecondaryBtnClass('text-xs')}
+                  onClick={() => notifInfiniteQuery.refetch()}
+                >
+                  {t('common.retry')}
+                </button>
+              </div>
+            ) : showEmpty ? (
+              <p className="py-8 text-center text-xs text-muted-foreground">{t('notifications.emptyOrg')}</p>
             ) : (
-              <ul className="space-y-1">
-                {filteredNotifications.map((notif) => {
-                  const active = selectedId === notif.id;
-                  return (
-                    <li key={notif.id}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedId(notif.id)}
-                        className={`flex w-full items-start gap-2 rounded-lg border px-2 py-2 text-left transition ${
-                          active ? listItemActive : listItemIdle
-                        }`}
-                      >
-                        <span className="text-lg leading-none" aria-hidden>
-                          {notif.icon}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className={`flex items-center gap-1.5 truncate text-xs font-semibold ${title}`}>
-                            {notif.title}
-                            {!notif.read ? (
-                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" aria-hidden />
-                            ) : null}
+              <>
+                <ul className="space-y-1">
+                  {filteredNotifications.map((notif) => {
+                    const active = selectedId === notif.id;
+                    return (
+                      <li key={notif.id}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedId(notif.id)}
+                          aria-current={active ? 'true' : undefined}
+                          className={`flex w-full items-start gap-2 rounded-lg border px-2 py-2 text-left motion-safe:transition-colors motion-reduce:transition-none ${
+                            active
+                              ? 'border-primary/40 bg-primary/10 text-foreground'
+                              : 'border-transparent text-foreground hover:bg-muted'
+                          }`}
+                        >
+                          <NotificationTypeIcon type={notif.type} rawType={notif.rawType} />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5 truncate text-xs font-semibold text-foreground">
+                              {notif.title}
+                              {!notif.read ? (
+                                <span
+                                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+                                  aria-hidden="true"
+                                />
+                              ) : null}
+                            </span>
+                            <span className="line-clamp-2 text-[10px] text-muted-foreground">
+                              {notif.message}
+                            </span>
+                            <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                              {notif.time}
+                            </span>
                           </span>
-                          <span className={`line-clamp-2 text-[10px] ${muted}`}>{notif.message}</span>
-                          <span className={`mt-0.5 block text-[10px] ${muted}`}>{notif.time}</span>
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {notifInfiniteQuery.hasNextPage ? (
+                  <div className="mt-2 px-1 pb-1">
+                    <button
+                      type="button"
+                      className={adminSecondaryBtnClass('w-full text-xs')}
+                      aria-busy={notifInfiniteQuery.isFetchingNextPage}
+                      disabled={notifInfiniteQuery.isFetchingNextPage}
+                      onClick={() => notifInfiniteQuery.fetchNextPage()}
+                    >
+                      {notifInfiniteQuery.isFetchingNextPage
+                        ? t('common.loading')
+                        : t('notifications.loadMore')}
+                    </button>
+                  </div>
+                ) : null}
+              </>
             )}
           </div>
         </div>
 
-        <div className={`min-w-0 flex-1 overflow-y-auto p-4 ${isDarkMode ? 'bg-[#11141C]' : 'bg-white'}`}>
+        <div className="min-w-0 flex-1 overflow-y-auto bg-card p-4">
           {!selected ? (
-            <div className={`flex h-full flex-col items-center justify-center text-center ${muted}`}>
-              <span className="mb-3 text-4xl opacity-50" aria-hidden>
-                🔔
-              </span>
+            <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
+              <Bell size={36} className="mb-3 opacity-50" aria-hidden="true" />
               <p className="text-sm font-medium">{t('notifications.orgPickHint')}</p>
             </div>
           ) : (
-            <div className="mx-auto max-w-lg">
+            <div className="mx-auto max-w-lg motion-safe:animate-fade-in-fast">
               <div className="mb-3 flex items-start gap-3">
-                <span className="text-3xl" aria-hidden>
-                  {selected.icon}
-                </span>
+                <NotificationTypeIcon type={selected.type} rawType={selected.rawType} size={28} />
                 <div className="min-w-0 flex-1">
-                  <h4 className={`text-base font-bold ${title}`}>{selected.title}</h4>
-                  <p className={`mt-1 text-xs ${muted}`}>{selected.time}</p>
+                  <h4 className="text-base font-bold text-foreground">{selected.title}</h4>
+                  <p className="mt-1 text-xs text-muted-foreground">{selected.time}</p>
                 </div>
                 {!selected.read ? (
-                  <span className="rounded-full bg-cyan-600/20 px-2 py-0.5 text-[10px] font-bold text-cyan-300">
+                  <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary">
                     {t('common.newBadge')}
                   </span>
                 ) : null}
               </div>
-              <p className={`mb-4 text-sm leading-relaxed ${isDarkMode ? 'text-[#c4c9d4]' : 'text-slate-700'}`}>
+              <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
                 {selected.message || '—'}
               </p>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => handleOpenTarget(selected)}
-                  className="rounded-lg bg-[#5865F2] px-4 py-2 text-xs font-semibold text-white hover:brightness-110"
+                  className={adminPrimaryBtnClass('text-xs')}
                 >
                   {t('notifications.actionOpen')}
                 </button>
@@ -315,11 +415,7 @@ export default function OrganizationNotificationsWorkspacePanel({
                   <button
                     type="button"
                     onClick={() => handleMarkAsRead(selected.id)}
-                    className={`rounded-lg border px-4 py-2 text-xs font-semibold ${
-                      isDarkMode
-                        ? 'border-slate-600 text-slate-200 hover:bg-white/5'
-                        : 'border-slate-300 text-slate-700 hover:bg-slate-50'
-                    }`}
+                    className={adminSecondaryBtnClass('text-xs')}
                   >
                     {t('notifications.markRead')}
                   </button>

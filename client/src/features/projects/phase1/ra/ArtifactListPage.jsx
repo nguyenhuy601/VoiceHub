@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import Modal from '../../../../components/Shared/Modal';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
@@ -176,7 +177,13 @@ export default function ArtifactListPage({
     setSelectedId((prev) => (prev === fromQuery ? prev : fromQuery));
   }, [searchParams]);
 
-  const { data: rows = [], isLoading, error } = useQuery({
+  const {
+    data: rows = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['analysisArtifacts', projectId, kind],
     queryFn: async () => {
       const raw = unwrap(await analysisAPI.listArtifacts(projectId, { kind }));
@@ -552,10 +559,15 @@ export default function ArtifactListPage({
       />
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        <p className="text-sm text-muted-foreground" aria-busy="true">
+          {t('common.loading')}
+        </p>
       ) : null}
-      {error ? (
-        <p className="text-sm text-destructive">{resolveApiErrorMessage(error)}</p>
+      {isError ? (
+        <AdminLoadErrorState
+          message={resolveApiErrorMessage(error, { t, fallback: t('common.error') })}
+          onRetry={() => void refetch()}
+        />
       ) : null}
 
       {selectedIds.size > 0 && canEdit ? (
@@ -901,7 +913,7 @@ export default function ArtifactListPage({
             </button>
             <button
               type="button"
-              className="rounded-full bg-[#1677FF] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+              className="rounded-full bg-[#1677FF] px-4 py-1.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
               disabled={
                 !createDraft.externalKey.trim() ||
                 !createDraft.title.trim() ||

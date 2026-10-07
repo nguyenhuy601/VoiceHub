@@ -164,7 +164,7 @@ export default function AiPlanningRunPanel({
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
         >
           {phaseStatus === 'pending' ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
           ) : (
             <Play className="h-4 w-4" />
           )}

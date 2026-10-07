@@ -46,7 +46,7 @@ export default function RoleDeletePanel({ orgId, embedded = false }) {
         <h2 className="text-lg font-semibold">{t('adminDomains.rbac.delete')}</h2>
         <p className="mt-2 text-sm text-muted-foreground">{t('adminRbac.deleteHint')}</p>
         {role && isProtectedDefaultRole(role) ? (
-          <p className="mt-4 text-sm text-amber-400">{t('adminRbac.protectedRole')}</p>
+          <p className="mt-4 text-sm text-warning">{t('adminRbac.protectedRole')}</p>
         ) : null}
         <GradientButton
           type="button"
@@ -61,6 +61,7 @@ export default function RoleDeletePanel({ orgId, embedded = false }) {
         isOpen={open}
         onClose={() => !busy && setOpen(false)}
         onConfirm={confirm}
+        variant="danger"
         title={t('adminDomains.rbac.delete')}
         message={t('adminRbac.deleteConfirm', { name: role ? normalizeRoleDisplayName(role.name) : '' })}
         confirmText={t('adminDomains.rbac.delete')}

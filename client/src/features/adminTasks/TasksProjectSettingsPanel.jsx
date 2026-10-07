@@ -8,10 +8,20 @@ import {
   adminLabelClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import { taskAPI } from '../../services/api/taskAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
+
+const TITLE_MAX_LENGTH = 200;
+const PROJECT_CODE_MAX_LENGTH = 32;
+const DESCRIPTION_MAX_LENGTH = 2000;
+const BACKGROUND_MAX_LENGTH = 500;
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -30,6 +40,7 @@ export default function TasksProjectSettingsPanel({ orgId }) {
   const boardId = String(params.get('boardId') || '').trim();
 
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState('');
   const [projectCode, setProjectCode] = useState('');
@@ -53,9 +64,11 @@ export default function TasksProjectSettingsPanel({ orgId }) {
       setVisibility('private');
       setDueDate('');
       setBackground('');
+      setLoadError('');
       return;
     }
     setLoading(true);
+    setLoadError('');
     try {
       const res = await taskAPI.getBoardDetail(boardId, { organizationId: orgId });
       const data = unwrap(res);
@@ -67,7 +80,7 @@ export default function TasksProjectSettingsPanel({ orgId }) {
       setDueDate(toDateInput(board?.dueDate));
       setBackground(String(board?.background || ''));
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.settingsLoadFail') }));
+      setLoadError(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.settingsLoadFail') }));
     } finally {
       setLoading(false);
     }
@@ -113,18 +126,22 @@ export default function TasksProjectSettingsPanel({ orgId }) {
 
       {!boardId ? (
         <p className="text-sm text-muted-foreground">{t('adminTasks.needBoard')}</p>
-      ) : loading ? (
-        <p className="text-sm text-muted-foreground">{t('adminTasks.loading')}</p>
+      ) : loading && !loadError ? (
+        <AdminListSkeleton rows={3} />
+      ) : loadError ? (
+        <AdminLoadErrorState message={loadError} onRetry={load} disabled={loading} />
       ) : (
         <AdminUserFormCard title={t('adminDomains.projects.settings')}>
-          <form className="grid gap-3 sm:grid-cols-2" onSubmit={save}>
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={save} aria-busy={saving}>
             <label className={adminLabelClass()}>
               {t('adminTasks.settingsTitle')}
               <input
                 className={adminInputClass()}
                 value={title}
+                maxLength={TITLE_MAX_LENGTH}
                 onChange={(e) => setTitle(e.target.value)}
                 required
+                disabled={saving}
               />
             </label>
             <label className={adminLabelClass()}>
@@ -132,7 +149,9 @@ export default function TasksProjectSettingsPanel({ orgId }) {
               <input
                 className={adminInputClass()}
                 value={projectCode}
+                maxLength={PROJECT_CODE_MAX_LENGTH}
                 onChange={(e) => setProjectCode(e.target.value)}
+                disabled={saving}
               />
             </label>
             <label className={`${adminLabelClass()} sm:col-span-2`}>
@@ -141,7 +160,9 @@ export default function TasksProjectSettingsPanel({ orgId }) {
                 className={adminInputClass()}
                 rows={3}
                 value={description}
+                maxLength={DESCRIPTION_MAX_LENGTH}
                 onChange={(e) => setDescription(e.target.value)}
+                disabled={saving}
               />
             </label>
             <label className={adminLabelClass()}>
@@ -150,6 +171,7 @@ export default function TasksProjectSettingsPanel({ orgId }) {
                 className={adminInputClass()}
                 value={visibility}
                 onChange={(e) => setVisibility(e.target.value)}
+                disabled={saving}
               >
                 <option value="private">{t('adminTasks.settingsVisibilityPrivate')}</option>
                 <option value="workspace">{t('adminTasks.settingsVisibilityWorkspace')}</option>
@@ -162,6 +184,7 @@ export default function TasksProjectSettingsPanel({ orgId }) {
                 className={adminInputClass()}
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
+                disabled={saving}
               />
             </label>
             <label className={`${adminLabelClass()} sm:col-span-2`}>
@@ -169,11 +192,19 @@ export default function TasksProjectSettingsPanel({ orgId }) {
               <input
                 className={adminInputClass()}
                 value={background}
+                maxLength={BACKGROUND_MAX_LENGTH}
                 onChange={(e) => setBackground(e.target.value)}
+                disabled={saving}
               />
             </label>
             <div className="sm:col-span-2">
-              <button type="submit" className={adminPrimaryBtnClass()} disabled={saving || !title.trim()}>
+              <button
+                type="submit"
+                className={adminPrimaryBtnClass()}
+                disabled={saving || !title.trim()}
+                aria-busy={saving}
+              >
+                <AdminBusySpinner busy={saving} />
                 {saving ? t('common.saving') : t('common.save')}
               </button>
             </div>

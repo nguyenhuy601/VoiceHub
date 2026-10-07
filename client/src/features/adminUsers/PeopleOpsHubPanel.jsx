@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
-import AdminEntityOpsHubShell from '../../components/admin/AdminEntityOpsHubShell';
+import AdminEntityOpsHubShell from '../../components/Admin/AdminEntityOpsHubShell';
 import UserEditPanel from './UserEditPanel';
 import UserAssignOrgPanel from './UserAssignOrgPanel';
 import UserDeletePanel from './UserDeletePanel';

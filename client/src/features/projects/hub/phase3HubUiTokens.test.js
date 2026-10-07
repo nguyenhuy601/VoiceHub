@@ -34,22 +34,22 @@ describe('phase3HubUiTokens', () => {
     for (const s of ['draft', 'pending', 'approved', 'applied', 'rejected', 'unknown']) {
       assert.ok(crStatusBadgeClass(s).includes('rounded-full'));
     }
-    assert.ok(crStatusRowClass('applied').includes('emerald') || crStatusRowClass('applied').length >= 0);
+    assert.match(crStatusRowClass('applied'), /success/);
     assert.match(crPriorityBadgeClass('critical'), /destructive/);
     assert.match(crPriorityBadgeClass('low'), /muted/);
   });
 
   it('issue type card + ready accent', () => {
-    assert.match(issueTypeCardClass('bug'), /rose/);
-    assert.match(issueTypeCardClass('task'), /slate/);
-    assert.match(issueTypeCardClass('story'), /sky/);
+    assert.match(issueTypeCardClass('bug'), /destructive/);
+    assert.match(issueTypeCardClass('task'), /muted/);
+    assert.match(issueTypeCardClass('story'), /info/);
     assert.equal(readyToDoneCardAccentClass(false), '');
     assert.match(readyToDoneCardAccentClass(true), /warning/);
   });
 
   it('release metrics and soft grid cell', () => {
     assert.match(releaseMetricClass('bugs', { count: 2 }), /destructive/);
-    assert.match(releaseMetricClass('bugs', { count: 0 }), /emerald/);
+    assert.match(releaseMetricClass('bugs', { count: 0 }), /success/);
     assert.match(HUB_GRID_CELL, /px-2/);
     assert.doesNotMatch(HUB_GRID_CELL, /border-r|border border/);
   });

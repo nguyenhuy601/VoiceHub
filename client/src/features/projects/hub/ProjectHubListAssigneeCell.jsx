@@ -71,7 +71,7 @@ export default function ProjectHubListAssigneeCell({
       <button
         type="button"
         disabled={busy}
-        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-xs text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         aria-label={t('workspace.projectHubListAssigneeAria')}
         onClick={() => setOpen(true)}
       >
@@ -101,7 +101,7 @@ export default function ProjectHubListAssigneeCell({
         <User size={14} className="shrink-0 text-muted-foreground" aria-hidden />
         <input
           ref={inputRef}
-          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-0"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t('workspace.projectHubListAssigneeSearchPh')}
@@ -128,7 +128,7 @@ export default function ProjectHubListAssigneeCell({
             <li role="option">
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-muted"
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition-colors motion-reduce:transition-none hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 disabled={busy}
                 onClick={() => {
                   onAssign?.(null);
@@ -147,7 +147,7 @@ export default function ProjectHubListAssigneeCell({
                 <li key={m.id} role="option">
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-muted"
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition-colors motion-reduce:transition-none hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     disabled={busy}
                     onClick={() => {
                       onAssign?.(m);

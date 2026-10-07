@@ -14,6 +14,7 @@ import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { ConfirmDialog } from '../../../components/Shared';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import ProjectHubBacklogIssueRow from './ProjectHubBacklogIssueRow';
 import WorkItemDetail from './WorkItemDetail';
 import { childWorkStats } from './projectHubBacklogStats';
@@ -126,11 +127,13 @@ export default function ProjectHubPlanningPanel({
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
-  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
-  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const muted = 'text-muted-foreground';
+  const titleCls = 'text-foreground';
   const inputCls =
-    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
+    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring';
   const cardCls = 'rounded-xl border border-border bg-surface px-3 py-2.5';
+  const tabBtn =
+    'min-h-11 shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
   const canCreateEpic = Boolean(hubCaps?.canCreateEpic);
   const canDeleteEpic = Boolean(hubCaps?.canDeleteEpic);
@@ -937,15 +940,12 @@ export default function ProjectHubPlanningPanel({
 
   if (loadError) {
     return (
-      <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-        <p className={`text-sm ${muted}`}>{t('workspace.projectHubPlanLoadFail')}</p>
-        <button
-          type="button"
-          onClick={reload}
-          className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
-        >
-          {t('workspace.projectHubPlanRetry')}
-        </button>
+      <div className="flex flex-col items-center px-4 py-10">
+        <AdminLoadErrorState
+          message={t('workspace.projectHubPlanLoadFail')}
+          onRetry={reload}
+          disabled={loading}
+        />
       </div>
     );
   }
@@ -966,12 +966,10 @@ export default function ProjectHubPlanningPanel({
               role="tab"
               aria-selected={view === tab.id}
               onClick={() => setView(tab.id)}
-              className={`min-h-11 shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold ${
+              className={`${tabBtn} ${
                 view === tab.id
                   ? 'bg-primary text-primary-foreground'
-                  : isDarkMode
-                    ? 'bg-white/5 text-slate-300'
-                    : 'bg-muted text-muted-foreground'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'
               }`}
             >
               {t(tab.labelKey)}
@@ -987,7 +985,7 @@ export default function ProjectHubPlanningPanel({
               <label className="relative min-w-0 flex-1">
                 <Search size={14} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
-                  className="w-full rounded-lg border border-border bg-background py-2 pl-7 pr-3 text-sm outline-none focus:border-primary"
+                  className="w-full rounded-lg border border-border bg-background py-2 pl-7 pr-3 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={t('workspace.projectHubBacklogSearch')}
@@ -995,7 +993,7 @@ export default function ProjectHubPlanningPanel({
                 />
               </label>
               <select
-                className="rounded-lg border border-border bg-background px-2 py-2 text-xs font-semibold"
+                className="rounded-lg border border-border bg-background px-2 py-2 text-xs font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 value={epicFilter}
                 onChange={(e) => setEpicFilter(e.target.value)}
                 aria-label={t('workspace.projectHubPlanFilterEpic')}
@@ -1263,6 +1261,7 @@ export default function ProjectHubPlanningPanel({
         }
         confirmText={t('workspace.projectHubBacklogDeleteIssue')}
         cancelText={t('common.cancel')}
+        variant="danger"
         onConfirm={() => {
           if (confirm?.kind === 'sprint') return deleteSprint(confirm.id);
           if (confirm?.kind === 'issue') return deleteIssue(confirm.id);

@@ -27,7 +27,7 @@ describe('adminDomains.requirements i18n', () => {
     const block = viSlice.slice(start, end);
     assert.match(block, /accessPolicy:\s*\{/);
     assert.match(block, /save:\s*'Lưu cấu hình'/);
-    assert.match(block, /title:\s*'File SRS'/);
+    assert.match(block, /title:\s*'Tệp SRS'/);
     assert.match(block, /downloadTemplate:\s*'Tải SRS'/);
     assert.match(block, /uploadPreview:\s*'Tải lên & xem trước'/);
   });

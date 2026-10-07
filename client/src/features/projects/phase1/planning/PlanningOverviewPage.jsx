@@ -5,9 +5,11 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { planningAPI } from '../../../../services/api/planningAPI';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
 import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
 import {
@@ -55,7 +57,13 @@ export default function PlanningOverviewPage({ projectId, organizationId }) {
   const navigate = useNavigate();
   const { capabilities } = useProjectCapabilities(projectId);
 
-  const { data: summary, isLoading: summaryLoading } = useQuery({
+  const {
+    data: summary,
+    isLoading: summaryLoading,
+    isError: summaryError,
+    error: summaryQueryError,
+    refetch: refetchSummary,
+  } = useQuery({
     queryKey: ['planningSummary', projectId],
     queryFn: async () => unwrap(await planningAPI.getSummary(projectId)),
     enabled: Boolean(projectId),
@@ -96,9 +104,18 @@ export default function PlanningOverviewPage({ projectId, organizationId }) {
           </p>
         </div>
         {isLoading ? (
-          <span className="text-xs text-muted-foreground">{t('common.loading')}</span>
+          <span className="text-xs text-muted-foreground" aria-busy="true">
+            {t('common.loading')}
+          </span>
         ) : null}
       </div>
+
+      {summaryError ? (
+        <AdminLoadErrorState
+          message={resolveApiErrorMessage(summaryQueryError, { t, fallback: t('common.error') })}
+          onRetry={() => void refetchSummary()}
+        />
+      ) : null}
 
       <Phase1OverviewSection index={1} title={t('workspace.phase1DumpTitle')}>
         <PlanningWorkbookImportPanel

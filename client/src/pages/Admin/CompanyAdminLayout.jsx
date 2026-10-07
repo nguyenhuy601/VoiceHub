@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
-import AdminCompanyRealtimeSync from '../../components/admin/AdminCompanyRealtimeSync';
+import AdminCompanyRealtimeSync from '../../components/Admin/AdminCompanyRealtimeSync';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import useOrganizationDetail from '../../hooks/useOrganizationDetail';
 import { useAppStrings } from '../../locales/appStrings';

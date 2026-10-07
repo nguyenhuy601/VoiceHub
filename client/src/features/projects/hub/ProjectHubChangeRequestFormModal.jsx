@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Flag, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Modal from '../../../components/Shared/Modal';
+import { AdminBusySpinner } from '../../../components/adminUsers/adminPanelStates';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { analysisAPI } from '../../../services/api/analysisAPI';
@@ -138,7 +139,7 @@ export default function ProjectHubChangeRequestFormModal({
   }, [isOpen, projectId, isEdit]);
 
   const inputCls =
-    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
+    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary';
 
   const typeLabel = (value) => {
     const key = `workspace.projectHubCrType_${value}`;
@@ -212,8 +213,8 @@ export default function ProjectHubChangeRequestFormModal({
   };
 
   const srsLinkFields = showSrsLink ? (
-    <div className="flex flex-col gap-3 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3">
-      <p className="text-[11px] font-semibold text-sky-900 dark:text-sky-100">
+    <div className="flex flex-col gap-3 rounded-xl border border-info/30 bg-info/5 p-3">
+      <p className="text-[11px] font-semibold text-info">
         {t('workspace.projectHubCrFormSrsLinkTitle')}
       </p>
       <label className="block text-xs font-semibold text-muted-foreground">
@@ -334,7 +335,11 @@ export default function ProjectHubChangeRequestFormModal({
           onClick={() => setMoreOpen((v) => !v)}
         >
           {t('workspace.projectHubCrFormMoreFields')}
-          <ChevronDown size={14} aria-hidden className={moreOpen ? 'rotate-180' : ''} />
+          <ChevronDown
+            size={14}
+            aria-hidden
+            className={`transition-transform duration-150 motion-reduce:transition-none ${moreOpen ? 'rotate-180' : ''}`}
+          />
         </button>
       </div>
 
@@ -380,9 +385,11 @@ export default function ProjectHubChangeRequestFormModal({
           type="button"
           onClick={() => void submit()}
           disabled={!canSubmit}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          aria-busy={submitting || undefined}
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {t('workspace.projectHubCrFormSubmitCreateTask')}
+          <AdminBusySpinner busy={submitting} />
+          {submitting ? t('common.saving') : t('workspace.projectHubCrFormSubmitCreateTask')}
         </button>
       </div>
     </div>
@@ -490,9 +497,11 @@ export default function ProjectHubChangeRequestFormModal({
           type="button"
           onClick={() => void submit()}
           disabled={!canSubmit}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          aria-busy={submitting || undefined}
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {t('common.save')}
+          <AdminBusySpinner busy={submitting} />
+          {submitting ? t('common.saving') : t('common.save')}
         </button>
       </div>
     </div>

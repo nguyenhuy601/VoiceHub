@@ -12,6 +12,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
@@ -120,8 +121,8 @@ export default function ProjectHubTestCasesPanel({
   /** Avoid wiping Pass/Fail by refetching every time user re-enters the tab. */
   const loadedProjectRef = useRef('');
 
-  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
-  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const muted = 'text-muted-foreground';
+  const titleCls = 'text-foreground';
   const sectionShell =
     'rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950';
   const sectionHead = 'border-b border-[#E8E8E8] bg-[#E8F4FC] px-3.5 py-2.5 dark:border-slate-700 dark:bg-slate-800/80';
@@ -532,15 +533,12 @@ export default function ProjectHubTestCasesPanel({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-12">
         <FlaskConical className={`h-8 w-8 ${muted}`} aria-hidden />
-        <p className={`text-center text-sm ${muted}`}>{t('workspace.phaseQaLoadFail')}</p>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
-          onClick={() => void loadList({ force: true })}
-        >
-          <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-          {t('workspace.phaseQaRetry')}
-        </button>
+        <AdminLoadErrorState
+          className="w-full max-w-sm"
+          message={t('workspace.phaseQaLoadFail')}
+          onRetry={() => void loadList({ force: true })}
+          disabled={loading}
+        />
       </div>
     );
   }
@@ -697,8 +695,9 @@ export default function ProjectHubTestCasesPanel({
                 <button
                   type="button"
                   disabled={Boolean(attachingId)}
+                  aria-busy={Boolean(attachingId) || undefined}
                   onClick={() => void onAttachSuggested()}
-                  className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                 >
                   <Link2 className="h-3 w-3" aria-hidden />
                   {t('workspace.phaseQaAttachSuggested', { count: partition.suggested.length })}
@@ -726,8 +725,9 @@ export default function ProjectHubTestCasesPanel({
                       <button
                         type="button"
                         disabled={Boolean(attachingId)}
+                        aria-busy={attachingId === id || undefined}
                         onClick={() => void onAttach(id)}
-                        className="shrink-0 rounded-full bg-[#1677FF] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                        className="shrink-0 rounded-full bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                       >
                         {attachingId === id
                           ? t('common.loading')
@@ -796,7 +796,7 @@ export default function ProjectHubTestCasesPanel({
                 <button
                   type="submit"
                   disabled={creating || !String(title || '').trim()}
-                  className="rounded-full bg-[#1677FF] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                  className="rounded-full bg-[#1677FF] px-3 py-2 text-xs font-semibold text-foreground disabled:opacity-50"
                 >
                   {creating ? t('common.loading') : t('workspace.phaseQaCreate')}
                 </button>

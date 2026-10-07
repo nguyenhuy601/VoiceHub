@@ -62,7 +62,7 @@ export default function CompanyHomeOverview({
             <button
               type="button"
               onClick={onRetry}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-foreground hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-foreground transition-colors duration-150 hover:border-primary/30 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
             >
               <RefreshCw size={14} aria-hidden />
               {t('nav.companyHomeRetry')}
@@ -90,7 +90,7 @@ export default function CompanyHomeOverview({
                 <div className="flex flex-wrap gap-2">
                   <Link
                     to={paths.chatPath}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground no-underline shadow-sm transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground no-underline shadow-sm transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
                   >
                     <MessageCircle size={16} aria-hidden />
                     {t('nav.companyHomeOpenChat')}
@@ -98,7 +98,7 @@ export default function CompanyHomeOverview({
                   </Link>
                   <Link
                     to={paths.docsPath}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-semibold text-foreground no-underline transition-[transform,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-semibold text-foreground no-underline transition-[transform,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
                   >
                     <FileText size={16} aria-hidden />
                     {t('nav.documents')}
@@ -213,7 +213,7 @@ export default function CompanyHomeOverview({
                           teamId: team.id,
                           tab: 'chat',
                         })}
-                        className={`${FIGMA_DASH_WS_ROW} no-underline`}
+                        className={`${FIGMA_DASH_WS_ROW} no-underline motion-reduce:transition-none motion-reduce:hover:translate-y-0`}
                       >
                         <span
                           className={FIGMA_DASH_WS_AVATAR}

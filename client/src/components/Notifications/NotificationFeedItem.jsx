@@ -164,7 +164,7 @@ export default function NotificationFeedItem({
           e.stopPropagation();
           onDelete?.(notif);
         }}
-        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border-none bg-transparent text-muted-foreground opacity-100 transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border-none bg-transparent text-muted-foreground opacity-100 transition-colors motion-reduce:transition-none hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
         aria-label={labels.delete || t('common.delete')}
       >
         <Trash2 className="h-3.5 w-3.5" aria-hidden />

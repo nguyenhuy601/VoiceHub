@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   Bell,
   Building2,
-  ClipboardList,
   CreditCard,
   FileText,
   Lock,
@@ -34,6 +33,14 @@ import { queryKeys } from '../../lib/queryKeys';
 import { STALE_TIME_ORG_DETAIL_MS } from '../../lib/queryClient';
 import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import OrganizationRbacSettings from './OrganizationRbacSettings';
+import {
+  adminDangerBtnClass,
+  adminInputClass,
+  adminLabelClass,
+  adminPrimaryBtnClass,
+  adminSecondaryBtnClass,
+} from '../adminUsers/adminUserPanelUi';
+import { AdminBusySpinner, AdminListSkeleton, AdminLoadErrorState } from '../adminUsers/adminPanelStates';
 import { hasBackendCapability } from '../../config/backendCapabilities';
 import {
   enrichMembershipsWithProfiles,
@@ -43,7 +50,6 @@ import {
 const ADMIN_TAB_ICONS = {
   general: Settings,
   structure: Building2,
-  join: ClipboardList,
   roles: Shield,
   security: Lock,
   integrations: FileText,
@@ -115,36 +121,56 @@ function normalizePrivacyValue(value) {
   return 'everyone';
 }
 
+const ORG_NAME_MAX_LENGTH = 120;
+const DESCRIPTION_MAX_LENGTH = 1000;
+const UNIT_NAME_MAX_LENGTH = 120;
+const STRUCTURE_SELECT_CLASS = adminInputClass('mt-1');
+const STRUCTURE_INLINE_INPUT_CLASS = adminInputClass('py-2');
+
+function RenameUnitCard({ title, value, onChange, placeholder, busy, disabled, onSave, saveLabel, leading = null }) {
+  return (
+    <div className="rounded-xl border border-border bg-muted p-3">
+      <div className="mb-2 text-sm font-semibold text-foreground">{title}</div>
+      <div className="flex flex-wrap gap-2 sm:flex-nowrap">
+        {leading}
+        <input
+          value={value}
+          maxLength={UNIT_NAME_MAX_LENGTH}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          aria-label={title}
+          className={STRUCTURE_INLINE_INPUT_CLASS}
+        />
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={disabled || !String(value || '').trim()}
+          aria-busy={busy}
+          className={adminPrimaryBtnClass('shrink-0 py-2')}
+        >
+          <AdminBusySpinner busy={busy} />
+          {saveLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ChannelPermBadge({ label, on, t }) {
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+        on ? 'bg-success-bg text-success' : 'bg-muted text-muted-foreground'
+      }`}
+    >
+      {label}: {on ? t('organizationSettings.permYes') : t('organizationSettings.permNo')}
+    </span>
+  );
+}
+
 const storageKey = (orgId, key) => `orgSettings:${orgId}:${key}`;
 
 const unwrap = (payload) => payload?.data ?? payload;
-
-const JOIN_CHOICE_MAX = 8;
-const JOIN_CHOICE_MIN = 2;
-
-/** Số ô mặc định khi chọn kiểu câu hỏi */
-function joinDefaultOptionSlotCount(type) {
-  if (type === 'radio') return 4;
-  if (type === 'checkbox') return 2;
-  if (type === 'single_choice') return 2;
-  return 2;
-}
-
-/** Chuẩn hóa mảng options để hiển thị đủ ô (radio mặc định 4, checkbox 2, tối đa 8). */
-function joinPadOptionsForDisplay(type, options) {
-  if (!['single_choice', 'radio', 'checkbox'].includes(type)) return [];
-  const raw = Array.isArray(options) ? options : [];
-  const def = joinDefaultOptionSlotCount(type);
-  const len = Math.min(JOIN_CHOICE_MAX, Math.max(JOIN_CHOICE_MIN, def, raw.length));
-  const out = [];
-  for (let i = 0; i < len; i += 1) out.push(raw[i] ?? '');
-  return out;
-}
-
-function joinCreateEmptyOptionsForType(type) {
-  const n = joinDefaultOptionSlotCount(type);
-  return Array.from({ length: n }, () => '');
-}
 
 /**
  * Owner / Admin: toàn bộ mục quản trị. Member: chỉ Hồ sơ / Thông báo / …
@@ -155,12 +181,11 @@ function OrganizationSettingsPanel({
   onBack,
   onOrganizationUpdated,
   onOrganizationDeleted,
-  /** ?tab=join trên URL */
   initialTab = null,
   suiteLayout = false,
   /** Nhúng trong CompanyAdminConsole — chỉ render nội dung tab */
   hideChrome = false,
-  /** Khóa một tab (structure | roles | join | …) */
+  /** Khóa một tab (structure | roles | …) */
   lockTab = null,
   /** Single-company: ẩn UI chọn chi nhánh */
   hideBranchUi = false,
@@ -233,11 +258,6 @@ function OrganizationSettingsPanel({
   const [deleteOrgNameInput, setDeleteOrgNameInput] = useState('');
   const [deletingOrg, setDeletingOrg] = useState(false);
 
-  const [joinFormLoading, setJoinFormLoading] = useState(false);
-  const [joinFormSaving, setJoinFormSaving] = useState(false);
-  const [joinFormEnabled, setJoinFormEnabled] = useState(false);
-  const [joinFormDefaultRole, setJoinFormDefaultRole] = useState('member');
-  const [joinFormFields, setJoinFormFields] = useState([]);
   const [structureLoading, setStructureLoading] = useState(false);
   const [structureBranches, setStructureBranches] = useState([]);
   const [manageBranchId, setManageBranchId] = useState('');
@@ -275,6 +295,12 @@ function OrganizationSettingsPanel({
   const [accessCanRead, setAccessCanRead] = useState(true);
   const [accessCanWrite, setAccessCanWrite] = useState(false);
   const [accessCanVoice, setAccessCanVoice] = useState(false);
+  const [structureLoadError, setStructureLoadError] = useState('');
+  const [savingOrg, setSavingOrg] = useState(false);
+  const [creatingKey, setCreatingKey] = useState('');
+  const [renamingKey, setRenamingKey] = useState('');
+  const [grantingAccess, setGrantingAccess] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState(null);
 
   const expectedOrgNameForDelete = useMemo(() => {
     const fromServer = serverOrgName?.trim();
@@ -282,6 +308,7 @@ function OrganizationSettingsPanel({
     return String(organization?.name || '').trim();
   }, [serverOrgName, organization?.name]);
 
+  const orgNameMissing = !String(organizationForm.name || '').trim();
   const deleteNameMatches =
     expectedOrgNameForDelete.length > 0 &&
     deleteOrgNameInput.trim() === expectedOrgNameForDelete;
@@ -314,26 +341,10 @@ function OrganizationSettingsPanel({
     }
   }, [orgId, organization?.name, queryClient]);
 
-  const loadJoinWorkspace = useCallback(async () => {
-    if (!orgId || !isFullAccess) return;
-    setJoinFormLoading(true);
-    try {
-      const formRes = await organizationAPI.getJoinApplicationForm(orgId);
-      const formRaw = unwrap(formRes);
-      const fd = formRaw?.data ?? formRaw;
-      setJoinFormEnabled(Boolean(fd?.enabled));
-      setJoinFormDefaultRole(fd?.defaultRoleOnApprove === 'admin' ? 'admin' : 'member');
-      setJoinFormFields(Array.isArray(fd?.fields) ? fd.fields : []);
-    } catch {
-      toast.error(t('organizationSettings.joinFormLoadFail'));
-    } finally {
-      setJoinFormLoading(false);
-    }
-  }, [orgId, isFullAccess, t]);
-
   const loadStructure = useCallback(async () => {
     if (!orgId || !isFullAccess) return;
     setStructureLoading(true);
+    setStructureLoadError('');
     try {
       const payload = await organizationAPI.getStructure(orgId);
       const raw = unwrap(payload);
@@ -353,17 +364,15 @@ function OrganizationSettingsPanel({
       setManageDivisionId((prev) => prev || firstDivisionId);
       setManageDepartmentId((prev) => prev || firstDepartmentId);
       setManageTeamId((prev) => prev || firstTeamId);
-    } catch {
+    } catch (e) {
       setStructureBranches([]);
+      setStructureLoadError(
+        resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.structureLoadFail') })
+      );
     } finally {
       setStructureLoading(false);
     }
-  }, [orgId, isFullAccess]);
-
-  useEffect(() => {
-    if (!orgId || !isFullAccess || activeTab !== 'join') return;
-    loadJoinWorkspace();
-  }, [orgId, isFullAccess, activeTab, loadJoinWorkspace]);
+  }, [orgId, isFullAccess, t]);
 
   useEffect(() => {
     if (!orgId || !isFullAccess || activeTab !== 'structure') return;
@@ -856,49 +865,18 @@ function OrganizationSettingsPanel({
     }
   };
 
-  const handleSaveJoinForm = async () => {
-    if (!orgId) return;
-    setJoinFormSaving(true);
+  const runWithBusy = async (setBusy, busyValue, idleValue, action) => {
+    setBusy(busyValue);
     try {
-      await organizationAPI.updateJoinApplicationForm(orgId, {
-        enabled: joinFormEnabled,
-        defaultRoleOnApprove: joinFormDefaultRole,
-        fields: joinFormFields,
-      });
-      toast.success(t('organizationSettings.joinFormSaved'));
-      onOrganizationUpdated?.();
-      await loadJoinWorkspace();
-    } catch (e) {
-      toast.error(resolveApiErrorMessage(e, { t, fallback: t('organizationSettings.saveFailed') }));
+      await action();
     } finally {
-      setJoinFormSaving(false);
+      setBusy(idleValue);
     }
   };
-
-  const addJoinField = () => {
-    setJoinFormFields((prev) => [
-      ...prev,
-      {
-        id: `field_${Date.now()}`,
-        label: t('organizationSettings.newQuestionLabel'),
-        type: 'short_text',
-        required: false,
-        options: [],
-      },
-    ]);
-  };
-
-  const updateJoinField = (index, patch) => {
-    setJoinFormFields((prev) => {
-      const next = [...prev];
-      next[index] = { ...next[index], ...patch };
-      return next;
-    });
-  };
-
-  const removeJoinField = (index) => {
-    setJoinFormFields((prev) => prev.filter((_, i) => i !== index));
-  };
+  const saveOrganizationWithBusy = () => runWithBusy(setSavingOrg, true, false, handleSaveOrganization);
+  const createWithBusy = (key, action) => runWithBusy(setCreatingKey, key, '', action);
+  const renameWithBusy = (key, action) => runWithBusy(setRenamingKey, key, '', action);
+  const grantAccessWithBusy = () => runWithBusy(setGrantingAccess, true, false, handleGrantChannelAccess);
 
   const tabs = isFullAccess ? buildAdminTabs(t) : buildMemberTabs(t);
   const tabIconMap = isFullAccess ? ADMIN_TAB_ICONS : MEMBER_TAB_ICONS;
@@ -954,29 +932,51 @@ function OrganizationSettingsPanel({
                 <h3 className="mb-4 text-xl font-bold text-foreground">{t('organizationSettings.orgInfoTitle')}</h3>
                 <div className="space-y-3">
                   <div>
-                    <label className="mb-1 block text-sm text-gray-300">{t('organizationSettings.orgNameLabel')}</label>
+                    <label htmlFor="org-settings-name" className={adminLabelClass()}>
+                      {t('organizationSettings.orgNameLabel')}
+                    </label>
                     <input
+                      id="org-settings-name"
                       value={organizationForm.name}
+                      maxLength={ORG_NAME_MAX_LENGTH}
                       onChange={(e) =>
                         setOrganizationForm((p) => ({ ...p, name: e.target.value }))
                       }
-                      className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground outline-none focus:border-indigo-500"
+                      aria-invalid={orgNameMissing || undefined}
+                      aria-describedby={orgNameMissing ? 'org-settings-name-error' : undefined}
+                      className={adminInputClass(orgNameMissing ? 'border-destructive' : '')}
                     />
+                    {orgNameMissing ? (
+                      <p id="org-settings-name-error" className="mt-1 text-xs text-destructive">
+                        {t('organizationSettings.orgNameRequired')}
+                      </p>
+                    ) : null}
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm text-gray-300">{t('organizationSettings.descriptionLabel')}</label>
+                    <label htmlFor="org-settings-description" className={adminLabelClass()}>
+                      {t('organizationSettings.descriptionLabel')}
+                    </label>
                     <textarea
+                      id="org-settings-description"
                       rows={3}
+                      maxLength={DESCRIPTION_MAX_LENGTH}
                       value={organizationForm.description}
                       onChange={(e) =>
                         setOrganizationForm((p) => ({ ...p, description: e.target.value }))
                       }
-                      className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground outline-none focus:border-indigo-500"
+                      className={adminInputClass()}
                     />
                   </div>
-                  <GradientButton variant="primary" onClick={handleSaveOrganization}>
+                  <button
+                    type="button"
+                    className={adminPrimaryBtnClass()}
+                    onClick={saveOrganizationWithBusy}
+                    disabled={savingOrg || orgNameMissing}
+                    aria-busy={savingOrg}
+                  >
+                    <AdminBusySpinner busy={savingOrg} />
                     {t('organizationSettings.saveChanges')}
-                  </GradientButton>
+                  </button>
                 </div>
               </GlassCard>
               <GlassCard className={gc}>
@@ -986,16 +986,12 @@ function OrganizationSettingsPanel({
                 </p>
               </GlassCard>
               {myRole === 'owner' && (
-                <GlassCard className="border border-red-900/40 bg-red-950/20">
-                  <h3 className="mb-2 text-lg font-bold text-red-300">{t('organizationSettings.dangerZoneTitle')}</h3>
+                <GlassCard className="border border-destructive bg-card">
+                  <h3 className="mb-2 text-lg font-bold text-destructive">{t('organizationSettings.dangerZoneTitle')}</h3>
                   <p className="mb-3 text-sm text-muted-foreground">
                     {t('organizationSettings.dangerZoneDesc')}
                   </p>
-                  <button
-                    type="button"
-                    onClick={openDeleteOrgModal}
-                    className="rounded-xl border border-red-500/60 bg-red-950/40 px-4 py-2.5 text-sm font-semibold text-red-200 transition hover:bg-red-950/60"
-                  >
+                  <button type="button" onClick={openDeleteOrgModal} className={adminDangerBtnClass()}>
                     {t('organizationSettings.deleteOrgPermanent')}
                   </button>
                 </GlassCard>
@@ -1008,12 +1004,14 @@ function OrganizationSettingsPanel({
               <GlassCard className={gc}>
                 <h3 className="mb-3 text-xl font-bold text-foreground">{t('organizationSettings.structureAdminTitle')}</h3>
                 {structureLoading ? (
-                  <p className="text-sm text-muted-foreground">{t('organizationSettings.loadingStructure')}</p>
+                  <AdminListSkeleton rows={3} />
+                ) : structureLoadError ? (
+                  <AdminLoadErrorState message={structureLoadError} onRetry={loadStructure} />
                 ) : (
                   <div className="space-y-4">
                     <div className="grid gap-2 md:grid-cols-2">
                       {!hideBranchUi ? (
-                      <label className="text-sm text-gray-300">{t('organizationSettings.branchLabel')}
+                      <label className={adminLabelClass()}>{t('organizationSettings.branchLabel')}
                         <select value={manageBranchId} onChange={(e) => {
                           const nextBranchId = e.target.value;
                           const nextBranch = structureBranches.find((b) => String(b._id) === String(nextBranchId)) || null;
@@ -1021,36 +1019,39 @@ function OrganizationSettingsPanel({
                           const nextDepartmentId = nextBranch?.divisions?.[0]?.departments?.[0]?._id ? String(nextBranch.divisions[0].departments[0]._id) : '';
                           const nextTeamId = nextBranch?.divisions?.[0]?.departments?.[0]?.teams?.[0]?._id ? String(nextBranch.divisions[0].departments[0].teams[0]._id) : '';
                           setManageBranchId(nextBranchId); setManageDivisionId(nextDivisionId); setManageDepartmentId(nextDepartmentId); setManageTeamId(nextTeamId);
-                        }} className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground">
+                        }} className={STRUCTURE_SELECT_CLASS}>
                           {structureBranches.map((branch) => <option key={branch._id} value={branch._id}>{branch.name}</option>)}
                         </select>
                       </label>
                       ) : null}
-                      <label className="text-sm text-gray-300">{t('organizationSettings.divisionLabel')}
+                      <label className={adminLabelClass()}>{t('organizationSettings.divisionLabel')}
                         <select value={manageDivisionId} onChange={(e) => {
                           const nextDivisionId = e.target.value;
                           const nextDivision = manageDivisions.find((d) => String(d._id) === String(nextDivisionId)) || null;
                           const nextDepartmentId = nextDivision?.departments?.[0]?._id ? String(nextDivision.departments[0]._id) : '';
                           const nextTeamId = nextDivision?.departments?.[0]?.teams?.[0]?._id ? String(nextDivision.departments[0].teams[0]._id) : '';
                           setManageDivisionId(nextDivisionId); setManageDepartmentId(nextDepartmentId); setManageTeamId(nextTeamId);
-                        }} className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground">
+                        }} className={STRUCTURE_SELECT_CLASS}>
                           {manageDivisions.map((division) => <option key={division._id} value={division._id}>{division.name}</option>)}
                         </select>
+                        {!manageDivisions.length ? <span className="mt-1 block text-xs text-muted-foreground">{t('organizationSettings.structureSelectEmpty')}</span> : null}
                       </label>
-                      <label className="text-sm text-gray-300">{t('organizationSettings.departmentLabel')}
+                      <label className={adminLabelClass()}>{t('organizationSettings.departmentLabel')}
                         <select value={manageDepartmentId} onChange={(e) => {
                           const nextDepartmentId = e.target.value;
                           const nextDepartment = manageDepartments.find((d) => String(d._id) === String(nextDepartmentId)) || null;
                           const nextTeamId = nextDepartment?.teams?.[0]?._id ? String(nextDepartment.teams[0]._id) : '';
                           setManageDepartmentId(nextDepartmentId); setManageTeamId(nextTeamId);
-                        }} className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground">
+                        }} className={STRUCTURE_SELECT_CLASS}>
                           {manageDepartments.map((department) => <option key={department._id} value={department._id}>{department.name}</option>)}
                         </select>
+                        {!manageDepartments.length ? <span className="mt-1 block text-xs text-muted-foreground">{t('organizationSettings.structureSelectEmpty')}</span> : null}
                       </label>
-                      <label className="text-sm text-gray-300">{t('organizationSettings.teamLabel')}
-                        <select value={manageTeamId} onChange={(e) => setManageTeamId(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground">
+                      <label className={adminLabelClass()}>{t('organizationSettings.teamLabel')}
+                        <select value={manageTeamId} onChange={(e) => setManageTeamId(e.target.value)} className={STRUCTURE_SELECT_CLASS}>
                           {manageTeams.map((team) => <option key={team._id} value={team._id}>{team.name}</option>)}
                         </select>
+                        {!manageTeams.length ? <span className="mt-1 block text-xs text-muted-foreground">{t('organizationSettings.structureSelectEmpty')}</span> : null}
                       </label>
                     </div>
 
@@ -1059,7 +1060,7 @@ function OrganizationSettingsPanel({
                         <button
                           type="button"
                           onClick={openCreateDivisionModal}
-                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
+                          className={adminPrimaryBtnClass()}
                         >
                           {t('organizationSettings.createDivisionBtn')}
                         </button>
@@ -1068,7 +1069,7 @@ function OrganizationSettingsPanel({
                         <button
                           type="button"
                           onClick={openCreateDepartmentModal}
-                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
+                          className={adminPrimaryBtnClass()}
                         >
                           {t('organizationSettings.createDepartmentBtn')}
                         </button>
@@ -1078,7 +1079,7 @@ function OrganizationSettingsPanel({
                         <button
                           type="button"
                           onClick={openCreateTeamModal}
-                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
+                          className={adminPrimaryBtnClass()}
                         >
                           {t('organizationSettings.openCreateTeamForm')}
                         </button>
@@ -1088,7 +1089,7 @@ function OrganizationSettingsPanel({
                         <button
                           type="button"
                           onClick={openCreateChannelModal}
-                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
+                          className={adminPrimaryBtnClass()}
                         >
                           {t('organizationSettings.openCreateChannelForm')}
                         </button>
@@ -1096,10 +1097,66 @@ function OrganizationSettingsPanel({
                     </div>
 
                     <div className="grid gap-2 md:grid-cols-2">
-                      <div className="rounded-xl border border-border bg-muted p-3"><div className="mb-2 text-sm font-semibold text-foreground">{t('organizationSettings.renameDivisionTitle')}</div><div className="flex gap-2"><input value={renameDivisionName} onChange={(e) => setRenameDivisionName(e.target.value)} placeholder={manageDivision?.name || t('organizationSettings.newNamePh')} className="w-full rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground" /><button type="button" onClick={handleRenameDivision} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">{t('common.save')}</button></div></div>
-                      <div className="rounded-xl border border-border bg-muted p-3"><div className="mb-2 text-sm font-semibold text-foreground">{t('organizationSettings.renameDepartmentTitle')}</div><div className="flex gap-2"><input value={renameDepartmentName} onChange={(e) => setRenameDepartmentName(e.target.value)} placeholder={manageDepartment?.name || t('organizationSettings.newNamePh')} className="w-full rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground" /><button type="button" onClick={handleRenameDepartment} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">{t('common.save')}</button></div></div>
-                      <div className="rounded-xl border border-border bg-muted p-3"><div className="mb-2 text-sm font-semibold text-foreground">{t('organizationSettings.renameTeamTitle')}</div><div className="flex gap-2"><input value={renameTeamName} onChange={(e) => setRenameTeamName(e.target.value)} placeholder={manageTeam?.name || t('organizationSettings.newNamePh')} className="w-full rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground" /><button type="button" onClick={handleRenameTeam} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">{t('common.save')}</button></div></div>
-                      <div className="rounded-xl border border-border bg-muted p-3"><div className="mb-2 text-sm font-semibold text-foreground">{t('organizationSettings.renameChannelTitle')}</div><div className="mb-2 flex gap-2"><select value={renameChannelId} onChange={(e) => { const nextId = e.target.value; const ch = manageChannels.find((c) => String(c._id) === String(nextId)); setRenameChannelId(nextId); setRenameChannelName(ch?.name || ''); }} className="rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground"><option value="">{t('organizationSettings.selectChannel')}</option>{manageChannels.map((channel) => <option key={`${channel._id}-${channel.__scope || 'team'}`} value={channel._id}>[{channel.__scope === 'division' ? t('organizationSettings.scopeDivision') : channel.__scope === 'department' ? t('organizationSettings.scopeDepartment') : t('organizationSettings.scopeTeam')}] {channel.name}</option>)}</select><input value={renameChannelName} onChange={(e) => setRenameChannelName(e.target.value)} placeholder={t('organizationSettings.newNamePh')} className="w-full rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground" /><button type="button" onClick={handleRenameChannel} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">{t('common.save')}</button></div></div>
+                      <RenameUnitCard
+                        title={t('organizationSettings.renameDivisionTitle')}
+                        value={renameDivisionName}
+                        onChange={setRenameDivisionName}
+                        placeholder={manageDivision?.name || t('organizationSettings.newNamePh')}
+                        busy={renamingKey === 'division'}
+                        disabled={Boolean(renamingKey)}
+                        onSave={() => renameWithBusy('division', handleRenameDivision)}
+                        saveLabel={t('common.save')}
+                      />
+                      <RenameUnitCard
+                        title={t('organizationSettings.renameDepartmentTitle')}
+                        value={renameDepartmentName}
+                        onChange={setRenameDepartmentName}
+                        placeholder={manageDepartment?.name || t('organizationSettings.newNamePh')}
+                        busy={renamingKey === 'department'}
+                        disabled={Boolean(renamingKey)}
+                        onSave={() => renameWithBusy('department', handleRenameDepartment)}
+                        saveLabel={t('common.save')}
+                      />
+                      <RenameUnitCard
+                        title={t('organizationSettings.renameTeamTitle')}
+                        value={renameTeamName}
+                        onChange={setRenameTeamName}
+                        placeholder={manageTeam?.name || t('organizationSettings.newNamePh')}
+                        busy={renamingKey === 'team'}
+                        disabled={Boolean(renamingKey)}
+                        onSave={() => renameWithBusy('team', handleRenameTeam)}
+                        saveLabel={t('common.save')}
+                      />
+                      <RenameUnitCard
+                        title={t('organizationSettings.renameChannelTitle')}
+                        value={renameChannelName}
+                        onChange={setRenameChannelName}
+                        placeholder={t('organizationSettings.newNamePh')}
+                        busy={renamingKey === 'channel'}
+                        disabled={Boolean(renamingKey) || !renameChannelId}
+                        onSave={() => renameWithBusy('channel', handleRenameChannel)}
+                        saveLabel={t('common.save')}
+                        leading={
+                          <select
+                            value={renameChannelId}
+                            aria-label={t('organizationSettings.selectChannel')}
+                            onChange={(e) => {
+                              const nextId = e.target.value;
+                              const ch = manageChannels.find((c) => String(c._id) === String(nextId));
+                              setRenameChannelId(nextId);
+                              setRenameChannelName(ch?.name || '');
+                            }}
+                            className={STRUCTURE_INLINE_INPUT_CLASS}
+                          >
+                            <option value="">{t('organizationSettings.selectChannel')}</option>
+                            {manageChannels.map((channel) => (
+                              <option key={`${channel._id}-${channel.__scope || 'team'}`} value={channel._id}>
+                                [{channel.__scope === 'division' ? t('organizationSettings.scopeDivision') : channel.__scope === 'department' ? t('organizationSettings.scopeDepartment') : t('organizationSettings.scopeTeam')}] {channel.name}
+                              </option>
+                            ))}
+                          </select>
+                        }
+                      />
                     </div>
 
                     <div className="rounded-xl border border-border bg-muted p-3">
@@ -1107,8 +1164,9 @@ function OrganizationSettingsPanel({
                       <div className="grid gap-2 md:grid-cols-2">
                         <select
                           value={accessUserId}
+                          aria-label={t('organizationSettings.selectMember')}
                           onChange={(e) => setAccessUserId(e.target.value)}
-                          className="rounded-lg border border-border bg-slate-900/60 px-3 py-2 text-sm text-foreground"
+                          className={STRUCTURE_INLINE_INPUT_CLASS}
                         >
                           <option value="">{t('organizationSettings.selectMember')}</option>
                           {orgMembers.map((member) => {
@@ -1124,17 +1182,17 @@ function OrganizationSettingsPanel({
                             );
                           })}
                         </select>
-                        <div className="flex items-center gap-4 text-xs text-gray-300">
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
                           <label className="flex items-center gap-1">
-                            <input type="checkbox" checked={accessCanRead} onChange={(e) => setAccessCanRead(e.target.checked)} />
+                            <input type="checkbox" className="accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" checked={accessCanRead} onChange={(e) => setAccessCanRead(e.target.checked)} />
                             {t('organizationSettings.permRead')}
                           </label>
                           <label className="flex items-center gap-1">
-                            <input type="checkbox" checked={accessCanWrite} onChange={(e) => setAccessCanWrite(e.target.checked)} />
+                            <input type="checkbox" className="accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" checked={accessCanWrite} onChange={(e) => setAccessCanWrite(e.target.checked)} />
                             {t('organizationSettings.permWrite')}
                           </label>
                           <label className="flex items-center gap-1">
-                            <input type="checkbox" checked={accessCanVoice} onChange={(e) => setAccessCanVoice(e.target.checked)} />
+                            <input type="checkbox" className="accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" checked={accessCanVoice} onChange={(e) => setAccessCanVoice(e.target.checked)} />
                             {t('organizationSettings.permVoice')}
                           </label>
                         </div>
@@ -1142,253 +1200,81 @@ function OrganizationSettingsPanel({
                       <div className="mt-2 flex justify-end">
                         <button
                           type="button"
-                          onClick={handleGrantChannelAccess}
-                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
+                          onClick={grantAccessWithBusy}
+                          disabled={grantingAccess || !renameChannelId || !accessUserId}
+                          aria-busy={grantingAccess}
+                          className={adminPrimaryBtnClass()}
                         >
+                          <AdminBusySpinner busy={grantingAccess} />
                           {t('organizationSettings.grantAccess')}
                         </button>
                       </div>
-                      <div className="mt-3 space-y-1">
-                        {accessRows.map((row) => (
-                          <div
-                            key={`${row.userId || row.user}-${row.channel || 'c'}`}
-                            className="flex items-center justify-between rounded-lg border border-border bg-slate-900/50 px-3 py-2 text-xs text-gray-200"
-                          >
-                            <span>
-                              {row.displayName || String(row.user)} — R:
-                              {row.permissions?.canRead ? 'Y' : 'N'} W:
-                              {row.permissions?.canWrite ? 'Y' : 'N'} V:
-                              {row.permissions?.canVoice ? 'Y' : 'N'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleRevokeChannelAccess(row.userId || row.user)}
-                              className="text-red-300 hover:text-red-200"
+                      {!accessRows.length ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          {renameChannelId
+                            ? t('organizationSettings.channelAccessEmpty')
+                            : t('organizationSettings.channelAccessPickChannel')}
+                        </p>
+                      ) : null}
+                      <ul className="mt-3 space-y-1">
+                        {accessRows.map((row) => {
+                          const rowUserId = row.userId || String(row.user || '');
+                          const displayName = row.displayName || String(row.user);
+                          return (
+                            <li
+                              key={`${rowUserId}-${row.channel || 'c'}`}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground"
                             >
-                              {t('organizationSettings.revoke')}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                              <span className="font-medium">{displayName}</span>
+                              <span className="flex flex-wrap items-center gap-1">
+                                <ChannelPermBadge label={t('organizationSettings.permRead')} on={row.permissions?.canRead} t={t} />
+                                <ChannelPermBadge label={t('organizationSettings.permWrite')} on={row.permissions?.canWrite} t={t} />
+                                <ChannelPermBadge label={t('organizationSettings.permVoice')} on={row.permissions?.canVoice} t={t} />
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setRevokeTarget({ userId: rowUserId, displayName })}
+                                className="rounded px-1 font-semibold text-destructive transition-colors duration-150 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                              >
+                                {t('organizationSettings.revoke')}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </div>
                   </div>
                 )}
-              </GlassCard>
-            </div>
-          )}
-
-          {isFullAccess && activeTab === 'join' && (
-            <div className="mx-auto w-full max-w-6xl space-y-4">
-              <GlassCard className={gc}>
-                <h3 className="mb-3 text-xl font-bold text-foreground">{t('organizationSettings.joinFormTitle')}</h3>
-                <p className="mb-2 text-sm text-muted-foreground">
-                  {t('organizationSettings.joinFormDesc')}
-                </p>
-                {orgId && (
-                  <p className="mb-4 text-sm">
-                    <Link
-                      to={`/organizations/join/${orgId}?name=${encodeURIComponent(organization?.name || '')}`}
-                      className="text-cyan-400 hover:underline"
-                    >
-                      {t('organizationSettings.previewJoinPage')}
-                    </Link>
-                  </p>
-                )}
-                {joinFormLoading ? (
-                  <p className="text-sm text-gray-500">{t('common.loadingEllipsis')}</p>
-                ) : (
-                  <div className="space-y-4">
-                    <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-200">
-                      <input
-                        type="checkbox"
-                        checked={joinFormEnabled}
-                        onChange={(e) => setJoinFormEnabled(e.target.checked)}
-                        className="h-4 w-4 rounded"
-                      />
-                      {t('organizationSettings.enableJoinForm')}
-                    </label>
-                    <div>
-                      <label className="mb-1 block text-sm text-gray-300">{t('organizationSettings.roleOnApprove')}</label>
-                      <select
-                        value={joinFormDefaultRole}
-                        onChange={(e) => setJoinFormDefaultRole(e.target.value)}
-                        className="w-full max-w-xs rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
-                      >
-                        <option value="member">{t('organizationSettings.roleMember')}</option>
-                        <option value="admin">{t('organizationSettings.roleAdmin')}</option>
-                      </select>
-                    </div>
-                    <div className="space-y-3">
-                      {joinFormFields.map((f, idx) => (
-                        <div
-                          key={f.id || idx}
-                          className="rounded-xl border border-border bg-muted p-3 space-y-2"
-                        >
-                          <div className="grid gap-2 md:grid-cols-2">
-                            <input
-                              value={f.label}
-                              onChange={(e) => updateJoinField(idx, { label: e.target.value })}
-                              placeholder={t('organizationSettings.questionLabelPh')}
-                              className="rounded-lg border border-border bg-slate-900/60 px-2 py-1.5 text-sm text-foreground"
-                            />
-                            <input
-                              value={f.id}
-                              onChange={(e) => updateJoinField(idx, { id: e.target.value.trim() })}
-                              placeholder={t('organizationSettings.fieldIdPh')}
-                              className="rounded-lg border border-border bg-slate-900/60 px-2 py-1.5 text-sm text-foreground"
-                            />
-                          </div>
-                          <div className="flex flex-wrap items-center gap-3">
-                            <select
-                              value={f.type}
-                              onChange={(e) => {
-                                const nextType = e.target.value;
-                                const needsOptions = ['single_choice', 'radio', 'checkbox'].includes(
-                                  nextType
-                                );
-                                updateJoinField(idx, {
-                                  type: nextType,
-                                  options: needsOptions ? joinCreateEmptyOptionsForType(nextType) : [],
-                                });
-                              }}
-                              className="rounded-lg border border-border bg-slate-900/60 px-2 py-1.5 text-sm text-foreground"
-                            >
-                              <option value="short_text">{t('organizationSettings.fieldTypeShortText')}</option>
-                              <option value="long_text">{t('organizationSettings.fieldTypeLongText')}</option>
-                              <option value="single_choice">{t('organizationSettings.fieldTypeSingleChoice')}</option>
-                              <option value="radio">{t('organizationSettings.fieldTypeRadio')}</option>
-                              <option value="checkbox">{t('organizationSettings.fieldTypeCheckbox')}</option>
-                            </select>
-                            <label className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(f.required)}
-                                onChange={(e) => updateJoinField(idx, { required: e.target.checked })}
-                              />
-                              {t('organizationSettings.fieldRequired')}
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => removeJoinField(idx)}
-                              className="ml-auto text-xs text-red-400 hover:underline"
-                            >
-                              {t('organizationSettings.removeField')}
-                            </button>
-                          </div>
-                          {['single_choice', 'radio', 'checkbox'].includes(f.type) && (
-                            <div className="space-y-2 border-t border-white/5 pt-3">
-                              <p className="text-xs text-gray-500">
-                                {t('organizationSettings.choiceHint', {
-                                  max: JOIN_CHOICE_MAX,
-                                  min: JOIN_CHOICE_MIN,
-                                })}
-                              </p>
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                {joinPadOptionsForDisplay(f.type, f.options).map((opt, optIdx) => (
-                                  <input
-                                    key={optIdx}
-                                    value={opt}
-                                    onChange={(e) => {
-                                      const padded = joinPadOptionsForDisplay(f.type, f.options);
-                                      padded[optIdx] = e.target.value;
-                                      updateJoinField(idx, { options: padded });
-                                    }}
-                                    placeholder={t('organizationSettings.choicePh', { n: optIdx + 1 })}
-                                    className="rounded-lg border border-border bg-slate-900/60 px-2 py-1.5 text-sm text-foreground placeholder:text-gray-600"
-                                  />
-                                ))}
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  disabled={
-                                    joinPadOptionsForDisplay(f.type, f.options).length >= JOIN_CHOICE_MAX
-                                  }
-                                  onClick={() => {
-                                    const padded = joinPadOptionsForDisplay(f.type, f.options);
-                                    if (padded.length >= JOIN_CHOICE_MAX) return;
-                                    updateJoinField(idx, { options: [...padded, ''] });
-                                  }}
-                                  className="text-xs font-medium text-cyan-400 hover:underline disabled:cursor-not-allowed disabled:text-gray-600"
-                                >
-                                  {t('organizationSettings.addChoice')}
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={
-                                    joinPadOptionsForDisplay(f.type, f.options).length <= JOIN_CHOICE_MIN
-                                  }
-                                  onClick={() => {
-                                    const padded = joinPadOptionsForDisplay(f.type, f.options);
-                                    if (padded.length <= JOIN_CHOICE_MIN) return;
-                                    updateJoinField(idx, { options: padded.slice(0, -1) });
-                                  }}
-                                  className="text-xs text-muted-foreground hover:text-red-300 hover:underline disabled:cursor-not-allowed disabled:opacity-40"
-                                >
-                                  {t('organizationSettings.removeLastChoice')}
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={addJoinField}
-                        className="text-sm font-medium text-cyan-400 hover:underline"
-                      >
-                        {t('organizationSettings.addField')}
-                      </button>
-                    </div>
-                    <GradientButton
-                      variant="primary"
-                      onClick={handleSaveJoinForm}
-                      disabled={joinFormSaving}
-                    >
-                      {joinFormSaving ? t('organizationSettings.saving') : t('organizationSettings.saveForm')}
-                    </GradientButton>
-                  </div>
-                )}
-              </GlassCard>
-
-              <GlassCard className={gc}>
-                <h3 className="mb-2 text-sm font-semibold text-foreground">{t('organizationSettings.pendingAppsTitle')}</h3>
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  {t('organizationSettings.pendingAppsDesc', {
-                    highlight: t('organizationSettings.orgHomeHighlight'),
-                  })}
-                </p>
-                <Link
-                  to="/organizations"
-                  className="mt-3 inline-block text-sm font-medium text-cyan-400 hover:text-cyan-300 hover:underline"
-                >
-                  {t('organizationSettings.openOrgHome')}
-                </Link>
               </GlassCard>
             </div>
           )}
 
           {isFullAccess && activeTab === 'roles' && (
-            <GlassCard className={`${gc} p-4 sm:p-6`}>
+            <div className="min-w-0 p-1 sm:p-2">
               <OrganizationRbacSettings orgId={orgId} />
-            </GlassCard>
+            </div>
           )}
 
           {isFullAccess && activeTab === 'security' && (
             <GlassCard className={gc}>
               <h3 className="mb-4 text-xl font-bold text-foreground">{t('organizationSettings.securityPolicyTitle')}</h3>
+              <p className="mb-3 text-sm text-muted-foreground" role="note">
+                {t('organizationSettings.securityNotWired')}
+              </p>
               <div className="space-y-2">
                 {securitySettings.map((s) => {
                   const def = SECURITY_SETTING_DEFS.find((d) => d.id === s.id);
                   return (
                   <label
                     key={s.id}
-                    className="flex cursor-pointer items-center justify-between rounded-xl border border-border bg-muted p-4"
+                    className="flex cursor-not-allowed items-center justify-between rounded-xl border border-border bg-muted p-4 opacity-70"
                   >
                     <span>{def ? t(`organizationSettings.${def.labelKey}`) : s.id}</span>
                     <input
                       type="checkbox"
                       checked={s.checked}
+                      disabled
+                      aria-disabled="true"
                       onChange={() => handleToggleSecurity(s.id)}
                       className="h-5 w-5 rounded"
                     />
@@ -1674,13 +1560,13 @@ function OrganizationSettingsPanel({
         size="sm"
         layerClassName="z-[250]"
       >
-        <div className="space-y-3 text-slate-100">
-          <label className="block text-sm text-gray-300">
+        <div className="space-y-3 text-foreground">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.branchLabel')}
             <select
               value={createDivisionBranchId}
               onChange={(e) => setCreateDivisionBranchId(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             >
               {structureBranches.map((branch) => (
                 <option key={branch._id} value={branch._id}>
@@ -1689,28 +1575,32 @@ function OrganizationSettingsPanel({
               ))}
             </select>
           </label>
-          <label className="block text-sm text-gray-300">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.divisionNameLabel')}
             <input
               value={createDivisionName}
               onChange={(e) => setCreateDivisionName(e.target.value)}
+              maxLength={UNIT_NAME_MAX_LENGTH}
               placeholder={t('organizationSettings.divisionNamePh')}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             />
           </label>
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => setCreateDivisionModalOpen(false)}
-              className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
+              className={adminSecondaryBtnClass()}
             >
               {t('common.cancel')}
             </button>
             <button
               type="button"
-              onClick={handleCreateDivision}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
+              onClick={() => createWithBusy('division', handleCreateDivision)}
+              disabled={Boolean(creatingKey) || !createDivisionName.trim()}
+              aria-busy={creatingKey === 'division'}
+              className={adminPrimaryBtnClass()}
             >
+              <AdminBusySpinner busy={creatingKey === 'division'} />
               {t('common.create')}
             </button>
           </div>
@@ -1724,8 +1614,8 @@ function OrganizationSettingsPanel({
         size="sm"
         layerClassName="z-[250]"
       >
-        <div className="space-y-3 text-slate-100">
-          <label className="block text-sm text-gray-300">
+        <div className="space-y-3 text-foreground">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.branchLabel')}
             <select
               value={createDepartmentBranchId}
@@ -1738,7 +1628,7 @@ function OrganizationSettingsPanel({
                 setCreateDepartmentBranchId(nextBranchId);
                 setCreateDepartmentDivisionId(nextDivisionId);
               }}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             >
               {structureBranches.map((branch) => (
                 <option key={branch._id} value={branch._id}>
@@ -1747,12 +1637,12 @@ function OrganizationSettingsPanel({
               ))}
             </select>
           </label>
-          <label className="block text-sm text-gray-300">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.divisionLabel')}
             <select
               value={createDepartmentDivisionId}
               onChange={(e) => setCreateDepartmentDivisionId(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             >
               {createDepartmentDivisions.map((division) => (
                 <option key={division._id} value={division._id}>
@@ -1761,28 +1651,32 @@ function OrganizationSettingsPanel({
               ))}
             </select>
           </label>
-          <label className="block text-sm text-gray-300">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.departmentNameLabel')}
             <input
               value={createDepartmentName}
               onChange={(e) => setCreateDepartmentName(e.target.value)}
+              maxLength={UNIT_NAME_MAX_LENGTH}
               placeholder={t('organizationSettings.departmentNamePh')}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             />
           </label>
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => setCreateDepartmentModalOpen(false)}
-              className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
+              className={adminSecondaryBtnClass()}
             >
               {t('common.cancel')}
             </button>
             <button
               type="button"
-              onClick={handleCreateDepartment}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
+              onClick={() => createWithBusy('department', handleCreateDepartment)}
+              disabled={Boolean(creatingKey) || !createDepartmentName.trim()}
+              aria-busy={creatingKey === 'department'}
+              className={adminPrimaryBtnClass()}
             >
+              <AdminBusySpinner busy={creatingKey === 'department'} />
               {t('common.create')}
             </button>
           </div>
@@ -1796,8 +1690,8 @@ function OrganizationSettingsPanel({
         size="sm"
         layerClassName="z-[250]"
       >
-        <div className="space-y-3 text-slate-100">
-          <label className="block text-sm text-gray-300">
+        <div className="space-y-3 text-foreground">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.branchLabel')}
             <select
               value={createTeamBranchId}
@@ -1814,7 +1708,7 @@ function OrganizationSettingsPanel({
                 setCreateTeamDivisionId(nextDivisionId);
                 setCreateTeamDepartmentId(nextDepartmentId);
               }}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             >
               {structureBranches.map((branch) => (
                 <option key={branch._id} value={branch._id}>
@@ -1823,7 +1717,7 @@ function OrganizationSettingsPanel({
               ))}
             </select>
           </label>
-          <label className="block text-sm text-gray-300">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.divisionLabel')}
             <select
               value={createTeamDivisionId}
@@ -1838,7 +1732,7 @@ function OrganizationSettingsPanel({
                 setCreateTeamDivisionId(nextDivisionId);
                 setCreateTeamDepartmentId(nextDepartmentId);
               }}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             >
               {createTeamDivisions.map((division) => (
                 <option key={division._id} value={division._id}>
@@ -1847,12 +1741,12 @@ function OrganizationSettingsPanel({
               ))}
             </select>
           </label>
-          <label className="block text-sm text-gray-300">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.departmentLabel')}
             <select
               value={createTeamDepartmentId}
               onChange={(e) => setCreateTeamDepartmentId(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             >
               {createTeamDepartments.map((department) => (
                 <option key={department._id} value={department._id}>
@@ -1861,28 +1755,32 @@ function OrganizationSettingsPanel({
               ))}
             </select>
           </label>
-          <label className="block text-sm text-gray-300">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.teamNameLabel')}
             <input
               value={createTeamName}
               onChange={(e) => setCreateTeamName(e.target.value)}
+              maxLength={UNIT_NAME_MAX_LENGTH}
               placeholder={t('organizationSettings.teamNamePh')}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             />
           </label>
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => setCreateTeamModalOpen(false)}
-              className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
+              className={adminSecondaryBtnClass()}
             >
               {t('common.cancel')}
             </button>
             <button
               type="button"
-              onClick={handleCreateTeam}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
+              onClick={() => createWithBusy('team', handleCreateTeam)}
+              disabled={Boolean(creatingKey) || !createTeamName.trim()}
+              aria-busy={creatingKey === 'team'}
+              className={adminPrimaryBtnClass()}
             >
+              <AdminBusySpinner busy={creatingKey === 'team'} />
               {t('common.create')}
             </button>
           </div>
@@ -1896,25 +1794,25 @@ function OrganizationSettingsPanel({
         size="sm"
         layerClassName="z-[250]"
       >
-        <div className="space-y-3 text-slate-100">
+        <div className="space-y-3 text-foreground">
           <div className="grid grid-cols-2 gap-2">
-            <label className="block text-sm text-gray-300">
+            <label className={adminLabelClass()}>
               {t('organizationSettings.channelTypeLabel')}
               <select
                 value={createChannelType}
                 onChange={(e) => setCreateChannelType(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+                className={STRUCTURE_SELECT_CLASS}
               >
                 <option value="chat">{t('organizationSettings.channelTypeChat')}</option>
                 <option value="voice">{t('organizationSettings.channelTypeVoice')}</option>
               </select>
             </label>
-            <label className="block text-sm text-gray-300">
+            <label className={adminLabelClass()}>
               {t('organizationSettings.channelLevelLabel')}
               <select
                 value={createChannelLevel}
                 onChange={(e) => setCreateChannelLevel(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+                className={STRUCTURE_SELECT_CLASS}
               >
                 <option value="division">{t('organizationSettings.levelDivision')}</option>
                 <option value="department">{t('organizationSettings.levelDepartment')}</option>
@@ -1923,7 +1821,7 @@ function OrganizationSettingsPanel({
             </label>
           </div>
 
-          <label className="block text-sm text-gray-300">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.branchLabel')}
             <select
               value={createChannelBranchId}
@@ -1944,7 +1842,7 @@ function OrganizationSettingsPanel({
                 setCreateChannelDepartmentId(nextDepartmentId);
                 setCreateChannelTeamId(nextTeamId);
               }}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             >
               {structureBranches.map((branch) => (
                 <option key={branch._id} value={branch._id}>
@@ -1953,7 +1851,7 @@ function OrganizationSettingsPanel({
               ))}
             </select>
           </label>
-          <label className="block text-sm text-gray-300">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.divisionLabel')}
             <select
               value={createChannelDivisionId}
@@ -1972,7 +1870,7 @@ function OrganizationSettingsPanel({
                 setCreateChannelDepartmentId(nextDepartmentId);
                 setCreateChannelTeamId(nextTeamId);
               }}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             >
               {createChannelDivisions.map((division) => (
                 <option key={division._id} value={division._id}>
@@ -1981,7 +1879,7 @@ function OrganizationSettingsPanel({
               ))}
             </select>
           </label>
-          <label className="block text-sm text-gray-300">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.departmentLabel')}
             <select
               value={createChannelDepartmentId}
@@ -1997,7 +1895,7 @@ function OrganizationSettingsPanel({
                 setCreateChannelTeamId(nextTeamId);
               }}
               disabled={createChannelLevel === 'division'}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground disabled:opacity-50"
+              className={adminInputClass('mt-1 disabled:opacity-50')}
             >
               {createChannelDepartments.map((department) => (
                 <option key={department._id} value={department._id}>
@@ -2006,13 +1904,13 @@ function OrganizationSettingsPanel({
               ))}
             </select>
           </label>
-          <label className="block text-sm text-gray-300">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.teamLabel')}
             <select
               value={createChannelTeamId}
               onChange={(e) => setCreateChannelTeamId(e.target.value)}
               disabled={createChannelLevel !== 'team'}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground disabled:opacity-50"
+              className={adminInputClass('mt-1 disabled:opacity-50')}
             >
               {createChannelTeams.map((team) => (
                 <option key={team._id} value={team._id}>
@@ -2021,28 +1919,32 @@ function OrganizationSettingsPanel({
               ))}
             </select>
           </label>
-          <label className="block text-sm text-gray-300">
+          <label className={adminLabelClass()}>
             {t('organizationSettings.channelNameLabel')}
             <input
               value={createChannelName}
               onChange={(e) => setCreateChannelName(e.target.value)}
+              maxLength={UNIT_NAME_MAX_LENGTH}
               placeholder={t('organizationSettings.channelNamePh')}
-              className="mt-1 w-full rounded-xl border border-border bg-muted px-3 py-2 text-foreground"
+              className={STRUCTURE_SELECT_CLASS}
             />
           </label>
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => setCreateChannelModalOpen(false)}
-              className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-gray-200"
+              className={adminSecondaryBtnClass()}
             >
               {t('common.cancel')}
             </button>
             <button
               type="button"
-              onClick={handleCreateChannel}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-primary-foreground"
+              onClick={() => createWithBusy('channel', handleCreateChannel)}
+              disabled={Boolean(creatingKey) || !createChannelName.trim()}
+              aria-busy={creatingKey === 'channel'}
+              className={adminPrimaryBtnClass()}
             >
+              <AdminBusySpinner busy={creatingKey === 'channel'} />
               {t('common.create')}
             </button>
           </div>
@@ -2056,26 +1958,29 @@ function OrganizationSettingsPanel({
         size="sm"
         layerClassName="z-[250]"
       >
-        <div className="space-y-4 text-slate-100">
-          <p className="text-sm text-gray-300">
+        <div className="space-y-4 text-foreground">
+          <p className="text-sm text-muted-foreground">
             {t('organizationSettings.deleteOrgWarning')}
           </p>
-          <div className="rounded-xl border border-white/10 bg-muted px-3 py-2 text-sm">
+          <div className="rounded-xl border border-border bg-muted px-3 py-2 text-sm">
             <span className="text-muted-foreground">{t('organizationSettings.orgNameConfirm')} </span>
             <span className="font-semibold text-foreground">{expectedOrgNameForDelete || '—'}</span>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">
+            <label htmlFor="org-settings-delete-confirm" className={adminLabelClass()}>
               {t('organizationSettings.typeOrgNameConfirm')}
             </label>
             <input
+              id="org-settings-delete-confirm"
               type="text"
+              maxLength={ORG_NAME_MAX_LENGTH}
+              autoFocus
               value={deleteOrgNameInput}
               onChange={(e) => setDeleteOrgNameInput(e.target.value)}
               placeholder={t('organizationSettings.typeOrgNamePh')}
               autoComplete="off"
               disabled={deletingOrg}
-              className="w-full rounded-xl border border-border bg-muted px-4 py-3 text-foreground outline-none placeholder:text-gray-500 focus:border-indigo-500 disabled:opacity-50"
+              className={adminInputClass('disabled:opacity-50')}
             />
           </div>
           <div className="flex justify-end gap-2 pt-1">
@@ -2083,7 +1988,7 @@ function OrganizationSettingsPanel({
               type="button"
               onClick={closeDeleteOrgModal}
               disabled={deletingOrg}
-              className="rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-semibold text-gray-200 hover:bg-white/5 disabled:opacity-50"
+              className={adminSecondaryBtnClass()}
             >
               {t('common.cancel')}
             </button>
@@ -2091,14 +1996,30 @@ function OrganizationSettingsPanel({
               type="button"
               onClick={handleConfirmDeleteOrganization}
               disabled={!deleteNameMatches || deletingOrg || !expectedOrgNameForDelete}
-              className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-gray-600 disabled:text-gray-300"
+              aria-busy={deletingOrg}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-destructive px-4 py-2.5 text-sm font-semibold text-destructive-foreground transition-colors duration-150 hover:brightness-110 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none motion-reduce:active:scale-100"
             >
+              <AdminBusySpinner busy={deletingOrg} />
               {deletingOrg ? t('organizationSettings.deleting') : t('organizationSettings.deleteOrgBtn')}
             </button>
           </div>
         </div>
       </Modal>
 
+      <ConfirmDialog
+        isOpen={Boolean(revokeTarget)}
+        onClose={() => setRevokeTarget(null)}
+        onConfirm={() => handleRevokeChannelAccess(revokeTarget?.userId)}
+        title={t('organizationSettings.revokeConfirmTitle')}
+        message={t('organizationSettings.revokeConfirmMessage', {
+          name: revokeTarget?.displayName || '—',
+          channel: renameChannelName || '—',
+        })}
+        confirmText={t('organizationSettings.revoke')}
+        cancelText={t('common.cancel')}
+        variant="danger"
+        layerClassName="z-[260]"
+      />
     </>
   );
 }

@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
-import AdminRbacOpsHubShell from '../../components/admin/AdminRbacOpsHubShell';
+import AdminRbacOpsHubShell from '../../components/Admin/AdminRbacOpsHubShell';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
 import { AdminUserFormCard } from '../../components/adminUsers/adminUserPanelUi';
 import PosAssignPanel from '../adminOrgStructure/PosAssignPanel';

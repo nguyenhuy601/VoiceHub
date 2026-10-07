@@ -14,6 +14,7 @@ import {
 } from '../../../utils/adminUserUtils';
 import { enrichMembershipsWithProfiles } from '../../../features/search/enrichOrgMembers';
 import UserAvatar from '../../../components/Shared/UserAvatar';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import AllocationSegmentsEditor, {
   segmentsFromApi,
   segmentsToPayload,
@@ -145,6 +146,8 @@ export default function ProjectHubMembersPanel({
 
   const [roleCatalog, setRoleCatalog] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
+  const [rolesLoadError, setRolesLoadError] = useState('');
+  const [orgLoadError, setOrgLoadError] = useState('');
   const [projectSummary, setProjectSummary] = useState(null);
   const resolvedOrgId = String(
     organizationId ||
@@ -174,8 +177,8 @@ export default function ProjectHubMembersPanel({
   const orgDirectoryLoadedForRef = useRef('');
   const plannerLoadedForRef = useRef('');
 
-  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
-  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const muted = 'text-muted-foreground';
+  const titleCls = 'text-foreground';
 
   const members = projectIdStr ? rqMembers : boardOnlyMembers;
   const loading = projectIdStr
@@ -206,13 +209,7 @@ export default function ProjectHubMembersPanel({
       });
       const data = unwrap(res);
       setBoardOnlyMembers(Array.isArray(data) ? data : data?.items || []);
-    } catch (err) {
-      const status = Number(err?.status || err?.response?.status || 0);
-      if (status !== 403) {
-        toast.error(
-          resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') })
-        );
-      }
+    } catch {
       setBoardOnlyMembers([]);
       setBoardOnlyError(true);
     } finally {
@@ -409,16 +406,14 @@ export default function ProjectHubMembersPanel({
         if (cancelled) return;
         const next = summaryFromProjectData(data, projectIdStr);
         if (next) setProjectSummary(next);
-      } catch (err) {
-        if (!cancelled) {
-          toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') }));
-        }
+      } catch {
+        /* load fail — roster/summary inline; no toast */
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [canManage, membersActive, projectIdStr, resolvedOrgId, t, queryClient]);
+  }, [canManage, membersActive, projectIdStr, resolvedOrgId, queryClient]);
 
   useEffect(() => {
     if (!canManage || !membersActive || !projectIdStr || loading) return undefined;
@@ -426,6 +421,7 @@ export default function ProjectHubMembersPanel({
     let cancelled = false;
     (async () => {
       setRolesLoading(true);
+      setRolesLoadError('');
       try {
         const roleList = await ensureProjectHubRoleCatalog(queryClient, projectIdStr);
         if (cancelled) return;
@@ -442,7 +438,9 @@ export default function ProjectHubMembersPanel({
         });
       } catch (err) {
         if (!cancelled) {
-          toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') }));
+          setRolesLoadError(
+            resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') })
+          );
         }
       } finally {
         if (!cancelled) setRolesLoading(false);
@@ -464,6 +462,7 @@ export default function ProjectHubMembersPanel({
     let cancelled = false;
     (async () => {
       setOrgLoading(true);
+      setOrgLoadError('');
       try {
         const [membersRes, structureRes] = await Promise.all([
           organizationAPI.getMembersWithRoles(resolvedOrgId),
@@ -500,7 +499,9 @@ export default function ProjectHubMembersPanel({
         setStructureDepts(depts);
       } catch (err) {
         if (!cancelled) {
-          toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') }));
+          setOrgLoadError(
+            resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersFail') })
+          );
         }
       } finally {
         if (!cancelled) setOrgLoading(false);
@@ -765,8 +766,10 @@ export default function ProjectHubMembersPanel({
   };
 
   const fieldCls =
-    'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary';
+    'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring';
   const cardCls = 'rounded-xl border border-border bg-surface';
+  const btnFocus =
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none';
   const activeTabMeta = memberTabs.find((tab) => tab.id === activeTab);
   const triggerLabel =
     activeTab === MEMBER_TAB_ADD && formMode === 'edit'
@@ -798,6 +801,7 @@ export default function ProjectHubMembersPanel({
               onClick={() => onToggle(rk, canAssign)}
               className={[
                 'flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition-colors',
+                btnFocus,
                 selected
                   ? 'border-primary bg-primary/10 font-semibold text-foreground'
                   : 'border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground',
@@ -828,6 +832,9 @@ export default function ProjectHubMembersPanel({
           <h3 className={`text-base font-bold tracking-tight ${titleCls}`}>
             {t('workspace.projectHubTabMembers')}
           </h3>
+          <p className={`mt-0.5 text-xs ${muted}`}>
+            {t('workspace.projectHubMembersHintPm')}
+          </p>
           <p className={`mt-0.5 text-xs ${muted}`}>
             {loading && !rows.length
               ? '…'
@@ -897,16 +904,12 @@ export default function ProjectHubMembersPanel({
             </div>
 
             {loadError && !rows.length ? (
-              <div className="flex flex-col items-center gap-3 px-3 py-10 text-center">
-                <p className={`text-sm ${muted}`}>{t('workspace.projectHubMembersFail')}</p>
-                <button
-                  type="button"
-                  onClick={() => void load()}
-                  className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
-                >
-                  {t('workspace.projectHubMembersRetry')}
-                </button>
-              </div>
+              <AdminLoadErrorState
+                className="px-3 py-6"
+                message={t('workspace.projectHubMembersFail')}
+                onRetry={() => void load()}
+                disabled={loading}
+              />
             ) : loading && !rows.length ? (
               <p className={`py-8 text-center text-sm ${muted}`} role="status">
                 {t('common.loading')}
@@ -925,7 +928,7 @@ export default function ProjectHubMembersPanel({
                     <li
                       key={row.id}
                       className={[
-                        'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors',
+                        'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors motion-reduce:transition-none',
                         active
                           ? 'border-primary/50 bg-primary/5'
                           : 'border-border/80 bg-background hover:border-border',
@@ -943,7 +946,7 @@ export default function ProjectHubMembersPanel({
                             {row.name}
                           </span>
                           {row.allocationStatus === 'overallocated' ? (
-                            <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-600">
+                            <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-destructive">
                               {t('workspace.projectHubAllocOverBadge')}
                             </span>
                           ) : null}
@@ -976,7 +979,7 @@ export default function ProjectHubMembersPanel({
                           type="button"
                           onClick={() => startEdit(row)}
                           disabled={submitting}
-                          className="shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-muted/40 disabled:opacity-50"
+                          className={`shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-muted/40 disabled:opacity-50 ${btnFocus}`}
                         >
                           {t('workspace.projectHubMembersSetRoles')}
                         </button>
@@ -1083,10 +1086,10 @@ export default function ProjectHubMembersPanel({
                                             <span
                                               className={`tabular-nums text-[11px] font-semibold ${
                                                 allocPct != null && allocPct > 100
-                                                  ? 'text-red-700'
+                                                  ? 'text-destructive'
                                                   : allocPct != null && allocPct > 0
-                                                    ? 'text-amber-800'
-                                                    : 'text-emerald-700'
+                                                    ? 'text-warning'
+                                                    : 'text-success'
                                               }`}
                                             >
                                               {allocPct != null
@@ -1097,15 +1100,15 @@ export default function ProjectHubMembersPanel({
                                             </span>
                                             {u.availability === 'overallocated' ||
                                             u.allocationStatus === 'overallocated' ? (
-                                              <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+                                              <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
                                                 {t('workspace.projectHubAllocOverBadge')}
                                               </span>
                                             ) : u.availability === 'partial' ? (
-                                              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                                              <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
                                                 {t('workspace.projectHubMembersCandidatePartial')}
                                               </span>
                                             ) : (
-                                              <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                              <span className="rounded bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">
                                                 {t('workspace.projectHubMembersCandidateAvailable')}
                                               </span>
                                             )}
@@ -1176,11 +1179,22 @@ export default function ProjectHubMembersPanel({
                     {t('workspace.projectHubAllocBillable')}
                   </label>
 
+                  {rolesLoadError ? (
+                    <AdminLoadErrorState
+                      message={rolesLoadError}
+                      onRetry={() => {
+                        roleCatalogLoadedForRef.current = '';
+                        setRolesLoadError('');
+                      }}
+                      disabled={rolesLoading}
+                    />
+                  ) : null}
                   <button
                     type="button"
                     onClick={saveRoles}
                     disabled={!canSubmit || submitting}
-                    className="w-full rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:w-auto"
+                    aria-busy={submitting || undefined}
+                    className={`w-full rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:w-auto ${btnFocus}`}
                   >
                     {submitting ? '…' : t('workspace.projectHubMembersRolesSave')}
                   </button>
@@ -1222,6 +1236,16 @@ export default function ProjectHubMembersPanel({
                   </p>
                 </div>
                 <div className="space-y-3">
+                  {orgLoadError ? (
+                    <AdminLoadErrorState
+                      message={orgLoadError}
+                      onRetry={() => {
+                        orgDirectoryLoadedForRef.current = '';
+                        setOrgLoadError('');
+                      }}
+                      disabled={orgLoading}
+                    />
+                  ) : null}
                     <select
                       value={bulkDeptId}
                       onChange={(e) => setBulkDeptId(e.target.value)}
@@ -1261,7 +1285,8 @@ export default function ProjectHubMembersPanel({
                       disabled={
                         bulkBusy || !bulkDeptId || !deptCandidates.length || !bulkRoleKeys.length
                       }
-                      className="w-full rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:w-auto"
+                      aria-busy={bulkBusy || undefined}
+                      className={`w-full rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:w-auto ${btnFocus}`}
                     >
                       {bulkBusy
                         ? '…'

@@ -8,7 +8,6 @@ import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 
 const SETTINGS_TAB_TO_ADMIN = {
   general: 'general',
-  join: 'policy',
   security: 'security',
   structure: 'structure',
   roles: 'roles',
@@ -16,7 +15,7 @@ const SETTINGS_TAB_TO_ADMIN = {
 
 /**
  * Cài đặt workspace full màn hình: sidebar app + 2 cột (mục | nội dung) trong OrganizationSettingsPanel.
- * Đường dẫn: /app/collaborate/organizations/:orgId/settings?tab=join
+ * Đường dẫn: /app/collaborate/organizations/:orgId/settings?tab=roles
  * Single-org: redirect sang /app/admin
  */
 export default function OrganizationSettingsPage() {

@@ -1,23 +1,19 @@
-import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import {
   AdminDenseTableCard,
   AdminDenseTableScroll,
   AdminUserPanelShell,
+  adminDenseRowClass,
   adminInputClass,
-  adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import useAdminDocuments from '../../hooks/useAdminDocuments';
 import { useAppStrings } from '../../locales/appStrings';
-import { adminQueryHubLink } from '../../utils/adminHubLinks';
-
-const FILE_OPS_HUB = '/app/admin/files/ops';
-const ACTION_LINKS = [
-  { tab: 'restore', labelKey: 'adminDomains.files.restore' },
-  { tab: 'export', labelKey: 'adminDomains.files.export' },
-  { tab: 'delete', labelKey: 'adminDomains.files.delete' },
-];
 
 export default function FilesListPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -46,6 +42,7 @@ export default function FilesListPanel({ orgId }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('adminFiles.searchPlaceholder')}
+            aria-label={t('adminFiles.searchPlaceholder')}
             className={`${adminInputClass()} pl-9`}
           />
         </div>
@@ -53,49 +50,28 @@ export default function FilesListPanel({ orgId }) {
 
       <AdminDenseTableCard>
         {loading ? (
-          <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
+          <AdminListSkeleton className="p-4" />
         ) : error ? (
-          <div className="space-y-3 px-4 py-6">
-            <p className="text-sm text-destructive">{error}</p>
-            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadDocuments()}>
-              {t('adminRbac.retry')}
-            </button>
-          </div>
+          <AdminLoadErrorState className="px-4 py-6" message={error} onRetry={() => loadDocuments()} />
         ) : (
           <AdminDenseTableScroll>
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                   <th className="px-4 py-3">{t('adminFiles.colName')}</th>
                   <th className="px-4 py-3">{t('adminFiles.colType')}</th>
-                  <th className="px-4 py-3">{t('adminFiles.colActions')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((row) => (
-                  <tr key={row._id} className="border-b border-border/50 transition hover:bg-muted/20">
+                  <tr key={row._id} className={adminDenseRowClass()}>
                     <td className="px-4 py-3 font-medium text-foreground">{row.name}</td>
                     <td className="px-4 py-3 text-muted-foreground">{row.mimeType || '—'}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {ACTION_LINKS.map((link) => (
-                          <Link
-                            key={link.tab}
-                            to={adminQueryHubLink(FILE_OPS_HUB, { fileId: row._id }, link.tab)}
-                            className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
-                          >
-                            {t(link.labelKey)}
-                          </Link>
-                        ))}
-                      </div>
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {!filtered.length ? (
-              <p className="px-4 py-10 text-center text-sm text-muted-foreground">{t('adminFiles.noFiles')}</p>
-            ) : null}
+            {!filtered.length ? <AdminEmptyState message={t('adminFiles.noFiles')} /> : null}
           </AdminDenseTableScroll>
         )}
       </AdminDenseTableCard>

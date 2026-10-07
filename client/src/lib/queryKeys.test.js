@@ -28,6 +28,7 @@ describe('queryKeys shared read-models', () => {
       'list',
       'o1',
       'excludeClosed',
+      'view:full',
     ]);
     assert.deepEqual(queryKeys.projects.listAll('o1'), ['projects', 'list', 'o1']);
     assert.deepEqual(queryKeys.org.taskWorkspaceScope('o1'), [
@@ -43,6 +44,12 @@ describe('queryKeys shared read-models', () => {
       'boards',
       'p1',
       'o1',
+    ]);
+    assert.deepEqual(queryKeys.projectHub.project('p1'), [
+      'projectHub',
+      'project',
+      'p1',
+      'hub',
     ]);
     assert.deepEqual(queryKeys.projectHub.roleCatalog('p1'), [
       'projectHub',
@@ -64,6 +71,7 @@ describe('queryKeys shared read-models', () => {
       'feed',
       '2026-09',
       'o1',
+      '',
     ]);
   });
 });

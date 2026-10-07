@@ -3,8 +3,6 @@ import { useSearchParams } from 'react-router-dom';
 import { useSpace, SPACE_KIND } from '../../context/SpaceContext';
 import { buildCompanyModuleSearch } from '../../utils/companySpaceLevel';
 
-const SYNC_KEYS = ['departmentId', 'teamId', 'tab'];
-
 /** Org id stays in WorkspaceContext — only dept/team/tab sync to URL. */
 const SYNC_KEYS = ['departmentId', 'teamId', 'tab'];
 

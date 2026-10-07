@@ -234,6 +234,7 @@ export function navItemRequiredGrant(item) {
 
 export function navItemIsAllowed(item, { isFullAccess, hasGrant } = {}) {
   if (isFullAccess) return true;
+  if (item?.adminOnly) return false;
   const key = navItemRequiredGrant(item);
   if (!key) return true;
   return typeof hasGrant === 'function' ? Boolean(hasGrant(key)) : false;

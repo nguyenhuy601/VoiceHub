@@ -621,7 +621,11 @@ export default function RequirementPhase1PipelinePanel({
             onClick={runAiRequirement}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
             {t('requirements.phase1RunCta') || 'Chạy AI Requirement'}
           </button>
         </div>

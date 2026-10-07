@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
+  KeyboardSensor,
   PointerSensor,
   closestCenter,
   useSensor,
@@ -13,11 +14,13 @@ import {
 } from '@dnd-kit/core';
 import {
   SortableContext,
+  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+import { useAppStrings } from '../../locales/appStrings';
 import { reorderIds } from '../../utils/adminSortOrder';
 
 /** Default: grip | key | label | meta | actions */
@@ -38,6 +41,7 @@ function GripIcon() {
 }
 
 function SortableRow({ id, disabled, gridClassName, children }) {
+  const { t } = useAppStrings();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
     disabled,
@@ -57,8 +61,8 @@ function SortableRow({ id, disabled, gridClassName, children }) {
     >
       <button
         type="button"
-        className="flex h-8 w-8 shrink-0 cursor-grab touch-none items-center justify-center rounded-md border border-transparent text-muted-foreground hover:border-border hover:bg-muted/40 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
-        aria-label="Drag to reorder"
+        className="flex h-8 w-8 shrink-0 cursor-grab touch-none items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors duration-150 hover:border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
+        aria-label={t('adminRbac.dragToReorder')}
         disabled={disabled}
         {...attributes}
         {...listeners}
@@ -92,7 +96,10 @@ export default function AdminSortableRoleList({
   gridClassName = ADMIN_ROLE_LIST_GRID,
 }) {
   const [activeId, setActiveId] = useState(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const ids = useMemo(
     () => (items || []).map((row) => String(row._id || row.id)).filter(Boolean),

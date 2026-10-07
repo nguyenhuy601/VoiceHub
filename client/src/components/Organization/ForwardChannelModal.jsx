@@ -1,9 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
+import { Hash, Send } from 'lucide-react';
 import { useLocale } from '../../context/LocaleContext';
+import { useTheme } from '../../context/ThemeContext';
 import { channelNameToDisplaySlug, displayDepartmentName } from '../../utils/orgEntityDisplay';
 import { Modal } from '../Shared';
 import { useAppStrings } from '../../locales/appStrings';
 import { PageSearchBar } from '../../features/search';
+import {
+  adminInputClass,
+  adminLabelClass,
+  adminPrimaryBtnClass,
+  adminSecondaryBtnClass,
+} from '../adminUsers/adminUserPanelUi';
+import { AdminBusySpinner } from '../adminUsers/adminPanelStates';
+
+const FORWARD_NOTE_MAX = 500;
 
 /**
  * Chuyển tiếp tin tới một hoặc nhiều kênh chat (theo phòng ban).
@@ -22,15 +33,19 @@ export default function ForwardChannelModal({
 }) {
   const { t } = useAppStrings();
   const { locale } = useLocale();
+  const { isDarkMode } = useTheme();
+  const fieldId = useId();
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(() => ({ ...initialSelected }));
   const [note, setNote] = useState('');
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
     setSearch('');
     setNote('');
     setSelected({});
+    setSending(false);
   }, [isOpen]);
 
   const flatRows = useMemo(() => {
@@ -71,14 +86,25 @@ export default function ForwardChannelModal({
 
   const selectedIds = Object.keys(selected).filter((id) => selected[id]);
 
-  const handleSend = () => {
-    if (!selectedIds.length) return;
-    onConfirm?.({ channelIds: selectedIds, note: note.trim() });
+  const handleSend = async () => {
+    if (!selectedIds.length || sending) return;
+    setSending(true);
+    try {
+      await onConfirm?.({ channelIds: selectedIds, note: note.trim() });
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={t('taskBoard.forwardTitle')} size="md">
-      <p className="mb-3 text-sm text-gray-400">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      closable={!sending}
+      title={t('taskBoard.forwardTitle')}
+      size="md"
+    >
+      <p className="mb-3 text-sm text-muted-foreground">
         {t('taskBoard.forwardDesc', {
           org: organizationName
             ? t('taskBoard.forwardDescOrg', { name: organizationName })
@@ -91,74 +117,95 @@ export default function ForwardChannelModal({
         value={search}
         onChange={setSearch}
         placeholder={t('searchUi.searchAria')}
-        isDarkMode
+        isDarkMode={isDarkMode}
         size="sm"
         id="forward-channel-search"
       />
 
-      <div className="mb-3 max-h-52 overflow-y-auto rounded-xl border border-white/10 bg-black/20">
+      <fieldset
+        className="mb-3 max-h-52 overflow-y-auto rounded-xl border border-border bg-muted/40"
+        aria-busy={loading}
+        disabled={sending}
+      >
+        <legend className="sr-only">{t('taskBoard.forwardTargetsLegend')}</legend>
         {loading && (
-          <div className="p-4 text-center text-sm text-gray-400">{t('taskBoard.loadingChannels')}</div>
+          <div className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
+            <AdminBusySpinner busy />
+            {t('taskBoard.loadingChannels')}
+          </div>
         )}
         {!loading && filtered.length === 0 && (
-          <div className="p-4 text-center text-sm text-gray-500">{t('taskBoard.noMatchingChannels')}</div>
+          <div className="p-4 text-center text-sm text-muted-foreground">{t('taskBoard.noMatchingChannels')}</div>
         )}
         {!loading &&
-          filtered.map((row) => (
-            <label
-              key={row.key}
-              className="flex cursor-pointer items-center gap-3 border-b border-white/5 px-3 py-2.5 last:border-0 hover:bg-white/5"
-            >
-              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-white/10 text-lg">
-                #
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-white"># {row.channelName}</div>
-                <div className="truncate text-xs text-gray-500">{row.departmentName}</div>
-              </div>
-              <input
-                type="checkbox"
-                checked={!!selected[row.channelId]}
-                onChange={() => toggle(row.channelId)}
-                className="h-4 w-4 rounded border-gray-500"
-              />
-            </label>
-          ))}
-      </div>
+          filtered.map((row) => {
+            const checkboxId = `${fieldId}-ch-${row.channelId}`;
+            const isChecked = !!selected[row.channelId];
+            return (
+              <label
+                key={row.key}
+                htmlFor={checkboxId}
+                className={`flex cursor-pointer items-center gap-3 border-b border-border px-3 py-2.5 transition-colors duration-150 last:border-0 hover:bg-muted motion-reduce:transition-none ${
+                  isChecked ? 'bg-primary/10' : ''
+                }`}
+              >
+                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                  <Hash className="h-4 w-4" aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-foreground"># {row.channelName}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{row.departmentName}</span>
+                </span>
+                <input
+                  id={checkboxId}
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={() => toggle(row.channelId)}
+                  className="h-4 w-4 rounded border-border accent-primary focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </label>
+            );
+          })}
+      </fieldset>
 
-      <div className="mb-3 rounded-xl border border-dashed border-white/15 bg-white/5 p-3 text-sm text-gray-300">
-        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{t('taskBoard.preview')}</div>
+      <div className="mb-3 rounded-xl border border-dashed border-border bg-muted/40 p-3 text-sm text-foreground">
+        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {t('taskBoard.preview')}
+        </div>
         <p className="line-clamp-4 whitespace-pre-wrap break-words">{previewText || '—'}</p>
       </div>
 
       <div className="mb-4">
-        <label className="mb-1 block text-xs text-gray-500">{t('taskBoard.optionalNote')}</label>
-        <div className="relative">
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder={t('taskBoard.optionalNote')}
-            className="w-full rounded-xl border border-white/10 bg-[#040f2a] px-3 py-2.5 pr-10 text-sm text-white outline-none placeholder:text-gray-600"
-          />
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">🙂</span>
-        </div>
+        <label htmlFor={`${fieldId}-note`} className={adminLabelClass()}>
+          {t('taskBoard.optionalNote')}
+        </label>
+        <input
+          id={`${fieldId}-note`}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder={t('taskBoard.optionalNote')}
+          maxLength={FORWARD_NOTE_MAX}
+          disabled={sending}
+          className={adminInputClass()}
+        />
       </div>
 
-      <div className="flex justify-end gap-2 border-t border-white/10 pt-4">
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/5"
-        >
+      <div className="flex justify-end gap-2 border-t border-border pt-4">
+        <button type="button" onClick={onClose} disabled={sending} className={adminSecondaryBtnClass()}>
           {t('common.cancel')}
         </button>
         <button
           type="button"
-          disabled={!selectedIds.length || loading}
+          disabled={!selectedIds.length || loading || sending}
+          aria-busy={sending}
           onClick={handleSend}
-          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className={adminPrimaryBtnClass()}
         >
-          ✈️ {t('taskBoard.sendForward')}
+          {sending ? <AdminBusySpinner busy /> : <Send className="h-4 w-4" aria-hidden />}
+          {t('taskBoard.sendForward')}
+          {selectedIds.length > 0 ? (
+            <span className="rounded-full bg-primary-foreground/20 px-1.5 text-xs">{selectedIds.length}</span>
+          ) : null}
         </button>
       </div>
     </Modal>

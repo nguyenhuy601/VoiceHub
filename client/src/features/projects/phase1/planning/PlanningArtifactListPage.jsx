@@ -9,6 +9,7 @@ import useProjectCapabilities from '../hooks/useProjectCapabilities';
 import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
 import PlanningResourcePanel from './PlanningResourcePanel';
 import Modal from '../../../../components/Shared/Modal';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import PlanningGanttPanel from './PlanningGanttPanel';
 import PlanningArtifactFormDrawer from './PlanningArtifactFormDrawer';
 import PlanningSuggestFromRaModal from './PlanningSuggestFromRaModal';
@@ -392,21 +393,19 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
         onPrimary={canEdit ? () => setCreateOpen(true) : undefined}
       />
 
-      {isLoading ? <p className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground" aria-busy="true">
+          {t('common.loading')}
+        </p>
+      ) : null}
       {isError || error ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-sm">
-          <span>{error || t('common.error')}</span>
-          <button
-            type="button"
-            className="rounded border border-border px-2 py-0.5 text-xs"
-            onClick={() => {
-              setError(null);
-              refetch();
-            }}
-          >
-            {t('common.retry')}
-          </button>
-        </div>
+        <AdminLoadErrorState
+          message={error || t('common.error')}
+          onRetry={() => {
+            setError(null);
+            void refetch();
+          }}
+        />
       ) : null}
 
       {kind === 'RESOURCE' && resourceRow ? (

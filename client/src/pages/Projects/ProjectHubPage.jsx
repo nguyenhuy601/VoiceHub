@@ -205,13 +205,6 @@ export default function ProjectHubPage({
   const fullBoardCardsReady =
     Boolean(selectedTaskBoardId) && !boardDetailQuery.isPending && Boolean(taskBoardDetail);
 
-  useEffect(() => {
-    if (!boardDetailQuery.isError) return;
-    toast.error(
-      resolveApiErrorMessage(boardDetailQuery.error, t('taskBoard.loadBoardDetailFail'))
-    );
-  }, [boardDetailQuery.isError, boardDetailQuery.error, t]);
-
   const patchBoardDetailCache = useCallback(
     (updater) => {
       const bid = String(selectedTaskBoardId || '').trim();
@@ -648,6 +641,7 @@ export default function ProjectHubPage({
       }
       loadingBoards={loadingTaskBoards}
       loadingBoardDetail={loadingTaskBoardDetail}
+      boardDetailError={Boolean(boardDetailQuery.isError)}
       currentUserId={currentUserId}
       teamsInScope={[]}
       onAddList={handleAddBoardList}

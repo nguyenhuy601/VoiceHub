@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
-import AdminMeetingOpsHubShell from '../../components/admin/AdminMeetingOpsHubShell';
+import AdminMeetingOpsHubShell from '../../components/Admin/AdminMeetingOpsHubShell';
 import MeetingEndPanel from './MeetingEndPanel';
 import MeetingModeratePanel from './MeetingModeratePanel';
 import {

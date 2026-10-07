@@ -16,7 +16,9 @@ import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { unitId } from '../../utils/adminOrgStructureUtils';
+import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
+import ConfirmDialog from '../../components/Shared/ConfirmDialog';
+import { AdminBusySpinner, AdminLoadErrorState } from '../../components/adminUsers/adminPanelStates';
 
 export default function DivisionDisablePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
@@ -28,6 +30,7 @@ export default function DivisionDisablePanel({ orgId, embedded = false }) {
   const canUpdateDivision = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DIVISION_UPDATE);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [busy, setBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const selected = useMemo(
     () => divisions.find((row) => unitId(row) === selectedId) || null,
@@ -61,14 +64,7 @@ export default function DivisionDisablePanel({ orgId, embedded = false }) {
   const body = (
     <AdminUserFormCard title={t('adminDomains.orgStructure.divisionDisable')} danger={!active}>
       {structureError ? (
-        <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {structureError}
-          </p>
-          <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
-            {t('adminRbac.retry')}
-          </button>
-        </div>
+        <AdminLoadErrorState message={structureError} onRetry={() => loadStructure()} />
       ) : !selected ? (
         <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
       ) : (
@@ -77,23 +73,41 @@ export default function DivisionDisablePanel({ orgId, embedded = false }) {
             <button
               type="button"
               disabled={busy}
+              aria-busy={busy || undefined}
               className={adminDangerBtnClass()}
-              onClick={() => toggle(false)}
+              onClick={() => setConfirmOpen(true)}
             >
+              <AdminBusySpinner busy={busy} />
               {t('adminOrg.divisionDisable')}
             </button>
           ) : (
             <button
               type="button"
               disabled={busy}
+              aria-busy={busy || undefined}
               className={adminPrimaryBtnClass()}
               onClick={() => toggle(true)}
             >
+              <AdminBusySpinner busy={busy} />
               {t('adminOrg.divisionEnable')}
             </button>
           )}
         </div>
       )}
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => toggle(false)}
+        variant="danger"
+        title={t('adminOrg.unitDisableConfirmTitle', { action: t('adminOrg.divisionDisable'), name: unitName(selected) })}
+        message={
+          Array.isArray(selected?.memberIds)
+            ? t('adminOrg.unitDisableConfirmMessage', { name: unitName(selected), n: selected.memberIds.length })
+            : t('adminOrg.unitDisableConfirmMessageNoCount', { name: unitName(selected) })
+        }
+        confirmText={t('adminOrg.divisionDisable')}
+        cancelText={t('common.cancel')}
+      />
     </AdminUserFormCard>
   );
 

@@ -1,37 +1,38 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
-import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
+import { queryKeys } from '../../../lib/queryKeys';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
-import { queryKeys } from '../../../lib/queryKeys';
 import {
-  formatHubDateTime,
-  unwrapChangeRequestEntity,
-  displayIssueKey,
-  collectCrWorkItems,
-  isLinkableCrWorkType,
-  mergeChangeRequestPatch,
-  resolveHubActor,
-  HUB_GRID_CELL_BORDER,
-} from './projectHubUtils';
-import {
-  crPriorityBadgeClass,
-  crStatusBadgeClass,
-  crStatusRowClass,
+    crPriorityBadgeClass,
+    crStatusBadgeClass,
+    crStatusRowClass,
 } from './phase3HubUiTokens';
-import { listAllowedCrStatusTransitions, labelCrWorkStatus } from './projectHubCrWorkflow';
 import ProjectHubChangeRequestDetailDrawer from './ProjectHubChangeRequestDetailDrawer';
 import ProjectHubChangeRequestFormModal from './ProjectHubChangeRequestFormModal';
-import ResizableTableHeader from './ResizableTableHeader';
-import { useResizableTableColumns } from './useResizableTableColumns';
+import { labelCrWorkStatus, listAllowedCrStatusTransitions } from './projectHubCrWorkflow';
 import {
-  ensureProjectHubBoardDetail,
-  useInvalidateProjectHub,
-  useProjectHubChangeRequests,
-  useProjectHubMembers,
+    collectCrWorkItems,
+    displayIssueKey,
+    formatHubDateTime,
+    HUB_GRID_CELL_BORDER,
+    isLinkableCrWorkType,
+    mergeChangeRequestPatch,
+    resolveHubActor,
+    unwrapChangeRequestEntity,
+} from './projectHubUtils';
+import ResizableTableHeader from './ResizableTableHeader';
+import {
+    ensureProjectHubBoardDetail,
+    useInvalidateProjectHub,
+    useProjectHubChangeRequests,
+    useProjectHubMembers,
 } from './useProjectHubQueries';
+import { useResizableTableColumns } from './useResizableTableColumns';
 
 const PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -276,11 +277,6 @@ export default function ProjectHubChangeRequestsPanel({
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  useEffect(() => {
-    if (!crError || !listActive) return;
-    toast.error(t('workspace.projectHubCrLoadFail'));
-  }, [crError, listActive, t]);
-
   const loadList = useCallback(async () => {
     if (!projectId || !listActive) return;
     setLocalItems([]);
@@ -331,9 +327,6 @@ export default function ProjectHubChangeRequestsPanel({
     if (page !== safePage) setPage(safePage);
   }, [page, safePage]);
 
-  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
-  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
-
   const onFilterChange = (setter) => (event) => {
     setter(event.target.value);
     setPage(1);
@@ -382,7 +375,7 @@ export default function ProjectHubChangeRequestsPanel({
   const createBtn = canCreate ? (
     <button
       type="button"
-      className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground sm:h-auto sm:w-auto"
+      className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:h-auto sm:w-auto"
       onClick={openCreate}
     >
       {t('workspace.projectHubCrCreate')}
@@ -460,20 +453,17 @@ export default function ProjectHubChangeRequestsPanel({
       <div className="flex flex-1 flex-col">
         <div className="flex flex-col gap-2 border-b border-border px-4 py-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h3 className={`text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabChangeRequests')}</h3>
-            <p className={`text-xs ${muted}`}>{t('workspace.projectHubCrHint')}</p>
+            <h3 className="text-sm font-bold text-foreground">{t('workspace.projectHubTabChangeRequests')}</h3>
+            <p className="text-xs text-muted-foreground">{t('workspace.projectHubCrHint')}</p>
           </div>
           {createBtn}
         </div>
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-12">
-          <p className={`text-sm ${muted}`}>{t('workspace.projectHubCrLoadFail')}</p>
-          <button
-            type="button"
-            className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
-            onClick={() => void loadList()}
-          >
-            {t('workspace.projectHubCrRetry')}
-          </button>
+        <div className="flex flex-1 flex-col justify-center px-4 py-8">
+          <AdminLoadErrorState
+            message={t('workspace.projectHubCrLoadFail')}
+            onRetry={() => void loadList()}
+            disabled={loading}
+          />
         </div>
         <ProjectHubChangeRequestFormModal
           isOpen={formOpen}
@@ -491,8 +481,8 @@ export default function ProjectHubChangeRequestsPanel({
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden" aria-busy={loading || undefined}>
       <div className="flex flex-col gap-2 border-b border-border px-4 py-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className={`text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabChangeRequests')}</h3>
-          <p className={`text-xs ${muted}`}>{t('workspace.projectHubCrHint')}</p>
+          <h3 className="text-sm font-bold text-foreground">{t('workspace.projectHubTabChangeRequests')}</h3>
+          <p className="text-xs text-muted-foreground">{t('workspace.projectHubCrHint')}</p>
         </div>
         {createBtn}
       </div>
@@ -583,7 +573,7 @@ export default function ProjectHubChangeRequestsPanel({
 
           {items.length === 0 ? (
             <div className="px-4 py-12 text-center">
-              <p className={`text-sm ${muted}`}>{emptyMessage}</p>
+              <p className="text-sm text-muted-foreground">{emptyMessage}</p>
             </div>
           ) : (
             items.map((row) => {

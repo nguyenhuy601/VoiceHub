@@ -90,6 +90,7 @@ export function useOrgStructureLevels(orgId, options = {}) {
     templateId,
     loading,
     ready,
+    error: enabled ? query.error || null : null,
     reload,
     hasLevel,
     parentLevelKey,

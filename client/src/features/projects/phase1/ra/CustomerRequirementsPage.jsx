@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import ConfirmDialog from '../../../../components/Shared/ConfirmDialog';
 import ReviewNoteDialog from '../../../../components/Shared/ReviewNoteDialog';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { requirementAPI } from '../../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
@@ -27,9 +28,9 @@ import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
 import { statusBadgeClass, statusRowTintClass, formatPhase1StatusLabel } from '../shared/phase1UiTokens';
 
 const SECTION_SHELL =
-  'overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950';
+  'overflow-hidden rounded-xl border border-border bg-surface shadow-sm';
 const SECTION_HEAD =
-  'border-b border-[#E8E8E8] bg-[#E8F4FC] px-3.5 py-2.5 dark:border-slate-700 dark:bg-slate-800/80';
+  'border-b border-[#E8E8E8] bg-[#E8F4FC] px-3.5 py-2.5 dark:border-border dark:bg-surface';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -95,7 +96,7 @@ function SetGateProgress({ set, t }) {
         >
           <span
             className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] ${
-              s.done ? 'bg-[#1677FF] text-white' : 'bg-[#E8E8E8] text-[#8C8C8C]'
+              s.done ? 'bg-[#1677FF] text-primary-foreground' : 'bg-[#E8E8E8] text-[#8C8C8C]'
             }`}
           >
             {s.done ? <CheckCircle2 size={12} aria-hidden /> : idx + 1}
@@ -125,9 +126,9 @@ function canApproveImportSetGate(nextGate, capabilities) {
 
 function FileMetaRow({ label, filename, missingLabel }) {
   return (
-    <div className="rounded-lg border border-[#E8E8E8] bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
+    <div className="rounded-lg border border-[#E8E8E8] bg-white px-3 py-2 dark:border-border dark:bg-surface">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-[#8C8C8C]">{label}</p>
-      <p className="mt-0.5 break-words text-xs font-medium text-[#262626] dark:text-slate-100">
+      <p className="mt-0.5 break-words text-xs font-medium text-[#262626] dark:text-muted-foreground">
         {filename || missingLabel}
       </p>
     </div>
@@ -156,9 +157,9 @@ function ImportSetDetail({
   const artifactCount = set.artifactCount ?? 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#F5F5F5] dark:bg-slate-950">
+    <div className="flex h-full min-h-0 flex-col bg-[#F5F5F5] dark:bg-surface">
       {/* Header */}
-      <div className="shrink-0 border-b border-[#C9DFF0] bg-[#E8F4FC] px-3.5 py-3 dark:border-slate-700 dark:bg-slate-800/80">
+      <div className="shrink-0 border-b border-[#C9DFF0] bg-[#E8F4FC] px-3.5 py-3 dark:border-border dark:bg-surface">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1677FF]">
@@ -194,9 +195,9 @@ function ImportSetDetail({
 
       <div className="scrollbar-overlay min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {/* Files */}
-        <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          <div className="border-b border-[#E8E8E8] bg-[#E8F4FC] px-3 py-2 dark:border-slate-700 dark:bg-slate-800/80">
-            <h3 className="text-xs font-semibold text-[#262626] dark:text-white">
+        <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-border dark:bg-surface">
+          <div className="border-b border-[#E8E8E8] bg-[#E8F4FC] px-3 py-2 dark:border-border dark:bg-surface">
+            <h3 className="text-xs font-semibold text-[#262626] dark:text-primary-foreground">
               {t('workspace.phase1ImportSetFilesSection')}
             </h3>
           </div>
@@ -240,9 +241,9 @@ function ImportSetDetail({
 
         {/* Gate progress + actions */}
         {isPending ? (
-          <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <div className="border-b border-[#E8E8E8] bg-[#E8F4FC] px-3 py-2 dark:border-slate-700 dark:bg-slate-800/80">
-              <h3 className="text-xs font-semibold text-[#262626] dark:text-white">
+          <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-border dark:bg-surface">
+            <div className="border-b border-[#E8E8E8] bg-[#E8F4FC] px-3 py-2 dark:border-border dark:bg-surface">
+              <h3 className="text-xs font-semibold text-[#262626] dark:text-primary-foreground">
                 {t('workspace.phase1SetGateProgress')}
               </h3>
             </div>
@@ -252,11 +253,11 @@ function ImportSetDetail({
                 {t('workspace.phase1ImportStagedShort')}
               </p>
               {canGate && nextGate && onGateTransition ? (
-                <div className="flex flex-wrap gap-2 border-t border-[#E8E8E8] pt-3 dark:border-slate-700">
+                <div className="flex flex-wrap gap-2 border-t border-[#E8E8E8] pt-3 dark:border-border">
                   <button
                     type="button"
                     disabled={gatePending || rejectDialogOpen}
-                    className="rounded-lg bg-[#1677FF] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#0958D9] disabled:opacity-50"
+                    className="rounded-lg bg-[#1677FF] px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:bg-[#0958D9] disabled:opacity-50"
                     onClick={() => onGateTransition(set.id, nextGate)}
                   >
                     {t(approveLabelKey(nextGate))}
@@ -276,7 +277,7 @@ function ImportSetDetail({
         ) : null}
 
         {isTrash ? (
-          <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white p-3 shadow-sm dark:border-border dark:bg-surface">
             <p className="text-[11px] text-muted-foreground">
               {set.trashedAt ? new Date(set.trashedAt).toLocaleString() : '—'}
               {set.retentionDaysLeft != null
@@ -288,14 +289,14 @@ function ImportSetDetail({
 
         {/* Help — collapsible, not permanent wall of text */}
         {!isTrash ? (
-          <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-border dark:bg-surface">
             <button
               type="button"
-              className="flex w-full items-center justify-between gap-2 border-b border-[#E8E8E8] bg-[#E8F4FC] px-3 py-2 text-left dark:border-slate-700 dark:bg-slate-800/80"
+              className="flex w-full items-center justify-between gap-2 border-b border-[#E8E8E8] bg-[#E8F4FC] px-3 py-2 text-left dark:border-border dark:bg-surface"
               onClick={() => setHelpOpen((v) => !v)}
               aria-expanded={helpOpen}
             >
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#262626] dark:text-white">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#262626] dark:text-primary-foreground">
                 <HelpCircle size={14} className="text-[#1677FF]" aria-hidden />
                 {t('workspace.phase1ImportSetHelpTitle')}
               </span>
@@ -317,7 +318,7 @@ function ImportSetDetail({
       </div>
 
       {canMutate ? (
-        <div className="flex flex-wrap gap-2 border-t border-[#E8E8E8] bg-white px-3.5 py-2.5 dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex flex-wrap gap-2 border-t border-[#E8E8E8] bg-white px-3.5 py-2.5 dark:border-border dark:bg-surface">
           {isTrash ? (
             <button
               type="button"
@@ -386,7 +387,13 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
     queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', projectId] });
   }, [projectId, queryClient]);
 
-  const { data: sets = [], isLoading } = useQuery({
+  const {
+    data: sets = [],
+    isLoading,
+    isError: setsError,
+    error: setsQueryError,
+    refetch: refetchSets,
+  } = useQuery({
     queryKey: ['analysisImportSets', projectId],
     queryFn: async () => {
       const raw = unwrap(await analysisAPI.listImportSets(projectId));
@@ -581,7 +588,7 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
         <div className={SECTION_HEAD}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="text-sm font-bold text-[#262626] dark:text-white">
+              <h1 className="text-sm font-bold text-[#262626] dark:text-primary-foreground">
                 {t('workspace.phaseNavCustomerDocuments')}
               </h1>
               <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-muted-foreground">
@@ -618,7 +625,7 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
                   <button
                     type="button"
                     disabled={busy}
-                    className="inline-flex items-center gap-1 rounded-lg bg-[#1677FF] px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-lg bg-[#1677FF] px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:opacity-50"
                     onClick={() => setWizardOpen(true)}
                   >
                     <Upload size={12} aria-hidden />
@@ -662,7 +669,7 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
         }
         summary={t('workspace.phase1CustomerDocsHelpSummary')}
         defaultOpen={false}
-        toneClass="border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950"
+        toneClass="border-[#D9D9D9] bg-white shadow-sm dark:border-border dark:bg-surface"
       >
         <ul className="list-disc space-y-1.5 pl-4 text-[11px] leading-relaxed text-muted-foreground">
           <li>{t('workspace.phase1CustomerDocsHint')}</li>
@@ -704,7 +711,7 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
               <button
                 type="button"
                 disabled={preview.errorCount > 0 || confirmMut.isPending || !preview.sessionId}
-                className="rounded-lg bg-[#1677FF] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                className="rounded-lg bg-[#1677FF] px-2.5 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-50"
                 onClick={() => confirmMut.mutate()}
               >
                 {t('workspace.phase1ConfirmImport')}
@@ -721,16 +728,16 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
       {/* Import Set queue */}
       <section className={`${SECTION_SHELL} flex min-h-0 flex-1 flex-col`}>
         <div className={`${SECTION_HEAD} flex flex-wrap items-center justify-between gap-2`}>
-          <h2 className="flex items-center gap-2 text-xs font-semibold text-[#262626] dark:text-white">
+          <h2 className="flex items-center gap-2 text-xs font-semibold text-[#262626] dark:text-primary-foreground">
             <FileStack size={14} className="text-[#1677FF]" aria-hidden />
             {t('workspace.phase1SectionImportSets')}
           </h2>
-          <div className="flex gap-1 rounded-lg border border-[#C9DFF0] bg-white p-0.5 dark:border-slate-600 dark:bg-slate-900">
+          <div className="flex gap-1 rounded-lg border border-[#C9DFF0] bg-white p-0.5 dark:border-border dark:bg-surface">
             <button
               type="button"
               className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${
                 listFilter === 'live'
-                  ? 'bg-[#1677FF] text-white'
+                  ? 'bg-[#1677FF] text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
               onClick={() => {
@@ -744,7 +751,7 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
               type="button"
               className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${
                 listFilter === 'trash'
-                  ? 'bg-[#1677FF] text-white'
+                  ? 'bg-[#1677FF] text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
               onClick={() => {
@@ -759,10 +766,21 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
 
         <div className="min-h-0 flex-1 overflow-auto px-3.5 py-3">
           {isLoading ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+            <p className="py-6 text-center text-sm text-muted-foreground" aria-busy="true">
+              {t('common.loading')}
+            </p>
+          ) : null}
+          {setsError ? (
+            <AdminLoadErrorState
+              message={resolveApiErrorMessage(setsQueryError, {
+                t,
+                fallback: t('workspace.phase1ShellLoadFail'),
+              })}
+              onRetry={() => void refetchSets()}
+            />
           ) : null}
 
-          {!isLoading && !displaySets.length ? (
+          {!isLoading && !setsError && !displaySets.length ? (
             <p className="rounded-lg border border-dashed border-border/60 px-3 py-8 text-center text-sm text-muted-foreground">
               {listFilter === 'trash'
                 ? t('workspace.phase1TrashEmpty')
@@ -873,6 +891,7 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
         }
         confirmText={t('workspace.phase1RestoreImportSet')}
         cancelText={t('common.cancel')}
+        variant="danger"
         onConfirm={() => {
           if (rollbackSetId) restoreMut.mutate(rollbackSetId);
         }}

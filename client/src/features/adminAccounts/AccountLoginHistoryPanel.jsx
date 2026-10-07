@@ -1,111 +1,171 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import toast from 'react-hot-toast';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
 import {
+  AdminDenseMobileList,
   AdminUserFormCard,
   AdminUserPanelShell,
-  adminPrimaryBtnClass,
+  adminDenseRowClass,
+  adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { unwrapApi } from '../../utils/adminUserUtils';
+import { AccountLoadError, AccountStatusPill, unwrapSummary } from './accountPanelParts';
+import { summarizeUserAgent } from './userAgentSummary';
+
+const PAGE_SIZE = 50;
 
 export default function AccountLoginHistoryPanel({ orgId, embedded = false }) {
-  const { t } = useAppStrings();
+  const { t, locale } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
+    setPage(1);
+  }, [orgId, userId]);
+
+  useEffect(() => {
     if (!orgId || !userId) {
       setItems([]);
+      setTotal(0);
       setLoadError('');
-      return;
+      return undefined;
     }
     let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setLoadError('');
-      try {
-        const res = await adminUserAPI.getLoginEvents(orgId, userId, { limit: 100 });
-        const data = unwrapApi(res)?.data ?? unwrapApi(res);
-        if (!cancelled) setItems(Array.isArray(data?.items) ? data.items : []);
-      } catch (error) {
-        if (!cancelled) {
-          const msg = resolveApiErrorMessage(error, { t, fallback: t('adminUsers.historyFail') });
-          toast.error(msg);
-          setLoadError(msg);
-          setItems([]);
-        }
-      } finally {
+    setLoading(true);
+    setLoadError('');
+    adminUserAPI
+      .getLoginEvents(orgId, userId, { limit: PAGE_SIZE, page })
+      .then((res) => {
+        if (cancelled) return;
+        const data = unwrapSummary(res);
+        setItems(Array.isArray(data?.items) ? data.items : []);
+        setTotal(Number(data?.total) || 0);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setLoadError(resolveApiErrorMessage(error, { t, fallback: t('adminUsers.historyFail') }));
+        setItems([]);
+      })
+      .finally(() => {
         if (!cancelled) setLoading(false);
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
-  }, [orgId, userId, t, reloadTick]);
+  }, [orgId, userId, page, t, reloadTick]);
+
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const formatTime = (value) => (value ? new Date(value).toLocaleString(locale) : '—');
+  const deviceLabel = (row) => summarizeUserAgent(row.userAgent) || t('adminAccounts.unknownDevice');
+  const reasonLabel = (row) => {
+    if (row.success || !row.errorCode) return '';
+    const key = `errors.codes.${row.errorCode}`;
+    const mapped = t(key);
+    return mapped && mapped !== key ? mapped : t('adminAccounts.reasonUnknown');
+  };
+  const resultPill = (row) =>
+    row.success ? (
+      <AccountStatusPill tone="success">{t('adminUsers.loginSuccess')}</AccountStatusPill>
+    ) : (
+      <AccountStatusPill tone="danger">{t('adminUsers.loginFailed')}</AccountStatusPill>
+    );
 
   const historyCard = (
-        <AdminUserFormCard title={t('adminDomains.accounts.loginHistory')}>
-          {loading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-          ) : !userId ? (
-            <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
-          ) : loadError ? (
-            <div className="space-y-3">
-              <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {loadError}
-              </p>
-              <button type="button" className={adminPrimaryBtnClass()} onClick={() => setReloadTick((n) => n + 1)}>
-                {t('adminRbac.retry')}
-              </button>
-            </div>
+    <AdminUserFormCard title={t('adminDomains.accounts.loginHistory')}>
+      {!userId ? (
+        <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+      ) : loadError ? (
+        <AccountLoadError message={loadError} onRetry={() => setReloadTick((n) => n + 1)} />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border" aria-busy={loading || undefined}>
+          {loading && !items.length ? (
+            <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-border/70">
-              <div className="max-h-[420px] overflow-auto">
+            <>
+              <div className="hidden max-h-[420px] overflow-auto md:block">
                 <table className="min-w-full text-sm">
-                  <thead className="sticky top-0 bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <thead className="sticky top-0 bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
-                      <th className="px-3 py-2.5">{t('adminUsers.colTime')}</th>
-                      <th className="px-3 py-2.5">{t('adminUsers.colResult')}</th>
-                      <th className="px-3 py-2.5">IP</th>
+                      <th scope="col" className="px-3 py-2.5">{t('adminUsers.colTime')}</th>
+                      <th scope="col" className="px-3 py-2.5">{t('adminUsers.colResult')}</th>
+                      <th scope="col" className="px-3 py-2.5">{t('adminAccounts.colDevice')}</th>
+                      <th scope="col" className="px-3 py-2.5">{t('adminAccounts.colIp')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border/50">
+                  <tbody>
                     {items.map((row) => (
-                      <tr key={row.id} className="hover:bg-muted/20">
-                        <td className="whitespace-nowrap px-3 py-2.5 text-foreground">
-                          {row.at ? new Date(row.at).toLocaleString() : '—'}
-                        </td>
+                      <tr key={row.id} className={adminDenseRowClass()}>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-foreground">{formatTime(row.at)}</td>
                         <td className="px-3 py-2.5">
-                          {row.success ? (
-                            <span className="inline-flex rounded-full bg-emerald-500/12 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-500/20 dark:text-emerald-300">
-                              {t('adminUsers.loginSuccess')}
-                            </span>
-                          ) : (
-                            <span className="inline-flex rounded-full bg-red-500/12 px-2.5 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-red-500/20 dark:text-red-300">
-                              {t('adminUsers.loginFailed')}
-                            </span>
-                          )}
+                          <div className="flex flex-col items-start gap-1">
+                            {resultPill(row)}
+                            {reasonLabel(row) ? (
+                              <span className="text-xs text-muted-foreground">{reasonLabel(row)}</span>
+                            ) : null}
+                          </div>
                         </td>
+                        <td className="px-3 py-2.5 text-muted-foreground">{deviceLabel(row)}</td>
                         <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{row.ip || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <AdminDenseMobileList
+                items={items}
+                getKey={(row) => row.id}
+                ariaLabel={t('adminDomains.accounts.loginHistory')}
+                renderTitle={(row) => (
+                  <span className="flex flex-wrap items-center gap-2">
+                    {resultPill(row)}
+                    <span className="text-sm text-foreground">{formatTime(row.at)}</span>
+                  </span>
+                )}
+                renderMeta={(row) =>
+                  [deviceLabel(row), row.ip || '—', reasonLabel(row)].filter(Boolean).join(' · ')
+                }
+              />
               {!items.length ? (
                 <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('adminUsers.noHistory')}</p>
               ) : null}
-            </div>
+            </>
           )}
-        </AdminUserFormCard>
+          {total > PAGE_SIZE ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2">
+              <span className="text-xs text-muted-foreground">
+                {t('adminAccounts.historyPageInfo', { page, pages: pageCount, total })}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={adminSecondaryBtnClass()}
+                  disabled={loading || page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  {t('adminAccounts.prevPage')}
+                </button>
+                <button
+                  type="button"
+                  className={adminSecondaryBtnClass()}
+                  disabled={loading || page >= pageCount}
+                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                >
+                  {t('adminAccounts.nextPage')}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </AdminUserFormCard>
   );
 
   if (embedded) return historyCard;

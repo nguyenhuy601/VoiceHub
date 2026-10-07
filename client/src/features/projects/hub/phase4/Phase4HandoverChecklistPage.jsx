@@ -1,5 +1,7 @@
+import { Loader2 } from 'lucide-react';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { RELEASE_HANDOVER_CHECKLIST_IDS } from '../../../../utils/projectPhaseNav';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import usePhase4Handover from './usePhase4Handover';
 import Phase4SectionCard from './Phase4SectionCard';
 
@@ -24,6 +26,9 @@ export default function Phase4HandoverChecklistPage({ projectId }) {
   const { t } = useAppStrings();
   const {
     isLoading,
+    isLoadError,
+    loadFailMessage,
+    retryLoad,
     checklist,
     checklistDone,
     checklistTotal,
@@ -35,11 +40,27 @@ export default function Phase4HandoverChecklistPage({ projectId }) {
   } = usePhase4Handover(projectId);
 
   if (isLoading) {
-    return <p className="p-4 text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return (
+      <div
+        className="flex items-center gap-2 p-4 text-sm text-muted-foreground"
+        aria-busy="true"
+      >
+        <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+        <span>{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (isLoadError) {
+    return (
+      <div className="p-4">
+        <AdminLoadErrorState message={loadFailMessage} onRetry={retryLoad} />
+      </div>
+    );
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-3 sm:p-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-3 sm:p-4" aria-busy={busy ? 'true' : undefined}>
       <Phase4SectionCard
         title={t('workspace.phaseQaHandoverChecklistTitle')}
         description={t('workspace.phase4HandoverHint')}
@@ -60,7 +81,7 @@ export default function Phase4HandoverChecklistPage({ projectId }) {
           aria-valuenow={checklistDone}
         >
           <div
-            className="h-full rounded-full bg-primary transition-[width]"
+            className="h-full rounded-full bg-primary transition-[width] motion-reduce:transition-none"
             style={{
               width: `${checklistTotal ? (checklistDone / checklistTotal) * 100 : 0}%`,
             }}
@@ -77,14 +98,14 @@ export default function Phase4HandoverChecklistPage({ projectId }) {
             return (
               <li key={id}>
                 <label
-                  className={`flex items-start gap-2 rounded-xl border px-2.5 py-2.5 text-sm transition ${
+                  className={`flex items-start gap-2 rounded-xl border px-2.5 py-2.5 text-sm transition-colors motion-reduce:transition-none focus-within:ring-2 focus-within:ring-ring ${
                     isOn
-                      ? 'border-emerald-500/40 bg-emerald-500/10'
+                      ? 'border-success/40 bg-success/10'
                       : 'border-border/70 bg-muted/15'
                   } ${
                     disabled
                       ? 'cursor-not-allowed opacity-75'
-                      : 'cursor-pointer hover:brightness-[0.98]'
+                      : 'cursor-pointer hover:bg-muted/30'
                   }`}
                   onClick={(e) => {
                     if (!disabled) return;
@@ -98,9 +119,10 @@ export default function Phase4HandoverChecklistPage({ projectId }) {
                 >
                   <input
                     type="checkbox"
-                    className="mt-0.5"
+                    className="mt-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     checked={isOn}
                     disabled={disabled}
+                    aria-busy={busy ? 'true' : undefined}
                     onChange={(e) => void setChecklistItem(id, e.target.checked)}
                   />
                   <span className="min-w-0 flex-1">
@@ -118,7 +140,7 @@ export default function Phase4HandoverChecklistPage({ projectId }) {
                   <span
                     className={`shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
                       isOn
-                        ? 'bg-emerald-600/20 text-emerald-800 dark:text-emerald-200'
+                        ? 'bg-success/20 text-success'
                         : 'bg-muted text-muted-foreground'
                     }`}
                   >

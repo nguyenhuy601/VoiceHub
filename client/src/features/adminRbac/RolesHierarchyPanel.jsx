@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import {
   DndContext,
   DragOverlay,
+  KeyboardSensor,
   PointerSensor,
   closestCorners,
   useDraggable,
@@ -27,14 +28,17 @@ import {
   prioritiesFromColumns,
   tierMeta,
 } from '../../utils/adminRbacUtils';
+import {
+  AdminListSkeleton,
+} from '../../components/adminUsers/adminPanelStates';
 
 function DroppableColumn({ id, children, className = '' }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <div
       ref={setNodeRef}
-      className={`min-h-[200px] rounded-xl transition-[box-shadow] ${className} ${
-        isOver ? 'ring-2 ring-red-500/40 ring-offset-2 ring-offset-background' : ''
+      className={`min-h-[200px] rounded-xl transition-[box-shadow] duration-150 motion-reduce:transition-none ${className} ${
+        isOver ? 'ring-2 ring-destructive ring-offset-2 ring-offset-background' : ''
       }`}
     >
       {children}
@@ -57,7 +61,11 @@ function DraggableRoleCard({ role, children }) {
 
   return (
     <div ref={setNodeRef} style={style} className={isDragging ? 'opacity-30' : ''}>
-      <div {...listeners} {...attributes} className="touch-none outline-none">
+      <div
+        {...listeners}
+        {...attributes}
+        className="touch-none rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         {children}
       </div>
     </div>
@@ -69,7 +77,7 @@ function RoleCardBody({ role }) {
   return (
     <Link
       to={`/app/admin/rbac/edit?roleId=${encodeURIComponent(id)}`}
-      className="block rounded-lg border border-border bg-card px-3 py-2.5 text-sm font-semibold text-foreground no-underline shadow-sm transition hover:bg-muted/40 hover:no-underline"
+      className="block rounded-lg border border-border bg-card px-3 py-2.5 text-sm font-semibold text-foreground no-underline shadow-sm transition-colors duration-150 hover:bg-muted hover:no-underline motion-reduce:transition-none"
       draggable={false}
     >
       {normalizeRoleDisplayName(role.name)}
@@ -90,7 +98,10 @@ export default function RolesHierarchyPanel({ orgId }) {
 
   const tiers = useMemo(() => tierMeta(t), [t]);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor)
+  );
 
   const persistPriorities = useCallback(
     async (nextColumns) => {
@@ -150,13 +161,13 @@ export default function RolesHierarchyPanel({ orgId }) {
         <div className="flex flex-wrap gap-2">
           <Link
             to="/app/admin/rbac/roles"
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted/40"
+            className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted"
           >
             {t('adminDomains.rbac.roles')}
           </Link>
           <Link
             to="/app/admin/rbac/create"
-            className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted/40"
+            className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted"
           >
             {t('adminDomains.rbac.create')}
           </Link>
@@ -169,7 +180,7 @@ export default function RolesHierarchyPanel({ orgId }) {
 
       {error ? (
         <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
             {error}
           </p>
           <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadRoles()}>
@@ -177,7 +188,7 @@ export default function RolesHierarchyPanel({ orgId }) {
           </button>
         </div>
       ) : loading && !systemRoles.length ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        <AdminListSkeleton />
       ) : (
         <DndContext
           sensors={sensors}
@@ -212,7 +223,7 @@ export default function RolesHierarchyPanel({ orgId }) {
                       </DraggableRoleCard>
                     ))}
                     {!list.length ? (
-                      <p className="rounded-lg border border-dashed border-border/70 px-2 py-6 text-center text-xs text-muted-foreground">
+                      <p className="rounded-lg border border-dashed border-border px-2 py-6 text-center text-xs text-muted-foreground">
                         {t('adminRbac.hierarchyEmptyCol')}
                       </p>
                     ) : null}

@@ -130,22 +130,24 @@ export default function OrgPickerView({
             <Search
               size={14}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
             />
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t('workspace.searchOrgs')}
-              className="h-10 w-full rounded-lg border border-border bg-[var(--input-background)] pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-primary focus:shadow-[0_0_0_3px_rgba(37,99,235,0.12)]"
+              aria-label={t('workspace.searchOrgs')}
+              className="h-10 w-full rounded-lg border border-border bg-[var(--input-background)] pl-9 pr-3 text-sm text-foreground outline-none transition-colors duration-150 focus:border-primary focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             />
           </div>
 
           <button
             type="button"
             onClick={onCreateOrg}
-            className="ml-auto inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-gradient-to-br from-primary to-primary-hover px-4 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25"
+            className="ml-auto inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-gradient-to-br from-primary to-primary-hover px-4 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none motion-reduce:hover:translate-y-0"
           >
-            <Plus size={16} />
+            <Plus size={16} aria-hidden />
             {t('workspace.createOrg')}
           </button>
         </div>

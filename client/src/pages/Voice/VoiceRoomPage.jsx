@@ -199,6 +199,7 @@ function VoiceToolbarControl({
         onClick={onClick}
         title={label}
         aria-label={badge != null ? `${label} (${badge})` : label}
+        aria-pressed={pressed}
         {...expandedProp}
         className={`${FIGMA_VOICE_CTRL_BTN} ${btnState}`}
       >
@@ -4985,6 +4986,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                     icon={Mic}
                     iconOff={MicOff}
                     active={!isMuted}
+                    pressed={!isMuted}
                     onClick={toggleMute}
                     chevron
                     suiteLayout={suiteLayout}
@@ -4994,6 +4996,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                     icon={Video}
                     iconOff={VideoOff}
                     active={!isCameraOff}
+                    pressed={!isCameraOff}
                     onClick={toggleCamera}
                     chevron
                     suiteLayout={suiteLayout}
@@ -5051,6 +5054,7 @@ function VoiceRoomPage({ landingDemo = false, suiteLayout = false } = {}) {
                           <button
                             type="button"
                             role="menuitem"
+                            aria-pressed={meetingRecordingActive}
                             className={
                               meetingRecordingActive
                                 ? FIGMA_VOICE_MORE_MENU_ITEM_RECORDING

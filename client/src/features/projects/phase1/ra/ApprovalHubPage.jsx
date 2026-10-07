@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import ReviewNoteDialog from '../../../../components/Shared/ReviewNoteDialog';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
@@ -129,7 +130,13 @@ export default function ApprovalHubPage({ projectId, readOnly = false }) {
     [importSets]
   );
 
-  const { data: rows = [], isLoading } = useQuery({
+  const {
+    data: rows = [],
+    isLoading,
+    isError: rowsError,
+    error: rowsQueryError,
+    refetch: refetchRows,
+  } = useQuery({
     queryKey: ['analysisArtifacts', projectId, 'all'],
     queryFn: async () => {
       const raw = unwrap(await analysisAPI.listArtifacts(projectId));
@@ -307,7 +314,17 @@ export default function ApprovalHubPage({ projectId, readOnly = false }) {
         </ul>
       </Phase1CollapsibleCard>
 
-      {isLoading ? <p className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground" aria-busy="true">
+          {t('common.loading')}
+        </p>
+      ) : null}
+      {rowsError ? (
+        <AdminLoadErrorState
+          message={resolveApiErrorMessage(rowsQueryError, { t, fallback: t('common.error') })}
+          onRetry={() => void refetchRows()}
+        />
+      ) : null}
 
       {!queues.length ? (
         <p className="text-sm text-muted-foreground">

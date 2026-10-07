@@ -8,6 +8,11 @@ import {
   adminLabelClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
@@ -20,8 +25,8 @@ import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 
 export default function DeptCreatePanel({ orgId }) {
   const { t } = useAppStrings();
-  const { divisions, loadStructure } = useAdminOrgStructure(orgId);
-  const { ready, createParents } = useOrgStructureLevels(orgId);
+  const { divisions, loadStructure, error: structureError } = useAdminOrgStructure(orgId);
+  const { ready, createParents, error: levelsError, reload: reloadLevels } = useOrgStructureLevels(orgId);
   const { isFullAccess } = useCompanyAdminAccess();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
   const canCreateDept = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_CREATE);
@@ -62,21 +67,30 @@ export default function DeptCreatePanel({ orgId }) {
     <AdminUserPanelShell
       title={t('adminDomains.orgStructure.deptCreate')}
       hint={
-        !ready
-          ? t('common.loading')
-          : requireDivision
+        requireDivision
             ? t('adminOrg.deptCreateHint')
             : t('adminOrg.deptCreateHintRoot')
       }
     >
       {!canCreateDept ? (
         <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+      ) : levelsError || structureError ? (
+        <AdminLoadErrorState
+          message={structureError || resolveApiErrorMessage(levelsError, { t, fallback: t('adminOrg.loadFail') })}
+          onRetry={() => {
+            reloadLevels();
+            loadStructure();
+          }}
+        />
+      ) : !ready ? (
+        <AdminListSkeleton rows={3} />
       ) : (
       <AdminUserFormCard>
         <form className="mx-auto max-w-lg space-y-4" onSubmit={submit}>
           <label className="block">
             <span className={adminLabelClass()}>{t('adminOrg.name')}</span>
             <input
+              maxLength={120}
               required
               disabled={!ready}
               className={adminInputClass()}
@@ -88,6 +102,7 @@ export default function DeptCreatePanel({ orgId }) {
           <label className="block">
             <span className={adminLabelClass()}>{t('adminOrg.description')}</span>
             <textarea
+              maxLength={1000}
               rows={3}
               disabled={!ready}
               className={adminInputClass()}
@@ -115,7 +130,13 @@ export default function DeptCreatePanel({ orgId }) {
               </select>
             </label>
           ) : null}
-          <button type="submit" disabled={saving || !ready} className={adminPrimaryBtnClass()}>
+          <button
+            type="submit"
+            disabled={saving || !ready}
+            aria-busy={saving || undefined}
+            className={adminPrimaryBtnClass()}
+          >
+            <AdminBusySpinner busy={saving} />
             {saving ? t('common.saving') : t('adminDomains.orgStructure.deptCreate')}
           </button>
         </form>

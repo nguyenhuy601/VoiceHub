@@ -13,12 +13,15 @@ import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { memberOrgRole, unwrapApi } from '../../utils/adminUserUtils';
+import { accountRoleLabel, memberOrgRole, unwrapApi } from '../../utils/adminUserUtils';
 import { coalesceJobTitle } from '../../utils/jobTitleProfile';
 import { DEFAULT_HR_ROLE_KEYS, DEFAULT_HR_ROLE_LABELS } from '../../utils/roleTaxonomy';
 import useAdminMembers from '../../hooks/useAdminMembers';
 
 const MEMBERSHIP_ROLE_OPTIONS = ['member', 'hr', 'admin', 'owner'];
+/** RULE-05: `owner` không gán từ UI Users. */
+const ASSIGNABLE_ROLE_OPTIONS = ['member', 'hr', 'admin'];
+const DISPLAY_NAME_MAX_LENGTH = 100;
 
 function normalizeMembershipRole(raw) {
   const role = String(raw || 'member').trim().toLowerCase();
@@ -62,11 +65,13 @@ export default function UserEditPanel({ orgId, embedded = false }) {
       label: DEFAULT_HR_ROLE_LABELS[key] || key,
     }))
   );
+  const [positionsFallback, setPositionsFallback] = useState(false);
   const [form, setForm] = useState({
     displayName: '',
     jobTitle: '',
     role: 'member',
   });
+  const isOwnerTarget = initialRole === 'owner';
   const { loadMembers, membersById, loading: membersLoading } = useAdminMembers(orgId, {
     view: 'directory',
   });
@@ -80,8 +85,9 @@ export default function UserEditPanel({ orgId, embedded = false }) {
         if (cancelled) return;
         const data = unwrapMaster(res);
         setPositionOptions(buildPositionOptionsFromHr(data?.positions));
+        setPositionsFallback(false);
       } catch {
-        /* fallback DEFAULT_HR already set */
+        if (!cancelled) setPositionsFallback(true);
       }
     })();
     return () => {
@@ -142,7 +148,7 @@ export default function UserEditPanel({ orgId, embedded = false }) {
         displayName: String(form.displayName || '').trim(),
         jobTitle: String(form.jobTitle || '').trim(),
       });
-      if (nextRole !== initialRole) {
+      if (!isOwnerTarget && nextRole !== initialRole && ASSIGNABLE_ROLE_OPTIONS.includes(nextRole)) {
         await organizationAPI.updateMemberRole(orgId, userId, nextRole);
         setInitialRole(nextRole);
       }
@@ -160,10 +166,14 @@ export default function UserEditPanel({ orgId, embedded = false }) {
       {!userId ? (
         <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
       ) : loading ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        <div className="space-y-3" aria-busy="true" aria-label={t('common.loading')}>
+          {Array.from({ length: 3 }, (_, idx) => (
+            <div key={idx} className="h-10 rounded-xl bg-muted motion-safe:animate-pulse" />
+          ))}
+        </div>
       ) : loadError ? (
-        <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+        <div className="space-y-3" role="alert">
+          <p className="rounded-xl border border-destructive bg-error-bg px-3 py-2 text-sm text-destructive">
             {loadError}
           </p>
           <button
@@ -180,6 +190,7 @@ export default function UserEditPanel({ orgId, embedded = false }) {
           <label className="block">
             <span className={adminLabelClass()}>{t('adminUsers.displayName')}</span>
             <input
+              maxLength={DISPLAY_NAME_MAX_LENGTH}
               className={adminInputClass()}
               placeholder={t('adminUsers.displayName')}
               value={form.displayName}
@@ -189,16 +200,25 @@ export default function UserEditPanel({ orgId, embedded = false }) {
           <label className="block">
             <span className={adminLabelClass()}>{t('adminUsers.membershipRole')}</span>
             <select
-              className={adminInputClass()}
+              className={adminInputClass('disabled:cursor-not-allowed disabled:opacity-50')}
               value={form.role}
+              disabled={isOwnerTarget}
               onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
             >
-              {MEMBERSHIP_ROLE_OPTIONS.map((role) => (
+              {isOwnerTarget ? (
+                <option value="owner" disabled>
+                  {accountRoleLabel('owner', t)}
+                </option>
+              ) : null}
+              {ASSIGNABLE_ROLE_OPTIONS.map((role) => (
                 <option key={role} value={role}>
-                  {role}
+                  {accountRoleLabel(role, t)}
                 </option>
               ))}
             </select>
+            {isOwnerTarget ? (
+              <p className="mt-1 text-xs text-muted-foreground">{t('adminUsers.ownerRoleLocked')}</p>
+            ) : null}
           </label>
           <label className="block">
             <span className={adminLabelClass()}>{t('adminUsers.jobTitle')}</span>
@@ -215,8 +235,13 @@ export default function UserEditPanel({ orgId, embedded = false }) {
               ))}
             </select>
             <p className="mt-1 text-xs text-muted-foreground">{t('adminUsers.jobTitleSelectHint')}</p>
+            {positionsFallback ? (
+              <p className="mt-1 text-xs text-warning" role="status">
+                {t('adminUsers.jobTitleCatalogFallback')}
+              </p>
+            ) : null}
           </label>
-          <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
+          <button type="submit" disabled={saving} aria-busy={saving} className={adminPrimaryBtnClass()}>
             {saving ? t('common.saving') : t('common.save')}
           </button>
         </form>

@@ -51,7 +51,7 @@ export default function TeamLeaderPanel({ orgId, embedded = false }) {
     <AdminUserFormCard title={t('adminDomains.orgStructure.teamLeader')}>
       {structureError ? (
         <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
             {structureError}
           </p>
           <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Editor for dated allocation segments (start/end + %).
  * Empty segments = no saved plan yet (do not invent a phantom 100% row).
  * Client-side overlap warning when same-day total > 100%.
@@ -29,11 +29,11 @@ export default function AllocationSegmentsEditor({
   /** Optional: peer projects for multi-project timeline hint */
   peerProjects = [],
 }) {
-  const muted = isDarkMode ? 'text-slate-300' : 'text-muted-foreground';
-  const titleCls = isDarkMode ? 'text-slate-100' : 'text-foreground';
+  const muted = 'text-muted-foreground';
+  const titleCls = 'text-foreground';
   const inputCls = isDarkMode
-    ? 'w-full rounded-lg border border-slate-600 bg-[#1A1A1C] px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-primary [color-scheme:dark]'
-    : 'w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary';
+    ? 'w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring [color-scheme:dark]'
+    : 'w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring';
 
   const rows = Array.isArray(segments) ? segments : [];
   const isEmpty = rows.length === 0;
@@ -144,8 +144,8 @@ export default function AllocationSegmentsEditor({
         </div>
       )}
       {localOver ? (
-        <p className={`rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] ${
-          isDarkMode ? 'text-red-400' : 'text-red-700'
+        <p className={`rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-[11px] ${
+          isDarkMode ? 'text-destructive400' : 'text-destructive'
         }`}>
           {t('workspace.projectHubAllocLocalOverWarn')}
         </p>
@@ -153,7 +153,7 @@ export default function AllocationSegmentsEditor({
       {peerLines.length ? (
         <div
           className={`rounded-md border px-2.5 py-1.5 text-[11px] ${muted} ${
-            isDarkMode ? 'border-slate-600 bg-slate-800/50' : 'border-border bg-muted/30'
+            isDarkMode ? 'border-border bg-slate-800/50' : 'border-border bg-muted/30'
           }`}
         >
           <p className={`mb-1 font-semibold ${titleCls}`}>

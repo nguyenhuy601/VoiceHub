@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Check, Loader2, Minus, Plus } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStrings } from '../../locales/appStrings';
 import toast from 'react-hot-toast';
@@ -49,6 +49,8 @@ import {
   fetchOrganizationDocumentsOverview,
 } from '../../hooks/queries/useOrganizationDocumentsOverview';
 import { useOrgChannelMessages } from '../../hooks/queries/useOrgChannelMessages';
+import useOrgRoomMessageRealtime from '../../hooks/useOrgRoomMessageRealtime';
+import { mergePollRealtimeMessage } from '../../components/Chat/PollCard';
 import { useOrganizationsMy } from '../../hooks/queries/useOrganizationsMy';
 import { useFriendsList } from '../../hooks/queries/useFriendsList';
 import { fetchFriendsList } from '../../hooks/queries/fetchers';
@@ -106,8 +108,154 @@ import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
 import OrganizationTeamGrid from '../../components/Organization/OrganizationTeamGrid';
 import OrganizationDepartmentGrid from '../../components/Organization/OrganizationDepartmentGrid';
 import OrganizationHubShell from '../../components/Organization/OrganizationHubShell';
+import {
+  adminDangerBtnClass,
+  adminInputClass,
+  adminLabelClass,
+  adminPrimaryBtnClass,
+  adminSecondaryBtnClass,
+} from '../../components/adminUsers/adminUserPanelUi';
+import { AdminBusySpinner } from '../../components/adminUsers/adminPanelStates';
+import {
+  ORG_NAME_MAX,
+  ORG_NAME_MIN,
+  WORKSPACE_COUNT_LIMITS,
+  WORKSPACE_STEP_COUNT,
+  validateWorkspaceStep,
+} from '../../utils/createWorkspaceWizard';
 
 const unwrapData = (payload) => payload?.data ?? payload;
+
+const INVITE_LINK_COPIED_MS = 2000;
+const WORKSPACE_TYPE_OPTIONS = ['company', 'startup', 'education', 'community'];
+const WORKSPACE_TEAM_SIZE_OPTIONS = ['1-10', '11-50', '51-200', '201-1000', '1000+'];
+
+function StructureSelectField({ id, label, value, onChange, options, disabled = false }) {
+  return (
+    <div>
+      <label htmlFor={id} className={adminLabelClass()}>
+        {label}
+      </label>
+      <select
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+        required
+        className={adminInputClass()}
+      >
+        {options.map((option) => (
+          <option key={option._id} value={option._id}>
+            {option.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function StructureNameField({ id, label, value, onChange, placeholder, errorText = '', disabled = false }) {
+  const errorId = `${id}-error`;
+  return (
+    <div>
+      <label htmlFor={id} className={adminLabelClass()}>
+        {label}
+      </label>
+      <input
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        required
+        maxLength={ORG_NAME_MAX}
+        autoFocus
+        disabled={disabled}
+        aria-invalid={Boolean(errorText)}
+        aria-describedby={errorText ? errorId : undefined}
+        className={adminInputClass(errorText ? 'border-destructive' : '')}
+      />
+      {errorText ? (
+        <p id={errorId} role="alert" className="mt-1.5 text-xs font-medium text-destructive motion-safe:animate-fade-in-fast">
+          {errorText}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function StructureModalActions({ cancelLabel, submitLabel, busy, onCancel }) {
+  return (
+    <div className="flex justify-end gap-2 border-t border-border pt-3">
+      <button type="button" onClick={onCancel} disabled={busy} className={adminSecondaryBtnClass('px-3 py-2')}>
+        {cancelLabel}
+      </button>
+      <button type="submit" disabled={busy} aria-busy={busy} className={adminPrimaryBtnClass('px-3 py-2')}>
+        <AdminBusySpinner busy={busy} />
+        {submitLabel}
+      </button>
+    </div>
+  );
+}
+
+const COUNT_STEP_BTN_CLASS =
+  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none';
+
+function WorkspaceCountField({
+  id,
+  label,
+  inputValue,
+  value,
+  min,
+  max,
+  decreaseLabel,
+  increaseLabel,
+  onDraft,
+  onCommit,
+  onAdjust,
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className={adminLabelClass()}>
+        {label}
+      </label>
+      <div className="flex items-center gap-1 rounded-xl border border-border bg-background px-1 py-1 focus-within:ring-2 focus-within:ring-ring">
+        <input
+          id={id}
+          type="text"
+          inputMode="numeric"
+          value={inputValue}
+          onChange={(event) => onDraft(event.target.value)}
+          onBlur={onCommit}
+          aria-describedby={`${id}-range`}
+          className="w-full min-w-0 rounded-md bg-transparent px-2 py-1.5 text-sm text-foreground outline-none"
+        />
+        <span id={`${id}-range`} className="sr-only">
+          {min}–{max}
+        </span>
+        <div className="flex shrink-0 gap-1">
+          <button
+            type="button"
+            onClick={() => onAdjust(-1)}
+            disabled={Number(value) <= min}
+            aria-label={decreaseLabel}
+            className={COUNT_STEP_BTN_CLASS}
+          >
+            <Minus className="h-3.5 w-3.5" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={() => onAdjust(1)}
+            disabled={Number(value) >= max}
+            aria-label={increaseLabel}
+            className={COUNT_STEP_BTN_CLASS}
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** Khi đổi phòng ban: không tự nhảy vào kênh voice — ưu tiên kênh chat hoặc để trống. */
 
@@ -345,12 +493,6 @@ function OrganizationsPage({
   const [inviteStructureBranches, setInviteStructureBranches] = useState([]);
   const [inviteContextLabel, setInviteContextLabel] = useState('');
   const [pendingInvitations, setPendingInvitations] = useState([]);
-  /** Đơn gia nhập đang chờ duyệt (hiển thị bubble sidebar). */
-  const [pendingJoinApplications, setPendingJoinApplications] = useState([]);
-  /** Đơn cần duyệt (owner/admin) — Trang chủ tổ chức. */
-  const [joinApplicationsToReview, setJoinApplicationsToReview] = useState([]);
-  const [loadingJoinApplicationsToReview, setLoadingJoinApplicationsToReview] = useState(false);
-  const [respondingJoinReviewKeys, setRespondingJoinReviewKeys] = useState([]);
   const [loadingInvitations, setLoadingInvitations] = useState(false);
   const [respondingInvitationIds, setRespondingInvitationIds] = useState([]);
   const [chatContacts, setChatContacts] = useState([]);
@@ -418,7 +560,7 @@ function OrganizationsPage({
           Array.from({ length: departmentsPerDivision }, (_, depIdx) =>
             Array.from({ length: teamsPerDepartment }, (_, tIdx) => {
               const val = prev?.[bIdx]?.[dIdx]?.[depIdx]?.[tIdx];
-              const fallback = `Team ${depIdx + 1}.${tIdx + 1}`;
+              const fallback = t('organizations.teamFallbackN', { d: depIdx + 1, n: tIdx + 1 });
               return val != null && String(val).trim() ? String(val) : fallback;
             })
           )
@@ -447,6 +589,21 @@ function OrganizationsPage({
   const [renameTargetType, setRenameTargetType] = useState('');
   const [renameTargetId, setRenameTargetId] = useState('');
   const [renameTargetName, setRenameTargetName] = useState('');
+  const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
+  /** Modal tạo/đổi tên đang gửi: 'division' | 'department' | 'team' | 'channel' | 'rename' | ''. */
+  const [structureModalBusy, setStructureModalBusy] = useState('');
+  /** Lỗi inline cho ô tên đang mở (key i18n). */
+  const [structureNameError, setStructureNameError] = useState('');
+  const [createWorkspaceStepError, setCreateWorkspaceStepError] = useState('');
+  const modalFieldId = useId();
+  const workspaceStepHeadingRef = useRef(null);
+
+  useEffect(() => {
+    const heading = workspaceStepHeadingRef.current;
+    if (!heading) return;
+    // Bước có input autoFocus đã nhận focus lúc commit — chỉ focus tiêu đề khi focus còn ở ngoài bước.
+    if (!heading.parentElement?.contains(document.activeElement)) heading.focus();
+  }, [createWorkspaceStep]);
   const [deleteChannelMsgConfirmId, setDeleteChannelMsgConfirmId] = useState(null);
   const [leaveOrgModalOpen, setLeaveOrgModalOpen] = useState(false);
   const [leaveOrgPendingId, setLeaveOrgPendingId] = useState(null);
@@ -544,7 +701,7 @@ function OrganizationsPage({
       !landingDemo &&
       !workspaceTabProp &&
       !orgIdFromQuery &&
-      ((suiteMode === 'collaborate' && location.pathname === '/app/collaborate/workspaces') ||
+      ((suiteMode === 'collaborate' && location.pathname === '/app/company/workspaces') ||
         (suiteMode === 'communicate' && location.pathname === '/app/communicate/channels')),
     [suiteLayout, landingDemo, workspaceTabProp, orgIdFromQuery, suiteMode, location.pathname]
   );
@@ -838,16 +995,6 @@ function OrganizationsPage({
     setActiveWorkspace(workspacePayloadFromOrg(current));
   }, [activeWorkspaceSyncKey, setActiveWorkspace]);
 
-  /** Số đơn gia nhập chờ duyệt theo từng tổ chức (badge trên avatar). */
-  const joinReviewCountByOrgId = useMemo(() => {
-    const m = {};
-    for (const app of joinApplicationsToReview) {
-      const id = String(app.organizationId);
-      m[id] = (m[id] || 0) + 1;
-    }
-    return m;
-  }, [joinApplicationsToReview]);
-
   const forwardPreviewText = useMemo(() => {
     if (!forwardSourceMessage) return '';
     return String(forwardSourceMessage.content || '').slice(0, 500);
@@ -905,19 +1052,6 @@ function OrganizationsPage({
       setLoadingInvitations(false);
     }
   };
-
-  const loadPendingJoinApplications = async () => {
-    setPendingJoinApplications([]);
-  };
-
-  const loadJoinApplicationsToReview = async () => {
-    setJoinApplicationsToReview([]);
-    setLoadingJoinApplicationsToReview(false);
-  };
-
-  const handleApproveJoinApplication = async () => {};
-
-  const handleRejectJoinApplication = async () => {};
 
   const loadChatContacts = async (organizationIdArg = selectedOrganizationId) => {
     setLoadingChatContacts(true);
@@ -2282,21 +2416,50 @@ function OrganizationsPage({
     setCreateDepartmentNames([[['']]]);
     setCreateTeamNames([[[['']]]]);
     setCreateWorkspaceStep(1);
+    setCreateWorkspaceStepError('');
     setCreatingWorkspace(false);
     setCreateOrgModalOpen(true);
   };
 
+  const buildWorkspaceWizardForm = () => ({
+    name: createOrgName,
+    slug: toWorkspaceSlug(createWorkspaceSlug || createOrgName),
+    counts: {
+      branch: createBranchCount,
+      divisionPerBranch: createDivisionPerBranch,
+      departmentPerDivision: createDepartmentPerDivision,
+      teamPerDepartment: createTeamPerDepartment,
+    },
+    structureNames: [createBranchNames, createDivisionNames, createDepartmentNames, createTeamNames].flat(
+      Infinity
+    ),
+  });
+
+  const goToNextWorkspaceStep = () => {
+    const result = validateWorkspaceStep(createWorkspaceStep, buildWorkspaceWizardForm());
+    if (!result.ok) {
+      setCreateWorkspaceStepError(result.errorKey);
+      return;
+    }
+    setCreateWorkspaceStepError('');
+    setCreateWorkspaceStep((step) => Math.min(WORKSPACE_STEP_COUNT, step + 1));
+  };
+
+  const goToPreviousWorkspaceStep = () => {
+    setCreateWorkspaceStepError('');
+    setCreateWorkspaceStep((step) => Math.max(1, step - 1));
+  };
+
   const handleSubmitCreateOrganization = async () => {
+    if (creatingWorkspace) return;
+    const validation = validateWorkspaceStep(WORKSPACE_STEP_COUNT, buildWorkspaceWizardForm());
+    if (!validation.ok) {
+      setCreateWorkspaceStep(validation.step);
+      setCreateWorkspaceStepError(validation.errorKey);
+      return;
+    }
     const normalizedName = String(createOrgName || '').trim();
     const normalizedSlug = toWorkspaceSlug(createWorkspaceSlug || createOrgName);
-    if (!normalizedName) {
-      notifyError(t('organizations.orgNameRequired'));
-      return;
-    }
-    if (!normalizedSlug || normalizedSlug.length < 3) {
-      notifyError(t('organizations.workspaceSlugMin'));
-      return;
-    }
 
     setCreatingWorkspace(true);
     try {
@@ -2387,8 +2550,6 @@ function OrganizationsPage({
       await Promise.all([
         loadOrganizations(),
         loadPendingInvitations(),
-        loadPendingJoinApplications(),
-        loadJoinApplicationsToReview(),
       ]);
     } catch (error) {
       notifyError(t('organizations.joinInviteFail'));
@@ -2411,6 +2572,7 @@ function OrganizationsPage({
       return;
     }
     setCreateDeptName('');
+    setStructureNameError('');
     setCreateDeptDivisionId(String(selectedDivisionId));
     setCreateDeptModalOpen(true);
   };
@@ -2429,52 +2591,67 @@ function OrganizationsPage({
       return;
     }
     setCreateDivisionName('');
+    setStructureNameError('');
     setCreateDivisionBranchId(String(selectedBranchId));
     setCreateDivisionModalOpen(true);
   };
 
-  const handleSubmitCreateDivision = async () => {
-    if (!createDivisionName?.trim()) {
-      notifyError(t('organizations.divisionNameRequired'));
-      return;
-    }
-    if (!createDivisionBranchId) {
-      notifyError(t('organizations.selectBranchRequired'));
-      return;
-    }
+  const runStructureModalSubmit = async (kind, submit) => {
+    if (structureModalBusy) return;
+    setStructureModalBusy(kind);
     try {
-      await organizationAPI.createDivision(selectedOrganizationId, createDivisionBranchId, {
-        name: createDivisionName.trim(),
-      });
-      notifySuccess(t('organizationSettings.divisionCreated'));
-      setCreateDivisionModalOpen(false);
-      await reloadOrgShell(selectedOrganizationId);
-    } catch {
-      notifyError(t('organizationSettings.divisionCreateFail'));
+      await submit();
+    } finally {
+      setStructureModalBusy('');
     }
   };
 
-  const handleSubmitCreateDepartment = async () => {
-    if (!createDeptName?.trim()) {
-      notifyError(t('organizations.deptNameRequired'));
-      return;
-    }
-    if (!createDeptDivisionId) {
-      notifyError(t('organizations.selectDivisionRequired'));
-      return;
-    }
+  const handleSubmitCreateDivision = () =>
+    runStructureModalSubmit('division', async () => {
+      if (!createDivisionName?.trim()) {
+        setStructureNameError('organizations.divisionNameRequired');
+        return;
+      }
+      if (!createDivisionBranchId) {
+        notifyError(t('organizations.selectBranchRequired'));
+        return;
+      }
+      try {
+        await organizationAPI.createDivision(selectedOrganizationId, createDivisionBranchId, {
+          name: createDivisionName.trim(),
+        });
+        notifySuccess(t('organizationSettings.divisionCreated'));
+        setCreateDivisionModalOpen(false);
+        await reloadOrgShell(selectedOrganizationId);
+      } catch (error) {
+        notifyError(
+          resolveApiErrorMessage(error, { t, fallback: t('organizationSettings.divisionCreateFail') })
+        );
+      }
+    });
 
-    try {
-      await organizationAPI.createDepartmentByDivision(selectedOrganizationId, createDeptDivisionId, {
-        name: createDeptName.trim(),
-      });
-      notifySuccess(t('organizations.deptCreated'));
-      setCreateDeptModalOpen(false);
-      await reloadOrgShell(selectedOrganizationId);
-    } catch (error) {
-      notifyError(t('organizations.deptCreateFail'));
-    }
-  };
+  const handleSubmitCreateDepartment = () =>
+    runStructureModalSubmit('department', async () => {
+      if (!createDeptName?.trim()) {
+        setStructureNameError('organizations.deptNameRequired');
+        return;
+      }
+      if (!createDeptDivisionId) {
+        notifyError(t('organizations.selectDivisionRequired'));
+        return;
+      }
+
+      try {
+        await organizationAPI.createDepartmentByDivision(selectedOrganizationId, createDeptDivisionId, {
+          name: createDeptName.trim(),
+        });
+        notifySuccess(t('organizations.deptCreated'));
+        setCreateDeptModalOpen(false);
+        await reloadOrgShell(selectedOrganizationId);
+      } catch (error) {
+        notifyError(resolveApiErrorMessage(error, { t, fallback: t('organizations.deptCreateFail') }));
+      }
+    });
 
   const handleCreateTeam = async () => {
     if (!canCreateTeam) {
@@ -2491,28 +2668,34 @@ function OrganizationsPage({
       return;
     }
     setCreateTeamName('');
+    setStructureNameError('');
     setCreateTeamDepartmentId(deptId);
     setCreateTeamModalOpen(true);
   };
 
-  const handleSubmitCreateTeam = async () => {
-    if (!createTeamName.trim() || !createTeamDepartmentId) {
-      notifyError(t('organizationSettings.selectDepartment'));
-      return;
-    }
-    try {
-      await organizationAPI.createTeamByDepartment(selectedOrganizationId, createTeamDepartmentId, {
-        name: createTeamName.trim(),
-      });
-      notifySuccess(t('organizationSettings.teamCreated'));
-      setCreateTeamModalOpen(false);
-      await reloadOrgShell(selectedOrganizationId);
-    } catch (error) {
-      notifyError(
-        resolveApiErrorMessage(error, { t, fallback: t('organizationSettings.teamCreateFail') })
-      );
-    }
-  };
+  const handleSubmitCreateTeam = () =>
+    runStructureModalSubmit('team', async () => {
+      if (!createTeamName.trim()) {
+        setStructureNameError('organizations.teamNameRequired');
+        return;
+      }
+      if (!createTeamDepartmentId) {
+        notifyError(t('organizationSettings.selectDepartment'));
+        return;
+      }
+      try {
+        await organizationAPI.createTeamByDepartment(selectedOrganizationId, createTeamDepartmentId, {
+          name: createTeamName.trim(),
+        });
+        notifySuccess(t('organizationSettings.teamCreated'));
+        setCreateTeamModalOpen(false);
+        await reloadOrgShell(selectedOrganizationId);
+      } catch (error) {
+        notifyError(
+          resolveApiErrorMessage(error, { t, fallback: t('organizationSettings.teamCreateFail') })
+        );
+      }
+    });
 
   const handleOpenWorkspace = (orgId) => {
     if (!orgId) return;
@@ -2610,8 +2793,6 @@ function OrganizationsPage({
       await Promise.all([
         loadOrganizations(),
         loadPendingInvitations(),
-        loadPendingJoinApplications(),
-        loadJoinApplicationsToReview(),
       ]);
     } catch (error) {
       notifyError(resolveApiErrorMessage(error, { t, fallback: t('organizations.leaveFail') }));
@@ -2731,6 +2912,8 @@ function OrganizationsPage({
     if (!generatedInviteLink) return;
     try {
       await navigator.clipboard.writeText(generatedInviteLink);
+      setInviteLinkCopied(true);
+      window.setTimeout(() => setInviteLinkCopied(false), INVITE_LINK_COPIED_MS);
       notifySuccess(t('organizations.linkCopied'));
     } catch (error) {
       notifyError(t('organizations.linkCopyFail'));
@@ -2765,8 +2948,6 @@ function OrganizationsPage({
       await Promise.all([
         loadOrganizations(),
         loadPendingInvitations(),
-        loadPendingJoinApplications(),
-        loadJoinApplicationsToReview(),
       ]);
     } catch (error) {
       notifyError(t('organizations.inviteHandleFail'));
@@ -2793,6 +2974,7 @@ function OrganizationsPage({
 
     setCreateChannelType(channelType);
     setCreateChannelName('');
+    setStructureNameError('');
     setCreateChannelLevel(deptWorkspace ? 'department' : 'team');
     setCreateChannelBranchId(String(selectedBranchId || ''));
     setCreateChannelDivisionId(String(selectedDivisionId || ''));
@@ -2801,75 +2983,80 @@ function OrganizationsPage({
     setCreateChannelModalOpen(true);
   };
 
-  const handleSubmitCreateChannel = async () => {
-    if (!createChannelName.trim()) {
-      notifyError(t('organizations.channelNameRequired'));
-      return;
-    }
-    if (createChannelLevel === 'department') {
-      if (!createChannelDepartmentId) {
-        notifyError(t('organizations.selectDepartmentRequired'));
+  const handleSubmitCreateChannel = () =>
+    runStructureModalSubmit('channel', async () => {
+      if (!createChannelName.trim()) {
+        setStructureNameError('organizations.channelNameRequired');
         return;
       }
+      if (createChannelLevel === 'department') {
+        if (!createChannelDepartmentId) {
+          notifyError(t('organizations.selectDepartmentRequired'));
+          return;
+        }
+        try {
+          await organizationAPI.createChannelByScope(selectedOrganizationId, {
+            level: 'department',
+            departmentId: createChannelDepartmentId,
+            name: createChannelName.trim(),
+            type: createChannelType,
+          });
+          notifySuccess(t('organizations.channelCreated'));
+          setCreateChannelModalOpen(false);
+          setSelectedBranchId(createChannelBranchId);
+          setSelectedDivisionId(createChannelDivisionId);
+          setSelectedDepartmentId(createChannelDepartmentId);
+          await reloadOrgShell(selectedOrganizationId);
+          await loadChannels(
+            selectedOrganizationId,
+            createChannelDepartmentId,
+            departmentWorkspaceActive ? '' : selectedTeamId
+          );
+        } catch (error) {
+          notifyError(resolveApiErrorMessage(error, { t, fallback: t('organizations.channelCreateFail') }));
+        }
+        return;
+      }
+
+      if (!createChannelTeamId) {
+        notifyError(t('organizations.selectTeamRequired'));
+        return;
+      }
+
       try {
-        await organizationAPI.createChannelByScope(selectedOrganizationId, {
-          level: 'department',
-          departmentId: createChannelDepartmentId,
+        await organizationAPI.createChannelByTeam(selectedOrganizationId, createChannelTeamId, {
           name: createChannelName.trim(),
           type: createChannelType,
         });
         notifySuccess(t('organizations.channelCreated'));
-        setCreateChannelModalOpen(false);
         setSelectedBranchId(createChannelBranchId);
         setSelectedDivisionId(createChannelDivisionId);
         setSelectedDepartmentId(createChannelDepartmentId);
+        setSelectedTeamId(createChannelTeamId);
+        setCreateChannelModalOpen(false);
         await reloadOrgShell(selectedOrganizationId);
-        await loadChannels(
-          selectedOrganizationId,
-          createChannelDepartmentId,
-          departmentWorkspaceActive ? '' : selectedTeamId
-        );
+        await loadChannels(selectedOrganizationId, createChannelDepartmentId, createChannelTeamId);
       } catch (error) {
-        notifyError(t('organizations.channelCreateFail'));
+        notifyError(resolveApiErrorMessage(error, { t, fallback: t('organizations.channelCreateFail') }));
       }
-      return;
-    }
-
-    if (!createChannelTeamId) {
-      notifyError(t('organizations.selectTeamRequired'));
-      return;
-    }
-
-    try {
-      await organizationAPI.createChannelByTeam(selectedOrganizationId, createChannelTeamId, {
-        name: createChannelName.trim(),
-        type: createChannelType,
-      });
-      notifySuccess(t('organizations.channelCreated'));
-      setSelectedBranchId(createChannelBranchId);
-      setSelectedDivisionId(createChannelDivisionId);
-      setSelectedDepartmentId(createChannelDepartmentId);
-      setSelectedTeamId(createChannelTeamId);
-      setCreateChannelModalOpen(false);
-      await reloadOrgShell(selectedOrganizationId);
-      await loadChannels(selectedOrganizationId, createChannelDepartmentId, createChannelTeamId);
-    } catch (error) {
-      notifyError(t('organizations.channelCreateFail'));
-    }
-  };
+    });
 
   const openRenameModal = (type, entity) => {
     if (!entity?._id) return;
     setRenameTargetType(type);
     setRenameTargetId(String(entity._id));
     setRenameTargetName(String(entity?.name || ''));
+    setStructureNameError('');
     setRenameModalOpen(true);
   };
 
-  const handleSubmitRenameEntity = async () => {
+  const handleSubmitRenameEntity = () =>
+    runStructureModalSubmit('rename', () => submitRenameEntity());
+
+  const submitRenameEntity = async () => {
     const nextName = String(renameTargetName || '').trim();
     if (!nextName) {
-      notifyError(t('organizations.renameEmpty'));
+      setStructureNameError('organizations.renameEmpty');
       return;
     }
     try {
@@ -2909,8 +3096,8 @@ function OrganizationsPage({
           departmentWorkspaceActive ? '' : selectedTeamId
         );
       }
-    } catch {
-      notifyError(t('organizations.renameFailRetry'));
+    } catch (error) {
+      notifyError(resolveApiErrorMessage(error, { t, fallback: t('organizations.renameFailRetry') }));
     }
   };
 
@@ -2988,8 +3175,10 @@ function OrganizationsPage({
       const created = unwrapData(payload);
       appendChannelMessage(created);
       setVoiceMessageInput('');
-    } catch {
-      notifyError(t('organizations.sendMessageFail'));
+    } catch (error) {
+      notifyError(
+        resolveApiErrorMessage(error, { t, fallback: t('organizations.sendMessageFail') })
+      );
     } finally {
       setSendingMessage(false);
     }
@@ -3041,8 +3230,8 @@ function OrganizationsPage({
       await api.delete(`/messages/${messageId}`);
       setMessages((prev) => prev.filter((m) => String(m._id || m.id) !== String(messageId)));
       notifySuccess(t('organizations.msgDeleted'));
-    } catch {
-      notifyError(t('organizations.deleteFail'));
+    } catch (error) {
+      notifyError(resolveApiErrorMessage(error, { t, fallback: t('organizations.deleteFail') }));
     }
   };
 
@@ -3058,6 +3247,7 @@ function OrganizationsPage({
     const header = t('organizations.forwardHeader', { name: chName });
     const body = [note, header, preview].filter(Boolean).join('\n\n');
     setSendingMessage(true);
+    let sentCount = 0;
     try {
       for (const cid of channelIds) {
         await api.post('/messages', {
@@ -3066,12 +3256,18 @@ function OrganizationsPage({
           messageType: 'text',
           organizationId: selectedOrganizationId || undefined,
         });
+        sentCount += 1;
       }
       notifySuccess(t('organizations.forwardOk'));
       setForwardModalOpen(false);
       setForwardSourceMessage(null);
-    } catch {
-      notifyError(t('organizations.forwardFail'));
+    } catch (error) {
+      const reason = resolveApiErrorMessage(error, { t, fallback: t('organizations.forwardFail') });
+      notifyError(
+        sentCount > 0
+          ? `${t('organizations.forwardPartial', { sent: sentCount, total: channelIds.length })} ${reason}`
+          : reason
+      );
     } finally {
       setSendingMessage(false);
     }
@@ -3287,12 +3483,13 @@ function OrganizationsPage({
         role: payload?.role || '',
       });
     } else if (kind === 'poll') {
-      messageType = 'system';
+      messageType = 'poll';
       const options = Array.isArray(payload?.options) ? payload.options : [];
-      content = t('organizations.poll', {
-        q: payload?.question || '',
-        options: options.map((opt, idx) => `${idx + 1}. ${opt}`).join('\n'),
-      });
+      content = String(payload?.question || '').trim();
+      if (!content || options.length < 2) {
+        notifyError(t('organizations.customFail'));
+        return;
+      }
     } else if (kind === 'topic') {
       messageType = 'system';
       const topicText = String(
@@ -3309,12 +3506,21 @@ function OrganizationsPage({
 
     setSendingMessage(true);
     try {
-      const created = await api.post('/messages', {
+      const body = {
         roomId: selectedChannelId,
         content,
         messageType,
         organizationId: selectedOrganizationId || undefined,
-      });
+      };
+      if (kind === 'poll') {
+        body.poll = {
+          question: content,
+          options: Array.isArray(payload?.options) ? payload.options : [],
+          allowMulti: Boolean(payload?.allowMultiAnswer),
+          duration: payload?.duration || '24h',
+        };
+      }
+      const created = await api.post('/messages', body);
       const normalized = unwrapData(created);
       appendChannelMessage(normalized);
       if (kind === 'topic' && selectedChannelType === 'voice') {
@@ -3322,7 +3528,7 @@ function OrganizationsPage({
       }
       notifySuccess(t('organizations.customSent'));
     } catch (error) {
-      notifyError(t('organizations.customFail'));
+      notifyError(resolveApiErrorMessage(error, { t, fallback: t('organizations.customFail') }));
     } finally {
       setSendingMessage(false);
     }
@@ -3453,21 +3659,6 @@ function OrganizationsPage({
       loadPendingInvitations();
     }
   }, [inviteModalOpen, landingDemo]);
-
-  const canReviewJoinForOrg = useMemo(() => {
-    const org = organizations.find((o) => String(o._id) === String(selectedOrganizationId));
-    return ['owner', 'admin'].includes(String(org?.myRole || org?.role || '').toLowerCase());
-  }, [organizations, selectedOrganizationId]);
-
-  const joinReviewFetchRef = useRef('');
-
-  useEffect(() => {
-    if (landingDemo || !canReviewJoinForOrg) return;
-    const key = String(selectedOrganizationId || '');
-    if (joinReviewFetchRef.current === key) return;
-    joinReviewFetchRef.current = key;
-    loadJoinApplicationsToReview();
-  }, [landingDemo, canReviewJoinForOrg, selectedOrganizationId]);
 
   const friendsListKey = useMemo(() => {
     const friendList = Array.isArray(friendsQuery.data) ? friendsQuery.data : [];
@@ -3857,8 +4048,6 @@ function OrganizationsPage({
             await Promise.all([
               loadOrganizations(),
               loadPendingInvitations(),
-              loadPendingJoinApplications(),
-              loadJoinApplicationsToReview(),
             ]);
           }
         } else {
@@ -3866,12 +4055,15 @@ function OrganizationsPage({
           await Promise.all([
             loadOrganizations(),
             loadPendingInvitations(),
-            loadPendingJoinApplications(),
-            loadJoinApplicationsToReview(),
           ]);
         }
       } catch (error) {
-        notifyError(t('organizations.joinInviteFail'));
+        const errorCode = error?.response?.data?.errorCode || error?.errorCode;
+        notifyError(
+          errorCode === 'ORG_INVITE_LINK_REVOKED'
+            ? t('organizations.inviteLinkRevoked')
+            : t('organizations.joinInviteFail')
+        );
       } finally {
         if (!navigatedToJoinForm) {
           params.delete('orgId');
@@ -4215,6 +4407,60 @@ function OrganizationsPage({
     enrichChannelMessages,
   ]);
 
+  const onOrgRoomMessageEdited = useCallback((msg) => {
+    const id = String(msg?._id || msg?.id || '');
+    if (!id) return;
+    const normalized = normalizeOrgChatMessage(msg) || msg;
+    setMessages((prev) =>
+      prev.map((m) => (String(m._id || m.id) === id ? { ...m, ...normalized } : m))
+    );
+  }, []);
+
+  const onOrgRoomMessageRecalled = useCallback((msg) => {
+    const id = String(msg?._id || msg?.id || '');
+    if (!id) return;
+    const normalized = normalizeOrgChatMessage(msg) || msg;
+    setMessages((prev) =>
+      prev.map((m) => (String(m._id || m.id) === id ? { ...m, ...normalized } : m))
+    );
+  }, []);
+
+  const onOrgRoomMessageDeleted = useCallback((msg) => {
+    const id = String(msg?.messageId || msg?._id || msg?.id || '');
+    if (!id) return;
+    setMessages((prev) => prev.filter((m) => String(m._id || m.id) !== id));
+  }, []);
+
+  const applyOrgPollUpdate = useCallback((msg) => {
+    const raw = msg?.data !== undefined && msg?.poll == null ? unwrapData(msg) : msg;
+    const normalized = normalizeOrgChatMessage(raw) || raw;
+    const id = String(normalized?._id || normalized?.id || '');
+    if (!id) return;
+    const patchList = (prev) =>
+      prev.map((m) =>
+        String(m._id || m.id) === id
+          ? normalizeOrgChatMessage(mergePollRealtimeMessage(m, normalized))
+          : m
+      );
+    setMessages(patchList);
+    setVoiceRoomMessages(patchList);
+  }, []);
+
+  useOrgRoomMessageRealtime({
+    roomId: selectedChannelId,
+    on,
+    off,
+    enabled:
+      !landingDemo &&
+      selectedChannelType !== 'voice' &&
+      Boolean(selectedChannelId) &&
+      Boolean(selectedOrganizationId),
+    onEdited: onOrgRoomMessageEdited,
+    onRecalled: onOrgRoomMessageRecalled,
+    onDeleted: onOrgRoomMessageDeleted,
+    onPollUpdated: applyOrgPollUpdate,
+  });
+
   useEffect(() => {
     if (landingDemo) return;
     if (selectedChannelType !== 'voice') {
@@ -4286,8 +4532,6 @@ function OrganizationsPage({
     const refreshOrgData = () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.organizations.my() });
       if (inviteModalOpen) loadPendingInvitations();
-      loadPendingJoinApplications();
-      if (canReviewJoinForOrg) loadJoinApplicationsToReview();
     };
 
     const handleOrgEvent = () => {
@@ -4318,18 +4562,6 @@ function OrganizationsPage({
       off('organization:join_application_rejected', handleOrgEvent);
     };
   }, [on, off, landingDemo]);
-
-  useEffect(() => {
-    if (landingDemo) return;
-    if (!location.state?.refreshPendingJoin) return;
-    void loadPendingJoinApplications();
-    const rest = { ...location.state };
-    delete rest.refreshPendingJoin;
-    navigate(`${location.pathname}${location.search}`, {
-      replace: true,
-      state: Object.keys(rest).length ? rest : undefined,
-    });
-  }, [location.state?.refreshPendingJoin]);
 
   useEffect(() => {
     if (!on || !off) return;
@@ -4438,6 +4670,10 @@ function OrganizationsPage({
       onChangeMessageInput={setMessageInput}
       onSendMessage={handleSendMessage}
       loadingMessages={selectedChannel?.type !== 'voice' && orgChannelMessagesQuery.isLoading}
+      messagesLoadError={
+        selectedChannel?.type !== 'voice' && orgChannelMessagesQuery.isError && !messages.length
+      }
+      onRetryMessages={() => orgChannelMessagesQuery.refetch()}
       hasMoreOlderMessages={orgChannelMessagesQuery.hasMoreOlder}
       loadingOlderMessages={orgChannelMessagesQuery.loadingOlder}
       onLoadOlderMessages={() => orgChannelMessagesQuery.loadOlderMessages()}
@@ -4460,6 +4696,7 @@ function OrganizationsPage({
       onRenameTeam={(team) => openRenameModal('team', team)}
       onRenameChannel={(channel) => openRenameModal('channel', channel)}
       onSendChatOption={handleSendChatOption}
+      onPollUpdated={applyOrgPollUpdate}
       chatContacts={chatContacts}
       loadingChatContacts={loadingChatContacts}
       loadingChannels={loadingChannels}
@@ -4629,7 +4866,6 @@ function OrganizationsPage({
           onQuickInviteChange={setQuickInviteInput}
           onQuickInviteSubmit={handleJoinQuickInvite}
           joiningQuickInvite={joiningQuickInvite}
-          joinReviewCountByOrgId={joinReviewCountByOrgId}
         />
       ) : (
       <ThreeFrameLayout
@@ -4707,12 +4943,6 @@ function OrganizationsPage({
               refreshKey={memberListRefreshKey}
               currentUserId={user?.userId || user?._id || user?.id}
               myRole={selectedOrganization?.myRole}
-              canReviewJoinApplications={false}
-              joinApplicationsToReview={[]}
-              loadingJoinApplicationsToReview={false}
-              respondingJoinReviewKeys={[]}
-              onApproveJoinApplication={undefined}
-              onRejectJoinApplication={undefined}
               onMentionUser={(text) => {
                 if (selectedChannelType === 'voice') {
                   setVoiceMessageInput((prev) => `${prev || ''}${text}`);
@@ -4743,17 +4973,17 @@ function OrganizationsPage({
           title={t('organizations.leaveTitle')}
           size="sm"
         >
-          <p className="text-sm leading-relaxed text-gray-300">
+          <p className="text-sm leading-relaxed text-muted-foreground">
             {t('organizations.leaveIntro')}{' '}
-            <span className="font-semibold text-white">&quot;{leaveOrgPendingName}&quot;</span>.{' '}
+            <span className="font-semibold text-foreground">&quot;{leaveOrgPendingName}&quot;</span>.{' '}
             {t('organizations.leaveOutro')}
           </p>
-          <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-white/10 pt-4">
+          <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-border pt-4">
             <button
               type="button"
               onClick={closeLeaveOrgModal}
               disabled={leavingOrg}
-              className="rounded-xl border border-white/20 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              className={adminSecondaryBtnClass()}
             >
               {t('nav.cancel')}
             </button>
@@ -4761,8 +4991,10 @@ function OrganizationsPage({
               type="button"
               onClick={confirmLeaveOrganization}
               disabled={leavingOrg}
-              className="rounded-xl bg-gradient-to-r from-rose-600 to-rose-500 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_0_16px_rgba(225,29,72,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              aria-busy={leavingOrg}
+              className={adminDangerBtnClass()}
             >
+              <AdminBusySpinner busy={leavingOrg} />
               {leavingOrg ? t('organizations.leaving') : t('organizations.leaveBtn')}
             </button>
           </div>
@@ -4787,14 +5019,18 @@ function OrganizationsPage({
               id="org-invite-friend-search"
             />
 
-            <div className="max-h-72 space-y-2 overflow-y-auto pr-1 scrollbar-overlay">
+            <div
+              className="max-h-72 space-y-2 overflow-y-auto pr-1 scrollbar-overlay"
+              aria-busy={loadingInviteFriends}
+            >
               {loadingInviteFriends && (
-                <div className="rounded-lg bg-white/5 p-3 text-sm text-gray-300">
+                <div className="flex items-center gap-2 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+                  <AdminBusySpinner busy />
                   {t('organizations.loadingFriends')}
                 </div>
               )}
               {!loadingInviteFriends && filteredInviteFriends.length === 0 && (
-                <div className="rounded-lg border border-dashed border-white/15 p-3 text-sm text-gray-400">
+                <div className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
                   {t('organizations.noFriendsInvite')}
                 </div>
               )}
@@ -4804,18 +5040,21 @@ function OrganizationsPage({
                   return (
                     <div
                       key={friend.id}
-                      className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2"
+                      className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
                     >
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-white">{friend.name}</div>
-                        <div className="truncate text-xs text-gray-400">{friend.username}</div>
+                        <div className="truncate text-sm font-semibold text-foreground">{friend.name}</div>
+                        <div className="truncate text-xs text-muted-foreground">{friend.username}</div>
                       </div>
                       <button
                         type="button"
                         onClick={() => handleInviteFriendToOrganization(friend.id)}
                         disabled={inviting}
-                        className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white transition hover:bg-white/20 disabled:opacity-50"
+                        aria-busy={inviting}
+                        aria-label={t('organizations.inviteFriendAria', { name: friend.name })}
+                        className={adminSecondaryBtnClass('px-3 py-1.5')}
                       >
+                        <AdminBusySpinner busy={inviting} />
                         {inviting ? t('organizations.inviting') : t('organizations.inviteBtn')}
                       </button>
                     </div>
@@ -4823,53 +5062,67 @@ function OrganizationsPage({
                 })}
             </div>
 
-            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+            <div className="rounded-xl border border-border bg-muted/40 p-3">
               <div className="mb-2 flex items-center justify-between">
-                <div className="text-sm font-semibold text-white">{t('organizations.inviteByLink')}</div>
+                <div className="text-sm font-semibold text-foreground">{t('organizations.inviteByLink')}</div>
                 {isInviteLinkBeta && (
-                  <span className="rounded-md bg-yellow-500/20 px-2 py-0.5 text-xs text-yellow-300">
-                    Beta
+                  <span className="rounded-md bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
+                    {t('organizations.inviteLinkBetaBadge')}
                   </span>
                 )}
               </div>
               <div className="mb-2 grid grid-cols-2 gap-2">
-                <select
-                  value={inviteBranchId}
-                  onChange={(event) => {
-                    const nextBranchId = event.target.value;
-                    const selectedBranch = inviteStructureBranches.find(
-                      (b) => String(b._id) === String(nextBranchId)
-                    );
-                    const nextDivisionId = selectedBranch?.divisions?.[0]?._id
-                      ? String(selectedBranch.divisions[0]._id)
-                      : '';
-                    setInviteBranchId(nextBranchId);
-                    setInviteDivisionId(nextDivisionId);
-                  }}
-                  className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-xs text-gray-200"
-                >
-                  {inviteStructureBranches.map((branch) => (
-                    <option key={branch._id} value={branch._id}>
-                      {branch.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={inviteDivisionId}
-                  onChange={(event) => setInviteDivisionId(event.target.value)}
-                  className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-xs text-gray-200"
-                >
-                  {(inviteStructureBranches.find((b) => String(b._id) === String(inviteBranchId))
-                    ?.divisions || []
-                  ).map((division) => (
-                    <option key={division._id} value={division._id}>
-                      {division.name}
-                    </option>
-                  ))}
-                </select>
+                <div>
+                  <label htmlFor={`${modalFieldId}-invite-branch`} className={adminLabelClass()}>
+                    {t('organizations.fieldBranch')}
+                  </label>
+                  <select
+                    id={`${modalFieldId}-invite-branch`}
+                    value={inviteBranchId}
+                    onChange={(event) => {
+                      const nextBranchId = event.target.value;
+                      const selectedBranch = inviteStructureBranches.find(
+                        (b) => String(b._id) === String(nextBranchId)
+                      );
+                      const nextDivisionId = selectedBranch?.divisions?.[0]?._id
+                        ? String(selectedBranch.divisions[0]._id)
+                        : '';
+                      setInviteBranchId(nextBranchId);
+                      setInviteDivisionId(nextDivisionId);
+                    }}
+                    disabled={generatingInviteLink}
+                    className={adminInputClass('px-2 py-2 text-xs')}
+                  >
+                    {inviteStructureBranches.map((branch) => (
+                      <option key={branch._id} value={branch._id}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor={`${modalFieldId}-invite-division`} className={adminLabelClass()}>
+                    {t('organizations.fieldDivision')}
+                  </label>
+                  <select
+                    id={`${modalFieldId}-invite-division`}
+                    value={inviteDivisionId}
+                    onChange={(event) => setInviteDivisionId(event.target.value)}
+                    disabled={generatingInviteLink}
+                    className={adminInputClass('px-2 py-2 text-xs')}
+                  >
+                    {(inviteStructureBranches.find((b) => String(b._id) === String(inviteBranchId))
+                      ?.divisions || []
+                    ).map((division) => (
+                      <option key={division._id} value={division._id}>
+                        {division.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-[11px] text-cyan-300">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[11px] text-info">
                   {inviteContextLabel
                     ? t('organizations.inviteLinkTo', { label: inviteContextLabel })
                     : t('organizations.inviteLinkWholeOrg')}
@@ -4879,27 +5132,38 @@ function OrganizationsPage({
                   onClick={() =>
                     regenerateInviteLinkWithContext(inviteOrgId, inviteBranchId, inviteDivisionId)
                   }
-                  className="rounded-md border border-white/15 px-2 py-1 text-xs text-white hover:bg-white/10"
+                  disabled={generatingInviteLink}
+                  aria-busy={generatingInviteLink}
+                  className={adminSecondaryBtnClass('shrink-0 px-2 py-1 text-xs')}
                 >
-                  Tạo lại link
+                  <AdminBusySpinner busy={generatingInviteLink} />
+                  {t('organizations.regenerateInviteLink')}
                 </button>
               </div>
               <div className="flex gap-2">
+                <label htmlFor={`${modalFieldId}-invite-link`} className="sr-only">
+                  {t('organizations.inviteByLink')}
+                </label>
                 <input
+                  id={`${modalFieldId}-invite-link`}
                   readOnly
                   value={generatedInviteLink || (generatingInviteLink ? t('organizations.generatingLink') : '')}
-                  className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-gray-200"
+                  onFocus={(event) => event.target.select()}
+                  className={adminInputClass('flex-1 px-3 py-2 text-xs')}
                 />
                 <button
                   type="button"
                   onClick={handleCopyInviteLink}
                   disabled={!generatedInviteLink || generatingInviteLink}
-                  className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
+                  className={adminPrimaryBtnClass('px-3 py-2')}
                 >
-                  {t('organizations.copyLinkBtn')}
+                  {inviteLinkCopied ? (
+                    <Check className="h-4 w-4 motion-safe:animate-fade-in-fast" aria-hidden />
+                  ) : null}
+                  {inviteLinkCopied ? t('organizations.linkCopiedShort') : t('organizations.copyLinkBtn')}
                 </button>
               </div>
-              <p className="mt-2 text-xs text-gray-400">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {isInviteLinkBeta ? t('organizations.betaHttp') : t('organizations.betaHttps')}
               </p>
             </div>
@@ -4913,480 +5177,429 @@ function OrganizationsPage({
           if (creatingWorkspace) return;
           setCreateOrgModalOpen(false);
         }}
+        closable={!creatingWorkspace}
         title={
           creatingWorkspace
             ? t('organizations.creatingWorkspace')
-            : `Create Workspace - Step ${createWorkspaceStep}/5`
+            : t('organizations.createWorkspaceStepTitle', {
+                step: createWorkspaceStep,
+                total: WORKSPACE_STEP_COUNT,
+              })
         }
         size="sm"
       >
-        <div className="relative space-y-3">
+        <form
+          className="relative space-y-3"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (createWorkspaceStep < WORKSPACE_STEP_COUNT) goToNextWorkspaceStep();
+            else handleSubmitCreateOrganization();
+          }}
+        >
           {creatingWorkspace ? (
             <div
-              className="absolute inset-0 z-10 flex min-h-[12rem] flex-col items-center justify-center gap-3 rounded-xl bg-slate-950/90 px-4 text-center backdrop-blur-sm"
+              className="absolute inset-0 z-10 flex min-h-[12rem] flex-col items-center justify-center gap-3 rounded-xl bg-card/95 px-4 text-center backdrop-blur-sm motion-safe:animate-fade-in-fast"
               role="status"
               aria-live="polite"
               aria-busy="true"
             >
               <Loader2
-                className="h-10 w-10 animate-spin text-cyan-400"
+                className="h-10 w-10 text-primary motion-safe:animate-spin"
                 strokeWidth={1.75}
                 aria-hidden
               />
-              <p className="text-sm font-semibold text-white">{t('organizations.creatingWorkspace')}</p>
-              <p className="max-w-xs text-xs leading-relaxed text-slate-400">
+              <p className="text-sm font-semibold text-foreground">{t('organizations.creatingWorkspace')}</p>
+              <p className="max-w-xs text-xs leading-relaxed text-muted-foreground">
                 {t('organizations.creatingWorkspaceHint')}
               </p>
             </div>
           ) : null}
-          {createWorkspaceStep === 1 ? (
-            <input
-              value={createOrgName}
-              onChange={(event) => {
-                const nextName = event.target.value;
-                setCreateOrgName(nextName);
-                setCreateWorkspaceSlug((prev) => prev || toWorkspaceSlug(nextName));
-              }}
-              placeholder="Workspace name"
-              className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
-            />
-          ) : null}
-          {createWorkspaceStep === 2 ? (
-            <div className="space-y-2">
-              <input
-                value={createWorkspaceSlug}
-                onChange={(event) => setCreateWorkspaceSlug(toWorkspaceSlug(event.target.value))}
-                placeholder="workspace-slug"
-                className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
-              />
-              <p className="text-xs text-gray-400">
-                Slug dùng nội bộ (invite); sau tạo sẽ mở kênh tổ chức trong Communicate.
-              </p>
-            </div>
-          ) : null}
-          {createWorkspaceStep === 3 ? (
-            <div className="space-y-2">
-              <select
-                value={createWorkspaceType}
-                onChange={(event) => setCreateWorkspaceType(event.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none"
-                style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}
-              >
-                <option value="company" style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}>Company</option>
-                <option value="startup" style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}>Startup</option>
-                <option value="education" style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}>Education</option>
-                <option value="community" style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}>Community</option>
-              </select>
-              <select
-                value={createWorkspaceTeamSize}
-                onChange={(event) => setCreateWorkspaceTeamSize(event.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none"
-                style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}
-              >
-                <option value="1-10" style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}>1-10</option>
-                <option value="11-50" style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}>11-50</option>
-                <option value="51-200" style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}>51-200</option>
-                <option value="201-1000" style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}>201-1000</option>
-                <option value="1000+" style={{ backgroundColor: '#0f172a', color: '#f8fafc' }}>1000+</option>
-              </select>
-              <input
-                value={createWorkspaceIndustry}
-                onChange={(event) => setCreateWorkspaceIndustry(event.target.value)}
-                placeholder="Industry (optional)"
-                className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
-              />
-            </div>
-          ) : null}
-          {createWorkspaceStep === 4 ? (
-            <div className="space-y-3">
-              <div className="text-xs text-gray-400">{t('organizations.designStructureSubtitle')}</div>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="text-xs text-gray-300">
-                  Số chi nhánh
-                  <div className="mt-1 flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-1 py-1">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={createBranchCountInput}
-                      onChange={(event) =>
-                        updateStructureCountDraft(
-                          event.target.value,
-                          1,
-                          20,
-                          setCreateBranchCountInput,
-                          setCreateBranchCount
-                        )
-                      }
-                      onBlur={() =>
-                        commitStructureCountDraft(
-                          createBranchCountInput,
-                          createBranchCount,
-                          1,
-                          20,
-                          setCreateBranchCountInput,
-                          setCreateBranchCount
-                        )
-                      }
-                      className="w-full rounded-md bg-transparent px-2 py-1.5 text-sm text-white outline-none placeholder:text-gray-500"
-                    />
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          adjustStructureCount(
-                            createBranchCount,
-                            -1,
-                            1,
-                            20,
-                            setCreateBranchCountInput,
-                            setCreateBranchCount
-                          )
-                        }
-                        className="h-7 w-7 rounded-md border border-white/15 text-sm text-gray-300 hover:bg-white/10"
-                      >
-                        -
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          adjustStructureCount(
-                            createBranchCount,
-                            1,
-                            1,
-                            20,
-                            setCreateBranchCountInput,
-                            setCreateBranchCount
-                          )
-                        }
-                        className="h-7 w-7 rounded-md border border-white/15 text-sm text-gray-300 hover:bg-white/10"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
+          <ol className="flex items-center gap-1.5" aria-label={t('organizations.wizardProgressAria')}>
+            {Array.from({ length: WORKSPACE_STEP_COUNT }, (_, idx) => {
+              const stepNo = idx + 1;
+              const isCurrent = stepNo === createWorkspaceStep;
+              const isDone = stepNo < createWorkspaceStep;
+              return (
+                <li
+                  key={stepNo}
+                  aria-current={isCurrent ? 'step' : undefined}
+                  className={`h-1.5 flex-1 rounded-full transition-colors duration-200 motion-reduce:transition-none ${
+                    isCurrent ? 'bg-primary' : isDone ? 'bg-primary/50' : 'bg-muted'
+                  }`}
+                >
+                  <span className="sr-only">
+                    {t('organizations.wizardStepN', { step: stepNo, total: WORKSPACE_STEP_COUNT })}
+                    {' — '}
+                    {t(`organizations.wizardStepTitle${stepNo}`)}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+          <div key={createWorkspaceStep} className="space-y-3 motion-safe:animate-fade-in-fast">
+            <h3
+              ref={workspaceStepHeadingRef}
+              tabIndex={-1}
+              className="text-sm font-semibold text-foreground outline-none"
+            >
+              {t(`organizations.wizardStepTitle${createWorkspaceStep}`)}
+            </h3>
+            {createWorkspaceStep === 1 ? (
+              <div>
+                <label htmlFor={`${modalFieldId}-ws-name`} className={adminLabelClass()}>
+                  {t('organizations.wizardFieldName')}
                 </label>
-                <label className="text-xs text-gray-300">
-                  Khối / chi nhánh
-                  <div className="mt-1 flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-1 py-1">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={createDivisionPerBranchInput}
-                      onChange={(event) =>
-                        updateStructureCountDraft(
-                          event.target.value,
-                          1,
-                          20,
-                          setCreateDivisionPerBranchInput,
-                          setCreateDivisionPerBranch
-                        )
-                      }
-                      onBlur={() =>
-                        commitStructureCountDraft(
-                          createDivisionPerBranchInput,
-                          createDivisionPerBranch,
-                          1,
-                          20,
-                          setCreateDivisionPerBranchInput,
-                          setCreateDivisionPerBranch
-                        )
-                      }
-                      className="w-full rounded-md bg-transparent px-2 py-1.5 text-sm text-white outline-none placeholder:text-gray-500"
-                    />
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          adjustStructureCount(
-                            createDivisionPerBranch,
-                            -1,
-                            1,
-                            20,
-                            setCreateDivisionPerBranchInput,
-                            setCreateDivisionPerBranch
-                          )
-                        }
-                        className="h-7 w-7 rounded-md border border-white/15 text-sm text-gray-300 hover:bg-white/10"
-                      >
-                        -
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          adjustStructureCount(
-                            createDivisionPerBranch,
-                            1,
-                            1,
-                            20,
-                            setCreateDivisionPerBranchInput,
-                            setCreateDivisionPerBranch
-                          )
-                        }
-                        className="h-7 w-7 rounded-md border border-white/15 text-sm text-gray-300 hover:bg-white/10"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                </label>
-                <label className="text-xs text-gray-300">
-                  Phòng / khối
-                  <div className="mt-1 flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-1 py-1">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={createDepartmentPerDivisionInput}
-                      onChange={(event) =>
-                        updateStructureCountDraft(
-                          event.target.value,
-                          1,
-                          30,
-                          setCreateDepartmentPerDivisionInput,
-                          setCreateDepartmentPerDivision
-                        )
-                      }
-                      onBlur={() =>
-                        commitStructureCountDraft(
-                          createDepartmentPerDivisionInput,
-                          createDepartmentPerDivision,
-                          1,
-                          30,
-                          setCreateDepartmentPerDivisionInput,
-                          setCreateDepartmentPerDivision
-                        )
-                      }
-                      className="w-full rounded-md bg-transparent px-2 py-1.5 text-sm text-white outline-none placeholder:text-gray-500"
-                    />
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          adjustStructureCount(
-                            createDepartmentPerDivision,
-                            -1,
-                            1,
-                            30,
-                            setCreateDepartmentPerDivisionInput,
-                            setCreateDepartmentPerDivision
-                          )
-                        }
-                        className="h-7 w-7 rounded-md border border-white/15 text-sm text-gray-300 hover:bg-white/10"
-                      >
-                        -
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          adjustStructureCount(
-                            createDepartmentPerDivision,
-                            1,
-                            1,
-                            30,
-                            setCreateDepartmentPerDivisionInput,
-                            setCreateDepartmentPerDivision
-                          )
-                        }
-                        className="h-7 w-7 rounded-md border border-white/15 text-sm text-gray-300 hover:bg-white/10"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                </label>
-                <label className="text-xs text-gray-300">
-                  Team / phòng
-                  <div className="mt-1 flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-1 py-1">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={createTeamPerDepartmentInput}
-                      onChange={(event) =>
-                        updateStructureCountDraft(
-                          event.target.value,
-                          1,
-                          30,
-                          setCreateTeamPerDepartmentInput,
-                          setCreateTeamPerDepartment
-                        )
-                      }
-                      onBlur={() =>
-                        commitStructureCountDraft(
-                          createTeamPerDepartmentInput,
-                          createTeamPerDepartment,
-                          1,
-                          30,
-                          setCreateTeamPerDepartmentInput,
-                          setCreateTeamPerDepartment
-                        )
-                      }
-                      className="w-full rounded-md bg-transparent px-2 py-1.5 text-sm text-white outline-none placeholder:text-gray-500"
-                    />
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          adjustStructureCount(
-                            createTeamPerDepartment,
-                            -1,
-                            1,
-                            30,
-                            setCreateTeamPerDepartmentInput,
-                            setCreateTeamPerDepartment
-                          )
-                        }
-                        className="h-7 w-7 rounded-md border border-white/15 text-sm text-gray-300 hover:bg-white/10"
-                      >
-                        -
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          adjustStructureCount(
-                            createTeamPerDepartment,
-                            1,
-                            1,
-                            30,
-                            setCreateTeamPerDepartmentInput,
-                            setCreateTeamPerDepartment
-                          )
-                        }
-                        className="h-7 w-7 rounded-md border border-white/15 text-sm text-gray-300 hover:bg-white/10"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                </label>
+                <input
+                  id={`${modalFieldId}-ws-name`}
+                  value={createOrgName}
+                  onChange={(event) => {
+                    const nextName = event.target.value;
+                    setCreateOrgName(nextName);
+                    setCreateWorkspaceSlug((prev) => prev || toWorkspaceSlug(nextName));
+                    if (createWorkspaceStepError) setCreateWorkspaceStepError('');
+                  }}
+                  placeholder={t('organizations.wizardFieldNamePh')}
+                  required
+                  minLength={ORG_NAME_MIN}
+                  maxLength={ORG_NAME_MAX}
+                  autoFocus
+                  aria-invalid={Boolean(createWorkspaceStepError)}
+                  aria-describedby={createWorkspaceStepError ? `${modalFieldId}-ws-error` : undefined}
+                  className={adminInputClass()}
+                />
               </div>
-
-              <div className="text-xs text-gray-400">{t('organizations.enterNamesSubtitle')}</div>
-              <div className="max-h-[280px] overflow-y-auto pr-1 scrollbar-overlay space-y-3 rounded-xl border border-white/10 bg-black/20 p-2">
-                {Array.from({ length: Math.max(1, Number(createBranchCount) || 1) }, (_, bIdx) => {
-                  const divisionCount = Math.max(1, Number(createDivisionPerBranch) || 1);
-                  const departmentCount = Math.max(1, Number(createDepartmentPerDivision) || 1);
-                  const teamCount = Math.max(1, Number(createTeamPerDepartment) || 1);
-                  return (
-                    <div key={`branch-${bIdx}`} className="rounded-lg border border-white/10 bg-white/[0.04] p-3">
-                      <div className="mb-1 text-xs font-semibold text-white">{t('organizations.branchLabelN', { n: bIdx + 1 })}</div>
-                      <input
-                        value={createBranchNames[bIdx] || ''}
-                        onChange={(e) =>
-                          setCreateBranchNames((prev) =>
-                            prev.map((v, i) => (i === bIdx ? e.target.value : v))
+            ) : null}
+            {createWorkspaceStep === 2 ? (
+              <div>
+                <label htmlFor={`${modalFieldId}-ws-slug`} className={adminLabelClass()}>
+                  {t('organizations.wizardFieldSlug')}
+                </label>
+                <input
+                  id={`${modalFieldId}-ws-slug`}
+                  value={createWorkspaceSlug}
+                  onChange={(event) => {
+                    setCreateWorkspaceSlug(toWorkspaceSlug(event.target.value));
+                    if (createWorkspaceStepError) setCreateWorkspaceStepError('');
+                  }}
+                  placeholder={t('organizations.wizardFieldSlugPh')}
+                  required
+                  autoFocus
+                  aria-invalid={Boolean(createWorkspaceStepError)}
+                  aria-describedby={`${modalFieldId}-ws-slug-hint${
+                    createWorkspaceStepError ? ` ${modalFieldId}-ws-error` : ''
+                  }`}
+                  className={adminInputClass()}
+                />
+                <p id={`${modalFieldId}-ws-slug-hint`} className="mt-1.5 text-xs text-muted-foreground">
+                  {t('organizations.wizardSlugHint')}
+                </p>
+              </div>
+            ) : null}
+            {createWorkspaceStep === 3 ? (
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor={`${modalFieldId}-ws-type`} className={adminLabelClass()}>
+                    {t('organizations.wizardFieldType')}
+                  </label>
+                  <select
+                    id={`${modalFieldId}-ws-type`}
+                    value={createWorkspaceType}
+                    onChange={(event) => setCreateWorkspaceType(event.target.value)}
+                    className={adminInputClass()}
+                  >
+                    {WORKSPACE_TYPE_OPTIONS.map((type) => (
+                      <option key={type} value={type}>
+                        {t(`organizations.wizardType_${type}`)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor={`${modalFieldId}-ws-size`} className={adminLabelClass()}>
+                    {t('organizations.wizardFieldTeamSize')}
+                  </label>
+                  <select
+                    id={`${modalFieldId}-ws-size`}
+                    value={createWorkspaceTeamSize}
+                    onChange={(event) => setCreateWorkspaceTeamSize(event.target.value)}
+                    className={adminInputClass()}
+                  >
+                    {WORKSPACE_TEAM_SIZE_OPTIONS.map((size) => (
+                      <option key={size} value={size}>
+                        {t('organizations.wizardTeamSizeOption', { size })}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor={`${modalFieldId}-ws-industry`} className={adminLabelClass()}>
+                    {t('organizations.wizardFieldIndustry')}
+                  </label>
+                  <input
+                    id={`${modalFieldId}-ws-industry`}
+                    value={createWorkspaceIndustry}
+                    onChange={(event) => setCreateWorkspaceIndustry(event.target.value)}
+                    placeholder={t('organizations.wizardFieldIndustryPh')}
+                    maxLength={ORG_NAME_MAX}
+                    className={adminInputClass()}
+                  />
+                </div>
+              </div>
+            ) : null}
+            {createWorkspaceStep === 4 ? (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">{t('organizations.designStructureSubtitle')}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    {
+                      key: 'branch',
+                      labelKey: 'organizations.wizardCountBranches',
+                      value: createBranchCount,
+                      inputValue: createBranchCountInput,
+                      setInput: setCreateBranchCountInput,
+                      setValue: setCreateBranchCount,
+                    },
+                    {
+                      key: 'divisionPerBranch',
+                      labelKey: 'organizations.wizardCountDivisions',
+                      value: createDivisionPerBranch,
+                      inputValue: createDivisionPerBranchInput,
+                      setInput: setCreateDivisionPerBranchInput,
+                      setValue: setCreateDivisionPerBranch,
+                    },
+                    {
+                      key: 'departmentPerDivision',
+                      labelKey: 'organizations.wizardCountDepartments',
+                      value: createDepartmentPerDivision,
+                      inputValue: createDepartmentPerDivisionInput,
+                      setInput: setCreateDepartmentPerDivisionInput,
+                      setValue: setCreateDepartmentPerDivision,
+                    },
+                    {
+                      key: 'teamPerDepartment',
+                      labelKey: 'organizations.wizardCountTeams',
+                      value: createTeamPerDepartment,
+                      inputValue: createTeamPerDepartmentInput,
+                      setInput: setCreateTeamPerDepartmentInput,
+                      setValue: setCreateTeamPerDepartment,
+                    },
+                  ].map((field) => {
+                    const { min, max } = WORKSPACE_COUNT_LIMITS[field.key];
+                    const label = t(field.labelKey);
+                    return (
+                      <WorkspaceCountField
+                        key={field.key}
+                        id={`${modalFieldId}-ws-count-${field.key}`}
+                        label={label}
+                        inputValue={field.inputValue}
+                        value={field.value}
+                        min={min}
+                        max={max}
+                        decreaseLabel={t('organizations.wizardCountDecrease', { label })}
+                        increaseLabel={t('organizations.wizardCountIncrease', { label })}
+                        onDraft={(raw) =>
+                          updateStructureCountDraft(raw, min, max, field.setInput, field.setValue)
+                        }
+                        onCommit={() =>
+                          commitStructureCountDraft(
+                            field.inputValue,
+                            field.value,
+                            min,
+                            max,
+                            field.setInput,
+                            field.setValue
                           )
                         }
-                        className="w-full rounded-lg border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-white outline-none"
+                        onAdjust={(delta) =>
+                          adjustStructureCount(field.value, delta, min, max, field.setInput, field.setValue)
+                        }
                       />
+                    );
+                  })}
+                </div>
 
-                      <div className="mt-3 space-y-3 border-l border-white/10 pl-3">
-                        {Array.from({ length: divisionCount }, (_, dIdx) => (
-                          <div key={`branch-${bIdx}-div-${dIdx}`} className="space-y-2">
-                            <div className="text-[11px] font-semibold text-gray-200">{t('organizations.divisionLabelN', { n: dIdx + 1 })}</div>
-                            <input
-                              value={createDivisionNames?.[bIdx]?.[dIdx] || ''}
-                              onChange={(e) =>
-                                setCreateDivisionNames((prev) =>
-                                  prev.map((branch, bi) =>
-                                    bi !== bIdx
-                                      ? branch
-                                      : branch.map((v, di) => (di === dIdx ? e.target.value : v))
-                                  )
-                                )
-                              }
-                              className="w-full rounded-lg border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-white outline-none"
-                            />
+                <p className="text-xs text-muted-foreground">{t('organizations.enterNamesSubtitle')}</p>
+                <div className="max-h-[280px] space-y-3 overflow-y-auto rounded-xl border border-border bg-muted/40 p-2 pr-1 scrollbar-overlay">
+                  {Array.from({ length: Math.max(1, Number(createBranchCount) || 1) }, (_, bIdx) => {
+                    const divisionCount = Math.max(1, Number(createDivisionPerBranch) || 1);
+                    const departmentCount = Math.max(1, Number(createDepartmentPerDivision) || 1);
+                    const teamCount = Math.max(1, Number(createTeamPerDepartment) || 1);
+                    const branchFieldId = `${modalFieldId}-ws-b${bIdx}`;
+                    return (
+                      <div key={`branch-${bIdx}`} className="rounded-lg border border-border bg-card p-3">
+                        <label htmlFor={branchFieldId} className="mb-1 block text-xs font-semibold text-foreground">
+                          {t('organizations.branchLabelN', { n: bIdx + 1 })}
+                        </label>
+                        <input
+                          id={branchFieldId}
+                          value={createBranchNames[bIdx] || ''}
+                          maxLength={ORG_NAME_MAX}
+                          onChange={(e) =>
+                            setCreateBranchNames((prev) =>
+                              prev.map((v, i) => (i === bIdx ? e.target.value : v))
+                            )
+                          }
+                          className={adminInputClass('px-3 py-2')}
+                        />
 
-                            <div className="space-y-2 border-l border-white/10 pl-3">
-                              {Array.from({ length: departmentCount }, (_, depIdx) => (
-                                <div key={`branch-${bIdx}-div-${dIdx}-dept-${depIdx}`} className="space-y-2">
-                                  <div className="text-[11px] font-semibold text-gray-200">{t('organizations.deptLabelN', { n: depIdx + 1 })}</div>
-                                  <input
-                                    value={createDepartmentNames?.[bIdx]?.[dIdx]?.[depIdx] || ''}
-                                    onChange={(e) =>
-                                      setCreateDepartmentNames((prev) =>
-                                        prev.map((branch, bi) =>
-                                          bi !== bIdx
-                                            ? branch
-                                            : branch.map((division, di) =>
-                                                di !== dIdx
-                                                  ? division
-                                                  : division.map((v, dpt) =>
-                                                      dpt === depIdx ? e.target.value : v
-                                                    )
-                                              )
-                                        )
+                        <div className="mt-3 space-y-3 border-l border-border pl-3">
+                          {Array.from({ length: divisionCount }, (_, dIdx) => {
+                            const divisionFieldId = `${branchFieldId}-d${dIdx}`;
+                            return (
+                              <div key={`branch-${bIdx}-div-${dIdx}`} className="space-y-2">
+                                <label
+                                  htmlFor={divisionFieldId}
+                                  className="block text-[11px] font-semibold text-muted-foreground"
+                                >
+                                  {t('organizations.divisionLabelN', { n: dIdx + 1 })}
+                                </label>
+                                <input
+                                  id={divisionFieldId}
+                                  value={createDivisionNames?.[bIdx]?.[dIdx] || ''}
+                                  maxLength={ORG_NAME_MAX}
+                                  onChange={(e) =>
+                                    setCreateDivisionNames((prev) =>
+                                      prev.map((branch, bi) =>
+                                        bi !== bIdx
+                                          ? branch
+                                          : branch.map((v, di) => (di === dIdx ? e.target.value : v))
                                       )
-                                    }
-                                    className="w-full rounded-lg border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-white outline-none"
-                                  />
+                                    )
+                                  }
+                                  className={adminInputClass('px-3 py-2')}
+                                />
 
-                                  <div className="space-y-2 border-l border-white/10 pl-3">
-                                    {Array.from({ length: teamCount }, (_, tIdx) => (
-                                      <div key={`branch-${bIdx}-div-${dIdx}-dept-${depIdx}-team-${tIdx}`} className="space-y-2">
-                                        <div className="text-[11px] font-semibold text-gray-200">
-                                          Team {depIdx + 1}.{tIdx + 1}
-                                        </div>
+                                <div className="space-y-2 border-l border-border pl-3">
+                                  {Array.from({ length: departmentCount }, (_, depIdx) => {
+                                    const deptFieldId = `${divisionFieldId}-p${depIdx}`;
+                                    return (
+                                      <div key={`branch-${bIdx}-div-${dIdx}-dept-${depIdx}`} className="space-y-2">
+                                        <label
+                                          htmlFor={deptFieldId}
+                                          className="block text-[11px] font-semibold text-muted-foreground"
+                                        >
+                                          {t('organizations.deptLabelN', { n: depIdx + 1 })}
+                                        </label>
                                         <input
-                                          value={createTeamNames?.[bIdx]?.[dIdx]?.[depIdx]?.[tIdx] || ''}
+                                          id={deptFieldId}
+                                          value={createDepartmentNames?.[bIdx]?.[dIdx]?.[depIdx] || ''}
+                                          maxLength={ORG_NAME_MAX}
                                           onChange={(e) =>
-                                            setCreateTeamNames((prev) =>
+                                            setCreateDepartmentNames((prev) =>
                                               prev.map((branch, bi) =>
                                                 bi !== bIdx
                                                   ? branch
                                                   : branch.map((division, di) =>
                                                       di !== dIdx
                                                         ? division
-                                                        : division.map((dept, dpt) =>
-                                                            dpt !== depIdx
-                                                              ? dept
-                                                              : dept.map((teamName, teamI) =>
-                                                                  teamI === tIdx
-                                                                    ? e.target.value
-                                                                    : teamName
-                                                                )
+                                                        : division.map((v, dpt) =>
+                                                            dpt === depIdx ? e.target.value : v
                                                           )
                                                     )
                                               )
                                             )
                                           }
-                                          className="w-full rounded-lg border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-white outline-none"
+                                          className={adminInputClass('px-3 py-2')}
                                         />
+
+                                        <div className="space-y-2 border-l border-border pl-3">
+                                          {Array.from({ length: teamCount }, (_, tIdx) => {
+                                            const teamFieldId = `${deptFieldId}-t${tIdx}`;
+                                            return (
+                                              <div
+                                                key={`branch-${bIdx}-div-${dIdx}-dept-${depIdx}-team-${tIdx}`}
+                                                className="space-y-2"
+                                              >
+                                                <label
+                                                  htmlFor={teamFieldId}
+                                                  className="block text-[11px] font-semibold text-muted-foreground"
+                                                >
+                                                  {t('organizations.teamFallbackN', { d: depIdx + 1, n: tIdx + 1 })}
+                                                </label>
+                                                <input
+                                                  id={teamFieldId}
+                                                  value={createTeamNames?.[bIdx]?.[dIdx]?.[depIdx]?.[tIdx] || ''}
+                                                  maxLength={ORG_NAME_MAX}
+                                                  onChange={(e) =>
+                                                    setCreateTeamNames((prev) =>
+                                                      prev.map((branch, bi) =>
+                                                        bi !== bIdx
+                                                          ? branch
+                                                          : branch.map((division, di) =>
+                                                              di !== dIdx
+                                                                ? division
+                                                                : division.map((dept, dpt) =>
+                                                                    dpt !== depIdx
+                                                                      ? dept
+                                                                      : dept.map((teamName, teamI) =>
+                                                                          teamI === tIdx ? e.target.value : teamName
+                                                                        )
+                                                                  )
+                                                            )
+                                                      )
+                                                    )
+                                                  }
+                                                  className={adminInputClass('px-3 py-2')}
+                                                />
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
                                       </div>
-                                    ))}
-                                  </div>
+                                    );
+                                  })}
                                 </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ) : null}
-          {createWorkspaceStep === 5 ? (
-            <div className="rounded-xl border border-white/15 bg-white/5 p-3 text-sm text-gray-200">
-              <div>Name: {createOrgName || '-'}</div>
-              <div>Slug: {toWorkspaceSlug(createWorkspaceSlug || createOrgName) || '-'}</div>
-              <div>Type: {createWorkspaceType}</div>
-              <div>Team size: {createWorkspaceTeamSize}</div>
-              <div>Industry: {createWorkspaceIndustry || '-'}</div>
-              <div>Branches: {createBranchCount}</div>
-              <div>Divisions/Branch: {createDivisionPerBranch}</div>
-              <div>Departments/Division: {createDepartmentPerDivision}</div>
-              <div>Teams/Department: {createTeamPerDepartment}</div>
-            </div>
-          ) : null}
+            ) : null}
+            {createWorkspaceStep === 5 ? (
+              <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1.5 rounded-xl border border-border bg-muted/40 p-3 text-sm">
+                {[
+                  ['wizardSummaryName', createOrgName || '-'],
+                  ['wizardSummarySlug', toWorkspaceSlug(createWorkspaceSlug || createOrgName) || '-'],
+                  ['wizardSummaryType', t(`organizations.wizardType_${createWorkspaceType}`)],
+                  ['wizardSummaryTeamSize', createWorkspaceTeamSize],
+                  ['wizardSummaryIndustry', createWorkspaceIndustry || '-'],
+                  ['wizardCountBranches', createBranchCount],
+                  ['wizardCountDivisions', createDivisionPerBranch],
+                  ['wizardCountDepartments', createDepartmentPerDivision],
+                  ['wizardCountTeams', createTeamPerDepartment],
+                ].map(([labelKey, value]) => (
+                  <Fragment key={labelKey}>
+                    <dt className="text-muted-foreground">{t(`organizations.${labelKey}`)}</dt>
+                    <dd className="min-w-0 truncate font-medium text-foreground">{value}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+            ) : null}
+            {createWorkspaceStepError ? (
+              <p
+                id={`${modalFieldId}-ws-error`}
+                role="alert"
+                className="text-xs font-medium text-destructive motion-safe:animate-fade-in-fast"
+              >
+                {t(createWorkspaceStepError)}
+              </p>
+            ) : null}
+          </div>
           <div
-            className={`flex justify-end gap-2 ${creatingWorkspace ? 'pointer-events-none opacity-40' : ''}`}
+            className={`flex justify-end gap-2 border-t border-border pt-3 ${
+              creatingWorkspace ? 'pointer-events-none opacity-40' : ''
+            }`}
           >
             <button
               type="button"
               disabled={creatingWorkspace}
               onClick={() => setCreateOrgModalOpen(false)}
-              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300 disabled:cursor-not-allowed"
+              className={adminSecondaryBtnClass('px-3 py-2')}
             >
               {t('nav.cancel')}
             </button>
@@ -5394,41 +5607,29 @@ function OrganizationsPage({
               <button
                 type="button"
                 disabled={creatingWorkspace}
-                onClick={() => setCreateWorkspaceStep((step) => Math.max(1, step - 1))}
-                className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300 disabled:cursor-not-allowed"
+                onClick={goToPreviousWorkspaceStep}
+                className={adminSecondaryBtnClass('px-3 py-2')}
               >
-                Back
+                {t('organizations.wizardBack')}
               </button>
             ) : null}
-            {createWorkspaceStep < 5 ? (
+            {createWorkspaceStep < WORKSPACE_STEP_COUNT ? (
+              <button type="submit" disabled={creatingWorkspace} className={adminPrimaryBtnClass('px-3 py-2')}>
+                {t('organizations.wizardNext')}
+              </button>
+            ) : (
               <button
-                type="button"
+                type="submit"
                 disabled={creatingWorkspace}
-                onClick={() => setCreateWorkspaceStep((step) => Math.min(5, step + 1))}
-                className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                aria-busy={creatingWorkspace}
+                className={adminPrimaryBtnClass('px-3 py-2')}
               >
-                Next
+                <AdminBusySpinner busy={creatingWorkspace} />
+                {creatingWorkspace ? t('organizations.creatingWorkspace') : t('organizations.createWorkspaceSubmit')}
               </button>
-            ) : null}
-            {createWorkspaceStep === 5 ? (
-              <button
-                type="button"
-                disabled={creatingWorkspace}
-                onClick={handleSubmitCreateOrganization}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-80"
-              >
-                {creatingWorkspace ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} aria-hidden />
-                    {t('organizations.creatingWorkspace')}
-                  </>
-                ) : (
-                  t('organizations.createWorkspaceSubmit')
-                )}
-              </button>
-            ) : null}
+            )}
           </div>
-        </div>
+        </form>
       </Modal>
 
       <ForwardChannelModal
@@ -5447,130 +5648,131 @@ function OrganizationsPage({
       <Modal
         isOpen={createDivisionModalOpen}
         onClose={() => setCreateDivisionModalOpen(false)}
+        closable={structureModalBusy !== 'division'}
         title={t('organizationSettings.createDivisionTitle')}
         size="sm"
       >
-        <div className="space-y-3">
-          <label className="text-xs text-gray-300">
-            Chi nhánh
-            <select
-              value={createDivisionBranchId}
-              onChange={(event) => setCreateDivisionBranchId(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white"
-            >
-              {branchOptions.map((branch) => (
-                <option key={branch._id} value={branch._id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <input
-            value={createDivisionName}
-            onChange={(event) => setCreateDivisionName(event.target.value)}
-            placeholder={t('organizationSettings.divisionNamePh')}
-            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+        <form
+          className="space-y-3"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            handleSubmitCreateDivision();
+          }}
+        >
+          <StructureSelectField
+            id={`${modalFieldId}-division-branch`}
+            label={t('organizations.fieldBranch')}
+            value={createDivisionBranchId}
+            onChange={setCreateDivisionBranchId}
+            options={branchOptions}
+            disabled={structureModalBusy === 'division'}
           />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setCreateDivisionModalOpen(false)}
-              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300"
-            >
-              {t('nav.cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmitCreateDivision}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
-            >
-              Tạo khối
-            </button>
-          </div>
-        </div>
+          <StructureNameField
+            id={`${modalFieldId}-division-name`}
+            label={t('organizations.fieldDivisionName')}
+            value={createDivisionName}
+            onChange={(value) => {
+              setCreateDivisionName(value);
+              if (structureNameError) setStructureNameError('');
+            }}
+            placeholder={t('organizationSettings.divisionNamePh')}
+            errorText={structureNameError ? t(structureNameError) : ''}
+            disabled={structureModalBusy === 'division'}
+          />
+          <StructureModalActions
+            cancelLabel={t('nav.cancel')}
+            submitLabel={t('organizations.createDivisionSubmit')}
+            busy={structureModalBusy === 'division'}
+            onCancel={() => setCreateDivisionModalOpen(false)}
+          />
+        </form>
       </Modal>
 
       <Modal
         isOpen={createDeptModalOpen}
         onClose={() => setCreateDeptModalOpen(false)}
+        closable={structureModalBusy !== 'department'}
         title={t('organizations.createDeptTitle')}
         size="sm"
       >
-        <div className="space-y-3">
-          <label className="text-xs text-gray-300">
-            Khối
-            <select
-              value={createDeptDivisionId}
-              onChange={(event) => setCreateDeptDivisionId(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white"
-            >
-              {divisionOptions(selectedBranchId).map((division) => (
-                <option key={division._id} value={division._id}>
-                  {division.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <input
-            value={createDeptName}
-            onChange={(event) => setCreateDeptName(event.target.value)}
-            placeholder={t('organizations.createDeptPh')}
-            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+        <form
+          className="space-y-3"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            handleSubmitCreateDepartment();
+          }}
+        >
+          <StructureSelectField
+            id={`${modalFieldId}-dept-division`}
+            label={t('organizations.fieldDivision')}
+            value={createDeptDivisionId}
+            onChange={setCreateDeptDivisionId}
+            options={divisionOptions(selectedBranchId)}
+            disabled={structureModalBusy === 'department'}
           />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setCreateDeptModalOpen(false)}
-              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300"
-            >
-              {t('nav.cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmitCreateDepartment}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
-            >
-              {t('organizations.createDeptSubmit')}
-            </button>
-          </div>
-        </div>
+          <StructureNameField
+            id={`${modalFieldId}-dept-name`}
+            label={t('organizations.fieldDeptName')}
+            value={createDeptName}
+            onChange={(value) => {
+              setCreateDeptName(value);
+              if (structureNameError) setStructureNameError('');
+            }}
+            placeholder={t('organizations.createDeptPh')}
+            errorText={structureNameError ? t(structureNameError) : ''}
+            disabled={structureModalBusy === 'department'}
+          />
+          <StructureModalActions
+            cancelLabel={t('nav.cancel')}
+            submitLabel={t('organizations.createDeptSubmit')}
+            busy={structureModalBusy === 'department'}
+            onCancel={() => setCreateDeptModalOpen(false)}
+          />
+        </form>
       </Modal>
 
       <Modal
         isOpen={createTeamModalOpen}
         onClose={() => setCreateTeamModalOpen(false)}
+        closable={structureModalBusy !== 'team'}
         title={t('organizationSettings.createTeamTitle')}
         size="sm"
       >
-        <div className="space-y-3">
-          <input
+        <form
+          className="space-y-3"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            handleSubmitCreateTeam();
+          }}
+        >
+          <StructureNameField
+            id={`${modalFieldId}-team-name`}
+            label={t('organizations.fieldTeamName')}
             value={createTeamName}
-            onChange={(event) => setCreateTeamName(event.target.value)}
+            onChange={(value) => {
+              setCreateTeamName(value);
+              if (structureNameError) setStructureNameError('');
+            }}
             placeholder={t('organizationSettings.createTeamTitle')}
-            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+            errorText={structureNameError ? t(structureNameError) : ''}
+            disabled={structureModalBusy === 'team'}
           />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setCreateTeamModalOpen(false)}
-              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300"
-            >
-              {t('nav.cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmitCreateTeam}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
-            >
-              {t('workspace.createTeam')}
-            </button>
-          </div>
-        </div>
+          <StructureModalActions
+            cancelLabel={t('nav.cancel')}
+            submitLabel={t('workspace.createTeam')}
+            busy={structureModalBusy === 'team'}
+            onCancel={() => setCreateTeamModalOpen(false)}
+          />
+        </form>
       </Modal>
 
       <Modal
         isOpen={createChannelModalOpen}
         onClose={() => setCreateChannelModalOpen(false)}
+        closable={structureModalBusy !== 'channel'}
         title={
           createChannelType === 'voice'
             ? t('organizations.createVoiceTitle')
@@ -5578,158 +5780,132 @@ function OrganizationsPage({
         }
         size="sm"
       >
-        <div className="space-y-3">
-          <label className="text-xs text-gray-300">
-            Chi nhánh
-            <select
-              value={createChannelBranchId}
-              onChange={(event) => {
-                const nextBranchId = event.target.value;
-                const nextDivisions = divisionOptions(nextBranchId);
-                const nextDivisionId = nextDivisions[0]?._id ? String(nextDivisions[0]._id) : '';
-                const nextDepartments = departmentOptions(nextBranchId, nextDivisionId);
-                const nextDepartmentId = nextDepartments[0]?._id ? String(nextDepartments[0]._id) : '';
-                const nextTeams = teamOptions(nextBranchId, nextDivisionId, nextDepartmentId);
-                const nextTeamId = nextTeams[0]?._id ? String(nextTeams[0]._id) : '';
-                setCreateChannelBranchId(nextBranchId);
-                setCreateChannelDivisionId(nextDivisionId);
-                setCreateChannelDepartmentId(nextDepartmentId);
-                setCreateChannelTeamId(nextTeamId);
-              }}
-              className="mt-1 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white"
-            >
-              {branchOptions.map((branch) => (
-                <option key={branch._id} value={branch._id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-gray-300">
-            Khối
-            <select
-              value={createChannelDivisionId}
-              onChange={(event) => {
-                const nextDivisionId = event.target.value;
-                const nextDepartments = departmentOptions(createChannelBranchId, nextDivisionId);
-                const nextDepartmentId = nextDepartments[0]?._id ? String(nextDepartments[0]._id) : '';
-                const nextTeams = teamOptions(createChannelBranchId, nextDivisionId, nextDepartmentId);
-                const nextTeamId = nextTeams[0]?._id ? String(nextTeams[0]._id) : '';
-                setCreateChannelDivisionId(nextDivisionId);
-                setCreateChannelDepartmentId(nextDepartmentId);
-                setCreateChannelTeamId(nextTeamId);
-              }}
-              className="mt-1 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white"
-            >
-              {divisionOptions(createChannelBranchId).map((division) => (
-                <option key={division._id} value={division._id}>
-                  {division.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-gray-300">
-            Phòng ban
-            <select
-              value={createChannelDepartmentId}
-              onChange={(event) => {
-                const nextDepartmentId = event.target.value;
-                const nextTeams = teamOptions(
-                  createChannelBranchId,
-                  createChannelDivisionId,
-                  nextDepartmentId
-                );
-                const nextTeamId = nextTeams[0]?._id ? String(nextTeams[0]._id) : '';
-                setCreateChannelDepartmentId(nextDepartmentId);
-                setCreateChannelTeamId(nextTeamId);
-              }}
-              className="mt-1 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white"
-            >
-              {departmentOptions(createChannelBranchId, createChannelDivisionId).map((department) => (
-                <option key={department._id} value={department._id}>
-                  {department.name}
-                </option>
-              ))}
-            </select>
-          </label>
+        <form
+          className="space-y-3"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            handleSubmitCreateChannel();
+          }}
+        >
+          <StructureSelectField
+            id={`${modalFieldId}-channel-branch`}
+            label={t('organizations.fieldBranch')}
+            value={createChannelBranchId}
+            onChange={(nextBranchId) => {
+              const nextDivisions = divisionOptions(nextBranchId);
+              const nextDivisionId = nextDivisions[0]?._id ? String(nextDivisions[0]._id) : '';
+              const nextDepartments = departmentOptions(nextBranchId, nextDivisionId);
+              const nextDepartmentId = nextDepartments[0]?._id ? String(nextDepartments[0]._id) : '';
+              const nextTeams = teamOptions(nextBranchId, nextDivisionId, nextDepartmentId);
+              const nextTeamId = nextTeams[0]?._id ? String(nextTeams[0]._id) : '';
+              setCreateChannelBranchId(nextBranchId);
+              setCreateChannelDivisionId(nextDivisionId);
+              setCreateChannelDepartmentId(nextDepartmentId);
+              setCreateChannelTeamId(nextTeamId);
+            }}
+            options={branchOptions}
+            disabled={structureModalBusy === 'channel'}
+          />
+          <StructureSelectField
+            id={`${modalFieldId}-channel-division`}
+            label={t('organizations.fieldDivision')}
+            value={createChannelDivisionId}
+            onChange={(nextDivisionId) => {
+              const nextDepartments = departmentOptions(createChannelBranchId, nextDivisionId);
+              const nextDepartmentId = nextDepartments[0]?._id ? String(nextDepartments[0]._id) : '';
+              const nextTeams = teamOptions(createChannelBranchId, nextDivisionId, nextDepartmentId);
+              const nextTeamId = nextTeams[0]?._id ? String(nextTeams[0]._id) : '';
+              setCreateChannelDivisionId(nextDivisionId);
+              setCreateChannelDepartmentId(nextDepartmentId);
+              setCreateChannelTeamId(nextTeamId);
+            }}
+            options={divisionOptions(createChannelBranchId)}
+            disabled={structureModalBusy === 'channel'}
+          />
+          <StructureSelectField
+            id={`${modalFieldId}-channel-dept`}
+            label={t('organizations.fieldDepartment')}
+            value={createChannelDepartmentId}
+            onChange={(nextDepartmentId) => {
+              const nextTeams = teamOptions(createChannelBranchId, createChannelDivisionId, nextDepartmentId);
+              const nextTeamId = nextTeams[0]?._id ? String(nextTeams[0]._id) : '';
+              setCreateChannelDepartmentId(nextDepartmentId);
+              setCreateChannelTeamId(nextTeamId);
+            }}
+            options={departmentOptions(createChannelBranchId, createChannelDivisionId)}
+            disabled={structureModalBusy === 'channel'}
+          />
           {createChannelLevel !== 'department' ? (
-            <label className="text-xs text-gray-300">
-              Team
-              <select
-                value={createChannelTeamId}
-                onChange={(event) => setCreateChannelTeamId(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white"
-              >
-                {teamOptions(createChannelBranchId, createChannelDivisionId, createChannelDepartmentId).map(
-                  (team) => (
-                    <option key={team._id} value={team._id}>
-                      {team.name}
-                    </option>
-                  )
-                )}
-              </select>
-            </label>
+            <StructureSelectField
+              id={`${modalFieldId}-channel-team`}
+              label={t('organizations.fieldTeam')}
+              value={createChannelTeamId}
+              onChange={setCreateChannelTeamId}
+              options={teamOptions(createChannelBranchId, createChannelDivisionId, createChannelDepartmentId)}
+              disabled={structureModalBusy === 'channel'}
+            />
           ) : (
-            <p className="text-xs text-gray-400">{t('workspace.deptChannelCreateHint')}</p>
+            <p className="text-xs text-muted-foreground">{t('workspace.deptChannelCreateHint')}</p>
           )}
-          <input
+          <StructureNameField
+            id={`${modalFieldId}-channel-name`}
+            label={t('organizations.fieldChannelName')}
             value={createChannelName}
-            onChange={(event) => setCreateChannelName(event.target.value)}
+            onChange={(value) => {
+              setCreateChannelName(value);
+              if (structureNameError) setStructureNameError('');
+            }}
             placeholder={
               createChannelType === 'voice'
                 ? t('organizations.voiceChannelPh')
                 : t('organizations.chatChannelPh')
             }
-            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+            errorText={structureNameError ? t(structureNameError) : ''}
+            disabled={structureModalBusy === 'channel'}
           />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setCreateChannelModalOpen(false)}
-              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300"
-            >
-              {t('nav.cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmitCreateChannel}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
-            >
-              {t('organizations.createChannelSubmit')}
-            </button>
-          </div>
-        </div>
+          <StructureModalActions
+            cancelLabel={t('nav.cancel')}
+            submitLabel={t('organizations.createChannelSubmit')}
+            busy={structureModalBusy === 'channel'}
+            onCancel={() => setCreateChannelModalOpen(false)}
+          />
+        </form>
       </Modal>
       <Modal
         isOpen={renameModalOpen}
         onClose={() => setRenameModalOpen(false)}
+        closable={structureModalBusy !== 'rename'}
         title={t('organizations.renameTitle')}
         size="sm"
       >
-        <div className="space-y-3">
-          <input
+        <form
+          className="space-y-3"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            handleSubmitRenameEntity();
+          }}
+        >
+          <StructureNameField
+            id={`${modalFieldId}-rename`}
+            label={t('organizations.fieldNewName')}
             value={renameTargetName}
-            onChange={(event) => setRenameTargetName(event.target.value)}
+            onChange={(value) => {
+              setRenameTargetName(value);
+              if (structureNameError) setStructureNameError('');
+            }}
             placeholder={t('organizationSettings.newNamePh')}
-            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+            errorText={structureNameError ? t(structureNameError) : ''}
+            disabled={structureModalBusy === 'rename'}
           />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setRenameModalOpen(false)}
-              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-300"
-            >
-              {t('nav.cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmitRenameEntity}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"
-            >
-              Lưu tên mới
-            </button>
-          </div>
-        </div>
+          <StructureModalActions
+            cancelLabel={t('nav.cancel')}
+            submitLabel={t('organizations.renameSubmit')}
+            busy={structureModalBusy === 'rename'}
+            onCancel={() => setRenameModalOpen(false)}
+          />
+        </form>
       </Modal>
       <OrganizationChannelRoleSettingsModal
         isOpen={channelSettingsOpen}
@@ -5771,6 +5947,7 @@ function OrganizationsPage({
         message={t('organizations.deleteMsgMsg')}
         confirmText={t('common.delete')}
         cancelText={t('nav.cancel')}
+        variant="danger"
       />
     </>
   );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
@@ -7,6 +7,12 @@ import {
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
+import { ConfirmDialog } from '../../components/Shared';
 import CatalogKeyLabelEditor from '../projects/hub/CatalogKeyLabelEditor';
 import { normalizePriorityConfig } from '../projects/hub/projectPriorityConfig';
 import {
@@ -31,6 +37,10 @@ function unwrapProject(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
+function snapshotItems(items) {
+  return JSON.stringify(Array.isArray(items) ? items : []);
+}
+
 /**
  * Admin Status / Priority — Status = board workflow states; Priority = project.priorityConfig.
  */
@@ -42,9 +52,17 @@ export default function TasksStatusPriorityPanel({ orgId }) {
   const [workflowDoc, setWorkflowDoc] = useState(null);
   const [workflowStates, setWorkflowStates] = useState([]);
   const [priorityItems, setPriorityItems] = useState(() => normalizePriorityConfig(null).items);
+  const [savedWorkflowSnap, setSavedWorkflowSnap] = useState('[]');
+  const [savedPrioritySnap, setSavedPrioritySnap] = useState(() =>
+    snapshotItems(normalizePriorityConfig(null).items)
+  );
   const [loading, setLoading] = useState(false);
+  const [workflowLoadError, setWorkflowLoadError] = useState('');
+  const [priorityLoadError, setPriorityLoadError] = useState('');
+  const [priorityLoading, setPriorityLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [confirmSeed, setConfirmSeed] = useState(false);
 
   const setBoardId = (id) => {
     const next = new URLSearchParams(params);
@@ -61,19 +79,27 @@ export default function TasksStatusPriorityPanel({ orgId }) {
     if (!boardId) {
       setWorkflowDoc(null);
       setWorkflowStates([]);
+      setSavedWorkflowSnap('[]');
+      setWorkflowLoadError('');
       return;
     }
     setLoading(true);
+    setWorkflowLoadError('');
     try {
       const res = await taskAPI.getBoardWorkflow(boardId, { organizationId: orgId });
       const wf = unwrap(res);
       const doc = wf && typeof wf === 'object' ? wf : null;
+      const states = Array.isArray(doc?.states) ? doc.states.map((s) => ({ ...s })) : [];
       setWorkflowDoc(doc);
-      setWorkflowStates(Array.isArray(doc?.states) ? doc.states.map((s) => ({ ...s })) : []);
+      setWorkflowStates(states);
+      setSavedWorkflowSnap(snapshotItems(statesToEditorItems(states)));
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.workflowLoadFail') }));
+      setWorkflowLoadError(
+        resolveApiErrorMessage(error, { t, fallback: t('adminTasks.workflowLoadFail') })
+      );
       setWorkflowDoc(null);
       setWorkflowStates([]);
+      setSavedWorkflowSnap('[]');
     } finally {
       setLoading(false);
     }
@@ -83,28 +109,38 @@ export default function TasksStatusPriorityPanel({ orgId }) {
     void loadWorkflow();
   }, [loadWorkflow]);
 
-  useEffect(() => {
+  const loadPriority = useCallback(async () => {
     if (!projectId) {
-      setPriorityItems(normalizePriorityConfig(null).items);
-      return undefined;
+      const defaults = normalizePriorityConfig(null).items;
+      setPriorityItems(defaults);
+      setSavedPrioritySnap(snapshotItems(defaults));
+      setPriorityLoadError('');
+      setPriorityLoading(false);
+      return;
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await projectAPI.get(projectId);
-        const data = unwrapProject(res);
-        if (cancelled) return;
-        setPriorityItems(normalizePriorityConfig(data?.priorityConfig).items);
-      } catch (error) {
-        if (cancelled) return;
-        toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.catalogSaveFail') }));
-        setPriorityItems(normalizePriorityConfig(null).items);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    setPriorityLoading(true);
+    setPriorityLoadError('');
+    try {
+      const res = await projectAPI.get(projectId);
+      const data = unwrapProject(res);
+      const items = normalizePriorityConfig(data?.priorityConfig).items;
+      setPriorityItems(items);
+      setSavedPrioritySnap(snapshotItems(items));
+    } catch (error) {
+      setPriorityLoadError(
+        resolveApiErrorMessage(error, { t, fallback: t('adminTasks.priorityLoadFail') })
+      );
+      const defaults = normalizePriorityConfig(null).items;
+      setPriorityItems(defaults);
+      setSavedPrioritySnap(snapshotItems(defaults));
+    } finally {
+      setPriorityLoading(false);
+    }
   }, [projectId, t]);
+
+  useEffect(() => {
+    void loadPriority();
+  }, [loadPriority]);
 
   const seed = async () => {
     if (!boardId || seeding) return;
@@ -112,8 +148,12 @@ export default function TasksStatusPriorityPanel({ orgId }) {
     try {
       const res = await taskAPI.seedBoardWorkflow(boardId, { organizationId: orgId });
       const wf = unwrap(res);
-      setWorkflowDoc(wf && typeof wf === 'object' ? wf : null);
-      setWorkflowStates(Array.isArray(wf?.states) ? wf.states.map((s) => ({ ...s })) : []);
+      const doc = wf && typeof wf === 'object' ? wf : null;
+      const states = Array.isArray(wf?.states) ? wf.states.map((s) => ({ ...s })) : [];
+      setWorkflowDoc(doc);
+      setWorkflowStates(states);
+      setSavedWorkflowSnap(snapshotItems(statesToEditorItems(states)));
+      setWorkflowLoadError('');
       toast.success(t('adminTasks.workflowSeeded'));
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.workflowSeedFail') }));
@@ -154,12 +194,17 @@ export default function TasksStatusPriorityPanel({ orgId }) {
         );
         const saved = unwrap(res);
         if (saved && typeof saved === 'object') {
+          const states = Array.isArray(saved.states)
+            ? saved.states.map((s) => ({ ...s }))
+            : workflowStates;
           setWorkflowDoc(saved);
-          setWorkflowStates(Array.isArray(saved.states) ? saved.states.map((s) => ({ ...s })) : workflowStates);
+          setWorkflowStates(states);
+          setSavedWorkflowSnap(snapshotItems(statesToEditorItems(states)));
         }
       }
-      if (projectId) {
+      if (projectId && !priorityLoadError) {
         await projectAPI.patch(projectId, { priorityConfig: { items: priorityItems } });
+        setSavedPrioritySnap(snapshotItems(priorityItems));
       }
       toast.success(t('adminTasks.catalogSaved'));
     } catch (error) {
@@ -170,64 +215,129 @@ export default function TasksStatusPriorityPanel({ orgId }) {
   };
 
   const statusItems = statesToEditorItems(workflowStates);
-  const canSave = Boolean(boardId) && !saving && !seeding && (!workflowDoc || workflowStates.length > 0);
+  const isDirty = useMemo(() => {
+    const workflowDirty = snapshotItems(statusItems) !== savedWorkflowSnap;
+    const priorityDirty = snapshotItems(priorityItems) !== savedPrioritySnap;
+    return workflowDirty || priorityDirty;
+  }, [statusItems, priorityItems, savedWorkflowSnap, savedPrioritySnap]);
 
-  return (
-    <AdminUserPanelShell
-      title={`${t('adminDomains.projects.status')} / ${t('adminDomains.projects.priority')}`}
-      hint={t('adminTasks.statusPriorityHint')}
-      actions={
-        <button type="button" className={adminPrimaryBtnClass()} disabled={!canSave} onClick={() => void save()}>
-          {saving ? t('adminTasks.loading') : t('adminTasks.catalogSave')}
-        </button>
-      }
-    >
-      <AdminTaskBoardPicker orgId={orgId} boardId={boardId} onBoardIdChange={setBoardId} onProjectIdChange={onProjectIdChange} />
+  const canSave =
+    Boolean(boardId) &&
+    !saving &&
+    !seeding &&
+    !loading &&
+    !workflowLoadError &&
+    isDirty &&
+    (!workflowDoc || workflowStates.length > 0);
 
-      {!boardId ? (
-        <p className="text-sm text-muted-foreground">{t('adminTasks.needBoard')}</p>
-      ) : loading ? (
-        <p className="text-sm text-muted-foreground">{t('adminTasks.loading')}</p>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          <AdminUserFormCard title={t('adminTasks.statusList')} hint={t('adminTasks.catalogStatusHint')}>
-            {workflowDoc ? (
-              <CatalogKeyLabelEditor
-                items={statusItems}
-                disabled={saving}
-                addKeyPh="blocked"
-                addLabelPh="Blocked"
-                addText={t('adminTasks.workflowAddState')}
-                deleteAria={t('adminTasks.catalogDelete')}
-                onChange={(items) => setWorkflowStates((prev) => mergeEditorItemsToStates(items, prev))}
-              />
-            ) : (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">{t('adminTasks.workflowEmpty')}</p>
-                <button
-                  type="button"
-                  className={adminSecondaryBtnClass()}
-                  disabled={seeding}
-                  onClick={() => void seed()}
-                >
-                  {seeding ? t('adminTasks.loading') : t('adminTasks.workflowSeed')}
-                </button>
-              </div>
-            )}
-          </AdminUserFormCard>
-          <AdminUserFormCard title={t('adminTasks.priorityList')} hint={t('adminTasks.catalogPriorityHint')}>
+  let body;
+  if (!boardId) {
+    body = <p className="text-sm text-muted-foreground">{t('adminTasks.needBoard')}</p>;
+  } else if (loading) {
+    body = <AdminListSkeleton rows={4} />;
+  } else {
+    body = (
+      <div className="grid gap-4 md:grid-cols-2">
+        <AdminUserFormCard
+          title={t('adminTasks.statusList')}
+          hint={
+            workflowDoc
+              ? `${t('adminTasks.catalogStatusHint')} ${t('adminTasks.statusUnsavedHint')}`
+              : t('adminTasks.catalogStatusHint')
+          }
+        >
+          {workflowLoadError ? (
+            <AdminLoadErrorState
+              message={workflowLoadError}
+              onRetry={loadWorkflow}
+              disabled={loading}
+            />
+          ) : workflowDoc ? (
+            <CatalogKeyLabelEditor
+              items={statusItems}
+              disabled={saving}
+              addKeyPh={t('adminTasks.statusAddKeyPh')}
+              addLabelPh={t('adminTasks.statusAddLabelPh')}
+              addText={t('adminTasks.workflowAddState')}
+              deleteAria={t('adminTasks.catalogDelete')}
+              onChange={(items) => setWorkflowStates((prev) => mergeEditorItemsToStates(items, prev))}
+            />
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">{t('adminTasks.workflowEmpty')}</p>
+              <button
+                type="button"
+                className={adminSecondaryBtnClass()}
+                disabled={seeding}
+                aria-busy={seeding}
+                onClick={() => setConfirmSeed(true)}
+              >
+                <AdminBusySpinner busy={seeding} />
+                {t('adminTasks.workflowSeed')}
+              </button>
+            </div>
+          )}
+        </AdminUserFormCard>
+        <AdminUserFormCard title={t('adminTasks.priorityList')} hint={t('adminTasks.catalogPriorityHint')}>
+          {priorityLoading ? (
+            <AdminListSkeleton rows={3} />
+          ) : priorityLoadError ? (
+            <AdminLoadErrorState
+              message={priorityLoadError}
+              onRetry={loadPriority}
+              disabled={priorityLoading}
+            />
+          ) : (
             <CatalogKeyLabelEditor
               items={priorityItems}
               disabled={saving || !projectId}
-              addKeyPh="blocker"
-              addLabelPh="Blocker"
+              addKeyPh={t('adminTasks.priorityAddKeyPh')}
+              addLabelPh={t('adminTasks.priorityAddLabelPh')}
               addText={t('adminTasks.catalogAddPriority')}
               deleteAria={t('adminTasks.catalogDelete')}
               onChange={setPriorityItems}
             />
-          </AdminUserFormCard>
-        </div>
-      )}
+          )}
+        </AdminUserFormCard>
+      </div>
+    );
+  }
+
+  return (
+    <AdminUserPanelShell
+      title={t('adminDomains.projects.statusPriority')}
+      hint={t('adminTasks.statusPriorityHint')}
+      actions={
+        <button
+          type="button"
+          className={adminPrimaryBtnClass()}
+          disabled={!canSave}
+          aria-busy={saving}
+          onClick={() => void save()}
+        >
+          <AdminBusySpinner busy={saving} />
+          {t('adminTasks.catalogSave')}
+        </button>
+      }
+    >
+      <AdminTaskBoardPicker
+        orgId={orgId}
+        boardId={boardId}
+        onBoardIdChange={setBoardId}
+        onProjectIdChange={onProjectIdChange}
+      />
+      {body}
+
+      <ConfirmDialog
+        isOpen={confirmSeed}
+        onClose={() => setConfirmSeed(false)}
+        onConfirm={() => seed()}
+        title={t('adminTasks.confirmTitle')}
+        message={t('adminTasks.workflowSeedConfirm')}
+        confirmText={t('adminTasks.workflowSeed')}
+        cancelText={t('adminTasks.cancel')}
+        variant="danger"
+      />
     </AdminUserPanelShell>
   );
 }

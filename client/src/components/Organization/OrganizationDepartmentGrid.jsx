@@ -149,22 +149,24 @@ export default function OrganizationDepartmentGrid({
             <Search
               size={15}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
             />
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t('workspace.searchDepartments')}
-              className="h-10 w-full rounded-lg border border-border bg-muted pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-primary focus:shadow-[0_0_0_3px_rgba(37,99,235,0.12)]"
+              aria-label={t('workspace.searchDepartments')}
+              className="h-10 w-full rounded-lg border border-border bg-muted pl-9 pr-3 text-sm text-foreground outline-none transition-colors duration-150 focus:border-primary focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             />
           </div>
           {onCreateDepartment ? (
             <button
               type="button"
               onClick={onCreateDepartment}
-              className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-md transition hover:-translate-y-0.5 hover:bg-primary-hover hover:shadow-lg"
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-md transition hover:-translate-y-0.5 hover:bg-primary-hover hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none motion-reduce:hover:translate-y-0"
             >
-              <Plus size={16} />
+              <Plus size={16} aria-hidden />
               {t('workspace.createDepartment')}
             </button>
           ) : null}
@@ -173,36 +175,36 @@ export default function OrganizationDepartmentGrid({
 
       <div className="px-6 py-6">
         <div className="mb-5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition group-hover:scale-105">
-              <Building2 size={16} />
+          <div className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100">
+              <Building2 size={16} aria-hidden />
             </span>
             <div className="min-w-0">
               <div className="truncate text-lg font-bold leading-none text-foreground">{cards.length}</div>
               <div className="mt-1 truncate text-xs text-muted-foreground">{t('workspace.yourDepartments')}</div>
             </div>
           </div>
-          <div className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success transition group-hover:scale-105">
-              <Users size={16} />
+          <div className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success transition group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100">
+              <Users size={16} aria-hidden />
             </span>
             <div className="min-w-0">
               <div className="truncate text-lg font-bold leading-none text-foreground">{totalTeams}</div>
               <div className="mt-1 truncate text-xs text-muted-foreground">{t('workspace.yourTeams')}</div>
             </div>
           </div>
-          <div className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 transition group-hover:scale-105">
-              <Users size={16} />
+          <div className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-info/10 text-info transition group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100">
+              <Users size={16} aria-hidden />
             </span>
             <div className="min-w-0">
               <div className="truncate text-lg font-bold leading-none text-foreground">{totalOnline}</div>
               <div className="mt-1 truncate text-xs text-muted-foreground">{t('workspace.onlineNowLabel')}</div>
             </div>
           </div>
-          <div className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400 transition group-hover:scale-105">
-              <Building2 size={16} />
+          <div className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-warning/10 text-warning transition group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100">
+              <Building2 size={16} aria-hidden />
             </span>
             <div className="min-w-0">
               <div className="truncate text-lg font-bold leading-none text-foreground">{totalUnread}</div>
@@ -215,7 +217,7 @@ export default function OrganizationDepartmentGrid({
 
         {filteredCards.length === 0 ? (
           <div className="mb-4 flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface/60 px-6 py-10 text-center">
-            <Building2 size={40} className="mb-4 text-muted-foreground/50" />
+            <Building2 size={40} className="mb-4 text-muted-foreground/50" aria-hidden />
             <p className="text-sm font-semibold text-foreground">
               {search ? t('workspace.noMatchingDepartments') : t('workspace.noDepartmentsYet')}
             </p>

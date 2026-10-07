@@ -276,7 +276,7 @@ export default function OrganizationDepartmentCard({
                 e.stopPropagation();
                 onModuleClick(card.id, btn.module, card.raw);
               }}
-              className="relative flex flex-col items-center justify-center gap-1 rounded-[10px] bg-muted px-1.5 py-2.5 text-[0.6875rem] font-medium text-muted-foreground transition hover:-translate-y-0.5 hover:bg-primary/10 hover:text-primary hover:shadow-sm"
+              className="relative flex flex-col items-center justify-center gap-1 rounded-[10px] bg-muted px-1.5 py-2.5 text-[0.6875rem] font-medium text-muted-foreground transition hover:-translate-y-0.5 hover:bg-primary/10 hover:text-primary hover:shadow-sm motion-reduce:transition-none motion-reduce:hover:translate-y-0"
             >
               {btn.badge > 0 ? (
                 <span className="absolute right-1.5 top-1 min-w-[15px] rounded-full bg-primary px-1 text-[0.5rem] font-bold text-primary-foreground">

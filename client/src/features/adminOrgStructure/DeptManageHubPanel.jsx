@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { useAppStrings } from '../../locales/appStrings';
-import AdminOrgUnitOpsHubShell from '../../components/admin/AdminOrgUnitOpsHubShell';
-import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
+import AdminOrgUnitOpsHubShell from '../../components/Admin/AdminOrgUnitOpsHubShell';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import DeptEditPanel from './DeptEditPanel';
 import DeptDisablePanel from './DeptDisablePanel';
@@ -67,18 +66,6 @@ export default function DeptManageHubPanel({ orgId }) {
     >
       {({ activeTab }) => (
         <div className="space-y-4">
-          {error ? (
-            <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2">
-              <p className="text-sm text-destructive">{error}</p>
-              <button
-                type="button"
-                className={`${adminPrimaryBtnClass()} mt-3`}
-                onClick={() => loadStructure()}
-              >
-                {t('adminRbac.retry')}
-              </button>
-            </div>
-          ) : null}
           {activeTab === TAB_EDIT ? <DeptEditPanel orgId={orgId} embedded /> : null}
           {activeTab === TAB_DISABLE ? <DeptDisablePanel orgId={orgId} embedded /> : null}
           {activeTab === TAB_PARENT ? <DeptParentPanel orgId={orgId} embedded /> : null}

@@ -17,6 +17,7 @@ import {
   ensureTypedBlob,
   resolveAttachmentContentType,
   shouldOpenAttachmentInline,
+  shouldViewAttachmentAsEscapedText,
   triggerBlobDownload,
 } from '../../features/projects/board/taskBoardAttachmentDisplay';
 import { useTheme } from '../../context/ThemeContext';
@@ -24,6 +25,8 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveAttachmentReadUrl } from '../../utils/orgChatMessageUtils';
 import ChatMessageText from './ChatMessageText';
 import FriendCallLogMessage from './FriendCallLogMessage';
+
+const MOTION_BTN = 'motion-safe:transition-colors motion-reduce:transition-none';
 
 /** Hien thi tin nhan file/hinh: the tep thay vi chuoi URL Firebase dai. */
 
@@ -74,8 +77,9 @@ async function openStorageObject(storagePath, fileName, mimeType) {
   const contentType = resolveAttachmentContentType({ mimeType, name: fileName }, storagePath);
   const baseMime = contentType.split(';')[0].trim().toLowerCase();
 
-  if (shouldOpenAttachmentInline(contentType)) {
-    if (baseMime.startsWith('text/') && baseMime !== 'text/html') {
+  const viewAsEscapedText = shouldViewAttachmentAsEscapedText(contentType);
+  if (viewAsEscapedText || shouldOpenAttachmentInline(contentType)) {
+    if (viewAsEscapedText || baseMime.startsWith('text/')) {
       fileBlob = await blobForInlineTextView(fileBlob, fileName);
     }
     const blobUrl = URL.createObjectURL(fileBlob);
@@ -141,7 +145,7 @@ function ChatStoragePathFileCard({ fileMeta, compact = false }) {
           className="flex min-w-0 w-full items-center gap-2 text-left transition hover:opacity-95 disabled:opacity-60"
         >
           <span
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-sky-600/80 to-indigo-700/90 text-white"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary-hover text-primary-foreground"
             aria-hidden
           >
             <FileTypeIcon name={name} mime={mime} className="h-4 w-4" />
@@ -155,13 +159,13 @@ function ChatStoragePathFileCard({ fileMeta, compact = false }) {
             </span>
           </span>
         </button>
-        <div className="flex gap-1 border-t border-white/[0.08] pt-1.5">
+        <div className="flex gap-1 border-t border-border pt-1.5">
           <button
             type="button"
             title={t('friendChat.downloadFile')}
             disabled={busy}
             onClick={() => runAction('download')}
-            className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-border bg-muted text-[10px] text-foreground transition hover:bg-muted/80 disabled:opacity-60"
+            className={`flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-border bg-muted text-[10px] text-foreground hover:bg-muted/80 disabled:opacity-60 ${MOTION_BTN}`}
           >
             <Download className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
             {t('friendChat.downloadFileShort')}
@@ -180,7 +184,7 @@ function ChatStoragePathFileCard({ fileMeta, compact = false }) {
         className="flex min-w-0 flex-1 items-center gap-3 text-left transition hover:opacity-95 disabled:opacity-60"
       >
         <span
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sky-600/80 to-indigo-700/90 text-white"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-primary-foreground"
           aria-hidden
         >
           <FileTypeIcon name={name} mime={mime} className="h-6 w-6" />
@@ -194,13 +198,13 @@ function ChatStoragePathFileCard({ fileMeta, compact = false }) {
           </span>
         </span>
       </button>
-      <div className="flex shrink-0 flex-col gap-1.5 border-l border-white/[0.08] pl-2">
+      <div className="flex shrink-0 flex-col gap-1.5 border-l border-border pl-2">
         <button
           type="button"
           title={t('friendChat.downloadFile')}
           disabled={busy}
           onClick={() => runAction('download')}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-foreground transition hover:bg-muted/80 disabled:opacity-60"
+          className={`flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-foreground hover:bg-muted/80 disabled:opacity-60 ${MOTION_BTN}`}
         >
           <Download className="h-4 w-4" strokeWidth={2} aria-hidden />
         </button>
@@ -243,7 +247,7 @@ function ChatStoragePathImagePreview({ fileMeta, compact, onImageClick, messageI
   if (!previewUrl) {
     return (
       <div
-        className={`animate-pulse rounded-xl bg-white/10 ${compact ? 'h-28 w-40' : 'h-40 w-56'}`}
+        className={`animate-pulse rounded-xl bg-muted ${compact ? 'h-28 w-40' : 'h-40 w-56'}`}
         aria-hidden
       />
     );
@@ -260,7 +264,7 @@ function ChatStoragePathImagePreview({ fileMeta, compact, onImageClick, messageI
             window.open(previewUrl, '_blank', 'noopener,noreferrer');
           }
         }}
-        className="block overflow-hidden rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/60"
+        className="block overflow-hidden rounded-xl focus:outline-none focus:ring-2 focus:ring-ring"
       >
         <img
           src={previewUrl}
@@ -273,7 +277,7 @@ function ChatStoragePathImagePreview({ fileMeta, compact, onImageClick, messageI
           type="button"
           title={t('friendChat.downloadFile')}
           onClick={() => downloadStorageObject(storagePath, name, mime)}
-          className="inline-flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.06] px-2 py-1 text-xs text-white/90 hover:bg-white/[0.1]"
+          className={`inline-flex items-center gap-1 rounded-lg border border-border bg-muted px-2 py-1 text-xs text-foreground hover:bg-muted/80 ${MOTION_BTN}`}
         >
           <Download className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
           {t('friendChat.downloadFileShort')}
@@ -434,7 +438,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
           className="flex min-w-0 w-full items-center gap-2 text-left transition hover:opacity-95"
         >
           <span
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-sky-600/80 to-indigo-700/90 text-white"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary-hover text-primary-foreground"
             aria-hidden
           >
             <FileTypeIcon name={name} mime={mime} className="h-4 w-4" />
@@ -448,7 +452,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
             </span>
           </span>
         </button>
-        <div className="flex gap-1 border-t border-white/[0.08] pt-1.5">
+        <div className="flex gap-1 border-t border-border pt-1.5">
           <button
             type="button"
             title={t('friendChat.saveFile')}
@@ -456,7 +460,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
               e.stopPropagation();
               saveFileWithPicker(url, name);
             }}
-            className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-border bg-muted text-[10px] text-foreground transition hover:bg-muted/80"
+            className={`flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-border bg-muted text-[10px] text-foreground hover:bg-muted/80 ${MOTION_BTN}`}
           >
             <FolderDown className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
             {t('friendChat.saveFileShort')}
@@ -468,7 +472,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
               e.stopPropagation();
               downloadToDisk(url, name);
             }}
-            className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-border bg-muted text-[10px] text-foreground transition hover:bg-muted/80"
+            className={`flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-border bg-muted text-[10px] text-foreground hover:bg-muted/80 ${MOTION_BTN}`}
           >
             <Download className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
             {t('friendChat.downloadFileShort')}
@@ -488,7 +492,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
         className="flex min-w-0 flex-1 items-center gap-3 text-left transition hover:opacity-95"
       >
         <span
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sky-600/80 to-indigo-700/90 text-white"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-primary-foreground"
           aria-hidden
         >
           <FileTypeIcon name={name} mime={mime} className="h-6 w-6" />
@@ -497,12 +501,12 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
           <span className="block truncate font-semibold text-foreground">{name}</span>
           <span className="mt-0.5 block text-xs text-muted-foreground">
             {sizeLabel}
-            <span className="mx-1.5 text-[#4e5257]">·</span>
-            <span className="text-emerald-400/90">{t('friendChat.clickToOpen')}</span>
+            <span className="mx-1.5 text-muted-foreground/60">·</span>
+            <span className="text-success">{t('friendChat.clickToOpen')}</span>
           </span>
         </span>
       </button>
-      <div className="flex shrink-0 flex-col gap-1.5 border-l border-white/[0.08] pl-2">
+      <div className="flex shrink-0 flex-col gap-1.5 border-l border-border pl-2">
         <button
           type="button"
           title={t('friendChat.saveFile')}
@@ -510,7 +514,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
             e.stopPropagation();
             saveFileWithPicker(url, name);
           }}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-foreground transition hover:bg-muted/80"
+          className={`flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-foreground hover:bg-muted/80 ${MOTION_BTN}`}
         >
           <FolderDown className="h-4 w-4" strokeWidth={2} aria-hidden />
         </button>
@@ -521,7 +525,7 @@ export function ChatFileCard({ url, fileMeta, className = '', compact = false })
             e.stopPropagation();
             downloadToDisk(url, name);
           }}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-foreground transition hover:bg-muted/80"
+          className={`flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-foreground hover:bg-muted/80 ${MOTION_BTN}`}
         >
           <Download className="h-4 w-4" strokeWidth={2} aria-hidden />
         </button>
@@ -582,8 +586,9 @@ export function ChatMessageAttachmentBody({
     const phone = String(card.phone || '').trim() || '-';
     const email = String(card.email || '').trim() || '-';
     const goToFriendChat = () => {
+      const greeting = t('chat.attachment.composeGreeting', { name: fullName });
       const target = targetUserId
-        ? `?openDmUserId=${encodeURIComponent(targetUserId)}&composeText=${encodeURIComponent(`Xin chao ${fullName}`)}`
+        ? `?openDmUserId=${encodeURIComponent(targetUserId)}&composeText=${encodeURIComponent(greeting)}`
         : '';
       const inWorkspace = typeof window !== 'undefined' && /^\/w\//.test(window.location.pathname);
       const url = `/app/communicate/chat/friends${target}`;
@@ -595,21 +600,23 @@ export function ChatMessageAttachmentBody({
     };
     return (
       <div
-        className={`rounded-xl border border-cyan-500/25 bg-cyan-500/10 p-3 ${compact ? 'min-w-0 max-w-full' : 'min-w-[220px]'}`}
+        className={`rounded-xl border border-primary/25 bg-primary/10 p-3 ${compact ? 'min-w-0 max-w-full' : 'min-w-[220px]'}`}
       >
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-sm font-bold text-white">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary-hover text-sm font-bold text-primary-foreground">
             {String(fullName).slice(0, 1).toUpperCase()}
           </div>
           <div className="min-w-0">
-            <div className="text-xs font-semibold uppercase tracking-wide text-cyan-100/70">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {t('friendChat.contactCardLabel')}
             </div>
-            <div className="truncate text-sm font-semibold text-white">
+            <div className="truncate text-sm font-semibold text-foreground">
               {t('friendChat.contactName', { name: fullName })}
             </div>
-            <div className="truncate text-xs text-cyan-100/75">{t('friendChat.contactPhone', { phone })}</div>
-            <div className="truncate text-xs text-cyan-100/75">Email: {email}</div>
+            <div className="truncate text-xs text-muted-foreground">{t('friendChat.contactPhone', { phone })}</div>
+            <div className="truncate text-xs text-muted-foreground">
+              {t('chat.attachment.emailLabel')} {email}
+            </div>
           </div>
         </div>
         <div className="mt-3 flex gap-2">
@@ -625,14 +632,14 @@ export function ChatMessageAttachmentBody({
                 toast.error(t('orgPanel.contactFriendFail'));
               }
             }}
-            className="rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-cyan-500 disabled:opacity-50"
+            className={`rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50 ${MOTION_BTN}`}
           >
             {t('orgPanel.contactAddFriend')}
           </button>
           <button
             type="button"
             onClick={goToFriendChat}
-            className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/10"
+            className={`rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted ${MOTION_BTN}`}
           >
             {t('friendChat.profileMessage')}
           </button>
@@ -668,7 +675,7 @@ export function ChatMessageAttachmentBody({
               window.open(readUrl, '_blank', 'noopener,noreferrer');
             }
           }}
-          className="block overflow-hidden rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/60"
+          className="block overflow-hidden rounded-xl focus:outline-none focus:ring-2 focus:ring-ring"
         >
           <img
             src={readUrl}
@@ -681,7 +688,7 @@ export function ChatMessageAttachmentBody({
             type="button"
             title={t('friendChat.saveFile')}
             onClick={() => saveFileWithPicker(readUrl, fileName)}
-            className="inline-flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.06] px-2 py-1 text-xs text-white/90 hover:bg-white/[0.1]"
+            className={`inline-flex items-center gap-1 rounded-lg border border-border bg-muted px-2 py-1 text-xs text-foreground hover:bg-muted/80 ${MOTION_BTN}`}
           >
             <FolderDown className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
             {t('friendChat.saveFileShort')}
@@ -690,7 +697,7 @@ export function ChatMessageAttachmentBody({
             type="button"
             title={t('friendChat.downloadFile')}
             onClick={() => downloadToDisk(readUrl, fileName)}
-            className="inline-flex items-center gap-1 rounded-lg border border-white/[0.1] bg-white/[0.06] px-2 py-1 text-xs text-white/90 hover:bg-white/[0.1]"
+            className={`inline-flex items-center gap-1 rounded-lg border border-border bg-muted px-2 py-1 text-xs text-foreground hover:bg-muted/80 ${MOTION_BTN}`}
           >
             <Download className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
             {t('friendChat.downloadFileShort')}

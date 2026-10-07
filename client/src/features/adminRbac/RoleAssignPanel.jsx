@@ -17,6 +17,9 @@ import {
   unwrapUserRoleList,
 } from '../../utils/adminRbacUtils';
 import { notifyRbacGrantsChanged } from '../../utils/rbacV2Ui';
+import {
+  AdminListSkeleton,
+} from '../../components/adminUsers/adminPanelStates';
 
 export default function RoleAssignPanel({ orgId, embedded = false, onAssigned }) {
   const { t } = useAppStrings();
@@ -110,10 +113,10 @@ export default function RoleAssignPanel({ orgId, embedded = false, onAssigned })
       {!userId ? (
         <p className="mt-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
       ) : detailLoading ? (
-        <p className="mt-4 text-sm text-muted-foreground">{t('common.loading')}</p>
+        <AdminListSkeleton className="mt-4" />
       ) : detailError ? (
         <div className="mt-4 space-y-3">
-          <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p role="alert" className="rounded-lg border border-destructive bg-card px-3 py-2 text-sm text-destructive">
             {detailError}
           </p>
           <GradientButton type="button" variant="secondary" onClick={() => setDetailTick((n) => n + 1)}>
@@ -130,7 +133,8 @@ export default function RoleAssignPanel({ orgId, embedded = false, onAssigned })
             </p>
           ) : null}
           <select
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={t('adminRbac.selectRole')}
             value={selectedRoleId}
             onChange={(e) => setSelectedRoleId(e.target.value)}
           >
@@ -148,7 +152,7 @@ export default function RoleAssignPanel({ orgId, embedded = false, onAssigned })
             {busy ? t('common.saving') : t('adminRbac.assignAction')}
           </GradientButton>
           {effectivePerms.length ? (
-            <div className="mt-4 rounded-lg border border-border/60 p-3 text-xs text-muted-foreground">
+            <div className="mt-4 rounded-lg border border-border p-3 text-xs text-muted-foreground">
               <p className="mb-2 font-medium text-foreground">{t('adminRbac.effectivePermissions')}</p>
               <ul className="list-inside list-disc space-y-1">
                 {effectivePerms.slice(0, 12).map((p, i) => (

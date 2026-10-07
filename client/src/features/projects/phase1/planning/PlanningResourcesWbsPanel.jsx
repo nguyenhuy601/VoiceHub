@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import Modal from '../../../../components/Shared/Modal';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { planningAPI } from '../../../../services/api/planningAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
@@ -79,12 +80,12 @@ export default function PlanningResourcesWbsPanel({ projectId }) {
           </div>
 
           {isLoading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+            <p className="text-sm text-muted-foreground" aria-busy="true">
+              {t('common.loading')}
+            </p>
           ) : null}
           {isError ? (
-            <button type="button" className="text-sm text-destructive" onClick={() => refetch()}>
-              {t('common.retry')}
-            </button>
+            <AdminLoadErrorState message={t('common.error')} onRetry={() => void refetch()} />
           ) : null}
           {!isLoading && !filtered.length ? (
             <div className="rounded-xl border border-dashed border-border bg-muted/15 px-4 py-8 text-center text-sm text-muted-foreground">

@@ -3,12 +3,10 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
-import {
-  AdminUserFormCard,
-  adminInputClass,
-  adminPrimaryBtnClass,
-} from '../adminUsers/adminUserPanelUi';
+import { AdminUserFormCard, adminInputClass } from '../adminUsers/adminUserPanelUi';
+import { AdminEmptyState, AdminListSkeleton, AdminLoadErrorState } from '../adminUsers/adminPanelStates';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
+import { handlePickerListKeyDown } from '../adminUsers/pickerListKeyboard';
 
 /**
  * Picker đơn vị org (dept / team / branch / division).
@@ -31,6 +29,7 @@ export default function AdminOrgUnitPicker({
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const activeId = String(selectedId || searchParams.get(paramKey) || '').trim();
+  const pickerTitle = title || t('adminOrg.pickerTitle');
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -52,34 +51,35 @@ export default function AdminOrgUnitPicker({
     setSearchParams(next, { replace: true });
   };
 
+  const hasItems = Boolean(items?.length);
+
   return (
-    <AdminUserFormCard title={title || t('adminOrg.pickerTitle')} hint={hint}>
+    <AdminUserFormCard title={pickerTitle} hint={hint}>
       <div className="relative mb-3">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t('adminOrg.searchPlaceholder')}
+          aria-label={t('adminOrg.searchPlaceholder')}
+          maxLength={120}
           className={`${adminInputClass()} pl-9`}
         />
       </div>
-      {loading ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      {loading && !hasItems ? (
+        <AdminListSkeleton rows={3} />
       ) : error ? (
-        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3">
-          <p className="text-sm text-destructive">{error}</p>
-          {typeof onRetry === 'function' ? (
-            <div className="mt-3">
-              <button type="button" className={adminPrimaryBtnClass()} onClick={() => onRetry()}>
-                {t('adminRbac.retry')}
-              </button>
-            </div>
-          ) : null}
-        </div>
+        <AdminLoadErrorState
+          message={error}
+          onRetry={typeof onRetry === 'function' ? () => onRetry() : undefined}
+        />
       ) : (
-        <div className="max-h-[420px] overflow-auto rounded-xl border border-border/70">
-          <ul className="divide-y divide-border/50">
+        <div className="max-h-[420px] overflow-auto rounded-xl border border-border" aria-busy={loading || undefined}>
+          <ul className="divide-y divide-border" aria-label={pickerTitle} onKeyDown={handlePickerListKeyDown}>
             {filtered.map((row) => {
               const id = unitId(row);
               const active = id === activeId;
@@ -88,8 +88,9 @@ export default function AdminOrgUnitPicker({
                   <button
                     type="button"
                     onClick={() => pick(id)}
-                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
-                      active ? 'bg-red-500/10' : 'hover:bg-muted/30'
+                    aria-current={active ? 'true' : undefined}
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none ${
+                      active ? 'bg-primary-subtle' : 'hover:bg-muted'
                     }`}
                   >
                     <div className="min-w-0 flex-1">
@@ -99,7 +100,7 @@ export default function AdminOrgUnitPicker({
                       ) : null}
                     </div>
                     {badgeFn ? (
-                      <span className="shrink-0 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                         {badgeFn(row)}
                       </span>
                     ) : null}
@@ -108,9 +109,7 @@ export default function AdminOrgUnitPicker({
               );
             })}
           </ul>
-          {!filtered.length ? (
-            <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('adminOrg.emptyList')}</p>
-          ) : null}
+          {!filtered.length ? <AdminEmptyState message={t('adminOrg.emptyList')} /> : null}
         </div>
       )}
     </AdminUserFormCard>
