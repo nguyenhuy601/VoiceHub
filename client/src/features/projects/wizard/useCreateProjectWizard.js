@@ -7,7 +7,6 @@ import { useAppStrings } from '../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import {
   buildCreateBoardPayload,
-  validateCreateProjectIdentity,
   PROJECT_TYPES,
   PROJECT_CATEGORIES,
   PROJECT_PRIORITIES,
@@ -20,13 +19,11 @@ import {
   WIZARD_PO_ROLE,
   firstSeedMemberWithRole,
 } from './projectWizardConstants';
-import { isProjectDateRangeInvalid } from '../hub/projectHubUtils';
 import {
   INTAKE_LEAD_ROLE_KEYS,
   emptyIntakeSlots,
   slotsToSeedMembers,
   intakeSlotsFromSeedMembers,
-  intakeSlotFilled,
 } from './projectWizardIntakeRoles';
 import {
   emptyIntakeFiles,
@@ -34,6 +31,10 @@ import {
   countIntakeFiles,
 } from './projectWizardInputFiles';
 import { mapProjectIntakeDraftToForm } from './mapProjectIntakeDraftToForm';
+import {
+  buildIntakeFieldErrors,
+  firstIntakeFieldAnchor,
+} from '../intake/projectIntakeValidation';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -99,6 +100,10 @@ export default function useCreateProjectWizard({
   const [requirementIntakeStatus, setRequirementIntakeStatus] = useState('idle');
   /** Session from Customer Raw preview (optional link on intake-draft). */
   const [intakeImportSessionId, setIntakeImportSessionId] = useState('');
+  /** Sau lần submit đầu — hiển thị inline validation thay vì toast field-level. */
+  const [validationAttempted, setValidationAttempted] = useState(false);
+  /** idle | creating_project | creating_pack | uploading | opening_workspace */
+  const [submitPhase, setSubmitPhase] = useState('idle');
 
   useEffect(() => {
     setStep(0);
@@ -107,6 +112,8 @@ export default function useCreateProjectWizard({
     setIntakeBusy(false);
     setRequirementIntakeStatus('idle');
     setIntakeImportSessionId('');
+    setValidationAttempted(false);
+    setSubmitPhase('idle');
   }, [organizationId, resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -222,64 +229,35 @@ export default function useCreateProjectWizard({
     [organizationId, t]
   );
 
-  const validateIdentityAndRoster = useCallback(() => {
-    const err = validateCreateProjectIdentity({
-      title: form.title,
-      category: form.category || 'internal',
-      customerName: form.customerName,
-    });
-    if (err === 'title') {
-      toast.error(t('adminTasks.createNeedTitle'));
-      return false;
-    }
-    if (err === 'customer') {
-      toast.error(t('adminTasks.wizardNeedCustomer') || 'Nhập tên khách hàng.');
-      return false;
-    }
-    if (isProjectDateRangeInvalid(form.startDate, form.dueDate)) {
-      toast.error(t('adminTasks.wizardProjectDateRangeInvalid'));
-      return false;
-    }
-    const slots = { ...emptyIntakeSlots(), ...(form.intakeSlots || {}) };
-    if (!intakeSlotFilled(slots, 'product_owner')) {
-      toast.error(t('adminTasks.wizardNeedPo'));
-      return false;
-    }
-    if (!intakeSlotFilled(slots, 'project_manager')) {
-      toast.error(t('adminTasks.wizardNeedPm'));
-      return false;
-    }
-    if (!intakeSlotFilled(slots, 'business_analyst')) {
-      toast.error(t('adminTasks.wizardRosterNeedBa'));
-      return false;
-    }
-    return true;
-  }, [form, t]);
+  const fieldErrors = buildIntakeFieldErrors(form, t);
 
   const validateStep = useCallback(
     (stepIndex) => {
       const id = PROJECT_WIZARD_STEPS[stepIndex];
       if (id === 'intake') {
-        if (!form.intakeFiles?.requirement) {
-          toast.error(
-            t('adminTasks.wizardNeedRequirementFile') || 'Tải Customer Requirement bắt buộc.'
-          );
-          return false;
-        }
-        return validateIdentityAndRoster();
-      }
-      if (id === 'mode') {
-        const mode = String(form.analysisMode || '').toLowerCase();
-        if (mode !== 'manual' && mode !== 'ai') {
-          toast.error(t('adminTasks.wizardNeedMode') || 'Chọn Analysis Mode.');
-          return false;
-        }
-        return true;
+        const errors = buildIntakeFieldErrors(form, t);
+        return Object.keys(errors).length === 0;
       }
       return true;
     },
-    [form, t, validateIdentityAndRoster]
+    [form, t]
   );
+
+  const focusFirstIntakeError = useCallback((errors) => {
+    const anchor = firstIntakeFieldAnchor(errors);
+    if (!anchor) return;
+    requestAnimationFrame(() => {
+      const el = document.getElementById(anchor);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (el && typeof el.focus === 'function') {
+        try {
+          el.focus({ preventScroll: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  }, []);
 
   const goNext = useCallback(() => {
     if (!validateStep(step)) return;
@@ -393,11 +371,18 @@ export default function useCreateProjectWizard({
   }, [form, organizationId, creatorUserId, scopeLabel]);
 
   const submit = useCallback(async () => {
+    setValidationAttempted(true);
+    const errors = buildIntakeFieldErrors(form, t);
+    if (Object.keys(errors).length) {
+      focusFirstIntakeError(errors);
+      return null;
+    }
     for (let i = 0; i < PROJECT_WIZARD_STEPS.length; i += 1) {
       if (!validateStep(i)) return null;
     }
     if (!organizationId || busy) return null;
     setBusy(true);
+    setSubmitPhase('creating_project');
     try {
       const { payload } = buildPayload();
       const projectRes = await projectAPI.create(payload, { skipPermissionDeniedToast: true });
@@ -411,6 +396,7 @@ export default function useCreateProjectWizard({
         return null;
       }
 
+      setSubmitPhase('creating_pack');
       const reqFile = form.intakeFiles?.requirement;
       const draftRes = await requirementAPI.createIntakeDraft(organizationId, {
         title: form.title,
@@ -439,6 +425,7 @@ export default function useCreateProjectWizard({
       }
 
       const queue = buildIntakeUploadQueue(form.intakeFiles);
+      if (queue.length) setSubmitPhase('uploading');
       let failCount = 0;
       for (const item of queue) {
         try {
@@ -482,7 +469,8 @@ export default function useCreateProjectWizard({
         analysisMode: form.analysisMode || 'manual',
         _intakeUpload: { total: counts.total, failed: 0 },
       };
-      onCreated?.(result);
+      setSubmitPhase('opening_workspace');
+      await onCreated?.(result);
       return result;
     } catch (error) {
       const status = Number(error?.status || error?.response?.status || 0);
@@ -498,9 +486,12 @@ export default function useCreateProjectWizard({
       return null;
     } finally {
       setBusy(false);
+      setSubmitPhase('idle');
     }
   }, [
     validateStep,
+    focusFirstIntakeError,
+    form,
     organizationId,
     busy,
     onCreated,
@@ -527,9 +518,13 @@ export default function useCreateProjectWizard({
     patchForm,
     catalogRoles,
     busy,
+    submitPhase,
     intakeBusy,
     requirementIntakeStatus,
+    validationAttempted,
+    fieldErrors,
     applyRequirementFile,
+    focusFirstIntakeError,
     goNext,
     goBack,
     submit,

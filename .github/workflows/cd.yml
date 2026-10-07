@@ -1,8 +1,9 @@
 # CD — Continuous Delivery / Deployment (VoiceHub)
-# Chuẩn: CI PASS → Artifact (GHCR) → Deploy Dev → Smoke → Staging → Prod
+# Chuẩn: CI PASS (main publish + manifest) → Resolve Release → Promote
+# Wave 1: gate Environment + manual Swarm; Wave 2: self-hosted runners.
 #
-# Wave 1: Artifact thật + GitHub Environment gates (approval).
-#         Deploy auto cần self-hosted runner (Wave 2) — không SSH vào Docker Desktop LAN từ ubuntu-latest.
+# INVARIANT: CD không docker build / không push GHCR.
+# Artifact SoT = release-manifest.json từ CI (GitHub Release / artifact).
 
 name: CD
 
@@ -13,20 +14,16 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      release_id:
+        description: "Release id (e.g. R20261007-001). Empty = resolve from commit/sha"
+        required: false
+        default: ""
       sha:
-        description: "Git SHA to publish/deploy (empty = current main HEAD)"
+        description: "Git SHA (fallback when release_id empty; empty = workflow_run head / main HEAD)"
         required: false
         default: ""
-      image:
-        description: "Single image (empty = path-based / all)"
-        required: false
-        default: ""
-      force_all:
-        description: "Force build all Swarm app images"
-        type: boolean
-        default: false
       skip_artifact:
-        description: "Skip publish (deploy gates only, use existing :sha)"
+        description: "DEPRECATED — CD never builds. Setting true is ignored (promote-only)."
         type: boolean
         default: false
 
@@ -36,17 +33,17 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
+  packages: read
   actions: read
 
 jobs:
-  # ── Chỉ chạy khi CI PASS (hoặc dispatch tay) ───────────
   cd-preflight:
     name: "CD — preflight (CI PASS)"
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.meta.outputs.sha }}
       should_run: ${{ steps.meta.outputs.should_run }}
+      release_id: ${{ steps.meta.outputs.release_id }}
     steps:
       - id: meta
         env:
@@ -54,161 +51,171 @@ jobs:
           CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
           RUN_SHA: ${{ github.event.workflow_run.head_sha || '' }}
           INPUT_SHA: ${{ github.event.inputs.sha || '' }}
+          INPUT_RELEASE: ${{ github.event.inputs.release_id || '' }}
           HEAD_SHA: ${{ github.sha }}
+          SKIP_ARTIFACT: ${{ github.event.inputs.skip_artifact || 'false' }}
         run: |
           set -euo pipefail
+          if [[ "${SKIP_ARTIFACT}" == "true" ]]; then
+            echo "::warning::skip_artifact is deprecated — CD never builds images (promote-only)."
+          fi
           if [[ "${EVENT}" == "workflow_dispatch" ]]; then
             SHA="${INPUT_SHA:-$HEAD_SHA}"
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-            echo "Manual CD for sha=${SHA}"
+            echo "release_id=${INPUT_RELEASE}" >> "$GITHUB_OUTPUT"
+            echo "Manual CD sha=${SHA} release_id=${INPUT_RELEASE:-"(resolve)"}"
             exit 0
           fi
           if [[ "${EVENT}" == "workflow_run" && "${CONCLUSION}" == "success" ]]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             echo "sha=${RUN_SHA}" >> "$GITHUB_OUTPUT"
+            echo "release_id=${INPUT_RELEASE}" >> "$GITHUB_OUTPUT"
             echo "CI PASS → CD for sha=${RUN_SHA}"
             exit 0
           fi
           echo "should_run=false" >> "$GITHUB_OUTPUT"
           echo "sha=" >> "$GITHUB_OUTPUT"
+          echo "release_id=" >> "$GITHUB_OUTPUT"
           echo "Skip CD (event=${EVENT} conclusion=${CONCLUSION})"
 
-  resolve-matrix:
-    name: "Artifact — resolve matrix"
+  resolve-release:
+    name: "CD — resolve release manifest"
     needs: cd-preflight
-    if: needs.cd-preflight.outputs.should_run == 'true' && github.event.inputs.skip_artifact != 'true'
+    if: needs.cd-preflight.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set.outputs.matrix }}
-      has_images: ${{ steps.set.outputs.has_images }}
+      release_id: ${{ steps.resolve.outputs.release_id }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      manifest_path: release-manifest.json
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.cd-preflight.outputs.sha }}
-          fetch-depth: 0
-      - id: set
+      - name: Download release-manifest
+        id: resolve
         env:
-          INPUT_IMAGE: ${{ github.event.inputs.image || '' }}
-          FORCE_ALL: ${{ github.event.inputs.force_all || 'false' }}
-          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHA: ${{ needs.cd-preflight.outputs.sha }}
+          INPUT_RELEASE: ${{ needs.cd-preflight.outputs.release_id }}
+          RUN_ID: ${{ github.event.workflow_run.id || '' }}
         run: |
           set -euo pipefail
-          ALL="$(node -e 'console.log(JSON.stringify(require("./.github/swarm-app-images.json")))')"
+          mkdir -p .release
+          FOUND=""
 
-          if [[ -n "${INPUT_IMAGE}" ]]; then
-            SELECTED="$(echo "$ALL" | jq -c --arg n "$INPUT_IMAGE" '[.[] | select(.image==$n)]')"
-            [[ "$(echo "$SELECTED" | jq 'length')" -gt 0 ]] || { echo "Unknown image"; exit 1; }
-            echo "matrix=$(echo "$SELECTED" | jq -c '{include:.}')" >> "$GITHUB_OUTPUT"
-            echo "has_images=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          try_file() {
+            local f="$1"
+            [[ -f "$f" ]] || return 1
+            FOUND="$f"
+          }
 
-          if [[ "${FORCE_ALL}" == "true" || "${EVENT_NAME}" == "workflow_dispatch" ]]; then
-            echo "matrix=$(echo "$ALL" | jq -c '{include:.}')" >> "$GITHUB_OUTPUT"
-            echo "has_images=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # workflow_run: so sánh SHA với parent
-          PARENT="$(git rev-parse "${SHA}^" 2>/dev/null || true)"
-          BUILD_ALL=false
-          if [[ -z "${PARENT}" ]]; then
-            BUILD_ALL=true
-          elif git diff --name-only "${PARENT}" "${SHA}" -- shared/ .github/swarm-app-images.json .github/workflows/cd.yml | grep -q .; then
-            BUILD_ALL=true
-          fi
-
-          if [[ "${BUILD_ALL}" == "true" ]]; then
-            echo "matrix=$(echo "$ALL" | jq -c '{include:.}')" >> "$GITHUB_OUTPUT"
-            echo "has_images=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          mapfile -t CHANGED_PATHS < <(git diff --name-only "${PARENT}" "${SHA}")
-          SELECTED='[]'
-          while IFS= read -r row; do
-            image="$(echo "$row" | jq -r '.image')"
-            hit=0
-            if [[ "${image}" == "api-gateway" ]]; then
-              for p in "${CHANGED_PATHS[@]}"; do [[ "$p" == api-gateway/* ]] && hit=1 && break; done
+          if [[ -n "${INPUT_RELEASE}" ]]; then
+            TAG="voicehub-${INPUT_RELEASE}"
+            echo "Trying release tag ${TAG}"
+            if gh release download "${TAG}" --pattern release-manifest.json --dir .release 2>/dev/null; then
+              try_file .release/release-manifest.json || true
             else
-              for p in "${CHANGED_PATHS[@]}"; do [[ "$p" == "services/${image}/"* ]] && hit=1 && break; done
+              echo "::warning::Release ${TAG} not found; will try artifact / latest"
             fi
-            [[ "$hit" -eq 1 ]] && SELECTED="$(echo "$SELECTED" | jq -c --argjson r "$row" '. + [$r]')"
-          done < <(echo "$ALL" | jq -c '.[]')
-
-          if [[ "$(echo "$SELECTED" | jq 'length')" -eq 0 ]]; then
-            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
-            echo "has_images=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "matrix=$(echo "$SELECTED" | jq -c '{include:.}')" >> "$GITHUB_OUTPUT"
-            echo "has_images=true" >> "$GITHUB_OUTPUT"
           fi
 
-  artifact:
-    name: "Artifact — push ${{ matrix.image }}"
-    needs: [cd-preflight, resolve-matrix]
-    if: needs.resolve-matrix.outputs.has_images == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.resolve-matrix.outputs.matrix) }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.cd-preflight.outputs.sha }}
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build & push (context = repo root)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/voicehub/${{ matrix.image }}:${{ needs.cd-preflight.outputs.sha }}
-            ghcr.io/${{ github.repository_owner }}/voicehub/${{ matrix.image }}:latest
-          cache-from: type=gha,scope=cd-${{ matrix.image }}
-          cache-to: type=gha,mode=min,scope=cd-${{ matrix.image }}
+          if [[ -z "${FOUND}" && -n "${RUN_ID}" ]]; then
+            echo "Trying CI artifact release-manifest (run ${RUN_ID})"
+            if gh run download "${RUN_ID}" --name release-manifest --dir .release 2>/dev/null; then
+              try_file .release/release-manifest.json || true
+            fi
+          fi
 
-  artifact-done:
-    name: "Artifact — ready"
-    needs: [cd-preflight, resolve-matrix, artifact]
+          if [[ -z "${FOUND}" ]]; then
+            echo "Searching voicehub-R* releases for commit ${SHA}"
+            mapfile -t TAGS < <(gh release list --limit 40 --json tagName \
+              --jq '[.[] | .tagName] | map(select(startswith("voicehub-R"))) | .[]')
+            FALLBACK=""
+            for TAG in "${TAGS[@]:-}"; do
+              rm -f .release/candidate.json
+              gh release download "${TAG}" --pattern release-manifest.json --dir .release 2>/dev/null || continue
+              [[ -f .release/release-manifest.json ]] || continue
+              mv .release/release-manifest.json .release/candidate.json
+              COMMIT="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(".release/candidate.json","utf8")).commit||"")')"
+              if [[ "${COMMIT}" == "${SHA}" ]]; then
+                mv .release/candidate.json .release/release-manifest.json
+                FOUND=".release/release-manifest.json"
+                break
+              fi
+              if [[ -z "${FALLBACK}" ]]; then
+                cp .release/candidate.json .release/fallback.json
+                FALLBACK=.release/fallback.json
+              fi
+            done
+            if [[ -z "${FOUND}" && -n "${FALLBACK}" ]]; then
+              echo "::warning::No exact SHA match; using newest voicehub-R* manifest"
+              cp "${FALLBACK}" .release/release-manifest.json
+              FOUND=".release/release-manifest.json"
+            fi
+          fi
+
+          [[ -n "${FOUND}" && -f "${FOUND}" ]] || {
+            echo "::error::release-manifest.json not found for sha=${SHA} release_id=${INPUT_RELEASE:-empty}"
+            echo "CI main must publish the manifest (CD never rebuilds)."
+            exit 1
+          }
+
+          cp "${FOUND}" release-manifest.json
+          node <<'NODE'
+          const fs = require('fs');
+          const catalog = require('./.github/swarm-app-images.json');
+          const m = JSON.parse(fs.readFileSync('release-manifest.json', 'utf8'));
+          if (Object.keys(m.services || {}).length !== catalog.length) {
+            console.error('Manifest service count mismatch');
+            process.exit(1);
+          }
+          for (const row of catalog) {
+            const s = m.services[row.image];
+            if (!s?.digest?.includes('@sha256:')) {
+              console.error('Missing digest', row.image);
+              process.exit(1);
+            }
+          }
+          console.log('Manifest OK', m.releaseId, m.commit);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `release_id=${m.releaseId}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `sha=${m.commit}\n`);
+          for (const [k, v] of Object.entries(m.services)) {
+            console.log(k, v.digest);
+          }
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cd-release-manifest
+          path: release-manifest.json
+          retention-days: 30
+
+  artifact-ready:
+    name: "CD — artifact ready (no build)"
+    needs: [cd-preflight, resolve-release]
     if: always() && needs.cd-preflight.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     outputs:
-      sha: ${{ needs.cd-preflight.outputs.sha }}
+      sha: ${{ needs.resolve-release.outputs.sha }}
+      release_id: ${{ needs.resolve-release.outputs.release_id }}
     steps:
-      - name: Confirm artifact stage
+      - name: Confirm promote-only
         env:
-          ARTIFACT_RESULT: ${{ needs.artifact.result }}
-          RESOLVE_RESULT: ${{ needs.resolve-matrix.result }}
-          SKIP: ${{ github.event.inputs.skip_artifact || 'false' }}
+          RESOLVE: ${{ needs.resolve-release.result }}
         run: |
           set -euo pipefail
-          if [[ "${SKIP}" == "true" ]]; then
-            echo "skip_artifact=true — dùng image đã có trên GHCR"
-            exit 0
-          fi
-          if [[ "${RESOLVE_RESULT}" == "failure" || "${ARTIFACT_RESULT}" == "failure" || "${ARTIFACT_RESULT}" == "cancelled" ]]; then
-            echo "Artifact stage failed"
+          if [[ "${RESOLVE}" != "success" ]]; then
+            echo "resolve-release failed — cannot promote without manifest"
             exit 1
           fi
-          # skipped resolve (no images) hoặc artifact skipped với has_images=false → vẫn cho CD gates (tag có thể đã tồn tại)
-          echo "Artifact stage OK (result=${ARTIFACT_RESULT:-n/a})"
+          echo "CD promote-only OK (no docker build)"
+          echo "release_id=${{ needs.resolve-release.outputs.release_id }}"
+          echo "sha=${{ needs.resolve-release.outputs.sha }}"
 
-  # ── Deploy Dev → Smoke → Staging → Prod ───────────────
   deploy-development:
     name: "CD Deploy — development"
-    needs: [cd-preflight, artifact-done]
-    if: needs.cd-preflight.outputs.should_run == 'true' && needs.artifact-done.result == 'success'
+    needs: [cd-preflight, artifact-ready]
+    if: needs.cd-preflight.outputs.should_run == 'true' && needs.artifact-ready.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: development
@@ -216,59 +223,66 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.cd-preflight.outputs.sha }}
+          ref: ${{ needs.artifact-ready.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: cd-release-manifest
+          path: .
       - name: Wave 1 gate — development
         env:
-          SHA: ${{ needs.cd-preflight.outputs.sha }}
+          SHA: ${{ needs.artifact-ready.outputs.sha }}
+          RELEASE_ID: ${{ needs.artifact-ready.outputs.release_id }}
           OWNER: ${{ github.repository_owner }}
           CD_ACTIVE: ${{ vars.VOICEHUB_CD_DEV_ACTIVE || 'false' }}
         run: |
           set -euo pipefail
+          node -e 'const m=require("./release-manifest.json"); console.log("release", m.releaseId, "commit", m.commit); console.log("services", Object.keys(m.services).length);'
           cat <<EOF
           === CD Deploy development ===
-          Artifact: ghcr.io/${OWNER}/voicehub/<service>:${SHA}
+          releaseId=${RELEASE_ID}
+          commit=${SHA}
+          SoT: release-manifest.json (digests) — không dùng :latest làm promote pin
           deployed_auto=false (Wave 1)
 
-          Manual (Swarm local — không chạy từ runner này):
-            SWARM_USE_LOCAL_IMAGES=1 bash devops/swarm/build-local-images.sh
-            SWARM_USE_LOCAL_IMAGES=1 bash devops/swarm/deploy-stack.sh
-          Hoặc pull GHCR:
-            TAG=${SHA} REGISTRY=ghcr.io OWNER=${OWNER} SWARM_USE_LOCAL_IMAGES=0 bash devops/swarm/deploy-stack.sh
+          Manual Swarm:
+            bash devops/swarm/deploy-release.sh --manifest ./release-manifest.json --env development
+            # hoặc:
+            VOICEHUB_RELEASE_MANIFEST=./release-manifest.json bash devops/swarm/deploy-stack.sh
 
-          Wave 2: đăng ký self-hosted runner label voicehub-swarm-dev + VOICEHUB_CD_DEV_ACTIVE=true
+          Wave 2: self-hosted + VOICEHUB_CD_DEV_ACTIVE=true
           EOF
           if [[ "${CD_ACTIVE}" == "true" ]]; then
-            echo "::error::VOICEHUB_CD_DEV_ACTIVE=true nhưng job vẫn chạy trên ubuntu-latest — hãy gắn runs-on self-hosted (Wave 2)."
+            echo "::error::VOICEHUB_CD_DEV_ACTIVE=true nhưng job vẫn chạy trên ubuntu-latest — gắn self-hosted (Wave 2)."
             exit 1
           fi
           echo "delivery_gate=recorded deployed=false"
 
   smoke-development:
     name: "CD Smoke — development"
-    needs: [cd-preflight, deploy-development]
+    needs: [cd-preflight, deploy-development, artifact-ready]
     if: needs.deploy-development.result == 'success'
     runs-on: ubuntu-latest
     environment: development
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.cd-preflight.outputs.sha }}
+          ref: ${{ needs.artifact-ready.outputs.sha }}
       - name: Smoke checklist (Wave 1 — manual on LAN)
         env:
-          SHA: ${{ needs.cd-preflight.outputs.sha }}
+          SHA: ${{ needs.artifact-ready.outputs.sha }}
+          RELEASE_ID: ${{ needs.artifact-ready.outputs.release_id }}
         run: |
           cat <<EOF
-          === Smoke development (chạy trên máy Swarm / LAN) ===
-          SHA=${SHA}
+          === Smoke development ===
+          releaseId=${RELEASE_ID} SHA=${SHA}
           1) VOICEHUB_ENV_CHECK=ci bash devops/scripts/check-security-env.sh
-          2) node devops/scripts/smoke-single-company.js   # nếu stack + seed sẵn
+          2) node devops/scripts/smoke-single-company.js
           3) devops/nginx/verify-lan-https.ps1 -BaseUrl https://voicehub.local
-          Wave 2: job này chạy trên self-hosted và fail pipeline nếu smoke fail.
           EOF
 
   deploy-staging:
     name: "CD Deploy — staging"
-    needs: [cd-preflight, artifact-done, smoke-development]
+    needs: [cd-preflight, artifact-ready, smoke-development]
     if: needs.smoke-development.result == 'success'
     runs-on: ubuntu-latest
     environment:
@@ -276,27 +290,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.cd-preflight.outputs.sha }}
-      - name: Wave 1 gate — staging (approval Environment)
+          ref: ${{ needs.artifact-ready.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: cd-release-manifest
+          path: .
+      - name: Wave 1 gate — staging
         env:
-          SHA: ${{ needs.cd-preflight.outputs.sha }}
+          SHA: ${{ needs.artifact-ready.outputs.sha }}
+          RELEASE_ID: ${{ needs.artifact-ready.outputs.release_id }}
           OWNER: ${{ github.repository_owner }}
           CD_ACTIVE: ${{ vars.VOICEHUB_CD_STAGING_ACTIVE || 'false' }}
         run: |
           set -euo pipefail
+          node -e 'const m=require("./release-manifest.json"); for (const [k,v] of Object.entries(m.services)) console.log(k, v.digest);'
           cat <<EOF
           === CD Deploy staging ===
-          Pin tag: ${SHA}   (không dùng :latest cho promote)
-          Image: ghcr.io/${OWNER}/voicehub/<service>:${SHA}
-          deployed_auto=false (Wave 1)
+          releaseId=${RELEASE_ID} commit=${SHA}
+          Pin digests from manifest (không :latest)
 
-          Manual trên Swarm staging:
+          Manual:
             VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
-            TAG=${SHA} REGISTRY=ghcr.io OWNER=${OWNER} SWARM_USE_LOCAL_IMAGES=0 bash devops/swarm/deploy-stack.sh
-            # hoặc: bash devops/swarm/rebuild-deploy-staging.sh --skip-build  (local build path)
+            bash devops/swarm/deploy-release.sh --release-id ${RELEASE_ID} --env staging
 
-          Rollback: devops/swarm/rollback-runbook.md
-          Wave 2: runner voicehub-swarm-staging + VOICEHUB_CD_STAGING_ACTIVE=true
+          Rollback: bash devops/swarm/deploy-release.sh --release-id <previous> --env staging
           EOF
           if [[ "${CD_ACTIVE}" == "true" ]]; then
             echo "::error::Staging auto-deploy flag bật nhưng runner chưa self-hosted."
@@ -306,48 +323,54 @@ jobs:
 
   smoke-staging:
     name: "CD Smoke — staging"
-    needs: [cd-preflight, deploy-staging]
+    needs: [cd-preflight, deploy-staging, artifact-ready]
     if: needs.deploy-staging.result == 'success'
     runs-on: ubuntu-latest
     environment: staging
     steps:
       - name: Smoke checklist staging
         env:
-          SHA: ${{ needs.cd-preflight.outputs.sha }}
+          SHA: ${{ needs.artifact-ready.outputs.sha }}
+          RELEASE_ID: ${{ needs.artifact-ready.outputs.release_id }}
         run: |
           cat <<EOF
           === Smoke staging ===
-          SHA=${SHA}
+          releaseId=${RELEASE_ID} SHA=${SHA}
           - VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
           - node devops/scripts/smoke-single-company.js
-          - voice staging smoke (devops/swarm/voice-staging-smoke.md)
-          Wave 2: fail job nếu smoke fail → chặn production.
+          - devops/swarm/voice-staging-smoke.md
           EOF
 
   deploy-production:
     name: "CD Deploy — production"
-    needs: [cd-preflight, smoke-staging]
+    needs: [cd-preflight, smoke-staging, artifact-ready]
     if: needs.smoke-staging.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: production
     steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cd-release-manifest
+          path: .
       - name: Wave 1 / Wave 3 gate — production
         env:
-          SHA: ${{ needs.cd-preflight.outputs.sha }}
+          SHA: ${{ needs.artifact-ready.outputs.sha }}
+          RELEASE_ID: ${{ needs.artifact-ready.outputs.release_id }}
           OWNER: ${{ github.repository_owner }}
           CD_ACTIVE: ${{ vars.VOICEHUB_CD_PROD_ACTIVE || 'false' }}
         run: |
           set -euo pipefail
+          node -e 'const m=require("./release-manifest.json"); console.log(JSON.stringify({releaseId:m.releaseId,commit:m.commit,services:Object.keys(m.services).length},null,2));'
           cat <<EOF
           === CD Deploy production ===
-          CHỈ pin: ghcr.io/${OWNER}/voicehub/<service>:${SHA}
-          Required: Environment production approval trên GitHub.
+          CHỈ pin digest từ release-manifest (releaseId=${RELEASE_ID})
+          Required: Environment production approval.
 
-          deployed_auto=false
-          Sau deploy: monitor health + rollback-runbook.md nếu lỗi.
+          Manual:
+            bash devops/swarm/deploy-release.sh --release-id ${RELEASE_ID} --env production
 
-          Wave 3: self-hosted voicehub-swarm-prod + VOICEHUB_CD_PROD_ACTIVE=true
+          Rollback: previous releaseId — không docker build
           EOF
           if [[ "${CD_ACTIVE}" == "true" ]]; then
             echo "::error::Prod auto-deploy flag bật nhưng runner chưa self-hosted."

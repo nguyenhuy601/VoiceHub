@@ -49,7 +49,7 @@ const FIELD_GUIDE_ROWS = Object.freeze([
   },
   {
     Sheet: 'WBS',
-    Column: 'Due Date',
+    Column: 'Due Date (Gợi ý)',
     'PM action': 'Leave blank',
     'System suggests': 'Yes',
     Basis: basis(

@@ -2,16 +2,36 @@
 
 > Stack mặc định: `voicehub` — đổi `STACK` nếu deploy tên khác.
 
+## Rollback theo Release Manifest (ưu tiên STG/PROD)
+
+SoT: GitHub Release tag `voicehub-<releaseId>` + asset `release-manifest.json` (17 digests).  
+**Không** `docker build` khi rollback. **Không** promote bằng `:latest`.
+
+```bash
+# Ví dụ: R101 lỗi → quay về R100
+bash devops/swarm/deploy-release.sh --release-id R20261007-100 --env staging
+
+# Hoặc file đã tải sẵn
+bash devops/swarm/deploy-release.sh --manifest ./release-manifest.json --env production
+
+# Dry-run (chỉ resolve image env)
+bash devops/swarm/deploy-release.sh --release-id R20261007-100 --dry-run
+```
+
+Sau deploy: health + smoke (`curl` gateway-trust, `smoke-single-company.js` nếu có).
+
+Xem thêm: [`docs/ci-cd-release-manifest.md`](../../docs/ci-cd-release-manifest.md)
+
 ## Khi nào rollback
 
 | Triệu chứng | Hành động ưu tiên |
 |-------------|-------------------|
-| API 5xx spike > 5 phút | Rollback service vừa deploy |
+| API 5xx spike > 5 phút | Redeploy previous **releaseId** (manifest) hoặc rollback service vừa deploy |
 | Realtime disconnect hàng loạt | Rollback `socket-service`, kiểm tra Redis adapter |
 | Queue backlog không drain > 10 phút | Scale worker hoặc rollback worker image |
 | Gateway 401/503 sau rotate secret | Redeploy đồng bộ env hoặc rollback gateway + auth |
 
-## Lệnh rollback (một service)
+## Lệnh rollback (một service — Swarm history)
 
 ```bash
 STACK=voicehub

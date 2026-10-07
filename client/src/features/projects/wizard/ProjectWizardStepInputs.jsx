@@ -1,10 +1,7 @@
 import { useRef } from 'react';
 import { FileUp, Loader2, X } from 'lucide-react';
 import { wizardUi } from './projectWizardUi';
-import {
-  MAX_FILES_PER_GROUP,
-  validateIntakeFile,
-} from './projectWizardInputFiles';
+import { validateIntakeFile } from './projectWizardInputFiles';
 
 function FileRow({ file, onRemove, disabled, statusHint }) {
   return (
@@ -186,42 +183,6 @@ export default function ProjectWizardStepInputs({
         onClearSingle={() => {
           setIntake({ requirement: null });
           if (typeof onRequirementSelected === 'function') onRequirementSelected(null);
-        }}
-        t={t}
-      />
-
-      <UploadZone
-        label={t('adminTasks.wizardInputsCustomerFiles') || 'Customer Files'}
-        accept={accept}
-        multiple
-        files={intake.customerFiles}
-        disabled={intakeBusy}
-        hint={t('adminTasks.wizardInputsMaxFiles', { n: MAX_FILES_PER_GROUP })}
-        onAdd={(files) => {
-          const next = [...(intake.customerFiles || []), ...files].slice(0, MAX_FILES_PER_GROUP);
-          setIntake({ customerFiles: next });
-        }}
-        onRemoveAt={(i) => {
-          const next = (intake.customerFiles || []).filter((_, idx) => idx !== i);
-          setIntake({ customerFiles: next });
-        }}
-        t={t}
-      />
-
-      <UploadZone
-        label={t('adminTasks.wizardInputsReferences') || 'Reference / Attachments'}
-        accept={accept}
-        multiple
-        files={intake.references}
-        disabled={intakeBusy}
-        hint={t('adminTasks.wizardInputsMaxFiles', { n: MAX_FILES_PER_GROUP })}
-        onAdd={(files) => {
-          const next = [...(intake.references || []), ...files].slice(0, MAX_FILES_PER_GROUP);
-          setIntake({ references: next });
-        }}
-        onRemoveAt={(i) => {
-          const next = (intake.references || []).filter((_, idx) => idx !== i);
-          setIntake({ references: next });
         }}
         t={t}
       />

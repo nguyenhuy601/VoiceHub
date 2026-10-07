@@ -46,8 +46,8 @@ export function validateIntakeFile(file) {
 }
 
 /**
- * Build ordered upload queue: requirement → customerFiles → references.
- * @param {{ requirement: File|null, customerFiles: File[], references: File[] }} intakeFiles
+ * Build upload queue — wizard intake chỉ còn Customer Requirement Raw.
+ * @param {{ requirement: File|null }} intakeFiles
  * @returns {{ file: File, docClass: string, group: string }[]}
  */
 export function buildIntakeUploadQueue(intakeFiles = {}) {
@@ -55,12 +55,6 @@ export function buildIntakeUploadQueue(intakeFiles = {}) {
   const req = intakeFiles.requirement;
   if (req) {
     queue.push({ file: req, docClass: INTAKE_DOC_CLASS.requirement, group: 'requirement' });
-  }
-  for (const f of Array.isArray(intakeFiles.customerFiles) ? intakeFiles.customerFiles : []) {
-    if (f) queue.push({ file: f, docClass: INTAKE_DOC_CLASS.customerFiles, group: 'customerFiles' });
-  }
-  for (const f of Array.isArray(intakeFiles.references) ? intakeFiles.references : []) {
-    if (f) queue.push({ file: f, docClass: INTAKE_DOC_CLASS.references, group: 'references' });
   }
   return queue;
 }
@@ -71,7 +65,5 @@ export function emptyIntakeFiles() {
 
 export function countIntakeFiles(intakeFiles = {}) {
   const req = intakeFiles.requirement ? 1 : 0;
-  const cf = Array.isArray(intakeFiles.customerFiles) ? intakeFiles.customerFiles.length : 0;
-  const rf = Array.isArray(intakeFiles.references) ? intakeFiles.references.length : 0;
-  return { requirement: req, customerFiles: cf, references: rf, total: req + cf + rf };
+  return { requirement: req, customerFiles: 0, references: 0, total: req };
 }

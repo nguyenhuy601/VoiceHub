@@ -35,6 +35,7 @@ export PORT="${PORT:-3005}"
 
 # shellcheck disable=SC1091
 source "$ROOT/devops/swarm/resolve-swarm-images.sh"
+# Prefer immutable release pin when VOICEHUB_RELEASE_MANIFEST is set (see deploy-release.sh).
 resolve_swarm_images
 
 if [[ "${SKIP_SECURITY_ENV_CHECK:-}" != "1" ]]; then
