@@ -1,23 +1,25 @@
-const { buildApiErrorBody, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
+const { sendServiceError } = require('./sendServiceError');
+const { classifyProjectError } = require('../utils/projectErrorClassify');
 
 module.exports = (err, req, res, next) => {
   if (req.aborted || res.headersSent) {
     return;
   }
 
-  console.error('Error:', err);
-  const statusCode = Number(err?.statusCode) || 500;
-  const isServerError = statusCode >= 500;
-  const errorCode = String(
-    err?.errorCode || err?.code || (isServerError ? 'TASK_INTERNAL_ERROR' : '')
-  ).trim();
-  const clientMessage = String(err?.messageUser || err?.message || 'Yêu cầu không hợp lệ').trim();
+  const classified = classifyProjectError(err, Number(err?.statusCode) || 500);
+  // eslint-disable-next-line no-console
+  console.error(
+    JSON.stringify({
+      errorCode: classified.errorCode,
+      errName: classified.logName,
+      status: classified.status,
+      route: `${req.method} ${req.originalUrl || req.url || ''}`,
+    })
+  );
 
-  const body = buildApiErrorBody(statusCode, {
-    errorCode: errorCode || undefined,
-    messageUser: isServerError ? GENERIC_5XX_MESSAGE : clientMessage,
-    message: isServerError ? undefined : clientMessage,
+  return sendServiceError(res, classified.status, {
+    errorCode: classified.errorCode,
+    messageUser: classified.messageUser,
+    message: classified.status >= 500 ? undefined : classified.messageUser,
   });
-
-  res.status(statusCode).json(body);
 };

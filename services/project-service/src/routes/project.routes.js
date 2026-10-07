@@ -21,6 +21,20 @@ const governance = require('../controllers/governance.controller');
 const projectScopedRoles = require('../controllers/projectScopedRoles.controller');
 
 const router = express.Router();
+const { bindObjectIdParams } = require('../utils/common/bindObjectIdParam');
+bindObjectIdParams(router, [
+  'projectId',
+  'templateId',
+  'policyId',
+  'requestId',
+  'eventId',
+  'roleId',
+  'memberUserId',
+  'sprintId',
+  'crId',
+  'testCaseId',
+  'userId',
+]);
 
 /**
  * @openapi

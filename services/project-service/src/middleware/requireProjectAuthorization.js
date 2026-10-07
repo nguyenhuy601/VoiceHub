@@ -11,10 +11,7 @@ const {
  */
 async function requireProjectAuthorization(req, res, next) {
   try {
-    const userId =
-      req.user?.id ||
-      req.userContext?.userId ||
-      String(req.headers['x-user-id'] || '').trim();
+    const userId = req.user?.id || req.userContext?.userId || '';
     const projectId = String(req.params?.projectId || '').trim();
 
     if (!userId) {
@@ -39,10 +36,9 @@ async function requireProjectAuthorization(req, res, next) {
     }
 
     const perms = resolved.permissions || [];
+    // Fail-closed: only explicit view perms (not “any permission”).
     const canView =
-      hasPermission(perms, 'project:view') ||
-      hasPermission(perms, 'task:view') ||
-      perms.length > 0;
+      hasPermission(perms, 'project:view') || hasPermission(perms, 'task:view');
 
     if (!canView) {
       return sendServiceError(res, 403, {

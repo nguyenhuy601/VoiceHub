@@ -733,14 +733,45 @@ async function listInbox({ userId, organizationId, status = 'pending' }) {
   return enriched;
 }
 
-async function listForEntity({ entityType, entityId }) {
-  return ApprovalRequest.find({
-    entityType,
-    entityId: String(entityId),
+async function listForEntity({ userId, entityType, entityId }) {
+  const {
+    isValidEntityRef,
+    filterApprovalsByAccess,
+  } = require('../utils/approval/approvalAccess');
+  if (!isValidEntityRef(entityType, entityId)) {
+    const err = new Error('entityType/entityId không hợp lệ');
+    err.statusCode = 400;
+    err.errorCode = 'VALIDATION_FAILED';
+    throw err;
+  }
+  const rows = await ApprovalRequest.find({
+    entityType: String(entityType).trim(),
+    entityId: String(entityId).trim(),
   })
     .sort({ createdAt: -1 })
     .limit(50)
     .lean();
+
+  const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
+  const { resolveUserProjectPermissions, hasPermission } = require('./projectAccess.service');
+
+  return filterApprovalsByAccess(rows, {
+    canAccessOrg: async (orgId) => {
+      const scope = await fetchTaskWorkspaceScope(userId, orgId);
+      return Boolean(scope);
+    },
+    canViewProject: async (projectId) => {
+      try {
+        const resolved = await resolveUserProjectPermissions({ userId, projectId });
+        if (resolved.isOrgAdmin || resolved.isCreator) return true;
+        return hasPermission(resolved.permissions, 'project:view')
+          || hasPermission(resolved.permissions, 'change_request:view')
+          || (resolved.permissions || []).length > 0;
+      } catch {
+        return false;
+      }
+    },
+  });
 }
 
 /**
@@ -764,19 +795,44 @@ async function startStubEntityApproval({
     err.statusCode = 400;
     throw err;
   }
-  await ensureOrgApprovalPolicies(organizationId, userId);
-  if (projectId) {
+  const orgId = String(organizationId || '').trim();
+  if (!orgId) {
+    const err = new Error('organizationId bắt buộc');
+    err.statusCode = 400;
+    err.errorCode = 'VALIDATION_REQUIRED';
+    throw err;
+  }
+  const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
+  const scope = await fetchTaskWorkspaceScope(userId, orgId);
+  if (!scope) {
+    const err = new Error('Forbidden');
+    err.statusCode = 403;
+    err.errorCode = 'ORG_ACCESS_DENIED';
+    throw err;
+  }
+  const pid = String(projectId || '').trim();
+  if (pid) {
+    const Project = require('../models/Project');
+    const project = await Project.findOne({ _id: pid, organizationId: orgId }).select('_id').lean();
+    if (!project) {
+      const err = new Error('projectId không thuộc tổ chức');
+      err.statusCode = 400;
+      err.errorCode = 'VALIDATION_FAILED';
+      throw err;
+    }
     const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
     if (isProjectRbacV2Enabled()) {
       const { assertUserProjectPermission } = require('./projectAccess.service');
       await assertUserProjectPermission({
         userId,
-        projectId,
+        projectId: pid,
         permission: 'approval:request',
         message: 'Không có quyền tạo yêu cầu duyệt (approval:request)',
       });
     }
   }
+  await ensureOrgApprovalPolicies(orgId, userId);
+  organizationId = orgId;
   const key = policyKey || (entityType === 'release' ? 'release_deploy' : 'mr_merge');
   const policy = await ApprovalPolicy.findOne({
     organizationId,

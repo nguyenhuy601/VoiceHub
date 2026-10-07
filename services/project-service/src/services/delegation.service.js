@@ -27,15 +27,63 @@ async function listEdges(boardId) {
 }
 
 async function upsertEdge({ boardId, fromRoleId, toRoleId, taskTypes, organizationId }) {
-  const types =
+  const mongoose = require('../db');
+  const orgId = String(organizationId || '').trim();
+  if (!orgId) {
+    const err = new Error('organizationId bắt buộc');
+    err.statusCode = 400;
+    err.errorCode = 'VALIDATION_REQUIRED';
+    throw err;
+  }
+  if (!mongoose.isValidObjectId(fromRoleId) || !mongoose.isValidObjectId(toRoleId)) {
+    const err = new Error('fromRoleId/toRoleId không hợp lệ');
+    err.statusCode = 400;
+    err.errorCode = 'VALIDATION_INVALID_ID';
+    throw err;
+  }
+
+  const roles = await ProjectRole.find({
+    _id: { $in: [fromRoleId, toRoleId] },
+  })
+    .select('_id organizationId')
+    .lean();
+  if (roles.length < 2) {
+    const err = new Error('Vai trò ủy quyền không hợp lệ');
+    err.statusCode = 400;
+    err.errorCode = 'DELEGATION_ROLE_INVALID';
+    throw err;
+  }
+  for (const role of roles) {
+    if (String(role.organizationId) !== orgId) {
+      const err = new Error('Vai trò không thuộc tổ chức của board');
+      err.statusCode = 400;
+      err.errorCode = 'DELEGATION_ROLE_INVALID';
+      throw err;
+    }
+  }
+
+  let types =
     Array.isArray(taskTypes) && taskTypes.length
       ? taskTypes.map((t) => String(t).trim()).filter(Boolean)
       : ['*'];
+  if (types.length > 20) {
+    const err = new Error('taskTypes tối đa 20 phần tử');
+    err.statusCode = 400;
+    err.errorCode = 'VALIDATION_FAILED';
+    throw err;
+  }
+  if (types.some((t) => t.length > 64)) {
+    const err = new Error('Mỗi taskType tối đa 64 ký tự');
+    err.statusCode = 400;
+    err.errorCode = 'VALIDATION_FAILED';
+    throw err;
+  }
+
   return DelegationEdge.findOneAndUpdate(
     { boardId, fromRoleId, toRoleId },
     {
       $set: {
-        organizationId,
+        organizationId: orgId,
         boardId,
         fromRoleId,
         toRoleId,

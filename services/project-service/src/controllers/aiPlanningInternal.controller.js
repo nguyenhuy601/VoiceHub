@@ -1,4 +1,5 @@
 const { applyRemoteHowJobResult } = require('../services/aiAnalysis.service');
+const { sendErrorFromCatch } = require('../middleware/sendServiceError');
 
 async function applyJobResult(req, res) {
   try {
@@ -13,11 +14,13 @@ async function applyJobResult(req, res) {
     }
     return res.json({ success: true, data });
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || 'Failed to apply remote planning result',
-      errorCode: error.errorCode || error.code || 'REMOTE_RESULT_APPLY_FAILED',
-    });
+    return sendErrorFromCatch(
+      res,
+      error,
+      error.statusCode || 500,
+      'Không thể áp dụng kết quả planning',
+      error.errorCode || error.code || 'REMOTE_RESULT_APPLY_FAILED'
+    );
   }
 }
 

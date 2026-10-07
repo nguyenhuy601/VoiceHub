@@ -1,7 +1,17 @@
 const express = require('express');
 const controller = require('../controllers/taskBoard.controller');
+const { bindObjectIdParams } = require('../utils/common/bindObjectIdParam');
 
 const router = express.Router();
+bindObjectIdParams(router, [
+  'boardId',
+  'cardId',
+  'listId',
+  'featureId',
+  'memberUserId',
+  'edgeId',
+  'sprintId',
+]);
 
 router.post('/', controller.createBoard.bind(controller));
 router.get('/', controller.listBoards.bind(controller));

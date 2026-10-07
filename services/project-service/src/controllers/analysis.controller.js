@@ -1,26 +1,25 @@
 const analysisService = require('../services/analysis.service');
+const { sendErrorFromCatch, sendServiceError } = require('../middleware/sendServiceError');
 
 function getUserId(req) {
-  return req.user?.id || req.headers['x-user-id'];
+  return req.user?.id || req.userContext?.userId || '';
 }
 
-function handleError(res, err) {
-  let status = err.statusCode || 500;
-  let message = err.message || 'Lỗi analysis';
-  if (!err.statusCode && err.name === 'ValidationError') {
-    status = 400;
-    message = err.message;
-  }
+function sendAnalysisError(res, err) {
+  let status = Number(err?.statusCode) || 500;
+  if (!err?.statusCode && err?.name === 'ValidationError') status = 400;
   if (status >= 500) {
     // eslint-disable-next-line no-console
-    console.error('[analysis]', message, err.stack || '');
+    console.error('[analysis]', err?.message, err?.stack || '');
   }
-  return res.status(status).json({
-    success: false,
-    message,
-    errorCode: err.errorCode || undefined,
-    details: err.details || undefined,
-  });
+  if (status < 500 && err?.details) {
+    return sendServiceError(res, status, {
+      errorCode: err.errorCode,
+      message: err.message,
+      extra: { details: err.details },
+    });
+  }
+  return sendErrorFromCatch(res, err, status, 'Không thể xử lý analysis');
 }
 
 async function listCustomerDocuments(req, res) {
@@ -36,10 +35,8 @@ async function listCustomerDocuments(req, res) {
         documentId,
       });
       res.setHeader('Content-Type', mimeType || 'application/octet-stream');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${String(fileName || 'document').replace(/"/g, '')}"`
-      );
+      const { attachmentHeader } = require('../utils/common/contentDisposition');
+      res.setHeader('Content-Disposition', attachmentHeader(fileName || 'document', 'document'));
       if (stream && typeof stream.pipe === 'function') {
         return stream.pipe(res);
       }
@@ -56,7 +53,7 @@ async function listCustomerDocuments(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -69,7 +66,7 @@ async function createCustomerDocument(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -83,7 +80,7 @@ async function listArtifacts(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -96,7 +93,7 @@ async function getArtifact(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -109,7 +106,7 @@ async function createArtifact(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -123,7 +120,7 @@ async function updateArtifact(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -138,7 +135,7 @@ async function transitionArtifact(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -153,7 +150,7 @@ async function bulkTransitionArtifacts(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -165,7 +162,7 @@ async function listTraceLinks(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -178,7 +175,7 @@ async function createTraceLink(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -190,7 +187,7 @@ async function getGapReport(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -202,7 +199,7 @@ async function listSrsBaselines(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -215,7 +212,7 @@ async function cutSrsBaseline(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -277,7 +274,7 @@ async function advancePhase2(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -297,7 +294,8 @@ async function getSrsDraft(req, res) {
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       );
-      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      const { attachmentHeader } = require('../utils/common/contentDisposition');
+      res.setHeader('Content-Disposition', attachmentHeader(fileName, 'srs-draft.xlsx'));
       return res.send(Buffer.from(buffer));
     }
     const data = await analysisService.getSrsDraft({
@@ -306,7 +304,7 @@ async function getSrsDraft(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -318,7 +316,7 @@ async function startDeliveryPlanning(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -340,7 +338,7 @@ async function previewAnalysisImport(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -354,7 +352,7 @@ async function confirmAnalysisImport(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -368,7 +366,7 @@ async function listImportSets(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -393,7 +391,7 @@ async function attachRawImportSet(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -407,7 +405,7 @@ async function trashImportSet(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -421,7 +419,7 @@ async function restoreImportSet(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -435,7 +433,7 @@ async function getImportSetDiff(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 
@@ -451,7 +449,7 @@ async function transitionImportSet(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendAnalysisError(res, err);
   }
 }
 

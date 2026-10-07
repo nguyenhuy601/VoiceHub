@@ -30,6 +30,8 @@ async function assertPlanningManage(userId, projectId, { type, action } = {}) {
     if (!canAdmin) {
       const err = new Error('Không có quyền quản lý planning');
       err.statusCode = 403;
+      err.errorCode = 'PROJECT_PERMISSION_DENIED';
+      err.messageUser = 'Không có quyền quản lý planning';
       throw err;
     }
     assertProjectWritable(project);

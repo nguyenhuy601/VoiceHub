@@ -117,14 +117,16 @@ async function getDirectorHealth({ userId, organizationId, includeArchived = fal
   return {
     ...health,
     capacity,
-    capacityHint: {
-      endpoint: '/api/projects/resources/capacity',
-      note: 'Planned allocation rollup on this payload; department FTE remains Phase 3 API',
-    },
-    burndownHint: {
-      note: 'Active sprint commitment is on each project row; full burndown chart stays on hub',
-      endpoint: '/api/projects/:projectId/sprints/:sprintId/time-summary',
-    },
+  };
+}
+
+function toPublicRetentionSettings(settings) {
+  const s = settings?.toObject ? settings.toObject() : settings || {};
+  return {
+    archiveInactiveAfterDays: s.archiveInactiveAfterDays,
+    defaultRetentionDays: s.defaultRetentionDays,
+    notes: s.notes || '',
+    updatedAt: s.updatedAt || null,
   };
 }
 
@@ -136,9 +138,8 @@ async function getRetentionPolicy({ userId, organizationId }) {
     isActive: false,
   });
   return {
-    settings: settings.toObject ? settings.toObject() : settings,
+    settings: toPublicRetentionSettings(settings),
     archivedCount,
-    runbookPath: 'devops/swarm/backup-retention-runbook.md',
   };
 }
 
@@ -147,16 +148,24 @@ async function updateRetentionPolicy({ userId, organizationId, patch = {} }) {
   const settings = await getOrCreateSettings(organizationId);
   const before = settings.toObject();
   if (patch.archiveInactiveAfterDays != null) {
-    settings.archiveInactiveAfterDays = Math.min(
-      3650,
-      Math.max(0, Number(patch.archiveInactiveAfterDays))
-    );
+    const n = Number(patch.archiveInactiveAfterDays);
+    if (!Number.isFinite(n)) {
+      const err = new Error('archiveInactiveAfterDays không hợp lệ');
+      err.statusCode = 400;
+      err.errorCode = 'VALIDATION_FAILED';
+      throw err;
+    }
+    settings.archiveInactiveAfterDays = Math.min(3650, Math.max(0, n));
   }
   if (patch.defaultRetentionDays != null) {
-    settings.defaultRetentionDays = Math.min(
-      3650,
-      Math.max(1, Number(patch.defaultRetentionDays))
-    );
+    const n = Number(patch.defaultRetentionDays);
+    if (!Number.isFinite(n)) {
+      const err = new Error('defaultRetentionDays không hợp lệ');
+      err.statusCode = 400;
+      err.errorCode = 'VALIDATION_FAILED';
+      throw err;
+    }
+    settings.defaultRetentionDays = Math.min(3650, Math.max(1, n));
   }
   if (patch.notes != null) {
     settings.notes = String(patch.notes || '').slice(0, 1000);
@@ -173,7 +182,7 @@ async function updateRetentionPolicy({ userId, organizationId, patch = {} }) {
     afterDoc: settings.toObject(),
     keys: ['archiveInactiveAfterDays', 'defaultRetentionDays', 'notes'],
   });
-  return settings.toObject();
+  return toPublicRetentionSettings(settings);
 }
 
 /**
@@ -254,6 +263,11 @@ function getSecurityFeatureFlagsStub() {
   };
 }
 
+async function getSecurityFeatureFlags({ userId, organizationId }) {
+  await assertOrgAdminOnly(organizationId, userId);
+  return getSecurityFeatureFlagsStub();
+}
+
 function isValidOid(id) {
   return mongoose.Types.ObjectId.isValid(String(id || ''));
 }
@@ -321,6 +335,7 @@ module.exports = {
   runRetentionStub,
   getOrCreateSettings,
   getSecurityFeatureFlagsStub,
+  getSecurityFeatureFlags,
   buildActiveProjectsFilter,
   isValidOid,
   getWorkingCalendarPolicy,

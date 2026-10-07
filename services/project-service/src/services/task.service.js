@@ -171,7 +171,7 @@ class TaskService {
       return clientTask;
     } catch (error) {
       logger.error('Error creating task:', error);
-      throw new Error(`Error creating task: ${error.message}`);
+      throw error;
     }
   }
 
@@ -184,7 +184,7 @@ class TaskService {
       return await toClientTask(task);
     } catch (error) {
       logger.error('Error getting task:', error);
-      throw new Error(`Error getting task: ${error.message}`);
+      throw error;
     }
   }
 
@@ -193,13 +193,15 @@ class TaskService {
     try {
       const { page = 1, limit = 50, sort: sortOption } = options;
       const sort = sortOption || { createdAt: -1 };
+      const safeLimit = Math.min(200, Math.max(1, Number(limit) || 50));
+      const safePage = Math.max(1, Number(page) || 1);
 
       // Không populate User: task-service không đăng ký model User — populate gây MissingSchemaError → 500
       // (dashboard, lịch, danh sách task chỉ cần id + title + dueDate + status).
       const tasks = await Task.find(filter)
         .sort(sort)
-        .limit(limit * 1)
-        .skip((page - 1) * limit)
+        .limit(safeLimit)
+        .skip((safePage - 1) * safeLimit)
         .lean();
 
       const total = await Task.countDocuments(filter);
@@ -208,13 +210,13 @@ class TaskService {
 
       return {
         tasks: enriched,
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
+        totalPages: Math.ceil(total / safeLimit),
+        currentPage: safePage,
         total,
       };
     } catch (error) {
       logger.error('Error getting tasks:', error);
-      throw new Error(`Error getting tasks: ${error.message}`);
+      throw error;
     }
   }
 
@@ -291,7 +293,7 @@ class TaskService {
       return result;
     } catch (error) {
       logger.error('Error getting calendar tasks:', error);
-      throw new Error(`Error getting calendar tasks: ${error.message}`);
+      throw error;
     }
   }
 
@@ -309,7 +311,10 @@ class TaskService {
         scope = await fetchTaskWorkspaceScope(userId, task.organizationId);
       }
       if (!userCanAccessTask(task, userId, scope)) {
-        throw new Error('Bạn không có quyền cập nhật task này');
+        const err = new Error('Bạn không có quyền cập nhật task này');
+        err.statusCode = 403;
+        err.errorCode = 'TASK_UPDATE_FORBIDDEN';
+        throw err;
       }
 
       const allowedFields = [
@@ -328,6 +333,21 @@ class TaskService {
       for (const field of allowedFields) {
         if (updateData[field] !== undefined) {
           updateFields[field] = updateData[field];
+        }
+      }
+
+      if (
+        updateFields.assigneeId !== undefined &&
+        task.organizationId &&
+        scope &&
+        String(updateFields.assigneeId || '') !== String(task.assigneeId || '')
+      ) {
+        const { canAssignUser } = require('./taskWorkspaceScope');
+        if (!canAssignUser(scope, updateFields.assigneeId)) {
+          const err = new Error('Không thể gán task cho thành viên ngoài phạm vi quản lý');
+          err.statusCode = 403;
+          err.errorCode = 'TASK_ASSIGN_FORBIDDEN';
+          throw err;
         }
       }
 
@@ -436,7 +456,7 @@ class TaskService {
       return await toClientTask(updated);
     } catch (error) {
       logger.error('Error updating task:', error);
-      throw new Error(`Error updating task: ${error.message}`);
+      throw error;
     }
   }
 
@@ -462,7 +482,7 @@ class TaskService {
       return await toClientTask(task);
     } catch (error) {
       logger.error('Error deleting task:', error);
-      throw new Error(`Error deleting task: ${error.message}`);
+      throw error;
     }
   }
 
@@ -495,7 +515,7 @@ class TaskService {
       return await toClientTask(task);
     } catch (error) {
       logger.error('Error adding comment:', error);
-      throw new Error(`Error adding comment: ${error.message}`);
+      throw error;
     }
   }
 }

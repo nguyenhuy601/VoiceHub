@@ -1,7 +1,9 @@
 const express = require('express');
+const { bindObjectIdParams } = require('../utils/common/bindObjectIdParam');
 
 const router = express.Router();
 const projectRolesController = require('../controllers/projectRoles.controller');
+bindObjectIdParams(router, ['roleId']);
 
 // Org Project Role catalog CRUD — mount at /api/projects/roles
 router.get('/', projectRolesController.listProjectRoles);

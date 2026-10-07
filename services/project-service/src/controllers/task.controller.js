@@ -85,10 +85,11 @@ class TaskController {
       const createdBy = req.user?.id || req.userContext?.userId;
 
       if (!title || !createdBy) {
-        return res.status(400).json({
-          success: false,
-          message: 'title and createdBy are required',
-        });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "title and createdBy are required",
+      message: "title and createdBy are required",
+    });
       }
 
       let scope = null;
@@ -175,10 +176,11 @@ class TaskController {
   async getTasks(req, res) {
     try {
       if (mongoose.connection.readyState !== 1) {
-        return res.status(503).json({
-          success: false,
-          message: 'Database unavailable',
-        });
+        return sendServiceError(res, 503, {
+      errorCode: 'DB_UNAVAILABLE',
+      messageUser: "Database unavailable",
+      message: "Database unavailable",
+    });
       }
 
       const q = req.query || {};
@@ -218,31 +220,35 @@ class TaskController {
 
       if (isCalendarView) {
         if (!dueFrom || !dueTo) {
-          return res.status(400).json({
-            success: false,
-            message: 'dueFrom and dueTo are both required for view=calendar',
-          });
+          return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "dueFrom and dueTo are both required for view=calendar",
+      message: "dueFrom and dueTo are both required for view=calendar",
+    });
         }
         const from = new Date(dueFrom);
         const to = new Date(dueTo);
         if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid dueFrom or dueTo',
-          });
+          return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "Invalid dueFrom or dueTo",
+      message: "Invalid dueFrom or dueTo",
+    });
         }
         if (from > to) {
-          return res.status(400).json({
-            success: false,
-            message: 'dueFrom must be before or equal to dueTo',
-          });
+          return sendServiceError(res, 400, {
+      errorCode: 'REQUEST_FAILED',
+      messageUser: "dueFrom must be before or equal to dueTo",
+      message: "dueFrom must be before or equal to dueTo",
+    });
         }
         const maxMs = 180 * 24 * 60 * 60 * 1000;
         if (to.getTime() - from.getTime() > maxMs) {
-          return res.status(400).json({
-            success: false,
-            message: 'dueDate range cannot exceed 180 days',
-          });
+          return sendServiceError(res, 400, {
+      errorCode: 'REQUEST_FAILED',
+      messageUser: "dueDate range cannot exceed 180 days",
+      message: "dueDate range cannot exceed 180 days",
+    });
         }
 
         let orgId = null;
@@ -254,18 +260,20 @@ class TaskController {
           }
           const workspaceScope = await fetchTaskWorkspaceScope(userId, p.value);
           if (!workspaceScope) {
-            return res.status(403).json({
-              success: false,
-              message: 'Forbidden',
-            });
+            return sendServiceError(res, 403, {
+      errorCode: 'PROJECT_FORBIDDEN',
+      messageUser: "Forbidden",
+      message: "Forbidden",
+    });
           }
           orgId = p.value;
           visibilityFilter = buildTaskVisibilityFilter(workspaceScope, userId);
         } else if (assigneeId && String(assigneeId) !== String(userId)) {
-          return res.status(403).json({
-            success: false,
-            message: 'Forbidden',
-          });
+          return sendServiceError(res, 403, {
+      errorCode: 'PROJECT_FORBIDDEN',
+      messageUser: "Forbidden",
+      message: "Forbidden",
+    });
         }
 
         const filter = buildCalendarTaskFilter({
@@ -308,20 +316,22 @@ class TaskController {
         }
         workspaceScope = await fetchTaskWorkspaceScope(userId, p.value);
         if (!workspaceScope) {
-          return res.status(403).json({
-            success: false,
-            message: 'Forbidden',
-          });
+          return sendServiceError(res, 403, {
+      errorCode: 'PROJECT_FORBIDDEN',
+      messageUser: "Forbidden",
+      message: "Forbidden",
+    });
         }
         filter.organizationId = p.value;
         const visibilityFilter = buildTaskVisibilityFilter(workspaceScope, userId);
         Object.assign(filter, visibilityFilter);
         filter.isActive = true;
       } else if (assigneeId && String(assigneeId) !== String(userId)) {
-        return res.status(403).json({
-          success: false,
-          message: 'Forbidden',
-        });
+        return sendServiceError(res, 403, {
+      errorCode: 'PROJECT_FORBIDDEN',
+      messageUser: "Forbidden",
+      message: "Forbidden",
+    });
       } else {
         if (assigneeId) {
           const p = parseOid(assigneeId, 'assigneeId');
@@ -372,31 +382,35 @@ class TaskController {
       let sort = { createdAt: -1 };
       if (dueFrom || dueTo) {
         if (!dueFrom || !dueTo) {
-          return res.status(400).json({
-            success: false,
-            message: 'dueFrom and dueTo are both required when filtering by due date',
-          });
+          return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "dueFrom and dueTo are both required when filtering by due date",
+      message: "dueFrom and dueTo are both required when filtering by due date",
+    });
         }
         const from = new Date(dueFrom);
         const to = new Date(dueTo);
         if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid dueFrom or dueTo',
-          });
+          return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "Invalid dueFrom or dueTo",
+      message: "Invalid dueFrom or dueTo",
+    });
         }
         if (from > to) {
-          return res.status(400).json({
-            success: false,
-            message: 'dueFrom must be before or equal to dueTo',
-          });
+          return sendServiceError(res, 400, {
+      errorCode: 'REQUEST_FAILED',
+      messageUser: "dueFrom must be before or equal to dueTo",
+      message: "dueFrom must be before or equal to dueTo",
+    });
         }
         const maxMs = 180 * 24 * 60 * 60 * 1000;
         if (to.getTime() - from.getTime() > maxMs) {
-          return res.status(400).json({
-            success: false,
-            message: 'dueDate range cannot exceed 180 days',
-          });
+          return sendServiceError(res, 400, {
+      errorCode: 'REQUEST_FAILED',
+      messageUser: "dueDate range cannot exceed 180 days",
+      message: "dueDate range cannot exceed 180 days",
+    });
         }
         filter.dueDate = { $gte: from, $lte: to };
         sort = { dueDate: 1 };
@@ -437,10 +451,11 @@ class TaskController {
           ? String(organizationId).trim()
           : '';
       if (!oid || !mongoose.isValidObjectId(oid)) {
-        return res.status(400).json({
-          success: false,
-          message: 'organizationId query parameter is required and must be a valid ObjectId',
-        });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "organizationId query parameter is required and must be a valid ObjectId",
+      message: "organizationId query parameter is required and must be a valid ObjectId",
+    });
       }
 
       const scope = await fetchTaskWorkspaceScope(userId, oid);
@@ -449,10 +464,11 @@ class TaskController {
       }
 
       if (mongoose.connection.readyState !== 1) {
-        return res.status(503).json({
-          success: false,
-          message: 'Database unavailable',
-        });
+        return sendServiceError(res, 503, {
+      errorCode: 'DB_UNAVAILABLE',
+      messageUser: "Database unavailable",
+      message: "Database unavailable",
+    });
       }
 
       const orgOid = new mongoose.Types.ObjectId(oid);
@@ -567,16 +583,18 @@ class TaskController {
         return taskUnauthorized(res);
       }
       if (!messageId || !organizationId) {
-        return res.status(400).json({
-          success: false,
-          message: 'messageId and organizationId are required',
-        });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "messageId and organizationId are required",
+      message: "messageId and organizationId are required",
+    });
       }
       if (!CHAT_INTERNAL_TOKEN) {
-        return res.status(503).json({
-          success: false,
-          message: 'CHAT_INTERNAL_TOKEN is not configured',
-        });
+        return sendServiceError(res, 503, {
+      errorCode: 'DB_UNAVAILABLE',
+      messageUser: "CHAT_INTERNAL_TOKEN is not configured",
+      message: "CHAT_INTERNAL_TOKEN is not configured",
+    });
       }
 
       const msgRes = await axios.get(
@@ -599,16 +617,18 @@ class TaskController {
       }
       const msgOrgId = msg.organizationId ? String(msg.organizationId) : '';
       if (msgOrgId && String(organizationId) !== msgOrgId) {
-        return res.status(400).json({
-          success: false,
-          message: 'organizationId does not match message organization',
-        });
+        return sendServiceError(res, 400, {
+      errorCode: 'REQUEST_FAILED',
+      messageUser: "organizationId does not match message organization",
+      message: "organizationId does not match message organization",
+    });
       }
       if (!msg.fileMeta?.storagePath) {
-        return res.status(400).json({
-          success: false,
-          message: 'Message has no file attachment',
-        });
+        return sendServiceError(res, 400, {
+      errorCode: 'REQUEST_FAILED',
+      messageUser: "Message has no file attachment",
+      message: "Message has no file attachment",
+    });
       }
 
       const scope = await fetchTaskWorkspaceScope(userId, organizationId);
@@ -644,10 +664,11 @@ class TaskController {
       const userId = req.user?.id || req.userContext?.userId;
 
       if (!content || !userId) {
-        return res.status(400).json({
-          success: false,
-          message: 'content and userId are required',
-        });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "content and userId are required",
+      message: "content and userId are required",
+    });
       }
 
       const task = await taskService.addComment(taskId, userId, content);
@@ -667,7 +688,11 @@ class TaskController {
     try {
       const { organizationId } = req.params;
       if (!mongoose.Types.ObjectId.isValid(String(organizationId))) {
-        return res.status(400).json({ success: false, message: 'Invalid organizationId' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "Invalid organizationId",
+      message: "Invalid organizationId",
+    });
       }
       const oid = new mongoose.Types.ObjectId(String(organizationId));
       const result = await Task.deleteMany({ organizationId: oid });

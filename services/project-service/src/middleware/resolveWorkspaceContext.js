@@ -86,12 +86,18 @@ async function resolveWorkspaceContext(req, res, next) {
 
     return next();
   } catch (err) {
-    const status = Number(err?.statusCode) || 502;
+    const { classifyProjectError } = require('../utils/projectErrorClassify');
+    const classified = classifyProjectError(err, Number(err?.statusCode) || 503);
+    const status = classified.status >= 500 ? 503 : classified.status;
+    const messageUser =
+      status >= 500
+        ? 'Không thể xác thực workspace. Vui lòng thử lại sau.'
+        : classified.messageUser || 'Không thể xác thực workspace.';
     return res.status(status).json({
       success: false,
-      message: String(err?.message || 'Không thể xác thực workspace'),
-      errorCode: String(err?.errorCode || 'WORKSPACE_RESOLVE_FAILED'),
-      messageUser: String(err?.message || 'Không thể xác thực workspace'),
+      message: messageUser,
+      errorCode: classified.errorCode || 'WORKSPACE_RESOLVE_FAILED',
+      messageUser,
     });
   }
 }

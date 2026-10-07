@@ -5,6 +5,8 @@ const projectCloseService = require('../services/projectClose.service');
 const { setUserProjectRoles } = require('../services/projectTeam.service');
 const { listMemberCandidates } = require('../services/projectMemberCandidate.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
+const { isHubView, toProjectHubView } = require('../utils/project/projectHubView');
+const { bodyWithoutIdentity } = require('../utils/common/trustedPayload');
 
 function asUserId(req) {
   return req.user?.id || req.userContext?.userId || '';
@@ -61,7 +63,11 @@ async function createProject(req, res) {
     } = body;
     if (!userId) return unauthorized(res);
     if (!validOid(organizationId)) {
-      return res.status(400).json({ success: false, message: 'organizationId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "organizationId không hợp lệ",
+      message: "organizationId không hợp lệ",
+    });
     }
     if (!String(title || '').trim()) {
       return sendServiceError(res, 400, {
@@ -118,7 +124,11 @@ async function createProject(req, res) {
 async function listProjects(req, res) {
   try {
     if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({ success: false, message: 'Database unavailable' });
+      return sendServiceError(res, 503, {
+      errorCode: 'DB_UNAVAILABLE',
+      messageUser: "Database unavailable",
+      message: "Database unavailable",
+    });
     }
     const userId = asUserId(req);
     const { organizationId, teamId, scopeType, scopeId, includeArchived, excludeClosed, view } =
@@ -157,10 +167,16 @@ async function getProject(req, res) {
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+      return sendServiceError(res, 400, {
+        errorCode: 'VALIDATION_FAILED',
+        messageUser: 'projectId không hợp lệ',
+        message: 'projectId không hợp lệ',
+      });
     }
     const data = await projectService.getProject({ userId, projectId });
-    return res.json({ success: true, data });
+    const view = String(req.query?.view || '').trim();
+    const shaped = isHubView(view) ? toProjectHubView(data) : data;
+    return res.json({ success: true, data: shaped });
   } catch (err) {
     return sendErrorFromCatch(res, err, err.statusCode || 400, 'Không thể tải dự án', 'PROJECT_GET_FAILED');
   }
@@ -172,7 +188,11 @@ async function patchProject(req, res) {
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId không hợp lệ",
+      message: "projectId không hợp lệ",
+    });
     }
     const data = await projectService.patchProject({
       userId,
@@ -191,7 +211,11 @@ async function archiveProject(req, res) {
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId không hợp lệ",
+      message: "projectId không hợp lệ",
+    });
     }
     const data = await projectService.archiveProject({ userId, projectId });
     return res.json({ success: true, data });
@@ -366,10 +390,12 @@ async function createSprint(req, res) {
     const userId = asUserId(req);
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
+    const rawBoardId = req.body?.boardId;
     const data = await projectService.createProjectSprint({
+      ...bodyWithoutIdentity(req.body),
       userId,
       projectId,
-      ...(req.body || {}),
+      boardId: typeof rawBoardId === 'string' ? rawBoardId : undefined,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -383,7 +409,11 @@ async function patchSprint(req, res) {
     const { projectId, sprintId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(sprintId)) {
-      return res.status(400).json({ success: false, message: 'projectId/sprintId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/sprintId không hợp lệ",
+      message: "projectId/sprintId không hợp lệ",
+    });
     }
     const data = await projectService.patchProjectSprint({
       userId,
@@ -403,7 +433,11 @@ async function deleteSprint(req, res) {
     const { projectId, sprintId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(sprintId)) {
-      return res.status(400).json({ success: false, message: 'projectId/sprintId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/sprintId không hợp lệ",
+      message: "projectId/sprintId không hợp lệ",
+    });
     }
     const data = await projectService.deleteProjectSprint({ userId, projectId, sprintId });
     return res.json({ success: true, data });
@@ -418,7 +452,11 @@ async function completeSprintPreview(req, res) {
     const { projectId, sprintId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(sprintId)) {
-      return res.status(400).json({ success: false, message: 'projectId/sprintId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/sprintId không hợp lệ",
+      message: "projectId/sprintId không hợp lệ",
+    });
     }
     const data = await sprintCloseService.getCompleteSprintPreview({
       userId,
@@ -443,7 +481,11 @@ async function completeSprint(req, res) {
     const { projectId, sprintId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(sprintId)) {
-      return res.status(400).json({ success: false, message: 'projectId/sprintId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/sprintId không hợp lệ",
+      message: "projectId/sprintId không hợp lệ",
+    });
     }
 
     const body = req.body || {};
@@ -453,12 +495,20 @@ async function completeSprint(req, res) {
     if (incompleteAction !== undefined && incompleteAction !== null) {
       const v = String(incompleteAction || '').toLowerCase().trim();
       if (!['backlog', 'sprint'].includes(v)) {
-        return res.status(400).json({ success: false, message: 'incompleteAction không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "incompleteAction không hợp lệ",
+      message: "incompleteAction không hợp lệ",
+    });
       }
     }
 
     if (targetSprintId !== undefined && targetSprintId !== null && !validOid(targetSprintId)) {
-      return res.status(400).json({ success: false, message: 'targetSprintId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "targetSprintId không hợp lệ",
+      message: "targetSprintId không hợp lệ",
+    });
     }
 
     const data = await sprintCloseService.completeSprint({
@@ -486,7 +536,11 @@ async function completeProjectPreview(req, res) {
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId không hợp lệ",
+      message: "projectId không hợp lệ",
+    });
     }
     const data = await projectCloseService.getCompleteProjectPreview({ userId, projectId });
     return res.json({ success: true, data });
@@ -507,7 +561,11 @@ async function completeProject(req, res) {
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId không hợp lệ",
+      message: "projectId không hợp lệ",
+    });
     }
     const closeNotes = req.body?.closeNotes;
     const data = await projectCloseService.completeProject({

@@ -1,5 +1,7 @@
 const multer = require('multer');
 const { MAX_FILE_BYTES } = require('../constants/requirementTemplate.constants');
+const { isXlsxZipMagic } = require('../utils/requirement/xlsxMagicByte');
+const { sendServiceError } = require('./sendServiceError');
 
 const ALLOWED_MIME = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -25,4 +27,29 @@ const requirementImportUpload = multer({
   fileFilter,
 });
 
-module.exports = { requirementImportUpload };
+/**
+ * After multer.single('file'): reject buffers that are not ZIP/OOXML.
+ */
+function assertXlsxMagicByte(req, res, next) {
+  const buf = req.file?.buffer;
+  if (!buf) {
+    return sendServiceError(res, 400, {
+      errorCode: 'REQ_IMPORT_FILE_REQUIRED',
+      messageUser: 'file (.xlsx) bắt buộc',
+      message: 'file (.xlsx) bắt buộc',
+    });
+  }
+  if (!isXlsxZipMagic(buf)) {
+    return sendServiceError(res, 400, {
+      errorCode: 'REQ_IMPORT_FILE_INVALID',
+      messageUser: 'File không phải .xlsx hợp lệ.',
+      message: 'Invalid xlsx magic',
+    });
+  }
+  return next();
+}
+
+module.exports = {
+  requirementImportUpload,
+  assertXlsxMagicByte,
+};

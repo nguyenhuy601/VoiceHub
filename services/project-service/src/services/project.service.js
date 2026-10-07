@@ -36,6 +36,7 @@ const {
   allocateUniqueProjectCode,
 } = require('@enterprise/shared/utils/projectCodeGenerate');
 const { buildBoardIdentityPatch, resolveBoardScope } = require('../utils/project/boardIdentityPatch');
+const { pickSprintBoardId } = require('../utils/project/sprintBoardScope');
 const {
   buildProjectInitFields,
   coerceProjectLifecycleStatus,
@@ -865,12 +866,11 @@ async function listProjects({
 }
 
 async function getProject({ userId, projectId }) {
+  const { makeProjectNotFoundError } = require('../utils/project/projectNotFoundError');
   await alignOneProjectStatusToPhase(projectId);
   const project = await Project.findById(projectId).lean();
   if (!project || project.isActive === false) {
-    const err = new Error('Project không tồn tại');
-    err.statusCode = 404;
-    throw err;
+    throw makeProjectNotFoundError();
   }
 
   const useV2 = isProjectVisibilityV2Enabled();
@@ -896,9 +896,7 @@ async function getProject({ userId, projectId }) {
       !isOrgElevatedMembershipRole(visibilityCtx.membershipRole) &&
       !isMember
     ) {
-      const err = new Error('Project không tồn tại');
-      err.statusCode = 404;
-      throw err;
+      throw makeProjectNotFoundError();
     }
     const access = resolveProjectAccess({
       actor: {
@@ -917,9 +915,7 @@ async function getProject({ userId, projectId }) {
       orgPolicy: visibilityCtx.policy,
     });
     if (!access.discover) {
-      const err = new Error('Project không tồn tại');
-      err.statusCode = 404;
-      throw err;
+      throw makeProjectNotFoundError();
     }
 
     const boards =
@@ -946,14 +942,10 @@ async function getProject({ userId, projectId }) {
   if (defaultBoard) {
     const ok = await boardService.ensureBoardViewAccess(defaultBoard._id, userId);
     if (!ok && String(project.createdBy) !== String(userId)) {
-      const err = new Error('Không có quyền xem dự án');
-      err.statusCode = 403;
-      throw err;
+      throw makeProjectNotFoundError();
     }
   } else if (String(project.createdBy) !== String(userId)) {
-    const err = new Error('Không có quyền xem dự án');
-    err.statusCode = 403;
-    throw err;
+    throw makeProjectNotFoundError();
   }
   return attachProjectCapabilities(
     {
@@ -1073,7 +1065,7 @@ async function attachProjectCapabilities(payload, userId, projectId) {
 }
 
 async function listProjectMembersForUser({ userId, projectId }) {
-  await getProject({ userId, projectId });
+  const project = await getProject({ userId, projectId });
   const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
@@ -1085,7 +1077,23 @@ async function listProjectMembersForUser({ userId, projectId }) {
     });
   }
   const { listProjectMemberships } = require('./projectTeam.service');
-  return listProjectMemberships(projectId);
+  const rows = await listProjectMemberships(projectId);
+  const { omitMemberEmails, canSeeMemberEmails } = require('../utils/project/projectMemberEmailOmit');
+  let membershipRole = '';
+  try {
+    const scope = await fetchTaskWorkspaceScope(userId, project.organizationId);
+    membershipRole = String(scope?.membershipRole || '').toLowerCase();
+  } catch {
+    /* best-effort */
+  }
+  const canAdmin = await userCanAdminProject(userId, project);
+  const allowEmail = canSeeMemberEmails({
+    userId,
+    project,
+    canAdminProject: canAdmin,
+    membershipRole,
+  });
+  return allowEmail ? rows : omitMemberEmails(rows);
 }
 
 async function userCanAdminProject(userId, project) {
@@ -1811,6 +1819,8 @@ async function getProjectActivity({ userId, projectId, limit = 50 }) {
     if (!canView) {
       const err = new Error('Không có quyền xem activity');
       err.statusCode = 403;
+      err.errorCode = 'PROJECT_PERMISSION_DENIED';
+      err.messageUser = 'Không có quyền xem activity';
       throw err;
     }
     if (resolved.informationLevel === 'summary') {
@@ -1972,7 +1982,23 @@ async function createProjectSprint({
   const st = ['planned', 'active', 'closed'].includes(String(status || ''))
     ? String(status)
     : 'planned';
-  let bid = boardId || project.defaultBoardId || null;
+  const requestedBoardId = typeof boardId === 'string' ? boardId.trim() : '';
+  const foundBoard =
+    requestedBoardId && mongoose.isValidObjectId(requestedBoardId)
+      ? await TaskBoard.findOne({
+          _id: requestedBoardId,
+          projectId,
+          isActive: { $ne: false },
+        })
+          .select('_id projectId isActive')
+          .lean()
+      : null;
+  const bid = pickSprintBoardId({
+    requestedBoardId,
+    projectId,
+    defaultBoardId: project.defaultBoardId,
+    foundBoard,
+  });
   const row = await Sprint.create({
     organizationId: project.organizationId,
     projectId,

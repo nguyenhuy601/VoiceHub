@@ -9,12 +9,15 @@ ENV npm_config_fetch_retries=10 \
     npm_config_fetch_retry_maxtimeout=120000
 
 COPY services/project-service/package*.json ./
-RUN npm install --ignore-scripts && npm install -g nodemon
+RUN npm install --omit=dev --ignore-scripts
 
 COPY shared /shared
 RUN cd /shared && npm install --omit=dev --ignore-scripts
 COPY services/project-service/ .
-RUN node /shared/postinstall-link.cjs
+RUN node /shared/postinstall-link.cjs \
+  && chown -R node:node /app /shared
+
+USER node
 
 EXPOSE 3009
 
