@@ -82,26 +82,39 @@ router.patch('/me/status', userController.updateStatus.bind(userController));
 // Cập nhật user profile
 router.patch('/me', userController.updateUserProfile.bind(userController));
 
+/** Lỗi multer/fileFilter → errorCode cố định; không trả message thư viện. */
+function singleFileUpload(uploader, fieldName, { errorCode, messageUser }) {
+  return (req, res, next) => {
+    uploader.single(fieldName)(req, res, (err) => {
+      if (!err) return next();
+      const isTooLarge = err.code === 'LIMIT_FILE_SIZE';
+      const statusCode = isTooLarge ? 413 : 400;
+      const message = isTooLarge ? 'File vượt quá dung lượng cho phép (5MB).' : messageUser;
+      return res.status(statusCode).json({
+        success: false,
+        message,
+        messageUser: message,
+        errorCode: isTooLarge ? 'USER_UPLOAD_TOO_LARGE' : errorCode,
+      });
+    });
+  };
+}
+
 router.post(
   '/avatar',
-  upload.single('avatar'),
+  singleFileUpload(upload, 'avatar', {
+    errorCode: 'USER_AVATAR_INVALID_IMAGE',
+    messageUser: 'Chỉ chấp nhận ảnh: jpg, jpeg, png, gif, webp, bmp, ico, avif, heic (không hỗ trợ SVG).',
+  }),
   userController.uploadAvatar.bind(userController)
 );
 
 router.post(
   '/me/capability/cv',
-  (req, res, next) => {
-    cvUpload.single('file')(req, res, (err) => {
-      if (err) {
-        return res.status(400).json({
-          success: false,
-          message: err.message || 'CV upload failed',
-          errorCode: 'CV_UPLOAD_INVALID',
-        });
-      }
-      return next();
-    });
-  },
+  singleFileUpload(cvUpload, 'file', {
+    errorCode: 'CV_UPLOAD_INVALID',
+    messageUser: 'Chỉ chấp nhận file PDF (tối đa 5MB).',
+  }),
   userController.uploadCapabilityCv.bind(userController)
 );
 

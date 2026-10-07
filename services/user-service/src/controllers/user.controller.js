@@ -10,10 +10,11 @@ const objectStorage = require('../utils/objectStorage');
 const {
   buildAvatarKey,
   isLegacyUploadsPath,
+  isOwnAvatarKey,
   contentTypeFromAvatarPath,
   legacyDiskFileName,
 } = require('../utils/avatarStoragePath');
-const { resolveExtension } = require('../middleware/upload');
+const { sniffImageType } = require('../utils/imageSniff');
 const {
   fetchAuthSummaryByUserId,
   fetchAuthSummaryByUserIds,
@@ -28,11 +29,54 @@ const { coalesceJobTitle } = require('../utils/jobTitleProfile');
 const {
   resolveProfileViewMode,
   resolveProfilePatchMode,
+  applyProfileResponseShape,
 } = require('../utils/profileAccessMode');
+const { buildApiErrorBody } = require('@enterprise/shared/middleware/httpErrorResponse');
+const { toUserError } = require('../utils/userErrorMap');
+const { assertUserActionAllowed } = require('../utils/userWriteLimit');
+const { isObjectIdString, toPlainId, readPagination } = require('../utils/userInputSafety');
+
+const INTERNAL_BATCH_MAX = 200;
+
+function sendInvalidUserId(res) {
+  return res.status(400).json({
+    success: false,
+    message: 'Mã người dùng không hợp lệ.',
+    messageUser: 'Mã người dùng không hợp lệ.',
+    errorCode: 'USER_INVALID_ID',
+  });
+}
+
+/** Response trạng thái / vô hiệu hóa: chỉ field client dùng — không trả blind index, ciphertext, encV. */
+function toStatusPayload(profile) {
+  if (!profile) return null;
+  const plain = typeof profile.toObject === 'function' ? profile.toObject() : { ...profile };
+  return {
+    userId: plain.userId != null ? String(plain.userId) : undefined,
+    username: plain.username,
+    displayName: plain.displayName,
+    avatar: plain.avatar ?? null,
+    status: plain.status,
+    lastSeen: plain.lastSeen ?? null,
+    isActive: plain.isActive,
+  };
+}
 
 /** Định danh người gọi (chỉ từ userContext sau khi header gateway đã được tin cậy). */
 function actorUserId(req) {
   return req.userContext?.userId || req.user?.id || null;
+}
+
+function isInternalLookup(req) {
+  return String(req.originalUrl || req.url || '').includes('/internal/');
+}
+
+function logUserFailure(label, error, extra) {
+  if (error?.errorCode === 'USER_RATE_LIMITED') {
+    logger.warn(label, extra || { errorCode: error.errorCode });
+    return;
+  }
+  logger.error(label, error);
 }
 
 function safeProfilePayload(profile) {
@@ -46,8 +90,8 @@ function safeProfilePayload(profile) {
 }
 
 /**
- * Self / company-admin: full capability.
- * Other members: chỉ bản verified công khai (hoặc null).
+ * Self / company-admin: full capability + PII.
+ * Peer: public capability + PII omitted.
  */
 function shapeProfilePayload(profile, { isSelf = false, isCompanyAdmin = false } = {}) {
   const payload = safeProfilePayload(profile);
@@ -57,10 +101,22 @@ function shapeProfilePayload(profile, { isSelf = false, isCompanyAdmin = false }
     if (!payload.capability) {
       payload.capability = emptyCapability();
     }
-    return payload;
+    return applyProfileResponseShape(payload, isCompanyAdmin ? 'admin' : 'self');
   }
   payload.capability = toPublicVerifiedCapability(payload.capability);
-  return payload;
+  return applyProfileResponseShape(payload, 'peer');
+}
+
+function shapeForRequest(req, profile, targetUserId) {
+  const mode = resolveProfileViewMode({
+    actorId: actorUserId(req),
+    targetUserId: String(targetUserId || profile?.userId || '').trim(),
+    companyAdmin: req.companyAdmin,
+  });
+  return shapeProfilePayload(profile, {
+    isSelf: mode === 'self',
+    isCompanyAdmin: mode === 'admin',
+  });
 }
 
 function isSelfProfileRequest(req, targetUserId) {
@@ -118,15 +174,15 @@ async function enrichPayloadEmailFromAuth(userId, payload, authSummary = null) {
 }
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
-  const status = Number(err?.statusCode) || fallbackStatus;
-  const message = String(err?.message || fallbackMessage);
-  const errorCode = String(err?.errorCode || fallbackCode || '').trim();
-  return res.status(status).json({
-    success: false,
-    message,
-    ...(errorCode ? { errorCode } : {}),
-    messageUser: message,
-  });
+  if (res.headersSent) return res;
+  const mapped = toUserError(err, fallbackStatus, fallbackMessage, fallbackCode);
+  return res.status(mapped.statusCode).json(
+    buildApiErrorBody(mapped.statusCode, {
+      errorCode: mapped.errorCode,
+      messageUser: mapped.messageUser,
+      message: mapped.statusCode >= 500 ? undefined : mapped.message,
+    })
+  );
 }
 
 /** Admin HR — bootstrap profile tối thiểu khi auth có nhưng UserProfile chưa tạo (invite chưa login). */
@@ -208,7 +264,10 @@ class UserController {
   // Tạo user profile mới
   async createUserProfile(req, res) {
     try {
-      const { userId, username, email, displayName, dateOfBirth } = req.body;
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const userId = toPlainId(body.userId);
+      const username = toPlainId(body.username);
+      const { email, displayName, dateOfBirth } = body;
 
       if (!userId || !username) {
         return res.status(400).json({
@@ -266,6 +325,7 @@ class UserController {
         });
       }
       const uid = String(userId).trim();
+      if (!isObjectIdString(uid)) return sendInvalidUserId(res);
       const viewMode = resolveProfileViewMode({
         actorId: actorUserId(req),
         targetUserId: uid,
@@ -315,9 +375,10 @@ class UserController {
         isSelf,
         isCompanyAdmin: false,
       });
+      // Peer: never enrich email from auth; self may use caller email fallback.
       const data = isSelf
         ? withAuthEmailFallback(req, payload, null, { allowCallerEmail: true })
-        : await enrichPayloadEmailFromAuth(uid, payload);
+        : payload;
 
       res.json({
         success: true,
@@ -339,6 +400,13 @@ class UserController {
           message: 'username is required',
         });
       }
+      if (!isInternalLookup(req)) {
+        const actorId = actorUserId(req);
+        if (!actorId) {
+          return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+        await assertUserActionAllowed({ userId: actorId, bucket: 'lookup' });
+      }
       const userProfile = await userService.getUserProfileByUsername(username);
 
       if (!userProfile) {
@@ -348,12 +416,15 @@ class UserController {
         });
       }
 
+      const targetId = String(userProfile.userId || '').trim();
       res.json({
         success: true,
-        data: safeProfilePayload(userProfile),
+        data: shapeForRequest(req, userProfile, targetId),
       });
     } catch (error) {
-      logger.error('Get user profile by username error:', error);
+      logUserFailure('Get user profile by username error:', error, {
+        usernameLength: String(req.params?.username || '').length,
+      });
       return sendError(res, error, 500, 'Không thể tải hồ sơ người dùng', 'USER_GET_FAILED');
     }
   }
@@ -370,6 +441,14 @@ class UserController {
         });
       }
 
+      if (!isInternalLookup(req)) {
+        const actorId = actorUserId(req);
+        if (!actorId) {
+          return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+        await assertUserActionAllowed({ userId: actorId, bucket: 'lookup' });
+      }
+
       const userProfile = await userService.getUserProfileByPhone(phone);
 
       if (!userProfile) {
@@ -379,12 +458,15 @@ class UserController {
         });
       }
 
+      const targetId = String(userProfile.userId || '').trim();
       res.json({
         success: true,
-        data: safeProfilePayload(userProfile),
+        data: shapeForRequest(req, userProfile, targetId),
       });
     } catch (error) {
-      logger.error('Get user profile by phone error:', error);
+      logUserFailure('Get user profile by phone error:', error, {
+        phoneLength: String(req.params?.phone || '').length,
+      });
       return sendError(res, error, 500, 'Không thể tải hồ sơ người dùng', 'USER_GET_FAILED');
     }
   }
@@ -449,6 +531,7 @@ class UserController {
           message: 'Unauthorized',
         });
       }
+      await assertUserActionAllowed({ userId: actorId, bucket: 'profileWrite' });
       if (req.params.userId && String(req.params.userId) !== String(actorId)) {
         return res.status(403).json({
           success: false,
@@ -468,7 +551,7 @@ class UserController {
         data: shapeProfilePayload(userProfile, { isSelf: true }),
       });
     } catch (error) {
-      logger.error('Update user profile error:', error);
+      logUserFailure('Update user profile error:', error, { userId: actorUserId(req) });
       return sendError(res, error, 400, 'Không thể cập nhật hồ sơ', 'USER_UPDATE_FAILED');
     }
   }
@@ -497,7 +580,7 @@ class UserController {
 
       res.json({
         success: true,
-        data: userProfile,
+        data: toStatusPayload(userProfile),
       });
     } catch (error) {
       logger.error('Update status error:', error);
@@ -562,7 +645,8 @@ class UserController {
 
   async patchInternalStatus(req, res) {
     try {
-      const { userId, status } = req.body || {};
+      const userId = toPlainId(req.body?.userId);
+      const status = req.body?.status;
 
       if (!userId) {
         return res.status(400).json({
@@ -582,14 +666,11 @@ class UserController {
 
       res.json({
         success: true,
-        data: userProfile,
+        data: toStatusPayload(userProfile),
       });
     } catch (error) {
       logger.error('Internal patch status error:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
+      return sendError(res, error, 400, 'Không thể cập nhật trạng thái', 'USER_STATUS_FAILED');
     }
   }
 
@@ -621,30 +702,40 @@ class UserController {
   // Tìm kiếm users
   async searchUsers(req, res) {
     try {
-      const { q, page, limit } = req.query;
+      const q = typeof req.query?.q === 'string' ? req.query.q : '';
 
-      if (!q || String(q).trim() === '') {
+      if (!q.trim()) {
         return res.status(400).json({
           success: false,
           message: 'Search query is required',
         });
       }
 
-      const result = await userService.searchUsers(q, {
-        page: page || 1,
-        limit: limit || 20,
-      });
+      if (!isInternalLookup(req)) {
+        const actorId = actorUserId(req);
+        if (!actorId) {
+          return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+        await assertUserActionAllowed({ userId: actorId, bucket: 'lookup' });
+      }
+
+      const result = await userService.searchUsers(q, readPagination(req.query));
+
+      const users = Array.isArray(result?.users)
+        ? result.users.map((u) =>
+            shapeProfilePayload(u, { isSelf: false, isCompanyAdmin: Boolean(req.companyAdmin) })
+          )
+        : [];
 
       res.json({
         success: true,
-        data: result,
+        data: { ...result, users },
       });
     } catch (error) {
-      logger.error('Search users error:', error);
-      res.status(500).json({
-        success: false,
-        message: error.message,
+      logUserFailure('Search users error:', error, {
+        queryLength: String(req.query?.q || '').length,
       });
+      return sendError(res, error, 500, 'Không thể tìm kiếm người dùng', 'USER_SEARCH_FAILED');
     }
   }
 
@@ -654,13 +745,15 @@ class UserController {
       if (!requesterId) {
         return res.status(401).json({ success: false, message: 'Unauthorized' });
       }
-      const { userId } = req.params;
+      const userId = String(req.params.userId || '').trim();
+      if (!isObjectIdString(userId)) return sendInvalidUserId(res);
       const profile = await userService.getUserProfileById(userId);
       if (!profile?.avatar) {
         return res.status(404).json({ success: false, message: 'Avatar not found' });
       }
 
       const avatarRef = String(profile.avatar).trim();
+      res.setHeader('X-Content-Type-Options', 'nosniff');
 
       if (isLegacyUploadsPath(avatarRef)) {
         const safeName = legacyDiskFileName(avatarRef);
@@ -669,6 +762,11 @@ class UserController {
           return res.status(404).json({ success: false, message: 'Avatar file not found' });
         }
         return res.sendFile(filePath);
+      }
+
+      if (!isOwnAvatarKey(userId, avatarRef)) {
+        logger.warn(`[user-service] avatar ref rejected userId=${userId}`);
+        return res.status(404).json({ success: false, message: 'Avatar not found' });
       }
 
       if (!objectStorage.isEnabled()) {
@@ -712,26 +810,30 @@ class UserController {
         });
       }
 
-      const ext = resolveExtension(req.file) || '.jpg';
-      const mime = String(req.file.mimetype || '').toLowerCase();
-      const contentType = mime.startsWith('image/')
-        ? mime
-        : contentTypeFromAvatarPath(`file${ext}`);
-      const storageKey = buildAvatarKey(userId, ext);
+      const sniffed = sniffImageType(req.file.buffer);
+      if (!sniffed) {
+        return res.status(400).json({
+          success: false,
+          message: 'File không phải ảnh hợp lệ',
+          messageUser: 'File không phải ảnh hợp lệ (jpg, png, gif, webp, bmp, ico, avif, heic).',
+          errorCode: 'USER_AVATAR_INVALID_IMAGE',
+        });
+      }
+      const storageKey = buildAvatarKey(userId, sniffed.ext);
 
       const previous = await userService.getUserProfileById(userId);
       const previousAvatar = previous?.avatar ? String(previous.avatar).trim() : '';
 
-      await objectStorage.putObject(storageKey, req.file.buffer, contentType);
+      await objectStorage.putObject(storageKey, req.file.buffer, sniffed.mime);
 
-      const userProfile = await userService.updateUserProfile(userId, { avatar: storageKey });
+      const userProfile = await userService.setAvatarInternal(userId, storageKey);
       const plain = safeProfilePayload(userProfile);
       const avatar = plain?.avatar || storageKey;
 
       if (
         previousAvatar &&
         previousAvatar !== storageKey &&
-        !isLegacyUploadsPath(previousAvatar)
+        isOwnAvatarKey(userId, previousAvatar)
       ) {
         objectStorage.deleteObject(previousAvatar).catch(() => {});
       }
@@ -783,7 +885,14 @@ class UserController {
   async internalProfilesBatch(req, res) {
     try {
       const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
-      const ids = [...new Set(userIds.map((id) => String(id || '').trim()).filter(Boolean))];
+      const ids = [...new Set(userIds.map(toPlainId).filter(Boolean))];
+      if (ids.length > INTERNAL_BATCH_MAX) {
+        return res.status(400).json({
+          success: false,
+          message: `Tối đa ${INTERNAL_BATCH_MAX} userIds mỗi lần.`,
+          errorCode: 'USER_BATCH_TOO_LARGE',
+        });
+      }
       const authMap = await fetchAuthSummaryByUserIds(ids);
       const profiles = await Promise.all(
         ids.map(async (userId) => {
@@ -823,6 +932,7 @@ class UserController {
           message: 'userId is required',
         });
       }
+      if (!isObjectIdString(userId)) return sendInvalidUserId(res);
 
       const mode = resolveProfilePatchMode({
         actorId,
@@ -893,7 +1003,7 @@ class UserController {
       res.json({
         success: true,
         message: 'User profile deleted successfully',
-        data: userProfile,
+        data: toStatusPayload(userProfile),
       });
     } catch (error) {
       logger.error('Delete user profile error:', error);
@@ -919,13 +1029,7 @@ class UserController {
       });
     } catch (error) {
       logger.error('internalBulkImportProfileFields error:', error);
-      return sendError(
-        res,
-        error,
-        error.statusCode || 400,
-        error.message || 'Bulk import profile failed',
-        error.errorCode || 'USER_BULK_IMPORT_FAILED'
-      );
+      return sendError(res, error, 400, 'Bulk import profile failed', 'USER_BULK_IMPORT_FAILED');
     }
   }
 
@@ -947,13 +1051,7 @@ class UserController {
       });
     } catch (error) {
       logger.error('internalDeactivateProfile error:', error);
-      return sendError(
-        res,
-        error,
-        error.statusCode || 400,
-        error.message || 'Deactivate profile failed',
-        error.errorCode || 'USER_DEACTIVATE_FAILED'
-      );
+      return sendError(res, error, 400, 'Deactivate profile failed', 'USER_DEACTIVATE_FAILED');
     }
   }
 }

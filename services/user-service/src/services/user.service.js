@@ -18,6 +18,7 @@ const {
 } = require('./capabilityProfile.service');
 const { parseCvFileToFields } = require('./cvParse.service');
 const { coalesceJobTitle, normalizeJobTitleForSave } = require('../utils/jobTitleProfile');
+const { readPagination, maskEmailForLog } = require('../utils/userInputSafety');
 const path = require('path');
 const fs = require('fs');
 
@@ -73,7 +74,7 @@ class UserService {
     }
 
     logger.warn(
-      `Reclaimed profile ${byEmail._id} for email=${String(email).trim().toLowerCase()} userId ${byEmail.userId} -> ${uid}`
+      `Reclaimed profile ${byEmail._id} for email=${maskEmailForLog(email)} userId ${byEmail.userId} -> ${uid}`
     );
     return reclaimed;
   }
@@ -262,7 +263,8 @@ class UserService {
   // options.capabilityMode: 'self' (PATCH /me hoặc self /:id) | 'admin' (HR/company admin PATCH /:id)
   async updateUserProfile(userId, updateData, options = {}) {
     try {
-      const allowedFields = ['displayName', 'avatar', 'isInvisible', 'status'];
+      // `avatar` chỉ set qua setAvatarInternal (uploadAvatar) — PATCH client không được gán key tùy ý.
+      const allowedFields = ['displayName', 'isInvisible', 'status'];
       const capabilityMode = options.capabilityMode === 'admin' ? 'admin' : 'self';
       const actorUserId = options.actorUserId != null ? String(options.actorUserId) : null;
 
@@ -384,6 +386,27 @@ class UserService {
       logger.error('Error updating user profile:', error);
       throw error;
     }
+  }
+
+  /** Chỉ uploadAvatar gọi — storageKey do server sinh (`users/<uid>/avatars/…`). */
+  async setAvatarInternal(userId, storageKey) {
+    const uid = String(userId || '').trim();
+    const key = String(storageKey || '').trim();
+    if (!uid || !key) throw serviceError('Thiếu userId hoặc avatar', 400, 'USER_VALIDATION');
+
+    const userProfile = await UserProfile.findOneAndUpdate(
+      { userId: uid },
+      { $set: { avatar: key } },
+      { new: true, runValidators: true }
+    );
+    if (!userProfile) {
+      throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
+    }
+    const redis = getRedisClient();
+    if (redis) {
+      await redis.del(`user:${uid}`);
+    }
+    return userProfile;
   }
 
   /**
@@ -721,26 +744,26 @@ class UserService {
     }
   }
 
-  // Tìm kiếm users
+  // Tìm kiếm users — escape regex, limit query length, no email in public select
   async searchUsers(query, options = {}) {
     try {
-      const { page = 1, limit = 20 } = options;
+      const { page, limit } = readPagination(options);
+      const { sanitizeSearchQuery } = require('../utils/searchQuerySafe');
+      const { raw, escaped } = sanitizeSearchQuery(query);
+      if (!raw) {
+        return { users: [], totalPages: 0, currentPage: page, total: 0 };
+      }
 
-      const searchRegex = new RegExp(query, 'i');
+      const searchRegex = new RegExp(escaped, 'i');
       const filter = {
-        $or: [
-          { username: searchRegex },
-          { displayName: searchRegex },
-          { phone: searchRegex },
-          { email: searchRegex },
-        ],
+        $or: [{ username: searchRegex }, { displayName: searchRegex }],
         isActive: true,
       };
 
       const users = await UserProfile.find(filter)
-        .limit(limit * 1)
+        .limit(limit)
         .skip((page - 1) * limit)
-        .select('userId username displayName avatar status email')
+        .select('userId username displayName avatar status')
         .sort({ username: 1 });
 
       const total = await UserProfile.countDocuments(filter);

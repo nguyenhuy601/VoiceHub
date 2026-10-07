@@ -12,10 +12,12 @@ const {
   MAX_SKILLS,
 } = require('../constants/capabilityCatalog');
 
+const CV_MAX_PARSE_PAGES = 20;
+
 async function extractPdfText(filePath) {
   const pdfParse = require('pdf-parse');
   const buffer = fs.readFileSync(filePath);
-  const data = await pdfParse(buffer);
+  const data = await pdfParse(buffer, { max: CV_MAX_PARSE_PAGES });
   return String(data?.text || '').trim();
 }
 
@@ -125,11 +127,11 @@ async function parseCvFileToFields(filePath) {
   let text = '';
   try {
     text = await extractPdfText(filePath);
-  } catch (err) {
+  } catch {
     return {
       ok: false,
       errorCode: 'CV_PARSE_FAILED',
-      message: err?.message || 'Could not parse PDF',
+      message: 'Không đọc được nội dung file PDF.',
     };
   }
   if (!text || text.length < 20) {
