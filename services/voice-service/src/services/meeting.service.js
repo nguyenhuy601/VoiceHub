@@ -39,6 +39,7 @@ async function assertCanManageMeeting(meeting, actor) {
 }
 
 const { resolveParticipantRemoval } = require('./meetingModeratePolicy');
+const { createMeetingError, MEETING_ERROR_CODES } = require('../utils/meetingAccessPolicy');
 
 
 class MeetingService {
@@ -85,6 +86,7 @@ class MeetingService {
       return meeting;
     } catch (error) {
       logger.error('Error creating meeting:', error);
+      if (error.statusCode) throw error;
       throw new Error(`Error creating meeting: ${error.message}`);
     }
   }
@@ -104,13 +106,14 @@ class MeetingService {
       );
 
       if (!meeting) {
-        throw new Error('Meeting not found');
+        throw createMeetingError(404, MEETING_ERROR_CODES.NOT_FOUND, 'Meeting not found');
       }
 
       logger.info(`Meeting started: ${meetingId}`);
       return meeting;
     } catch (error) {
       logger.error('Error starting meeting:', error);
+      if (error.statusCode) throw error;
       throw new Error(`Error starting meeting: ${error.message}`);
     }
   }
@@ -130,13 +133,14 @@ class MeetingService {
       );
 
       if (!meeting) {
-        throw new Error('Meeting not found');
+        throw createMeetingError(404, MEETING_ERROR_CODES.NOT_FOUND, 'Meeting not found');
       }
 
       logger.info(`Meeting ended: ${meetingId}`);
       return meeting;
     } catch (error) {
       logger.error('Error ending meeting:', error);
+      if (error.statusCode) throw error;
       throw new Error(`Error ending meeting: ${error.message}`);
     }
   }
@@ -147,11 +151,11 @@ class MeetingService {
       const meeting = await Meeting.findById(meetingId);
 
       if (!meeting) {
-        throw new Error('Meeting not found');
+        throw createMeetingError(404, MEETING_ERROR_CODES.NOT_FOUND, 'Meeting not found');
       }
 
       if (meeting.status !== 'active') {
-        throw new Error('Meeting is not active');
+        throw createMeetingError(409, MEETING_ERROR_CODES.NOT_ACTIVE, 'Meeting is not active');
       }
 
       // Kiểm tra đã tham gia chưa
@@ -174,6 +178,7 @@ class MeetingService {
       return meeting;
     } catch (error) {
       logger.error('Error adding participant:', error);
+      if (error.statusCode) throw error;
       throw new Error(`Error adding participant: ${error.message}`);
     }
   }
