@@ -1,6 +1,7 @@
 const multer = require('multer');
 const meetingRecordingService = require('../services/meetingRecording.service');
 const { logger } = require('@enterprise/shared');
+const { sendRecordingError } = require('../utils/voiceErrorResponse');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -14,11 +15,6 @@ const upload = multer({
 
 function getUserId(req) {
   return req.user?.id || req.user?.userId || req.user?._id || req.userContext?.userId;
-}
-
-function safeStatus(error, fallback = 500) {
-  const code = Number(error?.statusCode);
-  return code >= 400 && code < 600 ? code : fallback;
 }
 
 class MeetingRecordingController {
@@ -51,10 +47,7 @@ class MeetingRecordingController {
       return res.status(202).json({ success: true, data: result });
     } catch (error) {
       logger.error('uploadRecording error:', error);
-      return res.status(safeStatus(error, 400)).json({
-        success: false,
-        message: error.message || 'Upload failed',
-      });
+      return sendRecordingError(res, error);
     }
   }
 
@@ -72,10 +65,7 @@ class MeetingRecordingController {
       return res.json({ success: true, data });
     } catch (error) {
       logger.error('getRecording error:', error);
-      return res.status(safeStatus(error)).json({
-        success: false,
-        message: error.message || 'Not found',
-      });
+      return sendRecordingError(res, error);
     }
   }
 
@@ -93,14 +83,19 @@ class MeetingRecordingController {
       );
       res.setHeader('Content-Type', contentType);
       res.setHeader('Cache-Control', 'private, max-age=3600');
+      stream.on('error', (streamErr) => {
+        logger.error('streamRecording stream error:', streamErr);
+        if (!res.headersSent) {
+          sendRecordingError(res, streamErr);
+        } else {
+          res.destroy(streamErr);
+        }
+      });
       stream.pipe(res);
     } catch (error) {
       logger.error('streamRecording error:', error);
       if (!res.headersSent) {
-        res.status(safeStatus(error)).json({
-          success: false,
-          message: error.message || 'Stream failed',
-        });
+        sendRecordingError(res, error);
       }
     }
   }
@@ -115,10 +110,7 @@ class MeetingRecordingController {
       return res.json({ success: true, data: meeting });
     } catch (error) {
       logger.error('internalPatchRecording error:', error);
-      return res.status(500).json({
-        success: false,
-        message: error.message || 'Update failed',
-      });
+      return sendRecordingError(res, error);
     }
   }
 
@@ -132,10 +124,7 @@ class MeetingRecordingController {
       return res.json({ success: true, data: result });
     } catch (error) {
       logger.error('internalPatchTranscriptChunk error:', error);
-      return res.status(500).json({
-        success: false,
-        message: error.message || 'Update failed',
-      });
+      return sendRecordingError(res, error);
     }
   }
 
@@ -149,10 +138,7 @@ class MeetingRecordingController {
       return res.json({ success: true, data: meeting });
     } catch (error) {
       logger.error('internalPatchSummary error:', error);
-      return res.status(500).json({
-        success: false,
-        message: error.message || 'Update failed',
-      });
+      return sendRecordingError(res, error);
     }
   }
 }

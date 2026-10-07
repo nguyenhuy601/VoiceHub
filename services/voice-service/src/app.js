@@ -1,6 +1,7 @@
 const express = require('express');
 const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
 const gatewayUserMiddleware = require('./middlewares/gatewayUser');
+const errorHandler = require('./middlewares/errorHandler');
 const { mongoose } = require('@enterprise/shared/config/mongo');
 require('./models/CallSession');
 require('./models/VoiceRoomLobby');
@@ -32,6 +33,8 @@ const meetingRoutes = require('./routes/meeting.routes');
 const voiceRoutes = require('./routes/voice.routes');
 app.use('/api/meetings', meetingRoutes);
 app.use('/api/voice', voiceRoutes);
+
+app.use(errorHandler);
 
 module.exports = app;
 
