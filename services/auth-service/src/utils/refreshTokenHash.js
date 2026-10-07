@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { JWT_REFRESH_SECRET } = require('../config/jwt');
+const { timingSafeStringEquals } = require('./authErrorMap');
 
 function getRefreshPepper() {
   return String(process.env.REFRESH_TOKEN_PEPPER || JWT_REFRESH_SECRET || '').trim();
@@ -17,8 +18,8 @@ function refreshTokenMatches(userAuth, incomingRaw) {
   const stored = String(userAuth?.refreshToken || '').trim();
   const incoming = String(incomingRaw || '').trim();
   if (!stored || !incoming) return false;
-  if (stored === incoming) return true;
-  return stored === hashRefreshToken(incoming);
+  if (timingSafeStringEquals(stored, incoming)) return true;
+  return timingSafeStringEquals(stored, hashRefreshToken(incoming));
 }
 
 module.exports = {

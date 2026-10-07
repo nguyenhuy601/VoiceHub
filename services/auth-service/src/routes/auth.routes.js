@@ -8,6 +8,7 @@ const { sendServiceError } = require('../middleware/sendServiceError');
 const { adminUserController, internalAuthSummaryBatch } = require('../controllers/adminUser.controller');
 const { companyAdminAuth } = require('../middleware/companyAdminAuth');
 const requireClientHeader = require('../middleware/requireClientHeader');
+const { createSensitiveAuthLimiter, createAdminAccountLimiter } = require('../middleware/sensitiveAuthLimiter');
 const UserAuth = require('../models/UserAuth');
 
 router.use(cookieParser());
@@ -111,17 +112,18 @@ router.post('/login', authController.login.bind(authController));
 router.post('/register', authController.register.bind(authController));
 router.post('/refresh-token', requireClientHeader(), authController.refreshToken.bind(authController));
 
-router.post('/forgot-password', authController.forgotPassword.bind(authController));
-router.post('/resend-verification', authController.resendVerification.bind(authController));
-router.post('/reset-password', authController.resetPassword.bind(authController));
+const sensitiveAuthLimiter = createSensitiveAuthLimiter();
+router.post('/forgot-password', sensitiveAuthLimiter, authController.forgotPassword.bind(authController));
+router.post('/resend-verification', sensitiveAuthLimiter, authController.resendVerification.bind(authController));
+router.post('/reset-password', sensitiveAuthLimiter, authController.resetPassword.bind(authController));
 // Verify email: GET với token trong query string, KHÔNG dùng JWT
-router.get('/verify-email', authController.verifyEmail.bind(authController));
-router.get('/verify-email-change', authController.verifyEmailChange.bind(authController));
+router.get('/verify-email', sensitiveAuthLimiter, authController.verifyEmail.bind(authController));
+router.get('/verify-email-change', sensitiveAuthLimiter, authController.verifyEmailChange.bind(authController));
 
 // Protected routes
 router.post('/logout', authenticate, authController.logout.bind(authController));
-router.post('/change-password', authenticate, authController.changePassword.bind(authController));
-router.post('/change-email/request', authenticate, authController.requestEmailChange.bind(authController));
+router.post('/change-password', authenticate, sensitiveAuthLimiter, authController.changePassword.bind(authController));
+router.post('/change-email/request', authenticate, sensitiveAuthLimiter, authController.requestEmailChange.bind(authController));
 router.get('/me', authenticate, authController.getMe.bind(authController));
 
 // Company admin — account actions (JWT + org admin at service).
@@ -129,18 +131,21 @@ function mountCompanyUserAccountRoutes() {
   const pathPrefix = '/users';
   const hrAuth = [authenticate, companyAdminAuth({ requireFullAccess: false })];
   const fullAuth = [authenticate, companyAdminAuth({ requireFullAccess: true })];
+  const adminAccountLimiter = createAdminAccountLimiter();
   const bind = (fn) => fn.bind(adminUserController);
 
   router.get(`${pathPrefix}/:userId/summary`, ...hrAuth, bind(adminUserController.getSummary));
-  router.post(`${pathPrefix}/:userId/lock`, ...fullAuth, bind(adminUserController.lockUser));
+  router.post(`${pathPrefix}/:userId/lock`, ...fullAuth, adminAccountLimiter, bind(adminUserController.lockUser));
   router.post(
     `${pathPrefix}/:userId/force-password`,
     ...fullAuth,
+    adminAccountLimiter,
     bind(adminUserController.forcePasswordChange)
   );
   router.post(
     `${pathPrefix}/:userId/reset-password`,
     ...fullAuth,
+    adminAccountLimiter,
     bind(adminUserController.triggerPasswordReset)
   );
   router.get(
@@ -151,21 +156,25 @@ function mountCompanyUserAccountRoutes() {
   router.post(
     `${pathPrefix}/:userId/revoke-sessions`,
     ...fullAuth,
+    adminAccountLimiter,
     bind(adminUserController.revokeSessions)
   );
   router.post(
     `${pathPrefix}/:userId/set-password`,
     ...fullAuth,
+    adminAccountLimiter,
     bind(adminUserController.setPassword)
   );
   router.post(
     `${pathPrefix}/:userId/activate`,
     ...fullAuth,
+    adminAccountLimiter,
     bind(adminUserController.activatePending)
   );
   router.post(
     `${pathPrefix}/:userId/resend-verification`,
     ...fullAuth,
+    adminAccountLimiter,
     bind(adminUserController.resendVerification)
   );
 }

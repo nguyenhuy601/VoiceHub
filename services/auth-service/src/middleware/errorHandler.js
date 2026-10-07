@@ -1,4 +1,5 @@
-const { buildApiErrorBody, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
+const { buildApiErrorBody } = require('@enterprise/shared/middleware/httpErrorResponse');
+const { toAuthError } = require('../utils/authErrorMap');
 
 module.exports = (err, req, res, next) => {
   if (req.aborted || res.headersSent) {
@@ -10,25 +11,19 @@ module.exports = (err, req, res, next) => {
     return;
   }
 
-  const statusCode = Number(err?.statusCode) || 500;
-  const isServerError = statusCode >= 500;
-  const errorCode = String(
-    err?.errorCode || err?.code || (isServerError ? 'AUTH_INTERNAL_ERROR' : '')
-  ).trim();
-
-  if (isServerError) {
-    console.error('ERROR', err);
+  const safe = toAuthError(err, 500);
+  const logLine = `[auth-service] ${req.method} ${req.originalUrl?.split('?')[0] || req.path} -> ${safe.statusCode} ${safe.errorCode}`;
+  if (safe.statusCode >= 500) {
+    console.error(logLine, err?.message || err);
+  } else {
+    console.warn(logLine);
   }
 
-  const clientMessage = String(err?.messageUser || err?.message || '').trim();
-  const body = buildApiErrorBody(statusCode, {
-    errorCode: errorCode || undefined,
-    messageUser: isServerError ? GENERIC_5XX_MESSAGE : clientMessage,
-    message: isServerError ? undefined : clientMessage,
-    extra: process.env.NODE_ENV === 'development' && err?.stack
-      ? { stack: err.stack }
-      : undefined,
+  const body = buildApiErrorBody(safe.statusCode, {
+    errorCode: safe.errorCode,
+    messageUser: safe.messageUser,
+    message: safe.statusCode >= 500 ? undefined : safe.message,
   });
 
-  res.status(statusCode).json(body);
+  res.status(safe.statusCode).json(body);
 };

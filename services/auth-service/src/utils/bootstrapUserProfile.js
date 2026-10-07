@@ -2,6 +2,7 @@ const USER_SERVICE_URL = String(process.env.USER_SERVICE_URL || '').trim().repla
 if (!USER_SERVICE_URL) throw new Error('Thiếu biến môi trường: USER_SERVICE_URL');
 const axios = require('axios');
 const { hydrateAuthEmailDoc } = require('./authEmailPii');
+const { maskEmailForLog } = require('./authInputSafety');
 const { readDateOfBirthFromStored } = require('@enterprise/shared/utils/dateOfBirthPii');
 
 /**
@@ -82,16 +83,16 @@ async function bootstrapUserProfile(userAuth, userId) {
       }
     );
 
-    console.log('[bootstrapUserProfile] OK for', plainEmail, response.status);
+    console.log('[bootstrapUserProfile] OK for', maskEmailForLog(plainEmail), response.status);
     return { ok: true, data: response.data };
   } catch (error) {
     const status = error.response?.status;
     const body = error.response?.data;
     console.error(
       '[bootstrapUserProfile] Failed:',
-      plainEmail,
+      maskEmailForLog(plainEmail),
       status || error.code,
-      body?.message || error.message
+      body?.errorCode || body?.message || error.code
     );
     return {
       ok: false,

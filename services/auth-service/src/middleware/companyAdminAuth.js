@@ -1,5 +1,6 @@
 const { sendServiceError } = require('../middleware/sendServiceError');
-const { resolveCompanyAdminLevel } = require('../clients/orgMembership.client');
+const { resolveCompanyAdminLevel, isActiveOrgMember } = require('../clients/orgMembership.client');
+const { isObjectIdString } = require('../utils/authInputSafety');
 
 function readOrganizationId(req) {
   return String(
@@ -45,13 +46,38 @@ function companyAdminAuth(options = {}) {
         });
       }
 
+      const targetUserId = req.params?.userId;
+      if (level !== 'system' && targetUserId !== undefined) {
+        if (!isObjectIdString(targetUserId)) {
+          return sendServiceError(res, 400, {
+            errorCode: 'AUTH_INVALID_ID',
+            messageUser: 'Mã định danh không hợp lệ.',
+            message: 'userId is invalid',
+          });
+        }
+        const membership = await isActiveOrgMember(organizationId, targetUserId);
+        if (membership === 'unavailable') {
+          return sendServiceError(res, 503, {
+            errorCode: 'AUTH_SCOPE_UNAVAILABLE',
+            messageUser: 'Không thể xác minh phạm vi tổ chức lúc này. Vui lòng thử lại.',
+          });
+        }
+        if (membership !== true) {
+          return sendServiceError(res, 404, {
+            errorCode: 'AUTH_TARGET_NOT_FOUND',
+            messageUser: 'Không tìm thấy tài khoản trong tổ chức này.',
+            message: 'Target user not found',
+          });
+        }
+      }
+
       req.companyAdmin = { organizationId, level };
       return next();
     } catch (error) {
+      console.error('[companyAdminAuth] admin check failed:', error?.code || error?.name || 'unknown');
       return sendServiceError(res, 500, {
         errorCode: 'ORG_ADMIN_CHECK_FAILED',
         messageUser: 'Không thể xác minh quyền quản trị.',
-        message: error?.message || 'admin check failed',
       });
     }
   };

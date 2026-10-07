@@ -14,7 +14,8 @@ const hashPassword = async (password) => {
     const hashedPassword = await bcrypt.hash(password, salt);
     return hashedPassword;
   } catch (error) {
-    throw new Error(`Error hashing password: ${error.message}`);
+    console.error('[auth-service] hashPassword failed:', error?.code || error?.name || 'unknown');
+    throw new Error('Password hashing failed');
   }
 };
 
@@ -25,20 +26,33 @@ const hashPassword = async (password) => {
  * @returns {Promise<boolean>} True if password matches
  */
 const comparePassword = async (password, hash) => {
+  if (typeof password !== 'string' || typeof hash !== 'string') return false;
   try {
     const isMatch = await bcrypt.compare(password, hash);
     return isMatch;
   } catch (error) {
-    throw new Error(`Error comparing password: ${error.message}`);
+    console.error('[auth-service] comparePassword failed:', error?.code || error?.name || 'unknown');
+    throw new Error('Password comparison failed');
   }
 };
+
+/** bcrypt chỉ dùng 72 byte đầu — dài hơn sẽ bị cắt âm thầm. */
+const MAX_PASSWORD_BYTES = 72;
 
 /**
  * Validate password strength
  * @param {string} password - Password to validate
  * @returns {Object} Validation result
  */
-const validatePasswordStrength = (password) => {
+const validatePasswordStrength = (rawPassword) => {
+  const password = typeof rawPassword === 'string' ? rawPassword : '';
+  if (Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES) {
+    return {
+      isValid: false,
+      errors: [`Password must be at most ${MAX_PASSWORD_BYTES} bytes long`],
+      errorCode: 'AUTH_PASSWORD_TOO_LONG',
+    };
+  }
   const minLength = 8;
   const hasUpperCase = /[A-Z]/.test(password);
   const hasLowerCase = /[a-z]/.test(password);
@@ -66,6 +80,7 @@ const validatePasswordStrength = (password) => {
   return {
     isValid: errors.length === 0,
     errors,
+    ...(errors.length ? { errorCode: 'AUTH_WEAK_PASSWORD' } : {}),
   };
 };
 
@@ -96,6 +111,7 @@ module.exports = {
   comparePassword,
   validatePasswordStrength,
   generateTemporaryPassword,
+  MAX_PASSWORD_BYTES,
 };
 
 

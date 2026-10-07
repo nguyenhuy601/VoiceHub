@@ -15,12 +15,14 @@ const {
   refreshTokenExpiresAtFromNow,
   refreshTokenRedisTtlSeconds,
 } = require('../utils/jwtDuration');
-const { getRedisClient } = require('@enterprise/shared');
+const { getRedisClient, logger } = require('@enterprise/shared');
 const emailService = require('../utils/email');
 const { bootstrapUserProfile } = require('../utils/bootstrapUserProfile');
 const { writeDateOfBirthFields } = require('@enterprise/shared/utils/dateOfBirthPii');
 const crypto = require('crypto');
 const { mongoose } = require('@enterprise/shared/config/mongo');
+const { hashOneTimeToken, oneTimeTokenQuery, readTokenInput } = require('../utils/oneTimeToken');
+const { maskEmailForLog } = require('../utils/authInputSafety');
 const {
   findUserAuthByEmail,
   hydrateAuthEmailDoc,
@@ -34,6 +36,26 @@ function createServiceError(message, statusCode = 400, errorCode = 'AUTH_VALIDAT
   err.errorCode = errorCode;
   return err;
 }
+const MAX_LOGIN_PASSWORD_LENGTH = 256;
+const FORGOT_PASSWORD_MESSAGE = 'Nếu email tồn tại, liên kết đặt lại mật khẩu đã được gửi.';
+const RESEND_VERIFICATION_MESSAGE = 'Nếu email tồn tại và chưa xác thực, liên kết xác thực đã được gửi.';
+
+function invalidCredentialsError() {
+  return createServiceError('Email hoặc mật khẩu không đúng', 401, 'AUTH_INVALID_CREDENTIALS');
+}
+
+let dummyHashPromise = null;
+/** Hash giả sinh lười — không hardcode, không tốn bcrypt lúc khởi động. */
+function getDummyHash() {
+  if (!dummyHashPromise) {
+    dummyHashPromise = hashPassword(crypto.randomBytes(24).toString('hex')).catch((err) => {
+      dummyHashPromise = null;
+      throw err;
+    });
+  }
+  return dummyHashPromise;
+}
+
 async function ensureMongoReady(scope = 'AUTH') {
   const readyState = mongoose.connection.readyState;
   console.log(
@@ -146,23 +168,23 @@ class AuthService {
 
       // Validate required fields
       if (!normalizedEmail || !password) {
-        throw new Error('Email and password are required');
+        throw createServiceError('Email và mật khẩu là bắt buộc.', 400, 'VALIDATION_REQUIRED');
       }
 
       if (!firstName || !lastName) {
-        throw new Error('First name and last name are required');
+        throw createServiceError('Họ và tên là bắt buộc.', 400, 'VALIDATION_REQUIRED');
       }
 
       const dobCheck = validateRegistrationDateOfBirth(dateOfBirth);
       if (!dobCheck.ok) {
-        throw new Error(dobCheck.message);
+        throw createServiceError(dobCheck.message, 400, 'AUTH_VALIDATION');
       }
 
       // Kiểm tra trạng thái kết nối theo fail-fast, không reconnect trong request.
       await ensureMongoReady('REGISTER');
 
       // Kiểm tra email đã tồn tại chưa
-      console.log('[AuthService] Checking if email exists:', normalizedEmail);
+      console.log('[AuthService] Checking if email exists:', maskEmailForLog(normalizedEmail));
       try {
         const existingUser = await findUserAuthByEmail(normalizedEmail, {
           maxTimeMS: 15000,
@@ -195,7 +217,7 @@ class AuthService {
         throw createServiceError(
           passwordValidation.errors.join(', '),
           400,
-          'AUTH_WEAK_PASSWORD'
+          passwordValidation.errorCode
         );
       }
 
@@ -215,7 +237,7 @@ class AuthService {
         firstName,
         lastName,
         systemRole: 'employee',
-        emailVerificationToken,
+        emailVerificationToken: hashOneTimeToken(emailVerificationToken),
         emailVerificationExpiresAt,
         isEmailVerified: false,
         isActive: false, // Chỉ active sau khi verify email
@@ -223,12 +245,64 @@ class AuthService {
 
       await userAuth.save();
 
-      // Mail xác thực chỉ gửi khi user/admin gọi resend — không auto-send lúc register.
+      // Gửi email verification trong background (không block response)
+      // Để tránh timeout, không await email sending
+      console.log('[AuthService] 🔍 Checking email service availability...');
+      console.log('[AuthService] emailService.isAvailable():', emailService.isAvailable());
+      console.log('[AuthService] EMAIL_USER:', process.env.EMAIL_USER ? 'SET' : 'NOT SET');
+      console.log('[AuthService] EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? 'SET' : 'NOT SET');
+      
+      if (emailService.isAvailable()) {
+        console.log('[AuthService] 📧 Email service is available, scheduling verification email to:', maskEmailForLog(normalizedEmail));
+        console.log('[AuthService] Verification token: REDACTED');
+        console.log('[AuthService] Email will be sent in background to avoid timeout');
+        
+        // Gửi email trong background - không await
+        const emailPromise = emailService.sendVerificationEmail(
+          normalizedEmail,
+          emailVerificationToken,
+          frontendUrl
+        );
+        console.log('[AuthService] Email promise created, waiting for result...');
+        
+        emailPromise
+          .then((result) => {
+            console.log('[AuthService] 📬 Email promise resolved');
+            console.log('[AuthService] Result:', result ? 'Has result' : 'Null result');
+            if (result && result.messageId) {
+              console.log('[AuthService] ✅ Verification email sent successfully to:', maskEmailForLog(normalizedEmail));
+              console.log('[AuthService] Email messageId:', result.messageId);
+            } else {
+              console.warn('[AuthService] ❌ Email service returned null');
+              console.warn('[AuthService] Check email service configuration and logs above');
+            }
+          })
+          .catch((error) => {
+            console.error('[AuthService] ❌ Email promise rejected (error occurred)');
+            console.error('[AuthService] Error code:', error?.code, error?.responseCode);
+            
+            // Nếu là lỗi authentication
+            if (error.code === 'EAUTH' || error.responseCode === 535) {
+              console.error('[AuthService] ⚠️ Gmail authentication failed!');
+              console.error('[AuthService] Please check:');
+              console.error('[AuthService] 1. EMAIL_USER is correct');
+              console.error('[AuthService] 2. EMAIL_PASSWORD is an App Password (not regular password)');
+              console.error('[AuthService] 3. 2-Step Verification is enabled');
+            }
+          });
+        
+        console.log('[AuthService] Email sending initiated, continuing with registration response...');
+      } else {
+        console.warn('[AuthService] ⚠️ Email service NOT available, skipping email send');
+        console.warn('[AuthService] EMAIL_USER:', process.env.EMAIL_USER ? 'SET' : 'NOT SET');
+        console.warn('[AuthService] EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? 'SET' : 'NOT SET');
+        console.warn('[AuthService] transporter:', emailService.transporter ? 'EXISTS' : 'NULL');
+      }
+
       return {
         userAuth,
-        // Dev fallback: trả token khi SMTP tắt để test local (không gửi mail ở bước này).
-        emailVerificationToken: emailService.isAvailable() ? undefined : emailVerificationToken,
-        emailScheduled: false,
+        emailVerificationToken: emailService.isAvailable() ? undefined : emailVerificationToken, // Chỉ trả về token nếu không gửi email
+        emailScheduled: emailService.isAvailable(), // Email đã được lên lịch gửi (không chờ kết quả)
       };
     } catch (error) {
       throw error;
@@ -239,15 +313,36 @@ class AuthService {
   async login(email, password) {
     try {
       // Kiểm tra trạng thái kết nối theo fail-fast, không reconnect trong request.
-      await ensureMongoReady('LOGIN');
-
-      const userAuth = await findUserAuthByEmail(email, { maxTimeMS: 15000 });
-
-      if (!userAuth) {
-        throw createServiceError('Email hoặc mật khẩu không đúng', 401, 'AUTH_INVALID_CREDENTIALS');
+      if (typeof password !== 'string' || !password || password.length > MAX_LOGIN_PASSWORD_LENGTH) {
+        throw invalidCredentialsError();
       }
 
-      const plainEmail = await hydrateAuthEmailDoc(userAuth);
+      await ensureMongoReady('LOGIN');
+
+      const userAuth =
+        typeof email === 'string' ? await findUserAuthByEmail(email, { maxTimeMS: 15000 }) : null;
+
+      if (!userAuth) {
+        // bcrypt giả để email lạ tốn thời gian như email có thật (chống dò qua thời gian phản hồi).
+        await comparePassword(password, await getDummyHash());
+        throw invalidCredentialsError();
+      }
+
+      // Giữ trước kiểm mật khẩu để lockout còn tác dụng (đánh đổi: tài khoản đang khóa vẫn dò được).
+      if (userAuth.isLocked) {
+        throw createServiceError('Tài khoản tạm khóa do đăng nhập sai nhiều lần', 401, 'AUTH_ACCOUNT_LOCKED');
+      }
+
+      const isPasswordValid = await comparePassword(password, userAuth.password);
+      if (!isPasswordValid) {
+        await userAuth.incLoginAttempts();
+        const err = invalidCredentialsError();
+        Object.defineProperty(err, 'attemptedUserId', {
+          value: userAuth.userId ? String(userAuth.userId) : null,
+          enumerable: false,
+        });
+        throw err;
+      }
 
       // Excel/HR pending: chưa đặt mk qua mail / chưa admin activate
       if (!userAuth.isEmailVerified && !userAuth.isActive) {
@@ -268,17 +363,7 @@ class AuthService {
         throw createServiceError('Tài khoản chưa kích hoạt.', 401, 'AUTH_ACCOUNT_INACTIVE');
       }
 
-      // Kiểm tra account có bị lock không
-      if (userAuth.isLocked) {
-        throw createServiceError('Tài khoản tạm khóa do đăng nhập sai nhiều lần', 401, 'AUTH_ACCOUNT_LOCKED');
-      }
-
-      // Kiểm tra password
-      const isPasswordValid = await comparePassword(password, userAuth.password);
-      if (!isPasswordValid) {
-        await userAuth.incLoginAttempts();
-        throw createServiceError('Email hoặc mật khẩu không đúng', 401, 'AUTH_INVALID_CREDENTIALS');
-      }
+      const plainEmail = await hydrateAuthEmailDoc(userAuth);
 
       // Reset login attempts
       await userAuth.resetLoginAttempts();
@@ -359,13 +444,13 @@ class AuthService {
     try {
       const userAuth = await UserAuth.findOne({ userId });
       if (!userAuth) {
-        throw new Error('User not found');
+        throw createServiceError('Không tìm thấy tài khoản.', 404, 'AUTH_USER_NOT_FOUND');
       }
 
       // Kiểm tra old password
       const isOldPasswordValid = await comparePassword(oldPassword, userAuth.password);
       if (!isOldPasswordValid) {
-        throw new Error('Old password is incorrect');
+        throw createServiceError('Mật khẩu hiện tại không đúng.', 400, 'AUTH_OLD_PASSWORD_INCORRECT');
       }
 
       // Validate new password strength
@@ -374,7 +459,7 @@ class AuthService {
         throw createServiceError(
           passwordValidation.errors.join(', '),
           400,
-          'AUTH_WEAK_PASSWORD'
+          passwordValidation.errorCode
         );
       }
 
@@ -396,46 +481,21 @@ class AuthService {
   // Quên mật khẩu - tạo reset token
   async forgotPassword(email, frontendUrl) {
     try {
-      const normalizedEmail = normalizeEmail(email);
+      // Response luôn giống nhau (email lạ / có thật / SMTP lỗi) — chống dò tài khoản.
+      const response = { message: FORGOT_PASSWORD_MESSAGE };
+      const normalizedEmail = typeof email === 'string' ? normalizeEmail(email) : '';
+      if (!normalizedEmail) return response;
+
       const userAuth = await findUserAuthByEmail(normalizedEmail);
-      if (!userAuth) {
-        // Không báo lỗi để tránh email enumeration
-        return {
-          message: 'If email exists, password reset link has been sent',
-          emailScheduled: false,
-        };
-      }
+      if (!userAuth) return response;
 
-      const plainEmail = await hydrateAuthEmailDoc(userAuth);
-
-      // Tạo reset token
       const passwordResetToken = crypto.randomBytes(32).toString('hex');
-      const passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-
-      userAuth.passwordResetToken = passwordResetToken;
-      userAuth.passwordResetExpiresAt = passwordResetExpiresAt;
+      userAuth.passwordResetToken = hashOneTimeToken(passwordResetToken);
+      userAuth.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
       await userAuth.save();
 
-      let emailScheduled = false;
       if (emailService.isAvailable()) {
-        const emailResult = await emailService.sendPasswordResetEmail(email, passwordResetToken, frontendUrl);
-        emailScheduled = !!emailResult;
-      }
-
-      const response = {
-        message: 'If email exists, password reset link has been sent',
-        emailScheduled,
-      };
-
-      // Dev fallback: trả token để test local khi SMTP chưa cấu hình
-      if (!emailScheduled && process.env.NODE_ENV !== 'production') {
-        const baseNormalized = String(
-          (frontendUrl && String(frontendUrl).trim()) ||
-            process.env.FRONTEND_URL ||
-            'http://localhost:5173'
-        ).replace(/\/+$/, '');
-        response.resetToken = passwordResetToken;
-        response.resetUrl = `${baseNormalized}/reset-password#token=${encodeURIComponent(passwordResetToken)}`;
+        await emailService.sendPasswordResetEmail(normalizedEmail, passwordResetToken, frontendUrl);
       }
 
       return response;
@@ -447,62 +507,24 @@ class AuthService {
   // Gửi lại email xác thực
   async resendVerificationEmail(email, frontendUrl) {
     try {
-      const normalizedEmail = normalizeEmail(email);
+      const normalizedEmail = typeof email === 'string' ? normalizeEmail(email) : '';
       if (!normalizedEmail) {
-        throw new Error('Email is required');
+        throw createServiceError('Email là bắt buộc.', 400, 'VALIDATION_REQUIRED');
       }
 
+      // Response luôn giống nhau (email lạ / đã xác thực / đã gửi) — chống dò tài khoản.
+      const response = { message: RESEND_VERIFICATION_MESSAGE };
       const userAuth = await findUserAuthByEmail(normalizedEmail);
-
-      if (!userAuth) {
-        // Không trả lỗi để tránh email enumeration
-        return {
-          message: 'If email exists, verification link has been sent',
-          emailScheduled: false,
-        };
-      }
-
-      if (userAuth.isEmailVerified) {
-        return {
-          message: 'Email is already verified',
-          emailScheduled: false,
-          alreadyVerified: true,
-        };
-      }
+      if (!userAuth || userAuth.isEmailVerified) return response;
 
       const emailVerificationToken = crypto.randomBytes(32).toString('hex');
-      const emailVerificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-      userAuth.emailVerificationToken = emailVerificationToken;
-      userAuth.emailVerificationExpiresAt = emailVerificationExpiresAt;
+      userAuth.emailVerificationToken = hashOneTimeToken(emailVerificationToken);
+      userAuth.emailVerificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       await userAuth.save();
 
-      const plainEmail = await hydrateAuthEmailDoc(userAuth);
-
-      let emailScheduled = false;
       if (emailService.isAvailable()) {
-        const emailResult = await emailService.sendVerificationEmail(
-          plainEmail,
-          emailVerificationToken,
-          frontendUrl
-        );
-        emailScheduled = !!emailResult;
-      }
-
-      const response = {
-        message: 'If email exists, verification link has been sent',
-        emailScheduled,
-      };
-
-      // Dev fallback: trả token để test local khi SMTP chưa cấu hình
-      if (!emailScheduled && process.env.NODE_ENV !== 'production') {
-        const baseNormalized = String(
-          (frontendUrl && String(frontendUrl).trim()) ||
-            process.env.FRONTEND_URL ||
-            'http://localhost:5173'
-        ).replace(/\/+$/, '');
-        response.verificationToken = emailVerificationToken;
-        response.verificationUrl = `${baseNormalized}/verify-email#token=${encodeURIComponent(emailVerificationToken)}`;
+        const plainEmail = await hydrateAuthEmailDoc(userAuth);
+        await emailService.sendVerificationEmail(plainEmail, emailVerificationToken, frontendUrl);
       }
 
       return response;
@@ -538,7 +560,7 @@ class AuthService {
 
     const token = crypto.randomBytes(32).toString('hex');
     userAuth.pendingEmail = normalizedEmail;
-    userAuth.emailChangeToken = token;
+    userAuth.emailChangeToken = hashOneTimeToken(token);
     userAuth.emailChangeExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     await userAuth.save();
 
@@ -547,29 +569,22 @@ class AuthService {
       const info = await emailService.sendEmailChangeVerificationEmail(normalizedEmail, token, frontendUrl);
       emailScheduled = Boolean(info);
     }
-    const response = {
+    if (!emailScheduled) {
+      logger.warn('Email change verification not scheduled', { tokenLength: token.length });
+    }
+    return {
       message: 'Nếu email hợp lệ, link xác thực đã được gửi.',
       emailScheduled,
     };
-    if (!emailScheduled && process.env.NODE_ENV !== 'production') {
-      const baseNormalized = String(
-        (frontendUrl && String(frontendUrl).trim()) ||
-          process.env.FRONTEND_URL ||
-          'http://localhost:5173'
-      ).replace(/\/+$/, '');
-      response.verificationToken = token;
-      response.verificationUrl = `${baseNormalized}/verify-email-change#token=${encodeURIComponent(token)}`;
-    }
-    return response;
   }
 
   async verifyEmailChange(token) {
-    const verificationToken = String(token || '').trim();
+    const verificationToken = readTokenInput(token);
     if (!verificationToken) {
       throw createServiceError('Verification token is required', 400, 'AUTH_EMAIL_CHANGE_TOKEN_REQUIRED');
     }
     const userAuth = await UserAuth.findOne({
-      emailChangeToken: verificationToken,
+      emailChangeToken: oneTimeTokenQuery(verificationToken),
       emailChangeExpiresAt: { $gt: new Date() },
     });
     if (!userAuth) {
@@ -608,13 +623,21 @@ class AuthService {
   // Reset mật khẩu
   async resetPassword(resetToken, newPassword) {
     try {
+      const token = readTokenInput(resetToken);
+      if (!token) {
+        throw createServiceError('Mã xác thực không hợp lệ.', 400, 'AUTH_INVALID_TOKEN');
+      }
       const userAuth = await UserAuth.findOne({
-        passwordResetToken: resetToken,
+        passwordResetToken: oneTimeTokenQuery(token),
         passwordResetExpiresAt: { $gt: new Date() },
       });
 
       if (!userAuth) {
-        throw new Error('Invalid or expired reset token');
+        throw createServiceError(
+          'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.',
+          400,
+          'AUTH_RESET_TOKEN_INVALID'
+        );
       }
 
       // Validate new password strength
@@ -623,7 +646,7 @@ class AuthService {
         throw createServiceError(
           passwordValidation.errors.join(', '),
           400,
-          'AUTH_WEAK_PASSWORD'
+          passwordValidation.errorCode
         );
       }
 
@@ -694,7 +717,7 @@ class AuthService {
           throw createServiceError(
             passwordValidation.errors.join(', '),
             400,
-            'AUTH_WEAK_PASSWORD'
+            passwordValidation.errorCode
           );
         }
         existingUser.password = await hashPassword(providedPassword);
@@ -747,7 +770,7 @@ class AuthService {
       throw createServiceError(
         passwordValidation.errors.join(', '),
         400,
-        'AUTH_WEAK_PASSWORD'
+        passwordValidation.errorCode
       );
     }
 
@@ -798,18 +821,26 @@ class AuthService {
   // Xác thực email
   async verifyEmail(verificationToken) {
     try {
+      const token = readTokenInput(verificationToken);
+      if (!token) {
+        throw createServiceError('Mã xác thực không hợp lệ.', 400, 'AUTH_INVALID_TOKEN');
+      }
       const userAuth = await UserAuth.findOne({
-        emailVerificationToken: verificationToken,
+        emailVerificationToken: oneTimeTokenQuery(token),
         emailVerificationExpiresAt: { $gt: new Date() },
       });
 
       if (!userAuth) {
-        throw new Error('Invalid or expired verification token');
+        throw createServiceError(
+          'Liên kết xác thực không hợp lệ hoặc đã hết hạn.',
+          400,
+          'AUTH_VERIFY_TOKEN_INVALID'
+        );
       }
 
       // Kiểm tra đã verify chưa
       if (userAuth.isEmailVerified) {
-        throw new Error('Email already verified');
+        throw createServiceError('Email đã được xác thực.', 400, 'AUTH_EMAIL_ALREADY_VERIFIED');
       }
 
       // Tạo userId mới (ObjectId)
