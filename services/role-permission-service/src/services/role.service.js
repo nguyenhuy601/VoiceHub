@@ -7,6 +7,13 @@ const axios = require('axios');
 const { canonicalizeSystemRoleName } = require('@enterprise/shared/utils/roleLayerNaming');
 const { isHierarchyRoleName, coercePermissionPackScope } = require('../utils/permissionPackScope');
 const { activeUserRoleQuery, mapPopulatedUserRoles, parseObjectId, serializeAssignedRole } = require('../utils/assignedUserRoles');
+const { buildRoleOrgFilter } = require('../utils/roleOrgScope');
+const {
+  canUseBlankLegacy,
+  assertRoleMutationAllowed,
+  mapMongoDuplicateError,
+  mapCastError,
+} = require('../utils/roleInputPolicy');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -159,9 +166,11 @@ class RoleService {
         allowBlankLegacy,
       } = roleData;
 
+      const isInternal = Boolean(roleData.isInternal);
+      const blankOk = canUseBlankLegacy({ isInternal, body: { allowBlankLegacy } });
       // RBAC V2: cấm tạo role/permission blank — chỉ clone template (hoặc internal migration).
       if (
-        !allowBlankLegacy &&
+        !blankOk &&
         !String(fromTemplateKey || '').trim() &&
         !String(permissionGroupId || '').trim()
       ) {
@@ -177,7 +186,7 @@ class RoleService {
       // Kiểm tra role name đã tồn tại trong server chưa
       const existingRole = await Role.findOne({ name: normalizedName, serverId });
       if (existingRole) {
-        throw roleServiceError('Tên vai trò đã tồn tại trong tổ chức', 400, 'ROLE_NAME_EXISTS');
+        throw roleServiceError('Tên vai trò đã tồn tại trong tổ chức', 409, 'ROLE_NAME_EXISTS');
       }
 
       const normalizedScope = coercePermissionPackScope(normalizedName, scope);
@@ -206,17 +215,23 @@ class RoleService {
       logger.info(`Role created: ${role._id}`);
       return role;
     } catch (error) {
+      const mapped = mapMongoDuplicateError(error) || mapCastError(error);
+      if (mapped) throw mapped;
+      if (error.statusCode) throw error;
       logger.error('Error creating role:', error);
       throw error;
     }
   }
 
-  // Lấy role theo ID
-  async getRoleById(roleId) {
+  // Lấy role theo ID (lọc org + isActive)
+  async getRoleById(roleId, organizationId) {
     try {
-      const role = await Role.findById(roleId);
-      return role;
+      if (!organizationId) {
+        throw roleServiceError('Không tìm thấy vai trò', 404, 'ROLE_NOT_FOUND');
+      }
+      return Role.findOne(buildRoleOrgFilter(roleId, organizationId));
     } catch (error) {
+      if (error.statusCode) throw error;
       logger.error('Error getting role:', error);
       throw error;
     }
@@ -285,10 +300,10 @@ class RoleService {
   // Gán role cho user
   async assignRoleToUser(userId, serverId, roleId, assignedBy) {
     try {
-      // Kiểm tra role tồn tại
-      const role = await Role.findById(roleId);
-      if (!role || role.serverId.toString() !== serverId.toString()) {
-        throw roleServiceError('Không tìm thấy vai trò hợp lệ cho tổ chức', 400, 'ROLE_NOT_FOUND');
+      const orgId = String(serverId || '').trim();
+      const role = await Role.findOne(buildRoleOrgFilter(roleId, orgId));
+      if (!role) {
+        throw roleServiceError('Không tìm thấy vai trò hợp lệ cho tổ chức', 404, 'ROLE_NOT_FOUND');
       }
 
       // Kiểm tra đã có role chưa
@@ -452,9 +467,12 @@ class RoleService {
     return byUser;
   }
 
-  // Cập nhật role
-  async updateRole(roleId, updateData) {
+  // Cập nhật role (lọc org + isActive; bảo vệ isDefault khi user call)
+  async updateRole(roleId, organizationId, updateData, { isInternal = false } = {}) {
     try {
+      if (!organizationId) {
+        throw roleServiceError('Không tìm thấy vai trò', 404, 'ROLE_NOT_FOUND');
+      }
       const allowedFields = ['name', 'description', 'scope', 'permissions', 'color', 'priority', 'isDefault'];
       const updateFields = {};
 
@@ -471,14 +489,30 @@ class RoleService {
         updateFields.name = normalizeSystemRoleNameForPersist(updateFields.name);
       }
 
+      const orgFilter = buildRoleOrgFilter(roleId, organizationId);
+      const existing = await Role.findOne(orgFilter).select('name isDefault').lean();
+      if (!existing) {
+        throw roleServiceError('Không tìm thấy vai trò', 404, 'ROLE_NOT_FOUND');
+      }
+
+      const blocked = assertRoleMutationAllowed({
+        role: existing,
+        update: updateFields,
+        isInternal,
+        action: 'update',
+      });
+      if (blocked) {
+        logger.info('[role] protected mutation blocked', { roleId: String(roleId) });
+        throw roleServiceError(blocked.message, blocked.status, blocked.errorCode);
+      }
+
       if (updateFields.scope !== undefined) {
-        const existing = await Role.findById(roleId).select('name').lean();
         const nameForScope = updateFields.name !== undefined ? updateFields.name : existing?.name;
         updateFields.scope = coercePermissionPackScope(nameForScope, updateFields.scope);
       }
 
-      const role = await Role.findByIdAndUpdate(
-        roleId,
+      const role = await Role.findOneAndUpdate(
+        orgFilter,
         { $set: updateFields },
         { new: true, runValidators: true }
       );
@@ -499,16 +533,37 @@ class RoleService {
       logger.info(`Role updated: ${roleId}`);
       return role;
     } catch (error) {
+      const mapped = mapMongoDuplicateError(error) || mapCastError(error);
+      if (mapped) throw mapped;
+      if (error.statusCode) throw error;
       logger.error('Error updating role:', error);
       throw error;
     }
   }
 
-  // Xóa role
-  async deleteRole(roleId) {
+  // Xóa role (soft-delete; lọc org)
+  async deleteRole(roleId, organizationId, { isInternal = false } = {}) {
     try {
-      const role = await Role.findByIdAndUpdate(
-        roleId,
+      if (!organizationId) {
+        throw roleServiceError('Không tìm thấy vai trò', 404, 'ROLE_NOT_FOUND');
+      }
+      const orgFilter = buildRoleOrgFilter(roleId, organizationId);
+      const existing = await Role.findOne(orgFilter).select('name isDefault').lean();
+      if (!existing) {
+        throw roleServiceError('Không tìm thấy vai trò', 404, 'ROLE_NOT_FOUND');
+      }
+      const blocked = assertRoleMutationAllowed({
+        role: existing,
+        isInternal,
+        action: 'delete',
+      });
+      if (blocked) {
+        logger.info('[role] protected mutation blocked', { roleId: String(roleId) });
+        throw roleServiceError(blocked.message, blocked.status, blocked.errorCode);
+      }
+
+      const role = await Role.findOneAndUpdate(
+        orgFilter,
         { $set: { isActive: false } },
         { new: true }
       );
@@ -535,6 +590,9 @@ class RoleService {
       logger.info(`Role deleted: ${roleId}`);
       return role;
     } catch (error) {
+      const mapped = mapCastError(error);
+      if (mapped) throw mapped;
+      if (error.statusCode) throw error;
       logger.error('Error deleting role:', error);
       throw error;
     }

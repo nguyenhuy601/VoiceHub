@@ -9,6 +9,7 @@ const {
   requireSelfOrOrgManager,
   requireOrgRoleManager,
 } = require('../middleware/requireOrgRoleManager');
+const rbacWriteLimit = require('../middleware/rbacWriteLimit');
 
 // Kiểm tra quyền truy cập (chỉ API Gateway — header nội bộ)
 router.post(
@@ -52,6 +53,7 @@ router.post(
   '/groups/clone',
   authenticateOrInternal,
   requireOrgRoleManager,
+  rbacWriteLimit,
   rbacV2Controller.cloneGroup.bind(rbacV2Controller)
 );
 
@@ -59,6 +61,7 @@ router.patch(
   '/groups/:groupId',
   authenticateOrInternal,
   requireOrgRoleManager,
+  rbacWriteLimit,
   rbacV2Controller.renameGroup.bind(rbacV2Controller)
 );
 
@@ -66,6 +69,7 @@ router.put(
   '/groups/:groupId/grants',
   authenticateOrInternal,
   requireOrgRoleManager,
+  rbacWriteLimit,
   rbacV2Controller.setGroupGrants.bind(rbacV2Controller)
 );
 
@@ -80,6 +84,7 @@ router.put(
   '/roles/:roleId/groups',
   authenticateOrInternal,
   requireOrgRoleManager,
+  rbacWriteLimit,
   rbacV2Controller.replaceRoleGroups.bind(rbacV2Controller)
 );
 
@@ -87,6 +92,7 @@ router.post(
   '/direct-replace',
   authenticateOrInternal,
   requireOrgRoleManager,
+  rbacWriteLimit,
   rbacV2Controller.directReplace.bind(rbacV2Controller)
 );
 

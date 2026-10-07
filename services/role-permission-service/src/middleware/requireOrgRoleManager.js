@@ -1,6 +1,13 @@
 const axios = require('axios');
 const Role = require('../models/Role');
 const { logger } = require('@enterprise/shared');
+const { sendServiceError } = require('./sendServiceError');
+const {
+  collectRequestedOrgIds,
+  resolveRoleBoundOrg,
+  resolveRequestOrg,
+  roleOrgIdsFromDoc,
+} = require('../utils/roleOrgScope');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
@@ -28,59 +35,77 @@ async function fetchMembershipRole(userId, organizationId) {
   }
 }
 
-function resolveOrganizationId(req) {
-  return (
-    req.body?.organizationId ||
-    req.body?.serverId ||
-    req.query?.organizationId ||
-    req.query?.serverId ||
-    req.params?.serverId ||
-    req.resolvedOrganizationId ||
-    null
-  );
+async function resolveTrustedOrganizationId(req) {
+  const requestedOrgIds = collectRequestedOrgIds(req);
+  const roleId = req.params?.roleId;
+
+  if (roleId) {
+    const role = await Role.findById(roleId).select('organizationId serverId isActive').lean();
+    if (!role || role.isActive === false) {
+      return {
+        ok: false,
+        status: 404,
+        errorCode: 'ROLE_NOT_FOUND',
+        message: 'Role not found',
+      };
+    }
+    const bound = resolveRoleBoundOrg({
+      requestedOrgIds,
+      roleOrgIds: roleOrgIdsFromDoc(role),
+    });
+    if (!bound.ok) {
+      logger.warn('[role] org mismatch', { roleId: String(roleId), action: req.method });
+    }
+    return bound;
+  }
+
+  return resolveRequestOrg({ requestedOrgIds });
 }
 
 /** Chỉ owner/admin của tổ chức mới được CRUD role / gán role. S2S (hierarchy sync) được phép. */
 async function requireOrgRoleManager(req, res, next) {
   try {
+    const resolved = await resolveTrustedOrganizationId(req);
+    if (!resolved.ok) {
+      return sendServiceError(res, resolved.status, {
+        errorCode: resolved.errorCode,
+        message: resolved.message,
+        messageUser: resolved.message,
+      });
+    }
+
+    req.resolvedOrganizationId = String(resolved.organizationId);
+
     if (req.isInternalServiceCall) {
-      const organizationId = resolveOrganizationId(req);
-      if (organizationId) req.resolvedOrganizationId = String(organizationId);
       return next();
     }
 
     const userId = req.user?.id || req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
-    }
-
-    let organizationId = resolveOrganizationId(req);
-    if (!organizationId && req.params?.roleId) {
-      const role = await Role.findById(req.params.roleId).select('organizationId serverId').lean();
-      organizationId = role?.organizationId || role?.serverId;
-    }
-
-    if (!organizationId) {
-      return res.status(400).json({
-        success: false,
-        message: 'organizationId or serverId is required',
+      return sendServiceError(res, 401, {
+        errorCode: 'ROLE_UNAUTHORIZED',
+        message: 'Unauthorized',
+        messageUser: 'Unauthorized',
       });
     }
 
-    const membershipRole = await fetchMembershipRole(String(userId), String(organizationId));
+    const membershipRole = await fetchMembershipRole(String(userId), req.resolvedOrganizationId);
     if (!membershipRole || !['owner', 'admin'].includes(membershipRole)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied: organization admin required',
+      return sendServiceError(res, 403, {
         errorCode: 'ROLE_FORBIDDEN',
+        message: 'Access denied: organization admin required',
+        messageUser: 'Access denied: organization admin required',
       });
     }
 
-    req.resolvedOrganizationId = String(organizationId);
     return next();
   } catch (err) {
     logger.error('[requireOrgRoleManager]', err);
-    return res.status(500).json({ success: false, message: 'Authorization check failed' });
+    return sendServiceError(res, 500, {
+      errorCode: 'ROLE_INTERNAL_ERROR',
+      message: 'Authorization check failed',
+      messageUser: 'Authorization check failed',
+    });
   }
 }
 
@@ -89,7 +114,11 @@ async function requireOrgMember(req, res, next) {
   try {
     const organizationId = req.params?.serverId || req.params?.organizationId;
     if (!organizationId) {
-      return res.status(400).json({ success: false, message: 'serverId is required' });
+      return sendServiceError(res, 400, {
+        errorCode: 'ROLE_ORG_REQUIRED',
+        message: 'serverId is required',
+        messageUser: 'serverId is required',
+      });
     }
 
     if (req.isInternalServiceCall) {
@@ -98,22 +127,30 @@ async function requireOrgMember(req, res, next) {
 
     const userId = req.user?.id || req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+      return sendServiceError(res, 401, {
+        errorCode: 'ROLE_UNAUTHORIZED',
+        message: 'Unauthorized',
+        messageUser: 'Unauthorized',
+      });
     }
 
     const membershipRole = await fetchMembershipRole(String(userId), String(organizationId));
     if (!membershipRole) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied: not a member of this organization',
+      return sendServiceError(res, 403, {
         errorCode: 'ROLE_FORBIDDEN',
+        message: 'Access denied: not a member of this organization',
+        messageUser: 'Access denied: not a member of this organization',
       });
     }
 
     return next();
   } catch (err) {
     logger.error('[requireOrgMember]', err);
-    return res.status(500).json({ success: false, message: 'Authorization check failed' });
+    return sendServiceError(res, 500, {
+      errorCode: 'ROLE_INTERNAL_ERROR',
+      message: 'Authorization check failed',
+      messageUser: 'Authorization check failed',
+    });
   }
 }
 
@@ -126,7 +163,11 @@ async function requireSelfOrOrgManager(req, res, next) {
 
     const userId = req.user?.id || req.user?.userId;
     if (!userId) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+      return sendServiceError(res, 401, {
+        errorCode: 'ROLE_UNAUTHORIZED',
+        message: 'Unauthorized',
+        messageUser: 'Unauthorized',
+      });
     }
 
     const targetUserId = req.params?.userId;
@@ -140,14 +181,18 @@ async function requireSelfOrOrgManager(req, res, next) {
       return next();
     }
 
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied',
+    return sendServiceError(res, 403, {
       errorCode: 'ROLE_FORBIDDEN',
+      message: 'Access denied',
+      messageUser: 'Access denied',
     });
   } catch (err) {
     logger.error('[requireSelfOrOrgManager]', err);
-    return res.status(500).json({ success: false, message: 'Authorization check failed' });
+    return sendServiceError(res, 500, {
+      errorCode: 'ROLE_INTERNAL_ERROR',
+      message: 'Authorization check failed',
+      messageUser: 'Authorization check failed',
+    });
   }
 }
 

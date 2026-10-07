@@ -1,12 +1,13 @@
 const express = require('express');
 const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
+const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
 // Middleware
 app.use(createCorsMiddleware());
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '512kb' }));
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
 // Routes
 app.get('/health', (req, res) => {
@@ -23,5 +24,6 @@ app.use('/api/internal/roles', internalRoleRoutes);
 const permissionRoutes = require('./routes/permission.routes');
 app.use('/api/permissions', permissionRoutes);
 
-module.exports = app;
+app.use(errorHandler);
 
+module.exports = app;

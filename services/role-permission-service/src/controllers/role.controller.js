@@ -1,57 +1,56 @@
 const roleService = require('../services/role.service');
 const { logger } = require('@enterprise/shared');
+const { sendErrorFromCatch, sendServiceError } = require('../middleware/sendServiceError');
+const { isValidObjectId } = require('../utils/roleOrgScope');
+const {
+  validateRoleCreateInput,
+  validateRoleUpdateInput,
+} = require('../utils/roleInputPolicy');
 
-function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
-  const status = Number(err?.statusCode) || fallbackStatus;
-  const message = String(err?.message || fallbackMessage);
-  const errorCode = String(err?.errorCode || fallbackCode || '').trim();
-  return res.status(status).json({
-    success: false,
-    message,
-    ...(errorCode ? { errorCode } : {}),
-    messageUser: message,
-  });
-}
+const sendError = sendErrorFromCatch;
 
 class RoleController {
   // Tạo role mới
   async createRole(req, res) {
     try {
       const {
-        name,
-        description,
         scope,
         serverId,
         organizationId,
-        permissions,
-        color,
         isDefault,
-        priority,
         fromTemplateKey,
         permissionGroupId,
         allowBlankLegacy,
       } = req.body;
 
-      if (!name || !serverId || !organizationId) {
-        return res.status(400).json({
-          success: false,
+      const resolvedOrg = req.resolvedOrganizationId || organizationId || serverId;
+      if (!resolvedOrg) {
+        return sendServiceError(res, 400, {
+          errorCode: 'ROLE_ORG_REQUIRED',
           message: 'name, serverId and organizationId are required',
+          messageUser: 'name, serverId and organizationId are required',
+        });
+      }
+
+      const validated = validateRoleCreateInput(req.body);
+      if (!validated.ok) {
+        return sendServiceError(res, 400, {
+          errorCode: validated.errorCode,
+          message: validated.message,
+          messageUser: validated.message,
         });
       }
 
       const role = await roleService.createRole({
-        name,
-        description,
-        scope,
-        serverId,
-        organizationId,
-        permissions,
-        color,
+        ...validated.value,
+        scope: validated.value.scope ?? scope,
+        serverId: resolvedOrg,
+        organizationId: resolvedOrg,
         isDefault,
-        priority,
         fromTemplateKey,
         permissionGroupId,
         allowBlankLegacy,
+        isInternal: Boolean(req.isInternalServiceCall),
       });
 
       res.status(201).json({
@@ -75,13 +74,20 @@ class RoleController {
   async getRoleById(req, res) {
     try {
       const { roleId } = req.params;
-      const role = await roleService.getRoleById(roleId);
+      const organizationId = req.resolvedOrganizationId;
+      const role = await roleService.getRoleById(roleId, organizationId);
 
       if (!role) {
-        return res.status(404).json({
-          success: false,
-          message: 'Role not found',
-        });
+        return sendError(
+          res,
+          Object.assign(new Error('Role not found'), {
+            statusCode: 404,
+            errorCode: 'ROLE_NOT_FOUND',
+          }),
+          404,
+          'Role not found',
+          'ROLE_NOT_FOUND'
+        );
       }
 
       res.json({
@@ -113,13 +119,22 @@ class RoleController {
   // Gán role cho user
   async assignRoleToUser(req, res) {
     try {
-      const { userId, serverId, roleId } = req.body;
+      const { userId, roleId } = req.body;
+      const serverId = req.resolvedOrganizationId || req.body?.serverId;
       const assignedBy = req.user?.id || req.userContext?.userId;
 
       if (!userId || !serverId || !roleId) {
-        return res.status(400).json({
-          success: false,
+        return sendServiceError(res, 400, {
+          errorCode: 'ROLE_VALIDATION_ERROR',
           message: 'userId, serverId and roleId are required',
+          messageUser: 'userId, serverId and roleId are required',
+        });
+      }
+      if (![userId, serverId, roleId].every(isValidObjectId)) {
+        return sendServiceError(res, 400, {
+          errorCode: 'ROLE_VALIDATION_ERROR',
+          message: 'Invalid id',
+          messageUser: 'Invalid id',
         });
       }
 
@@ -138,12 +153,21 @@ class RoleController {
   // Xóa role khỏi user
   async removeRoleFromUser(req, res) {
     try {
-      const { userId, serverId, roleId } = req.body;
+      const { userId, roleId } = req.body;
+      const serverId = req.resolvedOrganizationId || req.body?.serverId;
 
       if (!userId || !serverId || !roleId) {
-        return res.status(400).json({
-          success: false,
+        return sendServiceError(res, 400, {
+          errorCode: 'ROLE_VALIDATION_ERROR',
           message: 'userId, serverId and roleId are required',
+          messageUser: 'userId, serverId and roleId are required',
+        });
+      }
+      if (![userId, serverId, roleId].every(isValidObjectId)) {
+        return sendServiceError(res, 400, {
+          errorCode: 'ROLE_VALIDATION_ERROR',
+          message: 'Invalid id',
+          messageUser: 'Invalid id',
         });
       }
 
@@ -179,7 +203,18 @@ class RoleController {
   async updateRole(req, res) {
     try {
       const { roleId } = req.params;
-      const role = await roleService.updateRole(roleId, req.body);
+      const organizationId = req.resolvedOrganizationId;
+      const validated = validateRoleUpdateInput(req.body || {});
+      if (!validated.ok) {
+        return sendServiceError(res, 400, {
+          errorCode: validated.errorCode,
+          message: validated.message,
+          messageUser: validated.message,
+        });
+      }
+      const role = await roleService.updateRole(roleId, organizationId, validated.value, {
+        isInternal: Boolean(req.isInternalServiceCall),
+      });
 
       res.json({
         success: true,
@@ -195,7 +230,10 @@ class RoleController {
   async deleteRole(req, res) {
     try {
       const { roleId } = req.params;
-      const role = await roleService.deleteRole(roleId);
+      const organizationId = req.resolvedOrganizationId;
+      const role = await roleService.deleteRole(roleId, organizationId, {
+        isInternal: Boolean(req.isInternalServiceCall),
+      });
 
       res.json({
         success: true,

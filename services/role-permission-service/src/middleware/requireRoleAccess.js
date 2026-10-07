@@ -1,74 +1,94 @@
 const Role = require('../models/Role');
 const permissionService = require('../services/permission.service');
+const { logger } = require('@enterprise/shared');
+const { sendServiceError } = require('./sendServiceError');
+const {
+  collectRequestedOrgIds,
+  resolveRoleBoundOrg,
+  resolveRequestOrg,
+  roleOrgIdsFromDoc,
+} = require('../utils/roleOrgScope');
 
-async function resolveOrganizationId(req) {
-  const fromBody = req.body?.organizationId || req.body?.serverId;
-  const fromParams = req.params?.serverId;
-  const fromQuery = req.query?.organizationId || req.query?.serverId;
-  if (fromBody || fromParams || fromQuery) {
-    return String(fromBody || fromParams || fromQuery).trim();
-  }
+async function resolveTrustedOrganizationId(req) {
+  const requestedOrgIds = collectRequestedOrgIds(req);
   const roleId = req.params?.roleId;
+
   if (roleId) {
-    const role = await Role.findById(roleId).select('organizationId serverId').lean();
-    if (role) {
-      return String(role.organizationId || role.serverId || '').trim();
+    const role = await Role.findById(roleId).select('organizationId serverId isActive').lean();
+    if (!role || role.isActive === false) {
+      return {
+        ok: false,
+        status: 404,
+        errorCode: 'ROLE_NOT_FOUND',
+        message: 'Role not found',
+      };
     }
+    const bound = resolveRoleBoundOrg({
+      requestedOrgIds,
+      roleOrgIds: roleOrgIdsFromDoc(role),
+    });
+    if (!bound.ok) {
+      logger.warn('[role] org mismatch', { roleId: String(roleId), action: 'role:read' });
+    }
+    return bound;
   }
-  return null;
+
+  return resolveRequestOrg({ requestedOrgIds });
 }
 
 function requireRolePermission(action) {
   return async (req, res, next) => {
     try {
+      const resolved = await resolveTrustedOrganizationId(req);
+      if (!resolved.ok) {
+        return sendServiceError(res, resolved.status, {
+          errorCode: resolved.errorCode,
+          message: resolved.message,
+          messageUser: resolved.message,
+        });
+      }
+
+      req.resolvedOrganizationId = String(resolved.organizationId);
+      req.roleOrgContext = { organizationId: req.resolvedOrganizationId };
+
       if (req.isInternalServiceCall) {
-        const organizationId = await resolveOrganizationId(req);
-        if (!organizationId) {
-          return res.status(400).json({
-            success: false,
-            message: 'organizationId or serverId is required',
-          });
-        }
-        req.roleOrgContext = { organizationId };
         return next();
       }
 
       const userId = req.user?.id || req.user?.userId;
       if (!userId) {
-        return res.status(401).json({ success: false, message: 'Unauthorized' });
+        return sendServiceError(res, 401, {
+          errorCode: 'ROLE_UNAUTHORIZED',
+          message: 'Unauthorized',
+          messageUser: 'Unauthorized',
+        });
       }
 
       const paramUserId = req.params?.userId ? String(req.params.userId).trim() : null;
       if (paramUserId && paramUserId === String(userId) && action === 'role:read') {
-        const organizationId = await resolveOrganizationId(req);
-        if (organizationId) {
-          req.roleOrgContext = { organizationId };
-          return next();
-        }
+        return next();
       }
 
-      const organizationId = await resolveOrganizationId(req);
-      if (!organizationId) {
-        return res.status(400).json({
-          success: false,
-          message: 'organizationId or serverId is required',
-        });
-      }
-
-      const result = await permissionService.checkPermission(userId, organizationId, action);
+      const result = await permissionService.checkPermission(
+        userId,
+        req.resolvedOrganizationId,
+        action
+      );
       if (!result.allowed) {
-        return res.status(403).json({
-          success: false,
+        return sendServiceError(res, 403, {
+          errorCode: 'ROLE_FORBIDDEN',
           message: 'Insufficient permissions',
+          messageUser: 'Insufficient permissions',
         });
       }
 
-      req.roleOrgContext = { organizationId };
       return next();
     } catch (error) {
-      return res.status(500).json({
-        success: false,
+      logger.error('[requireRolePermission]', error);
+      return sendServiceError(res, 500, {
+        errorCode: 'ROLE_INTERNAL_ERROR',
         message: 'Permission check failed',
+        messageUser: 'Permission check failed',
       });
     }
   };
@@ -76,5 +96,4 @@ function requireRolePermission(action) {
 
 module.exports = {
   requireRolePermission,
-  resolveOrganizationId,
 };

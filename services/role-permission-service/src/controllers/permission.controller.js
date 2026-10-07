@@ -1,17 +1,8 @@
 const permissionService = require('../services/permission.service');
 const { logger } = require('@enterprise/shared');
+const { sendErrorFromCatch } = require('../middleware/sendServiceError');
 
-function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
-  const status = Number(err?.statusCode) || fallbackStatus;
-  const message = String(err?.message || fallbackMessage);
-  const errorCode = String(err?.errorCode || fallbackCode || '').trim();
-  return res.status(status).json({
-    success: false,
-    message,
-    ...(errorCode ? { errorCode } : {}),
-    messageUser: message,
-  });
-}
+const sendError = sendErrorFromCatch;
 
 class PermissionController {
   // Kiểm tra quyền truy cập (cho API Gateway)
