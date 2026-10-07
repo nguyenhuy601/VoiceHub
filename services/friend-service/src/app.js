@@ -25,5 +25,8 @@ app.use('/api/friends/internal', internalGatewayAuth, internalFriendRoutes);
 const friendRoutes = require('./routes/friend.routes');
 app.use('/api/friends', friendRoutes);
 
+const errorHandler = require('./middleware/errorHandler');
+app.use(errorHandler);
+
 module.exports = app;
 
