@@ -2,6 +2,8 @@ const axios = require('axios');
 
 const { parseExcelToRawRows } = require('../utils/excelImportParse');
 const { validateResourceImportRows } = require('../utils/resourceImportValidator');
+const { isImportRoleAllowed } = require('../utils/memberRolePolicy');
+const { maskEmail } = require('../utils/orgErrorMap');
 const { resolveAllowedEmailDomains } = require('../utils/emailDomainPolicy');
 const { provisionUserByAdmin } = require('../clients/authProvision.client');
 const { bulkUpdateUserProfileFields } = require('../clients/userProfileBulkImport.client');
@@ -217,7 +219,7 @@ function avgTiming(chunkResults, key) {
  * Validate Excel — không ghi user, không allocate VH (tránh đốt sequence lúc Preview).
  * @returns {{ ok: true, normalizedRows, deptMap } | { ok: false, details, errorCode }}
  */
-async function validateExcelForPreview({ organizationId, fileBuffer }) {
+async function validateExcelForPreview({ organizationId, fileBuffer, actorTier }) {
   const organization = await Organization.findById(organizationId)
     .select('name settings.allowedEmailDomains')
     .lean();
@@ -241,7 +243,7 @@ async function validateExcelForPreview({ organizationId, fileBuffer }) {
     };
   }
 
-  const validation = validateResourceImportRows(normalizedRowsRaw, { allowedEmailDomains });
+  const validation = validateResourceImportRows(normalizedRowsRaw, { allowedEmailDomains, actorTier });
   if (!validation.ok) {
     return {
       ok: false,
@@ -320,11 +322,11 @@ async function validateExcelForPreview({ organizationId, fileBuffer }) {
 /**
  * Preview: lưu batch status=preview, chưa provision.
  */
-async function previewMembersExcel({ organizationId, uploadedBy, fileBuffer, fileName = '' }) {
+async function previewMembersExcel({ organizationId, uploadedBy, fileBuffer, fileName = '', actorTier }) {
   requireEnv(organizationId, 'organizationId');
   if (!fileBuffer) throw new Error('fileBuffer is required');
 
-  const prepared = await validateExcelForPreview({ organizationId, fileBuffer });
+  const prepared = await validateExcelForPreview({ organizationId, fileBuffer, actorTier });
   if (!prepared.ok) {
     const err = new Error('Excel import validation failed');
     err.statusCode = 400;
@@ -563,9 +565,10 @@ async function processImportBatch({ organizationId, batchId }) {
               })
               .catch((mailErr) => {
                 logger.warn('[resourceImport] set-password email failed (fail-soft)', {
-                  email: row.email,
+                  email: maskEmail(row.email),
                   userId,
-                  message: mailErr?.message || mailErr,
+                  errorCode: mailErr?.errorCode,
+                  statusCode: mailErr?.statusCode,
                 });
               });
           }
@@ -686,6 +689,7 @@ async function confirmMembersExcel({
   uploadedBy,
   batchId,
   frontendUrl = '',
+  actorTier,
 }) {
   requireEnv(organizationId, 'organizationId');
   if (!batchId) {
@@ -715,6 +719,23 @@ async function confirmMembersExcel({
       statusCode: 400,
       errorCode: 'PREVIEW_PAYLOAD_EMPTY',
     });
+  }
+
+  if (actorTier) {
+    const forbiddenRows = previewRows
+      .filter((row) => !isImportRoleAllowed(actorTier, row?.orgRole || 'member'))
+      .map((row) => ({
+        rowNumber: row?.rowNumber,
+        message: `Bạn không có quyền gán vai trò '${row?.orgRole}' qua Excel.`,
+        errorCode: 'ORG_IMPORT_ROLE_FORBIDDEN',
+      }));
+    if (forbiddenRows.length) {
+      throw Object.assign(new Error('Batch chứa vai trò vượt quyền người xác nhận.'), {
+        statusCode: 403,
+        errorCode: 'ORG_IMPORT_ROLE_FORBIDDEN',
+        details: forbiddenRows,
+      });
+    }
   }
 
   const {
@@ -796,6 +817,7 @@ async function importMembersExcel(args) {
     uploadedBy: args.uploadedBy,
     batchId: preview.batchId,
     frontendUrl: args.frontendUrl || '',
+    actorTier: args.actorTier,
   });
 }
 

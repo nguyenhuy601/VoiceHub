@@ -4,6 +4,8 @@
 const OrganizationalUnit = require('../models/OrganizationalUnit');
 const OrgLevelSchema = require('../models/OrgLevelSchema');
 const { cloneLevels, getOrgStructureTemplate } = require('../config/orgStructureTemplates');
+const { toPlainId, assertActiveOrgMembers } = require('../utils/orgMemberIds');
+const { assertTextLimits } = require('../utils/orgTextLimits');
 
 const MAX_DEPTH = 8;
 const MAX_UNITS_PER_ORG = 500;
@@ -128,6 +130,26 @@ async function assertCanCreateChild({ organizationId, parentUnitId, levelKey }) 
   return { schema, parent, depth };
 }
 
+/** Whitelist attributes từ body; head/leader phải là thành viên active (RULE-08). */
+async function sanitizeUnitAttributes(organizationId, attributes) {
+  if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes)) return {};
+  const out = {};
+  if (attributes.location !== undefined) {
+    assertTextLimits({ description: attributes.location });
+    out.location = String(attributes.location || '');
+  }
+  const leaderIds = [];
+  ['headUserId', 'leaderUserId'].forEach((key) => {
+    if (attributes[key] === undefined) return;
+    out[key] = toPlainId(attributes[key]);
+    if (out[key]) leaderIds.push(out[key]);
+  });
+  if (leaderIds.length) await assertActiveOrgMembers(organizationId, leaderIds);
+  if (attributes.isDefault !== undefined) out.isDefault = Boolean(attributes.isDefault);
+  if (attributes.isActive !== undefined) out.isActive = attributes.isActive !== false;
+  return out;
+}
+
 function buildPath(parentPath, unitId) {
   const id = String(unitId);
   if (!parentPath) return `/${id}`;
@@ -189,6 +211,7 @@ async function updateUnit(organizationId, unitId, patch = {}) {
     err.errorCode = 'ORG_UNIT_NOT_FOUND';
     throw err;
   }
+  assertTextLimits({ name: patch.name, description: patch.description, code: patch.unitKind });
   if (patch.name !== undefined) doc.name = String(patch.name).trim() || doc.name;
   if (patch.description !== undefined) doc.description = String(patch.description || '').trim();
   if (patch.unitKind !== undefined) doc.unitKind = String(patch.unitKind || 'custom').trim();
@@ -201,7 +224,8 @@ async function updateUnit(organizationId, unitId, patch = {}) {
     doc.levelKey = String(patch.levelKey).trim();
   }
   if (patch.attributes && typeof patch.attributes === 'object') {
-    doc.attributes = { ...(doc.attributes?.toObject?.() || doc.attributes || {}), ...patch.attributes };
+    const safeAttributes = await sanitizeUnitAttributes(organizationId, patch.attributes);
+    doc.attributes = { ...(doc.attributes?.toObject?.() || doc.attributes || {}), ...safeAttributes };
   }
   await doc.save();
   return doc;
@@ -432,6 +456,7 @@ async function replaceLevels(organizationId, levels, templateId) {
 module.exports = {
   MAX_DEPTH,
   MAX_UNITS_PER_ORG,
+  sanitizeUnitAttributes,
   isDynamicStructureEnabled,
   isStructureSetupCompleted,
   findLevelSchema,

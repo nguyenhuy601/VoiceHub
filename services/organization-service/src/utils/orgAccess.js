@@ -18,14 +18,25 @@ async function findActiveMembership(userId, orgId) {
   return Membership.findOne({ user, organization, status: 'active' }).lean();
 }
 
+async function hasSuspendedMembership(userId, orgId) {
+  const user = toObjectId(userId);
+  const organization = toObjectId(orgId);
+  if (!user || !organization) return false;
+  return Boolean(await Membership.exists({ user, organization, status: 'suspended' }));
+}
+
 /**
  * Quyền vào dữ liệu org: membership active HOẶC đã được gán RBAC role trong org.
  * Tránh 403 khi admin chỉ gán role mà membership/query lệch ObjectId.
+ * Membership suspended luôn bị từ chối — role RBAC sót lại không mở lại quyền đọc.
  */
 async function resolveOrgAccess(userId, orgId) {
   const membership = await findActiveMembership(userId, orgId);
   if (membership) {
     return { ok: true, membership, rolesOnly: false, roles: [] };
+  }
+  if (await hasSuspendedMembership(userId, orgId)) {
+    return { ok: false, membership: null, rolesOnly: false, roles: [] };
   }
   const roles = await fetchUserRolesInOrg(userId, orgId);
   if (roles.length > 0) {

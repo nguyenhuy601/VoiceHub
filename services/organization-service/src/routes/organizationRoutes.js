@@ -4,8 +4,20 @@ const organizationController = require('../controllers/organizationController');
 const memberController = require('../controllers/memberController');
 const hrPositionController = require('../controllers/hrPositionController');
 const { protect, authorize, authorizeOrGrant } = require('../middleware/auth');
+const { registerObjectIdParams } = require('../middleware/objectIdParam');
 
 router.use(protect); // All routes require authentication
+registerObjectIdParams(router, [
+  'id',
+  'orgId',
+  'invitationId',
+  'unitId',
+  'roleId',
+  'channelId',
+  'divisionId',
+  'departmentId',
+  'teamId',
+]);
 
 /**
  * @openapi

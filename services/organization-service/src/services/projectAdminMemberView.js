@@ -1,10 +1,21 @@
 /**
- * Wave P — allowlist DTO cho GET members/with-roles?view=directory|admin_table.
- * Không view → caller giữ enrich đầy đủ (backward compatible).
+ * Wave P / Wave 1 — allowlist DTO cho members projection.
+ * view=directory | admin_table; caller nên mặc định admin_table khi thiếu view.
  */
+
+const { maskEmail } = require('../utils/orgErrorMap');
 
 const VIEW_DIRECTORY = 'directory';
 const VIEW_ADMIN_TABLE = 'admin_table';
+
+/** Auth / platform flags — chỉ admin_table (không lộ qua directory). */
+const DIRECTORY_OMIT = new Set([
+  'mustChangePassword',
+  'isLocked',
+  'lastLoginAt',
+  'systemRole',
+  'rbacRoles',
+]);
 
 function normalizeView(view) {
   const v = String(view || '').trim().toLowerCase();
@@ -43,12 +54,16 @@ function slimRbacRoles(roles) {
   });
 }
 
+/** Directory cho member thường (không owner/admin/hr/employee.view): không lộ liên hệ đầy đủ / trạng thái tài khoản. */
+const DIRECTORY_CONTACT_OMIT = ['employeeCode', 'isActive'];
+
 /**
  * @param {object} member — đã enrich + placement
  * @param {string} view — directory | admin_table | ''
+ * @param {{ restrictContact?: boolean }} [options]
  * @returns {object}
  */
-function projectMemberForView(member, view) {
+function projectMemberForView(member, view, { restrictContact = false } = {}) {
   const v = normalizeView(view);
   if (!v || !member || typeof member !== 'object') return member;
 
@@ -67,10 +82,6 @@ function projectMemberForView(member, view) {
     jobTitle: member.jobTitle ?? null,
     role: pickOrgRole(member),
     isActive: member.isActive,
-    mustChangePassword: member.mustChangePassword,
-    isLocked: member.isLocked,
-    lastLoginAt: member.lastLoginAt || null,
-    systemRole: member.systemRole || 'employee',
     capabilityStatus: member.capabilityStatus || 'draft',
     departmentId,
     departmentName: member.departmentName ?? null,
@@ -78,7 +89,22 @@ function projectMemberForView(member, view) {
   };
 
   if (v === VIEW_ADMIN_TABLE) {
+    out.mustChangePassword = member.mustChangePassword;
+    out.isLocked = member.isLocked;
+    out.lastLoginAt = member.lastLoginAt || null;
+    out.systemRole = member.systemRole || 'employee';
     out.rbacRoles = slimRbacRoles(member.rbacRoles);
+  }
+
+  // directory: explicit omit (defense in depth if fields were copied above)
+  if (v === VIEW_DIRECTORY) {
+    for (const key of DIRECTORY_OMIT) {
+      if (Object.prototype.hasOwnProperty.call(out, key)) delete out[key];
+    }
+    if (restrictContact) {
+      for (const key of DIRECTORY_CONTACT_OMIT) delete out[key];
+      out.email = out.email ? maskEmail(out.email) : null;
+    }
   }
 
   return out;
@@ -87,18 +113,21 @@ function projectMemberForView(member, view) {
 /**
  * @param {object[]} members
  * @param {string} view
+ * @param {{ restrictContact?: boolean }} [options]
  * @returns {object[]}
  */
-function projectMembersForView(members, view) {
+function projectMembersForView(members, view, options = {}) {
   const list = Array.isArray(members) ? members : [];
   const v = normalizeView(view);
   if (!v) return list;
-  return list.map((m) => projectMemberForView(m, v));
+  return list.map((m) => projectMemberForView(m, v, options));
 }
 
 module.exports = {
   VIEW_DIRECTORY,
   VIEW_ADMIN_TABLE,
+  DIRECTORY_OMIT,
+  DIRECTORY_CONTACT_OMIT,
   normalizeView,
   projectMemberForView,
   projectMembersForView,

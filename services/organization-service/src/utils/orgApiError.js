@@ -1,7 +1,11 @@
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
+const { toOrgError, GENERIC_INTERNAL_MESSAGE } = require('./orgErrorMap');
 
 function orgFail(res, statusCode, message, errorCode) {
-  const msg = String(message || 'Yêu cầu không hợp lệ.').trim();
+  const isServerError = Number(statusCode) >= 500;
+  const msg = isServerError
+    ? GENERIC_INTERNAL_MESSAGE
+    : String(message || 'Yêu cầu không hợp lệ.').trim();
   return sendServiceError(res, statusCode, {
     errorCode,
     messageUser: msg,
@@ -13,8 +17,8 @@ function orgUnauthorized(res, message = 'Vui lòng đăng nhập lại.') {
   return orgFail(res, 401, message, 'AUTH_NO_TOKEN');
 }
 
-function orgAccessDenied(res, message = 'Bạn không có quyền truy cập tổ chức này.') {
-  return orgFail(res, 403, message, 'ORG_ACCESS_DENIED');
+function orgAccessDenied(res, message = 'Bạn không có quyền truy cập tổ chức này.', errorCode = 'ORG_ACCESS_DENIED') {
+  return orgFail(res, 403, message, errorCode);
 }
 
 function orgNotFound(res, message = 'Không tìm thấy tổ chức.') {
@@ -34,19 +38,18 @@ function orgConflict(res, message, errorCode = 'ORG_ALREADY_MEMBER') {
 }
 
 function orgCatch(res, err, fallbackStatus = 500, fallbackMessage = 'Hệ thống tạm thời gặp sự cố.', fallbackCode = 'ORG_INTERNAL_ERROR') {
-  return sendErrorFromCatch(res, err, fallbackStatus, fallbackMessage, fallbackCode);
+  const mapped = toOrgError(err, fallbackStatus, fallbackMessage, fallbackCode);
+  return sendServiceError(res, mapped.statusCode, {
+    errorCode: mapped.errorCode,
+    messageUser: mapped.messageUser,
+    message: mapped.statusCode >= 500 ? undefined : mapped.message,
+  });
 }
 
 function orgOperationalError(res, error) {
   const status = Number(error?.statusCode);
   if (!status) return null;
-  const msg = String(error?.messageUser || error?.message || 'Yêu cầu không hợp lệ.').trim();
-  const code = String(error?.errorCode || error?.code || '').trim();
-  return sendServiceError(res, status, {
-    errorCode: code || undefined,
-    messageUser: msg,
-    message: msg,
-  });
+  return orgCatch(res, error, status);
 }
 
 module.exports = {

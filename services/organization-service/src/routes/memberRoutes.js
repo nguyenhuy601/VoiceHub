@@ -4,8 +4,11 @@ const memberController = require('../controllers/memberController');
 const memberImportController = require('../controllers/memberImportController');
 const { memberImportUpload } = require('../middleware/memberImportUpload');
 const { protect, authorizeOrGrant } = require('../middleware/auth');
+const { registerObjectIdParams, requireMountedObjectIds } = require('../middleware/objectIdParam');
 
 router.use(protect);
+router.use(requireMountedObjectIds(['orgId']));
+registerObjectIdParams(router, ['userId', 'batchId']);
 
 router.get('/', memberController.getMembers);
 router.get('/with-roles', memberController.getMembersWithRoles);

@@ -5,6 +5,8 @@ const { ensureDepartmentRole } = require('../services/hierarchyRoleSync');
 const { ensureDepartmentDefaultChannels } = require('../services/departmentChannelProvision.service');
 const { findActiveDepartmentNameConflict } = require('../utils/orgUnitNameConflict');
 const { orgConflict } = require('../utils/orgApiError');
+const { toPlainId, normalizeMemberIdList, assertActiveOrgMembers } = require('../utils/orgMemberIds');
+const { assertTextLimits } = require('../utils/orgTextLimits');
 
 exports.getDepartments = async (req, res, next) => {
   try {
@@ -18,9 +20,12 @@ exports.getDepartments = async (req, res, next) => {
 
 exports.createDepartment = async (req, res, next) => {
   try {
-    const { name, description, head } = req.body;
-    let branchId = req.body?.branch || null;
-    let divisionId = req.body?.division || null;
+    const { name, description } = req.body || {};
+    assertTextLimits({ name, description });
+    const head = toPlainId(req.body?.head);
+    if (head) await assertActiveOrgMembers(req.params.orgId, [head]);
+    let branchId = toPlainId(req.body?.branch);
+    let divisionId = toPlainId(req.body?.division);
 
     if (!branchId || !divisionId) {
       const defaultBranch = await Branch.findOne({
@@ -83,10 +88,27 @@ exports.createDepartment = async (req, res, next) => {
 exports.updateDepartment = async (req, res, next) => {
   try {
     // Huy: mở rộng patch — division (phòng ban cha), members / membersAdd, head, isActive
-    const { name, description, head, division, members, membersAdd, isActive } = req.body || {};
+    const { name, description, isActive } = req.body || {};
     const orgId = req.params.orgId;
     const deptId = req.params.id;
     const actorUserId = req.user?.id || req.user?.userId || req.user?._id || null;
+
+    assertTextLimits({ name, description });
+    const membersAdd = normalizeMemberIdList(req.body?.membersAdd);
+    const members = Array.isArray(req.body?.members) ? normalizeMemberIdList(req.body.members) : undefined;
+    const head = req.body?.head !== undefined ? toPlainId(req.body.head) : undefined;
+    const division = req.body?.division !== undefined ? toPlainId(req.body.division) : undefined;
+    if (membersAdd.length) await assertActiveOrgMembers(orgId, membersAdd);
+    if (head) await assertActiveOrgMembers(orgId, [head]);
+    if (members?.length) {
+      const current = await Department.findOne({ _id: deptId, organization: orgId })
+        .select('members head')
+        .lean();
+      const existing = new Set(
+        [...(current?.members || []), current?.head].filter(Boolean).map((id) => String(id).toLowerCase())
+      );
+      await assertActiveOrgMembers(orgId, members.filter((id) => !existing.has(id)));
+    }
 
     const {
       setMembers,
@@ -105,7 +127,7 @@ exports.updateDepartment = async (req, res, next) => {
     };
 
     // membersAdd = merge (Transfer/Assign); members = replace đầy đủ (DeptMembersPanel).
-    if (Array.isArray(membersAdd) && membersAdd.length) {
+    if (membersAdd.length) {
       try {
         await addMembers(orgId, deptId, membersAdd, { actorUserId });
       } catch (error) {
@@ -113,7 +135,7 @@ exports.updateDepartment = async (req, res, next) => {
         if (handled) return handled;
         throw error;
       }
-    } else if (members !== undefined && Array.isArray(members)) {
+    } else if (members !== undefined) {
       try {
         await setMembers(orgId, deptId, members, { actorUserId });
       } catch (error) {
@@ -141,8 +163,7 @@ exports.updateDepartment = async (req, res, next) => {
     if (description !== undefined) patch.description = description;
     if (isActive !== undefined) patch.isActive = Boolean(isActive);
 
-    if (division !== undefined) {
-      const Division = require('../models/Division');
+    if (division) {
       const div = await Division.findOne({
         _id: division,
         organization: orgId,

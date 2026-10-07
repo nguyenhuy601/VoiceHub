@@ -165,6 +165,35 @@ describe('excelImportParse headers', () => {
     assert.equal(rows[0].fullName, 'Nguyễn An');
   });
 
+  it('rejects non-xlsx buffers by magic bytes (CSV / HTML / empty)', () => {
+    for (const buf of [
+      Buffer.from('fullName,email\nA,a@x.vn'),
+      Buffer.from('<html><table></table></html>'),
+      Buffer.alloc(0),
+    ]) {
+      assert.throws(
+        () => parseExcelToRawRows(buf),
+        (err) => err.statusCode === 400 && err.errorCode === 'ORG_IMPORT_FILE_INVALID'
+      );
+    }
+  });
+
+  it('rejects corrupted zip with PK header', () => {
+    const fake = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('garbage')]);
+    assert.throws(() => parseExcelToRawRows(fake), (err) => err.errorCode === 'ORG_IMPORT_FILE_INVALID');
+  });
+
+  it('reads at most dataLimit rows (sheetRows cap)', () => {
+    const many = Array.from({ length: 10 }, (_, i) => {
+      const row = [...SAMPLE];
+      row[2] = `u${i}@company.com`;
+      return row;
+    });
+    const rows = parseExcelToRawRows(bufFromAoa([EN_HEADERS, ...many]), 3);
+    assert.equal(rows.length, 3);
+    assert.equal(rows[2].email, 'u2@company.com');
+  });
+
   it('merges skill1…5 dropdown cells and keeps legacy skills comma column', () => {
     const { mergeSkillCells } = require('../src/utils/excelImportParse');
     assert.equal(mergeSkillCells('REST API', ['Node.js', 'MongoDB', '', '', '']), 'Node.js, MongoDB, REST API');

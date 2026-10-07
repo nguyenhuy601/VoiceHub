@@ -8,6 +8,7 @@ const {
   parsePastProjectBlocks,
   validatePastProjectBlock,
 } = require('./parsePastProjectBlocks');
+const { isImportRoleAllowed } = require('./memberRolePolicy');
 
 function normalizeRole(role) {
   const roleMap = {
@@ -264,7 +265,7 @@ function normalizeEmployeeCode(raw, options = {}) {
 /**
  * Pure validator cho Excel rows (strict rejection).
  * @param {Array<{rowNumber:number, employeeCode?:string, fullName?:any, email:any, phone?:any, departmentCode:any, jobTitle:any, primaryDomain?:any, skills:any, yearsExperience:any, maxConcurrentProjects:any, orgRole:any}>} rows
- * @param {{ allowedEmailDomains?: string[], allowEmptyEmployeeCode?: boolean }} [options]
+ * @param {{ allowedEmailDomains?: string[], allowEmptyEmployeeCode?: boolean, actorTier?: string }} [options]
  * @returns {{ ok:true, normalizedRows:Array } | { ok:false, errorCode:string, details:Array } }
  */
 function validateResourceImportRows(rows, options = {}) {
@@ -479,6 +480,14 @@ function validateResourceImportRows(rows, options = {}) {
       });
       continue;
     }
+    if (options.actorTier && !isImportRoleAllowed(options.actorTier, normalizedRole)) {
+      details.push({
+        rowNumber,
+        message: `Bạn không có quyền gán vai trò '${normalizedRole}' qua Excel.`,
+        errorCode: 'ORG_IMPORT_ROLE_FORBIDDEN',
+      });
+      continue;
+    }
 
     emailSeen.add(email);
     if (codeParts.value) employeeCodeSeen.add(codeParts.value);
@@ -504,7 +513,9 @@ function validateResourceImportRows(rows, options = {}) {
   }
 
   if (details.length) {
-    const hasSecurity = details.some((d) => d.errorCode === 'SECURITY_VIOLATION_ERROR');
+    const hasSecurity = details.some(
+      (d) => d.errorCode === 'SECURITY_VIOLATION_ERROR' || d.errorCode === 'ORG_IMPORT_ROLE_FORBIDDEN'
+    );
     return {
       ok: false,
       errorCode: hasSecurity ? 'SECURITY_VIOLATION_ERROR' : 'VALIDATION_ERROR',
