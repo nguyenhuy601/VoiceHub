@@ -7,6 +7,8 @@ const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middle
 const { services } = require('./config/services');
 const { isSwaggerEnabled } = require('./swagger/isSwaggerEnabled');
 const { mountSwagger } = require('./swagger/mountSwagger');
+const { stripSpoofedForwardHeaders } = require('./middlewares/forwardHeaders');
+const { rateLimitKey } = require('./middlewares/rateLimiters');
 require('dotenv').config();
 
 const app = express();
@@ -38,6 +40,8 @@ app.get('/metrics', (req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+app.use(stripSpoofedForwardHeaders);
 
 /** Timeout proxy REST API (không áp dụng Socket.IO long-polling). */
 const PROXY_HTTP_TIMEOUT_MS = Number(process.env.GATEWAY_PROXY_TIMEOUT_MS || 60000);
@@ -101,6 +105,7 @@ const loginLimiter = rateLimit({
   max: Number(process.env.GATEWAY_LOGIN_RATE_MAX || 15),
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: rateLimitKey,
   message: { success: false, message: 'Too many login attempts, please try again later' },
 });
 app.use('/api/auth/login', loginLimiter);
@@ -110,6 +115,7 @@ const refreshLimiter = rateLimit({
   max: Number(process.env.GATEWAY_REFRESH_RATE_MAX || 30),
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: rateLimitKey,
   message: { success: false, message: 'Too many refresh attempts, please try again later' },
 });
 app.use('/api/auth/refresh-token', refreshLimiter);
@@ -180,6 +186,7 @@ const uploadLimiter = rateLimit({
   max: Number(process.env.GATEWAY_UPLOAD_RATE_MAX || 60),
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: rateLimitKey,
   message: { success: false, message: 'Too many upload requests, please try again later' },
 });
 app.use(

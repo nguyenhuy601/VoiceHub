@@ -1,9 +1,6 @@
 const httpProxy = require('http-proxy');
-const {
-  getServiceByPath,
-  resolveReqApiPath,
-  stripClientSuppliedInternalHeaders,
-} = require('../config/services');
+const { getServiceByPath, resolveReqApiPath } = require('../config/services');
+const { applyTrustedIdentityHeaders } = require('./forwardHeaders');
 const { buildApiErrorBody } = require('@enterprise/shared/middleware/httpErrorResponse');
 const { URL } = require('url');
 
@@ -177,26 +174,7 @@ const proxyMiddleware = (req, res, next) => {
   console.log(`[API-Gateway] ✅ ========== PROXY REQUEST STARTED ==========`);
   console.log(`[API-Gateway] Proxying ${req.method} ${req.path} to ${fullTargetUrl}`);
   
-  delete req.headers['x-organization-id'];
-  delete req.headers['x-server-id'];
-  delete req.headers['x-gateway-internal-token'];
-  delete req.headers['x-user-id'];
-  delete req.headers['x-user-email'];
-  stripClientSuppliedInternalHeaders(req.headers);
-
-  const gatewayToken = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
-  if (gatewayToken) {
-    req.headers['x-gateway-internal-token'] = gatewayToken;
-  }
-  if (req.user) {
-    req.headers['x-user-id'] = req.user.id;
-    if (req.user.email) {
-      req.headers['x-user-email'] = req.user.email;
-    }
-    if (req.user.systemRole) {
-      req.headers['x-user-system-role'] = req.user.systemRole;
-    }
-  }
+  applyTrustedIdentityHeaders(req);
   
   // Đảm bảo Content-Type được forward
   if (req.headers['content-type']) {

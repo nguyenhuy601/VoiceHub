@@ -27,6 +27,10 @@ const {
   stripClientSuppliedInternalHeaders,
 } = require('../src/config/services');
 const authMiddleware = require('../src/middlewares/auth.middleware');
+const {
+  stripSpoofedForwardHeaders,
+  applyTrustedIdentityHeaders,
+} = require('../src/middlewares/forwardHeaders');
 
 function mockRes() {
   return {
@@ -111,6 +115,120 @@ describe('stripClientSuppliedInternalHeaders', () => {
     assert.equal(headers['x-internal-notification-token'], undefined);
     assert.equal(headers['x-realtime-token'], undefined);
     assert.equal(headers['x-vh-org-documents-internal'], undefined);
+  });
+});
+
+function withEnv(key, value, fn) {
+  const saved = process.env[key];
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+  try {
+    return fn();
+  } finally {
+    if (saved === undefined) delete process.env[key];
+    else process.env[key] = saved;
+  }
+}
+
+describe('applyTrustedIdentityHeaders (Sec-Y2)', () => {
+  it('drops client x-user-system-role when JWT has no system role', () => {
+    const req = {
+      user: { id: 'u1', email: 'u1@example.com' },
+      headers: {
+        'x-user-id': 'forged',
+        'x-user-email': 'forged@example.com',
+        'x-user-system-role': 'admin',
+        'x-gateway-internal-token': 'forged',
+        'x-internal-token': 'forged',
+      },
+    };
+    withEnv('GATEWAY_INTERNAL_TOKEN', 'gw-token', () => applyTrustedIdentityHeaders(req));
+    assert.equal(req.headers['x-user-system-role'], undefined);
+    assert.equal(req.headers['x-user-id'], 'u1');
+    assert.equal(req.headers['x-user-email'], 'u1@example.com');
+    assert.equal(req.headers['x-gateway-internal-token'], 'gw-token');
+    assert.equal(req.headers['x-internal-token'], undefined);
+  });
+
+  it('re-injects x-user-system-role only from the verified JWT', () => {
+    const req = {
+      user: { id: 'u2', systemRole: 'user' },
+      headers: { 'x-user-system-role': 'admin' },
+    };
+    withEnv('GATEWAY_INTERNAL_TOKEN', 'gw-token', () => applyTrustedIdentityHeaders(req));
+    assert.equal(req.headers['x-user-system-role'], 'user');
+  });
+
+  it('leaves no identity headers for anonymous requests', () => {
+    const req = {
+      headers: {
+        'x-user-id': 'forged',
+        'x-user-system-role': 'admin',
+        'x-organization-id': 'org-x',
+      },
+    };
+    withEnv('GATEWAY_INTERNAL_TOKEN', 'gw-token', () => applyTrustedIdentityHeaders(req));
+    assert.equal(req.headers['x-user-id'], undefined);
+    assert.equal(req.headers['x-user-system-role'], undefined);
+    assert.equal(req.headers['x-organization-id'], undefined);
+  });
+});
+
+describe('stripSpoofedForwardHeaders (Sec-Y2)', () => {
+  function run(trustProxy) {
+    const req = {
+      headers: {
+        'x-forwarded-for': '1.2.3.4',
+        'x-real-ip': '1.2.3.4',
+        authorization: 'Bearer user',
+      },
+    };
+    let nextCalled = false;
+    withEnv('TRUST_PROXY', trustProxy, () =>
+      stripSpoofedForwardHeaders(req, {}, () => {
+        nextCalled = true;
+      })
+    );
+    return { req, nextCalled };
+  }
+
+  it('strips client XFF / X-Real-IP when TRUST_PROXY is off (direct :3000)', () => {
+    const { req, nextCalled } = run(undefined);
+    assert.equal(nextCalled, true);
+    assert.equal(req.headers['x-forwarded-for'], undefined);
+    assert.equal(req.headers['x-real-ip'], undefined);
+    assert.equal(req.headers.authorization, 'Bearer user');
+  });
+
+  it('keeps XFF when TRUST_PROXY=1 (Nginx owns forwarded headers)', () => {
+    const { req, nextCalled } = run('1');
+    assert.equal(nextCalled, true);
+    assert.equal(req.headers['x-forwarded-for'], '1.2.3.4');
+    assert.equal(req.headers['x-real-ip'], '1.2.3.4');
+  });
+
+  it('spoofed XFF does not change req.ip when TRUST_PROXY is off', async () => {
+    const express = require('express');
+    const http = require('node:http');
+    const app = express();
+    app.use(stripSpoofedForwardHeaders);
+    app.get('/ip', (req, res) => res.json({ ip: req.ip, xff: req.headers['x-forwarded-for'] || null }));
+    const server = http.createServer(app);
+    const savedTrustProxy = process.env.TRUST_PROXY;
+    delete process.env.TRUST_PROXY;
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = server.address();
+      const res = await fetch(`http://127.0.0.1:${port}/ip`, {
+        headers: { 'x-forwarded-for': '6.6.6.6' },
+      });
+      const body = await res.json();
+      assert.notEqual(body.ip, '6.6.6.6');
+      assert.equal(body.xff, null);
+    } finally {
+      if (savedTrustProxy !== undefined) process.env.TRUST_PROXY = savedTrustProxy;
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 });
 

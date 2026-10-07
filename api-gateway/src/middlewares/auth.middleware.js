@@ -7,6 +7,7 @@ const {
 const { isAccessTokenVersionValid } = require('@enterprise/shared/utils/tokenVersionAuth');
 const { fetchTokenVersionFromAuth } = require('../clients/authTokenVersionClient');
 const { sendApiError } = require('@enterprise/shared/middleware/httpErrorResponse');
+const { compareGatewayToken } = require('@enterprise/shared/middleware/compareGatewayToken');
 
 const getJwtSecret = () => String(process.env.JWT_SECRET || '').trim();
 
@@ -19,7 +20,7 @@ function getInternalTokenFromRequest(req) {
 function isInternalGatewayTokenValid(req) {
   const expected = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
   if (!expected) return false;
-  return getInternalTokenFromRequest(req) === expected;
+  return compareGatewayToken(getInternalTokenFromRequest(req), expected);
 }
 
 /**
