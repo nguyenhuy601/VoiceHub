@@ -46,6 +46,20 @@ function isMinioAvatarKey(avatar) {
   return /^users\/[^/]+\/avatars\//i.test(raw);
 }
 
+/**
+ * Key MinIO chỉ hợp lệ khi thuộc đúng `users/<userId>/avatars/` của chính user đó
+ * (bucket dùng chung với chat/meeting — không cho đọc/xóa object của service khác).
+ */
+function isOwnAvatarKey(userId, avatar) {
+  const uid = String(userId || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '');
+  const raw = String(avatar || '').trim();
+  if (!uid || !raw || raw.includes('..') || raw.includes('\\')) return false;
+  const prefix = `users/${uid}/avatars/`;
+  return raw.startsWith(prefix) && raw.length > prefix.length && !raw.slice(prefix.length).includes('/');
+}
+
 function contentTypeFromAvatarPath(avatar) {
   const raw = String(avatar || '').trim();
   const ext = path.extname(raw.split('?')[0] || '').toLowerCase();
@@ -63,6 +77,7 @@ module.exports = {
   buildAvatarKey,
   isLegacyUploadsPath,
   isMinioAvatarKey,
+  isOwnAvatarKey,
   contentTypeFromAvatarPath,
   legacyDiskFileName,
   EXT_TO_MIME,
