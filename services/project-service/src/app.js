@@ -1,15 +1,19 @@
 const express = require('express');
 const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPolicy');
 const gatewayUserMiddleware = require('./middlewares/gatewayUser');
+const projectWriteLimit = require('./middleware/projectWriteLimit');
 const { mongoose } = require('@enterprise/shared/config/mongo');
 
 const app = express();
+
+app.disable('x-powered-by');
 
 // Middleware
 app.use(createCorsMiddleware());
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(gatewayUserMiddleware);
+app.use(projectWriteLimit);
 
 // Routes
 app.get('/health', (req, res) => {

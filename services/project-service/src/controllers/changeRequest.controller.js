@@ -24,7 +24,11 @@ async function listItems(req, res) {
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId không hợp lệ",
+      message: "projectId không hợp lệ",
+    });
     }
     const data = await changeRequestService.listChangeRequests({
       userId,
@@ -55,7 +59,11 @@ async function getItem(req, res) {
     const { projectId, crId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(crId)) {
-      return res.status(400).json({ success: false, message: 'projectId/crId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/crId không hợp lệ",
+      message: "projectId/crId không hợp lệ",
+    });
     }
     const data = await changeRequestService.getChangeRequest({ userId, projectId, crId });
     return res.json({ success: true, data });
@@ -76,7 +84,11 @@ async function createItem(req, res) {
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId không hợp lệ",
+      message: "projectId không hợp lệ",
+    });
     }
     const data = await changeRequestService.createChangeRequest({
       userId,
@@ -110,7 +122,11 @@ async function patchItem(req, res) {
     const { projectId, crId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(crId)) {
-      return res.status(400).json({ success: false, message: 'projectId/crId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/crId không hợp lệ",
+      message: "projectId/crId không hợp lệ",
+    });
     }
     const data = await changeRequestService.patchChangeRequest({
       userId,
@@ -136,7 +152,11 @@ async function deleteItem(req, res) {
     const { projectId, crId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(crId)) {
-      return res.status(400).json({ success: false, message: 'projectId/crId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/crId không hợp lệ",
+      message: "projectId/crId không hợp lệ",
+    });
     }
     const data = await changeRequestService.deleteChangeRequest({ userId, projectId, crId });
     return res.json({ success: true, data });
@@ -157,7 +177,11 @@ async function submitApproval(req, res) {
     const { projectId, crId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(crId)) {
-      return res.status(400).json({ success: false, message: 'projectId/crId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/crId không hợp lệ",
+      message: "projectId/crId không hợp lệ",
+    });
     }
     const data = await changeRequestService.submitChangeRequestApproval({
       userId,
@@ -182,7 +206,11 @@ async function applyItem(req, res) {
     const { projectId, crId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(crId)) {
-      return res.status(400).json({ success: false, message: 'projectId/crId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/crId không hợp lệ",
+      message: "projectId/crId không hợp lệ",
+    });
     }
     const data = await changeRequestService.applyApprovedChangeRequest({
       userId,

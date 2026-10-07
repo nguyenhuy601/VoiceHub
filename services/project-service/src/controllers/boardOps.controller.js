@@ -2,6 +2,7 @@ const sprintService = require('../services/sprint.service');
 const workflowService = require('../services/workflow.service');
 const { transferBoardOwner } = require('../services/boardTransfer.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
+const { bodyWithoutIdentity } = require('../utils/common/trustedPayload');
 
 function asUserId(req) {
   return req.user?.id || req.userContext?.userId || '';
@@ -31,9 +32,9 @@ async function createSprint(req, res) {
     const userId = asUserId(req);
     if (!userId) return unauthorized(res);
     const data = await sprintService.createSprint({
+      ...bodyWithoutIdentity(req.body),
       userId,
       boardId: req.params.boardId,
-      ...(req.body || {}),
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -46,10 +47,10 @@ async function updateSprint(req, res) {
     const userId = asUserId(req);
     if (!userId) return unauthorized(res);
     const data = await sprintService.updateSprint({
+      ...bodyWithoutIdentity(req.body),
       userId,
       boardId: req.params.boardId,
       sprintId: req.params.sprintId,
-      ...(req.body || {}),
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -120,9 +121,9 @@ async function putWorkflow(req, res) {
     const userId = asUserId(req);
     if (!userId) return unauthorized(res);
     const data = await workflowService.upsertWorkflow({
+      ...bodyWithoutIdentity(req.body),
       userId,
       boardId: req.params.boardId,
-      ...(req.body || {}),
     });
     return res.json({ success: true, data });
   } catch (err) {

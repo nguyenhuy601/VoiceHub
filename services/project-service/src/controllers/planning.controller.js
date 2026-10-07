@@ -1,6 +1,7 @@
 const mongoose = require('../db');
 const planningService = require('../services/planning.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
+const { bodyWithoutIdentity } = require('../utils/common/trustedPayload');
 
 function asUserId(req) {
   return req.user?.id || req.userContext?.userId || '';
@@ -24,7 +25,11 @@ async function listItems(req, res) {
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId không hợp lệ",
+      message: "projectId không hợp lệ",
+    });
     }
     const data = await planningService.listPlanningItems({
       userId,
@@ -44,12 +49,16 @@ async function createItem(req, res) {
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId không hợp lệ",
+      message: "projectId không hợp lệ",
+    });
     }
     const data = await planningService.createPlanningItem({
+      ...bodyWithoutIdentity(req.body),
       userId,
       projectId,
-      ...(req.body || {}),
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
@@ -63,7 +72,11 @@ async function patchItem(req, res) {
     const { projectId, itemId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(itemId)) {
-      return res.status(400).json({ success: false, message: 'projectId/itemId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/itemId không hợp lệ",
+      message: "projectId/itemId không hợp lệ",
+    });
     }
     const data = await planningService.patchPlanningItem({
       userId,
@@ -83,7 +96,11 @@ async function deleteItem(req, res) {
     const { projectId, itemId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(itemId)) {
-      return res.status(400).json({ success: false, message: 'projectId/itemId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/itemId không hợp lệ",
+      message: "projectId/itemId không hợp lệ",
+    });
     }
     const data = await planningService.deletePlanningItem({ userId, projectId, itemId });
     return res.json({ success: true, data });
@@ -98,7 +115,11 @@ async function listBacklog(req, res) {
     const { projectId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId)) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId không hợp lệ",
+      message: "projectId không hợp lệ",
+    });
     }
     const data = await planningService.listBacklog({ userId, projectId });
     return res.json({ success: true, data });
@@ -113,7 +134,11 @@ async function linkTaskEpic(req, res) {
     const { projectId, taskId } = req.params;
     if (!userId) return unauthorized(res);
     if (!validOid(projectId) || !validOid(taskId)) {
-      return res.status(400).json({ success: false, message: 'projectId/taskId không hợp lệ' });
+      return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "projectId/taskId không hợp lệ",
+      message: "projectId/taskId không hợp lệ",
+    });
     }
     const data = await planningService.linkTaskToEpic({
       userId,

@@ -33,8 +33,9 @@ class ProjectBriefController {
         assigneePmId,
       } = req.body || {};
       if (!validOid(organizationId) || !validOid(assigneePmId)) {
-        return res.status(400).json({
-          success: false,
+        return sendServiceError(res, 400, {
+          errorCode: 'VALIDATION_REQUIRED',
+          messageUser: 'organizationId/assigneePmId không hợp lệ',
           message: 'organizationId/assigneePmId không hợp lệ',
         });
       }
@@ -60,7 +61,11 @@ class ProjectBriefController {
       if (!userId) return unauthorized(res);
       const { organizationId, status } = req.query || {};
       if (!validOid(organizationId)) {
-        return res.status(400).json({ success: false, message: 'organizationId không hợp lệ' });
+        return sendServiceError(res, 400, {
+          errorCode: 'VALIDATION_REQUIRED',
+          messageUser: 'organizationId không hợp lệ',
+          message: 'organizationId không hợp lệ',
+        });
       }
       const data = await briefService.listBriefs({ userId, organizationId, status });
       return res.json({ success: true, data });
@@ -75,7 +80,11 @@ class ProjectBriefController {
       if (!userId) return unauthorized(res);
       const { briefId } = req.params;
       if (!validOid(briefId)) {
-        return res.status(400).json({ success: false, message: 'briefId không hợp lệ' });
+        return sendServiceError(res, 400, {
+          errorCode: 'VALIDATION_REQUIRED',
+          messageUser: 'briefId không hợp lệ',
+          message: 'briefId không hợp lệ',
+        });
       }
       const data = await briefService.getBrief({ userId, briefId });
       return res.json({ success: true, data });
@@ -91,7 +100,11 @@ class ProjectBriefController {
       const { briefId } = req.params;
       const { boardId } = req.body || {};
       if (!validOid(briefId)) {
-        return res.status(400).json({ success: false, message: 'briefId không hợp lệ' });
+        return sendServiceError(res, 400, {
+          errorCode: 'VALIDATION_REQUIRED',
+          messageUser: 'briefId không hợp lệ',
+          message: 'briefId không hợp lệ',
+        });
       }
       const data = await briefService.markBriefAccepted({
         userId,
@@ -110,7 +123,11 @@ class ProjectBriefController {
       if (!userId) return unauthorized(res);
       const { briefId } = req.params;
       if (!validOid(briefId)) {
-        return res.status(400).json({ success: false, message: 'briefId không hợp lệ' });
+        return sendServiceError(res, 400, {
+          errorCode: 'VALIDATION_REQUIRED',
+          messageUser: 'briefId không hợp lệ',
+          message: 'briefId không hợp lệ',
+        });
       }
       const data = await briefService.cancelBrief({ userId, briefId });
       return res.json({ success: true, data });

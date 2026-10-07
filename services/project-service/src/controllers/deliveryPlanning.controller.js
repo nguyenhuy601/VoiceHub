@@ -1,17 +1,20 @@
 const deliveryPlanningService = require('../services/deliveryPlanning.service');
+const { sendErrorFromCatch, sendServiceError } = require('../middleware/sendServiceError');
 
 function getUserId(req) {
-  return req.user?.id || req.headers['x-user-id'];
+  return req.user?.id || req.userContext?.userId || '';
 }
 
-function handleError(res, err) {
-  const status = err.statusCode || 500;
-  return res.status(status).json({
-    success: false,
-    message: err.message || 'Lỗi delivery planning',
-    errorCode: err.errorCode || undefined,
-    details: err.details || undefined,
-  });
+function sendDeliveryPlanningError(res, err) {
+  const status = Number(err?.statusCode) || 500;
+  if (status < 500 && err?.details) {
+    return sendServiceError(res, status, {
+      errorCode: err.errorCode,
+      message: err.message,
+      extra: { details: err.details },
+    });
+  }
+  return sendErrorFromCatch(res, err, status, 'Không thể xử lý delivery planning');
 }
 
 async function listArtifacts(req, res) {
@@ -24,7 +27,7 @@ async function listArtifacts(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -37,7 +40,7 @@ async function getArtifact(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -50,7 +53,7 @@ async function createArtifact(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -64,7 +67,7 @@ async function updateArtifact(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -79,7 +82,7 @@ async function transitionArtifact(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -95,7 +98,7 @@ async function bulkTransitionArtifacts(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -107,7 +110,7 @@ async function listBaselines(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -120,7 +123,7 @@ async function cutBaseline(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -132,7 +135,7 @@ async function getSummary(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -146,7 +149,7 @@ async function suggest(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -161,7 +164,7 @@ async function confirmSuggestions(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -175,7 +178,7 @@ async function forkArtifact(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -193,7 +196,7 @@ async function bulkDump(req, res) {
       req.body?.dryRun === '1';
     return res.status(dryRun ? 200 : 201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -215,10 +218,11 @@ async function dumpTemplate(req, res) {
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     );
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    const { attachmentHeader } = require('../utils/common/contentDisposition');
+    res.setHeader('Content-Disposition', attachmentHeader(filename, 'planning.xlsx'));
     return res.send(buf);
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -230,7 +234,7 @@ async function publishWbs(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 

@@ -4,7 +4,10 @@
  */
 const express = require('express');
 const analysis = require('../controllers/analysis.controller');
-const { requirementImportUpload } = require('../middleware/requirementImportUpload');
+const {
+  requirementImportUpload,
+  assertXlsxMagicByte,
+} = require('../middleware/requirementImportUpload');
 const { customerDocumentUpload } = require('../middleware/customerDocumentUpload');
 
 const router = express.Router({ mergeParams: true });
@@ -20,6 +23,7 @@ router.get('/analysis-import-sets', analysis.listImportSets);
 router.post(
   '/analysis-import-sets/raw',
   requirementImportUpload.single('file'),
+  assertXlsxMagicByte,
   analysis.attachRawImportSet
 );
 router.post('/analysis-import-sets/:setId/trash', analysis.trashImportSet);
@@ -46,6 +50,7 @@ router.post('/phase1/start-planning', analysis.startDeliveryPlanning);
 router.post(
   '/analysis-import/preview',
   requirementImportUpload.single('file'),
+  assertXlsxMagicByte,
   analysis.previewAnalysisImport
 );
 router.post('/analysis-import/confirm', analysis.confirmAnalysisImport);

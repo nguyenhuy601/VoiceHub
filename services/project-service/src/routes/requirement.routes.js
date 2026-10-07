@@ -1,15 +1,24 @@
 const express = require('express');
 const controller = require('../controllers/requirement.controller');
-const { requirementImportUpload } = require('../middleware/requirementImportUpload');
+const {
+  requirementImportUpload,
+  assertXlsxMagicByte,
+} = require('../middleware/requirementImportUpload');
 const { customerDocumentUpload } = require('../middleware/customerDocumentUpload');
 
 const router = express.Router();
 
 router.get('/import/template', controller.downloadTemplate);
-router.post('/import/preview', requirementImportUpload.single('file'), controller.previewImport);
+router.post(
+  '/import/preview',
+  requirementImportUpload.single('file'),
+  assertXlsxMagicByte,
+  controller.previewImport
+);
 router.post(
   '/import/normalize',
   requirementImportUpload.single('file'),
+  assertXlsxMagicByte,
   controller.normalizeImport
 );
 router.post('/import/confirm', controller.confirmImport);
