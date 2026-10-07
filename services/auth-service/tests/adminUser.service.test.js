@@ -121,6 +121,8 @@ describe('adminUser.service', () => {
       userId: 'u-unlock',
       isActive: false,
       isEmailVerified: true,
+      lockUntil: new Date(Date.now() + 60 * 60 * 1000),
+      loginAttempts: 5,
       save: async function save() {
         savedDocs = [this];
       },
@@ -131,6 +133,8 @@ describe('adminUser.service', () => {
     const summary = await adminUserService.setUserLocked('u-unlock', false);
 
     assert.equal(doc.isActive, true);
+    assert.equal(doc.lockUntil, null);
+    assert.equal(doc.loginAttempts, 0);
     assert.equal(bumpCalls, 1);
     assert.equal(summary.isActive, true);
   });

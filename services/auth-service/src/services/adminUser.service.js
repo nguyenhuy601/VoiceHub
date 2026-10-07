@@ -5,6 +5,14 @@ const emailService = require('../utils/email');
 const { hashPassword, validatePasswordStrength } = require('../utils/password');
 const { bumpTokenVersion } = require('../utils/tokenVersion');
 const { findUserAuthByEmail, hydrateAuthEmailDoc, readEmailFromStored } = require('../utils/authEmailPii');
+const { hashOneTimeToken } = require('../utils/oneTimeToken');
+const { maskIpForHr, truncateForStore } = require('../utils/authInputSafety');
+
+const MAX_EVENT_IP_LENGTH = 64;
+const MAX_EVENT_UA_LENGTH = 256;
+const MAX_EVENTS_LIMIT = 200;
+const MAX_EVENTS_PAGE = 500;
+const MAX_SUMMARY_BATCH = 500;
 
 function createServiceError(message, statusCode = 400, errorCode = 'AUTH_VALIDATION') {
   const err = new Error(message);
@@ -39,9 +47,9 @@ async function recordLoginEvent({ userId, success, ip, userAgent, errorCode }) {
     await AuthLoginEvent.create({
       userId: uid,
       success: Boolean(success),
-      ip: ip || null,
-      userAgent: userAgent || null,
-      errorCode: errorCode || null,
+      ip: truncateForStore(ip, MAX_EVENT_IP_LENGTH),
+      userAgent: truncateForStore(userAgent, MAX_EVENT_UA_LENGTH),
+      errorCode: truncateForStore(errorCode, 64),
     });
   } catch {
     // non-blocking
@@ -79,7 +87,7 @@ async function getAuthSummary(userId) {
 }
 
 async function getAuthSummaryBatch(userIds) {
-  const ids = [...new Set(userIds.map(normalizeUserId).filter(Boolean))];
+  const ids = [...new Set(userIds.slice(0, MAX_SUMMARY_BATCH).map(normalizeUserId).filter(Boolean))];
   if (!ids.length) return [];
   const { mongoose } = require('@enterprise/shared/config/mongo');
   const idVariants = [...ids];
@@ -116,6 +124,8 @@ async function setUserLocked(userId, locked) {
       );
     }
     userAuth.isActive = true;
+    userAuth.lockUntil = null;
+    userAuth.loginAttempts = 0;
   }
   await userAuth.save();
   await bumpTokenVersion(userAuth);
@@ -146,7 +156,7 @@ async function triggerPasswordReset(userId, frontendUrl) {
   }
 
   const passwordResetToken = crypto.randomBytes(32).toString('hex');
-  userAuth.passwordResetToken = passwordResetToken;
+  userAuth.passwordResetToken = hashOneTimeToken(passwordResetToken);
   userAuth.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
   await userAuth.save();
 
@@ -188,7 +198,7 @@ async function sendProvisionSetPasswordEmail(
 
   userAuth.mustChangePassword = true;
   const passwordResetToken = crypto.randomBytes(32).toString('hex');
-  userAuth.passwordResetToken = passwordResetToken;
+  userAuth.passwordResetToken = hashOneTimeToken(passwordResetToken);
   userAuth.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
   await userAuth.save();
 
@@ -241,7 +251,7 @@ async function setPasswordByAdmin(userId, { password, mustChangePassword = false
     throw createServiceError(
       validation.errors.join(', ') || 'Mật khẩu không hợp lệ.',
       400,
-      'AUTH_WEAK_PASSWORD'
+      validation.errorCode
     );
   }
   userAuth.password = await hashPassword(plainPassword);
@@ -281,7 +291,7 @@ async function activatePendingByAdmin(userId, { mustChangePassword = true } = {}
     throw createServiceError(
       validation.errors.join(', ') || 'Mật khẩu tạm không hợp lệ.',
       500,
-      'AUTH_WEAK_PASSWORD'
+      validation.errorCode
     );
   }
 
@@ -319,7 +329,7 @@ async function resendVerificationByUserId(userId, frontendUrl) {
   }
 
   const emailVerificationToken = crypto.randomBytes(32).toString('hex');
-  userAuth.emailVerificationToken = emailVerificationToken;
+  userAuth.emailVerificationToken = hashOneTimeToken(emailVerificationToken);
   userAuth.emailVerificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
   await userAuth.save();
 
@@ -356,11 +366,12 @@ async function resendVerificationByUserId(userId, frontendUrl) {
   return response;
 }
 
-async function listLoginEvents(userId, { limit = 50, page = 1 } = {}) {
+async function listLoginEvents(userId, { limit = 50, page = 1, level } = {}) {
   const uid = normalizeUserId(userId);
-  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
-  const safePage = Math.max(Number(page) || 1, 1);
+  const safeLimit = Math.min(Math.max(Math.trunc(Number(limit)) || 50, 1), MAX_EVENTS_LIMIT);
+  const safePage = Math.min(Math.max(Math.trunc(Number(page)) || 1, 1), MAX_EVENTS_PAGE);
   const skip = (safePage - 1) * safeLimit;
+  const shouldMaskIp = level === 'hr';
 
   const [items, total] = await Promise.all([
     AuthLoginEvent.find({ userId: uid }).sort({ createdAt: -1 }).skip(skip).limit(safeLimit).lean(),
@@ -370,9 +381,8 @@ async function listLoginEvents(userId, { limit = 50, page = 1 } = {}) {
   return {
     items: items.map((row) => ({
       id: String(row._id),
-      userId: uid,
       success: Boolean(row.success),
-      ip: row.ip || null,
+      ip: shouldMaskIp ? maskIpForHr(row.ip) : row.ip || null,
       userAgent: row.userAgent || null,
       errorCode: row.errorCode || null,
       at: row.createdAt,

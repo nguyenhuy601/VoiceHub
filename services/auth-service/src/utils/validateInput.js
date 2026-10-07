@@ -1,4 +1,5 @@
 const { sendServiceError } = require('../middleware/sendServiceError');
+const { isObjectIdString } = require('./authInputSafety');
 
 function requireParam(res, value, label, errorCode = 'VALIDATION_REQUIRED') {
   const s = value == null ? '' : String(value).trim();
@@ -26,7 +27,21 @@ function requireUserId(res, req) {
   return userId;
 }
 
+function requireObjectId(res, value, field = 'userId') {
+  const s = typeof value === 'string' ? value.trim() : '';
+  if (!isObjectIdString(s)) {
+    sendServiceError(res, 400, {
+      errorCode: 'AUTH_INVALID_ID',
+      messageUser: 'Mã định danh không hợp lệ.',
+      message: `${field} is invalid`,
+    });
+    return null;
+  }
+  return s;
+}
+
 module.exports = {
   requireParam,
   requireUserId,
+  requireObjectId,
 };

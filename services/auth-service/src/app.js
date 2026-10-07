@@ -16,6 +16,9 @@ function resolveTrustProxy() {
   return 1; // mặc định: một hop (gateway → service)
 }
 app.set('trust proxy', resolveTrustProxy());
+app.disable('x-powered-by');
+
+const AUTH_JSON_LIMIT = String(process.env.AUTH_JSON_LIMIT || '').trim() || '100kb';
 
 // Middleware
 app.use(createCorsMiddleware());
@@ -31,7 +34,7 @@ app.use('/api/auth', authRouteLimiter);
 
 // Body parser với limit và error handling
 app.use(express.json({ 
-  limit: '10mb',
+  limit: AUTH_JSON_LIMIT,
   verify: (req, res, buf) => {
     // Lưu raw body nếu cần
     req.rawBody = buf;
@@ -39,24 +42,18 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ 
   extended: true, 
-  limit: '10mb' 
+  limit: AUTH_JSON_LIMIT 
 }));
 
 // Error handler cho body parser
 app.use((err, req, res, next) => {
-  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid JSON format',
-    });
-  }
-  if (err.type === 'entity.parse.failed') {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid request body',
-    });
-  }
-  next(err);
+  const isBodyParseError =
+    err?.type === 'entity.parse.failed' ||
+    err?.type === 'entity.too.large' ||
+    (err instanceof SyntaxError && err.status === 400 && 'body' in err);
+  if (!isBodyParseError) return next(err);
+  const { sendErrorFromCatch } = require('./middleware/sendServiceError');
+  return sendErrorFromCatch(res, err, 400);
 });
 
 // Handle request aborted errors
@@ -82,46 +79,29 @@ app.get('/email-status', async (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     const { sendServiceError } = require('./middleware/sendServiceError');
     return sendServiceError(res, 404, {
-      errorCode: 'AUTH_USER_NOT_FOUND',
+      errorCode: 'AUTH_ROUTE_NOT_FOUND',
       messageUser: 'Không tìm thấy tài nguyên.',
       message: 'Not found',
     });
   }
   const emailService = require('./utils/email');
-  const hasUser = !!process.env.EMAIL_USER;
-  const hasPassword = !!process.env.EMAIL_PASSWORD;
-  const isAvailable = emailService.isAvailable();
-  
-  let connectionStatus = 'unknown';
-  if (isAvailable) {
-    try {
-      const verified = await emailService.verifyConnection();
-      connectionStatus = verified ? 'connected' : 'failed';
-    } catch (error) {
-      connectionStatus = 'error: ' + error.message;
-    }
-  }
-  
-  res.json({
-    emailService: {
-      available: isAvailable,
-      hasUser,
-      hasPassword,
-      userEmail: hasUser ? process.env.EMAIL_USER : null,
-      frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
-      connectionStatus,
-    },
-    instructions: {
-      checkLogs: 'Run: docker logs enterprise-auth-service -f',
-      checkEmail: 'Check spam folder and wait a few minutes',
-      verifyConfig: 'Ensure EMAIL_USER and EMAIL_PASSWORD are set correctly',
-    },
-  });
+  const available = emailService.isAvailable();
+  const configured = !!process.env.EMAIL_USER && !!process.env.EMAIL_PASSWORD;
+  res.json({ emailService: { available, configured } });
 });
 
 // Auth routes
 const authRoutes = require('./routes/auth.routes');
 app.use('/api/auth', authRoutes);
+
+app.use((req, res) => {
+  const { sendServiceError } = require('./middleware/sendServiceError');
+  return sendServiceError(res, 404, {
+    errorCode: 'AUTH_ROUTE_NOT_FOUND',
+    messageUser: 'Không tìm thấy tài nguyên.',
+    message: 'Not found',
+  });
+});
 
 // Error handler middleware (phải đặt sau routes)
 const errorHandler = require('./middleware/errorHandler');
