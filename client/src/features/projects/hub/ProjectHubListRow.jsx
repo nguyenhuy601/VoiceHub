@@ -272,7 +272,7 @@ export default function ProjectHubListRow({
         style={{ ...style, ...gridStyle }}
         aria-grabbed={isDragging}
         aria-invalid={isDragging && !dragValid ? true : undefined}
-        className={`items-center border-b border-border/40 px-2 py-2 ${statusStripe} ${
+        className={`items-center border-b border-border/40 px-2 py-2 transition-colors motion-reduce:transition-none ${statusStripe} ${
           selected
             ? 'bg-primary/8'
             : depth > 0
@@ -286,7 +286,7 @@ export default function ProjectHubListRow({
         >
           <button
             type="button"
-            className="cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:text-foreground active:cursor-grabbing disabled:opacity-40"
+            className="cursor-grab touch-none rounded p-0.5 text-muted-foreground transition-colors motion-reduce:transition-none hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing disabled:opacity-40"
             aria-label={dragHandleAria}
             disabled={busy || !canDrag}
             {...attributes}
@@ -314,7 +314,7 @@ export default function ProjectHubListRow({
           {showExpand ? (
             <button
               type="button"
-              className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
+              className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors motion-reduce:transition-none hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               aria-expanded={isExpanded}
               aria-label={
                 expandError
@@ -382,7 +382,7 @@ export default function ProjectHubListRow({
             {openable ? (
               <button
                 type="button"
-                className="rounded p-1 text-muted-foreground opacity-70 hover:bg-muted hover:text-foreground hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                className="rounded p-1 text-muted-foreground opacity-70 transition-opacity motion-reduce:transition-none hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100"
                 aria-label={t('workspace.projectHubListOpenWorkItemAria')}
                 title={t('workspace.projectHubListOpenWorkItem')}
                 onClick={() => onOpenWorkItem?.(node)}
@@ -393,7 +393,7 @@ export default function ProjectHubListRow({
             {canCreateChild ? (
               <button
                 type="button"
-                className="rounded p-1 text-primary hover:bg-muted"
+                className="rounded p-1 text-primary transition-colors motion-reduce:transition-none hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t('workspace.projectHubListCreateChildAria')}
                 title={t('workspace.projectHubListCreateChild')}
                 disabled={busy}

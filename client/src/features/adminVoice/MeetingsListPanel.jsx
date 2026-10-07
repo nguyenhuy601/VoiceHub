@@ -2,21 +2,26 @@ import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
 import useAdminMeetings from '../../hooks/useAdminMeetings';
-import { adminPrimaryBtnClass, AdminDenseTableCard, AdminDenseTableScroll } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  adminDenseRowClass,
+  adminManageLinkClass,
+  adminPrimaryBtnClass,
+  AdminDenseMobileList,
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
+} from '../../components/adminUsers/adminUserPanelUi';
 import {
   formatMeetingWhen,
   isActiveMeeting,
   meetingId,
   meetingStatus,
+  meetingStatusLabel,
   meetingTitle,
 } from '../../utils/adminVoiceUtils';
 import { adminMeetingHubLink } from '../../utils/adminHubLinks';
 
 const MEETING_OPS_HUB = '/app/admin/voice/meeting-ops';
-const LINKS = [
-  { tab: 'end', labelKey: 'adminDomains.voice.endMeeting', activeOnly: true },
-  { tab: 'moderate', labelKey: 'adminDomains.voice.moderate', activeOnly: true },
-];
+const STATUS_FILTER_OPTIONS = ['scheduled', 'active', 'ended'];
 
 export default function MeetingsListPanel({ orgId }) {
   const { t, locale } = useAppStrings();
@@ -44,17 +49,21 @@ export default function MeetingsListPanel({ orgId }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t('adminVoice.searchMeeting')}
-          className="min-w-[200px] flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          aria-label={t('adminVoice.searchMeeting')}
+          className="min-w-[200px] flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
         />
         <select
-          className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          aria-label={t('adminVoice.filterAllStatus')}
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
         >
           <option value="">{t('adminVoice.filterAllStatus')}</option>
-          <option value="scheduled">scheduled</option>
-          <option value="active">active</option>
-          <option value="ended">ended</option>
+          {STATUS_FILTER_OPTIONS.map((value) => (
+            <option key={value} value={value}>
+              {meetingStatusLabel(value, t)}
+            </option>
+          ))}
         </select>
       </div>
       <AdminDenseTableCard>
@@ -62,15 +71,37 @@ export default function MeetingsListPanel({ orgId }) {
           <p className="px-3 py-4 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : error ? (
           <div className="space-y-3 px-3 py-4">
-            <p className="text-sm text-destructive">{error}</p>
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
             <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadMeetings()}>
               {t('adminRbac.retry')}
             </button>
           </div>
         ) : (
           <AdminDenseTableScroll>
-            <table className="min-w-full text-sm">
-              <thead className="sticky top-0 z-10 bg-muted/95 text-left text-xs uppercase text-muted-foreground backdrop-blur">
+            <AdminDenseMobileList
+              items={filtered}
+              getKey={meetingId}
+              ariaLabel={t('adminDomains.voice.meetings')}
+              renderTitle={(m) => meetingTitle(m)}
+              renderMeta={(m) =>
+                [
+                  meetingStatusLabel(meetingStatus(m), t),
+                  formatMeetingWhen(m.startTime || m.createdAt, locale),
+                ].join(' · ')
+              }
+              renderActions={(m) => (
+                <Link
+                  to={adminMeetingHubLink(MEETING_OPS_HUB, meetingId(m), isActiveMeeting(m) ? 'moderate' : 'recording')}
+                  className={adminManageLinkClass()}
+                >
+                  {t('adminDomains.voice.meetingOpsHub')}
+                </Link>
+              )}
+            />
+            <table className="hidden min-w-full text-sm md:table">
+              <thead className="sticky top-0 z-10 bg-muted text-left text-xs uppercase text-muted-foreground backdrop-blur">
                 <tr>
                   <th className="px-3 py-2">{t('adminVoice.colTitle')}</th>
                   <th className="px-3 py-2">{t('adminVoice.colStatus')}</th>
@@ -81,25 +112,23 @@ export default function MeetingsListPanel({ orgId }) {
               <tbody>
                 {filtered.map((m) => {
                   const id = meetingId(m);
+                  const manageTab = isActiveMeeting(m) ? 'moderate' : 'recording';
                   return (
-                    <tr key={id} className="border-t border-border/60">
+                    <tr key={id} className={adminDenseRowClass()}>
                       <td className="px-3 py-2 font-medium">{meetingTitle(m)}</td>
-                      <td className="px-3 py-2 text-muted-foreground">{meetingStatus(m)}</td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {meetingStatusLabel(meetingStatus(m), t)}
+                      </td>
                       <td className="px-3 py-2 text-muted-foreground">
                         {formatMeetingWhen(m.startTime || m.createdAt, locale)}
                       </td>
                       <td className="px-3 py-2">
-                        <div className="flex flex-wrap gap-1">
-                          {LINKS.filter((link) => !link.activeOnly || isActiveMeeting(m)).map((link) => (
-                            <Link
-                              key={link.tab}
-                              to={adminMeetingHubLink(MEETING_OPS_HUB, id, link.tab)}
-                              className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
-                            >
-                              {t(link.labelKey)}
-                            </Link>
-                          ))}
-                        </div>
+                        <Link
+                          to={adminMeetingHubLink(MEETING_OPS_HUB, id, manageTab)}
+                          className={adminManageLinkClass()}
+                        >
+                          {t('adminDomains.voice.meetingOpsHub')}
+                        </Link>
                       </td>
                     </tr>
                   );

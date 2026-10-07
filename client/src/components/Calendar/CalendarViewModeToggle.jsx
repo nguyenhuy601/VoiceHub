@@ -29,7 +29,7 @@ export default function CalendarViewModeToggle({ value, onChange }) {
             onClick={() => onChange(id)}
             className={active ? FIGMA_CAL_VIEW_TOGGLE_ACTIVE : FIGMA_CAL_VIEW_TOGGLE_IDLE}
           >
-            <Icon size={15} />
+            <Icon size={15} aria-hidden="true" />
           </button>
         );
       })}

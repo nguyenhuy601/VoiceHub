@@ -669,6 +669,7 @@ export default function ProjectHubPage({
       }
       loadingBoards={loadingTaskBoards}
       loadingBoardDetail={loadingTaskBoardDetail}
+      boardDetailError={Boolean(boardDetailQuery.isError)}
       currentUserId={currentUserId}
       teamsInScope={[]}
       onAddList={handleAddBoardList}

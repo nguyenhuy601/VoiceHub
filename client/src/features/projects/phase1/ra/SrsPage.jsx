@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Download } from 'lucide-react';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
@@ -73,13 +74,25 @@ export default function SrsPage({ projectId, readOnly = false }) {
   const [version, setVersion] = useState('');
   const [expandedBaselineId, setExpandedBaselineId] = useState('');
 
-  const { data: draft, isLoading: draftLoading } = useQuery({
+  const {
+    data: draft,
+    isLoading: draftLoading,
+    isError: draftError,
+    error: draftQueryError,
+    refetch: refetchDraft,
+  } = useQuery({
     queryKey: ['srsDraft', projectId],
     queryFn: async () => unwrap(await analysisAPI.getSrsDraft(projectId)),
     enabled: Boolean(projectId) && tab !== 'baselines',
   });
 
-  const { data: baselines = [], isFetched: baselinesFetched } = useQuery({
+  const {
+    data: baselines = [],
+    isFetched: baselinesFetched,
+    isError: baselinesError,
+    error: baselinesQueryError,
+    refetch: refetchBaselines,
+  } = useQuery({
     queryKey: ['srsBaselines', projectId],
     queryFn: async () => {
       const raw = unwrap(await analysisAPI.listSrsBaselines(projectId));
@@ -324,7 +337,23 @@ export default function SrsPage({ projectId, readOnly = false }) {
         </div>
       ) : (
         <>
-          {draftLoading ? <p className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
+          {draftLoading ? (
+            <p className="text-sm text-muted-foreground" aria-busy="true">
+              {t('common.loading')}
+            </p>
+          ) : null}
+          {draftError || baselinesError ? (
+            <AdminLoadErrorState
+              message={resolveApiErrorMessage(draftQueryError || baselinesQueryError, {
+                t,
+                fallback: t('common.error'),
+              })}
+              onRetry={() => {
+                if (draftError) void refetchDraft();
+                if (baselinesError) void refetchBaselines();
+              }}
+            />
+          ) : null}
 
           {isWorkingEmpty ? (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-6 text-sm">

@@ -352,7 +352,7 @@ export default function ArtifactDetailPanel({
         </p>
       ) : null}
       {contentEditable || nextStatus || canRequestChanges || canReject ? (
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-[#FAFAFA] px-4 py-3 dark:bg-slate-900/50">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-[#FAFAFA] px-4 py-3 dark:bg-surface">
           {contentEditable ? (
             <>
               <button
@@ -437,7 +437,7 @@ export default function ArtifactDetailPanel({
           {nextStatus && onTransition ? (
             <button
               type="button"
-              className="rounded-full bg-[#1677FF] px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[#0958D9] disabled:opacity-50"
+              className="rounded-full bg-[#1677FF] px-4 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-[#0958D9] disabled:opacity-50"
               disabled={saving || transitioning || isDirty}
               title={
                 isDirty

@@ -21,9 +21,23 @@ export function resolveAttachmentContentType(attachment, storagePath = '') {
   return 'application/octet-stream';
 }
 
+/** Render trên origin app sẽ chạy script (HTML/SVG) — không bao giờ mở blob raw. */
+const SCRIPTABLE_MIME_TYPES = ['text/html', 'application/xhtml+xml', 'image/svg+xml'];
+
+function baseMimeOf(mimeType) {
+  return String(mimeType || '').split(';')[0].trim().toLowerCase();
+}
+
 export function shouldOpenAttachmentInline(mimeType) {
-  const mime = String(mimeType || '').split(';')[0].trim().toLowerCase();
+  const mime = baseMimeOf(mimeType);
+  if (SCRIPTABLE_MIME_TYPES.includes(mime)) return false;
   return mime.startsWith('text/') || mime.startsWith('image/') || mime === 'application/pdf';
+}
+
+/** HTML/XHTML: chỉ xem mã nguồn đã escape. */
+export function shouldViewAttachmentAsEscapedText(mimeType) {
+  const mime = baseMimeOf(mimeType);
+  return mime === 'text/html' || mime === 'application/xhtml+xml';
 }
 
 export function resolveAttachmentDownloadName(attachment, storagePath = '') {
@@ -89,7 +103,7 @@ async function ensureTypedBlob(data, mimeType) {
   if (snippet.startsWith('{') && (probeType.includes('json') || /"success"\s*:/.test(snippet))) {
     throw new Error('Không tải được tệp đính kèm.');
   }
-  if (snippet.startsWith('<') && probeType.includes('html')) {
+  if (snippet.startsWith('<') && probeType.includes('html') && !shouldViewAttachmentAsEscapedText(mimeType)) {
     throw new Error('Không tải được tệp đính kèm.');
   }
 

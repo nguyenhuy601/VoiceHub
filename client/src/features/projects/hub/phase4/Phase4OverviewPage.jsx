@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom';
-import { CheckCircle2, Circle, ExternalLink } from 'lucide-react';
+import { CheckCircle2, Circle, ExternalLink, Loader2 } from 'lucide-react';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { buildProjectsModulePath } from '../../../../utils/suitePathUtils';
 import { RELEASE_HANDOVER_CHECKLIST_IDS } from '../../../../utils/projectPhaseNav';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import usePhase4Handover from './usePhase4Handover';
 import Phase4SectionCard from './Phase4SectionCard';
 
@@ -12,6 +13,9 @@ const CTA_MODULES = Object.freeze([
   { module: 'handover', id: null },
 ]);
 
+const FOCUS_LINK =
+  'transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+
 /**
  * Phase 4 Overview — progress, release label, CTAs (no Deploy).
  */
@@ -19,6 +23,9 @@ export default function Phase4OverviewPage({ projectId }) {
   const { t } = useAppStrings();
   const {
     isLoading,
+    isLoadError,
+    loadFailMessage,
+    retryLoad,
     checklist,
     checklistDone,
     checklistTotal,
@@ -29,7 +36,23 @@ export default function Phase4OverviewPage({ projectId }) {
   } = usePhase4Handover(projectId);
 
   if (isLoading) {
-    return <p className="p-4 text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return (
+      <div
+        className="flex items-center gap-2 p-4 text-sm text-muted-foreground"
+        aria-busy="true"
+      >
+        <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+        <span>{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (isLoadError) {
+    return (
+      <div className="p-4">
+        <AdminLoadErrorState message={loadFailMessage} onRetry={retryLoad} />
+      </div>
+    );
   }
 
   return (
@@ -49,7 +72,7 @@ export default function Phase4OverviewPage({ projectId }) {
           <span
             className={`rounded-md px-2 py-1 font-semibold ${
               readyConfirmed
-                ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200'
+                ? 'bg-success/15 text-success'
                 : 'bg-muted text-muted-foreground'
             }`}
           >
@@ -57,9 +80,7 @@ export default function Phase4OverviewPage({ projectId }) {
           </span>
           <span
             className={`rounded-md px-2 py-1 font-semibold ${
-              uatPassed
-                ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-200'
-                : 'bg-muted text-muted-foreground'
+              uatPassed ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'
             }`}
           >
             UAT: {uatPassed ? 'Pass' : t('workspace.phaseDeployStatusPending')}
@@ -81,7 +102,7 @@ export default function Phase4OverviewPage({ projectId }) {
             aria-valuenow={checklistDone}
           >
             <div
-              className="h-full rounded-full bg-primary transition-[width]"
+              className="h-full rounded-full bg-primary transition-[width] motion-reduce:transition-none"
               style={{
                 width: `${checklistTotal ? (checklistDone / checklistTotal) * 100 : 0}%`,
               }}
@@ -96,7 +117,7 @@ export default function Phase4OverviewPage({ projectId }) {
                   className="flex items-center gap-2 rounded-lg border border-border/60 px-2.5 py-1.5 text-xs"
                 >
                   {on ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" aria-hidden />
                   ) : (
                     <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                   )}
@@ -118,7 +139,7 @@ export default function Phase4OverviewPage({ projectId }) {
               <Link
                 key={module}
                 to={buildProjectsModulePath(projectId, module)}
-                className="flex items-center justify-between gap-2 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-sm transition hover:border-primary/40 hover:bg-primary/5"
+                className={`flex items-center justify-between gap-2 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-sm hover:border-primary/40 hover:bg-primary/5 ${FOCUS_LINK}`}
               >
                 <span className="font-semibold text-foreground">
                   {t(
@@ -132,7 +153,7 @@ export default function Phase4OverviewPage({ projectId }) {
                 <span
                   className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
                     done
-                      ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200'
+                      ? 'bg-success/20 text-success'
                       : 'bg-muted text-muted-foreground'
                   }`}
                 >
@@ -147,7 +168,7 @@ export default function Phase4OverviewPage({ projectId }) {
             href={evidence.pipelineUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+            className={`mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline ${FOCUS_LINK}`}
           >
             {t('workspace.phaseDeployEvidenceUrl')}
             <ExternalLink className="h-3 w-3" aria-hidden />

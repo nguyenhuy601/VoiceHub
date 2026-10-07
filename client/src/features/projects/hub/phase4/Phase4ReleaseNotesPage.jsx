@@ -1,4 +1,6 @@
+import { Loader2 } from 'lucide-react';
 import { useAppStrings } from '../../../../locales/appStrings';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import usePhase4Handover from './usePhase4Handover';
 import Phase4SectionCard from './Phase4SectionCard';
 
@@ -7,17 +9,42 @@ import Phase4SectionCard from './Phase4SectionCard';
  */
 export default function Phase4ReleaseNotesPage({ projectId }) {
   const { t } = useAppStrings();
-  const { isLoading, checklist, canPhase, busy, setChecklistItem, releaseLabel } =
-    usePhase4Handover(projectId);
+  const {
+    isLoading,
+    isLoadError,
+    loadFailMessage,
+    retryLoad,
+    checklist,
+    canPhase,
+    busy,
+    setChecklistItem,
+    releaseLabel,
+  } = usePhase4Handover(projectId);
 
   if (isLoading) {
-    return <p className="p-4 text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return (
+      <div
+        className="flex items-center gap-2 p-4 text-sm text-muted-foreground"
+        aria-busy="true"
+      >
+        <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+        <span>{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (isLoadError) {
+    return (
+      <div className="p-4">
+        <AdminLoadErrorState message={loadFailMessage} onRetry={retryLoad} />
+      </div>
+    );
   }
 
   const notesOn = Boolean(checklist.release_notes);
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-3 sm:p-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-3 sm:p-4" aria-busy={busy ? 'true' : undefined}>
       <Phase4SectionCard
         title={t('workspace.phaseNavReleaseNotes')}
         description={t('workspace.phase4ReleaseNotesHint')}
@@ -30,7 +57,7 @@ export default function Phase4ReleaseNotesPage({ projectId }) {
         }
       >
         {!canPhase ? (
-          <p className="mb-3 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+          <p className="mb-3 text-[11px] font-semibold text-warning">
             {t('workspace.phaseHandoverChecklistPmOnly')}
           </p>
         ) : null}
@@ -40,17 +67,18 @@ export default function Phase4ReleaseNotesPage({ projectId }) {
         </p>
 
         <label
-          className={`flex items-start gap-2 rounded-xl border px-3 py-3 text-sm ${
+          className={`flex items-start gap-2 rounded-xl border px-3 py-3 text-sm focus-within:ring-2 focus-within:ring-ring ${
             notesOn
-              ? 'border-emerald-500/40 bg-emerald-500/10'
+              ? 'border-success/40 bg-success/10'
               : 'border-border/70 bg-muted/15'
           }`}
         >
           <input
             type="checkbox"
-            className="mt-0.5"
+            className="mt-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             checked={notesOn}
             disabled={!canPhase || busy}
+            aria-busy={busy ? 'true' : undefined}
             onChange={(e) => void setChecklistItem('release_notes', e.target.checked)}
           />
           <span>

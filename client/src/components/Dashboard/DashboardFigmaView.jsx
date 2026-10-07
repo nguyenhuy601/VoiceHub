@@ -16,7 +16,8 @@ import {
   FIGMA_DASH_TWO_COL,
 } from './figmaDashboardClasses';
 import { useAppStrings } from '../../locales/appStrings';
-import { buildProjectsPickerPath } from '../../utils/suitePathUtils';
+import { AdminLoadErrorState } from '../adminUsers/adminPanelStates';
+import { buildCompanyWorkspacePath, buildProjectsPickerPath } from '../../utils/suitePathUtils';
 
 /**
  * Blueprint 3 cấp theo thiết kế Figma:
@@ -41,6 +42,9 @@ export default function DashboardFigmaView({
   quickNavItems,
   quickNavCols,
   hideRoleBanner = false,
+  loadError = '',
+  onRetry,
+  retryBusy = false,
   roleTitle = '',
   roleHint = '',
   showWorkAnalytics = false,
@@ -68,6 +72,14 @@ export default function DashboardFigmaView({
   return (
     <div className={FIGMA_DASH_PAGE}>
       <div className={FIGMA_DASH_INNER}>
+        {loadError ? (
+          <AdminLoadErrorState
+            message={loadError}
+            onRetry={onRetry}
+            disabled={retryBusy}
+            className="motion-safe:animate-fade-in-fast"
+          />
+        ) : null}
         <section className={FIGMA_DASH_LEVEL_1} aria-label={t('dashboard.ariaOverview')}>
           {!hideRoleBanner && (isGuest || isPersonal || roleHint) && (
             <DashboardRoleBanner isGuest={isGuest} title={roleTitle} hint={roleHint} />
@@ -129,7 +141,7 @@ export default function DashboardFigmaView({
             onCalendarClick={() => onNavigate('/app/me/calendar')}
             onMeetingClick={() => onNavigate('/app/communicate/voice')}
             onCreateRoom={onCreateRoom}
-            onWorkspacesViewAll={() => onNavigate('/app/collaborate/workspaces')}
+            onWorkspacesViewAll={() => onNavigate(buildCompanyWorkspacePath())}
             onWorkspaceClick={onWorkspaceClick}
             onCreateWorkspace={onCreateWorkspace}
             onAddFriend={onAddFriend}

@@ -9,26 +9,35 @@ import {
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { ConfirmDialog } from '../../components/Shared';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { AccountLoadError, AccountStatusPill, useAccountAuthSummary } from './accountPanelParts';
 
 export default function AccountForcePasswordPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
+  const { summary, setSummary, loading, loadError, reload } = useAccountAuthSummary(
+    orgId,
+    userId,
+    'adminUsers.forceFail'
+  );
   const [busy, setBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const { loadMembers } = useAdminMembers(orgId, { view: 'directory' });
+
+  const isRequired = summary?.mustChangePassword === true;
 
   const apply = async (mustChangePassword) => {
     if (!orgId || !userId || busy) return;
     setBusy(true);
     try {
       await adminUserAPI.forcePasswordChange(orgId, userId, mustChangePassword);
-      toast.success(
-        mustChangePassword ? t('adminUsers.forceEnabled') : t('adminUsers.forceDisabled')
-      );
+      setSummary((prev) => (prev ? { ...prev, mustChangePassword } : prev));
+      toast.success(mustChangePassword ? t('adminUsers.forceEnabled') : t('adminUsers.forceDisabled'));
       await loadMembers();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminUsers.forceFail') }));
@@ -37,31 +46,58 @@ export default function AccountForcePasswordPanel({ orgId, embedded = false }) {
     }
   };
 
+  const actionsDisabled = !userId || busy || loading || Boolean(loadError);
+
   const body = (
-    <AdminUserFormCard title={t('adminDomains.accounts.forcePassword')} hint={t('adminUsers.forceHint')}>
-      {!userId ? (
-        <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
-      ) : null}
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={!userId || busy}
-          className={adminPrimaryBtnClass()}
-          onClick={() => apply(true)}
-        >
-          <KeyRound className="h-3.5 w-3.5" />
-          {t('adminUsers.requireChangeOnLogin')}
-        </button>
-        <button
-          type="button"
-          disabled={!userId || busy}
-          className={adminSecondaryBtnClass()}
-          onClick={() => apply(false)}
-        >
-          {t('adminUsers.clearRequireChange')}
-        </button>
-      </div>
-    </AdminUserFormCard>
+    <>
+      <AdminUserFormCard title={t('adminDomains.accounts.forcePassword')} hint={t('adminUsers.forceHint')}>
+        {!userId ? (
+          <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+        ) : loading ? (
+          <p className="mb-4 text-sm text-muted-foreground" aria-busy="true">
+            {t('common.loading')}
+          </p>
+        ) : loadError ? (
+          <AccountLoadError message={loadError} onRetry={reload} disabled={busy} />
+        ) : (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">{t('adminAccounts.colMustChange')}:</span>
+            <AccountStatusPill tone={isRequired ? 'warning' : 'muted'}>
+              {isRequired ? t('adminAccounts.flagYes') : t('adminAccounts.flagNo')}
+            </AccountStatusPill>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={actionsDisabled || isRequired}
+            className={adminPrimaryBtnClass()}
+            onClick={() => setConfirmOpen(true)}
+          >
+            <KeyRound className="h-3.5 w-3.5" aria-hidden />
+            {busy ? t('common.saving') : t('adminUsers.requireChangeOnLogin')}
+          </button>
+          <button
+            type="button"
+            disabled={actionsDisabled || !isRequired}
+            className={adminSecondaryBtnClass()}
+            onClick={() => apply(false)}
+          >
+            {busy ? t('common.saving') : t('adminUsers.clearRequireChange')}
+          </button>
+        </div>
+      </AdminUserFormCard>
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => apply(true)}
+        title={t('adminAccounts.forceConfirmTitle')}
+        message={t('adminAccounts.forceConfirmMessage')}
+        confirmText={t('adminUsers.requireChangeOnLogin')}
+        cancelText={t('common.cancel')}
+        variant="danger"
+      />
+    </>
   );
 
   if (embedded) return body;

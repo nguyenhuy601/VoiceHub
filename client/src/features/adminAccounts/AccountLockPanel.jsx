@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Lock, Unlock } from 'lucide-react';
@@ -9,59 +9,38 @@ import {
   adminDangerBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { ConfirmDialog } from '../../components/Shared';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { authSummaryStatusLabel, memberUserId, unwrapApi } from '../../utils/adminUserUtils';
+import {
+  AccountLoadError,
+  AccountStatusPill,
+  unwrapSummary,
+  useAccountAuthSummary,
+} from './accountPanelParts';
 
 export default function AccountLockPanel({ orgId, embedded = false }) {
-  const { t } = useAppStrings();
+  const { t, locale } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
-  const { members, loadMembers } = useAdminMembers(orgId, { view: 'directory' });
-  const [summary, setSummary] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState('');
-  const [reloadTick, setReloadTick] = useState(0);
+  const { loadMembers } = useAdminMembers(orgId, { view: 'directory' });
+  const { summary, setSummary, loading, loadError, reload } = useAccountAuthSummary(
+    orgId,
+    userId,
+    'adminUsers.lockFail'
+  );
   const [busy, setBusy] = useState(false);
-
-  const memberRow = members.find((m) => memberUserId(m) === userId);
-
-  useEffect(() => {
-    if (!orgId || !userId) {
-      setSummary(null);
-      setLoadError('');
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setLoadError('');
-      try {
-        const res = await adminUserAPI.getAuthSummary(orgId, userId);
-        if (!cancelled) setSummary(unwrapApi(res)?.data ?? unwrapApi(res));
-      } catch (error) {
-        if (!cancelled) {
-          setSummary(null);
-          setLoadError(resolveApiErrorMessage(error, { t, fallback: t('adminUsers.lockFail') }));
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, userId, memberRow, t, reloadTick]);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const toggleLock = async (locked) => {
     if (!orgId || !userId || busy) return;
     setBusy(true);
     try {
-      const res = await adminUserAPI.setLocked(orgId, userId, locked);
-      setSummary(unwrapApi(res)?.data ?? unwrapApi(res));
-      setLoadError('');
+      const res = await adminUserAPI.setLocked(orgId, userId, locked === true);
+      const next = unwrapSummary(res);
+      if (next && typeof next === 'object') setSummary(next);
       toast.success(locked ? t('adminUsers.locked') : t('adminUsers.unlocked'));
       await loadMembers();
     } catch (error) {
@@ -71,67 +50,79 @@ export default function AccountLockPanel({ orgId, embedded = false }) {
     }
   };
 
-  // isLocked = admin deactivate (isActive=false) hoặc rate-lock spam MK (lockUntil).
-  const isLocked = Boolean(summary?.isLocked);
-  const isAdminInactive = summary?.isActive === false;
+  const lockUntil = summary?.lockUntil ? new Date(summary.lockUntil) : null;
+  const isRateLocked = Boolean(lockUntil && lockUntil > new Date());
+  const isAdminLocked = summary?.isActive === false && !summary?.pendingActivation;
+  const isLocked = isAdminLocked || isRateLocked;
+
+  let statusPill = <AccountStatusPill tone="success">{t('adminUsers.statusActive')}</AccountStatusPill>;
+  if (summary?.pendingActivation) {
+    statusPill = <AccountStatusPill tone="warning">{t('adminAccounts.statusPendingActivation')}</AccountStatusPill>;
+  } else if (isAdminLocked) {
+    statusPill = <AccountStatusPill tone="danger">{t('adminAccounts.lockedByAdmin')}</AccountStatusPill>;
+  } else if (isRateLocked) {
+    statusPill = (
+      <AccountStatusPill tone="warning">
+        {t('adminAccounts.rateLockedUntil', {
+          time: lockUntil.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }),
+        })}
+      </AccountStatusPill>
+    );
+  }
+
+  const actionsDisabled = !userId || busy || loading || Boolean(loadError) || !summary;
 
   const body = (
-    <AdminUserFormCard title={t('adminDomains.accounts.lock')} hint={t('adminUsers.lockHint')}>
-      {!userId ? (
-        <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
-      ) : loading ? (
-        <p className="mb-4 text-sm text-muted-foreground">{t('common.loading')}</p>
-      ) : loadError ? (
-        <div className="mb-4 space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {loadError}
+    <>
+      <AdminUserFormCard title={t('adminDomains.accounts.lock')} hint={t('adminUsers.lockHint')}>
+        {!userId ? (
+          <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+        ) : loading ? (
+          <p className="mb-4 text-sm text-muted-foreground" aria-busy="true">
+            {t('common.loading')}
           </p>
+        ) : loadError ? (
+          <AccountLoadError message={loadError} onRetry={reload} disabled={busy} />
+        ) : summary ? (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">{t('adminUsers.currentStatus')}:</span>
+            {statusPill}
+          </div>
+        ) : (
+          <p className="mb-4 text-sm text-muted-foreground">{t('adminAccounts.summaryUnavailable')}</p>
+        )}
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className={adminSecondaryBtnClass()}
-            disabled={busy}
-            onClick={() => setReloadTick((n) => n + 1)}
+            disabled={actionsDisabled || isAdminLocked}
+            className={adminDangerBtnClass()}
+            onClick={() => setConfirmOpen(true)}
           >
-            {t('adminRbac.retry')}
+            <Lock className="h-3.5 w-3.5" aria-hidden />
+            {busy ? t('common.saving') : t('adminUsers.lockAccount')}
+          </button>
+          <button
+            type="button"
+            disabled={actionsDisabled || !isLocked}
+            className={adminSecondaryBtnClass()}
+            onClick={() => toggleLock(false)}
+          >
+            <Unlock className="h-3.5 w-3.5" aria-hidden />
+            {busy ? t('common.saving') : t('adminUsers.unlockAccount')}
           </button>
         </div>
-      ) : summary ? (
-        <div className="mb-4 flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">{t('adminUsers.currentStatus')}:</span>
-          <span
-            className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${
-              isLocked
-                ? 'bg-amber-500/12 text-amber-800 ring-amber-500/25 dark:text-amber-200'
-                : 'bg-emerald-500/12 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300'
-            }`}
-          >
-            {authSummaryStatusLabel(summary, t)}
-          </span>
-        </div>
-      ) : (
-        <p className="mb-4 text-sm text-muted-foreground">{t('common.loading')}</p>
-      )}
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={!userId || busy || isAdminInactive || Boolean(loadError)}
-          className={adminDangerBtnClass()}
-          onClick={() => toggleLock(true)}
-        >
-          <Lock className="h-3.5 w-3.5" />
-          {t('adminUsers.lockAccount')}
-        </button>
-        <button
-          type="button"
-          disabled={!userId || busy || !isLocked || Boolean(loadError)}
-          className={adminSecondaryBtnClass()}
-          onClick={() => toggleLock(false)}
-        >
-          <Unlock className="h-3.5 w-3.5" />
-          {t('adminUsers.unlockAccount')}
-        </button>
-      </div>
-    </AdminUserFormCard>
+      </AdminUserFormCard>
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => toggleLock(true)}
+        title={t('adminAccounts.lockConfirmTitle')}
+        message={t('adminAccounts.lockConfirmMessage')}
+        confirmText={t('adminUsers.lockAccount')}
+        cancelText={t('common.cancel')}
+        variant="danger"
+      />
+    </>
   );
 
   if (embedded) return body;

@@ -24,14 +24,6 @@ export function allowedIssueTypesFromCaps(caps) {
   return types;
 }
 
-export function isProjectDraftStatus(status) {
-  const st = String(status || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
-  return st === 'draft' || st === 'planning';
-}
-
 export function isProjectCompletedStatus(status) {
   const st = String(status || '').trim().toLowerCase();
   return st === 'closed' || st === 'completed' || st === 'cancelled' || st === 'canceled' || st === 'archived';

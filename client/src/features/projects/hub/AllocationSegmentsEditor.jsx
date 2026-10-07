@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Editor for dated allocation segments (start/end + %).
  * Client-side overlap warning when same-day total > 100%.
  */
@@ -14,6 +14,11 @@ export default function AllocationSegmentsEditor({
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const inputCls =
     'w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary';
+  const muted = 'text-muted-foreground';
+  const titleCls = 'text-foreground';
+  const inputCls = isDarkMode
+    ? 'w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring [color-scheme:dark]'
+    : 'w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring';
 
   const rows = Array.isArray(segments) && segments.length
     ? segments
@@ -114,12 +119,21 @@ export default function AllocationSegmentsEditor({
       </div>
       {localOver ? (
         <p className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-700">
+        <p className={`rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-[11px] ${
+          isDarkMode ? 'text-destructive400' : 'text-destructive'
+        }`}>
           {t('workspace.projectHubAllocLocalOverWarn')}
         </p>
       ) : null}
       {peerLines.length ? (
         <div className={`rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-[11px] ${muted}`}>
           <p className="mb-1 font-semibold text-foreground/80">
+        <div
+          className={`rounded-md border px-2.5 py-1.5 text-[11px] ${muted} ${
+            isDarkMode ? 'border-border bg-slate-800/50' : 'border-border bg-muted/30'
+          }`}
+        >
+          <p className={`mb-1 font-semibold ${titleCls}`}>
             {t('workspace.projectHubAllocTimeline')}
           </p>
           <ul className="space-y-0.5">

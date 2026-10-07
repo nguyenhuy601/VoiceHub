@@ -11,6 +11,9 @@ import {
   adminLabelClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminListSkeleton,
+} from '../../components/adminUsers/adminPanelStates';
 import { ConfirmDialog } from '../../components/Shared';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
@@ -133,7 +136,7 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
     <AdminUserFormCard title={t('adminDomains.rbac.posAssign')}>
       {membersError || positionsError ? (
         <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
             {membersError
               ? resolveApiErrorMessage(membersError, { t, fallback: t('companyAdmin.loadMembersFail') })
               : positionsError}
@@ -151,7 +154,7 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
           </button>
         </div>
       ) : positionsLoading ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        <AdminListSkeleton rows={3} />
       ) : (
         <form className="space-y-4" onSubmit={save}>
         {!userId ? (
@@ -241,6 +244,7 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
         isOpen={confirmUnassign}
         onClose={() => !saving && setConfirmUnassign(false)}
         onConfirm={unassign}
+        variant="danger"
         title={t('adminOrg.posUnassignFromMember')}
         message={t('adminOrg.posUnassignConfirm', { name: currentTitle, user: memberName })}
         confirmText={t('adminOrg.posUnassignFromMember')}

@@ -21,6 +21,8 @@ import {
   notifyRbacGrantsChanged,
   ORG_ALLOWED_PROJECT_GRANTS,
 } from '../../utils/rbacV2Ui';
+import { AdminListSkeleton, AdminLoadErrorState } from '../../components/adminUsers/adminPanelStates';
+import { adminInputClass } from '../../components/adminUsers/adminUserPanelUi';
 
 export default function RolePermissionsPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -72,15 +74,9 @@ export default function RolePermissionsPanel({ orgId }) {
     setHydratedGroupId(gid);
   }, [orgId, roleId, groupsQuery.data, groupsQuery.isPending, groupsQuery.isError, catalogQuery.data]);
 
-  useEffect(() => {
-    if (!groupsQuery.isError) return;
-    toast.error(
-      resolveApiErrorMessage(groupsQuery.error, {
-        t,
-        fallback: 'Không tải được Permission Groups của role',
-      })
-    );
-  }, [groupsQuery.isError, groupsQuery.error, t]);
+  const groupsError = groupsQuery.isError
+    ? resolveApiErrorMessage(groupsQuery.error, { t, fallback: t('adminRbac.permissionGroupsLoadFail') })
+    : '';
 
   const catalogReady = tree.length > 0 && !catalogError;
   const canSave =
@@ -140,11 +136,13 @@ export default function RolePermissionsPanel({ orgId }) {
             <p className="text-sm text-muted-foreground">{t('adminRbac.permissionsHint')}</p>
             {role ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Role: <span className="font-medium text-foreground">{normalizeRoleDisplayName(role.name)}</span>
+                {t('adminRbac.rolePrefix')}{' '}
+                <span className="font-medium text-foreground">{normalizeRoleDisplayName(role.name)}</span>
                 {activeGroup ? (
                   <>
                     {' '}
-                    · Group: <span className="font-medium text-foreground">{activeGroup.name}</span>
+                    · {t('adminRbac.groupPrefix')}{' '}
+                    <span className="font-medium text-foreground">{activeGroup.name}</span>
                   </>
                 ) : null}
               </p>
@@ -158,26 +156,28 @@ export default function RolePermissionsPanel({ orgId }) {
         </div>
 
         {!roleId || !role ? (
-          <p className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">
+          <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
             {t('adminRbac.selectRoleFirst')}
           </p>
+        ) : groupsError ? (
+          <AdminLoadErrorState message={groupsError} onRetry={() => groupsQuery.refetch()} />
         ) : loading ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          <AdminListSkeleton />
         ) : catalogError || !tree.length ? (
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+          <p role="alert" className="rounded-xl border border-destructive bg-card p-4 text-sm text-destructive">
             {t('adminRbac.createHint')}
           </p>
         ) : !bindings.length ? (
-          <p className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-muted-foreground">
-            Role chưa gắn Permission Group. Hãy clone template (màn Create) hoặc chạy direct-replace.
+          <p className="rounded-xl border border-warning bg-warning-bg p-4 text-sm text-muted-foreground">
+            {t('adminRbac.roleNoPermissionGroup')}
           </p>
         ) : (
           <>
             {bindings.length > 1 ? (
               <label className="block text-sm">
-                <span className="mb-1 block font-medium">Permission Group</span>
+                <span className="mb-1 block font-medium">{t('adminRbac.permissionGroup')}</span>
                 <select
-                  className="w-full max-w-md rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  className={adminInputClass('max-w-md')}
                   value={groupId}
                   onChange={(e) => onSelectGroup(e.target.value)}
                 >

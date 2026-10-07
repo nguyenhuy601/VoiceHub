@@ -89,17 +89,17 @@ export default function RoleEditPanel({ orgId }) {
         </div>
 
         {!roleId || !role ? (
-          <p className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">
+          <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
             {t('adminRbac.selectRoleFirst')}
           </p>
         ) : (
           <>
             {protectedRole ? (
-              <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+              <p className="rounded-lg border border-warning bg-warning-bg px-3 py-2 text-xs text-warning">
                 {t('adminRbac.protectedRoleEditNote')}
               </p>
             ) : null}
-            <div className="grid gap-3 rounded-xl border border-border bg-card/40 p-4 md:grid-cols-2">
+            <div className="grid gap-3 rounded-xl border border-border bg-card p-4 md:grid-cols-2">
               <label className="block text-sm md:col-span-2">
                 <span className="mb-1 block font-medium text-foreground">{t('adminRbac.roleName')}</span>
                 {protectedRole ? (
@@ -109,12 +109,13 @@ export default function RoleEditPanel({ orgId }) {
                     disabled
                   />
                 ) : (
-                  <div className="flex overflow-hidden rounded-lg border border-border bg-background">
+                  <div className="flex overflow-hidden rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-ring">
                     <span className="shrink-0 border-r border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
                       {SYSTEM_ROLE_NAME_PREFIX.trimEnd()}
                     </span>
                     <input
                       className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
+                      maxLength={120}
                       value={suffix}
                       onChange={(e) => setSuffix(e.target.value)}
                       placeholder={t('adminRbac.roleNamePlaceholder')}
@@ -122,14 +123,15 @@ export default function RoleEditPanel({ orgId }) {
                   </div>
                 )}
                 {!protectedRole && suffix.trim() && isTitleLikeSystemRoleName(suffix) ? (
-                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{t('adminRbac.roleNameTitleLikeError')}</p>
+                  <p className="mt-1 text-xs text-warning">{t('adminRbac.roleNameTitleLikeError')}</p>
                 ) : null}
               </label>
               <label className="block text-sm md:col-span-2">
                 <span className="mb-1 block font-medium text-foreground">{t('adminRbac.roleDescription')}</span>
                 <textarea
                   rows={3}
-                  className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  maxLength={1000}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={t('adminRbac.roleDescriptionPlaceholder')}
@@ -155,7 +157,7 @@ export default function RoleEditPanel({ orgId }) {
                   <span className="mb-1 block text-muted-foreground">{t('adminRbac.color')}</span>
                   <input
                     type="color"
-                    className="h-10 w-full rounded-lg border border-border bg-background"
+                    className="h-10 w-full rounded-lg border border-border bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     value={color}
                     onChange={(e) => setColor(e.target.value)}
                   />
@@ -164,14 +166,14 @@ export default function RoleEditPanel({ orgId }) {
                   <span className="mb-1 block text-muted-foreground">{t('adminRbac.colPriority')}</span>
                   <input
                     type="number"
-                    className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                    className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     value={priority}
                     onChange={(e) => setPriority(e.target.value)}
                   />
                 </label>
               </div>
             </div>
-            <div className="rounded-xl border border-border bg-card/40 p-4">
+            <div className="rounded-xl border border-border bg-card p-4">
               <p className="text-sm text-muted-foreground">{t('adminRbac.editPermissionsV2Hint')}</p>
               <Link to={permissionsHref} className={`${adminSecondaryBtnClass()} mt-3 inline-flex`}>
                 {t('adminRbac.editPermissionsV2Cta')}

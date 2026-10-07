@@ -1,20 +1,25 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { GradientButton } from '../../components/Shared';
-import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
+import { ConfirmDialog, GradientButton } from '../../components/Shared';
+import { adminInputClass, adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminVoiceRooms from '../../hooks/useAdminVoiceRooms';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
+const ROOM_NAME_MAX_LENGTH = 100;
+
 export default function VoiceManageRoomsPanel({ orgId }) {
   const { t } = useAppStrings();
   const { voiceRooms, loading, error, loadRooms, structure } = useAdminVoiceRooms(orgId);
-  const [selectedId, setSelectedId] = useState('');
+  const [searchParams] = useSearchParams();
+  const [selectedId, setSelectedId] = useState(() => String(searchParams.get('roomId') || '').trim());
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createDeptId, setCreateDeptId] = useState('');
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const departments = useMemo(() => {
     const list = [];
@@ -38,6 +43,11 @@ export default function VoiceManageRoomsPanel({ orgId }) {
   }, [structure]);
 
   const selected = voiceRooms.find((ch) => String(ch._id || ch.id) === selectedId);
+  const selectedName = selected?.name || '';
+
+  useEffect(() => {
+    if (selectedName) setName((current) => current || selectedName);
+  }, [selectedName]);
 
   const selectRoom = (ch) => {
     const id = String(ch._id || ch.id);
@@ -86,8 +96,6 @@ export default function VoiceManageRoomsPanel({ orgId }) {
   const deleteRoom = async () => {
     if (!orgId || !selected || busy) return;
     const channelId = String(selected._id || selected.id);
-    const roomName = selected.name || channelId;
-    if (!window.confirm(t('adminVoice.deleteRoomConfirm', { name: roomName }))) return;
     const deptId = String(selected.department || selected.departmentId || '').trim();
     setBusy(true);
     try {
@@ -115,93 +123,120 @@ export default function VoiceManageRoomsPanel({ orgId }) {
       </div>
 
       {error ? (
-        <div className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-4">
+        <div className="space-y-3 rounded-xl border border-destructive px-3 py-4">
           <p className="text-sm text-destructive">{error}</p>
           <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadRooms()}>
-            {t('adminRbac.retry')}
+            {t('common.retry')}
           </button>
         </div>
       ) : (
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-border bg-card/40 p-4">
-          <p className="mb-2 text-sm font-medium">{t('adminVoice.createRoom')}</p>
-          <div className="space-y-2">
-            <select
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              value={createDeptId}
-              onChange={(e) => setCreateDeptId(e.target.value)}
-            >
-              <option value="">{t('adminVoice.selectDepartment')}</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-            <input
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              placeholder={t('adminVoice.roomNamePlaceholder')}
-              value={createName}
-              onChange={(e) => setCreateName(e.target.value)}
-            />
-            <GradientButton type="button" disabled={busy || !createDeptId || !createName.trim()} onClick={createRoom}>
-              {t('adminVoice.createRoom')}
-            </GradientButton>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-xl border border-border bg-card p-4">
+            <p className="mb-2 text-sm font-medium">{t('adminVoice.createRoom')}</p>
+            <div className="space-y-2">
+              <select
+                className={adminInputClass()}
+                value={createDeptId}
+                onChange={(e) => setCreateDeptId(e.target.value)}
+                aria-label={t('adminVoice.departmentAria')}
+                disabled={busy}
+              >
+                <option value="">{t('adminVoice.selectDepartment')}</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className={adminInputClass()}
+                placeholder={t('adminVoice.roomNamePlaceholder')}
+                aria-label={t('adminVoice.roomNamePlaceholder')}
+                value={createName}
+                maxLength={ROOM_NAME_MAX_LENGTH}
+                onChange={(e) => setCreateName(e.target.value)}
+                disabled={busy}
+              />
+              <GradientButton type="button" disabled={busy || !createDeptId || !createName.trim()} onClick={createRoom}>
+                {t('adminVoice.createRoom')}
+              </GradientButton>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-4">
+            <p className="mb-2 text-sm font-medium">{t('adminVoice.renameRoom')}</p>
+            {loading ? (
+              <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+            ) : !voiceRooms.length ? (
+              <p className="mb-3 rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+                {t('adminVoice.noRooms')}
+              </p>
+            ) : (
+              <ul className="mb-3 max-h-40 space-y-1 overflow-auto text-sm">
+                {voiceRooms.map((ch) => {
+                  const id = String(ch._id || ch.id);
+                  const isSelected = selectedId === id;
+                  return (
+                    <li key={id}>
+                      <button
+                        type="button"
+                        aria-pressed={isSelected}
+                        className={`w-full rounded-md px-2 py-1.5 text-left transition-colors duration-150 motion-reduce:transition-none ${
+                          isSelected ? 'bg-primary-subtle text-primary' : 'hover:bg-muted'
+                        }`}
+                        onClick={() => selectRoom(ch)}
+                      >
+                        {ch.name}
+                        {ch._scopeName ? (
+                          <span className="ml-2 text-xs text-muted-foreground">· {ch._scopeName}</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {selected ? (
+              <div className="space-y-2">
+                <input
+                  className={adminInputClass()}
+                  aria-label={t('adminVoice.renameRoom')}
+                  value={name}
+                  maxLength={ROOM_NAME_MAX_LENGTH}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={busy}
+                />
+                <div className="flex flex-wrap gap-2">
+                  <GradientButton type="button" disabled={busy || !name.trim()} onClick={saveRename}>
+                    {busy ? t('common.saving') : t('common.save')}
+                  </GradientButton>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setConfirmDeleteOpen(true)}
+                    className="rounded-lg border border-destructive px-3 py-2 text-sm text-destructive transition-colors duration-150 hover:bg-muted disabled:opacity-50 motion-reduce:transition-none"
+                  >
+                    {t('adminVoice.deleteRoom')}
+                  </button>
+                </div>
+              </div>
+            ) : voiceRooms.length ? (
+              <p className="text-sm text-muted-foreground">{t('adminVoice.selectRoomFirst')}</p>
+            ) : null}
           </div>
         </div>
-
-        <div className="rounded-xl border border-border bg-card/40 p-4">
-          <p className="mb-2 text-sm font-medium">{t('adminVoice.renameRoom')}</p>
-          {loading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-          ) : (
-            <ul className="mb-3 max-h-40 space-y-1 overflow-auto text-sm">
-              {voiceRooms.map((ch) => {
-                const id = String(ch._id || ch.id);
-                return (
-                  <li key={id}>
-                    <button
-                      type="button"
-                      className={`w-full rounded-md px-2 py-1.5 text-left ${selectedId === id ? 'bg-red-500/10' : 'hover:bg-muted/40'}`}
-                      onClick={() => selectRoom(ch)}
-                    >
-                      {ch.name}
-                      {ch._scopeName ? (
-                        <span className="ml-2 text-xs text-muted-foreground">· {ch._scopeName}</span>
-                      ) : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {selected ? (
-            <div className="space-y-2">
-              <input
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-              <div className="flex flex-wrap gap-2">
-                <GradientButton type="button" disabled={busy || !name.trim()} onClick={saveRename}>
-                  {busy ? t('common.saving') : t('common.save')}
-                </GradientButton>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={deleteRoom}
-                  className="rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-600 hover:bg-red-500/10 dark:text-red-300"
-                >
-                  {t('adminVoice.deleteRoom')}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">{t('adminVoice.selectRoomFirst')}</p>
-          )}
-        </div>
-      </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDeleteOpen}
+        onClose={() => setConfirmDeleteOpen(false)}
+        onConfirm={deleteRoom}
+        variant="danger"
+        title={t('adminTasks.confirmTitle')}
+        message={t('adminVoice.deleteRoomConfirm', { name: selected?.name || selectedId })}
+        confirmText={t('adminVoice.deleteRoom')}
+        cancelText={t('common.cancel')}
+      />
     </div>
   );
 }

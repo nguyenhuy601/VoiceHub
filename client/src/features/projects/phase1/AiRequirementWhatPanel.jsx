@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Loader2, RefreshCw } from 'lucide-react';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import { requirementAPI } from '../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
@@ -184,25 +185,37 @@ export default function AiRequirementWhatPanel({
         ) : null}
       </div>
       {errorMsg ? (
-        <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">{errorMsg}</p>
+        <div className="mt-2">
+          <AdminLoadErrorState
+            message={errorMsg}
+            onRetry={() => {
+              setErrorMsg('');
+              void startWhat({
+                silent: true,
+                force: true,
+              });
+            }}
+          />
+        </div>
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
         {phaseStatus === 'pending' || busy ? (
-          <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
+          <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground" aria-busy="true">
+            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
             {t('requirements.aiWhatRunning') || 'Đang phân tích…'}
           </span>
         ) : (
           <button
             type="button"
             disabled={!canRun || busy}
+            aria-busy={busy ? 'true' : undefined}
             onClick={() =>
               startWhat({
                 silent: false,
                 force: phaseStatus === 'ready' || phaseStatus === 'failed',
               })
             }
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted/50 disabled:opacity-40 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <RefreshCw className="h-4 w-4" />
             {phaseStatus === 'ready'

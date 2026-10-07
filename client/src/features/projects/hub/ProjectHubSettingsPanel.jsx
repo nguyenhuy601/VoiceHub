@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStrings } from '../../../locales/appStrings';
 import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
@@ -238,13 +239,14 @@ export default function ProjectHubSettingsPanel({
   const [bindingApproval, setBindingApproval] = useState(false);
   const [openSection, setOpenSection] = useState(null);
   const [catalogToken, setCatalogToken] = useState(0);
+  const [catalogLoadError, setCatalogLoadError] = useState('');
   const [workflowDoc, setWorkflowDoc] = useState(null);
   const [workflowStates, setWorkflowStates] = useState([]);
   const [priorityItems, setPriorityItems] = useState(() => normalizePriorityConfig(null).items);
 
-  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const titleCls = 'text-foreground';
   /** Hint / phụ đề — đủ sáng trên nền tối (tránh slate-400 quá mờ). */
-  const muted = isDarkMode ? 'text-slate-300' : 'text-muted-foreground';
+  const muted = 'text-muted-foreground';
   const fieldLabelCls = `block text-xs font-semibold ${titleCls}`;
   const inputCls =
     'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary';
@@ -366,6 +368,7 @@ export default function ProjectHubSettingsPanel({
     let cancelled = false;
     (async () => {
       setRolesLoading(true);
+      setCatalogLoadError('');
       try {
         const catalogOpts = resolvedProjectId ? { projectId: resolvedProjectId } : {};
         const [roleList, structureRes, wfRes, apRes, orgVisRes] = await Promise.all([
@@ -401,12 +404,15 @@ export default function ProjectHubSettingsPanel({
           setApprovalPolicies(Array.isArray(ap) ? ap : []);
           if (orgVis?.policy) setOrgPolicySeed(normalizeVisibilityPolicy(orgVis.policy));
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setRoleCatalog([]);
           setDepartments([]);
           setWorkflowTemplates([]);
           setApprovalPolicies([]);
+          setCatalogLoadError(
+            resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubSettingsCatalogLoadFail') })
+          );
         }
       } finally {
         if (!cancelled) setRolesLoading(false);
@@ -415,7 +421,7 @@ export default function ProjectHubSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [canManage, resolvedOrganizationId, resolvedProjectId, catalogToken, queryClient]);
+  }, [canManage, resolvedOrganizationId, resolvedProjectId, catalogToken, queryClient, t]);
 
   useEffect(() => {
     if (!canManage || !boardId) {
@@ -713,8 +719,9 @@ export default function ProjectHubSettingsPanel({
           (openSection === 'profile' && !profileHydrated) ||
           (openSection === 'workflow' && !profileHydrated)
         }
+        aria-busy={saving || undefined}
         onClick={() => handleSave()}
-        className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+        className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
       >
         {saving ? '…' : t('workspace.projectHubSettingsSave')}
       </button>
@@ -1374,13 +1381,22 @@ export default function ProjectHubSettingsPanel({
           <p className={`mt-0.5 max-w-xl text-xs leading-relaxed ${muted}`}>{t('workspace.projectHubSettingsHint')}</p>
         </header>
 
+        {catalogLoadError ? (
+          <AdminLoadErrorState
+            className="mb-4"
+            message={catalogLoadError}
+            onRetry={() => setCatalogToken((n) => n + 1)}
+            disabled={rolesLoading}
+          />
+        ) : null}
+
         <ul className="grid gap-2 sm:grid-cols-2">
           {groups.map((group) => (
             <li key={group.id}>
               <button
                 type="button"
                 onClick={() => setOpenSection(group.id)}
-                className="flex w-full items-start gap-2 rounded-xl border border-border bg-surface px-3 py-3 text-left text-foreground hover:border-primary/40"
+                className="flex w-full items-start gap-2 rounded-xl border border-border bg-surface px-3 py-3 text-left text-foreground transition-colors motion-reduce:transition-none hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t('workspace.projectHubSettingsOpenAria', { title: group.title })}
               >
                 <div className="min-w-0 flex-1">

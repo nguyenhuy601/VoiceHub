@@ -128,7 +128,7 @@ export default function ProjectHubTcDetailModal({
             type="button"
             disabled={busy}
             onClick={() => onOpenBug?.()}
-            className={`${btnBase} bg-[#1677FF] text-white shadow-sm hover:bg-[#0958D9]`}
+            className={`${btnBase} bg-primary text-primary-foreground shadow-sm transition-colors motion-reduce:transition-none hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
           >
             <Bug className="h-4 w-4" aria-hidden />
             {t('workspace.phaseQaOpenBug')}
@@ -155,7 +155,7 @@ export default function ProjectHubTcDetailModal({
         <p className="text-[10px] font-semibold uppercase tracking-wide text-[#8C8C8C]">
           {t('workspace.phaseQaFieldTitle')}
         </p>
-        <p className="mt-1 break-words text-base font-semibold leading-snug text-[#262626] dark:text-white">
+        <p className="mt-1 break-words text-base font-semibold leading-snug text-foreground">
           {tcTitle}
         </p>
       </div>
@@ -165,7 +165,7 @@ export default function ProjectHubTcDetailModal({
           <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#8C8C8C]">
             {t('workspace.phaseQaFieldCode')}
           </dt>
-          <dd className="mt-0.5 font-mono text-sm font-medium text-[#262626] dark:text-slate-100">
+          <dd className="mt-0.5 font-mono text-sm font-medium text-foreground dark:text-foreground">
             {tcCode}
           </dd>
         </div>
@@ -173,7 +173,7 @@ export default function ProjectHubTcDetailModal({
           <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#8C8C8C]">
             {t('workspace.phaseQaFieldExternalKey')}
           </dt>
-          <dd className="mt-0.5 font-mono text-sm font-medium text-[#262626] dark:text-slate-100">
+          <dd className="mt-0.5 font-mono text-sm font-medium text-foreground dark:text-foreground">
             {externalKey || '—'}
           </dd>
         </div>
@@ -181,7 +181,7 @@ export default function ProjectHubTcDetailModal({
           <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#8C8C8C]">
             {t('workspace.phaseQaFieldWorkItem')}
           </dt>
-          <dd className="mt-0.5 text-sm font-medium leading-snug text-[#262626] dark:text-slate-100">
+          <dd className="mt-0.5 text-sm font-medium leading-snug text-foreground dark:text-foreground">
             {workItemLabel || '—'}
           </dd>
         </div>

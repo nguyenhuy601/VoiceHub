@@ -10,6 +10,9 @@ import {
   ChevronsDown,
   Image as ImageIcon,
   Info,
+  Link2,
+  List,
+  MessageSquare,
   Paperclip,
   PanelLeft,
   MoreHorizontal,
@@ -236,6 +239,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const [messages, setMessagesState] = useState([]);
   const [message, setMessage] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [messagesLoadError, setMessagesLoadError] = useState(false);
   const [deleteMsgConfirmId, setDeleteMsgConfirmId] = useState(null);
   const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
   const [blockingFriend, setBlockingFriend] = useState(false);
@@ -870,12 +874,36 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
 
   const dmScopeOptions = useMemo(
     () => [
-      { id: DM_SCOPE.ALL, label: t('friendChat.dmScopeAll'), icon: '📋' },
-      { id: DM_SCOPE.TEXT, label: t('friendChat.dmScopeMessages'), icon: '💬' },
-      { id: DM_SCOPE.FILE, label: t('friendChat.dmScopeFiles'), icon: '📎' },
-      { id: DM_SCOPE.IMAGE, label: t('friendChat.dmScopeImages'), icon: '🖼️' },
-      { id: DM_SCOPE.LINK, label: t('friendChat.dmScopeLinks'), icon: '🔗' },
-      { id: DM_SCOPE.CALENDAR, label: t('friendChat.dmScopeCalendar'), icon: '📅' },
+      {
+        id: DM_SCOPE.ALL,
+        label: t('chat.friends.filterAll'),
+        icon: <List className="inline h-3.5 w-3.5" aria-hidden />,
+      },
+      {
+        id: DM_SCOPE.TEXT,
+        label: t('chat.friends.filterMessages'),
+        icon: <MessageSquare className="inline h-3.5 w-3.5" aria-hidden />,
+      },
+      {
+        id: DM_SCOPE.FILE,
+        label: t('chat.friends.filterFiles'),
+        icon: <Paperclip className="inline h-3.5 w-3.5" aria-hidden />,
+      },
+      {
+        id: DM_SCOPE.IMAGE,
+        label: t('chat.friends.filterImages'),
+        icon: <ImageIcon className="inline h-3.5 w-3.5" aria-hidden />,
+      },
+      {
+        id: DM_SCOPE.LINK,
+        label: t('chat.friends.filterLinks'),
+        icon: <Link2 className="inline h-3.5 w-3.5" aria-hidden />,
+      },
+      {
+        id: DM_SCOPE.CALENDAR,
+        label: t('chat.friends.filterCalendar'),
+        icon: <Calendar className="inline h-3.5 w-3.5" aria-hidden />,
+      },
     ],
     [t]
   );
@@ -962,6 +990,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     async (friendId) => {
       if (!friendId) return;
       setLoadingMessages(true);
+      setMessagesLoadError(false);
       setNextOlderPageToken(null);
       try {
         const draftRaw = localStorage.getItem(`${DM_DRAFT_PREFIX}${friendId}`);
@@ -993,8 +1022,8 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
           const last = sorted[sorted.length - 1];
           setLastDmByFriendId((prev) => mergeDmSnippetMap(prev, last, currentUserId, t));
         }
-      } catch (err) {
-        toast.error(resolveApiErrorMessage(err, { t, fallback: t('friendChat.loadMessagesFail') }));
+      } catch {
+        setMessagesLoadError(true);
         setMessages([]);
         setHasMoreOlder(false);
       } finally {
@@ -2174,7 +2203,7 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                           {isPinned && (
                             <Pin
                               className="h-3 w-3 shrink-0 text-warning"
-                              aria-label="Pinned"
+                              aria-label={t('chat.friends.pinnedAria')}
                             />
                           )}
                         </div>
@@ -2501,8 +2530,37 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                   <div className={FIGMA_CHAT_MESSAGES_INNER}>
                     <div className={FIGMA_CHAT_MESSAGES_STACK}>
                       {loadingMessages ? (
-                        <div className={`flex min-h-[30vh] items-center justify-center text-center ${emptyText}`}>
-                          {t('friendChat.loadingMessages')}
+                        <div
+                          className="flex min-h-[30vh] flex-col gap-3 py-4"
+                          aria-busy="true"
+                          aria-label={t('friendChat.loadingMessages')}
+                        >
+                          {[0, 1, 2, 3, 4].map((i) => (
+                            <div
+                              key={`dm-skel-${i}`}
+                              className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}
+                            >
+                              <div
+                                className={`h-11 max-w-[70%] animate-pulse rounded-2xl bg-muted ${
+                                  i % 3 === 0 ? 'w-[48%]' : i % 3 === 1 ? 'w-[62%]' : 'w-[40%]'
+                                }`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ) : messagesLoadError ? (
+                        <div
+                          role="alert"
+                          className="flex min-h-[30vh] flex-col items-center justify-center gap-3 px-4 text-center"
+                        >
+                          <p className="text-sm text-destructive">{t('chat.friends.loadFail')}</p>
+                          <button
+                            type="button"
+                            onClick={() => loadMessages(selectedFriendId)}
+                            className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted motion-safe:transition-colors motion-reduce:transition-none"
+                          >
+                            {t('chat.friends.retry')}
+                          </button>
                         </div>
                       ) : (
                         <>

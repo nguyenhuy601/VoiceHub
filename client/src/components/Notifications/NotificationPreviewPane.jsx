@@ -16,6 +16,7 @@ export default function NotificationPreviewPane({
   notif = null,
   actionKind = 'none',
   acting = false,
+  markingRead = false,
   showBack = false,
   onBack,
   onOpen,
@@ -112,7 +113,9 @@ export default function NotificationPreviewPane({
           <button
             type="button"
             onClick={() => onMarkRead?.(notif.id)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-transparent px-3.5 text-[0.8125rem] font-medium text-foreground transition-colors hover:bg-muted"
+            aria-busy={markingRead}
+            disabled={markingRead}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-transparent px-3.5 text-[0.8125rem] font-medium text-foreground transition-colors motion-reduce:transition-none hover:bg-muted disabled:opacity-60"
           >
             <CheckCheck className="h-3.5 w-3.5" aria-hidden />
             {labels.markRead || t('notifications.markOneRead')}
@@ -157,7 +160,7 @@ export default function NotificationPreviewPane({
         <button
           type="button"
           onClick={() => onDelete?.(notif)}
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg border-none bg-transparent px-3 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg border-none bg-transparent px-3 text-[0.8125rem] text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-destructive/10 hover:text-destructive"
           aria-label={labels.delete || t('common.delete')}
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden />

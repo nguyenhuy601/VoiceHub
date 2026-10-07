@@ -107,6 +107,7 @@ function SettingsPage() {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [avatarCacheBust, setAvatarCacheBust] = useState(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
   const [roles, setRoles] = useState([
     { id: 'r1', name: 'Administrator', members: 3, permissions: 'Full access', color: 'from-red-500 to-orange-500', icon: '👑' },
     { id: 'r2', name: 'Department lead', members: 4, permissions: 'Manage department', color: 'from-cyan-600 to-teal-600', icon: '👔' },
@@ -161,7 +162,6 @@ function SettingsPage() {
     const userProfileData = localStorage.getItem('settings:userProfile');
     const apiKeyData = localStorage.getItem('settings:apiKeys');
     const integrationData = localStorage.getItem('settings:integrations');
-    const securityData = localStorage.getItem('settings:security');
     const notificationData = localStorage.getItem('settings:notifications');
     const privacyData = localStorage.getItem('settings:privacy');
     const avatarData = localStorage.getItem('settings:avatar');
@@ -191,8 +191,6 @@ function SettingsPage() {
     }
     if (apiKeyData) setApiKeys(JSON.parse(apiKeyData));
     if (integrationData) setIntegrations(JSON.parse(integrationData));
-    // settings:security — legacy localStorage; security UI removed (no setter).
-    void securityData;
     if (notificationData) {
       try {
         const parsed = JSON.parse(notificationData);
@@ -323,12 +321,14 @@ function SettingsPage() {
   };
 
   const handleSaveUserProfile = async () => {
+    if (profileSaving) return;
     const nextEmail = String(userProfileForm.email || '').trim().toLowerCase();
     const currentEmail = String(user?.email || '').trim().toLowerCase();
     const payload = {
       displayName: String(userProfileForm.fullName || '').trim(),
       phone: String(userProfileForm.phone || '').trim(),
     };
+    setProfileSaving(true);
     try {
       if (nextEmail && nextEmail !== currentEmail) {
         await authService.requestEmailChange(nextEmail);
@@ -352,6 +352,8 @@ function SettingsPage() {
       }
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('errors.generic') }));
+    } finally {
+      setProfileSaving(false);
     }
   };
 
@@ -644,7 +646,7 @@ function SettingsPage() {
                   disabled={avatarUploading}
                   onChange={handleAvatarChange}
                 />
-                <span className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
+                <span className="motion-safe:transition-colors motion-reduce:transition-none rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
                   {avatarUploading ? t('profileModal.changeAvatarUploading') : t('settingsPage.changeAvatar')}
                 </span>
               </label>
@@ -655,7 +657,7 @@ function SettingsPage() {
                 type="text"
                 value={userProfileForm.fullName}
                 onChange={(e) => setUserProfileForm((prev) => ({ ...prev, fullName: e.target.value }))}
-                className={FIGMA_SETTINGS_INPUT}
+                className={`${FIGMA_SETTINGS_INPUT} motion-safe:transition-colors motion-reduce:transition-none`}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -665,7 +667,7 @@ function SettingsPage() {
                   type="email"
                   value={userProfileForm.email}
                   onChange={(e) => setUserProfileForm((prev) => ({ ...prev, email: e.target.value }))}
-                  className={FIGMA_SETTINGS_INPUT}
+                  className={`${FIGMA_SETTINGS_INPUT} motion-safe:transition-colors motion-reduce:transition-none`}
                 />
               </div>
               <div>
@@ -674,11 +676,17 @@ function SettingsPage() {
                   type="tel"
                   value={userProfileForm.phone}
                   onChange={(e) => setUserProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
-                  className={FIGMA_SETTINGS_INPUT}
+                  className={`${FIGMA_SETTINGS_INPUT} motion-safe:transition-colors motion-reduce:transition-none`}
                 />
               </div>
             </div>
-            <GradientButton variant="primary" onClick={handleSaveUserProfile}>
+            <GradientButton
+              variant="primary"
+              onClick={handleSaveUserProfile}
+              aria-busy={profileSaving}
+              disabled={profileSaving}
+              className="motion-safe:transition-colors motion-reduce:transition-none"
+            >
               {t('settingsPage.saveChanges')}
             </GradientButton>
           </div>

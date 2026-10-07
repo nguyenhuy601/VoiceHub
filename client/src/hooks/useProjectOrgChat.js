@@ -18,6 +18,8 @@ import {
 import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
 import { useAppStrings } from '../locales/appStrings';
 import { resolveOutgoingRoomReceipt } from '../utils/messageReceiptLabel';
+import { mergePollRealtimeMessage } from '../components/Chat/PollCard';
+import useOrgRoomMessageRealtime from './useOrgRoomMessageRealtime';
 
 const unwrapData = (payload) => payload?.data ?? payload;
 
@@ -226,6 +228,64 @@ export default function useProjectOrgChat({
     };
   }, [selectedChannelId, orgId, joinRoom, leaveRoom, on, off, appendLocal]);
 
+  const onRoomEdited = useCallback(
+    (msg) => {
+      const id = messageId(msg);
+      if (!id) return;
+      const normalized = normalizeOrgChatMessage(msg) || msg;
+      patchMessage(id, normalized);
+    },
+    [patchMessage]
+  );
+
+  const onRoomRecalled = useCallback(
+    (msg) => {
+      const id = messageId(msg);
+      if (!id) return;
+      const normalized = normalizeOrgChatMessage(msg) || msg;
+      patchMessage(id, normalized);
+    },
+    [patchMessage]
+  );
+
+  const onRoomDeleted = useCallback(
+    (msg) => {
+      const id = String(msg?.messageId || msg?._id || msg?.id || '').trim();
+      if (!id) return;
+      setDeletedMessageIds((prev) => new Set([...prev, id]));
+      removeOrgChannelMessageCache(queryClient, selectedChannelId, orgId, id);
+    },
+    [queryClient, selectedChannelId, orgId]
+  );
+
+  const applyPollUpdate = useCallback(
+    (msg) => {
+      const raw = msg?.data !== undefined && msg?.poll == null ? msg.data : msg;
+      const normalized = normalizeOrgChatMessage(raw) || raw;
+      const id = messageId(normalized);
+      if (!id) return;
+      setMessageOverrides((prev) => {
+        const prior = prev[id] || {};
+        return {
+          ...prev,
+          [id]: mergePollRealtimeMessage(prior, normalized),
+        };
+      });
+    },
+    []
+  );
+
+  useOrgRoomMessageRealtime({
+    roomId: selectedChannelId,
+    on,
+    off,
+    enabled: Boolean(selectedChannelId && orgId),
+    onEdited: onRoomEdited,
+    onRecalled: onRoomRecalled,
+    onDeleted: onRoomDeleted,
+    onPollUpdated: applyPollUpdate,
+  });
+
   const messages = useMemo(() => {
     const fromApi = normalizeOrgChatMessages(messagesQuery.messages || []);
     const merged = mergeById(fromApi, extraMessages);
@@ -235,7 +295,7 @@ export default function useProjectOrgChat({
       .map((m) => {
         const id = messageId(m);
         const ov = messageOverrides[id];
-        const row = ov ? { ...m, ...ov } : m;
+        const row = ov ? mergePollRealtimeMessage(m, { ...m, ...ov }) : m;
         return normalizeOrgChatMessage(row);
       });
   }, [messagesQuery.messages, extraMessages, messageOverrides, deletedMessageIds]);
@@ -619,5 +679,6 @@ export default function useProjectOrgChat({
     deleteMessage,
     recallMessage,
     forwardMessage,
+    applyPollUpdate,
   };
 }

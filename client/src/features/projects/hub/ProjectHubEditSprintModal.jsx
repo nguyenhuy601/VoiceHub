@@ -40,7 +40,9 @@ export default function ProjectHubEditSprintModal({
   const canSave = Boolean(name.trim()) && !datesInvalid;
 
   const inputCls =
-    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
+    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring';
+  const btnFocus =
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none';
 
   return (
     <Modal
@@ -108,18 +110,24 @@ export default function ProjectHubEditSprintModal({
           <button
             type="button"
             disabled={busy}
+            aria-busy={busy || undefined}
             onClick={onDelete}
-            className="mr-auto rounded-lg px-3 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            className={`mr-auto rounded-lg px-3 py-2 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50 ${btnFocus}`}
           >
             {t('workspace.projectHubBacklogDeleteSprint')}
           </button>
         ) : null}
-        <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground">
+        <button
+          type="button"
+          onClick={onClose}
+          className={`rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors ${btnFocus}`}
+        >
           {t('common.cancel')}
         </button>
         <button
           type="button"
           disabled={busy || !canSave}
+          aria-busy={busy || undefined}
           onClick={() =>
             onSave?.({
               name: name.trim(),
@@ -128,7 +136,7 @@ export default function ProjectHubEditSprintModal({
               endDate: endDate ? new Date(endDate).toISOString() : null,
             })
           }
-          className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          className={`rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors disabled:opacity-50 ${btnFocus}`}
         >
           {t('workspace.projectHubBacklogUpdate')}
         </button>

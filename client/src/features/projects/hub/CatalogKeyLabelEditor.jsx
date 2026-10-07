@@ -15,6 +15,16 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import {
+  adminDangerBtnClass,
+  adminInputClass,
+  adminSecondaryBtnClass,
+} from '../../../components/adminUsers/adminUserPanelUi';
+import { ConfirmDialog } from '../../../components/Shared';
+import { useAppStrings } from '../../../locales/appStrings';
+
+const KEY_MAX_LENGTH = 32;
+const LABEL_MAX_LENGTH = 100;
 
 export function slugKey(raw) {
   return String(raw || '')
@@ -22,7 +32,7 @@ export function slugKey(raw) {
     .toLowerCase()
     .replace(/\s+/g, '_')
     .replace(/[^a-z0-9_]/g, '')
-    .slice(0, 32);
+    .slice(0, KEY_MAX_LENGTH);
 }
 
 function SortableCatalogRow({
@@ -30,6 +40,8 @@ function SortableCatalogRow({
   idx,
   disabled,
   deleteAria,
+  reorderAria,
+  labelAria,
   cannotDeleteLast,
   rowsLength,
   onLabelChange,
@@ -43,16 +55,21 @@ function SortableCatalogRow({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.55 : undefined,
   };
 
   return (
-    <li ref={setNodeRef} style={style} className="flex items-center gap-2">
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-2 motion-reduce:!transition-none ${
+        isDragging ? 'opacity-[0.55] motion-reduce:opacity-100' : ''
+      }`}
+    >
       <button
         type="button"
-        className="shrink-0 cursor-grab touch-none rounded border border-border px-1.5 py-1 text-xs text-muted-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+        className="shrink-0 cursor-grab touch-none rounded border border-border px-1.5 py-1 text-xs text-muted-foreground active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:text-muted-foreground"
         disabled={disabled}
-        aria-label="Reorder"
+        aria-label={reorderAria}
         {...attributes}
         {...listeners}
       >
@@ -62,14 +79,16 @@ function SortableCatalogRow({
         {row.key}
       </span>
       <input
-        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+        className={adminInputClass('!w-auto min-w-0 flex-1 !px-2 !py-1.5')}
         value={row.label || ''}
+        maxLength={LABEL_MAX_LENGTH}
         disabled={disabled}
+        aria-label={labelAria}
         onChange={(e) => onLabelChange(idx, e.target.value)}
       />
       <button
         type="button"
-        className="shrink-0 rounded-md border border-destructive/40 px-2 py-1 text-xs font-semibold text-destructive disabled:opacity-40"
+        className={adminDangerBtnClass('shrink-0 !px-2 !py-1 text-xs')}
         disabled={disabled || (cannotDeleteLast && rowsLength <= 1)}
         aria-label={deleteAria}
         onClick={() => onDelete(idx)}
@@ -82,22 +101,28 @@ function SortableCatalogRow({
 
 /**
  * Danh sách key/label: sửa label (key cố định), kéo dọc sắp xếp, xóa/thêm dòng.
+ * Placeholder / nhãn nút do parent truyền; mặc định lấy từ i18n.
  */
 export default function CatalogKeyLabelEditor({
   items = [],
   disabled = false,
   addKeyPh = 'key',
   addLabelPh = 'Label',
-  addText = 'Add',
+  addText,
   emptyText = '',
-  deleteAria = 'Delete',
+  deleteAria,
   cannotDeleteLast = true,
   onChange,
 }) {
+  const { t } = useAppStrings();
   const [draftKey, setDraftKey] = useState('');
   const [draftLabel, setDraftLabel] = useState('');
+  const [pendingDeleteIdx, setPendingDeleteIdx] = useState(-1);
   const rows = Array.isArray(items) ? items : [];
   const sortableIds = rows.map((r, i) => String(r.key || i));
+  const pendingDeleteRow = pendingDeleteIdx >= 0 ? rows[pendingDeleteIdx] : null;
+  const resolvedAddText = addText || t('adminTasks.catalogAdd');
+  const resolvedDeleteAria = deleteAria || t('adminTasks.catalogDelete');
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -136,14 +161,16 @@ export default function CatalogKeyLabelEditor({
                   row={row}
                   idx={idx}
                   disabled={disabled}
-                  deleteAria={deleteAria}
+                  deleteAria={resolvedDeleteAria}
+                  reorderAria={t('adminTasks.catalogReorderAria', { key: row.key })}
+                  labelAria={t('adminTasks.catalogLabelAria', { key: row.key })}
                   cannotDeleteLast={cannotDeleteLast}
                   rowsLength={rows.length}
                   onLabelChange={(i, label) => {
                     const next = rows.map((r, j) => (j === i ? { ...r, label } : r));
                     emit(next);
                   }}
-                  onDelete={(i) => emit(rows.filter((_, j) => j !== i))}
+                  onDelete={setPendingDeleteIdx}
                 />
               ))}
             </ul>
@@ -154,10 +181,12 @@ export default function CatalogKeyLabelEditor({
       ) : null}
       <div className="flex flex-wrap items-end gap-2">
         <input
-          className="w-28 rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary"
+          className={adminInputClass('!w-28 !px-2 !py-1.5 font-mono text-xs')}
           value={draftKey}
+          maxLength={KEY_MAX_LENGTH}
           disabled={disabled}
           placeholder={addKeyPh}
+          aria-label={t('adminTasks.catalogNewKeyAria')}
           onChange={(e) => setDraftKey(slugKey(e.target.value) || e.target.value.toLowerCase())}
           onPaste={(e) => {
             e.preventDefault();
@@ -166,21 +195,34 @@ export default function CatalogKeyLabelEditor({
           }}
         />
         <input
-          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+          className={adminInputClass('!w-auto min-w-0 flex-1 !px-2 !py-1.5')}
           value={draftLabel}
+          maxLength={LABEL_MAX_LENGTH}
           disabled={disabled}
           placeholder={addLabelPh}
+          aria-label={t('adminTasks.catalogNewLabelAria')}
           onChange={(e) => setDraftLabel(e.target.value)}
         />
         <button
           type="button"
-          className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground disabled:opacity-50"
+          className={adminSecondaryBtnClass('!px-3 !py-1.5 text-xs font-semibold')}
           disabled={disabled || !slugKey(draftKey)}
           onClick={addRow}
         >
-          {addText}
+          {resolvedAddText}
         </button>
       </div>
+
+      <ConfirmDialog
+        isOpen={Boolean(pendingDeleteRow)}
+        onClose={() => setPendingDeleteIdx(-1)}
+        onConfirm={() => emit(rows.filter((_, j) => j !== pendingDeleteIdx))}
+        title={t('adminTasks.confirmTitle')}
+        message={t('adminTasks.catalogDeleteConfirm', { key: pendingDeleteRow?.key || '' })}
+        confirmText={t('adminTasks.delete')}
+        cancelText={t('adminTasks.cancel')}
+        variant="danger"
+      />
     </div>
   );
 }

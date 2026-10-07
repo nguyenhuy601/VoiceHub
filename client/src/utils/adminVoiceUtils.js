@@ -19,6 +19,18 @@ export function meetingStatus(meeting) {
   return String(meeting?.status || '').trim().toLowerCase() || 'unknown';
 }
 
+const MEETING_STATUS_LABEL_KEYS = {
+  scheduled: 'adminVoice.statusScheduled',
+  active: 'adminVoice.statusActive',
+  ended: 'adminVoice.statusEnded',
+};
+
+/** Unknown statuses fall back to the raw value. */
+export function meetingStatusLabel(status, t) {
+  const key = MEETING_STATUS_LABEL_KEYS[status];
+  return key ? t(key) : status;
+}
+
 export function isActiveMeeting(meeting) {
   const s = meetingStatus(meeting);
   return s === 'active' || s === 'ongoing' || s === 'in_progress' || meeting?.active === true;

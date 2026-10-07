@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { useAppStrings } from '../../locales/appStrings';
 
 /**
  * Tree editor: Category → Module → Master Permission actions.
@@ -15,8 +16,11 @@ export default function MasterPermissionTreeEditor({
   excludeCategoryKeys = [],
   /** When a category is excluded, still show these master keys (e.g. project.project.create). */
   includePermissionKeys = [],
-  searchPlaceholder = 'Tìm category / module / action…',
+  searchPlaceholder,
 }) {
+  const { t } = useAppStrings();
+  const searchPh =
+    searchPlaceholder || t('adminRbac.permTreeSearchPlaceholder');
   const [query, setQuery] = useState('');
   const [openCategories, setOpenCategories] = useState(() => new Set(['system', 'organization']));
   const [openModules, setOpenModules] = useState(() => new Set());
@@ -114,10 +118,10 @@ export default function MasterPermissionTreeEditor({
   return (
     <div className="space-y-3">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
         <input
           className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none"
-          placeholder={searchPlaceholder}
+          placeholder={searchPh}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -132,7 +136,7 @@ export default function MasterPermissionTreeEditor({
             <div key={cat.key} className="overflow-hidden rounded-xl border border-border bg-card/40">
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-muted/30"
+                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-muted"
                 onClick={() => toggleCategory(cat.key)}
               >
                 <span className="flex items-center gap-2 font-semibold">
@@ -144,13 +148,13 @@ export default function MasterPermissionTreeEditor({
                 </span>
               </button>
               {catOpen ? (
-                <div className="space-y-1 border-t border-border/60 px-2 py-2">
+                <div className="space-y-1 border-t border-border px-2 py-2">
                   {(cat.modules || []).map((mod) => {
                     const modOpen = openModules.has(mod.key) || Boolean(q);
                     const keys = moduleKeys(mod);
                     const selected = keys.filter((k) => grantsDraft[k]).length;
                     return (
-                      <div key={mod.key} className="rounded-lg border border-border/50 bg-background/40">
+                      <div key={mod.key} className="rounded-lg border border-border bg-background/40">
                         <div className="flex items-center gap-2 px-2 py-1.5">
                           <button
                             type="button"
@@ -170,10 +174,12 @@ export default function MasterPermissionTreeEditor({
                           {editable && onSetMany ? (
                             <button
                               type="button"
-                              className="rounded border border-border px-1.5 py-0.5 text-[10px] hover:bg-muted/40"
+                              className="rounded border border-border px-1.5 py-0.5 text-[10px] hover:bg-muted"
                               onClick={() => onSetMany(keys, selected < keys.length)}
                             >
-                              {selected >= keys.length ? 'Bỏ' : 'Tất cả'}
+                              {selected >= keys.length
+                                ? t('adminRbac.clearModule')
+                                : t('adminRbac.selectAllModule')}
                             </button>
                           ) : null}
                         </div>
@@ -185,7 +191,7 @@ export default function MasterPermissionTreeEditor({
                                 <li key={perm.key}>
                                   <label
                                     className={`flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm ${
-                                      editable ? 'hover:bg-muted/30' : 'opacity-80'
+                                      editable ? 'hover:bg-muted' : 'opacity-80'
                                     }`}
                                   >
                                     <input

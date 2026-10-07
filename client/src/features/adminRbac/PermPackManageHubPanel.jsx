@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAppStrings } from '../../locales/appStrings';
 import useRbacRolelessAssignments from '../../hooks/useRbacRolelessAssignments';
-import AdminRbacOpsHubShell from '../../components/admin/AdminRbacOpsHubShell';
+import AdminRbacOpsHubShell from '../../components/Admin/AdminRbacOpsHubShell';
 import AdminRolePicker from '../../components/adminRbac/AdminRolePicker';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
 import RoleAssignPanel from './RoleAssignPanel';

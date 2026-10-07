@@ -13,7 +13,11 @@ import roleAPI from '../../services/api/roleAPI';
 import userService from '../../services/userService';
 import friendService from '../../services/friendService';
 import { ConfirmDialog, Modal } from '../Shared';
-import { Plus } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
+import { handlePickerListKeyDown } from '../adminUsers/pickerListKeyboard';
+import { CHAT_MESSAGE_MAX_LENGTH } from '../../utils/chatComposerLimits';
+import { adminPrimaryBtnClass } from '../adminUsers/adminUserPanelUi';
+import { AdminBusySpinner } from '../adminUsers/adminPanelStates';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { collectTeamMemberIds, filterAddTeamMemberCandidates, filterMembersForTeam } from '../../utils/filterTeamMembers';
@@ -100,6 +104,8 @@ async function enrichMembersWithProfiles(members, memberFallback) {
  * hoặc Trực tuyến / Ngoại tuyến (mặc định).
  */
 const CONTEXT_MENU_PAD = 8;
+const contextMenuItemClass =
+  'flex w-full items-center px-3 py-2 text-left text-foreground transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none';
 
 /**
  * Vị trí khởi tạo tại con trỏ; căn chính xác theo chiều cao thật của menu trong useLayoutEffect.
@@ -181,12 +187,6 @@ function OrganizationMemberSidebar({
   refreshKey = 0,
   currentUserId = null,
   myRole = 'member',
-  canReviewJoinApplications = false,
-  joinApplicationsToReview = [],
-  loadingJoinApplicationsToReview = false,
-  respondingJoinReviewKeys = [],
-  onApproveJoinApplication,
-  onRejectJoinApplication,
   onMentionUser,
   onMemberRemoved,
   /** Khi bọc trong OrganizationMemberPeekDock: false = panel đang thu → đóng menu portal */
@@ -263,10 +263,6 @@ function OrganizationMemberSidebar({
   usePresenceSubscribe(memberUserIds, {
     enabled: Boolean(organizationId) && sidebarTab === 'people' && memberDockOpen !== false,
   });
-
-  const pendingReviewCount = canReviewJoinApplications ? joinApplicationsToReview.length : 0;
-  const joinReviewKey = (orgId, applicationId) => `${orgId}:${applicationId}`;
-  const [selectedJoinApplication, setSelectedJoinApplication] = useState(null);
 
   useEffect(() => {
     if (!organizationId || !currentUserId) {
@@ -526,18 +522,6 @@ function OrganizationMemberSidebar({
   }, [organizationId, departmentId, refreshKey, sidebarTab, memberDockOpen, t]);
 
   useEffect(() => {
-    if (!selectedJoinApplication) return;
-    const stillExists = joinApplicationsToReview.some(
-      (app) =>
-        String(app.organizationId) === String(selectedJoinApplication.organizationId) &&
-        String(app.applicationId) === String(selectedJoinApplication.applicationId)
-    );
-    if (!stillExists) {
-      setSelectedJoinApplication(null);
-    }
-  }, [joinApplicationsToReview, selectedJoinApplication]);
-
-  useEffect(() => {
     setAddMemberOpen(false);
     setAddMemberIds([]);
     setMemberCard((prev) => ({ ...prev, open: false, member: null }));
@@ -653,7 +637,6 @@ function OrganizationMemberSidebar({
 
   useEffect(() => {
     closeMenu();
-    setSelectedJoinApplication(null);
   }, [location.pathname, location.search, closeMenu]);
 
   const prevMenuOpenRef = useRef(false);
@@ -859,6 +842,34 @@ function OrganizationMemberSidebar({
     return () => window.removeEventListener('keydown', onKey);
   }, [menu.open, closeMenu]);
 
+  useEffect(() => {
+    if (!menu.open) return undefined;
+    const frame = requestAnimationFrame(() => {
+      menuPanelRef.current?.querySelector('button:not([disabled])')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [menu.open]);
+
+  useEffect(() => {
+    if (!rolesSubmenu.open || rolesSubmenu.loading) return undefined;
+    const frame = requestAnimationFrame(() => {
+      rolesSubmenuRef.current?.querySelector('button:not([disabled])')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [rolesSubmenu.open, rolesSubmenu.loading]);
+
+  const handleContextMenuKeyDown = useCallback(
+    (event) => {
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        closeMenu();
+        return;
+      }
+      handlePickerListKeyDown(event);
+    },
+    [closeMenu]
+  );
+
   const confirmMemberAction = useCallback(async () => {
     if (!memberConfirm?.member) return;
     const m = memberConfirm.member;
@@ -1055,7 +1066,7 @@ function OrganizationMemberSidebar({
         />
         <div
           ref={menuPanelRef}
-          className={`fixed z-[9998] rounded-xl border border-white/10 bg-[#2b2d31] py-1.5 text-sm shadow-2xl ${
+          className={`fixed z-[9998] rounded-xl border border-border bg-card py-1.5 text-sm text-foreground shadow-2xl motion-safe:animate-fade-in-fast ${
             menu.menuMaxHeight != null ? 'overflow-y-auto scrollbar-overlay' : 'overflow-hidden'
           }`}
           style={{
@@ -1066,11 +1077,13 @@ function OrganizationMemberSidebar({
             ...(menu.menuMaxHeight != null ? { maxHeight: menu.menuMaxHeight } : {}),
           }}
           role="menu"
+          aria-label={t('organizations.memberMenuAria', { name: menu.member.displayName || '' })}
+          onKeyDown={handleContextMenuKeyDown}
         >
           <button
             type="button"
             role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-gray-100 hover:bg-white/10"
+            className={contextMenuItemClass}
             onClick={() => {
               const m = menu.member;
               const sourceRect = menuPanelRef.current?.getBoundingClientRect() || null;
@@ -1083,7 +1096,7 @@ function OrganizationMemberSidebar({
           <button
             type="button"
             role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-gray-100 hover:bg-white/10"
+            className={contextMenuItemClass}
             onClick={() => {
               const m = menu.member;
               const mention = mentionText(m);
@@ -1097,7 +1110,7 @@ function OrganizationMemberSidebar({
           <button
             type="button"
             role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-gray-100 hover:bg-white/10"
+            className={contextMenuItemClass}
             onClick={() => {
               const m = menu.member;
               closeMenu();
@@ -1109,7 +1122,7 @@ function OrganizationMemberSidebar({
           <button
             type="button"
             role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-gray-100 hover:bg-white/10"
+            className={contextMenuItemClass}
             onClick={() => {
               closeMenu();
               navigate('/voice');
@@ -1117,48 +1130,50 @@ function OrganizationMemberSidebar({
           >
             {t('organizations.memberMenuCall')}
           </button>
-          <div className="px-3 py-2">
-            <button
-              type="button"
-              className="w-full rounded-lg px-0 py-1 text-left text-gray-100 hover:bg-white/10"
-              onClick={() => {
-                closeMenu();
-                toast(t('organizations.toastNoteSoon'), { icon: '📝' });
-              }}
-            >
-              <div>{t('organizations.memberMenuNoteTitle')}</div>
-              <div className="text-xs text-gray-500">{t('organizations.memberMenuNoteSub')}</div>
-            </button>
-          </div>
-          <div className="my-1 border-t border-white/10" />
           <button
             type="button"
-            className="flex w-full items-center justify-between px-3 py-2 text-left text-gray-100 hover:bg-white/10"
+            role="menuitem"
+            className={`${contextMenuItemClass} flex-col items-start`}
+            onClick={() => {
+              closeMenu();
+              toast(t('organizations.toastNoteSoon'), { icon: '📝' });
+            }}
+          >
+            <span>{t('organizations.memberMenuNoteTitle')}</span>
+            <span className="text-xs text-muted-foreground">{t('organizations.memberMenuNoteSub')}</span>
+          </button>
+          <div className="my-1 border-t border-border" role="separator" />
+          <button
+            type="button"
+            role="menuitem"
+            className={`${contextMenuItemClass} justify-between`}
             onClick={() => {
               closeMenu();
               toast(t('organizations.toastAppsSoon'), { icon: '🧩' });
             }}
           >
             <span>{t('organizations.memberMenuApps')}</span>
-            <span className="text-gray-500">›</span>
+            <span className="text-muted-foreground" aria-hidden>›</span>
           </button>
           <button
             type="button"
-            className="flex w-full items-center justify-between px-3 py-2 text-left text-gray-100 hover:bg-white/10"
+            role="menuitem"
+            className={`${contextMenuItemClass} justify-between`}
             onClick={() => {
               closeMenu();
               toast(t('organizations.toastInviteServerSoon'), { icon: '🔗' });
             }}
           >
             <span>{t('organizations.memberMenuInviteServer')}</span>
-            <span className="text-gray-500">›</span>
+            <span className="text-muted-foreground" aria-hidden>›</span>
           </button>
-          <div className="my-1 border-t border-white/10" />
+          <div className="my-1 border-t border-border" role="separator" />
           {String(menu.member.userId) !== String(currentUserId) && (
             <>
               <button
                 type="button"
-                className="flex w-full px-3 py-2 text-left text-gray-100 hover:bg-white/10"
+                role="menuitem"
+                className={contextMenuItemClass}
                 onClick={async () => {
                   const m = menu.member;
                   closeMenu();
@@ -1174,7 +1189,8 @@ function OrganizationMemberSidebar({
               </button>
               <button
                 type="button"
-                className="flex w-full px-3 py-2 text-left text-gray-100 hover:bg-white/10"
+                role="menuitem"
+                className={contextMenuItemClass}
                 onClick={() => {
                   closeMenu();
                   toast(t('organizations.toastIgnoreSoon'), { icon: '👁' });
@@ -1184,7 +1200,8 @@ function OrganizationMemberSidebar({
               </button>
               <button
                 type="button"
-                className="flex w-full px-3 py-2 text-left text-orange-300 hover:bg-white/10"
+                role="menuitem"
+                className={`${contextMenuItemClass} text-warning`}
                 onClick={() => {
                   const m = menu.member;
                   closeMenu();
@@ -1195,10 +1212,13 @@ function OrganizationMemberSidebar({
               </button>
             </>
           )}
-          <div className="my-1 border-t border-white/10" />
+          <div className="my-1 border-t border-border" role="separator" />
           <button
             type="button"
-            className="flex w-full items-center justify-between px-3 py-2 text-left text-gray-100 hover:bg-white/10"
+            role="menuitem"
+            aria-haspopup="menu"
+            aria-expanded={rolesSubmenu.open}
+            className={`${contextMenuItemClass} justify-between`}
             onClick={() => {
               if (!canManageRoleAssignments) {
                 closeMenu();
@@ -1210,15 +1230,16 @@ function OrganizationMemberSidebar({
             ref={rolesMenuBtnRef}
           >
             <span>{t('organizations.memberMenuRoles')}</span>
-            <span className="text-gray-500">›</span>
+            <span className="text-muted-foreground" aria-hidden>›</span>
           </button>
           {menu.member &&
             canRemoveMember(myRole, menu.member.role, menu.member.userId, currentUserId) && (
               <>
-                <div className="my-1 border-t border-white/10" />
+                <div className="my-1 border-t border-border" role="separator" />
                 <button
                   type="button"
-                  className="flex w-full px-3 py-2 text-left text-rose-400 hover:bg-rose-500/15"
+                  role="menuitem"
+                  className={`${contextMenuItemClass} text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10`}
                   onClick={() => {
                     closeMenu();
                     setMemberConfirm({ type: 'remove', member: menu.member });
@@ -1232,13 +1253,16 @@ function OrganizationMemberSidebar({
         {rolesSubmenu.open && rolesSubmenu.member && (
           <div
             ref={rolesSubmenuRef}
-            className="fixed z-[9999] w-[250px] overflow-hidden rounded-xl border border-white/10 bg-[#1f2126] py-1.5 text-sm shadow-2xl"
+            role="menu"
+            aria-label={t('organizations.memberRoleOf', { name: rolesSubmenu.member.displayName })}
+            onKeyDown={handleContextMenuKeyDown}
+            className="fixed z-[9999] w-[250px] overflow-hidden rounded-xl border border-border bg-card py-1.5 text-sm text-foreground shadow-2xl motion-safe:animate-fade-in-fast"
             style={{ left: rolesSubmenu.x, top: rolesSubmenu.y, maxHeight: 'min(70vh, 360px)' }}
           >
-            <div className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#9ca3af]">
+            <div className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {t('organizations.memberRoleOf', { name: rolesSubmenu.member.displayName })}
             </div>
-            <div className="my-1 border-t border-white/10" />
+            <div className="my-1 border-t border-border" role="separator" />
             {!canManageRoleAssignments ? (
               <p className="px-3 py-2 text-xs text-muted-foreground">{t('organizations.memberRoleNoPermissionFull')}</p>
             ) : organizationRoles.length === 0 ? (
@@ -1254,13 +1278,17 @@ function OrganizationMemberSidebar({
                     <button
                       key={role.roleId}
                       type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={checked}
+                      aria-busy={busy || undefined}
                       disabled={busy}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-gray-100 transition hover:bg-white/10 disabled:opacity-60"
+                      className={`${contextMenuItemClass} gap-2 disabled:opacity-60`}
                       onClick={() => toggleMemberRole(role)}
                     >
                       <span
-                        className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
-                          checked ? 'border-indigo-400 bg-indigo-500 text-white' : 'border-gray-500 text-transparent'
+                        aria-hidden
+                        className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] transition-colors ${
+                          checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-transparent'
                         }`}
                       >
                         ✓
@@ -1277,130 +1305,18 @@ function OrganizationMemberSidebar({
       document.body
     );
 
-  const selectedJoinReviewKey = selectedJoinApplication
-    ? joinReviewKey(selectedJoinApplication.organizationId, selectedJoinApplication.applicationId)
-    : '';
-  const selectedJoinReviewBusy =
-    !!selectedJoinReviewKey && respondingJoinReviewKeys.includes(selectedJoinReviewKey);
-  const joinApplicationDetailPortal =
-    selectedJoinApplication &&
-    createPortal(
-      <>
-        <div
-          className={`${shellNavRailBackdrop} ${shellNavRailMenuBackdropZ} bg-black/40`}
-          onClick={() => setSelectedJoinApplication(null)}
-          aria-hidden
-        />
-        <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4">
-          <div
-            className={`w-full max-w-md rounded-xl border p-4 shadow-2xl ${
-              isDarkMode ? 'border-white/10 bg-[#161a22] text-white' : 'border-slate-200 bg-white text-slate-900'
-            }`}
-          >
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <h4 className="text-sm font-semibold">{t('organizations.joinReviewDetailTitle')}</h4>
-                <p className={`mt-1 text-xs ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
-                  {selectedJoinApplication.submittedAt
-                    ? new Date(selectedJoinApplication.submittedAt).toLocaleString()
-                    : ''}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedJoinApplication(null)}
-                className={`rounded-md px-2 py-1 text-xs ${isDarkMode ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-100 hover:bg-slate-200'}`}
-              >
-                {t('organizations.modalClose')}
-              </button>
-            </div>
-
-            <div className={`space-y-2 rounded-lg border p-3 text-xs ${
-              isDarkMode ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50'
-            }`}>
-              <div><span className="font-semibold">{t('common.name')}:</span>{' '}
-                {selectedJoinApplication?.applicantSnapshot?.fullName ||
-                  selectedJoinApplication?.applicantSnapshot?.username ||
-                  selectedJoinApplication?.applicantSnapshot?.email ||
-                  selectedJoinApplication?.applicantUser ||
-                  t('common.user')}
-              </div>
-              {!!selectedJoinApplication?.applicantSnapshot?.email && (
-                <div><span className="font-semibold">Email:</span> {selectedJoinApplication.applicantSnapshot.email}</div>
-              )}
-              {!!selectedJoinApplication?.applicantSnapshot?.username && (
-                <div><span className="font-semibold">Username:</span> {selectedJoinApplication.applicantSnapshot.username}</div>
-              )}
-              <div className={isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}>
-                <span className="font-semibold">ID:</span> {selectedJoinApplication?.applicantUser || t('common.user')}
-              </div>
-            </div>
-
-            {selectedJoinApplication?.answers && Object.keys(selectedJoinApplication.answers).length > 0 && (
-              <div className="mt-3">
-                <div className={`mb-1 text-xs font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-                  {t('organizations.joinReviewAnswers')}
-                </div>
-                <div className={`max-h-48 space-y-1 overflow-y-auto rounded-lg border p-2 text-xs ${
-                  isDarkMode ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-white'
-                }`}>
-                  {Object.entries(selectedJoinApplication.answers).map(([key, value]) => (
-                    <div key={key}>
-                      <span className="font-semibold">{key}:</span>{' '}
-                      {Array.isArray(value) ? value.join(', ') : String(value ?? '')}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                disabled={selectedJoinReviewBusy}
-                onClick={() =>
-                  onRejectJoinApplication?.(
-                    selectedJoinApplication.organizationId,
-                    selectedJoinApplication.applicationId,
-                    ''
-                  )
-                }
-                className="rounded-md border border-rose-500/60 px-3 py-1.5 text-xs font-semibold text-rose-300 disabled:opacity-50"
-              >
-                {t('organizations.rejectBtnShort')}
-              </button>
-              <button
-                type="button"
-                disabled={selectedJoinReviewBusy}
-                onClick={() =>
-                  onApproveJoinApplication?.(
-                    selectedJoinApplication.organizationId,
-                    selectedJoinApplication.applicationId
-                  )
-                }
-                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
-              >
-                {t('organizations.approveBtn')}
-              </button>
-            </div>
-          </div>
-        </div>
-      </>,
-      document.body
-    );
-
   const memberCardPortal =
     memberCard.open &&
     memberCard.member &&
     createPortal(
       <div
         ref={memberCardRef}
-        className={`fixed z-[9999] w-[min(340px,calc(100vw-16px))] overflow-hidden rounded-2xl border shadow-2xl ${
-          isDarkMode ? 'border-white/10 bg-[#1d1f28] text-white' : 'border-slate-200 bg-white text-slate-900'
-        }`}
+        role="dialog"
+        aria-label={memberCard.member.displayName}
+        className="fixed z-[9999] w-[min(340px,calc(100vw-16px))] overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-2xl motion-safe:animate-fade-in-fast"
         style={{ left: memberCard.x, top: memberCard.y }}
       >
-        <div className={`h-16 ${isDarkMode ? 'bg-slate-700/70' : 'bg-slate-200'}`} />
+        <div className="h-16 bg-muted" />
         <div className="px-3 pb-3">
           <div className="-mt-8 flex items-end justify-between">
             <UserAvatar
@@ -1408,29 +1324,31 @@ function OrganizationMemberSidebar({
               userId={memberCard.member.userId || memberCard.member.id}
               name={memberCard.member.displayName}
               size="profile"
-              ringClassName={`border-4 ${isDarkMode ? 'border-[#1d1f28]' : 'border-white'}`}
+              ringClassName="border-4 border-card"
             />
             <button
               type="button"
-              className={`rounded-md px-2 py-1 text-xs ${isDarkMode ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-100 hover:bg-slate-200'}`}
+              aria-label={t('organizations.modalClose')}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
               onClick={() => setMemberCard((prev) => ({ ...prev, open: false }))}
             >
-              {t('organizations.modalClose')}
+              <X size={16} aria-hidden />
             </button>
           </div>
           <div className="mt-2.5">
             <h4 className="text-[24px] font-bold leading-none">{memberCard.member.displayName}</h4>
-            <p className={`mt-1 text-sm ${isDarkMode ? 'text-muted-foreground' : 'text-slate-600'}`}>
+            <p className="mt-1 text-sm text-muted-foreground">
               {memberCard.profile?.username || memberCard.member.username || ''}
             </p>
-            <p className={`mt-1 text-sm ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>
+            <p className="mt-1 flex items-center gap-1.5 text-sm text-foreground" aria-live="polite">
+              <AdminBusySpinner busy={memberCard.loading} />
               {memberCard.loading
                 ? t('organizations.memberProfileLoading')
                 : memberCard.profile?.pronouns ||
                   memberCard.profile?.pronoun ||
                   t('organizations.memberProfilePronounUnset')}
             </p>
-            <p className={`mt-2 text-sm ${isDarkMode ? 'text-muted-foreground' : 'text-slate-600'}`}>
+            <p className="mt-2 text-sm text-muted-foreground">
               {t('organizations.memberMutualFriends', {
                 count: Number(memberCard.profile?.mutualFriendsCount) || 0,
               })}{' '}
@@ -1440,23 +1358,16 @@ function OrganizationMemberSidebar({
               })}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                isDarkMode ? 'bg-white/10 text-slate-100' : 'bg-slate-100 text-slate-800'
-              }`}>
+              <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-foreground">
                 {roleLabelMap[memberCard.member.role] || memberCard.member.role}
               </span>
               {memberCard.assignedRoleNames.map((name) => (
-                <span
-                  key={name}
-                  className={`rounded-full px-2.5 py-1 text-xs ${
-                    isDarkMode ? 'bg-indigo-500/25 text-indigo-100' : 'bg-indigo-100 text-indigo-800'
-                  }`}
-                >
+                <span key={name} className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
                   {name}
                 </span>
               ))}
               {!memberCard.loading && memberCard.assignedRoleNames.length === 0 && (
-                <span className={`text-xs ${isDarkMode ? 'text-muted-foreground' : 'text-slate-500'}`}>
+                <span className="text-xs text-muted-foreground">
                   {t('organizations.memberRoleCustomUnset')}
                 </span>
               )}
@@ -1470,32 +1381,34 @@ function OrganizationMemberSidebar({
                   setMemberCard((prev) => ({ ...prev, open: false }));
                   navigate('/profile');
                 }}
-                className="w-full rounded-xl bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
+                className={`${adminPrimaryBtnClass} w-full`}
               >
                 {t('organizations.memberEditProfile')}
               </button>
             ) : (
-              <div className="space-y-2">
+              <form
+                className="space-y-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleQuickMessageSubmit();
+                }}
+              >
                 <input
                   value={memberCard.quickMessage}
+                  maxLength={CHAT_MESSAGE_MAX_LENGTH}
+                  aria-label={t('organizations.memberQuickMessagePlaceholder', {
+                    name: memberCard.member.displayName,
+                  })}
                   onChange={(e) => setMemberCard((prev) => ({ ...prev, quickMessage: e.target.value }))}
                   placeholder={t('organizations.memberQuickMessagePlaceholder', {
                     name: memberCard.member.displayName,
                   })}
-                  className={`w-full rounded-xl border px-3 py-2 text-sm outline-none ${
-                    isDarkMode
-                      ? 'border-white/10 bg-white/5 text-white placeholder:text-slate-500 focus:border-indigo-400/70'
-                      : 'border-slate-300 bg-white text-slate-900 placeholder:text-muted-foreground focus:border-indigo-500'
-                  }`}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
-                <button
-                  type="button"
-                  onClick={handleQuickMessageSubmit}
-                  className="w-full rounded-xl bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
-                >
+                <button type="submit" className={`${adminPrimaryBtnClass} w-full`}>
                   {t('organizations.memberQuickChat')}
                 </button>
-              </div>
+              </form>
             )}
           </div>
         </div>
@@ -1503,10 +1416,28 @@ function OrganizationMemberSidebar({
       document.body
     );
 
+  const handleSidebarTabKeyDown = (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = Array.from(event.currentTarget.querySelectorAll('[role="tab"]'));
+    if (!tabs.length) return;
+    const index = tabs.indexOf(document.activeElement);
+    let next = 0;
+    if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+    else if (event.key === 'End') next = tabs.length - 1;
+    event.preventDefault();
+    tabs[next].focus();
+    tabs[next].click();
+  };
+
   const tabBtn = (id, label, badgeCount = 0) => (
     <button
       key={id}
       type="button"
+      role="tab"
+      id={`org-member-tab-${id}`}
+      aria-selected={sidebarTab === id}
+      tabIndex={sidebarTab === id ? 0 : -1}
       onClick={() => setSidebarTab(id)}
       className={`min-w-0 flex-1 ${FIGMA_ORG_MEMBER_TAB_BTN} ${
         sidebarTab === id ? FIGMA_ORG_MEMBER_TAB_BTN_ACTIVE : ''
@@ -1515,7 +1446,10 @@ function OrganizationMemberSidebar({
       <span className="inline-flex items-center gap-1">
         <span>{label}</span>
         {badgeCount > 0 && (
-          <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-destructive/15 px-1.5 py-0.5 text-[9px] font-bold text-destructive">
+          <span
+            aria-label={t('organizations.memberSidebarPendingAria', { count: badgeCount })}
+            className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-destructive/15 px-1.5 py-0.5 text-[9px] font-bold text-destructive"
+          >
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
         )}
@@ -1557,8 +1491,13 @@ function OrganizationMemberSidebar({
       </div>
 
       {showSidebarTabs ? (
-        <div className={FIGMA_ORG_MEMBER_TAB_STRIP}>
-          {tabBtn('people', t('organizations.memberSidebarTabPeople'), pendingReviewCount)}
+        <div
+          className={FIGMA_ORG_MEMBER_TAB_STRIP}
+          role="tablist"
+          aria-label={t('organizations.memberSidebarTabsAria')}
+          onKeyDown={handleSidebarTabKeyDown}
+        >
+          {tabBtn('people', t('organizations.memberSidebarTabPeople'))}
           {tabBtn('activity', t('organizations.memberSidebarTabActivity'))}
           {canShowTasksTab && tabBtn('tasks', t('organizations.memberSidebarTabTasks'))}
           {canShowFilesTab && tabBtn('files', t('organizations.memberSidebarTabFiles'))}
@@ -1779,66 +1718,9 @@ function OrganizationMemberSidebar({
               </ul>
             </div>
           ))}
-        {!loading && !error && sidebarTab === 'people' && canReviewJoinApplications && (
-          <div className="mb-4">
-            <div
-              className={`sticky top-0 z-[1] px-1 pb-1 pt-1 text-[11px] font-bold uppercase tracking-wide backdrop-blur-sm ${
-                isDarkMode ? 'bg-[#0a0c12]/95 text-[#6d7380]' : 'bg-sky-50/95 text-slate-500'
-              }`}
-            >
-              {t('organizations.memberJoinPendingTitle', { count: pendingReviewCount })}
-            </div>
-            {loadingJoinApplicationsToReview ? (
-              <div className="space-y-2">
-                <div className={`h-10 animate-pulse rounded-lg ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
-                <div className={`h-10 animate-pulse rounded-lg ${isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`} />
-              </div>
-            ) : pendingReviewCount === 0 ? (
-              <p className={`px-1 py-2 text-xs ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
-                {t('organizations.memberJoinPendingEmpty')}
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {joinApplicationsToReview.map((app) => {
-                  const key = joinReviewKey(app.organizationId, app.applicationId);
-                  const applicantName =
-                    app?.applicantSnapshot?.fullName ||
-                    app?.applicantSnapshot?.username ||
-                    app?.applicantSnapshot?.email ||
-                    app?.applicantUser ||
-                    t('common.user');
-                  return (
-                    <li
-                      key={key}
-                      className={`rounded-lg border px-2 py-2 transition ${
-                        isDarkMode
-                          ? 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setSelectedJoinApplication(app)}
-                        className="w-full text-left"
-                      >
-                        <div className={`text-xs font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                          {applicantName}
-                        </div>
-                        <div className={`mt-0.5 text-[10px] ${isDarkMode ? 'text-[#8e9297]' : 'text-slate-500'}`}>
-                          {app.submittedAt ? new Date(app.submittedAt).toLocaleString() : ''}
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        )}
       </div>
       {menuPortal}
       {memberCardPortal}
-      {joinApplicationDetailPortal}
       <Modal
         isOpen={addMemberOpen}
         onClose={() => {

@@ -2,10 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
+  AdminBusySpinner,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
+import {
   AdminUserFormCard,
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { ConfirmDialog } from '../../components/Shared';
 import { useAppStrings } from '../../locales/appStrings';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -137,11 +142,14 @@ export default function RequirementAccessPolicyPanel({ orgId }) {
   const [policy, setPolicy] = useState(defaultPolicy);
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!orgId) return;
     setLoading(true);
+    setLoadError('');
     try {
       const [policyRes, masterRes] = await Promise.all([
         organizationAPI.getRequirementAccessPolicy(orgId),
@@ -159,7 +167,7 @@ export default function RequirementAccessPolicyPanel({ orgId }) {
           .map((p) => ({ key: p.key, label: p.label || p.key }))
       );
     } catch (error) {
-      toast.error(
+      setLoadError(
         resolveApiErrorMessage(error, {
           t,
           fallback: t(accessPolicyKey('loadFail')),
@@ -202,7 +210,7 @@ export default function RequirementAccessPolicyPanel({ orgId }) {
   };
 
   const resetDefaults = async () => {
-    if (!window.confirm(t(sk('resetConfirm')))) return;
+    if (!orgId || saving) return;
     const defaults = defaultPolicy();
     setPolicy(defaults);
     setSaving(true);
@@ -221,8 +229,14 @@ export default function RequirementAccessPolicyPanel({ orgId }) {
     }
   };
 
-  if (loading) {
+  if (loading && !loadError) {
     return <p className="text-sm text-muted-foreground">{t(sk('loading'))}</p>;
+  }
+
+  if (loadError) {
+    return (
+      <AdminLoadErrorState message={loadError} onRetry={() => void load()} disabled={loading} />
+    );
   }
 
   return (
@@ -282,7 +296,7 @@ export default function RequirementAccessPolicyPanel({ orgId }) {
             </thead>
             <tbody>
               {PERSONAS.map((row) => (
-                <tr key={row.key} className="border-b border-border/60">
+                <tr key={row.key} className="border-b border-border">
                   <td className="px-2 py-2 font-medium">{t(sk(row.labelKey))}</td>
                   {VISIBILITY_KEYS.map((col) => (
                     <td key={col.key} className="px-2 py-2 text-center">
@@ -320,7 +334,7 @@ export default function RequirementAccessPolicyPanel({ orgId }) {
             </thead>
             <tbody>
               {PERSONAS.map((row) => (
-                <tr key={row.key} className="border-b border-border/60">
+                <tr key={row.key} className="border-b border-border">
                   <td className="px-2 py-2 font-medium">{t(sk(row.labelKey))}</td>
                   {ACTION_KEYS.map((col) => (
                     <td key={col.key} className="px-2 py-2 text-center">
@@ -352,18 +366,35 @@ export default function RequirementAccessPolicyPanel({ orgId }) {
       </AdminUserFormCard>
 
       <div className="flex flex-wrap gap-2">
-        <button type="button" className={adminPrimaryBtnClass()} disabled={saving} onClick={save}>
-          {saving ? '…' : t(sk('save'))}
+        <button
+          type="button"
+          className={adminPrimaryBtnClass()}
+          disabled={saving}
+          aria-busy={saving || undefined}
+          onClick={save}
+        >
+          <AdminBusySpinner busy={saving} />
+          {saving ? t('common.saving') : t(sk('save'))}
         </button>
         <button
           type="button"
           className={adminSecondaryBtnClass()}
           disabled={saving}
-          onClick={resetDefaults}
+          onClick={() => setResetConfirmOpen(true)}
         >
           {t(sk('reset'))}
         </button>
       </div>
+      <ConfirmDialog
+        isOpen={resetConfirmOpen}
+        onClose={() => setResetConfirmOpen(false)}
+        onConfirm={resetDefaults}
+        variant="danger"
+        title={t('adminTasks.confirmTitle')}
+        message={t(sk('resetConfirm'))}
+        confirmText={t(sk('reset'))}
+        cancelText={t('common.cancel')}
+      />
     </div>
   );
 }

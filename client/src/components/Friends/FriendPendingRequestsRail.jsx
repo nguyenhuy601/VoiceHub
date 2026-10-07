@@ -29,11 +29,12 @@ function requesterIdFromRow(row) {
   return String(row?.requester || '').trim();
 }
 
+const MOTION = 'motion-safe:transition-colors motion-reduce:transition-none';
+
 /**
  * Lời mời kết bạn đến — cố định phía dưới rail bạn bè (trang tin nhắn).
  */
 export default function FriendPendingRequestsRail({
-  isDarkMode,
   defaultExpanded = false,
   onAccepted,
 }) {
@@ -104,35 +105,27 @@ export default function FriendPendingRequestsRail({
 
   if (!isLoading && pendingCount === 0) return null;
 
-  const border = isDarkMode ? 'border-t border-white/[0.08]' : 'border-t border-slate-200';
-  const muted = isDarkMode ? 'text-[#6d7380]' : 'text-slate-500';
-  const card = isDarkMode
-    ? 'rounded-xl border border-cyan-500/25 bg-cyan-500/[0.06]'
-    : 'rounded-xl border border-cyan-200 bg-cyan-50/80';
-  const nameCls = isDarkMode ? 'text-white' : 'text-slate-900';
-  const subCls = isDarkMode ? 'text-[#8e9297]' : 'text-slate-600';
-  const acceptBtn = isDarkMode
-    ? 'rounded-lg bg-cyan-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-cyan-500 disabled:opacity-50'
-    : 'rounded-lg bg-cyan-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-cyan-700 disabled:opacity-50';
-  const rejectBtn = isDarkMode
-    ? 'rounded-lg border border-white/15 px-2 py-1 text-[10px] font-semibold text-slate-200 hover:bg-white/10 disabled:opacity-50'
-    : 'rounded-lg border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50';
+  const border = 'border-t border-border';
+  const muted = 'text-muted-foreground';
+  const card = 'rounded-xl border border-border bg-card';
+  const nameCls = 'text-foreground';
+  const subCls = 'text-muted-foreground';
+  const acceptBtn = `rounded-lg bg-primary px-2 py-1 text-[10px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50 ${MOTION}`;
+  const rejectBtn = `rounded-lg border border-border bg-background px-2 py-1 text-[10px] font-semibold text-foreground hover:bg-muted disabled:opacity-50 ${MOTION}`;
 
   return (
     <div className={`shrink-0 px-2 pb-2 pt-1 ${border}`}>
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className={`mb-1.5 flex w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left ${isDarkMode ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-100'}`}
+        className={`mb-1.5 flex w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left hover:bg-muted ${MOTION}`}
         aria-expanded={expanded}
       >
         <span className={`text-[10px] font-semibold uppercase tracking-wider ${muted}`}>
           {t('friendChat.pendingRequestsTitle')}
         </span>
         <span
-          className={`min-w-[1.25rem] rounded-full px-1.5 text-center text-[10px] font-bold ${
-            isDarkMode ? 'bg-cyan-500/25 text-cyan-200' : 'bg-cyan-100 text-cyan-800'
-          }`}
+          className="min-w-[1.25rem] rounded-full bg-primary/15 px-1.5 text-center text-[10px] font-bold text-primary"
         >
           {isLoading ? '…' : pendingCount}
         </span>
@@ -157,6 +150,7 @@ export default function FriendPendingRequestsRail({
                   <button
                     type="button"
                     disabled={Boolean(actingKey)}
+                    aria-busy={actingKey === item.rowKey}
                     className={`flex-1 ${acceptBtn}`}
                     onClick={() => accept(item)}
                   >
@@ -165,6 +159,7 @@ export default function FriendPendingRequestsRail({
                   <button
                     type="button"
                     disabled={Boolean(actingKey)}
+                    aria-busy={actingKey === item.rowKey}
                     className={`flex-1 ${rejectBtn}`}
                     onClick={() => reject(item)}
                   >

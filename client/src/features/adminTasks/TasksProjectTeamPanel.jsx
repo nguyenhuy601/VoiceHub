@@ -8,11 +8,18 @@ import {
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
+import useAdminMembers from '../../hooks/useAdminMembers';
 import projectDeliveryAPI from '../../services/api/projectDeliveryAPI';
 import projectAPI from '../../services/api/projectAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { memberUserId } from '../../utils/adminUserUtils';
+import { memberLabelById, memberUserId } from '../../utils/adminUserUtils';
 import { isOtSoftWarning, readOtSoftWarningMeta } from '../../utils/otSoftWarning';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
 import OtOverrideConfirmModal from './OtOverrideConfirmModal';
@@ -69,6 +76,7 @@ export default function TasksProjectTeamPanel({
   const [roles, setRoles] = useState([]);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [selectedRoleKeys, setSelectedRoleKeys] = useState([]);
   const [saving, setSaving] = useState(false);
   const [removingKey, setRemovingKey] = useState('');
@@ -76,6 +84,7 @@ export default function TasksProjectTeamPanel({
   const syncedUserIdRef = useRef(null);
   /** Pending save after OT soft-warning: assign form or remove one role. */
   const pendingActionRef = useRef(null);
+  const { membersByIdAll } = useAdminMembers(orgId, { view: 'directory' });
 
   const setBoardId = (id) => {
     const next = new URLSearchParams(params);
@@ -93,9 +102,11 @@ export default function TasksProjectTeamPanel({
     if (!boardId) {
       setRoles([]);
       setMembers([]);
+      setLoadError('');
       return;
     }
     setLoading(true);
+    setLoadError('');
     try {
       const [rolesRes, membersRes] = await Promise.all([
         projectDeliveryAPI.listProjectRoles(boardId),
@@ -104,7 +115,7 @@ export default function TasksProjectTeamPanel({
       setRoles(unwrap(rolesRes) || []);
       setMembers(unwrap(membersRes) || []);
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.teamRolesFail') }));
+      setLoadError(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.teamRolesFail') }));
       setRoles([]);
       setMembers([]);
     } finally {
@@ -332,8 +343,10 @@ export default function TasksProjectTeamPanel({
 
       {!boardId ? (
         <p className="text-sm text-muted-foreground">{t('adminTasks.needBoard')}</p>
-      ) : loading ? (
-        <p className="text-sm text-muted-foreground">{t('adminTasks.loading')}</p>
+      ) : loading && !members?.length && !loadError ? (
+        <AdminListSkeleton rows={5} />
+      ) : loadError ? (
+        <AdminLoadErrorState message={loadError} onRetry={load} disabled={loading} />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start">
           <AdminUserPicker
@@ -363,7 +376,7 @@ export default function TasksProjectTeamPanel({
                         const checked = selectedRoleKeys.includes(rk);
                         return (
                           <li key={rk}>
-                            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border px-3 py-2 hover:bg-muted/40">
+                            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border px-3 py-2 transition-colors duration-150 hover:bg-muted motion-reduce:transition-none">
                               <input
                                 type="checkbox"
                                 checked={checked}
@@ -383,6 +396,14 @@ export default function TasksProjectTeamPanel({
                       : selectedRoleKeys.length === 0 && hadRolesBefore
                         ? t('adminTasks.teamClearRoles')
                         : t('adminTasks.teamSetRoles')}
+                  <button
+                    type="submit"
+                    className={adminPrimaryBtnClass()}
+                    disabled={saving || selectedRoleKeys.length === 0}
+                    aria-busy={saving}
+                  >
+                    <AdminBusySpinner busy={saving} />
+                    {t('adminTasks.teamSetRoles')}
                   </button>
                 </form>
               )}
@@ -418,14 +439,16 @@ export default function TasksProjectTeamPanel({
                         >
                           {rowBusy ? '…' : t('adminTasks.teamRemoveRole')}
                         </button>
+                        <span className="truncate text-sm font-medium">
+                          {memberLabelById(membersByIdAll, m.userId, t('adminTasks.briefsPmUnknown'))}
+                        </span>
+                        <span className="ml-2 text-muted-foreground">→ {roleLabel}</span>
                       </div>
                     </li>
                   );
                 })}
-                {!members?.length ? (
-                  <li className="text-muted-foreground">{t('adminTasks.teamEmpty')}</li>
-                ) : null}
               </ul>
+              {!members?.length ? <AdminEmptyState message={t('adminTasks.teamEmpty')} /> : null}
             </AdminUserFormCard>
           </div>
         </div>

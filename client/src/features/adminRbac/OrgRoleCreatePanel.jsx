@@ -11,6 +11,7 @@ import {
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import AdminRoleInsertPositionPicker from '../../components/adminUsers/AdminRoleInsertPositionPicker';
+import { AdminBusySpinner, AdminLoadErrorState } from '../../components/adminUsers/adminPanelStates';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { slugifyRoleKey, ensureRoleKeyNamespace } from '../../utils/roleKeySlug';
@@ -97,19 +98,20 @@ export default function OrgRoleCreatePanel({ orgId }) {
         <AdminUserFormCard title={t('adminDomains.rbac.orgRoleCreate')}>
           <label className="mb-4 block">
             <span className={adminLabelClass()}>{t('adminRbac.roleLabelField')}</span>
-            <div className="flex overflow-hidden rounded-lg border border-border bg-background">
+            <div className="flex overflow-hidden rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-ring">
               <span className="shrink-0 border-r border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
                 {ORG_ROLE_LABEL_PREFIX.trimEnd()}
               </span>
               <input
                 className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
+                maxLength={120}
                 value={suffix}
                 onChange={(e) => setSuffix(e.target.value)}
                 placeholder={t('adminRbac.orgRoleLabelPlaceholder')}
               />
             </div>
             {suffix.trim() && looksLikeHrPositionForOrgRole(suffix) ? (
-              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{t('adminRbac.orgRoleLooksLikePositionHint')}</p>
+              <p className="mt-1 text-xs text-warning">{t('adminRbac.orgRoleLooksLikePositionHint')}</p>
             ) : null}
           </label>
           <label className="mb-4 block">
@@ -117,6 +119,7 @@ export default function OrgRoleCreatePanel({ orgId }) {
             <input
               className={adminInputClass()}
               value={suffix.trim() ? keyPreview : ''}
+              maxLength={64}
               readOnly
               placeholder={t('adminRbac.roleKeyAutoPlaceholder')}
             />
@@ -127,25 +130,19 @@ export default function OrgRoleCreatePanel({ orgId }) {
             <textarea
               className={adminInputClass()}
               value={description}
+              maxLength={1000}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
             />
           </label>
 
           {rolesError ? (
-            <div className="mb-4 space-y-3">
-              <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {rolesError}
-              </p>
-              <button
-                type="button"
-                className={adminPrimaryBtnClass()}
-                disabled={busy}
-                onClick={() => setReloadTick((n) => n + 1)}
-              >
-                {t('adminRbac.retry')}
-              </button>
-            </div>
+            <AdminLoadErrorState
+              className="mb-4"
+              message={rolesError}
+              disabled={busy}
+              onRetry={() => setReloadTick((n) => n + 1)}
+            />
           ) : (
             <AdminRoleInsertPositionPicker
               roles={roles}
@@ -163,7 +160,14 @@ export default function OrgRoleCreatePanel({ orgId }) {
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" disabled={!suffix.trim() || busy || Boolean(rolesError)} className={adminPrimaryBtnClass()} onClick={submit}>
+            <button
+              type="button"
+              disabled={!suffix.trim() || busy || Boolean(rolesError)}
+              aria-busy={busy}
+              className={adminPrimaryBtnClass()}
+              onClick={submit}
+            >
+              <AdminBusySpinner busy={busy} />
               {busy ? t('common.saving') : t('common.save')}
             </button>
             <button
@@ -172,7 +176,7 @@ export default function OrgRoleCreatePanel({ orgId }) {
               className={adminSecondaryBtnClass()}
               onClick={() => navigate('/app/admin/rbac/org-roles')}
             >
-              {t('common.cancel') || 'Cancel'}
+              {t('common.cancel')}
             </button>
           </div>
         </AdminUserFormCard>

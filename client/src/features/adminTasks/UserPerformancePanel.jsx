@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import toast from 'react-hot-toast';
+import {
+  AdminBusySpinner,
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import {
   AdminUserPanelShell,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { projectAPI } from '../../services/api/projectAPI';
+import { memberLabelById } from '../../utils/adminUserUtils';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+
+const WINDOW_OPTIONS = [30, 90, 180];
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -28,20 +37,29 @@ function hours(n) {
 export default function UserPerformancePanel({ orgId }) {
   const { t } = useAppStrings();
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [windowDays, setWindowDays] = useState(90);
   const [data, setData] = useState(null);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const { membersById } = useAdminMembers(orgId, { view: 'directory' });
+
+  const userLabel = useCallback(
+    (userId) => memberLabelById(membersById, userId, t('adminTasks.unknownUser')),
+    [membersById, t]
+  );
 
   const load = useCallback(async () => {
     if (!orgId) return;
     setLoading(true);
+    setLoadError('');
     try {
       const res = await projectAPI.listUserPerformance(orgId, { windowDays });
       setData(unwrap(res));
     } catch (error) {
-      toast.error(
+      setLoadError(
         resolveApiErrorMessage(error, {
           t,
           fallback: t('adminTasks.performanceLoadFail'),
@@ -54,7 +72,7 @@ export default function UserPerformancePanel({ orgId }) {
   }, [orgId, windowDays, t]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const loadDetail = useCallback(
@@ -62,17 +80,18 @@ export default function UserPerformancePanel({ orgId }) {
       if (!orgId || !userId) return;
       setSelectedUserId(userId);
       setDetailLoading(true);
+      setDetailError('');
       try {
         const res = await projectAPI.getUserPerformance(orgId, userId, { windowDays });
         setDetail(unwrap(res));
       } catch (error) {
-        toast.error(
+        setDetail(null);
+        setDetailError(
           resolveApiErrorMessage(error, {
             t,
             fallback: t('adminTasks.performanceDetailFail'),
           })
         );
-        setDetail(null);
       } finally {
         setDetailLoading(false);
       }
@@ -82,49 +101,39 @@ export default function UserPerformancePanel({ orgId }) {
 
   const items = Array.isArray(data?.items) ? data.items : [];
 
-  return (
-    <AdminUserPanelShell
-      title={t('adminDomains.projects.performance')}
-      hint={t('adminTasks.performanceHint')}
-      wide
-      actions={
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={windowDays}
-            onChange={(e) => setWindowDays(Number(e.target.value) || 90)}
-            className="rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
-            aria-label={t('adminTasks.performanceWindow')}
-          >
-            <option value={30}>30d</option>
-            <option value={90}>90d</option>
-            <option value={180}>180d</option>
-          </select>
-          <button type="button" className={adminSecondaryBtnClass} onClick={load} disabled={loading}>
-            {loading ? t('common.loading') : t('adminTasks.performanceReload')}
-          </button>
-        </div>
-      }
-    >
-      {items.length === 0 && !loading ? (
-        <p className="text-sm text-muted-foreground">{t('adminTasks.performanceEmpty')}</p>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-border">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2">{t('adminTasks.performanceUser')}</th>
-                <th className="px-3 py-2">{t('adminTasks.performanceConfidence')}</th>
-                <th className="px-3 py-2">{t('adminTasks.performanceDone')}</th>
-                <th className="px-3 py-2">{t('adminTasks.performanceAccuracy')}</th>
-                <th className="px-3 py-2">{t('adminTasks.performanceBias')}</th>
-                <th className="px-3 py-2">{t('adminTasks.performanceVelocity')}</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((row) => (
-                <tr key={row.userId} className="border-t border-border">
-                  <td className="px-3 py-2 font-mono text-xs">{row.userId}</td>
+  let tableBody;
+  if (loading && !items.length) {
+    tableBody = <AdminListSkeleton rows={6} />;
+  } else if (loadError) {
+    tableBody = <AdminLoadErrorState message={loadError} onRetry={load} disabled={loading} />;
+  } else if (!items.length) {
+    tableBody = <AdminEmptyState message={t('adminTasks.performanceEmpty')} />;
+  } else {
+    tableBody = (
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table className="min-w-full text-left text-sm">
+          <thead className="bg-muted text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2">{t('adminTasks.performanceUser')}</th>
+              <th className="px-3 py-2">{t('adminTasks.performanceConfidence')}</th>
+              <th className="px-3 py-2">{t('adminTasks.performanceDone')}</th>
+              <th className="px-3 py-2">{t('adminTasks.performanceAccuracy')}</th>
+              <th className="px-3 py-2">{t('adminTasks.performanceBias')}</th>
+              <th className="px-3 py-2">{t('adminTasks.performanceVelocity')}</th>
+              <th className="px-3 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((row) => {
+              const selected = String(row.userId) === String(selectedUserId);
+              return (
+                <tr
+                  key={row.userId}
+                  className={`border-t border-border hover:bg-muted ${
+                    selected ? 'bg-primary-subtle' : ''
+                  }`}
+                >
+                  <td className="px-3 py-2 text-sm">{userLabel(row.userId)}</td>
                   <td className="px-3 py-2 capitalize">{row.confidence || '—'}</td>
                   <td className="px-3 py-2 tabular-nums">
                     {row.sampleSize?.tasksCompleted ?? 0}
@@ -137,34 +146,94 @@ export default function UserPerformancePanel({ orgId }) {
                   <td className="px-3 py-2 tabular-nums">{hours(row.estimation?.biasHours)}</td>
                   <td className="px-3 py-2 tabular-nums">
                     {hours(row.velocity?.actualHoursPerWeek)}
-                    <span className="text-muted-foreground"> /wk</span>
+                    <span className="text-muted-foreground">
+                      {' '}
+                      {t('adminTasks.performancePerWeek')}
+                    </span>
                   </td>
                   <td className="px-3 py-2">
                     <button
                       type="button"
-                      className={adminSecondaryBtnClass}
+                      className={adminSecondaryBtnClass()}
                       onClick={() => loadDetail(row.userId)}
+                      disabled={detailLoading && selected}
                     >
                       {t('adminTasks.performanceDetail')}
                     </button>
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  return (
+    <AdminUserPanelShell
+      title={t('adminDomains.projects.performance')}
+      hint={t('adminTasks.performanceHint')}
+      wide
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            role="radiogroup"
+            aria-label={t('adminTasks.performanceWindow')}
+            className="flex flex-wrap gap-1"
+          >
+            {WINDOW_OPTIONS.map((days) => {
+              const pressed = windowDays === days;
+              return (
+                <button
+                  key={days}
+                  type="button"
+                  role="radio"
+                  aria-checked={pressed}
+                  aria-pressed={pressed}
+                  className={adminSecondaryBtnClass(
+                    pressed ? 'border-primary bg-primary-subtle font-semibold' : ''
+                  )}
+                  onClick={() => setWindowDays(days)}
+                >
+                  {t(`adminTasks.performanceWindow${days}`)}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className={adminSecondaryBtnClass()}
+            onClick={load}
+            disabled={loading}
+            aria-busy={loading || undefined}
+          >
+            <AdminBusySpinner busy={loading} />
+            {loading ? t('common.loading') : t('adminTasks.performanceReload')}
+          </button>
         </div>
-      )}
+      }
+    >
+      {tableBody}
 
       {selectedUserId ? (
         <div className="mt-6 rounded-xl border border-border bg-card p-4">
           <h3 className="mb-2 text-sm font-semibold">
             {t('adminTasks.performanceDetailTitle')}{' '}
-            <span className="font-mono text-xs text-muted-foreground">{selectedUserId}</span>
+            <span className="text-xs font-normal text-muted-foreground">
+              {userLabel(selectedUserId)}
+            </span>
           </h3>
           {detailLoading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+            <AdminListSkeleton rows={3} />
+          ) : detailError ? (
+            <AdminLoadErrorState
+              message={detailError}
+              onRetry={() => loadDetail(selectedUserId)}
+              disabled={detailLoading}
+            />
           ) : detail ? (
-            <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 text-sm">
+            <dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <dt className="text-muted-foreground">{t('adminTasks.performanceAccuracy')}</dt>
                 <dd className="font-medium tabular-nums">
@@ -194,7 +263,7 @@ export default function UserPerformancePanel({ orgId }) {
                 <dd className="font-medium tabular-nums">{pct(detail.quality?.reworkRate)}</dd>
               </div>
               {detail.confidence === 'low' ? (
-                <p className="sm:col-span-2 lg:col-span-3 text-amber-600 dark:text-amber-400">
+                <p className="text-warning sm:col-span-2 lg:col-span-3">
                   {t('adminTasks.performanceLowConfidence')}
                 </p>
               ) : null}

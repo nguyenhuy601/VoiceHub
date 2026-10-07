@@ -1,7 +1,14 @@
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Loader2 } from 'lucide-react';
 import { useAppStrings } from '../../../../locales/appStrings';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import usePhase4Handover from './usePhase4Handover';
 import Phase4SectionCard from './Phase4SectionCard';
+
+const FIELD_CLASS =
+  'rounded-md border border-border/70 bg-background px-2 py-1.5 text-xs text-foreground shadow-sm outline-none transition-colors motion-reduce:transition-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring';
+
+const BTN_CLASS =
+  'rounded-lg border border-warning/40 bg-warning/15 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors disabled:opacity-50 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
 /**
  * Phase 4 Deploy evidence — Ops outside app; HITL URL + verify tick. No Deploy button.
@@ -10,6 +17,9 @@ export default function Phase4DeployEvidencePage({ projectId }) {
   const { t } = useAppStrings();
   const {
     isLoading,
+    isLoadError,
+    loadFailMessage,
+    retryLoad,
     checklist,
     evidence,
     draft,
@@ -23,7 +33,23 @@ export default function Phase4DeployEvidencePage({ projectId }) {
   } = usePhase4Handover(projectId);
 
   if (isLoading) {
-    return <p className="p-4 text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return (
+      <div
+        className="flex items-center gap-2 p-4 text-sm text-muted-foreground"
+        aria-busy="true"
+      >
+        <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+        <span>{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (isLoadError) {
+    return (
+      <div className="p-4">
+        <AdminLoadErrorState message={loadFailMessage} onRetry={retryLoad} />
+      </div>
+    );
   }
 
   const verified = Boolean(checklist.deployment_verified);
@@ -31,7 +57,7 @@ export default function Phase4DeployEvidencePage({ projectId }) {
     setEvidenceDraft((prev) => ({ ...(prev || evidence), ...patch }));
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-3 sm:p-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-3 sm:p-4" aria-busy={busy ? 'true' : undefined}>
       <Phase4SectionCard
         title={t('workspace.phaseDeployOutsideTitle')}
         description={t('workspace.phaseDeployOutsideBody')}
@@ -44,7 +70,7 @@ export default function Phase4DeployEvidencePage({ projectId }) {
         }
       >
         {!uatPassed ? (
-          <p className="text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+          <p className="text-[11px] font-semibold text-warning">
             {t('workspace.phaseDeployWaitUat')}
           </p>
         ) : (
@@ -76,7 +102,7 @@ export default function Phase4DeployEvidencePage({ projectId }) {
                 {t('workspace.phaseDeployEvidenceEnv')}
               </span>
               <select
-                className="rounded-md border border-border/70 bg-background px-2 py-1.5 text-xs text-foreground shadow-sm outline-none focus:border-primary"
+                className={FIELD_CLASS}
                 value={draft.env || 'production'}
                 disabled={busy}
                 onChange={(e) => updateDraft({ env: e.target.value })}
@@ -91,7 +117,7 @@ export default function Phase4DeployEvidencePage({ projectId }) {
               </span>
               <input
                 type="url"
-                className="rounded-md border border-border/70 bg-background px-2 py-1.5 text-xs text-foreground shadow-sm outline-none focus:border-primary"
+                className={FIELD_CLASS}
                 placeholder="https://…"
                 value={draft.pipelineUrl}
                 disabled={busy}
@@ -104,7 +130,7 @@ export default function Phase4DeployEvidencePage({ projectId }) {
               </span>
               <textarea
                 rows={3}
-                className="rounded-md border border-border/70 bg-background px-2 py-1.5 text-xs text-foreground shadow-sm outline-none focus:border-primary"
+                className={FIELD_CLASS}
                 placeholder={t('workspace.phaseDeployEvidenceNotesPh')}
                 value={draft.notes}
                 disabled={busy}
@@ -115,8 +141,9 @@ export default function Phase4DeployEvidencePage({ projectId }) {
               <button
                 type="button"
                 disabled={busy}
+                aria-busy={busy ? 'true' : undefined}
                 onClick={() => void saveEvidence()}
-                className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-xs font-semibold text-amber-900 disabled:opacity-50 dark:text-amber-100"
+                className={BTN_CLASS}
               >
                 {busy ? t('common.loading') : t('workspace.phaseDeployEvidenceSave')}
               </button>
@@ -125,7 +152,7 @@ export default function Phase4DeployEvidencePage({ projectId }) {
                   href={evidence.pipelineUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-primary hover:underline"
+                  className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-primary transition-colors hover:underline motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {t('workspace.phaseDeployEvidenceSavedAt')}
                   <ExternalLink className="h-2.5 w-2.5" aria-hidden />
@@ -137,17 +164,18 @@ export default function Phase4DeployEvidencePage({ projectId }) {
 
         <div className="mt-3 border-t border-border/60 pt-3">
           <label
-            className={`flex items-start gap-2 rounded-xl border px-2.5 py-2.5 text-sm ${
+            className={`flex items-start gap-2 rounded-xl border px-2.5 py-2.5 text-sm focus-within:ring-2 focus-within:ring-ring ${
               verified
-                ? 'border-emerald-500/40 bg-emerald-500/10'
+                ? 'border-success/40 bg-success/10'
                 : 'border-border/70 bg-muted/15'
             }`}
           >
             <input
               type="checkbox"
-              className="mt-0.5"
+              className="mt-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               checked={verified}
               disabled={!canPhase || busy || !uatPassed}
+              aria-busy={busy ? 'true' : undefined}
               onChange={(e) => void setChecklistItem('deployment_verified', e.target.checked)}
             />
             <span>

@@ -39,6 +39,7 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
   const [pending, setPending] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [actingKey, setActingKey] = useState('');
 
   const loadPending = useCallback(async () => {
     setLoadingPending(true);
@@ -137,12 +138,16 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
     return String(row?.requester || '').trim();
   };
 
+  const rowActionKey = (row) => String(row?._id || row?.id || pendingRequesterId(row) || '');
+
   const acceptRequest = async (row) => {
     const friendId = pendingRequesterId(row);
-    if (!friendId) {
-      toast.error(t('friends.errUserUnknown'));
+    const key = rowActionKey(row);
+    if (!friendId || actingKey) {
+      if (!friendId) toast.error(t('friends.errUserUnknown'));
       return;
     }
+    setActingKey(key);
     try {
       await friendService.acceptFriend(friendId);
       await markFriendNotificationsResolved(friendId);
@@ -151,15 +156,19 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
       await loadPending();
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, { t, fallback: t('friends.toastGenericErr') }));
+    } finally {
+      setActingKey('');
     }
   };
 
   const rejectRequest = async (row) => {
     const friendId = pendingRequesterId(row);
-    if (!friendId) {
-      toast.error(t('friends.errUserUnknown'));
+    const key = rowActionKey(row);
+    if (!friendId || actingKey) {
+      if (!friendId) toast.error(t('friends.errUserUnknown'));
       return;
     }
+    setActingKey(key);
     try {
       await friendService.rejectFriend(friendId);
       await markFriendNotificationsResolved(friendId);
@@ -168,15 +177,19 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
       await loadPending();
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, { t, fallback: t('friends.toastGenericErr') }));
+    } finally {
+      setActingKey('');
     }
   };
 
   const blockRequestUser = async (row) => {
     const friendId = pendingRequesterId(row);
-    if (!friendId) {
-      toast.error(t('friends.errUserUnknown'));
+    const key = rowActionKey(row);
+    if (!friendId || actingKey) {
+      if (!friendId) toast.error(t('friends.errUserUnknown'));
       return;
     }
+    setActingKey(key);
     try {
       await friendService.blockFriend(friendId);
       toast.success(t('friendChat.blockOk'));
@@ -184,6 +197,8 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
       await loadPending();
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, { t, fallback: t('friendChat.blockFail') }));
+    } finally {
+      setActingKey('');
     }
   };
 
@@ -334,9 +349,10 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                       req.name ||
                       req.username ||
                       (req.email ? String(req.email).split('@')[0] : defaultUserName);
-                    const rid = row._id || row.id || pendingRequesterId(row);
+                    const rid = rowActionKey(row);
+                    const rowBusy = Boolean(actingKey) && actingKey === rid;
                     return (
-                      <GlassCard key={String(rid)} className={FIGMA_CHAT_INVITE_CARD}>
+                      <GlassCard key={rid} className={FIGMA_CHAT_INVITE_CARD}>
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                           <UserAvatar
                             avatar={req.avatar}
@@ -353,6 +369,8 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                           <div className={`grid w-full grid-cols-3 gap-2 sm:w-auto ${FIGMA_CHAT_INVITE_ACTIONS}`}>
                             <button
                               type="button"
+                              disabled={Boolean(actingKey)}
+                              aria-busy={rowBusy}
                               className={`${FIGMA_CHAT_INVITE_ACCEPT_BTN} justify-center px-3 py-2 text-sm`}
                               onClick={() => acceptRequest(row)}
                             >
@@ -360,6 +378,8 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                             </button>
                             <button
                               type="button"
+                              disabled={Boolean(actingKey)}
+                              aria-busy={rowBusy}
                               onClick={() => rejectRequest(row)}
                               className={`${FIGMA_CHAT_INVITE_REJECT_BTN} px-3 py-2 text-sm`}
                             >
@@ -367,8 +387,10 @@ export default function AddFriendModal({ isOpen, onClose, onFriendlistChanged })
                             </button>
                             <button
                               type="button"
+                              disabled={Boolean(actingKey)}
+                              aria-busy={rowBusy}
                               onClick={() => blockRequestUser(row)}
-                              className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive transition hover:bg-destructive/20"
+                              className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive motion-safe:transition-colors motion-reduce:transition-none hover:bg-destructive/20 disabled:opacity-50"
                             >
                               {t('friends.block')}
                             </button>

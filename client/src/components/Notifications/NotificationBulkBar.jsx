@@ -7,6 +7,7 @@ export default function NotificationBulkBar({
   onClear,
   onMarkRead,
   onDelete,
+  busy = false,
   labels = {},
 }) {
   if (selectedCount <= 0) return null;
@@ -34,7 +35,9 @@ export default function NotificationBulkBar({
         <button
           type="button"
           onClick={onMarkRead}
-          className="inline-flex h-8 items-center gap-1 rounded-lg border-none bg-primary px-2.5 text-xs font-semibold text-primary-foreground"
+          aria-busy={busy}
+          disabled={busy}
+          className="inline-flex h-8 items-center gap-1 rounded-lg border-none bg-primary px-2.5 text-xs font-semibold text-primary-foreground motion-safe:transition-colors motion-reduce:transition-none disabled:opacity-60"
         >
           <CheckCheck className="h-3.5 w-3.5" aria-hidden />
           {labels.markRead}
@@ -42,7 +45,9 @@ export default function NotificationBulkBar({
         <button
           type="button"
           onClick={onDelete}
-          className="inline-flex h-8 items-center gap-1 rounded-lg border-none bg-destructive/10 px-2.5 text-xs font-semibold text-destructive hover:bg-destructive/20"
+          aria-busy={busy}
+          disabled={busy}
+          className="inline-flex h-8 items-center gap-1 rounded-lg border-none bg-destructive/10 px-2.5 text-xs font-semibold text-destructive motion-safe:transition-colors motion-reduce:transition-none hover:bg-destructive/20 disabled:opacity-60"
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
           {labels.delete}

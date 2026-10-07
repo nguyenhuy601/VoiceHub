@@ -59,12 +59,12 @@ export function renderPhase1TableCell({ col, row, display, full, t }) {
         {names.slice(0, 3).map((name) => (
           <div key={name} className="flex min-w-0 items-center gap-1.5" title={name}>
             <span
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#D6E4FF] text-[9px] font-semibold text-[#1D39C4]"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary"
               aria-hidden
             >
               {stakeholderInitials(name)}
             </span>
-            <span className="truncate text-[12px] text-[#262626] dark:text-slate-200">{name}</span>
+            <span className="truncate text-[12px] text-foreground">{name}</span>
           </div>
         ))}
       </div>

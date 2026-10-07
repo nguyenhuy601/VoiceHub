@@ -61,7 +61,7 @@ export default function ImportSetFileDetailModal({
         type="button"
         disabled={busy}
         onClick={() => onDownload?.(file)}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-[#1677FF] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[#0958D9] disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-[#1677FF] px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:bg-[#0958D9] disabled:opacity-50"
       >
         <Download className="h-4 w-4" aria-hidden />
         {busy ? t('common.loading') : t('workspace.phase1FileLibraryDownload')}
@@ -77,7 +77,7 @@ export default function ImportSetFileDetailModal({
       size="sm"
       footer={footer}
       closable={!busy}
-      headerClassName="items-start border-[#C9DFF0] bg-[#E8F4FC] dark:border-slate-700 dark:bg-slate-800/80"
+      headerClassName="items-start border-[#C9DFF0] bg-[#E8F4FC] dark:border-border dark:bg-surface"
       titleClassName="min-w-0 flex-1 pr-2 text-base font-semibold sm:text-base"
       bodyClassName="space-y-3 px-5 py-4"
       panelClassName="max-w-lg"
@@ -87,7 +87,7 @@ export default function ImportSetFileDetailModal({
           <FileSpreadsheet className="h-5 w-5" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="break-words text-sm font-semibold text-[#262626] dark:text-white">
+          <p className="break-words text-sm font-semibold text-[#262626] dark:text-primary-foreground">
             {file.filename || '—'}
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -104,13 +104,13 @@ export default function ImportSetFileDetailModal({
         </div>
       </div>
 
-      <dl className="grid gap-2.5 rounded-xl border border-[#E8E8E8] bg-[#FAFAFA] p-3.5 dark:border-slate-700 dark:bg-slate-900/50">
+      <dl className="grid gap-2.5 rounded-xl border border-[#E8E8E8] bg-[#FAFAFA] p-3.5 dark:border-border dark:bg-surface">
         {file.createdAt ? (
           <div>
             <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#8C8C8C]">
               {t('workspace.phase1FileFieldUploadedAt')}
             </dt>
-            <dd className="mt-0.5 text-sm text-[#262626] dark:text-slate-100">
+            <dd className="mt-0.5 text-sm text-[#262626] dark:text-muted-foreground">
               {new Date(file.createdAt).toLocaleString()}
             </dd>
           </div>
@@ -121,7 +121,7 @@ export default function ImportSetFileDetailModal({
           </dt>
           {storageKey ? (
             <dd className="mt-1">
-              <code className="block break-all rounded-lg border border-[#E8E8E8] bg-white px-2.5 py-2 font-mono text-[11px] leading-relaxed text-[#434343] dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200">
+              <code className="block break-all rounded-lg border border-[#E8E8E8] bg-white px-2.5 py-2 font-mono text-[11px] leading-relaxed text-[#434343] dark:border-border dark:bg-surface dark:text-muted-foreground">
                 {storageKey}
               </code>
               <button

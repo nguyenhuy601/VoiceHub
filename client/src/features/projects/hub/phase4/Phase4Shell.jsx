@@ -3,8 +3,10 @@ import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { SpaceProvider, SPACE_KIND } from '../../../../context/SpaceContext';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { fetchProjectHubProject } from '../useProjectHubQueries';
 import { queryKeys } from '../../../../lib/queryKeys';
+import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import {
   coerceDeliveryPhase,
   isModuleAllowedForPhase,
@@ -39,7 +41,13 @@ export default function Phase4Shell({ module: moduleProp } = {}) {
   const projectId = String(projectIdParam || '').trim();
   const module = normalizeProjectModule(moduleProp || moduleParam || 'overview');
 
-  const { data: projectRow, isPending: projectPending } = useQuery({
+  const {
+    data: projectRow,
+    isPending: projectPending,
+    isError: projectError,
+    error: projectQueryError,
+    refetch: refetchProject,
+  } = useQuery({
     queryKey: queryKeys.projectHub.project(projectId),
     queryFn: () => fetchProjectHubProject(projectId),
     enabled: Boolean(projectId),
@@ -77,9 +85,26 @@ export default function Phase4Shell({ module: moduleProp } = {}) {
 
   if (projectPending && !projectRow) {
     return (
-      <div className="flex min-h-[12rem] items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+      <div
+        className="flex min-h-[12rem] items-center justify-center gap-2 p-6 text-sm text-muted-foreground"
+        aria-busy="true"
+      >
+        <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
         <span>{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (projectError && !projectRow) {
+    return (
+      <div className="flex min-h-[12rem] items-center justify-center p-6">
+        <AdminLoadErrorState
+          message={resolveApiErrorMessage(projectQueryError, {
+            t,
+            fallback: t('workspace.phase4LoadFail'),
+          })}
+          onRetry={() => void refetchProject()}
+        />
       </div>
     );
   }

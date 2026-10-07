@@ -6,9 +6,14 @@ import {
   AdminUserFormCard,
   AdminUserPanelShell,
   adminDangerBtnClass,
-  adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
+import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
@@ -24,6 +29,7 @@ export default function OrgRoleDeletePanel({ orgId, embedded = false }) {
   const [role, setRole] = useState(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const loadRole = async () => {
     if (!orgId || !roleId) {
@@ -71,7 +77,7 @@ export default function OrgRoleDeletePanel({ orgId, embedded = false }) {
   };
 
   if (loading) {
-    const loadingBody = <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    const loadingBody = <AdminListSkeleton />;
     if (embedded) return loadingBody;
     return (
       <AdminUserPanelShell title={t('adminDomains.rbac.orgRoleDelete')} hint={t('adminRbac.orgRoleDeleteHint')}>
@@ -84,16 +90,9 @@ export default function OrgRoleDeletePanel({ orgId, embedded = false }) {
     const emptyBody = !roleId ? (
       <p className="text-sm text-muted-foreground">{t('adminRbac.selectRole')}</p>
     ) : loadError ? (
-      <div className="space-y-3">
-        <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {loadError}
-        </p>
-        <button type="button" className={adminPrimaryBtnClass()} disabled={busy} onClick={() => loadRole()}>
-          {t('adminRbac.retry')}
-        </button>
-      </div>
+      <AdminLoadErrorState message={loadError} disabled={busy} onRetry={() => loadRole()} />
     ) : (
-      <p className="text-sm text-muted-foreground">{t('adminRbac.notFound') || 'Not found'}</p>
+      <p className="text-sm text-muted-foreground">{t('adminRbac.notFound')}</p>
     );
     if (embedded) return emptyBody;
     return (
@@ -105,28 +104,51 @@ export default function OrgRoleDeletePanel({ orgId, embedded = false }) {
 
   const formCard = (
     <AdminUserFormCard title={t('adminDomains.rbac.orgRoleDelete')}>
-      <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+      <div className="rounded-lg border border-border bg-muted p-3 text-sm">
         <div>
-          <span className="text-muted-foreground">Key:</span> <span className="font-medium">{role.key}</span>
+          <span className="text-muted-foreground">{t('adminDomains.rbac.orgRoleKey')}:</span>{' '}
+          <span className="font-medium">{role.key}</span>
         </div>
         <div className="mt-1">
-          <span className="text-muted-foreground">Label:</span> <span className="font-medium">{role.label}</span>
+          <span className="text-muted-foreground">{t('adminDomains.rbac.orgRoleLabel')}:</span>{' '}
+          <span className="font-medium">{role.label}</span>
         </div>
         {role.isSystem ? (
-          <div className="mt-2 text-sm text-emerald-700">
-            {t('common.system') || 'System'} - {t('adminRbac.orgRoleEditSystemHint') || 'Cannot delete.'}
+          <div className="mt-2 text-sm text-warning">
+            {t('adminRbac.systemBadge')} - {t('adminRbac.orgRoleEditSystemHint')}
           </div>
         ) : null}
       </div>
-      {actionError ? <p className="mt-3 text-sm text-destructive">{actionError}</p> : null}
+      {actionError ? (
+        <p role="alert" className="mt-3 text-sm text-destructive">
+          {actionError}
+        </p>
+      ) : null}
       <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" disabled={role.isSystem || busy} className={adminDangerBtnClass()} onClick={del}>
+        <button
+          type="button"
+          disabled={role.isSystem || busy}
+          aria-busy={busy || undefined}
+          className={adminDangerBtnClass()}
+          onClick={() => setConfirmOpen(true)}
+        >
+          <AdminBusySpinner busy={busy} />
           {busy ? t('common.deleting') : t('adminDomains.rbac.delete')}
         </button>
         <button type="button" disabled={busy} className={adminSecondaryBtnClass()} onClick={() => navigate('/app/admin/rbac/org-roles')}>
-          {t('common.cancel') || 'Cancel'}
+          {t('common.cancel')}
         </button>
       </div>
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={del}
+        variant="danger"
+        title={t('adminRbac.orgRoleDeleteConfirmTitle', { name: role.label || role.key })}
+        message={t('adminRbac.orgRoleDeleteConfirmMessage')}
+        confirmText={t('adminDomains.rbac.delete')}
+        cancelText={t('common.cancel')}
+      />
     </AdminUserFormCard>
   );
 
@@ -137,10 +159,9 @@ export default function OrgRoleDeletePanel({ orgId, embedded = false }) {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         {formCard}
         <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">{t('adminRbac.orgRoleDeleteWarning') || 'Warning'}</p>
+          <p className="font-medium text-foreground">{t('adminRbac.orgRoleDeleteWarning')}</p>
           <p className="mt-1">
-            {t('adminRbac.orgRoleDeleteWarningBody') ||
-              'Nếu role đang được gán cho user, hệ thống sẽ chặn xóa để tránh mất dữ liệu.'}
+            {t('adminRbac.orgRoleDeleteWarningBody')}
           </p>
         </div>
       </div>

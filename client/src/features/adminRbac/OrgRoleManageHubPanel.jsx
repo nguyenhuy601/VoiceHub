@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
-import AdminRbacOpsHubShell from '../../components/admin/AdminRbacOpsHubShell';
+import AdminRbacOpsHubShell from '../../components/Admin/AdminRbacOpsHubShell';
 import AdminOrgRolePicker from '../../components/adminRbac/AdminOrgRolePicker';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
 import OrgRoleEditPanel from './OrgRoleEditPanel';

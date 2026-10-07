@@ -1,18 +1,35 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { useTheme } from '../../context/ThemeContext';
+import {
+  AlarmClock,
+  Bell,
+  CalendarDays,
+  Clock,
+  FileText,
+  Info,
+  MapPin,
+  Mic,
+  Pin,
+  Timer,
+  Users,
+  X,
+} from 'lucide-react';
 import { ConfirmDialog, GradientButton, Modal } from '../../components/Shared';
+import {
+  adminDangerBtnClass,
+  adminInputClass,
+  adminLabelClass,
+  adminSecondaryBtnClass,
+} from '../../components/adminUsers/adminUserPanelUi';
+import { resolveMentionNavIndex } from '../../utils/chatComposerLimits';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { useCalendarFeed } from '../../hooks/useCalendarFeed';
 import { useTaskDueAlerts } from '../../hooks/useTaskDueAlerts';
 import friendService from '../../services/friendService';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import UserAvatar from '../../components/Shared/UserAvatar';
-import {
-  getMeetingJoinState,
-  getMonthGridCells,
-  toDateKey,
-} from '../../utils/calendarUtils';
+import { getMeetingJoinState, toDateKey } from '../../utils/calendarUtils';
 import { useAppStrings } from '../../locales/appStrings';
 import { useLocale } from '../../context/LocaleContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -28,6 +45,15 @@ import { hasBackendCapability } from '../../config/backendCapabilities';
 const CALENDAR_WRITE_ENABLED = hasBackendCapability('calendarEventService');
 
 const CALENDAR_LOCAL_KEY = LOCAL_CUSTOM_KEY;
+const EVENT_TITLE_MAX_LENGTH = 200;
+const EVENT_LOCATION_MAX_LENGTH = 200;
+const EVENT_DESCRIPTION_MAX_LENGTH = 500;
+const ATTENDEE_QUERY_MAX_LENGTH = 120;
+const EVENT_TYPE_OPTIONS = [
+  { id: 'meeting', labelKey: 'calendar.kindMeeting', Icon: Mic },
+  { id: 'deadline', labelKey: 'calendar.typeDeadline', Icon: AlarmClock },
+  { id: 'reminder', labelKey: 'calendar.tabReminder', Icon: Bell },
+];
 const DEFAULT_DURATION_MINUTES = '30';
 const DURATION_MINUTE_OPTIONS = ['15', '30', '45', '60', '90', '120'];
 const LEGACY_DURATION_MAP = {
@@ -80,7 +106,6 @@ function parseTimeInputToDisplay(hhmm, loc) {
 }
 
 function CalendarPage({
-  suiteLayout = false,
   spaceOrganizationId = '',
   spaceProjectId = '',
 } = {}) {
@@ -110,8 +135,9 @@ function CalendarPage({
     ).trim();
   }, [searchParams, location.pathname, activeWorkspace, company, spaceOrganizationId]);
   const projectIdFilter = String(spaceProjectId || searchParams.get('projectId') || '').trim();
-  const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
+  const formIdPrefix = useId();
+  const fieldId = (name) => `${formIdPrefix}-${name}`;
   const { locale } = useLocale();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -133,13 +159,10 @@ function CalendarPage({
   const [attendeeNames, setAttendeeNames] = useState([]);
   const [attendeeSuggestions, setAttendeeSuggestions] = useState([]);
   const [showAttendeeSuggestions, setShowAttendeeSuggestions] = useState(false);
+  const [attendeeActiveIndex, setAttendeeActiveIndex] = useState(-1);
   const [deleteConfirmEventId, setDeleteConfirmEventId] = useState(null);
-  const [eventSearchQuery, setEventSearchQuery] = useState('');
-  /** all | meeting | deadline | local */
-  const [calendarKindFilter, setCalendarKindFilter] = useState('all');
   /** month | week | list — Figma suite layout */
   const [viewMode, setViewMode] = useState('month');
-  const jumpDateInputRef = useRef(null);
 
   const {
     events,
@@ -153,91 +176,34 @@ function CalendarPage({
   useTaskDueAlerts(tasksForAlerts, {
     enabled: true,
     onAlert: ({ title }) => {
-      toast(t('calendar.toastDeadlineAlert', { title }), { icon: '⏰' });
+      toast(t('calendar.toastDeadlineAlert', { title }));
     },
   });
 
-  const eventsByKind = useMemo(() => {
-    if (calendarKindFilter === 'all') return events;
-    return events.filter((e) => {
-      if (calendarKindFilter === 'meeting') return e.kind === 'meeting' || e.type === 'meeting';
-      if (calendarKindFilter === 'deadline') {
-        return (
-          e.kind === 'task' ||
-          e.kind === 'work' ||
-          e.type === 'deadline' ||
-          e.type === 'work'
-        );
-      }
-      if (calendarKindFilter === 'local') return e.kind === 'local' || e.source === 'local';
-      return true;
-    });
-  }, [events, calendarKindFilter]);
-
-  const calendarKindOptions = useMemo(
-    () => [
-      { id: 'all', label: t('calendar.kindAll'), icon: '📋' },
-      { id: 'meeting', label: t('calendar.kindMeetings'), icon: '🎤' },
-      { id: 'deadline', label: t('calendar.kindDeadlines'), icon: '⏰' },
-      { id: 'local', label: t('calendar.kindLocal'), icon: '📝' },
-    ],
-    [t]
-  );
-
-  const eventsForDisplay = useMemo(() => {
-    const q = eventSearchQuery.trim().toLowerCase();
-    if (!q) return eventsByKind;
-    return eventsByKind.filter((e) => {
-      const hay = [e.title, e.date, e.time, e.location, e.description, e.duration, e.type]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [eventsByKind, eventSearchQuery]);
-
-  const todayEvents = useMemo(() => {
-    const k = toDateKey(new Date());
-    return eventsForDisplay.filter((e) => e.date === k);
-  }, [eventsForDisplay]);
-
-  const upcomingEvents = useMemo(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    return eventsForDisplay
-      .filter((e) => {
-        if (!e.date) return false;
-        const d = new Date(`${e.date}T12:00:00`);
-        return d > start;
-      })
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
-  }, [eventsForDisplay]);
-
   const selectedDateEvents = useMemo(() => {
     const key = toDateKey(selectedDate);
-    return eventsForDisplay
+    return events
       .filter((e) => e.date === key)
       .sort((a, b) => new Date(a.startAt || 0).getTime() - new Date(b.startAt || 0).getTime());
-  }, [eventsForDisplay, selectedDate]);
-
-  const monthCells = useMemo(() => getMonthGridCells(selectedDate), [selectedDate]);
+  }, [events, selectedDate]);
 
   const upcomingMonthEvents = useMemo(() => {
     const y = selectedDate.getFullYear();
     const m = selectedDate.getMonth();
-    return eventsForDisplay.filter((e) => {
+    return events.filter((e) => {
       if (!e.date) return false;
       const d = new Date(`${e.date}T12:00:00`);
       if (Number.isNaN(d.getTime())) return false;
       return d.getFullYear() === y && d.getMonth() === m;
     });
-  }, [eventsForDisplay, selectedDate]);
+  }, [events, selectedDate]);
 
   const resetEventForm = () => {
     setEditingEventId(null);
     setCreateType('meeting');
     setAttendeeNames([]);
     setShowAttendeeSuggestions(false);
+    setAttendeeActiveIndex(-1);
     setEventForm({
       title: '',
       date: '',
@@ -313,7 +279,7 @@ function CalendarPage({
   const openEditModal = (eventData) => {
     if (!eventData) return;
     if (eventData.source === 'api') {
-      toast(t('calendar.toastEditElsewhere'), { icon: 'ℹ️' });
+      toast(t('calendar.toastEditElsewhere'));
       return;
     }
     setEditingEventId(eventData.id);
@@ -363,6 +329,7 @@ function CalendarPage({
     setAttendeeNames((prev) => Array.from(new Set([...prev, clean])));
     setEventForm((prev) => ({ ...prev, attendeesText: '' }));
     setShowAttendeeSuggestions(false);
+    setAttendeeActiveIndex(-1);
   };
 
   const handleRemoveAttendee = (name) => {
@@ -433,10 +400,28 @@ function CalendarPage({
       const next = typeof updater === 'function' ? updater(list) : updater;
       localStorage.setItem(CALENDAR_LOCAL_KEY, JSON.stringify(next));
       reloadLocal();
+      return true;
     } catch {
       toast.error(t('calendar.toastLocalSaveFail'));
+      return false;
     }
   }, [reloadLocal, t]);
+
+  const closeCreateModal = () => {
+    setShowCreateEventModal(false);
+    resetEventForm();
+    setDmPeerFriendId('');
+    setDmPeerFriendName('');
+  };
+
+  const handleCreateModalClose = () => {
+    if (showAttendeeSuggestions && filteredAttendeeSuggestions.length > 0) {
+      setShowAttendeeSuggestions(false);
+      setAttendeeActiveIndex(-1);
+      return;
+    }
+    closeCreateModal();
+  };
 
   const handleSaveEvent = () => {
     const title = String(eventForm.title || '').trim();
@@ -493,26 +478,21 @@ function CalendarPage({
         : {}),
     };
 
-    if (editingEventId) {
-      persistLocalList((list) =>
+    const saved = editingEventId
+      ? persistLocalList((list) =>
         list.map((item) => (String(item.id) === String(editingEventId) ? nextEvent : item))
-      );
-      toast.success(t('calendar.toastUpdated'));
-    } else {
-      persistLocalList((list) => [nextEvent, ...list]);
-      toast.success(t('calendar.toastCreated'));
-    }
+      )
+      : persistLocalList((list) => [nextEvent, ...list]);
+    if (!saved) return;
 
-    setShowCreateEventModal(false);
-    resetEventForm();
-    setDmPeerFriendId('');
-    setDmPeerFriendName('');
+    toast.success(editingEventId ? t('calendar.toastUpdated') : t('calendar.toastCreated'));
+    closeCreateModal();
   };
 
   const handleDeleteEvent = (eventId, source) => {
     if (!eventId) return;
     if (source === 'api') {
-      toast(t('calendar.toastDeleteTaskVoice'), { icon: 'ℹ️' });
+      toast(t('calendar.toastDeleteTaskVoice'));
       return;
     }
     setDeleteConfirmEventId(eventId);
@@ -521,7 +501,8 @@ function CalendarPage({
   const confirmDeleteLocalEvent = () => {
     const eventId = deleteConfirmEventId;
     if (!eventId) return;
-    persistLocalList((list) => list.filter((item) => String(item.id) !== String(eventId)));
+    const deleted = persistLocalList((list) => list.filter((item) => String(item.id) !== String(eventId)));
+    if (!deleted) return;
     if (selectedEvent?.id === eventId) {
       setSelectedEvent(null);
     }
@@ -547,7 +528,7 @@ function CalendarPage({
       return;
     }
     if (eventData.type === 'meeting' && eventData.source === 'local') {
-      toast(t('calendar.toastLocalEvent'), { icon: 'ℹ️' });
+      toast(t('calendar.toastLocalEvent'));
       return;
     }
     if (eventData.kind === 'task' || eventData.kind === 'work' || eventData.type === 'deadline' || eventData.type === 'work') {
@@ -565,49 +546,34 @@ function CalendarPage({
         );
         return;
       }
-      toast(t('calendar.toastOpenTasks'), { icon: 'ℹ️' });
+      toast(t('calendar.toastOpenTasks'));
       return;
     }
-    toast(t('calendar.toastDetail'), { icon: 'ℹ️' });
+    toast(t('calendar.toastDetail'));
   };
 
   const renderModalCard = (children) => (
     <div className={FIGMA_PAGE_CARD_PAD}>{children}</div>
   );
-  const modalHeading = isDarkMode ? 'font-bold text-white' : 'font-bold text-slate-900';
-  const modalBody = isDarkMode ? 'text-sm text-gray-300' : 'text-sm text-slate-600';
-  const modalDestructive = isDarkMode
-    ? 'rounded-xl border border-slate-800 bg-[#040f2a] px-6 py-3 font-semibold text-red-400 transition-all hover:bg-slate-800/70'
-    : 'rounded-xl border border-slate-200 bg-white px-6 py-3 font-semibold text-red-600 shadow-sm transition-all hover:bg-slate-50';
-  const attendeeRow = isDarkMode
-    ? 'flex items-center gap-2 rounded-lg border border-slate-800 bg-[#040f2a] p-2'
-    : 'flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm';
-  const formShell = isDarkMode ? 'text-slate-100' : 'text-slate-900';
-  const formLabel = isDarkMode ? 'mb-2 block text-sm font-semibold text-slate-300' : 'mb-2 block text-sm font-semibold text-slate-700';
-  const formInput = isDarkMode
-    ? 'w-full rounded-xl border border-slate-600/80 bg-[#0a1628] px-4 py-3 text-white outline-none transition-all placeholder:text-slate-500 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50'
-    : 'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/25';
-  const formSelect = isDarkMode
-    ? 'w-full rounded-xl border border-slate-600/80 bg-[#0a1628] px-4 py-3 text-white outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/40'
-    : 'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-cyan-500';
-  const formBtnSecondary = isDarkMode
-    ? 'shrink-0 rounded-xl border border-slate-600 bg-[#0a1628] px-4 py-3 font-semibold text-white transition-all hover:bg-slate-700/80'
-    : 'shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 shadow-sm transition-all hover:bg-slate-50';
-  const formTypeInactive = isDarkMode
-    ? 'rounded-xl border border-slate-600 bg-[#0a1628] px-3 py-3 text-sm font-semibold text-slate-100 transition-all hover:border-slate-500 hover:bg-slate-800/90 sm:flex-row'
-    : 'rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-all hover:bg-white sm:flex-row';
-
-  const handleJumpDateChange = (e) => {
-    const v = e.target.value;
-    if (!v) return;
-    setSelectedDate(new Date(`${v}T12:00:00`));
-    toast.success(t('calendar.toastGoto', { v }));
-    e.target.value = '';
-  };
+  const modalHeading = 'mb-3 flex items-center gap-2 text-sm font-semibold text-foreground';
+  const modalBody = 'space-y-2 text-sm text-muted-foreground';
+  const modalInfoRow = 'flex items-center gap-2';
+  const modalIcon = 'shrink-0 text-muted-foreground';
+  const formInput = adminInputClass('text-foreground placeholder:text-muted-foreground');
+  const formDateInput = adminInputClass('text-foreground [color-scheme:light] dark:[color-scheme:dark]');
+  const formLabel = adminLabelClass();
+  const isMeetingType = createType === 'meeting';
+  const attendeeListboxId = fieldId('attendee-listbox');
+  const attendeeOptionId = (index) => fieldId(`attendee-option-${index}`);
+  const isAttendeeListOpen = showAttendeeSuggestions && filteredAttendeeSuggestions.length > 0;
 
   const handleCalendarRefresh = async () => {
     reloadLocal();
-    await refetch();
+    const result = await refetch();
+    if (result?.isError) {
+      toast.error(resolveApiErrorMessage(result.error, { t, fallback: t('calendar.toastRefreshFail') }));
+      return;
+    }
     toast.success(t('calendar.toastRefreshed'));
   };
 
@@ -615,19 +581,54 @@ function CalendarPage({
     const newDate = new Date(selectedDate);
     newDate.setMonth(newDate.getMonth() - 1);
     setSelectedDate(newDate);
-    toast(t('calendar.toastMonthNav', { m: newDate.getMonth() + 1, y: newDate.getFullYear() }), { icon: '📅' });
+    toast(t('calendar.toastMonthNav', { m: newDate.getMonth() + 1, y: newDate.getFullYear() }));
   };
 
   const handleNextMonth = () => {
     const newDate = new Date(selectedDate);
     newDate.setMonth(newDate.getMonth() + 1);
     setSelectedDate(newDate);
-    toast(t('calendar.toastMonthNav', { m: newDate.getMonth() + 1, y: newDate.getFullYear() }), { icon: '📅' });
+    toast(t('calendar.toastMonthNav', { m: newDate.getMonth() + 1, y: newDate.getFullYear() }));
   };
 
   const handleToday = () => {
     setSelectedDate(new Date());
-    toast(t('calendar.toastBackToday'), { icon: '📅' });
+    toast(t('calendar.toastBackToday'));
+  };
+
+  const handleEventTypeKeyDown = (e, index) => {
+    const delta = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    const next = EVENT_TYPE_OPTIONS[(index + delta + EVENT_TYPE_OPTIONS.length) % EVENT_TYPE_OPTIONS.length];
+    setCreateType(next.id);
+    document.getElementById(fieldId(`type-${next.id}`))?.focus();
+  };
+
+  const handleAttendeeKeyDown = (e) => {
+    const count = filteredAttendeeSuggestions.length;
+    const isOpen = showAttendeeSuggestions && count > 0;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!count) return;
+      e.preventDefault();
+      if (!showAttendeeSuggestions) setShowAttendeeSuggestions(true);
+      setAttendeeActiveIndex((prev) => resolveMentionNavIndex(prev, e.key, count));
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (isOpen) {
+        const pick = filteredAttendeeSuggestions[attendeeActiveIndex >= 0 ? attendeeActiveIndex : 0];
+        addAttendeeName(pick.label);
+        return;
+      }
+      if (String(eventForm.attendeesText || '').trim()) handleAddAttendees();
+      return;
+    }
+    if (e.key === 'Escape' && showAttendeeSuggestions) {
+      setShowAttendeeSuggestions(false);
+      setAttendeeActiveIndex(-1);
+    }
   };
 
   const handleUpcomingClick = (ev, date) => {
@@ -639,7 +640,7 @@ function CalendarPage({
     <CalendarFigmaView
       viewMode={viewMode}
       onViewModeChange={setViewMode}
-      events={eventsForDisplay}
+      events={events}
       selectedDate={selectedDate}
       onSelectDate={setSelectedDate}
       selectedEvent={selectedEvent}
@@ -658,6 +659,7 @@ function CalendarPage({
       onUpcomingClick={handleUpcomingClick}
       loading={feedLoading}
       error={feedError}
+      onRetry={refetch}
     />
   );
 
@@ -665,366 +667,392 @@ function CalendarPage({
     <>
       <div className={`${FIGMA_PAGE_SHELL} h-full overflow-hidden`}>{calendarFigmaView}</div>
 
-    {/* Event Detail Modal */}
-    <Modal 
-      isOpen={selectedEvent !== null} 
-      onClose={() => setSelectedEvent(null)}
-      title={selectedEvent?.title}
-      size="lg"
-    >
-      {selectedEvent && (
-        <div className="space-y-4">
-          {/* Event Header */}
-          <div className={`w-full h-2 rounded-full bg-gradient-to-r ${selectedEvent.color}`}></div>
-          
-          {/* Event Info */}
-          <div className="grid grid-cols-2 gap-4">
-            {renderModalCard(
-              <>
-              <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
-                <span>🕐</span> {t('calendar.sectionTime')}
-              </h4>
-              <div className={`space-y-2 ${modalBody}`}>
-                <div>📅 {selectedEvent.date}</div>
-                <div>⏰ {selectedEvent.time}</div>
-                {selectedEvent.duration && <div>⌛ {selectedEvent.duration}</div>}
-              </div>
-              </>
-            )}
+      <Modal
+        isOpen={selectedEvent !== null}
+        onClose={() => setSelectedEvent(null)}
+        title={selectedEvent?.title}
+        size="lg"
+      >
+        {selectedEvent && (
+          <div className="space-y-4">
+            <div aria-hidden="true" className={`h-2 w-full rounded-full bg-gradient-to-r ${selectedEvent.color}`} />
 
-            {renderModalCard(
-              <>
-              <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
-                <span>ℹ️</span> {t('calendar.sectionDetailBlock')}
-              </h4>
-              <div className={`space-y-2 ${modalBody}`}>
-                <div>
-                  📌{' '}
-                  {selectedEvent.kind === 'task'
-                    ? t('calendar.kindTaskDeadline')
-                    : selectedEvent.type === 'meeting'
-                      ? t('calendar.kindMeeting')
-                      : t('calendar.eventOrMeeting')}
-                </div>
-                {selectedEvent.location && <div>📍 {selectedEvent.location}</div>}
-                {selectedEvent.attendees && (
-                  <div>👥 {t('calendar.peopleCount', { n: selectedEvent.attendees })}</div>
-                )}
-              </div>
-              </>
-            )}
-          </div>
-
-          {/* Attendees List — chỉ danh sách tên khi sự kiện local có attendeeNames */}
-          {selectedEvent.type === 'meeting' &&
-            Array.isArray(selectedEvent.attendeeNames) &&
-            selectedEvent.attendeeNames.length > 0 && (
-            renderModalCard(
-              <>
-              <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
-                <span>👥</span> {t('calendar.attendeesSection', { n: selectedEvent.attendeeNames.length })}
-              </h4>
-              <div className="grid grid-cols-2 gap-2">
-                {selectedEvent.attendeeNames.map((name, idx) => (
-                  <div key={name} className={attendeeRow}>
-                    <UserAvatar name={name} size="xs" />
-                    <div className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{name}</div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {renderModalCard(
+                <>
+                  <h4 className={modalHeading}>
+                    <Clock size={16} aria-hidden="true" className={modalIcon} />
+                    {t('calendar.sectionTime')}
+                  </h4>
+                  <div className={modalBody}>
+                    <div className={modalInfoRow}>
+                      <CalendarDays size={14} aria-hidden="true" className={modalIcon} />
+                      {selectedEvent.date}
+                    </div>
+                    <div className={modalInfoRow}>
+                      <AlarmClock size={14} aria-hidden="true" className={modalIcon} />
+                      {selectedEvent.time}
+                    </div>
+                    {selectedEvent.duration && (
+                      <div className={modalInfoRow}>
+                        <Timer size={14} aria-hidden="true" className={modalIcon} />
+                        {selectedEvent.duration}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
+                </>
+              )}
+
+              {renderModalCard(
+                <>
+                  <h4 className={modalHeading}>
+                    <Info size={16} aria-hidden="true" className={modalIcon} />
+                    {t('calendar.sectionDetailBlock')}
+                  </h4>
+                  <div className={modalBody}>
+                    <div className={modalInfoRow}>
+                      <Pin size={14} aria-hidden="true" className={modalIcon} />
+                      {selectedEvent.kind === 'task'
+                        ? t('calendar.kindTaskDeadline')
+                        : selectedEvent.type === 'meeting'
+                          ? t('calendar.kindMeeting')
+                          : t('calendar.eventOrMeeting')}
+                    </div>
+                    {selectedEvent.location && (
+                      <div className={modalInfoRow}>
+                        <MapPin size={14} aria-hidden="true" className={modalIcon} />
+                        {selectedEvent.location}
+                      </div>
+                    )}
+                    {selectedEvent.attendees > 0 && (
+                      <div className={modalInfoRow}>
+                        <Users size={14} aria-hidden="true" className={modalIcon} />
+                        {t('calendar.peopleCount', { n: selectedEvent.attendees })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {selectedEvent.type === 'meeting' &&
+              Array.isArray(selectedEvent.attendeeNames) &&
+              selectedEvent.attendeeNames.length > 0 &&
+              renderModalCard(
+                <>
+                  <h4 className={modalHeading}>
+                    <Users size={16} aria-hidden="true" className={modalIcon} />
+                    {t('calendar.attendeesSection', { n: selectedEvent.attendeeNames.length })}
+                  </h4>
+                  <ul className="m-0 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-2">
+                    {selectedEvent.attendeeNames.map((name) => (
+                      <li key={name} className="flex items-center gap-2 rounded-lg border border-border bg-card p-2">
+                        <UserAvatar name={name} size="xs" />
+                        <span className="truncate text-sm font-semibold text-foreground">{name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+            {renderModalCard(
+              <>
+                <h4 className={modalHeading}>
+                  <FileText size={16} aria-hidden="true" className={modalIcon} />
+                  {t('calendar.sectionDescription')}
+                </h4>
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                  {selectedEvent.description ||
+                    selectedEvent.raw?.description ||
+                    (selectedEvent.type === 'meeting' ? t('calendar.meetingHint') : t('calendar.taskHint'))}
+                </p>
               </>
-            )
-          )}
-
-          {renderModalCard(
-            <>
-            <h4 className={`mb-3 flex items-center gap-2 ${modalHeading}`}>
-              <span>📝</span> {t('calendar.sectionDescription')}
-            </h4>
-            <p className={`whitespace-pre-wrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-slate-600'}`}>
-              {selectedEvent.description ||
-                (selectedEvent.raw?.description) ||
-                (selectedEvent.type === 'meeting' ? t('calendar.meetingHint') : t('calendar.taskHint'))}
-            </p>
-            </>
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex flex-wrap gap-3">
-            {selectedEvent.type === 'meeting' && (() => {
-              const mj =
-                selectedEvent.kind === 'meeting' && selectedEvent.raw
-                  ? getMeetingJoinState(selectedEvent.raw)
-                  : null;
-              const joinDisabled = Boolean(mj && !mj.joinEligible);
-              return (
-              <GradientButton 
-                variant="primary" 
-                disabled={joinDisabled}
-                onClick={() => {
-                  handleJoinEvent(selectedEvent);
-                  setSelectedEvent(null);
-                }}
-                className="flex-1 min-w-[140px]"
-              >
-                {joinDisabled ? t('calendar.joinClosedBtn') : t('calendar.joinNow')}
-              </GradientButton>
-              );
-            })()}
-            {selectedEvent.source !== 'api' && (
-            <GradientButton 
-              variant="secondary" 
-              onClick={() => {
-                setSelectedEvent(null);
-                openEditModal(selectedEvent);
-              }}
-              className="flex-1 min-w-[140px]"
-            >
-              {t('calendar.editEventBtn')}
-            </GradientButton>
             )}
-            {selectedEvent.source !== 'api' && (
-            <button 
-              type="button"
-              onClick={() => {
-                handleDeleteEvent(selectedEvent?.id, selectedEvent?.source);
-              }}
-            className={modalDestructive}
-            >
-              {t('calendar.deleteEventBtn')}
-            </button>
-            )}
-          </div>
-        </div>
-      )}
-    </Modal>
 
-    {/* Create Event Modal */}
-    <Modal 
-      isOpen={showCreateEventModal} 
-      onClose={() => setShowCreateEventModal(false)}
-      title={editingEventId ? t('calendar.modalEditTitle') : t('calendar.modalCreateTitle')}
-      size="lg"
-    >
-      <div className={`space-y-4 ${formShell}`}>
-        {/* Event Title */}
-        <div>
-          <label className={formLabel}>
-            {t('calendar.labelEventTitle')}
-          </label>
-          <input 
-            type="text"
-            placeholder={t('calendar.phTitle')}
-            value={eventForm.title}
-            onChange={(e) => setEventForm((prev) => ({ ...prev, title: e.target.value }))}
-            className={formInput}
-          />
-        </div>
-
-        {/* Event Type — chữ sáng + nền tách khỏi glass modal */}
-        <div>
-          <label className={formLabel}>
-            {t('calendar.labelEventType')}
-          </label>
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
-            {[
-              { id: 'meeting', label: t('calendar.kindMeeting'), icon: '🎤' },
-              { id: 'deadline', label: t('calendar.typeDeadline'), icon: '⏰' },
-              { id: 'reminder', label: t('calendar.tabReminder'), icon: '🔔' },
-            ].map((type) => {
-              const active = createType === type.id;
-              return (
-              <button
-                key={type.id}
-                type="button"
-                onClick={() => setCreateType(type.id)}
-                className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border px-3 py-3 text-sm font-semibold transition-all sm:flex-row sm:gap-2 ${
-                  active
-                    ? 'border-cyan-400 bg-cyan-600/35 text-white shadow-[inset_0_0_0_1px_rgba(34,211,238,0.45)]'
-                    : formTypeInactive
-                }`}
-              >
-                <span className="text-lg leading-none" aria-hidden>{type.icon}</span>
-                <span className={active ? 'text-white' : isDarkMode ? 'text-slate-100' : 'text-slate-800'}>{type.label}</span>
-              </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Date & Time */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={formLabel}>
-              {t('calendar.labelDate')}
-            </label>
-            <input 
-              type="date"
-                value={eventForm.date}
-                onChange={(e) => setEventForm((prev) => ({ ...prev, date: e.target.value }))}
-              className={`${formInput} ${isDarkMode ? '[color-scheme:dark]' : '[color-scheme:light]'}`}
-            />
-          </div>
-          <div>
-            <label className={formLabel}>
-              {t('calendar.labelTime')}
-            </label>
-            <input 
-              type="time"
-                value={eventForm.time}
-                onChange={(e) => setEventForm((prev) => ({ ...prev, time: e.target.value }))}
-              className={`${formInput} ${isDarkMode ? '[color-scheme:dark]' : '[color-scheme:light]'}`}
-            />
-          </div>
-        </div>
-
-        {/* Duration & Location */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={formLabel}>
-              {t('calendar.labelDuration')}
-            </label>
-            <select
-              value={eventForm.duration}
-              onChange={(e) => setEventForm((prev) => ({ ...prev, duration: e.target.value }))}
-              className={formSelect}
-            >
-              {DURATION_MINUTE_OPTIONS.map((minutes) => (
-                <option
-                  key={minutes}
-                  value={minutes}
-                  className={isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}
+            <div className="flex flex-wrap gap-3">
+              {selectedEvent.type === 'meeting' && (() => {
+                const mj =
+                  selectedEvent.kind === 'meeting' && selectedEvent.raw
+                    ? getMeetingJoinState(selectedEvent.raw)
+                    : null;
+                const joinDisabled = Boolean(mj && !mj.joinEligible);
+                return (
+                  <GradientButton
+                    variant="primary"
+                    disabled={joinDisabled}
+                    onClick={() => {
+                      handleJoinEvent(selectedEvent);
+                      setSelectedEvent(null);
+                    }}
+                    className="min-w-[140px] flex-1"
+                  >
+                    {joinDisabled ? t('calendar.joinClosedBtn') : t('calendar.joinNow')}
+                  </GradientButton>
+                );
+              })()}
+              {selectedEvent.source !== 'api' && (
+                <GradientButton
+                  variant="secondary"
+                  onClick={() => {
+                    setSelectedEvent(null);
+                    openEditModal(selectedEvent);
+                  }}
+                  className="min-w-[140px] flex-1"
                 >
-                  {durationLabelForMinutes(minutes, t)}
-                </option>
-              ))}
-            </select>
+                  {t('calendar.editEventBtn')}
+                </GradientButton>
+              )}
+              {selectedEvent.source !== 'api' && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteEvent(selectedEvent?.id, selectedEvent?.source)}
+                  className={adminDangerBtnClass('px-6 py-3')}
+                >
+                  {t('calendar.deleteEventBtn')}
+                </button>
+              )}
+            </div>
           </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={showCreateEventModal}
+        onClose={handleCreateModalClose}
+        title={editingEventId ? t('calendar.modalEditTitle') : t('calendar.modalCreateTitle')}
+        size="lg"
+      >
+        <div className="space-y-4 text-foreground">
           <div>
-            <label className={formLabel}>
-              {t('calendar.labelLocation')}
+            <label htmlFor={fieldId('title')} className={formLabel}>
+              {t('calendar.labelEventTitle')}
             </label>
-            <input 
+            <input
+              id={fieldId('title')}
               type="text"
-              placeholder={t('calendar.phVoice')}
-              value={eventForm.location}
-              onChange={(e) => setEventForm((prev) => ({ ...prev, location: e.target.value }))}
+              placeholder={t('calendar.phTitle')}
+              value={eventForm.title}
+              maxLength={EVENT_TITLE_MAX_LENGTH}
+              required
+              onChange={(e) => setEventForm((prev) => ({ ...prev, title: e.target.value }))}
               className={formInput}
             />
           </div>
-        </div>
 
-        {/* Description */}
-        <div>
-          <label className={formLabel}>
-            {t('calendar.labelDesc')}
-          </label>
-          <textarea 
-            rows={4}
-            placeholder={t('calendar.phDesc')}
-            value={eventForm.description}
-            onChange={(e) => setEventForm((prev) => ({ ...prev, description: e.target.value }))}
-            className={`${formInput} resize-none`}
-          ></textarea>
-        </div>
-
-        {/* Attendees */}
-        <div>
-          <label className={formLabel}>
-            {t('calendar.labelAttendees')}
-          </label>
-          <div className="relative flex gap-2">
-            <input 
-              type="text"
-              placeholder={t('calendar.phAttendees')}
-              value={eventForm.attendeesText}
-              onFocus={() => setShowAttendeeSuggestions(true)}
-              onChange={(e) => {
-                setEventForm((prev) => ({ ...prev, attendeesText: e.target.value }));
-                setShowAttendeeSuggestions(true);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && filteredAttendeeSuggestions.length > 0) {
-                  e.preventDefault();
-                  addAttendeeName(filteredAttendeeSuggestions[0].label);
-                }
-              }}
-              className={`flex-1 ${formInput}`}
-            />
-            <button
-              type="button"
-              className={formBtnSecondary}
-              onClick={handleAddAttendees}
-            >
-              {t('calendar.addAttendeeBtn')}
-            </button>
-            {showAttendeeSuggestions && filteredAttendeeSuggestions.length > 0 && (
-              <div
-                className={`absolute left-0 right-[6.5rem] top-[calc(100%+0.35rem)] z-20 max-h-52 overflow-y-auto rounded-xl border p-1 ${
-                  isDarkMode ? 'border-slate-700 bg-[#0a1628]' : 'border-slate-200 bg-white'
-                }`}
-              >
-                {filteredAttendeeSuggestions.map((item) => (
+          <fieldset className="m-0 min-w-0 border-0 p-0">
+            <legend className={formLabel}>{t('calendar.formTypeLegend')}</legend>
+            <div role="radiogroup" aria-label={t('calendar.formTypeLegend')} className="grid grid-cols-3 gap-2 sm:gap-3">
+              {EVENT_TYPE_OPTIONS.map(({ id, labelKey, Icon }, index) => {
+                const active = createType === id;
+                return (
                   <button
-                    key={item.id}
+                    key={id}
+                    id={fieldId(`type-${id}`)}
                     type="button"
-                    onClick={() => addAttendeeName(item.label)}
-                    className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm ${
-                      isDarkMode ? 'hover:bg-slate-800/80 text-slate-100' : 'hover:bg-slate-50 text-slate-800'
+                    role="radio"
+                    aria-checked={active}
+                    tabIndex={active ? 0 : -1}
+                    onClick={() => setCreateType(id)}
+                    onKeyDown={(e) => handleEventTypeKeyDown(e, index)}
+                    className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border px-3 py-3 text-sm font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none sm:flex-row sm:gap-2 ${
+                      active
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border bg-card text-foreground hover:bg-muted'
                     }`}
                   >
-                    <span className="truncate">{item.label}</span>
-                    <span className={`ml-2 truncate text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{item.sub || ''}</span>
+                    <Icon size={18} aria-hidden="true" />
+                    <span>{t(labelKey)}</span>
                   </button>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor={fieldId('date')} className={formLabel}>
+                {t('calendar.labelDate')}
+              </label>
+              <input
+                id={fieldId('date')}
+                type="date"
+                value={eventForm.date}
+                required
+                onChange={(e) => setEventForm((prev) => ({ ...prev, date: e.target.value }))}
+                className={formDateInput}
+              />
+            </div>
+            <div>
+              <label htmlFor={fieldId('time')} className={formLabel}>
+                {t('calendar.labelTime')}
+              </label>
+              <input
+                id={fieldId('time')}
+                type="time"
+                value={eventForm.time}
+                required
+                onChange={(e) => setEventForm((prev) => ({ ...prev, time: e.target.value }))}
+                className={formDateInput}
+              />
+            </div>
           </div>
-          {attendeeNames.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {attendeeNames.map((name) => (
-                <button
-                  type="button"
-                  key={name}
-                  onClick={() => handleRemoveAttendee(name)}
-                  className="px-3 py-1.5 rounded-full text-xs bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 hover:bg-indigo-500/30 transition-all"
+
+          {isMeetingType && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 motion-safe:animate-fade-in-fast">
+              <div>
+                <label htmlFor={fieldId('duration')} className={formLabel}>
+                  {t('calendar.labelDuration')}
+                </label>
+                <select
+                  id={fieldId('duration')}
+                  value={eventForm.duration}
+                  onChange={(e) => setEventForm((prev) => ({ ...prev, duration: e.target.value }))}
+                  className={formInput}
                 >
-                  {name} ✕
-                </button>
-              ))}
+                  {DURATION_MINUTE_OPTIONS.map((minutes) => (
+                    <option key={minutes} value={minutes}>
+                      {durationLabelForMinutes(minutes, t)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor={fieldId('location')} className={formLabel}>
+                  {t('calendar.labelLocation')}
+                </label>
+                <input
+                  id={fieldId('location')}
+                  type="text"
+                  placeholder={t('calendar.phVoice')}
+                  value={eventForm.location}
+                  maxLength={EVENT_LOCATION_MAX_LENGTH}
+                  onChange={(e) => setEventForm((prev) => ({ ...prev, location: e.target.value }))}
+                  className={formInput}
+                />
+              </div>
             </div>
           )}
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex gap-3">
-          <GradientButton 
-            variant="primary" 
-            onClick={handleSaveEvent}
-            className="flex-1"
-          >
-            {editingEventId ? t('calendar.saveEvent') : t('calendar.createEvent')}
-          </GradientButton>
-          <button 
-            type="button"
-            onClick={() => setShowCreateEventModal(false)}
-            className={formBtnSecondary}
-          >
-            {t('calendar.cancelBtn')}
-          </button>
-        </div>
-      </div>
-    </Modal>
+          <div>
+            <label htmlFor={fieldId('description')} className={formLabel}>
+              {t('calendar.labelDesc')}
+            </label>
+            <textarea
+              id={fieldId('description')}
+              rows={4}
+              placeholder={t('calendar.phDesc')}
+              value={eventForm.description}
+              maxLength={EVENT_DESCRIPTION_MAX_LENGTH}
+              onChange={(e) => setEventForm((prev) => ({ ...prev, description: e.target.value }))}
+              className={`${formInput} resize-none`}
+            />
+          </div>
 
-    <ConfirmDialog
-      isOpen={deleteConfirmEventId != null}
-      onClose={() => setDeleteConfirmEventId(null)}
-      onConfirm={confirmDeleteLocalEvent}
-      title={t('calendar.confirmDeleteTitle')}
-      message={t('calendar.confirmDeleteMsg')}
-      confirmText={t('calendar.confirmDeleteOk')}
-      cancelText={t('calendar.cancelBtn')}
-    />
+          {isMeetingType && (
+            <div className="motion-safe:animate-fade-in-fast">
+              <label htmlFor={fieldId('attendees')} className={formLabel}>
+                {t('calendar.labelAttendees')}
+              </label>
+              <div className="relative flex gap-2">
+                <input
+                  id={fieldId('attendees')}
+                  type="text"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={isAttendeeListOpen}
+                  aria-controls={attendeeListboxId}
+                  aria-activedescendant={
+                    isAttendeeListOpen && attendeeActiveIndex >= 0 ? attendeeOptionId(attendeeActiveIndex) : undefined
+                  }
+                  aria-label={t('calendar.attendeeSearchAria')}
+                  placeholder={t('calendar.phAttendees')}
+                  value={eventForm.attendeesText}
+                  maxLength={ATTENDEE_QUERY_MAX_LENGTH}
+                  onFocus={() => setShowAttendeeSuggestions(true)}
+                  onBlur={() => {
+                    setShowAttendeeSuggestions(false);
+                    setAttendeeActiveIndex(-1);
+                  }}
+                  onChange={(e) => {
+                    setEventForm((prev) => ({ ...prev, attendeesText: e.target.value }));
+                    setShowAttendeeSuggestions(true);
+                    setAttendeeActiveIndex(-1);
+                  }}
+                  onKeyDown={handleAttendeeKeyDown}
+                  className={`flex-1 ${formInput}`}
+                />
+                <button type="button" className={adminSecondaryBtnClass('shrink-0')} onClick={handleAddAttendees}>
+                  {t('calendar.addAttendeeBtn')}
+                </button>
+                <ul
+                  id={attendeeListboxId}
+                  role="listbox"
+                  aria-label={t('calendar.attendeeSuggestionsAria')}
+                  hidden={!isAttendeeListOpen}
+                  className="absolute left-0 right-[6.5rem] top-[calc(100%+0.35rem)] z-20 m-0 max-h-52 list-none overflow-y-auto rounded-xl border border-border bg-card p-1 shadow-lg motion-safe:animate-fade-in-fast"
+                >
+                  {filteredAttendeeSuggestions.map((item, index) => {
+                    const active = index === attendeeActiveIndex;
+                    return (
+                      <li
+                        key={item.id}
+                        id={attendeeOptionId(index)}
+                        role="option"
+                        aria-selected={active}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => addAttendeeName(item.label)}
+                        className={`flex cursor-pointer items-center justify-between rounded-lg px-2.5 py-2 text-sm text-foreground ${
+                          active ? 'bg-muted' : 'hover:bg-muted'
+                        }`}
+                      >
+                        <span className="truncate">{item.label}</span>
+                        <span className="ml-2 truncate text-xs text-muted-foreground">{item.sub || ''}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+              {attendeeNames.length > 0 && (
+                <ul className="m-0 mt-3 flex list-none flex-wrap gap-2 p-0">
+                  {attendeeNames.map((name) => (
+                    <li key={name}>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAttendee(name)}
+                        aria-label={t('calendar.attendeeRemoveAria', { name })}
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors duration-150 hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                      >
+                        {name}
+                        <X size={12} aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <GradientButton variant="primary" onClick={handleSaveEvent} className="flex-1">
+              {editingEventId ? t('calendar.saveEvent') : t('calendar.createEvent')}
+            </GradientButton>
+            <button type="button" onClick={closeCreateModal} className={adminSecondaryBtnClass('shrink-0 px-4 py-3')}>
+              {t('calendar.cancelBtn')}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={deleteConfirmEventId != null}
+        onClose={() => setDeleteConfirmEventId(null)}
+        onConfirm={confirmDeleteLocalEvent}
+        title={t('calendar.confirmDeleteTitle')}
+        message={t('calendar.confirmDeleteMsg')}
+        confirmText={t('calendar.confirmDeleteOk')}
+        cancelText={t('calendar.cancelBtn')}
+        variant="danger"
+      />
     </>
   );
 }

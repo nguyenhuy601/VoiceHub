@@ -190,7 +190,7 @@ export default function ProjectHubRoleMatrixSection({
               type="button"
               disabled={busy}
               onClick={save}
-              className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             >
               {busy ? t('common.saving') : t('common.save')}
             </button>
@@ -198,7 +198,7 @@ export default function ProjectHubRoleMatrixSection({
               type="button"
               disabled={busy}
               onClick={resetDefault}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm disabled:opacity-50"
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             >
               {t('workspace.projectHubRoleMatrixReset')}
             </button>

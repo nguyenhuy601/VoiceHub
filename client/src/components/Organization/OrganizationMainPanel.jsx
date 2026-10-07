@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import {
-    AlertCircle,
     AtSign,
+    BarChart3,
     Bell,
     Calendar,
     ChevronLeft,
@@ -19,11 +19,12 @@ import {
     Send,
     Settings,
     Smile,
+    Trash2,
     Users,
     Video,
     X
 } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useLocale } from '../../context/LocaleContext';
@@ -33,7 +34,9 @@ import OrganizationNotificationsWorkspacePanel from '../../features/orgNotificat
 import { useAppStrings } from '../../locales/appStrings';
 import useTaskWorkspaceScope from '../../hooks/useTaskWorkspaceScope';
 import { entShell, roleBadgeClass, roleBadgeLabel } from '../../theme/enterpriseWorkspace';
+import { AI_TASK_SOFT_BLOCK_CODES, getAiTaskEligibility, getAiTaskTooltipShort } from '../../utils/aiTaskEligibility';
 import { isWorkspaceAuxTab, normalizeWorkspaceTab } from '../../utils/workspaceTabUtils';
+import CreateTaskFromAiModal from '../Chat/CreateTaskFromAiModal';
 import DepartmentMeetingsPanel from './DepartmentMeetingsPanel';
 import DepartmentMembersPanel from './DepartmentMembersPanel';
 
@@ -62,11 +65,19 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import ChatContextPicker from '../Chat/ChatContextPicker';
 import ChatContextPreview from '../Chat/ChatContextPreview';
 import { ChatMessageAttachmentBody } from '../Chat/ChatFileAttachment';
+import PollCard from '../Chat/PollCard';
 import ChatUploadProgressBar from '../Chat/ChatUploadProgressBar';
 import ComposerEmojiPicker from '../Chat/ComposerEmojiPicker';
 import UnifiedChatComposer from '../Chat/UnifiedChatComposer';
 import { contextCallTargetFromMessage, normalizeMessageRefs } from '../Chat/chatContextRefs';
 import { Modal } from '../Shared';
+import {
+  adminInputClass,
+  adminLabelClass,
+  adminPrimaryBtnClass,
+  adminSecondaryBtnClass,
+} from '../adminUsers/adminUserPanelUi';
+import { AdminBusySpinner } from '../adminUsers/adminPanelStates';
 import UserAvatar from '../Shared/UserAvatar';
 import ChannelMessageMoreMenu from './ChannelMessageMoreMenu';
 import ChannelMessageToolbar from './ChannelMessageToolbar';
@@ -80,6 +91,8 @@ import {
     unwrapTaskApiPayload,
     unwrapTaskBoardDetailPayload
 } from '../../services/api/taskAPI';
+import { parseMessageMentions } from '../../utils/parseMessageMentions';
+import { CHAT_MESSAGE_MAX_LENGTH, resolveMentionNavIndex } from '../../utils/chatComposerLimits';
 import { buildCollaborateProjectsNewPath } from '../../utils/suitePathUtils';
 import { collectMentionLabelsFromContacts } from '../../utils/tokenizeMessageMentions';
 import OrgMessageHoverActions from '../Chat/OrgMessageHoverActions';
@@ -258,6 +271,8 @@ function FigmaOrgChatComposer({
   const mentionButtonRef = useRef(null);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+  const mentionListId = useId();
 
   const safeMentionItems = useMemo(
     () => (Array.isArray(mentionItems) ? mentionItems.filter((item) => item && item.label) : []),
@@ -273,6 +288,17 @@ function FigmaOrgChatComposer({
       return label.includes(q) || username.includes(q);
     });
   }, [safeMentionItems, mentionQuery]);
+
+  useEffect(() => {
+    setMentionActiveIndex(0);
+  }, [mentionQuery, showMentionMenu]);
+
+  const isMentionMenuOpen = showMentionMenu && safeMentionItems.length > 0;
+  const activeMentionIndex =
+    filteredMentionItems.length > 0
+      ? Math.min(mentionActiveIndex, filteredMentionItems.length - 1)
+      : -1;
+  const mentionOptionId = (idx) => `${mentionListId}-opt-${idx}`;
 
   useEffect(() => {
     const el = inputRef.current;
@@ -352,13 +378,23 @@ function FigmaOrgChatComposer({
   };
 
   const handleKeyDown = (event) => {
-    if (showMentionMenu && filteredMentionItems.length > 0 && event.key === 'Enter') {
-      event.preventDefault();
-      insertMention(filteredMentionItems[0]);
-      return;
+    if (isMentionMenuOpen && filteredMentionItems.length > 0) {
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        setMentionActiveIndex((cur) =>
+          resolveMentionNavIndex(cur, event.key, filteredMentionItems.length)
+        );
+        return;
+      }
+      if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+        event.preventDefault();
+        insertMention(filteredMentionItems[Math.max(0, activeMentionIndex)]);
+        return;
+      }
     }
     if (event.key === 'Escape' && showMentionMenu) {
       event.preventDefault();
+      event.stopPropagation();
       setShowMentionMenu(false);
       setMentionQuery('');
       return;
@@ -388,22 +424,35 @@ function FigmaOrgChatComposer({
       ) : null}
 
       <div className="relative overflow-visible rounded-2xl border border-border bg-surface shadow-sm transition-[border-color,box-shadow] duration-150 focus-within:border-primary/35 focus-within:shadow-md">
-        {showMentionMenu && safeMentionItems.length > 0 ? (
+        {isMentionMenuOpen ? (
           <div
             ref={mentionMenuRef}
-            className="absolute bottom-[calc(100%-4px)] left-0 right-0 z-40 mx-2 mb-1 max-h-56 overflow-hidden rounded-xl border border-border bg-surface shadow-xl"
+            className="absolute bottom-[calc(100%-4px)] left-0 right-0 z-40 mx-2 mb-1 max-h-56 overflow-hidden rounded-xl border border-border bg-surface shadow-xl motion-safe:animate-fade-in-fast"
           >
             <div className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               {t('chat.mentionSuggestions')}
             </div>
-            <div className="max-h-48 overflow-y-auto">
+            <div
+              id={mentionListId}
+              role="listbox"
+              aria-label={t('orgPanel.mentionListAria')}
+              className="max-h-48 overflow-y-auto"
+            >
               {filteredMentionItems.length ? (
-                filteredMentionItems.map((item) => (
+                filteredMentionItems.map((item, idx) => (
                   <button
                     key={String(item.value || item.label)}
+                    id={mentionOptionId(idx)}
                     type="button"
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={idx === activeMentionIndex}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setMentionActiveIndex(idx)}
                     onClick={() => insertMention(item)}
-                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-muted"
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-muted ${
+                      idx === activeMentionIndex ? 'bg-muted' : ''
+                    }`}
                   >
                     <UserAvatar avatar={item.avatar} name={item.label} size="chip" />
                     <span className="min-w-0 flex-1">
@@ -419,7 +468,7 @@ function FigmaOrgChatComposer({
                   </button>
                 ))
               ) : (
-                <div className="px-3 py-3 text-sm text-muted-foreground">
+                <div role="presentation" className="px-3 py-3 text-sm text-muted-foreground">
                   {t('chat.mentionNoMatch')}
                 </div>
               )}
@@ -477,7 +526,7 @@ function FigmaOrgChatComposer({
               onClick={onCreatePoll}
               className={`${iconButton} hidden sm:flex`}
             >
-              <AlertCircle size={17} aria-hidden />
+              <BarChart3 size={17} aria-hidden />
             </button>
             <button
               type="button"
@@ -513,7 +562,18 @@ function FigmaOrgChatComposer({
             onKeyDown={handleKeyDown}
             disabled={disabled}
             rows={1}
+            maxLength={CHAT_MESSAGE_MAX_LENGTH}
             placeholder={placeholder}
+            role="combobox"
+            aria-label={t('orgPanel.composerAria')}
+            aria-autocomplete="list"
+            aria-expanded={isMentionMenuOpen}
+            aria-controls={isMentionMenuOpen ? mentionListId : undefined}
+            aria-activedescendant={
+              isMentionMenuOpen && activeMentionIndex >= 0
+                ? mentionOptionId(activeMentionIndex)
+                : undefined
+            }
             className="max-h-[120px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[0.9375rem] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-70"
           />
           <button
@@ -562,6 +622,8 @@ const OrganizationMainPanel = ({
   onChangeMessageInput,
   onSendMessage,
   loadingMessages = false,
+  messagesLoadError = false,
+  onRetryMessages,
   hasMoreOlderMessages = false,
   loadingOlderMessages = false,
   onLoadOlderMessages,
@@ -580,6 +642,7 @@ const OrganizationMainPanel = ({
   onOpenDepartmentSettings,
   onOpenTeamSettings,
   onSendChatOption,
+  onPollUpdated,
   chatContacts = [],
   loadingChatContacts = false,
   loadingChannels = false,
@@ -676,6 +739,9 @@ const OrganizationMainPanel = ({
 
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [pollSubmitting, setPollSubmitting] = useState(false);
+  const [contactSubmitting, setContactSubmitting] = useState(false);
+  const quickModalFieldId = useId();
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '']);
   const [pollDuration, setPollDuration] = useState('24h');
@@ -718,6 +784,9 @@ const OrganizationMainPanel = ({
   const [editDraft, setEditDraft] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
   const [moreMenu, setMoreMenu] = useState({ open: false, anchorRect: null, message: null });
+  const [createTaskModalOpen, setCreateTaskModalOpen] = useState(false);
+  const [createTaskSourceMessage, setCreateTaskSourceMessage] = useState(null);
+  const [createTaskMentions, setCreateTaskMentions] = useState([]);
   /** Hover: thanh công cụ phía trên bubble hoặc phía dưới (tránh cắt khi tin ở đầu khung chat) */
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
   const [workspaceTab, setWorkspaceTab] = useState(() => normalizeWorkspaceTab(workspaceTabView));
@@ -1489,6 +1558,7 @@ const OrganizationMainPanel = ({
   }, []);
 
   const canCreateWorkspaceTask = Boolean(taskWorkspaceScope?.canCreateTask);
+  const canUseAiWorkspaceTask = Boolean(taskWorkspaceScope?.canUseAiTask ?? taskWorkspaceScope?.canCreateTask);
   const canOpenCreateProjectWizard = Boolean(canCreateProjectCapability);
 
   const openProjectSetupWizard = useCallback(
@@ -1613,6 +1683,23 @@ const OrganizationMainPanel = ({
     task?.createdByUser?.displayName ||
     task?.createdByUser?.username ||
     (task?.createdBy ? String(task.createdBy).slice(-6) : '—');
+
+  const menuCreateTaskCheck = useMemo(() => {
+    const base = getAiTaskEligibility(moreMenu.message, {
+      organizationId: orgIdForTask ? String(orgIdForTask) : null,
+    }, t);
+    if (!canUseAiWorkspaceTask) {
+      return {
+        ok: false,
+        reason: t('taskBoard.aiTaskDenied'),
+        code: 'aiTaskDenied',
+      };
+    }
+    if (!base.ok && AI_TASK_SOFT_BLOCK_CODES.has(base.code)) {
+      return { ok: true, reason: base.reason || '', code: base.code };
+    }
+    return base;
+  }, [moreMenu.message, orgIdForTask, canUseAiWorkspaceTask, t]);
 
   /** Workspace (kênh tổ chức): luôn gọi hook trước mọi return sớm. */
   const workspace = useMemo(() => {
@@ -1830,23 +1917,32 @@ const OrganizationMainPanel = ({
     setPollOptions((prev) => prev.filter((_, idx) => idx !== index));
   };
 
-  const handleSubmitPoll = () => {
+  const handleSubmitPoll = async (event) => {
+    event?.preventDefault?.();
+    if (pollSubmitting) return;
     const question = pollQuestion.trim();
     const options = pollOptions.map((item) => item.trim()).filter(Boolean);
     if (!question || options.length < 2) return;
-    onSendChatOption?.({
-      kind: 'poll',
-      payload: {
-        question,
-        options,
-        duration: pollDuration,
-        allowMultiAnswer,
-      },
-    });
-    setIsPollModalOpen(false);
+    setPollSubmitting(true);
+    try {
+      await onSendChatOption?.({
+        kind: 'poll',
+        payload: {
+          question,
+          options,
+          duration: pollDuration,
+          allowMultiAnswer,
+        },
+      });
+      setIsPollModalOpen(false);
+    } finally {
+      setPollSubmitting(false);
+    }
   };
 
-  const handleSubmitContact = () => {
+  const handleSubmitContact = async (event) => {
+    event?.preventDefault?.();
+    if (contactSubmitting) return;
     let payload = {};
     
     if (useManualContactEntry) {
@@ -1874,11 +1970,16 @@ const OrganizationMainPanel = ({
       };
     }
     
-    onSendChatOption?.({
-      kind: 'contact',
-      payload,
-    });
-    setIsContactModalOpen(false);
+    setContactSubmitting(true);
+    try {
+      await onSendChatOption?.({
+        kind: 'contact',
+        payload,
+      });
+      setIsContactModalOpen(false);
+    } finally {
+      setContactSubmitting(false);
+    }
   };
 
   const openTaskCreateModal = () => {
@@ -1897,7 +1998,8 @@ const OrganizationMainPanel = ({
     setTaskCreateOpen(true);
   };
 
-  const submitWorkspaceTask = async () => {
+  const submitWorkspaceTask = async (event) => {
+    event?.preventDefault?.();
     const title = String(taskForm.title || '').trim();
     if (!title || creatingTask) return;
     setCreatingTask(true);
@@ -1940,6 +2042,10 @@ const OrganizationMainPanel = ({
   const useFigmaChannelHeader =
     suiteLayout && isChatLikeTab && !isVoiceChannel;
   const useFigmaOrgChatChrome = suiteLayout && isChatLikeTab && !isVoiceChannel;
+  const channelUnreadForCatchUp = channelUnreadCount(selectedChannel);
+  const channelCatchUpName = selectedChannel?.name
+    ? `#${channelNameToDisplaySlug(selectedChannel.name, locale)}`
+    : '';
   const selectedBranch = branches.find((b) => String(b._id) === String(selectedBranchId)) || null;
   const selectedDivision = selectedBranch?.divisions?.find((d) => String(d._id) === String(selectedDivisionId)) || null;
   const branchName = selectedBranch?.name ? displayDepartmentName(selectedBranch.name, locale) : '—';
@@ -2363,7 +2469,7 @@ const OrganizationMainPanel = ({
                     onClick={() => {
                       if (selectedOrganization?._id) onInviteOrganization?.(selectedOrganization._id);
                     }}
-                    className={`rounded-lg px-2 py-1 text-[10px] font-semibold ${
+                    className={`rounded-lg px-2 py-1 text-[10px] font-semibold transition motion-reduce:transition-none ${
                       isDarkMode ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'
                     }`}
                   >
@@ -2719,6 +2825,13 @@ const OrganizationMainPanel = ({
               <OrganizationChatView
                 scrollRef={chatScrollRef}
                 onScroll={handleChatScroll}
+                unreadCount={channelUnreadForCatchUp}
+                channelName={channelCatchUpName}
+                organizationId={organizationId ? String(organizationId) : ''}
+                roomId={selectedChannelId ? String(selectedChannelId) : ''}
+                currentUserId={currentUserId ? String(currentUserId) : ''}
+                locale={locale}
+                showCatchUp={useFigmaOrgChatChrome}
                 className={useFigmaOrgChatChrome ? undefined : 'contents'}
               >
               <div
@@ -2736,12 +2849,9 @@ const OrganizationMainPanel = ({
                     type="button"
                     disabled={loadingOlderMessages}
                     onClick={onLoadOlderMessages}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                      isDarkMode
-                        ? 'border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-50'
-                        : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50'
-                    }`}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-wait disabled:opacity-60"
                   >
+                    <AdminBusySpinner busy={loadingOlderMessages} />
                     {loadingOlderMessages
                       ? t('friendChat.loadingOlder')
                       : t('friendChat.loadOlder')}
@@ -2749,21 +2859,40 @@ const OrganizationMainPanel = ({
                 </div>
               )}
               {loadingMessages && (
-                <div
-                  className={`rounded-xl p-4 text-sm ${
-                    isDarkMode ? 'bg-white/5 text-gray-300' : 'bg-white/80 text-slate-600 shadow-sm'
-                  }`}
-                >
-                  {t('orgPanel.loadingMsgs')}
+                <div role="status" aria-label={t('orgPanel.loadingMsgs')} className="flex flex-col gap-3">
+                  {[0, 1, 2].map((row) => (
+                    <div key={row} className="flex items-start gap-3">
+                      <div className="h-9 w-9 shrink-0 rounded-full bg-muted motion-safe:animate-pulse" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="h-3 w-32 rounded bg-muted motion-safe:animate-pulse" />
+                        <div
+                          className={`h-3 rounded bg-muted motion-safe:animate-pulse ${
+                            row === 1 ? 'w-2/3' : 'w-5/6'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  <span className="sr-only">{t('orgPanel.loadingMsgs')}</span>
                 </div>
               )}
 
-              {!loadingMessages && messages.length === 0 && (
+              {!loadingMessages && messages.length === 0 && messagesLoadError && (
                 <div
-                  className={`rounded-xl p-4 text-sm ${
-                    isDarkMode ? 'bg-white/5 text-gray-300' : 'bg-white/80 text-slate-600 shadow-sm'
-                  }`}
+                  role="alert"
+                  className="flex flex-col items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-center text-sm text-destructive motion-safe:animate-fade-in-fast"
                 >
+                  <p>{t('orgPanel.loadMsgsFail')}</p>
+                  {typeof onRetryMessages === 'function' ? (
+                    <button type="button" onClick={onRetryMessages} className={adminSecondaryBtnClass}>
+                      {t('documents.orgRetry')}
+                    </button>
+                  ) : null}
+                </div>
+              )}
+
+              {!loadingMessages && messages.length === 0 && !messagesLoadError && (
+                <div className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
                   {lineChatEmptyCopy}
                 </div>
               )}
@@ -2851,6 +2980,34 @@ const OrganizationMainPanel = ({
                                 visible
                                 onEmojiPick={(emoji) => onQuickReactMessage?.(message, emoji)}
                                 onReply={() => onReplyToMessage?.(message)}
+                                onAiExtract={
+                                  canUseAiWorkspaceTask && canCreateCardsUi
+                                    ? () => {
+                                        const base = getAiTaskEligibility(
+                                          message,
+                                          {
+                                            organizationId: orgIdForTask
+                                              ? String(orgIdForTask)
+                                              : null,
+                                          },
+                                          t
+                                        );
+                                        if (!base.ok && !AI_TASK_SOFT_BLOCK_CODES.has(base.code)) {
+                                          toast.error(base.reason || t('taskBoard.aiTaskDenied'));
+                                          return;
+                                        }
+                                        if (!base.ok && base.reason) {
+                                          toast(base.reason, { icon: 'ℹ️' });
+                                        }
+                                        const content = plainTextForMessage(message);
+                                        setCreateTaskMentions(
+                                          parseMessageMentions(content, normalizedContacts)
+                                        );
+                                        setCreateTaskSourceMessage(message);
+                                        setCreateTaskModalOpen(true);
+                                      }
+                                    : undefined
+                                }
                                 onMenu={(e) => {
                                   const r = e?.currentTarget?.getBoundingClientRect?.();
                                   if (r) {
@@ -2976,7 +3133,9 @@ const OrganizationMainPanel = ({
                                     onOpen={setContextPreviewTarget}
                                   />
                                 ) : null}
-                                {!isContextCallMessage(message) ||
+                                {String(message.messageType || '') === 'poll' && message.poll ? (
+                                  <PollCard message={message} t={t} onUpdated={onPollUpdated} />
+                                ) : !isContextCallMessage(message) ||
                                 String(message.content || '').trim() !==
                                   String(message.visibility?.projectName || '').trim() ? (
                                   <ChatMessageAttachmentBody
@@ -3320,6 +3479,46 @@ const OrganizationMainPanel = ({
           const m = moreMenu.message;
           if (m) onDeleteMessage?.(m._id || m.id);
         }}
+        canDeleteOthers={Boolean(selectedChannelPerm.canDelete)}
+        onCreateTask={
+          canCreateWorkspaceTask && canUseAiWorkspaceTask
+            ? () => {
+                const m = moreMenu.message;
+                if (!m) return;
+                const content = plainTextForMessage(m);
+                setCreateTaskMentions(parseMessageMentions(content, normalizedContacts));
+                setCreateTaskSourceMessage(m);
+                setCreateTaskModalOpen(true);
+              }
+            : undefined
+        }
+        createTaskDisabled={!menuCreateTaskCheck.ok}
+        createTaskHoverTitle={
+          menuCreateTaskCheck.ok ? getAiTaskTooltipShort(t) : menuCreateTaskCheck.reason
+        }
+      />
+
+      <CreateTaskFromAiModal
+        isOpen={createTaskModalOpen}
+        onClose={() => {
+          setCreateTaskModalOpen(false);
+          setCreateTaskSourceMessage(null);
+          setCreateTaskMentions([]);
+        }}
+        messageId={createTaskSourceMessage?._id || createTaskSourceMessage?.id}
+        organizationId={orgIdForTask ? String(orgIdForTask) : null}
+        workspaceSlug={workspaceSlugForTask}
+        currentUserId={currentUserId}
+        mentions={createTaskMentions}
+        channelId={selectedChannelId ? String(selectedChannelId) : null}
+        teamId={selectedTeamId ? String(selectedTeamId) : null}
+        messagePreview={
+          createTaskSourceMessage ? plainTextForMessage(createTaskSourceMessage).slice(0, 500) : ''
+        }
+        onConfirmed={() => {
+          toast.success(t('orgPanel.taskFromAiOk'));
+          onWorkspaceTasksRefresh?.();
+        }}
       />
 
       <Modal
@@ -3352,57 +3551,76 @@ const OrganizationMainPanel = ({
         onClose={() => setTaskCreateOpen(false)}
         title={t('taskBoard.createTaskTitle')}
         size="md"
+        closable={!creatingTask}
       >
-        <div className="space-y-4">
+        <form className="space-y-4" onSubmit={submitWorkspaceTask} noValidate>
           <div>
-            <div className="mb-1 text-sm font-semibold text-white">{t('taskBoard.taskName')}</div>
+            <label htmlFor={`${quickModalFieldId}-task-title`} className={adminLabelClass}>
+              {t('taskBoard.taskName')}
+            </label>
             <input
+              id={`${quickModalFieldId}-task-title`}
               value={taskForm.title}
               maxLength={180}
+              required
+              autoFocus
               onChange={(event) => setTaskForm((prev) => ({ ...prev, title: event.target.value }))}
               placeholder={t('taskBoard.taskNamePh')}
-              className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+              className={adminInputClass}
             />
           </div>
           <div>
-            <div className="mb-1 text-sm font-semibold text-white">{t('taskBoard.taskDesc')}</div>
+            <label htmlFor={`${quickModalFieldId}-task-desc`} className={adminLabelClass}>
+              {t('taskBoard.taskDesc')}
+            </label>
             <textarea
+              id={`${quickModalFieldId}-task-desc`}
               value={taskForm.description}
               rows={3}
+              maxLength={2000}
               onChange={(event) => setTaskForm((prev) => ({ ...prev, description: event.target.value }))}
               placeholder={t('taskBoard.taskDescPh')}
-              className="w-full resize-none rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+              className={`${adminInputClass} resize-none`}
             />
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-sm font-semibold text-white">{t('taskBoard.dueDate')}</span>
+            <div>
+              <label htmlFor={`${quickModalFieldId}-task-due`} className={adminLabelClass}>
+                {t('taskBoard.dueDate')}
+              </label>
               <input
+                id={`${quickModalFieldId}-task-due`}
                 type="date"
                 value={taskForm.dueDate}
                 onChange={(event) => setTaskForm((prev) => ({ ...prev, dueDate: event.target.value }))}
-                className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none"
+                className={adminInputClass}
               />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-semibold text-white">{t('taskBoard.priority')}</span>
+            </div>
+            <div>
+              <label htmlFor={`${quickModalFieldId}-task-priority`} className={adminLabelClass}>
+                {t('taskBoard.priority')}
+              </label>
               <select
+                id={`${quickModalFieldId}-task-priority`}
                 value={taskForm.priority}
                 onChange={(event) => setTaskForm((prev) => ({ ...prev, priority: event.target.value }))}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none"
+                className={adminInputClass}
               >
                 <option value="low">{t('tasks.priorityLow')}</option>
                 <option value="medium">{t('tasks.priorityMedium')}</option>
                 <option value="high">{t('tasks.priorityHigh')}</option>
                 <option value="urgent">{t('tasks.priorityUrgent')}</option>
               </select>
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-semibold text-white">{t('taskBoard.department')}</span>
+            </div>
+            <div>
+              <label htmlFor={`${quickModalFieldId}-task-dept`} className={adminLabelClass}>
+                {t('taskBoard.department')}
+              </label>
               <select
+                id={`${quickModalFieldId}-task-dept`}
                 value={taskForm.departmentId}
                 onChange={(event) => setTaskForm((prev) => ({ ...prev, departmentId: event.target.value }))}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none"
+                className={adminInputClass}
               >
                 <option value="">{t('taskBoard.deptGeneral')}</option>
                 {departments.map((department) => (
@@ -3411,13 +3629,16 @@ const OrganizationMainPanel = ({
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-semibold text-white">{t('taskBoard.assignTo')}</span>
+            </div>
+            <div>
+              <label htmlFor={`${quickModalFieldId}-task-assignee`} className={adminLabelClass}>
+                {t('taskBoard.assignTo')}
+              </label>
               <select
+                id={`${quickModalFieldId}-task-assignee`}
                 value={taskForm.assigneeId}
                 onChange={(event) => setTaskForm((prev) => ({ ...prev, assigneeId: event.target.value }))}
-                className="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none"
+                className={adminInputClass}
               >
                 <option value="">{t('taskBoard.unassigned')}</option>
                 {assignableContactOptions.map((contact) => (
@@ -3426,26 +3647,27 @@ const OrganizationMainPanel = ({
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => setTaskCreateOpen(false)}
-              className="rounded-xl border border-white/15 px-4 py-2 text-sm text-white transition hover:bg-white/10"
+              disabled={creatingTask}
+              className={adminSecondaryBtnClass}
             >
-              Hủy
+              {t('nav.cancel')}
             </button>
             <button
-              type="button"
-              onClick={submitWorkspaceTask}
+              type="submit"
               disabled={!taskForm.title.trim() || creatingTask}
-              className="rounded-xl bg-[#5865F2] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+              className={`${adminPrimaryBtnClass} inline-flex items-center gap-1.5`}
             >
+              <AdminBusySpinner busy={creatingTask} />
               {creatingTask ? t('taskBoard.creatingTask') : t('taskBoard.createTask')}
             </button>
           </div>
-        </div>
+        </form>
       </Modal>
 
       <Modal
@@ -3453,57 +3675,81 @@ const OrganizationMainPanel = ({
         onClose={() => setIsPollModalOpen(false)}
         title={t('orgPanel.pollModalTitle')}
         size="md"
+        closable={!pollSubmitting}
       >
-        <div className="space-y-4">
+        <form className="space-y-4" onSubmit={handleSubmitPoll} noValidate>
           <div>
-            <div className="mb-1 text-sm font-semibold text-white">{t('orgPanel.pollQuestion')}</div>
+            <label htmlFor={`${quickModalFieldId}-poll-q`} className={adminLabelClass}>
+              {t('orgPanel.pollQuestion')}
+            </label>
             <input
+              id={`${quickModalFieldId}-poll-q`}
               value={pollQuestion}
               maxLength={300}
+              required
+              autoFocus
+              aria-describedby={`${quickModalFieldId}-poll-q-count`}
               onChange={(event) => setPollQuestion(event.target.value)}
               placeholder={t('orgPanel.pollQuestionPh')}
-              className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+              className={adminInputClass}
             />
-            <div className="mt-1 text-right text-xs text-muted-foreground">{pollQuestion.length} / 300</div>
+            <div
+              id={`${quickModalFieldId}-poll-q-count`}
+              aria-live="polite"
+              className="mt-1 text-right text-xs tabular-nums text-muted-foreground"
+            >
+              {pollQuestion.length} / 300
+            </div>
           </div>
 
-          <div>
-            <div className="mb-1 text-sm font-semibold text-white">{t('orgPanel.pollAnswers')}</div>
+          <fieldset>
+            <legend className={adminLabelClass}>{t('orgPanel.pollAnswers')}</legend>
             <div className="space-y-2">
               {pollOptions.map((option, index) => (
-                <div key={`poll-option-${index}`} className="flex items-center gap-2">
+                <div
+                  key={`poll-option-${index}`}
+                  className="flex items-center gap-2 motion-safe:animate-fade-in-fast"
+                >
                   <input
                     value={option}
+                    maxLength={120}
+                    aria-label={t('orgPanel.pollAnswerAria', { n: index + 1 })}
                     onChange={(event) => updatePollOption(index, event.target.value)}
                     placeholder={t('orgPanel.pollAnswerPh')}
-                    className="flex-1 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
+                    className={`${adminInputClass} flex-1`}
                   />
                   <button
                     type="button"
                     onClick={() => removePollOption(index)}
                     disabled={pollOptions.length <= 2}
-                    className="rounded-lg border border-white/15 px-2 py-1 text-sm text-white transition hover:bg-white/10 disabled:opacity-40"
+                    aria-label={t('orgPanel.pollRemoveAnswerAria', { n: index + 1 })}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
                   >
-                    🗑
+                    <Trash2 size={15} aria-hidden />
                   </button>
                 </div>
               ))}
               <button
                 type="button"
                 onClick={addPollOption}
-                className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                disabled={pollOptions.length >= 6}
+                className={`${adminSecondaryBtnClass} inline-flex w-full items-center justify-center gap-1.5`}
               >
+                <Plus size={15} aria-hidden />
                 {t('orgPanel.pollAddAnswer')}
               </button>
             </div>
-          </div>
+          </fieldset>
 
           <div>
-            <div className="mb-1 text-sm font-semibold text-white">{t('orgPanel.pollDuration')}</div>
+            <label htmlFor={`${quickModalFieldId}-poll-dur`} className={adminLabelClass}>
+              {t('orgPanel.pollDuration')}
+            </label>
             <select
+              id={`${quickModalFieldId}-poll-dur`}
               value={pollDuration}
               onChange={(event) => setPollDuration(event.target.value)}
-              className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none"
+              className={adminInputClass}
             >
               <option value="1h">{t('orgPanel.dur1h')}</option>
               <option value="6h">{t('orgPanel.dur6h')}</option>
@@ -3513,12 +3759,12 @@ const OrganizationMainPanel = ({
             </select>
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-gray-200">
+          <label className="flex items-center gap-2 text-sm text-foreground">
             <input
               type="checkbox"
               checked={allowMultiAnswer}
               onChange={(event) => setAllowMultiAnswer(event.target.checked)}
-              className="h-4 w-4 rounded border-white/20 bg-white/5"
+              className="h-4 w-4 rounded border-border accent-primary"
             />
             {t('orgPanel.pollMultiAnswer')}
           </label>
@@ -3527,20 +3773,26 @@ const OrganizationMainPanel = ({
             <button
               type="button"
               onClick={() => setIsPollModalOpen(false)}
-              className="rounded-xl border border-white/15 px-4 py-2 text-sm text-white transition hover:bg-white/10"
+              disabled={pollSubmitting}
+              className={`${adminSecondaryBtnClass} motion-safe:transition-colors motion-reduce:transition-none`}
             >
               {t('nav.cancel')}
             </button>
             <button
-              type="button"
-              onClick={handleSubmitPoll}
-              disabled={!pollQuestion.trim() || pollOptions.map((item) => item.trim()).filter(Boolean).length < 2}
-              className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+              type="submit"
+              disabled={
+                pollSubmitting ||
+                !pollQuestion.trim() ||
+                pollOptions.map((item) => item.trim()).filter(Boolean).length < 2
+              }
+              aria-busy={pollSubmitting}
+              className={`${adminPrimaryBtnClass} inline-flex items-center gap-1.5 motion-safe:transition-colors motion-reduce:transition-none`}
             >
+              <AdminBusySpinner busy={pollSubmitting} />
               {t('orgPanel.pollPost')}
             </button>
           </div>
-        </div>
+        </form>
       </Modal>
 
       <Modal
@@ -3548,78 +3800,89 @@ const OrganizationMainPanel = ({
         onClose={() => setIsContactModalOpen(false)}
         title={t('orgPanel.contactModalTitle')}
         size="lg"
+        closable={!contactSubmitting}
       >
-        <div className="space-y-3">
-          {/* Toggle between list and manual entry */}
-          <div className="flex gap-2 border-b border-white/10 pb-3">
-            <button
-              type="button"
-              onClick={() => {
-                setUseManualContactEntry(false);
-                setSelectedContactId('');
-              }}
-              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                !useManualContactEntry
-                  ? 'bg-blue-600 text-white'
-                  : 'border border-white/15 text-gray-300 hover:bg-white/10'
-              }`}
-            >
-              Chọn từ danh sách
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setUseManualContactEntry(true);
-                setContactSearch('');
-                setContactCategory('all');
-              }}
-              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                useManualContactEntry
-                  ? 'bg-blue-600 text-white'
-                  : 'border border-white/15 text-gray-300 hover:bg-white/10'
-              }`}
-            >
-              Nhập thủ công
-            </button>
+        <form className="space-y-3" onSubmit={handleSubmitContact} noValidate>
+          <div className="flex gap-1 rounded-xl border border-border bg-muted/40 p-1" role="group">
+            {[
+              { manual: false, label: t('orgPanel.contactPickFromList') },
+              { manual: true, label: t('orgPanel.contactManualEntry') },
+            ].map((mode) => {
+              const isActive = useManualContactEntry === mode.manual;
+              return (
+                <button
+                  key={String(mode.manual)}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    setUseManualContactEntry(mode.manual);
+                    if (mode.manual) {
+                      setContactSearch('');
+                      setContactCategory('all');
+                    } else {
+                      setSelectedContactId('');
+                    }
+                  }}
+                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                    isActive
+                      ? 'bg-card text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              );
+            })}
           </div>
 
           {!useManualContactEntry ? (
-            <>
+            <div className="space-y-3 motion-safe:animate-fade-in-fast">
               <input
+                type="search"
                 value={contactSearch}
+                maxLength={120}
+                aria-label={t('orgPanel.contactSearchPh')}
                 onChange={(event) => setContactSearch(event.target.value)}
                 placeholder={t('orgPanel.contactSearchPh')}
-                className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500"
+                className={adminInputClass}
               />
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2" role="group" aria-label={t('orgPanel.contactCategoryAria')}>
                 {[
                   { key: 'all', label: t('orgPanel.catAll') },
                   { key: 'friend', label: t('orgPanel.catFriend') },
                   { key: 'work', label: t('orgPanel.catWork') },
                   { key: 'family', label: t('orgPanel.catFamily') },
-                ].map((category) => (
-                  <button
-                    key={category.key}
-                    type="button"
-                    onClick={() => setContactCategory(category.key)}
-                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                      contactCategory === category.key
-                        ? 'bg-blue-500 text-white'
-                        : 'border border-white/15 text-gray-300 hover:bg-white/10'
-                    }`}
-                  >
-                    {category.label}
-                  </button>
-                ))}
+                ].map((category) => {
+                  const isActive = contactCategory === category.key;
+                  return (
+                    <button
+                      key={category.key}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => setContactCategory(category.key)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                        isActive
+                          ? 'bg-primary text-primary-foreground'
+                          : 'border border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+                      }`}
+                    >
+                      {category.label}
+                    </button>
+                  );
+                })}
               </div>
 
-              <div className="max-h-80 space-y-2 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.02] p-2">
+              <fieldset className="max-h-80 space-y-1 overflow-y-auto rounded-xl border border-border bg-muted/20 p-2">
+                <legend className="sr-only">{t('orgPanel.contactModalTitle')}</legend>
                 {loadingChatContacts && (
-                  <div className="rounded-lg bg-white/5 px-3 py-2 text-sm text-gray-300">{t('orgPanel.loadingContacts')}</div>
+                  <div role="status" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground">
+                    <AdminBusySpinner busy />
+                    {t('orgPanel.loadingContacts')}
+                  </div>
                 )}
                 {!loadingChatContacts && filteredContacts.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-white/15 px-3 py-2 text-sm text-muted-foreground">
+                  <div className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">
                     {t('orgPanel.contactNoMatch')}
                   </div>
                 )}
@@ -3627,54 +3890,72 @@ const OrganizationMainPanel = ({
                   filteredContacts.map((contact) => (
                     <label
                       key={contact.id}
-                      className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-white/5"
+                      className={`flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted ${
+                        selectedContactId === contact.id ? 'bg-primary/10' : ''
+                      }`}
                     >
                       <input
                         type="radio"
-                        name="contact-card"
+                        name={`${quickModalFieldId}-contact-card`}
                         checked={selectedContactId === contact.id}
                         onChange={() => setSelectedContactId(contact.id)}
-                        className="h-4 w-4"
+                        className="h-4 w-4 accent-primary"
                       />
                       <UserAvatar name={contact.name || 'U'} size="sm" />
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-white">{contact.name}</div>
+                        <div className="truncate text-sm font-semibold text-foreground">{contact.name}</div>
                         <div className="truncate text-xs text-muted-foreground">{contact.phone || contact.email || '-'}</div>
                       </div>
                     </label>
                   ))}
-              </div>
-            </>
+              </fieldset>
+            </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3 motion-safe:animate-fade-in-fast">
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">{t('taskBoard.contactName')}</label>
+                <label htmlFor={`${quickModalFieldId}-contact-name`} className={adminLabelClass}>
+                  {t('taskBoard.contactName')}
+                </label>
                 <input
+                  id={`${quickModalFieldId}-contact-name`}
                   type="text"
                   value={manualContactFullName}
+                  maxLength={120}
+                  required
+                  autoComplete="name"
                   onChange={(e) => setManualContactFullName(e.target.value)}
                   placeholder={t('taskBoard.contactNamePh')}
-                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
+                  className={adminInputClass}
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">{t('taskBoard.contactPhone')}</label>
+                <label htmlFor={`${quickModalFieldId}-contact-phone`} className={adminLabelClass}>
+                  {t('taskBoard.contactPhone')}
+                </label>
                 <input
-                  type="text"
+                  id={`${quickModalFieldId}-contact-phone`}
+                  type="tel"
                   value={manualContactPhone}
+                  maxLength={30}
+                  autoComplete="tel"
                   onChange={(e) => setManualContactPhone(e.target.value)}
                   placeholder={t('taskBoard.contactPhonePh')}
-                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
+                  className={adminInputClass}
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">{t('taskBoard.contactEmail')}</label>
+                <label htmlFor={`${quickModalFieldId}-contact-email`} className={adminLabelClass}>
+                  {t('taskBoard.contactEmail')}
+                </label>
                 <input
-                  type="text"
+                  id={`${quickModalFieldId}-contact-email`}
+                  type="email"
                   value={manualContactEmail}
+                  maxLength={254}
+                  autoComplete="email"
                   onChange={(e) => setManualContactEmail(e.target.value)}
                   placeholder={t('taskBoard.contactEmailPh')}
-                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-500"
+                  className={adminInputClass}
                 />
               </div>
             </div>
@@ -3684,20 +3965,24 @@ const OrganizationMainPanel = ({
             <button
               type="button"
               onClick={() => setIsContactModalOpen(false)}
-              className="rounded-xl border border-white/15 px-4 py-2 text-sm text-white transition hover:bg-white/10"
+              disabled={contactSubmitting}
+              className={adminSecondaryBtnClass}
             >
               {t('nav.cancel')}
             </button>
             <button
-              type="button"
-              onClick={handleSubmitContact}
-              disabled={useManualContactEntry ? !manualContactFullName.trim() : !selectedContactId}
-              className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+              type="submit"
+              disabled={
+                contactSubmitting ||
+                (useManualContactEntry ? !manualContactFullName.trim() : !selectedContactId)
+              }
+              className={`${adminPrimaryBtnClass} inline-flex items-center gap-1.5`}
             >
+              <AdminBusySpinner busy={contactSubmitting} />
               {t('orgPanel.menuContact')}
             </button>
           </div>
-        </div>
+        </form>
       </Modal>
       <ChatContextPreview
         target={contextPreviewTarget}

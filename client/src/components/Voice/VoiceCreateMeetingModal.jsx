@@ -151,8 +151,8 @@ export default function VoiceCreateMeetingModal({
             </section>
 
             <section className={`${FIGMA_VOICE_LOBBY_JOIN_CARD} min-w-0`}>
-              <div className="mb-[18px] flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-500/20 bg-cyan-500/10">
-                <Plus className="h-[22px] w-[22px] text-cyan-400" aria-hidden />
+              <div className={FIGMA_VOICE_LOBBY_CREATE_ICON}>
+                <Plus className="h-[22px] w-[22px] text-primary-foreground" aria-hidden />
               </div>
               <h3 className="mb-2 text-base font-semibold text-foreground">{t('voiceRoom.createTitle')}</h3>
               <p className="mb-5 text-sm leading-relaxed text-muted-foreground">

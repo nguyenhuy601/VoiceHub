@@ -141,7 +141,12 @@ export const queryKeys = {
   projectHub: {
     all: ['projectHub'],
     overview: (projectId) => [...queryKeys.projectHub.all, 'overview', String(projectId || '')],
-    project: (projectId) => [...queryKeys.projectHub.all, 'project', String(projectId || '')],
+    project: (projectId, view = 'hub') => [
+      ...queryKeys.projectHub.all,
+      'project',
+      String(projectId || ''),
+      String(view || 'hub'),
+    ],
     /** GET /projects/:id/boards — share page redirect + fast path + hydrate */
     boards: (projectId, organizationId = '') => [
       ...queryKeys.projectHub.all,

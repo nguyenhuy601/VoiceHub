@@ -166,7 +166,7 @@ export default function PlanningArtifactFormDrawer({
   );
 
   const footer = (
-    <div className="shrink-0 border-t border-border bg-[#FAFAFA] px-4 py-3 dark:bg-slate-900/50">
+    <div className="shrink-0 border-t border-border bg-[#FAFAFA] px-4 py-3 dark:bg-surface">
       {fieldError ? (
         <p className="mb-2 text-sm text-destructive" role="alert">
           {fieldError}
@@ -194,7 +194,7 @@ export default function PlanningArtifactFormDrawer({
       {isEdit && nextStatus && onTransition ? (
         <button
           type="button"
-          className="rounded-full bg-[#1677FF] px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[#0958D9] disabled:opacity-50"
+          className="rounded-full bg-[#1677FF] px-4 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-[#0958D9] disabled:opacity-50"
           disabled={busy || transitioning}
           onClick={() => onTransition(nextStatus)}
         >

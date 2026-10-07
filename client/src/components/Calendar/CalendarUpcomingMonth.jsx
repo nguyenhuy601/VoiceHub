@@ -48,6 +48,7 @@ export default function CalendarUpcomingMonth({
             className="flex w-full items-center gap-2 border-b border-border py-1.5 text-left transition hover:bg-muted/50"
           >
             <div
+              aria-hidden="true"
               className="h-1 w-1 shrink-0 rounded-full"
               style={{ background: meta.color }}
             />

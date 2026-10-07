@@ -9,6 +9,9 @@ import {
   adminInputClass,
   adminLabelClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminListSkeleton,
+} from '../../components/adminUsers/adminPanelStates';
 import { ConfirmDialog } from '../../components/Shared';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
@@ -63,7 +66,7 @@ export default function PosDisablePanel({ orgId, embedded = false }) {
       <AdminUserFormCard danger>
         {membersError ? (
           <div className="space-y-3">
-            <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
               {resolveApiErrorMessage(membersError, { t, fallback: t('companyAdmin.loadMembersFail') })}
             </p>
             <button
@@ -76,7 +79,7 @@ export default function PosDisablePanel({ orgId, embedded = false }) {
             </button>
           </div>
         ) : loading ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          <AdminListSkeleton rows={3} />
         ) : (
           <div className="mx-auto max-w-lg space-y-4">
             <label className="block">
@@ -109,6 +112,7 @@ export default function PosDisablePanel({ orgId, embedded = false }) {
         isOpen={open}
         onClose={() => !busy && setOpen(false)}
         onConfirm={confirm}
+        variant="danger"
         title={t('adminDomains.rbac.posDisable')}
         message={t('adminOrg.posClearConfirm', { name: title })}
         confirmText={t('adminOrg.posDisableAction')}

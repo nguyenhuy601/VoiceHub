@@ -52,6 +52,8 @@ import {
   buildCollaborateProjectHubPath,
   buildCollaborateTasksPath,
   buildCommunicateChannelsPath,
+  buildCompanyDocumentsPath,
+  buildCompanyWorkspacePath,
   buildProjectsPickerPath,
 } from '../../utils/suitePathUtils';
 import useOrgProjectsList from '../../hooks/useOrgProjectsList';
@@ -310,8 +312,10 @@ function DashboardPage({
   const dashboardQueryErrorNotifiedRef = useRef(false);
   useEffect(() => {
     if (landingDemo || isMeScope) return;
+    // Suite overview hiển thị lỗi summary inline (có retry) — không toast trùng.
+    const summaryFailed = !suiteLayout && summaryQuery.isError && summaryQuery.error;
     const failedQuery =
-      (summaryQuery.isError && summaryQuery.error) ||
+      summaryFailed ||
       (orgsQuery.isError && orgsQuery.error) ||
       (friendsQuery.isError && friendsQuery.error);
     if (!failedQuery) {
@@ -320,11 +324,11 @@ function DashboardPage({
     }
     if (dashboardQueryErrorNotifiedRef.current) return;
     dashboardQueryErrorNotifiedRef.current = true;
-    const err = summaryQuery.error || orgsQuery.error || friendsQuery.error;
-    toast.error(resolveApiErrorMessage(err, { t, fallback: t('errors.generic') }));
+    toast.error(resolveApiErrorMessage(failedQuery, { t, fallback: t('errors.generic') }));
   }, [
     landingDemo,
     isMeScope,
+    suiteLayout,
     summaryQuery.isError,
     summaryQuery.error,
     orgsQuery.isError,
@@ -338,7 +342,7 @@ function DashboardPage({
     if (!suiteLayout || landingDemo || isMeScope) return;
     const overviewPaths = new Set([
       '/app/communicate/overview',
-      '/app/collaborate/overview',
+      '/app/company/overview',
     ]);
     if (!overviewPaths.has(location.pathname)) return;
     const root = document.querySelector(`[aria-label="${t('dashboard.ariaOverview')}"]`);
@@ -1191,7 +1195,7 @@ function DashboardPage({
           detail: t('dashboard.detailTask'),
           workspaceName: row.name,
           workspaceSlug: row.slug,
-          route: '/app/collaborate/workspaces',
+          route: buildCompanyWorkspacePath(),
         })),
     [workspaceEntries, t]
   );
@@ -1338,7 +1342,7 @@ function DashboardPage({
       {
         label: isSingleCompany ? t('nav.companyWorkspaces') : t('dashboard.quickNavOrg'),
         icon: Building2,
-        path: isSingleCompany ? '/app/collaborate/workspaces' : '/app/collaborate/workspaces',
+        path: buildCompanyWorkspacePath(),
         color: '#06B6D4',
         desc: isSingleCompany
           ? t('dashboard.quickNavDescCompany')
@@ -1363,7 +1367,7 @@ function DashboardPage({
       {
         label: t('dashboard.quickNavDocuments'),
         icon: FileText,
-        path: '/app/collaborate/documents',
+        path: buildCompanyDocumentsPath(),
         color: '#8B5CF6',
         desc: t('dashboard.quickNavDescFiles'),
       },
@@ -1405,7 +1409,7 @@ function DashboardPage({
           '/app/communicate/chat/friends',
           '/app/communicate/notifications',
           '/app/me/calendar',
-          '/app/collaborate/documents',
+          buildCompanyDocumentsPath(),
           '/app/me/settings',
         ].includes(item.path)
       );
@@ -1511,7 +1515,7 @@ function DashboardPage({
 
   const navigateFromActivityType = (type) => {
     if (type === 'task') navigate(buildProjectsPickerPath(''));
-    else if (type === 'file') navigate('/app/collaborate/documents');
+    else if (type === 'file') navigate(buildCompanyDocumentsPath());
     else if (type === 'message') navigate('/app/communicate/chat/friends');
     else navigate('/app/communicate/notifications');
   };
@@ -1554,6 +1558,13 @@ function DashboardPage({
       pendingApprovals={metrics.pendingApprovals || 0}
       heroStats={heroStats}
       hideRoleBanner={suiteLayout}
+      loadError={
+        suiteLayout && summaryQuery.isError
+          ? resolveApiErrorMessage(summaryQuery.error, { t, fallback: t('errors.generic') })
+          : ''
+      }
+      onRetry={refetchSummary}
+      retryBusy={summaryQuery.isFetching}
       roleTitle={t(`dashboard.personaTitle.${dashPersona}`)}
       roleHint={t(`dashboard.personaHint.${dashPersona}`)}
       showWorkAnalytics={showWorkAnalytics}
@@ -1633,11 +1644,11 @@ function DashboardPage({
       }}
       onCreateWorkspace={() => {
         toast.success(t('dashboard.toastGotoWorkspace'));
-        navigate('/app/collaborate/workspaces');
+        navigate(buildCompanyWorkspacePath());
       }}
       onAddFriend={() => setShowAddFriendModal(true)}
       onWorkspaceClick={(ws) =>
-        navigate(ws.slug ? buildCommunicateChannelsPath() : '/app/collaborate/workspaces')
+        navigate(ws.slug ? buildCommunicateChannelsPath() : buildCompanyWorkspacePath())
       }
     />
   );

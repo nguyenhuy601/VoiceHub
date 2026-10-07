@@ -7,6 +7,15 @@ import {
 import { ORG_STRUCTURE_TEMPLATE_META } from '../../config/orgStructureTemplates';
 import { useAppStrings } from '../../locales/appStrings';
 import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import {
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
+
+/** Domain index `/app/admin/org-structure` chuyển về item đầu (`levels`) → không dùng làm đích, tránh vòng lặp. */
+const ORG_STRUCTURE_FALLBACK_PATH = '/app/admin/org-structure/departments';
 
 function resolveLevelLabel(level, t) {
   const key = String(level?.key || '').trim().toLowerCase();
@@ -32,10 +41,17 @@ function resolveTemplateLabel(templateId, t) {
 
 export default function OrgLevelsPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { schemaLevels: levels, templateId, setupCompleted, loading } = useOrgStructureLevels(orgId);
+  const {
+    schemaLevels: levels,
+    templateId,
+    setupCompleted,
+    loading,
+    error,
+    reload,
+  } = useOrgStructureLevels(orgId);
 
   if (setupCompleted === false) {
-    return <Navigate to="/app/admin/org-structure" replace />;
+    return <Navigate to={ORG_STRUCTURE_FALLBACK_PATH} replace />;
   }
 
   const templateLabel = resolveTemplateLabel(templateId, t);
@@ -47,8 +63,15 @@ export default function OrgLevelsPanel({ orgId }) {
       wide
     >
       <AdminUserFormCard title={t('adminOrg.levelsTitle')}>
-        {loading || setupCompleted === null ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        {error ? (
+          <AdminLoadErrorState
+            message={resolveApiErrorMessage(error, { t, fallback: t('adminOrg.loadFail') })}
+            onRetry={() => reload()}
+          />
+        ) : loading || setupCompleted === null ? (
+          <AdminListSkeleton rows={3} />
+        ) : !levels.length ? (
+          <AdminEmptyState message={t('adminOrg.emptyList')} />
         ) : (
           <div className="space-y-2 text-sm">
             {templateId ? (

@@ -1,11 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSpace, SPACE_KIND } from '../../context/SpaceContext';
-import {
-  buildCompanyModuleSearch,
-  preferUrlTeamIdWhenAhead,
-  preserveCompanyTeamIdOnModuleSearch,
-} from '../../utils/companySpaceLevel';
+import { buildCompanyModuleSearch } from '../../utils/companySpaceLevel';
 
 /** Org id stays in WorkspaceContext — only dept/team/tab sync to URL. */
 const SYNC_KEYS = ['departmentId', 'teamId', 'tab'];
@@ -25,14 +21,9 @@ export function useSyncCompanyModuleSearch(module) {
     const deptId = String(space?.departmentId || '').trim();
     if (!deptId) return;
 
-    const desired = preferUrlTeamIdWhenAhead(
-      preserveCompanyTeamIdOnModuleSearch(
-        buildCompanyModuleSearch(space, module),
-        searchParams,
-        module
-      ),
-      searchParams
-    );
+    const desired = buildCompanyModuleSearch(space, module);
+    desired.delete('organizationId');
+    desired.delete('orgId');
     const desiredKey = desired.toString();
     const syncKey = `${module}|${desiredKey}`;
     const hasOrgQuery = Boolean(searchParams.get('organizationId') || searchParams.get('orgId'));

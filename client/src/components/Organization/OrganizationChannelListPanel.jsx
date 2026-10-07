@@ -10,19 +10,22 @@ import {
 import { channelUnreadCount, voicePresenceLabel } from './organizationStructureTheme';
 import { ent } from '../../theme/enterpriseWorkspace';
 
-function scopeSettingsBtnClass(isDarkMode) {
-  return `absolute right-1 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 ${
-    isDarkMode
-      ? 'bg-[#1D2330] text-[#A1A8B3] hover:bg-[#252b3a] hover:text-[#F3F4F6]'
-      : 'bg-white text-slate-500 shadow-sm hover:bg-slate-100'
-  }`;
+const SCOPE_SETTINGS_BTN_CLASS =
+  'absolute right-1 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md bg-card text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 group-hover:opacity-100 motion-reduce:transition-none';
+
+const ROW_BASE_CLASS =
+  'relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 pr-8 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 motion-reduce:transition-none';
+
+function channelRowStateClass({ active, unread }) {
+  if (active) return 'border-l-2 border-primary bg-primary/10 font-medium text-foreground';
+  if (unread > 0) return 'font-medium text-foreground hover:bg-muted';
+  return 'text-muted-foreground hover:bg-muted hover:text-foreground';
 }
 
 /**
  * Kênh chat/voice — tách khỏi cây tổ chức (enterprise IA).
  */
 export default function OrganizationChannelListPanel({
-  isDarkMode,
   locale,
   t,
   channels = [],
@@ -35,7 +38,6 @@ export default function OrganizationChannelListPanel({
   onCreateChannel,
   onOpenChannelSettings,
   canManageChannelRoleAccess = false,
-  canManageWorkspaceStructure = false,
   departmentWorkspaceActive = false,
 }) {
   const getChannelPerm = (channelId) => {
@@ -66,9 +68,6 @@ export default function OrganizationChannelListPanel({
     [scopeChannels]
   );
 
-  const textMuted = isDarkMode ? ent.text.muted : 'text-slate-500';
-  const sectionLabel = isDarkMode ? ent.text.secondary : 'text-slate-600';
-
   const openChannelSettings = (event, channel) => {
     if (!canManageChannelRoleAccess || !onOpenChannelSettings) return;
     event.preventDefault();
@@ -86,9 +85,9 @@ export default function OrganizationChannelListPanel({
           e.stopPropagation();
           onOpenChannelSettings(channel);
         }}
-        className={scopeSettingsBtnClass(isDarkMode)}
+        className={SCOPE_SETTINGS_BTN_CLASS}
       >
-        <Settings className="h-3.5 w-3.5" />
+        <Settings className="h-3.5 w-3.5" aria-hidden />
       </button>
     );
   };
@@ -101,6 +100,7 @@ export default function OrganizationChannelListPanel({
     const canEnter = perm.canRead;
     const slug = channelNameToDisplaySlug(channel.name, locale);
     const presence = isVoice ? voicePresenceLabel(channel) : '';
+    const ChannelIcon = isVoice ? Volume2 : Hash;
 
     if (!canSee) return null;
 
@@ -108,13 +108,13 @@ export default function OrganizationChannelListPanel({
       return (
         <div
           key={channel._id}
-          className={`group relative flex items-center gap-2 rounded-lg px-2 py-1.5 pr-8 text-sm ${textMuted}`}
+          className="group relative flex items-center gap-2 rounded-lg px-2 py-1.5 pr-8 text-sm text-muted-foreground"
           title={t('orgPanel.channelLocked')}
           onContextMenu={(e) => openChannelSettings(e, channel)}
         >
-          {isVoice ? <Volume2 className="h-3.5 w-3.5" /> : <Hash className="h-3.5 w-3.5" />}
+          <ChannelIcon className="h-3.5 w-3.5" aria-hidden />
           <span className="truncate">{slug}</span>
-          <Lock className="ml-auto h-3 w-3 shrink-0" aria-hidden />
+          <Lock className="ml-auto h-3 w-3 shrink-0" aria-label={t('orgPanel.channelLocked')} />
           {renderSettings(channel)}
         </div>
       );
@@ -126,31 +126,18 @@ export default function OrganizationChannelListPanel({
           type="button"
           onClick={() => onSelectChannel?.(channel._id)}
           onContextMenu={(e) => openChannelSettings(e, channel)}
-          className={`relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 pr-8 text-left text-sm transition ${
-            active
-              ? isDarkMode
-                ? 'border-l-2 border-[#4F6BED] bg-[#4F6BED]/10 font-medium text-[#F3F4F6]'
-                : 'border-l-2 border-indigo-500 bg-indigo-50 font-medium text-slate-900'
-              : unread > 0
-                ? isDarkMode
-                  ? 'font-medium text-[#F3F4F6] hover:bg-[#1D2330]'
-                  : 'font-medium text-slate-900 hover:bg-slate-50'
-                : isDarkMode
-                  ? `${ent.text.secondary} hover:bg-[#1D2330]`
-                  : 'text-slate-600 hover:bg-slate-50'
-          }`}
+          aria-current={active ? 'page' : undefined}
+          className={`${ROW_BASE_CLASS} ${channelRowStateClass({ active, unread })}`}
         >
-          {isVoice ? (
-            <Volume2 className={`h-3.5 w-3.5 shrink-0 ${active ? ent.accent.text : ''}`} />
-          ) : (
-            <Hash className={`h-3.5 w-3.5 shrink-0 ${active ? ent.accent.text : 'opacity-70'}`} />
-          )}
+          <ChannelIcon
+            className={`h-3.5 w-3.5 shrink-0 ${active ? 'text-primary' : 'opacity-70'}`}
+            aria-hidden
+          />
           <span className="truncate font-normal">{slug}</span>
           {unread > 0 ? (
             <span
-              className={`ml-auto rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
-                isDarkMode ? 'bg-[#4F6BED] text-white' : 'bg-indigo-600 text-white'
-              }`}
+              className="ml-auto rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary-foreground"
+              aria-label={t('orgPanel.channelUnreadAria', { count: unread })}
             >
               {unread > 99 ? '99+' : unread}
             </span>
@@ -171,22 +158,14 @@ export default function OrganizationChannelListPanel({
       (departmentWorkspaceActive && selectedDepartmentId && !selectedTeamId));
 
   return (
-    <div
-      className={`shrink-0 rounded-b-xl border-t px-2 pt-2 ${
-        isDarkMode ? 'border-white/[0.06] bg-transparent' : 'border-slate-200/80 bg-transparent'
-      }`}
-    >
-      <div
-        className={`mb-2 flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-wider ${sectionLabel}`}
-      >
+    <div className="shrink-0 rounded-b-xl border-t border-border bg-transparent px-2 pt-2">
+      <div className="mb-2 flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         <span>{t('orgPanel.channelsSection')}</span>
         {canShowCreateChannel ? (
           <button
             type="button"
             onClick={() => onCreateChannel?.()}
-            className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal ${
-              isDarkMode ? 'text-[#8BA3F5] hover:bg-[#4F6BED]/10' : 'text-indigo-600 hover:bg-indigo-50'
-            }`}
+            className="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           >
             {t('orgPanel.addShort')}
           </button>
@@ -194,11 +173,11 @@ export default function OrganizationChannelListPanel({
       </div>
 
       {!hasScope ? (
-        <p className={`px-1 pb-2 text-xs ${textMuted}`}>{t('orgPanel.channelsPickScope')}</p>
+        <p className="px-1 pb-2 text-xs text-muted-foreground">{t('orgPanel.channelsPickScope')}</p>
       ) : null}
 
       {hasScope && chat.length === 0 && voice.length === 0 ? (
-        <p className={`px-1 pb-2 text-xs ${textMuted}`}>{t('orgPanel.channelsEmpty')}</p>
+        <p className="px-1 pb-2 text-xs text-muted-foreground">{t('orgPanel.channelsEmpty')}</p>
       ) : null}
 
       <div className="scrollbar-overlay max-h-[min(40vh,320px)] space-y-0.5 overflow-y-auto pb-3">

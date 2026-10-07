@@ -16,7 +16,9 @@ export default function ProjectHubCompleteSprintModal({
   const sprintId = useMemo(() => (sprint?._id ? String(sprint._id) : ''), [sprint?._id]);
 
   const inputCls =
-    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
+    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring';
+  const btnFocus =
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none';
 
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -140,8 +142,9 @@ export default function ProjectHubCompleteSprintModal({
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-lg border border-border px-3 py-2 text-sm font-semibold text-foreground disabled:opacity-50"
-            disabled={submitting}
+            className={`rounded-lg border border-border px-3 py-2 text-sm font-semibold text-foreground transition-colors disabled:opacity-50 ${btnFocus}`}
+            disabled={submitting || loading}
+            aria-busy={loading || undefined}
           >
             {t('workspace.projectHubPlanCompleteSprintRetry')}
           </button>
@@ -164,7 +167,7 @@ export default function ProjectHubCompleteSprintModal({
                 <button
                   type="button"
                   onClick={() => setIncompleteAction('backlog')}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm font-semibold ${
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                     incompleteAction === 'backlog' ? 'border-primary bg-primary/10' : 'border-border bg-background'
                   }`}
                   aria-pressed={incompleteAction === 'backlog'}
@@ -176,7 +179,7 @@ export default function ProjectHubCompleteSprintModal({
                 <button
                   type="button"
                   onClick={() => setIncompleteAction('sprint')}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm font-semibold ${
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                     incompleteAction === 'sprint' ? 'border-primary bg-primary/10' : 'border-border bg-background'
                   }`}
                   aria-pressed={incompleteAction === 'sprint'}
@@ -209,14 +212,19 @@ export default function ProjectHubCompleteSprintModal({
           ) : null}
 
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground">
+            <button
+              type="button"
+              onClick={onClose}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors ${btnFocus}`}
+            >
               {t('common.cancel')}
             </button>
             <button
               type="button"
               onClick={submitComplete}
               disabled={!canSubmit}
-              className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+              aria-busy={submitting || undefined}
+              className={`rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors disabled:opacity-50 ${btnFocus}`}
             >
               {t('workspace.projectHubPlanCompleteSprintCompleteBtn')}
             </button>

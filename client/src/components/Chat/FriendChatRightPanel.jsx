@@ -3,19 +3,23 @@ import { useNavigate } from 'react-router-dom';
 import {
   Ban,
   Check,
+  ChevronDown,
   ChevronRight,
   Clock,
   FolderOpen,
   Forward,
+  Image as ImageIcon,
   Loader2,
+  MessageCircle,
   MoreHorizontal,
   Plus,
-  Users,
+  Save,
+  Trash2,
+  Video,
   X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useLocale } from '../../context/LocaleContext';
-import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { meetingAPI } from '../../services/api/meetingAPI';
 import { fetchMutualOrganizations } from '../../utils/mutualOrganizations';
@@ -49,6 +53,8 @@ function formatShortDate(iso, localeTag) {
 }
 
 const GRID_PREVIEW = 8;
+const MOTION_BTN =
+  'motion-safe:transition-colors motion-reduce:transition-none';
 
 /**
  * Sidebar phải — Thông tin hội thoại (chuẩn Zalo).
@@ -70,7 +76,6 @@ export default function FriendChatRightPanel({
 }) {
   const { t } = useAppStrings();
   const { locale } = useLocale();
-  const { isDarkMode } = useTheme();
   const navigate = useNavigate();
   const [openMedia, setOpenMedia] = useState(true);
   const [openFiles, setOpenFiles] = useState(true);
@@ -143,25 +148,25 @@ export default function FriendChatRightPanel({
         {
           id: 'open',
           label: t('friendChat.openFile'),
-          icon: '📂',
+          icon: <FolderOpen className="h-4 w-4" aria-hidden />,
           onClick: () => onAttachmentAction?.('open', { url: file.url }),
         },
         {
           id: 'share',
           label: t('friendChat.mediaShare'),
-          icon: '↗',
+          icon: <Forward className="h-4 w-4" aria-hidden />,
           onClick: () => onAttachmentAction?.('share', { messageId: file.id, message: msg }),
         },
         {
           id: 'jump',
           label: t('friendChat.jumpToMessage'),
-          icon: '💬',
+          icon: <MessageCircle className="h-4 w-4" aria-hidden />,
           onClick: () => onAttachmentAction?.('jumpToMessage', { messageId: file.id }),
         },
         {
           id: 'save',
           label: t('friendChat.mediaSaveDevice'),
-          icon: '💾',
+          icon: <Save className="h-4 w-4" aria-hidden />,
           onClick: () =>
             onAttachmentAction?.('saveDevice', {
               messageId: file.id,
@@ -172,7 +177,7 @@ export default function FriendChatRightPanel({
         {
           id: 'delete',
           label: t('friendChat.mediaDeleteForMe'),
-          icon: '🗑',
+          icon: <Trash2 className="h-4 w-4" aria-hidden />,
           danger: true,
           disabled: !canDelete,
           onClick: () => onAttachmentAction?.('delete', { messageId: file.id, message: msg }),
@@ -187,13 +192,10 @@ export default function FriendChatRightPanel({
   const hairlineT = 'border-t border-border';
   const titleMain = 'text-foreground';
   const labelMuted = 'text-foreground-secondary';
-  const sectionBtn =
-    'flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-foreground transition hover:bg-muted/70';
+  const sectionBtn = `flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-foreground hover:bg-muted/70 ${MOTION_BTN}`;
   const thumbBg = 'bg-muted';
-  const quickRow =
-    'flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground transition hover:bg-muted/70';
-  const actionCircle =
-    'flex flex-col items-center gap-1.5 rounded-xl p-2 text-[10px] text-muted-foreground transition hover:bg-muted hover:text-foreground';
+  const quickRow = `flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground hover:bg-muted/70 ${MOTION_BTN}`;
+  const actionCircle = `flex flex-col items-center gap-1.5 rounded-xl p-2 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground ${MOTION_BTN}`;
 
   const renderFileRow = (f) => {
     const mime = f.fileMeta?.mimeType || '';
@@ -205,16 +207,14 @@ export default function FriendChatRightPanel({
     return (
       <div
         key={f.id}
-        className={`group px-3 py-2 transition ${
-          isDarkMode ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-50'
-        }`}
+        className={`group px-3 py-2 hover:bg-muted/60 ${MOTION_BTN}`}
         onMouseEnter={() => setFileMoreId(String(f.id))}
         onMouseLeave={() => setFileMoreId(null)}
       >
         <div className="flex items-start gap-3">
           <button
             type="button"
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white ${badge.bg}`}
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold text-primary-foreground ${badge.bg}`}
             onClick={() => f.url && onAttachmentAction?.('open', { url: f.url })}
             onContextMenu={(e) => openFileMenu(e, f)}
           >
@@ -229,38 +229,39 @@ export default function FriendChatRightPanel({
             <div className={`truncate text-sm font-semibold ${titleMain}`}>{f.name}</div>
             <div className={`mt-0.5 flex items-center gap-1.5 text-xs ${labelMuted}`}>
               {sizeLabel}
-              {f.url && <Check className="h-3.5 w-3.5 text-emerald-500" strokeWidth={2.5} aria-hidden />}
+              {f.url && <Check className="h-3.5 w-3.5 text-success" strokeWidth={2.5} aria-hidden />}
             </div>
           </button>
           <div className="flex shrink-0 flex-col items-end gap-1.5">
             <span className={`text-xs tabular-nums ${labelMuted}`}>{formatShortDate(f.at, locale)}</span>
             {showActions && f.url && (
-              <div className={`flex items-center gap-0.5 rounded-lg border p-0.5 shadow-md ${
-                isDarkMode ? 'border-white/10 bg-[#1a1d26]' : 'border-slate-200 bg-white'
-              }`}>
+              <div className="flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5 shadow-md">
               <button
                 type="button"
                 title={t('friendChat.openFile')}
+                aria-label={t('friendChat.openFile')}
                 onClick={() => onAttachmentAction?.('open', { url: f.url })}
-                className="rounded p-1.5 hover:bg-slate-100 dark:hover:bg-white/10"
+                className={`rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground ${MOTION_BTN}`}
               >
-                <FolderOpen className="h-4 w-4 text-slate-600 dark:text-gray-300" />
+                <FolderOpen className="h-4 w-4" aria-hidden />
               </button>
               <button
                 type="button"
                 title={t('friendChat.mediaShare')}
+                aria-label={t('friendChat.mediaShare')}
                 onClick={() => onAttachmentAction?.('share', { messageId: f.id, message: msg })}
-                className="rounded p-1.5 hover:bg-slate-100 dark:hover:bg-white/10"
+                className={`rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground ${MOTION_BTN}`}
               >
-                <Forward className="h-4 w-4 text-slate-600 dark:text-gray-300" />
+                <Forward className="h-4 w-4" aria-hidden />
               </button>
               <button
                 type="button"
                 title={t('friendChat.moreActions')}
+                aria-label={t('friendChat.moreActions')}
                 onClick={(e) => openFileMenu(e, f)}
-                className="rounded p-1.5 hover:bg-slate-100 dark:hover:bg-white/10"
+                className={`rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground ${MOTION_BTN}`}
               >
-                <MoreHorizontal className="h-4 w-4 text-slate-600 dark:text-gray-300" />
+                <MoreHorizontal className="h-4 w-4" aria-hidden />
               </button>
               </div>
             )}
@@ -369,8 +370,6 @@ export default function FriendChatRightPanel({
 
   if (!friend) return null;
 
-  const mutualCount = mutualOrgs.loading ? '…' : mutualOrgs.count;
-
   return (
     <aside className={shell}>
       <div className={`relative shrink-0 px-4 py-3 text-center ${hairlineB}`}>
@@ -379,9 +378,9 @@ export default function FriendChatRightPanel({
           <button
             type="button"
             onClick={onClose}
-            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-            aria-label={t('friendChat.toggleInfoPanel')}
-            title={t('friendChat.toggleInfoPanel')}
+            className={`absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${MOTION_BTN}`}
+            aria-label={t('chat.rightPanel.close')}
+            title={t('chat.rightPanel.close')}
           >
             <X className="h-4 w-4" strokeWidth={2} aria-hidden />
           </button>
@@ -399,7 +398,7 @@ export default function FriendChatRightPanel({
             showOnline
             status={friend.status}
             cacheBust={friend.avatar || undefined}
-            ringClassName="ring-4 ring-cyan-500/20 shadow-lg"
+            ringClassName="ring-4 ring-primary/20 shadow-lg"
             title={t('friendChat.profileTitle')}
           />
           <button
@@ -412,7 +411,7 @@ export default function FriendChatRightPanel({
 
           <div className="mt-4 flex w-full justify-center">
             <button type="button" onClick={onBlock} className={actionCircle}>
-              <Ban className="h-5 w-5" />
+              <Ban className="h-5 w-5" aria-hidden />
               <span>{isBlocked ? t('friendChat.unblockUser') : t('friendChat.blockUser')}</span>
             </button>
           </div>
@@ -420,16 +419,25 @@ export default function FriendChatRightPanel({
 
         <div className={hairlineT}>
           <button type="button" className={quickRow} onClick={openRemindersModal}>
-            <Clock className="h-5 w-5 shrink-0 opacity-70" />
+            <Clock className="h-5 w-5 shrink-0 opacity-70" aria-hidden />
             <span className="min-w-0 flex-1">{t('friendChat.remindersList')}</span>
-            <ChevronRight className="h-4 w-4 shrink-0 opacity-50" />
+            <ChevronRight className="h-4 w-4 shrink-0 opacity-50" aria-hidden />
           </button>
         </div>
 
         <section className={hairlineT}>
-          <button type="button" onClick={() => setOpenMedia((o) => !o)} className={sectionBtn}>
-            {t('friendChat.mediaSection')}
-            <span className={labelMuted}>{openMedia ? '▾' : '▸'}</span>
+          <button
+            type="button"
+            onClick={() => setOpenMedia((o) => !o)}
+            className={sectionBtn}
+            aria-expanded={openMedia}
+          >
+            {t('chat.rightPanel.mediaSection')}
+            {openMedia ? (
+              <ChevronDown className={`h-4 w-4 ${labelMuted}`} aria-hidden />
+            ) : (
+              <ChevronRight className={`h-4 w-4 ${labelMuted}`} aria-hidden />
+            )}
           </button>
           {openMedia && (
             <div className="px-4 pb-3">
@@ -444,7 +452,7 @@ export default function FriendChatRightPanel({
                         type="button"
                         onClick={() => onOpenMediaAt?.(idx)}
                         onContextMenu={(e) => openMediaMenu(e, img)}
-                        className={`aspect-square overflow-hidden rounded-md ${thumbBg} transition hover:opacity-90`}
+                        className={`aspect-square overflow-hidden rounded-md ${thumbBg} hover:opacity-90 ${MOTION_BTN}`}
                       >
                         {isAvatarImageUrl(img.preview || img.url) ? (
                           img.kind === 'video' ? (
@@ -453,8 +461,12 @@ export default function FriendChatRightPanel({
                             <img src={img.preview || img.url} alt="" className="h-full w-full object-cover" />
                           )
                         ) : (
-                          <span className="flex h-full items-center justify-center text-lg">
-                            {img.kind === 'video' ? '🎬' : '🖼️'}
+                          <span className="flex h-full items-center justify-center text-muted-foreground">
+                            {img.kind === 'video' ? (
+                              <Video className="h-5 w-5" aria-hidden />
+                            ) : (
+                              <ImageIcon className="h-5 w-5" aria-hidden />
+                            )}
                           </span>
                         )}
                       </button>
@@ -463,11 +475,7 @@ export default function FriendChatRightPanel({
                   <button
                     type="button"
                     onClick={onViewAllMedia}
-                    className={`mt-3 w-full rounded-lg py-2.5 text-center text-sm font-medium ${
-                      isDarkMode
-                        ? 'bg-white/[0.06] text-gray-300 hover:bg-white/[0.1]'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
+                    className={`mt-3 w-full rounded-lg bg-muted py-2.5 text-center text-sm font-medium text-foreground hover:bg-muted/80 ${MOTION_BTN}`}
                   >
                     {t('friendChat.viewAllMedia')}
                   </button>
@@ -478,9 +486,18 @@ export default function FriendChatRightPanel({
         </section>
 
         <section className={hairlineT}>
-          <button type="button" onClick={() => setOpenFiles((o) => !o)} className={sectionBtn}>
-            {t('friendChat.filesSection')}
-            <span className={labelMuted}>{openFiles ? '▾' : '▸'}</span>
+          <button
+            type="button"
+            onClick={() => setOpenFiles((o) => !o)}
+            className={sectionBtn}
+            aria-expanded={openFiles}
+          >
+            {t('chat.rightPanel.filesSection')}
+            {openFiles ? (
+              <ChevronDown className={`h-4 w-4 ${labelMuted}`} aria-hidden />
+            ) : (
+              <ChevronRight className={`h-4 w-4 ${labelMuted}`} aria-hidden />
+            )}
           </button>
           {openFiles && (
             <div className="pb-3">
@@ -497,11 +514,7 @@ export default function FriendChatRightPanel({
                 <button
                   type="button"
                   onClick={openDocumentsKho}
-                  className={`mx-3 mt-2 flex w-[calc(100%-1.5rem)] items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition ${
-                    isDarkMode
-                      ? 'bg-white/[0.06] text-cyan-300 hover:bg-white/[0.1]'
-                      : 'bg-slate-100 text-cyan-800 hover:bg-slate-200'
-                  }`}
+                  className={`mx-3 mt-2 flex w-[calc(100%-1.5rem)] items-center justify-center gap-1.5 rounded-lg bg-muted py-2 text-xs font-semibold text-foreground hover:bg-muted/80 ${MOTION_BTN}`}
                 >
                   <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden />
                   {archivedFilesCount > 0
@@ -520,7 +533,6 @@ export default function FriendChatRightPanel({
         y={ctxMenu?.y}
         items={ctxMenu?.items || []}
         onClose={closeMenu}
-        isDarkMode={isDarkMode}
       />
 
       <Modal
@@ -536,18 +548,14 @@ export default function FriendChatRightPanel({
               setRemindersOpen(false);
               onOpenCalendarForFriend?.({ prefillType: 'reminder' });
             }}
-            className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold ${
-              isDarkMode
-                ? 'bg-cyan-600 text-white hover:bg-cyan-500'
-                : 'bg-cyan-600 text-white hover:bg-cyan-700'
-            }`}
+            className={`flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 ${MOTION_BTN}`}
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-4 w-4" aria-hidden />
             {t('friendChat.remindersAdd')}
           </button>
           {remindersLoading ? (
             <div className={`flex justify-center py-8 ${labelMuted}`}>
-              <Loader2 className="h-6 w-6 animate-spin" />
+              <Loader2 className="h-6 w-6 motion-safe:animate-spin motion-reduce:animate-none" />
             </div>
           ) : peerReminders.length === 0 ? (
             <p className={`py-6 text-center text-sm ${labelMuted}`}>{t('friendChat.remindersEmpty')}</p>
@@ -561,11 +569,7 @@ export default function FriendChatRightPanel({
                       setRemindersOpen(false);
                       onOpenCalendarForFriend?.({ highlightEventId: ev.id });
                     }}
-                    className={`flex w-full flex-col rounded-xl border px-3 py-2.5 text-left transition ${
-                      isDarkMode
-                        ? 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]'
-                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
-                    }`}
+                    className={`flex w-full flex-col rounded-xl border border-border bg-card px-3 py-2.5 text-left hover:bg-muted ${MOTION_BTN}`}
                   >
                     <span className={`text-sm font-semibold ${titleMain}`}>{ev.title}</span>
                     <span className={`mt-0.5 text-xs ${labelMuted}`}>
@@ -591,18 +595,14 @@ export default function FriendChatRightPanel({
             type="button"
             disabled={mutualOrgs.loading}
             onClick={() => loadMutualOrgs(true)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-              isDarkMode
-                ? 'bg-white/10 text-slate-200 hover:bg-white/15 disabled:opacity-50'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50'
-            }`}
+            className={`rounded-lg bg-muted px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted/80 disabled:opacity-50 ${MOTION_BTN}`}
           >
             {t('friendChat.mutualOrgsRefresh')}
           </button>
         </div>
         {mutualOrgs.loading ? (
           <div className={`flex justify-center py-10 ${labelMuted}`}>
-            <Loader2 className="h-6 w-6 animate-spin" />
+            <Loader2 className="h-6 w-6 motion-safe:animate-spin motion-reduce:animate-none" />
           </div>
         ) : mutualOrgs.organizations.length === 0 ? (
           <p className={`py-8 text-center text-sm ${labelMuted}`}>{t('friendChat.mutualGroupsEmpty')}</p>
@@ -616,17 +616,9 @@ export default function FriendChatRightPanel({
                     setMutualOpen(false);
                     onOpenMutualOrganization?.(org);
                   }}
-                  className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition ${
-                    isDarkMode
-                      ? 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]'
-                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
-                  }`}
+                  className={`flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3 py-3 text-left hover:bg-muted ${MOTION_BTN}`}
                 >
-                  <div
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
-                      isDarkMode ? 'bg-cyan-500/20 text-cyan-200' : 'bg-cyan-100 text-cyan-800'
-                    }`}
-                  >
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-sm font-bold text-primary">
                     {(org.name || 'O').charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -637,7 +629,7 @@ export default function FriendChatRightPanel({
                       </div>
                     )}
                   </div>
-                  <ChevronRight className={`h-4 w-4 shrink-0 ${labelMuted}`} />
+                  <ChevronRight className={`h-4 w-4 shrink-0 ${labelMuted}`} aria-hidden />
                 </button>
               </li>
             ))}

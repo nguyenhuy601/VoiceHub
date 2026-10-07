@@ -3,9 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Search, SlidersHorizontal } from 'lucide-react';
 import AdminUserActionsMenu from '../../components/adminUsers/AdminUserActionsMenu';
 import {
+  AdminDenseMobileList,
   AdminDenseTableCard,
   AdminDenseTableScroll,
   AdminUserPanelShell,
+  adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useDebouncedValue } from '../search/useDebouncedValue';
@@ -18,6 +20,9 @@ import {
 } from '../../utils/adminUserUtils';
 
 const ACCOUNTS_LIST_PAGE_SIZE = 10;
+
+const FOCUS_RING_CLASS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+const PAGER_BTN_CLASS = `inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none ${FOCUS_RING_CLASS}`;
 
 function isAccountInactive(member) {
   return member?.isActive === false || Boolean(member?.isLocked);
@@ -32,10 +37,8 @@ function systemRoleLabel(member, t) {
 function AuthBadge({ ok, yesLabel, noLabel }) {
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${
-        ok
-          ? 'bg-emerald-500/12 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300'
-          : 'bg-amber-500/12 text-amber-800 ring-amber-500/25 dark:text-amber-200'
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+        ok ? 'bg-success-bg text-success' : 'bg-warning-bg text-warning'
       }`}
     >
       {ok ? yesLabel : noLabel}
@@ -48,7 +51,7 @@ function AccountsTableSkeletonRows({ rows = ACCOUNTS_LIST_PAGE_SIZE }) {
     <tr key={`sk-${rowIdx}`}>
       {Array.from({ length: 7 }, (_, colIdx) => (
         <td key={colIdx} className="px-3 py-2.5">
-          <span className="inline-block h-4 w-full max-w-[7rem] animate-pulse rounded bg-muted" />
+          <span className="inline-block h-4 w-full max-w-[7rem] rounded bg-muted motion-safe:animate-pulse" />
         </td>
       ))}
     </tr>
@@ -57,8 +60,9 @@ function AccountsTableSkeletonRows({ rows = ACCOUNTS_LIST_PAGE_SIZE }) {
 
 export default function AccountsListPanel({ orgId }) {
   const { t, locale } = useAppStrings();
+  // Wave 1: Accounts cần auth flags → admin_table (directory đã omit).
   const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId, {
-    view: 'directory',
+    view: 'admin_table',
   });
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 300);
@@ -66,6 +70,7 @@ export default function AccountsListPanel({ orgId }) {
   const [page, setPage] = useState(1);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersRef = useRef(null);
+  const filtersButtonRef = useRef(null);
 
   useEffect(() => {
     setPage(1);
@@ -79,7 +84,9 @@ export default function AccountsListPanel({ orgId }) {
       }
     };
     const onKey = (e) => {
-      if (e.key === 'Escape') setFiltersOpen(false);
+      if (e.key !== 'Escape') return;
+      setFiltersOpen(false);
+      filtersButtonRef.current?.focus();
     };
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
@@ -125,6 +132,7 @@ export default function AccountsListPanel({ orgId }) {
   const showMembersError = Boolean(membersError) && !members.length && !loading;
   const showMembersSkeleton = loading && !members.length;
   const activeFilterCount = statusFilter ? 1 : 0;
+  const hasRows = !showMembersError && !showMembersSkeleton && pageItems.length > 0;
 
   return (
     <AdminUserPanelShell
@@ -143,22 +151,25 @@ export default function AccountsListPanel({ orgId }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('adminAccounts.searchPlaceholder')}
-            className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm"
+            aria-label={t('adminAccounts.searchPlaceholder')}
+            maxLength={120}
+            className={`w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none transition-colors duration-150 focus:ring-2 focus:ring-ring motion-reduce:transition-none ${FOCUS_RING_CLASS}`}
           />
         </div>
         <div className="relative shrink-0" ref={filtersRef}>
           <button
+            ref={filtersButtonRef}
             type="button"
             aria-expanded={filtersOpen}
             aria-controls="accounts-list-filters"
             onClick={() => setFiltersOpen((open) => !open)}
-            className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/40"
+            className={`inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:bg-muted motion-reduce:transition-none ${FOCUS_RING_CLASS}`}
           >
             <SlidersHorizontal className="h-4 w-4" aria-hidden />
             {t('adminUsers.filters')}
             {activeFilterCount ? (
               <span
-                className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+                className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-semibold text-primary-foreground"
                 title={t('adminUsers.filtersActive', { n: activeFilterCount })}
               >
                 {activeFilterCount}
@@ -168,12 +179,14 @@ export default function AccountsListPanel({ orgId }) {
           {filtersOpen ? (
             <div
               id="accounts-list-filters"
-              className="absolute right-0 z-20 mt-2 w-[min(calc(100vw-2rem),16rem)] space-y-2 rounded-xl border border-border bg-card p-3 shadow-lg"
+              role="dialog"
+              aria-label={t('adminUsers.filters')}
+              className="absolute right-0 z-20 mt-2 w-[min(calc(100vw-2rem),16rem)] space-y-2 rounded-xl border border-border bg-card p-3 shadow-lg motion-safe:animate-fade-in-fast"
             >
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                className={`w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm transition-colors duration-150 motion-reduce:transition-none ${FOCUS_RING_CLASS}`}
                 aria-label={t('adminUsers.filterAllStatus')}
               >
                 <option value="">{t('adminUsers.filterAllStatus')}</option>
@@ -184,7 +197,7 @@ export default function AccountsListPanel({ orgId }) {
                 <button
                   type="button"
                   onClick={() => setStatusFilter('')}
-                  className="w-full rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
+                  className={`w-full rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted motion-reduce:transition-none ${FOCUS_RING_CLASS}`}
                 >
                   {t('adminUsers.filtersClear')}
                 </button>
@@ -194,10 +207,30 @@ export default function AccountsListPanel({ orgId }) {
         </div>
       </div>
 
-      <AdminDenseTableCard className="border-border/70">
+      <AdminDenseTableCard>
         <AdminDenseTableScroll>
-          <table className="min-w-full text-sm">
-            <thead className="sticky top-0 z-10 bg-muted/95 text-left text-xs uppercase tracking-wide text-muted-foreground backdrop-blur">
+          {hasRows ? (
+            <AdminDenseMobileList
+              items={pageItems}
+              getKey={memberUserId}
+              ariaLabel={t('adminDomains.accounts.list')}
+              renderTitle={(member) => memberDisplayName(member)}
+              renderMeta={(member) => (
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <span className="min-w-0 truncate">{memberEmail(member) || '—'}</span>
+                  <AuthBadge
+                    ok={!isAccountInactive(member)}
+                    yesLabel={t('adminUsers.statusActive')}
+                    noLabel={t('adminUsers.statusInactive')}
+                  />
+                  <span>{systemRoleLabel(member, t)}</span>
+                </span>
+              )}
+              renderActions={(member) => <AdminUserActionsMenu member={member} variant="account" />}
+            />
+          ) : null}
+          <table className={`min-w-full text-sm ${hasRows ? 'hidden md:table' : ''}`}>
+            <thead className="sticky top-0 z-10 bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground backdrop-blur">
               <tr>
                 <th className="px-3 py-2.5">{t('adminUsers.colUser')}</th>
                 <th className="px-3 py-2.5">{t('adminAccounts.colEmailVerified')}</th>
@@ -210,15 +243,15 @@ export default function AccountsListPanel({ orgId }) {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border/50">
+            <tbody className="divide-y divide-border">
               {showMembersError ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center">
-                    <p className="text-sm text-muted-foreground">{t('companyAdmin.loadMembersFail')}</p>
+                  <td colSpan={7} className="px-3 py-8 text-center" role="alert">
+                    <p className="text-sm text-destructive">{t('companyAdmin.loadMembersFail')}</p>
                     <button
                       type="button"
                       onClick={() => loadMembers()}
-                      className="mt-3 rounded-xl bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-500"
+                      className={adminPrimaryBtnClass('mt-3 px-3.5 py-2')}
                     >
                       {t('adminUsers.listRetry')}
                     </button>
@@ -232,10 +265,10 @@ export default function AccountsListPanel({ orgId }) {
                   const inactive = isAccountInactive(member);
                   const isVerified = member.isEmailVerified !== false;
                   return (
-                    <tr key={userId} className="hover:bg-muted/20">
+                    <tr key={userId} className="transition-colors duration-150 hover:bg-muted motion-reduce:transition-none">
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-2.5">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-xs font-semibold text-red-600">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-subtle text-xs font-semibold text-primary">
                             {getInitials(memberDisplayName(member))}
                           </div>
                           <div className="min-w-0">
@@ -260,7 +293,7 @@ export default function AccountsListPanel({ orgId }) {
                       </td>
                       <td className="px-3 py-2.5">
                         {member.mustChangePassword ? (
-                          <span className="inline-flex rounded-full bg-sky-500/12 px-2.5 py-0.5 text-[11px] font-semibold text-sky-800 ring-1 ring-sky-500/25 dark:text-sky-200">
+                          <span className="inline-flex rounded-full bg-info-bg px-2.5 py-0.5 text-[11px] font-semibold text-info">
                             {t('adminUsers.statusMustChangePassword')}
                           </span>
                         ) : (
@@ -293,7 +326,7 @@ export default function AccountsListPanel({ orgId }) {
               type="button"
               disabled={safePage <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+              className={PAGER_BTN_CLASS}
               aria-label={t('adminUsers.listPrev')}
             >
               <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
@@ -306,7 +339,7 @@ export default function AccountsListPanel({ orgId }) {
               type="button"
               disabled={safePage >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+              className={PAGER_BTN_CLASS}
               aria-label={t('adminUsers.listNext')}
             >
               {t('adminUsers.listNext')}
@@ -318,7 +351,7 @@ export default function AccountsListPanel({ orgId }) {
 
       <p className="mt-3 text-xs text-muted-foreground">
         {t('adminAccounts.listFootnote')}{' '}
-        <Link to="/app/admin/users" className="font-medium text-red-500 hover:underline">
+        <Link to="/app/admin/users" className={`rounded font-medium text-primary hover:underline ${FOCUS_RING_CLASS}`}>
           {t('adminDomains.users.title')}
         </Link>
       </p>

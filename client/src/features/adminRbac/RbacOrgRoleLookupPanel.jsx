@@ -6,8 +6,14 @@ import {
   AdminUserPanelShell,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 import {
   departmentHeadId,
@@ -51,29 +57,45 @@ function resolveOrgRolesForUser(userId, departments, teams) {
 
 export default function RbacOrgRoleLookupPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { departments, teams, loading } = useAdminOrgStructure(orgId);
+  const { departments, teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const [userId, setUserId] = useState('');
   const [manualAssignments, setManualAssignments] = useState([]);
   const [assignLoading, setAssignLoading] = useState(false);
+  const [assignError, setAssignError] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId) return undefined;
+    setAssignError('');
     if (!userId) {
       setManualAssignments([]);
-      return;
+      return undefined;
     }
+    let cancelled = false;
     setAssignLoading(true);
     orgRoleCatalogAPI
       .listAssignments(orgId, { userId })
       .then((res) => {
-        const items = res?.data?.assignments || [];
-        setManualAssignments(items);
+        if (!cancelled) setManualAssignments(res?.data?.assignments || []);
       })
-      .catch(() => {
+      .catch((error) => {
+        if (cancelled) return;
         setManualAssignments([]);
+        setAssignError(resolveApiErrorMessage(error, { t, fallback: t('adminRbac.lookupLoadFail') }));
       })
-      .finally(() => setAssignLoading(false));
-  }, [orgId, userId]);
+      .finally(() => {
+        if (!cancelled) setAssignLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, userId, t, reloadTick]);
+
+  const scopeTypeLabel = (scopeType) => {
+    if (scopeType === 'department') return t('adminRbac.lookupScopeDepartment');
+    if (scopeType === 'team') return t('adminRbac.lookupScopeTeam');
+    return t('adminRbac.lookupScopeCompany');
+  };
 
   const roles = useMemo(
     () => {
@@ -83,14 +105,14 @@ export default function RbacOrgRoleLookupPanel({ orgId }) {
         roleKey: a.roleKey,
         roleLabel: a.roleLabel,
         scopeType: 'org',
-        scopeName: 'Company',
+        scopeName: t('adminRbac.lookupScopeCompany'),
         editPath: `/app/admin/rbac/org-roles/assign?userId=${encodeURIComponent(
           String(a.userId || '').trim()
         )}&roleKey=${encodeURIComponent(String(a.roleKey || '').trim())}`,
       }));
       return [...autoRoles, ...customRoles];
     },
-    [userId, departments, teams, manualAssignments]
+    [userId, departments, teams, manualAssignments, t]
   );
 
   return (
@@ -103,12 +125,20 @@ export default function RbacOrgRoleLookupPanel({ orgId }) {
       </AdminUserFormCard>
 
       <AdminUserFormCard title={t('adminRbac.orgRoleLookupResult')}>
-        {(loading || assignLoading) ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        {structureError || assignError ? (
+          <AdminLoadErrorState
+            message={structureError || assignError}
+            onRetry={() => {
+              if (structureError) loadStructure();
+              setReloadTick((n) => n + 1);
+            }}
+          />
+        ) : loading || assignLoading ? (
+          <AdminListSkeleton rows={3} />
         ) : !userId ? (
           <p className="text-sm text-muted-foreground">{t('adminRbac.orgRoleLookupNeedUser')}</p>
         ) : !roles.length ? (
-          <p className="text-sm text-muted-foreground">{t('adminRbac.orgRoleLookupEmpty')}</p>
+          <AdminEmptyState message={t('adminRbac.orgRoleLookupEmpty')} />
         ) : (
           <ul className="divide-y divide-border">
             {roles.map((row) => (
@@ -121,7 +151,7 @@ export default function RbacOrgRoleLookupPanel({ orgId }) {
                     {row.roleKey} · {ROLE_KIND.ORGANIZATION}
                   </span>
                   <p className="text-muted-foreground">
-                    {row.scopeType}: {row.scopeName}
+                    {scopeTypeLabel(row.scopeType)}: {row.scopeName}
                   </p>
                 </div>
                 <Link to={row.editPath} className={adminSecondaryBtnClass('text-xs')}>

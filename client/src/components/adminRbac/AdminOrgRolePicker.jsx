@@ -4,7 +4,9 @@ import toast from 'react-hot-toast';
 import { useAppStrings } from '../../locales/appStrings';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { adminPrimaryBtnClass } from '../adminUsers/adminUserPanelUi';
+import { adminInputClass } from '../adminUsers/adminUserPanelUi';
+import { AdminEmptyState, AdminListSkeleton, AdminLoadErrorState } from '../adminUsers/adminPanelStates';
+import { handlePickerListKeyDown } from '../adminUsers/pickerListKeyboard';
 
 function roleId(row) {
   return String(row?._id || row?.id || '').trim();
@@ -75,7 +77,7 @@ export default function AdminOrgRolePicker({ orgId, selectedRoleId, hint, paramK
   };
 
   return (
-    <div className="space-y-3 rounded-xl border border-border bg-card/40 p-4">
+    <div className="space-y-3 rounded-xl border border-border bg-card p-4">
       <div>
         <h3 className="text-sm font-semibold">{t('adminRbac.orgRolePickerTitle')}</h3>
         {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
@@ -85,26 +87,21 @@ export default function AdminOrgRolePicker({ orgId, selectedRoleId, hint, paramK
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder={t('adminRbac.orgRoleSearchPlaceholder')}
-        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+        aria-label={t('adminRbac.orgRoleSearchPlaceholder')}
+        maxLength={120}
+        className={adminInputClass()}
       />
-      {loading ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      {loading && !roles.length ? (
+        <AdminListSkeleton rows={3} />
       ) : loadError ? (
-        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3">
-          <p className="text-sm text-destructive">{loadError}</p>
-          <div className="mt-3">
-            <button
-              type="button"
-              className={adminPrimaryBtnClass()}
-              onClick={() => setReloadTick((n) => n + 1)}
-            >
-              {t('adminRbac.retry')}
-            </button>
-          </div>
-        </div>
+        <AdminLoadErrorState message={loadError} onRetry={() => setReloadTick((n) => n + 1)} />
       ) : (
-        <div className="max-h-64 overflow-auto rounded-lg border border-border/70">
-          <ul className="divide-y divide-border/50">
+        <div className="max-h-64 overflow-auto rounded-lg border border-border" aria-busy={loading || undefined}>
+          <ul
+            className="divide-y divide-border"
+            aria-label={t('adminRbac.orgRolePickerTitle')}
+            onKeyDown={handlePickerListKeyDown}
+          >
             {filtered.map((row) => {
               const id = roleId(row);
               const active = id === activeId;
@@ -113,8 +110,9 @@ export default function AdminOrgRolePicker({ orgId, selectedRoleId, hint, paramK
                   <button
                     type="button"
                     onClick={() => pick(id)}
-                    className={`flex w-full flex-col px-3 py-2.5 text-left transition ${
-                      active ? 'bg-red-500/10' : 'hover:bg-muted/30'
+                    aria-current={active ? 'true' : undefined}
+                    className={`flex w-full flex-col px-3 py-2.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none ${
+                      active ? 'bg-primary-subtle' : 'hover:bg-muted'
                     }`}
                   >
                     <span className="text-sm font-medium">{roleLabel(row)}</span>
@@ -124,9 +122,7 @@ export default function AdminOrgRolePicker({ orgId, selectedRoleId, hint, paramK
               );
             })}
           </ul>
-          {!filtered.length ? (
-            <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminRbac.noOrgRoles')}</p>
-          ) : null}
+          {!filtered.length ? <AdminEmptyState message={t('adminRbac.noOrgRoles')} /> : null}
         </div>
       )}
     </div>

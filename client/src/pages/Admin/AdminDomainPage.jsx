@@ -1,4 +1,5 @@
 import { Navigate, useLocation } from 'react-router-dom';
+import { useAppStrings } from '../../locales/appStrings';
 import {
   findAdminNavItem,
   flattenAdminNavItems,
@@ -12,11 +13,8 @@ import { navItemIsAllowed } from '../../config/rbacUiGrantMap';
 import CompanyAdminSettingsPage from './CompanyAdminSettingsPage';
 import AdminModulePlaceholderPage from './AdminModulePlaceholderPage';
 import UsersListPanel from '../../features/adminUsers/UsersListPanel';
-import UserCreatePanel from '../../features/adminUsers/UserCreatePanel';
 import UserEditPanel from '../../features/adminUsers/UserEditPanel';
 import UserDeletePanel from '../../features/adminUsers/UserDeletePanel';
-import UserImportPanel from '../../features/adminUsers/UserImportPanel';
-import UserExcelImportPanel from '../../features/adminUsers/UserExcelImportPanel';
 import UserImportHubPanel from '../../features/adminUsers/UserImportHubPanel';
 import UserAssignOrgPanel from '../../features/adminUsers/UserAssignOrgPanel';
 import AccountsListPanel from '../../features/adminAccounts/AccountsListPanel';
@@ -68,11 +66,7 @@ import ProjectRoleManageHubPanel from '../../features/adminRbac/ProjectRoleManag
 import PermPackManageHubPanel from '../../features/adminRbac/PermPackManageHubPanel';
 import MeetingOpsHubPanel from '../../features/adminVoice/MeetingOpsHubPanel';
 import ChannelsListPanel from '../../features/adminChannels/ChannelsListPanel';
-import ChannelManageHubPanel from '../../features/adminChannels/ChannelManageHubPanel';
 import FilesListPanel from '../../features/adminFiles/FilesListPanel';
-import FileOpsHubPanel from '../../features/adminFiles/FileOpsHubPanel';
-import NotificationConfigHubPanel from '../../features/adminNotifications/NotificationConfigHubPanel';
-import ChatConfigHubPanel from '../../features/adminChat/ChatConfigHubPanel';
 import SystemConfigHubPanel from '../../features/adminSystemConfig/SystemConfigHubPanel';
 import SecuritySettingsHubPanel from '../../features/adminSecurity/SecuritySettingsHubPanel';
 import SecuritySessionsHubPanel from '../../features/adminSecurity/SecuritySessionsHubPanel';
@@ -83,10 +77,10 @@ import TasksProjectTeamPanel from '../../features/adminTasks/TasksProjectTeamPan
 import TasksDelegationPanel from '../../features/adminTasks/TasksDelegationPanel';
 import TasksBriefsPanel from '../../features/adminTasks/TasksBriefsPanel';
 import TasksManagePanel from '../../features/adminTasks/TasksManagePanel';
+import TasksLabelsPanel from '../../features/adminTasks/TasksLabelsPanel';
 import TasksChangeRequestsPanel from '../../features/adminTasks/TasksChangeRequestsPanel';
 import TasksStatusPriorityPanel from '../../features/adminTasks/TasksStatusPriorityPanel';
 import TasksExportPanel from '../../features/adminTasks/TasksExportPanel';
-import TasksComingSoonPanel from '../../features/adminTasks/TasksComingSoonPanel';
 import TasksProjectVisibilityPolicyPanel from '../../features/adminTasks/TasksProjectVisibilityPolicyPanel';
 import DepartmentCapacityPanel from '../../features/adminTasks/DepartmentCapacityPanel';
 import ResourcePlannerPanel from '../../features/adminTasks/ResourcePlannerPanel';
@@ -130,7 +124,6 @@ import {
   DivisionDisablePanel,
   DivisionDeptPanel,
   PosListPanel,
-  PosCreatePanel,
   PosEditPanel,
   PosDisablePanel,
   PosAssignPanel,
@@ -144,11 +137,8 @@ import {
 
 const USER_PANELS = {
   people: UsersListPanel,
-  'users-create': UserCreatePanel,
   'users-edit': UserEditPanel,
   'users-delete': UserDeletePanel,
-  'users-import': UserImportPanel,
-  'users-import-excel': UserExcelImportPanel,
   'users-import-hub': UserImportHubPanel,
   'users-people-ops': PeopleOpsHubPanel,
   'users-assign-org': UserAssignOrgPanel,
@@ -174,7 +164,6 @@ const RBAC_PANELS = {
   'rbac-taxonomy': RbacTaxonomyHubPanel,
   'rbac-master-data': MasterDataEnablePanel,
   'rbac-pos-list': PosListPanel,
-  'rbac-pos-create': PosCreatePanel,
   'rbac-pos-edit': PosEditPanel,
   'rbac-pos-disable': PosDisablePanel,
   'rbac-pos-assign': PosAssignPanel,
@@ -217,11 +206,7 @@ const VOICE_PANELS = {
 
 const CLUSTER3_PANELS = {
   'channels-list': ChannelsListPanel,
-  'channels-manage': ChannelManageHubPanel,
   'files-list': FilesListPanel,
-  'files-ops': FileOpsHubPanel,
-  'notifications-config': NotificationConfigHubPanel,
-  'chat-config': ChatConfigHubPanel,
   'system-config-hub': SystemConfigHubPanel,
   'security-settings-hub': SecuritySettingsHubPanel,
   'security-sessions-hub': SecuritySessionsHubPanel,
@@ -272,10 +257,10 @@ const TASK_PANELS = {
   'tasks-briefs': TasksBriefsPanel,
   'tasks-requirements': RequirementTemplatePanel,
   'tasks-manage': TasksManagePanel,
+  'tasks-labels': TasksLabelsPanel,
   'tasks-change-requests': TasksChangeRequestsPanel,
   'tasks-status-priority': TasksStatusPriorityPanel,
   'tasks-export': TasksExportPanel,
-  'tasks-coming-soon': TasksComingSoonPanel,
   'tasks-project-visibility-policy': TasksProjectVisibilityPolicyPanel,
   'tasks-department-capacity': DepartmentCapacityPanel,
   'tasks-resource-planner': ResourcePlannerPanel,
@@ -295,6 +280,7 @@ const TASK_PANELS = {
 
 export default function AdminDomainPage() {
   const location = useLocation();
+  const { t } = useAppStrings();
   const { orgId, isFullAccess } = useCompanyAdminContext();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
   const currentPath = String(location.pathname || '').replace(/\/+$/, '') || '/app/admin';
@@ -326,8 +312,8 @@ export default function AdminDomainPage() {
 
   if (!navItemIsAllowed(match.item, { isFullAccess, hasGrant })) {
     return (
-      <div className="rounded-xl border border-border bg-card/40 p-6 text-sm text-muted-foreground">
-        Không có quyền xem màn này.
+      <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground" role="alert">
+        {t('adminDomains.noPermission')}
       </div>
     );
   }

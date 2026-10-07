@@ -10,6 +10,8 @@ import {
   adminLabelClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { AdminBusySpinner, AdminLoadErrorState } from '../../components/adminUsers/adminPanelStates';
+import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
@@ -28,6 +30,7 @@ export default function DeptTransferPanel({ orgId, embedded = false }) {
   const [toDept, setToDept] = useState('');
   const [showAssigned, setShowAssigned] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const selectedMember = membersById.get(userId) || null;
   const selectedDeptId = memberDepartmentId(selectedMember);
@@ -72,13 +75,18 @@ export default function DeptTransferPanel({ orgId, embedded = false }) {
 
   const canSubmit = !validationMessage && !saving;
 
-  const transfer = async (e) => {
+  const requestTransfer = (e) => {
     e.preventDefault();
     if (!orgId || saving) return;
     if (validationMessage) {
       toast.error(validationMessage);
       return;
     }
+    setConfirmOpen(true);
+  };
+
+  const transfer = async () => {
+    if (!orgId || saving || validationMessage) return;
     setSaving(true);
     try {
       // membersAdd: merge trên BE (tránh OU structure thiếu members[] → ghi đè mất head)
@@ -96,20 +104,12 @@ export default function DeptTransferPanel({ orgId, embedded = false }) {
   const body = (
     <AdminUserFormCard title={t('adminDomains.orgStructure.deptTransfer')}>
       {structureError || membersError ? (
-        <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {structureError || resolveApiErrorMessage(membersError, { t, fallback: t('adminOrg.loadFail') })}
-          </p>
-          <button
-            type="button"
-            className={adminPrimaryBtnClass()}
-            onClick={() => Promise.allSettled([loadStructure(), loadMembers()])}
-          >
-            {t('adminRbac.retry')}
-          </button>
-        </div>
+        <AdminLoadErrorState
+          message={structureError || resolveApiErrorMessage(membersError, { t, fallback: t('adminOrg.loadFail') })}
+          onRetry={() => Promise.allSettled([loadStructure(), loadMembers()])}
+        />
       ) : (
-        <form className="space-y-4" onSubmit={transfer}>
+        <form className="space-y-4" onSubmit={requestTransfer}>
         {!userId ? (
           <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
         ) : null}
@@ -145,7 +145,7 @@ export default function DeptTransferPanel({ orgId, embedded = false }) {
           </select>
         </label>
         {validationMessage ? (
-          <p className="text-xs text-amber-700 dark:text-amber-400">{validationMessage}</p>
+          <p className="text-xs text-warning">{validationMessage}</p>
         ) : selectedMember ? (
           <p className="text-xs text-muted-foreground">
             {t('adminOrg.deptTransferReady', {
@@ -153,11 +153,30 @@ export default function DeptTransferPanel({ orgId, embedded = false }) {
             })}
           </p>
         ) : null}
-        <button type="submit" disabled={!canSubmit} className={adminPrimaryBtnClass()}>
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          aria-busy={saving || undefined}
+          className={adminPrimaryBtnClass()}
+        >
+          <AdminBusySpinner busy={saving} />
           {saving ? t('common.saving') : t('adminOrg.transferAction')}
         </button>
         </form>
       )}
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={transfer}
+        title={t('adminOrg.transferAction')}
+        message={t('adminOrg.deptTransferConfirm', {
+          n: 1,
+          from: fromRow ? unitName(fromRow) : t('adminOrg.deptTransferFromNone'),
+          to: unitName(toRow),
+        })}
+        confirmText={t('adminOrg.transferAction')}
+        cancelText={t('common.cancel')}
+      />
     </AdminUserFormCard>
   );
 

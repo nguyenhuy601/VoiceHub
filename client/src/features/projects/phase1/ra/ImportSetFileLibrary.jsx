@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Download, FileSpreadsheet, FolderOpen } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
@@ -59,16 +60,22 @@ async function downloadBlobAsFile(blobLike, fileName, failMsg) {
 }
 
 const SECTION_SHELL =
-  'overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950';
+  'overflow-hidden rounded-xl border border-border bg-surface shadow-sm';
 const SECTION_HEAD =
-  'border-b border-[#E8E8E8] bg-[#E8F4FC] px-3.5 py-2.5 dark:border-slate-700 dark:bg-slate-800/80';
+  'border-b border-border bg-primary/5 px-3.5 py-2.5';
 
 export default function ImportSetFileLibrary({ projectId, importSets = [], canUpload = false }) {
   const { t } = useAppStrings();
   const [busyId, setBusyId] = useState('');
   const [detailId, setDetailId] = useState('');
 
-  const { data: docs = [], isLoading } = useQuery({
+  const {
+    data: docs = [],
+    isLoading,
+    isError: docsError,
+    error: docsQueryError,
+    refetch: refetchDocs,
+  } = useQuery({
     queryKey: ['customerDocuments', projectId],
     queryFn: async () => {
       const raw = unwrap(await analysisAPI.listCustomerDocuments(projectId));
@@ -142,8 +149,8 @@ export default function ImportSetFileLibrary({ projectId, importSets = [], canUp
     <>
       <section className={SECTION_SHELL}>
         <div className={`${SECTION_HEAD} flex flex-wrap items-center justify-between gap-2`}>
-          <h2 className="flex items-center gap-2 text-xs font-semibold text-[#262626] dark:text-white">
-            <FolderOpen size={14} className="text-[#1677FF]" aria-hidden />
+          <h2 className="flex items-center gap-2 text-xs font-semibold text-foreground">
+            <FolderOpen size={14} className="text-primary" aria-hidden />
             {t('workspace.phase1FileLibraryTitle')}
             {rows.length > 0 ? (
               <span className="font-normal text-muted-foreground">({rows.length})</span>
@@ -152,10 +159,18 @@ export default function ImportSetFileLibrary({ projectId, importSets = [], canUp
         </div>
         <div className="px-3.5 py-3">
           {isLoading ? (
-            <p className="py-4 text-center text-xs text-muted-foreground">{t('common.loading')}</p>
+            <p className="py-4 text-center text-xs text-muted-foreground" aria-busy="true">
+              {t('common.loading')}
+            </p>
+          ) : null}
+          {docsError ? (
+            <AdminLoadErrorState
+              message={resolveApiErrorMessage(docsQueryError, { t, fallback: t('common.error') })}
+              onRetry={() => void refetchDocs()}
+            />
           ) : null}
 
-          {!isLoading && rows.length === 0 ? (
+          {!isLoading && !docsError && rows.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
               {hasIncompleteDraft
                 ? t(
@@ -175,7 +190,7 @@ export default function ImportSetFileLibrary({ projectId, importSets = [], canUp
             <ul className="grid gap-2 sm:grid-cols-2">
               {rows.map((row) => (
                 <li key={row.id}>
-                  <div className="flex h-full flex-col rounded-xl border border-[#E8E8E8] bg-[#FAFAFA] p-3 transition hover:border-[#91CAFF] hover:bg-[#E6F4FF]/40 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div className="flex h-full flex-col rounded-xl border border-[#E8E8E8] bg-[#FAFAFA] p-3 transition hover:border-[#91CAFF] hover:bg-[#E6F4FF]/40 dark:border-border dark:bg-surface">
                     <button
                       type="button"
                       className="min-w-0 flex-1 text-left"
@@ -192,7 +207,7 @@ export default function ImportSetFileLibrary({ projectId, importSets = [], canUp
                             {row.filename}
                           </p>
                           <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
-                            <span className="rounded border border-border/70 bg-white px-1 py-px font-medium uppercase dark:bg-slate-950">
+                            <span className="rounded border border-border/70 bg-white px-1 py-px font-medium uppercase dark:bg-surface">
                               {docClassLabel(row.docClass, t)}
                             </span>
                             <span>{formatBytes(row.sizeBytes)}</span>

@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import toast from 'react-hot-toast';
 import {
   AdminUserFormCard,
   AdminUserPanelShell,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import { useAppStrings } from '../../locales/appStrings';
 import { projectAPI } from '../../services/api/projectAPI';
 import { buildCollaborateProjectHubPath } from '../../utils/suitePathUtils';
@@ -20,10 +25,12 @@ function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
-function healthClass(health) {
-  if (health === 'delayed') return 'text-destructive';
-  if (health === 'at_risk') return 'text-warning';
-  return 'text-muted-foreground';
+const PAGE_SIZE = 20;
+
+function healthPillClass(health) {
+  if (health === 'delayed') return 'bg-error-bg text-destructive';
+  if (health === 'at_risk') return 'bg-warning-bg text-warning';
+  return 'bg-muted text-muted-foreground';
 }
 
 function formatPct(ratio) {
@@ -100,7 +107,10 @@ function ProjectProgressBar({ project, t }) {
         aria-valuenow={pct ?? 0}
         aria-label={t('adminTasks.directorCardsBar', { done, work })}
       >
-        <div className="h-full rounded-full bg-primary" style={{ width: `${width}%` }} />
+        <div
+          className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out motion-reduce:transition-none"
+          style={{ width: `${width}%` }}
+        />
       </div>
       <p className="mt-1 text-[11px] text-muted-foreground">
         {t('adminTasks.directorCardsBar', { done, work })}
@@ -135,6 +145,7 @@ export default function DirectorProjectHealthPanel({ orgId }) {
   const [loadError, setLoadError] = useState('');
   const [includeArchived, setIncludeArchived] = useState(false);
   const [healthFilter, setHealthFilter] = useState(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const load = useCallback(async () => {
     if (!orgId) return;
@@ -143,14 +154,10 @@ export default function DirectorProjectHealthPanel({ orgId }) {
     try {
       const res = await projectAPI.getDirectorHealth(orgId, { includeArchived });
       setData(unwrap(res));
+      setVisibleCount(PAGE_SIZE);
     } catch (error) {
-      const message = resolveApiErrorMessage(error, {
-        t,
-        fallback: t('adminTasks.directorHealthLoadFail'),
-      });
-      setLoadError(message);
+      setLoadError(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.directorHealthLoadFail') }));
       setData(null);
-      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -182,9 +189,11 @@ export default function DirectorProjectHealthPanel({ orgId }) {
   const filteredProjects = (data?.projects || []).filter((p) =>
     healthFilter ? p.health === healthFilter : true
   );
+  const visibleProjects = filteredProjects.slice(0, visibleCount);
 
   const toggleHealthFilter = useCallback((health) => {
     const next = String(health || '').trim();
+    setVisibleCount(PAGE_SIZE);
     if (!next) {
       setHealthFilter(null);
       return;
@@ -202,28 +211,26 @@ export default function DirectorProjectHealthPanel({ orgId }) {
         <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
           <input
             type="checkbox"
+            className="h-4 w-4 rounded border-border accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             checked={includeArchived}
             onChange={(e) => setIncludeArchived(e.target.checked)}
           />
           {t('adminTasks.directorIncludeArchived')}
         </label>
-        <button type="button" className={adminSecondaryBtnClass()} onClick={load} disabled={loading}>
-          {loading ? t('common.loading') : t('adminTasks.directorRefresh')}
+        <button
+          type="button"
+          className={adminSecondaryBtnClass()}
+          onClick={load}
+          disabled={loading}
+          aria-busy={loading}
+        >
+          <AdminBusySpinner busy={loading} />
+          {t('adminTasks.directorRefresh')}
         </button>
       </div>
 
       {loadError ? (
-        <div className="mb-4 rounded-xl border border-destructive/30 bg-card px-4 py-3 text-sm">
-          <p className="text-destructive">{loadError}</p>
-          <button
-            type="button"
-            className={`${adminSecondaryBtnClass()} mt-2`}
-            onClick={load}
-            disabled={loading}
-          >
-            {t('adminTasks.directorRetry')}
-          </button>
-        </div>
+        <AdminLoadErrorState className="mb-4" message={loadError} onRetry={load} disabled={loading} />
       ) : null}
 
       <div
@@ -307,62 +314,79 @@ export default function DirectorProjectHealthPanel({ orgId }) {
 
       <AdminUserFormCard title={t('adminTasks.directorProjects')}>
         {loading && !data?.projects?.length ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          <AdminListSkeleton />
         ) : !filteredProjects.length ? (
-          <p className="text-sm text-muted-foreground">
-            {healthFilter ? t('adminTasks.directorHealthFilterEmpty') : t('adminTasks.directorEmpty')}
-          </p>
+          <AdminEmptyState
+            message={healthFilter ? t('adminTasks.directorHealthFilterEmpty') : t('adminTasks.directorEmpty')}
+          />
         ) : (
-          <ul className="max-h-[50vh] space-y-2 overflow-y-auto text-sm">
-            {filteredProjects.map((p, index) => {
-              const pid = String(p.projectId || '').trim();
-              const hubPath = pid
-                ? buildCollaborateProjectHubPath(pid, { organizationId: orgId })
-                : '';
-              const overdue = Number(p.progress?.overdueCards) || 0;
-              const dueLabel = p.dueDate
-                ? t('adminTasks.directorDue', {
-                    date: new Date(p.dueDate).toLocaleDateString(),
-                  })
-                : t('adminTasks.directorNoDue');
-              return (
-                <li
-                  key={pid || `row-${index}`}
-                  className="rounded-lg border border-border px-3 py-2"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      {hubPath ? (
-                        <Link
-                          to={hubPath}
-                          aria-label={t('adminTasks.directorOpenHub')}
-                          className="font-semibold text-foreground underline-offset-2 hover:underline"
-                        >
-                          {p.title || pid}
-                        </Link>
-                      ) : (
-                        <span className="font-semibold">{p.title || '—'}</span>
-                      )}
-                      {p.projectCode ? (
-                        <span className="ml-2 text-[11px] text-muted-foreground">{p.projectCode}</span>
-                      ) : null}
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {statusLabel(t, p.status)} · {dueLabel}
-                        {overdue > 0
-                          ? ` · ${t('adminTasks.directorOverdueCards', { n: overdue })}`
-                          : ''}
-                      </p>
+          <>
+            <ul className="max-h-[50vh] space-y-2 overflow-y-auto text-sm">
+              {visibleProjects.map((p, index) => {
+                const pid = String(p.projectId || '').trim();
+                const hubPath = pid
+                  ? buildCollaborateProjectHubPath(pid, { organizationId: orgId })
+                  : '';
+                const overdue = Number(p.progress?.overdueCards) || 0;
+                const dueLabel = p.dueDate
+                  ? t('adminTasks.directorDue', {
+                      date: new Date(p.dueDate).toLocaleDateString(),
+                    })
+                  : t('adminTasks.directorNoDue');
+                return (
+                  <li
+                    key={pid || `row-${index}`}
+                    className="rounded-lg border border-border px-3 py-2"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        {hubPath ? (
+                          <Link
+                            to={hubPath}
+                            className="rounded font-semibold text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {p.title || pid}
+                          </Link>
+                        ) : (
+                          <span className="font-semibold">{p.title || '—'}</span>
+                        )}
+                        {p.projectCode ? (
+                          <span className="ml-2 text-[11px] text-muted-foreground">{p.projectCode}</span>
+                        ) : null}
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {statusLabel(t, p.status)} · {dueLabel}
+                          {overdue > 0
+                            ? ` · ${t('adminTasks.directorOverdueCards', { n: overdue })}`
+                            : ''}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${healthPillClass(p.health)}`}
+                      >
+                        {healthLabel(t, p.health)}
+                      </span>
                     </div>
-                    <span className={`text-xs font-semibold uppercase ${healthClass(p.health)}`}>
-                      {healthLabel(t, p.health)}
-                    </span>
-                  </div>
-                  <ProjectProgressBar project={p} t={t} />
-                  <DeliveryMeta project={p} t={t} />
-                </li>
-              );
-            })}
-          </ul>
+                    <ProjectProgressBar project={p} t={t} />
+                    <DeliveryMeta project={p} t={t} />
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground" aria-live="polite">
+                {t('adminTasks.directorShowing', { shown: visibleProjects.length, total: filteredProjects.length })}
+              </p>
+              {visibleProjects.length < filteredProjects.length ? (
+                <button
+                  type="button"
+                  className={adminSecondaryBtnClass()}
+                  onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                >
+                  {t('adminTasks.directorShowMore')}
+                </button>
+              ) : null}
+            </div>
+          </>
         )}
       </AdminUserFormCard>
     </AdminUserPanelShell>

@@ -10,6 +10,7 @@ import {
   adminLabelClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { AdminBusySpinner } from '../../components/adminUsers/adminPanelStates';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
@@ -77,7 +78,7 @@ export default function DeptEditPanel({ orgId, embedded = false }) {
     <AdminUserFormCard title={t('adminDomains.orgStructure.deptEdit')}>
       {structureError ? (
         <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
             {structureError}
           </p>
           <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
@@ -91,6 +92,7 @@ export default function DeptEditPanel({ orgId, embedded = false }) {
           <label className="block">
             <span className={adminLabelClass()}>{t('adminOrg.name')}</span>
             <input
+              maxLength={120}
               required
               className={adminInputClass()}
               value={form.name}
@@ -100,13 +102,20 @@ export default function DeptEditPanel({ orgId, embedded = false }) {
           <label className="block">
             <span className={adminLabelClass()}>{t('adminOrg.description')}</span>
             <textarea
+              maxLength={1000}
               rows={3}
               className={adminInputClass()}
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             />
           </label>
-          <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
+          <button
+            type="submit"
+            disabled={saving}
+            aria-busy={saving || undefined}
+            className={adminPrimaryBtnClass()}
+          >
+            <AdminBusySpinner busy={saving} />
             {saving ? t('common.saving') : t('common.save')}
           </button>
         </form>

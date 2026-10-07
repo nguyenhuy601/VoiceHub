@@ -33,7 +33,6 @@ export { default as DivisionDisablePanel } from './DivisionDisablePanel';
 export { default as DivisionDeptPanel } from './DivisionDeptPanel';
 
 export { default as PosListPanel } from './PosListPanel';
-export { default as PosCreatePanel } from './PosCreatePanel';
 export { default as PosEditPanel } from './PosEditPanel';
 export { default as PosDisablePanel } from './PosDisablePanel';
 export { default as PosAssignPanel } from './PosAssignPanel';

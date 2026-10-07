@@ -1,16 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   AtSign,
   Bold,
   Code,
+  Gift,
   Italic,
+  LayoutGrid,
   Link2,
+  Smile,
   Sparkles,
+  Sticker,
 } from 'lucide-react';
-import { useTheme } from '../../context/ThemeContext';
 import HoverTooltip from '../Shared/HoverTooltip';
 import UserAvatar from '../Shared/UserAvatar';
 import { useAppStrings } from '../../locales/appStrings';
+import { CHAT_MESSAGE_MAX_LENGTH, resolveMentionNavIndex } from '../../utils/chatComposerLimits';
+
+const MOTION_CHIP =
+  'motion-safe:transition-colors motion-reduce:transition-none';
+const MOTION_SEND =
+  'motion-safe:transition-[background-color,box-shadow,filter] motion-reduce:transition-none';
 
 function UnifiedChatComposer({
   value = '',
@@ -49,15 +58,16 @@ function UnifiedChatComposer({
   singleLine = false,
   mentionItems = [],
   onPaste,
-  forceLight = false,
+  /** @deprecated Theme tokens tự thích ứng; giữ prop để tương thích caller cũ. */
+  forceLight: _forceLight = false,
 }) {
   const MAX_TEXTAREA_HEIGHT = 240;
   const { t } = useAppStrings();
-  const { isDarkMode } = useTheme();
-  const composerDark = isDarkMode && !forceLight;
+  const mentionListId = useId();
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
   const plusButtonRef = useRef(null);
   const plusMenuRef = useRef(null);
   const mentionButtonRef = useRef(null);
@@ -86,18 +96,56 @@ function UnifiedChatComposer({
       return label.includes(q) || username.includes(q);
     });
   }, [safeMentionItems, mentionQuery]);
+
+  const activeMentionIndex = useMemo(() => {
+    if (!filteredMentionItems.length) return -1;
+    return Math.min(Math.max(mentionActiveIndex, 0), filteredMentionItems.length - 1);
+  }, [filteredMentionItems.length, mentionActiveIndex]);
+
+  useEffect(() => {
+    if (!showMentionMenu) return;
+    setMentionActiveIndex(0);
+  }, [mentionQuery, showMentionMenu]);
+
   const resolvedPlaceholder = placeholder ?? t('chat.placeholderInput');
-  const resolvedSendLabel = sendLabel ?? t('chat.send');
+  const resolvedSendLabel = sendLabel ?? t('chat.composer.send');
+  const inputAriaLabel = t('chat.composer.ariaInput');
   const resolvedActionItems = useMemo(() => {
     if (Array.isArray(actionItems)) {
       return actionItems.filter((item) => item && item.key);
     }
     return [
-      { key: 'gift', title: t('chat.actionGift'), content: '🎁', onClick: onOpenGift, className: 'text-lg' },
-      { key: 'gif', title: t('chat.actionGif'), content: 'GIF', onClick: onOpenGif, className: 'px-1 text-[11px] font-bold min-w-8' },
-      { key: 'sticker', title: t('chat.actionSticker'), content: '😶‍🌫️', onClick: onOpenSticker, className: 'text-base' },
-      { key: 'emoji', title: t('chat.actionEmoji'), content: '🙂', onClick: onOpenEmoji, className: 'text-lg' },
-      { key: 'apps', title: t('chat.actionApps'), content: '✳️', onClick: onOpenApps, className: 'text-base' },
+      {
+        key: 'gift',
+        title: t('chat.actionGift'),
+        content: <Gift className="h-4 w-4" strokeWidth={2} aria-hidden />,
+        onClick: onOpenGift,
+      },
+      {
+        key: 'gif',
+        title: t('chat.actionGif'),
+        content: 'GIF',
+        onClick: onOpenGif,
+        className: 'px-1 text-[11px] font-bold min-w-8',
+      },
+      {
+        key: 'sticker',
+        title: t('chat.actionSticker'),
+        content: <Sticker className="h-4 w-4" strokeWidth={2} aria-hidden />,
+        onClick: onOpenSticker,
+      },
+      {
+        key: 'emoji',
+        title: t('chat.composer.emoji'),
+        content: <Smile className="h-4 w-4" strokeWidth={2} aria-hidden />,
+        onClick: onOpenEmoji,
+      },
+      {
+        key: 'apps',
+        title: t('chat.actionApps'),
+        content: <LayoutGrid className="h-4 w-4" strokeWidth={2} aria-hidden />,
+        onClick: onOpenApps,
+      },
     ];
   }, [actionItems, onOpenGift, onOpenGif, onOpenSticker, onOpenEmoji, onOpenApps, t]);
 
@@ -197,6 +245,7 @@ function UnifiedChatComposer({
     }
     setShowMentionMenu(false);
     setMentionQuery('');
+    setMentionActiveIndex(0);
     requestAnimationFrame(() => {
       try {
         inputRef.current?.focus();
@@ -205,6 +254,8 @@ function UnifiedChatComposer({
       }
     });
   };
+
+  const mentionOptionId = (index) => `${mentionListId}-opt-${index}`;
 
   const fmt = (kind) => {
     onRichAction?.(kind);
@@ -219,7 +270,7 @@ function UnifiedChatComposer({
       } else {
         insertWrap('@');
       }
-    }     else if (kind === 'link') {
+    } else if (kind === 'link') {
       insertWrap('[', '](url)', ({ start, sel, before }) => {
         const urlStart = start + before.length + sel.length + 2;
         return { start: urlStart, end: urlStart + 3 };
@@ -227,33 +278,19 @@ function UnifiedChatComposer({
     }
   };
 
-  const defaultWrapper = composerDark
-    ? 'shrink-0 border-t border-slate-800 bg-slate-900/60 p-3.5'
-    : 'shrink-0 border-t border-slate-200 bg-white p-3.5';
-  const richToolbarDivider = composerDark ? 'border-b border-white/[0.06]' : 'border-b border-slate-200';
-  const fmtBtn = composerDark
-    ? 'rounded-md p-2 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40'
-    : 'rounded-md p-2 text-slate-500 transition hover:bg-slate-200 hover:text-slate-900 disabled:opacity-40';
+  const defaultWrapper = 'shrink-0 border-t border-border bg-surface/60 p-3.5';
+  const richToolbarDivider = 'border-b border-border';
+  const fmtBtn = `rounded-md p-2 text-muted-foreground ${MOTION_CHIP} hover:bg-muted hover:text-foreground disabled:opacity-40`;
   const composerInner = flatInner
     ? 'relative flex flex-col gap-1.5'
-    : composerDark
-      ? 'relative flex flex-col gap-2 rounded-2xl border border-white/[0.08] bg-[#171B24] px-2.5 py-2 shadow-inner'
-      : 'relative flex flex-col gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2.5 py-2 shadow-inner';
-  const plusBtnClass = composerDark
-    ? 'h-9 w-9 shrink-0 rounded-lg text-2xl leading-none text-gray-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50'
-    : 'h-9 w-9 shrink-0 rounded-lg text-2xl leading-none text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50';
-  const plusMenuClass = composerDark
-    ? 'absolute bottom-[52px] left-0 z-30 w-56 overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl'
-    : 'absolute bottom-[52px] left-0 z-30 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl';
-  const plusMenuRow = composerDark
-    ? 'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-white transition hover:bg-slate-800/80 disabled:cursor-not-allowed disabled:opacity-40'
-    : 'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40';
+    : 'relative flex flex-col gap-2 rounded-2xl border border-border bg-muted/40 px-2.5 py-2 shadow-inner';
+  const plusBtnClass = `h-9 w-9 shrink-0 rounded-lg text-2xl leading-none text-foreground ${MOTION_CHIP} hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50`;
+  const plusMenuClass =
+    'absolute bottom-[52px] left-0 z-30 w-56 overflow-hidden rounded-xl border border-border bg-card shadow-2xl';
+  const plusMenuRow = `flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground ${MOTION_CHIP} hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40`;
   const textareaClass = (() => {
-    const baseDark =
-      'scrollbar-composer max-h-[240px] min-w-0 flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent text-sm text-white outline-none placeholder:text-muted-foreground disabled:opacity-60';
-    const baseLight =
-      'scrollbar-composer max-h-[240px] min-w-0 flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60';
-    const base = composerDark ? baseDark : baseLight;
+    const base =
+      'scrollbar-composer max-h-[240px] min-w-0 flex-1 resize-none overflow-y-auto overflow-x-hidden bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60';
     if (flatInner) {
       return `${base} min-h-9 px-2 py-2 leading-5`;
     }
@@ -262,9 +299,8 @@ function UnifiedChatComposer({
     }
     return `${base} min-h-[44px] px-2 py-2 leading-relaxed`;
   })();
-  const inputClass = composerDark
-    ? 'h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-white outline-none placeholder:text-muted-foreground disabled:opacity-60'
-    : 'h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60';
+  const inputClass =
+    'h-9 min-w-0 flex-1 bg-transparent px-2 text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60';
 
   const handleInputChange = (nextRaw) => {
     const nextValue = singleLine ? String(nextRaw).replace(/[\r\n]+/g, ' ') : nextRaw;
@@ -286,21 +322,35 @@ function UnifiedChatComposer({
   };
 
   const handleInputKeyDown = (event) => {
-    if (showMentionMenu && filteredMentionItems.length > 0 && event.key === 'Enter') {
-      event.preventDefault();
-      insertMention(filteredMentionItems[0].label);
-      return;
+    if (showMentionMenu && filteredMentionItems.length > 0) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+        event.preventDefault();
+        setMentionActiveIndex((prev) =>
+          resolveMentionNavIndex(prev, event.key, filteredMentionItems.length)
+        );
+        return;
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        const pick = filteredMentionItems[activeMentionIndex] || filteredMentionItems[0];
+        if (pick) insertMention(pick.label);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setShowMentionMenu(false);
+        setMentionQuery('');
+        return;
+      }
     }
     if (event.key === 'Enter' && (!singleLine ? !event.shiftKey : true)) {
       event.preventDefault();
       handleSend();
     }
   };
-  const actionBtn = composerDark
-    ? 'inline-flex h-9 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50'
-    : 'inline-flex h-9 items-center justify-center rounded-lg text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 disabled:opacity-50';
-  const flatActionBtn =
-    'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-none bg-transparent text-muted-foreground transition-[background-color,color] duration-150 hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50';
+
+  const actionBtn = `inline-flex h-9 items-center justify-center rounded-lg text-muted-foreground ${MOTION_CHIP} hover:bg-muted hover:text-foreground disabled:opacity-50`;
+  const flatActionBtn = `inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-none bg-transparent text-muted-foreground ${MOTION_CHIP} hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50`;
 
   const renderIconControl = (item, { flat = false } = {}) => {
     const label = item.title || item.label || item.key;
@@ -320,6 +370,20 @@ function UnifiedChatComposer({
         </button>
       </HoverTooltip>
     );
+  };
+
+  const isMentionMenuOpen = showMentionMenu && safeMentionItems.length > 0;
+  const inputA11yProps = {
+    'aria-label': inputAriaLabel,
+    maxLength: CHAT_MESSAGE_MAX_LENGTH,
+    role: safeMentionItems.length ? 'combobox' : undefined,
+    'aria-autocomplete': safeMentionItems.length ? 'list' : undefined,
+    'aria-expanded': safeMentionItems.length ? isMentionMenuOpen : undefined,
+    'aria-controls': isMentionMenuOpen ? mentionListId : undefined,
+    'aria-activedescendant':
+      isMentionMenuOpen && activeMentionIndex >= 0
+        ? mentionOptionId(activeMentionIndex)
+        : undefined,
   };
 
   return (
@@ -354,37 +418,51 @@ function UnifiedChatComposer({
         </div>
       )}
       <div className={composerInner}>
-        {showMentionMenu && safeMentionItems.length > 0 && (
+        {isMentionMenuOpen && (
           <div
             ref={mentionMenuRef}
-            className={composerDark
-              ? 'absolute bottom-[52px] right-0 z-30 w-72 overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl'
-              : 'absolute bottom-[52px] right-0 z-30 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl'}
+            className="absolute bottom-[52px] right-0 z-30 w-72 overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
           >
-            <div className={`border-b px-3 py-2 text-xs font-semibold uppercase ${composerDark ? 'border-slate-700 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
+            <div className="border-b border-border px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">
               {t('chat.mentionSuggestions')}
             </div>
-            <div className="max-h-56 overflow-y-auto">
-              {filteredMentionItems.map((item, index) => (
-                <button
-                  key={String(item.userId || item.value || item.username || item.label || index)}
-                  type="button"
-                  onClick={() => insertMention(item.label)}
-                  className={composerDark
-                    ? 'flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-white transition hover:bg-slate-800/80'
-                    : 'flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-slate-800 transition hover:bg-slate-100'}
-                >
-                  <UserAvatar avatar={item.avatar} name={item.label} size="chip" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{item.label}</span>
-                    {item.username ? (
-                      <span className={`block truncate text-xs ${composerDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                        @{item.username}
-                      </span>
-                    ) : null}
-                  </span>
-                </button>
-              ))}
+            <div
+              id={mentionListId}
+              role="listbox"
+              aria-label={t('chat.mentionSuggestions')}
+              className="max-h-56 overflow-y-auto"
+            >
+              {filteredMentionItems.length ? (
+                filteredMentionItems.map((item, index) => (
+                  <button
+                    key={String(item.userId || item.value || item.username || item.label || index)}
+                    id={mentionOptionId(index)}
+                    type="button"
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={index === activeMentionIndex}
+                    onMouseEnter={() => setMentionActiveIndex(index)}
+                    onClick={() => insertMention(item.label)}
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-foreground ${MOTION_CHIP} hover:bg-muted ${
+                      index === activeMentionIndex ? 'bg-muted' : ''
+                    }`}
+                  >
+                    <UserAvatar avatar={item.avatar} name={item.label} size="chip" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">{item.label}</span>
+                      {item.username ? (
+                        <span className="block truncate text-xs text-muted-foreground">
+                          @{item.username}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <div role="presentation" className="px-3 py-3 text-sm text-muted-foreground">
+                  {t('chat.mentionNoMatch')}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -394,123 +472,124 @@ function UnifiedChatComposer({
             `flex gap-2 ${singleLine || richToolbar || flatInner ? 'items-center' : 'items-end'}`
           }
         >
-        {safeLeadingItems.length > 0 ? (
-          <div className={`flex shrink-0 items-center ${flatInner ? 'gap-0.5' : 'gap-1'}`}>
-            {safeLeadingItems.map((item) => renderIconControl(item, { flat: flatInner }))}
-          </div>
-        ) : null}
-        {safePlusItems.length > 0 && (
-          <>
-            <HoverTooltip label={t('chat.addUtilities')} placement="top" disabled={disabled}>
-              <button
-                ref={plusButtonRef}
-                type="button"
-                disabled={disabled}
-                onClick={() => setShowPlusMenu((prev) => !prev)}
-                className={plusBtnClass}
-                aria-label={t('chat.addUtilities')}
-              >
-                +
-              </button>
-            </HoverTooltip>
-
-            {showPlusMenu && (
-              <div ref={plusMenuRef} className={plusMenuClass}>
-                {safePlusItems.map((item) => (
-                  <button
-                    key={item.key || item.label}
-                    type="button"
-                    disabled={item.disabled}
-                    onClick={() => {
-                      item.onClick?.();
-                      setShowPlusMenu(false);
-                    }}
-                    className={plusMenuRow}
-                  >
-                    <span className="text-base">{item.icon || '•'}</span>
-                    <span className="flex-1">{item.label}</span>
-                    {item.badge && (
-                      <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                        {item.badge}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-
-        {singleLine ? (
-          <input
-            ref={inputRef}
-            type="text"
-            value={value}
-            onChange={(event) => handleInputChange(event.target.value)}
-            onKeyDown={handleInputKeyDown}
-            onPaste={onPaste}
-            disabled={disabled}
-            placeholder={resolvedPlaceholder}
-            className={inputClass}
-            autoComplete="off"
-          />
-        ) : (
-          <textarea
-            ref={inputRef}
-            value={value}
-            rows={1}
-            onChange={(event) => handleInputChange(event.target.value)}
-            onKeyDown={handleInputKeyDown}
-            onPaste={onPaste}
-            disabled={disabled}
-            placeholder={resolvedPlaceholder}
-            className={textareaClass}
-          />
-        )}
-
-
-        <div
-          className={`flex shrink-0 ${
-            showSendButton ? 'flex-col items-end gap-2' : 'items-center'
-          }`}
-        >
-          <div className={`flex items-center ${flatInner ? 'gap-0.5' : 'gap-1'}`}>
-            {resolvedActionItems.map((item) => renderIconControl(item, { flat: flatInner }))}
-            {showAiToggle && (
-              <HoverTooltip label={t('chat.aiSuggestBeta')} placement="top" disabled={disabled}>
+          {safeLeadingItems.length > 0 ? (
+            <div className={`flex shrink-0 items-center ${flatInner ? 'gap-0.5' : 'gap-1'}`}>
+              {safeLeadingItems.map((item) => renderIconControl(item, { flat: flatInner }))}
+            </div>
+          ) : null}
+          {safePlusItems.length > 0 && (
+            <>
+              <HoverTooltip label={t('chat.addUtilities')} placement="top" disabled={disabled}>
                 <button
+                  ref={plusButtonRef}
                   type="button"
                   disabled={disabled}
-                  onClick={() => onAiToggle?.(!aiEnabled)}
-                  className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition ${
-                    aiEnabled
-                      ? composerDark
-                        ? 'bg-cyan-600/35 text-cyan-50 ring-1 ring-cyan-500/45'
-                        : 'bg-cyan-100 text-cyan-900 ring-1 ring-cyan-400/50'
-                      : composerDark
-                        ? 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
-                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800'
-                  }`}
-                  aria-label={t('chat.aiSuggestBeta')}
+                  onClick={() => setShowPlusMenu((prev) => !prev)}
+                  className={plusBtnClass}
+                  aria-label={t('chat.addUtilities')}
+                  aria-expanded={showPlusMenu}
                 >
-                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                  AI
+                  +
                 </button>
               </HoverTooltip>
+
+              {showPlusMenu && (
+                <div ref={plusMenuRef} className={plusMenuClass}>
+                  {safePlusItems.map((item) => (
+                    <button
+                      key={item.key || item.label}
+                      type="button"
+                      disabled={item.disabled}
+                      onClick={() => {
+                        item.onClick?.();
+                        setShowPlusMenu(false);
+                      }}
+                      className={plusMenuRow}
+                    >
+                      <span className="text-base" aria-hidden>
+                        {item.icon || '•'}
+                      </span>
+                      <span className="flex-1">{item.label}</span>
+                      {item.badge && (
+                        <span className="rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold text-destructive-foreground">
+                          {item.badge}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {singleLine ? (
+            <input
+              ref={inputRef}
+              type="text"
+              value={value}
+              onChange={(event) => handleInputChange(event.target.value)}
+              onKeyDown={handleInputKeyDown}
+              onPaste={onPaste}
+              disabled={disabled}
+              placeholder={resolvedPlaceholder}
+              className={inputClass}
+              autoComplete="off"
+              {...inputA11yProps}
+            />
+          ) : (
+            <textarea
+              ref={inputRef}
+              value={value}
+              rows={1}
+              onChange={(event) => handleInputChange(event.target.value)}
+              onKeyDown={handleInputKeyDown}
+              onPaste={onPaste}
+              disabled={disabled}
+              placeholder={resolvedPlaceholder}
+              className={textareaClass}
+              {...inputA11yProps}
+            />
+          )}
+
+          <div
+            className={`flex shrink-0 ${
+              showSendButton ? 'flex-col items-end gap-2' : 'items-center'
+            }`}
+          >
+            <div className={`flex items-center ${flatInner ? 'gap-0.5' : 'gap-1'}`}>
+              {resolvedActionItems.map((item) => renderIconControl(item, { flat: flatInner }))}
+              {showAiToggle && (
+                <HoverTooltip label={t('chat.aiSuggestBeta')} placement="top" disabled={disabled}>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onAiToggle?.(!aiEnabled)}
+                    className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold ${MOTION_CHIP} ${
+                      aiEnabled
+                        ? 'bg-primary/20 text-primary ring-1 ring-primary/40'
+                        : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+                    }`}
+                    aria-label={t('chat.aiSuggestBeta')}
+                    aria-pressed={aiEnabled}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                    AI
+                  </button>
+                </HoverTooltip>
+              )}
+            </div>
+            {showSendButton && (
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={disabled || sendDisabled}
+                aria-label={resolvedSendLabel}
+                className={`rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-sm ${MOTION_SEND} hover:bg-primary-hover hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                {resolvedSendLabel}
+              </button>
             )}
           </div>
-          {showSendButton && (
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={disabled || sendDisabled}
-              className="rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-900/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {resolvedSendLabel}
-            </button>
-          )}
-        </div>
         </div>
       </div>
     </div>

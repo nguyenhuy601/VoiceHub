@@ -24,6 +24,7 @@ import {
 import GradientButton from '../../components/Shared/GradientButton';
 import Modal from '../../components/Shared/Modal';
 import ConfirmDialog from '../../components/Shared/ConfirmDialog';
+import { AdminBusySpinner } from '../../components/adminUsers/adminPanelStates';
 import {
   FIGMA_PAGE_CARD,
   FIGMA_PAGE_SUBTITLE,
@@ -55,8 +56,8 @@ function PlanningScoreBadge({ readiness, t }) {
   const tone = !canSubmit
     ? 'bg-destructive/15 text-destructive'
     : score >= 80
-      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-      : 'bg-amber-500/15 text-amber-800 dark:text-amber-200';
+      ? 'bg-success/15 text-success'
+      : 'bg-warning/15 text-warning';
   return (
     <span
       className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
@@ -72,11 +73,11 @@ function canSubmitPackForReview(pack) {
 }
 
 const PACK_ROW_ACTION_BASE =
-  'inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium leading-none transition disabled:cursor-not-allowed disabled:opacity-40';
+  'inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium leading-none transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40';
 
 function packRowActionClass(variant = 'default') {
   if (variant === 'success') {
-    return `${PACK_ROW_ACTION_BASE} border-emerald-500/35 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300`;
+    return `${PACK_ROW_ACTION_BASE} border-success/35 bg-success/10 text-success hover:bg-success/15`;
   }
   if (variant === 'danger') {
     return `${PACK_ROW_ACTION_BASE} border-destructive/35 bg-destructive/10 text-destructive hover:bg-destructive/15`;
@@ -96,9 +97,9 @@ function PackStatusBadge({ status, t }) {
   const key = String(status || 'draft');
   const tone =
     key === 'approved' || key === 'project_linked'
-      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+      ? 'bg-success/15 text-success'
       : key === 'under_review'
-        ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200'
+        ? 'bg-warning/15 text-warning'
         : key === 'rejected'
           ? 'bg-destructive/15 text-destructive'
           : 'bg-muted text-muted-foreground';
@@ -152,6 +153,8 @@ export default function RequirementImportWorkspace({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [rejectTargetId, setRejectTargetId] = useState('');
+  const [rejectReason, setRejectReason] = useState('');
 
   const { packs, invalidateAllForOrg } = useRequirementPacks(orgId);
   const loadPacks = invalidateAllForOrg;
@@ -349,7 +352,21 @@ export default function RequirementImportWorkspace({
     }
   };
 
-  const rejectPack = async (packId) => {
+  const openRejectModal = (packId) => {
+    if (!packId || actionPackId) return;
+    setRejectTargetId(String(packId));
+    setRejectReason('');
+  };
+
+  const closeRejectModal = () => {
+    if (actionPackId) return;
+    setRejectTargetId('');
+    setRejectReason('');
+  };
+
+  const confirmRejectPack = async () => {
+    const packId = String(rejectTargetId || '').trim();
+    const reason = String(rejectReason || '').trim().slice(0, 2000);
     if (!orgId || !packId || actionPackId) return;
     const reasonRaw = await requestNote({
       title: t('requirements.reject') || 'Từ chối gói',
@@ -362,10 +379,16 @@ export default function RequirementImportWorkspace({
     if (reasonRaw == null) return;
     const reason = String(reasonRaw).trim().slice(0, 2000);
     if (!reason) return;
+    if (!reason) {
+      toast.error(t('requirements.rejectReasonRequired'));
+      return;
+    }
     setActionPackId(packId);
     try {
       await requirementAPI.rejectPack(orgId, packId, reason);
       toast.success(t('requirements.rejectSuccess'));
+      setRejectTargetId('');
+      setRejectReason('');
       await loadPacks();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('requirements.rejectFail') }));
@@ -448,9 +471,11 @@ export default function RequirementImportWorkspace({
             type="button"
             className={adminPrimaryBtnClass()}
             disabled={busy || !canConfirmPreview}
+            aria-busy={busy || undefined}
             title={!canConfirmPreview ? t('requirements.planningNotReady') : undefined}
             onClick={confirmImport}
           >
+            <AdminBusySpinner busy={busy} />
             <CheckCircle2 className="mr-2 inline h-4 w-4" />
             {t(sk(confirmLabelKey))}
           </button>
@@ -537,7 +562,7 @@ export default function RequirementImportWorkspace({
           {preview.valid &&
           Number(preview.warningCount) > 0 &&
           Number(preview.errorCount || 0) === 0 ? (
-            <p className="shrink-0 text-xs text-amber-800 dark:text-amber-200">
+            <p className="shrink-0 text-xs text-warning">
               {t('requirements.continueAnywayHint')}
             </p>
           ) : null}
@@ -559,7 +584,14 @@ export default function RequirementImportWorkspace({
         />
         {isAdmin ? (
           <>
-            <button type="button" className={adminSecondaryBtnClass()} disabled={busy} onClick={downloadTemplate}>
+            <button
+              type="button"
+              className={adminSecondaryBtnClass()}
+              disabled={busy}
+              aria-busy={busy || undefined}
+              onClick={downloadTemplate}
+            >
+              <AdminBusySpinner busy={busy} />
               <FileDown className="mr-2 inline h-4 w-4" />
               {t(sk('downloadTemplate'))}
             </button>
@@ -567,21 +599,30 @@ export default function RequirementImportWorkspace({
               type="button"
               className={adminPrimaryBtnClass()}
               disabled={busy}
+              aria-busy={busy || undefined}
               onClick={() => fileInputRef.current?.click()}
             >
+              <AdminBusySpinner busy={busy} />
               <Upload className="mr-2 inline h-4 w-4" />
               {t(sk('uploadPreview'))}
             </button>
           </>
         ) : (
           <>
-            <GradientButton variant="shell" disabled={busy} onClick={downloadTemplate} className="min-h-11 w-full px-4 py-2 text-sm sm:w-auto">
+            <GradientButton
+              variant="shell"
+              disabled={busy}
+              aria-busy={busy || undefined}
+              onClick={downloadTemplate}
+              className="min-h-11 w-full px-4 py-2 text-sm sm:w-auto"
+            >
               <FileDown className="h-4 w-4" />
               {t(sk('downloadTemplate'))}
             </GradientButton>
             <GradientButton
               variant="shell"
               disabled={busy}
+              aria-busy={busy || undefined}
               onClick={() => fileInputRef.current?.click()}
               className="min-h-11 w-full px-4 py-2 text-sm sm:w-auto"
             >
@@ -610,13 +651,13 @@ export default function RequirementImportWorkspace({
           aria-expanded={filtersOpen}
           aria-controls="requirements-pack-filters"
           onClick={() => setFiltersOpen((open) => !open)}
-          className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/40"
+          className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors duration-150 motion-reduce:transition-none hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <SlidersHorizontal className="h-4 w-4" aria-hidden />
           {t('requirements.filters')}
           {activeFilterCount ? (
             <span
-              className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+              className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[11px] font-semibold text-destructive-foreground"
               title={t('requirements.filtersActive', { n: activeFilterCount })}
             >
               {activeFilterCount}
@@ -626,7 +667,7 @@ export default function RequirementImportWorkspace({
         {filtersOpen ? (
           <div
             id="requirements-pack-filters"
-            className="absolute right-0 z-20 mt-2 w-[min(calc(100vw-2rem),16rem)] space-y-2 rounded-xl border border-border bg-card p-3 shadow-lg"
+            className="absolute right-0 z-20 mt-2 w-[min(calc(100vw-2rem),16rem)] space-y-2 rounded-xl border border-border bg-card p-3 shadow-lg motion-safe:animate-fade-in-fast motion-reduce:animate-none"
           >
             <select
               value={statusFilter}
@@ -746,7 +787,7 @@ export default function RequirementImportWorkspace({
             <PackRowActionButton
               variant="danger"
               disabled={actionPackId === pack._id}
-              onClick={() => rejectPack(pack._id)}
+              onClick={() => openRejectModal(pack._id)}
               title={t('requirements.reject')}
             >
               <X className="h-3 w-3 shrink-0" aria-hidden />
@@ -864,6 +905,7 @@ export default function RequirementImportWorkspace({
         isOpen={Boolean(deleteTarget)}
         onClose={() => !actionPackId && setDeleteTarget(null)}
         onConfirm={() => deletePack(String(deleteTarget?._id || '').trim())}
+        variant="danger"
         title={t('requirements.deletePackTitle')}
         message={t('requirements.deletePackConfirm', {
           name:
@@ -876,6 +918,48 @@ export default function RequirementImportWorkspace({
         cancelText={t('common.cancel')}
       />
       {noteDialog}
+
+      <Modal
+        isOpen={Boolean(rejectTargetId)}
+        onClose={closeRejectModal}
+        title={t('requirements.rejectModalTitle')}
+        size="md"
+        closable={!actionPackId}
+      >
+        <p className="mb-3 text-sm text-muted-foreground">{t('requirements.rejectModalHint')}</p>
+        <label className="block text-xs font-semibold text-muted-foreground" htmlFor="requirement-reject-reason">
+          {t('requirements.rejectReasonLabel')}
+          <textarea
+            id="requirement-reject-reason"
+            className="mt-1 min-h-[5rem] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors duration-150 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            disabled={Boolean(actionPackId)}
+            maxLength={2000}
+            required
+          />
+        </label>
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            className={adminSecondaryBtnClass()}
+            disabled={Boolean(actionPackId)}
+            onClick={closeRejectModal}
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            className={adminPrimaryBtnClass()}
+            disabled={Boolean(actionPackId) || !rejectReason.trim()}
+            aria-busy={actionPackId === rejectTargetId || undefined}
+            onClick={() => void confirmRejectPack()}
+          >
+            <AdminBusySpinner busy={actionPackId === rejectTargetId} />
+            {t('requirements.reject')}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -711,6 +711,7 @@ export default function ProjectHubChangeRequestDetailDrawer({
           if (!deleting) setConfirmDelete(false);
         }}
         onConfirm={() => deleteCr()}
+        variant="danger"
         title={t('workspace.projectHubCrDeleteConfirmTitle')}
         message={t('workspace.projectHubCrDeleteConfirm', { code: row?.code || 'CR' })}
         confirmText={t('workspace.projectHubCrDelete')}

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AdminUserPanelShell } from '../adminUsers/adminUserPanelUi';
+import { AdminHubTablist, AdminHubTabPanel, useAdminHubTabIds } from './AdminHubTablist';
 
 /**
  * Hub RBAC linh hoạt: picker tùy tab (user / org role / system role) + tabs.
@@ -15,6 +16,7 @@ export default function AdminRbacOpsHubShell({
   children,
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const tabIdPrefix = useAdminHubTabIds();
 
   const activeTab = useMemo(() => {
     const raw = String(searchParams.get(tabParam) || '').trim();
@@ -34,29 +36,16 @@ export default function AdminRbacOpsHubShell({
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-stretch">
         <div className="flex min-h-0 min-w-0 flex-col">{renderPicker?.(activeTab)}</div>
         <div className="min-h-0 min-w-0 space-y-4 overflow-y-auto">
-          <div className="flex flex-wrap gap-2" role="tablist" aria-label={title}>
-            {tabs.map((tab) => {
-              const active = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setTab(tab.id)}
-                  className={[
-                    'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-                    active
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-                  ].join(' ')}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-          <div role="tabpanel">{children({ activeTab })}</div>
+          <AdminHubTablist
+            idPrefix={tabIdPrefix}
+            label={title}
+            tabs={tabs}
+            activeTab={activeTab}
+            onSelect={setTab}
+          />
+          <AdminHubTabPanel idPrefix={tabIdPrefix} tabs={tabs} activeTab={activeTab}>
+            {children({ activeTab })}
+          </AdminHubTabPanel>
         </div>
       </div>
     </AdminUserPanelShell>

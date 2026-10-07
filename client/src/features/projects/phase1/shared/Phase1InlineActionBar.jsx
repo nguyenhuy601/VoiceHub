@@ -16,20 +16,21 @@ export default function Phase1InlineActionBar({
   saveLabel,
   savingLabel,
 }) {
+  const focusBtn =
+    'transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#FFD591] bg-[#FFF7E6] px-3 py-2.5 dark:border-amber-700 dark:bg-amber-950/50">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-warning/40 bg-warning/10 px-3 py-2.5">
       <div className="min-w-0">
-        <p className="truncate text-xs font-semibold text-[#AD6800] dark:text-amber-200">
-          {title}
-        </p>
+        <p className="truncate text-xs font-semibold text-foreground">{title}</p>
         {dirty ? (
-          <p className="text-[10px] text-[#D48806] dark:text-amber-300/90">● Chưa lưu</p>
+          <p className="text-[10px] text-warning">● Chưa lưu</p>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2">
         <button
           type="button"
-          className="rounded-full border border-[#D9D9D9] bg-white px-4 py-1.5 text-sm text-[#595959] hover:bg-[#FAFAFA] disabled:opacity-50"
+          className={`rounded-full border border-border bg-background px-4 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50 ${focusBtn}`}
           disabled={saving || transitioning}
           onClick={onCancel}
         >
@@ -37,12 +38,13 @@ export default function Phase1InlineActionBar({
         </button>
         <button
           type="button"
-          className={`rounded-full px-4 py-1.5 text-sm font-semibold disabled:opacity-50 ${
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold disabled:opacity-50 ${focusBtn} ${
             canSave
-              ? 'border border-[#1677FF] bg-white text-[#1677FF] hover:bg-[#E6F4FF]'
-              : 'border border-[#D9D9D9] bg-white text-[#BFBFBF]'
+              ? 'border border-primary bg-background text-primary hover:bg-primary/5'
+              : 'border border-border bg-background text-muted-foreground'
           }`}
           disabled={!canSave}
+          aria-busy={saving ? 'true' : undefined}
           onClick={onSave}
         >
           {saving ? savingLabel : saveLabel}
@@ -50,8 +52,9 @@ export default function Phase1InlineActionBar({
         {nextStatus && onSubmitReview ? (
           <button
             type="button"
-            className="rounded-full bg-[#1677FF] px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[#0958D9] disabled:opacity-50"
+            className={`rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-50 ${focusBtn}`}
             disabled={saving || transitioning || dirty}
+            aria-busy={transitioning ? 'true' : undefined}
             title={dirty ? 'Lưu trước khi gửi duyệt' : undefined}
             onClick={onSubmitReview}
           >

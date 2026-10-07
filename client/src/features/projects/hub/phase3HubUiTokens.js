@@ -8,21 +8,21 @@ const BADGE_BASE =
 
 /** Test case lastResult. */
 export const TC_RESULT_TONE = Object.freeze({
-  pass: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
+  pass: 'border-success/35 bg-success/10 text-success',
   fail: 'border-destructive/35 bg-destructive/10 text-destructive',
-  none: 'border-border/60 bg-muted/50 text-muted-foreground',
+  none: 'border-border bg-muted/50 text-muted-foreground',
 });
 
 /** Card / row shell tint by TC result. */
 export const TC_RESULT_ROW_TONE = Object.freeze({
-  pass: 'border-emerald-500/35 bg-emerald-500/5',
+  pass: 'border-success/35 bg-success/5',
   fail: 'border-destructive/35 bg-destructive/5',
   none: 'border-border bg-background',
 });
 
 /** Filter chip when active — keep primary for selected; inactive uses result tint. */
 export const TC_FILTER_CHIP_TONE = Object.freeze({
-  pass: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
+  pass: 'border-success/40 bg-success/10 text-success',
   fail: 'border-destructive/40 bg-destructive/10 text-destructive',
   none: 'border-border bg-muted/40 text-muted-foreground',
   all: 'border-border bg-background text-muted-foreground',
@@ -30,52 +30,52 @@ export const TC_FILTER_CHIP_TONE = Object.freeze({
 
 /** Change request approval status. */
 export const CR_STATUS_TONE = Object.freeze({
-  draft: 'border-border/60 bg-muted/50 text-muted-foreground',
-  pending: 'border-amber-500/35 bg-amber-500/10 text-amber-900 dark:text-amber-200',
-  reviewing: 'border-sky-500/35 bg-sky-500/10 text-sky-900 dark:text-sky-200',
+  draft: 'border-border bg-muted/50 text-muted-foreground',
+  pending: 'border-warning/35 bg-warning/10 text-warning',
+  reviewing: 'border-info/35 bg-info/10 text-info',
   approved: 'border-primary/35 bg-primary/10 text-primary',
-  applied: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
+  applied: 'border-success/35 bg-success/10 text-success',
   rejected: 'border-destructive/35 bg-destructive/10 text-destructive',
-  deferred: 'border-slate-500/35 bg-slate-500/10 text-slate-800 dark:text-slate-200',
+  deferred: 'border-border bg-muted/40 text-muted-foreground',
 });
 
 export const CR_STATUS_ROW_TONE = Object.freeze({
   draft: '',
-  pending: 'bg-amber-500/[0.04]',
-  reviewing: 'bg-sky-500/[0.04]',
-  approved: 'bg-primary/[0.04]',
-  applied: 'bg-emerald-500/[0.06]',
-  rejected: 'bg-destructive/[0.05]',
+  pending: 'bg-warning/5',
+  reviewing: 'bg-info/5',
+  approved: 'bg-primary/5',
+  applied: 'bg-success/5',
+  rejected: 'bg-destructive/5',
   deferred: 'bg-muted/30',
 });
 
 /** Change request priority. */
 export const CR_PRIORITY_TONE = Object.freeze({
-  low: 'border-border/60 bg-muted/50 text-muted-foreground',
-  medium: 'border-sky-500/35 bg-sky-500/10 text-sky-900 dark:text-sky-200',
-  high: 'border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200',
+  low: 'border-border bg-muted/50 text-muted-foreground',
+  medium: 'border-info/35 bg-info/10 text-info',
+  high: 'border-warning/40 bg-warning/10 text-warning',
   critical: 'border-destructive/40 bg-destructive/10 text-destructive',
 });
 
 /** Kanban card shell tint by issue type (additive on base cardShell). */
 export const ISSUE_TYPE_CARD_TONE = Object.freeze({
-  bug: 'border-rose-500/40 bg-rose-500/[0.07]',
-  task: 'border-slate-400/40 bg-slate-500/[0.04]',
-  story: 'border-sky-500/40 bg-sky-500/[0.07]',
-  feature: 'border-sky-500/40 bg-sky-500/[0.07]',
-  epic: 'border-violet-500/40 bg-violet-500/[0.07]',
-  subtask: 'border-border/50 bg-muted/20',
+  bug: 'border-destructive/40 bg-destructive/5',
+  task: 'border-border bg-muted/20',
+  story: 'border-info/40 bg-info/5',
+  feature: 'border-info/40 bg-info/5',
+  epic: 'border-primary/40 bg-primary/5',
+  subtask: 'border-border bg-muted/20',
 });
 
 /** Overview Release Ready metric chips. */
 export const RELEASE_METRIC_TONE = Object.freeze({
-  tc: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200',
-  bugs_ok: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200',
+  tc: 'border-success/35 bg-success/10 text-success',
+  bugs_ok: 'border-success/35 bg-success/10 text-success',
   bugs_open: 'border-destructive/35 bg-destructive/10 text-destructive',
-  cards_ok: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200',
-  cards_pending: 'border-amber-500/35 bg-amber-500/10 text-amber-900 dark:text-amber-200',
-  cr_ok: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200',
-  cr_pending: 'border-amber-500/35 bg-amber-500/10 text-amber-900 dark:text-amber-200',
+  cards_ok: 'border-success/35 bg-success/10 text-success',
+  cards_pending: 'border-warning/35 bg-warning/10 text-warning',
+  cr_ok: 'border-success/35 bg-success/10 text-success',
+  cr_pending: 'border-warning/35 bg-warning/10 text-warning',
 });
 
 const READY_TO_DONE_ACCENT = 'ring-1 ring-warning/50 border-l-4 border-l-warning';

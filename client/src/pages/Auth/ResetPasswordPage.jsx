@@ -147,7 +147,7 @@ function ResetPasswordPage() {
           <button
             type="submit"
             disabled={loading || !passwordsMatch}
-            className={`${FIGMA_BTN} ${passwordsMatch ? FIGMA_BTN_PURPLE : 'bg-muted text-muted-foreground'}`}
+            className={`${FIGMA_BTN} ${passwordsMatch ? FIGMA_BTN_PURPLE : 'bg-muted text-muted-foreground'} motion-safe:transition-colors motion-reduce:transition-none`}
           >
             {loading ? (
               <span className="flex items-center gap-2">

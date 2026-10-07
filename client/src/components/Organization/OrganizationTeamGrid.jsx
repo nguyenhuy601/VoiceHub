@@ -403,9 +403,9 @@ export default function OrganizationTeamGrid({
             return (
               <div
                 key={item.key}
-                className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
+                className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0"
               >
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition group-hover:scale-105 ${item.tone}`}>
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100 ${item.tone}`}>
                   <Icon size={16} />
                 </span>
                 <div className="min-w-0">
@@ -575,7 +575,7 @@ export default function OrganizationTeamGrid({
                           isProject: Boolean(card.isProject),
                         });
                       }}
-                      className="relative flex flex-col items-center justify-center gap-1 rounded-[10px] bg-muted px-1.5 py-2.5 text-[0.6875rem] font-medium text-muted-foreground transition hover:-translate-y-0.5 hover:bg-primary/10 hover:text-primary hover:shadow-sm"
+                      className="relative flex flex-col items-center justify-center gap-1 rounded-[10px] bg-muted px-1.5 py-2.5 text-[0.6875rem] font-medium text-muted-foreground transition hover:-translate-y-0.5 hover:bg-primary/10 hover:text-primary hover:shadow-sm motion-reduce:transition-none motion-reduce:hover:translate-y-0"
                     >
                       {btn.badge > 0 ? (
                         <span className="absolute right-1.5 top-1 min-w-[15px] rounded-full bg-primary px-1 text-[0.5rem] font-bold text-primary-foreground">
@@ -594,7 +594,7 @@ export default function OrganizationTeamGrid({
             <button
               type="button"
               onClick={createAction}
-              className="flex min-h-[240px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-surface/60 p-4 text-center text-muted-foreground transition duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-surface hover:text-primary hover:shadow-md"
+              className="flex min-h-[240px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-surface/60 p-4 text-center text-muted-foreground transition duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-surface hover:text-primary hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0"
             >
               <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-current">
                 <Plus size={22} />

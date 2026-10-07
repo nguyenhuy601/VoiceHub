@@ -9,8 +9,10 @@ import {
   PanelLeft,
   PanelRight,
   Search,
+  X,
 } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
+import useModalA11y from '../../components/Shared/useModalA11y';
 import { formatFileSize, resolveOrgFileOpenUrl, toDriveAttachmentRef } from './orgDocumentUtils';
 import { getDriveFacetTheme } from './driveFacetTheme';
 import { isStoredObjectAttachment } from '../projects/board/taskBoardAttachmentOpen';
@@ -53,7 +55,40 @@ function FileRowIcon({ file, size = 'md' }) {
     <div
       className={`flex shrink-0 items-center justify-center border border-border bg-muted ${box} ${theme.iconClass}`}
     >
-      <Icon className={iconCls} strokeWidth={1.75} />
+      <Icon className={iconCls} strokeWidth={1.75} aria-hidden />
+    </div>
+  );
+}
+
+const DRIVE_RESIZE_KEY_STEP = 16;
+
+function DriveDrawer({ side, label, onClose, closeLabel, children }) {
+  const panelRef = useRef(null);
+  useModalA11y({ isOpen: true, onClose, containerRef: panelRef, initialFocusRef: panelRef });
+  const isLeft = side === 'left';
+  return (
+    <div className="fixed inset-0 z-[240] bg-black/40 motion-safe:animate-fade-in-fast lg:hidden" role="presentation">
+      <button
+        type="button"
+        tabIndex={-1}
+        className="absolute inset-0 h-full w-full cursor-default"
+        aria-label={closeLabel}
+        onClick={onClose}
+      />
+      <aside
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+        className={`absolute inset-y-0 z-[1] flex flex-col bg-card shadow-2xl outline-none motion-safe:animate-fade-in-fast ${
+          isLeft
+            ? 'left-0 w-[min(100vw,320px)] border-r border-border'
+            : 'right-0 w-[min(100vw,360px)] overflow-y-auto border-l border-border p-4'
+        }`}
+      >
+        {children}
+      </aside>
     </div>
   );
 }
@@ -160,6 +195,33 @@ export default function DriveWorkspaceShell({
     resizeRef.current = { active: true, side, startX, startW };
   };
 
+  const handleSeparatorKeyDown = (side, event) => {
+    const isLeftRail = side === 'left';
+    const min = isLeftRail ? DRIVE_RAIL_MIN_W : DRIVE_PREVIEW_MIN_W;
+    const max = isLeftRail ? DRIVE_RAIL_MAX_W : DRIVE_PREVIEW_MAX_W;
+    const base = isLeftRail ? DRIVE_RAIL_BASE_W : DRIVE_PREVIEW_BASE_W;
+    const current = isLeftRail ? leftWidth : previewWidth;
+    // Rail trái giãn sang phải; preview bám mép phải nên giãn khi kéo sang trái.
+    const growKey = isLeftRail ? 'ArrowRight' : 'ArrowLeft';
+    const shrinkKey = isLeftRail ? 'ArrowLeft' : 'ArrowRight';
+    let next;
+    if (event.key === growKey) next = current + DRIVE_RESIZE_KEY_STEP;
+    else if (event.key === shrinkKey) next = current - DRIVE_RESIZE_KEY_STEP;
+    else if (event.key === 'Home') next = base;
+    else return;
+    event.preventDefault();
+    const width = Math.max(min, Math.min(max, next));
+    if (isLeftRail) {
+      setLeftWidth(width);
+      persist({ leftWidth: width });
+    } else {
+      setPreviewWidth(width);
+      persist({ previewWidth: width });
+    }
+  };
+
+  const hasQuery = Boolean(String(query || '').trim());
+
   const showLeft = leftOpen && (isLg || leftOpen);
   const showPreview = previewOpen && (isLg || previewOpen);
   const leftAsDrawer = leftOpen && !isLg;
@@ -181,13 +243,14 @@ export default function DriveWorkspaceShell({
             <button
               key={c.id}
               type="button"
+              aria-pressed={active}
               onClick={() => onCategoryChange?.(c.id)}
-              className={`flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-left text-xs font-semibold transition ${
+              className={`flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-left text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                 active ? theme.activeClass : 'border-transparent text-foreground hover:bg-muted'
               }`}
               title={c.hint || c.label}
             >
-              <Icon className={`h-4 w-4 shrink-0 ${theme.iconClass}`} strokeWidth={1.75} />
+              <Icon className={`h-4 w-4 shrink-0 ${theme.iconClass}`} strokeWidth={1.75} aria-hidden />
               <span className="min-w-0 flex-1 truncate">{c.label}</span>
               {count > 0 ? (
                 <span className="shrink-0 text-[10px] font-medium text-muted-foreground">{count}</span>
@@ -208,9 +271,10 @@ export default function DriveWorkspaceShell({
             <li key={file.id}>
               <button
                 type="button"
+                aria-pressed={active}
                 onClick={() => handleSelectFile(file)}
                 onDoubleClick={() => handleOpenSelected(file)}
-                className={`flex h-full w-full flex-col items-start gap-2 rounded-xl border p-2.5 text-left transition ${
+                className={`flex h-full w-full flex-col items-start gap-2 rounded-xl border p-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                   active
                     ? 'border-primary/40 bg-primary/15 text-foreground'
                     : 'border-border/60 text-foreground hover:bg-muted'
@@ -231,9 +295,10 @@ export default function DriveWorkspaceShell({
           <li key={file.id}>
             <button
               type="button"
+              aria-pressed={active}
               onClick={() => handleSelectFile(file)}
               onDoubleClick={() => handleOpenSelected(file)}
-              className={`flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition ${
+              className={`flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                 active
                   ? 'border-primary/40 bg-primary/15 text-foreground'
                   : 'border-transparent text-foreground hover:bg-muted'
@@ -275,6 +340,7 @@ export default function DriveWorkspaceShell({
             id="drive-workspace-search"
             type="search"
             value={query}
+            maxLength={200}
             onChange={(e) => onQueryChange?.(e.target.value)}
             placeholder={t('documents.orgSearchPlaceholder')}
             aria-label={t('documents.searchAria')}
@@ -290,7 +356,7 @@ export default function DriveWorkspaceShell({
           <button
             type="button"
             onClick={() => handleViewMode(DRIVE_VIEW_LIST)}
-            className={`rounded-md p-1.5 transition ${
+            className={`rounded-md p-1.5 transition motion-reduce:transition-none ${
               !isGrid ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'
             }`}
             title={t('documents.driveViewList')}
@@ -302,7 +368,7 @@ export default function DriveWorkspaceShell({
           <button
             type="button"
             onClick={() => handleViewMode(DRIVE_VIEW_GRID)}
-            className={`rounded-md p-1.5 transition ${
+            className={`rounded-md p-1.5 transition motion-reduce:transition-none ${
               isGrid ? 'bg-background text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'
             }`}
             title={t('documents.driveViewGrid')}
@@ -333,8 +399,9 @@ export default function DriveWorkspaceShell({
           }`}
           title={leftOpen ? t('documents.driveHideFacets') : t('documents.driveShowFacets')}
           aria-label={leftOpen ? t('documents.driveHideFacets') : t('documents.driveShowFacets')}
+          aria-pressed={leftOpen}
         >
-          <PanelLeft size={16} />
+          <PanelLeft size={16} aria-hidden />
         </button>
         <button
           type="button"
@@ -344,24 +411,22 @@ export default function DriveWorkspaceShell({
           }`}
           title={previewOpen ? t('documents.driveHidePreview') : t('documents.driveShowPreview')}
           aria-label={previewOpen ? t('documents.driveHidePreview') : t('documents.driveShowPreview')}
+          aria-pressed={previewOpen}
         >
-          <PanelRight size={16} />
+          <PanelRight size={16} aria-hidden />
         </button>
       </div>
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {leftAsDrawer ? (
-          <div className="fixed inset-0 z-[240] bg-black/40 lg:hidden" role="presentation">
-            <button
-              type="button"
-              className="absolute inset-0 h-full w-full cursor-default"
-              aria-label={t('nav.close')}
-              onClick={() => handleLeftOpen(false)}
-            />
-            <aside className="relative z-[1] flex h-full w-[min(100vw,320px)] flex-col border-r border-border bg-card">
-              {facetRail}
-            </aside>
-          </div>
+          <DriveDrawer
+            side="left"
+            label={t('documents.driveFacetHeading')}
+            closeLabel={t('nav.close')}
+            onClose={() => handleLeftOpen(false)}
+          >
+            {facetRail}
+          </DriveDrawer>
         ) : null}
 
         {showLeft && isLg ? (
@@ -375,8 +440,11 @@ export default function DriveWorkspaceShell({
               aria-valuenow={leftWidth}
               aria-valuemin={DRIVE_RAIL_MIN_W}
               aria-valuemax={DRIVE_RAIL_MAX_W}
+              aria-label={t('documents.driveResizeFacetsAria')}
+              tabIndex={0}
+              onKeyDown={(e) => handleSeparatorKeyDown('left', e)}
               title={t('documents.driveResizeHint', { min: DRIVE_RAIL_MIN_W, max: DRIVE_RAIL_MAX_W })}
-              className="absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize touch-none hover:bg-primary/20"
+              className="absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize touch-none outline-none transition-colors hover:bg-primary/20 focus-visible:bg-primary/30"
               onMouseDown={(e) => {
                 if (e.button !== 0) return;
                 e.preventDefault();
@@ -392,20 +460,52 @@ export default function DriveWorkspaceShell({
         ) : null}
 
         <div className="min-w-0 flex-1 overflow-y-auto p-2">
+          {error && files.length > 0 ? (
+            <div
+              role="alert"
+              className="mb-2 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            >
+              <span className="min-w-0 flex-1">{error}</span>
+              <button
+                type="button"
+                onClick={() => onReload?.()}
+                aria-busy={loading}
+                disabled={loading}
+                className="shrink-0 rounded-md px-2 py-1 font-semibold transition-colors motion-reduce:transition-none hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/30 disabled:opacity-60"
+              >
+                {t('documents.orgRetry')}
+              </button>
+            </div>
+          ) : null}
           {loading && files.length === 0 ? (
-            <div className="flex flex-col items-center py-10 text-muted-foreground">
-              <Loader2 className="h-6 w-6 animate-spin opacity-70" />
+            <div role="status" className="flex flex-col items-center py-10 text-muted-foreground">
+              <Loader2 className="h-6 w-6 motion-safe:animate-spin opacity-70" aria-hidden />
               <p className="mt-2 text-xs">{t('documents.orgLoading')}</p>
             </div>
           ) : error && files.length === 0 ? (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-center">
+            <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-center">
               <p className="text-xs text-destructive">{error}</p>
               <button
                 type="button"
                 onClick={() => onReload?.()}
-                className="mt-2 rounded-lg bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground"
+                aria-busy={loading}
+                disabled={loading}
+                className="mt-2 rounded-lg bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground transition motion-reduce:transition-none hover:opacity-90 disabled:opacity-60"
               >
                 {t('documents.orgRetry')}
+              </button>
+            </div>
+          ) : files.length === 0 && hasQuery ? (
+            <div className="flex flex-col items-center gap-2 py-8 text-center motion-safe:animate-fade-in-fast">
+              <Search className="h-5 w-5 text-muted-foreground" aria-hidden />
+              <p className="text-xs text-muted-foreground">{t('documents.driveNoResults', { query: query.trim() })}</p>
+              <button
+                type="button"
+                onClick={() => onQueryChange?.('')}
+                className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+                {t('documents.driveClearSearch')}
               </button>
             </div>
           ) : files.length === 0 ? (
@@ -418,23 +518,20 @@ export default function DriveWorkspaceShell({
         </div>
 
         {previewAsDrawer && selectedFile ? (
-          <div className="fixed inset-0 z-[240] bg-black/40 lg:hidden" role="presentation">
-            <button
-              type="button"
-              className="absolute inset-0 h-full w-full cursor-default"
-              aria-label={t('nav.close')}
-              onClick={() => handlePreviewOpen(false)}
+          <DriveDrawer
+            side="right"
+            label={selectedFile.name || t('documents.driveShowPreview')}
+            closeLabel={t('nav.close')}
+            onClose={() => handlePreviewOpen(false)}
+          >
+            <DrivePreviewBody
+              file={selectedFile}
+              onOpenFile={onOpenFile}
+              onOpenInWorkspace={onOpenInWorkspace}
+              openingFile={openingFile}
+              t={t}
             />
-            <aside className="absolute inset-y-0 right-0 z-[1] flex w-[min(100vw,360px)] flex-col border-l border-border bg-card p-4">
-              <DrivePreviewBody
-                file={selectedFile}
-                onOpenFile={onOpenFile}
-                onOpenInWorkspace={onOpenInWorkspace}
-                openingFile={openingFile}
-                t={t}
-              />
-            </aside>
-          </div>
+          </DriveDrawer>
         ) : null}
 
         {showPreview && isLg ? (
@@ -456,7 +553,10 @@ export default function DriveWorkspaceShell({
                 min: DRIVE_PREVIEW_MIN_W,
                 max: DRIVE_PREVIEW_MAX_W,
               })}
-              className="absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none hover:bg-primary/20"
+              aria-label={t('documents.driveResizePreviewAria')}
+              tabIndex={0}
+              onKeyDown={(e) => handleSeparatorKeyDown('preview', e)}
+              className="absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none outline-none transition-colors hover:bg-primary/20 focus-visible:bg-primary/30"
               onMouseDown={(e) => {
                 if (e.button !== 0) return;
                 e.preventDefault();
@@ -532,9 +632,9 @@ function DrivePreviewBody({ file, onOpenFile, onOpenInWorkspace, openingFile = f
           className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:cursor-wait disabled:opacity-70"
         >
           {openingFile ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
           ) : (
-            <ExternalLink className="h-3.5 w-3.5" />
+            <ExternalLink className="h-3.5 w-3.5" aria-hidden />
           )}
           {openingFile ? t('documents.orgOpeningFile') : t('documents.orgOpenFile')}
         </button>
@@ -544,7 +644,7 @@ function DrivePreviewBody({ file, onOpenFile, onOpenInWorkspace, openingFile = f
             onClick={() => onOpenInWorkspace(file)}
             className="inline-flex items-center gap-1 rounded-lg bg-muted px-3 py-1.5 text-xs font-semibold text-foreground"
           >
-            <MessageSquare className="h-3.5 w-3.5" />
+            <MessageSquare className="h-3.5 w-3.5" aria-hidden />
             {t('documents.orgOpenInChannel')}
           </button>
         ) : null}

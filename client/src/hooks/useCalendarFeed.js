@@ -159,9 +159,7 @@ export function useCalendarFeed(selectedDate, organizationId = '', projectId = '
     [apiEvents]
   );
 
-  const refetch = useCallback(async () => {
-    await query.refetch();
-  }, [query]);
+  const refetch = useCallback(() => query.refetch(), [query]);
 
   return {
     events,

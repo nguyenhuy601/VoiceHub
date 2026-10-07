@@ -35,6 +35,7 @@ export default function CalendarWeekView({
   });
 
   const labels = weekdayLabels(locale, t);
+  const dayLabelFormatter = new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'vi-VN', { dateStyle: 'full' });
 
   const getEventsForDate = (date) => events.filter((e) => e.date === toDateKey(date));
 
@@ -70,7 +71,10 @@ export default function CalendarWeekView({
               <button
                 type="button"
                 onClick={() => onSelectDate?.(date)}
-                className={`mb-1 flex w-full flex-col items-center gap-0.5 rounded-lg border-none bg-transparent p-1 transition ${
+                aria-label={dayLabelFormatter.format(date)}
+                aria-current={isToday ? 'date' : undefined}
+                aria-pressed={Boolean(isSelected)}
+                className={`mb-1 flex w-full flex-col items-center gap-0.5 rounded-lg border-none bg-transparent p-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                   isToday
                     ? 'text-primary'
                     : isWeekend
@@ -79,6 +83,7 @@ export default function CalendarWeekView({
                 }`}
               >
                 <span
+                  aria-hidden="true"
                   className={`flex h-7 w-7 items-center justify-center rounded-full text-sm ${
                     isToday
                       ? 'bg-gradient-to-br from-primary to-primary-hover font-bold text-primary-foreground'
@@ -94,7 +99,14 @@ export default function CalendarWeekView({
                     }`}
                   >
                     {workHours}h
-                    {overLimit ? '!' : ''}
+                    {overLimit ? (
+                      <>
+                        <span aria-hidden="true">!</span>
+                        <span className="sr-only">
+                          {t ? t('calendar.overLimitSr', { limit: CALENDAR_DAILY_HOURS_LIMIT }) : ''}
+                        </span>
+                      </>
+                    ) : null}
                   </span>
                 ) : null}
               </button>

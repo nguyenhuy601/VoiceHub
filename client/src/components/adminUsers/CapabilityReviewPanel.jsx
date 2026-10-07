@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
@@ -6,17 +6,24 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unwrapApi } from '../../utils/adminUserUtils';
 import { capabilityFromApi } from '../../constants/capabilityCatalog';
 import {
+  adminDangerBtnClass,
   adminInputClass,
   adminLabelClass,
   adminPrimaryBtnClass,
+  adminSecondaryBtnClass,
 } from './adminUserPanelUi';
 
 const STATUS_BADGE = {
   draft: 'bg-muted text-muted-foreground',
-  pending_hr: 'bg-amber-500/15 text-amber-800 dark:text-amber-200',
-  verified: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-  rejected: 'bg-destructive/15 text-destructive',
+  pending_hr: 'bg-warning-bg text-warning',
+  verified: 'bg-success-bg text-success',
+  rejected: 'bg-error-bg text-destructive',
 };
+
+const REJECT_REASON_MAX = 500;
+
+const HINT_BOX_CLASS = 'rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground';
+const REJECTED_BOX_CLASS = 'rounded-lg border border-destructive bg-error-bg px-3 py-2 text-destructive';
 
 function readResourceConfig(profile) {
   const rc = profile?.resourceConfig && typeof profile.resourceConfig === 'object' ? profile.resourceConfig : {};
@@ -48,6 +55,10 @@ export default function CapabilityReviewPanel({
   const [rejectReason, setRejectReason] = useState('');
   const [rcRejectOpen, setRcRejectOpen] = useState(false);
   const [rcRejectReason, setRcRejectReason] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
+  const fieldId = useId();
+  const rejectReasonId = `${fieldId}-reject`;
+  const rcRejectReasonId = `${fieldId}-rc-reject`;
 
   // Tránh loop: parent truyền onStatusChange inline → không đưa vào deps của load.
   const onStatusChangeRef = useRef(onStatusChange);
@@ -58,6 +69,7 @@ export default function CapabilityReviewPanel({
   const load = useCallback(async () => {
     if (!orgId || !userId) return;
     setLoading(true);
+    setLoadFailed(false);
     try {
       const res = await adminUserAPI.getProfile(orgId, userId);
       const data = unwrapApi(res)?.data ?? unwrapApi(res);
@@ -76,6 +88,7 @@ export default function CapabilityReviewPanel({
       setCapability(null);
       setResourceConfig(null);
       setJobTitle('');
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -198,7 +211,27 @@ export default function CapabilityReviewPanel({
   };
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return (
+      <div className="space-y-3" aria-busy="true" aria-label={t('common.loading')}>
+        {Array.from({ length: 4 }, (_, idx) => (
+          <div key={idx} className="h-10 rounded-lg bg-muted motion-safe:animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive bg-error-bg px-3 py-2 text-xs text-destructive"
+      >
+        <span>{t('adminUsers.capabilityLoadFail')}</span>
+        <button type="button" onClick={load} className={adminSecondaryBtnClass('px-2.5 py-1 text-xs')}>
+          {t('adminUsers.listRetry')}
+        </button>
+      </div>
+    );
   }
 
   if (!capability) {
@@ -216,7 +249,7 @@ export default function CapabilityReviewPanel({
   const rcBadge = STATUS_BADGE[rcStatus] || STATUS_BADGE.verified;
 
   return (
-    <div className="space-y-6 text-sm">
+    <div className="space-y-6 text-sm" aria-busy={acting}>
       <section className="space-y-4">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {t('adminUsers.tabCapability')}
@@ -231,7 +264,7 @@ export default function CapabilityReviewPanel({
         </div>
 
         {pending && !canReview ? (
-          <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          <p className={HINT_BOX_CLASS}>
             {t('adminUsers.capabilityHrOnlyHint')}
           </p>
         ) : null}
@@ -306,11 +339,11 @@ export default function CapabilityReviewPanel({
                           </p>
                         </div>
                         {p.status === 'suggested' ? (
-                          <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+                          <span className="rounded-md bg-warning-bg px-2 py-0.5 text-[11px] font-semibold text-warning">
                             {t('settingsCapability.experiencePending')}
                           </span>
                         ) : p.status === 'verified' ? (
-                          <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                          <span className="rounded-md bg-success-bg px-2 py-0.5 text-[11px] font-semibold text-success">
                             {t('settingsCapability.experienceVerified')}
                           </span>
                         ) : null}
@@ -320,7 +353,7 @@ export default function CapabilityReviewPanel({
                           type="button"
                           disabled={acting}
                           onClick={() => confirmExperience(p.evidenceBoardId)}
-                          className="mt-2 text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                          className="mt-2 rounded text-xs font-semibold text-primary transition-colors duration-150 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
                         >
                           {t('settingsCapability.confirmExperience')}
                         </button>
@@ -345,7 +378,7 @@ export default function CapabilityReviewPanel({
               </div>
             ) : null}
             {status === 'rejected' && capability.rejectReason ? (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive">
+              <div className={REJECTED_BOX_CLASS}>
                 {t('settingsCapability.rejectLabel')}: {capability.rejectReason}
               </div>
             ) : null}
@@ -355,7 +388,7 @@ export default function CapabilityReviewPanel({
         {canReview && pending && (capability.skills || []).length > 0
         && !(capability.projectExperiences || []).some((p) => p.status === 'verified')
         && !capability.cvFileName ? (
-          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+          <p className="rounded-lg border border-warning bg-warning-bg px-3 py-2 text-xs text-warning">
             {t('adminUsers.capabilityNoEvidenceWarn')}
           </p>
         ) : null}
@@ -375,16 +408,23 @@ export default function CapabilityReviewPanel({
                 type="button"
                 disabled={acting}
                 onClick={() => setRejectOpen((v) => !v)}
-                className="inline-flex items-center justify-center rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted/40 disabled:opacity-50"
+                aria-expanded={rejectOpen}
+                aria-controls={rejectReasonId}
+                className={adminSecondaryBtnClass()}
               >
                 {t('adminUsers.capabilityReject')}
               </button>
             </div>
             {rejectOpen ? (
-              <div className="space-y-2">
-                <label className={adminLabelClass()}>{t('adminUsers.capabilityRejectReason')}</label>
+              <div className="space-y-2 motion-safe:animate-fade-in-fast">
+                <label htmlFor={rejectReasonId} className={adminLabelClass()}>
+                  {t('adminUsers.capabilityRejectReason')}
+                </label>
                 <textarea
+                  id={rejectReasonId}
                   rows={3}
+                  required
+                  maxLength={REJECT_REASON_MAX}
                   className={`${adminInputClass()} min-h-[72px]`}
                   value={rejectReason}
                   onChange={(e) => setRejectReason(e.target.value)}
@@ -392,9 +432,9 @@ export default function CapabilityReviewPanel({
                 />
                 <button
                   type="button"
-                  disabled={acting}
+                  disabled={acting || !rejectReason.trim()}
                   onClick={reject}
-                  className="inline-flex items-center justify-center rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-500 disabled:opacity-50"
+                  className={adminDangerBtnClass()}
                 >
                   {acting ? t('common.saving') : t('adminUsers.capabilityRejectConfirm')}
                 </button>
@@ -426,14 +466,14 @@ export default function CapabilityReviewPanel({
             <dd className="font-medium">{resourceConfig?.maxConcurrentProjects ?? 2}</dd>
           </div>
           {rcStatus === 'rejected' && resourceConfig?.rejectReason ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive">
+            <div className={REJECTED_BOX_CLASS}>
               {t('settingsCapability.rejectLabel')}: {resourceConfig.rejectReason}
             </div>
           ) : null}
         </dl>
 
         {rcPending && !canReview ? (
-          <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          <p className={HINT_BOX_CLASS}>
             {t('adminUsers.capabilityHrOnlyHint')}
           </p>
         ) : null}
@@ -453,16 +493,23 @@ export default function CapabilityReviewPanel({
                 type="button"
                 disabled={acting}
                 onClick={() => setRcRejectOpen((v) => !v)}
-                className="inline-flex items-center justify-center rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted/40 disabled:opacity-50"
+                aria-expanded={rcRejectOpen}
+                aria-controls={rcRejectReasonId}
+                className={adminSecondaryBtnClass()}
               >
                 {t('adminUsers.resourceConfigReject')}
               </button>
             </div>
             {rcRejectOpen ? (
-              <div className="space-y-2">
-                <label className={adminLabelClass()}>{t('adminUsers.capabilityRejectReason')}</label>
+              <div className="space-y-2 motion-safe:animate-fade-in-fast">
+                <label htmlFor={rcRejectReasonId} className={adminLabelClass()}>
+                  {t('adminUsers.capabilityRejectReason')}
+                </label>
                 <textarea
+                  id={rcRejectReasonId}
                   rows={3}
+                  required
+                  maxLength={REJECT_REASON_MAX}
                   className={`${adminInputClass()} min-h-[72px]`}
                   value={rcRejectReason}
                   onChange={(e) => setRcRejectReason(e.target.value)}
@@ -470,9 +517,9 @@ export default function CapabilityReviewPanel({
                 />
                 <button
                   type="button"
-                  disabled={acting}
+                  disabled={acting || !rcRejectReason.trim()}
                   onClick={rejectResource}
-                  className="inline-flex items-center justify-center rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-500 disabled:opacity-50"
+                  className={adminDangerBtnClass()}
                 >
                   {acting ? t('common.saving') : t('adminUsers.capabilityRejectConfirm')}
                 </button>

@@ -47,7 +47,7 @@ function HubChartLegend({
               type="button"
               disabled={!clickable}
               onClick={() => clickable && onSelect(seg.key)}
-              className={`flex w-full items-center justify-between gap-2 rounded-md px-1 py-0.5 text-left text-xs transition ${
+              className={`flex w-full items-center justify-between gap-2 rounded-md px-1 py-0.5 text-left text-xs transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 dimmed ? 'opacity-50' : ''
               } ${clickable ? 'cursor-pointer hover:bg-muted/60' : 'cursor-default'} ${
                 selected ? 'bg-muted ring-1 ring-border' : ''
@@ -121,7 +121,7 @@ function OverviewChartDrilldown({
         <button
           type="button"
           onClick={onClose}
-          className="shrink-0 rounded-md px-2 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="shrink-0 rounded-md px-2 py-1 text-[10px] font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={t('workspace.projectHubOverviewDrilldownClose')}
         >
           {t('workspace.projectHubOverviewDrilldownClose')}
@@ -138,7 +138,7 @@ function OverviewChartDrilldown({
               <button
                 type="button"
                 onClick={() => row.id && onOpenCard?.(row.id)}
-                className="flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left text-xs hover:bg-muted/70"
+                className="flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-muted/70 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className={`min-w-0 flex-1 truncate font-medium ${titleCls}`}>{row.title}</span>
               </button>
@@ -204,7 +204,7 @@ export function HubDonutChart({
           aria-label={tipText}
           aria-pressed={selected}
           aria-describedby={tipKey === seg.key ? tipId : undefined}
-          className={`${seg.fillClass} stroke-surface outline-none focus-visible:stroke-primary focus-visible:stroke-2 ${
+          className={`${seg.fillClass} stroke-surface outline-none transition-opacity motion-reduce:transition-none focus-visible:stroke-primary focus-visible:stroke-2 ${
             canSelect ? 'cursor-pointer' : ''
           } ${
             selected ? 'opacity-100' : selectedKey ? 'opacity-55' : ''
@@ -427,10 +427,21 @@ function HubPriorityVerticalBars({
               <g
                 key={row.key}
                 opacity={count > 0 ? (selectedKey && !selected ? 0.45 : 1) : 0.45}
-                className={clickable ? 'cursor-pointer' : undefined}
+                role={clickable ? 'button' : undefined}
+                tabIndex={clickable ? 0 : undefined}
+                aria-label={`${label}: ${count}`}
+                aria-pressed={selected}
+                className={`outline-none ${clickable ? 'cursor-pointer focus-visible:opacity-100' : ''}`}
                 onClick={() => {
                   if (!clickable) return;
                   onSelectSegment?.(selected ? null : row.key);
+                }}
+                onKeyDown={(e) => {
+                  if (!clickable) return;
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectSegment?.(selected ? null : row.key);
+                  }
                 }}
               >
                 <rect
@@ -439,7 +450,9 @@ function HubPriorityVerticalBars({
                   width={barW}
                   height={h}
                   rx="3"
-                  className={row.fillClass || 'fill-primary'}
+                  className={`${row.fillClass || 'fill-primary'} ${
+                    clickable ? 'focus-visible:stroke-primary' : ''
+                  }`}
                 />
                 <title>{`${label}: ${count}`}</title>
                 <text

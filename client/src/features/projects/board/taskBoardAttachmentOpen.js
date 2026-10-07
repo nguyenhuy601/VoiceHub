@@ -5,6 +5,7 @@ import {
   resolveAttachmentContentType,
   resolveAttachmentDownloadName,
   shouldOpenAttachmentInline,
+  shouldViewAttachmentAsEscapedText,
   triggerBlobDownload,
   withUtf8Charset,
 } from './taskBoardAttachmentDisplay';
@@ -84,12 +85,13 @@ export async function openTaskBoardAttachment(attachment) {
   const fileName = resolveAttachmentDownloadName(attachment, storagePath);
   const baseMime = contentType.split(';')[0].trim().toLowerCase();
   const openInline = shouldOpenAttachmentInline(contentType);
-  const isPlainText = baseMime.startsWith('text/') && baseMime !== 'text/html';
+  const viewAsEscapedText =
+    shouldViewAttachmentAsEscapedText(contentType) || (openInline && baseMime.startsWith('text/'));
 
   const payload = await fetchStorageObjectBlob(storagePath);
   let fileBlob = await ensureTypedBlob(payload, withUtf8Charset(contentType));
 
-  if (openInline && isPlainText) {
+  if (viewAsEscapedText) {
     const text = await fileBlob.text();
     const tab = window.open('about:blank', '_blank');
     if (tab && writeHtmlToTab(tab, fileName, text)) return;

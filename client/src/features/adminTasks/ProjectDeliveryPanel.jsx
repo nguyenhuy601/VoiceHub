@@ -1,5 +1,5 @@
 /**
- * Admin / board owner — quản lý Project Team roles + Delegation Graph (danh sách cạnh).
+ * Admin / board owner — quản lý vai trò nhóm dự án + đồ thị ủy quyền.
  */
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
@@ -33,7 +33,7 @@ export default function ProjectDeliveryPanel({ boardId }) {
       setEdges(del.edges || []);
       setTemplates(del.templates || []);
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: 'Không tải được Project Delivery' }));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.deliveryLoadFail') }));
     } finally {
       setLoading(false);
     }
@@ -46,10 +46,10 @@ export default function ProjectDeliveryPanel({ boardId }) {
   const applyTemplate = async (templateId) => {
     try {
       await projectDeliveryAPI.applyDelegationTemplate(boardId, templateId);
-      toast.success(`Đã áp template ${templateId}`);
+      toast.success(t('adminTasks.deliveryTemplateApplied', { id: templateId }));
       await load();
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: 'Áp template thất bại' }));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.deliveryTemplateFail') }));
     }
   };
 
@@ -60,27 +60,23 @@ export default function ProjectDeliveryPanel({ boardId }) {
         toRoleKey: toKey,
         taskTypes: taskType ? [taskType] : ['*'],
       });
-      toast.success('Đã thêm cạnh CanAssign');
+      toast.success(t('adminTasks.deliveryEdgeAdded'));
       await load();
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: 'Thêm cạnh thất bại' }));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.deliveryEdgeAddFail') }));
     }
   };
 
   if (!boardId) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Chọn một Task Board để cấu hình Project Team / Delegation Graph.
-      </p>
-    );
+    return <p className="text-sm text-muted-foreground">{t('adminTasks.deliverySelectBoard')}</p>;
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-base font-semibold">Project Roles</h3>
+        <h3 className="text-base font-semibold">{t('adminTasks.deliveryProjectRoles')}</h3>
         <p className="text-xs text-muted-foreground mb-2">
-          Catalog Project Role (không phải HR Role / Organization Role). {loading ? 'Đang tải…' : ''}
+          {t('adminTasks.deliveryProjectRolesHint')} {loading ? t('adminTasks.deliveryLoading') : ''}
         </p>
         <ul className="text-sm grid gap-1 sm:grid-cols-2">
           {(Array.isArray(roles) ? roles : []).map((r) => (
@@ -88,7 +84,7 @@ export default function ProjectDeliveryPanel({ boardId }) {
               <span className="font-medium">{r.label || r.key}</span>
               <span className="text-muted-foreground"> ({r.key})</span>
               {r.canAssign ? (
-                <span className="ml-2 text-xs text-emerald-600">canAssign</span>
+                <span className="ml-2 text-xs text-emerald-600">{t('adminTasks.canAssign')}</span>
               ) : null}
             </li>
           ))}
@@ -96,7 +92,7 @@ export default function ProjectDeliveryPanel({ boardId }) {
       </div>
 
       <div>
-        <h3 className="text-base font-semibold">Project Team</h3>
+        <h3 className="text-base font-semibold">{t('adminTasks.deliveryProjectTeam')}</h3>
         <ul className="text-sm space-y-1 max-h-48 overflow-auto">
           {(Array.isArray(members) ? members : []).map((m) => (
             <li key={`${m.userId}-${m.projectRoleId}`} className="rounded border px-2 py-1">
@@ -104,13 +100,13 @@ export default function ProjectDeliveryPanel({ boardId }) {
             </li>
           ))}
           {!members?.length ? (
-            <li className="text-muted-foreground">Chưa có ProjectMembership (migrate khi mở board).</li>
+            <li className="text-muted-foreground">{t('adminTasks.deliveryNoMembers')}</li>
           ) : null}
         </ul>
       </div>
 
       <div>
-        <h3 className="text-base font-semibold">Delegation Graph</h3>
+        <h3 className="text-base font-semibold">{t('adminTasks.deliveryDelegation')}</h3>
         <div className="flex flex-wrap gap-2 mb-3">
           {(templates || []).map((tpl) => (
             <button
@@ -119,13 +115,13 @@ export default function ProjectDeliveryPanel({ boardId }) {
               className="rounded border px-2 py-1 text-xs hover:bg-muted"
               onClick={() => applyTemplate(tpl.id)}
             >
-              Template: {tpl.label || tpl.id}
+              {t('adminTasks.deliveryTemplate', { name: tpl.label || tpl.id })}
             </button>
           ))}
         </div>
         <div className="flex flex-wrap gap-2 items-end mb-3">
           <label className="text-xs">
-            From
+            {t('adminTasks.deliveryFrom')}
             <select
               className="block border rounded px-2 py-1 mt-1"
               value={fromKey}
@@ -139,7 +135,7 @@ export default function ProjectDeliveryPanel({ boardId }) {
             </select>
           </label>
           <label className="text-xs">
-            To
+            {t('adminTasks.deliveryTo')}
             <select
               className="block border rounded px-2 py-1 mt-1"
               value={toKey}
@@ -153,16 +149,20 @@ export default function ProjectDeliveryPanel({ boardId }) {
             </select>
           </label>
           <label className="text-xs">
-            taskType
+            {t('adminTasks.deliveryTaskType')}
             <input
               className="block border rounded px-2 py-1 mt-1"
               value={taskType}
               onChange={(e) => setTaskType(e.target.value)}
-              placeholder="* hoặc bug"
+              placeholder={t('adminTasks.deliveryTaskTypePlaceholder')}
             />
           </label>
-          <button type="button" className="rounded bg-primary text-primary-foreground px-3 py-1 text-sm" onClick={addEdge}>
-            Thêm cạnh
+          <button
+            type="button"
+            className="rounded bg-primary text-primary-foreground px-3 py-1 text-sm"
+            onClick={addEdge}
+          >
+            {t('adminTasks.deliveryAddEdge')}
           </button>
         </div>
         <ul className="text-sm space-y-1 max-h-56 overflow-auto">
@@ -180,11 +180,13 @@ export default function ProjectDeliveryPanel({ boardId }) {
                     await projectDeliveryAPI.deleteDelegationEdge(boardId, e._id);
                     await load();
                   } catch (error) {
-                    toast.error(resolveApiErrorMessage(error, { t, fallback: 'Xóa cạnh thất bại' }));
+                    toast.error(
+                      resolveApiErrorMessage(error, { t, fallback: t('adminTasks.deliveryEdgeDeleteFail') })
+                    );
                   }
                 }}
               >
-                Xóa
+                {t('adminTasks.delete')}
               </button>
             </li>
           ))}
