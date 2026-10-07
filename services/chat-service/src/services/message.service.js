@@ -12,6 +12,7 @@ const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const { invalidateSignedReadCacheForStoragePath } = require('../utils/attachSignedReadUrls');
 const { toClientMessage } = require('../utils/messageDto');
+const { buildDeleteFilter } = require('../utils/messageMutationPolicy');
 const {
   pageTokenFilter,
   decodePageToken,
@@ -24,6 +25,14 @@ const {
   syncAfterDelete,
 } = require('../search/messageSearchSync');
 const { mergeMongoFilter } = require('../utils/contextCallVisibility');
+const {
+  createChatError,
+  toChatError,
+  MAX_PAGE,
+  MAX_EMOJI_LENGTH,
+  MAX_REACTIONS_PER_USER,
+} = require('../utils/chatErrorMap');
+const { assertVoteSelection } = require('../utils/pollPolicy');
 const { visibilityMongoClauseForViewer } = require('./projectMembershipReadModel');
 
 const MONGO_UNAVAILABLE_MSG = 'Service temporarily unavailable. Please try again later.';
@@ -64,6 +73,23 @@ function normalizeMongoError(error) {
     return new Error(MONGO_UNAVAILABLE_MSG);
   }
   return error;
+}
+
+function assertValidEmoji(emoji) {
+  const em = String(emoji || '').trim();
+  if (!em) {
+    throw createChatError(400, 'CHAT_VALIDATION_ERROR', 'Biểu cảm là bắt buộc');
+  }
+  if (em.length > MAX_EMOJI_LENGTH) {
+    throw createChatError(400, 'CHAT_VALIDATION_ERROR', 'Biểu cảm không hợp lệ');
+  }
+  return em;
+}
+
+function toServiceError(op, error) {
+  const err = normalizeMongoError(error);
+  console.error(`[ChatService] ${op} failed:`, err?.message || err);
+  return toChatError(err);
 }
 
 function encryptContentIfEnabled(plain) {
@@ -158,9 +184,7 @@ class MessageService {
 
       return toClientMessage(message);
     } catch (error) {
-      const err = normalizeMongoError(error);
-      console.error('[ChatService] createMessage failed:', err?.message || err);
-      throw new Error(`Error creating message: ${err.message}`);
+      throw toServiceError('createMessage', error);
     }
   }
 
@@ -169,7 +193,7 @@ class MessageService {
     const c1 = String(callerId || '').trim();
     const c2 = String(calleeId || '').trim();
     if (!c1 || !c2) {
-      throw new Error('callerId and calleeId are required');
+      throw createChatError(400, 'CHAT_VALIDATION_ERROR', 'callerId và calleeId là bắt buộc');
     }
     const content = JSON.stringify({
       v: 1,
@@ -208,8 +232,7 @@ class MessageService {
 
       return toClientMessage(message);
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error getting message: ${err.message}`);
+      throw toServiceError('getMessageById', error);
     }
   }
 
@@ -231,8 +254,7 @@ class MessageService {
         isRecalled: { $ne: true },
       });
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error counting incoming messages: ${err.message}`);
+      throw toServiceError('countIncomingMessagesInRange', error);
     }
   }
 
@@ -252,8 +274,7 @@ class MessageService {
         isRecalled: { $ne: true },
       });
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error counting unread messages: ${err.message}`);
+      throw toServiceError('countUnreadIncoming', error);
     }
   }
 
@@ -324,8 +345,7 @@ class MessageService {
 
       return unread;
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error listing unread org room messages: ${err.message}`);
+      throw toServiceError('findUnreadOrgRoomMessages', error);
     }
   }
 
@@ -343,7 +363,10 @@ class MessageService {
         viewerOrganizationId = null,
       } = options;
       const lim = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
-      const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
+      const dtoOpts = {
+        fields: fields === 'full' ? 'full' : 'summary',
+        viewerId: viewerUserId || '',
+      };
 
       let queryFilter = filter;
       if (viewerUserId) {
@@ -374,7 +397,7 @@ class MessageService {
         };
       }
 
-      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const pageNum = Math.min(MAX_PAGE, Math.max(1, parseInt(page, 10) || 1));
       if (pageNum > 1) {
         console.warn(
           '[chat-service] GET /messages: query `page` is deprecated; use `pageToken` + `nextPageToken`.'
@@ -430,8 +453,7 @@ class MessageService {
 
       return result;
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error getting messages: ${err.message}`);
+      throw toServiceError('getMessages', error);
     }
   }
 
@@ -470,8 +492,7 @@ class MessageService {
 
       return toClientMessage(message);
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error marking message as read: ${err.message}`);
+      throw toServiceError('markAsRead', error);
     }
   }
 
@@ -505,8 +526,7 @@ class MessageService {
         lastReadMessageId: last?._id ? String(last._id) : null,
       };
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error marking conversation as read: ${err.message}`);
+      throw toServiceError('markConversationAsRead', error);
     }
   }
 
@@ -538,16 +558,14 @@ class MessageService {
       }
       return byPeer;
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error counting unread by peer: ${err.message}`);
+      throw toServiceError('countUnreadByPeer', error);
     }
   }
 
   async addReaction(messageId, userId, emoji) {
     try {
       await ensureMongoReady();
-      const em = String(emoji || '').trim();
-      if (!em) throw new Error('emoji is required');
+      const em = assertValidEmoji(emoji);
 
       const uid = mongoose.Types.ObjectId.isValid(userId)
         ? new mongoose.Types.ObjectId(String(userId))
@@ -574,6 +592,14 @@ class MessageService {
       if (idx >= 0) {
         return toClientMessage(msg);
       }
+      const ownCount = reactions.filter((r) => String(r.userId) === me).length;
+      if (ownCount >= MAX_REACTIONS_PER_USER) {
+        throw createChatError(
+          400,
+          'CHAT_REACTION_LIMIT',
+          `Mỗi người tối đa ${MAX_REACTIONS_PER_USER} biểu cảm trên một tin nhắn`
+        );
+      }
       reactions.push({ emoji: em, userId: uid, createdAt: new Date() });
 
       const updated = await Message.findByIdAndUpdate(
@@ -587,16 +613,87 @@ class MessageService {
 
       return toClientMessage(updated);
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error adding reaction: ${err.message}`);
+      throw toServiceError('addReaction', error);
+    }
+  }
+
+  /**
+   * Bỏ phiếu khảo sát kênh. userId chỉ từ caller đã auth; không nhận counts từ client.
+   * Cập nhật một document (pipeline) để không mất phiếu đồng thời.
+   */
+  async votePoll(messageId, userId, optionIds) {
+    try {
+      await ensureMongoReady();
+      const msg = await Message.findById(messageId);
+      if (!msg || msg.isDeleted || msg.isRecalled) return null;
+      if (msg.messageType !== 'poll' || !msg.poll) {
+        throw createChatError(400, 'CHAT_VALIDATION_ERROR', 'Tin nhắn không phải khảo sát.');
+      }
+      if (!msg.roomId) {
+        throw createChatError(400, 'CHAT_INVALID_MESSAGE_TYPE', 'Khảo sát chỉ dùng trên kênh.');
+      }
+      const ids = assertVoteSelection(msg.poll, optionIds, userId);
+      const uid = mongoose.Types.ObjectId.isValid(userId)
+        ? new mongoose.Types.ObjectId(String(userId))
+        : userId;
+      const now = new Date();
+      const filter = {
+        _id: messageId,
+        messageType: 'poll',
+        isDeleted: { $ne: true },
+        isRecalled: { $ne: true },
+        'poll.closed': { $ne: true },
+        $or: [
+          { 'poll.closesAt': { $exists: false } },
+          { 'poll.closesAt': null },
+          { 'poll.closesAt': { $gt: now } },
+        ],
+      };
+      if (!msg.poll.allowMulti) {
+        // $ne trên field mảng khớp nếu còn phần tử khác — phải loại đúng user đã vote.
+        filter['poll.votes'] = { $not: { $elemMatch: { userId: uid } } };
+      }
+      const updated = await Message.findOneAndUpdate(
+        filter,
+        [
+          {
+            $set: {
+              'poll.votes': {
+                $concatArrays: [
+                  {
+                    $filter: {
+                      input: { $ifNull: ['$poll.votes', []] },
+                      as: 'v',
+                      cond: { $ne: ['$$v.userId', uid] },
+                    },
+                  },
+                  [{ userId: uid, optionIds: ids, at: now }],
+                ],
+              },
+            },
+          },
+        ],
+        { new: true }
+      );
+      if (!updated) {
+        const fresh = await Message.findById(messageId);
+        assertVoteSelection(fresh?.poll, optionIds, userId);
+        throw createChatError(400, 'CHAT_POLL_ALREADY_VOTED', 'Bạn đã bỏ phiếu.');
+      }
+
+      const redis = getRedisClient();
+      if (redis) await redis.del(`message:${messageId}`);
+
+      return toClientMessage(updated, { viewerId: String(uid) });
+    } catch (error) {
+      throw toServiceError('votePoll', error);
     }
   }
 
   async removeReaction(messageId, userId, emoji) {
     try {
       await ensureMongoReady();
-      const em = String(emoji || '').trim();
-      if (!em) throw new Error('emoji is required');
+      const em = assertValidEmoji(emoji);
 
       const uid = mongoose.Types.ObjectId.isValid(userId)
         ? new mongoose.Types.ObjectId(String(userId))
@@ -630,19 +727,15 @@ class MessageService {
 
       return toClientMessage(updated);
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error removing reaction: ${err.message}`);
+      throw toServiceError('removeReaction', error);
     }
   }
 
-  async deleteMessage(messageId, userId) {
+  async deleteMessage(messageId, userId, { asModerator = false } = {}) {
     try {
       await ensureMongoReady();
       const message = await Message.findOneAndUpdate(
-        {
-          _id: messageId,
-          senderId: userId,
-        },
+        buildDeleteFilter({ messageId, userId, asModerator }),
         {
           isDeleted: true,
           deletedAt: new Date(),
@@ -659,14 +752,14 @@ class MessageService {
       void syncAfterDelete(message);
 
       const out = toClientMessage(message);
-      if (out?.fileMeta?.storagePath) {
-        await invalidateSignedReadCacheForStoragePath(out.fileMeta.storagePath);
+      const deletedStoragePath = message?.fileMeta?.storagePath;
+      if (deletedStoragePath) {
+        await invalidateSignedReadCacheForStoragePath(deletedStoragePath);
       }
 
       return out;
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error deleting message: ${err.message}`);
+      throw toServiceError('deleteMessage', error);
     }
   }
 
@@ -704,8 +797,7 @@ class MessageService {
 
       return toClientMessage(message);
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error recalling message: ${err.message}`);
+      throw toServiceError('recallMessage', error);
     }
   }
 
@@ -739,8 +831,7 @@ class MessageService {
 
       return { deletedCount: result.deletedCount || 0 };
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error deleting DM messages: ${err.message}`);
+      throw toServiceError('deleteDirectMessagesBetweenUsers', error);
     }
   }
 
@@ -751,6 +842,9 @@ class MessageService {
       const oldMessage = await Message.findById(messageId);
       const senderStr = String(oldMessage?.senderId?._id || oldMessage?.senderId || '');
       if (!oldMessage || !userId || senderStr !== String(userId)) {
+        return null;
+      }
+      if (oldMessage.isDeleted || oldMessage.isRecalled) {
         return null;
       }
 
@@ -778,8 +872,7 @@ class MessageService {
 
       return toClientMessage(message);
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error editing message: ${err.message}`);
+      throw toServiceError('editMessage', error);
     }
   }
 
@@ -811,8 +904,7 @@ class MessageService {
       }
       return message ? toClientMessage(message) : null;
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error promoting file: ${err.message}`);
+      throw toServiceError('promoteFileForTask', error);
     }
   }
 
@@ -853,7 +945,10 @@ class MessageService {
         fields = 'summary',
         viewerUserId = null,
       } = params;
-      const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
+      const dtoOpts = {
+        fields: fields === 'full' ? 'full' : 'summary',
+        viewerId: viewerUserId || '',
+      };
 
       const oid = mongoose.Types.ObjectId.isValid(organizationId)
         ? new mongoose.Types.ObjectId(String(organizationId))
@@ -919,7 +1014,7 @@ class MessageService {
 
       const filter = { $and: parts };
 
-      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const pageNum = Math.min(MAX_PAGE, Math.max(1, parseInt(page, 10) || 1));
       const lim = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
 
       if (!enc) {
@@ -1007,8 +1102,7 @@ class MessageService {
         nextPageToken: nextPageTokenFromDocs(paged, { hasMore }),
       };
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error searching messages: ${err.message}`);
+      throw toServiceError('searchOrgMessages', error);
     }
   }
 
@@ -1017,7 +1111,10 @@ class MessageService {
     try {
       await ensureMongoReady();
       const { q, page = 1, limit = 30, pageToken, fields = 'summary' } = options;
-      const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
+      const dtoOpts = {
+        fields: fields === 'full' ? 'full' : 'summary',
+        viewerId: userId || '',
+      };
       if (!userId || !peerId) {
         return { messages: [], total: 0, currentPage: 1, totalPages: 0 };
       }
@@ -1048,7 +1145,7 @@ class MessageService {
       }
 
       const filter = { $and: parts };
-      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const pageNum = Math.min(MAX_PAGE, Math.max(1, parseInt(page, 10) || 1));
       const lim = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
 
       if (!enc) {
@@ -1115,8 +1212,7 @@ class MessageService {
         nextPageToken: null,
       };
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Error searching DM messages: ${err.message}`);
+      throw toServiceError('searchDmMessages', error);
     }
   }
 
@@ -1168,8 +1264,7 @@ class MessageService {
       }
       return { scanned: msgs.length, deleted, skipped: false };
     } catch (error) {
-      const err = normalizeMongoError(error);
-      throw new Error(`Storage GC: ${err.message}`);
+      throw toServiceError('runStorageGcOnce', error);
     }
   }
 
@@ -1260,9 +1355,7 @@ class MessageService {
         exportedAt: new Date(),
       };
     } catch (error) {
-      if (error.statusCode) throw error;
-      const err = normalizeMongoError(error);
-      throw new Error(`exportOrgThreadInternal: ${err.message}`);
+      throw toServiceError('exportOrgThreadInternal', error);
     }
   }
 

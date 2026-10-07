@@ -53,10 +53,29 @@ const ALLOWED_MIME_PREFIXES = (process.env.FILE_ALLOWED_MIME || DEFAULT_ALLOWED_
   .map((s) => s.trim())
   .filter(Boolean);
 
+/** MIME có thể chạy script khi mở inline trên origin app — luôn chặn, kể cả khi FILE_ALLOWED_MIME cho phép. */
+const DENIED_MIME_TYPES = Object.freeze([
+  'text/html',
+  'application/xhtml+xml',
+  'image/svg+xml',
+  'text/javascript',
+  'application/javascript',
+  'application/x-javascript',
+]);
+
+function baseMimeType(mimeType) {
+  return String(mimeType || '').split(';')[0].trim().toLowerCase();
+}
+
+function isMimeDenied(mimeType) {
+  return DENIED_MIME_TYPES.includes(baseMimeType(mimeType));
+}
+
 function isMimeAllowed(mimeType) {
-  const m = String(mimeType || '').toLowerCase();
+  const m = baseMimeType(mimeType);
   if (!m) return false;
   if (m === 'application/octet-stream') return false;
+  if (isMimeDenied(m)) return false;
   return ALLOWED_MIME_PREFIXES.some((prefix) =>
     prefix.endsWith('/') ? m.startsWith(prefix) : m.startsWith(prefix.toLowerCase())
   );
@@ -65,5 +84,8 @@ function isMimeAllowed(mimeType) {
 module.exports = {
   ttlMsForRetentionContext,
   MAX_UPLOAD_BYTES,
+  DENIED_MIME_TYPES,
+  baseMimeType,
+  isMimeDenied,
   isMimeAllowed,
 };

@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { emitToRoom, emitToUser } = require('./realtimeHub');
+const { emitToUser } = require('./realtimeHub');
 const { publishFriendDm } = require('../messaging/rabbitPublisher');
 const redisPresence = require('../presence/redisPresence');
 const redisFriendChatFocus = require('../presence/redisFriendChatFocus');
@@ -22,13 +22,15 @@ const OFFLINE_GRACE_MS = Math.max(0, Number(process.env.PRESENCE_OFFLINE_GRACE_M
 
 const FRIEND_SEND_WINDOW_MS = Math.max(1000, Number(process.env.FRIEND_SEND_RATE_WINDOW_MS || 10000));
 const FRIEND_SEND_MAX = Math.max(1, Number(process.env.FRIEND_SEND_RATE_MAX || 30));
-const ROOM_SEND_WINDOW_MS = Math.max(1000, Number(process.env.ROOM_SEND_RATE_WINDOW_MS || 10000));
-const ROOM_SEND_MAX = Math.max(1, Number(process.env.ROOM_SEND_RATE_MAX || 60));
+const ROOM_JOIN_WINDOW_MS = Math.max(1000, Number(process.env.ROOM_JOIN_RATE_WINDOW_MS || 10000));
+const ROOM_JOIN_MAX = Math.max(1, Number(process.env.ROOM_JOIN_RATE_MAX || 30));
 const PRESENCE_SUB_WINDOW_MS = Math.max(1000, Number(process.env.PRESENCE_SUB_RATE_WINDOW_MS || 60000));
 const PRESENCE_SUB_MAX = Math.max(1, Number(process.env.PRESENCE_SUB_RATE_MAX || 20));
 
 const { isSocketEventRateLimited } = require('../utils/socketEventRateLimit');
 const { validateFriendSendPayload } = require('../utils/socketEventValidation');
+const { resolveSocketAuthHeader } = require('../utils/socketAuthHeader');
+const { rejectClientRoomSend } = require('../utils/roomSendPolicy');
 
 async function emitRateLimited(socket, userId, eventKey, limits) {
   const limited = await isSocketEventRateLimited(eventKey, userId, socket, limits);
@@ -283,6 +285,11 @@ module.exports = function registerChatNamespace(io) {
       if (!userId) return;
       const rid = String(roomId || '').trim();
       if (!rid) return;
+      // Chỉ cho phép focus marker khi đã join room (ACL đã kiểm ở room:join).
+      if (!socket.rooms.has(rid)) {
+        socket.emit('room:error', { roomId: rid, message: 'Forbidden' });
+        return;
+      }
       const key = String(userId);
       if (active) {
         await redisProjectRoomFocus.setActive(key, rid);
@@ -293,20 +300,37 @@ module.exports = function registerChatNamespace(io) {
 
     socket.on('room:join', async ({ roomId, organizationId } = {}) => {
       if (!roomId) return;
+      if (!userId) {
+        socket.emit('room:error', { roomId, message: 'Unauthorized' });
+        return;
+      }
+      if (
+        await emitRateLimited(socket, userId, 'room:join', {
+          limit: ROOM_JOIN_MAX,
+          windowMs: ROOM_JOIN_WINDOW_MS,
+        })
+      ) {
+        return;
+      }
       const orgId = String(organizationId || '').trim();
       if (!orgId) {
         socket.emit('room:error', { roomId, message: 'organizationId is required' });
         return;
       }
       const { assertOrgChannelSocketAccess } = require('../utils/orgRoomAccess');
-      const authHeader = socket.handshake?.headers?.authorization;
       const access = await assertOrgChannelSocketAccess({
         userId: String(userId),
         organizationId: orgId,
         channelId: String(roomId),
-        authorizationHeader: authHeader,
+        authorizationHeader: resolveSocketAuthHeader(socket),
       });
       if (!access.allowed) {
+        console.warn('[socket-service] room:join denied', {
+          roomId: String(roomId),
+          organizationId: orgId,
+          userId: String(userId),
+          reason: access.reason || 'denied',
+        });
         socket.emit('room:error', { roomId, message: 'Forbidden' });
         return;
       }
@@ -342,40 +366,17 @@ module.exports = function registerChatNamespace(io) {
       });
     });
 
-    socket.on('room:send', async ({ roomId, organizationId, event = 'room:new_message', payload = {} } = {}) => {
-      if (!roomId) return;
-      if (!userId) {
-        return socket.emit('room:error', { roomId, message: 'Unauthorized' });
-      }
-      if (
-        await emitRateLimited(socket, userId, 'room:send', {
-          limit: ROOM_SEND_MAX,
-          windowMs: ROOM_SEND_WINDOW_MS,
-        })
-      ) {
-        return;
-      }
-      const orgId = String(organizationId || '').trim();
-      if (!orgId) {
-        socket.emit('room:error', { roomId, message: 'organizationId is required' });
-        return;
-      }
-      const { assertOrgChannelSocketAccess } = require('../utils/orgRoomAccess');
-      const authHeader = socket.handshake?.headers?.authorization;
-      const access = await assertOrgChannelSocketAccess({
-        userId: String(userId),
-        organizationId: orgId,
-        channelId: String(roomId),
-        authorizationHeader: authHeader,
+    socket.on('room:send', ({ roomId } = {}) => {
+      const decision = rejectClientRoomSend();
+      console.warn('[socket-service] room:send rejected', {
+        roomId: roomId ? String(roomId) : '',
+        userId: userId ? String(userId) : '',
+        code: decision.code,
       });
-      if (!access.allowed) {
-        socket.emit('room:error', { roomId, message: 'Forbidden' });
-        return;
-      }
-      emitToRoom(roomId, event, {
-        ...payload,
-        senderId: userId || null,
-        sentAt: new Date().toISOString(),
+      socket.emit('room:error', {
+        roomId: roomId || undefined,
+        message: decision.message,
+        code: decision.code,
       });
     });
 

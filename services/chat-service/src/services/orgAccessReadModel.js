@@ -1,7 +1,6 @@
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
 const axios = require('axios');
-const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const UserOrgChannelAccess = require('../models/UserOrgChannelAccess');
 const {
   readOrgAclFromRedis,
@@ -10,6 +9,7 @@ const {
   purgeOrgAclRedisForOrg,
   resolveUserIdFromReq,
 } = require('../utils/orgAclCacheRead');
+const { headersForOrganizationForward } = require('../utils/organizationForwardHeaders');
 const orgServiceCircuit = require('./orgServiceCircuit');
 
 const LOCAL_FRESH_MS = Math.max(
@@ -39,27 +39,6 @@ function docToPayload(doc) {
     permissionsByChannelId: doc.permissionsByChannelId,
     scope: doc.scope,
   });
-}
-
-function headersForOrganizationForward(req) {
-  const headers = {};
-  const uid = String(req.user?.id || req.user?.userId || req.user?._id || '').trim();
-  const gwTok = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
-  if (uid && gwTok) {
-    Object.assign(headers, buildTrustedGatewayHeaders(uid));
-  } else {
-    const fx = req.headers['x-user-id'];
-    const fgw = String(req.headers['x-gateway-internal-token'] || '').trim();
-    if (fx && fgw) {
-      headers['x-user-id'] = String(fx).trim();
-      headers['x-gateway-internal-token'] = fgw;
-      const em = req.headers['x-user-email'];
-      if (em) headers['x-user-email'] = em;
-    }
-  }
-  const auth = req.headers?.authorization;
-  if (auth) headers.Authorization = auth;
-  return headers;
 }
 
 async function readLocalFresh(orgId, userId) {

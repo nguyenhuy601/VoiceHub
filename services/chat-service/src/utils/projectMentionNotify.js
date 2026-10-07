@@ -3,6 +3,7 @@ const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/ga
 const { isFocusedOnProjectRoom } = require('./projectRoomFocus');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { buildProjectMentionActionUrl } = require('./projectMentionActionUrl');
+const { MAX_MENTION_IDS } = require('./chatErrorMap');
 
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '')
   .trim()
@@ -52,7 +53,19 @@ async function resolveSenderDisplayName(senderId) {
 }
 
 /**
- * Resolve userId được @mention qua org internal ai-task-context + optional body ids.
+ * Chỉ giữ userId org-service xác nhận là thành viên active (id body + id suy từ text @),
+ * bỏ người gửi, tối đa MAX_MENTION_IDS.
+ */
+function filterVerifiedMentionIds(verifiedRows, senderId) {
+  const ids = (Array.isArray(verifiedRows) ? verifiedRows : []).map((row) =>
+    String(row?.userId || row?.id || '').trim()
+  );
+  return uniqueIds(ids, senderId).slice(0, MAX_MENTION_IDS);
+}
+
+/**
+ * Resolve userId được @mention qua org internal ai-task-context. Id trong body chỉ là gợi ý:
+ * không có `@`, thiếu cấu hình hoặc org lỗi → không notify (không tin id client gửi).
  */
 async function resolveMentionedUserIds({
   organizationId,
@@ -61,14 +74,10 @@ async function resolveMentionedUserIds({
   mentionedUserIds,
   senderId,
 }) {
-  const fromBody = uniqueIds(mentionedUserIds, senderId);
+  const fromBody = uniqueIds(mentionedUserIds, senderId).slice(0, MAX_MENTION_IDS);
   const text = String(messageText || '');
-  if (!text.includes('@') && !fromBody.length) return [];
-
-  const uidSet = new Set(fromBody);
-  if (!ORGANIZATION_SERVICE_URL || !organizationId || !text.includes('@')) {
-    return [...uidSet];
-  }
+  if (!text.includes('@')) return [];
+  if (!ORGANIZATION_SERVICE_URL || !organizationId) return [];
 
   try {
     const url = `${ORGANIZATION_SERVICE_URL}/api/organizations/internal/ai-task-context`;
@@ -86,18 +95,16 @@ async function resolveMentionedUserIds({
         validateStatus: () => true,
       }
     );
-    if (res.status >= 200 && res.status < 300) {
-      const mentioned = res.data?.data?.mentionedUsers || res.data?.mentionedUsers || [];
-      for (const row of mentioned) {
-        const id = String(row?.userId || row?.id || '').trim();
-        if (id) uidSet.add(id);
-      }
+    if (res.status < 200 || res.status >= 300) {
+      console.warn('[projectMentionNotify] mention verify failed', res.status);
+      return [];
     }
-  } catch {
-    /* keep body ids */
+    const mentioned = res.data?.data?.mentionedUsers || res.data?.mentionedUsers || [];
+    return filterVerifiedMentionIds(mentioned, senderId);
+  } catch (err) {
+    console.warn('[projectMentionNotify] mention verify error:', err.message);
+    return [];
   }
-
-  return uniqueIds([...uidSet], senderId);
 }
 
 function buildActionUrl({ organizationId, roomId, projectId }) {
@@ -177,5 +184,6 @@ module.exports = {
   isProjectMentionNotifyEnabled,
   maybeNotifyProjectMentions,
   resolveMentionedUserIds,
+  filterVerifiedMentionIds,
   buildActionUrl,
 };
