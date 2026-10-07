@@ -14,6 +14,13 @@ const {
   buildProjectDraft,
   buildTeamAssignSuggestions,
 } = require('../services/aiBoardDraft.builder');
+const { requireTrustedUserId } = require('../utils/trustedUserId');
+const { toPublicExtraction, toPublicDraft } = require('../utils/extractionDto');
+const { mergeProjectDraftPayload } = require('../utils/draftPayloadMerge');
+const { normalizeTeamAssignItems } = require('../utils/teamAssignAssignee');
+const { resolveConfirmBoardTargets } = require('../utils/confirmBoardBind');
+const { sanitizeCaughtError, sanitizeUpstreamMessage } = require('../utils/aiTaskErrorSanitize');
+const { requireObjectId } = require('../utils/bindObjectIdParam');
 
 function fail(res, status, message, errorCode) {
   return res.status(status).json({
@@ -32,7 +39,7 @@ function fail(res, status, message, errorCode) {
 async function postExtract(req, res) {
   const { messageId, organizationId, titleHint, mentions, channelId } = req.body || {};
 
-  const generatedBy = req.user?.id;
+  const generatedBy = requireTrustedUserId(req);
   if (!generatedBy) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
   if (!messageId || !organizationId) {
     return res.status(400).json({ success: false, message: 'messageId and organizationId are required' });
@@ -46,8 +53,12 @@ async function postExtract(req, res) {
       channelId,
     });
   } catch (verifyErr) {
-    const status = Number(verifyErr?.statusCode) || 403;
-    return fail(res, status, verifyErr.message || 'Forbidden', 'AI_EXTRACT_FORBIDDEN');
+    const cleaned = sanitizeCaughtError(verifyErr, {
+      fallbackCode: 'AI_EXTRACT_FORBIDDEN',
+      fallbackStatus: 403,
+      fallbackMessage: 'Bạn không có quyền trích xuất từ tin nhắn này',
+    });
+    return fail(res, cleaned.status, cleaned.message, cleaned.errorCode);
   }
 
   const safeMentions = Array.isArray(mentions)
@@ -86,14 +97,14 @@ async function postExtract(req, res) {
 }
 
 async function getExtraction(req, res) {
-  const userId = req.user?.id || req.headers['x-user-id'];
+  const userId = requireTrustedUserId(req);
   if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
   const extraction = await AiTaskExtraction.findById(req.params.id).lean();
   if (!extraction) return fail(res, 404, 'Không tìm thấy dữ liệu trích xuất', 'AI_EXTRACTION_NOT_FOUND');
   if (String(extraction.generatedBy) !== String(userId)) {
     return fail(res, 403, 'Bạn không có quyền truy cập dữ liệu này', 'AI_EXTRACTION_FORBIDDEN');
   }
-  return res.json({ success: true, data: extraction });
+  return res.json({ success: true, data: toPublicExtraction(extraction) });
 }
 
 /**
@@ -115,23 +126,24 @@ function resolveTrustedAssigneeId(extraction, bodyAssigneeId) {
 
 async function postConfirm(req, res) {
   const {
-    extractionId,
+    extractionId: rawExtractionId,
     assigneeId: bodyAssigneeId,
-    boardId,
-    listId,
+    boardId: bodyBoardId,
+    listId: bodyListId,
     ownerTeamId: bodyOwnerTeamId,
     isProjectMilestone: bodyIsProjectMilestone,
   } = req.body || {};
-  const userId = req.user?.id || req.headers['x-user-id'];
+  const userId = requireTrustedUserId(req);
   const idemKey = String(req.headers['idempotency-key'] || req.body?.idempotencyKey || '').trim();
 
-  if (!userId) return res.status(401).json({ success: false, message: 'Missing user context' });
-  if (!extractionId) return res.status(400).json({ success: false, message: 'extractionId is required' });
+  if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
+  const extractionId = requireObjectId(res, rawExtractionId, 'extractionId');
+  if (!extractionId) return undefined;
 
   const extraction = await AiTaskExtraction.findById(extractionId);
-  if (!extraction) return res.status(404).json({ success: false, message: 'Extraction not found' });
+  if (!extraction) return fail(res, 404, 'Không tìm thấy dữ liệu trích xuất', 'AI_EXTRACTION_NOT_FOUND');
   if (String(extraction.generatedBy) !== String(userId)) {
-    return res.status(403).json({ success: false, message: 'Forbidden' });
+    return fail(res, 403, 'Bạn không có quyền truy cập dữ liệu này', 'AI_EXTRACTION_FORBIDDEN');
   }
   if (!['ready', 'confirmed'].includes(extraction.status)) {
     return fail(res, 409, 'Nội dung AI chưa sẵn sàng để xác nhận', 'AI_EXTRACTION_NOT_READY');
@@ -141,13 +153,22 @@ async function postConfirm(req, res) {
   try {
     scope = await assertCanUseAiTask(userId, extraction.organizationId);
   } catch (roleErr) {
-    return fail(
-      res,
-      Number(roleErr.statusCode) || 403,
-      roleErr.message || 'Forbidden',
-      roleErr.errorCode || 'AI_CONFIRM_ROLE_DENIED'
-    );
+    const cleaned = sanitizeCaughtError(roleErr, {
+      fallbackCode: 'AI_CONFIRM_ROLE_DENIED',
+      fallbackStatus: 403,
+    });
+    return fail(res, cleaned.status, cleaned.message, cleaned.errorCode);
   }
+
+  const boardBind = resolveConfirmBoardTargets(
+    { boardId: bodyBoardId, listId: bodyListId, ownerTeamId: bodyOwnerTeamId },
+    extraction
+  );
+  if (!boardBind.ok) {
+    return fail(res, 400, boardBind.message, boardBind.errorCode);
+  }
+  const boardId = boardBind.boardId;
+  const listId = boardBind.listId;
 
   if (extraction.status === 'confirmed' && extraction.taskId) {
     if (
@@ -189,11 +210,7 @@ async function postConfirm(req, res) {
   const isOrgAdmin = role === 'owner' || role === 'admin';
   const canAssignNv = isOrgAdmin || led.size > 0;
   let assigneeId = canAssignNv ? resolveTrustedAssigneeId(locked, bodyAssigneeId) : undefined;
-  const ownerTeamId =
-    (bodyOwnerTeamId && String(bodyOwnerTeamId).trim()) ||
-    (draft.ownerTeamId && String(draft.ownerTeamId).trim()) ||
-    (draft.teamId && String(draft.teamId).trim()) ||
-    undefined;
+  const ownerTeamId = boardBind.ownerTeamId;
   const isProjectMilestone = Boolean(bodyIsProjectMilestone || draft.isProjectMilestone);
 
   const attachments = Array.isArray(draft.attachments) ? draft.attachments : [];
@@ -252,10 +269,7 @@ async function postConfirm(req, res) {
 
   if (createRes.status !== 201 || !createRes.data?.success || !createRes.data?.data?._id) {
     await AiTaskExtraction.findByIdAndUpdate(extractionId, { $set: { status: 'ready' } });
-    const taskMsg =
-      typeof createRes.data?.message === 'string' && createRes.data.message.trim()
-        ? createRes.data.message.trim()
-        : 'Create task failed';
+    const taskMsg = sanitizeUpstreamMessage(createRes.data?.message, 'Không tạo được task');
     return fail(res, 400, taskMsg, 'AI_CONFIRM_CREATE_TASK_FAILED');
   }
 
@@ -270,7 +284,7 @@ async function postConfirm(req, res) {
 }
 
 async function listSyncSuggestions(req, res) {
-  const userId = req.user?.id || req.headers['x-user-id'];
+  const userId = requireTrustedUserId(req);
   if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
 
   const { taskId } = req.params;
@@ -291,7 +305,7 @@ async function listSyncSuggestions(req, res) {
 }
 
 async function approveSyncSuggestion(req, res) {
-  const userId = req.user?.id || req.headers['x-user-id'];
+  const userId = requireTrustedUserId(req);
   if (!userId) return res.status(401).json({ success: false, message: 'Missing user context' });
 
   const suggestion = await SyncSuggestion.findById(req.params.id);
@@ -344,7 +358,7 @@ async function approveSyncSuggestion(req, res) {
  * P2 — AI gợi ý tạo dự án (board + lists). Sync heuristic → PM review → confirm.
  */
 async function postProjectDraft(req, res) {
-  const userId = req.user?.id || req.headers['x-user-id'];
+  const userId = requireTrustedUserId(req);
   const {
     organizationId,
     brief,
@@ -366,7 +380,8 @@ async function postProjectDraft(req, res) {
   try {
     scope = await assertCanUseAiTask(userId, organizationId);
   } catch (roleErr) {
-    return fail(res, Number(roleErr.statusCode) || 403, roleErr.message, roleErr.errorCode);
+    const cleaned = sanitizeCaughtError(roleErr, { fallbackCode: 'AI_PROJECT_ROLE_DENIED', fallbackStatus: 403 });
+    return fail(res, cleaned.status, cleaned.message, cleaned.errorCode);
   }
   if (!scope?.canCreateTask) {
     return fail(res, 403, 'Chỉ PM/TL/Admin mới được tạo dự án bằng AI', 'AI_PROJECT_ROLE_DENIED');
@@ -416,7 +431,7 @@ async function postProjectDraft(req, res) {
 }
 
 async function getProjectDraft(req, res) {
-  const userId = req.user?.id || req.headers['x-user-id'];
+  const userId = requireTrustedUserId(req);
   if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
   const draft = await AiBoardDraft.findById(req.params.id).lean();
   if (!draft || draft.kind !== 'project') {
@@ -425,11 +440,11 @@ async function getProjectDraft(req, res) {
   if (String(draft.generatedBy) !== String(userId)) {
     return fail(res, 403, 'Forbidden', 'AI_PROJECT_DRAFT_FORBIDDEN');
   }
-  return res.json({ success: true, data: draft });
+  return res.json({ success: true, data: toPublicDraft(draft) });
 }
 
 async function confirmProjectDraft(req, res) {
-  const userId = req.user?.id || req.headers['x-user-id'];
+  const userId = requireTrustedUserId(req);
   if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
 
   const draftDoc = await AiBoardDraft.findById(req.params.id);
@@ -449,10 +464,11 @@ async function confirmProjectDraft(req, res) {
   try {
     await assertCanUseAiTask(userId, draftDoc.organizationId);
   } catch (roleErr) {
-    return fail(res, Number(roleErr.statusCode) || 403, roleErr.message, roleErr.errorCode);
+    const cleaned = sanitizeCaughtError(roleErr, { fallbackCode: 'AI_PROJECT_ROLE_DENIED', fallbackStatus: 403 });
+    return fail(res, cleaned.status, cleaned.message, cleaned.errorCode);
   }
 
-  const edited = req.body?.payload && typeof req.body.payload === 'object' ? req.body.payload : draftDoc.payload;
+  const edited = mergeProjectDraftPayload(draftDoc.payload, req.body?.payload);
   const taskServiceUrl = PROJECT_SERVICE_URL;
   draftDoc.status = 'confirming';
   await draftDoc.save();
@@ -480,13 +496,14 @@ async function confirmProjectDraft(req, res) {
 
   if (![200, 201].includes(createRes.status) || !createRes.data?.success) {
     draftDoc.status = 'ready';
-    draftDoc.error = createRes.data?.message || `HTTP ${createRes.status}`;
+    draftDoc.error = sanitizeUpstreamMessage(createRes.data?.message, `HTTP ${createRes.status}`);
     await draftDoc.save();
-    return fail(res, 400, draftDoc.error || 'Không tạo được board', 'AI_PROJECT_CREATE_FAILED');
+    return fail(res, 400, 'Không tạo được board', 'AI_PROJECT_CREATE_FAILED');
   }
 
   const board = createRes.data.data || createRes.data;
   const boardId = String(board._id || board.id);
+  const boardTitle = String(board.title || edited.title || '');
   const listIds = [];
   for (const list of edited.lists || []) {
     const title = String(list?.title || '').trim();
@@ -506,7 +523,7 @@ async function confirmProjectDraft(req, res) {
     }
   }
 
-  const result = { boardId, projectCode: edited.projectCode, listIds, board };
+  const result = { boardId, projectCode: edited.projectCode, listIds, title: boardTitle };
   draftDoc.status = 'confirmed';
   draftDoc.boardId = boardId;
   draftDoc.payload = edited;
@@ -521,7 +538,7 @@ async function confirmProjectDraft(req, res) {
  * P2.5 — AI gợi ý thẻ + assignee trên list team (TL confirm).
  */
 async function suggestCards(req, res) {
-  const userId = req.user?.id || req.headers['x-user-id'];
+  const userId = requireTrustedUserId(req);
   const { boardId, listId } = req.params;
   const { organizationId, prompt, boardTitle, listTitle, members, maxCards } = req.body || {};
 
@@ -531,7 +548,8 @@ async function suggestCards(req, res) {
   try {
     await assertCanUseAiTask(userId, organizationId);
   } catch (roleErr) {
-    return fail(res, Number(roleErr.statusCode) || 403, roleErr.message, roleErr.errorCode);
+    const cleaned = sanitizeCaughtError(roleErr, { fallbackCode: 'AI_PROJECT_ROLE_DENIED', fallbackStatus: 403 });
+    return fail(res, cleaned.status, cleaned.message, cleaned.errorCode);
   }
 
   let memberRows = Array.isArray(members) ? members : [];
@@ -568,7 +586,13 @@ async function suggestCards(req, res) {
     status: 'ready',
     boardId,
     listId,
-    payload: { suggestions, prompt: String(prompt || ''), listTitle, boardTitle },
+    payload: {
+      suggestions,
+      prompt: String(prompt || ''),
+      listTitle,
+      boardTitle,
+      members: memberRows,
+    },
   });
 
   return res.status(201).json({
@@ -582,7 +606,7 @@ async function suggestCards(req, res) {
 }
 
 async function confirmTeamAssignDraft(req, res) {
-  const userId = req.user?.id || req.headers['x-user-id'];
+  const userId = requireTrustedUserId(req);
   if (!userId) return fail(res, 401, 'Thiếu thông tin người dùng', 'AI_USER_CONTEXT_MISSING');
 
   const draftDoc = await AiBoardDraft.findById(req.params.id);
@@ -602,13 +626,11 @@ async function confirmTeamAssignDraft(req, res) {
   try {
     await assertCanUseAiTask(userId, draftDoc.organizationId);
   } catch (roleErr) {
-    return fail(res, Number(roleErr.statusCode) || 403, roleErr.message, roleErr.errorCode);
+    const cleaned = sanitizeCaughtError(roleErr, { fallbackCode: 'AI_PROJECT_ROLE_DENIED', fallbackStatus: 403 });
+    return fail(res, cleaned.status, cleaned.message, cleaned.errorCode);
   }
 
-  const items =
-    Array.isArray(req.body?.items) && req.body.items.length
-      ? req.body.items
-      : draftDoc.payload?.suggestions || [];
+  const items = normalizeTeamAssignItems(req.body?.items, draftDoc.payload);
   const boardId = String(draftDoc.boardId);
   const listId = String(draftDoc.listId);
   const taskServiceUrl = PROJECT_SERVICE_URL;
@@ -643,7 +665,7 @@ async function confirmTeamAssignDraft(req, res) {
       const row = createRes.data?.data || createRes.data;
       if (row?._id) cardIds.push(String(row._id));
     } else {
-      errors.push(createRes.data?.message || `HTTP ${createRes.status}`);
+      errors.push(sanitizeUpstreamMessage(createRes.data?.message, `HTTP ${createRes.status}`));
     }
   }
 
@@ -651,7 +673,7 @@ async function confirmTeamAssignDraft(req, res) {
     draftDoc.status = 'ready';
     draftDoc.error = errors[0] || 'Không tạo được thẻ';
     await draftDoc.save();
-    return fail(res, 400, draftDoc.error, 'AI_TEAM_ASSIGN_CREATE_FAILED');
+    return fail(res, 400, 'Không tạo được thẻ', 'AI_TEAM_ASSIGN_CREATE_FAILED');
   }
 
   const result = { boardId, listId, cardIds, errors };

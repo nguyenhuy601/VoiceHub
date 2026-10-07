@@ -1,5 +1,7 @@
 const axios = require('axios');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
+const { SummaryError } = require('./summaryErrors');
+const { isObjectIdString } = require('./summaryInput');
 
 const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 const CHAT_INTERNAL_TOKEN = String(process.env.CHAT_INTERNAL_TOKEN || '').trim();
@@ -16,62 +18,41 @@ async function assertOrgChannelAccess({ organizationId, roomId, userId }) {
   const oid = String(organizationId || '').trim();
   const rid = String(roomId || '').trim();
 
-  if (!uid || !oid || !rid) {
-    const err = new Error('Missing organizationId, roomId or user context');
-    err.statusCode = 400;
-    throw err;
+  if (!uid) throw new SummaryError('SUMMARY_USER_CONTEXT_MISSING');
+  if (!isObjectIdString(oid) || !isObjectIdString(rid)) {
+    throw new SummaryError('SUMMARY_BAD_REQUEST');
   }
-  if (!/^[a-f0-9]{24}$/i.test(oid) || !/^[a-f0-9]{24}$/i.test(rid)) {
-    const err = new Error('Invalid organizationId or roomId');
-    err.statusCode = 400;
-    throw err;
+  if (!ORGANIZATION_SERVICE_URL) throw new SummaryError('SUMMARY_VERIFY_UNAVAILABLE');
+
+  let res;
+  try {
+    res = await axios.get(
+      `${ORGANIZATION_SERVICE_URL}/api/organizations/${encodeURIComponent(oid)}/accessible-channel-ids`,
+      {
+        headers: buildTrustedGatewayHeaders(uid),
+        timeout: 12000,
+        validateStatus: () => true,
+      }
+    );
+  } catch (err) {
+    throw new SummaryError('SUMMARY_VERIFY_UNAVAILABLE', { cause: err });
   }
 
-  if (!ORGANIZATION_SERVICE_URL) {
-    const err = new Error('Organization service is not configured');
-    err.statusCode = 503;
-    throw err;
+  if (res.status === 401 || res.status === 403 || res.status === 404) {
+    throw new SummaryError('SUMMARY_FORBIDDEN');
   }
-
-  const res = await axios.get(
-    `${ORGANIZATION_SERVICE_URL}/api/organizations/${encodeURIComponent(oid)}/accessible-channel-ids`,
-    {
-      headers: buildTrustedGatewayHeaders(uid),
-      timeout: 12000,
-      validateStatus: () => true,
-    }
-  );
-
-  if (res.status === 403 || res.status === 401) {
-    const err = new Error('Forbidden');
-    err.statusCode = 403;
-    err.errorCode = 'SUMMARY_FORBIDDEN';
-    throw err;
-  }
-  if (res.status !== 200) {
-    const err = new Error('Cannot verify channel access');
-    err.statusCode = 403;
-    err.errorCode = 'SUMMARY_FORBIDDEN';
-    throw err;
-  }
+  if (res.status !== 200) throw new SummaryError('SUMMARY_VERIFY_UNAVAILABLE');
 
   const channelIds = res.data?.data?.channelIds || res.data?.channelIds || [];
   const allowed = new Set((Array.isArray(channelIds) ? channelIds : []).map(String));
-  if (!allowed.has(rid)) {
-    const err = new Error('Forbidden');
-    err.statusCode = 403;
-    err.errorCode = 'SUMMARY_FORBIDDEN';
-    throw err;
-  }
+  if (!allowed.has(rid)) throw new SummaryError('SUMMARY_FORBIDDEN');
 
   return { organizationId: oid, roomId: rid, userId: uid };
 }
 
 async function fetchOrgThreadExport({ organizationId, roomId, userId, options = {} }) {
   if (!CHAT_SERVICE_URL || !CHAT_INTERNAL_TOKEN) {
-    const err = new Error('Chat internal API is not configured');
-    err.statusCode = 503;
-    throw err;
+    throw new SummaryError('SUMMARY_EXPORT_FAILED');
   }
 
   const params = {
@@ -84,19 +65,19 @@ async function fetchOrgThreadExport({ organizationId, roomId, userId, options = 
     sinceMessageId: options.sinceMessageId || undefined,
   };
 
-  const res = await axios.get(`${CHAT_SERVICE_URL}/api/messages/internal/threads/org-export`, {
-    headers: { 'x-internal-token': CHAT_INTERNAL_TOKEN },
-    params,
-    timeout: 30000,
-    validateStatus: () => true,
-  });
-
-  if (res.status !== 200 || !res.data?.success) {
-    const err = new Error('Cannot export org thread');
-    err.statusCode = 502;
-    throw err;
+  let res;
+  try {
+    res = await axios.get(`${CHAT_SERVICE_URL}/api/messages/internal/threads/org-export`, {
+      headers: { 'x-internal-token': CHAT_INTERNAL_TOKEN },
+      params,
+      timeout: 30000,
+      validateStatus: () => true,
+    });
+  } catch (err) {
+    throw new SummaryError('SUMMARY_EXPORT_FAILED', { cause: err });
   }
 
+  if (res.status !== 200 || !res.data?.success) throw new SummaryError('SUMMARY_EXPORT_FAILED');
   return res.data.data;
 }
 

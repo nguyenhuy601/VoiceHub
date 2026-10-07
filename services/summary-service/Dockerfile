@@ -7,7 +7,7 @@ ENV npm_config_fetch_retries=10 \
     npm_config_fetch_retry_maxtimeout=120000
 
 COPY services/summary-service/package*.json ./
-RUN npm install --ignore-scripts && npm install -g nodemon
+RUN npm install --omit=dev --ignore-scripts
 
 COPY shared /shared
 RUN cd /shared && npm install --omit=dev --ignore-scripts

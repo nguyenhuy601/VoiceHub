@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "test": "node --test tests/",
     "postinstall": "node ../../shared/postinstall-link.cjs"
   },
   "dependencies": {

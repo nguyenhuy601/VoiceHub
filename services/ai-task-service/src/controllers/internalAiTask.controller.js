@@ -21,7 +21,12 @@ async function purgeOrganization(req, res) {
     });
   } catch (error) {
     logger.error('internal purge-organization ai-task', error);
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: 'Đã xảy ra lỗi hệ thống',
+      errorCode: 'AI_INTERNAL_ERROR',
+      messageUser: 'Đã xảy ra lỗi hệ thống',
+    });
   }
 }
 

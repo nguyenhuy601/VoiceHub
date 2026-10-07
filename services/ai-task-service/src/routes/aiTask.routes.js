@@ -1,7 +1,10 @@
 const express = require('express');
 const controller = require('../controllers/aiTask.controller');
+const { bindObjectIdParams } = require('../utils/bindObjectIdParam');
 
 const router = express.Router();
+
+bindObjectIdParams(router, ['id', 'taskId', 'boardId', 'listId']);
 
 router.post('/extract', controller.postExtract);
 router.get('/extractions/:id', controller.getExtraction);
