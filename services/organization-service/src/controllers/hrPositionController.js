@@ -46,12 +46,13 @@ async function listCatalog(req, res) {
 }
 
 async function createCatalog(req, res) {
+  const organizationId = String(req.params.orgId || '').trim();
+  const title = req.body?.title;
   try {
-    const organizationId = String(req.params.orgId || '').trim();
     if (!organizationId) return orgValidation(res, 'organizationId bắt buộc');
 
     if (isMasterDataV1Enabled()) {
-      const { key, title } = req.body || {};
+      const { key } = req.body || {};
       const positionKey = resolveCanonicalPositionKey(key || title);
       const master = getPositionByKey(positionKey);
       if (!master) {
@@ -71,8 +72,6 @@ async function createCatalog(req, res) {
         data: { position: { key: master.key, title: master.label } },
       });
     }
-
-    const { title } = req.body || {};
 
     const normalizedTitle = normalizeTitle(title);
     if (!normalizedTitle) return orgValidation(res, 'title là bắt buộc');
@@ -111,7 +110,7 @@ async function createCatalog(req, res) {
 
     return res.status(201).json({ success: true, data: { position: { title: row.title } } });
   } catch (error) {
-    if (String(error?.code || '').includes('E11000')) {
+    if (Number(error?.code) === 11000 || String(error?.message || '').includes('E11000')) {
       const oid = toObjectId(organizationId);
       const normalizedKey = normalizeTitle(title).toLowerCase();
       const existing = await HrPositionCatalog.findOne({
@@ -124,9 +123,9 @@ async function createCatalog(req, res) {
           data: { position: { title: existing.title } },
         });
       }
-      return orgCatch(res, error, 400, 'Không thể tạo position');
+      return orgCatch(res, error, 409, 'Không thể tạo position', 'ORG_DUPLICATE');
     }
-    return orgCatch(res, error, 400, 'Không thể tạo position');
+    return orgCatch(res, error, 500, 'Không thể tạo position');
   }
 }
 

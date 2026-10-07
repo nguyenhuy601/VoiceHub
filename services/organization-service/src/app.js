@@ -3,12 +3,18 @@ const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPoli
 const { mongoose } = require('@enterprise/shared/config/mongo');
 const errorHandler = require('./middleware/errorHandler');
 
+const { sendServiceError } = require('./middleware/sendServiceError');
+
 const app = express();
+app.disable('x-powered-by');
+if (process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
 
 // Middleware
 app.use(createCorsMiddleware());
 app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
 // Routes
 app.get('/health', (req, res) => {
@@ -42,6 +48,14 @@ app.use('/api/organizations/:orgId/departments/:deptId/channels', channelRoutes)
 // Legacy compatibility while FE migrates from teams -> channels.
 app.use('/api/organizations/:orgId/departments/:deptId/teams', teamRoutes);
 app.use('/api/organizations/:orgId/hierarchy', hierarchyRoutes);
+
+app.use((req, res) => {
+  sendServiceError(res, 404, {
+    errorCode: 'ORG_ROUTE_NOT_FOUND',
+    messageUser: 'Không tìm thấy đường dẫn yêu cầu.',
+    message: 'Không tìm thấy đường dẫn yêu cầu.',
+  });
+});
 
 app.use(errorHandler);
 

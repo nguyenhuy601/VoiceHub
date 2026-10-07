@@ -1,6 +1,7 @@
 const {
   orgValidation,
   orgCatch,
+  orgFail,
 } = require('../utils/orgApiError');
 const {
   getOrgMasterDataCatalog,
@@ -26,7 +27,7 @@ async function patchMasterDataEnabled(req, res) {
     const organizationId = String(req.params.orgId || '').trim();
     if (!organizationId) return orgValidation(res, 'organizationId bắt buộc');
     if (!isMasterDataV1Enabled()) {
-      return orgCatch(res, new Error('Master Data V1 chưa bật'), 403);
+      return orgFail(res, 403, 'Master Data V1 chưa bật', 'MASTER_DATA_DISABLED');
     }
     const {
       companySize,
@@ -52,7 +53,7 @@ async function patchMasterDataEnabled(req, res) {
     );
     return res.json({ success: true, data });
   } catch (error) {
-    return orgCatch(res, error, error.statusCode || 400);
+    return orgCatch(res, error, 500, 'Không thể lưu Master Data.', 'MASTER_DATA_SAVE_FAILED');
   }
 }
 

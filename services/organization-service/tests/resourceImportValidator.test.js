@@ -252,6 +252,26 @@ describe('resourceImportValidator skills catalog', () => {
     assert.equal(bad.details?.[0]?.errorCode, 'VALIDATION_SKILLS_HIRE_MAX');
   });
 
+  it('actorTier hr: rejects orgRole admin/hr, allows member', () => {
+    const bad = validateResourceImportRows([baseRow({ orgRole: 'admin' })], { actorTier: 'hr' });
+    assert.equal(bad.ok, false);
+    assert.equal(bad.errorCode, 'SECURITY_VIOLATION_ERROR');
+    assert.equal(bad.details?.[0]?.errorCode, 'ORG_IMPORT_ROLE_FORBIDDEN');
+
+    const hr = validateResourceImportRows([baseRow({ orgRole: 'hr' })], { actorTier: 'hr' });
+    assert.equal(hr.ok, false);
+
+    const ok = validateResourceImportRows([baseRow({ orgRole: 'member' })], { actorTier: 'hr' });
+    assert.equal(ok.ok, true, JSON.stringify(ok.details || []));
+  });
+
+  it('actorTier admin: rejects admin, allows hr; owner tier allows admin', () => {
+    const bad = validateResourceImportRows([baseRow({ orgRole: 'admin' })], { actorTier: 'admin' });
+    assert.equal(bad.details?.[0]?.errorCode, 'ORG_IMPORT_ROLE_FORBIDDEN');
+    assert.equal(validateResourceImportRows([baseRow({ orgRole: 'hr' })], { actorTier: 'admin' }).ok, true);
+    assert.equal(validateResourceImportRows([baseRow({ orgRole: 'admin' })], { actorTier: 'owner' }).ok, true);
+  });
+
   it('normalizeSkillName aliases match user-service', () => {
     assert.equal(normalizeSkillName('nodejs'), userCat.normalizeSkillName('nodejs'));
     assert.equal(normalizeSkillName('k8s'), 'Kubernetes');

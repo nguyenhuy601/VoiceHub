@@ -171,10 +171,36 @@ function mergeSkillCells(skillsComma, skillSlots) {
  * Bỏ dòng trống — chỉ giữ dòng có dữ liệu.
  * Header dòng 1 = key Anh. Dòng 2 chú thích VI (bỏ qua). File cũ chỉ EN hoặc đã đổi tên cột VI vẫn parse.
  */
+function invalidExcelFile() {
+  return Object.assign(new Error('File phải là Excel .xlsx hợp lệ.'), {
+    statusCode: 400,
+    errorCode: 'ORG_IMPORT_FILE_INVALID',
+  });
+}
+
+/** .xlsx là zip — 4 byte đầu luôn là `PK\x03\x04` (RULE-16). */
+function isXlsxBuffer(fileBuffer) {
+  return (
+    Buffer.isBuffer(fileBuffer) &&
+    fileBuffer.length >= 4 &&
+    fileBuffer[0] === 0x50 &&
+    fileBuffer[1] === 0x4b &&
+    fileBuffer[2] === 0x03 &&
+    fileBuffer[3] === 0x04
+  );
+}
+
 function parseExcelToRawRows(fileBuffer, dataLimit = resolveImportMaxRows()) {
-  const wb = XLSX.read(fileBuffer, { type: 'buffer' });
+  if (!isXlsxBuffer(fileBuffer)) throw invalidExcelFile();
+  let wb;
+  try {
+    // Header + dòng chú thích + dataLimit; chặn file used-range phình ăn RAM.
+    wb = XLSX.read(fileBuffer, { type: 'buffer', sheetRows: dataLimit + 2 });
+  } catch {
+    throw invalidExcelFile();
+  }
   const sheetName = wb.SheetNames?.[0];
-  if (!sheetName) throw new Error('Excel file missing sheet');
+  if (!sheetName) throw invalidExcelFile();
 
   const sheet = wb.Sheets[sheetName];
   const rows2d = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
@@ -238,6 +264,7 @@ function parseExcelToRawRows(fileBuffer, dataLimit = resolveImportMaxRows()) {
 
 module.exports = {
   parseExcelToRawRows,
+  isXlsxBuffer,
   mergeSkillCells,
   parsePastProjectBlocks,
   isBlankExcelRow,

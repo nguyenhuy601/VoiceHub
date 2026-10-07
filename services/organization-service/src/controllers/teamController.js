@@ -2,7 +2,16 @@ const Channel = require('../models/Channel');
 const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 const { findActiveTeamNameConflict } = require('../utils/orgUnitNameConflict');
-const { orgConflict } = require('../utils/orgApiError');
+const { orgConflict, orgFail } = require('../utils/orgApiError');
+const { toPlainId, assertActiveOrgMembers } = require('../utils/orgMemberIds');
+const { assertTextLimits } = require('../utils/orgTextLimits');
+
+async function readLeader(req) {
+  if (req.body?.leader === undefined) return undefined;
+  const leader = toPlainId(req.body.leader);
+  if (leader) await assertActiveOrgMembers(req.params.orgId, [leader]);
+  return leader;
+}
 
 const bumpOrgReadCache = (orgId) =>
   invalidateOrgReadCache(orgId, { eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED }).catch(
@@ -31,7 +40,9 @@ exports.getTeams = async (req, res, next) => {
 
 exports.createTeam = async (req, res, next) => {
   try {
-    const { name, description, leader } = req.body;
+    const { name, description } = req.body || {};
+    assertTextLimits({ name, description });
+    const leader = (await readLeader(req)) || null;
     const conflict = await findActiveTeamNameConflict({
       organizationId: req.params.orgId,
       departmentId: req.params.deptId,
@@ -65,7 +76,9 @@ exports.createTeam = async (req, res, next) => {
 
 exports.updateTeam = async (req, res, next) => {
   try {
-    const { name, description, leader } = req.body;
+    const { name, description } = req.body || {};
+    assertTextLimits({ name, description });
+    const leader = await readLeader(req);
     const team = await Team.findOneAndUpdate(
       { _id: req.params.id, organization: req.params.orgId, department: req.params.deptId, isActive: true },
       { name, description, leader },
@@ -108,7 +121,14 @@ exports.getChannels = async (req, res, next) => {
 
 exports.createChannel = async (req, res, next) => {
   try {
-    const { name, description, leader, type, team } = req.body;
+    const { name, description, type } = req.body || {};
+    assertTextLimits({ name, description });
+    const leader = toPlainId(req.body?.leader);
+    const team = toPlainId(req.body?.team);
+    if (team) {
+      const teamExists = await Team.exists({ _id: team, ...buildScope(req) });
+      if (!teamExists) return orgFail(res, 404, 'Team not found', 'ORG_NOT_FOUND');
+    }
     const channel = await Channel.create({
       name,
       description,
@@ -126,7 +146,9 @@ exports.createChannel = async (req, res, next) => {
 
 exports.updateChannel = async (req, res, next) => {
   try {
-    const { name, description, leader, type } = req.body;
+    const { name, description, type } = req.body || {};
+    assertTextLimits({ name, description });
+    const leader = req.body?.leader === undefined ? undefined : toPlainId(req.body.leader);
     const channel = await Channel.findOneAndUpdate(
       { _id: req.params.id, ...buildScope(req) },
       { name, description, leader, type },

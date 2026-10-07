@@ -25,6 +25,10 @@ const {
   findActiveDepartmentNameConflict,
   findActiveTeamNameConflict,
 } = require('../utils/orgUnitNameConflict');
+const { mongoose } = require('@enterprise/shared/config/mongo');
+const { toPlainId, normalizeMemberIdList, assertActiveOrgMembers } = require('../utils/orgMemberIds');
+const { assertTextLimits } = require('../utils/orgTextLimits');
+const { canIncludeInactiveStructure } = require('../utils/orgElevatedAccess');
 
 const bumpOrgReadCache = (orgId) =>
   invalidateOrgReadCache(orgId, { eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED }).catch(
@@ -40,7 +44,7 @@ const allowedChannelTypes = new Set(['chat', 'voice', 'announcement']);
 exports.listBranches = async (req, res, next) => {
   try {
     // Huy: cho phép ?includeInactive=1 để admin xem chi nhánh đã vô hiệu
-    const includeInactive = String(req.query?.includeInactive || '') === '1';
+    const includeInactive = await canIncludeInactiveStructure(req);
     const filter = { organization: req.params.orgId };
     if (!includeInactive) filter.isActive = true;
     const rows = await Branch.find(filter).sort({ createdAt: 1 });
@@ -52,6 +56,7 @@ exports.listBranches = async (req, res, next) => {
 
 exports.createBranch = async (req, res, next) => {
   try {
+    assertTextLimits({ name: req.body?.name, description: req.body?.location });
     const doc = await Branch.create({
       organization: req.params.orgId,
       name: unwrapName(req.body?.name, 'Chi nhánh mới'),
@@ -72,6 +77,7 @@ exports.createBranch = async (req, res, next) => {
 /** Huy: Cập nhật / vô hiệu hóa chi nhánh (cùng resource branches — domain Cơ cấu tổ chức). */
 exports.updateBranch = async (req, res, next) => {
   try {
+    assertTextLimits({ name: req.body?.name, description: req.body?.location });
     const patch = {};
     if (req.body?.name !== undefined) patch.name = unwrapName(req.body.name, 'Chi nhánh');
     if (req.body?.location !== undefined) patch.location = String(req.body.location || '').trim();
@@ -113,8 +119,11 @@ exports.listDivisions = async (req, res, next) => {
 
 exports.createDivision = async (req, res, next) => {
   try {
-    const branchParam = String(req.params.branchId || req.body?.branchId || '').trim();
-    const branchId = branchParam && branchParam !== '_' && branchParam !== 'root' ? branchParam : null;
+    assertTextLimits({ name: req.body?.name });
+    const rawBranch = req.params.branchId || req.body?.branchId;
+    const branchParam = typeof rawBranch === 'string' ? rawBranch.trim() : '';
+    const branchId =
+      branchParam && branchParam !== '_' && branchParam !== 'root' ? toPlainId(branchParam) : null;
     if (branchId) {
       const branch = await Branch.findOne({
         _id: branchId,
@@ -147,6 +156,7 @@ exports.createDivision = async (req, res, next) => {
 /** Huy: Cập nhật / vô hiệu hóa khối (parity updateBranch — domain Cơ cấu tổ chức). */
 exports.updateDivision = async (req, res, next) => {
   try {
+    assertTextLimits({ name: req.body?.name });
     const patch = {};
     if (req.body?.name !== undefined) patch.name = unwrapName(req.body.name, 'Khối mới');
     if (req.body?.isActive !== undefined) patch.isActive = Boolean(req.body.isActive);
@@ -197,6 +207,9 @@ exports.createDepartmentByDivision = async (req, res, next) => {
     if (!division) {
       return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
     }
+    assertTextLimits({ name: req.body?.name, description: req.body?.description });
+    const head = toPlainId(req.body?.head);
+    if (head) await assertActiveOrgMembers(req.params.orgId, [head]);
     const name = unwrapName(req.body?.name, 'Phòng ban mới');
     const conflict = await findActiveDepartmentNameConflict({
       organizationId: req.params.orgId,
@@ -212,7 +225,7 @@ exports.createDepartmentByDivision = async (req, res, next) => {
       division: division._id,
       name,
       description: String(req.body?.description || '').trim(),
-      head: req.body?.head || null,
+      head,
     });
     await ensureDepartmentRole(req.params.orgId, doc._id, doc.name);
     const actorId = req.user?.id || req.user?.userId || req.user?._id || doc.head || null;
@@ -238,6 +251,9 @@ exports.createDepartmentByDivision = async (req, res, next) => {
 /** Huy: Tạo phòng ban gốc (template không có division). */
 exports.createDepartmentRoot = async (req, res, next) => {
   try {
+    assertTextLimits({ name: req.body?.name, description: req.body?.description });
+    const head = toPlainId(req.body?.head);
+    if (head) await assertActiveOrgMembers(req.params.orgId, [head]);
     const name = unwrapName(req.body?.name, 'Phòng ban mới');
     const conflict = await findActiveDepartmentNameConflict({
       organizationId: req.params.orgId,
@@ -253,7 +269,7 @@ exports.createDepartmentRoot = async (req, res, next) => {
       division: null,
       name,
       description: String(req.body?.description || '').trim(),
-      head: req.body?.head || null,
+      head,
     });
     await ensureDepartmentRole(req.params.orgId, doc._id, doc.name);
     const actorId = req.user?.id || req.user?.userId || req.user?._id || doc.head || null;
@@ -298,6 +314,9 @@ exports.createTeamByDepartment = async (req, res, next) => {
     if (!department) {
       return orgFail(res, 404, 'Department not found', 'ORG_NOT_FOUND');
     }
+    assertTextLimits({ name: req.body?.name, description: req.body?.description });
+    const leader = toPlainId(req.body?.leader);
+    if (leader) await assertActiveOrgMembers(req.params.orgId, [leader]);
     const name = unwrapName(req.body?.name, 'Team mới');
     const conflict = await findActiveTeamNameConflict({
       organizationId: req.params.orgId,
@@ -314,7 +333,7 @@ exports.createTeamByDepartment = async (req, res, next) => {
       department: department._id,
       name,
       description: String(req.body?.description || '').trim(),
-      leader: req.body?.leader || null,
+      leader,
       isActive: true,
     });
     await ensureTeamRole(req.params.orgId, doc._id, doc.name);
@@ -342,6 +361,9 @@ exports.createTeamByDivision = async (req, res, next) => {
     if (!division) {
       return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
     }
+    assertTextLimits({ name: req.body?.name, description: req.body?.description });
+    const leader = toPlainId(req.body?.leader);
+    if (leader) await assertActiveOrgMembers(req.params.orgId, [leader]);
     const name = unwrapName(req.body?.name, 'Team mới');
     const conflict = await findActiveTeamNameConflict({
       organizationId: req.params.orgId,
@@ -358,7 +380,7 @@ exports.createTeamByDivision = async (req, res, next) => {
       department: null,
       name,
       description: String(req.body?.description || '').trim(),
-      leader: req.body?.leader || null,
+      leader,
       isActive: true,
     });
     await ensureTeamRole(req.params.orgId, doc._id, doc.name);
@@ -378,6 +400,9 @@ exports.createTeamByDivision = async (req, res, next) => {
 /** Huy: Tạo team gốc (template startup — chỉ team). */
 exports.createTeamRoot = async (req, res, next) => {
   try {
+    assertTextLimits({ name: req.body?.name, description: req.body?.description });
+    const leader = toPlainId(req.body?.leader);
+    if (leader) await assertActiveOrgMembers(req.params.orgId, [leader]);
     const name = unwrapName(req.body?.name, 'Team mới');
     const conflict = await findActiveTeamNameConflict({
       organizationId: req.params.orgId,
@@ -393,7 +418,7 @@ exports.createTeamRoot = async (req, res, next) => {
       department: null,
       name,
       description: String(req.body?.description || '').trim(),
-      leader: req.body?.leader || null,
+      leader,
       isActive: true,
     });
     await ensureTeamRole(req.params.orgId, doc._id, doc.name);
@@ -413,15 +438,36 @@ exports.createTeamRoot = async (req, res, next) => {
 exports.updateTeamByHierarchy = async (req, res, next) => {
   try {
     // Huy: mở rộng body — description, leader, department, members, isActive (archive)
-    const patch = {};
-    if (req.body?.name !== undefined) patch.name = unwrapName(req.body.name, 'Team');
-    if (req.body?.description !== undefined) patch.description = String(req.body.description || '').trim();
-    if (req.body?.leader !== undefined) patch.leader = req.body.leader || null;
-    if (req.body?.department !== undefined) patch.department = req.body.department || null;
-    if (req.body?.members !== undefined && Array.isArray(req.body.members)) {
-      patch.members = req.body.members;
+    const orgId = req.params.orgId;
+    const body = req.body || {};
+    const hasDelta = body.membersAdd !== undefined || body.membersRemove !== undefined;
+    if (hasDelta && body.members !== undefined) {
+      return orgFail(
+        res,
+        400,
+        'Không gửi đồng thời members với membersAdd/membersRemove.',
+        'ORG_MEMBERS_PATCH_CONFLICT'
+      );
     }
-    if (req.body?.isActive !== undefined) patch.isActive = Boolean(req.body.isActive);
+    assertTextLimits({ name: body.name, description: body.description });
+
+    const patch = {};
+    if (body.name !== undefined) patch.name = unwrapName(body.name, 'Team');
+    if (body.description !== undefined) patch.description = String(body.description || '').trim();
+    if (body.leader !== undefined) {
+      patch.leader = toPlainId(body.leader);
+      if (patch.leader) await assertActiveOrgMembers(orgId, [patch.leader]);
+    }
+    if (body.department !== undefined) patch.department = toPlainId(body.department);
+    if (body.members !== undefined && Array.isArray(body.members)) {
+      patch.members = normalizeMemberIdList(body.members);
+      await assertActiveOrgMembers(orgId, patch.members);
+    }
+    if (body.isActive !== undefined) patch.isActive = Boolean(body.isActive);
+
+    const membersAdd = hasDelta ? normalizeMemberIdList(body.membersAdd) : [];
+    const membersRemove = hasDelta ? normalizeMemberIdList(body.membersRemove) : [];
+    if (membersAdd.length) await assertActiveOrgMembers(orgId, membersAdd);
 
     if (patch.department) {
       const department = await Department.findOne({
@@ -435,39 +481,54 @@ exports.updateTeamByHierarchy = async (req, res, next) => {
       patch.division = department.division || null;
     }
 
-    const previousTeam =
-      patch.members !== undefined
-        ? await Team.findOne({
-            _id: req.params.teamId,
-            organization: req.params.orgId,
-          })
-            .select('members')
-            .lean()
-        : null;
+    const teamFilter = { _id: req.params.teamId, organization: orgId };
+    let previousMembers = null;
+    if (patch.members !== undefined) {
+      const previousTeam = await Team.findOne(teamFilter).select('members').lean();
+      previousMembers = previousTeam?.members || [];
+    } else if (membersAdd.length || membersRemove.length) {
+      // Pipeline update: thêm/bớt nguyên tử, không ghi đè thay đổi đồng thời của admin khác.
+      const toOids = (ids) => ids.map((id) => new mongoose.Types.ObjectId(id));
+      const beforeDelta = await Team.findOneAndUpdate(
+        teamFilter,
+        [
+          {
+            $set: {
+              members: {
+                $setDifference: [
+                  { $setUnion: [{ $ifNull: ['$members', []] }, toOids(membersAdd)] },
+                  toOids(membersRemove),
+                ],
+              },
+            },
+          },
+        ],
+        { new: false, projection: { members: 1 }, updatePipeline: true }
+      ).lean();
+      if (!beforeDelta) {
+        return orgFail(res, 404, 'Team not found', 'ORG_NOT_FOUND');
+      }
+      previousMembers = beforeDelta.members || [];
+    }
 
-    const doc = await Team.findOneAndUpdate(
-      {
-        _id: req.params.teamId,
-        organization: req.params.orgId,
-      },
-      { $set: patch },
-      { new: true }
-    );
+    const doc = Object.keys(patch).length
+      ? await Team.findOneAndUpdate(teamFilter, { $set: patch }, { new: true })
+      : await Team.findOne(teamFilter);
     if (!doc) {
       return orgFail(res, 404, 'Team not found', 'ORG_NOT_FOUND');
     }
     if (doc.isActive !== false) {
-      await ensureTeamRole(req.params.orgId, doc._id, doc.name);
+      await ensureTeamRole(orgId, doc._id, doc.name);
     }
-    if (patch.members !== undefined) {
+    if (previousMembers !== null) {
       const {
         syncTeamHierarchyRolesFromMemberChange,
       } = require('../clients/hierarchyRoleAssign.client');
       await syncTeamHierarchyRolesFromMemberChange(
-        req.params.orgId,
+        orgId,
         doc._id,
         doc.name,
-        previousTeam?.members || [],
+        previousMembers,
         doc.members || []
       ).catch(() => null);
     }
@@ -501,6 +562,7 @@ exports.listChannelsByTeam = async (req, res, next) => {
 
 exports.createChannelByTeam = async (req, res, next) => {
   try {
+    assertTextLimits({ name: req.body?.name, description: req.body?.description });
     const team = await Team.findOne({
       _id: req.params.teamId,
       organization: req.params.orgId,
@@ -518,7 +580,7 @@ exports.createChannelByTeam = async (req, res, next) => {
       name: unwrapName(req.body?.name, 'kênh-mới'),
       description: String(req.body?.description || '').trim(),
       type: ['chat', 'voice', 'announcement'].includes(req.body?.type) ? req.body.type : 'chat',
-      leader: req.body?.leader || team.leader || null,
+      leader: toPlainId(req.body?.leader) || team.leader || null,
     });
     await bumpOrgReadCache(req.params.orgId);
     return res.status(201).json({ status: 'success', data: doc });
@@ -529,6 +591,7 @@ exports.createChannelByTeam = async (req, res, next) => {
 
 exports.createChannelByScope = async (req, res, next) => {
   try {
+    assertTextLimits({ name: req.body?.name, description: req.body?.description });
     const levelRaw = String(req.body?.level || '').trim().toLowerCase();
     const level = ['division', 'department', 'team'].includes(levelRaw) ? levelRaw : 'team';
     const type = allowedChannelTypes.has(String(req.body?.type || '').trim())
@@ -537,7 +600,7 @@ exports.createChannelByScope = async (req, res, next) => {
     const actorId = req.user?.id || req.user?.userId || req.user?._id || null;
 
     if (level === 'team') {
-      const teamId = req.body?.teamId || req.params.teamId;
+      const teamId = toPlainId(req.body?.teamId) || req.params.teamId;
       if (!teamId) {
         return orgValidation(res, 'teamId is required');
       }
@@ -558,14 +621,14 @@ exports.createChannelByScope = async (req, res, next) => {
         name: unwrapName(req.body?.name, 'kênh-mới'),
         description: String(req.body?.description || '').trim(),
         type,
-        leader: req.body?.leader || team.leader || actorId,
+        leader: toPlainId(req.body?.leader) || team.leader || actorId,
       });
       await bumpOrgReadCache(req.params.orgId);
       return res.status(201).json({ status: 'success', data: doc });
     }
 
     if (level === 'department') {
-      const departmentId = req.body?.departmentId || null;
+      const departmentId = toPlainId(req.body?.departmentId);
       if (!departmentId) {
         return orgValidation(res, 'departmentId is required');
       }
@@ -607,13 +670,13 @@ exports.createChannelByScope = async (req, res, next) => {
         name: unwrapName(req.body?.name, 'kênh-mới'),
         description: String(req.body?.description || '').trim(),
         type,
-        leader: req.body?.leader || actorId,
+        leader: toPlainId(req.body?.leader) || actorId,
       });
       await bumpOrgReadCache(req.params.orgId);
       return res.status(201).json({ status: 'success', data: doc });
     }
 
-    const divisionId = req.body?.divisionId || null;
+    const divisionId = toPlainId(req.body?.divisionId);
     if (!divisionId) {
       return orgValidation(res, 'divisionId is required');
     }
@@ -634,7 +697,7 @@ exports.createChannelByScope = async (req, res, next) => {
       name: unwrapName(req.body?.name, 'kênh-mới'),
       description: String(req.body?.description || '').trim(),
       type,
-      leader: req.body?.leader || actorId,
+      leader: toPlainId(req.body?.leader) || actorId,
     });
     await bumpOrgReadCache(req.params.orgId);
     return res.status(201).json({ status: 'success', data: doc });
@@ -645,6 +708,7 @@ exports.createChannelByScope = async (req, res, next) => {
 
 exports.updateChannelByScope = async (req, res, next) => {
   try {
+    assertTextLimits({ name: req.body?.name });
     const doc = await Channel.findOneAndUpdate(
       {
         _id: req.params.channelId,
@@ -670,6 +734,7 @@ exports.updateChannelByScope = async (req, res, next) => {
 
 exports.updateChannelByTeam = async (req, res, next) => {
   try {
+    assertTextLimits({ name: req.body?.name });
     const doc = await Channel.findOneAndUpdate(
       {
         _id: req.params.channelId,
