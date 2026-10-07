@@ -1,4 +1,5 @@
 const { authenticate } = require('@enterprise/shared/middleware/auth');
+const { compareGatewayToken } = require('@enterprise/shared/middleware/compareGatewayToken');
 
 /**
  * Gọi nội bộ S2S (chỉ x-gateway-internal-token, không có x-user-id) HOẶC JWT / gateway user forward.
@@ -11,7 +12,7 @@ function authenticateOrInternal(req, res, next) {
   // Huy: proxy/legacy đôi khi gắn x-user-id rỗng/"null" — vẫn coi là S2S thuần
   const forwardedUserId =
     !rawForwarded || rawForwarded === 'null' || rawForwarded === 'undefined' ? '' : rawForwarded;
-  if (expected && got === expected && !forwardedUserId) {
+  if (expected && compareGatewayToken(got, expected) && !forwardedUserId) {
     req.isInternalServiceCall = true;
     return next();
   }
