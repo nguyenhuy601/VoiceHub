@@ -145,22 +145,6 @@ services:
 
 
 
-  paddleocr-service:
-
-    image: blazordevlab/paddleocrapi:latest
-
-    container_name: enterprise-paddleocr-service
-
-    ports:
-
-      - "8000:8000"
-
-    networks:
-
-      - enterprise-network
-
-
-
   # Docker Hub minio/* community images removed (2025-10); use Quay mirrors.
   minio:
 

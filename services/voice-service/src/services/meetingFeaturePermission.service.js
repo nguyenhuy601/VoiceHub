@@ -5,7 +5,8 @@ const voiceRoomLobby = require('./voiceRoomLobby.service');
 /** @type {Map<string, Map<string, Set<string>>>} roomId -> userId -> Set<featureType> */
 const runtimeGrants = new Map();
 
-const FEATURE_TYPES = new Set(['recording', 'ai_summary']);
+/** Recording / AI summary grants removed from voice-service; keep empty catalog for compat. */
+const FEATURE_TYPES = new Set();
 
 function roomGrants(roomId) {
   const key = String(roomId);

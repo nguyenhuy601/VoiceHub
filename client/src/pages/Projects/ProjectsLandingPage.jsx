@@ -6,6 +6,7 @@ import ProjectsLandingGrid from '../../features/projects/landing/ProjectsLanding
 import { isProjectListableForUi } from '../../features/projects/landing/projectLandingActive';
 import {
   boardQueryFromSearch,
+  buildCollaborateProjectHubPath,
   buildCollaborateProjectsNewPath,
   orgQueryFromSearch,
   readStoredLastOrganizationId,

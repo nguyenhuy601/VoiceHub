@@ -10,15 +10,15 @@ alwaysApply: true
 | Runtime | File / lệnh | Services |
 |---------|-------------|----------|
 | **Docker Swarm** | `docker-stack.yml` + `bash devops/swarm/deploy-stack.sh` | Toàn bộ app microservices: `api-gateway`, `auth-service`, `user-service`, `chat-service`, `socket-service`, `voice-service`, … |
-| **Docker Compose** | `docker-compose.swarm-extra.yml` | **Chỉ** infra/AI bổ sung: `ollama`, `paddleocr-service`, `minio`, `minio-init`, `meilisearch`, `voice-recording-worker`, `voice-stt-worker` |
+| **Docker Compose** | `docker-compose.swarm-extra.yml` | **Chỉ** infra/AI bổ sung: `ollama`, `minio`, `minio-init`, `meilisearch`, `voice-recording-worker`, `voice-stt-worker` |
 
 **Không** dùng `docker compose up` cho `api-gateway`, `user-service`, hay bất kỳ service trong `docker-stack.yml`.
-**Không** đưa `ollama` / `paddleocr-service` vào Swarm — chúng chỉ chạy Compose extra.
+**Không** đưa `ollama` vào Swarm — chúng chỉ chạy Compose extra.
 
 ## Compose extra (`docker-compose.swarm-extra.yml`)
 
 - Gắn overlay `voicehub_enterprise-network` (external) — cùng network với Swarm.
-- Script `bash devops/swarm/dev-enable-profile.sh` gỡ leftover Swarm ollama/paddle (nếu còn) rồi `compose up` extra.
+- Script `bash devops/swarm/dev-enable-profile.sh` gỡ leftover Swarm ollama (nếu còn) rồi `compose up` extra.
 - Lệnh chuẩn:
 
 ```bash
@@ -42,6 +42,6 @@ Compose extra: dùng `--no-build` nếu image `voicehub-extra-*` đã có; chỉ
 ## Khi agent gợi ý lệnh Docker
 
 - Sửa một microservice → **build đúng service đó** + `service update --force`; tránh `build-local-images.sh` không tham số.
-- Sửa worker/OCR/minio trong extra compose → **`docker compose -f docker-compose.swarm-extra.yml …`**.
+- Sửa worker/minio trong extra compose → **`docker compose -f docker-compose.swarm-extra.yml …`**.
 - Không nhầm `docker compose up` root/stack yml cho microservices đã deploy Swarm.
 - Tránh `rolling-update-phase1-env.sh` / redeploy toàn stack khi chỉ cần rolling một service.

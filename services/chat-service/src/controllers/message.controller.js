@@ -22,45 +22,21 @@ const {
   ttlMsForRetentionContext,
   MAX_UPLOAD_BYTES,
   isMimeAllowed,
-  isMimeDenied,
 } = require('../config/fileRetention');
 const {
-  STORAGE_READ,
-  isStorageReadStrict,
-  isOwnTempPath,
-  decideStorageRead,
-  buildDownloadHeaders,
-  hashUserIdForLog,
-  storagePathPrefixForLog,
-} = require('../utils/storageAccess');
-const logger = require('@enterprise/shared/utils/logger');
-const { publishTaskAiSyncEvent } = require('../messaging/taskAiSyncPublisher');
-const { isTrustedGatewayForward } = require('@enterprise/shared/middleware/gatewayTrust');
+  buildTrustedGatewayHeaders,
+  isTrustedGatewayForward,
+} = require('@enterprise/shared/middleware/gatewayTrust');
 const {
   fetchAccessibleChannelPermissionMatrix,
   assertCanWriteInOrgChannel,
   assertCanReadInOrgChannel,
 } = require('../utils/orgChannelPermissions');
 const { resolveOrgChannelAccess } = require('../services/orgAccessReadModel');
-const { headersForOrganizationForward } = require('../utils/organizationForwardHeaders');
-const {
-  DELETE_ACCESS,
-  isOrgRoomMessage,
-  resolveRoomDeleteAccess,
-} = require('../utils/messageMutationPolicy');
 const { maybeNotifyDmReceived } = require('../utils/dmPushNotification');
 const { maybeNotifyCrossTeamContext } = require('../utils/crossTeamContextNotify');
 const { maybeNotifyProjectMentions } = require('../utils/projectMentionNotify');
-const { sendServiceError } = require('../middleware/sendServiceError');
-const {
-  MAX_MESSAGE_CONTENT,
-  MAX_SEARCH_QUERY,
-  MAX_PAGE,
-  MAX_EMOJI_LENGTH,
-  isUserMessageTypeAllowed,
-  isDuplicateKeyError,
-} = require('../utils/chatErrorMap');
-const { buildPollFromInput } = require('../utils/pollPolicy');
+const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
 const {
   isContextCallEnabled,
   isContextVisibleToRoom,
@@ -100,114 +76,11 @@ function chatForbidden(res, messageUser, errorCode = 'MESSAGE_FORBIDDEN') {
   });
 }
 
-const SAFE_ERROR_CODE = /^[A-Z][A-Z0-9_]*$/;
-const GENERIC_FORBIDDEN_MESSAGES = new Set(['Forbidden', 'Unauthorized']);
-
-function safeErrorCode(value) {
-  const code = typeof value === 'string' ? value.trim() : '';
-  return SAFE_ERROR_CODE.test(code) ? code : undefined;
-}
-
-/**
- * Map lỗi catch → HTTP: 403 → MESSAGE_FORBIDDEN; 5xx không lộ err.message / err.code driver;
- * 4xx giữ messageUser + errorCode dạng hằng.
- */
-function chatCatchError(res, error, fallbackStatus = 500, fallbackCode = 'CHAT_INTERNAL_ERROR') {
+function chatCatchError(res, error, fallbackStatus = 500, fallbackMessage = 'Hệ thống tạm thời gặp sự cố.', fallbackCode = 'CHAT_INTERNAL_ERROR') {
   if (String(error?.message || '') === 'Unauthorized') {
     return chatForbidden(res, 'Không đủ quyền thực hiện thao tác này.');
   }
-  const status = Number(error?.statusCode) || fallbackStatus;
-  if (status === 403) {
-    const raw = String(error?.messageUser || error?.message || '').trim();
-    const msg = raw && !GENERIC_FORBIDDEN_MESSAGES.has(raw) ? raw : undefined;
-    return chatForbidden(res, msg, safeErrorCode(error?.errorCode) || 'MESSAGE_FORBIDDEN');
-  }
-  if (status >= 500) {
-    console.error(`[chat] ${status}:`, error?.message || 'unknown error');
-    return sendServiceError(res, status, {
-      errorCode: safeErrorCode(error?.errorCode) || fallbackCode,
-      messageUser: error?.messageUser || undefined,
-    });
-  }
-  const clientMessage = String(error?.messageUser || error?.message || 'Yêu cầu không hợp lệ').trim();
-  return sendServiceError(res, status, {
-    errorCode: safeErrorCode(error?.errorCode) || safeErrorCode(error?.code),
-    messageUser: clientMessage,
-    message: clientMessage,
-  });
-}
-
-function respondContentTooLong(res) {
-  return sendServiceError(res, 400, {
-    errorCode: 'CHAT_CONTENT_TOO_LONG',
-    messageUser: `Nội dung tin nhắn tối đa ${MAX_MESSAGE_CONTENT} ký tự.`,
-  });
-}
-
-function respondInvalidChatId(res) {
-  return sendServiceError(res, 400, {
-    errorCode: 'CHAT_INVALID_ID',
-    messageUser: 'Mã không hợp lệ.',
-  });
-}
-
-function isInvalidDateParam(value) {
-  if (value == null || value === '') return false;
-  return Number.isNaN(new Date(String(value)).getTime());
-}
-
-/** Trả true nếu đã gửi 400 (q quá dài / ngày sai). */
-function rejectInvalidSearchParams(res, { q, createdAfter, createdBefore } = {}) {
-  if (q != null && String(q).length > MAX_SEARCH_QUERY) {
-    sendServiceError(res, 400, {
-      errorCode: 'CHAT_VALIDATION_ERROR',
-      messageUser: `Từ khóa tìm kiếm tối đa ${MAX_SEARCH_QUERY} ký tự.`,
-    });
-    return true;
-  }
-  if (isInvalidDateParam(createdAfter) || isInvalidDateParam(createdBefore)) {
-    sendServiceError(res, 400, {
-      errorCode: 'CHAT_VALIDATION_ERROR',
-      messageUser: 'Khoảng thời gian tìm kiếm không hợp lệ.',
-    });
-    return true;
-  }
-  return false;
-}
-
-function chatAclUnavailable(res) {
-  return sendServiceError(res, 503, {
-    errorCode: 'CHAT_ACL_UNAVAILABLE',
-    messageUser: 'Không kiểm tra được quyền kênh. Vui lòng thử lại.',
-  });
-}
-
-/** Lỗi kiểm quyền kênh: 5xx/không status → 503 generic; 4xx giữ code cũ client đang đọc. */
-function respondOrgChannelPermError(res, permErr, fallbackMessage) {
-  const status = Number(permErr?.statusCode);
-  if (!status || status >= 500) {
-    console.error('[chat] org channel ACL failed:', permErr?.message || 'unknown error');
-    return chatAclUnavailable(res);
-  }
-  const isLocalDeny = !permErr?.code;
-  return res.status(status).json({
-    success: false,
-    message: (isLocalDeny && permErr?.message) || fallbackMessage,
-    code: 'ORG_CHANNEL_FORBIDDEN',
-  });
-}
-
-/** Sửa/thu hồi tin kênh cần canWrite tại thời điểm thao tác. Trả true nếu đã gửi response lỗi. */
-async function rejectRoomMutationWithoutWrite(res, req, messageId) {
-  const existing = await messageService.getMessageById(messageId);
-  if (!existing || !isOrgRoomMessage(existing)) return false;
-  try {
-    await assertCanWriteInOrgChannel(String(existing.organizationId), String(existing.roomId), req);
-    return false;
-  } catch (permErr) {
-    respondOrgChannelPermError(res, permErr, 'Bạn không có quyền chat trong kênh này');
-    return true;
-  }
+  return sendErrorFromCatch(res, error, fallbackStatus, fallbackMessage, fallbackCode);
 }
 
 function resolveParticipantId(value) {
@@ -274,57 +147,6 @@ async function assertCanAccessMessage(message, userId, req) {
   throw err;
 }
 
-const MAX_FILE_NAME_LENGTH = 255;
-
-/** fileMeta do client gửi: MIME rủi ro → octet-stream, tên file làm sạch, byteSize trong giới hạn upload. */
-function sanitizeClientFileMeta(fileMeta) {
-  const mimeType = String(fileMeta?.mimeType || '').split(';')[0].trim().toLowerCase();
-  const rawName = String(fileMeta?.originalName || '').trim();
-  const byteSize = Number(fileMeta?.byteSize);
-  return {
-    originalName: rawName
-      ? firebaseStorage.sanitizeFileName(rawName).slice(0, MAX_FILE_NAME_LENGTH)
-      : '',
-    mimeType: mimeType && isMimeAllowed(mimeType) ? mimeType : 'application/octet-stream',
-    byteSize:
-      Number.isInteger(byteSize) && byteSize >= 0 && byteSize <= MAX_UPLOAD_BYTES
-        ? byteSize
-        : undefined,
-  };
-}
-
-const MAX_LINKED_MESSAGES_PER_PATH = 20;
-
-/**
- * Quyền đọc object storage theo tin nhắn đang gắn path (tin chuyển tiếp có thể dùng chung path).
- * ACL 401/403 → không đọc được; lỗi hạ tầng (org-service) ném tiếp → 5xx thay vì 403 im lặng.
- */
-async function resolveStorageReadDecision(normalizedPath, userId, req) {
-  if (isOwnTempPath(normalizedPath, userId)) return STORAGE_READ.ALLOW;
-  const linkedMessages = await Message.find({ 'fileMeta.storagePath': normalizedPath })
-    .select('senderId receiverId roomId organizationId visibility')
-    .limit(MAX_LINKED_MESSAGES_PER_PATH)
-    .lean();
-  let canAccessLinked = false;
-  for (const linked of linkedMessages) {
-    try {
-      await assertCanAccessMessage(linked, userId, req);
-      canAccessLinked = true;
-      break;
-    } catch (accessErr) {
-      const status = Number(accessErr?.statusCode);
-      if (status !== 401 && status !== 403) throw accessErr;
-    }
-  }
-  return decideStorageRead({
-    storagePath: normalizedPath,
-    userId,
-    linkedMessage: linkedMessages[0] || null,
-    canAccessLinked,
-    strict: isStorageReadStrict(),
-  });
-}
-
 /** Realtime DM: gửi cùng payload tới sender + receiver (phòng user:{id}). */
 async function emitDmToParticipants(eventName, message, extra = {}) {
   if (!eventName || !message) return;
@@ -342,6 +164,28 @@ async function emitDmToParticipants(eventName, message, extra = {}) {
     userIds: [senderId, receiverId],
     payload,
   });
+}
+
+/** Header gọi organization-service: tin cậy gateway (giống proxy) hoặc Bearer để /auth/me. */
+function headersForOrganizationForward(req) {
+  const headers = {};
+  const uid = String(req.user?.id || req.user?.userId || req.user?._id || '').trim();
+  const gwTok = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
+  if (uid && gwTok) {
+    Object.assign(headers, buildTrustedGatewayHeaders(uid));
+  } else {
+    const fx = req.headers['x-user-id'];
+    const fgw = String(req.headers['x-gateway-internal-token'] || '').trim();
+    if (fx && fgw) {
+      headers['x-user-id'] = String(fx).trim();
+      headers['x-gateway-internal-token'] = fgw;
+      const em = req.headers['x-user-email'];
+      if (em) headers['x-user-email'] = em;
+    }
+  }
+  const auth = req.headers?.authorization;
+  if (auth) headers.Authorization = auth;
+  return headers;
 }
 
 async function fetchAccessibleChannelIds(orgId, req) {
@@ -377,9 +221,6 @@ class MessageController {
           message: 'userIdA and userIdB are required',
         });
       }
-      if (!mongoose.isValidObjectId(String(userIdA)) || !mongoose.isValidObjectId(String(userIdB))) {
-        return respondInvalidChatId(res);
-      }
 
       const result = await messageService.deleteDirectMessagesBetweenUsers(userIdA, userIdB);
 
@@ -398,7 +239,7 @@ class MessageController {
         data: result,
       });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -407,51 +248,14 @@ class MessageController {
    */
   async getMessageInternal(req, res) {
     try {
-      const messageId = requireObjectId(res, req.params.messageId, 'messageId', 'CHAT_INVALID_ID');
-      if (!messageId) return;
+      const { messageId } = req.params;
       const message = await messageService.getMessageById(messageId);
       if (!message) {
         return chatMessageNotFound(res);
       }
       return res.json({ success: true, data: message });
     } catch (error) {
-      return chatCatchError(res, error);
-    }
-  }
-
-  /**
-   * Nội bộ: export lịch sử kênh org (decrypted) cho summary pipeline.
-   */
-  async exportOrgThreadInternal(req, res) {
-    try {
-      const {
-        organizationId,
-        roomId,
-        sinceMessageId,
-        limit,
-        unreadOnly,
-        readerId,
-        userId,
-      } = req.query || {};
-
-      const data = await messageService.exportOrgThreadInternal({
-        organizationId,
-        roomId,
-        sinceMessageId,
-        limit,
-        unreadOnly,
-        readerId: readerId || userId,
-      });
-
-      return res.json({ success: true, data });
-    } catch (error) {
-      const status = Number(error?.statusCode) || 500;
-      return chatCatchError(
-        res,
-        error,
-        status,
-        status === 400 ? 'CHAT_EXPORT_BAD_REQUEST' : 'CHAT_INTERNAL_ERROR'
-      );
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -491,7 +295,7 @@ class MessageController {
 
       return res.status(201).json({ success: true, data });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -500,8 +304,7 @@ class MessageController {
    */
   async promoteMessageFileInternal(req, res) {
     try {
-      const messageId = requireObjectId(res, req.params.messageId, 'messageId', 'CHAT_INVALID_ID');
-      if (!messageId) return;
+      const { messageId } = req.params;
       const { taskId } = req.body || {};
       if (!taskId) {
         return res.status(400).json({ success: false, message: 'taskId is required' });
@@ -512,12 +315,12 @@ class MessageController {
       }
       res.json({ success: true, data: updated });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
   /**
-   * Nội bộ: tạo signed read URL từ storagePath (ai-task-worker, task-service, ...).
+   * Nội bộ: tạo signed read URL từ storagePath (S2S callers, ví dụ project-service).
    * Bảo vệ bằng header x-internal-token (CHAT_INTERNAL_TOKEN).
    */
   async getSignedReadUrlInternal(req, res) {
@@ -530,11 +333,7 @@ class MessageController {
       }
       const storagePath = String(req.query?.storagePath || '').trim();
       if (!storagePath) {
-        return sendServiceError(res, 400, {
-          errorCode: 'CHAT_VALIDATION_ERROR',
-          messageUser: 'storagePath là bắt buộc.',
-          message: 'storagePath is required',
-        });
+        return res.status(400).json({ success: false, message: 'storagePath is required' });
       }
       const allowedPrefixes = ['temp/', 'tasks/', 'chat/', 'dm/'];
       const normalizedPath = storagePath.replace(/^\/+/, '');
@@ -548,7 +347,7 @@ class MessageController {
       const { url } = await firebaseStorage.getSignedReadUrl(normalizedPath, ttlMs);
       return res.json({ success: true, data: { url } });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -612,13 +411,14 @@ class MessageController {
         data: {
           uploadUrl,
           storagePath,
+          bucket: process.env.FIREBASE_STORAGE_BUCKET,
           uploadUrlExpiresAt: uploadUrlExpires.toISOString(),
           fileExpiresAt: fileExpiresAt.toISOString(),
           retentionContext,
         },
       });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -691,6 +491,10 @@ class MessageController {
         data: {
           storagePath,
           storageBackend,
+          bucket:
+            storageBackend === 'minio'
+              ? objectStorage.getBucket()
+              : process.env.FIREBASE_STORAGE_BUCKET,
           fileExpiresAt: fileExpiresAt.toISOString(),
           retentionContext,
           mimeType,
@@ -713,7 +517,7 @@ class MessageController {
           message: error.message,
         });
       }
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -722,43 +526,21 @@ class MessageController {
     try {
       const storagePath = String(req.query?.storagePath || '').trim();
       if (!storagePath) {
-        return sendServiceError(res, 400, {
-          errorCode: 'CHAT_VALIDATION_ERROR',
-          messageUser: 'storagePath là bắt buộc.',
-          message: 'storagePath is required',
-        });
+        return res.status(400).json({ success: false, message: 'storagePath is required' });
       }
 
-      const normalizedPath = assertAllowedStoragePath(storagePath);
-      const userId = String(req.user?.id || req.user?._id || '').trim();
-      const decision = await resolveStorageReadDecision(normalizedPath, userId, req);
-      if (decision === STORAGE_READ.DENY) {
-        return chatForbidden(res, 'Bạn không có quyền mở tệp này.', 'MESSAGE_FORBIDDEN');
-      }
-      if (decision === STORAGE_READ.ALLOW_UNLINKED) {
-        logger.warn('[storage-read] unlinked', {
-          userIdHash: hashUserIdForLog(userId),
-          prefix: storagePathPrefixForLog(normalizedPath),
-        });
-      }
-
-      const { stream, fileName } = await openStorageObjectReadStream(normalizedPath);
+      const { stream, fileName } = await openStorageObjectReadStream(storagePath);
       const safeName = firebaseStorage.sanitizeFileName(fileName);
-      const requestedMime = String(req.query?.mimeType || '').split(';')[0].trim();
       const mimeBase =
-        (requestedMime && !isMimeDenied(requestedMime) ? requestedMime : '') ||
+        String(req.query?.mimeType || '').split(';')[0].trim() ||
         guessContentTypeFromFileName(fileName).split(';')[0].trim();
-      const headers = buildDownloadHeaders({
-        mimeType: mimeBase,
-        fileName: safeName,
-        contentType: withUtf8ContentType(mimeBase),
-      });
-      for (const [name, value] of Object.entries(headers)) {
-        res.setHeader(name, value);
-      }
+      const contentType = withUtf8ContentType(mimeBase);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+      res.setHeader('Cache-Control', 'private, max-age=60');
       stream.on('error', (err) => {
         if (!res.headersSent) {
-          chatCatchError(res, err);
+          sendErrorFromCatch(res, err, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
         } else {
           res.end();
         }
@@ -797,7 +579,7 @@ class MessageController {
       if (status === 400) {
         return res.status(400).json({ success: false, message: error.message });
       }
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -815,36 +597,15 @@ class MessageController {
         visibility,
         refs,
         mentionedUserIds,
-        poll,
       } = req.body;
       const senderId = req.user?.id || req.user?._id;
-      if (content != null && typeof content !== 'string') {
-        return sendServiceError(res, 400, {
-          errorCode: 'CHAT_VALIDATION_ERROR',
-          messageUser: 'Nội dung tin nhắn không hợp lệ.',
-        });
-      }
-      if (typeof content === 'string' && content.length > MAX_MESSAGE_CONTENT) {
-        return respondContentTooLong(res);
-      }
-      const resolvedMessageType = messageType == null || messageType === '' ? 'text' : messageType;
-      if (
-        typeof resolvedMessageType !== 'string' ||
-        !isUserMessageTypeAllowed(resolvedMessageType, { isRoom: Boolean(roomId) && !receiverId })
-      ) {
-        return sendServiceError(res, 400, {
-          errorCode: 'CHAT_INVALID_MESSAGE_TYPE',
-          messageUser: 'Loại tin nhắn không được hỗ trợ.',
-        });
-      }
       const parsedVisibility = isContextCallEnabled() ? parseVisibility(visibility) : null;
       const parsedRefs = parseMessageRefs(refs);
       if (parsedRefs.error) {
-        return sendServiceError(res, 400, {
-          errorCode: 'CHAT_VALIDATION_ERROR',
-          messageUser: parsedRefs.error,
+        return res.status(400).json({
+          success: false,
           message: parsedRefs.error,
-          extra: { code: 'CONTEXT_REF_INVALID' },
+          code: 'CONTEXT_REF_INVALID',
         });
       }
       const firstRef = parsedRefs.refs[0] || null;
@@ -854,62 +615,25 @@ class MessageController {
         (parsedVisibility ? String(parsedVisibility.projectName || 'Context').trim() : '');
 
       if (!resolvedContent || (!receiverId && !roomId)) {
-        return sendServiceError(res, 400, {
-          errorCode: 'CHAT_VALIDATION_ERROR',
-          messageUser: 'Cần nội dung và receiverId hoặc roomId.',
+        return res.status(400).json({
+          success: false,
           message: 'Content and receiverId or roomId are required',
         });
       }
 
       if ((parsedVisibility || firstRef) && receiverId) {
-        return sendServiceError(res, 400, {
-          errorCode: 'CHAT_VALIDATION_ERROR',
-          messageUser: 'Context call chỉ hỗ trợ kênh tổ chức.',
+        return res.status(400).json({
+          success: false,
           message: 'Context call is only supported on organization channels',
-          extra: { code: 'CONTEXT_CALL_ROOM_ONLY' },
+          code: 'CONTEXT_CALL_ROOM_ONLY',
         });
-      }
-
-      let resolvedReceiverId = null;
-      let resolvedRoomId = null;
-      let resolvedOrganizationId = organizationId;
-      if (receiverId) {
-        resolvedReceiverId = requireObjectId(res, receiverId, 'receiverId', 'CHAT_VALIDATION_ERROR');
-        if (!resolvedReceiverId) return undefined;
-      }
-      if (roomId) {
-        resolvedRoomId = requireObjectId(res, roomId, 'roomId', 'CHAT_VALIDATION_ERROR');
-        if (!resolvedRoomId) return undefined;
-        if (!organizationId) {
-          return sendServiceError(res, 400, {
-            errorCode: 'CHAT_VALIDATION_ERROR',
-            messageUser: 'organizationId là bắt buộc khi có roomId.',
-            message: 'organizationId is required when roomId is provided',
-            extra: { code: 'ORG_ID_REQUIRED_FOR_ROOM' },
-          });
-        }
-        resolvedOrganizationId = requireObjectId(
-          res,
-          organizationId,
-          'organizationId',
-          'CHAT_VALIDATION_ERROR'
-        );
-        if (!resolvedOrganizationId) return undefined;
-      } else if (organizationId) {
-        resolvedOrganizationId = requireObjectId(
-          res,
-          organizationId,
-          'organizationId',
-          'CHAT_VALIDATION_ERROR'
-        );
-        if (!resolvedOrganizationId) return undefined;
       }
 
       const messageData = {
         senderId,
         content: resolvedContent,
-        messageType: resolvedMessageType,
-        organizationId: resolvedOrganizationId,
+        messageType: messageType || 'text',
+        organizationId,
       };
       if (parsedVisibility) {
         messageData.visibility = parsedVisibility;
@@ -918,11 +642,11 @@ class MessageController {
         messageData.refs = parsedRefs.refs;
       }
 
-      if (resolvedReceiverId) {
-        messageData.receiverId = resolvedReceiverId;
+      if (receiverId) {
+        messageData.receiverId = receiverId;
         try {
           await assertDmCanSend({
-            peerId: resolvedReceiverId,
+            peerId: receiverId,
             senderId,
             authorizationHeader: req.headers?.authorization,
           });
@@ -934,41 +658,50 @@ class MessageController {
         }
       }
 
-      if (resolvedRoomId) {
-        messageData.roomId = resolvedRoomId;
-        messageData.organizationId = resolvedOrganizationId;
+      if (roomId) {
+        // D6: roomId luôn kèm organizationId + membership write
+        if (!organizationId) {
+          return res.status(400).json({
+            success: false,
+            message: 'organizationId is required when roomId is provided',
+            code: 'ORG_ID_REQUIRED_FOR_ROOM',
+          });
+        }
+        messageData.roomId = roomId;
         try {
-          await assertCanWriteInOrgChannel(resolvedOrganizationId, resolvedRoomId, req);
+          await assertCanWriteInOrgChannel(organizationId, roomId, req);
         } catch (permErr) {
-          return respondOrgChannelPermError(res, permErr, 'Bạn không có quyền chat trong kênh này');
+          return res.status(permErr.statusCode || 403).json({
+            success: false,
+            message: permErr.message || 'Bạn không có quyền chat trong kênh này',
+            code: 'ORG_CHANNEL_FORBIDDEN',
+          });
         }
         if (parsedVisibility) {
           const memberOk = await hasActiveProjectMembership(
             senderId,
-            resolvedOrganizationId,
+            organizationId,
             parsedVisibility.projectId
           );
           if (!memberOk) {
-            return sendServiceError(res, 403, {
-              errorCode: 'CONTEXT_CALL_NOT_PROJECT_MEMBER',
-              messageUser: 'Bạn không phải thành viên dự án này',
+            return res.status(403).json({
+              success: false,
               message: 'Bạn không phải thành viên dự án này',
-              extra: { code: 'CONTEXT_CALL_NOT_PROJECT_MEMBER' },
+              code: 'CONTEXT_CALL_NOT_PROJECT_MEMBER',
             });
           }
         }
         if (firstRef) {
           const memberOk = await hasActiveProjectMembership(
             senderId,
-            resolvedOrganizationId,
+            organizationId,
             firstRef.projectId
           );
           if (!memberOk) {
-            return sendServiceError(res, 403, {
-              errorCode: 'CONTEXT_REF_NOT_PROJECT_MEMBER',
-              messageUser: 'Bạn không phải thành viên dự án này',
+            return res.status(403).json({
+              success: false,
               message: 'Bạn không phải thành viên dự án này',
-              extra: { code: 'CONTEXT_REF_NOT_PROJECT_MEMBER' },
+              code: 'CONTEXT_REF_NOT_PROJECT_MEMBER',
             });
           }
         }
@@ -1057,18 +790,14 @@ class MessageController {
           storageBucket: preferMinio
             ? process.env.MINIO_BUCKET
             : process.env.FIREBASE_STORAGE_BUCKET || process.env.MINIO_BUCKET,
-          ...sanitizeClientFileMeta(fileMeta),
+          originalName: fileMeta.originalName || '',
+          mimeType: fileMeta.mimeType || '',
+          byteSize: fileMeta.byteSize,
           retentionContext: ctx,
           storageTier: 'temp',
           expiresAt: new Date(Date.now() + ttlMsForRetentionContext(ctx)),
         };
         // content giữ tên file (req.body); signed read URL gắn khi trả API/emit.
-      }
-
-      if (resolvedMessageType === 'poll') {
-        const built = buildPollFromInput(poll);
-        messageData.poll = built;
-        messageData.content = built.question;
       }
 
       const message = await messageService.createMessage(messageData);
@@ -1138,7 +867,7 @@ class MessageController {
         error?.message || error,
         error?.stack ? String(error.stack).slice(0, 500) : ''
       );
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -1176,7 +905,7 @@ class MessageController {
         data: { messages: enriched },
       });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -1228,7 +957,7 @@ class MessageController {
         },
       });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -1254,7 +983,7 @@ class MessageController {
         data,
       });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -1269,7 +998,6 @@ class MessageController {
           message: 'peerId is required',
         });
       }
-      if (rejectInvalidSearchParams(res, { q })) return;
       const result = await messageService.searchDmMessages(userId, peerId, {
         q: q || '',
         page: parseInt(page, 10) || 1,
@@ -1281,7 +1009,7 @@ class MessageController {
         data: { ...result, messages },
       });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -1296,15 +1024,6 @@ class MessageController {
           message: 'organizationId is required',
         });
       }
-      if (
-        rejectInvalidSearchParams(res, {
-          q: q.q,
-          createdAfter: q.createdAfter,
-          createdBefore: q.createdBefore,
-        })
-      ) {
-        return;
-      }
       let allowedRoomIds;
       const preResolved = parseTrustedAllowedRoomIds(q, req);
       try {
@@ -1314,6 +1033,14 @@ class MessageController {
             : await fetchAccessibleChannelIds(organizationId, req);
       } catch (e) {
         const upstream = e.response?.status || e.statusCode;
+        const body = e.response?.data || {};
+        const upstreamMsg =
+          (typeof body === 'string' && body) ||
+          body.message ||
+          body.error ||
+          (body.status === 'fail' && body.message) ||
+          e.message ||
+          '';
         // eslint-disable-next-line no-console
         console.error(
           '[searchMessages] accessible-channel-ids failed:',
@@ -1324,23 +1051,23 @@ class MessageController {
         if (e.code === 'ORG_SERVICE_CIRCUIT_OPEN' || upstream === 503) {
           return res.status(503).json({
             success: false,
-            code: safeErrorCode(e.code) || 'ORG_SERVICE_CIRCUIT_OPEN',
-            message: 'Dịch vụ tổ chức tạm thời không khả dụng. Vui lòng thử lại.',
+            code: e.code || 'ORG_SERVICE_CIRCUIT_OPEN',
+            message: upstreamMsg || 'Organization service temporarily unavailable',
           });
         }
         if (upstream === 401) {
           return sendServiceError(res, 401, {
             errorCode: 'ORG_CHANNEL_AUTH_REQUIRED',
-            messageUser: 'Vui lòng đăng nhập lại.',
-            message: 'Vui lòng đăng nhập lại.',
+            messageUser: upstreamMsg || 'Unauthorized',
+            message: upstreamMsg || 'Unauthorized',
             extra: { code: 'ORG_CHANNEL_AUTH_REQUIRED' },
           });
         }
         if (upstream === 403) {
           return sendServiceError(res, 403, {
             errorCode: 'ORG_CHANNEL_ACCESS_DENIED',
-            messageUser: 'Bạn không có quyền tìm kiếm trong tổ chức này.',
-            message: 'Bạn không có quyền tìm kiếm trong tổ chức này.',
+            messageUser: upstreamMsg || 'Access denied',
+            message: upstreamMsg || 'Access denied',
             extra: { code: 'ORG_CHANNEL_ACCESS_DENIED' },
           });
         }
@@ -1348,7 +1075,7 @@ class MessageController {
           return res.status(502).json({
             success: false,
             code: 'CHANNEL_ACCESS_ORG_ERROR',
-            message: 'Không xác minh được quyền kênh. Vui lòng thử lại.',
+            message: 'Organization service error while verifying channels',
           });
         }
         const transient =
@@ -1361,13 +1088,13 @@ class MessageController {
           return res.status(503).json({
             success: false,
             code: 'CHANNEL_ACCESS_VERIFY_FAILED',
-            message: 'Không xác minh được quyền kênh. Vui lòng thử lại.',
+            message: 'Could not verify channel access',
           });
         }
         return res.status(502).json({
           success: false,
           code: 'CHANNEL_ACCESS_ORG_ERROR',
-          message: 'Không xác minh được quyền kênh. Vui lòng thử lại.',
+          message: upstreamMsg || 'Could not verify channel access',
         });
       }
       if (!allowedRoomIds.length) {
@@ -1398,7 +1125,7 @@ class MessageController {
         hasEmbed: q.hasEmbed,
         messageType: q.messageType || null,
         mentionText: q.mentionText || null,
-        page: Math.min(MAX_PAGE, parseInt(q.page, 10) || 1),
+        page: parseInt(q.page, 10) || 1,
         limit: parseInt(q.limit, 10) || 20,
         pageToken: q.pageToken || null,
         fields: q.fields || 'summary',
@@ -1410,7 +1137,7 @@ class MessageController {
         data: { ...result, messages },
       });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -1452,7 +1179,6 @@ class MessageController {
         if (!userId) {
           return chatUnauthorized(res);
         }
-        if (rejectInvalidSearchParams(res, { q: searchQ })) return;
         const result = await messageService.searchDmMessages(userId, receiverId, {
           q: searchQ || '',
           page: parseInt(page, 10) || 1,
@@ -1502,7 +1228,11 @@ class MessageController {
         try {
           await assertCanReadInOrgChannel(organizationId, roomId, req);
         } catch (permErr) {
-          return respondOrgChannelPermError(res, permErr, 'Bạn không có quyền đọc kênh này');
+          return res.status(permErr.statusCode || 403).json({
+            success: false,
+            message: permErr.message || 'Bạn không có quyền đọc kênh này',
+            code: 'ORG_CHANNEL_FORBIDDEN',
+          });
         }
         const roomReadCursorService = require('../services/roomReadCursor.service');
         const result = await roomReadCursorService.markRoomReadUpTo({
@@ -1583,7 +1313,11 @@ class MessageController {
         try {
           await assertCanReadInOrgChannel(organizationId, roomId, req);
         } catch (permErr) {
-          return respondOrgChannelPermError(res, permErr, 'Bạn không có quyền đọc kênh này');
+          return res.status(permErr.statusCode || 403).json({
+            success: false,
+            message: permErr.message || 'Bạn không có quyền đọc kênh này',
+            code: 'ORG_CHANNEL_FORBIDDEN',
+          });
         }
         filter.roomId = roomId;
       } else {
@@ -1633,15 +1367,14 @@ class MessageController {
         },
       });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
   // Đánh dấu tin nhắn đã đọc
   async markAsRead(req, res) {
     try {
-      const messageId = requireObjectId(res, req.params.messageId, 'messageId', 'CHAT_INVALID_ID');
-      if (!messageId) return;
+      const { messageId } = req.params;
       const userId = req.user?.id || req.user?._id;
 
       const existing = await messageService.getMessageById(messageId);
@@ -1702,7 +1435,7 @@ class MessageController {
         data: result,
       });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -1716,14 +1449,13 @@ class MessageController {
       const byPeer = await messageService.countUnreadByPeer(userId);
       res.json({ success: true, data: { byPeer } });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
   async addReaction(req, res) {
     try {
-      const messageId = requireObjectId(res, req.params.messageId, 'messageId', 'CHAT_INVALID_ID');
-      if (!messageId) return;
+      const { messageId } = req.params;
       const { emoji } = req.body || {};
       const userId = req.user?.id || req.user?._id;
 
@@ -1755,73 +1487,9 @@ class MessageController {
     }
   }
 
-  async votePoll(req, res) {
-    try {
-      const messageId = requireObjectId(res, req.params.messageId, 'messageId', 'CHAT_INVALID_ID');
-      if (!messageId) return;
-      const userId = req.user?.id || req.user?._id;
-      if (!userId) return chatUnauthorized(res);
-      const optionIds = req.body?.optionIds;
-
-      const existing = await messageService.getMessageById(messageId);
-      if (!existing || existing.isDeleted || existing.isRecalled) {
-        return chatMessageNotFound(res);
-      }
-      if (!existing.roomId || existing.messageType !== 'poll') {
-        return sendServiceError(res, 400, {
-          errorCode: 'CHAT_VALIDATION_ERROR',
-          messageUser: 'Chỉ bỏ phiếu trên khảo sát kênh.',
-        });
-      }
-      await assertCanAccessMessage(existing, userId, req);
-
-      const message = await messageService.votePoll(messageId, userId, optionIds);
-      if (!message) return chatMessageNotFound(res);
-
-      const broadcast = message.poll
-        ? { ...message, poll: { ...message.poll, viewerVoteOptionIds: [] } }
-        : message;
-      await emitRealtimeEvent({
-        event: 'room:poll_updated',
-        roomId: String(message.roomId),
-        payload: broadcast,
-      });
-
-      res.json({ success: true, data: message });
-    } catch (error) {
-      if (
-        error?.errorCode === 'CHAT_POLL_CLOSED' ||
-        error?.errorCode === 'CHAT_POLL_EXPIRED' ||
-        error?.errorCode === 'CHAT_POLL_ALREADY_VOTED'
-      ) {
-        console.warn('[chat] vote denied', {
-          messageId: String(req.params.messageId || ''),
-          errorCode: error.errorCode,
-        });
-      }
-      return chatCatchError(res, error);
-    }
-  }
-
   async removeReaction(req, res) {
     try {
-      const messageId = requireObjectId(res, req.params.messageId, 'messageId', 'CHAT_INVALID_ID');
-      if (!messageId) return;
-      let decodedEmoji;
-      try {
-        decodedEmoji = decodeURIComponent(req.params.emoji || '');
-      } catch {
-        return sendServiceError(res, 400, {
-          errorCode: 'CHAT_VALIDATION_ERROR',
-          messageUser: 'Biểu cảm không hợp lệ',
-        });
-      }
-      if (decodedEmoji.length > MAX_EMOJI_LENGTH) {
-        return sendServiceError(res, 400, {
-          errorCode: 'CHAT_VALIDATION_ERROR',
-          messageUser: 'Biểu cảm không hợp lệ',
-        });
-      }
+      const { messageId, emoji } = req.params;
       const userId = req.user?.id || req.user?._id;
 
       const existing = await messageService.getMessageById(messageId);
@@ -1830,7 +1498,11 @@ class MessageController {
       }
       await assertCanAccessMessage(existing, userId, req);
 
-      const message = await messageService.removeReaction(messageId, userId, decodedEmoji);
+      const message = await messageService.removeReaction(
+        messageId,
+        userId,
+        decodeURIComponent(emoji || '')
+      );
       if (!message) {
         return chatMessageNotFound(res);
       }
@@ -1861,38 +1533,19 @@ class MessageController {
       if (!userId) return;
 
       const existing = await messageService.getMessageById(messageId);
-      if (!existing || existing.isDeleted) {
-        return chatMessageNotFound(res);
-      }
-      let asModerator = false;
-      if (isOrgRoomMessage(existing)) {
-        let perms;
-        try {
-          const { matrix } = await fetchAccessibleChannelPermissionMatrix(
-            String(existing.organizationId),
-            req
-          );
-          perms = matrix[String(existing.roomId)] || {};
-        } catch (permErr) {
-          return respondOrgChannelPermError(res, permErr, 'Bạn không có quyền xóa tin nhắn trong kênh này');
-        }
-        const isSender = resolveParticipantId(existing.senderId) === String(userId);
-        const access = resolveRoomDeleteAccess({ isSender, perms });
-        if (!access) {
+      if (existing?.organizationId && existing?.roomId) {
+        const { matrix } = await fetchAccessibleChannelPermissionMatrix(
+          String(existing.organizationId),
+          req
+        );
+        const perms = matrix[String(existing.roomId)] || {};
+        const isSender = String(existing.senderId || '') === String(userId || '');
+        if (!isSender && !Boolean(perms.canDelete)) {
           return chatForbidden(res, 'Bạn không có quyền xóa tin nhắn trong kênh này');
         }
-        asModerator = access === DELETE_ACCESS.MODERATOR;
       }
 
-      const message = await messageService.deleteMessage(messageId, userId, { asModerator });
-      if (message && asModerator) {
-        console.info('[chat] moderator delete', {
-          messageId: String(messageId),
-          organizationId: String(existing.organizationId),
-          roomId: String(existing.roomId),
-          actorId: String(userId),
-        });
-      }
+      const message = await messageService.deleteMessage(messageId, userId);
 
       if (!message) {
         return sendServiceError(res, 404, {
@@ -1910,44 +1563,21 @@ class MessageController {
         data,
       });
 
-      if (message?.roomId) {
-        await emitRealtimeEvent({
-          event: 'room:message_deleted',
-          roomId: String(message.roomId),
-          payload: data,
-        });
-      } else if (message?.receiverId) {
+      if (message?.receiverId && !message?.roomId) {
         await emitDmToParticipants('friend:message_deleted', data, {
           messageId: String(messageId),
         });
       }
-
-      try {
-        if (message?.organizationId) {
-          await publishTaskAiSyncEvent({
-            messageId: String(messageId),
-            organizationId: String(message.organizationId),
-            changeType: 'deleted',
-          });
-        }
-      } catch (e) {
-        // best-effort
-        console.warn('[chat-service] publish task-ai.sync failed:', e.message);
-      }
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
   // Thu hồi tin nhắn (Recall)
   async recallMessage(req, res) {
     try {
-      const messageId = requireObjectId(res, req.params.messageId, 'messageId', 'CHAT_INVALID_ID');
-      if (!messageId) return;
+      const { messageId } = req.params;
       const userId = req.user?.id || req.user?._id;
-
-      const blocked = await rejectRoomMutationWithoutWrite(res, req, messageId);
-      if (blocked) return;
 
       const message = await messageService.recallMessage(messageId, userId);
 
@@ -1967,55 +1597,29 @@ class MessageController {
         data,
       });
 
-      if (message?.roomId) {
-        await emitRealtimeEvent({
-          event: 'room:message_recalled',
-          roomId: String(message.roomId),
-          payload: data,
-        });
-      } else if (message?.receiverId) {
+      if (message?.receiverId && !message?.roomId) {
         await emitDmToParticipants('friend:message_recalled', data, {
           messageId: String(messageId),
         });
       }
-
-      try {
-        if (message?.organizationId) {
-          await publishTaskAiSyncEvent({
-            messageId: String(messageId),
-            organizationId: String(message.organizationId),
-            changeType: 'recalled',
-          });
-        }
-      } catch (e) {
-        console.warn('[chat-service] publish task-ai.sync failed:', e.message);
-      }
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
   // Chỉnh sửa tin nhắn
   async editMessage(req, res) {
     try {
-      const messageId = requireObjectId(res, req.params.messageId, 'messageId', 'CHAT_INVALID_ID');
-      if (!messageId) return;
-      const { content } = req.body || {};
+      const { messageId } = req.params;
+      const { content } = req.body;
       const userId = req.user?.id || req.user?._id;
 
-      if (typeof content !== 'string' || !content.trim()) {
-        return sendServiceError(res, 400, {
-          errorCode: 'CHAT_VALIDATION_ERROR',
-          messageUser: 'Nội dung tin nhắn không được để trống.',
+      if (!content || !content.trim()) {
+        return res.status(400).json({
+          success: false,
           message: 'Content is required',
         });
       }
-      if (content.length > MAX_MESSAGE_CONTENT) {
-        return respondContentTooLong(res);
-      }
-
-      const blocked = await rejectRoomMutationWithoutWrite(res, req, messageId);
-      if (blocked) return;
 
       const message = await messageService.editMessage(messageId, userId, content.trim());
 
@@ -2045,20 +1649,8 @@ class MessageController {
         message: 'Message edited successfully',
         data: payloadMessage,
       });
-
-      try {
-        if (message?.organizationId) {
-          await publishTaskAiSyncEvent({
-            messageId: String(messageId),
-            organizationId: String(message.organizationId),
-            changeType: 'edited',
-          });
-        }
-      } catch (e) {
-        console.warn('[chat-service] publish task-ai.sync failed:', e.message);
-      }
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -2073,7 +1665,7 @@ class MessageController {
       const result = await Message.deleteMany({ organizationId: oid });
       return res.json({ success: true, deletedCount: result.deletedCount });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 
@@ -2142,7 +1734,7 @@ class MessageController {
         message = await messageService.createMessage(createPayload);
       } catch (createErr) {
         // Race on unique activityEventId
-        if (eventKey && isDuplicateKeyError(createErr)) {
+        if (eventKey && /duplicate|E11000/i.test(String(createErr?.message || ''))) {
           const again = await Message.findOne({ activityEventId: eventKey }).lean();
           if (again) {
             const payloadAgain = (await attachSignedReadUrlToMessage(again)) || again;
@@ -2161,7 +1753,7 @@ class MessageController {
 
       return res.status(201).json({ success: true, data: payloadMessage });
     } catch (error) {
-      return chatCatchError(res, error);
+      return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
   }
 }

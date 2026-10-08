@@ -1,6 +1,6 @@
 /**
  * Extract plain text from CustomerDocument buffers (no new npm deps).
- * Pure for txt/xlsx; OCR optional via PADDLEOCR_URL.
+ * Pure for txt/xlsx; PDF/images are skipped (no OCR).
  */
 
 const path = require('path');
@@ -67,51 +67,9 @@ function isIntakeCorpusEnabled() {
   return raw !== '0' && raw !== 'false' && raw !== 'off';
 }
 
-function resolvePaddleOcrBaseUrl() {
-  return String(process.env.PADDLEOCR_URL || process.env.PADDLE_OCR_URL || '')
-    .trim()
-    .replace(/\/+$/, '');
-}
-
-/**
- * Optional OCR for PDF/images — best-effort; never throws.
- * @returns {Promise<{ text: string, skipped?: string }>}
- */
-async function extractViaPaddleOcr(buffer, { filename, mimeType } = {}) {
-  const base = resolvePaddleOcrBaseUrl();
-  if (!base) {
-    return { text: '', skipped: 'ocr_not_configured' };
-  }
-  try {
-    const axios = require('axios');
-    const b64 = buffer.toString('base64');
-    const res = await axios.post(
-      `${base}/ocr/predict`,
-      {
-        image: b64,
-        filename: filename || 'doc.bin',
-        mimeType: mimeType || 'application/octet-stream',
-      },
-      { timeout: 15_000, validateStatus: () => true, maxBodyLength: 25 * 1024 * 1024 }
-    );
-    if (res.status >= 400) {
-      return { text: '', skipped: `ocr_http_${res.status}` };
-    }
-    const data = res.data;
-    const text =
-      data?.text ||
-      data?.data?.text ||
-      data?.result?.text ||
-      (Array.isArray(data?.results) ? data.results.map((r) => r.text).join('\n') : '');
-    return { text: truncate(text), skipped: text ? undefined : 'ocr_empty' };
-  } catch (err) {
-    return { text: '', skipped: `ocr_error:${String(err.message || 'fail').slice(0, 80)}` };
-  }
-}
-
 /**
  * @param {Buffer} buffer
- * @param {{ filename?: string, mimeType?: string, ocrFn?: Function }} opts
+ * @param {{ filename?: string, mimeType?: string }} opts
  * @returns {Promise<{ text: string, skipped?: string, method?: string }>}
  */
 async function extractCustomerDocumentText(buffer, opts = {}) {
@@ -133,10 +91,7 @@ async function extractCustomerDocumentText(buffer, opts = {}) {
       : { text: '', skipped: 'xlsx_empty' };
   }
   if (['.pdf', '.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
-    if (typeof opts.ocrFn === 'function') {
-      return opts.ocrFn(buffer, opts);
-    }
-    return extractViaPaddleOcr(buffer, opts);
+    return { text: '', skipped: `unsupported_binary:${ext}` };
   }
   return { text: '', skipped: `unsupported_ext:${ext || 'unknown'}` };
 }
@@ -148,5 +103,4 @@ module.exports = {
   extractPlainText,
   extractWorkbookText,
   extractCustomerDocumentText,
-  extractViaPaddleOcr,
 };

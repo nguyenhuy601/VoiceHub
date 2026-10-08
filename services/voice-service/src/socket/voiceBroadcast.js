@@ -10,10 +10,6 @@ function broadcastToRoom(roomId, event, payload) {
   voiceNamespace.to(`voice:${String(roomId)}`).emit(event, payload);
 }
 
-function broadcastTranscriptPartial(roomId, payload) {
-  broadcastToRoom(roomId, 'voice:transcript:partial', payload);
-}
-
 function emitToSocketIds(socketIds, event, payload) {
   if (!voiceNamespace || !Array.isArray(socketIds)) return;
   for (const socketId of socketIds) {
@@ -26,6 +22,5 @@ function emitToSocketIds(socketIds, event, payload) {
 module.exports = {
   setVoiceNamespace,
   broadcastToRoom,
-  broadcastTranscriptPartial,
   emitToSocketIds,
 };

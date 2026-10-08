@@ -14,6 +14,7 @@ export default function ProjectIntakeForm({
   return (
     <>
       <RequirementSourceSection
+        organizationId={organizationId}
         form={wizard.form}
         patchForm={wizard.patchForm}
         onRequirementSelected={wizard.applyRequirementFile}

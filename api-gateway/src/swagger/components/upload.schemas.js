@@ -29,22 +29,7 @@ const UploadCapabilityCvMultipart = {
   },
 };
 
-const UploadRecordingMultipart = {
-  type: 'object',
-  required: ['file'],
-  description:
-    'Upload bản ghi cuộc họp (audio/video). Kiểm tra MIME/size tại voice-service meetingRecording middleware.',
-  properties: {
-    file: {
-      type: 'string',
-      format: 'binary',
-      description: 'File recording',
-    },
-  },
-};
-
 module.exports = {
   UploadAvatarMultipart,
   UploadCapabilityCvMultipart,
-  UploadRecordingMultipart,
 };

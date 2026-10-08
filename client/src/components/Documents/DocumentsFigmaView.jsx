@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CheckCircle2,
   ChevronDown,
   Clock,
   Download,
@@ -13,13 +12,10 @@ import {
   List,
   Search,
   Share2,
-  Sparkles,
   Star,
   Trash2,
   Upload,
 } from 'lucide-react';
-import DocumentOcrProgressBar from './DocumentOcrProgressBar';
-import { hasBackendCapability } from '../../config/backendCapabilities';
 import {
   FIGMA_DOC_GRID_CARD,
   FIGMA_DOC_HEADER,
@@ -40,8 +36,6 @@ const SORT_OPTION_KEYS = {
   size: 'documents.figmaSortSize',
   type: 'documents.figmaSortType',
 };
-
-const DOCUMENT_OCR_ENABLED = hasBackendCapability('documentOcrProcessing');
 
 function DocRowActions({ doc, t, onView, onDownload, onShare, onDelete, onStar }) {
   const [hovered, setHovered] = useState(false);
@@ -79,16 +73,6 @@ function DocRowActions({ doc, t, onView, onDownload, onShare, onDelete, onStar }
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-center gap-2">
           <span className="truncate text-sm font-medium text-foreground">{doc.name}</span>
-          {DOCUMENT_OCR_ENABLED && doc.ocrStatus === 'done' && (
-            <span className="shrink-0 rounded-full border border-success/20 bg-success/10 px-1.5 py-0.5 text-[0.5625rem] font-bold tracking-wide text-success">
-              OCR ✓
-            </span>
-          )}
-          {DOCUMENT_OCR_ENABLED && doc.ocrStatus === 'processing' && (
-            <span className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[0.5625rem] font-bold tracking-wide text-primary">
-              {t('documents.badgeAiProcessing')}
-            </span>
-          )}
           {doc.shared && (
             <span className="shrink-0 rounded-full border border-info/20 bg-info/10 px-1.5 py-0.5 text-[0.5625rem] font-bold text-info">
               {t('documents.badgeShared')}
@@ -160,12 +144,6 @@ function DocRowActions({ doc, t, onView, onDownload, onShare, onDelete, onStar }
         </button>
       )}
       </div>
-
-      {DOCUMENT_OCR_ENABLED && doc.ocrStatus === 'processing' && (
-        <div className="px-4 pb-3.5">
-          <DocumentOcrProgressBar progress={doc.ocrProgress} />
-        </div>
-      )}
     </div>
   );
 }
@@ -208,18 +186,12 @@ export default function DocumentsFigmaView({
     [t]
   );
 
-  const processingCount = useMemo(
-    () => (DOCUMENT_OCR_ENABLED ? documents.filter((d) => d.ocrStatus === 'processing').length : 0),
-    [documents]
-  );
-
   const filtered = useMemo(() => {
     let list = [...documents];
     const q = search.trim().toLowerCase();
     if (q) list = list.filter((d) => String(d.name || '').toLowerCase().includes(q));
     if (activeFilter === 'starred') list = list.filter((d) => d.starred);
     if (activeFilter === 'shared') list = list.filter((d) => d.shared);
-    if (DOCUMENT_OCR_ENABLED && activeFilter === 'ocr') list = list.filter((d) => d.ocrStatus === 'processing');
     return sortDocuments(list, sortKey);
   }, [documents, search, activeFilter, sortKey]);
 
@@ -236,11 +208,8 @@ export default function DocumentsFigmaView({
         label: t('documents.listFilterShared'),
         count: documents.filter((d) => d.shared).length,
       },
-      DOCUMENT_OCR_ENABLED
-        ? { key: 'ocr', label: t('documents.badgeAiProcessing'), count: processingCount }
-        : null,
-    ].filter(Boolean),
-    [documents, processingCount, t]
+    ],
+    [documents, t]
   );
 
   const triggerUpload = () => {
@@ -248,12 +217,6 @@ export default function DocumentsFigmaView({
     if (onUploadFiles) uploadRef.current?.click();
     else onUploadClick?.();
   };
-
-  useEffect(() => {
-    if (!DOCUMENT_OCR_ENABLED && activeFilter === 'ocr') {
-      setActiveFilter('all');
-    }
-  }, [activeFilter]);
 
   useEffect(() => {
     if (!showSort) return undefined;
@@ -370,20 +333,6 @@ export default function DocumentsFigmaView({
       </header>
 
       <div className="flex flex-col gap-4 px-6 py-5">
-        {DOCUMENT_OCR_ENABLED && processingCount > 0 && (
-          <div className="flex items-center gap-3.5 rounded-xl border border-primary/20 bg-gradient-to-br from-primary/7 to-info/5 px-4 py-3.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-info shadow-md shadow-primary/40">
-              <Sparkles size={17} className="text-white" />
-            </div>
-            <div className="flex-1">
-              <div className="text-sm font-bold text-primary">{t('documents.ocrBannerTitle')}</div>
-              <div className="text-[0.8125rem] text-muted-foreground">
-                {t('documents.ocrBannerDesc', { n: processingCount })}
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="flex flex-wrap items-center gap-1.5">
           {filterChips.map(({ key, label, count }) => (
             <button
@@ -449,7 +398,7 @@ export default function DocumentsFigmaView({
                 <span className="font-semibold text-primary">{t('documents.dropzoneBrowse')}</span>
               </div>
               <div className="text-xs text-muted-foreground">
-                {DOCUMENT_OCR_ENABLED ? t('documents.dropzoneHintOcr') : t('documents.dropzoneHint')}
+                {t('documents.dropzoneHint')}
               </div>
             </div>
           </div>
@@ -529,19 +478,6 @@ export default function DocumentsFigmaView({
                     </span>
                     <span className="text-[0.6875rem] text-muted-foreground">{doc.size}</span>
                   </div>
-                  {DOCUMENT_OCR_ENABLED && doc.ocrStatus === 'processing' && (
-                    <div className="h-1 overflow-hidden rounded-full bg-primary/10">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-primary to-info"
-                        style={{ width: `${Math.min(doc.ocrProgress || 0, 99)}%` }}
-                      />
-                    </div>
-                  )}
-                  {DOCUMENT_OCR_ENABLED && doc.ocrStatus === 'done' && (
-                    <span className="inline-flex items-center gap-1 text-[0.625rem] font-semibold text-success">
-                      <CheckCircle2 size={10} /> OCR
-                    </span>
-                  )}
                 </div>
               );
             })}

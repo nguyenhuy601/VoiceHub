@@ -30,11 +30,11 @@ const MODULE_TAGS = [
   { name: 'Projects', description: 'Projects, members, planning, resources' },
   { name: 'Tasks', description: 'Task boards, tasks, work aliases' },
   { name: 'Chat', description: 'Messages / chat' },
-  { name: 'Voice', description: 'Meetings, voice rooms, recordings' },
+  { name: 'Voice', description: 'Meetings, voice rooms' },
   { name: 'Documents', description: 'Documents & versions' },
   { name: 'Notifications', description: 'In-app notifications' },
   { name: 'Roles', description: 'System roles & permissions' },
-  { name: 'AI', description: 'AI tasks & summaries' },
+  { name: 'AI', description: 'AI tasks' },
 ];
 
 function buildOpenApiBase(env = process.env) {

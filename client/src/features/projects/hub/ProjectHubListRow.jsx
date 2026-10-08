@@ -15,7 +15,11 @@ import {
   resolveHubActor,
   HUB_GRID_CELL_BORDER,
 } from './projectHubUtils';
-import { LIST_TREE_INDENT_PX, depthDeltaFromPointerX } from './projectWorkTypes';
+import {
+  LIST_TREE_INDENT_PX,
+  WORK_TYPE_INDENT_PX,
+  depthDeltaFromPointerX,
+} from './projectWorkTypes';
 import { normalizePriorityConfig } from './projectPriorityConfig';
 import { planningStatusToListId } from './planningBoardStatus';
 import {

@@ -14,6 +14,3 @@ export const FIGMA_DOC_GRID_CARD =
 
 export const FIGMA_DOC_ICON =
   'flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border transition-transform duration-150 group-hover:scale-[1.03]';
-
-export const FIGMA_DOC_OCR =
-  'mt-2.5 rounded-lg border border-primary/15 bg-primary/5 px-3 py-2.5 transition-[background-color,border-color,box-shadow] duration-150 hover:border-primary/25 hover:bg-primary/10 hover:shadow-sm';

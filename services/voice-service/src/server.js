@@ -81,8 +81,6 @@ server.listen(PORT, () => {
   logger.info(`Voice Service đang chạy trên cổng ${PORT}`);
   logger.info(`Voice signaling path: ${VOICE_SIGNAL_PATH}, namespace: /voice`);
   initDependencies();
-  const { startRecordingRetentionJob } = require('./jobs/recordingRetention.job');
-  startRecordingRetentionJob();
 });
 
 process.on('SIGTERM', async () => {

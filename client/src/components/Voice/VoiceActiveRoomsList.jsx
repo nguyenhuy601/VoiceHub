@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Clock, Globe, Mic, Play, User, Users } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Clock, Globe, Mic, User, Users } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import { formatMeetingDuration } from '../../utils/voiceRecordingUtils';
 import {
@@ -29,48 +29,9 @@ function formatMeetingDate(value, locale) {
   });
 }
 
-function endedMeetingFooterLabel(meeting, t) {
-  const segments = Array.isArray(meeting.segments) ? meeting.segments : [];
-  const segmentProcessing = segments.some((s) => s.status === 'processing');
-  const recordingBusy =
-    ['processing', 'pending_upload'].includes(String(meeting.recordingStatus || '')) ||
-    segmentProcessing;
-  const summaryBusy = meeting.summaryStatus === 'processing';
-  if (recordingBusy || summaryBusy) return t('voiceRoom.recordingProcessing');
-  if (meeting.hasRecording && meeting.recordingStatus === 'failed') {
-    return t('voiceRoom.recordingFailed');
-  }
-  return t('voiceRoom.noRecording');
-}
-
-function MeetingCard({
-  meeting,
-  compact,
-  locale,
-  joinText,
-  t,
-  onJoinMeeting,
-  onListenAgain,
-  onViewSummary,
-}) {
+function MeetingCard({ meeting, compact, locale, joinText, t, onJoinMeeting }) {
   const active = meeting.active === true;
   const color = meeting.color || 'var(--primary)';
-  const canListen = !active && meeting.hasAudio === true && meeting.recordingStatus === 'ready';
-  const canSummary =
-    !active &&
-    (meeting.hasTranscript === true ||
-      meeting.hasSummary === true ||
-      meeting.summaryStatus === 'ready' ||
-      Boolean(meeting.summaryPreview));
-  const isRecordingProcessing =
-    !active &&
-    !canListen &&
-    (['processing', 'pending_upload'].includes(String(meeting.recordingStatus || '')) ||
-      (Array.isArray(meeting.segments) &&
-        meeting.segments.some((s) => s.status === 'processing')));
-  const isSummaryProcessing = !active && !canSummary && meeting.summaryStatus === 'processing';
-  const isProcessing = isRecordingProcessing || isSummaryProcessing;
-  const showHoverActions = !active && (canListen || canSummary || isProcessing);
 
   return (
     <div
@@ -120,9 +81,6 @@ function MeetingCard({
               </span>
             )}
           </div>
-          {!active && meeting.summaryPreview ? (
-            <p className="mt-1 line-clamp-2 text-[0.6875rem] text-muted-foreground">{meeting.summaryPreview}</p>
-          ) : null}
           <div className={`flex flex-col gap-0.5 text-muted-foreground ${compact ? 'text-[0.6875rem]' : 'text-xs'}`}>
             <span className="inline-flex items-center gap-1">
               <User className="h-[11px] w-[11px] shrink-0" aria-hidden />
@@ -174,47 +132,6 @@ function MeetingCard({
         ) : null}
       </div>
 
-      {!active && showHoverActions ? (
-        <div
-          className={`absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-[inherit] bg-background/80 opacity-0 backdrop-blur-[2px] transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100 ${compact ? 'mt-0' : ''}`}
-        >
-          {canListen ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onListenAgain?.(meeting);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/15 px-3 py-2 text-xs font-semibold text-primary shadow-sm hover:bg-primary/25"
-            >
-              <Play className="h-3.5 w-3.5" aria-hidden />
-              {t('voiceRoom.playRecording')}
-            </button>
-          ) : null}
-          {canSummary ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onViewSummary?.(meeting);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-sm hover:bg-muted"
-            >
-              {t('voiceRoom.viewTranscript')}
-            </button>
-          ) : null}
-          {!canListen && !canSummary && isProcessing ? (
-            <span className="text-xs text-muted-foreground">{t('voiceRoom.recordingProcessing')}</span>
-          ) : null}
-        </div>
-      ) : null}
-
-      {!active && !showHoverActions && !compact ? (
-        <div className="mt-1 shrink-0 text-center">
-          <span className="text-xs text-muted-foreground">{endedMeetingFooterLabel(meeting, t)}</span>
-        </div>
-      ) : null}
-
       {compact ? (
         <div className="flex w-full">
           {active ? (
@@ -231,42 +148,9 @@ function MeetingCard({
             >
               {joinText}
             </button>
-          ) : showHoverActions ? (
-            <div className="flex w-full gap-2">
-              {canListen ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onListenAgain?.(meeting);
-                  }}
-                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-lg border border-primary/30 bg-primary/10 text-xs font-semibold text-primary hover:bg-primary/15"
-                >
-                  <Play className="h-3.5 w-3.5" aria-hidden />
-                  {t('voiceRoom.playRecording')}
-                </button>
-              ) : null}
-              {canSummary ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onViewSummary?.(meeting);
-                  }}
-                  className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-lg border border-border bg-muted/50 text-xs font-semibold text-foreground hover:bg-muted"
-                >
-                  {t('voiceRoom.viewTranscript')}
-                </button>
-              ) : null}
-              {!canListen && !canSummary && isProcessing ? (
-                <span className="flex h-8 w-full items-center justify-center text-[0.6875rem] text-muted-foreground">
-                  {t('voiceRoom.recordingProcessing')}
-                </span>
-              ) : null}
-            </div>
           ) : (
             <span className="w-full text-center text-[0.6875rem] text-muted-foreground">
-              {endedMeetingFooterLabel(meeting, t)}
+              {t('voiceRoom.meetingEnded')}
             </span>
           )}
         </div>
@@ -278,8 +162,6 @@ function MeetingCard({
 export default function VoiceActiveRoomsList({
   meetings = [],
   onJoinMeeting,
-  onListenAgain,
-  onViewSummary,
   joinLabel,
   emptyLabel,
   sectionTitle,
@@ -341,8 +223,6 @@ export default function VoiceActiveRoomsList({
             joinText={joinText}
             t={t}
             onJoinMeeting={onJoinMeeting}
-            onListenAgain={onListenAgain}
-            onViewSummary={onViewSummary}
           />
         ))}
       </div>

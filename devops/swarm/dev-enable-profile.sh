@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Bật profile dev đầy đủ trên Docker Desktop (~9.5GB VM):
-# - Deploy / refresh stack app (docker-stack.yml) — không gồm ollama/paddleocr
+# - Deploy / refresh stack app (docker-stack.yml) — không gồm ollama
 # - Gỡ leftover Swarm ollama + paddleocr (nếu còn từ stack cũ)
-# - Compose extra: ollama, paddleocr, minio, meilisearch, voice-recording-worker
+# - Compose extra: ollama, minio, meilisearch, qdrant
 #
 # Usage:
 #   bash devops/swarm/dev-enable-profile.sh
 #   bash devops/swarm/dev-enable-profile.sh --skip-deploy   # chỉ gỡ leftover + compose
-#   bash devops/swarm/dev-enable-profile.sh --ai-only       # chỉ ollama + paddle (compose)
+#   bash devops/swarm/dev-enable-profile.sh --ai-only       # chỉ ollama (compose)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -37,7 +37,7 @@ if [[ -n "$NODE_ID" ]]; then
 fi
 
 if [[ "$SKIP_DEPLOY" != "1" ]]; then
-  echo "[2/6] Deploy stack app (ollama/paddleocr chỉ chạy Compose extra)..."
+  echo "[2/6] Deploy stack app (ollama chỉ chạy Compose extra)..."
   SWARM_USE_LOCAL_IMAGES="${SWARM_USE_LOCAL_IMAGES:-1}" \
     STACK_FILE="${STACK_FILE:-docker-stack.yml}" \
     bash "$ROOT/devops/swarm/deploy-stack.sh"
@@ -54,10 +54,10 @@ if ! docker network inspect "$NET" >/dev/null 2>&1; then
 fi
 
 if [[ "$AI_ONLY" == "1" ]]; then
-  echo "[4/6] Compose extra — chỉ AI (ollama + paddleocr)..."
-  "${COMPOSE_EXTRA[@]}" up -d ollama paddleocr-service
+  echo "[4/6] Compose extra — chỉ AI (ollama)..."
+  "${COMPOSE_EXTRA[@]}" up -d ollama
 else
-  echo "[4/6] Compose extra (ollama, paddleocr, minio, meilisearch, voice-recording-worker)..."
+  echo "[4/6] Compose extra (ollama, minio, meilisearch, qdrant)..."
   "${COMPOSE_EXTRA[@]}" up -d --build
 fi
 
@@ -97,5 +97,4 @@ echo "=== Container memory (top) ==="
 docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}" 2>/dev/null | head -45
 echo ""
 echo "[OK] Profile dev đã bật."
-echo "  Ollama/Paddle: Compose voicehub-extra (không nằm trong Swarm)."
-echo "  Tắt OCR khi thiếu RAM: docker compose -f docker-compose.swarm-extra.yml stop paddleocr-service"
+echo "  Ollama: Compose voicehub-extra (không nằm trong Swarm)."

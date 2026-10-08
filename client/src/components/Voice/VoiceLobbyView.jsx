@@ -22,14 +22,9 @@ import {
   figmaVoiceLobbyJoinBtn,
 } from './figmaVoiceClasses';
 import VoiceActiveRoomsList from './VoiceActiveRoomsList';
-import { hasBackendCapability } from '../../config/backendCapabilities';
 import { useAppStrings } from '../../locales/appStrings';
 
-const VOICE_TRANSCRIPT_ENABLED = hasBackendCapability('voiceTranscriptMinutes');
-const DEFAULT_FEATURES = [
-  'HD 720p',
-  ...(VOICE_TRANSCRIPT_ENABLED ? ['AI Transcribe'] : []),
-];
+const DEFAULT_FEATURES = ['HD 720p'];
 const HISTORY_OPEN_KEY = 'vh.voice.historyOpen';
 
 function readHistoryOpen() {
@@ -54,8 +49,6 @@ export default function VoiceLobbyView({
   rooms = [],
   meetings = rooms,
   onJoinRoom,
-  onListenAgain,
-  onViewSummary,
   locale = 'vi-VN',
   createTitle,
   createDescription,
@@ -198,8 +191,6 @@ export default function VoiceLobbyView({
                 <VoiceActiveRoomsList
                   meetings={meetings}
                   onJoinMeeting={onJoinRoom}
-                  onListenAgain={onListenAgain}
-                  onViewSummary={onViewSummary}
                   locale={locale}
                   compact
                   showPagination

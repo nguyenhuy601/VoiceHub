@@ -12,7 +12,6 @@ const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const { invalidateSignedReadCacheForStoragePath } = require('../utils/attachSignedReadUrls');
 const { toClientMessage } = require('../utils/messageDto');
-const { buildDeleteFilter } = require('../utils/messageMutationPolicy');
 const {
   pageTokenFilter,
   decodePageToken,
@@ -25,14 +24,6 @@ const {
   syncAfterDelete,
 } = require('../search/messageSearchSync');
 const { mergeMongoFilter } = require('../utils/contextCallVisibility');
-const {
-  createChatError,
-  toChatError,
-  MAX_PAGE,
-  MAX_EMOJI_LENGTH,
-  MAX_REACTIONS_PER_USER,
-} = require('../utils/chatErrorMap');
-const { assertVoteSelection } = require('../utils/pollPolicy');
 const { visibilityMongoClauseForViewer } = require('./projectMembershipReadModel');
 
 const MONGO_UNAVAILABLE_MSG = 'Service temporarily unavailable. Please try again later.';
@@ -73,23 +64,6 @@ function normalizeMongoError(error) {
     return new Error(MONGO_UNAVAILABLE_MSG);
   }
   return error;
-}
-
-function assertValidEmoji(emoji) {
-  const em = String(emoji || '').trim();
-  if (!em) {
-    throw createChatError(400, 'CHAT_VALIDATION_ERROR', 'Biểu cảm là bắt buộc');
-  }
-  if (em.length > MAX_EMOJI_LENGTH) {
-    throw createChatError(400, 'CHAT_VALIDATION_ERROR', 'Biểu cảm không hợp lệ');
-  }
-  return em;
-}
-
-function toServiceError(op, error) {
-  const err = normalizeMongoError(error);
-  console.error(`[ChatService] ${op} failed:`, err?.message || err);
-  return toChatError(err);
 }
 
 function encryptContentIfEnabled(plain) {
@@ -184,7 +158,9 @@ class MessageService {
 
       return toClientMessage(message);
     } catch (error) {
-      throw toServiceError('createMessage', error);
+      const err = normalizeMongoError(error);
+      console.error('[ChatService] createMessage failed:', err?.message || err);
+      throw new Error(`Error creating message: ${err.message}`);
     }
   }
 
@@ -193,7 +169,7 @@ class MessageService {
     const c1 = String(callerId || '').trim();
     const c2 = String(calleeId || '').trim();
     if (!c1 || !c2) {
-      throw createChatError(400, 'CHAT_VALIDATION_ERROR', 'callerId và calleeId là bắt buộc');
+      throw new Error('callerId and calleeId are required');
     }
     const content = JSON.stringify({
       v: 1,
@@ -232,7 +208,8 @@ class MessageService {
 
       return toClientMessage(message);
     } catch (error) {
-      throw toServiceError('getMessageById', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error getting message: ${err.message}`);
     }
   }
 
@@ -254,7 +231,8 @@ class MessageService {
         isRecalled: { $ne: true },
       });
     } catch (error) {
-      throw toServiceError('countIncomingMessagesInRange', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error counting incoming messages: ${err.message}`);
     }
   }
 
@@ -274,7 +252,8 @@ class MessageService {
         isRecalled: { $ne: true },
       });
     } catch (error) {
-      throw toServiceError('countUnreadIncoming', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error counting unread messages: ${err.message}`);
     }
   }
 
@@ -345,7 +324,8 @@ class MessageService {
 
       return unread;
     } catch (error) {
-      throw toServiceError('findUnreadOrgRoomMessages', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error listing unread org room messages: ${err.message}`);
     }
   }
 
@@ -363,10 +343,7 @@ class MessageService {
         viewerOrganizationId = null,
       } = options;
       const lim = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
-      const dtoOpts = {
-        fields: fields === 'full' ? 'full' : 'summary',
-        viewerId: viewerUserId || '',
-      };
+      const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
 
       let queryFilter = filter;
       if (viewerUserId) {
@@ -397,7 +374,7 @@ class MessageService {
         };
       }
 
-      const pageNum = Math.min(MAX_PAGE, Math.max(1, parseInt(page, 10) || 1));
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
       if (pageNum > 1) {
         console.warn(
           '[chat-service] GET /messages: query `page` is deprecated; use `pageToken` + `nextPageToken`.'
@@ -453,7 +430,8 @@ class MessageService {
 
       return result;
     } catch (error) {
-      throw toServiceError('getMessages', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error getting messages: ${err.message}`);
     }
   }
 
@@ -492,7 +470,8 @@ class MessageService {
 
       return toClientMessage(message);
     } catch (error) {
-      throw toServiceError('markAsRead', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error marking message as read: ${err.message}`);
     }
   }
 
@@ -526,7 +505,8 @@ class MessageService {
         lastReadMessageId: last?._id ? String(last._id) : null,
       };
     } catch (error) {
-      throw toServiceError('markConversationAsRead', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error marking conversation as read: ${err.message}`);
     }
   }
 
@@ -558,14 +538,16 @@ class MessageService {
       }
       return byPeer;
     } catch (error) {
-      throw toServiceError('countUnreadByPeer', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error counting unread by peer: ${err.message}`);
     }
   }
 
   async addReaction(messageId, userId, emoji) {
     try {
       await ensureMongoReady();
-      const em = assertValidEmoji(emoji);
+      const em = String(emoji || '').trim();
+      if (!em) throw new Error('emoji is required');
 
       const uid = mongoose.Types.ObjectId.isValid(userId)
         ? new mongoose.Types.ObjectId(String(userId))
@@ -592,14 +574,6 @@ class MessageService {
       if (idx >= 0) {
         return toClientMessage(msg);
       }
-      const ownCount = reactions.filter((r) => String(r.userId) === me).length;
-      if (ownCount >= MAX_REACTIONS_PER_USER) {
-        throw createChatError(
-          400,
-          'CHAT_REACTION_LIMIT',
-          `Mỗi người tối đa ${MAX_REACTIONS_PER_USER} biểu cảm trên một tin nhắn`
-        );
-      }
       reactions.push({ emoji: em, userId: uid, createdAt: new Date() });
 
       const updated = await Message.findByIdAndUpdate(
@@ -613,87 +587,16 @@ class MessageService {
 
       return toClientMessage(updated);
     } catch (error) {
-      throw toServiceError('addReaction', error);
-    }
-  }
-
-  /**
-   * Bỏ phiếu khảo sát kênh. userId chỉ từ caller đã auth; không nhận counts từ client.
-   * Cập nhật một document (pipeline) để không mất phiếu đồng thời.
-   */
-  async votePoll(messageId, userId, optionIds) {
-    try {
-      await ensureMongoReady();
-      const msg = await Message.findById(messageId);
-      if (!msg || msg.isDeleted || msg.isRecalled) return null;
-      if (msg.messageType !== 'poll' || !msg.poll) {
-        throw createChatError(400, 'CHAT_VALIDATION_ERROR', 'Tin nhắn không phải khảo sát.');
-      }
-      if (!msg.roomId) {
-        throw createChatError(400, 'CHAT_INVALID_MESSAGE_TYPE', 'Khảo sát chỉ dùng trên kênh.');
-      }
-      const ids = assertVoteSelection(msg.poll, optionIds, userId);
-      const uid = mongoose.Types.ObjectId.isValid(userId)
-        ? new mongoose.Types.ObjectId(String(userId))
-        : userId;
-      const now = new Date();
-      const filter = {
-        _id: messageId,
-        messageType: 'poll',
-        isDeleted: { $ne: true },
-        isRecalled: { $ne: true },
-        'poll.closed': { $ne: true },
-        $or: [
-          { 'poll.closesAt': { $exists: false } },
-          { 'poll.closesAt': null },
-          { 'poll.closesAt': { $gt: now } },
-        ],
-      };
-      if (!msg.poll.allowMulti) {
-        // $ne trên field mảng khớp nếu còn phần tử khác — phải loại đúng user đã vote.
-        filter['poll.votes'] = { $not: { $elemMatch: { userId: uid } } };
-      }
-      const updated = await Message.findOneAndUpdate(
-        filter,
-        [
-          {
-            $set: {
-              'poll.votes': {
-                $concatArrays: [
-                  {
-                    $filter: {
-                      input: { $ifNull: ['$poll.votes', []] },
-                      as: 'v',
-                      cond: { $ne: ['$$v.userId', uid] },
-                    },
-                  },
-                  [{ userId: uid, optionIds: ids, at: now }],
-                ],
-              },
-            },
-          },
-        ],
-        { new: true }
-      );
-      if (!updated) {
-        const fresh = await Message.findById(messageId);
-        assertVoteSelection(fresh?.poll, optionIds, userId);
-        throw createChatError(400, 'CHAT_POLL_ALREADY_VOTED', 'Bạn đã bỏ phiếu.');
-      }
-
-      const redis = getRedisClient();
-      if (redis) await redis.del(`message:${messageId}`);
-
-      return toClientMessage(updated, { viewerId: String(uid) });
-    } catch (error) {
-      throw toServiceError('votePoll', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error adding reaction: ${err.message}`);
     }
   }
 
   async removeReaction(messageId, userId, emoji) {
     try {
       await ensureMongoReady();
-      const em = assertValidEmoji(emoji);
+      const em = String(emoji || '').trim();
+      if (!em) throw new Error('emoji is required');
 
       const uid = mongoose.Types.ObjectId.isValid(userId)
         ? new mongoose.Types.ObjectId(String(userId))
@@ -727,15 +630,19 @@ class MessageService {
 
       return toClientMessage(updated);
     } catch (error) {
-      throw toServiceError('removeReaction', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error removing reaction: ${err.message}`);
     }
   }
 
-  async deleteMessage(messageId, userId, { asModerator = false } = {}) {
+  async deleteMessage(messageId, userId) {
     try {
       await ensureMongoReady();
       const message = await Message.findOneAndUpdate(
-        buildDeleteFilter({ messageId, userId, asModerator }),
+        {
+          _id: messageId,
+          senderId: userId,
+        },
         {
           isDeleted: true,
           deletedAt: new Date(),
@@ -752,14 +659,14 @@ class MessageService {
       void syncAfterDelete(message);
 
       const out = toClientMessage(message);
-      const deletedStoragePath = message?.fileMeta?.storagePath;
-      if (deletedStoragePath) {
-        await invalidateSignedReadCacheForStoragePath(deletedStoragePath);
+      if (out?.fileMeta?.storagePath) {
+        await invalidateSignedReadCacheForStoragePath(out.fileMeta.storagePath);
       }
 
       return out;
     } catch (error) {
-      throw toServiceError('deleteMessage', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error deleting message: ${err.message}`);
     }
   }
 
@@ -797,7 +704,8 @@ class MessageService {
 
       return toClientMessage(message);
     } catch (error) {
-      throw toServiceError('recallMessage', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error recalling message: ${err.message}`);
     }
   }
 
@@ -831,7 +739,8 @@ class MessageService {
 
       return { deletedCount: result.deletedCount || 0 };
     } catch (error) {
-      throw toServiceError('deleteDirectMessagesBetweenUsers', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error deleting DM messages: ${err.message}`);
     }
   }
 
@@ -842,9 +751,6 @@ class MessageService {
       const oldMessage = await Message.findById(messageId);
       const senderStr = String(oldMessage?.senderId?._id || oldMessage?.senderId || '');
       if (!oldMessage || !userId || senderStr !== String(userId)) {
-        return null;
-      }
-      if (oldMessage.isDeleted || oldMessage.isRecalled) {
         return null;
       }
 
@@ -872,7 +778,8 @@ class MessageService {
 
       return toClientMessage(message);
     } catch (error) {
-      throw toServiceError('editMessage', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error editing message: ${err.message}`);
     }
   }
 
@@ -904,7 +811,8 @@ class MessageService {
       }
       return message ? toClientMessage(message) : null;
     } catch (error) {
-      throw toServiceError('promoteFileForTask', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error promoting file: ${err.message}`);
     }
   }
 
@@ -945,10 +853,7 @@ class MessageService {
         fields = 'summary',
         viewerUserId = null,
       } = params;
-      const dtoOpts = {
-        fields: fields === 'full' ? 'full' : 'summary',
-        viewerId: viewerUserId || '',
-      };
+      const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
 
       const oid = mongoose.Types.ObjectId.isValid(organizationId)
         ? new mongoose.Types.ObjectId(String(organizationId))
@@ -1014,7 +919,7 @@ class MessageService {
 
       const filter = { $and: parts };
 
-      const pageNum = Math.min(MAX_PAGE, Math.max(1, parseInt(page, 10) || 1));
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
       const lim = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
 
       if (!enc) {
@@ -1102,7 +1007,8 @@ class MessageService {
         nextPageToken: nextPageTokenFromDocs(paged, { hasMore }),
       };
     } catch (error) {
-      throw toServiceError('searchOrgMessages', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error searching messages: ${err.message}`);
     }
   }
 
@@ -1111,10 +1017,7 @@ class MessageService {
     try {
       await ensureMongoReady();
       const { q, page = 1, limit = 30, pageToken, fields = 'summary' } = options;
-      const dtoOpts = {
-        fields: fields === 'full' ? 'full' : 'summary',
-        viewerId: userId || '',
-      };
+      const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
       if (!userId || !peerId) {
         return { messages: [], total: 0, currentPage: 1, totalPages: 0 };
       }
@@ -1145,7 +1048,7 @@ class MessageService {
       }
 
       const filter = { $and: parts };
-      const pageNum = Math.min(MAX_PAGE, Math.max(1, parseInt(page, 10) || 1));
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
       const lim = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
 
       if (!enc) {
@@ -1212,7 +1115,8 @@ class MessageService {
         nextPageToken: null,
       };
     } catch (error) {
-      throw toServiceError('searchDmMessages', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Error searching DM messages: ${err.message}`);
     }
   }
 
@@ -1264,112 +1168,11 @@ class MessageService {
       }
       return { scanned: msgs.length, deleted, skipped: false };
     } catch (error) {
-      throw toServiceError('runStorageGcOnce', error);
+      const err = normalizeMongoError(error);
+      throw new Error(`Storage GC: ${err.message}`);
     }
   }
 
-  /**
-   * Nội bộ: xuất lịch sử kênh org (plaintext) cho summary-service / worker.
-   */
-  async exportOrgThreadInternal(params = {}) {
-    try {
-      await ensureMongoReady();
-      const {
-        organizationId,
-        roomId,
-        sinceMessageId,
-        limit,
-        unreadOnly,
-        readerId,
-      } = params;
-
-      if (!organizationId || !roomId) {
-        const err = new Error('organizationId and roomId are required');
-        err.statusCode = 400;
-        throw err;
-      }
-
-      const toOid = (id) =>
-        mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(String(id)) : id;
-
-      const maxCap = Math.min(
-        Math.max(parseInt(process.env.CHAT_INTERNAL_EXPORT_MAX_MESSAGES || '500', 10) || 500, 1),
-        2000
-      );
-      const lim = Math.min(Math.max(parseInt(limit, 10) || 200, 1), maxCap);
-
-      const filter = {
-        organizationId: toOid(organizationId),
-        roomId: toOid(roomId),
-        isDeleted: { $ne: true },
-        isRecalled: { $ne: true },
-      };
-
-      if (unreadOnly === true || unreadOnly === 'true' || unreadOnly === '1') {
-        if (!readerId) {
-          const err = new Error('readerId is required when unreadOnly is set');
-          err.statusCode = 400;
-          throw err;
-        }
-        filter.isRead = false;
-        filter.senderId = { $ne: toOid(readerId) };
-      }
-
-      if (sinceMessageId && mongoose.Types.ObjectId.isValid(String(sinceMessageId))) {
-        const sinceMsg = await Message.findById(sinceMessageId).select('createdAt _id').lean();
-        if (sinceMsg) {
-          filter.$or = [
-            { createdAt: { $gt: sinceMsg.createdAt } },
-            { createdAt: sinceMsg.createdAt, _id: { $gt: sinceMsg._id } },
-          ];
-        }
-      }
-
-      const batch = await Message.find(filter)
-        .sort({ createdAt: -1, _id: -1 })
-        .limit(lim + 1)
-        .exec();
-
-      const hasMore = batch.length > lim;
-      const slice = hasMore ? batch.slice(0, lim) : batch;
-      const chronological = [...slice].reverse();
-
-      for (const m of chronological) {
-        await maybeMigrateMessageContent(m);
-      }
-
-      const messages = chronological.map((m) => ({
-        _id: String(m._id),
-        senderId: String(m.senderId),
-        content: this._formatExportContent(m),
-        messageType: m.messageType || 'text',
-        createdAt: m.createdAt,
-      }));
-
-      return {
-        messages,
-        hasMore,
-        messageCount: messages.length,
-        firstMessageId: messages[0]?._id || null,
-        lastMessageId: messages[messages.length - 1]?._id || null,
-        exportedAt: new Date(),
-      };
-    } catch (error) {
-      throw toServiceError('exportOrgThreadInternal', error);
-    }
-  }
-
-  _formatExportContent(m) {
-    const type = String(m?.messageType || 'text');
-    if (type === 'image' || type === 'file') {
-      const name = String(m?.fileMeta?.originalName || m?.content || 'tệp').trim();
-      return `[đính kèm: ${name}]`;
-    }
-    if (type === 'system' || type === 'call_log') {
-      return unwrapPlaintext(m.content) || `[${type}]`;
-    }
-    return unwrapPlaintext(m.content) || '';
-  }
 }
 
 module.exports = new MessageService();
