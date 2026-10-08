@@ -1527,7 +1527,7 @@ const OrganizationMainPanel = ({
     openProjectSetupWizard({
       organizationId: String(orgIdForTask || organizationId || ''),
     });
-  }, [initialTaskBoardTeam]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialTaskBoardTeam]);
 
   const membershipRoleNorm = String(
     taskWorkspaceScope?.membershipRole ||

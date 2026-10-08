@@ -137,7 +137,6 @@ export default function ProjectRoleListPanel({ orgId }) {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   const onReorder = async (orderedIds) => {

@@ -55,18 +55,15 @@ export default function ArtifactDetailPanel({
   const serverStamp = artifactServerStamp(artifact);
   const visibleStructured = useMemo(
     () => listVisibleStructuredFields(kind, artifact),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [kind, artifactId, serverStamp, artifact?.structured]
   );
   const visibleTop = useMemo(
     () => listVisibleTopFields(kind, artifact),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [kind, artifactId, serverStamp, artifact?.title, artifact?.summary, artifact?.body]
   );
   const reviewTimeline = useMemo(() => listArtifactReviewTimeline(artifact), [artifact]);
   const baseline = useMemo(
     () => buildArtifactFormState(artifact, kind),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [artifactId, serverStamp, kind]
   );
 

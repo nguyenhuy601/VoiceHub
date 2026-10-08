@@ -111,7 +111,6 @@ export default function ResourcePlannerPanel({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   const load = useCallback(async () => {

@@ -114,7 +114,7 @@ export default function useCreateProjectWizard({
     setIntakeImportSessionId('');
     setValidationAttempted(false);
     setSubmitPhase('idle');
-  }, [organizationId, resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [organizationId, resetKey]);
 
   useEffect(() => {
     if (!organizationId) return;

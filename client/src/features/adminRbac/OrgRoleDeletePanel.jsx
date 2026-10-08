@@ -56,7 +56,6 @@ export default function OrgRoleDeletePanel({ orgId, embedded = false }) {
 
   useEffect(() => {
     loadRole();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, roleId]);
 
   const del = async () => {
