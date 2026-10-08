@@ -33,7 +33,7 @@ if ! docker node ls >/dev/null 2>&1; then
 fi
 
 echo "==> Security env (staging)"
-VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
+VOICEHUB_ENV_CHECK=staging bash devops/scripts/security/check-security-env.sh
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   echo "==> Build images (voicehub-*:latest)"

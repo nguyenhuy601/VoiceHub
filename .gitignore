@@ -23,7 +23,12 @@ docs/*
 !docs/MIGRATION.md
 !docs/STRUCTURE.md
 !docs/LICENSE
+# Local/dev generated scripts (repo-root ./scripts/; pattern also matches **/scripts/)
 scripts/
+# CI/CD devops scripts are source-controlled (un-ignore parents so Git can traverse)
+!devops/
+!devops/scripts/
+!devops/scripts/**
 
 # ========================
 # Build Outputs

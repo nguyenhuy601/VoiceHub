@@ -202,7 +202,7 @@ UI admin: `/app/admin/*` (hub, users, structure, RBAC, …).
 | **`CORS_ORIGIN`** | Whitelist origin (có `https://voicehub.local` khi dev LAN) |
 | **`SINGLE_ORG_MODE`** | Một công ty / hạn chế tạo org công khai |
 
-Runbook: [`docs/security-runbook.md`](docs/security-runbook.md). Sau đổi secret: `bash devops/scripts/check-security-env.sh`.
+Runbook: [`docs/security-runbook.md`](docs/security-runbook.md). Sau đổi secret: `bash devops/scripts/security/check-security-env.sh`.
 
 ---
 
@@ -212,7 +212,7 @@ Runbook: [`docs/security-runbook.md`](docs/security-runbook.md). Sau đổi secr
 
 ```bash
 # .env root + service .env đã có (SINGLE_ORG_MODE, token, …)
-VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh   # hoặc env tương ứng
+VOICEHUB_ENV_CHECK=staging bash devops/scripts/security/check-security-env.sh   # hoặc env tương ứng
 bash devops/swarm/build-local-images.sh <service-name>   # chỉ service vừa sửa
 bash devops/swarm/deploy-stack.sh
 # hoặc: docker service update --force --update-parallelism 1 --update-order start-first voicehub_<service>

@@ -22,7 +22,7 @@
 bash devops/scripts/rotate-staging-secrets.sh --apply
 
 # 2. Verify env
-VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
+VOICEHUB_ENV_CHECK=staging bash devops/scripts/security/check-security-env.sh
 
 # 3. Redeploy (ví dụ Swarm)
 docker stack deploy -c docker-stack.yml voicehub
