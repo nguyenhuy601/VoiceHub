@@ -1,14 +1,12 @@
 # Swarm Env & Secrets Inventory
 
-## Rotate (S0)
+## Verify env (S0)
 
 ```bash
-bash devops/scripts/rotate-staging-secrets.sh --dry-run
-bash devops/scripts/rotate-staging-secrets.sh --apply
-VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
+VOICEHUB_ENV_CHECK=staging bash devops/scripts/security/check-security-env.sh
 ```
 
-Output overlay: `devops/swarm/.env` (gitignored). Stack vẫn đọc root `.env` + per-service `.env` qua `docker-stack.yml` `env_file`.
+Cập nhật secret thủ công trên host (root `.env` + per-service `.env`). Stack đọc qua `docker-stack.yml` `env_file`.
 
 ## Core shared
 - `JWT_SECRET`, `JWT_REFRESH_SECRET`
@@ -29,13 +27,12 @@ Output overlay: `devops/swarm/.env` (gitignored). Stack vẫn đọc root `.env`
 - `FIREBASE_PRIVATE_KEY`
 - `FIREBASE_STORAGE_BUCKET`
 
-## AI / OCR
+## AI / LLM
 - `OLLAMA_BASE_URL`, `OLLAMA_MODEL`
-- `PADDLEOCR_BASE_URL`
 - `LLM_PROVIDER`
 
-## Webhook
-- `WEBHOOK_SECRET`
+## Notification (S2S)
+- `NOTIFICATION_INTERNAL_TOKEN`
 - `NOTIFICATION_SERVICE_URL`
 
 ## Swarm secret recommendation

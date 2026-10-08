@@ -1,45 +1,20 @@
-import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAppStrings } from '../../locales/appStrings';
-import AdminEntityOpsHubShell from '../../components/admin/AdminEntityOpsHubShell';
-import AdminComingSoonEmbed from '../../components/admin/AdminComingSoonEmbed';
+import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
+import { AdminUserPanelShell } from '../../components/adminUsers/adminUserPanelUi';
 import AccountLoginHistoryPanel from '../adminAccounts/AccountLoginHistoryPanel';
-
-const TAB_SESSIONS = 'sessions';
-const TAB_DEVICES = 'devices';
-const TAB_HISTORY = 'history';
 
 export default function SecuritySessionsHubPanel({ orgId }) {
   const { t } = useAppStrings();
-
-  const tabs = useMemo(
-    () => [
-      { id: TAB_SESSIONS, label: t('adminDomains.security.sessions') },
-      { id: TAB_DEVICES, label: t('adminDomains.security.devices') },
-      { id: TAB_HISTORY, label: t('adminDomains.security.loginHistory') },
-    ],
-    [t]
-  );
+  const [searchParams] = useSearchParams();
+  const userId = String(searchParams.get('userId') || '').trim();
 
   return (
-    <AdminEntityOpsHubShell
-      title={t('adminDomains.security.sessionsHub')}
-      hint={t('adminSecurity.sessionsHubHint')}
-      orgId={orgId}
-      tabs={tabs}
-      defaultTab={TAB_SESSIONS}
-      pickerHint={t('adminSecurity.sessionsPickerHint')}
-    >
-      {({ activeTab }) => {
-        if (activeTab === TAB_HISTORY) {
-          return <AccountLoginHistoryPanel orgId={orgId} embedded />;
-        }
-        return (
-          <AdminComingSoonEmbed
-            title={tabs.find((tab) => tab.id === activeTab)?.label || t('adminDomains.security.sessionsHub')}
-            hint={t('adminSecurity.tabComingSoonHint')}
-          />
-        );
-      }}
-    </AdminEntityOpsHubShell>
+    <AdminUserPanelShell title={t('adminDomains.security.loginHistory')} hint={t('adminSecurity.sessionsHubHint')} wide>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start">
+        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminSecurity.sessionsPickerHint')} />
+        <AccountLoginHistoryPanel orgId={orgId} embedded />
+      </div>
+    </AdminUserPanelShell>
   );
 }

@@ -1,15 +1,20 @@
-import { useEffect } from 'react';
-import { X } from 'lucide-react';
+import { FileText } from 'lucide-react';
+import Modal from '../Shared/Modal';
 import { useAppStrings } from '../../locales/appStrings';
+
+const MOTION_BTN =
+  'motion-safe:transition-colors motion-reduce:transition-none';
 
 /**
  * Xác nhận gửi file/ảnh trước khi upload (DM / org).
+ * Dùng Shared Modal (Esc + focus trap).
  */
 export default function ChatUploadPreviewModal({
   open,
   file,
   previewUrl,
-  isDarkMode,
+  /** @deprecated Theme tokens tự thích ứng; giữ prop để tương thích caller cũ. */
+  isDarkMode: _isDarkMode,
   onCancel,
   onConfirm,
   confirmLabel,
@@ -17,45 +22,40 @@ export default function ChatUploadPreviewModal({
   title,
 }) {
   const { t } = useAppStrings();
-  const confirmText = confirmLabel || t('friendChat.send');
-  const cancelText = cancelLabel || t('nav.cancel');
-  const titleText = title || t('friendChat.uploadPreviewTitle');
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => {
-      if (e.key === 'Escape') onCancel?.();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onCancel]);
+  const confirmText = confirmLabel || t('chat.uploadPreview.confirm');
+  const cancelText = cancelLabel || t('chat.uploadPreview.cancel');
+  const titleText = title || t('chat.uploadPreview.title');
 
-  if (!open || !file) return null;
-
-  const panel = isDarkMode
-    ? 'border-white/10 bg-[#12151f] text-white'
-    : 'border-slate-200 bg-white text-slate-900';
-  const muted = isDarkMode ? 'text-[#8e9297]' : 'text-slate-500';
-
-  return (
-    <>
+  const footer = (
+    <div className="flex justify-end gap-2">
       <button
         type="button"
-        className="fixed inset-0 z-[200] bg-black/50"
-        aria-label={cancelText}
         onClick={onCancel}
-      />
-      <div
-        className={`fixed left-1/2 top-1/2 z-[210] w-[min(420px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border p-4 shadow-2xl ${panel}`}
-        role="dialog"
-        aria-modal="true"
+        className={`rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${MOTION_BTN}`}
       >
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-bold">{titleText}</h3>
-          <button type="button" onClick={onCancel} className={`rounded-lg p-1.5 ${muted} hover:opacity-80`}>
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="mb-3 max-h-[50vh] overflow-auto rounded-xl border border-white/10 bg-black/20 p-2">
+        {cancelText}
+      </button>
+      <button
+        type="button"
+        onClick={onConfirm}
+        className={`rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${MOTION_BTN}`}
+      >
+        {confirmText}
+      </button>
+    </div>
+  );
+
+  return (
+    <Modal
+      isOpen={Boolean(open && file)}
+      onClose={onCancel}
+      title={titleText}
+      size="sm"
+      footer={footer}
+      bodyClassName="space-y-3"
+    >
+      {file ? (
+        <div className="max-h-[50vh] overflow-auto rounded-xl border border-border bg-muted/40 p-2">
           {previewUrl ? (
             <img
               src={previewUrl}
@@ -63,34 +63,16 @@ export default function ChatUploadPreviewModal({
               className="mx-auto max-h-[40vh] max-w-full rounded-lg object-contain"
             />
           ) : (
-            <div className={`flex flex-col items-center justify-center gap-2 py-8 ${muted}`}>
-              <span className="text-4xl">📎</span>
-              <p className="max-w-full truncate px-2 text-center text-sm font-medium text-inherit">
+            <div className="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
+              <FileText className="h-10 w-10" strokeWidth={1.75} aria-hidden />
+              <p className="max-w-full truncate px-2 text-center text-sm font-medium text-foreground">
                 {file.name}
               </p>
               <p className="text-xs">{(file.size / 1024).toFixed(1)} KB</p>
             </div>
           )}
         </div>
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold ${
-              isDarkMode ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-100 hover:bg-slate-200'
-            }`}
-          >
-            {cancelText}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500"
-          >
-            {confirmText}
-          </button>
-        </div>
-      </div>
-    </>
+      ) : null}
+    </Modal>
   );
 }

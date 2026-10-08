@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../context/AuthContext';
 import { projectAPI, DEFAULT_PROJECT_ROLES } from '../../../services/api/projectAPI';
+import { requirementAPI } from '../../../services/api/requirementAPI';
 import { useAppStrings } from '../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import {
   buildCreateBoardPayload,
-  validateCreateProjectIdentity,
   PROJECT_TYPES,
   PROJECT_CATEGORIES,
   PROJECT_PRIORITIES,
@@ -19,14 +19,22 @@ import {
   WIZARD_PO_ROLE,
   firstSeedMemberWithRole,
 } from './projectWizardConstants';
-import { isProjectDateRangeInvalid } from '../hub/projectHubUtils';
 import {
   INTAKE_LEAD_ROLE_KEYS,
   emptyIntakeSlots,
   slotsToSeedMembers,
   intakeSlotsFromSeedMembers,
-  intakeSlotFilled,
 } from './projectWizardIntakeRoles';
+import {
+  emptyIntakeFiles,
+  buildIntakeUploadQueue,
+  countIntakeFiles,
+} from './projectWizardInputFiles';
+import { mapProjectIntakeDraftToForm } from './mapProjectIntakeDraftToForm';
+import {
+  buildIntakeFieldErrors,
+  firstIntakeFieldAnchor,
+} from '../intake/projectIntakeValidation';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -38,6 +46,9 @@ function emptyForm(initial = {}) {
   const category = PROJECT_CATEGORIES.includes(String(initial.category || '').toLowerCase())
     ? String(initial.category).toLowerCase()
     : 'internal';
+  const analysisMode = ['manual', 'ai'].includes(String(initial.analysisMode || '').toLowerCase())
+    ? String(initial.analysisMode).toLowerCase()
+    : '';
   return {
     title,
     description: String(initial.description || initial.body || ''),
@@ -61,6 +72,10 @@ function emptyForm(initial = {}) {
     startDate: initial.startDate ? String(initial.startDate).slice(0, 10) : '',
     customerName: String(initial.customerName || initial.customer?.name || ''),
     customerCompany: String(initial.customerCompany || initial.customer?.company || ''),
+    analysisMode,
+    intakeFiles: initial.intakeFiles
+      ? { ...emptyIntakeFiles(), ...initial.intakeFiles }
+      : emptyIntakeFiles(),
   };
 }
 
@@ -80,12 +95,26 @@ export default function useCreateProjectWizard({
   const [form, setForm] = useState(() => emptyForm(initialValues || {}));
   const [catalogRoles, setCatalogRoles] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [intakeBusy, setIntakeBusy] = useState(false);
+  /** idle | parsing | autofilled | kept_manual — chip file ≠ autofill success */
+  const [requirementIntakeStatus, setRequirementIntakeStatus] = useState('idle');
+  /** Session from Customer Raw preview (optional link on intake-draft). */
+  const [intakeImportSessionId, setIntakeImportSessionId] = useState('');
+  /** Sau lần submit đầu — hiển thị inline validation thay vì toast field-level. */
+  const [validationAttempted, setValidationAttempted] = useState(false);
+  /** idle | creating_project | creating_pack | uploading | opening_workspace */
+  const [submitPhase, setSubmitPhase] = useState('idle');
 
   useEffect(() => {
     setStep(0);
     setSlideDir('forward');
     setForm(emptyForm(initialValues || {}));
-  }, [organizationId, resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    setIntakeBusy(false);
+    setRequirementIntakeStatus('idle');
+    setIntakeImportSessionId('');
+    setValidationAttempted(false);
+    setSubmitPhase('idle');
+  }, [organizationId, resetKey]);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -122,49 +151,113 @@ export default function useCreateProjectWizard({
     });
   }, []);
 
+  const applyRequirementFile = useCallback(
+    async (file) => {
+      if (!file) {
+        setRequirementIntakeStatus('idle');
+        setIntakeImportSessionId('');
+        return;
+      }
+      if (!organizationId) return;
+      const name = String(file.name || '').toLowerCase();
+      if (!name.endsWith('.xlsx')) {
+        setRequirementIntakeStatus('kept_manual');
+        setIntakeImportSessionId('');
+        toast.error(
+          t('adminTasks.wizardIntakeNeedXlsx') ||
+            'Chọn file Customer Requirement Raw (.xlsx) để tự điền.'
+        );
+        return;
+      }
+      setIntakeBusy(true);
+      setRequirementIntakeStatus('parsing');
+      try {
+        const res = await requirementAPI.previewImport(organizationId, file);
+        const data = unwrap(res);
+        const sessionId = String(data?.sessionId || '').trim();
+        if (sessionId) setIntakeImportSessionId(sessionId);
+        const templateType = String(data?.templateType || '')
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '');
+        const isCustomerRaw =
+          templateType === 'customerraw' ||
+          templateType === 'customerrequirementraw' ||
+          templateType.endsWith('customerraw') ||
+          templateType.includes('customerrequirementraw');
+        if (!isCustomerRaw) {
+          setRequirementIntakeStatus('kept_manual');
+          toast.error(
+            t('adminTasks.wizardIntakeNotCustomerRaw') ||
+              'File không phải Customer Requirement Raw — giữ file, nhập tay các trường.'
+          );
+          return;
+        }
+        const draft = data?.projectIntakeDraft;
+        if (!draft || typeof draft !== 'object') {
+          setRequirementIntakeStatus('kept_manual');
+          toast.error(
+            t('adminTasks.wizardIntakeNoDraft') ||
+              'Không đọc được thông tin từ file — nhập tay các trường.'
+          );
+          return;
+        }
+        setForm((prev) => {
+          const partial = mapProjectIntakeDraftToForm(prev, draft);
+          if (!Object.keys(partial).length) return prev;
+          return { ...prev, ...partial };
+        });
+        setRequirementIntakeStatus('autofilled');
+        toast.success(
+          t('adminTasks.wizardIntakeAutofillOk') || 'Đã điền thông tin từ Customer Requirement Raw.'
+        );
+      } catch (error) {
+        setRequirementIntakeStatus('kept_manual');
+        setIntakeImportSessionId('');
+        toast.error(
+          resolveApiErrorMessage(error, {
+            t,
+            fallback:
+              t('adminTasks.wizardIntakeAutofillFail') ||
+              'Không tự điền được (thiếu quyền tạo dự án / import Customer Raw, hoặc file lỗi) — nhập tay vẫn được.',
+          })
+        );
+      } finally {
+        setIntakeBusy(false);
+      }
+    },
+    [organizationId, t]
+  );
+
+  const fieldErrors = buildIntakeFieldErrors(form, t);
+
   const validateStep = useCallback(
     (stepIndex) => {
       const id = PROJECT_WIZARD_STEPS[stepIndex];
-      if (id === 'identity') {
-        const err = validateCreateProjectIdentity({
-          title: form.title,
-          category: form.category || 'internal',
-          customerName: form.customerName,
-        });
-        if (err === 'title') {
-          toast.error(t('adminTasks.createNeedTitle'));
-          return false;
-        }
-        if (err === 'customer') {
-          toast.error(t('adminTasks.wizardNeedCustomer') || 'Nhập tên khách hàng.');
-          return false;
-        }
-        if (isProjectDateRangeInvalid(form.startDate, form.dueDate)) {
-          toast.error(t('adminTasks.wizardProjectDateRangeInvalid'));
-          return false;
-        }
-        return true;
-      }
-      if (id === 'roster') {
-        const slots = { ...emptyIntakeSlots(), ...(form.intakeSlots || {}) };
-        if (!intakeSlotFilled(slots, 'product_owner')) {
-          toast.error(t('adminTasks.wizardNeedPo'));
-          return false;
-        }
-        if (!intakeSlotFilled(slots, 'project_manager')) {
-          toast.error(t('adminTasks.wizardNeedPm'));
-          return false;
-        }
-        if (!intakeSlotFilled(slots, 'business_analyst')) {
-          toast.error(t('adminTasks.wizardRosterNeedBa'));
-          return false;
-        }
-        return true;
+      if (id === 'intake') {
+        const errors = buildIntakeFieldErrors(form, t);
+        return Object.keys(errors).length === 0;
       }
       return true;
     },
     [form, t]
   );
+
+  const focusFirstIntakeError = useCallback((errors) => {
+    const anchor = firstIntakeFieldAnchor(errors);
+    if (!anchor) return;
+    requestAnimationFrame(() => {
+      const el = document.getElementById(anchor);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (el && typeof el.focus === 'function') {
+        try {
+          el.focus({ preventScroll: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  }, []);
 
   const goNext = useCallback(() => {
     if (!validateStep(step)) return;
@@ -269,6 +362,7 @@ export default function useCreateProjectWizard({
         members: slotsToSeedMembers({ ...emptyIntakeSlots(), ...(form.intakeSlots || {}) }),
         relatedDepartmentIds: [],
         projectManagerId: pm?.userId,
+        analysisMode: form.analysisMode || 'manual',
       },
       { organizationId, creatorUserId, scopeLabel }
     );
@@ -277,34 +371,143 @@ export default function useCreateProjectWizard({
   }, [form, organizationId, creatorUserId, scopeLabel]);
 
   const submit = useCallback(async () => {
-    if (!validateStep(0) || !validateStep(1)) return null;
+    setValidationAttempted(true);
+    const errors = buildIntakeFieldErrors(form, t);
+    if (Object.keys(errors).length) {
+      focusFirstIntakeError(errors);
+      return null;
+    }
+    for (let i = 0; i < PROJECT_WIZARD_STEPS.length; i += 1) {
+      if (!validateStep(i)) return null;
+    }
     if (!organizationId || busy) return null;
     setBusy(true);
+    setSubmitPhase('creating_project');
     try {
       const { payload } = buildPayload();
-      const res = await projectAPI.create(payload);
-      const created = unwrap(res);
-      const boardId = String(created?.defaultBoardId || created?.board?._id || '').trim();
-      const projectId = String(created?._id || created?.projectId || '').trim();
+      const projectRes = await projectAPI.create(payload, { skipPermissionDeniedToast: true });
+      const project = unwrap(projectRes);
+      const projectId = String(project?._id || project?.projectId || project?.id || '').trim();
+      const defaultBoardId = String(
+        project?.defaultBoardId || project?.board?._id || project?.boardId || ''
+      ).trim();
+      if (!projectId) {
+        toast.error(t('adminTasks.createFail') || 'Không tạo được dự án nháp.');
+        return null;
+      }
 
-      toast.success(t('adminTasks.createSuccess'));
-      const result = {
-        ...created,
-        _id: projectId,
+      setSubmitPhase('creating_pack');
+      const reqFile = form.intakeFiles?.requirement;
+      const draftRes = await requirementAPI.createIntakeDraft(organizationId, {
+        title: form.title,
+        description: form.description || form.body || '',
+        customerName: form.customerName,
+        startDate: form.startDate || null,
+        dueDate: form.dueDate || null,
+        priority: form.priority || 'Medium',
+        sourceFileName: reqFile?.name || '',
+        importSessionId: intakeImportSessionId || undefined,
+        analysisMode: form.analysisMode || 'manual',
         projectId,
-        defaultBoardId: boardId,
-        board: created?.board,
-        deliveryPhase: created?.deliveryPhase || 'requirement_analysis',
+      });
+      const pack = unwrap(draftRes);
+      const packId = String(pack?._id || pack?.id || '').trim();
+      if (!packId) {
+        toast.error(t('adminTasks.createFail') || 'Không tạo được requirement pack.');
+        return {
+          projectId,
+          defaultBoardId,
+          packId: '',
+          project,
+          analysisMode: form.analysisMode || 'manual',
+          _hitlIncomplete: true,
+        };
+      }
+
+      const queue = buildIntakeUploadQueue(form.intakeFiles);
+      if (queue.length) setSubmitPhase('uploading');
+      let failCount = 0;
+      for (const item of queue) {
+        try {
+          await requirementAPI.uploadPackCustomerDocument(organizationId, packId, item.file, {
+            docClass: item.docClass,
+            notes: `wizard-intake:${item.group}`,
+          });
+        } catch {
+          failCount += 1;
+        }
+      }
+      if (failCount > 0) {
+        toast.error(
+          t('adminTasks.wizardUploadPartialFail', { n: failCount }) ||
+            `${failCount} file tải lên thất bại — thử lại ở Customer Documents.`
+        );
+        return {
+          projectId,
+          defaultBoardId,
+          packId,
+          pack,
+          project,
+          analysisMode: form.analysisMode || 'manual',
+          _intakeUpload: { total: queue.length, failed: failCount },
+          _hitlIncomplete: true,
+        };
+      }
+
+      toast.success(
+        t('adminTasks.wizardDraftProjectCreated') ||
+          'Đã tạo dự án nháp (Phase 1) — tiếp tục Gate 1 / AI Planning.'
+      );
+
+      const counts = countIntakeFiles(form.intakeFiles);
+      const result = {
+        projectId,
+        defaultBoardId,
+        packId,
+        pack,
+        project,
+        analysisMode: form.analysisMode || 'manual',
+        _intakeUpload: { total: counts.total, failed: 0 },
       };
-      onCreated?.(result);
+      setSubmitPhase('opening_workspace');
+      await onCreated?.(result);
       return result;
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.createFail') }));
+      const status = Number(error?.status || error?.response?.status || 0);
+      toast.error(
+        resolveApiErrorMessage(error, {
+          t,
+          fallback:
+            status === 403
+              ? t('taskBoard.createProjectDenied')
+              : t('adminTasks.createFail'),
+        })
+      );
       return null;
     } finally {
       setBusy(false);
+      setSubmitPhase('idle');
     }
-  }, [validateStep, organizationId, busy, buildPayload, onCreated, t]);
+  }, [
+    validateStep,
+    focusFirstIntakeError,
+    form,
+    organizationId,
+    busy,
+    onCreated,
+    t,
+    buildPayload,
+    form.intakeFiles,
+    form.analysisMode,
+    form.title,
+    form.description,
+    form.body,
+    form.customerName,
+    form.startDate,
+    form.dueDate,
+    form.priority,
+    intakeImportSessionId,
+  ]);
 
   return {
     steps: PROJECT_WIZARD_STEPS,
@@ -315,6 +518,13 @@ export default function useCreateProjectWizard({
     patchForm,
     catalogRoles,
     busy,
+    submitPhase,
+    intakeBusy,
+    requirementIntakeStatus,
+    validationAttempted,
+    fieldErrors,
+    applyRequirementFile,
+    focusFirstIntakeError,
     goNext,
     goBack,
     submit,

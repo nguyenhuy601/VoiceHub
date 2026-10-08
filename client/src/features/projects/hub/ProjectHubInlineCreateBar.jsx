@@ -91,7 +91,7 @@ export default function ProjectHubInlineCreateBar({
         type="button"
         disabled={busy}
         onClick={() => setOpen(true)}
-        className="mt-1 rounded-md px-1.5 py-1 text-left text-xs font-semibold text-muted-foreground hover:text-foreground disabled:opacity-50"
+        className="mt-1 rounded-md px-1.5 py-1 text-left text-xs font-semibold text-muted-foreground transition-colors motion-reduce:transition-none hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
       >
         {t('workspace.projectHubBacklogCreate')}
       </button>
@@ -107,7 +107,7 @@ export default function ProjectHubInlineCreateBar({
           <div ref={menuRef} className="relative shrink-0">
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-md border border-primary/60 px-1.5 py-1"
+              className="inline-flex items-center gap-1 rounded-md border border-primary/60 px-1.5 py-1 transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-haspopup="listbox"
               aria-expanded={menuOpen}
               aria-label={t('workspace.projectHubBacklogTypeMenuAria')}
@@ -179,7 +179,7 @@ export default function ProjectHubInlineCreateBar({
             ) : null}
           </div>
           <input
-            className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+            className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder={placeholder}
@@ -199,8 +199,9 @@ export default function ProjectHubInlineCreateBar({
           <button
             type="button"
             disabled={!canSubmit}
+            aria-busy={busy || undefined}
             onClick={submit}
-            className="rounded-md bg-primary px-2.5 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+            className="rounded-md bg-primary px-2.5 py-1.5 text-xs font-semibold text-primary-foreground transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             {t('workspace.projectHubPlanAdd')}
           </button>

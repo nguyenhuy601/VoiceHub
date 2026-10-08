@@ -36,7 +36,7 @@ export default function BranchDeptPanel({ orgId, embedded = false }) {
     <AdminUserFormCard title={t('adminOrg.branchDeptTableTitle')}>
       {structureError ? (
         <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
             {structureError}
           </p>
           <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadStructure()}>
@@ -49,7 +49,7 @@ export default function BranchDeptPanel({ orgId, embedded = false }) {
         <div className="overflow-hidden rounded-xl border border-border">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-muted/30 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border bg-muted text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3">{t('adminOrg.colName')}</th>
                 <th className="px-4 py-3">{t('adminOrg.colDivision')}</th>
                 <th className="px-4 py-3">{t('adminOrg.colTeams')}</th>
@@ -57,7 +57,7 @@ export default function BranchDeptPanel({ orgId, embedded = false }) {
             </thead>
             <tbody>
               {deptRows.map((row) => (
-                <tr key={unitId(row)} className="border-b border-border/50">
+                <tr key={unitId(row)} className="border-b border-border">
                   <td className="px-4 py-3 font-medium text-foreground">{unitName(row)}</td>
                   <td className="px-4 py-3 text-muted-foreground">{row.divisionName || '—'}</td>
                   <td className="px-4 py-3 text-muted-foreground">{row.teamCount ?? 0}</td>

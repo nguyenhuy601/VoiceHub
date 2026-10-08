@@ -102,6 +102,19 @@ export function nextRootLimit(current, total, pageSize = LIST_ROOT_PAGE_SIZE) {
   return Math.min(tot, cur + step);
 }
 
+/**
+ * Cần hiện thêm root khi khung đã layout và chưa có thanh kéo.
+ * clientHeight 0 là chưa layout — không được coi là đã tràn (nếu không, effect dừng sớm và không chạy lại).
+ */
+export function listViewportNeedsMoreRoots({ scrollHeight, clientHeight, hasMoreRoots }) {
+  if (!hasMoreRoots) return false;
+  const ch = Number(clientHeight);
+  const sh = Number(scrollHeight);
+  if (!Number.isFinite(ch) || ch <= 0) return false;
+  if (!Number.isFinite(sh) || sh < 0) return false;
+  return sh <= ch + 1;
+}
+
 /** Expand đẩy content không đổi scrollTop → không near-bottom trừ khi user scroll. */
 export function isScrollNearBottom(el, thresholdPx = 80) {
   if (!el) return false;

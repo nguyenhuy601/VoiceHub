@@ -16,7 +16,7 @@ PR code diffs (use code-review).
 
 ## Related Rules
 
-- `.cursor/rules/role-solution-architect.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `researcher`)
 
 ## Input
 

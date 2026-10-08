@@ -3,12 +3,17 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import {
+  AdminDenseMobileList,
   AdminUserFormCard,
   AdminUserPanelShell,
-  adminDangerBtnClass,
-  adminPrimaryBtnClass,
+  adminManageLinkClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import AdminSortableRoleList, {
   ADMIN_ROLE_LIST_GRID,
 } from '../../components/adminUsers/AdminSortableRoleList';
@@ -24,30 +29,28 @@ import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 
 const ORG_ROLE_MANAGE_HUB = '/app/admin/rbac/org-roles/manage';
 
-function SystemBadge({ isSystem }) {
+function SystemBadge({ isSystem, label }) {
   if (!isSystem) return null;
-  return <span className="ml-1.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700">System</span>;
+  return <span className="ml-1.5 rounded bg-success-bg px-1.5 py-0.5 text-[10px] text-success">{label}</span>;
 }
 
-function EnabledBadge({ role }) {
+function EnabledBadge({ role, enabledLabel, legacyLabel }) {
   if (role.legacyOutsideMaster) {
     return (
-      <span className="ml-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-300">
-        Legacy
+      <span className="ml-1.5 rounded bg-warning-bg px-1.5 py-0.5 text-[10px] text-warning">
+        {legacyLabel}
       </span>
     );
   }
   if (role.enabled === true || role.isSystem) {
     return (
-      <span className="ml-1.5 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">
-        Enabled
+      <span className="ml-1.5 rounded bg-primary-subtle px-1.5 py-0.5 text-[10px] text-primary">
+        {enabledLabel}
       </span>
     );
   }
   return null;
 }
-
-const actionBtn = '!px-2 !py-1 text-xs whitespace-nowrap';
 
 export default function OrgRoleListPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -81,7 +84,6 @@ export default function OrgRoleListPanel({ orgId }) {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   const nonSystemRoles = useMemo(() => roles.filter((r) => !r.isSystem), [roles]);
@@ -121,19 +123,39 @@ export default function OrgRoleListPanel({ orgId }) {
       </div>
 
       <AdminUserFormCard title={t('adminDomains.rbac.orgRoleCatalog')}>
-        {loading ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        {loading && !roles.length ? (
+          <AdminListSkeleton />
         ) : loadError ? (
-          <div className="space-y-3">
-            <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              {loadError}
-            </p>
-            <button type="button" className={adminPrimaryBtnClass()} onClick={() => load()}>
-              {t('adminRbac.retry')}
-            </button>
-          </div>
+          <AdminLoadErrorState message={loadError} onRetry={() => load()} />
+        ) : !roles.length ? (
+          <AdminEmptyState message={t('adminRbac.orgRoleDirectoryEmpty')} />
         ) : (
           <>
+            <AdminDenseMobileList
+              items={roles}
+              getKey={(role) => String(role._id || role.id || role.key)}
+              ariaLabel={t('adminDomains.rbac.orgRoleCatalog')}
+              renderTitle={(role) => role.label || role.key}
+              renderMeta={(role) =>
+                [role.key, role.isSystem ? t('adminRbac.systemBadge') : null, role.description || null]
+                  .filter(Boolean)
+                  .join(' · ')
+              }
+              renderActions={
+                canUpdateOrgRole
+                  ? (role) =>
+                      role.isSystem ? null : (
+                        <Link
+                          to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'edit')}
+                          className={adminManageLinkClass()}
+                        >
+                          {t('adminDomains.rbac.orgRoleManageHub')}
+                        </Link>
+                      )
+                  : undefined
+              }
+            />
+            <div className="hidden md:block" aria-busy={loading || reordering}>
             <AdminSortableRoleList
               items={roles}
               disabled={reordering || !canUpdateOrgRole}
@@ -142,7 +164,7 @@ export default function OrgRoleListPanel({ orgId }) {
               gridClassName={ADMIN_ROLE_LIST_GRID}
               headerCells={
                 <>
-                  <span>Key</span>
+                  <span>{t('adminRbac.roleKeyField')}</span>
                   <span>{t('adminRbac.roleLabelField')}</span>
                   <span>{t('adminRbac.roleDescriptionField')}</span>
                   <span className="text-right">{t('adminOrg.colActions')}</span>
@@ -152,19 +174,23 @@ export default function OrgRoleListPanel({ orgId }) {
                 <>
                   <div className="min-w-0 self-center text-sm">
                     <span className="break-all font-medium">{role.key}</span>
-                    <SystemBadge isSystem={role.isSystem} />
-                    <EnabledBadge role={role} />
+                    <SystemBadge isSystem={role.isSystem} label={t('adminRbac.systemBadge')} />
+                    <EnabledBadge
+                      role={role}
+                      enabledLabel={t('adminRbac.enabledBadge')}
+                      legacyLabel={t('adminRbac.legacyBadge')}
+                    />
                   </div>
                   <div className="min-w-0 self-center text-sm">
                     <div className="truncate" title={role.label}>
                       {role.label}
                     </div>
                     {role.legacyOutsideMaster ? (
-                      <div className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+                      <div className="mt-0.5 text-[10px] text-warning">
                         {t('adminRbac.legacyOutsideMasterHint')}
                       </div>
                     ) : !hasLayerPrefix(role.label, 'org') ? (
-                      <div className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+                      <div className="mt-0.5 text-[10px] text-warning">
                         {t('adminRbac.listLegacyNameHint')}
                       </div>
                     ) : null}
@@ -175,41 +201,24 @@ export default function OrgRoleListPanel({ orgId }) {
                   >
                     {role.description || '—'}
                   </div>
-                  <div className="flex flex-wrap justify-end gap-1.5 self-center">
-                    {!role.isSystem ? (
-                      <>
-                        {canUpdateOrgRole ? (
-                          <Link
-                            to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'edit')}
-                            className={adminSecondaryBtnClass(actionBtn)}
-                          >
-                            {t('adminRbac.edit')}
-                          </Link>
-                        ) : null}
-                        {canUpdateOrgRole ? (
-                          <Link
-                            to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'delete')}
-                            className={adminDangerBtnClass(actionBtn)}
-                          >
-                            {t('adminRbac.delete')}
-                          </Link>
-                        ) : null}
-                        {canUpdateOrgRole ? (
-                          <Link
-                            to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'assign')}
-                            className={adminSecondaryBtnClass(actionBtn)}
-                          >
-                            {t('adminRbac.roleActionAssign')}
-                          </Link>
-                        ) : null}
-                      </>
+                  <div className="flex justify-end self-center">
+                    {role.isSystem ? (
+                      <span className="text-xs text-muted-foreground">{t('adminRbac.systemBadge')}</span>
+                    ) : canUpdateOrgRole ? (
+                      <Link
+                        to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'edit')}
+                        className={adminManageLinkClass('whitespace-nowrap')}
+                      >
+                        {t('adminDomains.rbac.orgRoleManageHub')}
+                      </Link>
                     ) : (
-                      <span className="text-xs text-muted-foreground">System</span>
+                      <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </div>
                 </>
               )}
             />
+            </div>
             {!nonSystemRoles.length && roles.length ? (
               <p className="mt-3 text-sm text-muted-foreground">{t('adminRbac.orgRoleCatalogResolve')}</p>
             ) : null}

@@ -17,7 +17,7 @@ Unit-only logic changes.
 ## Related Rules
 
 - `.cursor/rules/voicehub-constraints.mdc`
-- `.cursor/rules/role-frontend.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `implementer`)
 
 ## Input
 

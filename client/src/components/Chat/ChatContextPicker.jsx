@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { projectAPI } from '../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload, unwrapTaskBoardDetailPayload } from '../../services/api/taskAPI';
 import { displayIssueKey } from '../../features/projects/hub/projectHubUtils';
 
 const PICKER_TABS = [
-  { id: 'work', labelKey: 'orgPanel.contextPickerTabWork' },
-  { id: 'cr', labelKey: 'orgPanel.contextPickerTabCr' },
-  { id: 'project', labelKey: 'orgPanel.contextPickerTabProject' },
+  { id: 'work', labelKey: 'chat.contextPicker.tabWork' },
+  { id: 'cr', labelKey: 'chat.contextPicker.tabCr' },
+  { id: 'project', labelKey: 'chat.contextPicker.tabProject' },
 ];
 
 const MAX_PROJECTS = 8;
 const MAX_ITEMS = 40;
+const MOTION_BTN =
+  'motion-safe:transition-colors motion-reduce:transition-none';
 
 function projectRowId(row) {
   return String(row?.projectId || row?._id || '').trim();
@@ -33,7 +35,7 @@ function cardsFromBoardDetail(detail) {
  */
 export default function ChatContextPicker({
   open = false,
-  isDarkMode = true,
+  isDarkMode: _isDarkMode = true,
   t,
   projects = [],
   loadingProjects = false,
@@ -41,6 +43,8 @@ export default function ChatContextPicker({
   onSelectProject,
   onSelectRef,
 }) {
+  const titleId = useId();
+  const tablistId = useId();
   const [tab, setTab] = useState('work');
   const [query, setQuery] = useState('');
   const [workItems, setWorkItems] = useState([]);
@@ -151,116 +155,147 @@ export default function ChatContextPicker({
   );
   const filteredProjects = useMemo(
     () =>
-      (Array.isArray(projects) ? projects : []).filter(
-        (row) => matchesQuery(row.name || row.title || row.projectCode, query)
+      (Array.isArray(projects) ? projects : []).filter((row) =>
+        matchesQuery(row.name || row.title || row.projectCode, query)
       ),
     [projects, query]
   );
 
   if (!open) return null;
 
-  const panelCls = isDarkMode
-    ? 'border-white/10 bg-[#1a1d21] text-slate-100'
-    : 'border-slate-200 bg-white text-slate-900';
-  const itemCls = 'flex w-full flex-col px-3 py-2 text-left text-sm hover:bg-muted';
+  const itemCls = `flex w-full flex-col px-3 py-2 text-left text-sm text-foreground hover:bg-muted ${MOTION_BTN}`;
 
   return (
     <div
-      className={`absolute bottom-full left-0 z-40 mb-1 w-full max-w-sm overflow-hidden rounded-xl border shadow-lg ${panelCls}`}
+      className="absolute bottom-full left-0 z-40 mb-1 w-full max-w-sm overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-lg"
+      role="dialog"
+      aria-labelledby={titleId}
     >
-      <div className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {t('orgPanel.contextPickerTitle')}
+      <div
+        id={titleId}
+        className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+      >
+        {t('chat.contextPicker.title')}
       </div>
-      <div className="flex border-b border-border px-1">
-        {PICKER_TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`flex-1 px-2 py-1.5 text-[11px] font-semibold ${
-              tab === item.id ? 'text-foreground' : 'text-muted-foreground'
-            }`}
-            onClick={() => setTab(item.id)}
-          >
-            {t(item.labelKey)}
-          </button>
-        ))}
+      <div
+        id={tablistId}
+        role="tablist"
+        aria-label={t('chat.contextPicker.tabsLabel')}
+        className="flex border-b border-border px-1"
+      >
+        {PICKER_TABS.map((item) => {
+          const selected = tab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              id={`${tablistId}-${item.id}`}
+              className={`flex-1 px-2 py-1.5 text-[11px] font-semibold ${MOTION_BTN} ${
+                selected ? 'text-foreground' : 'text-muted-foreground'
+              }`}
+              onClick={() => setTab(item.id)}
+            >
+              {t(item.labelKey)}
+            </button>
+          );
+        })}
       </div>
       <div className="px-2 py-1.5">
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={t('orgPanel.contextPickerSearchPh')}
-          className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm outline-none"
+          placeholder={t('chat.contextPicker.searchPlaceholder')}
+          aria-label={t('chat.contextPicker.searchPlaceholder')}
+          className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </div>
-      <div className="max-h-44 overflow-y-auto">
+      <div
+        className="max-h-44 overflow-y-auto"
+        role="tabpanel"
+        aria-labelledby={`${tablistId}-${tab}`}
+      >
         {tab === 'project' ? (
           loadingProjects ? (
-            <div className="px-3 py-3 text-sm text-muted-foreground">{t('orgPanel.contextCallLoading')}</div>
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              {t('chat.contextPicker.loading')}
+            </div>
           ) : filteredProjects.length ? (
-            filteredProjects.map((row) => {
-              const pid = projectRowId(row);
-              if (!pid) return null;
-              return (
-                <button
-                  key={pid}
-                  type="button"
-                  className={itemCls}
-                  onClick={() =>
-                    onSelectProject?.({
-                      _id: pid,
-                      projectId: pid,
-                      name: row.name || row.title || pid,
-                      projectCode: row.projectCode || '',
-                      defaultBoardId: row.defaultBoardId || '',
-                    })
-                  }
-                >
-                  <span className="truncate font-medium">{row.name || row.title || pid}</span>
-                </button>
-              );
-            })
+            <ul role="listbox" aria-label={t('chat.contextPicker.tabProject')}>
+              {filteredProjects.map((row) => {
+                const pid = projectRowId(row);
+                if (!pid) return null;
+                return (
+                  <li key={pid} role="option">
+                    <button
+                      type="button"
+                      className={itemCls}
+                      onClick={() =>
+                        onSelectProject?.({
+                          _id: pid,
+                          projectId: pid,
+                          name: row.name || row.title || pid,
+                          projectCode: row.projectCode || '',
+                          defaultBoardId: row.defaultBoardId || '',
+                        })
+                      }
+                    >
+                      <span className="truncate font-medium">{row.name || row.title || pid}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           ) : (
-            <div className="px-3 py-3 text-sm text-muted-foreground">{t('orgPanel.contextCallEmpty')}</div>
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              {t('chat.contextPicker.empty')}
+            </div>
           )
         ) : null}
         {tab === 'work' ? (
           loadingCatalog ? (
-            <div className="px-3 py-3 text-sm text-muted-foreground">{t('orgPanel.contextPickerLoading')}</div>
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              {t('chat.contextPicker.loading')}
+            </div>
           ) : filteredWork.length ? (
-            filteredWork.map((item) => (
-              <button
-                key={`${item.projectId}-${item.id}`}
-                type="button"
-                className={itemCls}
-                onClick={() => onSelectRef?.(item)}
-              >
-                <span className="font-mono text-[11px] font-semibold">{item.label}</span>
-                <span className="truncate text-muted-foreground">{item.title}</span>
-              </button>
-            ))
+            <ul role="listbox" aria-label={t('chat.contextPicker.tabWork')}>
+              {filteredWork.map((item) => (
+                <li key={`${item.projectId}-${item.id}`} role="option">
+                  <button type="button" className={itemCls} onClick={() => onSelectRef?.(item)}>
+                    <span className="font-mono text-[11px] font-semibold">{item.label}</span>
+                    <span className="truncate text-muted-foreground">{item.title}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <div className="px-3 py-3 text-sm text-muted-foreground">{t('orgPanel.contextPickerWorkEmpty')}</div>
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              {t('chat.contextPicker.empty')}
+            </div>
           )
         ) : null}
         {tab === 'cr' ? (
           loadingCatalog ? (
-            <div className="px-3 py-3 text-sm text-muted-foreground">{t('orgPanel.contextPickerLoading')}</div>
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              {t('chat.contextPicker.loading')}
+            </div>
           ) : filteredCr.length ? (
-            filteredCr.map((item) => (
-              <button
-                key={`${item.projectId}-${item.id}`}
-                type="button"
-                className={itemCls}
-                onClick={() => onSelectRef?.(item)}
-              >
-                <span className="font-mono text-[11px] font-semibold">{item.label}</span>
-                <span className="truncate text-muted-foreground">{item.title}</span>
-              </button>
-            ))
+            <ul role="listbox" aria-label={t('chat.contextPicker.tabCr')}>
+              {filteredCr.map((item) => (
+                <li key={`${item.projectId}-${item.id}`} role="option">
+                  <button type="button" className={itemCls} onClick={() => onSelectRef?.(item)}>
+                    <span className="font-mono text-[11px] font-semibold">{item.label}</span>
+                    <span className="truncate text-muted-foreground">{item.title}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <div className="px-3 py-3 text-sm text-muted-foreground">{t('orgPanel.contextPickerCrEmpty')}</div>
+            <div className="px-3 py-3 text-sm text-muted-foreground">
+              {t('chat.contextPicker.empty')}
+            </div>
           )
         ) : null}
       </div>

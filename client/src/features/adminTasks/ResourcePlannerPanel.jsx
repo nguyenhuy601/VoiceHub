@@ -3,9 +3,16 @@ import toast from 'react-hot-toast';
 import {
   AdminUserFormCard,
   AdminUserPanelShell,
+  adminInputClass,
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import { useAppStrings } from '../../locales/appStrings';
 import { projectAPI } from '../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -14,16 +21,12 @@ function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
-function availabilityBadgeClass(availability, isDarkMode) {
-  if (availability === 'available') {
-    return isDarkMode
-      ? 'bg-emerald-500/20 text-emerald-300'
-      : 'bg-emerald-500/15 text-emerald-700';
-  }
-  if (availability === 'partial') {
-    return isDarkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-500/15 text-amber-800';
-  }
-  return isDarkMode ? 'bg-red-500/20 text-red-300' : 'bg-red-500/15 text-red-700';
+const PLANNER_INPUT_CLASS = adminInputClass('mt-1 !w-auto min-w-[10rem] !py-1.5');
+
+function availabilityBadgeClass(availability) {
+  if (availability === 'available') return 'bg-success-bg text-success';
+  if (availability === 'partial') return 'bg-warning-bg text-warning';
+  return 'border border-destructive text-destructive';
 }
 
 function availabilityLabel(availability, t) {
@@ -54,12 +57,9 @@ export default function ResourcePlannerPanel({
   const [roleCatalog, setRoleCatalog] = useState([]);
   const [addRoleKey, setAddRoleKey] = useState('');
   const [busyUserId, setBusyUserId] = useState('');
-
-  const muted = isDarkMode ? 'text-slate-300' : 'text-muted-foreground';
-  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
-  const inputCls = isDarkMode
-    ? 'mt-1 block min-w-[10rem] rounded-lg border border-slate-600 bg-[#1A1A1C] px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-primary [color-scheme:dark]'
-    : 'mt-1 block min-w-[10rem] rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary';
+  const [loadError, setLoadError] = useState('');
+  const [projectsError, setProjectsError] = useState(false);
+  const [rolesError, setRolesError] = useState(false);
 
   useEffect(() => {
     if (projectIdProp) setProjectId(String(projectIdProp));
@@ -72,9 +72,15 @@ export default function ResourcePlannerPanel({
       try {
         const res = await projectAPI.list({ organizationId: orgId });
         const list = unwrap(res);
-        if (!cancelled) setProjects(Array.isArray(list) ? list : list?.items || []);
+        if (!cancelled) {
+          setProjects(Array.isArray(list) ? list : list?.items || []);
+          setProjectsError(false);
+        }
       } catch {
-        if (!cancelled) setProjects([]);
+        if (!cancelled) {
+          setProjects([]);
+          setProjectsError(true);
+        }
       }
     })();
     return () => {
@@ -92,21 +98,25 @@ export default function ResourcePlannerPanel({
         if (!cancelled) {
           const roles = Array.isArray(list) ? list : list?.roles || [];
           setRoleCatalog(roles);
+          setRolesError(false);
           if (!addRoleKey && roles[0]?.key) setAddRoleKey(String(roles[0].key));
         }
       } catch {
-        if (!cancelled) setRoleCatalog([]);
+        if (!cancelled) {
+          setRoleCatalog([]);
+          setRolesError(true);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   const load = useCallback(async () => {
     if (!orgId && !projectId) return;
     setLoading(true);
+    setLoadError('');
     try {
       const res = projectId
         ? await projectAPI.getProjectPlanner(projectId, { asOf, organizationId: orgId })
@@ -115,7 +125,7 @@ export default function ResourcePlannerPanel({
       setMeta(data);
       setItems(Array.isArray(data?.items) ? data.items : []);
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.plannerLoadFail') }));
+      setLoadError(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.plannerLoadFail') }));
       setItems([]);
       setMeta(null);
     } finally {
@@ -163,9 +173,9 @@ export default function ResourcePlannerPanel({
       <div className="mb-4 flex flex-wrap items-end gap-2">
         {!projectIdProp ? (
           <label className="block text-xs">
-            <span className={muted}>{t('adminTasks.plannerProject')}</span>
+            <span className="text-muted-foreground">{t('adminTasks.plannerProject')}</span>
             <select
-              className={`${inputCls} min-w-[14rem]`}
+              className={`${PLANNER_INPUT_CLASS} min-w-[14rem]`}
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
             >
@@ -183,19 +193,20 @@ export default function ResourcePlannerPanel({
           </label>
         ) : null}
         <label className="block text-xs">
-          <span className={muted}>{t('adminTasks.plannerAsOf')}</span>
+          <span className="text-muted-foreground">{t('adminTasks.plannerAsOf')}</span>
           <input
             type="date"
-            className={inputCls}
+            className={PLANNER_INPUT_CLASS}
             value={asOf}
             onChange={(e) => setAsOf(e.target.value)}
           />
         </label>
         {canManage && projectId ? (
           <label className="block text-xs">
-            <span className={muted}>{t('adminTasks.plannerAddRole')}</span>
+            <span className="text-muted-foreground">{t('adminTasks.plannerAddRole')}</span>
             <select
-              className={inputCls}
+              className={PLANNER_INPUT_CLASS}
+              disabled={!roleCatalog.length}
               value={addRoleKey}
               onChange={(e) => setAddRoleKey(e.target.value)}
             >
@@ -212,53 +223,57 @@ export default function ResourcePlannerPanel({
           className={adminSecondaryBtnClass('', isDarkMode)}
           onClick={load}
           disabled={loading}
+          aria-busy={loading}
         >
-          {loading ? t('common.loading') : t('common.refresh')}
+          <AdminBusySpinner busy={loading} />
+          {t('common.refresh')}
         </button>
       </div>
 
-      {relatedHint ? <p className={`mb-3 text-xs ${muted}`}>{relatedHint}</p> : null}
+      {relatedHint ? <p className="mb-3 text-xs text-muted-foreground">{relatedHint}</p> : null}
+      {projectsError && !projectIdProp ? (
+        <p className="mb-3 text-xs text-warning">{t('adminTasks.plannerProjectsLoadFail')}</p>
+      ) : null}
+      {canManage && projectId && rolesError ? (
+        <p className="mb-3 text-xs text-warning">{t('adminTasks.plannerRolesLoadFail')}</p>
+      ) : null}
+      {canManage && projectId && !rolesError && !roleCatalog.length ? (
+        <p className="mb-3 text-xs text-muted-foreground">{t('adminTasks.plannerRoleCatalogEmpty')}</p>
+      ) : null}
 
       <AdminUserFormCard title={t('adminTasks.plannerPeople')} isDarkMode={isDarkMode}>
-        {loading && !items.length ? (
-          <p className={`text-sm ${muted}`}>{t('common.loading')}</p>
+        {loading && !items.length && !loadError ? (
+          <AdminListSkeleton rows={5} />
+        ) : loadError ? (
+          <AdminLoadErrorState message={loadError} onRetry={load} disabled={loading} />
         ) : !items.length ? (
-          <p className={`text-sm ${muted}`}>{t('adminTasks.plannerEmpty')}</p>
+          <AdminEmptyState message={t('adminTasks.plannerEmpty')} />
         ) : (
           <ul className="max-h-[32rem] space-y-2 overflow-auto">
             {items.map((row) => (
               <li
                 key={row.userId}
-                className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 ${
-                  isDarkMode ? 'border-slate-600 bg-[#1A1A1C]' : 'border-border'
-                }`}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2"
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className={`truncate text-sm font-semibold ${titleCls}`}>
+                    <span className="truncate text-sm font-semibold text-foreground">
                       {row.displayName}
                     </span>
                     <span
                       className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${availabilityBadgeClass(
-                        row.availability,
-                        isDarkMode
+                        row.availability
                       )}`}
                     >
                       {availabilityLabel(row.availability, t)}
                     </span>
                     {row.alreadyMember ? (
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] ${
-                          isDarkMode
-                            ? 'bg-slate-700 text-slate-300'
-                            : 'bg-muted text-muted-foreground'
-                        }`}
-                      >
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                         {t('adminTasks.plannerAlreadyMember')}
                       </span>
                     ) : null}
                   </div>
-                  <p className={`mt-0.5 text-[11px] ${muted}`}>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {t('adminTasks.plannerAllocLine', {
                       dept: row.departmentName || '—',
                       alloc: row.allocatedPct ?? 0,
@@ -271,8 +286,10 @@ export default function ResourcePlannerPanel({
                     type="button"
                     className={adminPrimaryBtnClass()}
                     disabled={Boolean(busyUserId) || !addRoleKey}
+                    aria-busy={busyUserId === row.userId}
                     onClick={() => addMember(row.userId)}
                   >
+                    <AdminBusySpinner busy={busyUserId === row.userId} />
                     {busyUserId === row.userId
                       ? t('common.saving')
                       : t('adminTasks.plannerAdd')}

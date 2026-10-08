@@ -10,6 +10,7 @@ import {
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { AdminBusySpinner, AdminListSkeleton } from '../../components/adminUsers/adminPanelStates';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
@@ -62,7 +63,6 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
 
   useEffect(() => {
     loadRole();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, roleId]);
 
   const submit = async () => {
@@ -89,7 +89,7 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
         <p className="text-sm text-muted-foreground">{t('adminRbac.selectRole')}</p>
       ) : loadError ? (
         <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
             {loadError}
           </p>
           <button type="button" className={adminPrimaryBtnClass()} disabled={busy} onClick={() => loadRole()}>
@@ -97,23 +97,24 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
           </button>
         </div>
       ) : !role ? (
-        <p className="text-sm text-muted-foreground">{t('adminRbac.notFound') || 'Not found'}</p>
+        <p className="text-sm text-muted-foreground">{t('adminRbac.notFound')}</p>
       ) : (
         <>
           <div className="mb-4 rounded-lg border border-border bg-muted/40 p-3 text-sm">
-            <span className="text-muted-foreground">{t('adminDomains.rbac.orgRoleKey') || 'Key'}:</span>{' '}
+            <span className="text-muted-foreground">{t('adminDomains.rbac.orgRoleKey')}:</span>{' '}
             <span className="font-medium">{role.key}</span>
-            {role.isSystem ? <span className="ml-2 text-xs text-emerald-700">System</span> : null}
+            {role.isSystem ? <span className="ml-2 text-xs text-success">{t('adminRbac.systemBadge')}</span> : null}
             <p className="mt-1 text-xs text-muted-foreground">{t('adminRbac.roleKeyImmutableHint')}</p>
           </div>
           <label className="mb-4 block">
-            <span className={adminLabelClass()}>{t('adminDomains.rbac.orgRoleLabel') || 'Label'}</span>
-            <div className="flex overflow-hidden rounded-lg border border-border bg-background">
+            <span className={adminLabelClass()}>{t('adminDomains.rbac.orgRoleLabel')}</span>
+            <div className="flex overflow-hidden rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-ring">
               <span className="shrink-0 border-r border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
                 {ORG_ROLE_LABEL_PREFIX.trimEnd()}
               </span>
               <input
                 className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
+                maxLength={120}
                 value={suffix}
                 onChange={(e) => setSuffix(e.target.value)}
                 disabled={role.isSystem}
@@ -121,25 +122,33 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
               />
             </div>
             {suffix.trim() && looksLikeHrPositionForOrgRole(suffix) ? (
-              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{t('adminRbac.orgRoleLooksLikePositionHint')}</p>
+              <p className="mt-1 text-xs text-warning">{t('adminRbac.orgRoleLooksLikePositionHint')}</p>
             ) : null}
           </label>
           <label className="mb-4 block">
             <span className={adminLabelClass()}>{t('adminRbac.roleDescriptionField')}</span>
-            <textarea className={adminInputClass()} rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
+            <textarea
+              className={adminInputClass()}
+              rows={4}
+              maxLength={1000}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
           </label>
           <p className="mb-2 text-xs text-muted-foreground">{t('adminRbac.roleOrderViaListHint')}</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
               disabled={busy || role.isSystem}
+              aria-busy={busy}
               className={adminPrimaryBtnClass()}
               onClick={submit}
             >
+              <AdminBusySpinner busy={busy} />
               {busy ? t('common.saving') : t('common.save')}
             </button>
             <button type="button" disabled={busy} className={adminSecondaryBtnClass()} onClick={() => navigate('/app/admin/rbac/org-roles')}>
-              {t('common.cancel') || 'Cancel'}
+              {t('common.cancel')}
             </button>
           </div>
         </>
@@ -148,10 +157,10 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
   );
 
   if (loading) {
-    const loadingBody = <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    const loadingBody = <AdminListSkeleton />;
     if (embedded) return loadingBody;
     return (
-      <AdminUserPanelShell title={t('adminDomains.rbac.orgRoleEdit')} hint={t('common.loading')}>
+      <AdminUserPanelShell title={t('adminDomains.rbac.orgRoleEdit')} hint={t('adminRbac.orgRoleCatalogHint')}>
         {loadingBody}
       </AdminUserPanelShell>
     );
@@ -166,8 +175,8 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
 
         <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
           {role?.isSystem
-            ? t('adminRbac.orgRoleEditSystemHint') || 'System role không thể sửa.'
-            : t('adminRbac.orgRoleEditHint') || 'Sửa label/description để hiển thị tốt hơn.'}
+            ? t('adminRbac.orgRoleEditSystemHint')
+            : t('adminRbac.orgRoleEditHint')}
         </div>
       </div>
     </AdminUserPanelShell>

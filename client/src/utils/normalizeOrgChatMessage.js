@@ -23,7 +23,9 @@ export function normalizeOrgChatMessage(msg) {
     /storage\.googleapis\.com|firebasestorage\.app|googleapis\.com\/storage/i.test(content);
   const mtRaw = String(msg.messageType || 'text').toLowerCase();
 
-  if (mtRaw === 'business_card' || mtRaw === 'call_log' || mtRaw === 'system') return msg;
+  if (mtRaw === 'business_card' || mtRaw === 'call_log' || mtRaw === 'system' || mtRaw === 'poll') {
+    return msg;
+  }
 
   if (mtRaw === 'file' || mtRaw === 'image') {
     const mime = String(fm?.mimeType || '').toLowerCase();

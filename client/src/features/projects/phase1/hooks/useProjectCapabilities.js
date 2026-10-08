@@ -17,18 +17,31 @@ export default function useProjectCapabilities(projectId) {
 
   const caps = useMemo(() => {
     const c = project?.capabilities || {};
+    const viewerProjectRoleKeys = Array.isArray(c.viewerProjectRoleKeys)
+      ? c.viewerProjectRoleKeys
+      : Array.isArray(project?.viewerProjectRoleKeys)
+        ? project.viewerProjectRoleKeys
+        : [];
     return {
       canViewAnalysis: Boolean(c.canViewAnalysis),
       canEditAnalysis: Boolean(c.canEditAnalysis),
       canImportAnalysis: Boolean(c.canImportAnalysis),
+      canBaAuthorAnalysis: Boolean(c.canBaAuthorAnalysis),
       canReviewAnalysisBa: Boolean(c.canReviewAnalysisBa),
       canReviewAnalysisTech: Boolean(c.canReviewAnalysisTech),
       canReviewAnalysisPo: Boolean(c.canReviewAnalysisPo),
+      viewerProjectRoleKeys,
+      /** Project có ít nhất 1 member với analysis:tech_review — cổng Tech bắt buộc (DEC D6). */
+      hasAnalysisTechReviewer: Boolean(c.hasAnalysisTechReviewer),
+      hasPlanningTechReviewer: Boolean(c.hasPlanningTechReviewer),
       canChangeDeliveryPhase: Boolean(c.canChangeDeliveryPhase),
       canCutSrs: Boolean(c.canCutSrs),
       canViewPlanning: Boolean(c.canViewPlanning),
       canEditPlanning: Boolean(c.canEditPlanning),
       canReviewPlanning: Boolean(c.canReviewPlanning),
+      canReviewPlanningTech: Boolean(c.canReviewPlanningTech),
+      canReviewPlanningPm: Boolean(c.canReviewPlanningPm),
+      canReviewPlanningPo: Boolean(c.canReviewPlanningPo),
       canCutPlanningBaseline: Boolean(c.canCutPlanningBaseline),
       canPublishPlanningWbs: Boolean(c.canPublishPlanningWbs),
       permissions: Array.isArray(c.permissions) ? c.permissions : [],

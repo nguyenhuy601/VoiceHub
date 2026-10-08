@@ -25,6 +25,7 @@ export default function CalendarEventSidebar({
   locale = 'vi',
   t,
   today = new Date(),
+  loading = false,
 }) {
   const monthName = monthLabel(selectedDate, locale);
   const dateKey = toDateKey(selectedDate);
@@ -33,7 +34,10 @@ export default function CalendarEventSidebar({
   const timedEvents = (events || []).filter((e) => e.startAt && (e.kind === 'work' || e.kind === 'meeting' || e.type === 'work' || e.type === 'meeting'));
 
   return (
-    <aside className="flex h-full w-[300px] shrink-0 flex-col border-l border-border bg-surface">
+    <aside
+      aria-label={t('calendar.sidebarAria')}
+      className="flex h-full w-[300px] shrink-0 flex-col border-l border-border bg-surface"
+    >
       <div className={FIGMA_CAL_SIDEBAR_HEADER}>
         <div className="mb-1 flex items-baseline gap-1.5">
           <span className={FIGMA_CAL_SIDEBAR_DAY}>{selectedDate.getDate()}</span>
@@ -73,10 +77,16 @@ export default function CalendarEventSidebar({
           </div>
         ) : null}
 
-        {events.length === 0 ? (
+        {events.length === 0 && loading ? (
+          <div className="flex flex-col gap-2" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-16 rounded-[10px] bg-muted motion-safe:animate-pulse" />
+            ))}
+          </div>
+        ) : events.length === 0 ? (
           <div className="pt-6 text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
-              <CalendarDays size={22} className="text-muted-foreground" />
+              <CalendarDays size={22} className="text-muted-foreground" aria-hidden="true" />
             </div>
             <p className="mb-3.5 text-sm text-muted-foreground">{t('calendar.emptyDay')}</p>
             <button
@@ -97,20 +107,17 @@ export default function CalendarEventSidebar({
               return (
                 <div
                   key={ev.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onSelectEvent?.(expanded ? null : ev)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onSelectEvent?.(expanded ? null : ev);
-                    }
-                  }}
-                  className={`${FIGMA_CAL_EVENT_CARD} ${
+                  className={`${FIGMA_CAL_EVENT_CARD} focus-within:ring-2 focus-within:ring-primary/30 ${
                     expanded ? `${meta.cardBg} ${meta.cardBorder}` : 'bg-muted'
                   }`}
                   style={{ borderLeftWidth: 3, borderLeftColor: meta.color }}
                 >
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    onClick={() => onSelectEvent?.(expanded ? null : ev)}
+                    className="block w-full border-none bg-transparent p-0 text-left focus-visible:outline-none"
+                  >
                   <div className="mb-1.5 flex items-start justify-between gap-2">
                     <span className="text-sm font-semibold leading-snug text-foreground">
                       {ev.title}
@@ -124,21 +131,22 @@ export default function CalendarEventSidebar({
                   <div className="flex flex-col gap-1">
                     {(ev.time || ev.duration || ev.hours) && (
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock size={11} />
+                        <Clock size={11} aria-hidden="true" />
                         {ev.time}
                         {ev.duration ? ` · ${ev.duration}` : ''}
                         {ev.hours > 0 && !ev.duration ? ` · ${ev.hours}h` : ''}
                         {ev.estimated ? ` · ${t('calendar.estimateHintShort')}` : ''}
-                        {meta.key === 'recurring' && <Repeat2 size={11} className="ml-0.5" />}
+                        {meta.key === 'recurring' && <Repeat2 size={11} className="ml-0.5" aria-hidden="true" />}
                       </div>
                     )}
                     {ev.attendees > 0 && (
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Users size={11} />
+                        <Users size={11} aria-hidden="true" />
                         {t('calendar.peopleCount', { n: ev.attendees })}
                       </div>
                     )}
                   </div>
+                  </button>
                   {expanded && (
                     <div className={`mt-2.5 border-t pt-2.5 ${meta.cardBorder}`}>
                       {ev.description && (
@@ -149,25 +157,19 @@ export default function CalendarEventSidebar({
                       {(ev.type === 'meeting' || ev.kind === 'meeting') && (
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onJoinEvent?.(ev);
-                          }}
-                          className="inline-flex h-7 items-center gap-1 rounded-md border-none px-3 text-xs font-semibold text-primary-foreground"
+                          onClick={() => onJoinEvent?.(ev)}
+                          className="inline-flex h-7 items-center gap-1 rounded-md border-none px-3 text-xs font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                           style={{ background: meta.color }}
                         >
-                          <Mic size={11} />
+                          <Mic size={11} aria-hidden="true" />
                           {t('calendar.joinAction')}
                         </button>
                       )}
                       {(ev.kind === 'work' || ev.kind === 'task' || ev.type === 'deadline') && (
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onJoinEvent?.(ev);
-                          }}
-                          className="inline-flex h-7 items-center gap-1 rounded-md border-none bg-primary px-3 text-xs font-semibold text-primary-foreground"
+                          onClick={() => onJoinEvent?.(ev)}
+                          className="inline-flex h-7 items-center gap-1 rounded-md border-none bg-primary px-3 text-xs font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                         >
                           {t('calendar.openTaskBtn')}
                         </button>

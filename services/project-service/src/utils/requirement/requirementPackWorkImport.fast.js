@@ -33,6 +33,8 @@ const {
   planningTypeForLevel,
   cardIssueTypeForLevel,
   isCardLevel,
+  resolveBlueprintImportLevel,
+  resolveBlueprintParentLinks,
 } = require('./requirementPackWorkImport.utils');
 
 const IMPORT_HOURS_RATIONALE = 'requirement_pack_import';
@@ -480,10 +482,14 @@ async function importRequirementPackWorkItemsFast(input) {
         featureId = parentRef.featureId || null;
         parentTaskMeta = { issueType: parentRef.issueType || 'task' };
       } else if (parentRef?.kind === 'planning') {
-        if (parentRef.level === 'Feature' || parentRef.level === 'Capability') {
+        // Prefer planningType; accept Title Case / lowercase level from FR or HOW
+        const pType =
+          parentRef.planningType ||
+          planningTypeForLevel(parentRef.level);
+        if (pType === 'feature') {
           featureId = parentRef.id;
           epicId = parentRef.epicId || null;
-        } else if (parentRef.level === 'Epic' || parentRef.level === 'Module') {
+        } else if (pType === 'epic') {
           epicId = parentRef.id;
         }
       }
@@ -563,7 +569,8 @@ async function importRequirementPackWorkItemsFast(input) {
 }
 
 /**
- * W9 — import Blueprint HOW tasks (not FR Excel rows) onto board.
+ * W9 — import Blueprint HOW tasks onto board with WBS hierarchy:
+ * epic/feature → PlanningItem; story/task → Task cards (epicId/featureId/parentTaskId).
  * @param {{
  *   userId: string,
  *   pack: object,
@@ -612,6 +619,7 @@ async function importBlueprintWorkItemsFast(input) {
     const parentRef = row.parentBlueprintTaskId
       ? idMap.get(String(row.parentBlueprintTaskId))
       : null;
+    const level = resolveBlueprintImportLevel(row);
     const title = String(row.name || blueprintTaskId).trim().slice(0, 240);
     const frNote =
       Array.isArray(row.sourceFrIds) && row.sourceFrIds.length
@@ -623,9 +631,42 @@ async function importBlueprintWorkItemsFast(input) {
         ? Number(row.effortHours)
         : null;
     const assigneeId = row.assigneeUserId || null;
+    const links = resolveBlueprintParentLinks(parentRef);
 
     try {
-      const issueType = row.parentBlueprintTaskId ? 'task' : 'story';
+      const planningType = planningTypeForLevel(level);
+      if (planningType) {
+        const created = await createPlanningItemFast(ctx, {
+          userId,
+          type: planningType,
+          title,
+          description,
+          parentPlanningMeta: planningType === 'feature' ? links.parentPlanningMeta : null,
+          sortOrder: row.sortOrder,
+        });
+
+        idMap.set(blueprintTaskId, {
+          kind: 'planning',
+          id: created._id,
+          level,
+          planningType,
+          epicId: planningType === 'epic' ? created._id : links.epicId || parentRef?.epicId || null,
+          featureId: planningType === 'feature' ? created._id : null,
+        });
+        stats.planningItems += 1;
+        continue;
+      }
+
+      if (!isCardLevel(level)) {
+        stats.skipped += 1;
+        stats.warnings.push({
+          blueprintTaskId,
+          message: `unsupported_level:${level}`,
+        });
+        continue;
+      }
+
+      const issueType = cardIssueTypeForLevel(level);
       if (assigneeId) {
         await ensureAssigneeBoardAccessFast({
           boardId: ctx.board._id,
@@ -633,24 +674,29 @@ async function importBlueprintWorkItemsFast(input) {
           actorId: userId,
         });
       }
+
       const card = await createCardFast(ctx, {
         userId,
         title,
         description,
         issueType,
-        parentTaskId: parentRef?.kind === 'card' ? parentRef.id : null,
-        epicId: null,
-        featureId: null,
+        parentTaskId: links.parentTaskId,
+        epicId: links.epicId,
+        featureId: links.featureId,
         estimateHours,
         assigneeId,
         startDate: row.startDate || null,
         dueDate: row.dueDate || null,
-        parentTaskMeta: parentRef?.kind === 'card' ? { id: parentRef.id, issueType: parentRef.issueType } : null,
+        parentTaskMeta: links.parentTaskMeta,
       });
+
       idMap.set(blueprintTaskId, {
-        kind: 'card',
+        kind: 'task',
         id: card._id,
-        issueType,
+        level,
+        issueType: card.issueType || issueType,
+        epicId: card.epicId || links.epicId || null,
+        featureId: card.featureId || links.featureId || null,
         blueprintTaskId,
       });
       stats.cards += 1;
@@ -659,15 +705,22 @@ async function importBlueprintWorkItemsFast(input) {
       stats.skipped += 1;
       stats.warnings.push({
         blueprintTaskId,
+        level,
         message: err.message || 'import_failed',
       });
+      logger.warn(
+        '[requirement] import blueprint skip %s: %s',
+        blueprintTaskId,
+        err.message || err
+      );
     }
   }
 
   stats.durationMs = Date.now() - startMs;
   logger.info(
-    '[requirement] import blueprint pack=%s cards=%d assigned=%d skipped=%d ms=%d',
+    '[requirement] import blueprint pack=%s planning=%d cards=%d assigned=%d skipped=%d ms=%d',
     String(pack?._id || ''),
+    stats.planningItems,
     stats.cards,
     stats.assigned,
     stats.skipped,
@@ -679,10 +732,11 @@ async function importBlueprintWorkItemsFast(input) {
     projectId: ctx.project._id,
     boardId: ctx.board._id,
     actorId: userId,
-    title: `Import ${stats.cards} blueprint tasks`,
+    title: `Import ${stats.cards} blueprint tasks (${stats.planningItems} planning)`,
     payload: {
       packId: String(pack?._id || ''),
       source: 'blueprint',
+      planningItems: stats.planningItems,
       cards: stats.cards,
       assigned: stats.assigned,
       skipped: stats.skipped,

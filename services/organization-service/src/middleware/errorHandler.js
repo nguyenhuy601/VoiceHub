@@ -1,24 +1,34 @@
-const { buildApiErrorBody, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
+const { buildApiErrorBody } = require('@enterprise/shared/middleware/httpErrorResponse');
+const { logger } = require('@enterprise/shared');
+const { toOrgError } = require('../utils/orgErrorMap');
 
 module.exports = (err, req, res, next) => {
   if (req.aborted || res.headersSent) {
     return;
   }
 
-  console.error('Error:', err);
-  const statusCode = Number(err?.statusCode) || 500;
-  const isServerError = statusCode >= 500;
-  const errorCode = String(
-    err?.errorCode || err?.code || (isServerError ? 'ORG_INTERNAL_ERROR' : '')
-  ).trim();
-  const clientMessage = String(err?.messageUser || err?.message || 'Yêu cầu không hợp lệ').trim();
+  const mapped = toOrgError(err, Number(err?.statusCode) || 500);
+  const logPayload = {
+    errorCode: mapped.errorCode,
+    statusCode: mapped.statusCode,
+    name: String(err?.name || ''),
+    code: err?.code != null ? String(err.code) : undefined,
+    method: req.method,
+    path: req.originalUrl ? String(req.originalUrl).split('?')[0] : undefined,
+    orgId: req.params?.orgId || undefined,
+  };
+  if (mapped.statusCode >= 500) {
+    logger.error('[organization-service] request failed', logPayload);
+  } else {
+    logger.warn('[organization-service] request rejected', logPayload);
+  }
 
-  const body = buildApiErrorBody(statusCode, {
-    errorCode: errorCode || undefined,
-    messageUser: isServerError ? GENERIC_5XX_MESSAGE : clientMessage,
-    message: isServerError ? undefined : clientMessage,
-    extra: errorCode ? { code: errorCode } : undefined,
+  const body = buildApiErrorBody(mapped.statusCode, {
+    errorCode: mapped.errorCode,
+    messageUser: mapped.messageUser,
+    message: mapped.statusCode >= 500 ? undefined : mapped.message,
+    extra: { code: mapped.errorCode },
   });
 
-  res.status(statusCode).json(body);
+  res.status(mapped.statusCode).json(body);
 };

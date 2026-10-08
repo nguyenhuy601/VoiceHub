@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   Check,
@@ -31,12 +31,18 @@ import {
 } from '../../components/Layout/figmaPageClasses';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { buildProjectsNewAiPath } from '../../utils/suitePathUtils';
+import { buildProjectsModulePath } from '../../utils/suitePathUtils';
 import { requirementAPI } from '../../services/api/requirementAPI';
+import {
+  approveRequirementPackWithGate1,
+  formatGateAApproveError,
+} from './approveRequirementPackWithGate1';
+import useReviewNotePrompt from '../../hooks/useReviewNotePrompt';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
 import RequirementPackReviewDrawer from './RequirementPackReviewDrawer';
 import { canConfirmRequirementImport, getConfirmImportLabelKey, isPackWhatReady } from '../../utils/requirementImportReadiness';
 import useRequirementPacks from '../../hooks/useRequirementPacks';
+import { resolveGate1ReviewLane, REVIEW_LANE } from '../projects/phase1/aiHitl/gate1ReviewLane';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -130,8 +136,10 @@ export default function RequirementImportWorkspace({
 }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { requestNote, noteDialog } = useReviewNotePrompt();
   const isAdmin = variant === 'admin';
-  const sk = (suffix) => stringKey(variant, suffix);
+  const sk = useCallback((suffix) => stringKey(variant, suffix), [variant]);
   const showImportSection = isAdmin || canSubmit;
   const fileInputRef = useRef(null);
   const filtersRef = useRef(null);
@@ -147,6 +155,15 @@ export default function RequirementImportWorkspace({
 
   const { packs, invalidateAllForOrg } = useRequirementPacks(orgId);
   const loadPacks = invalidateAllForOrg;
+
+  useEffect(() => {
+    const fromUrl = String(searchParams.get('packId') || '').trim();
+    if (!fromUrl) return;
+    setReviewPackId(fromUrl);
+    const next = new URLSearchParams(searchParams);
+    next.delete('packId');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const previewLabels = {
     parsedOk: t('requirements.parsedOk'),
@@ -302,11 +319,31 @@ export default function RequirementImportWorkspace({
     if (!orgId || !packId || actionPackId) return;
     setActionPackId(packId);
     try {
-      await requirementAPI.approvePack(orgId, packId);
-      toast.success(t('requirements.approveSuccess'));
+      const result = await approveRequirementPackWithGate1({
+        orgId,
+        packId,
+        t,
+        requestForceReason: async ({ title, message }) =>
+          requestNote({
+            title,
+            description: message,
+            placeholder:
+              t('requirements.gate1ForceReasonPlaceholder') ||
+              'Nhập lý do force duyệt Gate 1…',
+            submitLabel: t('requirements.approveForced') || t('requirements.approve'),
+            variant: 'request_changes',
+            maxLength: 2000,
+          }),
+      });
+      if (!result.ok) return;
+      toast.success(
+        result.forced
+          ? t('requirements.approveForcedSuccess') || t('requirements.approveSuccess')
+          : t('requirements.approveSuccess')
+      );
       await loadPacks();
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('requirements.approveFail') }));
+      toast.error(formatGateAApproveError(error, { t, fallback: t('requirements.approveFail') }));
     } finally {
       setActionPackId('');
     }
@@ -314,9 +351,17 @@ export default function RequirementImportWorkspace({
 
   const rejectPack = async (packId) => {
     if (!orgId || !packId || actionPackId) return;
-    const reasonRaw = window.prompt(t('requirements.rejectReasonPrompt'), '');
+    const reasonRaw = await requestNote({
+      title: t('requirements.reject') || 'Từ chối gói',
+      description: t('requirements.rejectReasonPrompt') || 'Nhập lý do từ chối',
+      placeholder: t('requirements.rejectReasonPlaceholder') || 'Lý do từ chối…',
+      submitLabel: t('requirements.reject') || 'Từ chối',
+      variant: 'reject',
+      maxLength: 2000,
+    });
     if (reasonRaw == null) return;
     const reason = String(reasonRaw).trim().slice(0, 2000);
+    if (!reason) return;
     setActionPackId(packId);
     try {
       await requirementAPI.rejectPack(orgId, packId, reason);
@@ -348,23 +393,43 @@ export default function RequirementImportWorkspace({
   const createProjectFromPack = async (pack) => {
     const packId = String(pack?._id || pack || '').trim();
     if (!orgId || !packId || actionPackId) return;
-    const linkedProjectId = String(
-      (typeof pack === 'object' ? pack?.projectId : '') || ''
+    const planStatus = String(
+      (typeof pack === 'object' ? pack?.aiAnalysis?.phaseRuns?.phase_how?.status : '') || ''
     ).trim();
-    if (!linkedProjectId) {
-      toast(
-        t('workspace.phase2AiNeedsLinkedProject') ||
-          'Pack = SRS. Gắn pack với dự án Phase 1 đã sẵn sàng gate, rồi dùng AI Phase 2 trên Overview.'
+    if (planStatus !== 'confirmed') {
+      toast.error(
+        t('requirements.gate2CreateBlocked') ||
+          'Gate 2: confirm phase HOW trước khi tạo Project board.'
       );
       return;
     }
-    navigate(
-      buildProjectsNewAiPath(orgId, {
-        projectId: linkedProjectId,
-        packId,
-        from: 'requirements',
-      })
-    );
+    setActionPackId(packId);
+    try {
+      const res = await requirementAPI.createProjectFromPack(orgId, packId, {
+        importWorkItems: true,
+        applyAssignees: true,
+      });
+      const data = unwrap(res);
+      const projectId = String(
+        data?.project?._id || data?.project?.projectId || data?.projectId || ''
+      ).trim();
+      toast.success(
+        t('requirements.createProjectFromPackSuccess') || 'Đã tạo Project board (sau Gate 2).'
+      );
+      await loadPacks();
+      if (projectId) {
+        navigate(buildProjectsModulePath(projectId, 'overview'));
+      }
+    } catch (error) {
+      toast.error(
+        resolveApiErrorMessage(error, {
+          t,
+          fallback: t('requirements.createProjectFromPackFail') || 'Không tạo được dự án từ pack.',
+        })
+      );
+    } finally {
+      setActionPackId('');
+    }
   };
 
   const canConfirmPreview = canConfirmRequirementImport(preview);
@@ -530,7 +595,9 @@ export default function RequirementImportWorkspace({
   }, [busy, downloadTemplate, handleFileChange, isAdmin, showImportSection, sk, t]);
 
   useEffect(() => {
-    setHeaderActions?.(headerActions);
+    if (!setHeaderActions) return undefined;
+    setHeaderActions(headerActions);
+    return () => setHeaderActions(null);
   }, [headerActions, setHeaderActions]);
 
   const activeFilterCount = statusFilter ? 1 : 0;
@@ -651,7 +718,9 @@ export default function RequirementImportWorkspace({
           <Eye className="h-3 w-3 shrink-0" aria-hidden />
           {t('requirements.review')}
         </PackRowActionButton>
-        {canSubmit && pack.status === 'draft' ? (
+        {canSubmit &&
+        pack.status === 'draft' &&
+        resolveGate1ReviewLane(pack) === REVIEW_LANE.BA ? (
           <PackRowActionButton
             disabled={actionPackId === pack._id || !canSubmitPackForReview(pack)}
             onClick={() => submitPack(pack._id)}
@@ -661,7 +730,9 @@ export default function RequirementImportWorkspace({
             {t('requirements.submit')}
           </PackRowActionButton>
         ) : null}
-        {canApprove && pack.status === 'under_review' ? (
+        {canApprove &&
+        pack.status === 'under_review' &&
+        resolveGate1ReviewLane(pack) === REVIEW_LANE.PO ? (
           <>
             <PackRowActionButton
               variant="success"
@@ -686,12 +757,20 @@ export default function RequirementImportWorkspace({
         {canCreateFromPack && pack.status === 'approved' ? (
           <PackRowActionButton
             variant="success"
-            disabled={actionPackId === pack._id}
+            disabled={
+              actionPackId === pack._id ||
+              String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || '') !== 'confirmed'
+            }
             onClick={() => createProjectFromPack(pack)}
-            title={t('workspace.phase2OptionAi') || t('requirements.createProject')}
+            title={
+              String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || '') === 'confirmed'
+                ? t('requirements.createProject')
+                : t('requirements.gate2CreateBlocked') ||
+                  'Gate 2: confirm phase HOW trước khi tạo Project board.'
+            }
           >
             <FolderPlus className="h-3 w-3 shrink-0" aria-hidden />
-            {t('workspace.phase2OptionAi') || t('requirements.createProject')}
+            {t('requirements.createProject')}
           </PackRowActionButton>
         ) : null}
         {canApprove && pack.status === 'approved' ? (
@@ -796,6 +875,7 @@ export default function RequirementImportWorkspace({
         confirmText={t('requirements.deletePack')}
         cancelText={t('common.cancel')}
       />
+      {noteDialog}
     </div>
   );
 }

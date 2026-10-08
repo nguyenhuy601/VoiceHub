@@ -5,24 +5,26 @@ import {
   adminInputClass,
   adminLabelClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { useAppStrings } from '../../locales/appStrings';
 import ProjectDeliveryPanel from './ProjectDeliveryPanel';
 
 /**
  * Admin domain — Project Team + Delegation Graph (cần ?boardId=).
  */
 export default function TasksDeliveryAdminPanel() {
+  const { t } = useAppStrings();
   const [params, setParams] = useSearchParams();
   const boardId = String(params.get('boardId') || '').trim();
 
   return (
     <AdminUserPanelShell
-      title="Project Team & Delegation"
-      hint="Cấu hình Project Role và đồ thị CanAssign theo board/project. Không dùng HR Role / Organization Role để giao việc."
+      title={t('adminTasks.deliveryAdminTitle')}
+      hint={t('adminTasks.deliveryAdminHint')}
       wide
     >
-      <AdminUserFormCard title="Board / Project">
+      <AdminUserFormCard title={t('adminTasks.deliveryBoardCard')}>
         <label className={adminLabelClass}>
-          boardId
+          {t('adminTasks.boardIdLabel')}
           <input
             className={adminInputClass}
             value={boardId}
@@ -33,7 +35,7 @@ export default function TasksDeliveryAdminPanel() {
               else next.delete('boardId');
               setParams(next, { replace: true });
             }}
-            placeholder="ObjectId của TaskBoard"
+            placeholder={t('adminTasks.deliveryBoardIdPlaceholder')}
           />
         </label>
       </AdminUserFormCard>

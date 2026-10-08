@@ -1,20 +1,36 @@
 import { useAppStrings } from '../../locales/appStrings';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import OrganizationDocumentsWorkspacePanel from '../orgDocuments/OrganizationDocumentsWorkspacePanel';
+import { useLibraryDocuments } from '../orgDocuments/useLibraryDocuments';
 
 /**
- * Phase A: project document library chưa có projectId trên document-service.
- * Empty/partial state — hub Files vẫn là attachment work items.
+ * Kho dự án — cùng Drive shell. Data library qua GET /documents?projectId= (D4).
  */
-export default function ProjectFilesFallback({ projectId = '', organizationId = '' }) {
+export default function ProjectFilesFallback({ projectId = '', organizationId = '' } = {}) {
   const { t } = useAppStrings();
+  const pid = String(projectId || '').trim();
+  const orgId = String(organizationId || '').trim();
+  const libraryQuery = useLibraryDocuments({
+    organizationId: orgId,
+    projectId: pid,
+    enabled: Boolean(pid),
+  });
+  const documentsError = libraryQuery.isError
+    ? resolveApiErrorMessage(libraryQuery.error, { t, fallback: t('documents.loadFail') })
+    : '';
+
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-      <p className="text-sm font-semibold text-foreground">{t('nav.documents')}</p>
-      <p className="max-w-md text-sm text-muted-foreground">
-          {t('nav.projectDocumentsPhaseAHint')}
-      </p>
-      <p className="text-xs text-muted-foreground">
-        projectId={String(projectId || '—')} · org={String(organizationId || '—')}
-      </p>
+    <div className="h-full min-h-0">
+      <OrganizationDocumentsWorkspacePanel
+        files={libraryQuery.files}
+        loading={libraryQuery.isLoading}
+        error={documentsError}
+        onReload={() => libraryQuery.reload()}
+        organizationId={orgId}
+        projectId={pid}
+        panelTitle={t('documents.driveTitleProject')}
+        scopeHint={t('documents.driveHintProject')}
+      />
     </div>
   );
 }

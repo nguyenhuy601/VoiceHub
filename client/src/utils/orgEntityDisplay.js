@@ -34,3 +34,14 @@ export function channelNameToDisplaySlug(name, locale) {
   if (locale !== 'en') return base;
   return CHANNEL_SLUG_VI_TO_EN[base] ?? base;
 }
+
+/** Mô tả seed EN kiểu "Departmental text chat" — dùng i18n thay vì raw. */
+export function resolveChannelHeaderDescription(channel, fallback = '') {
+  const raw = String(channel?.description || channel?.topic || '').trim();
+  if (!raw) return fallback;
+  const normalized = raw.toLowerCase().replace(/\s+/g, ' ');
+  if (/department(al)? (text |voice )?(chat|channel)/.test(normalized)) {
+    return fallback;
+  }
+  return raw;
+}

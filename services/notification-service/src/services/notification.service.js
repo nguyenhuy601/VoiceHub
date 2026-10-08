@@ -18,6 +18,13 @@ function encText(val) {
 
 const { toClientNotification } = require('../utils/notificationDto');
 const {
+  MAX_PAGE,
+  notFoundError,
+  validationError,
+  toNotificationError,
+} = require('../utils/notificationErrorMap');
+const { buildPerUserBulkEvents, runWithConcurrency } = require('../utils/notificationBulkEvents');
+const {
   getCachedUnreadCount,
   setCachedUnreadCount,
   invalidateUnreadBadgeCache,
@@ -26,6 +33,11 @@ const {
   emitUnreadSnapshots,
   targetsFromNotificationDoc,
 } = require('./notificationUnreadPush');
+const {
+  buildPersonalScopeFilter,
+  buildOrganizationScopeFilter,
+  buildScopedUserFilter,
+} = require('../utils/notificationScopePolicy');
 
 async function maybeMigrateNotification(doc) {
   if (!doc || !isEncryptionEnabled()) return;
@@ -51,35 +63,17 @@ async function maybeMigrateNotification(doc) {
   }
 }
 
-function buildScopeMongoFilter(scope) {
+function buildScopeMongoFilter(scope, organizationId) {
   const normalized = String(scope || '').trim().toLowerCase();
   if (normalized !== 'personal' && normalized !== 'organization') return null;
-
-  const noOrgId = {
+  if (normalized === 'personal') return buildPersonalScopeFilter();
+  if (organizationId) return buildOrganizationScopeFilter(organizationId);
+  return {
     $or: [
-      { 'data.organizationId': { $exists: false } },
-      { 'data.organizationId': null },
-      { 'data.organizationId': '' },
+      { 'data.organizationId': { $exists: true, $nin: [null, ''] } },
+      { 'data.workspaceId': { $exists: true, $nin: [null, ''] } },
     ],
   };
-  const noWorkspaceId = {
-    $or: [
-      { 'data.workspaceId': { $exists: false } },
-      { 'data.workspaceId': null },
-      { 'data.workspaceId': '' },
-    ],
-  };
-  const hasOrgId = {
-    'data.organizationId': { $exists: true, $nin: [null, ''] },
-  };
-  const hasWorkspaceId = {
-    'data.workspaceId': { $exists: true, $nin: [null, ''] },
-  };
-
-  if (normalized === 'personal') {
-    return { $and: [noOrgId, noWorkspaceId] };
-  }
-  return { $or: [hasOrgId, hasWorkspaceId] };
 }
 
 class NotificationService {
@@ -119,8 +113,8 @@ class NotificationService {
       logger.info(`Notification created: ${notification._id} for user: ${userId}`);
       return clientN;
     } catch (error) {
-      logger.error('Error creating notification:', error);
-      throw new Error(`Error creating notification: ${error.message}`);
+      logger.error('Error creating notification:', error?.message);
+      throw toNotificationError(error);
     }
   }
 
@@ -141,16 +135,12 @@ class NotificationService {
 
       const created = await Notification.insertMany(notifications);
 
-      const clientList = created.map((n) => toClientNotification(n));
-
-      await emitRealtimeEvent({
-        event: 'notification:bulk_new',
-        userIds: userIds.map((id) => String(id)),
-        payload: {
-          notifications: clientList,
-          timestamp: new Date().toISOString(),
-        },
-      });
+      const entries = created.map((doc) => ({
+        userId: String(doc.userId),
+        notification: toClientNotification(doc),
+      }));
+      const events = buildPerUserBulkEvents(entries, new Date().toISOString());
+      await runWithConcurrency(events.map((evt) => () => emitRealtimeEvent(evt)));
 
       const orgFromData = data?.organizationId || data?.workspaceId;
       await Promise.all(
@@ -168,10 +158,10 @@ class NotificationService {
       );
 
       logger.info(`Bulk notifications created: ${created.length} notifications`);
-      return clientList;
+      return entries.map((entry) => entry.notification);
     } catch (error) {
-      logger.error('Error creating bulk notifications:', error);
-      throw new Error(`Error creating bulk notifications: ${error.message}`);
+      logger.error('Error creating bulk notifications:', error?.message);
+      throw toNotificationError(error);
     }
   }
 
@@ -182,34 +172,22 @@ class NotificationService {
         type,
         organizationId,
         scope,
+        fields,
         page = 1,
         limit = 50,
         before,
-        fields = 'summary',
       } = options;
-      const dtoOpts = { fields: fields === 'full' ? 'full' : 'summary' };
+      const pageNum = Math.min(MAX_PAGE, Math.max(1, parseInt(page, 10) || 1));
 
       const filter = { userId };
       if (isRead !== undefined) filter.isRead = isRead;
       if (type) filter.type = type;
 
-      const scopeFilter = buildScopeMongoFilter(scope);
-      const orgIdFilter = organizationId
-        ? {
-            $or: [
-              { 'data.organizationId': String(organizationId) },
-              { 'data.workspaceId': String(organizationId) },
-            ],
-          }
-        : null;
-
-      const andParts = [];
-      if (scopeFilter) andParts.push(scopeFilter);
-      if (orgIdFilter) andParts.push(orgIdFilter);
-      if (andParts.length === 1) {
-        Object.assign(filter, andParts[0]);
-      } else if (andParts.length > 1) {
-        filter.$and = andParts;
+      const scopeFilter = buildScopeMongoFilter(scope, organizationId);
+      if (scopeFilter) {
+        Object.assign(filter, scopeFilter);
+      } else if (organizationId) {
+        Object.assign(filter, buildOrganizationScopeFilter(organizationId));
       }
 
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
@@ -227,9 +205,7 @@ class NotificationService {
         .sort({ createdAt: -1 })
         .limit(limitNum)
         .skip(
-          useBeforePagination
-            ? 0
-            : (Math.max(1, parseInt(page, 10) || 1) - 1) * limitNum
+          useBeforePagination ? 0 : (pageNum - 1) * limitNum
         );
 
       for (const n of notifications) {
@@ -244,7 +220,7 @@ class NotificationService {
         !useBeforePagination &&
         isRead === undefined &&
         !type &&
-        (parseInt(page, 10) || 1) === 1;
+        pageNum === 1;
 
       let unreadCount = null;
       if (canCacheUnread) {
@@ -257,7 +233,7 @@ class NotificationService {
         }
       }
 
-      const mapped = notifications.map((n) => toClientNotification(n, dtoOpts));
+      const mapped = notifications.map((n) => toClientNotification(n, { fields }));
       const hasMore = mapped.length >= limitNum;
       /** Giá trị gửi lại param `before` để lấy trang cũ hơn (sort createdAt desc). */
       const nextBefore =
@@ -268,17 +244,15 @@ class NotificationService {
       return {
         notifications: mapped,
         totalPages: useBeforePagination ? null : Math.ceil(total / limitNum),
-        currentPage: useBeforePagination
-          ? null
-          : Math.max(1, parseInt(page, 10) || 1),
+        currentPage: useBeforePagination ? null : pageNum,
         total,
         unreadCount,
         hasMore,
         nextBefore,
       };
     } catch (error) {
-      logger.error('Error getting user notifications:', error);
-      throw new Error(`Error getting user notifications: ${error.message}`);
+      logger.error('Error getting user notifications:', error?.message);
+      throw toNotificationError(error);
     }
   }
 
@@ -296,7 +270,7 @@ class NotificationService {
       );
 
       if (!notification) {
-        throw new Error('Notification not found');
+        throw notFoundError();
       }
 
       await maybeMigrateNotification(notification);
@@ -314,45 +288,49 @@ class NotificationService {
       });
       return toClientNotification(notification);
     } catch (error) {
-      logger.error('Error marking notification as read:', error);
-      throw new Error(`Error marking notification as read: ${error.message}`);
+      logger.error('Error marking notification as read:', error?.message);
+      throw toNotificationError(error);
     }
   }
 
-  async markAllAsRead(userId) {
+  async markAllAsRead(userId, { scope = 'personal', organizationId = '' } = {}) {
     try {
-      const result = await Notification.updateMany(
-        { userId, isRead: false },
-        {
-          $set: {
-            isRead: true,
-            readAt: new Date(),
-          },
-        }
+      const normalizedScope = scope === 'organization' ? 'organization' : 'personal';
+      const oid = normalizedScope === 'organization' ? String(organizationId || '').trim() : '';
+      const filter = {
+        ...buildScopedUserFilter(userId, normalizedScope, oid),
+        isRead: false,
+      };
+
+      const result = await Notification.updateMany(filter, {
+        $set: {
+          isRead: true,
+          readAt: new Date(),
+        },
+      });
+
+      logger.info(
+        `Notifications marked as read for user=${userId} scope=${normalizedScope} org=${oid || '-'}`
       );
 
-      logger.info(`All notifications marked as read for user: ${userId}`);
-      const orgIds = await Notification.distinct('data.organizationId', {
-        userId,
-        isRead: false,
-        'data.organizationId': { $exists: true, $nin: [null, ''] },
-      });
-      const targets = [{ scope: 'personal' }];
-      for (const oid of orgIds) {
-        if (oid) targets.push({ scope: 'organization', organizationId: String(oid) });
-      }
+      const targets =
+        normalizedScope === 'organization'
+          ? [{ scope: 'organization', organizationId: oid }]
+          : [{ scope: 'personal' }];
       await emitUnreadSnapshots(userId, targets);
       await emitRealtimeEvent({
         event: 'notification:read_all',
         userId: String(userId),
         payload: {
+          scope: normalizedScope,
+          ...(oid ? { organizationId: oid } : {}),
           timestamp: new Date().toISOString(),
         },
       });
-      return result;
+      return { modifiedCount: result?.modifiedCount ?? 0 };
     } catch (error) {
-      logger.error('Error marking all notifications as read:', error);
-      throw new Error(`Error marking all notifications as read: ${error.message}`);
+      logger.error('Error marking all notifications as read:', error?.message);
+      throw toNotificationError(error);
     }
   }
 
@@ -368,7 +346,7 @@ class NotificationService {
       const uid = new mongoose.Types.ObjectId(String(userId));
       const rid = String(roomId || '').trim();
       if (!rid) {
-        throw new Error('roomId is required');
+        throw validationError('roomId is required');
       }
 
       const filter = {
@@ -409,8 +387,8 @@ class NotificationService {
 
       return { modifiedCount: ids.length, notificationIds: ids };
     } catch (error) {
-      logger.error('Error marking voice room join request notifications read:', error);
-      throw new Error(`Error marking voice room join request notifications read: ${error.message}`);
+      logger.error('Error marking voice room join request notifications read:', error?.message);
+      throw toNotificationError(error);
     }
   }
 
@@ -419,7 +397,7 @@ class NotificationService {
       const uid = new mongoose.Types.ObjectId(String(userId));
       const cp = String(counterpartyId).trim();
       if (!cp) {
-        throw new Error('counterpartyId is required');
+        throw validationError('counterpartyId is required');
       }
 
       const cpVariants = [cp];
@@ -466,8 +444,8 @@ class NotificationService {
 
       return { modifiedCount: ids.length, notificationIds: ids };
     } catch (error) {
-      logger.error('Error marking friend-related notifications read:', error);
-      throw new Error(`Error marking friend-related notifications read: ${error.message}`);
+      logger.error('Error marking friend-related notifications read:', error?.message);
+      throw toNotificationError(error);
     }
   }
 
@@ -479,7 +457,7 @@ class NotificationService {
       });
 
       if (!notification) {
-        throw new Error('Notification not found');
+        throw notFoundError();
       }
 
       logger.info(`Notification deleted: ${notificationId}`);
@@ -496,30 +474,38 @@ class NotificationService {
       });
       return toClientNotification(notification);
     } catch (error) {
-      logger.error('Error deleting notification:', error);
-      throw new Error(`Error deleting notification: ${error.message}`);
+      logger.error('Error deleting notification:', error?.message);
+      throw toNotificationError(error);
     }
   }
 
-  async deleteAllRead(userId) {
+  async deleteAllRead(userId, { scope = 'personal', organizationId = '' } = {}) {
     try {
-      const result = await Notification.deleteMany({
-        userId,
+      const normalizedScope = scope === 'organization' ? 'organization' : 'personal';
+      const oid = normalizedScope === 'organization' ? String(organizationId || '').trim() : '';
+      const filter = {
+        ...buildScopedUserFilter(userId, normalizedScope, oid),
         isRead: true,
-      });
+      };
 
-      logger.info(`All read notifications deleted for user: ${userId}`);
+      const result = await Notification.deleteMany(filter);
+
+      logger.info(
+        `Read notifications deleted for user=${userId} scope=${normalizedScope} org=${oid || '-'}`
+      );
       await emitRealtimeEvent({
         event: 'notification:deleted_read_all',
         userId: String(userId),
         payload: {
+          scope: normalizedScope,
+          ...(oid ? { organizationId: oid } : {}),
           timestamp: new Date().toISOString(),
         },
       });
-      return result;
+      return { deletedCount: result?.deletedCount ?? 0 };
     } catch (error) {
-      logger.error('Error deleting all read notifications:', error);
-      throw new Error(`Error deleting all read notifications: ${error.message}`);
+      logger.error('Error deleting all read notifications:', error?.message);
+      throw toNotificationError(error);
     }
   }
 }

@@ -21,6 +21,15 @@ const documentSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Organization',
     },
+    projectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: undefined,
+      index: true,
+    },
+    departmentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: undefined,
+    },
     serverId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Server',
@@ -72,6 +81,7 @@ const documentSchema = new mongoose.Schema(
 documentSchema.index({ uploadedBy: 1 });
 documentSchema.index({ organizationId: 1 });
 documentSchema.index({ organizationId: 1, createdAt: -1 });
+documentSchema.index({ organizationId: 1, projectId: 1, createdAt: -1 });
 documentSchema.index({ serverId: 1 });
 documentSchema.index({ name: 1 });
 documentSchema.index({ tags: 1 });

@@ -7,10 +7,20 @@ import GradientButton from '../../components/Shared/GradientButton';
 import BrandPageLoader from '../../components/Shared/BrandPageLoader';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { buildProjectsNewAiPath } from '../../utils/suitePathUtils';
+import { buildProjectsModulePath } from '../../utils/suitePathUtils';
 import { requirementAPI } from '../../services/api/requirementAPI';
 import RequirementPreviewTabs from './RequirementPreviewTabs';
-import AiAnalysisBlueprintWizard from './AiAnalysisBlueprintWizard';
+import {
+  approveRequirementPackWithGate1,
+  readPackGateA,
+  formatGateAApproveError,
+} from './approveRequirementPackWithGate1';
+import GateAChecksPanel from './GateAChecksPanel';
+import useReviewNotePrompt from '../../hooks/useReviewNotePrompt';
+import RequirementInsightsPanel from './RequirementInsightsPanel';
+import RequirementHitlJourney from './RequirementHitlJourney';
+import AiPlanningRunPanel from '../projects/phase1/AiPlanningRunPanel';
+import { resolveGate1ReviewLane, REVIEW_LANE } from '../projects/phase1/aiHitl/gate1ReviewLane';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -31,6 +41,7 @@ export default function RequirementPackReviewDrawer({
   onDeletePack = null,
 }) {
   const { t } = useAppStrings();
+  const { requestNote, noteDialog } = useReviewNotePrompt();
   const navigate = useNavigate();
   const [pack, setPack] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -74,10 +85,19 @@ export default function RequirementPackReviewDrawer({
 
   if (!open) return null;
 
-  const showApprove = canApprove && pack?.status === 'under_review';
+  const reviewLane = pack ? resolveGate1ReviewLane(pack) : '';
+  const showApprove =
+    canApprove && pack?.status === 'under_review' && reviewLane === REVIEW_LANE.PO;
   const showCreateProject = canCreateFromPack && pack?.status === 'approved';
   const showDelete = canApprove && pack?.status === 'approved';
   const showFooter = showApprove || showCreateProject || showDelete;
+  /** HOW phase panel only after Gate 1 (approved) — not during Gate 1 review. */
+  const showHowPhase =
+    canRunAiPlanning &&
+    orgId &&
+    packId &&
+    (pack?.status === 'approved' || pack?.status === 'project_linked');
+  const projectPlanStatus = String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || '');
   const labels = {
     parsedOk: t('requirements.parsedOk'),
     parsedFail: t('requirements.parsedFail'),
@@ -140,14 +160,32 @@ export default function RequirementPackReviewDrawer({
     if (!orgId || !packId || busy) return;
     setBusy(true);
     try {
-      await requirementAPI.approvePack(orgId, packId);
-      toast.success(t('requirements.approveSuccess'));
+      const result = await approveRequirementPackWithGate1({
+        orgId,
+        packId,
+        t,
+        requestForceReason: async ({ title, message }) =>
+          requestNote({
+            title,
+            description: message,
+            placeholder:
+              t('requirements.gate1ForceReasonPlaceholder') ||
+              'Nhập lý do force duyệt Gate 1…',
+            submitLabel: t('requirements.approveForced') || t('requirements.approve'),
+            variant: 'request_changes',
+            maxLength: 2000,
+          }),
+      });
+      if (!result.ok) return;
+      toast.success(
+        result.forced
+          ? t('requirements.approveForcedSuccess') || t('requirements.approveSuccess')
+          : t('requirements.approveSuccess')
+      );
       onChanged?.();
       onClose?.();
     } catch (error) {
-      toast.error(
-        resolveApiErrorMessage(error, { t, fallback: t('requirements.approveFail') })
-      );
+      toast.error(formatGateAApproveError(error, { t, fallback: t('requirements.approveFail') }));
     } finally {
       setBusy(false);
     }
@@ -155,9 +193,17 @@ export default function RequirementPackReviewDrawer({
 
   const reject = async () => {
     if (!orgId || !packId || busy) return;
-    const reasonRaw = window.prompt(t('requirements.rejectReasonPrompt'), '');
+    const reasonRaw = await requestNote({
+      title: t('requirements.reject') || 'Từ chối gói',
+      description: t('requirements.rejectReasonPrompt') || 'Nhập lý do từ chối',
+      placeholder: t('requirements.rejectReasonPlaceholder') || 'Lý do từ chối…',
+      submitLabel: t('requirements.reject') || 'Từ chối',
+      variant: 'reject',
+      maxLength: 2000,
+    });
     if (reasonRaw == null) return;
     const reason = String(reasonRaw).trim().slice(0, 2000);
+    if (!reason) return;
     setBusy(true);
     try {
       await requirementAPI.rejectPack(orgId, packId, reason);
@@ -171,24 +217,44 @@ export default function RequirementPackReviewDrawer({
     }
   };
 
-  const createProject = async () => {
+  const createProject = async (opts = {}) => {
     if (!orgId || !packId || busy) return;
-    const linkedProjectId = String(pack?.projectId || '').trim();
-    if (!linkedProjectId) {
-      toast(
-        t('workspace.phase2AiNeedsLinkedProject') ||
-          'Pack = SRS. Gắn pack với dự án Phase 1 đã sẵn sàng gate, rồi dùng AI Phase 2 trên Overview.'
+    const planStatus = String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || '');
+    if (planStatus !== 'confirmed') {
+      toast.error(
+        t('requirements.gate2CreateBlocked') ||
+          'Gate 2: confirm phase HOW trước khi tạo Project board.'
       );
       return;
     }
-    onClose?.();
-    navigate(
-      buildProjectsNewAiPath(orgId, {
-        projectId: linkedProjectId,
-        packId,
-        from: 'requirements',
-      })
-    );
+    setBusy(true);
+    try {
+      const res = await requirementAPI.createProjectFromPack(orgId, packId, {
+        importWorkItems: opts.importWorkItems !== false,
+        applyAssignees: opts.applyAssignees !== false,
+      });
+      const data = unwrap(res);
+      const projectId = String(
+        data?.project?._id || data?.project?.projectId || data?.projectId || ''
+      ).trim();
+      toast.success(
+        t('requirements.createProjectFromPackSuccess') || 'Đã tạo Project board (sau Gate 2).'
+      );
+      onChanged?.();
+      onClose?.();
+      if (projectId) {
+        navigate(buildProjectsModulePath(projectId, 'overview'));
+      }
+    } catch (error) {
+      toast.error(
+        resolveApiErrorMessage(error, {
+          t,
+          fallback: t('requirements.createProjectFromPackFail') || 'Không tạo được dự án từ pack.',
+        })
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -207,11 +273,34 @@ export default function RequirementPackReviewDrawer({
         <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {t('requirements.reviewTitle')}
+              {pack?.status === 'under_review'
+                ? t('requirements.gate1ReviewTitle') || 'Human Review — Gate 1 (Canonical SRS)'
+                : pack?.status === 'approved'
+                  ? t('requirements.gate2PhaseTitle') || 'Pack approved — HOW / Gate 2'
+                  : t('requirements.reviewTitle')}
             </p>
             <h3 className="truncate text-base font-semibold text-foreground">
               {pack?.overview?.requirementName || pack?.sourceFileName || packId}
             </h3>
+            {(() => {
+              const gateA = readPackGateA(pack);
+              if (!gateA) return null;
+              const failedCount = (gateA.checks || []).filter((c) => c && c.passed === false).length;
+              return (
+                <p
+                  className={`mt-1 text-xs ${
+                    gateA.passed ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
+                  }`}
+                >
+                  {gateA.passed
+                    ? t('requirements.gateAPassed') || 'Gate A: đạt'
+                    : failedCount > 0
+                      ? t('requirements.gateAHeaderFailed', { count: failedCount }) ||
+                        `Gate A: chưa đạt · ${failedCount} tiêu chuẩn`
+                      : t('requirements.gateANotPassed') || 'Gate A: chưa đạt (cần sửa hoặc force duyệt)'}
+                </p>
+              );
+            })()}
           </div>
           <button
             type="button"
@@ -230,12 +319,79 @@ export default function RequirementPackReviewDrawer({
             </div>
           ) : pack ? (
             <>
-              {canRunAiPlanning && orgId && packId ? (
+              <RequirementHitlJourney
+                packStatus={pack.status}
+                projectPlanStatus={projectPlanStatus}
+                t={t}
+              />
+              {(() => {
+                const gateA = readPackGateA(pack);
+                if (!gateA) return null;
+                return (
+                  <div className="mb-4">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t('requirements.gateAPanelTitle') || 'Gate A — chất lượng requirement'}
+                    </p>
+                    <GateAChecksPanel gateA={gateA} t={t} />
+                  </div>
+                );
+              })()}
+              {showHowPhase ? (
                 <div className="mb-4">
-                  <AiAnalysisBlueprintWizard
+                  <AiPlanningRunPanel
                     organizationId={orgId}
                     packId={packId}
-                    onCreateProject={showCreateProject ? () => createProject() : null}
+                    canRun={Boolean(canRunAiPlanning)}
+                    canPromote={Boolean(showCreateProject)}
+                    onPromoted={(data) => {
+                      onChanged?.();
+                      const projectId = String(
+                        data?.project?._id || data?.project?.projectId || data?.projectId || ''
+                      ).trim();
+                      onClose?.();
+                      if (projectId) {
+                        navigate(buildProjectsModulePath(projectId, 'overview'));
+                      }
+                    }}
+                    onPlanStatusChange={(status) => {
+                      setPack((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              aiAnalysis: {
+                                ...(prev.aiAnalysis || {}),
+                                phaseRuns: {
+                                  ...(prev.aiAnalysis?.phaseRuns || {}),
+                                  phase_how: {
+                                    ...(prev.aiAnalysis?.phaseRuns?.phase_how || {}),
+                                    status,
+                                  },
+                                },
+                              },
+                            }
+                          : prev
+                      );
+                    }}
+                  />
+                </div>
+              ) : pack?.status === 'under_review' ? (
+                <p className="mb-4 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  {t('requirements.gate1HowDeferred') ||
+                    'HOW / AI Planning mở sau khi Approve Gate 1. Duyệt SRS (Gate A + nội dung pack) trước.'}
+                </p>
+              ) : null}
+              {pack?.aiAnalysis?.analyses?.requirementInsights ||
+              pack?.aiAnalysis?.analyses?.proposedSrs ||
+              pack?.aiAnalysis?.analyses?.preApproval ? (
+                <div className="mb-4 rounded-md border border-border p-3">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {t('requirements.insightsPanelTitle') || 'Requirement Insights'}
+                  </p>
+                  <RequirementInsightsPanel
+                    insights={pack.aiAnalysis.analyses.requirementInsights}
+                    proposedSrs={pack.aiAnalysis.analyses.proposedSrs}
+                    preApproval={pack.aiAnalysis.analyses.preApproval}
+                    t={t}
                   />
                 </div>
               ) : null}
@@ -295,12 +451,18 @@ export default function RequirementPackReviewDrawer({
             {showCreateProject ? (
               <GradientButton
                 variant="success"
-                disabled={busy}
+                disabled={busy || projectPlanStatus !== 'confirmed'}
                 onClick={() => createProject()}
+                title={
+                  projectPlanStatus === 'confirmed'
+                    ? undefined
+                    : t('requirements.gate2CreateBlocked') ||
+                      'Gate 2: confirm projectPlan trước khi tạo Project board.'
+                }
                 className="px-4 py-2 text-sm"
               >
                 <FolderPlus className="h-4 w-4" />
-                {t('workspace.phase2OptionAi') || t('requirements.createProject')}
+                {t('requirements.createProject')}
               </GradientButton>
             ) : null}
             {showDelete && typeof onDeletePack === 'function' ? (
@@ -317,6 +479,7 @@ export default function RequirementPackReviewDrawer({
           </footer>
         ) : null}
       </aside>
+      {noteDialog}
     </>
   );
 }

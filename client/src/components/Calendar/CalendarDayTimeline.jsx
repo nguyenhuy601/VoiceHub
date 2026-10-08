@@ -54,6 +54,7 @@ export default function CalendarDayTimeline({
   return (
     <div className={`relative flex ${className}`}>
       <div
+        aria-hidden="true"
         className={`shrink-0 pr-1 text-right text-[0.65rem] text-muted-foreground ${
           compact ? 'w-8' : 'w-10'
         }`}
@@ -91,7 +92,9 @@ export default function CalendarDayTimeline({
               type="button"
               title={`${ev.time || ''} ${ev.title}${ev.estimated ? ` (${t ? t('calendar.estimateHintShort') : 'est.'})` : ''}`}
               onClick={() => onSelectEvent?.(ev)}
-              className={`absolute left-0.5 right-0.5 overflow-hidden rounded border-l-2 px-1 py-0.5 text-left text-[0.65rem] font-semibold leading-tight transition ${
+              aria-label={t ? t('calendar.dayEventAria', { title: ev.title, time: ev.time || '' }) : ev.title}
+              aria-pressed={Boolean(selected)}
+              className={`absolute left-0.5 right-0.5 overflow-hidden rounded border-l-2 px-1 py-0.5 text-left text-[0.65rem] font-semibold leading-tight transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                 meta.pillBg
               } ${meta.pillText} ${meta.pillBorder} ${
                 selected ? 'ring-2 ring-primary/40' : ''

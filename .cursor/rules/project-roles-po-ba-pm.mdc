@@ -1,0 +1,60 @@
+---
+description: Chuẩn vai trò dự án PO / BA / PM — ownership, phase, CR, acceptance (VoiceHub)
+alwaysApply: true
+---
+
+# Vai trò dự án — PO · BA · PM (bắt buộc)
+
+Khi thiết kế UX, copy, RBAC, workflow, seed demo, hoặc plan Phase 1–4: **không trộn ownership**. Map key VoiceHub: `product_owner` = PO, `business_analyst` = BA, `project_manager` = PM. Tech Lead (`tech_lead` / `analysis:tech_review`) = cổng kỹ thuật — **không** thay BA/PO/PM.
+
+## Mục tiêu (một dòng)
+
+| Role | Focus |
+|------|--------|
+| **PO** | Why / What — quyết định nhu cầu, ưu tiên, scope, business acceptance |
+| **BA** | What exactly — chủ trì phân tích, chi tiết requirement, SRS, AC |
+| **PM** | How / When / Who — chủ trì WBS, phase, schedule, resource, project risk |
+
+## Ma trận ownership (không đảo)
+
+| Nội dung | PO | BA | PM |
+|----------|----|----|-----|
+| Khách hàng | Quyết định / ưu tiên nhu cầu | Khai thác, làm rõ | Điều phối khi cần |
+| Phân tích nghiệp vụ | Review & quyết định | **Chủ trì** | Không đi sâu |
+| Viết SRS | Review / approve | **Chủ trì** | Tham gia nếu ảnh hưởng plan |
+| Scope | **Quyết định** | Phân tích & làm rõ | Quản lý scope (sau khi đã quyết) |
+| Priority | **Quyết định** | Đề xuất từ phân tích | Theo dõi tác động |
+| Requirement detail | Review | **Chủ trì** | Không sở hữu |
+| WBS / Phase / Schedule | Tham khảo (Phase: không sở hữu) | Input / estimate / dependency | **Chủ trì** |
+| Resource | Không sở hữu | Đề xuất skill/role cần | **Chủ trì allocation** |
+| Risk | Business risk | Requirement risk | **Project risk** |
+| Change Request | Quyết định business impact | Phân tích requirement impact | Phân tích schedule / resource / cost |
+| Acceptance | **Business acceptance** | Chuẩn bị acceptance criteria | Điều phối |
+
+## Theo giai đoạn VoiceHub
+
+| Giai đoạn (`deliveryPhase`) | BA | PO | PM |
+|-----------------------------|----|----|-----|
+| `requirement_analysis` (RA, Import Set, artifact, SRS) | Chủ trì phân tích / draft / gate BA | Quyết định scope·priority; approve (gate PO / business accept) | Không sở hữu chi tiết RA; chỉ khi ảnh hưởng plan |
+| `delivery_planning` (WBS, Gantt, resource, planning baseline) | Input estimate / dependency / skill | Tham khảo; quyết định scope/priority nếu đổi | **Chủ trì** plan |
+| `development` / `qa_uat` / `release_handover` | CR requirement impact; AC | Business impact + acceptance | Schedule / resource / cost; điều phối |
+
+**Gate RA:** BA → [Tech optional nếu có `analysis:tech_review`] → PO. SoD khác userId giữa stamp; demo logout–login từng account.
+
+**Gate Planning (DEC D5/D9):** **PM → [Tech optional] → PO**. Không bắt BA duyệt plan. Không gán PM duyệt nội dung requirement RA. Không để PO viết SRS thay BA; không để BA chủ trì WBS/schedule.
+
+**Debt:** PM vẫn có `analysis:po_review` trong matrix — ghi nhận, không nhân rộng / không dùng làm SoT demo.
+
+## Khi implement / review
+
+- **Copy & CTA:** đúng chủ thể — BA: phân tích / làm rõ / đề xuất; PO: duyệt / ưu tiên / chấp nhận nghiệp vụ; PM: kế hoạch / phân bổ / điều phối.
+- **Quyền:** action phân tích/SRS/AC → BA (+ review PO); quyết định scope/priority/accept → PO; WBS/phase/schedule/resource → PM. Không mở rộng permission “cho tiện” xuyên role.
+- **Demo / seed / test:** dữ liệu và kịch bản phản ánh đúng ai làm bước nào (vd. BA import & phân tích; PO approve; PM planning).
+- **Xung đột:** ưu tiên ma trận trên; nếu code cũ lệch ownership — ghi rõ technical debt, không nhân rộng.
+
+## Ví dụ nhanh
+
+```text
+✅ BA chủ trì tab FR/UC/SRS draft; PO approve baseline; PM mở Planning / WBS
+❌ PO viết chi tiết FR thay BA; BA sở hữu Gantt; PM duyệt nội dung Import Set thay BA/PO
+```

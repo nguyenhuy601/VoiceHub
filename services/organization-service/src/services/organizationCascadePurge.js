@@ -28,8 +28,6 @@ const VOICE_SERVICE_URL = String(process.env.VOICE_SERVICE_URL || '').trim().rep
 if (!VOICE_SERVICE_URL) throw new Error('Thiếu biến môi trường: VOICE_SERVICE_URL');
 const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!CHAT_SERVICE_URL) throw new Error('Thiếu biến môi trường: CHAT_SERVICE_URL');
-const AI_TASK_SERVICE_URL = String(process.env.AI_TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!AI_TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: AI_TASK_SERVICE_URL');
 const ROLE_PERMISSION_SERVICE_URL = String(process.env.ROLE_PERMISSION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ROLE_PERMISSION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ROLE_PERMISSION_SERVICE_URL');
 const PURGE_MAX_RETRIES = 5;
@@ -129,14 +127,6 @@ async function purgeRemoteChatMessages(organizationId) {
   );
 }
 
-async function purgeRemoteAiTaskData(organizationId) {
-  const url = `${AI_TASK_SERVICE_URL}/api/ai/tasks/internal/purge-organization/${encodeURIComponent(organizationId)}`;
-  await requestWithRetry(
-    () => axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true }),
-    'ai-task-service purge'
-  );
-}
-
 async function purgeRemoteRoles(organizationId) {
   const candidates = [
     `${ROLE_PERMISSION_SERVICE_URL}/api/internal/roles/purge-by-server/${encodeURIComponent(organizationId)}`,
@@ -226,7 +216,6 @@ async function purgeOrganizationEverywhere(organizationId) {
     purgeRemoteDocuments(oidStr),
     purgeRemoteMeetings(oidStr),
     purgeRemoteChatMessages(oidStr),
-    purgeRemoteAiTaskData(oidStr),
     purgeRemoteRoles(oidStr),
   ]);
 

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import {
   AdminUserFormCard,
@@ -7,6 +7,9 @@ import {
   adminInputClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminListSkeleton,
+} from '../../components/adminUsers/adminPanelStates';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import { useAppStrings } from '../../locales/appStrings';
@@ -23,6 +26,14 @@ import {
   ORGANIZATION_ROLE_LABELS,
   ROLE_KIND,
 } from '../../utils/roleTaxonomy';
+import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+
+const SEARCH_MAX_LENGTH = 100;
+const SCOPE_TYPE_I18N = {
+  department: 'adminRbac.orgRoleScopeDepartment',
+  team: 'adminRbac.orgRoleScopeTeam',
+  org: 'adminRbac.orgRoleScopeOrg',
+};
 
 export default function RbacOrgRoleDirectoryPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -31,27 +42,38 @@ export default function RbacOrgRoleDirectoryPanel({ orgId }) {
   const [query, setQuery] = useState('');
   const [manualAssignments, setManualAssignments] = useState([]);
   const [assignLoading, setAssignLoading] = useState(false);
+  const [assignError, setAssignError] = useState('');
+  const requestSeq = useRef(0);
+
+  const loadAssignments = useCallback(async () => {
+    if (!orgId) return;
+    const seq = ++requestSeq.current;
+    setAssignLoading(true);
+    setAssignError('');
+    try {
+      const res = await orgRoleCatalogAPI.listAssignments(orgId);
+      if (seq !== requestSeq.current) return;
+      setManualAssignments(res?.data?.assignments || []);
+    } catch (error) {
+      if (seq !== requestSeq.current) return;
+      setManualAssignments([]);
+      setAssignError(resolveApiErrorMessage(error, { t, fallback: t('adminRbac.orgRoleAssignLoadFail') }));
+    } finally {
+      if (seq === requestSeq.current) setAssignLoading(false);
+    }
+  }, [orgId, t]);
 
   useEffect(() => {
-    if (!orgId) return;
-    let mounted = true;
-    setAssignLoading(true);
-    orgRoleCatalogAPI
-      .listAssignments(orgId)
-      .then((res) => {
-        const items = res?.data?.assignments || [];
-        if (mounted) setManualAssignments(items);
-      })
-      .catch(() => {
-        if (mounted) setManualAssignments([]);
-      })
-      .finally(() => {
-        if (mounted) setAssignLoading(false);
-      });
+    loadAssignments();
     return () => {
-      mounted = false;
+      requestSeq.current += 1;
     };
-  }, [orgId]);
+  }, [loadAssignments]);
+
+  const scopeTypeLabel = (scopeType) => {
+    const key = SCOPE_TYPE_I18N[scopeType];
+    return key ? t(key) : scopeType;
+  };
 
   const rows = useMemo(() => {
     const list = [];
@@ -92,13 +114,13 @@ export default function RbacOrgRoleDirectoryPanel({ orgId }) {
         roleKey,
         roleLabel: a.roleLabel,
         scopeType: 'org',
-        scopeName: 'Company',
+        scopeName: t('adminRbac.orgRoleScopeCompany'),
         userId,
         editPath: `/app/admin/rbac/org-roles/assign?userId=${encodeURIComponent(userId)}&roleKey=${encodeURIComponent(roleKey)}`,
       });
     }
     return list.sort((a, b) => a.scopeName.localeCompare(b.scopeName));
-  }, [departments, teams, manualAssignments]);
+  }, [departments, teams, manualAssignments, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -121,18 +143,20 @@ export default function RbacOrgRoleDirectoryPanel({ orgId }) {
       hint={t('adminRbac.orgRoleDirectoryHint')}
       wide
     >
-      <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+      <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
         {t('adminRbac.orgRoleCatalogResolve')}
       </p>
 
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
         <div className="relative max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <input
             type="search"
             value={query}
+            maxLength={SEARCH_MAX_LENGTH}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('adminRbac.orgRoleDirectorySearch')}
+            aria-label={t('adminRbac.orgRoleDirectorySearch')}
             className={`${adminInputClass()} pl-9`}
           />
         </div>
@@ -140,8 +164,17 @@ export default function RbacOrgRoleDirectoryPanel({ orgId }) {
 
       <AdminUserFormCard title={t('adminDomains.rbac.orgRoleDirectory')}>
         {loading ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          <AdminListSkeleton />
         ) : (
+          <>
+          {assignError ? (
+            <div role="alert" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive px-3 py-2 text-sm text-destructive">
+              <span>{assignError}</span>
+              <button type="button" className={adminSecondaryBtnClass('!px-2 !py-1 text-xs')} onClick={loadAssignments}>
+                {t('common.retry')}
+              </button>
+            </div>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
@@ -154,7 +187,10 @@ export default function RbacOrgRoleDirectoryPanel({ orgId }) {
               </thead>
               <tbody>
                 {filtered.map((row) => (
-                  <tr key={row.id} className="border-b border-border/50">
+                  <tr
+                    key={row.id}
+                    className="border-b border-border transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
+                  >
                     <td className="px-3 py-2">
                       <span className="font-medium">
                         {row.roleLabel || ORGANIZATION_ROLE_LABELS[row.roleKey] || row.roleKey}
@@ -164,7 +200,7 @@ export default function RbacOrgRoleDirectoryPanel({ orgId }) {
                       </span>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">
-                      {row.scopeType}: {row.scopeName}
+                      {scopeTypeLabel(row.scopeType)}: {row.scopeName}
                     </td>
                     <td className="px-3 py-2">
                       {memberLabelById(membersByIdAll, row.userId, row.userId)}
@@ -184,6 +220,7 @@ export default function RbacOrgRoleDirectoryPanel({ orgId }) {
               </p>
             ) : null}
           </div>
+          </>
         )}
       </AdminUserFormCard>
     </AdminUserPanelShell>

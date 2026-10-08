@@ -53,7 +53,11 @@ async function deleteAuditEvent(req, res) {
     const userId = asUserId(req);
     if (!userId) return unauthorized(res);
     await auditService.denyDeleteAudit();
-    return res.status(403).json({ success: false, message: 'Forbidden' });
+    return sendServiceError(res, 403, {
+      errorCode: 'AUDIT_APPEND_ONLY',
+      messageUser: 'Không thể xóa sự kiện audit.',
+      message: 'Forbidden',
+    });
   } catch (err) {
     return sendErrorFromCatch(res, err, err.statusCode || 403, err.message, 'AUDIT_APPEND_ONLY');
   }
@@ -225,7 +229,16 @@ async function securityFlags(req, res) {
   try {
     const userId = asUserId(req);
     if (!userId) return unauthorized(res);
-    return res.json({ success: true, data: governanceService.getSecurityFeatureFlagsStub() });
+    const organizationId = orgIdOf(req);
+    if (!mongoose.isValidObjectId(organizationId)) {
+      return sendServiceError(res, 400, {
+        errorCode: 'VALIDATION_REQUIRED',
+        messageUser: 'organizationId là bắt buộc',
+        message: 'organizationId required',
+      });
+    }
+    const data = await governanceService.getSecurityFeatureFlags({ userId, organizationId });
+    return res.json({ success: true, data });
   } catch (err) {
     return sendErrorFromCatch(res, err, err.statusCode || 400, err.message, 'SECURITY_FLAGS_FAILED');
   }

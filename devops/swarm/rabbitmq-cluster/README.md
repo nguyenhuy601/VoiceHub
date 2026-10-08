@@ -41,7 +41,7 @@ RABBITMQ_URL=amqp://voicehub:<pass>@rabbitmq-1:5672
 | Publishers | `RABBITMQ_URL` | `amqplib.connect(url)` — reconnect on `error`/`close` (plan quorum bổ sung wrapper) |
 | Consumers | cùng URL | `conn.on('error')` → restart consumer loop |
 
-Workers liên quan: `friendDmConsumer`, `notificationDispatch.worker`, `taskFromFileWorker`, `ai-task-worker`, webhook worker.
+Workers liên quan: `friendDmConsumer`, `notificationDispatch.worker`, `taskFromFileWorker`, `ai-task-worker`.
 
 **Sau kill 1 node:** cluster còn quorum disk nodes; client trỏ `rabbitmq-1` vẫn publish được. Nếu connection hang → `docker service update --force <worker>` hoặc chờ reconnect.
 

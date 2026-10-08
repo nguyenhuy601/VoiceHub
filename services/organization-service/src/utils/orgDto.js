@@ -1,5 +1,12 @@
+const SETTINGS_VISIBLE_ROLES = new Set(['owner', 'admin', 'hr']);
+
+function canViewOrgSettings(myRole) {
+  return SETTINGS_VISIBLE_ROLES.has(String(myRole || '').trim().toLowerCase());
+}
+
 /**
  * DTO công khai cho Organization — không trả provisioning nội bộ / lỗi seed.
+ * `settings` chỉ đủ cho owner/admin/hr; vai trò khác nhận `{}` (giữ key).
  */
 function toPublicOrganization(doc, extra = {}) {
   if (!doc) return null;
@@ -22,7 +29,7 @@ function toPublicOrganization(doc, extra = {}) {
     industry: o.industry || '',
     ownerId: o.ownerId,
     isActive: o.isActive !== false,
-    settings: o.settings || {},
+    settings: canViewOrgSettings(extra.myRole) ? o.settings || {} : {},
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
     provisioning: {

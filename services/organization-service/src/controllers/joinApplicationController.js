@@ -11,7 +11,7 @@ const {
 } = require('../utils/orgApiError');
 const Membership = require('../models/Membership');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
-const { resolveFrontendUrl } = require('@enterprise/shared');
+const { trustedFrontendUrl } = require('../utils/trustedFrontendUrl');
 const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 const { toJoinApplicationListItem } = require('../utils/orgDto');
@@ -280,7 +280,7 @@ exports.submitJoinApplication = async (req, res, next) => {
   try {
     const orgId = req.params.orgId;
     const userId = getUserId(req);
-    const frontendUrl = resolveFrontendUrl(req);
+    const frontendUrl = trustedFrontendUrl(req);
     if (!userId) {
       return orgUnauthorized(res);
     }
@@ -524,7 +524,7 @@ exports.reviewJoinApplication = async (req, res, next) => {
     const action = req.body?.action;
     const rejectionReason = String(req.body?.rejectionReason || '').slice(0, 2000);
     const reviewerId = getUserId(req);
-    const frontendUrl = resolveFrontendUrl(req);
+    const frontendUrl = trustedFrontendUrl(req);
 
     if (!['approve', 'reject'].includes(action)) {
       return orgValidation(res, 'action phải là approve hoặc reject');

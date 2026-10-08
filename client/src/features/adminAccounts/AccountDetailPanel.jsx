@@ -1,5 +1,4 @@
 import { Link, useSearchParams } from 'react-router-dom';
-import { useEffect, useState } from 'react';
 import {
   KeyRound,
   Lock,
@@ -14,64 +13,63 @@ import {
   AdminUserFormCard,
   AdminUserPanelShell,
 } from '../../components/adminUsers/adminUserPanelUi';
-import { adminUserAPI } from '../../services/api/adminUserAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import {
   memberDisplayName,
   memberEmail,
   memberUserId,
-  unwrapApi,
 } from '../../utils/adminUserUtils';
 import { adminUserHubLink } from '../../utils/adminHubLinks';
+import { AccountLoadError, accountInfoCardClass, useAccountAuthSummary } from './accountPanelParts';
 
 function ActionLink({ to, icon: Icon, children }) {
   return (
     <Link
       to={to}
-      className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted/40"
+      className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors duration-150 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
     >
-      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
       {children}
     </Link>
   );
 }
 
+function InfoCard({ label, children }) {
+  return (
+    <div className={accountInfoCardClass()}>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-medium">{children}</p>
+    </div>
+  );
+}
+
+function formatDateTime(value, locale) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString(locale);
+}
+
 export default function AccountDetailPanel({ orgId }) {
-  const { t } = useAppStrings();
+  const { t, locale } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const { members } = useAdminMembers(orgId, { view: 'directory' });
-  const [summary, setSummary] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const { summary, loading, loadError, reload } = useAccountAuthSummary(orgId, userId, 'adminAccounts.loadFail');
 
   const memberRow = members.find((m) => memberUserId(m) === userId);
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : '';
 
-  useEffect(() => {
-    if (!orgId || !userId) {
-      setSummary(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await adminUserAPI.getAuthSummary(orgId, userId);
-        if (!cancelled) setSummary(unwrapApi(res)?.data ?? unwrapApi(res));
-      } catch {
-        if (!cancelled) setSummary(null);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, userId]);
-
   const displayName = memberRow ? memberDisplayName(memberRow) : userId;
   const email = summary?.email || (memberRow ? memberEmail(memberRow) : '');
+  const lockUntilActive = summary?.lockUntil && new Date(summary.lockUntil) > new Date();
+
+  let lockLabel = t('adminAccounts.notLocked');
+  if (lockUntilActive) {
+    lockLabel = t('adminAccounts.rateLockedUntil', { time: formatDateTime(summary.lockUntil, locale) });
+  } else if (summary?.isLocked) {
+    lockLabel = t('adminAccounts.lockedByAdmin');
+  }
 
   return (
     <AdminUserPanelShell title={t('adminDomains.accounts.detail')} hint={t('adminAccounts.detailHint')} wide>
@@ -81,44 +79,34 @@ export default function AccountDetailPanel({ orgId }) {
           {!userId ? (
             <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
           ) : loading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+            <p className="text-sm text-muted-foreground" aria-busy="true">
+              {t('common.loading')}
+            </p>
+          ) : loadError ? (
+            <AccountLoadError message={loadError} onRetry={reload} />
           ) : (
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
-                  <p className="text-xs text-muted-foreground">{t('adminAccounts.colEmail')}</p>
-                  <p className="mt-1 text-sm font-medium">{email || '—'}</p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
-                  <p className="text-xs text-muted-foreground">{t('adminAccounts.colSystemRole')}</p>
-                  <p className="mt-1 text-sm font-medium capitalize">{summary?.systemRole || 'employee'}</p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
-                  <p className="text-xs text-muted-foreground">{t('adminAccounts.emailVerified')}</p>
-                  <p className="mt-1 text-sm font-medium">
-                    {summary?.isEmailVerified ? t('adminAccounts.verifiedYes') : t('adminAccounts.verifiedNo')}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
-                  <p className="text-xs text-muted-foreground">{t('adminUsers.colStatus')}</p>
-                  <p className="mt-1 text-sm font-medium">
-                    {summary?.pendingActivation
-                      ? t('adminAccounts.statusPendingActivation')
-                      : summary?.isActive === false
-                        ? t('adminUsers.statusInactive')
-                        : t('adminUsers.statusActive')}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
-                  <p className="text-xs text-muted-foreground">{t('adminUsers.colLastLogin')}</p>
-                  <p className="mt-1 text-sm font-medium">
-                    {summary?.lastLoginAt ? new Date(summary.lastLoginAt).toLocaleString() : '—'}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-3">
-                  <p className="text-xs text-muted-foreground">{t('adminAccounts.loginAttempts')}</p>
-                  <p className="mt-1 text-sm font-medium">{summary?.loginAttempts ?? 0}</p>
-                </div>
+                <InfoCard label={t('adminAccounts.colEmail')}>{email || '—'}</InfoCard>
+                <InfoCard label={t('adminAccounts.colSystemRole')}>
+                  {summary?.systemRole === 'admin' ? t('adminAccounts.systemAdmin') : t('adminAccounts.employee')}
+                </InfoCard>
+                <InfoCard label={t('adminAccounts.emailVerified')}>
+                  {summary?.isEmailVerified ? t('adminAccounts.verifiedYes') : t('adminAccounts.verifiedNo')}
+                </InfoCard>
+                <InfoCard label={t('adminUsers.colStatus')}>
+                  {summary?.pendingActivation
+                    ? t('adminAccounts.statusPendingActivation')
+                    : summary?.isActive === false
+                      ? t('adminUsers.statusInactive')
+                      : t('adminUsers.statusActive')}
+                </InfoCard>
+                <InfoCard label={t('adminAccounts.colLocked')}>{lockLabel}</InfoCard>
+                <InfoCard label={t('adminAccounts.colMustChange')}>
+                  {summary?.mustChangePassword ? t('adminAccounts.flagYes') : t('adminAccounts.flagNo')}
+                </InfoCard>
+                <InfoCard label={t('adminUsers.colLastLogin')}>{formatDateTime(summary?.lastLoginAt, locale)}</InfoCard>
+                <InfoCard label={t('adminAccounts.loginAttempts')}>{summary?.loginAttempts ?? 0}</InfoCard>
               </div>
 
               <div>
@@ -162,7 +150,7 @@ export default function AccountDetailPanel({ orgId }) {
                 {t('adminAccounts.profileLinkHint')}{' '}
                 <Link
                   to={adminUserHubLink('/app/admin/users/people-ops', userId, 'edit')}
-                  className="font-medium text-red-500 hover:underline"
+                  className="rounded font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {t('adminDomains.users.edit')}
                 </Link>

@@ -14,8 +14,6 @@
 
 # Bề mặt mạng: chỉ publish api-gateway (+ voice-service cho WebRTC). Các service khác chỉ enterprise-network.
 
-
-
 services:
 
   api-gateway:
@@ -76,15 +74,9 @@ services:
 
       - project-service
 
-      - ai-task-service
-
-      - summary-service
-
       - document-service
 
       - notification-service
-
-      - webhook-service
 
     networks:
 
@@ -99,8 +91,6 @@ services:
       - /app/node_modules
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
-
-
 
   auth-service:
 
@@ -140,8 +130,6 @@ services:
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
-
-
   user-service:
 
     build:
@@ -180,8 +168,6 @@ services:
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
-
-
   organization-service:
 
     build:
@@ -219,8 +205,6 @@ services:
       - /app/node_modules
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
-
-
 
   friend-service:
 
@@ -264,8 +248,6 @@ services:
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
-
-
   role-permission-service:
 
     build:
@@ -301,8 +283,6 @@ services:
       - /app/node_modules
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
-
-
 
   chat-service:
 
@@ -372,8 +352,6 @@ services:
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
-
-
   project-service:
 
     build:
@@ -430,8 +408,6 @@ services:
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
-
-
   project-service:
 
     build:
@@ -487,262 +463,6 @@ services:
       - /app/node_modules
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
-
-
-
-  ai-task-service:
-
-    build:
-      context: .
-      dockerfile: services/ai-task-service/Dockerfile
-
-    container_name: enterprise-ai-task-service
-
-    env_file:
-
-      - .env
-
-      - ./services/ai-task-service/.env
-
-    environment:
-
-      RABBITMQ_URL: ${RABBITMQ_URL}
-
-      CHAT_INTERNAL_TOKEN: ${CHAT_INTERNAL_TOKEN}
-
-    depends_on:
-
-      mongodb:
-
-        condition: service_started
-
-      rabbitmq:
-
-        condition: service_healthy
-
-      chat-service:
-
-        condition: service_started
-
-      ollama:
-
-        condition: service_started
-
-    networks:
-
-      - enterprise-network
-
-    volumes:
-
-      - ./services/ai-task-service:/app
-
-      - ./shared:/shared
-
-      - /app/node_modules
-
-    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
-
-
-
-  ai-task-worker:
-
-    build:
-      context: .
-      dockerfile: services/ai-task-worker/Dockerfile
-
-    container_name: enterprise-ai-task-worker
-
-    env_file:
-
-      - .env
-
-      - ./services/ai-task-worker/.env
-
-    environment:
-
-      RABBITMQ_URL: ${RABBITMQ_URL}
-
-      CHAT_INTERNAL_TOKEN: ${CHAT_INTERNAL_TOKEN}
-
-      USER_SERVICE_INTERNAL_TOKEN: ${USER_SERVICE_INTERNAL_TOKEN}
-
-    depends_on:
-
-      mongodb:
-
-        condition: service_started
-
-      rabbitmq:
-
-        condition: service_healthy
-
-      ollama:
-
-        condition: service_started
-
-      paddleocr-service:
-
-        condition: service_started
-
-      ai-task-service:
-
-        condition: service_started
-
-    networks:
-
-      - enterprise-network
-
-    volumes:
-
-      - ./services/ai-task-worker:/app
-
-      - ./shared:/shared
-
-      - /app/node_modules
-
-    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/worker.js"]
-
-
-
-  voice-recording-worker:
-
-    build:
-      context: .
-      dockerfile: services/voice-recording-worker/Dockerfile
-
-    container_name: enterprise-voice-recording-worker
-
-    env_file:
-
-      - .env
-
-      - ./services/voice-recording-worker/.env
-
-    environment:
-
-      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672
-
-      RABBITMQ_QUORUM_QUEUES: ${RABBITMQ_QUORUM_QUEUES:-true}
-
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-
-      MINIO_BUCKET: ${MINIO_BUCKET}
-
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
-
-      GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN}
-
-      VOICE_SERVICE_URL: ${VOICE_SERVICE_URL}
-
-    depends_on:
-
-      mongodb:
-
-        condition: service_started
-
-      rabbitmq:
-
-        condition: service_healthy
-
-      minio:
-
-        condition: service_healthy
-
-      minio-init:
-
-        condition: service_completed_successfully
-
-      ollama:
-
-        condition: service_started
-
-      voice-service:
-
-        condition: service_started
-
-    networks:
-
-      - enterprise-network
-
-    volumes:
-
-      - ./services/voice-recording-worker:/app
-
-
-
-  voice-stt-worker:
-
-    build:
-      context: .
-      dockerfile: services/voice-stt-worker/Dockerfile
-
-    container_name: enterprise-voice-stt-worker
-
-    env_file:
-
-      - .env
-
-    environment:
-
-      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672
-
-      RABBITMQ_QUORUM_QUEUES: ${RABBITMQ_QUORUM_QUEUES:-true}
-
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-
-      MINIO_BUCKET: ${MINIO_BUCKET}
-
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
-
-      GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN}
-
-      VOICE_SERVICE_URL: ${VOICE_SERVICE_URL}
-
-      VOICE_STT_PROVIDER: ${VOICE_STT_PROVIDER:-self_hosted}
-
-    depends_on:
-
-      mongodb:
-
-        condition: service_started
-
-      rabbitmq:
-
-        condition: service_healthy
-
-      minio:
-
-        condition: service_healthy
-
-      minio-init:
-
-        condition: service_completed_successfully
-
-      ollama:
-
-        condition: service_started
-
-      voice-service:
-
-        condition: service_started
-
-    networks:
-
-      - enterprise-network
-
-    volumes:
-
-      - ./services/voice-stt-worker:/app
-
-
 
   document-service:
 
@@ -777,8 +497,6 @@ services:
       - /app/node_modules
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
-
-
 
   voice-service:
 
@@ -858,8 +576,6 @@ services:
 
       - /app/node_modules
 
-
-
   notification-service:
 
     build:
@@ -897,38 +613,6 @@ services:
       - /app/node_modules
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
-
-
-
-  webhook-service:
-
-    build: ./services/webhook-service
-
-    container_name: enterprise-webhook-service
-
-    env_file:
-
-      - .env
-
-      - ./services/webhook-service/.env
-
-    environment:
-
-      NOTIFICATION_INTERNAL_TOKEN: ${NOTIFICATION_INTERNAL_TOKEN}
-
-    depends_on:
-
-      - notification-service
-
-    networks:
-
-      - enterprise-network
-
-    volumes:
-
-      - ./services/webhook-service:/app
-
-
 
   socket-service:
 
@@ -999,8 +683,6 @@ services:
       - /app/node_modules
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
-
-
 
 networks:
 

@@ -86,20 +86,41 @@ function castMatchObjectIds(match, toOid) {
 
 const OVERDUE_ITEMS_LIMIT = 8;
 
-function formatOverdueItems(rows, titleById, fallbackOrgId) {
+/**
+ * @param {unknown[]} rows
+ * @param {Map<string, string>} titleById — boardId → board title
+ * @param {string} fallbackOrgId
+ * @param {Map<string, string>} [projectIdByBoardId]
+ * @param {Map<string, { projectTitle: string, projectCode: string }>} [projectById]
+ */
+function formatOverdueItems(
+  rows,
+  titleById,
+  fallbackOrgId,
+  projectIdByBoardId,
+  projectById
+) {
   const map = titleById instanceof Map ? titleById : new Map();
+  const pidByBoard =
+    projectIdByBoardId instanceof Map ? projectIdByBoardId : new Map();
+  const projects = projectById instanceof Map ? projectById : new Map();
   return (Array.isArray(rows) ? rows : [])
     .map((row) => {
       const id = row?._id || row?.id;
       if (!id) return null;
       const boardId = row.boardId ? String(row.boardId) : '';
       const due = row.dueDate ? new Date(row.dueDate) : null;
+      const projectId = (boardId && pidByBoard.get(boardId)) || '';
+      const identity = projectId ? projects.get(projectId) : null;
       return {
         id: String(id),
         title: String(row.title || '').trim() || String(id),
         dueDate: due && !Number.isNaN(due.getTime()) ? due.toISOString() : null,
         boardId,
         boardName: (boardId && map.get(boardId)) || '',
+        projectId,
+        projectTitle: identity?.projectTitle || '',
+        projectCode: identity?.projectCode || '',
         assigneeId: row.assigneeId ? String(row.assigneeId) : null,
         organizationId: String(row.organizationId || fallbackOrgId || ''),
       };

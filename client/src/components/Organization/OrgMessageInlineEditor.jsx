@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Smile } from 'lucide-react';
+import { Loader2, Smile } from 'lucide-react';
 import { COMPOSER_EMOJI_LIST } from '../../utils/chatEmojiList';
+import { CHAT_MESSAGE_MAX_LENGTH } from '../../utils/chatComposerLimits';
 import { shellNavRailBackdrop } from '../../theme/shellTheme';
 import { useAppStrings } from '../../locales/appStrings';
+
+const LINK_CLASS =
+  'font-medium text-primary hover:underline focus-visible:underline focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60';
+const ICON_BTN_CLASS =
+  'flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-40 motion-reduce:transition-none';
 
 /**
  * Chỉnh sửa tin nhắn trực tiếp trên dòng (Discord-like).
@@ -12,7 +18,6 @@ export default function OrgMessageInlineEditor({
   onChange,
   onSave,
   onCancel,
-  isDarkMode = true,
   saving = false,
   escapeHint,
   enterHint,
@@ -39,31 +44,9 @@ export default function OrgMessageInlineEditor({
     }
   }, []);
 
-  const linkCls = isDarkMode
-    ? 'font-medium text-[#8BA3F5] hover:text-[#A8B8F8] hover:underline'
-    : 'font-medium text-[#4F6BED] hover:text-[#3D58D4] hover:underline';
-
-  const boxCls = isDarkMode
-    ? 'border border-white/[0.08] bg-[#2b2d31]'
-    : 'border border-slate-200 bg-slate-100';
-
-  const inputCls = isDarkMode
-    ? 'text-[#dcddde] placeholder:text-[#6d7380]'
-    : 'text-slate-900 placeholder:text-slate-400';
-
-  const hintCls = isDarkMode ? 'text-[#949ba4]' : 'text-slate-500';
-
-  const iconBtnCls = isDarkMode
-    ? 'text-[#b5bac1] hover:bg-white/10 hover:text-white'
-    : 'text-slate-500 hover:bg-slate-200 hover:text-slate-800';
-
-  const emojiPanelCls = isDarkMode
-    ? 'border border-white/10 bg-[#1e1f22] shadow-xl'
-    : 'border border-slate-200 bg-white shadow-lg';
-
   return (
     <div className="w-full min-w-0 space-y-1">
-      <div className={`relative flex items-end gap-1 rounded-lg px-2 py-1 ${boxCls}`}>
+      <div className="relative flex items-end gap-1 rounded-lg border border-border bg-muted px-2 py-1 transition-colors focus-within:border-primary/40">
         <textarea
           ref={inputRef}
           value={value}
@@ -75,23 +58,30 @@ export default function OrgMessageInlineEditor({
             }
             if (e.key === 'Escape') {
               e.preventDefault();
+              if (emojiOpen) {
+                setEmojiOpen(false);
+                return;
+              }
               onCancel?.();
             }
           }}
           rows={1}
+          maxLength={CHAT_MESSAGE_MAX_LENGTH}
           disabled={saving}
-          className={`max-h-40 min-h-[34px] flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed outline-none ${inputCls}`}
+          className="max-h-40 min-h-[34px] flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
           aria-label={t('friendChat.editMessageAria')}
         />
         <div className="relative shrink-0 self-end pb-1">
           <button
             type="button"
             title={t('friendChat.emojiTab')}
+            aria-label={t('friendChat.emojiTab')}
+            aria-expanded={emojiOpen}
             disabled={saving}
             onClick={() => setEmojiOpen((v) => !v)}
-            className={`flex h-8 w-8 items-center justify-center rounded-md transition ${iconBtnCls} disabled:opacity-40`}
+            className={ICON_BTN_CLASS}
           >
-            <Smile className="h-4 w-4" strokeWidth={2} />
+            <Smile className="h-4 w-4" strokeWidth={2} aria-hidden />
           </button>
           {emojiOpen && (
             <>
@@ -102,15 +92,16 @@ export default function OrgMessageInlineEditor({
                 onClick={() => setEmojiOpen(false)}
               />
               <div
-                className={`absolute bottom-full right-0 z-[70] mb-1 grid max-h-36 w-52 grid-cols-8 gap-0.5 overflow-y-auto rounded-lg p-1.5 ${emojiPanelCls}`}
+                role="group"
+                aria-label={t('friendChat.emojiTab')}
+                className="absolute bottom-full right-0 z-[70] mb-1 grid max-h-36 w-52 grid-cols-8 gap-0.5 overflow-y-auto rounded-lg border border-border bg-card p-1.5 shadow-lg motion-safe:animate-fade-in-fast"
               >
                 {COMPOSER_EMOJI_LIST.slice(0, 48).map((em) => (
                   <button
                     key={em}
                     type="button"
-                    className={`flex h-8 items-center justify-center rounded text-lg ${
-                      isDarkMode ? 'hover:bg-white/10' : 'hover:bg-slate-100'
-                    }`}
+                    aria-label={em}
+                    className="flex h-8 items-center justify-center rounded text-lg transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
                     onClick={() => {
                       onChange(`${value || ''}${em}`);
                       setEmojiOpen(false);
@@ -125,15 +116,24 @@ export default function OrgMessageInlineEditor({
           )}
         </div>
       </div>
-      <p className={`text-[11px] leading-snug ${hintCls}`}>
+      <p className="text-[11px] leading-snug text-muted-foreground">
         {escapeHintText}{' '}
-        <button type="button" className={linkCls} onClick={onCancel} disabled={saving}>
+        <button type="button" className={LINK_CLASS} onClick={onCancel} disabled={saving}>
           {cancelText}
         </button>
-        <span className="mx-1 opacity-60">·</span>
+        <span className="mx-1 opacity-60" aria-hidden>
+          ·
+        </span>
         {enterHintText}{' '}
-        <button type="button" className={linkCls} onClick={onSave} disabled={saving}>
-          {saving ? '…' : saveText}
+        <button
+          type="button"
+          className={`${LINK_CLASS} inline-flex items-center gap-1`}
+          onClick={onSave}
+          disabled={saving}
+          aria-busy={saving}
+        >
+          {saving ? <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden /> : null}
+          {saveText}
         </button>
       </p>
     </div>

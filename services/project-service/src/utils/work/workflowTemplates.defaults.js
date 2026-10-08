@@ -52,7 +52,7 @@ const SME_TEMPLATE = Object.freeze({
       isInitial: false,
       isFinal: false,
     },
-    { key: 'review', label: 'Review', category: 'in_progress', sortOrder: 3, isInitial: false, isFinal: false },
+    { key: 'review', label: 'Ready for QA', category: 'in_progress', sortOrder: 3, isInitial: false, isFinal: false },
     { key: 'done', label: 'Done', category: 'done', sortOrder: 4, isInitial: false, isFinal: true },
   ],
   transitions: [
@@ -88,7 +88,7 @@ const MID_TEMPLATE = Object.freeze({
       isInitial: false,
       isFinal: false,
     },
-    { key: 'qa', label: 'QA', category: 'in_progress', sortOrder: 4, isInitial: false, isFinal: false },
+    { key: 'qa', label: 'Ready for QA', category: 'in_progress', sortOrder: 4, isInitial: false, isFinal: false },
     { key: 'done', label: 'Done', category: 'done', sortOrder: 5, isInitial: false, isFinal: true },
   ],
   transitions: [
@@ -118,7 +118,7 @@ const ENTERPRISE_TEMPLATE = Object.freeze({
     { key: 'analysis', label: 'Analysis', category: 'in_progress', sortOrder: 2, isInitial: false, isFinal: false },
     { key: 'dev', label: 'Dev', category: 'in_progress', sortOrder: 3, isInitial: false, isFinal: false },
     { key: 'code_review', label: 'Code Review', category: 'in_progress', sortOrder: 4, isInitial: false, isFinal: false },
-    { key: 'qa', label: 'QA', category: 'in_progress', sortOrder: 5, isInitial: false, isFinal: false },
+    { key: 'qa', label: 'Ready for QA', category: 'in_progress', sortOrder: 5, isInitial: false, isFinal: false },
     { key: 'uat', label: 'UAT', category: 'in_progress', sortOrder: 6, isInitial: false, isFinal: false },
     { key: 'deploy', label: 'Deploy', category: 'in_progress', sortOrder: 7, isInitial: false, isFinal: false },
     { key: 'done', label: 'Done', category: 'done', sortOrder: 8, isInitial: false, isFinal: true },
@@ -160,7 +160,7 @@ const DEFAULT_BOARD_TEMPLATE = Object.freeze({
       isInitial: false,
       isFinal: false,
     },
-    { key: 'review', label: 'Review', category: 'in_progress', sortOrder: 3, isInitial: false, isFinal: false },
+    { key: 'review', label: 'Ready for QA', category: 'in_progress', sortOrder: 3, isInitial: false, isFinal: false },
     { key: 'done', label: 'Done', category: 'done', sortOrder: 4, isInitial: false, isFinal: true },
     {
       key: 'cancelled',

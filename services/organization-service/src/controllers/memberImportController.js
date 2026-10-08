@@ -5,18 +5,26 @@ const {
   confirmMembersExcel,
 } = require('../services/resourceImport.service');
 const { buildResourceImportTemplateBuffer } = require('../utils/excelImportTemplate');
-const { resolveFrontendUrl } = require('@enterprise/shared');
+const { trustedFrontendUrl } = require('../utils/trustedFrontendUrl');
+const { toOrgError } = require('../utils/orgErrorMap');
+const { resolveActorTier } = require('../utils/memberRolePolicy');
 
 function ensureJson(res, status, payload) {
   return res.status(status).json(payload);
 }
 
+function actorTierOf(req) {
+  return resolveActorTier(req.membership?.normalizedRole);
+}
+
 function unwrapApiError(err) {
+  const mapped = toOrgError(err, 500, 'Import thất bại.', 'RESOURCE_IMPORT_FAILED');
+  const isDomainError = Number(err?.statusCode) >= 400 && Number(err?.statusCode) < 500;
   return {
-    statusCode: err?.statusCode || err?.status || 400,
-    errorCode: err?.errorCode || 'RESOURCE_IMPORT_FAILED',
-    message: err?.message || 'Import failed',
-    details: err?.details || null,
+    statusCode: mapped.statusCode,
+    errorCode: mapped.errorCode,
+    message: mapped.messageUser,
+    details: isDomainError && mapped.statusCode < 500 ? err?.details || null : null,
   };
 }
 
@@ -46,7 +54,8 @@ class MemberImportController {
         uploadedBy,
         fileBuffer: req.file.buffer,
         fileName: req.file.originalname || '',
-        frontendUrl: resolveFrontendUrl(req).replace(/\/+$/, ''),
+        frontendUrl: trustedFrontendUrl(req),
+        actorTier: actorTierOf(req),
       });
 
       return ensureJson(res, 201, { success: true, data: out });
@@ -86,6 +95,7 @@ class MemberImportController {
         uploadedBy,
         fileBuffer: req.file.buffer,
         fileName: req.file.originalname || '',
+        actorTier: actorTierOf(req),
       });
 
       return ensureJson(res, 200, { success: true, data: out });
@@ -125,7 +135,8 @@ class MemberImportController {
         organizationId: orgId,
         uploadedBy,
         batchId,
-        frontendUrl: resolveFrontendUrl(req).replace(/\/+$/, ''),
+        frontendUrl: trustedFrontendUrl(req),
+        actorTier: actorTierOf(req),
       });
 
       const statusCode = out?.async ? 202 : 201;
@@ -162,7 +173,8 @@ class MemberImportController {
         },
       });
     } catch (err) {
-      return ensureJson(res, 400, { success: false, message: err?.message || 'Batch status failed' });
+      const e = unwrapApiError(err);
+      return ensureJson(res, e.statusCode, { success: false, message: e.message, errorCode: e.errorCode });
     }
   }
 

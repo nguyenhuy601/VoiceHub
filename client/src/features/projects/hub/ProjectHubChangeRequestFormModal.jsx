@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Flag, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Modal from '../../../components/Shared/Modal';
+import { AdminBusySpinner } from '../../../components/adminUsers/adminPanelStates';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
+import { analysisAPI } from '../../../services/api/analysisAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { unwrapChangeRequestEntity } from './projectHubUtils';
 
@@ -24,10 +26,15 @@ const EMPTY_FORM = {
   reason: '',
   current: '',
   requestedChange: '',
+  srsBaselineId: '',
+  affectedExternalKeysText: '',
 };
 
 function formFromInitial(initial) {
   if (!initial) return { ...EMPTY_FORM };
+  const keys = Array.isArray(initial.affectedExternalKeys)
+    ? initial.affectedExternalKeys.join(', ')
+    : '';
   return {
     title: String(initial.title || ''),
     description: String(initial.description || ''),
@@ -36,12 +43,20 @@ function formFromInitial(initial) {
     reason: String(initial.reason || ''),
     current: String(initial.current || ''),
     requestedChange: String(initial.requestedChange || ''),
+    srsBaselineId: String(initial.srsBaselineId || ''),
+    affectedExternalKeysText: keys,
   };
 }
 
+function parseKeysText(text) {
+  return String(text || '')
+    .split(/[,;\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 /**
- * Create / Edit Change Request — không gửi code / createdBy / projectId / status.
- * Create: layout kiểu ClickUp (title lớn + chips). Edit: form cổ điển.
+ * Create / Edit Change Request — R5: srsBaselineId + affectedExternalKeys.
  */
 export default function ProjectHubChangeRequestFormModal({
   isOpen = false,
@@ -62,6 +77,10 @@ export default function ProjectHubChangeRequestFormModal({
   const [reason, setReason] = useState(EMPTY_FORM.reason);
   const [current, setCurrent] = useState(EMPTY_FORM.current);
   const [requestedChange, setRequestedChange] = useState(EMPTY_FORM.requestedChange);
+  const [srsBaselineId, setSrsBaselineId] = useState('');
+  const [affectedExternalKeysText, setAffectedExternalKeysText] = useState('');
+  const [baselines, setBaselines] = useState([]);
+  const [approvedKeys, setApprovedKeys] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [moreOpen, setMoreOpen] = useState(false);
@@ -76,13 +95,51 @@ export default function ProjectHubChangeRequestFormModal({
     setReason(next.reason);
     setCurrent(next.current);
     setRequestedChange(next.requestedChange);
+    setSrsBaselineId(next.srsBaselineId);
+    setAffectedExternalKeysText(next.affectedExternalKeysText);
     setSubmitting(false);
     setError('');
-    setMoreOpen(Boolean(next.reason || next.current));
+    setMoreOpen(Boolean(next.reason || next.current || next.srsBaselineId));
   }, [isOpen, isEdit, initial]);
 
+  useEffect(() => {
+    if (!isOpen || !projectId) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [bRes, aRes] = await Promise.all([
+          analysisAPI.listSrsBaselines(projectId),
+          analysisAPI.listArtifacts(projectId, { status: 'approved' }),
+        ]);
+        if (cancelled) return;
+        const bRaw = bRes?.data ?? bRes;
+        const bList = Array.isArray(bRaw) ? bRaw : bRaw?.items || [];
+        setBaselines(bList);
+        if (!isEdit && bList.length) {
+          const latest = bList[0];
+          const lid = String(latest._id || latest.id || '');
+          setSrsBaselineId((prev) => prev || lid);
+        }
+        const aRaw = aRes?.data ?? aRes;
+        const aList = Array.isArray(aRaw) ? aRaw : aRaw?.items || [];
+        const keys = [
+          ...new Set(aList.map((a) => String(a.externalKey || '').trim()).filter(Boolean)),
+        ].slice(0, 80);
+        setApprovedKeys(keys);
+      } catch {
+        if (!cancelled) {
+          setBaselines([]);
+          setApprovedKeys([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, projectId, isEdit]);
+
   const inputCls =
-    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
+    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary';
 
   const typeLabel = (value) => {
     const key = `workspace.projectHubCrType_${value}`;
@@ -95,12 +152,22 @@ export default function ProjectHubChangeRequestFormModal({
     return label === key ? String(value) : label;
   };
 
+  const showSrsLink = type === 'requirement_change' || baselines.length > 0;
+
   const validate = () => {
     if (!String(title || '').trim()) return t('workspace.projectHubCrFormTitleRequired');
     if (!String(description || '').trim()) return t('workspace.projectHubCrFormDescriptionRequired');
-    if (!String(requestedChange || '').trim()) return t('workspace.projectHubCrFormRequestedChangeRequired');
+    if (!String(requestedChange || '').trim()) {
+      return t('workspace.projectHubCrFormRequestedChangeRequired');
+    }
     if (!CR_TYPES.includes(type)) return t('workspace.projectHubCrFormTypeRequired');
     if (!CR_PRIORITIES.includes(priority)) return t('workspace.projectHubCrFormPriorityRequired');
+    if (type === 'requirement_change' && baselines.length > 0) {
+      if (!String(srsBaselineId || '').trim()) return t('workspace.projectHubCrFormBaselineRequired');
+      if (!parseKeysText(affectedExternalKeysText).length) {
+        return t('workspace.projectHubCrFormAffectedKeysRequired');
+      }
+    }
     return '';
   };
 
@@ -124,6 +191,8 @@ export default function ProjectHubChangeRequestFormModal({
       reason: String(reason || '').trim(),
       current: String(current || '').trim(),
       requestedChange: String(requestedChange).trim(),
+      srsBaselineId: String(srsBaselineId || '').trim() || null,
+      affectedExternalKeys: parseKeysText(affectedExternalKeysText),
     };
     try {
       const res = isEdit
@@ -142,6 +211,52 @@ export default function ProjectHubChangeRequestFormModal({
       setSubmitting(false);
     }
   };
+
+  const srsLinkFields = showSrsLink ? (
+    <div className="flex flex-col gap-3 rounded-xl border border-info/30 bg-info/5 p-3">
+      <p className="text-[11px] font-semibold text-info">
+        {t('workspace.projectHubCrFormSrsLinkTitle')}
+      </p>
+      <label className="block text-xs font-semibold text-muted-foreground">
+        {t('workspace.projectHubCrFormBaseline')}
+        {type === 'requirement_change' && baselines.length ? ' *' : ''}
+        <select
+          className={inputCls}
+          value={srsBaselineId}
+          onChange={(e) => setSrsBaselineId(e.target.value)}
+          disabled={submitting || baselines.length === 0}
+        >
+          <option value="">{t('workspace.projectHubCrFormBaselineNone')}</option>
+          {baselines.map((b) => {
+            const id = String(b._id || b.id || '');
+            const label = `${b.srsVersion || id.slice(-6)}${b.title ? ` — ${b.title}` : ''}`;
+            return (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            );
+          })}
+        </select>
+      </label>
+      <label className="block text-xs font-semibold text-muted-foreground">
+        {t('workspace.projectHubCrFormAffectedKeys')}
+        {type === 'requirement_change' && baselines.length ? ' *' : ''}
+        <input
+          className={inputCls}
+          value={affectedExternalKeysText}
+          onChange={(e) => setAffectedExternalKeysText(e.target.value)}
+          placeholder={t('workspace.projectHubCrFormAffectedKeysPh')}
+          disabled={submitting}
+          list={`cr-approved-keys-${projectId}`}
+        />
+        <datalist id={`cr-approved-keys-${projectId}`}>
+          {approvedKeys.map((k) => (
+            <option key={k} value={k} />
+          ))}
+        </datalist>
+      </label>
+    </div>
+  ) : null;
 
   const chipCls =
     'inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 text-xs font-semibold text-foreground outline-none focus-within:border-primary';
@@ -178,6 +293,8 @@ export default function ProjectHubChangeRequestFormModal({
           rows={3}
         />
       </label>
+
+      {srsLinkFields}
 
       <div className="flex flex-wrap items-center gap-2">
         <label className={chipCls}>
@@ -218,7 +335,11 @@ export default function ProjectHubChangeRequestFormModal({
           onClick={() => setMoreOpen((v) => !v)}
         >
           {t('workspace.projectHubCrFormMoreFields')}
-          <ChevronDown size={14} aria-hidden className={moreOpen ? 'rotate-180' : ''} />
+          <ChevronDown
+            size={14}
+            aria-hidden
+            className={`transition-transform duration-150 motion-reduce:transition-none ${moreOpen ? 'rotate-180' : ''}`}
+          />
         </button>
       </div>
 
@@ -264,9 +385,11 @@ export default function ProjectHubChangeRequestFormModal({
           type="button"
           onClick={() => void submit()}
           disabled={!canSubmit}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          aria-busy={submitting || undefined}
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {t('workspace.projectHubCrFormSubmitCreateTask')}
+          <AdminBusySpinner busy={submitting} />
+          {submitting ? t('common.saving') : t('workspace.projectHubCrFormSubmitCreateTask')}
         </button>
       </div>
     </div>
@@ -297,6 +420,7 @@ export default function ProjectHubChangeRequestFormModal({
           rows={4}
         />
       </label>
+      {srsLinkFields}
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-xs font-semibold text-muted-foreground">
           {t('workspace.projectHubCrColType')} *
@@ -330,42 +454,37 @@ export default function ProjectHubChangeRequestFormModal({
         </label>
       </div>
       <label className="block text-xs font-semibold text-muted-foreground">
-        {t('workspace.projectHubCrFormReasonOptional')}
+        {t('workspace.projectHubCrFormRequestedChange')} *
         <textarea
-          className={`${inputCls} min-h-[4rem] resize-y`}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder={t('workspace.projectHubCrFormReasonPh')}
+          className={`${inputCls} min-h-[4.5rem] resize-y`}
+          value={requestedChange}
+          onChange={(e) => setRequestedChange(e.target.value)}
           disabled={submitting}
           rows={3}
+        />
+      </label>
+      <label className="block text-xs font-semibold text-muted-foreground">
+        {t('workspace.projectHubCrFormReasonOptional')}
+        <textarea
+          className={`${inputCls} min-h-[3.5rem] resize-y`}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          disabled={submitting}
+          rows={2}
         />
       </label>
       <label className="block text-xs font-semibold text-muted-foreground">
         {t('workspace.projectHubCrFormCurrentOptional')}
         <textarea
-          className={`${inputCls} min-h-[4rem] resize-y`}
+          className={`${inputCls} min-h-[3.5rem] resize-y`}
           value={current}
           onChange={(e) => setCurrent(e.target.value)}
-          placeholder={t('workspace.projectHubCrFormCurrentPh')}
           disabled={submitting}
-          rows={3}
+          rows={2}
         />
       </label>
-      <label className="block text-xs font-semibold text-muted-foreground">
-        {t('workspace.projectHubCrFormRequestedChange')} *
-        <textarea
-          className={`${inputCls} min-h-[4rem] resize-y`}
-          value={requestedChange}
-          onChange={(e) => setRequestedChange(e.target.value)}
-          placeholder={t('workspace.projectHubCrFormRequestedChangePh')}
-          disabled={submitting}
-          rows={3}
-        />
-      </label>
-
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-      <div className="flex justify-end gap-2">
+      <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
         <button
           type="button"
           onClick={() => onClose?.()}
@@ -378,9 +497,11 @@ export default function ProjectHubChangeRequestFormModal({
           type="button"
           onClick={() => void submit()}
           disabled={!canSubmit}
-          className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          aria-busy={submitting || undefined}
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {t('workspace.projectHubCrFormSubmitSave')}
+          <AdminBusySpinner busy={submitting} />
+          {submitting ? t('common.saving') : t('common.save')}
         </button>
       </div>
     </div>
@@ -388,11 +509,10 @@ export default function ProjectHubChangeRequestFormModal({
 
   return (
     <Modal
-      isOpen={Boolean(isOpen)}
-      onClose={submitting ? undefined : onClose}
-      closable={!submitting}
-      title={t(isEdit ? 'workspace.projectHubCrFormEditTitle' : 'workspace.projectHubCrFormCreateTitle')}
-      size={isEdit ? 'md' : 'lg'}
+      isOpen={isOpen}
+      onClose={() => (!submitting ? onClose?.() : undefined)}
+      title={t(isEdit ? 'workspace.projectHubCrEditTitle' : 'workspace.projectHubCrCreateTitle')}
+      size="lg"
     >
       {isEdit ? editBody : createBody}
     </Modal>

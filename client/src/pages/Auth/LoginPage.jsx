@@ -1,20 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, X } from 'lucide-react';
 import AuthPageLayout from '../../components/Auth/AuthPageLayout';
 import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
+import LoginFlashlightIcon from '../../components/Auth/LoginFlashlightIcon';
+import LoginFlashlightLayer from '../../components/Auth/LoginFlashlightLayer';
+import LoginOwlMascot from '../../components/Auth/LoginOwlMascot';
 import OneTimeCredentialsModal from '../../components/Auth/OneTimeCredentialsModal';
 import BrandPageLoader from '../../components/Shared/BrandPageLoader';
 import { authInputSurface, authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
+import { FIGMA_TOGGLE_BTN } from '../../components/Auth/figmaAuthClasses';
+import { useLoginFlashlight } from '../../components/Auth/useLoginFlashlight';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import authService from '../../services/authService';
 import { consumeOneTimeLoginCredentials } from '../../utils/oneTimeLoginCredentials';
-
-const RESEND_COOLDOWN_MS = 60_000;
-const UNVERIFIED_ERROR_CODES = new Set(['AUTH_EMAIL_NOT_VERIFIED', 'AUTH_PENDING_ACTIVATION']);
+import '../../components/Auth/loginNightOwl.css';
 
 function LoginPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
@@ -23,36 +26,41 @@ function LoginPage({ landingDemo = false } = {}) {
   const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const [formData, setFormData] = useState({ email: '', password: '' });
-  const [rememberMe, setRememberMe] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  /** null = đang kiểm tra; ok = gateway đã có GATEWAY_INTERNAL_TOKEN */
   const [gatewayTrust, setGatewayTrust] = useState(null);
   const [oneTimeCreds, setOneTimeCreds] = useState(null);
-  /** Sau invite: không có mk tạm → gợi ý quên mật khẩu */
   const [inviteForgotHint, setInviteForgotHint] = useState(null);
-  const [needsEmailVerification, setNeedsEmailVerification] = useState(false);
-  const [resendLoading, setResendLoading] = useState(false);
-  const [cooldownUntil, setCooldownUntil] = useState(0);
-  const [cooldownSeconds, setCooldownSeconds] = useState(0);
 
-  const inputBase = authInputSurface(isDarkMode);
-  const labelCls = isDarkMode ? 'text-slate-200' : 'text-slate-700';
-  const mutedCls = isDarkMode ? 'text-slate-400' : 'text-slate-600';
-  const titleCls = isDarkMode ? 'text-white' : 'text-[#0f172a]';
-  const linkCyan = isDarkMode ? 'text-cyan-400 hover:text-cyan-300' : 'text-cyan-700 hover:text-cyan-800';
-  const showPwdBtn = isDarkMode
-    ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-    : 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-800';
-  const chk = isDarkMode
-    ? 'h-[1.125rem] w-[1.125rem] shrink-0 border-slate-600 bg-[#0c1018] text-cyan-500'
-    : 'h-[1.125rem] w-[1.125rem] shrink-0 border-slate-300 text-cyan-600';
-  const btnPrimary = authPrimaryButtonClass(isDarkMode);
+  const passwordInputRef = useRef(null);
+  const flashlightBtnRef = useRef(null);
+  const owlRef = useRef(null);
+  const enableFlash = !landingDemo;
+
+  const {
+    isFlashlight,
+    isNightOwl,
+    passwordRevealed,
+    owlLit,
+    origin,
+    angleDeg,
+    toggleFlashlight,
+  } = useLoginFlashlight({
+    enabled: enableFlash,
+    originRef: flashlightBtnRef,
+  });
+
+  const visualNight = isNightOwl || isDarkMode;
+  const inputBase = authInputSurface(visualNight);
+  const linkCyan = visualNight ? 'text-cyan-400 hover:text-cyan-300' : 'text-cyan-700 hover:text-cyan-800';
+  const showPwdBtn = isFlashlight
+    ? 'text-amber-300 hover:bg-slate-800/80 hover:text-amber-200'
+    : visualNight
+      ? 'text-slate-300 hover:bg-slate-800/80'
+      : 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-800';
+  const btnPrimary = authPrimaryButtonClass(visualNight);
   const submitDisabled =
     loading || gatewayTrust === null || (!landingDemo && gatewayTrust && !gatewayTrust.ok);
-  const hintPanelCls = isDarkMode
-    ? 'border-cyan-500/40 bg-cyan-950/30 text-cyan-100'
-    : 'border-cyan-300 bg-cyan-50 text-cyan-950';
+  const closeColor = visualNight ? 'text-slate-200' : 'text-slate-500';
 
   useEffect(() => {
     const creds = consumeOneTimeLoginCredentials();
@@ -77,19 +85,10 @@ function LoginPage({ landingDemo = false } = {}) {
       setInviteForgotHint({ email: prefillEmail });
     }
 
-    if (location.state?.needsEmailVerification) {
-      setNeedsEmailVerification(true);
-    }
-
     if (location.state?.message) {
       toast.success(location.state.message, { id: 'company-invite-flash' });
     }
-    if (
-      location.state?.message ||
-      location.state?.prefillEmail ||
-      fromInvite ||
-      location.state?.needsEmailVerification
-    ) {
+    if (location.state?.message || location.state?.prefillEmail || fromInvite) {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
@@ -116,57 +115,11 @@ function LoginPage({ landingDemo = false } = {}) {
 
   useEffect(() => {
     if (landingDemo || authLoading) return;
-    // Có mk tạm / vừa từ invite → giữ trang login, không đá về session cũ.
     if (oneTimeCreds || inviteForgotHint) return;
     if (isAuthenticated) {
       navigate('/app', { replace: true });
     }
   }, [landingDemo, authLoading, isAuthenticated, navigate, oneTimeCreds, inviteForgotHint]);
-
-  useEffect(() => {
-    if (!cooldownUntil) {
-      setCooldownSeconds(0);
-      return undefined;
-    }
-    const tick = () => {
-      const left = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
-      setCooldownSeconds(left);
-      if (left <= 0) setCooldownUntil(0);
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [cooldownUntil]);
-
-  const handleResendVerification = async () => {
-    const email = String(formData.email || '').trim();
-    if (!email) {
-      toast.error(t('forgotPassword.toastEmailRequired'));
-      return;
-    }
-    if (cooldownSeconds > 0) {
-      toast.error(t('authSession.resendVerificationCooldown', { seconds: cooldownSeconds }));
-      return;
-    }
-
-    setResendLoading(true);
-    try {
-      const response = await authService.resendVerification(email);
-      const payload = response?.data || response || {};
-      if (payload.alreadyVerified) {
-        toast.success(t('authSession.resendVerificationAlreadyVerified'));
-        setNeedsEmailVerification(false);
-      } else {
-        toast.success(t('authSession.resendVerificationSuccess'));
-      }
-      setCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
-    } catch (error) {
-      console.error('[LoginPage] Resend verification error:', error);
-      toast.error(t('authSession.resendVerificationFail'));
-    } finally {
-      setResendLoading(false);
-    }
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -182,14 +135,9 @@ function LoginPage({ landingDemo = false } = {}) {
 
     setLoading(true);
     try {
-      const result = await login(formData.email, formData.password);
-      if (result?.ok) {
-        setNeedsEmailVerification(false);
+      const success = await login(formData.email, formData.password);
+      if (success) {
         navigate('/app');
-        return;
-      }
-      if (UNVERIFIED_ERROR_CODES.has(result?.errorCode)) {
-        setNeedsEmailVerification(true);
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -208,128 +156,154 @@ function LoginPage({ landingDemo = false } = {}) {
     return <BrandPageLoader />;
   }
 
-  return (
-    <AuthPageLayout aside={<AuthMarketingAside />}>
-      <h2 className={`text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleCls}`}>
-        {t('login.title')}
-      </h2>
-      <p className={`mt-3 text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('login.subtitle')}</p>
+  const flashToggleLabel = enableFlash
+    ? isFlashlight
+      ? t('login.flashlightOff')
+      : t('login.flashlightOn')
+    : passwordRevealed
+      ? t('login.hide')
+      : t('login.show');
 
-      {gatewayTrust && !gatewayTrust.ok && (
-        <div
-          role="alert"
-          className={`mt-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
-            isDarkMode ? 'border-amber-500/50 bg-amber-950/40 text-amber-100' : 'border-amber-400 bg-amber-50 text-amber-950'
+  return (
+    <AuthPageLayout
+      aside={<AuthMarketingAside nightOwl={isNightOwl} compact={!landingDemo} />}
+      landingDemo={landingDemo}
+      nightOwl={isNightOwl}
+      glassCard={!landingDemo}
+      showcaseAside={!landingDemo}
+    >
+      <LoginFlashlightLayer
+        active={isFlashlight}
+        originX={origin.x}
+        originY={origin.y}
+        angleDeg={angleDeg}
+      />
+
+      <div className={`login-form-stage ${closeColor}`}>
+        {!landingDemo ? (
+          <Link to="/" className="login-form-stage__close" aria-label={t('authLayout.home')} title={t('authLayout.home')}>
+            <X className="h-5 w-5" strokeWidth={2} aria-hidden />
+          </Link>
+        ) : null}
+
+        <h2
+          className={`text-center text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${
+            visualNight ? 'login-form-stage__title--night' : 'text-[#0f172a]'
           }`}
         >
-          <p className="font-semibold">{t('login.gatewayAlertTitle')}</p>
-          <p className="mt-1 opacity-95">{gatewayTrust.message || t('login.gatewayAlertFallback')}</p>
-        </div>
-      )}
+          {t('login.title')}
+        </h2>
 
-      {inviteForgotHint ? (
-        <div
-          role="status"
-          className={`mt-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${hintPanelCls}`}
-        >
-          <p className="font-semibold">{t('acceptCompanyInvite.loginNoTempTitle')}</p>
-          <p className="mt-1 opacity-95">{t('acceptCompanyInvite.loginNoTempBody')}</p>
-          <Link
-            to={forgotHref}
-            className={`mt-2 inline-block font-semibold underline-offset-2 hover:underline ${linkCyan}`}
+        {gatewayTrust && !gatewayTrust.ok && (
+          <div
+            role="alert"
+            className={`mt-4 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
+              visualNight ? 'border-amber-500/50 bg-amber-950/40 text-amber-100' : 'border-amber-400 bg-amber-50 text-amber-950'
+            }`}
           >
-            {t('acceptCompanyInvite.loginNoTempCta')}
-          </Link>
-        </div>
-      ) : null}
+            <p className="font-semibold">{t('login.gatewayAlertTitle')}</p>
+            <p className="mt-1 opacity-95">{gatewayTrust.message || t('login.gatewayAlertFallback')}</p>
+          </div>
+        )}
 
-      {needsEmailVerification ? (
-        <div
-          role="status"
-          className={`mt-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${hintPanelCls}`}
-        >
-          <p className="font-semibold">{t('login.resendVerificationHint')}</p>
-          <button
-            type="button"
-            onClick={handleResendVerification}
-            disabled={resendLoading || cooldownSeconds > 0 || !formData.email}
-            className={`mt-3 inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
+        {inviteForgotHint ? (
+          <div
+            role="status"
+            className={`mt-4 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
+              visualNight ? 'border-cyan-500/40 bg-cyan-950/30 text-cyan-100' : 'border-cyan-300 bg-cyan-50 text-cyan-950'
+            }`}
           >
-            {resendLoading
-              ? t('login.resendSending')
-              : cooldownSeconds > 0
-                ? t('login.resendCooldown', { seconds: cooldownSeconds })
-                : t('login.resendCta')}
-          </button>
-        </div>
-      ) : null}
-
-      <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-        <div>
-          <label htmlFor="email" className={`mb-2.5 block text-base font-semibold ${labelCls}`}>
-            {t('login.email')}
-          </label>
-          <input
-            id="email"
-            type="email"
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            className={inputBase}
-            placeholder={t('login.placeholderEmail')}
-            autoComplete="email"
-          />
-        </div>
-
-        <div>
-          <div className="mb-2.5 flex items-center justify-between gap-2">
-            <label htmlFor="password" className={`block text-base font-semibold ${labelCls}`}>
-              {t('login.password')}
-            </label>
-            <Link to={forgotHref} className={`text-base font-semibold transition ${linkCyan}`}>
-              {t('login.forgot')}
+            <p className="font-semibold">{t('acceptCompanyInvite.loginNoTempTitle')}</p>
+            <p className="mt-1 opacity-95">{t('acceptCompanyInvite.loginNoTempBody')}</p>
+            <Link to={forgotHref} className={`mt-2 inline-block font-semibold underline-offset-2 hover:underline ${linkCyan}`}>
+              {t('acceptCompanyInvite.loginNoTempCta')}
             </Link>
           </div>
-          <div className="relative">
+        ) : null}
+
+        <form onSubmit={handleSubmit} className="relative mt-8 space-y-5">
+          <div className="login-email-block relative pt-8">
+            {enableFlash ? <LoginOwlMascot ref={owlRef} lit={owlLit} /> : null}
             <input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className={`${inputBase} pr-14`}
-              placeholder={t('login.placeholderPwd')}
-              autoComplete="current-password"
+              id="email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className={inputBase}
+              placeholder={t('login.placeholderEmail')}
+              autoComplete="email"
+              aria-label={t('login.email')}
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2.5 py-1.5 text-sm font-semibold transition ${showPwdBtn}`}
-            >
-              {showPassword ? t('login.hide') : t('login.show')}
-            </button>
           </div>
-        </div>
 
-        <div className="flex items-center justify-between gap-3">
-          <label className={`flex cursor-pointer items-center gap-2.5 text-base ${mutedCls}`}>
-            <input
-              type="checkbox"
-              checked={rememberMe}
-              onChange={(e) => setRememberMe(e.target.checked)}
-              className={`rounded border focus:ring-cyan-600/30 ${chk}`}
-            />
-            {t('login.remember')}
-          </label>
-        </div>
+          <div>
+            <div className="relative z-[2]">
+              <input
+                ref={passwordInputRef}
+                id="password"
+                type={passwordRevealed ? 'text' : 'password'}
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                className={`${inputBase} relative z-[2] pr-12 ${
+                  passwordRevealed && isFlashlight ? 'login-pwd-reveal' : ''
+                }`}
+                placeholder={t('login.placeholderPwd')}
+                autoComplete="current-password"
+                aria-label={t('login.password')}
+              />
+              <button
+                ref={flashlightBtnRef}
+                type="button"
+                onClick={toggleFlashlight}
+                className={`${FIGMA_TOGGLE_BTN} z-[3] rounded-lg p-1.5 ${showPwdBtn}`}
+                aria-label={flashToggleLabel}
+                aria-controls="password"
+                aria-pressed={enableFlash ? isFlashlight : passwordRevealed}
+                title={enableFlash ? t('login.nightOwlHint') : undefined}
+              >
+                {enableFlash ? (
+                  isFlashlight ? (
+                    <LoginFlashlightIcon
+                      className="login-flashlight-icon h-5 w-5"
+                      strokeWidth={2}
+                      style={{ transform: `rotate(${angleDeg}deg)` }}
+                    />
+                  ) : (
+                    <Eye className="h-5 w-5" strokeWidth={2} aria-hidden />
+                  )
+                ) : passwordRevealed ? (
+                  <EyeOff className="h-5 w-5" strokeWidth={2} aria-hidden />
+                ) : (
+                  <Eye className="h-5 w-5" strokeWidth={2} aria-hidden />
+                )}
+              </button>
+            </div>
+            <div className="mt-2 flex justify-end">
+              <Link to={forgotHref} className={`text-sm font-semibold transition ${linkCyan}`}>
+                {t('login.forgot')}
+              </Link>
+            </div>
+          </div>
 
-        <button
-          type="submit"
-          disabled={submitDisabled}
-          className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
-        >
-          {loading ? t('login.submitting') : gatewayTrust === null ? t('login.checkingConfig') : t('login.submit')}
-          {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={submitDisabled}
+            className={`flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-bold text-white shadow-lg vh-transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
+          >
+            {loading ? t('login.submitting') : gatewayTrust === null ? t('login.checkingConfig') : t('login.submit')}
+            {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
+          </button>
+        </form>
+
+        {!landingDemo ? (
+          <p className={`mt-6 text-center text-sm ${visualNight ? 'text-slate-400' : 'text-slate-600'}`}>
+            {t('login.noAccount')}{' '}
+            <Link to="/register" className={`font-semibold underline-offset-2 hover:underline ${linkCyan}`}>
+              {t('login.goRegister')}
+            </Link>
+          </p>
+        ) : null}
+      </div>
 
       <OneTimeCredentialsModal
         open={Boolean(oneTimeCreds)}

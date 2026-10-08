@@ -2,6 +2,22 @@ const mongoose = require('../db');
 const meetingService = require('../services/meeting.service');
 const Meeting = require('../models/Meeting');
 const { logger } = require('@enterprise/shared');
+const { sendServiceError } = require('../middlewares/sendServiceError');
+const {
+  resolveCompanyAdminLevel,
+  isOrgMember,
+  isSystemAdminActor,
+} = require('../clients/orgMembership.client');
+const {
+  MEETING_ERROR_CODES,
+  clampMeetingListPaging,
+  buildMeetingListScope,
+  omitMeetingListSensitiveFields,
+  resolveSelfJoinAccess,
+  validateMeetingCreateInput,
+} = require('../utils/meetingAccessPolicy');
+
+const MINE_LIST_LIMIT = 25;
 
 function safeErrorMessage(error, fallback) {
   const status = Number(error?.statusCode) || 500;
@@ -9,27 +25,61 @@ function safeErrorMessage(error, fallback) {
   return String(error?.message || fallback);
 }
 
+const MEETING_CODE_BY_STATUS = {
+  400: MEETING_ERROR_CODES.VALIDATION,
+  403: MEETING_ERROR_CODES.FORBIDDEN,
+  404: MEETING_ERROR_CODES.NOT_FOUND,
+  409: MEETING_ERROR_CODES.NOT_ACTIVE,
+};
+
+function sendMeetingNotFound(res) {
+  return sendServiceError(res, 404, {
+    errorCode: MEETING_ERROR_CODES.NOT_FOUND,
+    message: 'Không tìm thấy cuộc họp.',
+  });
+}
+
+function sendMeetingErrorFromCatch(res, error, fallbackMessage, fallbackStatus = 500) {
+  if (error?.name === 'CastError' || error?.name === 'BSONError') return sendMeetingNotFound(res);
+  const status = Number(error?.statusCode) || fallbackStatus;
+  if (status >= 500) {
+    return sendServiceError(res, status, { messageUser: fallbackMessage });
+  }
+  return sendServiceError(res, status, {
+    errorCode: error?.errorCode || MEETING_CODE_BY_STATUS[status],
+    message: String(error?.message || fallbackMessage),
+  });
+}
+
 class MeetingController {
   // Tạo meeting mới
   async createMeeting(req, res) {
     try {
-      const { title, description, serverId, organizationId, startTime } = req.body;
+      const { title, description, serverId, organizationId, startTime, startAt } = req.body || {};
       const hostId = req.user?.id || req.userContext?.userId;
 
-      if (!title || !hostId) {
-        return res.status(400).json({
-          success: false,
-          message: 'title and hostId are required',
+      if (!hostId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+
+      const input = validateMeetingCreateInput({ title, description, startTime, startAt });
+      if (!input.ok) {
+        return sendServiceError(res, 400, { errorCode: input.errorCode, message: input.message });
+      }
+
+      const orgId = String(organizationId || '').trim();
+      if (orgId && !isSystemAdminActor(req.user) && !(await isOrgMember(req.user, orgId))) {
+        return sendServiceError(res, 403, {
+          errorCode: MEETING_ERROR_CODES.FORBIDDEN,
+          message: 'Bạn không thuộc tổ chức này.',
         });
       }
 
       const meeting = await meetingService.createMeeting({
-        title,
-        description,
+        ...input.value,
         hostId,
         serverId,
         organizationId,
-        startTime,
       });
 
       res.status(201).json({
@@ -38,10 +88,7 @@ class MeetingController {
       });
     } catch (error) {
       logger.error('Create meeting error:', error);
-      res.status(400).json({
-        success: false,
-        message: safeErrorMessage(error, 'Không thể tạo cuộc họp'),
-      });
+      sendErrorFromCatch(res, error, 500, 'Không thể tạo cuộc họp');
     }
   }
 
@@ -52,7 +99,7 @@ class MeetingController {
       const userId = req.user?.id || req.userContext?.userId;
       const existing = await Meeting.findById(meetingId).lean();
       if (!existing) {
-        return res.status(404).json({ success: false, message: 'Meeting not found' });
+        return sendMeetingNotFound(res);
       }
       meetingService.assertMeetingHost(existing, userId);
       const meeting = await meetingService.startMeeting(meetingId);
@@ -63,10 +110,7 @@ class MeetingController {
       });
     } catch (error) {
       logger.error('Start meeting error:', error);
-      res.status(400).json({
-        success: false,
-        message: safeErrorMessage(error, 'Không thể tải cuộc họp'),
-      });
+      sendMeetingErrorFromCatch(res, error, 'Không thể bắt đầu cuộc họp');
     }
   }
 
@@ -77,7 +121,7 @@ class MeetingController {
       const userId = req.user?.id || req.userContext?.userId;
       const existing = await Meeting.findById(meetingId).lean();
       if (!existing) {
-        return res.status(404).json({ success: false, message: 'Meeting not found' });
+        return sendMeetingNotFound(res);
       }
       await meetingService.assertCanManageMeeting(existing, req.user || { id: userId });
       const meeting = await meetingService.endMeeting(meetingId);
@@ -88,11 +132,7 @@ class MeetingController {
       });
     } catch (error) {
       logger.error('End meeting error:', error);
-      const status = Number(error?.statusCode) || 400;
-      res.status(status).json({
-        success: false,
-        message: safeErrorMessage(error, 'Không thể kết thúc cuộc họp'),
-      });
+      sendMeetingErrorFromCatch(res, error, 'Không thể kết thúc cuộc họp');
     }
   }
 
@@ -109,6 +149,35 @@ class MeetingController {
         });
       }
 
+      if (!mongoose.isValidObjectId(String(meetingId || ''))) {
+        return sendMeetingNotFound(res);
+      }
+      const existing = await Meeting.findById(meetingId).lean();
+      if (!existing) {
+        return sendMeetingNotFound(res);
+      }
+      if (existing.status !== 'active') {
+        return sendServiceError(res, 409, {
+          errorCode: MEETING_ERROR_CODES.NOT_ACTIVE,
+          message: 'Cuộc họp chưa diễn ra hoặc đã kết thúc.',
+        });
+      }
+
+      const orgId = String(existing.organizationId || '').trim();
+      const access = resolveSelfJoinAccess({
+        meeting: existing,
+        userId,
+        isOrgMember: orgId && !meetingService.userCanAccessMeeting(existing, userId)
+          ? await isOrgMember(req.user, orgId)
+          : false,
+      });
+      if (!access) {
+        return sendServiceError(res, 403, {
+          errorCode: MEETING_ERROR_CODES.FORBIDDEN,
+          message: 'Bạn không có quyền tham gia cuộc họp này.',
+        });
+      }
+
       const meeting = await meetingService.addParticipant(meetingId, userId);
 
       res.json({
@@ -117,10 +186,7 @@ class MeetingController {
       });
     } catch (error) {
       logger.error('Add participant error:', error);
-      res.status(400).json({
-        success: false,
-        message: safeErrorMessage(error, 'Không thể cập nhật cuộc họp'),
-      });
+      sendMeetingErrorFromCatch(res, error, 'Không thể tham gia cuộc họp');
     }
   }
 
@@ -222,31 +288,23 @@ class MeetingController {
       const meeting = await meetingService.getMeetingById(meetingId);
 
       if (!meeting) {
-        return res.status(404).json({
-          success: false,
-          message: 'Meeting not found',
-        });
+        return sendMeetingNotFound(res);
       }
 
       if (!meetingService.userCanAccessMeeting(meeting, userId)) {
-        return res.status(403).json({
-          success: false,
+        return sendServiceError(res, 403, {
+          errorCode: MEETING_ERROR_CODES.FORBIDDEN,
           message: 'Forbidden',
         });
       }
 
-      const enriched = meetingService.enrichMeetingsWithRecordingFields([meeting])[0];
-
       res.json({
         success: true,
-        data: enriched,
+        data: meeting,
       });
     } catch (error) {
       logger.error('Get meeting error:', error);
-      res.status(500).json({
-        success: false,
-        message: safeErrorMessage(error, 'Không thể tham gia cuộc họp'),
-      });
+      sendMeetingErrorFromCatch(res, error, 'Không thể tải cuộc họp', 500);
     }
   }
 
@@ -254,7 +312,9 @@ class MeetingController {
   async getMeetings(req, res) {
     try {
       const { serverId, organizationId, status, page, limit, startFrom, startTo, mine } = req.query;
-      const pageNum = Number.parseInt(page, 10) || 1;
+      const { page: pageNum, limit: pageLimit } = clampMeetingListPaging({ page, limit });
+      const mineFlag = String(mine || '').toLowerCase();
+      const isMineList = mineFlag === '1' || mineFlag === 'true';
 
       // Dashboard gọi /api/meetings khi load trang. Nếu Mongo chưa ready (Atlas reconnect),
       // trả danh sách rỗng thay vì để Gateway nhận ECONNREFUSED/500.
@@ -296,6 +356,7 @@ class MeetingController {
       }
 
       let sort = { startTime: -1 };
+      let listScope = null;
 
       if (startFrom || startTo) {
         if (!startFrom || !startTo) {
@@ -351,12 +412,32 @@ class MeetingController {
           filter.status = { $ne: 'cancelled' };
         }
         sort = { startTime: 1 };
-      } else if (status) {
-        filter.status = status;
+      } else {
+        if (status) filter.status = status;
+        if (!isMineList) {
+          const uidStr = String(req.user?.id || req.user?.userId || req.user?._id || '').trim();
+          if (!uidStr) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+          }
+          if (!mongoose.isValidObjectId(uidStr)) {
+            return res.status(400).json({ success: false, message: 'Invalid user id' });
+          }
+          const adminLevel = filter.organizationId
+            ? await resolveCompanyAdminLevel(req.user, String(filter.organizationId))
+            : null;
+          listScope = buildMeetingListScope({
+            userOid: new mongoose.Types.ObjectId(uidStr),
+            organizationId: filter.organizationId,
+            adminLevel,
+          });
+          Object.assign(filter, listScope.filterPatch);
+          if (listScope.scope === 'org') {
+            logger.info('[meeting] list scope', { scope: listScope.scope, organizationId: String(filter.organizationId) });
+          }
+        }
       }
 
-      const mineFlag = String(mine || '').toLowerCase();
-      if (mineFlag === '1' || mineFlag === 'true') {
+      if (isMineList) {
         const userId = req.user?.id || req.user?.userId || req.user?._id;
         if (!userId) {
           return res.status(401).json({
@@ -396,22 +477,19 @@ class MeetingController {
         }
       }
 
-      const lobbyLimit = mineFlag === '1' || mineFlag === 'true' ? 25 : parseInt(limit) || 50;
-
       const result = await meetingService.getMeetings(filter, {
         page: pageNum,
-        limit: lobbyLimit,
+        limit: isMineList ? MINE_LIST_LIMIT : pageLimit,
         sort,
       });
 
       const enrichedMeetings = await meetingService.enrichMeetingsWithHostProfiles(result.meetings);
-      const withRecording = await meetingService.enrichMeetingsWithRecordingFieldsAsync(enrichedMeetings);
 
       res.json({
         success: true,
         data: {
           ...result,
-          meetings: withRecording,
+          meetings: listScope?.scope === 'org' ? omitMeetingListSensitiveFields(withRecording) : withRecording,
         },
       });
     } catch (error) {
@@ -447,10 +525,7 @@ class MeetingController {
       });
     } catch (error) {
       logger.error('Bootstrap meeting room error:', error);
-      res.status(400).json({
-        success: false,
-        message: safeErrorMessage(error, 'Không thể thao tác phiên cuộc họp'),
-      });
+      sendMeetingErrorFromCatch(res, error, 'Không thể vào phòng họp');
     }
   }
 

@@ -28,11 +28,11 @@ export default function DashboardWorkspacesPanel({
     <div className={FIGMA_DASH_PANEL}>
       <div className={FIGMA_DASH_PANEL_HEADER}>
         <div className={FIGMA_DASH_PANEL_TITLE}>
-          <Building2 size={15} className="text-success" />
+          <Building2 size={15} className="text-success" aria-hidden />
           {t('dashboard.workspacesTitle')}
         </div>
         <button type="button" className={FIGMA_DASH_LINK_BTN} onClick={onViewAll}>
-          {t('dashboard.viewAllShort')} <ChevronRight size={12} />
+          {t('dashboard.viewAllShort')} <ChevronRight size={12} aria-hidden />
         </button>
       </div>
       <div className="flex flex-col gap-[7px]">
@@ -46,15 +46,7 @@ export default function DashboardWorkspacesPanel({
               key={ws.id}
               type="button"
               onClick={() => onWorkspaceClick?.(ws)}
-              className={FIGMA_DASH_WS_ROW}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = `${ws.color}40`;
-                e.currentTarget.style.background = `${ws.color}06`;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'var(--border)';
-                e.currentTarget.style.background = 'var(--background)';
-              }}
+              className={`${FIGMA_DASH_WS_ROW} hover:border-primary/30 hover:bg-primary/[0.04] motion-reduce:transition-none motion-reduce:hover:translate-y-0`}
             >
               <div
                 className={FIGMA_DASH_WS_AVATAR}
@@ -88,19 +80,9 @@ export default function DashboardWorkspacesPanel({
         <button
           type="button"
           onClick={onCreateWorkspace}
-          className={`${FIGMA_DASH_ACTION_BTN} ${FIGMA_DASH_ACTION_BTN_DASHED}`}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = '#2563EB';
-            e.currentTarget.style.color = '#2563EB';
-            e.currentTarget.style.background = 'rgba(37,99,235,0.04)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'var(--border)';
-            e.currentTarget.style.color = 'var(--muted-foreground)';
-            e.currentTarget.style.background = 'transparent';
-          }}
+          className={`${FIGMA_DASH_ACTION_BTN} ${FIGMA_DASH_ACTION_BTN_DASHED} motion-reduce:transition-none motion-reduce:hover:translate-y-0`}
         >
-          <Plus size={13} />
+          <Plus size={13} aria-hidden />
           {t('dashboard.createWorkspaceBtn')}
         </button>
       ) : null}

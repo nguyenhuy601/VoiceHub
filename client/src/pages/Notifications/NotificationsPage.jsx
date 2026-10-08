@@ -105,7 +105,22 @@ function getNotifActionKind(notif) {
   return 'navigate';
 }
 
-function NotificationsPage({ orgScope = false } = {}) {
+/**
+ * Inbox thông báo — một UI (NotificationsFigmaView).
+ * @param {object} [props]
+ * @param {boolean} [props.orgScope] — scope organization (route company hoặc embed workspace)
+ * @param {string} [props.organizationIdOverride] — orgId từ workspace panel (ưu tiên hơn URL)
+ * @param {boolean} [props.fetchEnabled=true] — tắt fetch khi panel chưa sẵn sàng
+ * @param {string} [props.pageTitle] — title header (mặc định i18n)
+ * @param {boolean} [props.embedded=false] — nhúng trong OrganizationMainPanel
+ */
+function NotificationsPage({
+  orgScope = false,
+  organizationIdOverride = '',
+  fetchEnabled = true,
+  pageTitle = '',
+  embedded = false,
+} = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -113,10 +128,14 @@ function NotificationsPage({ orgScope = false } = {}) {
   const { activeWorkspace } = useWorkspace();
   const isOrgNotificationsPage =
     orgScope ||
+    embedded ||
     location.pathname.startsWith(COLLABORATE_NOTIFICATIONS_PATH) ||
-    location.pathname.startsWith(ORG_NOTIFICATIONS_PATH);
+    location.pathname.startsWith(ORG_NOTIFICATIONS_PATH) ||
+    location.pathname.startsWith('/app/company/notifications');
   const notificationScope = isOrgNotificationsPage ? 'organization' : 'personal';
   const organizationIdFilter = useMemo(() => {
+    const fromProp = String(organizationIdOverride || '').trim();
+    if (fromProp) return fromProp;
     const fromQuery = String(searchParams.get('organizationId') || searchParams.get('orgId') || '').trim();
     if (fromQuery) return fromQuery;
     if (!isOrgNotificationsPage) return '';
@@ -127,6 +146,7 @@ function NotificationsPage({ orgScope = false } = {}) {
       ''
     );
   }, [
+    organizationIdOverride,
     searchParams,
     isOrgNotificationsPage,
     activeWorkspace?._id,
@@ -156,20 +176,25 @@ function NotificationsPage({ orgScope = false } = {}) {
   const [notifSearch, setNotifSearch] = useState('');
   const [notifications, setNotifications] = useState([]);
   const [actingNotifId, setActingNotifId] = useState('');
+  const [markingAll, setMarkingAll] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [markingReadId, setMarkingReadId] = useState('');
+  const [bulkMarking, setBulkMarking] = useState(false);
   const { on, off } = useSocket();
   const queryClient = useQueryClient();
 
   const notifInfiniteQuery = useNotificationsInfinite({
     scope: notificationScope,
     organizationId: organizationIdFilter,
+    enabled: fetchEnabled && (!isOrgNotificationsPage || Boolean(organizationIdFilter)),
   });
 
-  const { pendingCount: friendPendingCount } = useFriendPending({
+  useFriendPending({
     enabled: !isOrgNotificationsPage,
   });
 
   const { data: orgShellForBadge } = useOrgShell(organizationIdFilter, {
-    enabled: isOrgNotificationsPage && Boolean(organizationIdFilter),
+    enabled: isOrgNotificationsPage && Boolean(organizationIdFilter) && fetchEnabled,
   });
 
   useEffect(() => {
@@ -260,6 +285,7 @@ function NotificationsPage({ orgScope = false } = {}) {
       data?.organizationId ||
       item?.workspaceId ||
       item?.organizationId ||
+      organizationIdFilter ||
       '';
     const actionUrl = String(item?.actionUrl || '').trim();
     return {
@@ -353,7 +379,20 @@ function NotificationsPage({ orgScope = false } = {}) {
       setNotifications((prev) => prev.map((n) => (String(n.id) === String(targetId) ? { ...n, read: true } : n)));
     };
 
-    const handleReadAll = () => {
+    const handleReadAll = (payload) => {
+      const eventScope = String(payload?.scope || '').trim().toLowerCase();
+      const eventOrg = String(payload?.organizationId || '').trim();
+      if (eventScope === 'organization' || eventScope === 'personal') {
+        if (eventScope !== notificationScope) return;
+        if (
+          eventScope === 'organization' &&
+          organizationIdFilter &&
+          eventOrg &&
+          eventOrg !== organizationIdFilter
+        ) {
+          return;
+        }
+      }
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     };
 
@@ -375,7 +414,20 @@ function NotificationsPage({ orgScope = false } = {}) {
       setNotifications((prev) => prev.filter((n) => String(n.id) !== String(targetId)));
     };
 
-    const handleDeletedReadAll = () => {
+    const handleDeletedReadAll = (payload) => {
+      const eventScope = String(payload?.scope || '').trim().toLowerCase();
+      const eventOrg = String(payload?.organizationId || '').trim();
+      if (eventScope === 'organization' || eventScope === 'personal') {
+        if (eventScope !== notificationScope) return;
+        if (
+          eventScope === 'organization' &&
+          organizationIdFilter &&
+          eventOrg &&
+          eventOrg !== organizationIdFilter
+        ) {
+          return;
+        }
+      }
       setNotifications((prev) => prev.filter((n) => !n.read));
     };
 
@@ -500,28 +552,54 @@ function NotificationsPage({ orgScope = false } = {}) {
 
   const handleMarkAsRead = async (id, { silent = false } = {}) => {
     if (!id) return;
+    if (!silent && markingReadId) return;
+    if (!silent) setMarkingReadId(id);
     try {
       await api.patch(`/notifications/${id}/read`);
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
       if (!silent) toast.success(t('notifications.markRead'));
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.markReadErr') }));
+    } finally {
+      if (!silent) setMarkingReadId('');
     }
   };
 
   const handleMarkAllRead = async () => {
+    if (markingAll) return;
+    setMarkingAll(true);
     try {
-      await api.patch('/notifications/read-all', {}, { skipGlobalErrorHandling: true });
+      const body =
+        notificationScope === 'organization'
+          ? {
+              scope: 'organization',
+              organizationId: String(organizationIdFilter || '').trim(),
+            }
+          : { scope: 'personal' };
+      if (body.scope === 'organization' && !body.organizationId) {
+        toast.error(t('notifications.markAllErr'));
+        return;
+      }
+      await api.patch('/notifications/read-all', body, { skipGlobalErrorHandling: true });
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.notifications.infinite(notificationScope, organizationIdFilter),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.notifications.badge(notificationScope, organizationIdFilter),
+      });
       toast.success(t('notifications.markAllRead'));
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.markAllErr') }));
+    } finally {
+      setMarkingAll(false);
     }
   };
 
   const confirmDeleteNotification = async () => {
     const ids = Array.isArray(pendingDeleteIds) ? pendingDeleteIds.filter(Boolean) : [];
-    if (!ids.length) return;
+    if (!ids.length || deleting) return;
+    setDeleting(true);
     let deleted = 0;
     try {
       for (const id of ids) {
@@ -544,6 +622,7 @@ function NotificationsPage({ orgScope = false } = {}) {
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.deleteErr') }));
     } finally {
+      setDeleting(false);
       setPendingDeleteIds(null);
     }
   };
@@ -828,7 +907,8 @@ function NotificationsPage({ orgScope = false } = {}) {
 
   const handleBulkMarkRead = useCallback(async () => {
     const ids = [...checkedIds];
-    if (!ids.length) return;
+    if (!ids.length || bulkMarking) return;
+    setBulkMarking(true);
     let ok = 0;
     try {
       for (const id of ids) {
@@ -842,8 +922,10 @@ function NotificationsPage({ orgScope = false } = {}) {
       toast.success(t('notifications.bulkMarkReadDone', { n: ok }));
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('notifications.markReadErr') }));
+    } finally {
+      setBulkMarking(false);
     }
-  }, [checkedIds, t]);
+  }, [bulkMarking, checkedIds, t]);
 
   const handleShortcutMarkRead = useCallback(() => {
     if (bulkMode && checkedIds.size > 0) {
@@ -890,7 +972,7 @@ function NotificationsPage({ orgScope = false } = {}) {
   }, [selectedId, visibleIds, filteredNotifications]);
 
   useNotificationInboxShortcuts({
-    enabled: !isOrgNotificationsPage,
+    enabled: true,
     itemIds: visibleIds,
     selectedId,
     bulkMode,
@@ -904,11 +986,13 @@ function NotificationsPage({ orgScope = false } = {}) {
     onToggleHelp: () => setShortcutHelpOpen((v) => !v),
   });
 
-  if (isOrgNotificationsPage && organizationIdFilter) {
-    return null;
-  }
-
   const pendingDeleteCount = Array.isArray(pendingDeleteIds) ? pendingDeleteIds.length : 0;
+  const inboxTitle =
+    pageTitle ||
+    (isOrgNotificationsPage ? t('notifications.titleOrganization') : t('notifications.defaultTitle'));
+  const inboxEmptyMessage = isOrgNotificationsPage
+    ? t('notifications.emptyOrg')
+    : t('notifications.emptyNew');
 
   return (
     <>
@@ -936,11 +1020,14 @@ function NotificationsPage({ orgScope = false } = {}) {
         checkedIds={checkedIds}
         checkedCount={checkedIds.size}
         shortcutHelpOpen={shortcutHelpOpen}
-        loading={notificationsLoading}
-        emptyMessage={t('notifications.emptyNew')}
+        loading={!fetchEnabled || notificationsLoading}
+        emptyMessage={inboxEmptyMessage}
         emptyHint={emptyHint}
         getActionKind={getNotifActionKind}
         actingNotifId={actingNotifId}
+        markingAll={markingAll}
+        bulkActing={bulkMarking || deleting}
+        markingReadId={markingReadId}
         onSelectNotification={handleSelectNotification}
         onOpenNotification={handleOpenNotification}
         onMarkReadNotification={handleMarkAsRead}

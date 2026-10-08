@@ -6,13 +6,13 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test tests/*.test.js",
     "postinstall": "node ../../shared/postinstall-link.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1114.0",
     "amqplib": "^0.10.4",
-    "axios": "^1.7.7",
+    "axios": "^1.20.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
@@ -20,9 +20,9 @@
     "firebase-admin": "^12.7.0",
     "ioredis": "^5.9.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^9.1.4",
-    "multer": "^2.2.0",
-    "xlsx": "^0.18.5"
+    "mongoose": "^9.1.6",
+    "multer": "^2.4.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"
@@ -35,5 +35,27 @@
     "enterprise"
   ],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "overrides": {
+    "proxy-addr": "2.0.8",
+    "protobufjs": "7.6.1",
+    "websocket-driver": "0.7.5",
+    "fast-xml-parser": "5.5.6",
+    "fast-xml-builder": "1.1.7",
+    "tar": "7.5.21",
+    "@grpc/grpc-js": "1.14.5",
+    "engine.io": "6.6.10",
+    "socket.io-parser": "4.2.7",
+    "ws": "8.21.0",
+    "@fastify/busboy": "3.2.1",
+    "minimatch@3": "3.1.4",
+    "brace-expansion@1": "1.1.20",
+    "brace-expansion@2": "2.1.6",
+    "path-to-regexp@0.1.12": "0.1.13",
+    "path-to-regexp@8": "8.4.0",
+    "form-data@2": "2.5.6",
+    "form-data@4": "4.0.6",
+    "picomatch@2": "2.3.2",
+    "picomatch@4": "4.0.4"
+  }
 }

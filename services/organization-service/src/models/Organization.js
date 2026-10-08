@@ -102,6 +102,14 @@ const organizationSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.Mixed,
         default: null,
       },
+      /**
+       * Requirement Access Policy (persona → visibility + actions).
+       * Must be Mixed — nested settings schema is strict and would strip unknown keys.
+       */
+      requirementAccessPolicy: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null,
+      },
       /** Phase 2.0 — company size + enabled master catalog keys */
       companySize: {
         type: String,

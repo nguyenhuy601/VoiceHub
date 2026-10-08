@@ -133,7 +133,6 @@ export function WorkItemDetailProvider({
     if (!open) return;
     setActiveTab(pickInitialVisibleTab(tabCtx, mapInitialPanelToTab(initialPanel)));
     // tabCtx lấy bản sau render khi issueId/initialPanel đổi; cố ý không đưa vào deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- xem comment trên
   }, [open, issueId, initialPanel]);
 
   const [title, setTitle] = useState('');
@@ -226,16 +225,14 @@ export function WorkItemDetailProvider({
       }
       setSaving(true);
       try {
-        if (onUpdateCard) {
-          await onUpdateCard(issueId, patch);
-        } else {
-          await taskAPI.updateBoardCard(issueId, patch, boardApiOpts);
-        }
+        const savedCard = onUpdateCard
+          ? await onUpdateCard(issueId, patch)
+          : await taskAPI.updateBoardCard(issueId, patch, boardApiOpts);
         patchLocalWorkItem(patch);
         toast.success(t('taskBoard.saved'));
         setHoursWarn(null);
         setPendingPatch(null);
-        return true;
+        return savedCard ?? true;
       } catch (err) {
         if (isHoursSoftWarning(err)) {
           setPendingPatch(patch);

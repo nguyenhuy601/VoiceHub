@@ -1,6 +1,7 @@
 const mongoose = require('../db');
 const { logger } = require('@enterprise/shared');
 const boardService = require('../services/taskBoard.service');
+const { bodyWithoutIdentity } = require('../utils/common/trustedPayload');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
 
 function asUserId(req) {
@@ -53,7 +54,11 @@ class TaskBoardController {
   async listBoards(req, res) {
     try {
       if (mongoose.connection.readyState !== 1) {
-        return res.status(503).json({ success: false, message: 'Database unavailable' });
+        return sendServiceError(res, 503, {
+      errorCode: 'DB_UNAVAILABLE',
+      messageUser: "Database unavailable",
+      message: "Database unavailable",
+    });
       }
       const userId = asUserId(req);
       const { organizationId, teamId, scopeType, scopeId } = req.query || {};
@@ -62,10 +67,18 @@ class TaskBoardController {
         return boardValidation(res, 'organizationId không hợp lệ');
       }
       if (teamId && !validOid(teamId)) {
-        return res.status(400).json({ success: false, message: 'teamId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "teamId không hợp lệ",
+      message: "teamId không hợp lệ",
+    });
       }
       if (scopeId && !validOid(scopeId)) {
-        return res.status(400).json({ success: false, message: 'scopeId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "scopeId không hợp lệ",
+      message: "scopeId không hợp lệ",
+    });
       }
       const boards = await boardService.listBoards({ userId, organizationId, teamId, scopeType, scopeId });
       return res.json({ success: true, data: boards });
@@ -139,12 +152,20 @@ class TaskBoardController {
       const { listId, title } = req.body || {};
       if (!userId) return boardUnauthorized(res);
       if (!validOid(boardId) || !validOid(listId)) {
-        return res.status(400).json({ success: false, message: 'boardId/listId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "boardId/listId không hợp lệ",
+      message: "boardId/listId không hợp lệ",
+    });
       }
       if (!String(title || '').trim()) {
         return boardValidation(res, 'title là bắt buộc', 'VALIDATION_REQUIRED');
       }
-      const data = await boardService.createCard({ userId, boardId, ...req.body });
+      const data = await boardService.createCard({
+        ...bodyWithoutIdentity(req.body),
+        userId,
+        boardId,
+      });
       return res.status(201).json({ success: true, data });
     } catch (err) {
       if (err?.errorCode === 'HOURS_SOFT_WARNING') return sendHoursSoftWarning(res, err);
@@ -159,7 +180,11 @@ class TaskBoardController {
       const { toListId, position, index, ownerTeamId } = req.body || {};
       if (!userId) return boardUnauthorized(res);
       if (!validOid(cardId) || !validOid(toListId)) {
-        return res.status(400).json({ success: false, message: 'cardId/toListId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "cardId/toListId không hợp lệ",
+      message: "cardId/toListId không hợp lệ",
+    });
       }
       const data = await boardService.moveCard({
         userId,
@@ -171,7 +196,7 @@ class TaskBoardController {
       });
       return res.json({ success: true, data });
     } catch (err) {
-      return sendError(res, err, 400, 'Không thể di chuyển card', 'TASK_BOARD_CARD_MOVE_FAILED');
+      return sendError(res, err, err.statusCode || 400, 'Không thể di chuyển card', 'TASK_BOARD_CARD_MOVE_FAILED');
     }
   }
 
@@ -181,9 +206,17 @@ class TaskBoardController {
       const { cardId } = req.params;
       const { toListId } = req.body || {};
       if (!userId) return boardUnauthorized(res);
-      if (!validOid(cardId)) return res.status(400).json({ success: false, message: 'cardId không hợp lệ' });
+      if (!validOid(cardId)) return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "cardId không hợp lệ",
+      message: "cardId không hợp lệ",
+    });
       if (toListId && !validOid(toListId)) {
-        return res.status(400).json({ success: false, message: 'toListId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "toListId không hợp lệ",
+      message: "toListId không hợp lệ",
+    });
       }
       const data = await boardService.copyCard({ userId, cardId, toListId });
       return res.status(201).json({ success: true, data });
@@ -197,7 +230,11 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { cardId } = req.params;
       if (!userId) return boardUnauthorized(res);
-      if (!validOid(cardId)) return res.status(400).json({ success: false, message: 'cardId không hợp lệ' });
+      if (!validOid(cardId)) return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "cardId không hợp lệ",
+      message: "cardId không hợp lệ",
+    });
       const data = await boardService.archiveCard({ userId, cardId });
       return res.json({ success: true, data });
     } catch (err) {
@@ -213,7 +250,11 @@ class TaskBoardController {
       const boardId = boardIdParam || boardIdBody;
       if (!userId) return boardUnauthorized(res);
       if (!validOid(listId) || !validOid(boardId)) {
-        return res.status(400).json({ success: false, message: 'listId/boardId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "listId/boardId không hợp lệ",
+      message: "listId/boardId không hợp lệ",
+    });
       }
       const lists = await boardService.reorderList({ userId, boardId, listId, position });
       return res.json({ success: true, data: lists });
@@ -228,9 +269,17 @@ class TaskBoardController {
       const { listId } = req.params;
       const { title, toBoardId } = req.body || {};
       if (!userId) return boardUnauthorized(res);
-      if (!validOid(listId)) return res.status(400).json({ success: false, message: 'listId không hợp lệ' });
+      if (!validOid(listId)) return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "listId không hợp lệ",
+      message: "listId không hợp lệ",
+    });
       if (toBoardId && !validOid(toBoardId)) {
-        return res.status(400).json({ success: false, message: 'toBoardId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "toBoardId không hợp lệ",
+      message: "toBoardId không hợp lệ",
+    });
       }
       const data = await boardService.copyList({ userId, listId, title, toBoardId });
       return res.status(201).json({ success: true, data });
@@ -246,7 +295,11 @@ class TaskBoardController {
       const { toBoardId, position } = req.body || {};
       if (!userId) return boardUnauthorized(res);
       if (!validOid(listId) || !validOid(toBoardId)) {
-        return res.status(400).json({ success: false, message: 'listId/toBoardId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "listId/toBoardId không hợp lệ",
+      message: "listId/toBoardId không hợp lệ",
+    });
       }
       const data = await boardService.moveList({ userId, listId, toBoardId, position });
       return res.json({ success: true, data });
@@ -262,7 +315,11 @@ class TaskBoardController {
       const { toListId } = req.body || {};
       if (!userId) return boardUnauthorized(res);
       if (!validOid(listId) || !validOid(toListId)) {
-        return res.status(400).json({ success: false, message: 'listId/toListId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "listId/toListId không hợp lệ",
+      message: "listId/toListId không hợp lệ",
+    });
       }
       const data = await boardService.moveAllCardsInList({ userId, listId, toListId });
       return res.json({ success: true, data });
@@ -276,7 +333,11 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { listId } = req.params;
       if (!userId) return boardUnauthorized(res);
-      if (!validOid(listId)) return res.status(400).json({ success: false, message: 'listId không hợp lệ' });
+      if (!validOid(listId)) return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "listId không hợp lệ",
+      message: "listId không hợp lệ",
+    });
       const data = await boardService.setListWatch({ userId, listId, watching: true });
       return res.json({ success: true, data });
     } catch (err) {
@@ -289,7 +350,11 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { listId } = req.params;
       if (!userId) return boardUnauthorized(res);
-      if (!validOid(listId)) return res.status(400).json({ success: false, message: 'listId không hợp lệ' });
+      if (!validOid(listId)) return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "listId không hợp lệ",
+      message: "listId không hợp lệ",
+    });
       const data = await boardService.setListWatch({ userId, listId, watching: false });
       return res.json({ success: true, data });
     } catch (err) {
@@ -303,7 +368,11 @@ class TaskBoardController {
       const { boardId, listId } = req.params;
       if (!userId) return boardUnauthorized(res);
       if (!validOid(boardId) || !validOid(listId)) {
-        return res.status(400).json({ success: false, message: 'boardId/listId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "boardId/listId không hợp lệ",
+      message: "boardId/listId không hợp lệ",
+    });
       }
       const data = await boardService.archiveList({ userId, boardId, listId });
       return res.json({ success: true, data });
@@ -318,7 +387,11 @@ class TaskBoardController {
       const { boardId } = req.params;
       if (!userId) return boardUnauthorized(res);
       if (!validOid(boardId)) {
-        return res.status(400).json({ success: false, message: 'boardId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "boardId không hợp lệ",
+      message: "boardId không hợp lệ",
+    });
       }
       const data = await boardService.archiveBoard({ userId, boardId });
       return res.json({ success: true, data });
@@ -333,7 +406,11 @@ class TaskBoardController {
       const { boardId } = req.params;
       if (!userId) return boardUnauthorized(res);
       if (!validOid(boardId)) {
-        return res.status(400).json({ success: false, message: 'boardId không hợp lệ' });
+        return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "boardId không hợp lệ",
+      message: "boardId không hợp lệ",
+    });
       }
       const data = await boardService.patchBoard({
         userId,
@@ -367,7 +444,11 @@ class TaskBoardController {
         hoursRationale,
       } = req.body || {};
       if (!userId) return boardUnauthorized(res);
-      if (!validOid(cardId)) return res.status(400).json({ success: false, message: 'cardId không hợp lệ' });
+      if (!validOid(cardId)) return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "cardId không hợp lệ",
+      message: "cardId không hợp lệ",
+    });
       const data = await boardService.updateCard({
         userId,
         cardId,
@@ -405,7 +486,11 @@ class TaskBoardController {
       const userId = asUserId(req);
       const { featureId } = req.params;
       if (!userId) return boardUnauthorized(res);
-      if (!validOid(featureId)) return res.status(400).json({ success: false, message: 'featureId không hợp lệ' });
+      if (!validOid(featureId)) return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "featureId không hợp lệ",
+      message: "featureId không hợp lệ",
+    });
       const data = await boardService.createWorkGroup({ userId, featureId });
       return res.status(201).json({ success: true, data });
     } catch (err) {
@@ -419,7 +504,11 @@ class TaskBoardController {
       const { cardId } = req.params;
       const { content } = req.body || {};
       if (!userId) return boardUnauthorized(res);
-      if (!validOid(cardId)) return res.status(400).json({ success: false, message: 'cardId không hợp lệ' });
+      if (!validOid(cardId)) return sendServiceError(res, 400, {
+      errorCode: 'VALIDATION_FAILED',
+      messageUser: "cardId không hợp lệ",
+      message: "cardId không hợp lệ",
+    });
       const data = await boardService.addCardComment({ userId, cardId, content });
       return res.status(201).json({ success: true, data });
     } catch (err) {

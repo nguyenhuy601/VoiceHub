@@ -286,7 +286,7 @@ async function buildWorkbookBufferFromLists({ deptNames = [], domains = [], jobT
   ]);
   notes.addRow(['yearsExperience', 'Số năm KN — số ≥ 0']);
   notes.addRow(['maxConcurrentProjects', 'Trần số dự án 1–20 — trống = 2. Soft OT / người.']);
-  notes.addRow(['orgRole', 'Vai trò công ty — member | hr | admin. Trống = member. CẤM owner.']);
+  notes.addRow(['orgRole', 'Vai trò công ty — member | hr | admin. Trống = member. CẤM owner. HR chỉ gán member; admin chỉ chủ sở hữu gán được.']);
   notes.addRow(['System Role / Gói quyền', 'KHÔNG có cột — gán sau ở phân quyền.']);
   notes.addRow([
     'Luồng UI',

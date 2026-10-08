@@ -2,7 +2,7 @@
  * Huy: API Dynamic Organizational Structure — levels, units, templates, membership.
  */
 const { resolveOrgAccess } = require('../utils/orgAccess');
-const { orgUnauthorized, orgAccessDenied, orgFail } = require('../utils/orgApiError');
+const { orgUnauthorized, orgAccessDenied, orgFail, orgCatch } = require('../utils/orgApiError');
 const { invalidateOrgReadCache } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 const {
@@ -13,6 +13,7 @@ const {
   moveUnit,
   softDeleteUnit,
   listUnitsTree,
+  sanitizeUnitAttributes,
 } = require('../services/orgUnitTree.service');
 const {
   backfillOrganizationToOu,
@@ -22,6 +23,8 @@ const { listOrgStructureTemplates, UNIT_KIND_CATALOG } = require('../config/orgS
 const OrgUnitMembership = require('../models/OrgUnitMembership');
 const OrganizationalUnit = require('../models/OrganizationalUnit');
 const { ensureOuRole } = require('../services/hierarchyRoleSync');
+const { toPlainId, assertActiveOrgMembers, MAX_MEMBER_IDS } = require('../utils/orgMemberIds');
+const { assertTextLimits } = require('../utils/orgTextLimits');
 
 const bump = (orgId) =>
   invalidateOrgReadCache(orgId, { eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED }).catch(() => null);
@@ -79,7 +82,7 @@ exports.putLevels = async (req, res, next) => {
     await bump(ctx.orgId);
     return res.json({ status: 'success', data: doc });
   } catch (error) {
-    if (error.statusCode) return orgFail(res, error.statusCode, error.message, error.errorCode);
+    if (error.statusCode) return orgCatch(res, error);
     return next(error);
   }
 };
@@ -101,14 +104,18 @@ exports.createUnitHandler = async (req, res, next) => {
     const ctx = await requireOrgAdmin(req, res);
     if (!ctx) return;
     const body = req.body || {};
+    assertTextLimits({ name: body.name, description: body.description, code: body.unitKind });
+    if (body.levelKey !== undefined && typeof body.levelKey !== 'string') {
+      return orgFail(res, 400, 'levelKey không hợp lệ.', 'ORG_LEVEL_INVALID');
+    }
     const doc = await createUnit({
       organizationId: ctx.orgId,
-      parentUnitId: body.parentUnitId || null,
+      parentUnitId: toPlainId(body.parentUnitId),
       levelKey: body.levelKey,
       name: body.name,
       description: body.description,
       unitKind: body.unitKind,
-      attributes: body.attributes || {},
+      attributes: await sanitizeUnitAttributes(ctx.orgId, body.attributes),
     });
     // Huy: P5 dual-write legacy collections khi levelKey khớp
     const { dualWriteCreateLegacy } = require('../services/orgOuDualWrite.service');
@@ -118,7 +125,7 @@ exports.createUnitHandler = async (req, res, next) => {
     await bump(ctx.orgId);
     return res.status(201).json({ status: 'success', data: doc });
   } catch (error) {
-    if (error.statusCode) return orgFail(res, error.statusCode, error.message, error.errorCode);
+    if (error.statusCode) return orgCatch(res, error);
     return next(error);
   }
 };
@@ -130,14 +137,14 @@ exports.updateUnitHandler = async (req, res, next) => {
     const unitId = req.params.unitId;
     const body = req.body || {};
     if (body.parentUnitId !== undefined) {
-      await moveUnit(ctx.orgId, unitId, body.parentUnitId || null);
+      await moveUnit(ctx.orgId, unitId, toPlainId(body.parentUnitId));
     }
     const doc = await updateUnit(ctx.orgId, unitId, body);
     await ensureOuRole(ctx.orgId, doc._id, doc.name, doc.levelKey).catch(() => null);
     await bump(ctx.orgId);
     return res.json({ status: 'success', data: doc });
   } catch (error) {
-    if (error.statusCode) return orgFail(res, error.statusCode, error.message, error.errorCode);
+    if (error.statusCode) return orgCatch(res, error);
     return next(error);
   }
 };
@@ -150,7 +157,7 @@ exports.deleteUnitHandler = async (req, res, next) => {
     await bump(ctx.orgId);
     return res.json({ status: 'success', data: doc });
   } catch (error) {
-    if (error.statusCode) return orgFail(res, error.statusCode, error.message, error.errorCode);
+    if (error.statusCode) return orgCatch(res, error);
     return next(error);
   }
 };
@@ -165,7 +172,7 @@ exports.applyTemplate = async (req, res, next) => {
     await bump(ctx.orgId);
     return res.json({ status: 'success', data: result });
   } catch (error) {
-    if (error.statusCode) return orgFail(res, error.statusCode, error.message, error.errorCode);
+    if (error.statusCode) return orgCatch(res, error);
     return next(error);
   }
 };
@@ -206,28 +213,53 @@ exports.setUnitMembers = async (req, res, next) => {
     if (!unit) return orgFail(res, 404, 'Unit not found', 'ORG_UNIT_NOT_FOUND');
 
     const members = Array.isArray(req.body?.members) ? req.body.members : [];
-    const primaryUserId = req.body?.primaryUserId
-      ? String(req.body.primaryUserId)
-      : null;
+    if (members.length > MAX_MEMBER_IDS) {
+      return orgFail(res, 400, `Tối đa ${MAX_MEMBER_IDS} thành viên mỗi lần cập nhật.`, 'ORG_BATCH_TOO_LARGE');
+    }
+    const primaryUserId = toPlainId(req.body?.primaryUserId);
+
+    const seen = new Set();
+    const docs = [];
+    members.forEach((m) => {
+      const isObjectEntry = m !== null && typeof m === 'object';
+      const userId = toPlainId(isObjectEntry ? m.userId : m);
+      // Object `{ $ne: null }` has no userId string. Skipping it used to fall through
+      // to deleteMany and wipe the unit. Reject before any write.
+      if (!userId) {
+        const err = new Error('Mã định danh không hợp lệ.');
+        err.statusCode = 400;
+        err.errorCode = 'ORG_INVALID_ID';
+        throw err;
+      }
+      if (seen.has(userId)) return;
+      seen.add(userId);
+      const roleInUnit = isObjectEntry && m.roleInUnit !== undefined ? m.roleInUnit : 'member';
+      assertTextLimits({ code: roleInUnit });
+      docs.push({
+        organization: ctx.orgId,
+        userId,
+        unitId,
+        roleInUnit: roleInUnit || 'member',
+        isPrimary: primaryUserId ? userId === primaryUserId : Boolean(isObjectEntry && m.isPrimary),
+      });
+    });
+
+    const existingIds = new Set(
+      (await OrgUnitMembership.distinct('userId', { organization: ctx.orgId, unitId })).map((id) =>
+        String(id).toLowerCase()
+      )
+    );
+    await assertActiveOrgMembers(
+      ctx.orgId,
+      docs.map((d) => d.userId).filter((id) => !existingIds.has(id))
+    );
 
     await OrgUnitMembership.deleteMany({ organization: ctx.orgId, unitId });
-    const docs = members
-      .map((m) => {
-        const userId = typeof m === 'string' ? m : m?.userId;
-        if (!userId) return null;
-        return {
-          organization: ctx.orgId,
-          userId,
-          unitId,
-          roleInUnit: (typeof m === 'object' && m.roleInUnit) || 'member',
-          isPrimary: primaryUserId ? String(userId) === primaryUserId : Boolean(m?.isPrimary),
-        };
-      })
-      .filter(Boolean);
     if (docs.length) await OrgUnitMembership.insertMany(docs);
     await bump(ctx.orgId);
     return res.json({ status: 'success', data: { count: docs.length } });
   } catch (error) {
+    if (error.statusCode) return orgCatch(res, error);
     return next(error);
   }
 };

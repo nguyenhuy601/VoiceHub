@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
-import AdminOrgUnitOpsHubShell from '../../components/admin/AdminOrgUnitOpsHubShell';
-import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
+import AdminOrgUnitOpsHubShell from '../../components/Admin/AdminOrgUnitOpsHubShell';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import BranchEditPanel from './BranchEditPanel';
 import BranchDisablePanel from './BranchDisablePanel';
@@ -41,18 +40,6 @@ export default function BranchManageHubPanel({ orgId }) {
     >
       {({ activeTab }) => (
         <div className="space-y-4">
-          {error ? (
-            <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2">
-              <p className="text-sm text-destructive">{error}</p>
-              <button
-                type="button"
-                className={`${adminPrimaryBtnClass()} mt-3`}
-                onClick={() => loadStructure()}
-              >
-                {t('adminRbac.retry')}
-              </button>
-            </div>
-          ) : null}
           {activeTab === TAB_EDIT ? <BranchEditPanel orgId={orgId} embedded /> : null}
           {activeTab === TAB_DISABLE ? <BranchDisablePanel orgId={orgId} embedded /> : null}
           {activeTab === TAB_DEPT ? <BranchDeptPanel orgId={orgId} embedded /> : null}

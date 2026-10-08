@@ -55,7 +55,7 @@ flowchart LR
 4. **S2S**: header internal token — [`docs/security-runbook.md`](docs/security-runbook.md).
 5. **Realtime**: `chat-service` REST + queue; **`socket-service`** giữ Socket.IO `/chat` (không bind WS public từ chat-service).
 
-Chi tiết: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`MIGRATION.md`](MIGRATION.md).
+Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/MIGRATION.md`](docs/MIGRATION.md).
 
 ---
 
@@ -64,7 +64,7 @@ Chi tiết: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`MIGRATION.md`](MIGRATION.md)
 | Runtime | File / lệnh | Dùng cho |
 |---------|-------------|----------|
 | **Docker Swarm** | `docker-stack.yml` + `bash devops/swarm/deploy-stack.sh` | Toàn bộ microservices app (`api-gateway`, `auth`, `chat`, `voice`, …) |
-| **Compose extra** | `docker-compose.swarm-extra.yml` | Infra/AI bổ sung trên cùng overlay: `ollama`, `minio`, `meilisearch`, `voice-recording-worker`, `voice-stt-worker`, … |
+| **Swarm infra AI** | trong `docker-stack.yml` | `ollama`, `minio`, `qdrant`, `meilisearch` (DNS cùng overlay) |
 | **Compose legacy** | `docker-compose.yml` (+ infra/core/dev) | Có thể chạy full stack local; **không** thay Swarm khi môi trường đã deploy Swarm |
 
 **Không** `docker compose up` cho các service đã nằm trong Swarm. Cập nhật một service: build đúng image đó + `docker service update --force` — xem [`.cursor/rules/swarm-compose-split.mdc`](.cursor/rules/swarm-compose-split.mdc), [`devops/swarm/README.md`](devops/swarm/README.md).
@@ -78,12 +78,12 @@ Chi tiết: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`MIGRATION.md`](MIGRATION.md)
 | Chat / realtime | `chat-service`, `socket-service` |
 | Work | `project-service`, `project-worker`, `document-service` |
 | Voice | `voice-service` (mediasoup; UDP media publish ra host) |
-| AI / summary | `ai-task-service`, `ai-task-worker`, `ai-task-extract-worker`, `ai-task-sync-worker`, `summary-service`, `summary-worker` |
+| AI | `ai-project-planning-service`, `ai-project-planning-wbs-worker` |
 | Notify / webhook | `notification-service`, `notification-dispatch-worker`, `webhook-service`, `webhook-delivery-worker` |
 
-### Compose extra (AI / storage / STT)
+### Compose extra (AI / storage)
 
-`voice-recording-worker`, `voice-stt-worker`, MinIO (ghi âm meeting), Meilisearch, Ollama/PaddleOCR khi chạy ngoài Swarm.
+MinIO, Meilisearch, Qdrant, Ollama khi chạy ngoài Swarm.
 
 ### Cổng / edge
 
@@ -94,7 +94,7 @@ Chi tiết: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`MIGRATION.md`](MIGRATION.md)
 | **voice-service** | Signaling + UDP mediasoup (dải port theo `.env` / stack) |
 | Service khác | Chỉ mạng overlay `voicehub_enterprise-network` / `enterprise-network` |
 
-Infra HA (staging): Mongo Atlas, Redis Sentinel, Rabbit cluster — xem [`ARCHITECTURE.md`](ARCHITECTURE.md).
+Infra HA (staging): Mongo Atlas, Redis Sentinel, Rabbit cluster — xem [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 
@@ -105,7 +105,7 @@ Infra HA (staging): Mongo Atlas, Redis Sentinel, Rabbit cluster — xem [`ARCHIT
 | Frontend | React 18, Vite, React Router (suite shell), Tailwind, Axios, Socket.IO client, mediasoup-client |
 | Backend | Node.js + Express (microservices); Python (webhook / một số worker) |
 | Dữ liệu / queue | MongoDB, Redis, RabbitMQ |
-| Media / AI | mediasoup, MinIO (recording), Ollama, Meilisearch (tuỳ bật) |
+| Media / AI | mediasoup, MinIO, Ollama, Meilisearch (tuỳ bật) |
 | Triển khai | **Swarm** app + **Compose extra**; Compose full stack vẫn có cho local |
 
 Cấu hình: file **`.env`** (root + từng service). Không dùng `.env.example` làm luồng chuẩn.
@@ -127,16 +127,11 @@ VoiceHub/
     chat-service/
     socket-service/
     voice-service/
-    voice-recording-worker/
-    voice-stt-worker/
     project-service/
     document-service/
     notification-service/
     webhook-service/
-    ai-task-service/
-    ai-task-worker/
-    summary-service/
-    summary-worker/
+    ai-project-planning-service/
     …
   shared/                   # @enterprise/shared (gatewayTrust, singleCompany, …)
   devops/                   # swarm/, nginx/, scripts/
@@ -146,7 +141,7 @@ VoiceHub/
   docker-compose.yml        # Compose entry (infra + core)
 ```
 
-Cây chi tiết: [`STRUCTURE.md`](STRUCTURE.md) (một số tên worker mới có thể chưa liệt kê đủ — lấy `docker-stack.yml` / Compose extra làm nguồn đúng).
+Cây chi tiết: [`docs/STRUCTURE.md`](docs/STRUCTURE.md) (một số tên worker mới có thể chưa liệt kê đủ — lấy `docker-stack.yml` / Compose extra làm nguồn đúng).
 
 ---
 
@@ -162,8 +157,6 @@ Cây chi tiết: [`STRUCTURE.md`](STRUCTURE.md) (một số tên worker mới c�
 | `/api/messages` | chat-service |
 | `/api/voice`, `/api/meetings` | voice-service |
 | `/api/tasks` | project-service |
-| `/api/ai/tasks` | ai-task-service |
-| `/api/ai/summaries` | summary-service |
 | `/api/documents` | document-service |
 | `/api/notifications` | notification-service |
 
@@ -189,8 +182,6 @@ Cây phân cấp (organization-service):
 **Single-company** (`shared/config/singleCompany.js`):
 
 - Env: `SINGLE_ORG_MODE`, `ALLOW_PUBLIC_REGISTER`
-- Seed: `node devops/scripts/seed-single-company.js`
-- Smoke: `node devops/scripts/smoke-single-company.js`
 
 UI admin: `/app/admin/*` (hub, users, structure, RBAC, …).
 
@@ -209,7 +200,7 @@ UI admin: `/app/admin/*` (hub, users, structure, RBAC, …).
 | **`CORS_ORIGIN`** | Whitelist origin (có `https://voicehub.local` khi dev LAN) |
 | **`SINGLE_ORG_MODE`** | Một công ty / hạn chế tạo org công khai |
 
-Runbook: [`docs/security-runbook.md`](docs/security-runbook.md). Sau đổi secret: `bash devops/scripts/check-security-env.sh`.
+Runbook: [`docs/security-runbook.md`](docs/security-runbook.md). Sau đổi secret: `bash devops/scripts/security/check-security-env.sh`.
 
 ---
 
@@ -219,17 +210,19 @@ Runbook: [`docs/security-runbook.md`](docs/security-runbook.md). Sau đổi secr
 
 ```bash
 # .env root + service .env đã có (SINGLE_ORG_MODE, token, …)
-VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh   # hoặc env tương ứng
+VOICEHUB_ENV_CHECK=staging bash devops/scripts/security/check-security-env.sh   # hoặc env tương ứng
 bash devops/swarm/build-local-images.sh <service-name>   # chỉ service vừa sửa
 bash devops/swarm/deploy-stack.sh
 # hoặc: docker service update --force --update-parallelism 1 --update-order start-first voicehub_<service>
 ```
 
-### 2. Compose extra (recording / STT / MinIO / Ollama)
+### 2. Infra AI trên Swarm (Ollama / MinIO / Qdrant / Meili)
+
+Đã nằm trong `docker-stack.yml`. Sau deploy lần đầu (hoặc đổi model):
 
 ```bash
-bash devops/swarm/dev-enable-profile.sh --skip-deploy   # scale Swarm trùng tên về 0 nếu cần
-docker compose -f docker-compose.swarm-extra.yml --env-file .env up -d --no-build
+bash devops/swarm/dev-enable-profile.sh          # deploy + pull model
+# hoặc: bash devops/swarm/dev-enable-profile.sh --skip-deploy
 ```
 
 ### 3. Edge HTTPS + frontend
@@ -243,13 +236,6 @@ cd client && npm install && npm run dev
 ```
 
 Verify: `powershell -File devops/nginx/verify-lan-https.ps1 -BaseUrl https://voicehub.local`
-
-### 4. Single-company seed / smoke
-
-```bash
-node devops/scripts/seed-single-company.js
-node devops/scripts/smoke-single-company.js
-```
 
 ### Compose full stack (tuỳ chọn)
 
@@ -275,9 +261,9 @@ Chi tiết Compose: [`docs/DOCKER-COMPOSE.md`](docs/DOCKER-COMPOSE.md).
 
 | Tài liệu | Nội dung |
 |----------|----------|
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Kiến trúc + realtime + HA phases |
-| [`MIGRATION.md`](MIGRATION.md) | Compose vs Swarm; stabilization |
-| [`STRUCTURE.md`](STRUCTURE.md) | Cây thư mục |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Kiến trúc + realtime + HA phases |
+| [`docs/MIGRATION.md`](docs/MIGRATION.md) | Compose vs Swarm; stabilization |
+| [`docs/STRUCTURE.md`](docs/STRUCTURE.md) | Cây thư mục |
 | [`docs/README.md`](docs/README.md) | Hub `docs/` |
 | [`docs/lan-https-voicehub.local.md`](docs/lan-https-voicehub.local.md) | Dev HTTPS LAN |
 | [`docs/DOCKER-COMPOSE.md`](docs/DOCKER-COMPOSE.md) | Compose infra/core/dev |
@@ -293,4 +279,4 @@ Chi tiết Compose: [`docs/DOCKER-COMPOSE.md`](docs/DOCKER-COMPOSE.md).
 
 ## License
 
-Xem [LICENSE](LICENSE).
+Xem [LICENSE](docs/LICENSE).

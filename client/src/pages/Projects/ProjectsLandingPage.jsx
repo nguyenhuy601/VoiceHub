@@ -3,15 +3,16 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../locales/appStrings';
 import ProjectsLandingGrid from '../../features/projects/landing/ProjectsLandingGrid';
-import { isProjectActiveForUi } from '../../features/projects/landing/projectLandingActive';
+import { isProjectListableForUi } from '../../features/projects/landing/projectLandingActive';
 import {
   boardQueryFromSearch,
   buildCollaborateProjectHubPath,
-  buildCollaborateProjectsNewAiPath,
   buildCollaborateProjectsNewPath,
   orgQueryFromSearch,
   readStoredLastOrganizationId,
 } from '../../utils/suitePathUtils';
+import { resolveAiProjectEntryPath } from '../../features/projects/phase1/aiHitl/aiHitlNavState';
+import { loadLinkedPackForAiNav } from '../../features/projects/phase1/aiHitl/loadLinkedPackForAiNav';
 import {
   buildBoardIdToProjectIndex,
   projectRefFromBoardDetailPayload,
@@ -53,13 +54,13 @@ export default function ProjectsLandingPage() {
     loading: projectsLoading,
     isError: projectsError,
     reload: reloadProjects,
-  } = useOrgProjectsList(orgId, { excludeClosed: true });
-  const { canCreateTask, loading: scopeLoading } = useTaskWorkspaceScope(orgId);
+  } = useOrgProjectsList(orgId, { excludeClosed: false });
+  const { canCreateProjectCapability, loading: scopeLoading } = useTaskWorkspaceScope(orgId);
   const { access: requirementAccess, loading: requirementAccessLoading } =
     useRequirementAccess(orgId);
 
   const orgName = String(organization?.name || '').trim();
-  const canCreate = Boolean(canCreateTask);
+  const canCreate = Boolean(canCreateProjectCapability);
   const canCreateWithAi = canCreate && Boolean(requirementAccess?.canRunAiPlanning);
 
   /** Grid waits only on projects list; create actions resolve progressively. */
@@ -73,7 +74,7 @@ export default function ProjectsLandingPage() {
     });
 
   const projects = useMemo(
-    () => rawProjects.filter(isMyProject).filter(isProjectActiveForUi),
+    () => rawProjects.filter(isMyProject).filter(isProjectListableForUi),
     [rawProjects]
   );
 
@@ -144,10 +145,10 @@ export default function ProjectsLandingPage() {
       return;
     }
     if (!canCreate) {
-      toast.error(t('taskBoard.createBoardDenied'));
+      toast.error(t('taskBoard.createProjectDenied'));
       return;
     }
-    navigate(buildCollaborateProjectsNewPath(orgId, { from: 'hub' }));
+    navigate(buildCollaborateProjectsNewPath(orgId));
   }, [canCreate, navigate, orgId, t]);
 
   const handleCreateWithAi = useCallback(() => {
@@ -156,18 +157,35 @@ export default function ProjectsLandingPage() {
       return;
     }
     if (!canCreateWithAi) {
-      toast.error(t('taskBoard.createBoardDenied'));
+      toast.error(t('taskBoard.createProjectDenied'));
       return;
     }
-    navigate(buildCollaborateProjectsNewAiPath(orgId, { from: 'hub' }));
+    navigate(buildCollaborateProjectsNewPath(orgId, { analysisMode: 'ai' }));
   }, [canCreateWithAi, navigate, orgId, t]);
 
   const handleSelect = useCallback(
-    (project) => {
+    async (project) => {
       const projectId = String(project?._id || project?.projectId || '').trim();
       if (!projectId) return;
       const boardId = String(project?.defaultBoardId || project?.boards?.[0]?._id || '').trim();
-      navigate(buildCollaborateProjectHubPath(projectId, { organizationId: orgId, boardId }));
+      const phase = String(project?.deliveryPhase || '').trim().toLowerCase();
+      let pack = null;
+      if (!phase || phase === 'requirement_analysis') {
+        try {
+          pack = await loadLinkedPackForAiNav(orgId, projectId);
+        } catch {
+          pack = null;
+        }
+      }
+      navigate(
+        resolveAiProjectEntryPath({
+          projectId,
+          project,
+          pack,
+          boardId,
+          organizationId: orgId,
+        })
+      );
     },
     [navigate, orgId]
   );
@@ -191,7 +209,7 @@ export default function ProjectsLandingPage() {
   if (projectsError) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-sm text-muted-foreground">{t('taskBoard.loadBoardFail')}</p>
+        <p className="text-sm text-muted-foreground">{t('nav.projectsLoadFail')}</p>
         <button
           type="button"
           className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"

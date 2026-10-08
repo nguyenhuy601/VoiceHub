@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import AdminOrgUnitPicker from '../adminOrgStructure/AdminOrgUnitPicker';
 import { AdminUserPanelShell } from '../adminUsers/adminUserPanelUi';
+import { AdminHubTablist, AdminHubTabPanel, useAdminHubTabIds } from './AdminHubTablist';
 
 /**
  * Khung hub org unit: 1 picker + tabs thao tác (Dept / Team / Division / Branch).
@@ -46,6 +47,7 @@ export default function AdminOrgUnitOpsHubShell({
   children,
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const tabIdPrefix = useAdminHubTabIds();
 
   const activeTab = useMemo(() => {
     const raw = String(searchParams.get(tabParam) || '').trim();
@@ -84,31 +86,16 @@ export default function AdminOrgUnitOpsHubShell({
           />
         </div>
         <div className="min-h-0 min-w-0 space-y-4 overflow-y-auto">
-          <div className="flex shrink-0 flex-wrap gap-2" role="tablist" aria-label={title}>
-            {tabs.map((tab) => {
-              const active = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setTab(tab.id)}
-                  className={[
-                    'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-                    active
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-                  ].join(' ')}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-          <div role="tabpanel" className="min-h-0">
+          <AdminHubTablist
+            idPrefix={tabIdPrefix}
+            label={title}
+            tabs={tabs}
+            activeTab={activeTab}
+            onSelect={setTab}
+          />
+          <AdminHubTabPanel idPrefix={tabIdPrefix} tabs={tabs} activeTab={activeTab} className="min-h-0">
             {children({ activeTab, unitId })}
-          </div>
+          </AdminHubTabPanel>
         </div>
       </div>
     </AdminUserPanelShell>

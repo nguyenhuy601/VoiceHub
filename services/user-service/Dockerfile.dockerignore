@@ -1,0 +1,9 @@
+**/.env
+**/.env.*
+**/node_modules
+**/.git
+**/npm-debug.log
+services/user-service/uploads
+services/user-service/tests
+client
+docs

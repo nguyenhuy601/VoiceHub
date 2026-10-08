@@ -3,7 +3,10 @@ const { mongoose } = mongo;
 const Friend = require('../models/Friend');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
-const { friendWebhook } = require('../clients/webhook.client');
+const {
+  notifyFriendRequestSent,
+  notifyFriendRequestAccepted,
+} = require('../clients/notification.client');
 const { getRedisClient,
   logger } = require('@enterprise/shared');
 const axios = require('axios');
@@ -11,6 +14,7 @@ const {
   cancelGraceIfActive,
   findActiveGrace,
 } = require('./unfriendGrace.service');
+const { clampFriendListQuery } = require('../utils/friendWriteLimit');
 
 function toObjectId(id) {
   if (id == null) return null;
@@ -34,9 +38,17 @@ async function clearFriendsListCache(...userIds) {
   for (const rawId of userIds) {
     const id = String(rawId || '').trim();
     if (!id) continue;
-    await redis.del(`friends:${id}:accepted`);
-    await redis.del(`friends:${id}:blocked`);
-    await redis.del(`friends:${id}`);
+    const pattern = `friends:${id}*`;
+    try {
+      let cursor = '0';
+      do {
+        const [next, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        cursor = String(next);
+        if (keys?.length) await redis.del(...keys);
+      } while (cursor !== '0');
+    } catch (err) {
+      logger.warn('clearFriendsListCache:', err.message);
+    }
   }
 }
 
@@ -158,9 +170,13 @@ class FriendService {
       }
 
       try {
-        await friendWebhook.requestSent(actorStr, peerStr, senderName);
-      } catch (webhookErr) {
-        logger.warn('sendFriendRequest webhook:', webhookErr.message);
+        await notifyFriendRequestSent({
+          recipientId: peerStr,
+          requesterId: actorStr,
+          requesterName: senderName,
+        });
+      } catch (notifyErr) {
+        logger.warn('sendFriendRequest notification:', notifyErr.message);
       }
 
       const realtimePayload = {
@@ -256,13 +272,17 @@ class FriendService {
         await clearFriendsListCache(userId, friendId);
       }
 
-      // Gửi webhook
+      // Báo người đã gửi lời mời
       try {
         const userResponse = await fetchUserProfileByIdInternal(friendId);
         const friendName = userResponse.data?.data?.displayName || userResponse.data?.data?.username || 'Someone';
-        await friendWebhook.requestAccepted(userId, friendId, friendName);
+        await notifyFriendRequestAccepted({
+          recipientId: userId,
+          counterpartId: friendId,
+          counterpartName: friendName,
+        });
       } catch (error) {
-        logger.error('Error sending friend accepted webhook:', error);
+        logger.error('Error sending friend accepted notification:', error);
       }
 
       logger.info(`Friend request accepted: ${userId} <-> ${friendId}`);
@@ -436,9 +456,10 @@ class FriendService {
   async getFriends(userId, options = {}) {
     try {
       await ensureMongoReady();
-      const { status = 'accepted', page = 1, limit = 50 } = options;
+      const status = options.status || 'accepted';
+      const { page, limit } = clampFriendListQuery(options.page, options.limit);
 
-      const cacheKey = `friends:${userId}:${status}`;
+      const cacheKey = `friends:${userId}:${status}:${page}:${limit}`;
 
       // Kiểm tra cache
       const redis = getRedisClient();

@@ -5,6 +5,12 @@ import {
   AdminUserPanelShell,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import { useAppStrings } from '../../locales/appStrings';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -14,27 +20,32 @@ function unwrap(res) {
 }
 
 function CatalogToggleSection({ title, rows, enabledSet, onToggle, disabled }) {
+  const { t } = useAppStrings();
   return (
     <AdminUserFormCard title={title}>
-      <ul className="divide-y divide-border">
-        {(rows || []).map((row) => (
-          <li key={row.key} className="flex items-center justify-between gap-3 py-2 text-sm">
-            <span>
-              <span className="font-medium">{row.label || row.key}</span>
-              <span className="ml-2 text-xs text-muted-foreground">{row.key}</span>
-            </span>
-            <label className="inline-flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={enabledSet.has(row.key)}
-                disabled={disabled}
-                onChange={(e) => onToggle(row.key, e.target.checked)}
-              />
-              {enabledSet.has(row.key) ? 'Enabled' : 'Disabled'}
-            </label>
-          </li>
-        ))}
-      </ul>
+      {!rows?.length ? (
+        <AdminEmptyState message={t('adminOrg.emptyList')} />
+      ) : (
+        <ul className="divide-y divide-border">
+          {rows.map((row) => (
+            <li key={row.key} className="flex items-center justify-between gap-3 py-2 text-sm">
+              <span>
+                <span className="font-medium">{row.label || row.key}</span>
+                <span className="ml-2 text-xs text-muted-foreground">{row.key}</span>
+              </span>
+              <label className="inline-flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={enabledSet.has(row.key)}
+                  disabled={disabled}
+                  onChange={(e) => onToggle(row.key, e.target.checked)}
+                />
+                {enabledSet.has(row.key) ? t('adminOrg.active') : t('adminOrg.inactive')}
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
     </AdminUserFormCard>
   );
 }
@@ -45,17 +56,19 @@ export default function MasterDataEnablePanel({ orgId }) {
   const [saving, setSaving] = useState(false);
   const [catalog, setCatalog] = useState(null);
   const [draft, setDraft] = useState(null);
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(async () => {
     if (!orgId) return;
     setLoading(true);
+    setLoadError('');
     try {
       const res = await organizationAPI.getMasterData(orgId);
       const data = unwrap(res);
       setCatalog(data);
       setDraft(data?.masterData || null);
     } catch (error) {
-      toast.error(
+      setLoadError(
         resolveApiErrorMessage(error, {
           t,
           fallback: t('adminRbac.masterDataLoadFail'),
@@ -79,6 +92,11 @@ export default function MasterDataEnablePanel({ orgId }) {
       projectRoles: new Set(md.enabledProjectRoleKeys || []),
     };
   }, [draft]);
+
+  const dirty = useMemo(
+    () => Boolean(draft) && JSON.stringify(draft) !== JSON.stringify(catalog?.masterData || null),
+    [draft, catalog]
+  );
 
   const toggleKey = (field, key, checked) => {
     setDraft((prev) => {
@@ -121,11 +139,13 @@ export default function MasterDataEnablePanel({ orgId }) {
 
   return (
     <AdminUserPanelShell title={t('adminRbac.masterDataTitle')} hint={t('adminRbac.masterDataHint')} wide>
-      <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+      <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
         {t('adminRbac.masterDataNoCreateHint')}
       </p>
-      {loading ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      {loading && !catalog ? (
+        <AdminListSkeleton />
+      ) : loadError ? (
+        <AdminLoadErrorState message={loadError} onRetry={() => load()} />
       ) : (
         <>
           <CatalogToggleSection
@@ -156,8 +176,20 @@ export default function MasterDataEnablePanel({ orgId }) {
             disabled={saving}
             onToggle={(key, checked) => toggleKey('enabledProjectRoleKeys', key, checked)}
           />
-          <div className="flex justify-end">
-            <button type="button" className={adminPrimaryBtnClass()} disabled={saving} onClick={save}>
+          <div className="flex items-center justify-end gap-3">
+            {dirty ? (
+              <span className="rounded-full bg-warning-bg px-2.5 py-0.5 text-[11px] font-semibold text-warning" aria-live="polite">
+                {t('adminRbac.unsavedBadge')}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className={adminPrimaryBtnClass()}
+              disabled={saving || !dirty}
+              aria-busy={saving || undefined}
+              onClick={save}
+            >
+              <AdminBusySpinner busy={saving} />
               {t('adminRbac.masterDataSave')}
             </button>
           </div>

@@ -13,6 +13,7 @@ const {
   orgFail,
 } = require('../utils/orgApiError');
 const Organization = require('../models/Organization');
+const Department = require('../models/Department');
 const Branch = require('../models/Branch');
 const Division = require('../models/Division');
 const { resolveEffectiveScopesFromAssignments } = require('../services/memberScopePolicy.service');
@@ -27,22 +28,39 @@ const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const { emitRealtimeEvent } = require('../clients/realtime.client');
 const { coalesceJobTitle } = require('../utils/jobTitleProfile');
-const { resolveFrontendUrl, logger } = require('@enterprise/shared');
+const { logger } = require('@enterprise/shared');
+const { trustedFrontendUrl } = require('../utils/trustedFrontendUrl');
+const { resolveInviteLinkSecret } = require('../utils/inviteLinkSecret');
 const { ensureDefaultOrgRoles, syncUserOrgRole, stripUserOrgRoles } = require('../services/rolePermissionOrgSync');
 const { invalidateOrgReadCache, invalidateOrgAcl } = require('../services/orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 const { provisionUserByAdmin } = require('../clients/authProvision.client');
 const { searchUserByEmail } = require('../clients/userLookup.client');
 const { sendCompanyInviteEmail } = require('../clients/authInviteEmail.client');
+const { assertOrgInviteAllowed, assertPublicAcceptAllowed } = require('../utils/orgInviteLimit');
 const { fetchProfilesByUserIds } = require('../clients/userProfilesBatch.client');
 const { fetchAuthSummaryByUserIds } = require('../clients/authSummaryBatch.client');
 const { fetchRbacAssignmentsByOrg } = require('../clients/rbacAssignmentsBatch.client');
-const { projectMembersForView } = require('../services/projectAdminMemberView');
+const {
+  VIEW_ADMIN_TABLE,
+  VIEW_DIRECTORY,
+  normalizeView,
+  projectMembersForView,
+} = require('../services/projectAdminMemberView');
+const { hasElevatedOrgAccess } = require('../utils/orgElevatedAccess');
 const {
   assertEmailDomainAllowed,
   resolveAllowedEmailDomains,
 } = require('../utils/emailDomainPolicy');
 const CompanyInvite = require('../models/CompanyInvite');
+const { maskEmail } = require('../utils/orgErrorMap');
+const { toPlainId } = require('../utils/orgMemberIds');
+const {
+  resolveActorTier,
+  clampInviteRole,
+  evaluateRoleChange,
+  evaluateRemoval,
+} = require('../utils/memberRolePolicy');
 const { bulkUpdateUserProfileFields } = require('../clients/userProfileBulkImport.client');
 const {
   parseOptionalHireCapability,
@@ -59,8 +77,16 @@ const {
 } = require('../services/structurePlacement.service');
 // Không log JWT/link mời đầy đủ — production nên dùng HTTPS cho FRONTEND_URL.
 const ALLOWED_ROLES = ['owner', 'admin', 'hr', 'member'];
-const INVITE_LINK_SECRET = String(process.env.INVITE_LINK_SECRET || process.env.JWT_SECRET || '').trim();
+const INVITE_LINK_SECRET = resolveInviteLinkSecret();
 const INVITE_LINK_EXPIRES_IN = process.env.INVITE_LINK_EXPIRES_IN || '7d';
+/** Cùng tiêu chí với guard route POST /invite-link. */
+const INVITE_LINK_CREATOR_ROLES = ['owner', 'admin', 'hr'];
+const INVITE_LINK_CREATOR_GRANT = 'organization.employee.invite';
+
+function inviteLinkUnavailable(res) {
+  logger.error('[member] invite link secret missing or not separated from JWT_SECRET');
+  return orgFail(res, 500, null, 'ORG_INVITE_LINK_UNAVAILABLE');
+}
 const COMPANY_INVITE_TTL_MS = Math.max(
   3600000,
   Number(process.env.COMPANY_INVITE_TTL_MS || 7 * 24 * 60 * 60 * 1000) || 7 * 24 * 60 * 60 * 1000
@@ -85,9 +111,8 @@ function notificationServiceAxiosOpts() {
   return opts;
 }
 
-function canAdminManageTarget(targetRole) {
-  const normalizedTarget = Membership.normalizeRole(targetRole);
-  return normalizedTarget !== 'owner' && normalizedTarget !== 'admin';
+function countActiveOwners(orgId) {
+  return Membership.countDocuments({ organization: orgId, role: 'owner', status: 'active' });
 }
 
 async function getActiveOrgUserIds(orgId) {
@@ -356,12 +381,33 @@ async function listMembersForDepartmentRoster(orgId, lookupOrRaw) {
   }));
 }
 
+const ADMIN_TABLE_ROLES = ['owner', 'admin', 'hr'];
+const ADMIN_TABLE_GRANT = 'organization.employee.view';
+
+/**
+ * admin_table chỉ cho owner/admin/hr hoặc grant employee.view; còn lại hạ âm thầm về directory (RULE-11).
+ * directory cho caller không nâng cao → restrictContact (mask email, bỏ employeeCode/isActive).
+ */
+async function resolveMembersAccess(req, requestedView) {
+  const elevated = await hasElevatedOrgAccess({
+    userId: req.user?.id || req.user?.userId || req.user?._id,
+    orgId: req.params.orgId,
+    roles: ADMIN_TABLE_ROLES,
+    grantKey: ADMIN_TABLE_GRANT,
+  });
+  const view = requestedView === VIEW_ADMIN_TABLE && !elevated ? VIEW_DIRECTORY : requestedView;
+  return { view, restrictContact: view === VIEW_DIRECTORY && !elevated };
+}
+
 exports.getMembers = async (req, res, next) => {
   try {
     const members = await listMembersForOrg(req);
     // Additive: displayName/email/avatar — FE directory không còn fallback "Thành viên"/id.slice(-6).
     const enriched = await enrichMembersForAdminList(members);
-    return res.json({ status: 'success', data: enriched });
+    // Wave 1 (E): no-view → cùng allowlist admin_table (không trả enrich thô).
+    const { view, restrictContact } = await resolveMembersAccess(req, VIEW_ADMIN_TABLE);
+    const projected = projectMembersForView(enriched, view, { restrictContact });
+    return res.json({ status: 'success', data: projected });
   } catch (error) {
     const handled = orgOperationalError(res, error);
     if (handled) return handled;
@@ -421,25 +467,25 @@ async function enrichMembersForAdminList(members, { includeRbac = false, organiz
 
 /** Gom members + roles RBAC — một request cho sidebar (wave-2d).
  * Query `view`:
- * - (mặc định) — enrich hiện tại + capabilityStatus (additive), không project
- * - directory — allowlist DTO, không bulk UserRole
- * - admin_table — allowlist DTO + rbacRoles[] (1 S2S bulk)
+ * - (mặc định / thiếu) — project như admin_table (Wave 1 E)
+ * - directory — allowlist DTO, không bulk UserRole, omit auth flags
+ * - admin_table — allowlist DTO + rbacRoles[] (1 S2S bulk) + auth flags
  */
 exports.getMembersWithRoles = async (req, res, next) => {
   try {
     const userId = String(req.user?.id || req.user?.userId || req.user?._id || '');
-    const view = String(req.query?.view || '').trim().toLowerCase();
-    const includeRbac = view === 'admin_table';
-    const [members, roles] = await Promise.all([
-      listMembersForOrg(req),
+    const members = await listMembersForOrg(req);
+    const [{ view, restrictContact }, roles] = await Promise.all([
+      resolveMembersAccess(req, normalizeView(req.query?.view) || VIEW_ADMIN_TABLE),
       fetchOrgRolesList(req.params.orgId, userId),
     ]);
+    const includeRbac = view === VIEW_ADMIN_TABLE;
     const enriched = await enrichMembersForAdminList(members, {
       includeRbac,
       organizationId: req.params.orgId,
     });
     const withPlacement = await attachPlacementFromStructure(req.params.orgId, enriched);
-    const projected = projectMembersForView(withPlacement, view);
+    const projected = projectMembersForView(withPlacement, view, { restrictContact });
     return res.json({ status: 'success', data: { members: projected, roles } });
   } catch (error) {
     const handled = orgOperationalError(res, error);
@@ -485,6 +531,8 @@ exports.inviteMember = async (req, res, next) => {
       return orgValidation(res, 'departmentId (phòng ban) bắt buộc khi mời nhân sự.');
     }
 
+    await assertOrgInviteAllowed({ userId: inviterId, bucket: 'invite' });
+
     const department = await Department.findOne({
       _id: deptIdRaw,
       organization: orgId,
@@ -516,14 +564,8 @@ exports.inviteMember = async (req, res, next) => {
     })
       .select('role')
       .lean();
-    const inviterRole = Membership.normalizeRole(inviterMembership?.role);
-    let normalizedRole = Membership.normalizeRole(role || 'member');
-    if (inviterRole === 'hr') {
-      normalizedRole = 'member';
-    }
-    if (inviterRole === 'admin' && ['owner', 'admin'].includes(normalizedRole)) {
-      normalizedRole = 'member';
-    }
+    const inviterTier = resolveActorTier(Membership.normalizeRole(inviterMembership?.role));
+    const normalizedRole = clampInviteRole(inviterTier, Membership.normalizeRole(role || 'member'));
     if (!ALLOWED_ROLES.includes(normalizedRole)) {
       return orgValidation(res, 'Invalid role');
     }
@@ -554,12 +596,7 @@ exports.inviteMember = async (req, res, next) => {
     try {
       employeeCode = await allocateNextEmployeeCode(orgId);
     } catch (allocErr) {
-      return orgFail(
-        res,
-        allocErr.statusCode || 500,
-        allocErr.message || 'Không cấp được mã nhân viên',
-        allocErr.errorCode || 'EMPLOYEE_CODE_ALLOCATE_FAILED'
-      );
+      return orgCatch(res, allocErr, 500, 'Không cấp được mã nhân viên', 'EMPLOYEE_CODE_ALLOCATE_FAILED');
     }
 
     const rawToken = generateInviteToken();
@@ -580,7 +617,7 @@ exports.inviteMember = async (req, res, next) => {
       hireCapability: hireParsed.value,
     });
 
-    const frontendUrl = resolveFrontendUrl(req).replace(/\/+$/, '');
+    const frontendUrl = trustedFrontendUrl(req);
     const inviteUrl = `${frontendUrl}/accept-company-invite?token=${encodeURIComponent(rawToken)}`;
 
     const invitePayload = {
@@ -605,9 +642,9 @@ exports.inviteMember = async (req, res, next) => {
       });
     } catch (emailErr) {
       logger.warn('[inviteMember] invite email failed; returning inviteUrl for manual share', {
-        email: normalizedEmail,
-        message: emailErr?.message || emailErr,
+        email: maskEmail(normalizedEmail),
         errorCode: emailErr?.errorCode,
+        statusCode: emailErr?.statusCode,
       });
       return res.status(201).json({
         status: 'success',
@@ -615,10 +652,7 @@ exports.inviteMember = async (req, res, next) => {
           ...invitePayload,
           emailSent: false,
           inviteUrl,
-          emailError:
-            emailErr?.messageUser ||
-            emailErr?.message ||
-            'Không gửi được email (kiểm tra EMAIL_USER / Gmail App Password).',
+          emailError: 'Không gửi được email lời mời. Hãy gửi link thủ công.',
         },
         message:
           'Lời mời đã tạo nhưng chưa gửi được email. Hãy copy link bên dưới gửi tay cho nhân viên.',
@@ -645,10 +679,13 @@ exports.inviteMember = async (req, res, next) => {
  */
 exports.acceptCompanyInvite = async (req, res, next) => {
   try {
-    const rawToken = String(req.body?.token || req.query?.token || '').trim();
-    if (!rawToken) {
-      return orgValidation(res, 'token is required');
-    }
+    const bodyToken = req.body?.token;
+    const queryToken = req.query?.token;
+    const rawToken =
+      bodyToken !== undefined && bodyToken !== null && bodyToken !== ''
+        ? bodyToken
+        : queryToken;
+    await assertPublicAcceptAllowed({ ip: req.ip, rawToken });
 
     const tokenHash = hashInviteToken(rawToken);
     const invite = await CompanyInvite.findOne({ tokenHash }).lean();
@@ -690,13 +727,7 @@ exports.acceptCompanyInvite = async (req, res, next) => {
         readyForLogin: true,
       });
     } catch (provisionErr) {
-      const status = provisionErr.statusCode || 400;
-      return orgFail(
-        res,
-        status,
-        provisionErr.message || 'Provision failed',
-        provisionErr.errorCode || 'ORG_PROVISION_FAILED'
-      );
+      return orgCatch(res, provisionErr, 500, 'Không tạo được tài khoản', 'ORG_PROVISION_FAILED');
     }
 
     const resolvedUserId = String(provisionMeta.userId || '').trim();
@@ -704,15 +735,28 @@ exports.acceptCompanyInvite = async (req, res, next) => {
       return orgFail(res, 500, 'Không tạo được tài khoản', 'ORG_PROVISION_FAILED');
     }
 
-    const normalizedRole = Membership.normalizeRole(invite.role || 'member');
+    const existingMembership = await Membership.findOne({
+      user: resolvedUserId,
+      organization: invite.organization,
+    })
+      .select('role status')
+      .lean();
+    if (existingMembership?.status === 'suspended') {
+      return orgAccessDenied(res, 'Tài khoản của bạn đang bị tạm ngưng trong tổ chức này.', 'ORG_MEMBERSHIP_SUSPENDED');
+    }
+    const invitedRole = Membership.normalizeRole(invite.role || 'member');
+    const normalizedRole = existingMembership?.status === 'active'
+      ? Membership.normalizeRole(existingMembership.role)
+      : (invitedRole === 'owner' ? 'member' : invitedRole);
     const membership = await Membership.findOneAndUpdate(
       { user: resolvedUserId, organization: invite.organization },
       {
-        user: resolvedUserId,
-        organization: invite.organization,
-        role: normalizedRole,
-        status: 'active',
-        invitedBy: invite.invitedBy || null,
+        $set: {
+          role: normalizedRole,
+          status: 'active',
+          ...(existingMembership?.status === 'active' ? {} : { invitedBy: invite.invitedBy || null }),
+        },
+        $setOnInsert: { user: resolvedUserId, organization: invite.organization },
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
@@ -926,16 +970,18 @@ exports.respondToInvitation = async (req, res, next) => {
 exports.createInviteLink = async (req, res, next) => {
   try {
     if (!INVITE_LINK_SECRET) {
-      return res.status(500).json({ status: 'error', message: 'INVITE_LINK_SECRET is not configured' });
+      return inviteLinkUnavailable(res);
     }
 
     const orgId = req.params.orgId;
     const userId = req.user?.id || req.user?._id || req.user?.userId;
-    const branchIdRaw = req.body?.branchId || null;
-    const divisionIdRaw = req.body?.divisionId || null;
+    const branchIdRaw = toPlainId(req.body?.branchId);
+    const divisionIdRaw = toPlainId(req.body?.divisionId);
     if (!orgId || !userId) {
       return orgValidation(res, 'Invalid request');
     }
+
+    await assertOrgInviteAllowed({ userId, bucket: 'invite', denyWhenFailOpen: true });
 
     let branchContext = null;
     let divisionContext = null;
@@ -986,7 +1032,7 @@ exports.createInviteLink = async (req, res, next) => {
       { expiresIn: INVITE_LINK_EXPIRES_IN }
     );
 
-    const frontendUrl = resolveFrontendUrl(req);
+    const frontendUrl = trustedFrontendUrl(req);
     const inviteUrl = `${frontendUrl}/organizations?orgId=${encodeURIComponent(orgId)}&inviteToken=${encodeURIComponent(
       token
     )}`;
@@ -1014,7 +1060,7 @@ exports.createInviteLink = async (req, res, next) => {
 exports.joinViaLink = async (req, res, next) => {
   try {
     if (!INVITE_LINK_SECRET) {
-      return res.status(500).json({ status: 'error', message: 'INVITE_LINK_SECRET is not configured' });
+      return inviteLinkUnavailable(res);
     }
 
     const { token } = req.body || {};
@@ -1042,19 +1088,54 @@ exports.joinViaLink = async (req, res, next) => {
       return orgUnauthorized(res);
     }
 
+    await assertOrgInviteAllowed({ userId, bucket: 'join' });
+
     const org = await Organization.findById(req.params.orgId).lean();
     if (!org || !org.isActive) {
       return orgNotFound(res);
     }
 
+    const inviterStillAllowed = await hasElevatedOrgAccess({
+      userId: decoded.createdBy,
+      orgId: req.params.orgId,
+      roles: INVITE_LINK_CREATOR_ROLES,
+      grantKey: INVITE_LINK_CREATOR_GRANT,
+    });
+    if (!inviterStillAllowed) {
+      logger.warn('[member] join link rejected: creator lost invite permission', {
+        orgId: String(req.params.orgId),
+        errorCode: 'ORG_INVITE_LINK_REVOKED',
+      });
+      return orgFail(res, 403, 'Liên kết mời không còn hiệu lực.', 'ORG_INVITE_LINK_REVOKED');
+    }
+
     const inviteContext = decoded?.inviteContext || {};
+    const responseInviteContext = {
+      branchId: inviteContext?.branchId || null,
+      branchName: inviteContext?.branchName || '',
+      divisionId: inviteContext?.divisionId || null,
+      divisionName: inviteContext?.divisionName || '',
+    };
+    const existing = await Membership.findOne({ user: userId, organization: req.params.orgId })
+      .select('role status')
+      .lean();
+    if (existing?.status === 'suspended') {
+      return orgAccessDenied(res, 'Tài khoản của bạn đang bị tạm ngưng trong tổ chức này.', 'ORG_MEMBERSHIP_SUSPENDED');
+    }
+    if (existing?.status === 'active') {
+      return res.json({
+        status: 'success',
+        data: { membership: existing, inviteContext: responseInviteContext },
+        message: 'Joined organization via invite link',
+      });
+    }
+
+    // Join-link luôn cấp role member (đồng bộ respondToInvitation), kể cả khi có lời mời pending role cao hơn.
     const membership = await Membership.findOneAndUpdate(
       { user: userId, organization: req.params.orgId },
       {
-        user: userId,
-        organization: req.params.orgId,
-        role: 'member',
-        status: 'active',
+        $set: { status: 'active', role: 'member', joinedAt: new Date() },
+        $setOnInsert: { user: userId, organization: req.params.orgId },
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
@@ -1082,12 +1163,7 @@ exports.joinViaLink = async (req, res, next) => {
       status: 'success',
       data: {
         membership,
-        inviteContext: {
-          branchId: inviteContext?.branchId || null,
-          branchName: inviteContext?.branchName || '',
-          divisionId: inviteContext?.divisionId || null,
-          divisionName: inviteContext?.divisionName || '',
-        },
+        inviteContext: responseInviteContext,
       },
       message: 'Joined organization via invite link',
     });
@@ -1107,10 +1183,7 @@ exports.updateMemberRole = async (req, res, next) => {
     })
       .select('role')
       .lean();
-    const requesterRole = Membership.normalizeRole(requesterMembership?.role);
-    if (requesterRole === 'hr') {
-        return orgAccessDenied(res, 'HR không có quyền đổi vai trò thành viên');
-    }
+    const actorTier = resolveActorTier(Membership.normalizeRole(requesterMembership?.role));
     const normalizedRole = Membership.normalizeRole(role || 'member');
     if (!ALLOWED_ROLES.includes(normalizedRole)) {
       return orgValidation(res, 'Invalid role');
@@ -1126,19 +1199,23 @@ exports.updateMemberRole = async (req, res, next) => {
       return orgMemberNotFound(res);
     }
     const targetRole = Membership.normalizeRole(targetMembership.role);
-
-    // Owner giữ toàn quyền; admin chỉ được thao tác vai trò thấp hơn.
-    if (requesterRole === 'admin') {
-      if (!canAdminManageTarget(targetRole)) {
-        return orgAccessDenied(res, 'Admin không được đổi vai trò owner/admin');
-      }
-      if (['owner', 'admin'].includes(normalizedRole)) {
-        return orgAccessDenied(res, 'Admin không được gán vai trò owner/admin');
-      }
+    const activeOwnerCount = targetRole === 'owner'
+      ? await countActiveOwners(req.params.orgId)
+      : 0;
+    const decision = evaluateRoleChange({
+      actorTier,
+      actorUserId: requesterId,
+      targetUserId: req.params.userId,
+      targetRole,
+      nextRole: normalizedRole,
+      activeOwnerCount,
+    });
+    if (!decision.ok) {
+      return orgFail(res, decision.status, decision.message, decision.errorCode);
     }
 
     const membership = await Membership.findOneAndUpdate(
-      { user: req.params.userId, organization: req.params.orgId },
+      { user: req.params.userId, organization: req.params.orgId, status: 'active' },
       { role: normalizedRole },
       { new: true }
     );
@@ -1179,7 +1256,7 @@ exports.removeMember = async (req, res, next) => {
     })
       .select('role')
       .lean();
-    const requesterRole = Membership.normalizeRole(requesterMembership?.role);
+    const actorTier = resolveActorTier(Membership.normalizeRole(requesterMembership?.role));
 
     const targetMembership = await Membership.findOne({
       user: req.params.userId,
@@ -1192,10 +1269,18 @@ exports.removeMember = async (req, res, next) => {
       return orgMemberNotFound(res);
     }
     const targetRole = Membership.normalizeRole(targetMembership.role);
-
-    // Chỉ owner mới có thể quản lý owner/admin. Admin chỉ được xóa role thấp hơn.
-    if (requesterRole === 'admin' && !canAdminManageTarget(targetRole)) {
-      return orgAccessDenied(res, 'Admin không được xóa owner/admin');
+    const activeOwnerCount = targetRole === 'owner'
+      ? await countActiveOwners(req.params.orgId)
+      : 0;
+    const decision = evaluateRemoval({
+      actorTier,
+      actorUserId: requesterId,
+      targetUserId: req.params.userId,
+      targetRole,
+      activeOwnerCount,
+    });
+    if (!decision.ok) {
+      return orgFail(res, decision.status, decision.message, decision.errorCode);
     }
 
     await Membership.findOneAndDelete({

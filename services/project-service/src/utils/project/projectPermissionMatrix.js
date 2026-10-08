@@ -15,6 +15,7 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'task:create',
   'task:update',
   'task:change_status',
+  'task:drag_to_done',
   'task:delete',
   'task:assign',
   'task:comment',
@@ -70,6 +71,9 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'analysis:manage_trace',
   'analysis:cut_srs',
   'delivery_phase:change',
+  'uat:sign_off',
+  /** Phase 4 SoD — nghiệm thu / hoàn tất bàn giao (chỉ PO; tách khỏi uat:sign_off). */
+  'handover:accept',
   'planning:view',
   'planning:artifact_edit',
   'planning:submit_review',
@@ -95,20 +99,18 @@ const ANALYSIS_BA_PERMS = Object.freeze([
   'analysis:manage_trace',
 ]);
 
+/** PO: duyệt + sửa BG/SCOPE (artifact_edit) — không upload Raw/Analysis (BA chủ trì). */
 const ANALYSIS_PO_PERMS = Object.freeze([
   ...ANALYSIS_VIEW,
-  'analysis:document_upload',
-  'analysis:artifact_import',
   'analysis:artifact_edit',
   'analysis:po_review',
   'analysis:manage_trace',
   'analysis:cut_srs',
 ]);
 
+/** PM: cut SRS / đổi phase — không upload Raw/Analysis; không đứng cổng PO (DEC). */
 const ANALYSIS_PM_PERMS = Object.freeze([
   ...ANALYSIS_VIEW,
-  'analysis:document_upload',
-  'analysis:po_review',
   'analysis:manage_trace',
   'analysis:cut_srs',
   'delivery_phase:change',
@@ -122,19 +124,16 @@ const ANALYSIS_TECH_PERMS = Object.freeze([
 
 const PLANNING_VIEW = Object.freeze(['planning:view']);
 
-const PLANNING_BA_PERMS = Object.freeze([
-  ...PLANNING_VIEW,
-  'planning:artifact_edit',
-  'planning:submit_review',
-  'planning:ba_review',
-]);
+/** BA: xem plan / cung cấp input ngoài app — không chủ trì WBS, không cổng duyệt (DEC D9). */
+const PLANNING_BA_PERMS = Object.freeze([...PLANNING_VIEW]);
 
+/** Tech: chỉ cổng kỹ thuật — không sửa WBS. */
 const PLANNING_TECH_PERMS = Object.freeze([
   ...PLANNING_VIEW,
-  'planning:artifact_edit',
   'planning:tech_review',
 ]);
 
+/** PM: chủ trì WBS/schedule/resource + cổng PM + cut/publish. */
 const PLANNING_PM_PERMS = Object.freeze([
   ...PLANNING_VIEW,
   'planning:artifact_edit',
@@ -144,9 +143,9 @@ const PLANNING_PM_PERMS = Object.freeze([
   'planning:publish_wbs',
 ]);
 
+/** PO: accept plan (cổng PO) — không chủ trì sửa WBS. */
 const PLANNING_PO_PERMS = Object.freeze([
   ...PLANNING_VIEW,
-  'planning:artifact_edit',
   'planning:po_review',
   'planning:cut_baseline',
 ]);
@@ -187,6 +186,7 @@ const DEV_PERMS = Object.freeze([
 
 const LEAD_PERMS = Object.freeze([
   ...DEV_PERMS,
+  'task:drag_to_done',
   'task:delete',
   'repository:merge',
   'approval:decide',
@@ -208,6 +208,8 @@ const PO_PERMS = Object.freeze([
   'approval:request',
   'change_request:create',
   'change_request:update',
+  'uat:sign_off',
+  'handover:accept',
   ...ANALYSIS_PO_PERMS,
   ...PLANNING_PO_PERMS,
 ]);
@@ -240,18 +242,21 @@ const SM_PERMS = Object.freeze([
 const PM_PERMS = Object.freeze([
   ...VIEW_ONLY,
   'project:edit',
+  'task:drag_to_done',
   'delivery:manage',
   'release:create',
   'settings:view',
   'change_request:create',
   'change_request:update',
   'change_request:delete',
+  'uat:sign_off',
   ...ANALYSIS_PM_PERMS,
   ...PLANNING_PM_PERMS,
 ]);
 
 const QA_PERMS = Object.freeze([
   ...VIEW_ONLY,
+  'task:drag_to_done',
   'bug:create',
   'task:create',
   'task:update',
@@ -405,6 +410,20 @@ function unionPermissionsFromRoles(roles = []) {
   return [...set];
 }
 
+/**
+ * Chỉ matrix theo role key — bỏ qua permissions array lưu trên doc (tránh seed cũ
+ * còn analysis:document_upload / artifact_import cho PO/PM).
+ * @param {Array<{ key?: string }>} roles
+ * @returns {string[]}
+ */
+function matrixPermissionsFromRoleKeys(roles = []) {
+  const set = new Set();
+  for (const role of Array.isArray(roles) ? roles : []) {
+    for (const p of defaultPermissionsForRoleKey(role?.key)) set.add(p);
+  }
+  return [...set];
+}
+
 function hasPermission(permissionSet, permissionKey) {
   const key = String(permissionKey || '').trim().toLowerCase();
   if (!key) return false;
@@ -453,11 +472,9 @@ function permissionsToBoardCapabilities(perms = [], { isCreator = false, isOrgAd
     canMoveCards:
       hasPermission(set, 'task:change_status') ||
       hasPermission(set, 'task:update') ||
-      hasPermission(set, 'task:assign'),
-    canMoveToDone:
-      hasPermission(set, 'task:change_status') ||
-      hasPermission(set, 'task:update') ||
-      hasPermission(set, 'task:assign'),
+      hasPermission(set, 'task:assign') ||
+      hasPermission(set, 'task:drag_to_done'),
+    canMoveToDone: hasPermission(set, 'task:drag_to_done'),
     canChangeStatus:
       hasPermission(set, 'task:change_status') || hasPermission(set, 'task:update'),
     canUseAiConfirm: hasPermission(set, 'task:assign') || hasPermission(set, 'task:create'),
@@ -505,6 +522,7 @@ module.exports = {
   assertKnownPermissionList,
   defaultPermissionsForRoleKey,
   unionPermissionsFromRoles,
+  matrixPermissionsFromRoleKeys,
   hasPermission,
   permissionsToBoardCapabilities,
   applyInformationLevelToPermissions,

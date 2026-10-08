@@ -7,14 +7,23 @@ import {
   AdminUserFormCard,
   AdminUserPanelShell,
   adminPrimaryBtnClass,
+  adminInputClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
-import { memberDisplayName, memberEmail, memberUserId } from '../../utils/adminUserUtils';
+import { memberDisplayName, memberEmail, memberUserId, memberMatchesQuery } from '../../utils/adminUserUtils';
+import ConfirmDialog from '../../components/Shared/ConfirmDialog';
+import { diffMemberSets, hasMemberChanges } from './memberSetDiff';
 
 export default function TeamMembersPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
@@ -30,6 +39,12 @@ export default function TeamMembersPanel({ orgId, embedded = false }) {
   const [selectedId, setSelectedId] = useState(unitParam);
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [memberQuery, setMemberQuery] = useState('');
+  const visibleMembers = useMemo(
+    () => (memberQuery.trim() ? members.filter((m) => memberMatchesQuery(m, memberQuery)) : members),
+    [members, memberQuery]
+  );
 
   const selected = useMemo(
     () => teams.find((row) => unitId(row) === selectedId) || null,
@@ -50,12 +65,19 @@ export default function TeamMembersPanel({ orgId, embedded = false }) {
     );
   };
 
-  const save = async () => {
-    if (!orgId || !selectedId || saving) return;
+  const diff = useMemo(
+    () => diffMemberSets(selected?.memberIds || [], selectedMembers),
+    [selected, selectedMembers]
+  );
+  const dirty = hasMemberChanges(diff);
+
+  const persist = async () => {
+    if (!orgId || !selectedId) return;
     setSaving(true);
     try {
       await organizationAPI.updateTeamByHierarchy(orgId, selectedId, {
-        members: selectedMembers,
+        membersAdd: diff.added,
+        membersRemove: diff.removed,
       });
       toast.success(t('adminOrg.saved'));
       await Promise.allSettled([loadStructure(), loadMembers()]);
@@ -66,36 +88,45 @@ export default function TeamMembersPanel({ orgId, embedded = false }) {
     }
   };
 
+  const save = () => {
+    if (saving || !dirty) return;
+    if (diff.removed.length) {
+      setConfirmOpen(true);
+      return;
+    }
+    persist();
+  };
+
   const body = (
     <AdminUserFormCard title={t('adminDomains.orgStructure.teamMembers')}>
       {structureError || membersError ? (
-        <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {structureError ||
-              resolveApiErrorMessage(membersError, { t, fallback: t('adminOrg.loadFail') })}
-          </p>
-          <button
-            type="button"
-            className={adminPrimaryBtnClass()}
-            onClick={() => Promise.allSettled([loadStructure(), loadMembers()])}
-          >
-            {t('adminRbac.retry')}
-          </button>
-        </div>
+        <AdminLoadErrorState
+          message={structureError || resolveApiErrorMessage(membersError, { t, fallback: t('adminOrg.loadFail') })}
+          onRetry={() => Promise.allSettled([loadStructure(), loadMembers()])}
+        />
       ) : !selected ? (
         <p className="text-sm text-muted-foreground">{t('adminOrg.selectUnitFirst')}</p>
       ) : membersLoading ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        <AdminListSkeleton rows={3} />
       ) : (
         <div className="space-y-4">
-          <div className="max-h-[420px] overflow-auto rounded-xl border border-border/70">
-            <ul className="divide-y divide-border/50">
-              {members.map((m) => {
+          <input
+            type="search"
+            value={memberQuery}
+            onChange={(e) => setMemberQuery(e.target.value)}
+            placeholder={t('adminOrg.memberSearchLabel')}
+            aria-label={t('adminOrg.memberSearchLabel')}
+            maxLength={120}
+            className={adminInputClass()}
+          />
+          <div className="max-h-[420px] overflow-auto rounded-xl border border-border">
+            <ul className="divide-y divide-border" aria-label={t('adminOrg.memberSearchLabel')}>
+              {visibleMembers.map((m) => {
                 const id = memberUserId(m);
                 const checked = selectedMembers.includes(id);
                 return (
                   <li key={id}>
-                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/30">
+                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted">
                       <input
                         type="checkbox"
                         className="rounded border-border"
@@ -115,12 +146,40 @@ export default function TeamMembersPanel({ orgId, embedded = false }) {
                 );
               })}
             </ul>
+            {!visibleMembers.length ? <AdminEmptyState message={t('adminUsers.noUsers')} /> : null}
           </div>
-          <button type="button" disabled={saving} className={adminPrimaryBtnClass()} onClick={save}>
-            {saving ? t('common.saving') : t('common.save')}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={saving || !dirty}
+              aria-busy={saving || undefined}
+              className={adminPrimaryBtnClass()}
+              onClick={save}
+            >
+              <AdminBusySpinner busy={saving} />
+              {saving ? t('common.saving') : t('common.save')}
+            </button>
+            {dirty ? (
+              <span className="text-xs text-muted-foreground" aria-live="polite">
+                {t('adminOrg.memberChangesSummary', {
+                  added: diff.added.length,
+                  removed: diff.removed.length,
+                })}
+              </span>
+            ) : null}
+          </div>
         </div>
       )}
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={persist}
+        variant="danger"
+        title={t('adminOrg.memberRemoveConfirmTitle')}
+        message={t('adminOrg.memberRemoveConfirmMessage', { n: diff.removed.length })}
+        confirmText={t('adminOrg.memberRemoveConfirmAction')}
+        cancelText={t('common.cancel')}
+      />
     </AdminUserFormCard>
   );
 

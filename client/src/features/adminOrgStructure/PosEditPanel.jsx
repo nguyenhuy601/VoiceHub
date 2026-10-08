@@ -9,6 +9,10 @@ import {
   adminLabelClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminListSkeleton,
+} from '../../components/adminUsers/adminPanelStates';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
@@ -71,7 +75,7 @@ export default function PosEditPanel({ orgId, embedded = false }) {
     <AdminUserFormCard>
       {membersError ? (
         <div className="space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p role="alert" className="rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
             {resolveApiErrorMessage(membersError, { t, fallback: t('companyAdmin.loadMembersFail') })}
           </p>
           <button type="button" className={adminPrimaryBtnClass()} disabled={saving} onClick={() => loadMembers()}>
@@ -79,7 +83,7 @@ export default function PosEditPanel({ orgId, embedded = false }) {
           </button>
         </div>
       ) : loading ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        <AdminListSkeleton rows={3} />
       ) : (
         <form className="mx-auto max-w-lg space-y-4" onSubmit={save}>
           <label className="block">
@@ -101,6 +105,7 @@ export default function PosEditPanel({ orgId, embedded = false }) {
           <label className="block">
             <span className={adminLabelClass()}>{t('adminOrg.posNewTitle')}</span>
             <input
+              maxLength={120}
               required
               className={adminInputClass()}
               value={newTitle}
@@ -108,7 +113,13 @@ export default function PosEditPanel({ orgId, embedded = false }) {
               placeholder={t('adminOrg.posNewTitle')}
             />
           </label>
-          <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
+          <button
+            type="submit"
+            disabled={saving}
+            aria-busy={saving || undefined}
+            className={adminPrimaryBtnClass()}
+          >
+            <AdminBusySpinner busy={saving} />
             {saving ? t('common.saving') : t('common.save')}
           </button>
         </form>

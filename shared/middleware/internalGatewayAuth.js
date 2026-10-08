@@ -4,6 +4,7 @@
  * Không thay JWT user — route `/internal/*` là ngoại lệ bootstrap (seed, org provision).
  */
 const { sendApiError } = require('./httpErrorResponse');
+const { compareGatewayToken } = require('./compareGatewayToken');
 
 function internalGatewayAuth(req, res, next) {
   const expected = String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim();
@@ -17,7 +18,7 @@ function internalGatewayAuth(req, res, next) {
   const got = String(
     req.headers['x-gateway-internal-token'] || req.headers['x-internal-token'] || ''
   ).trim();
-  if (got !== expected) {
+  if (!compareGatewayToken(got, expected)) {
     return sendApiError(res, 401, {
       errorCode: 'GATEWAY_TRUST_INVALID',
       message: 'Unauthorized',

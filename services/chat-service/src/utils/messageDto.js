@@ -1,4 +1,5 @@
-const { unwrapPlaintext } = require('@enterprise/shared');
+const { unwrapPlaintext } = require('@enterprise/shared/utils/migration');
+const { toPublicPoll } = require('./pollPolicy');
 
 function slimFileMeta(fileMeta) {
   if (!fileMeta || typeof fileMeta !== 'object') return undefined;
@@ -12,12 +13,29 @@ function slimFileMeta(fileMeta) {
 }
 
 const CLIENT_MESSAGE_FULL_FIELDS = [
-  '_id', 'senderId', 'senderDisplayName', 'content', 'originalContent', 'messageType',
+  '_id', 'senderId', 'senderDisplayName', 'content', 'messageType',
   'roomId', 'organizationId', 'receiverId', 'conversationId', 'createdAt', 'updatedAt',
   'isRead', 'readAt', 'replyToMessageId', 'isDeleted', 'isRecalled', 'editedAt',
   'reactions', 'fileMeta', 'signedReadUrl', 'mentions', 'embeds', 'links', 'visibility', 'refs',
-  'activityEventId',
+  'activityEventId', 'poll',
 ];
+
+const WITHHELD_WHEN_REMOVED = ['fileMeta', 'signedReadUrl', 'refs', 'originalContent'];
+
+/**
+ * Tin đã thu hồi/xóa không trả nội dung người dùng. Ngoại lệ: tin `system` bị GC đánh dấu xóa
+ * (placeholder "[Tệp đã hết hạn]" do server sinh) vẫn giữ content để UI hiển thị.
+ */
+function isContentWithheld(o) {
+  if (o.isRecalled) return true;
+  return Boolean(o.isDeleted) && o.messageType !== 'system';
+}
+
+function withholdRemovedContent(message) {
+  message.content = '';
+  for (const key of WITHHELD_WHEN_REMOVED) delete message[key];
+  return message;
+}
 
 function pickClientFullMessage(o, senderId) {
   const picked = { senderId };
@@ -30,6 +48,14 @@ function pickClientFullMessage(o, senderId) {
   return picked;
 }
 
+function applyPublicPoll(message, source, viewerId) {
+  if (source?.messageType !== 'poll' || !source.poll) return message;
+  const pub = toPublicPoll(source.poll, viewerId);
+  if (pub) message.poll = pub;
+  else delete message.poll;
+  return message;
+}
+
 /**
  * @param {object} doc - mongoose doc or plain
  * @param {{ fields?: 'summary'|'full' }} opts
@@ -39,11 +65,13 @@ function toClientMessage(doc, opts = {}) {
   const fields = opts.fields === 'full' ? 'full' : 'summary';
   const o = doc.toObject ? doc.toObject() : { ...doc };
   o.content = unwrapPlaintext(o.content);
-  if (o.originalContent) o.originalContent = unwrapPlaintext(o.originalContent);
+  const withheld = isContentWithheld(o);
 
   const senderId = String(o.senderId?._id || o.senderId || '');
+  const viewerId = opts.viewerId || '';
   if (fields === 'full') {
-    return pickClientFullMessage(o, senderId);
+    const full = applyPublicPoll(pickClientFullMessage(o, senderId), o, viewerId);
+    return withheld ? withholdRemovedContent(full) : full;
   }
 
   const summary = {
@@ -92,7 +120,8 @@ function toClientMessage(doc, opts = {}) {
   const fm = slimFileMeta(o.fileMeta);
   if (fm) summary.fileMeta = fm;
   if (o.signedReadUrl) summary.signedReadUrl = o.signedReadUrl;
-  return summary;
+  applyPublicPoll(summary, o, viewerId);
+  return withheld ? withholdRemovedContent(summary) : summary;
 }
 
 module.exports = { toClientMessage, slimFileMeta };

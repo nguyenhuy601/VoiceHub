@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://voicehub.local/schemas/release-manifest.schema.json",
+  "title": "VoiceHub Release Manifest",
+  "type": "object",
+  "required": ["releaseId", "commit", "createdAt", "registry", "owner", "services"],
+  "additionalProperties": false,
+  "properties": {
+    "releaseId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^R[0-9]{8}-[0-9]+$"
+    },
+    "commit": {
+      "type": "string",
+      "minLength": 7,
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "registry": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "services": {
+      "type": "object",
+      "minProperties": 17,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["repository", "tag", "digest"],
+        "additionalProperties": false,
+        "properties": {
+          "repository": { "type": "string", "minLength": 1 },
+          "tag": { "type": "string", "minLength": 1 },
+          "digest": {
+            "type": "string",
+            "pattern": ".+@sha256:[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  }
+}

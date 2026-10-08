@@ -3,11 +3,33 @@ const documentService = require('../services/document.service');
 const Document = require('../models/Document');
 const { logger } = require('@enterprise/shared');
 const { assertOrganizationMember } = require('../utils/verifyOrgAccess');
+const { buildDocumentListFilter, isValidObjectId } = require('../utils/documentListFilter');
+const {
+  assertDocumentWriteAllowed,
+  clampDocumentListQuery,
+  DOCUMENT_RATE_LIMITED,
+} = require('../utils/documentWriteLimit');
 
 function safeMessage(error, fallback) {
   const status = Number(error?.statusCode) || 500;
   if (status >= 500) return 'Dịch vụ tài liệu đang bận. Vui lòng thử lại sau.';
   return String(error?.message || fallback);
+}
+
+function sendWriteError(res, error, fallbackMessage, userId) {
+  if (error?.statusCode === 429 || error?.errorCode === DOCUMENT_RATE_LIMITED) {
+    logger.warn(fallbackMessage, { userId: userId == null ? undefined : String(userId) });
+    return res.status(429).json({
+      success: false,
+      message: error.message,
+      errorCode: DOCUMENT_RATE_LIMITED,
+    });
+  }
+  logger.error(fallbackMessage, error);
+  return res.status(400).json({
+    success: false,
+    message: safeMessage(error, fallbackMessage),
+  });
 }
 
 class DocumentController {
@@ -19,6 +41,8 @@ class DocumentController {
         description,
         organizationId,
         serverId,
+        projectId,
+        departmentId,
         fileUrl,
         fileSize,
         mimeType,
@@ -34,6 +58,8 @@ class DocumentController {
         });
       }
 
+      await assertDocumentWriteAllowed({ userId: uploadedBy, bucket: 'write' });
+
       if (organizationId) {
         try {
           await assertOrganizationMember(uploadedBy, organizationId);
@@ -46,12 +72,21 @@ class DocumentController {
         }
       }
 
+      if (projectId && !isValidObjectId(projectId)) {
+        return res.status(400).json({ success: false, message: 'Invalid projectId' });
+      }
+      if (departmentId && !isValidObjectId(departmentId)) {
+        return res.status(400).json({ success: false, message: 'Invalid departmentId' });
+      }
+
       const document = await documentService.createDocument({
         name,
         description,
         uploadedBy,
         organizationId,
         serverId,
+        projectId,
+        departmentId,
         fileUrl,
         fileSize,
         mimeType,
@@ -64,11 +99,7 @@ class DocumentController {
         data: document,
       });
     } catch (error) {
-      logger.error('Create document error:', error);
-      res.status(400).json({
-        success: false,
-        message: safeMessage(error, 'Không thể tạo tài liệu'),
-      });
+      return sendWriteError(res, error, 'Không thể tạo tài liệu', req.user?.id || req.userContext?.userId);
     }
   }
 
@@ -126,9 +157,14 @@ class DocumentController {
         });
       }
 
-      const { organizationId, serverId, uploadedBy, tags, isPublic, page, limit } = req.query;
-
-      const filter = { isActive: true };
+      const { organizationId, page, limit } = req.query;
+      const { filter, error: filterError } = buildDocumentListFilter(req.query, userId);
+      if (filterError) {
+        return res.status(filterError.statusCode).json({
+          success: false,
+          message: filterError.message,
+        });
+      }
 
       if (organizationId) {
         try {
@@ -140,29 +176,10 @@ class DocumentController {
             message: status === 403 ? 'Forbidden' : accessErr.message,
           });
         }
-        filter.organizationId = organizationId;
-      }
-      if (serverId) filter.serverId = serverId;
-      if (uploadedBy) {
-        if (String(uploadedBy) !== String(userId)) {
-          return res.status(403).json({
-            success: false,
-            message: 'Forbidden',
-          });
-        }
-        filter.uploadedBy = uploadedBy;
-      }
-      if (tags) filter.tags = { $in: tags.split(',') };
-      if (isPublic !== undefined) filter.isPublic = isPublic === 'true';
-
-      if (!organizationId && !serverId && !uploadedBy) {
-        filter.uploadedBy = userId;
       }
 
-      const result = await documentService.getDocuments(filter, {
-        page: parseInt(page) || 1,
-        limit: parseInt(limit) || 50,
-      });
+      const listQuery = clampDocumentListQuery({ page, limit });
+      const result = await documentService.getDocuments(filter, listQuery);
 
       res.json({
         success: true,
@@ -190,6 +207,7 @@ class DocumentController {
         });
       }
 
+      await assertDocumentWriteAllowed({ userId, bucket: 'write' });
       const document = await documentService.updateDocument(documentId, req.body, userId);
 
       res.json({
@@ -197,11 +215,7 @@ class DocumentController {
         data: document,
       });
     } catch (error) {
-      logger.error('Update document error:', error);
-      res.status(400).json({
-        success: false,
-        message: safeMessage(error, 'Không thể cập nhật tài liệu'),
-      });
+      return sendWriteError(res, error, 'Không thể cập nhật tài liệu', req.user?.id || req.userContext?.userId);
     }
   }
 
@@ -219,6 +233,7 @@ class DocumentController {
         });
       }
 
+      await assertDocumentWriteAllowed({ userId, bucket: 'write' });
       const document = await documentService.uploadNewVersion(
         documentId,
         fileUrl,
@@ -232,11 +247,7 @@ class DocumentController {
         data: document,
       });
     } catch (error) {
-      logger.error('Upload new version error:', error);
-      res.status(400).json({
-        success: false,
-        message: safeMessage(error, 'Không thể xóa tài liệu'),
-      });
+      return sendWriteError(res, error, 'Không thể xóa tài liệu', req.user?.id || req.userContext?.userId);
     }
   }
 
@@ -253,6 +264,7 @@ class DocumentController {
         });
       }
 
+      await assertDocumentWriteAllowed({ userId, bucket: 'write' });
       const document = await documentService.deleteDocument(documentId, userId);
 
       res.json({
@@ -261,11 +273,7 @@ class DocumentController {
         data: document,
       });
     } catch (error) {
-      logger.error('Delete document error:', error);
-      res.status(400).json({
-        success: false,
-        message: safeMessage(error, 'Không thể tải quyền truy cập tài liệu'),
-      });
+      return sendWriteError(res, error, 'Không thể tải quyền truy cập tài liệu', req.user?.id || req.userContext?.userId);
     }
   }
 

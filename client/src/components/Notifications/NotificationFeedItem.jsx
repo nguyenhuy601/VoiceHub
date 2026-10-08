@@ -26,10 +26,6 @@ export default function NotificationFeedItem({
   const { t } = useAppStrings();
   const meta = resolveNotificationVisual(notif);
   const Icon = meta.Icon;
-  const isAi =
-    String(notif?.rawType || '').includes('ai') ||
-    String(notif?.title || '').includes('VoiceHubAI') ||
-    String(notif?.data?.kind || '') === 'ai_proposal_pending';
   const showFriendActions = !bulkMode && actionKind === 'friend_request';
   const showVoiceAction =
     !bulkMode &&
@@ -98,11 +94,6 @@ export default function NotificationFeedItem({
             }`}
           >
             {notif.title}
-            {isAi ? (
-              <span className="ml-1.5 inline-flex align-middle rounded bg-ai/15 px-1 py-px text-[0.625rem] font-bold tracking-wide text-ai">
-                AI
-              </span>
-            ) : null}
           </span>
           <time className="shrink-0 text-[0.6875rem] tabular-nums text-muted-foreground">
             {notif.time}
@@ -164,7 +155,7 @@ export default function NotificationFeedItem({
           e.stopPropagation();
           onDelete?.(notif);
         }}
-        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border-none bg-transparent text-muted-foreground opacity-100 transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border-none bg-transparent text-muted-foreground opacity-100 transition-colors motion-reduce:transition-none hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
         aria-label={labels.delete || t('common.delete')}
       >
         <Trash2 className="h-3.5 w-3.5" aria-hidden />

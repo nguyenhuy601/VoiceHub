@@ -8,7 +8,8 @@ const { MASTER_POSITIONS, resolveCanonicalPositionKey } = require('@enterprise/s
 /** Project role key → preferred master Position keys (gợi ý staffing). */
 const PROJECT_ROLE_PREFERRED_POSITIONS = Object.freeze({
   project_manager: ['product_manager', 'engineering_manager', 'team_lead'],
-  product_owner: ['product_manager', 'business_analyst'],
+  // PO ≠ BA — không ưu tiên business_analyst (tránh cột Product Owner đầy BA).
+  product_owner: ['product_manager'],
   scrum_master: ['scrum_master', 'team_lead'],
   solution_architect: ['technical_lead', 'engineering_manager'],
   technical_lead: ['technical_lead', 'engineering_manager', 'software_developer'],

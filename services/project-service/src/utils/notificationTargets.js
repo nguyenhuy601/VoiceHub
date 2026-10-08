@@ -26,16 +26,39 @@ function planningWorkLabel(type) {
   return 'Work';
 }
 
-function projectHubActionUrl({ projectId, boardId, organizationId } = {}) {
+function projectHubActionUrl({ projectId, boardId, organizationId, module, pathSuffix } = {}) {
   const pid = String(projectId || '').trim();
-  if (!pid) return '/app/collaborate/projects';
+  if (!pid) return '/app/projects';
+  // Prefer pathSuffix when it already includes query (e.g. artifact deep-link).
+  const suffix = String(pathSuffix || '').trim().replace(/^\/+/, '');
+  const mod = String(module || '').trim().replace(/^\/+/, '');
+  let base;
+  if (suffix) {
+    base = `/app/projects/${encodeURIComponent(pid)}/${suffix}`;
+  } else if (mod) {
+    base = `/app/projects/${encodeURIComponent(pid)}/${mod}`;
+  } else {
+    base = `/app/collaborate/projects/${encodeURIComponent(pid)}`;
+  }
+  // If pathSuffix already has ?, do not append organizationId again blindly.
+  if (base.includes('?')) {
+    const org = String(organizationId || '').trim();
+    const bid = String(boardId || '').trim();
+    if (org && !/[?&]organizationId=/.test(base)) {
+      base += `&organizationId=${encodeURIComponent(org)}`;
+    }
+    if (bid && !/[?&]boardId=/.test(base)) {
+      base += `&boardId=${encodeURIComponent(bid)}`;
+    }
+    return base;
+  }
   const params = new URLSearchParams();
   const org = String(organizationId || '').trim();
   const bid = String(boardId || '').trim();
   if (org) params.set('organizationId', org);
   if (bid) params.set('boardId', bid);
   const qs = params.toString();
-  return `/app/collaborate/projects/${encodeURIComponent(pid)}${qs ? `?${qs}` : ''}`;
+  return `${base}${qs ? `?${qs}` : ''}`;
 }
 
 module.exports = {

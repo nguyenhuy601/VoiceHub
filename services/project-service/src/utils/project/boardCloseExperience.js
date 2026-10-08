@@ -48,8 +48,26 @@ function buildFactLine({ boardTitle, roleLabel, done, total, dueLabel }) {
 }
 
 /**
+ * Months between two real dates (UTC calendar months, inclusive-ish).
+ * Omit when either date missing/invalid — never invent.
+ */
+function monthsBetweenDates(startRaw, endRaw) {
+  if (startRaw == null || endRaw == null || startRaw === '' || endRaw === '') return undefined;
+  const start = startRaw instanceof Date ? startRaw : new Date(startRaw);
+  const end = endRaw instanceof Date ? endRaw : new Date(endRaw);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return undefined;
+  if (end.getTime() < start.getTime()) return undefined;
+  const months =
+    (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+    (end.getUTCMonth() - start.getUTCMonth()) +
+    1;
+  if (!Number.isFinite(months) || months < 1) return undefined;
+  return Math.min(600, Math.floor(months));
+}
+
+/**
  * @param {{ board: object, memberships: object[], roles: object[], tasks: object[] }} input
- * @returns {Array<{ userId: string, name: string, role: string, work: string, year?: number, source: string, status: string, evidenceBoardId: string, isProjectManager: boolean }>}
+ * @returns {Array<{ userId: string, name: string, role: string, work: string, year?: number, months?: number, source: string, status: string, evidenceBoardId: string, isProjectManager: boolean }>}
  */
 function buildClosedBoardExperiences({ board, memberships, roles, tasks } = {}) {
   const boardId = sid(board?._id || board?.id);
@@ -58,6 +76,9 @@ function buildClosedBoardExperiences({ board, memberships, roles, tasks } = {}) 
   const yearRaw = board?.dueDate || board?.updatedAt || board?.createdAt;
   const yearDate = yearRaw ? new Date(yearRaw) : new Date();
   const year = Number.isFinite(yearDate.getTime()) ? yearDate.getFullYear() : undefined;
+  const startRaw = board?.startDate || board?.createdAt || null;
+  const endRaw = board?.dueDate || board?.endDate || board?.closedAt || null;
+  const months = monthsBetweenDates(startRaw, endRaw);
 
   const roleById = new Map();
   for (const r of roles || []) {
@@ -126,6 +147,7 @@ function buildClosedBoardExperiences({ board, memberships, roles, tasks } = {}) 
       isProjectManager: [...keys].includes('project_manager'),
     };
     if (year >= 1970 && year <= 2100) item.year = year;
+    if (months != null) item.months = months;
     out.push(item);
   }
 
@@ -136,6 +158,7 @@ module.exports = {
   buildClosedBoardExperiences,
   buildFactLine,
   formatDueDate,
+  monthsBetweenDates,
   isTaskDone,
   assignedUserIds,
 };

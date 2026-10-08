@@ -8,6 +8,7 @@ const { createTtlCoalesceCache } = require('../utils/ttlCoalesceCache');
 const {
   isProjectRbacV2Enabled,
   unionPermissionsFromRoles,
+  matrixPermissionsFromRoleKeys,
   applyInformationLevelToPermissions,
   permissionsToBoardCapabilities,
   hasPermission,
@@ -74,18 +75,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
       informationLevel: 'details',
       rbacV2: false,
       project,
-    };
-  }
-
-  if (isOrgAdmin || isCreator) {
-    return {
-      permissions: [...PROJECT_PERMISSION_KEYS],
-      capabilities: permissionsToBoardCapabilities([], { isCreator: true, isOrgAdmin: true }),
-      isOrgAdmin,
-      isCreator,
-      informationLevel: 'confidential',
-      rbacV2: true,
-      project,
+      roles: [],
     };
   }
 
@@ -100,6 +90,23 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
   const roles = roleIds.length
     ? await ProjectRole.find({ _id: { $in: roleIds } }).select('key permissions canAssign').lean()
     : [];
+
+  // API enforcement vẫn bypass creator/org-admin. Capabilities trả cho UI chỉ theo role key
+  // (PO / PM / BA / Tech…) để không hiện nút của vai khác.
+  const roleUiCapabilities = permissionsToBoardCapabilities(matrixPermissionsFromRoleKeys(roles));
+
+  if (isOrgAdmin || isCreator) {
+    return {
+      permissions: [...PROJECT_PERMISSION_KEYS],
+      capabilities: roleUiCapabilities,
+      isOrgAdmin,
+      isCreator,
+      informationLevel: 'confidential',
+      rbacV2: true,
+      project,
+      roles,
+    };
+  }
 
   // Align with getProject: membership row ⇒ member even if role docs failed to resolve.
   let perms = unionPermissionsFromRoles(roles);
@@ -140,7 +147,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
 
   return {
     permissions: normalizePermissionList(perms),
-    capabilities: permissionsToBoardCapabilities(perms, { isCreator, isOrgAdmin }),
+    capabilities: permissionsToBoardCapabilities(matrixPermissionsFromRoleKeys(roles)),
     isOrgAdmin,
     isCreator,
     informationLevel,
@@ -164,6 +171,23 @@ async function assertUserProjectPermission({ userId, projectId, boardId, permiss
   const resolved = await resolveUserProjectPermissions({ userId, projectId, boardId });
   if (resolved.isOrgAdmin || resolved.isCreator) return resolved;
   assertPermission(resolved.permissions, permission, message);
+  return resolved;
+}
+
+/**
+ * BA-only ops (Raw/Analysis import): matrix theo role key hiện tại —
+ * bỏ qua permissions array seed cũ trên ProjectRole doc; không creator/org-admin bypass.
+ */
+async function assertUserProjectRoleMatrixPermission({
+  userId,
+  projectId,
+  boardId,
+  permission,
+  message,
+}) {
+  const resolved = await resolveUserProjectPermissions({ userId, projectId, boardId });
+  const rolePerms = matrixPermissionsFromRoleKeys(resolved.roles || []);
+  assertPermission(rolePerms, permission, message || `Thiếu quyền ${permission}`);
   return resolved;
 }
 
@@ -210,6 +234,7 @@ function invalidateResolveCacheForProject(projectId) {
 module.exports = {
   resolveUserProjectPermissions,
   assertUserProjectPermission,
+  assertUserProjectRoleMatrixPermission,
   assertUserAnyProjectPermission,
   hasPermission,
   invalidateResolveCacheForProject,

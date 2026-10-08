@@ -1,17 +1,20 @@
 const deliveryPlanningService = require('../services/deliveryPlanning.service');
+const { sendErrorFromCatch, sendServiceError } = require('../middleware/sendServiceError');
 
 function getUserId(req) {
-  return req.user?.id || req.headers['x-user-id'];
+  return req.user?.id || req.userContext?.userId || '';
 }
 
-function handleError(res, err) {
-  const status = err.statusCode || 500;
-  return res.status(status).json({
-    success: false,
-    message: err.message || 'Lỗi delivery planning',
-    errorCode: err.errorCode || undefined,
-    details: err.details || undefined,
-  });
+function sendDeliveryPlanningError(res, err) {
+  const status = Number(err?.statusCode) || 500;
+  if (status < 500 && err?.details) {
+    return sendServiceError(res, status, {
+      errorCode: err.errorCode,
+      message: err.message,
+      extra: { details: err.details },
+    });
+  }
+  return sendErrorFromCatch(res, err, status, 'Không thể xử lý delivery planning');
 }
 
 async function listArtifacts(req, res) {
@@ -24,7 +27,7 @@ async function listArtifacts(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -37,7 +40,7 @@ async function getArtifact(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -50,7 +53,7 @@ async function createArtifact(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -64,7 +67,7 @@ async function updateArtifact(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -79,7 +82,23 @@ async function transitionArtifact(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
+  }
+}
+
+async function bulkTransitionArtifacts(req, res) {
+  try {
+    const data = await deliveryPlanningService.bulkTransitionArtifacts({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      fromStatus: req.body?.fromStatus,
+      toStatus: req.body?.toStatus || req.body?.status,
+      note: req.body?.note,
+      kind: req.body?.kind || req.query?.kind,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -91,7 +110,7 @@ async function listBaselines(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -104,7 +123,7 @@ async function cutBaseline(req, res) {
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -116,7 +135,7 @@ async function getSummary(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -126,10 +145,84 @@ async function suggest(req, res) {
       userId: getUserId(req),
       projectId: req.params.projectId,
       kind: req.body?.kind || req.query.kind,
+      view: req.body?.view || req.query.view,
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
+  }
+}
+
+async function confirmSuggestions(req, res) {
+  try {
+    const data = await deliveryPlanningService.confirmSuggestions({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      suggestions: req.body?.suggestions || [],
+      kind: req.body?.kind || req.query.kind,
+      view: req.body?.view || req.query.view,
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return sendDeliveryPlanningError(res, err);
+  }
+}
+
+async function forkArtifact(req, res) {
+  try {
+    const data = await deliveryPlanningService.forkArtifactVersion({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      artifactId: req.params.artifactId,
+      note: req.body?.note,
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    return sendDeliveryPlanningError(res, err);
+  }
+}
+
+async function bulkDump(req, res) {
+  try {
+    const data = await deliveryPlanningService.bulkDumpArtifacts({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      body: req.body || {},
+    });
+    const dryRun =
+      req.body?.dryRun === true ||
+      req.body?.dryRun === 'true' ||
+      req.body?.dryRun === 1 ||
+      req.body?.dryRun === '1';
+    return res.status(dryRun ? 200 : 201).json({ success: true, data });
+  } catch (err) {
+    return sendDeliveryPlanningError(res, err);
+  }
+}
+
+async function dumpTemplate(req, res) {
+  try {
+    const seedFromRa =
+      req.query.seedFromRa === '1' ||
+      req.query.seedFromRa === 'true' ||
+      req.query.seedFromRa === true;
+    const buf = await deliveryPlanningService.buildDumpWorkbookTemplate({
+      userId: getUserId(req),
+      projectId: req.params.projectId,
+      seedFromRa,
+    });
+    const filename = seedFromRa
+      ? 'planning-workbook-seed-ra.xlsx'
+      : 'planning-workbook-template.xlsx';
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    const { attachmentHeader } = require('../utils/common/contentDisposition');
+    res.setHeader('Content-Disposition', attachmentHeader(filename, 'planning.xlsx'));
+    return res.send(buf);
+  } catch (err) {
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -141,7 +234,7 @@ async function publishWbs(req, res) {
     });
     return res.json({ success: true, data });
   } catch (err) {
-    return handleError(res, err);
+    return sendDeliveryPlanningError(res, err);
   }
 }
 
@@ -151,9 +244,14 @@ module.exports = {
   createArtifact,
   updateArtifact,
   transitionArtifact,
+  bulkTransitionArtifacts,
   listBaselines,
   cutBaseline,
   getSummary,
   suggest,
+  confirmSuggestions,
+  forkArtifact,
+  bulkDump,
+  dumpTemplate,
   publishWbs,
 };

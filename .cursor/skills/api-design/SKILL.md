@@ -17,7 +17,7 @@ UI-only work; socket-only when HTTP unchanged.
 ## Related Rules
 
 - `.cursor/rules/restful-api-design.mdc`
-- `.cursor/rules/role-api.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `implementer` or `researcher`)
 - `.cursor/rules/voicehub-constraints.mdc`
 
 ## Input
@@ -31,7 +31,7 @@ Use case, existing paths, breaking yes/no
 3. Define method, path, request/response, validation, errors, authn/authz, pagination/filtering, versioning if breaking.
 4. **Response shaping (khi list/card/enrich):** whitelist field theo UI; prefer `view=` / `fields=` query trên route sẵn; default giữ full cho consumer cũ; không embed nested chỉ để “có sẵn”; không route mới chỉ để slim payload. Plan Standard §2.6 bắt buộc điền mục Tối ưu response.
 5. List gateway permission map + client updates as same contract.
-6. Design-only unless asked to implement (then backend-dev + feature-implementation).
+6. Design-only unless asked to implement (then implementer + feature-implementation).
 
 ## Response shaping (quick rules)
 

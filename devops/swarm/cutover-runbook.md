@@ -5,17 +5,11 @@
 **Prerequisites:** Atlas verified, Redis Sentinel + Rabbit cluster tested độc lập, quorum queues deployed.
 
 ```bash
-# Snapshot + full cutover (app stack + HA infra + rolling env)
-bash devops/swarm/deploy-phase1-cutover.sh
+# App stack + HA infra (Redis Sentinel + Rabbit cluster)
+DEPLOY_HA_INFRA=1 bash devops/swarm/deploy-stack.sh
 ```
 
-Hoặc từng bước:
-
-```bash
-bash devops/swarm/phase1-pre-cutover-snapshot.sh
-DEPLOY_HA_INFRA=1 bash devops/swarm/deploy-stack.sh   # app + HA stacks
-bash devops/swarm/rolling-update-phase1-env.sh
-```
+> Snapshot / rolling-update Phase 1 helper scripts đã gỡ — snapshot volume/DB thủ công trước cutover nếu cần.
 
 **Rollback Plan A:** [`phase1-rollback.md`](./phase1-rollback.md) — `STACK_FILE=docker-stack.plan-a.yml`
 
@@ -43,9 +37,9 @@ docker stack services voicehub-rabbit
 1. Deploy app stack (`docker-stack.yml` — không single-node stateful).
 2. Deploy `voicehub-redis` + `voicehub-rabbit` HA stacks (shared overlay `voicehub_enterprise-network`).
 3. Deploy API services (included in stack).
-4. Deploy workers (`project-worker`, `ai-task-*`, `notification-dispatch-worker`, `webhook-delivery-worker`).
+4. Deploy workers (`project-worker`, `ai-task-*`, `notification-dispatch-worker`).
 5. Deploy realtime/voice.
-6. `rolling-update-phase1-env.sh` nếu đổi `.env` sau deploy.
+6. Đổi `.env` sau deploy → `bash devops/swarm/deploy-stack.sh` hoặc `docker service update --force` từng service.
 
 ## 3) Canary checks
 1. Login + gateway health.

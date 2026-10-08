@@ -2,14 +2,25 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
+  AdminDenseMobileList,
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
   AdminUserFormCard,
   AdminUserPanelShell,
   adminDangerBtnClass,
+  adminDenseRowClass,
   adminInputClass,
   adminLabelClass,
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminBusySpinner,
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
+import { ConfirmDialog } from '../../components/Shared';
 import { taskAPI, unwrapTaskApiPayload } from '../../services/api/taskAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -17,6 +28,26 @@ import AdminTaskBoardPicker from './AdminTaskBoardPicker';
 
 const STATUSES = ['todo', 'in_progress', 'review', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
+/** API board detail không phân trang — hiển thị dần phía client. */
+const MANAGE_PAGE_SIZE = 50;
+const CARD_TITLE_MAX_LENGTH = 200;
+const FILTER_MAX_LENGTH = 100;
+
+function translateOrRaw(t, key, raw) {
+  const label = t(key);
+  return label === key ? String(raw || '—') : label;
+}
+
+function workStatusLabel(status, t) {
+  if (!status) return '—';
+  return translateOrRaw(t, `workspace.projectHubWorkStatus_${status}`, status);
+}
+
+function priorityLabel(priority, t) {
+  if (!priority) return '—';
+  const suffix = String(priority).charAt(0).toUpperCase() + String(priority).slice(1);
+  return translateOrRaw(t, `workspace.projectHubPriority${suffix}`, priority);
+}
 
 export default function TasksManagePanel({ orgId }) {
   const { t } = useAppStrings();
@@ -25,10 +56,15 @@ export default function TasksManagePanel({ orgId }) {
   const [cards, setCards] = useState([]);
   const [lists, setLists] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [membersError, setMembersError] = useState(false);
+  const [pendingArchive, setPendingArchive] = useState(null);
+  const [archiving, setArchiving] = useState(false);
   const [q, setQ] = useState('');
   const [status, setStatus] = useState(String(params.get('status') || ''));
   const [priority, setPriority] = useState(String(params.get('priority') || ''));
-  const [tag, setTag] = useState('');
+  const [tag, setTag] = useState(String(params.get('tag') || '').slice(0, FILTER_MAX_LENGTH));
+  const [visibleCount, setVisibleCount] = useState(MANAGE_PAGE_SIZE);
   const [editId, setEditId] = useState('');
   const [editStatus, setEditStatus] = useState('todo');
   const [editPriority, setEditPriority] = useState('medium');
@@ -49,9 +85,11 @@ export default function TasksManagePanel({ orgId }) {
     if (!boardId) {
       setCards([]);
       setLists([]);
+      setLoadError('');
       return;
     }
     setLoading(true);
+    setLoadError('');
     try {
       const res = await taskAPI.getBoardDetail(boardId, { organizationId: orgId });
       const data = unwrapTaskApiPayload(res);
@@ -59,7 +97,7 @@ export default function TasksManagePanel({ orgId }) {
       setCards(list.filter((c) => c?.isActive !== false));
       setLists(Array.isArray(data?.lists) ? data.lists : []);
     } catch (error) {
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.manageLoadFail') }));
+      setLoadError(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.manageLoadFail') }));
       setCards([]);
       setLists([]);
     } finally {
@@ -74,6 +112,7 @@ export default function TasksManagePanel({ orgId }) {
   useEffect(() => {
     if (!boardId) {
       setBoardMembers([]);
+      setMembersError(false);
       return;
     }
     let cancelled = false;
@@ -82,9 +121,15 @@ export default function TasksManagePanel({ orgId }) {
         const res = await taskAPI.getBoardAssignableMembers(boardId, { organizationId: orgId });
         const payload = unwrapTaskApiPayload(res);
         const rows = Array.isArray(payload?.members) ? payload.members : [];
-        if (!cancelled) setBoardMembers(rows);
+        if (!cancelled) {
+          setBoardMembers(rows);
+          setMembersError(false);
+        }
       } catch {
-        if (!cancelled) setBoardMembers([]);
+        if (!cancelled) {
+          setBoardMembers([]);
+          setMembersError(true);
+        }
       }
     })();
     return () => {
@@ -106,6 +151,13 @@ export default function TasksManagePanel({ orgId }) {
       return true;
     });
   }, [cards, q, status, priority, tag]);
+
+  useEffect(() => {
+    setVisibleCount(MANAGE_PAGE_SIZE);
+  }, [boardId, q, status, priority, tag]);
+
+  const visibleCards = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+  const hiddenCount = Math.max(0, filtered.length - visibleCards.length);
 
   const startEdit = (card) => {
     setEditId(String(card._id));
@@ -132,15 +184,112 @@ export default function TasksManagePanel({ orgId }) {
     }
   };
 
+  const memberNameById = useMemo(() => {
+    const map = new Map();
+    boardMembers.forEach((m) => {
+      const id = String(m.userId || '');
+      if (id) map.set(id, m.displayName || m.username || id);
+    });
+    return map;
+  }, [boardMembers]);
+
+  const assigneeLabel = (card) => {
+    const assigneeId = card.assigneeId ? String(card.assigneeId) : '';
+    return assigneeId ? memberNameById.get(assigneeId) || assigneeId : '—';
+  };
+
+  const cardSummaryLine = (card) => {
+    const parts = [workStatusLabel(card.status, t), priorityLabel(card.priority, t)];
+    if (card.assigneeId) parts.push(`${t('adminTasks.manageAssignee')}: ${assigneeLabel(card)}`);
+    if ((card.tags || []).length) {
+      parts.push(t('adminTasks.manageTagsLine', { tags: (card.tags || []).join(', ') }));
+    }
+    return parts.join(' · ');
+  };
+
+  const renderEditFields = () => (
+    <div className="flex flex-wrap items-end gap-2">
+      <label className={adminLabelClass()}>
+        {t('adminTasks.manageFilterStatus')}
+        <select className={adminInputClass()} value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {workStatusLabel(s, t)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className={adminLabelClass()}>
+        {t('adminTasks.manageFilterPriority')}
+        <select
+          className={adminInputClass()}
+          value={editPriority}
+          onChange={(e) => setEditPriority(e.target.value)}
+        >
+          {PRIORITIES.map((s) => (
+            <option key={s} value={s}>
+              {priorityLabel(s, t)}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+
+  const renderRowActions = (card) => {
+    if (editId === String(card._id)) {
+      return (
+        <>
+          <button
+            type="button"
+            className={adminPrimaryBtnClass('px-3 py-1.5')}
+            disabled={saving}
+            aria-busy={saving}
+            onClick={saveEdit}
+          >
+            <AdminBusySpinner busy={saving} />
+            {saving ? t('common.saving') : t('adminTasks.save')}
+          </button>
+          <button
+            type="button"
+            className={adminSecondaryBtnClass('px-3 py-1.5')}
+            disabled={saving}
+            onClick={() => setEditId('')}
+          >
+            {t('adminTasks.cancel')}
+          </button>
+        </>
+      );
+    }
+    return (
+      <>
+        <button type="button" className={adminSecondaryBtnClass('px-3 py-1.5')} onClick={() => startEdit(card)}>
+          {t('adminTasks.edit')}
+        </button>
+        <button
+          type="button"
+          className={adminDangerBtnClass('px-3 py-1.5')}
+          disabled={archiving}
+          aria-busy={archiving && String(pendingArchive?._id) === String(card._id)}
+          onClick={() => setPendingArchive(card)}
+        >
+          {t('adminTasks.archive')}
+        </button>
+      </>
+    );
+  };
+
   const archiveCard = async (card) => {
-    const name = card.title || String(card._id);
-    if (!window.confirm(t('adminTasks.manageArchiveConfirm').replace('{name}', name))) return;
+    if (archiving) return;
+    setArchiving(true);
     try {
       await taskAPI.archiveBoardCard(String(card._id), { organizationId: orgId });
       toast.success(t('adminTasks.manageArchived'));
       await load();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.manageArchiveFail') }));
+    } finally {
+      setArchiving(false);
     }
   };
 
@@ -186,6 +335,7 @@ export default function TasksManagePanel({ orgId }) {
               <input
                 className={adminInputClass()}
                 value={createTitle}
+                maxLength={CARD_TITLE_MAX_LENGTH}
                 onChange={(e) => setCreateTitle(e.target.value)}
               />
             </label>
@@ -207,8 +357,17 @@ export default function TasksManagePanel({ orgId }) {
                   );
                 })}
               </select>
+              {membersError ? (
+                <span className="mt-1 block text-[11px] text-warning">{t('adminTasks.manageMembersLoadFail')}</span>
+              ) : null}
             </label>
-            <button type="submit" className={adminPrimaryBtnClass()} disabled={creating}>
+            <button
+              type="submit"
+              className={adminPrimaryBtnClass()}
+              disabled={creating || !createTitle.trim()}
+              aria-busy={creating}
+            >
+              <AdminBusySpinner busy={creating} />
               {t('adminTasks.manageCreate')}
             </button>
           </form>
@@ -218,7 +377,12 @@ export default function TasksManagePanel({ orgId }) {
       <div className="grid gap-3 rounded-xl border border-border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
         <label className={adminLabelClass()}>
           {t('adminTasks.manageFilterQ')}
-          <input className={adminInputClass()} value={q} onChange={(e) => setQ(e.target.value)} />
+          <input
+            className={adminInputClass()}
+            value={q}
+            maxLength={FILTER_MAX_LENGTH}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </label>
         <label className={adminLabelClass()}>
           {t('adminTasks.manageFilterStatus')}
@@ -226,7 +390,7 @@ export default function TasksManagePanel({ orgId }) {
             <option value="">{t('adminTasks.manageAll')}</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {workStatusLabel(s, t)}
               </option>
             ))}
           </select>
@@ -241,94 +405,120 @@ export default function TasksManagePanel({ orgId }) {
             <option value="">{t('adminTasks.manageAll')}</option>
             {PRIORITIES.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {priorityLabel(s, t)}
               </option>
             ))}
           </select>
         </label>
         <label className={adminLabelClass()}>
           {t('adminTasks.manageFilterTag')}
-          <input className={adminInputClass()} value={tag} onChange={(e) => setTag(e.target.value)} />
+          <input
+            className={adminInputClass()}
+            value={tag}
+            maxLength={FILTER_MAX_LENGTH}
+            onChange={(e) => setTag(e.target.value)}
+          />
         </label>
       </div>
 
       {!boardId ? (
         <p className="text-sm text-muted-foreground">{t('adminTasks.needBoard')}</p>
-      ) : loading ? (
-        <p className="text-sm text-muted-foreground">{t('adminTasks.loading')}</p>
+      ) : loading && !cards.length && !loadError ? (
+        <AdminListSkeleton rows={5} />
+      ) : loadError ? (
+        <AdminLoadErrorState message={loadError} onRetry={load} disabled={loading} />
       ) : (
-        <div className="space-y-3">
-          {filtered.map((card) => {
-            const id = String(card._id);
-            const editing = editId === id;
-            return (
-              <AdminUserFormCard key={id} title={card.title || id}>
-                <p className="text-xs text-muted-foreground">
-                  {card.status || '—'} · {card.priority || '—'}
-                  {card.assigneeId ? ` · assignee ${card.assigneeId}` : ''}
-                </p>
-                {(card.tags || []).length ? (
-                  <p className="mt-1 text-xs text-muted-foreground">tags: {(card.tags || []).join(', ')}</p>
-                ) : null}
-                {editing ? (
-                  <div className="mt-3 flex flex-wrap items-end gap-3">
-                    <label className={adminLabelClass()}>
-                      Status
-                      <select
-                        className={adminInputClass()}
-                        value={editStatus}
-                        onChange={(e) => setEditStatus(e.target.value)}
-                      >
-                        {STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className={adminLabelClass()}>
-                      Priority
-                      <select
-                        className={adminInputClass()}
-                        value={editPriority}
-                        onChange={(e) => setEditPriority(e.target.value)}
-                      >
-                        {PRIORITIES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button type="button" className={adminPrimaryBtnClass()} disabled={saving} onClick={saveEdit}>
-                      {t('adminTasks.save')}
-                    </button>
-                    <button
-                      type="button"
-                      className={adminSecondaryBtnClass()}
-                      onClick={() => setEditId('')}
-                    >
-                      {t('adminTasks.cancel')}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" className={adminSecondaryBtnClass()} onClick={() => startEdit(card)}>
-                      {t('adminTasks.edit')}
-                    </button>
-                    <button type="button" className={adminDangerBtnClass()} onClick={() => archiveCard(card)}>
-                      {t('adminTasks.delete')}
-                    </button>
-                  </div>
-                )}
-              </AdminUserFormCard>
-            );
-          })}
-          {!filtered.length ? (
-            <p className="text-sm text-muted-foreground">{t('adminTasks.manageEmpty')}</p>
+        <AdminDenseTableCard>
+          <AdminDenseTableScroll>
+            <AdminDenseMobileList
+              items={visibleCards}
+              getKey={(card) => String(card._id)}
+              ariaLabel={t('adminDomains.tasks.manageTasks')}
+              renderTitle={(card) => card.title || String(card._id)}
+              renderMeta={(card) => (
+                <>
+                  {cardSummaryLine(card)}
+                  {editId === String(card._id) ? <div className="mt-2">{renderEditFields()}</div> : null}
+                </>
+              )}
+              renderActions={renderRowActions}
+            />
+            <table className="hidden min-w-full text-sm md:table">
+              <thead className="sticky top-0 z-10 bg-muted text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3">{t('adminTasks.manageColTitle')}</th>
+                  <th className="px-4 py-3">{t('adminTasks.manageFilterStatus')}</th>
+                  <th className="px-4 py-3">{t('adminTasks.manageFilterPriority')}</th>
+                  <th className="px-4 py-3">{t('adminTasks.manageAssignee')}</th>
+                  <th className="px-4 py-3">{t('adminTasks.manageFilterTag')}</th>
+                  <th className="px-4 py-3">{t('adminTasks.manageColActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleCards.map((card) => {
+                  const id = String(card._id);
+                  const editing = editId === id;
+                  return (
+                    <tr key={id} className={adminDenseRowClass('align-top')}>
+                      <td className="max-w-[18rem] px-4 py-3 font-medium text-foreground">
+                        <span className="line-clamp-2 break-words">{card.title || id}</span>
+                      </td>
+                      {editing ? (
+                        <td colSpan={2} className="px-4 py-3">
+                          {renderEditFields()}
+                        </td>
+                      ) : (
+                        <>
+                          <td className="px-4 py-3 text-muted-foreground">{workStatusLabel(card.status, t)}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{priorityLabel(card.priority, t)}</td>
+                        </>
+                      )}
+                      <td className="px-4 py-3 text-muted-foreground">{assigneeLabel(card)}</td>
+                      <td className="max-w-[12rem] px-4 py-3 text-xs text-muted-foreground">
+                        {(card.tags || []).join(', ') || '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">{renderRowActions(card)}</div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {!filtered.length ? (
+              <AdminEmptyState className="!py-10" message={t('adminTasks.manageEmpty')} />
+            ) : null}
+          </AdminDenseTableScroll>
+          {hiddenCount > 0 ? (
+            <div className="flex shrink-0 justify-center border-t border-border px-4 py-3">
+              <button
+                type="button"
+                className={adminSecondaryBtnClass()}
+                onClick={() => setVisibleCount((n) => n + MANAGE_PAGE_SIZE)}
+              >
+                {t('adminTasks.manageShowMore', { n: hiddenCount })}
+              </button>
+            </div>
           ) : null}
-        </div>
+        </AdminDenseTableCard>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(pendingArchive)}
+        onClose={() => setPendingArchive(null)}
+        onConfirm={() => (pendingArchive ? archiveCard(pendingArchive) : undefined)}
+        title={t('adminTasks.confirmTitle')}
+        message={
+          pendingArchive
+            ? t('adminTasks.manageArchiveConfirm', {
+                name: pendingArchive.title || String(pendingArchive._id),
+              })
+            : ''
+        }
+        confirmText={t('adminTasks.archive')}
+        cancelText={t('adminTasks.cancel')}
+        variant="danger"
+      />
     </AdminUserPanelShell>
   );
 }

@@ -339,7 +339,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
     return match ? decodeURIComponent(match[1]) : '';
   }, [location.pathname]);
 
-  /** Đồng bộ workspace đang chọn với ?organizationId= (hoặc legacy /w/:slug). */
+  /** Đồng bộ workspace đang chọn (legacy /w/:slug; org từ context, không ghi URL). */
   useEffect(() => {
     if (landingDemo || !orgListIdsKey) return;
 
@@ -524,11 +524,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
 
     const path = location.pathname;
     if (suiteProp === 'communicate') {
-      navigate(
-        id
-          ? `${buildCommunicateChannelsPath()}?organizationId=${encodeURIComponent(id)}`
-          : buildCommunicateChannelsPath()
-      );
+      navigate(buildCommunicateChannelsPath());
       return;
     }
     if (suiteProp === 'collaborate') {
@@ -959,7 +955,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                 <button
                   type="button"
                   onClick={handleJoinByLinkSubmit}
-                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold transition motion-reduce:transition-none ${
                     isDarkMode
                       ? 'bg-cyan-500/25 text-cyan-100 hover:bg-cyan-500/35'
                       : 'bg-cyan-100 text-cyan-900 hover:bg-cyan-200'

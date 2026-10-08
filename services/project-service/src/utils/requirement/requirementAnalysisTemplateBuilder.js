@@ -17,10 +17,51 @@ const {
 
 const ASSET_PATH = path.join(__dirname, '../../../assets', ANALYSIS_TEMPLATE_FILE_NAME);
 
+const CHOICE_LISTS = Object.freeze({
+  Priority: ['Critical', 'High', 'Medium', 'Low'],
+  Level: ['Module', 'Capability', 'Feature', 'Requirement'],
+  Status: ['Draft', 'Reviewed', 'Approved'],
+  'Analysis Status': ['Analyzed', 'Clarification', 'Rejected'],
+  Relationship: ['Derived', 'Refined', 'Split', 'Merged', 'Duplicate'],
+  'Scope Type': ['In Scope', 'Out of Scope'],
+  Direction: ['in', 'out', 'inout'],
+  Category: ['Performance', 'Security', 'Usability', 'Reliability', 'Maintainability'],
+});
+
+function columnLetter(index) {
+  let n = index;
+  let letters = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letters = String.fromCharCode(65 + rem) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letters;
+}
+
+function applyChoiceLists(ws) {
+  const header = ws.getRow(1);
+  header.eachCell((cell, colNumber) => {
+    const list = CHOICE_LISTS[String(cell.value || '').trim()];
+    if (!list) return;
+    const letter = columnLetter(colNumber);
+    ws.dataValidations.add(`${letter}2:${letter}200`, {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`"${list.join(',')}"`],
+      showErrorMessage: true,
+      errorStyle: 'warning',
+      errorTitle: 'Ngoài danh sách',
+      error: 'Có thể chọn trong danh sách hoặc giữ giá trị tự nhập.',
+    });
+  });
+}
+
 function addSheet(wb, name, columns, rows = []) {
   const ws = wb.addWorksheet(name);
   ws.addRow(columns);
   for (const row of rows) ws.addRow(row);
+  applyChoiceLists(ws);
   return ws;
 }
 
@@ -304,6 +345,99 @@ async function buildRequirementAnalysisTemplateBuffer() {
     ],
   ]);
 
+  addSheet(wb, ANALYSIS_SHEETS.SCOPE, ANALYSIS_SHEET_COLUMNS[ANALYSIS_SHEETS.SCOPE], [
+    [
+      'In Scope',
+      'Students can search and register courses online via web',
+      'CR-001;CR-002',
+      'Workshop #1',
+      '2026-09-01',
+      'Draft',
+      'From Raw In Scope',
+    ],
+    [
+      'In Scope',
+      'Reject registration when class capacity is full',
+      'CR-003',
+      'Workshop #1',
+      '2026-09-01',
+      'Draft',
+      '',
+    ],
+    [
+      'In Scope',
+      'University SSO authentication for students/lecturers/admin',
+      'CR-001',
+      'Workshop #1',
+      '2026-09-01',
+      'Draft',
+      'Integration constraint',
+    ],
+    [
+      'Out of Scope',
+      'Native mobile apps (iOS/Android stores)',
+      'CR-004',
+      'Workshop #1',
+      '2026-09-01',
+      'Draft',
+      'Web responsive only for this release',
+    ],
+    [
+      'Out of Scope',
+      'Payment / tuition gateway',
+      '',
+      'Workshop #1',
+      '2026-09-01',
+      'Draft',
+      '',
+    ],
+  ]);
+
+  addSheet(wb, ANALYSIS_SHEETS.INTERFACES, ANALYSIS_SHEET_COLUMNS[ANALYSIS_SHEETS.INTERFACES], [
+    [
+      'IF-001',
+      'Campus SSO',
+      'auth',
+      'in',
+      'SAML/OIDC',
+      'University identity provider for student/lecturer login',
+      'FR-001;NFR-001',
+      'CR-001',
+      'Draft',
+      '',
+    ],
+  ]);
+
+  addSheet(wb, ANALYSIS_SHEETS.DATA, ANALYSIS_SHEET_COLUMNS[ANALYSIS_SHEETS.DATA], [
+    [
+      'DATA-001',
+      'Enrollment',
+      'studentId; courseId; status; enrolledAt',
+      'status in {pending,active,rejected}; unique(studentId,courseId)',
+      'FR-001;UC-001',
+      'CR-002',
+      'Draft',
+      '',
+    ],
+  ]);
+
+  addSheet(wb, ANALYSIS_SHEETS.GLOSSARY, ANALYSIS_SHEET_COLUMNS[ANALYSIS_SHEETS.GLOSSARY], [
+    ['GL-001', 'SSO', 'Single Sign-On via campus identity provider', 'IF-001', 'Draft', ''],
+    ['GL-002', 'Capacity', 'Maximum seats allowed for a course section', 'BR-001', 'Draft', ''],
+  ]);
+
+  addSheet(wb, ANALYSIS_SHEETS.ASSUMPTIONS, ANALYSIS_SHEET_COLUMNS[ANALYSIS_SHEETS.ASSUMPTIONS], [
+    [
+      'ASM-001',
+      'Campus SSO is available for all enrolled students at go-live',
+      'Registration must fall back to local accounts; timeline slips',
+      'IF-001;BG-001',
+      'CR-001',
+      'Draft',
+      '',
+    ],
+  ]);
+
   return wb.xlsx.writeBuffer();
 }
 
@@ -315,11 +449,7 @@ async function writeRequirementAnalysisTemplateAsset() {
 }
 
 async function loadRequirementAnalysisTemplateBuffer() {
-  try {
-    return await fs.promises.readFile(ASSET_PATH);
-  } catch {
-    return buildRequirementAnalysisTemplateBuffer();
-  }
+  return buildRequirementAnalysisTemplateBuffer();
 }
 
 function getRequirementAnalysisTemplateAssetPath() {

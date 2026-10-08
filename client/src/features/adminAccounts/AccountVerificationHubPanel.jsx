@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
-import AdminEntityOpsHubShell from '../../components/admin/AdminEntityOpsHubShell';
+import AdminEntityOpsHubShell from '../../components/Admin/AdminEntityOpsHubShell';
 import AccountResendVerificationPanel from './AccountResendVerificationPanel';
 
 const TAB_RESEND = 'resend';

@@ -4,14 +4,21 @@ import { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
+  AdminDenseMobileList,
   AdminDenseTableCard,
   AdminDenseTableScroll,
   AdminUserFormCard,
   AdminUserPanelShell,
+  adminDenseRowClass,
   adminInputClass,
-  adminPrimaryBtnClass,
   adminSecondaryBtnClass,
+  adminManageLinkClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { DEFAULT_HR_ROLE_KEYS, DEFAULT_HR_ROLE_LABELS, ROLE_KIND } from '../../utils/roleTaxonomy';
@@ -26,17 +33,14 @@ import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 const RBAC_POS_MANAGE_HUB = '/app/admin/rbac/positions/manage';
 const RBAC_POS_BASE = '/app/admin/rbac/positions';
 
-const ACTION_LINKS = [
-  { tab: 'assign', labelKey: 'adminDomains.rbac.posAssign', grant: RBAC_GRANT.EMPLOYEE_UPDATE },
-  { tab: 'edit', labelKey: 'adminDomains.rbac.posEdit', grant: RBAC_GRANT.POSITION_UPDATE },
-  { tab: 'disable', labelKey: 'adminDomains.rbac.posDisable', grant: RBAC_GRANT.POSITION_UPDATE },
-];
-
 export default function PosListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId, { view: 'directory' });
   const { isFullAccess } = useCompanyAdminAccess();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const canUpdatePosition = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.POSITION_UPDATE);
+  const canAssignPosition = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.EMPLOYEE_UPDATE);
+  const manageTab = canUpdatePosition ? 'edit' : 'assign';
   const [query, setQuery] = useState('');
   const [hrPositions, setHrPositions] = useState([]);
   const [hrPositionsLoading, setHrPositionsLoading] = useState(false);
@@ -153,30 +157,24 @@ export default function PosListPanel({ orgId }) {
         </div>
       }
     >
-      <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+      <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
         {t('adminRbac.positionCatalogZeroPerm')} {t('adminRbac.posListMasterHint')}
       </p>
 
       {loadError || membersError ? (
-        <div className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
-          <p className="text-sm text-destructive">
-            {loadError ||
-              resolveApiErrorMessage(membersError, {
-                t,
-                fallback: t('companyAdmin.loadMembersFail'),
-              })}
-          </p>
-          <button
-            type="button"
-            className={adminPrimaryBtnClass()}
-            onClick={async () => {
-              await loadMembers();
-              setReloadTick((n) => n + 1);
-            }}
-          >
-            {t('adminRbac.retry')}
-          </button>
-        </div>
+        <AdminLoadErrorState
+          message={
+            loadError ||
+            resolveApiErrorMessage(membersError, {
+              t,
+              fallback: t('companyAdmin.loadMembersFail'),
+            })
+          }
+          onRetry={async () => {
+            await loadMembers();
+            setReloadTick((n) => n + 1);
+          }}
+        />
       ) : null}
 
       <AdminUserFormCard title={t('adminRbac.posSuggestedTitles')}>
@@ -200,25 +198,54 @@ export default function PosListPanel({ orgId }) {
 
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
         <div className="relative max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('adminOrg.searchPlaceholder')}
+            aria-label={t('adminOrg.searchPlaceholder')}
+            maxLength={120}
             className={`${adminInputClass()} pl-9`}
           />
         </div>
       </div>
 
       <AdminDenseTableCard>
-        {loading || hrPositionsLoading ? (
-          <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
+        {(loading || hrPositionsLoading) && !titles.length ? (
+          <AdminListSkeleton className="p-4" />
         ) : (
-          <AdminDenseTableScroll>
-            <table className="min-w-full text-sm">
+          <AdminDenseTableScroll aria-busy={loading || hrPositionsLoading || undefined}>
+            <AdminDenseMobileList
+              items={filtered}
+              getKey={(row) => row.key || row.title}
+              ariaLabel={t('adminDomains.rbac.posList')}
+              renderTitle={(row) => row.title}
+              renderMeta={(row) =>
+                [
+                  row.key || null,
+                  `${t('adminOrg.colCount')}: ${row.count}`,
+                  row.fromCatalog ? null : t('adminOrg.legacyBadge'),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
+              }
+              renderActions={
+                canUpdatePosition || canAssignPosition
+                  ? (row) => (
+                      <Link
+                        to={adminQueryHubLink(RBAC_POS_MANAGE_HUB, { title: row.title }, manageTab)}
+                        className={adminManageLinkClass()}
+                      >
+                        {t('adminDomains.rbac.posManageHub')}
+                      </Link>
+                    )
+                  : undefined
+              }
+            />
+            <table className="hidden min-w-full text-sm md:table">
               <thead>
-                <tr className="sticky top-0 z-10 border-b border-border bg-muted/95 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                <tr className="sticky top-0 z-10 border-b border-border bg-muted text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                   <th className="px-4 py-3">{t('adminOrg.colTitle')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colCount')}</th>
                   <th className="px-4 py-3">{t('adminOrg.colActions')}</th>
@@ -226,43 +253,36 @@ export default function PosListPanel({ orgId }) {
               </thead>
               <tbody>
                 {filtered.map((row) => (
-                  <tr key={row.key || row.title} className="border-b border-border/50 transition hover:bg-muted/20">
+                  <tr key={row.key || row.title} className={adminDenseRowClass()}>
                     <td className="px-4 py-3 font-medium text-foreground">
                       {row.title}
                       {row.key ? (
                         <span className="ml-2 text-xs font-normal text-muted-foreground">{row.key}</span>
                       ) : null}
                       {!row.fromCatalog ? (
-                        <span className="ml-2 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-200">
-                          legacy
+                        <span className="ml-2 rounded bg-warning-bg px-1.5 py-0.5 text-[10px] text-warning">
+                          {t('adminOrg.legacyBadge')}
                         </span>
                       ) : null}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{row.count}</td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {ACTION_LINKS.filter((link) =>
-                          canActWithGrant(isFullAccess, hasGrant, link.grant)
-                        ).map((link) => (
-                          <Link
-                            key={link.tab}
-                            to={adminQueryHubLink(RBAC_POS_MANAGE_HUB, { title: row.title }, link.tab)}
-                            className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
-                          >
-                            {t(link.labelKey)}
-                          </Link>
-                        ))}
-                      </div>
+                      {canUpdatePosition || canAssignPosition ? (
+                        <Link
+                          to={adminQueryHubLink(RBAC_POS_MANAGE_HUB, { title: row.title }, manageTab)}
+                          className={adminManageLinkClass()}
+                        >
+                          {t('adminDomains.rbac.posManageHub')}
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {!filtered.length ? (
-              <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-                {t('adminRbac.posCatalogEmptyEnable')}
-              </p>
-            ) : null}
+            {!filtered.length ? <AdminEmptyState message={t('adminRbac.posCatalogEmptyEnable')} /> : null}
           </AdminDenseTableScroll>
         )}
       </AdminDenseTableCard>

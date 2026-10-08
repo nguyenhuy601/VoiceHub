@@ -12,12 +12,8 @@ function unwrap(res) {
 export async function fetchRequirementAccess(organizationId) {
   const orgId = String(organizationId || '').trim();
   if (!orgId) return normalizeRequirementAccess(null);
-  try {
-    const res = await requirementAPI.getAccess(orgId);
-    return normalizeRequirementAccess(unwrap(res));
-  } catch {
-    return normalizeRequirementAccess(null);
-  }
+  const res = await requirementAPI.getAccess(orgId);
+  return normalizeRequirementAccess(unwrap(res));
 }
 
 export default function useRequirementAccess(organizationId) {
@@ -35,11 +31,12 @@ export default function useRequirementAccess(organizationId) {
   const access = orgId ? query.data ?? denied : denied;
   const loading = Boolean(orgId) && query.isPending;
   const loaded = !orgId || query.isFetched;
+  const isError = Boolean(orgId) && query.isError;
 
   const reload = useCallback(async () => {
     if (!orgId) return;
     await queryClient.invalidateQueries({ queryKey: queryKeys.requirements.access(orgId) });
   }, [orgId, queryClient]);
 
-  return { access, loading, loaded, reload };
+  return { access, loading, loaded, reload, isError, error: query.error };
 }

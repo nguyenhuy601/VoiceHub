@@ -16,8 +16,8 @@ UI-only without API change.
 
 ## Related Rules
 
-- `.cursor/rules/role-api.mdc`
-- `.cursor/rules/role-qa.mdc`
+- `.cursor/rules/restful-api-design.mdc`; skill `api-design`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `reviewer`)
 
 ## Input
 

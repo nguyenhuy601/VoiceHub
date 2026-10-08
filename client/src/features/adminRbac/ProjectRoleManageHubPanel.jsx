@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
-import AdminRbacOpsHubShell from '../../components/admin/AdminRbacOpsHubShell';
+import AdminRbacOpsHubShell from '../../components/Admin/AdminRbacOpsHubShell';
 import AdminProjectRolePicker from '../../components/adminRbac/AdminProjectRolePicker';
 import ProjectRoleEditPanel from './ProjectRoleEditPanel';
 import ProjectRoleDeletePanel from './ProjectRoleDeletePanel';

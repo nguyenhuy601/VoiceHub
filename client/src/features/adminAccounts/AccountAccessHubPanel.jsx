@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
-import AdminEntityOpsHubShell from '../../components/admin/AdminEntityOpsHubShell';
+import AdminEntityOpsHubShell from '../../components/Admin/AdminEntityOpsHubShell';
 import AccountActivatePanel from './AccountActivatePanel';
 import AccountLockPanel from './AccountLockPanel';
 import AccountRevokeSessionsPanel from './AccountRevokeSessionsPanel';

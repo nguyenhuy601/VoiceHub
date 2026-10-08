@@ -4,7 +4,10 @@ const emailService = require('../utils/email');
 const { resolveFrontendUrl } = require('@enterprise/shared');
 const { readEmailFromStored } = require('@enterprise/shared/utils/emailPii');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
-const { requireParam } = require('../utils/validateInput');
+const { requireParam, requireObjectId } = require('../utils/validateInput');
+const { readTokenInput } = require('../utils/oneTimeToken');
+const { resolveSafeFrontendUrl } = require('../utils/authInputSafety');
+const { assertRegisterObserveAllowed } = require('../utils/registerObserveLimit');
 const {
   readRefreshTokenFromReq,
   setRefreshCookie,
@@ -14,6 +17,14 @@ const {
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
   return sendErrorFromCatch(res, err, fallbackStatus, fallbackMessage, fallbackCode || 'AUTH_INTERNAL_ERROR');
+}
+
+function sendInvalidToken(res) {
+  return sendServiceError(res, 400, {
+    errorCode: 'AUTH_INVALID_TOKEN',
+    messageUser: 'Mã xác thực không hợp lệ.',
+    message: 'Invalid token',
+  });
 }
 
 class AuthController {
@@ -36,12 +47,11 @@ class AuthController {
     try {
       console.log('[AuthController] Parsing request body...');
       const { email, password, firstName, lastName, dateOfBirth } = req.body;
-      console.log('[AuthController] Parsed data:', { 
-        email, 
-        firstName, 
-        lastName, 
+      console.log('[AuthController] Parsed data:', {
+        hasEmail: !!email,
+        hasName: !!(firstName && lastName),
         hasPassword: !!password,
-        hasDateOfBirth: !!dateOfBirth 
+        hasDateOfBirth: !!dateOfBirth,
       });
 
       // Validate required fields
@@ -63,11 +73,12 @@ class AuthController {
 
       // dateOfBirth: bắt buộc khi đăng ký mới (validate trong auth.service)
 
-      console.log('[AuthController] Starting registration for:', email);
+      await assertRegisterObserveAllowed();
+
       console.log('[AuthController] Calling authService.register()...');
       const startTime = Date.now();
       
-      const frontendUrl = resolveFrontendUrl(req);
+      const frontendUrl = resolveSafeFrontendUrl(resolveFrontendUrl(req));
       const result = await authService.register(
         {
         email,
@@ -83,7 +94,6 @@ class AuthController {
       console.log(`[AuthController] ✅ Registration service completed in ${duration}ms`);
       console.log('[AuthController] Result:', {
         hasUserAuth: !!result.userAuth,
-        email: result.userAuth?.email,
         emailScheduled: result.emailScheduled,
       });
 
@@ -107,11 +117,7 @@ class AuthController {
           'Registration successful. Request a verification email resend, or use the token below (development mode).';
       }
 
-      console.log('[AuthController] Sending response:', {
-        success: true,
-        emailSent: responseData.emailSent,
-        email: responseData.email,
-      });
+      console.log('[AuthController] Sending response:', { success: true });
 
       res.status(201).json({
         success: true,
@@ -119,9 +125,7 @@ class AuthController {
         data: responseData,
       });
     } catch (error) {
-      console.error('[AuthController] ❌ ERROR in register:', error.message);
-      console.error('[AuthController] Error stack:', error.stack);
-      console.error('[AuthController] Error type:', error.constructor.name);
+      console.error('[AuthController] ❌ ERROR in register:', error?.errorCode || error?.name || 'unknown');
       
       // Kiểm tra nếu request đã bị abort hoặc response đã được gửi
       if (req.aborted || res.headersSent) {
@@ -143,7 +147,8 @@ class AuthController {
 
   // Đăng nhập
   async login(req, res) {
-    const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    // req.ip đã qua `trust proxy` (TRUST_PROXY) — không đọc x-forwarded-for thô (client giả được).
+    const ip = String(req.ip || '').trim();
     const userAgent = String(req.headers['user-agent'] || '').trim();
     let attemptedUserId = null;
     try {
@@ -177,7 +182,7 @@ class AuthController {
       });
     } catch (error) {
       void adminUserService.recordLoginEvent({
-        userId: attemptedUserId,
+        userId: attemptedUserId || error?.attemptedUserId || null,
         success: false,
         ip,
         userAgent,
@@ -297,18 +302,10 @@ class AuthController {
         });
       }
 
-      const frontendUrl = resolveFrontendUrl(req);
+      const frontendUrl = resolveSafeFrontendUrl(resolveFrontendUrl(req));
       const result = await authService.forgotPassword(email, frontendUrl);
 
-      res.json({
-        success: true,
-        message: result.message,
-        data: {
-          emailScheduled: !!result.emailScheduled,
-          ...(result.resetToken ? { resetToken: result.resetToken } : {}),
-          ...(result.resetUrl ? { resetUrl: result.resetUrl } : {}),
-        },
-      });
+      res.json({ success: true, message: result.message });
     } catch (error) {
       return sendError(res, error, 500, 'Không thể xử lý yêu cầu lúc này', 'AUTH_FORGOT_PASSWORD_FAILED');
     }
@@ -326,19 +323,10 @@ class AuthController {
         });
       }
 
-      const frontendUrl = resolveFrontendUrl(req);
+      const frontendUrl = resolveSafeFrontendUrl(resolveFrontendUrl(req));
       const result = await authService.resendVerificationEmail(email, frontendUrl);
 
-      res.json({
-        success: true,
-        message: result.message,
-        data: {
-          emailScheduled: !!result.emailScheduled,
-          ...(result.alreadyVerified ? { alreadyVerified: true } : {}),
-          ...(result.verificationToken ? { verificationToken: result.verificationToken } : {}),
-          ...(result.verificationUrl ? { verificationUrl: result.verificationUrl } : {}),
-        },
-      });
+      res.json({ success: true, message: result.message });
     } catch (error) {
       return sendError(res, error, 500, 'Không thể xử lý yêu cầu lúc này', 'AUTH_RESEND_VERIFY_FAILED');
     }
@@ -354,15 +342,13 @@ class AuthController {
       if (!email) {
         return res.status(400).json({ success: false, message: 'Email is required' });
       }
-      const frontendUrl = resolveFrontendUrl(req);
+      const frontendUrl = resolveSafeFrontendUrl(resolveFrontendUrl(req));
       const result = await authService.requestEmailChange(userId, email, frontendUrl);
       return res.json({
         success: true,
         message: result.message,
         data: {
           emailScheduled: !!result.emailScheduled,
-          ...(result.verificationToken ? { verificationToken: result.verificationToken } : {}),
-          ...(result.verificationUrl ? { verificationUrl: result.verificationUrl } : {}),
         },
       });
     } catch (error) {
@@ -372,13 +358,8 @@ class AuthController {
 
   async verifyEmailChange(req, res) {
     try {
-      const token = req.query.token || req.body?.token;
-      if (!token) {
-        return res.status(400).json({
-          success: false,
-          message: 'Verification token is required',
-        });
-      }
+      const token = readTokenInput(req.query.token ?? req.body?.token);
+      if (!token) return sendInvalidToken(res);
       const result = await authService.verifyEmailChange(token);
       return res.json({
         success: true,
@@ -393,13 +374,22 @@ class AuthController {
   // Reset mật khẩu
   async resetPassword(req, res) {
     try {
-      const resetToken = req.body?.resetToken || req.body?.token;
+      const rawToken = req.body?.resetToken ?? req.body?.token;
       const newPassword = req.body?.newPassword || req.body?.password;
 
-      if (!resetToken || !newPassword) {
+      if (!rawToken || !newPassword) {
         return res.status(400).json({
           success: false,
           message: 'Reset token and new password are required',
+        });
+      }
+      const resetToken = readTokenInput(rawToken);
+      if (!resetToken) return sendInvalidToken(res);
+      if (typeof newPassword !== 'string') {
+        return sendServiceError(res, 400, {
+          errorCode: 'AUTH_VALIDATION_ERROR',
+          messageUser: 'Mật khẩu không hợp lệ.',
+          message: 'newPassword must be a string',
         });
       }
 
@@ -421,17 +411,15 @@ class AuthController {
 
       // GET request: token chỉ có trong query string, KHÔNG có body
       // Lấy token từ query string (ưu tiên) hoặc body (nếu là POST)
-      const verificationToken = req.query.token || req.body?.verificationToken || req.body?.token;
-
-      console.log('[AuthController] Extracted token:', verificationToken ? 'REDACTED' : 'NOT FOUND');
-
-      if (!verificationToken) {
-        console.error('[AuthController] ❌ No verification token provided');
+      const rawToken = req.query.token ?? req.body?.verificationToken ?? req.body?.token;
+      if (!rawToken) {
         return res.status(400).json({
           success: false,
           message: 'Verification token is required',
         });
       }
+      const verificationToken = readTokenInput(rawToken);
+      if (!verificationToken) return sendInvalidToken(res);
 
       console.log('[AuthController] Calling authService.verifyEmail...');
       const result = await authService.verifyEmail(verificationToken);
@@ -482,10 +470,8 @@ class AuthController {
   /** Internal — soft rollback: deactivate UserAuth created during import */
   async deprovisionUserInternal(req, res) {
     try {
-      const userId = String(req.body?.userId || '').trim();
-      if (!userId) {
-        return sendError(res, new Error('userId là bắt buộc'), 400, 'userId bắt buộc', 'AUTH_DEPROVISION_REQUIRED');
-      }
+      const userId = requireObjectId(res, String(req.body?.userId ?? ''), 'userId');
+      if (!userId) return undefined;
       const UserAuth = require('../models/UserAuth');
       const updated = await UserAuth.findOneAndUpdate(
         { userId },
@@ -499,7 +485,11 @@ class AuthController {
       );
 
       if (!updated) {
-        return sendError(res, new Error('UserAuth not found'), 404, 'Không tìm thấy UserAuth', 'AUTH_DEPROVISION_NOT_FOUND');
+        return sendServiceError(res, 404, {
+          errorCode: 'AUTH_DEPROVISION_NOT_FOUND',
+          messageUser: 'Không tìm thấy UserAuth.',
+          message: 'UserAuth not found',
+        });
       }
 
       return res.json({
@@ -562,10 +552,8 @@ class AuthController {
   /** S2S — gateway đọc tokenVersion khi Redis cache miss */
   async getTokenVersionInternal(req, res) {
     try {
-      const userId = String(req.params.userId || '').trim();
-      if (!userId) {
-        return res.status(400).json({ success: false, message: 'userId is required' });
-      }
+      const userId = requireObjectId(res, req.params.userId, 'userId');
+      if (!userId) return undefined;
       const UserAuth = require('../models/UserAuth');
       const userAuth = await UserAuth.findOne({ userId }).select('tokenVersion').lean();
       if (!userAuth) {
@@ -611,8 +599,7 @@ class AuthController {
           success: false,
           message: 'Failed to send invite email',
           errorCode: 'AUTH_INVITE_EMAIL_FAILED',
-          messageUser:
-            'Không gửi được email mời. Kiểm tra EMAIL_USER / Gmail App Password (lỗi SMTP 535 BadCredentials).',
+          messageUser: 'Không gửi được email mời. Vui lòng thử lại sau hoặc liên hệ quản trị hệ thống.',
         });
       }
       return res.json({ success: true, data: { sent: true } });
@@ -635,7 +622,7 @@ class AuthController {
       }
       const adminUserService = require('../services/adminUser.service');
       const data = await adminUserService.sendProvisionSetPasswordEmail(uid, {
-        frontendUrl,
+        frontendUrl: resolveSafeFrontendUrl(frontendUrl),
         organizationName,
         firstName,
         lastName,

@@ -45,7 +45,7 @@ function listsDetailFromFull(full) {
 export async function fetchProjectHubProject(projectId) {
   const pid = String(projectId || '').trim();
   if (!pid) return null;
-  const res = await projectAPI.get(pid);
+  const res = await projectAPI.get(pid, { params: { view: 'hub' } });
   return unwrapProjectPayload(res) || null;
 }
 
@@ -213,7 +213,7 @@ export function useProjectHubOverview(projectId, { enabled = true } = {}) {
 export function useProjectHubProject(projectId, { enabled = true } = {}) {
   const pid = String(projectId || '').trim();
   return useQuery({
-    queryKey: queryKeys.projectHub.project(pid),
+    queryKey: queryKeys.projectHub.project(pid, 'hub'),
     enabled: Boolean(pid) && enabled,
     staleTime: STALE_PROJECT_MS,
     refetchOnMount: false,

@@ -58,7 +58,8 @@ export function resolveMyDepartmentId(shell) {
 export function listMyTeamsFromShell(shell, departmentId = '') {
   const scope = parseMembershipScopeFromAccess(shell?.access?.scope || shell?.scope || {});
   const allowed = new Set(getMyAssignedTeamIds(scope));
-  if (!allowed.size) return [];
+  const seeAll = Boolean(scope.canSeeAllStructure);
+  if (!allowed.size && !seeAll) return [];
 
   const structure = shell?.structureSummary || shell?.structure || null;
   const deptFilter = String(departmentId || '').trim();
@@ -74,7 +75,8 @@ export function listMyTeamsFromShell(shell, departmentId = '') {
           if (deptFilter && deptId && deptId !== deptFilter) continue;
           for (const team of department?.teams || []) {
             const id = unitId(team);
-            if (!id || !allowed.has(id) || seen.has(id)) continue;
+            if (!id || seen.has(id)) continue;
+            if (!seeAll && !allowed.has(id)) continue;
             seen.add(id);
             out.push({
               id,
@@ -91,7 +93,8 @@ export function listMyTeamsFromShell(shell, departmentId = '') {
   if (!out.length) {
     for (const team of flattenOrgStructureTeams(structure)) {
       const id = unitId(team);
-      if (!id || !allowed.has(id) || seen.has(id)) continue;
+      if (!id || seen.has(id)) continue;
+      if (!seeAll && !allowed.has(id)) continue;
       const teamDept = String(team.department || team.departmentId || '').trim();
       if (deptFilter && teamDept && teamDept !== deptFilter) continue;
       seen.add(id);
@@ -105,6 +108,7 @@ export function listMyTeamsFromShell(shell, departmentId = '') {
 
   // Scope may list teams not yet in structureSummary — keep id-only entries
   for (const id of allowed) {
+    if (seeAll) break;
     if (seen.has(id)) continue;
     if (deptFilter) {
       // without tree info we cannot prove dept membership; still include when no dept filter mismatch possible
@@ -197,7 +201,7 @@ export function buildCompanyModuleSearch(space, module) {
   const mod = String(module || '').trim().toLowerCase();
 
   const params = new URLSearchParams();
-  if (orgId) params.set('organizationId', orgId);
+  void orgId; // single-company: org resolved from WorkspaceContext, not URL
   if (deptId) params.set('departmentId', deptId);
   if (level === COMPANY_SPACE_LEVEL.TEAM && teamId) {
     params.set('teamId', teamId);
@@ -219,4 +223,88 @@ export function buildCompanyModuleSearch(space, module) {
 export function companyModuleSearchToString(space, module) {
   const qs = buildCompanyModuleSearch(space, module).toString();
   return qs ? `?${qs}` : '';
+}
+
+/** Query `teamId` thắng workspace phòng — không xóa đuôi team khi F5. */
+export function preferCompanyTeamFromSearch(teamIdFromQuery = '') {
+  return Boolean(String(teamIdFromQuery || '').trim());
+}
+
+export function preferCompanyDepartmentWorkspace({
+  departmentIdFromQuery = '',
+  teamIdFromQuery = '',
+} = {}) {
+  return (
+    Boolean(String(departmentIdFromQuery || '').trim()) &&
+    !preferCompanyTeamFromSearch(teamIdFromQuery)
+  );
+}
+
+/**
+ * Cây structure đã có teams để validate teamId trên URL.
+ * Cây rỗng / phòng chưa gắn teams → chưa kết luận (giữ teamId).
+ */
+export function isCompanyStructureReadyForTeamCheck(shell, departmentId = '') {
+  const structure = shell?.structureSummary || shell?.structure || null;
+  const branches = structure?.branches;
+  if (!Array.isArray(branches) || branches.length === 0) return false;
+  const deptFilter = String(departmentId || '').trim();
+  let sawMatchingDept = false;
+  let teamCount = 0;
+  for (const branch of branches) {
+    for (const division of branch?.divisions || []) {
+      for (const department of division?.departments || []) {
+        const deptId = unitId(department);
+        if (deptFilter && deptId && deptId !== deptFilter) continue;
+        sawMatchingDept = true;
+        teamCount += Array.isArray(department?.teams) ? department.teams.length : 0;
+      }
+    }
+  }
+  return sawMatchingDept && teamCount > 0;
+}
+
+/**
+ * F5/hydrate: URL đã có teamId thì không để SpaceContext DEPARTMENT xóa đuôi team.
+ * @param {URLSearchParams} desired
+ * @param {URLSearchParams|{get?: Function}|string} currentSearch
+ * @param {string} [module]
+ */
+export function preserveCompanyTeamIdOnModuleSearch(desired, currentSearch, module = '') {
+  const next = new URLSearchParams(desired);
+  const readTeamId = () => {
+    if (!currentSearch) return '';
+    if (typeof currentSearch.get === 'function') {
+      return String(currentSearch.get('teamId') || '').trim();
+    }
+    return String(currentSearch.teamId || currentSearch || '').trim();
+  };
+  const urlTeamId = readTeamId();
+  if (urlTeamId && !String(next.get('teamId') || '').trim()) {
+    next.set('teamId', urlTeamId);
+    if (String(module || '').trim().toLowerCase() === 'chat') {
+      next.set('tab', 'chat');
+    }
+  }
+  return next;
+}
+
+/**
+ * User vừa đổi team trên URL (Be-1 → Be-2) trong khi SpaceContext còn team cũ:
+ * giữ teamId trên URL, không ghi đè bằng space.
+ */
+export function preferUrlTeamIdWhenAhead(desired, currentSearch) {
+  const next = new URLSearchParams(desired);
+  const urlTeamId = (() => {
+    if (!currentSearch) return '';
+    if (typeof currentSearch.get === 'function') {
+      return String(currentSearch.get('teamId') || '').trim();
+    }
+    return String(currentSearch.teamId || '').trim();
+  })();
+  const desiredTeamId = String(next.get('teamId') || '').trim();
+  if (urlTeamId && desiredTeamId && urlTeamId !== desiredTeamId) {
+    next.set('teamId', urlTeamId);
+  }
+  return next;
 }

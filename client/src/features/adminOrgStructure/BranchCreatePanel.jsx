@@ -8,6 +8,7 @@ import {
   adminLabelClass,
   adminPrimaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { AdminBusySpinner } from '../../components/adminUsers/adminPanelStates';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
@@ -66,6 +67,7 @@ export default function BranchCreatePanel({ orgId }) {
           <label className="block">
             <span className={adminLabelClass()}>{t('adminOrg.name')}</span>
             <input
+              maxLength={120}
               required
               className={adminInputClass()}
               value={form.name}
@@ -76,13 +78,20 @@ export default function BranchCreatePanel({ orgId }) {
           <label className="block">
             <span className={adminLabelClass()}>{t('adminOrg.location')}</span>
             <input
+              maxLength={200}
               className={adminInputClass()}
               value={form.location}
               onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
               placeholder={t('adminOrg.location')}
             />
           </label>
-          <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
+          <button
+            type="submit"
+            disabled={saving}
+            aria-busy={saving || undefined}
+            className={adminPrimaryBtnClass()}
+          >
+            <AdminBusySpinner busy={saving} />
             {saving ? t('common.saving') : t('adminDomains.orgStructure.branchCreate')}
           </button>
         </form>

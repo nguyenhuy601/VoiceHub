@@ -192,6 +192,8 @@ async function getOrgResourcePoolHandler(req, res) {
       projectRoleKeys: req.query.projectRoleKeys,
       offset: req.query.offset,
       fitAvailable: req.query.fitAvailable,
+      projectId: req.query.projectId,
+      assigneeUserId: req.query.assigneeUserId,
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -225,6 +227,7 @@ async function getEmployeeResourceProfileHandler(req, res) {
       userId: targetUserId,
       actorUserId: userId,
       asOf: req.query.asOf,
+      projectId: req.query.projectId,
     });
     return res.json({ success: true, data });
   } catch (err) {

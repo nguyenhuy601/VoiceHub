@@ -2,7 +2,26 @@ const Sprint = require('../models/Sprint');
 const Task = require('../models/Task');
 const PlanningItem = require('../models/PlanningItem');
 const TaskBoard = require('../models/TaskBoard');
+const Project = require('../models/Project');
 const { assertPatchDoesNotCloseActiveSprint } = require('../utils/project/projectCloseGate');
+const {
+  todayYmdInVietnam,
+  dateWarningsForProject,
+  attachScheduleWarnings,
+} = require('../utils/project/schedulePolicy');
+
+async function withBoardSprintWarnings(projectId, sprintObj) {
+  if (!projectId || !sprintObj) return sprintObj;
+  const project = await Project.findById(projectId).select('schedulePolicy').lean();
+  const warnings = dateWarningsForProject(project, {
+    startDate: sprintObj.startDate,
+    endDate: sprintObj.endDate,
+    todayYmd: todayYmdInVietnam(),
+    subjectKey: String(sprintObj._id || ''),
+    endField: 'endDate',
+  });
+  return attachScheduleWarnings(sprintObj, warnings);
+}
 
 async function requireBoardAdmin(boardId, userId, { permission = 'sprint:create' } = {}) {
   const board = await TaskBoard.findById(boardId).lean();
@@ -82,7 +101,7 @@ async function createSprint({
     autoComplete: Boolean(autoComplete),
     createdBy: userId,
   });
-  return row.toObject();
+  return withBoardSprintWarnings(board.projectId, row.toObject());
 }
 
 async function updateSprint({
@@ -133,7 +152,7 @@ async function updateSprint({
     sprint.reviewNotes = String(reviewNotes || '').trim().slice(0, 4000);
   }
   await sprint.save();
-  return sprint.toObject();
+  return withBoardSprintWarnings(sprint.projectId, sprint.toObject());
 }
 
 /** Chỉ xóa hẳn sprint planned; active/closed dùng Complete Sprint. */

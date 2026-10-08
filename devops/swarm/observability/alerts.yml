@@ -26,15 +26,6 @@ groups:
           summary: "Notification dispatch queue > 200"
           description: "Consider scaling notification-dispatch-worker."
 
-      - alert: VoiceHubWebhookQueueHigh
-        expr: voicehub_rabbit_queue_messages{queue="voicehub.webhook.delivery"} > 200
-        for: 5m
-        labels:
-          severity: warning
-          worker: webhook-delivery
-        annotations:
-          summary: "Webhook delivery queue > 200"
-
       - alert: VoiceHubTaskFromFileQueueHigh
         expr: voicehub_rabbit_queue_messages{queue="voicehub.task.from_file"} > 50
         for: 10m
@@ -80,7 +71,7 @@ groups:
           summary: "Gateway /health p95 > 500ms (baseline +20% check)"
 
       - alert: VoiceHubQueueNoConsumers
-        expr: voicehub_rabbit_queue_consumers{queue=~"voicehub\\.(notification|webhook|task).*"} == 0
+        expr: voicehub_rabbit_queue_consumers{queue=~"voicehub\\.(notification|task).*"} == 0
         for: 5m
         labels:
           severity: critical

@@ -2,17 +2,9 @@ const mongoose = require('../db');
 const Meeting = require('../models/Meeting');
 const meetingService = require('./meeting.service');
 const voiceRoomLobby = require('./voiceRoomLobby.service');
-const meetingRecordingSegmentService = require('./meetingRecordingSegment.service');
-const meetingAiSummary = require('./meetingAiSummary.service');
-const meetingFeaturePermission = require('./meetingFeaturePermission.service');
 const { isFreePublicLobbyRoom } = require('../utils/voiceRoomKind');
 const { shouldPersistMeeting } = require('../utils/meetingPersistPolicy');
 const { logger } = require('@enterprise/shared');
-
-const MIN_RECORDING_SEC = Math.max(
-  parseInt(process.env.MIN_VOICE_RECORDING_SEC || '1', 10) || 1,
-  1
-);
 
 /** @type {Map<string, SessionRuntime>} */
 const activeByRoom = new Map();
@@ -89,69 +81,22 @@ async function finalizeRoomSession(roomId) {
   if (!session) return null;
 
   activeByRoom.delete(roomKey);
-  meetingFeaturePermission.clearRoomGrants(roomKey);
 
   const durationSec = Math.max(0, Math.floor((Date.now() - session.startedAt) / 1000));
   const uniqueParticipants = session.userIds.size;
 
-  const roomServerRecording = require('./roomServerRecording.service');
-  const roomServerSttTap = require('./roomServerSttTap.service');
-  const summaryWasActive = meetingAiSummary.isSummaryActive(roomKey);
-
-  await roomServerSttTap.stopRoomSttTap(roomKey);
-  meetingAiSummary.clearRoomSummary(roomKey);
-
-  const meetingBefore = await Meeting.findById(session.meetingId).lean();
-  const skipTranscript = meetingBefore?.transcriptSource === 'realtime';
-
-  let serverRec = null;
-  if (roomServerRecording.isServerRecordingEnabled()) {
-    serverRec = await roomServerRecording.finalizeRoom(roomKey, session.meetingId, durationSec, {
-      skipTranscript,
-    });
-  } else {
-    await roomServerRecording.discardRoom(roomKey);
-  }
-
-  const meetingAfter = (await Meeting.findById(session.meetingId).lean()) || meetingBefore;
-  const segmentCount = await meetingRecordingSegmentService.countReadySegments(session.meetingId);
-  const hasSegments = segmentCount > 0 || Boolean(serverRec?.segment);
-  const hasTranscript = Boolean(String(meetingAfter?.transcript || '').trim());
-  const hadRecordingActivity =
-    Boolean(meetingAfter?.isRecording) ||
-    ['processing', 'pending_upload', 'ready', 'audio_expired'].includes(
-      String(meetingAfter?.recordingStatus || '')
-    );
-  const hasSummaryPending = Boolean(meetingAfter?.aiSummaryEnabled) || summaryWasActive;
-
-  const shouldPersist = shouldPersistMeeting({
-    durationSec,
-    hasSegments,
-    hasTranscript,
-    hasSummary: hasSummaryPending,
-  }) || hadRecordingActivity;
+  const shouldPersist = shouldPersistMeeting({ durationSec });
 
   if (shouldPersist) {
-    let recordingFields = { recordingStatus: 'none' };
-    if (serverRec?.audioStoragePath || hasSegments) {
-      recordingFields = serverRec?.audioStoragePath
-        ? { recordingStatus: 'processing', tempStoragePath: null }
-        : { recordingStatus: hasSegments ? 'processing' : 'pending_upload', recordingUrl: null };
-    }
-
     await Meeting.findByIdAndUpdate(session.meetingId, {
       $set: {
         status: 'ended',
         endTime: new Date(),
         isRecording: false,
         durationSec,
-        ...recordingFields,
+        recordingStatus: 'none',
       },
     });
-
-    if (hasSummaryPending || hasTranscript) {
-      await meetingAiSummary.triggerPostMeetingSummary(session.meetingId);
-    }
 
     logger.info(
       `Voice room session saved meeting=${session.meetingId} room=${roomKey} duration=${durationSec}s`
@@ -177,7 +122,7 @@ async function finalizeRoomSession(roomId) {
     durationSec,
     peakPeers: session.peakPeers,
     uniqueParticipants,
-    recordingSaved: shouldPersist && (hasSegments || Boolean(serverRec)),
+    recordingSaved: false,
   };
 }
 
@@ -196,12 +141,7 @@ async function finalizeOrphanMeeting(meeting, { hardDelete = false } = {}) {
     return { meetingId, durationSec, recordingSaved: false, deleted: true };
   }
 
-  const hasTranscript = Boolean(String(meeting.transcript || '').trim());
-  const shouldPersist = shouldPersistMeeting({
-    durationSec,
-    hasTranscript,
-    hasSummary: meeting.aiSummaryEnabled,
-  });
+  const shouldPersist = shouldPersistMeeting({ durationSec });
 
   if (shouldPersist) {
     await Meeting.findByIdAndUpdate(meetingId, {
@@ -209,9 +149,8 @@ async function finalizeOrphanMeeting(meeting, { hardDelete = false } = {}) {
         status: 'ended',
         endTime: new Date(),
         isRecording: false,
-        recordingStatus: 'pending_upload',
+        recordingStatus: 'none',
         durationSec,
-        recordingUrl: null,
       },
     });
     logger.info(`Voice orphan meeting ended meeting=${meetingId} duration=${durationSec}s`);
@@ -223,7 +162,7 @@ async function finalizeOrphanMeeting(meeting, { hardDelete = false } = {}) {
   return {
     meetingId,
     durationSec,
-    recordingSaved: shouldPersist,
+    recordingSaved: false,
     deleted: !shouldPersist,
   };
 }
@@ -253,7 +192,6 @@ function getActiveSession(roomId) {
 }
 
 module.exports = {
-  MIN_RECORDING_SEC,
   onUserJoinRoom,
   finalizeRoomSession,
   finalizeOrphanMeeting,

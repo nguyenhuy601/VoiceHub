@@ -16,8 +16,8 @@
 ### Nếu voice Pending (insufficient resources)
 
 ```bash
-bash devops/swarm/scale-workers.sh down
-docker compose -f docker-compose.swarm-extra.yml stop ollama paddleocr-service
+docker service scale voicehub_project-worker=1 voicehub_notification-dispatch-worker=1 2>/dev/null || true
+docker service scale voicehub_ollama=0
 docker service update --force voicehub_voice-service
 docker service ps voicehub_voice-service
 ```
@@ -81,7 +81,7 @@ Khi có VPS thứ 2: xem [voice-swarm-scale-strategy.md](../../docs/voice-swarm-
 ## P5 — Internet A/V (CF staging / production)
 
 1. `MEDIASOUP_ANNOUNCED_IP` = WAN IP — [phase5-voice-udp.md](../../docs/phase5-voice-udp.md)
-2. Firewall UDP 40000–40010 — `devops/scripts/voice-udp-firewall-linux.sh`
+2. Firewall UDP 40000–40010 — mở tay trên host (xem [phase5-voice-udp.md](../../docs/phase5-voice-udp.md))
 3. Smoke: [phase5-voice-internet-smoke.md](../../docs/phase5-voice-internet-smoke.md)
 
 **1-node Docker Desktop:** **WAIVE** internet 2-user — dùng §B LAN.

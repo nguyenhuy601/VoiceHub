@@ -1,4 +1,13 @@
 const nodemailer = require('nodemailer');
+const { escapeHtml, maskEmailForLog } = require('./authInputSafety');
+
+/** Lỗi nodemailer có thể chứa địa chỉ email / nội dung SMTP — chỉ log mã lỗi. */
+function logMailError(label, error) {
+  console.error(`[EmailService] ${label}:`, {
+    code: error?.code || null,
+    responseCode: error?.responseCode || null,
+  });
+}
 
 /**
  * Email Service - Gửi email verification và password reset
@@ -10,7 +19,7 @@ class EmailService {
     const emailPassword = String(process.env.EMAIL_PASSWORD || '').replace(/\s+/g, '');
     
     if (emailUser && emailPassword) {
-      console.log(`[EmailService] Initializing with user: ${emailUser}`);
+      console.log('[EmailService] Initializing SMTP transporter');
       // Tạo transporter với Gmail SMTP
       this.transporter = nodemailer.createTransport({
         service: 'gmail',
@@ -45,7 +54,7 @@ class EmailService {
       console.log('[EmailService] SMTP connection verified successfully');
       return true;
     } catch (error) {
-      console.error('[EmailService] SMTP connection verification failed:', error.message);
+      logMailError('SMTP connection verification failed', error);
       return false;
     }
   }
@@ -57,8 +66,7 @@ class EmailService {
    */
   async sendVerificationEmail(email, verificationToken, frontendUrl) {
     console.log('[EmailService] 📨 sendVerificationEmail called');
-    console.log('[EmailService] Email:', email);
-    console.log('[EmailService] Token length:', verificationToken ? verificationToken.length : 0);
+    console.log('[EmailService] Email:', maskEmailForLog(email));
     
     try {
       // Kiểm tra email service có sẵn sàng không
@@ -68,23 +76,19 @@ class EmailService {
       
       if (!isAvail) {
         console.log('[EmailService] ❌ Email service not configured, skipping email send');
-        console.log('[EmailService] EMAIL_USER:', process.env.EMAIL_USER ? 'SET (' + process.env.EMAIL_USER + ')' : 'NOT SET');
+        console.log('[EmailService] EMAIL_USER:', process.env.EMAIL_USER ? 'SET' : 'NOT SET');
         console.log('[EmailService] EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? 'SET' : 'NOT SET');
         console.log('[EmailService] transporter:', this.transporter ? 'EXISTS' : 'NULL');
         return null;
       }
 
-      console.log(`[EmailService] ✅ Service available, sending verification email to: ${email}`);
+      console.log(`[EmailService] ✅ Service available, sending verification email to: ${maskEmailForLog(email)}`);
       const base =
         (frontendUrl && String(frontendUrl).trim()) ||
         process.env.FRONTEND_URL ||
         'http://localhost:5173';
       const baseNormalized = String(base).replace(/\/+$/, '');
       const verificationUrl = `${baseNormalized}/verify-email#token=${encodeURIComponent(verificationToken)}`;
-      console.log(`[EmailService] Verification URL: ${verificationUrl}`);
-      console.log(`[EmailService] From: ${process.env.EMAIL_USER}`);
-      console.log(`[EmailService] To: ${email}`);
-
       const mailOptions = {
         from: `"${process.env.EMAIL_FROM_NAME || 'VoiceChat App'}" <${process.env.EMAIL_USER}>`,
         to: email,
@@ -164,19 +168,10 @@ class EmailService {
       
       console.log('[EmailService] ✅ Email sent successfully!');
       console.log('[EmailService] MessageId:', info.messageId);
-      console.log('[EmailService] Response:', info.response);
-      console.log('[EmailService] Accepted:', info.accepted);
-      console.log('[EmailService] Rejected:', info.rejected);
       
       return info;
     } catch (error) {
-      console.error('[EmailService] Error sending verification email:', error.message);
-      console.error('[EmailService] Error details:', {
-        code: error.code,
-        command: error.command,
-        response: error.response,
-        responseCode: error.responseCode,
-      });
+      logMailError('Error sending verification email', error);
       
       // Nếu là lỗi authentication, log rõ ràng
       if (error.code === 'EAUTH' || error.responseCode === 535) {
@@ -282,7 +277,7 @@ class EmailService {
       console.log('Password reset email sent:', info.messageId);
       return info;
     } catch (error) {
-      console.error('Error sending password reset email:', error);
+      logMailError('Error sending password reset email', error);
       return null;
     }
   }
@@ -326,7 +321,7 @@ class EmailService {
       };
       return await this.transporter.sendMail(mailOptions);
     } catch (error) {
-      console.error('Error sending email-change verification email:', error);
+      logMailError('Error sending email-change verification email', error);
       return null;
     }
   }
@@ -356,15 +351,15 @@ class EmailService {
           <head><meta charset="utf-8"></head>
           <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
             <div style="max-width:560px;margin:0 auto;padding:24px;">
-              <h2 style="margin:0 0 12px;">Xin chào ${greet},</h2>
-              <p>Bạn được mời nhận tài khoản doanh nghiệp trên <strong>VoiceHub</strong> cho <strong>${orgLabel}</strong>.</p>
+              <h2 style="margin:0 0 12px;">Xin chào ${escapeHtml(greet)},</h2>
+              <p>Bạn được mời nhận tài khoản doanh nghiệp trên <strong>VoiceHub</strong> cho <strong>${escapeHtml(orgLabel)}</strong>.</p>
               <p>Nhấn nút bên dưới để xác nhận. Hệ thống sẽ tạo tài khoản bằng email này, sau đó chuyển bạn tới trang đăng nhập.</p>
               <p style="margin:28px 0;">
-                <a href="${url}" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">
+                <a href="${escapeHtml(url)}" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">
                   Xác nhận nhận tài khoản
                 </a>
               </p>
-              <p style="font-size:13px;color:#666;word-break:break-all;">Hoặc mở link:<br/>${url}</p>
+              <p style="font-size:13px;color:#666;word-break:break-all;">Hoặc mở link:<br/>${escapeHtml(url)}</p>
               <p style="font-size:12px;color:#888;">Link có hiệu lực trong thời gian giới hạn. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
             </div>
           </body>
@@ -374,7 +369,7 @@ class EmailService {
       };
       return await this.transporter.sendMail(mailOptions);
     } catch (error) {
-      console.error('Error sending company invite email:', error);
+      logMailError('Error sending company invite email', error);
       return null;
     }
   }
@@ -404,15 +399,15 @@ class EmailService {
           <head><meta charset="utf-8"></head>
           <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
             <div style="max-width:560px;margin:0 auto;padding:24px;">
-              <h2 style="margin:0 0 12px;">Xin chào ${greet},</h2>
-              <p>Tài khoản <strong>VoiceHub</strong> của bạn tại <strong>${orgLabel}</strong> đã được tạo (HR import).</p>
+              <h2 style="margin:0 0 12px;">Xin chào ${escapeHtml(greet)},</h2>
+              <p>Tài khoản <strong>VoiceHub</strong> của bạn tại <strong>${escapeHtml(orgLabel)}</strong> đã được tạo (HR import).</p>
               <p>Nhấn nút bên dưới để <strong>đặt mật khẩu lần đầu</strong>, rồi đăng nhập. Không gửi mật khẩu tạm trong email này.</p>
               <p style="margin:28px 0;">
-                <a href="${url}" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">
+                <a href="${escapeHtml(url)}" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">
                   Đặt mật khẩu
                 </a>
               </p>
-              <p style="font-size:13px;color:#666;word-break:break-all;">Hoặc mở link:<br/>${url}</p>
+              <p style="font-size:13px;color:#666;word-break:break-all;">Hoặc mở link:<br/>${escapeHtml(url)}</p>
               <p style="font-size:12px;color:#888;">Link hết hạn sau 1 giờ. Nếu bạn không mong đợi email này, hãy bỏ qua.</p>
             </div>
           </body>
@@ -422,7 +417,7 @@ class EmailService {
       };
       return await this.transporter.sendMail(mailOptions);
     } catch (error) {
-      console.error('Error sending HR set-password email:', error);
+      logMailError('Error sending HR set-password email', error);
       return null;
     }
   }
@@ -451,10 +446,10 @@ class EmailService {
           <head><meta charset="utf-8"></head>
           <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
             <p>Xin chào,</p>
-            <p><strong>${hostLabel}</strong> mời bạn vào phòng thoại trên VoiceHub.</p>
-            <p>Mã phòng: <strong>${roomLabel || '—'}</strong></p>
-            <p><a href="${url}" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;text-decoration:none;border-radius:8px;">Tham gia phòng</a></p>
-            <p>Hoặc mở link: <br/><span style="word-break:break-all;">${url}</span></p>
+            <p><strong>${escapeHtml(hostLabel)}</strong> mời bạn vào phòng thoại trên VoiceHub.</p>
+            <p>Mã phòng: <strong>${escapeHtml(roomLabel || '—')}</strong></p>
+            <p><a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;text-decoration:none;border-radius:8px;">Tham gia phòng</a></p>
+            <p>Hoặc mở link: <br/><span style="word-break:break-all;">${escapeHtml(url)}</span></p>
             <p style="font-size:12px;color:#666;">Bạn cần đăng nhập (hoặc đăng ký) trước khi xin vào phòng. Chủ phòng sẽ duyệt yêu cầu của bạn.</p>
           </body>
           </html>
@@ -464,7 +459,7 @@ class EmailService {
       const info = await this.transporter.sendMail(mailOptions);
       return info;
     } catch (error) {
-      console.error('Error sending voice room invite email:', error);
+      logMailError('Error sending voice room invite email', error);
       return null;
     }
   }

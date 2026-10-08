@@ -9,6 +9,7 @@ import {
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { AdminBusySpinner, AdminListSkeleton } from '../../components/adminUsers/adminPanelStates';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { projectRolesAPI } from '../../services/api/projectRolesAPI';
@@ -66,7 +67,6 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   useEffect(() => {
@@ -106,7 +106,7 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
       };
       if (!role.isSystem) {
         if (!suffix.trim()) {
-          toast.error(t('adminRbac.projectRoleLabelRequired') || 'Label bắt buộc');
+          toast.error(t('adminRbac.projectRoleLabelRequired'));
           setBusy(false);
           return;
         }
@@ -120,10 +120,7 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
         : [];
       const missing = body.permissions.filter((k) => !savedPerms.includes(k));
       if (missing.length) {
-        toast.error(
-          t('adminRbac.projectRolePermNotSaved', { keys: missing.join(', ') }) ||
-            `Không lưu được quyền: ${missing.join(', ')}. Cần deploy project-service.`
-        );
+        toast.error(t('adminRbac.projectRolePermNotSaved', { keys: missing.join(', ') }));
       } else {
         toast.success(t('common.saveSuccess'));
       }
@@ -146,18 +143,19 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
             <div className="font-medium">
               {t('adminRbac.roleKeyField')}: {role.key}
             </div>
-            {role.isSystem ? <div className="mt-1 text-xs text-emerald-700">System</div> : null}
+            {role.isSystem ? <div className="mt-1 text-xs text-success">{t('adminRbac.systemBadge')}</div> : null}
             <p className="mt-1 text-xs text-muted-foreground">{t('adminRbac.roleKeyImmutableHint')}</p>
           </div>
 
           <label className="mb-4 block">
             <span className={adminLabelClass()}>{t('adminRbac.roleLabelField')}</span>
-            <div className="flex overflow-hidden rounded-lg border border-border bg-background">
+            <div className="flex overflow-hidden rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-ring">
               <span className="shrink-0 border-r border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
                 {PROJECT_ROLE_LABEL_PREFIX.trimEnd()}
               </span>
               <input
                 className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none disabled:opacity-60"
+                maxLength={120}
                 value={suffix}
                 onChange={(e) => setSuffix(e.target.value)}
                 disabled={role.isSystem}
@@ -165,7 +163,7 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
               />
             </div>
             {suffix.trim() && looksLikeOrgStructureForProjectRole(suffix) ? (
-              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+              <p className="mt-1 text-xs text-warning">
                 {t('adminRbac.projectRoleLooksLikeOrgHint')}
               </p>
             ) : null}
@@ -183,7 +181,8 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
           </label>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" disabled={busy} className={adminPrimaryBtnClass()} onClick={submit}>
+            <button type="button" disabled={busy} aria-busy={busy} className={adminPrimaryBtnClass()} onClick={submit}>
+              <AdminBusySpinner busy={busy} />
               {busy ? t('common.saving') : t('common.save')}
             </button>
             {!embedded ? (
@@ -193,7 +192,7 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
                 className={adminSecondaryBtnClass()}
                 onClick={() => navigate('/app/admin/rbac/project-roles')}
               >
-                {t('common.cancel') || 'Cancel'}
+                {t('common.cancel')}
               </button>
             ) : null}
           </div>
@@ -203,10 +202,9 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
   );
 
   const permissionMatrixCard = role ? (
-    <AdminUserFormCard title={t('adminRbac.permissionMatrixTitle') || 'Permission Matrix'}>
+    <AdminUserFormCard title={t('adminRbac.permissionMatrixTitle')}>
       <p className="mb-3 text-xs text-muted-foreground">
-        {t('adminRbac.permissionMatrixHint') ||
-          'System roles: chỉ sửa permissions. Custom roles: sửa label + canAssign + permissions.'}
+        {t('adminRbac.permissionMatrixHint')}
       </p>
       <div className="max-h-[28rem] space-y-4 overflow-auto pr-1">
         {PERMISSION_GROUPS.map((group) => (
@@ -217,7 +215,7 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
             <ul className="space-y-1">
               {group.keys.map((key) => (
                 <li key={key}>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-muted/40">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-muted">
                     <input
                       type="checkbox"
                       checked={selectedPerms.has(key)}
@@ -234,18 +232,18 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
       </div>
     </AdminUserFormCard>
   ) : (
-    <AdminUserFormCard title={t('adminRbac.permissionMatrixTitle') || 'Permission Matrix'}>
+    <AdminUserFormCard title={t('adminRbac.permissionMatrixTitle')}>
       <p className="text-sm text-muted-foreground">{t('adminRbac.selectRoleFirst')}</p>
     </AdminUserFormCard>
   );
 
   if (loading && !roles.length) {
-    const loadingBody = <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    const loadingBody = <AdminListSkeleton />;
     if (embedded) return loadingBody;
     return (
       <AdminUserPanelShell
         title={t('adminDomains.rbac.projectRoleEdit')}
-        hint={t('adminRbac.projectRolePermissionsHint') || 'Permission Matrix (resource:action) cho Project Role.'}
+        hint={t('adminRbac.projectRolePermissionsHint')}
         wide
       >
         {loadingBody}
@@ -265,11 +263,11 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.rbac.projectRoleEdit')}
-      hint={t('adminRbac.projectRolePermissionsHint') || 'Permission Matrix (resource:action) cho Project Role.'}
+      hint={t('adminRbac.projectRolePermissionsHint')}
       wide
     >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)_minmax(0,1.2fr)]">
-        <AdminUserFormCard title={t('adminRbac.editPickerHint') || 'Chọn Project Role'}>
+        <AdminUserFormCard title={t('adminRbac.editPickerHint')}>
           <ul className="max-h-[28rem] space-y-1 overflow-auto">
             {roles.map((r) => {
               const id = String(r._id || r.id || '');
@@ -279,10 +277,11 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
                   <button
                     type="button"
                     onClick={() => selectRole(id)}
-                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                    aria-current={active ? 'true' : undefined}
+                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
                       active
-                        ? 'border-primary/40 bg-primary/10 font-semibold text-foreground'
-                        : 'border-border hover:bg-muted/40'
+                        ? 'border-primary/40 bg-primary-subtle font-semibold text-foreground'
+                        : 'border-border hover:bg-muted'
                     }`}
                   >
                     <span className="block truncate">
@@ -290,7 +289,7 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
                     </span>
                     <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
                       {r.key}
-                      {r.isSystem ? ' · system' : ''}
+                      {r.isSystem ? ` · ${t('adminRbac.systemBadge')}` : ''}
                     </span>
                   </button>
                 </li>

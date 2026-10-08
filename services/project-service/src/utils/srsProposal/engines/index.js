@@ -1,0 +1,15 @@
+module.exports = {
+  bgEngine: require('./bgEngine'),
+  brEngine: require('./brEngine'),
+  bpmEngine: require('./bpmEngine'),
+  nfrEngine: require('./nfrEngine'),
+  scopeEngine: require('./scopeEngine'),
+  interfaceEngine: require('./interfaceEngine'),
+  frEngine: require('./frEngine'),
+  ucEngine: require('./ucEngine'),
+  dataEngine: require('./dataEngine'),
+  glossaryEngine: require('./glossaryEngine'),
+  assumptionEngine: require('./assumptionEngine'),
+  traceabilityEngine: require('./traceabilityEngine'),
+  runAnalysisEngines: require('./runAnalysisEngines').runAnalysisEngines,
+};

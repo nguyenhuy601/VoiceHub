@@ -3,7 +3,10 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import {
   Activity,
   ArrowLeftRight,
+  Bot,
   Calendar,
+  ChevronDown,
+  ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   FileSpreadsheet,
@@ -12,9 +15,11 @@ import {
   LayoutDashboard,
   LayoutGrid,
   List,
+  Lock,
   MessageCircle,
   Plus,
   Settings,
+  Shield,
   Users,
   GanttChart,
 } from 'lucide-react';
@@ -23,6 +28,7 @@ import { useWorkspaceSuite, SUITE } from '../../context/WorkspaceSuiteContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useShellLayout } from '../../context/ShellLayoutContext';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import SidebarPositionFooter from './SidebarPositionFooter';
 import {
   FIGMA_SIDEBAR,
   FIGMA_SIDEBAR_COLLAPSED,
@@ -52,12 +58,88 @@ import {
   resolveProjectOrganizationId,
   writeStoredLastOrganizationId,
 } from '../../utils/suitePathUtils';
-import { fetchProjectHubProject } from '../../features/projects/hub/useProjectHubQueries';
+import {
+  fetchProjectHubProject,
+  fetchProjectHubRoleCatalog,
+} from '../../features/projects/hub/useProjectHubQueries';
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys';
 import { coerceDeliveryPhase } from '../../utils/projectPhaseNav';
+import { isAiHitlIncomplete } from '../../features/projects/phase1/aiHitl/aiHitlNavState';
+import { loadLinkedPackForAiNav } from '../../features/projects/phase1/aiHitl/loadLinkedPackForAiNav';
+import { resolveDeliveryRoleBadges } from './profileDeliveryRoleBadge';
 
 const COLLAPSE_KEY = 'voicehub:sidebar-collapsed';
+
+/** Strip catalog prefix «Dự án —» when showing role chips. */
+function shortProjectRoleLabel(label, key = '') {
+  const raw = String(label || key || '').trim();
+  if (!raw) return key || '—';
+  return raw.replace(/^(Dự án|Project)\s*[—–\-:]\s*/i, '').trim() || raw;
+}
+
+function humanizeRoleKey(key) {
+  return String(key || '')
+    .trim()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Build display chips for the viewer's project roles (footer).
+ * Prefers delivery badges (BA/PO/PM/Tech), then catalog label, then humanized key.
+ */
+function buildViewerRoleChips(roleKeys, catalog = []) {
+  const keys = [
+    ...new Set(
+      (Array.isArray(roleKeys) ? roleKeys : [])
+        .map((k) => String(k || '').trim().toLowerCase())
+        .filter(Boolean)
+    ),
+  ];
+  if (!keys.length) return [];
+
+  const labelByKey = new Map();
+  for (const row of catalog || []) {
+    const k = String(row?.key || '').trim().toLowerCase();
+    if (!k) continue;
+    labelByKey.set(k, shortProjectRoleLabel(row.label || row.name || row.key, k));
+  }
+
+  const delivery = resolveDeliveryRoleBadges(keys);
+  const deliveryByKey = new Map(delivery.map((b) => [b.key, b]));
+  const usedShort = new Set(delivery.map((b) => b.short));
+
+  return keys.map((key) => {
+    const badge = deliveryByKey.get(key);
+    if (badge) {
+      return {
+        key,
+        label: badge.short,
+        title: labelByKey.get(key) || humanizeRoleKey(key),
+        className: badge.className,
+      };
+    }
+    const label = labelByKey.get(key) || humanizeRoleKey(key);
+    const short =
+      label.length <= 12 ? label : label.split(/\s+/)[0] || label.slice(0, 10);
+    if (usedShort.has(short)) {
+      return {
+        key,
+        label,
+        title: label,
+        className: 'bg-white/10 text-white/75 border border-white/15',
+      };
+    }
+    usedShort.add(short);
+    return {
+      key,
+      label: short,
+      title: label,
+      className: 'bg-white/10 text-white/75 border border-white/15',
+    };
+  });
+}
 
 const MODULE_ICONS = {
   overview: LayoutDashboard,
@@ -97,6 +179,8 @@ const MODULE_ICONS = {
   'analysis-reviews': Activity,
   srsBaselines: FolderKanban,
   'srs-baselines': FolderKanban,
+  'ai-hitl': Bot,
+  aiHitl: Bot,
   deliveryPlanning: FolderKanban,
   'delivery-planning': FolderKanban,
   'planning-overview': LayoutDashboard,
@@ -111,9 +195,12 @@ const MODULE_ICONS = {
   'planning-approval': Activity,
 };
 
-function NavItem({ item, collapsed, suiteColor, isActive }) {
+function NavItem({ item, collapsed, suiteColor, isActive, expanded, onToggleExpand }) {
   const Icon = item.icon || LayoutDashboard;
   const locked = Boolean(item.locked);
+  const readOnly = Boolean(item.readOnly) && !locked;
+  const indent = !collapsed && item.navIndent ? Number(item.navIndent) : 0;
+  const hasChildren = Boolean(item.hasChildren);
   const content = (
     <>
       {isActive && !locked && (
@@ -122,18 +209,60 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
           style={{ background: suiteColor, boxShadow: `0 0 8px ${suiteColor}88` }}
         />
       )}
+      {indent > 0 ? <span className="w-3 shrink-0" aria-hidden /> : null}
       <Icon size={15} className="shrink-0" style={{ color: isActive && !locked ? suiteColor : undefined }} />
       {!collapsed && (
         <span
-          className="min-w-0 flex-1 text-left whitespace-nowrap text-[0.8125rem] tracking-tight"
+          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[0.8125rem] tracking-tight"
           style={{
             fontWeight: isActive && !locked ? 500 : 400,
             color: locked ? 'rgba(255,255,255,0.28)' : isActive ? '#E2E8F0' : undefined,
+            fontSize: indent > 0 ? '0.75rem' : undefined,
           }}
         >
           {item.label}
         </span>
       )}
+      {hasChildren && !collapsed && !locked ? (
+        <span
+          className="shrink-0 text-white/40"
+          aria-hidden
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleExpand?.(item.key);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggleExpand?.(item.key);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+        >
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </span>
+      ) : null}
+      {readOnly && !collapsed ? (
+        <span
+          aria-hidden="true"
+          className="inline-flex h-3.5 max-w-[2.75rem] shrink-0 items-center gap-0.5 overflow-hidden rounded px-0.5 text-[0.5rem] font-medium leading-none text-white/45"
+          title={item.readOnlyHint || item.readOnlyBadge || ''}
+        >
+          <Lock size={8} strokeWidth={2.5} className="shrink-0 opacity-80" aria-hidden />
+          <span className="truncate">{item.readOnlyBadge || 'RO'}</span>
+        </span>
+      ) : null}
+      {readOnly && collapsed ? (
+        <Lock
+          size={9}
+          className="absolute right-0.5 top-0.5 text-white/40"
+          strokeWidth={2.5}
+          aria-hidden
+        />
+      ) : null}
     </>
   );
   const className = figmaNavItemClass(isActive && !locked, suiteColor, collapsed);
@@ -150,8 +279,26 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
       </div>
     );
   }
+  const linkTitle = collapsed
+    ? readOnly
+      ? `${item.label} — ${item.readOnlyHint || item.readOnlyBadge || ''}`
+      : item.label
+    : readOnly
+      ? item.readOnlyHint || undefined
+      : undefined;
+  const targetPath =
+    hasChildren && item.defaultChildPathSeg
+      ? item.path.replace(item.pathSeg, item.defaultChildPathSeg)
+      : item.path;
   return (
-    <Link to={item.path} className="group relative block" title={collapsed ? item.label : undefined}>
+    <Link
+      to={targetPath}
+      className="group relative block"
+      title={linkTitle}
+      onClick={() => {
+        if (hasChildren) onToggleExpand?.(item.key, true);
+      }}
+    >
       <div className={className} style={style}>
         {content}
       </div>
@@ -162,6 +309,7 @@ function NavItem({ item, collapsed, suiteColor, isActive }) {
 export default function ProjectsSidebar({ landingDemo = false } = {}) {
   const [collapsed, setCollapsed] = useState(false);
   const [showSuitePicker, setShowSuitePicker] = useState(false);
+  const [expandedNavParents, setExpandedNavParents] = useState(() => new Set(['planning-resources']));
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useAppStrings();
@@ -185,6 +333,27 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
     staleTime: 30_000,
   });
 
+  const viewerRoleKeys = useMemo(() => {
+    const raw =
+      projectRow?.capabilities?.viewerProjectRoleKeys ||
+      projectRow?.viewerProjectRoleKeys ||
+      projectRow?.access?.membership?.projectRoleKeys ||
+      [];
+    return Array.isArray(raw) ? raw : [];
+  }, [projectRow]);
+
+  const { data: roleCatalog = [] } = useQuery({
+    queryKey: queryKeys.projectHub.roleCatalog(projectId),
+    queryFn: () => fetchProjectHubRoleCatalog(projectId),
+    enabled: Boolean(projectId) && viewerRoleKeys.length > 0,
+    staleTime: 120_000,
+  });
+
+  const viewerRoleChips = useMemo(
+    () => buildViewerRoleChips(viewerRoleKeys, roleCatalog),
+    [viewerRoleKeys, roleCatalog]
+  );
+
   const workspaceOrgId = String(
     activeWorkspace?._id || company?.id || company?._id || ''
   ).trim();
@@ -192,6 +361,18 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
     search: searchParams,
     projectRow,
     workspaceOrgId,
+  });
+
+  const needsAiHitlPack =
+    Boolean(projectId && orgId && projectRow) &&
+    (String(projectRow?.deliveryPhase || '').trim().toLowerCase() === 'requirement_analysis' ||
+      !projectRow?.deliveryPhase);
+
+  const { data: linkedPack } = useQuery({
+    queryKey: ['aiHitlNavLinkedPack', String(orgId || ''), String(projectId || '')],
+    queryFn: () => loadLinkedPackForAiNav(orgId, projectId),
+    enabled: needsAiHitlPack,
+    staleTime: 30_000,
   });
 
   useEffect(() => {
@@ -202,7 +383,15 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   const projectTitle = projectRow
     ? String(projectRow?.title || projectRow?.name || '').trim()
     : '';
-  const deliveryPhase = projectRow ? coerceDeliveryPhase(projectRow.deliveryPhase) : null;
+  const aiHitlIncomplete = Boolean(
+    projectRow && isAiHitlIncomplete({ project: projectRow, pack: linkedPack || null })
+  );
+  // Phase 0: empty deliveryPhase coerces to development — force RA nav while HITL incomplete.
+  const deliveryPhase = projectRow
+    ? aiHitlIncomplete
+      ? 'requirement_analysis'
+      : coerceDeliveryPhase(projectRow.deliveryPhase)
+    : null;
   const projectCapabilities = projectRow?.capabilities || null;
 
   const suiteColor = SUITE_COLORS.projects || '#8B5CF6';
@@ -244,29 +433,56 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   }, [orgId, t]);
 
   const boardId = boardQueryFromSearch(searchParams);
+  const packIdQs = String(searchParams.get('packId') || '').trim();
 
   const postItems = useMemo(() => {
     if (!projectId || !projectRow || deliveryPhase == null) return [];
     return getProjectsPostSelectNavItems(projectId, {
       deliveryPhase,
       capabilities: projectCapabilities,
-    }).map((item) => ({
-      ...item,
-      label: t(item.labelKey),
-      lockHint: item.lockHintKey ? t(item.lockHintKey) : '',
-      icon: MODULE_ICONS[item.key] || MODULE_ICONS[item.module] || LayoutDashboard,
-      path: item.pathSeg
-        ? `/app/projects/${encodeURIComponent(projectId)}/${item.pathSeg}${
-            boardId ? `?boardId=${encodeURIComponent(boardId)}` : ''
-          }`
-        : buildProjectsModulePath(projectId, item.module, {
-            boardId,
-          }),
-    }));
-  }, [projectId, orgId, boardId, t, deliveryPhase, projectCapabilities, projectRow]);
+      aiHitlIncomplete,
+    }).map((item) => {
+      const params = new URLSearchParams();
+      if (boardId) params.set('boardId', boardId);
+      if (
+        (item.module === 'ai-hitl' || item.pathSeg === 'ai-hitl') &&
+        packIdQs
+      ) {
+        params.set('packId', packIdQs);
+      }
+      const qs = params.toString();
+      return {
+        ...item,
+        label: t(item.labelKey),
+        lockHint: item.lockHintKey ? t(item.lockHintKey) : '',
+        readOnlyHint: item.readOnlyHintKey ? t(item.readOnlyHintKey) : '',
+        readOnlyBadge: item.readOnly ? t('workspace.phase1RaReadOnlyBadge') : '',
+        icon: MODULE_ICONS[item.key] || MODULE_ICONS[item.module] || LayoutDashboard,
+        path: item.pathSeg
+          ? `/app/projects/${encodeURIComponent(projectId)}/${item.pathSeg}${
+              qs ? `?${qs}` : ''
+            }`
+          : buildProjectsModulePath(projectId, item.module, {
+              boardId,
+              ...(item.module === 'ai-hitl' && packIdQs ? { packId: packIdQs } : {}),
+            }),
+      };
+    });
+  }, [
+    projectId,
+    orgId,
+    boardId,
+    packIdQs,
+    t,
+    deliveryPhase,
+    projectCapabilities,
+    projectRow,
+    aiHitlIncomplete,
+  ]);
 
   const groupedPost = useMemo(() => {
     const groups = [
+      PROJECT_MENU_GROUPS.PHASE0_AI_HITL,
       PROJECT_MENU_GROUPS.PHASE1_RA,
       PROJECT_MENU_GROUPS.PHASE1_PLANNING,
       PROJECT_MENU_GROUPS.WORK,
@@ -283,8 +499,8 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   }, [postItems, t]);
 
   const allowedSuites = useMemo(() => {
-    const base = ['communicate', 'company', 'projects', 'me'];
-    if (showAdminSuite) return ['communicate', 'company', 'projects', 'admin', 'me'];
+    const base = ['communicate', 'company', 'projects'];
+    if (showAdminSuite) return ['communicate', 'company', 'projects', 'admin'];
     return base;
   }, [showAdminSuite]);
 
@@ -302,10 +518,45 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
       return false;
     }
     if (item.pathSeg && item.pathSeg.includes('/')) {
+      if (item.navChildOf) {
+        return location.pathname.includes(`/${item.pathSeg}`);
+      }
+      if (item.hasChildren) {
+        return location.pathname.includes(`/${item.pathSeg}`);
+      }
       return location.pathname.includes(`/${item.pathSeg}`);
     }
     return item.module === activeModule;
   };
+
+  const toggleNavParent = (key, forceOpen = false) => {
+    setExpandedNavParents((prev) => {
+      const next = new Set(prev);
+      if (forceOpen) next.add(key);
+      else if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    for (const item of postItems) {
+      if (item.navChildOf && location.pathname.includes(`/${item.pathSeg}`)) {
+        setExpandedNavParents((prev) => {
+          if (prev.has(item.navChildOf)) return prev;
+          const next = new Set(prev);
+          next.add(item.navChildOf);
+          return next;
+        });
+      }
+    }
+  }, [location.pathname, postItems]);
+
+  const visibleSectionItems = (items) =>
+    items.filter((item) => {
+      if (!item.navChildOf) return true;
+      return expandedNavParents.has(item.navChildOf);
+    });
 
   return (
     <>
@@ -478,20 +729,71 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
                       {section.label}
                     </div>
                   ) : null}
-                  {section.items.map((item) => (
+                  {visibleSectionItems(section.items).map((item) => (
                     <NavItem
                       key={item.key}
                       item={item}
                       collapsed={railCollapsed}
                       suiteColor={suiteColor}
                       isActive={isItemActive(item)}
+                      expanded={expandedNavParents.has(item.key)}
+                      onToggleExpand={toggleNavParent}
                     />
                   ))}
                 </div>
               ))}
         </nav>
 
-        <div className={FIGMA_SIDEBAR_FOOTER} />
+        <div className={FIGMA_SIDEBAR_FOOTER}>
+          {projectId && viewerRoleChips.length ? (
+            railCollapsed ? (
+              <div
+                className="flex flex-col items-center gap-1 py-0.5"
+                title={viewerRoleChips.map((c) => c.title || c.label).join(' · ')}
+              >
+                <Shield size={14} className="text-white/35" aria-hidden />
+                {viewerRoleChips.slice(0, 2).map((chip) => (
+                  <span
+                    key={chip.key}
+                    className={`inline-flex max-w-full truncate rounded px-1 py-0.5 text-[0.55rem] font-bold tracking-wide ${chip.className}`}
+                  >
+                    {chip.label}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="px-1.5 py-1">
+                <div className="mb-1 flex items-center gap-1.5 text-[0.55rem] font-bold uppercase tracking-wider text-white/25">
+                  <Shield size={10} aria-hidden />
+                  {t('nav.yourRole')}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {viewerRoleChips.map((chip) => (
+                    <span
+                      key={chip.key}
+                      title={chip.title}
+                      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[0.625rem] font-bold tracking-wide ${chip.className}`}
+                    >
+                      {chip.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )
+          ) : projectId && !railCollapsed ? (
+            <div className="px-1.5 py-1">
+              <div className="mb-0.5 flex items-center gap-1.5 text-[0.55rem] font-bold uppercase tracking-wider text-white/25">
+                <Shield size={10} aria-hidden />
+                {t('nav.yourRole')}
+              </div>
+              <p className="text-[0.625rem] text-white/35">
+                {t('nav.projectRoleUnassigned') || 'Chưa gán vai trò dự án'}
+              </p>
+            </div>
+          ) : !projectId ? (
+            <SidebarPositionFooter collapsed={railCollapsed} wrap={false} />
+          ) : null}
+        </div>
       </div>
     </>
   );

@@ -1,4 +1,5 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, LayoutGrid, Loader2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
@@ -14,6 +15,8 @@ import ProjectHubPlanningPanel from './ProjectHubPlanningPanel';
 import ProjectHubListPanel from './ProjectHubListPanel';
 import ProjectHubTimelinePanel from './ProjectHubTimelinePanel';
 import ProjectHubChangeRequestsPanel from './ProjectHubChangeRequestsPanel';
+import ProjectHubTestCasesPanel from './ProjectHubTestCasesPanel';
+import ProjectHubDeliveryPhasePanel from './ProjectHubDeliveryPhasePanel';
 import WorkItemDetail from './WorkItemDetail';
 import ProjectChatWorkspace from '../chat/ProjectChatWorkspace';
 import ProjectHubCompleteSprintModal from './ProjectHubCompleteSprintModal';
@@ -22,7 +25,8 @@ import ProjectHubArchiveProjectModal from './ProjectHubArchiveProjectModal';
 import ProjectHubOverviewCharts from './ProjectHubOverviewCharts';
 import useSprintAutoCompletePrompt from './useSprintAutoCompletePrompt';
 import { isBoardSprintReady } from './projectHubHierarchy';
-import { isProjectChatTabEnabled } from '../../../utils/suitePathUtils';
+import { buildProjectsPickerPath, isProjectChatTabEnabled } from '../../../utils/suitePathUtils';
+import { writeStoredLastProjectId } from '../picker/projectPickerRemember';
 import {
   PROJECT_HUB_TABS,
   buildOverviewDashboardCharts,
@@ -197,6 +201,13 @@ function OverviewPanel({
   projectId = '',
   organizationId = '',
   canChangeDeliveryPhase = false,
+  canSignOffUat = false,
+  canAcceptHandover = false,
+  handoverChecklist = null,
+  releaseLabel = '',
+  releaseReadyStatus = 'none',
+  uatStatus = 'none',
+  deployEvidence = null,
   summary,
   deliveryExtras = { unassigned: 0, estimateHours: 0 },
   dashboardCharts = null,
@@ -268,6 +279,19 @@ function OverviewPanel({
         organizationId={organizationId}
         deliveryPhase={deliveryPhase}
         canChangePhase={canChangeDeliveryPhase}
+      />
+      <ProjectHubDeliveryPhasePanel
+        projectId={projectId}
+        deliveryPhase={deliveryPhase}
+        canChangePhase={canChangeDeliveryPhase}
+        canSignOffUat={canSignOffUat}
+        canAcceptHandover={canAcceptHandover}
+        isDarkMode={isDarkMode}
+        handoverChecklist={handoverChecklist}
+        releaseLabel={releaseLabel}
+        releaseReadyStatus={releaseReadyStatus}
+        uatStatus={uatStatus}
+        deployEvidence={deployEvidence}
       />
       <header className="mb-4 rounded-xl border border-border bg-surface p-3 sm:p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -403,14 +427,14 @@ function OverviewPanel({
               ].map(({ key, value, label, extra, tone, tipItems, tipTotal, tipHeading }) => {
                 const tile = (
                   <div
-                    className={`rounded-lg border bg-background px-2.5 py-3 text-center ${
+                    className={`rounded-lg border px-2.5 py-3 text-center ${
                       tone === 'destructive'
-                        ? 'border-destructive/50'
+                        ? 'border-destructive/50 bg-destructive/5'
                         : tone === 'warning'
-                          ? 'border-warning/40'
+                          ? 'border-warning/40 bg-amber-500/5'
                           : tone === 'success'
-                            ? 'border-success/30'
-                            : 'border-border'
+                            ? 'border-success/30 bg-emerald-500/5'
+                            : 'border-border bg-background'
                     } ${tipItems?.length ? 'cursor-help' : ''}`}
                   >
                     <div className={`text-lg font-bold ${titleCls}`}>{value}</div>
@@ -554,7 +578,16 @@ function OverviewPanel({
                       ? t('workspace.projectHubOverviewAssigneeRestricted')
                       : t('workspace.projectHubStatUnassigned');
                   return (
-                    <li key={a.id} className="border-b border-border pb-2 last:border-0 last:pb-0">
+                    <li
+                      key={a.id}
+                      className={`rounded-md border px-2 py-1.5 last:mb-0 ${
+                        String(a.issueType || '').toLowerCase() === 'bug'
+                          ? 'border-rose-500/35 bg-rose-500/5'
+                          : a.dueTone === 'overdue'
+                            ? 'border-destructive/30 bg-destructive/5'
+                            : 'border-border/60 bg-background/50'
+                      }`}
+                    >
                       <button
                         type="button"
                         onClick={() => onOpenNextAction?.(a.id)}
@@ -574,6 +607,17 @@ function OverviewPanel({
                         <span className={`mt-0.5 block text-[11px] ${muted}`}>
                           {statusText ? `${statusText} · ${who}` : who}
                         </span>
+                        {a.parentTitle ? (
+                          <span className={`mt-0.5 block text-[11px] ${muted}`}>
+                            {t('workspace.projectHubAttentionChildOf', {
+                              parent: a.parentTitle,
+                            })}
+                          </span>
+                        ) : a.isChild ? (
+                          <span className={`mt-0.5 block text-[11px] ${muted}`}>
+                            {t('workspace.projectHubAttentionHiddenChild')}
+                          </span>
+                        ) : null}
                         {a.dueDate ? (
                           <span className={`mt-0.5 block text-[11px] ${dueCls}`}>
                             {t('workspace.projectHubActionDue', {
@@ -909,6 +953,7 @@ export default function ProjectHubShell({
   onModuleChange = null,
 }) {
   const { t } = useAppStrings();
+  const navigate = useNavigate();
   const [tab, setTabState] = useState(() =>
     activeModule && typeof activeModule === 'string' ? activeModule : 'overview'
   );
@@ -928,7 +973,7 @@ export default function ProjectHubShell({
     if (!activeModule) return;
     const id = String(activeModule).trim();
     if (id && id !== tab) setTabState(id);
-  }, [activeModule]); // eslint-disable-line react-hooks/exhaustive-deps — sync from URL only
+  }, [activeModule]);
 
   const [visitedTabs, setVisitedTabs] = useState(() => ({ overview: true }));
   const prevHubProjectIdRef = useRef('');
@@ -1014,16 +1059,26 @@ export default function ProjectHubShell({
     });
   }, [boardDetail?.lists]);
   const summary = useMemo(() => {
+    // Prefer live board cards — Overview API can lag / use stale card.status.
+    if (Array.isArray(cards) && cards.length > 0) {
+      return computeHubBoardSummary(cards, lists);
+    }
     if (overviewPayload?.summary) return overviewPayload.summary;
     return computeHubBoardSummary(cards, lists);
   }, [overviewPayload?.summary, cards, lists]);
   const overdueHealthCards = useMemo(() => {
+    if (Array.isArray(cards) && cards.length > 0) {
+      return listHubHealthCards(cards, lists, 'overdue', { limit: 8 });
+    }
     if (overviewPayload?.healthPreview?.overdue?.length) {
       return overviewPayload.healthPreview.overdue;
     }
     return listHubHealthCards(cards, lists, 'overdue', { limit: 8 });
   }, [overviewPayload?.healthPreview?.overdue, cards, lists]);
   const inReviewHealthCards = useMemo(() => {
+    if (Array.isArray(cards) && cards.length > 0) {
+      return listHubHealthCards(cards, lists, 'inReview', { limit: 8 });
+    }
     if (overviewPayload?.healthPreview?.inReview?.length) {
       return overviewPayload.healthPreview.inReview;
     }
@@ -1146,7 +1201,7 @@ export default function ProjectHubShell({
   );
 
   useSprintAutoCompletePrompt(sprints, {
-    enabled: Boolean(hubCaps?.canManageSprints || canManage) && Boolean(projectId),
+    enabled: Boolean(hubCaps?.canManageSprints) && Boolean(projectId),
     onPromptComplete: (sprintId) => {
       const id = String(sprintId || '').trim();
       if (!id) return;
@@ -1189,8 +1244,10 @@ export default function ProjectHubShell({
       if (item.id === 'settings' && !hubCaps.canManageSettings) return false;
       if (item.id === 'members' && !hubCaps.canViewMembers) return false;
       if (item.id === 'changeRequests' && !hubCaps.canViewChangeRequests) return false;
+      if (item.id === 'testCases' && !hubCaps.canViewWorkItems) return false;
       if (item.id === 'planning' && !hubCaps.canViewBacklog) return false;
-      if (item.id === 'timeline' && !hubCaps.canViewBacklog) return false;
+      // Timeline: SoT P2 default — show with work-items view (not gated on backlog:view)
+      if (item.id === 'timeline' && !hubCaps.canViewWorkItems) return false;
       if ((item.id === 'list' || item.id === 'board') && !hubCaps.canViewWorkItems) return false;
       if (item.id === 'files' && !hubCaps.canViewFiles) return false;
       if (item.id === 'activity' && !hubCaps.canViewActivityTab) return false;
@@ -1214,9 +1271,10 @@ export default function ProjectHubShell({
 
   const showListPanel = Boolean(visitedTabs.list) && hubCaps.canViewWorkItems;
   const showPlanningPanel = Boolean(visitedTabs.planning) && hubCaps.canViewBacklog;
-  const showTimelinePanel = Boolean(visitedTabs.timeline) && hubCaps.canViewBacklog;
+  const showTimelinePanel = Boolean(visitedTabs.timeline) && hubCaps.canViewWorkItems;
   const showChangeRequestsPanel =
     Boolean(visitedTabs.changeRequests) && hubCaps.canViewChangeRequests;
+  const showTestCasesPanel = Boolean(visitedTabs.testCases) && hubCaps.canViewWorkItems;
   const showMembersPanel = Boolean(visitedTabs.members) && hubCaps.canViewMembers;
 
   const issueCounts = useMemo(() => countCardsByIssueType(cards), [cards]);
@@ -1227,6 +1285,16 @@ export default function ProjectHubShell({
   const dashboardCharts = useMemo(() => {
     if (!overviewVisibility.canViewTaskMetrics) return null;
     const membersForCharts = overviewVisibility.canViewMemberBreakdown ? chartMembers : [];
+    // Prefer live board for status donut — sync with Kanban columns.
+    if (Array.isArray(cards) && cards.length > 0) {
+      return buildOverviewDashboardCharts({
+        cards,
+        lists,
+        issueCounts,
+        priorityConfig: projectPayload?.priorityConfig,
+        members: membersForCharts,
+      });
+    }
     if (overviewPayload?.charts) {
       return chartsFromOverviewApi(
         overviewPayload.charts,
@@ -1281,6 +1349,11 @@ export default function ProjectHubShell({
     return activeSprint;
   }, [overviewPayload?.activeSprint, activeSprint]);
   const nextActions = useMemo(() => {
+    if (Array.isArray(cards) && cards.length > 0) {
+      return pickNextHubActions(cards, lists, {
+        projectCode: resolvedBoard?.projectCode || '',
+      });
+    }
     if (Array.isArray(overviewPayload?.nextActions) && overviewPayload.nextActions.length) {
       return overviewPayload.nextActions;
     }
@@ -1700,6 +1773,19 @@ export default function ProjectHubShell({
                 (Array.isArray(projectPayload?.capabilities?.permissions) &&
                   projectPayload.capabilities.permissions.includes('delivery_phase:change'))
             )}
+            canSignOffUat={Boolean(
+              hubCaps?.canSignOffUat ||
+                (Array.isArray(hubCaps?.permissions) &&
+                  hubCaps.permissions.includes('uat:sign_off')) ||
+                (Array.isArray(projectPayload?.capabilities?.permissions) &&
+                  projectPayload.capabilities.permissions.includes('uat:sign_off'))
+            )}
+            canAcceptHandover={Boolean(hubCaps?.canAcceptHandover)}
+            handoverChecklist={projectPayload?.handoverChecklist || null}
+            releaseLabel={projectPayload?.releaseLabel || ''}
+            releaseReadyStatus={projectPayload?.releaseReadyStatus || 'none'}
+            uatStatus={projectPayload?.uatStatus || 'none'}
+            deployEvidence={projectPayload?.deployEvidence || null}
             summary={summary}
             deliveryExtras={deliveryExtras}
             dashboardCharts={dashboardCharts}
@@ -1930,6 +2016,33 @@ export default function ProjectHubShell({
           />
         </div>
         ) : null}
+        {showTestCasesPanel ? (
+        <div
+          className={
+            tab === 'testCases' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'
+          }
+          hidden={tab !== 'testCases'}
+          aria-hidden={tab !== 'testCases'}
+        >
+          <ProjectHubTestCasesPanel
+            projectId={projectId}
+            listActive={tab === 'testCases'}
+            isDarkMode={isDarkMode}
+            boardCards={cards}
+            boardLists={lists}
+            onPatchBoardCards={onPatchBoardCards}
+            canCreate={Boolean(hubCaps.canCreateTask || hubCaps.canCreateBug)}
+            canExecute={Boolean(
+              hubCaps.canCreateTask ||
+                hubCaps.canCreateBug ||
+                (Array.isArray(hubCaps.permissions) &&
+                  (hubCaps.permissions.includes('task:change_status') ||
+                    hubCaps.permissions.includes('task:update') ||
+                    hubCaps.permissions.includes('task:drag_to_done')))
+            )}
+          />
+        </div>
+        ) : null}
         {showMembersPanel ? (
         <div
           className={
@@ -1944,7 +2057,7 @@ export default function ProjectHubShell({
             organizationId={organizationId}
             projectPayload={projectPayload}
             membersActive={tab === 'members'}
-            canManage={hubCaps.canManageMembers || canManage}
+            canManage={Boolean(hubCaps.canManageMembers)}
             isDarkMode={isDarkMode}
             onMembersChanged={() => {
               setMembersEpoch((n) => n + 1);
@@ -1965,7 +2078,7 @@ export default function ProjectHubShell({
             projectPayload={projectPayload}
             organizationId={organizationId}
             apiCtx={apiCtx}
-            canManage={hubCaps.canManageSettings || canManage}
+            canManage={Boolean(hubCaps.canManageSettings)}
             canManageDelivery={Boolean(hubCaps.canManageDelivery)}
             canArchiveProject={Boolean(hubCaps.canArchiveProject)}
             canArchiveWithoutComplete={Boolean(hubCaps.canArchiveWithoutComplete)}
@@ -1987,7 +2100,7 @@ export default function ProjectHubShell({
               ? sprints.find((s) => String(s._id) === String(completeSprintId)) || null
               : null
           }
-          canManageSprints={Boolean(hubCaps?.canManageSprints || canManage)}
+          canManageSprints={Boolean(hubCaps?.canManageSprints)}
           onClose={() => setCompleteSprintId(null)}
           onCompleted={() => {
             toast.success(t('workspace.projectHubPlanSprintClosed'));
@@ -2025,6 +2138,12 @@ export default function ProjectHubShell({
           onArchived={() => {
             toast.success(t('workspace.projectHubArchiveSuccess'));
             setArchiveProjectOpen(false);
+            writeStoredLastProjectId('');
+            void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+            if (organizationId) {
+              navigate(buildProjectsPickerPath(organizationId), { replace: true });
+              return;
+            }
             onBack?.();
           }}
         />
@@ -2047,20 +2166,20 @@ export default function ProjectHubShell({
             isDarkMode={isDarkMode}
             locale={locale}
             workTypeConfig={projectPayload?.workTypeConfig}
-            canCreateTask={Boolean(hubCaps?.canCreateTask || canManage)}
-            canComment={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
-            }
-            canUpdateTask={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
-            }
-            canChangeStatus={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) &&
-                hubCaps.permissions.includes('task:change_status'))
-            }
+            canCreateTask={Boolean(hubCaps?.canCreateTask)}
+            canComment={Boolean(
+              Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment')
+            )}
+            canUpdateTask={Boolean(
+              Array.isArray(hubCaps?.permissions) &&
+                (hubCaps.permissions.includes('task:update') ||
+                  hubCaps.permissions.includes('bug:create'))
+            )}
+            canChangeStatus={Boolean(
+              Array.isArray(hubCaps?.permissions) &&
+                (hubCaps.permissions.includes('task:change_status') ||
+                  hubCaps.permissions.includes('task:drag_to_done'))
+            )}
             canViewMembers={hubCaps.canViewMembers}
             onClose={() => setCrWorkIssue(null)}
             onOpenWorkItem={(card) => {
@@ -2088,7 +2207,7 @@ export default function ProjectHubShell({
               if (keys.length === 1 && keys[0] === 'comments') return;
               if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
                 try {
-                  await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+                  return await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
                 } catch (err) {
                   toast.error(
                     resolveApiErrorMessage(err, {
@@ -2125,21 +2244,21 @@ export default function ProjectHubShell({
             apiCtx={apiCtx}
             locale={locale}
             initialPanel="detail"
-            canCreateTask={Boolean(hubCaps?.canCreateTask || canManage)}
-            canEstimate={Boolean(canManage || hubCaps?.canEstimate)}
-            canComment={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
-            }
-            canUpdateTask={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
-            }
-            canChangeStatus={
-              Boolean(canManage) ||
-              (Array.isArray(hubCaps?.permissions) &&
-                hubCaps.permissions.includes('task:change_status'))
-            }
+            canCreateTask={Boolean(hubCaps?.canCreateTask)}
+            canEstimate={Boolean(hubCaps?.canEstimate)}
+            canComment={Boolean(
+              Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment')
+            )}
+            canUpdateTask={Boolean(
+              Array.isArray(hubCaps?.permissions) &&
+                (hubCaps.permissions.includes('task:update') ||
+                  hubCaps.permissions.includes('bug:create'))
+            )}
+            canChangeStatus={Boolean(
+              Array.isArray(hubCaps?.permissions) &&
+                (hubCaps.permissions.includes('task:change_status') ||
+                  hubCaps.permissions.includes('task:drag_to_done'))
+            )}
             canViewMembers={hubCaps.canViewMembers}
             onClose={() => setOverviewWorkIssue(null)}
             onOpenWorkItem={(card) => {
@@ -2159,7 +2278,7 @@ export default function ProjectHubShell({
               if (keys.length === 1 && keys[0] === 'comments') return;
               if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
                 try {
-                  await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+                  return await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
                 } catch (err) {
                   toast.error(
                     resolveApiErrorMessage(err, {

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Minus, Plus, RefreshCw, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Minus, Plus, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import UserAvatar from '../../../components/Shared/UserAvatar';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import ProjectHubIssueTypeBadge from './ProjectHubIssueTypeBadge';
@@ -320,8 +321,12 @@ export default function ProjectHubTimelinePanel({
   const pendingFocusRangeRef = useRef(null);
   const headerDragRef = useRef(null);
 
-  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
-  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
+  const titleCls = 'text-foreground';
+  const muted = 'text-muted-foreground';
+  const controlBtn =
+    'rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground transition-colors motion-reduce:transition-none hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40';
+  const iconBtn =
+    'rounded-md p-1.5 text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
   const bounds = useMemo(
     () => resolveProjectTimeBounds(projectPayload, board),
     [projectPayload, board]
@@ -443,7 +448,7 @@ export default function ProjectHubTimelinePanel({
   }, [sprints, todayX]);
 
   const selectCls =
-    'rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground';
+    'rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
   const centerToday = useCallback(() => {
     const el = rightRef.current;
@@ -678,7 +683,7 @@ export default function ProjectHubTimelinePanel({
       }
       toast.success(t('workspace.projectHubPlanCreated'));
     } catch (err) {
-      toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubTimelineLoadFail') }));
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') }));
     } finally {
       setCreateBusy(false);
     }
@@ -688,16 +693,12 @@ export default function ProjectHubTimelinePanel({
 
   if (planningError) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 py-12 text-center">
-        <p className={`text-sm ${titleCls}`}>{t('workspace.projectHubTimelineLoadFail')}</p>
-        <button
-          type="button"
-          onClick={() => onReloadPlanning?.()}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold"
-        >
-          <RefreshCw size={14} aria-hidden />
-          {t('workspace.projectHubTimelineRetry')}
-        </button>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-12">
+        <AdminLoadErrorState
+          message={t('workspace.projectHubTimelineLoadFail')}
+          onRetry={() => onReloadPlanning?.()}
+          disabled={planningLoading}
+        />
       </div>
     );
   }
@@ -726,7 +727,7 @@ export default function ProjectHubTimelinePanel({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t('workspace.projectHubTimelineSearchPh')}
-              className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-xs text-foreground"
+              className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-xs text-foreground transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </label>
           <select
@@ -771,7 +772,7 @@ export default function ProjectHubTimelinePanel({
           <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:ml-auto">
             <button
               type="button"
-              className="rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              className={controlBtn}
               onClick={jumpToSchedule}
               disabled={!canJumpToSchedule}
               aria-label={t('workspace.projectHubTimelineJumpScheduleAria')}
@@ -780,7 +781,7 @@ export default function ProjectHubTimelinePanel({
             </button>
             <button
               type="button"
-              className="rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
+              className={controlBtn}
               onClick={centerToday}
               aria-label={t('workspace.projectHubTimelineTodayAria')}
             >
@@ -788,7 +789,7 @@ export default function ProjectHubTimelinePanel({
             </button>
             <button
               type="button"
-              className="rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
+              className={controlBtn}
               onClick={fitTimeline}
               aria-label={t('workspace.projectHubTimelineFitAria')}
             >
@@ -823,7 +824,7 @@ export default function ProjectHubTimelinePanel({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex shrink-0 flex-col border-r border-border" style={{ width: WORK_COL_PX }}>
           <div
-            className="flex shrink-0 items-end border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+            className="flex shrink-0 items-end border-b border-border/50 bg-muted/40 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
             style={{ height: HEADER_PX }}
           >
             {t('workspace.projectHubTimelineWork')}
@@ -854,7 +855,7 @@ export default function ProjectHubTimelinePanel({
               return (
                 <div
                   key={node.id}
-                  className={`relative flex items-center gap-1 border-b border-border px-2 ${nodeRowToneClass(index, hovered)}`}
+                  className={`relative flex items-center gap-1 border-b border-border/35 px-2 ${nodeRowToneClass(index, hovered)}`}
                   style={{ height: TIMELINE_ROW_PX, paddingLeft: 8 + depth * 16 }}
                   onMouseEnter={() => setHoveredRowId(node.id)}
                   onMouseLeave={() => setHoveredRowId((id) => (id === node.id ? null : id))}
@@ -862,7 +863,7 @@ export default function ProjectHubTimelinePanel({
                   {canExpand ? (
                     <button
                       type="button"
-                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors motion-reduce:transition-none hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       aria-expanded={expanded}
                       onClick={() => toggleExpand(node.id)}
                     >
@@ -1221,7 +1222,7 @@ export default function ProjectHubTimelinePanel({
       >
         <button
           type="button"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className={iconBtn}
           onClick={() => zoomTimelineStep(-1)}
           aria-label={t('workspace.projectHubTimelineZoomOut')}
         >
@@ -1235,7 +1236,7 @@ export default function ProjectHubTimelinePanel({
               type="button"
               aria-pressed={active}
               onClick={() => setScale(id)}
-              className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${
+              className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 active
                   ? 'border border-primary text-primary'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -1247,7 +1248,7 @@ export default function ProjectHubTimelinePanel({
         })}
         <button
           type="button"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className={iconBtn}
           onClick={() => zoomTimelineStep(1)}
           aria-label={t('workspace.projectHubTimelineZoomIn')}
         >
@@ -1277,20 +1278,19 @@ export default function ProjectHubTimelinePanel({
         apiCtx={apiCtx}
         locale={locale}
         initialPanel="detail"
-        canCreateTask={Boolean(hubCaps?.canCreateTask || canManage)}
-        canEstimate={Boolean(canManage || hubCaps?.canEstimate)}
-        canComment={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment'))
-        }
-        canUpdateTask={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update'))
-        }
-        canChangeStatus={
-          Boolean(canManage) ||
-          (Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:change_status'))
-        }
+        canCreateTask={Boolean(hubCaps?.canCreateTask)}
+        canEstimate={Boolean(hubCaps?.canEstimate)}
+        canComment={Boolean(
+          Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment')
+        )}
+        canUpdateTask={Boolean(
+          Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update')
+        )}
+        canChangeStatus={Boolean(
+          Array.isArray(hubCaps?.permissions) &&
+            (hubCaps.permissions.includes('task:change_status') ||
+              hubCaps.permissions.includes('task:drag_to_done'))
+        )}
         onClose={() => setDetailIssue(null)}
         onOpenWorkItem={(card) => {
           if (card) setDetailIssue(card);

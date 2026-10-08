@@ -142,6 +142,60 @@ const taskSchema = new mongoose.Schema(
       default: 'task',
       index: true,
     },
+    retestStatus: {
+      type: String,
+      enum: ['pending', 'passed', 'failed', null],
+      default: null,
+    },
+    sourceTestCaseId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'TestCase',
+      default: null,
+    },
+    /** P2 HITL — WBS PlanningArtifact that seeded this card. */
+    sourceWbsArtifactId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PlanningArtifact',
+      default: null,
+      index: true,
+    },
+    /** Soft FR key from Analysis (optional). */
+    sourceFrKey: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 120,
+    },
+    /** Soft UC key from Analysis (P2-B gap). */
+    sourceUcKey: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 120,
+      index: true,
+    },
+    /** Plan C — dedupe stamp for ready_to_done_proposed notify. */
+    readyToDoneNotifiedAt: {
+      type: Date,
+      default: null,
+    },
+    /** Dedupe stamp: card entered Ready for QA column. */
+    readyForQaNotifiedAt: {
+      type: Date,
+      default: null,
+    },
+    fixSuggestion: {
+      status: {
+        type: String,
+        enum: ['none', 'pending', 'accepted', 'rejected'],
+        default: 'none',
+      },
+      text: { type: String, trim: true, default: '', maxlength: 4000 },
+      proposedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+      proposedAt: { type: Date, default: null },
+      decidedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+      decidedAt: { type: Date, default: null },
+    },
     changeRequestIds: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ChangeRequest' }],
       default: [],
@@ -278,6 +332,13 @@ const taskSchema = new mongoose.Schema(
         },
       },
     ],
+    /** Last QA rework hint shown on board card (open-bug HITL). */
+    qaReworkNote: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 500,
+    },
     encV: {
       type: Number,
       default: 0,
@@ -315,6 +376,8 @@ taskSchema.index({ organizationId: 1, projectId: 1, isActive: 1 });
 taskSchema.index({ projectId: 1, sprintId: 1, isActive: 1 });
 taskSchema.index({ projectId: 1, epicId: 1, isActive: 1 });
 taskSchema.index({ projectId: 1, featureId: 1, isActive: 1 });
+taskSchema.index({ projectId: 1, sourceWbsArtifactId: 1, isActive: 1 });
+taskSchema.index({ projectId: 1, sourceUcKey: 1, isActive: 1 });
 taskSchema.index({ parentTaskId: 1, isActive: 1 });
 taskSchema.index({ serverId: 1 });
 taskSchema.index({ createdBy: 1 });

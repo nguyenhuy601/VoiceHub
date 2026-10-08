@@ -72,7 +72,7 @@ export default function ProjectHubListBulkBar({
         </span>
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onSelectAll}
         >
           <MousePointerClick size={14} aria-hidden />
@@ -83,9 +83,10 @@ export default function ProjectHubListBulkBar({
           <button
             type="button"
             disabled={busy || !canChangeStatus}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             aria-expanded={statusOpen}
             aria-haspopup="dialog"
+            aria-busy={busy || undefined}
             onClick={() => {
               setStatusOpen((v) => !v);
               setSubmitted(false);
@@ -103,7 +104,7 @@ export default function ProjectHubListBulkBar({
                 {t('workspace.projectHubListBulkChangeStatus')}
               </label>
               <select
-                className="w-full rounded-md border border-primary bg-background px-2 py-1.5 text-sm text-foreground outline-none"
+                className="w-full rounded-md border border-primary bg-background px-2 py-1.5 text-sm text-foreground outline-none transition-colors motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring"
                 value={listId}
                 aria-invalid={missingStatus}
                 aria-required="true"
@@ -132,7 +133,7 @@ export default function ProjectHubListBulkBar({
               <div className="mt-3 flex justify-end gap-2">
                 <button
                   type="button"
-                  className="rounded-md border border-border px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-muted"
+                  className="rounded-md border border-border px-2.5 py-1 text-xs font-semibold text-foreground transition-colors motion-reduce:transition-none hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => {
                     setStatusOpen(false);
                     setSubmitted(false);
@@ -144,7 +145,8 @@ export default function ProjectHubListBulkBar({
                 <button
                   type="button"
                   disabled={busy || !listId}
-                  className="rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+                  aria-busy={busy || undefined}
+                  className="rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   onClick={submitStatus}
                 >
                   {t('workspace.projectHubListBulkStatusSubmit')}
@@ -156,7 +158,8 @@ export default function ProjectHubListBulkBar({
         <button
           type="button"
           disabled={busy || !canDelete}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+          aria-busy={busy || undefined}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           onClick={onDelete}
         >
           <Trash2 size={14} aria-hidden />
@@ -165,7 +168,7 @@ export default function ProjectHubListBulkBar({
         <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
         <button
           type="button"
-          className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="rounded p-1 text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={t('workspace.projectHubListBulkCloseAria')}
           onClick={onClear}
         >

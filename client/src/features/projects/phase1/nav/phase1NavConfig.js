@@ -1,7 +1,18 @@
 /**
- * Phase 1 UX nav SSOT — 2 nested groups under one Phase 1 workspace.
+ * Phase 1 UX nav SSOT — nested groups under one Phase 1 workspace.
+ * Optional Phase 0 (AI HITL) when aiHitlIncomplete.
  * BE deliveryPhase remains requirement_analysis | delivery_planning.
  */
+
+/** Phase 0 — AI HITL Monitor & Duyệt (AI drafts only). */
+export const PHASE1_AI_HITL_MODULES = Object.freeze([
+  {
+    key: 'ai-hitl',
+    module: 'ai-hitl',
+    labelKey: 'workspace.phaseNavAiHitl',
+    pathSeg: 'ai-hitl',
+  },
+]);
 
 export const PHASE1_RA_MODULES = Object.freeze([
   { key: 'overview', module: 'overview', labelKey: 'workspace.projectHubTabOverview', pathSeg: 'overview' },
@@ -18,6 +29,30 @@ export const PHASE1_RA_MODULES = Object.freeze([
   { key: 'analysis-fr', module: 'analysis-fr', labelKey: 'workspace.phaseNavAnalysisFr', pathSeg: 'analysis-fr' },
   { key: 'analysis-uc', module: 'analysis-uc', labelKey: 'workspace.phaseNavAnalysisUc', pathSeg: 'analysis-uc' },
   { key: 'analysis-nfr', module: 'analysis-nfr', labelKey: 'workspace.phaseNavAnalysisNfr', pathSeg: 'analysis-nfr' },
+  {
+    key: 'analysis-interface',
+    module: 'analysis-interface',
+    labelKey: 'workspace.phaseNavAnalysisInterface',
+    pathSeg: 'analysis-interface',
+  },
+  {
+    key: 'analysis-data',
+    module: 'analysis-data',
+    labelKey: 'workspace.phaseNavAnalysisData',
+    pathSeg: 'analysis-data',
+  },
+  {
+    key: 'analysis-glossary',
+    module: 'analysis-glossary',
+    labelKey: 'workspace.phaseNavAnalysisGlossary',
+    pathSeg: 'analysis-glossary',
+  },
+  {
+    key: 'analysis-assumption',
+    module: 'analysis-assumption',
+    labelKey: 'workspace.phaseNavAnalysisAssumption',
+    pathSeg: 'analysis-assumption',
+  },
   { key: 'traceability', module: 'traceability', labelKey: 'workspace.phaseNavTraceability', pathSeg: 'traceability' },
   { key: 'srs-baselines', module: 'srs-baselines', labelKey: 'workspace.phaseNavSrsBaselines', pathSeg: 'srs-baselines' },
   {
@@ -47,6 +82,39 @@ export const PHASE1_PLANNING_MODULES = Object.freeze([
     module: 'planning-resources',
     labelKey: 'workspace.phaseNavPlanningResources',
     pathSeg: 'planning/resources',
+    /** Staffing pipeline — 5 tab con under「Kế hoạch nguồn lực」(no sibling nav). */
+    children: [
+      {
+        key: 'planning-resources-wbs',
+        module: 'planning-resources',
+        labelKey: 'workspace.phaseNavPlanningResourcesWbs',
+        pathSeg: 'planning/resources/wbs',
+      },
+      {
+        key: 'planning-resources-effort',
+        module: 'planning-resources',
+        labelKey: 'workspace.phaseNavPlanningResourcesEffort',
+        pathSeg: 'planning/resources/effort',
+      },
+      {
+        key: 'planning-resources-match',
+        module: 'planning-resources',
+        labelKey: 'workspace.phaseNavPlanningResourcesMatch',
+        pathSeg: 'planning/resources/match',
+      },
+      {
+        key: 'planning-resources-capacity',
+        module: 'planning-resources',
+        labelKey: 'workspace.phaseNavPlanningResourcesCapacity',
+        pathSeg: 'planning/resources/capacity',
+      },
+      {
+        key: 'planning-resources-schedule',
+        module: 'planning-resources',
+        labelKey: 'workspace.phaseNavPlanningResourcesSchedule',
+        pathSeg: 'planning/resources/schedule',
+      },
+    ],
   },
   {
     key: 'planning-dependencies',
@@ -74,6 +142,12 @@ export const PHASE1_PLANNING_MODULES = Object.freeze([
   },
   { key: 'planning-risks', module: 'planning-risks', labelKey: 'workspace.phaseNavPlanningRisks', pathSeg: 'planning/risks' },
   {
+    key: 'planning-test-cases',
+    module: 'planning-test-cases',
+    labelKey: 'workspace.phaseNavPlanningTestCases',
+    pathSeg: 'planning/test-cases',
+  },
+  {
     key: 'planning-approval',
     module: 'planning-approval',
     labelKey: 'workspace.phaseNavPlanningApproval',
@@ -100,8 +174,28 @@ export const PLANNING_SUB_TO_MODULE = Object.freeze({
   milestones: 'planning-milestones',
   releases: 'planning-releases',
   risks: 'planning-risks',
+  'test-cases': 'planning-test-cases',
   approval: 'planning-approval',
 });
+
+/** Staffing step segment under planning/resources/* */
+export const PLANNING_RESOURCES_STEPS = Object.freeze([
+  'wbs',
+  'effort',
+  'match',
+  'capacity',
+  'schedule',
+]);
+
+export function resolvePlanningResourcesStep(splatOrStep) {
+  const raw = String(splatOrStep || '')
+    .trim()
+    .toLowerCase()
+    .split('/')
+    .filter(Boolean)[0];
+  if (PLANNING_RESOURCES_STEPS.includes(raw)) return raw;
+  return 'wbs';
+}
 
 export const ARTIFACT_KIND_BY_MODULE = Object.freeze({
   'analysis-bg': 'BG',
@@ -111,6 +205,10 @@ export const ARTIFACT_KIND_BY_MODULE = Object.freeze({
   'analysis-uc': 'UC',
   'analysis-nfr': 'NFR',
   'analysis-scope': 'SCOPE',
+  'analysis-interface': 'INTERFACE',
+  'analysis-data': 'DATA',
+  'analysis-glossary': 'GLOSSARY',
+  'analysis-assumption': 'ASSUMPTION',
 });
 
 export const PLANNING_KIND_BY_MODULE = Object.freeze({
@@ -140,7 +238,7 @@ export function isPlanningUnlocked(deliveryPhase) {
 /**
  * @param {string} projectId
  * @param {string} pathSeg module path segment (may include planning/wbs)
- * @param {{ organizationId?: string }} [query]
+ * @param {{ organizationId?: string, boardId?: string, artifact?: string }} [query]
  */
 export function buildPhase1ModulePath(projectId, pathSeg, query = {}) {
   const pid = String(projectId || '').trim();
@@ -150,24 +248,58 @@ export function buildPhase1ModulePath(projectId, pathSeg, query = {}) {
   // organizationId omitted from Phase 1 module URLs (resolve via project hub payload).
   const boardId = String(query.boardId || '').trim();
   if (boardId) params.set('boardId', boardId);
+  const artifact = String(query.artifact || query.artifactId || '').trim();
+  if (artifact) params.set('artifact', artifact);
+  const sourceUcKey = String(query.sourceUcKey || query.uc || '').trim();
+  if (sourceUcKey) params.set('sourceUcKey', sourceUcKey);
+  const packId = String(query.packId || '').trim();
+  if (packId) params.set('packId', packId);
+  if (query.startWhat === true || query.startWhat === 1 || query.startWhat === '1') {
+    params.set('startWhat', '1');
+  }
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
 
-export function getPhase1SidebarGroups({ planningLocked = true } = {}) {
-  return [
+export function getPhase1SidebarGroups({
+  planningLocked = true,
+  raReadOnly = false,
+  aiHitlIncomplete = false,
+} = {}) {
+  // Phase 0: chỉ AI HITL — không hiện RA/Planning bị mờ/khóa.
+  if (aiHitlIncomplete) {
+    return [
+      {
+        id: 'ai_hitl',
+        labelKey: 'workspace.phase0GroupAiHitl',
+        locked: false,
+        items: PHASE1_AI_HITL_MODULES,
+      },
+    ];
+  }
+
+  const raItems = raReadOnly
+    ? PHASE1_RA_MODULES.filter((m) => m.key === 'srs-baselines' || m.key === 'overview')
+    : PHASE1_RA_MODULES;
+  const groups = [
     {
       id: 'requirement_analysis',
       labelKey: 'workspace.phase1GroupRequirementAnalysis',
       locked: false,
-      items: PHASE1_RA_MODULES,
-    },
-    {
-      id: 'planning',
-      labelKey: 'workspace.phase1GroupPlanning',
-      locked: Boolean(planningLocked),
-      lockHintKey: 'workspace.phase1PlanningLockedHint',
-      items: PHASE1_PLANNING_MODULES,
+      /** After Start Planning: chỉ Overview + SRS Baseline (DEC P1-H). */
+      readOnly: Boolean(raReadOnly),
+      readOnlyHintKey: 'workspace.phase1RaReadOnlyNavHint',
+      items: raItems,
     },
   ];
+  // Planning chỉ hiện khi đã Start Planning — không hiện nhóm khóa trong RA.
+  if (!planningLocked) {
+    groups.push({
+      id: 'planning',
+      labelKey: 'workspace.phase1GroupPlanning',
+      locked: false,
+      items: PHASE1_PLANNING_MODULES,
+    });
+  }
+  return groups;
 }

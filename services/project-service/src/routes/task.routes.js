@@ -1,8 +1,11 @@
 const express = require('express');
 const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
+const { bindObjectIdParams } = require('../utils/common/bindObjectIdParam');
 const router = express.Router();
 const taskController = require('../controllers/task.controller');
 const taskBoardRoutes = require('./taskBoard.routes');
+
+bindObjectIdParams(router, ['taskId', 'organizationId']);
 
 // Nội bộ: xóa toàn bộ task của tổ chức (organization-service khi owner xóa org)
 router.delete(

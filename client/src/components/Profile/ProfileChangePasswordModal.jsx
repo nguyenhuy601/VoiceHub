@@ -6,9 +6,10 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { notify } from '../../utils/appToast';
 
+const MOTION = 'motion-safe:transition-colors motion-reduce:transition-none';
+
 export default function ProfileChangePasswordModal({
   isOpen,
-  isDarkMode,
   email,
   onBack,
 }) {
@@ -20,23 +21,13 @@ export default function ProfileChangePasswordModal({
   const [saving, setSaving] = useState(false);
 
   const inputClass =
-    'w-full rounded-xl border px-4 py-3 outline-none transition-all ' +
-    (isDarkMode
-      ? 'border-white/20 bg-white/5 text-white placeholder:text-gray-500 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/40'
-      : 'border-slate-200 bg-white text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/25');
+    'w-full rounded-xl border border-border bg-background px-4 py-3 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary/40 motion-safe:transition-colors motion-reduce:transition-none';
 
-  const labelClass = isDarkMode
-    ? 'mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-400'
-    : 'mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-600';
-
-  const headingClass = isDarkMode ? 'text-white' : 'text-slate-900';
-  const mutedClass = isDarkMode ? 'text-gray-400' : 'text-slate-600';
-  const shellClass = isDarkMode
-    ? 'w-full max-w-md rounded-2xl border border-white/10 bg-[#111827] p-6 shadow-2xl'
-    : 'w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl';
-  const ghostBtn = isDarkMode
-    ? 'rounded-xl px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-white/10 hover:text-white'
-    : 'rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900';
+  const labelClass = 'mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
+  const headingClass = 'text-foreground';
+  const mutedClass = 'text-muted-foreground';
+  const shellClass = 'w-full max-w-md rounded-2xl border border-border bg-card p-6 text-foreground shadow-2xl';
+  const ghostBtn = `rounded-xl px-4 py-2 text-sm font-medium text-foreground hover:bg-muted ${MOTION}`;
 
   if (!isOpen) return null;
 
@@ -125,7 +116,7 @@ export default function ProfileChangePasswordModal({
           <button type="button" className={ghostBtn} onClick={onBack}>
             {t('profileModal.pwBack')}
           </button>
-          <button type="button" className={`text-sm font-semibold ${isDarkMode ? 'text-cyan-400 hover:underline' : 'text-cyan-700 hover:underline'}`} onClick={handleForgot}>
+          <button type="button" className={`text-sm font-semibold text-primary hover:underline ${MOTION}`} onClick={handleForgot}>
             {t('profileModal.pwForgot')}
           </button>
         </div>
@@ -134,7 +125,13 @@ export default function ProfileChangePasswordModal({
           <button type="button" className={ghostBtn} onClick={onBack} disabled={saving}>
             {t('nav.cancel')}
           </button>
-          <GradientButton type="submit" variant="primary" disabled={saving}>
+          <GradientButton
+            type="submit"
+            variant="primary"
+            disabled={saving}
+            aria-busy={saving}
+            className={MOTION}
+          >
             {saving ? t('profileModal.saving') : t('profileModal.pwSubmit')}
           </GradientButton>
         </div>

@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { useOrgShell } from './queries/useOrgShell';
-import { useOrgChannelMessages } from './queries/useOrgChannelMessages';
+import {
+  removeOrgChannelMessageCache,
+  upsertOrgChannelMessageCache,
+  useOrgChannelMessages,
+} from './queries/useOrgChannelMessages';
 import api from '../services/api';
 import dmMessageService from '../services/dmMessageService';
 import {
@@ -13,6 +18,8 @@ import {
 import { resolveApiErrorMessage } from '../utils/resolveApiErrorMessage';
 import { useAppStrings } from '../locales/appStrings';
 import { resolveOutgoingRoomReceipt } from '../utils/messageReceiptLabel';
+import { mergePollRealtimeMessage } from '../components/Chat/PollCard';
+import useOrgRoomMessageRealtime from './useOrgRoomMessageRealtime';
 
 const unwrapData = (payload) => payload?.data ?? payload;
 
@@ -68,6 +75,7 @@ export default function useProjectOrgChat({
 } = {}) {
   const { t } = useAppStrings();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { on, off, joinRoom, leaveRoom } = useSocket();
   const orgId = String(organizationId || '').trim();
   const filterPid = String(projectIdFilter || '').trim();
@@ -160,7 +168,11 @@ export default function useProjectOrgChat({
       ...prev,
       [sid]: { ...(prev[sid] || {}), ...patch },
     }));
-  }, []);
+    upsertOrgChannelMessageCache(queryClient, selectedChannelId, orgId, {
+      _id: sid,
+      ...patch,
+    });
+  }, [queryClient, selectedChannelId, orgId]);
 
   const appendLocal = useCallback((raw) => {
     const normalized = normalizeOrgChatMessage(raw?.data !== undefined ? unwrapData(raw) : raw);
@@ -170,7 +182,13 @@ export default function useProjectOrgChat({
       if (id && prev.some((m) => messageId(m) === id)) return prev;
       return [...prev, normalized];
     });
-  }, []);
+    upsertOrgChannelMessageCache(
+      queryClient,
+      normalized.roomId || selectedChannelId,
+      orgId,
+      normalized
+    );
+  }, [queryClient, selectedChannelId, orgId]);
 
   useEffect(() => {
     if (!selectedChannelId || !orgId || !joinRoom || !leaveRoom) return undefined;
@@ -210,6 +228,64 @@ export default function useProjectOrgChat({
     };
   }, [selectedChannelId, orgId, joinRoom, leaveRoom, on, off, appendLocal]);
 
+  const onRoomEdited = useCallback(
+    (msg) => {
+      const id = messageId(msg);
+      if (!id) return;
+      const normalized = normalizeOrgChatMessage(msg) || msg;
+      patchMessage(id, normalized);
+    },
+    [patchMessage]
+  );
+
+  const onRoomRecalled = useCallback(
+    (msg) => {
+      const id = messageId(msg);
+      if (!id) return;
+      const normalized = normalizeOrgChatMessage(msg) || msg;
+      patchMessage(id, normalized);
+    },
+    [patchMessage]
+  );
+
+  const onRoomDeleted = useCallback(
+    (msg) => {
+      const id = String(msg?.messageId || msg?._id || msg?.id || '').trim();
+      if (!id) return;
+      setDeletedMessageIds((prev) => new Set([...prev, id]));
+      removeOrgChannelMessageCache(queryClient, selectedChannelId, orgId, id);
+    },
+    [queryClient, selectedChannelId, orgId]
+  );
+
+  const applyPollUpdate = useCallback(
+    (msg) => {
+      const raw = msg?.data !== undefined && msg?.poll == null ? msg.data : msg;
+      const normalized = normalizeOrgChatMessage(raw) || raw;
+      const id = messageId(normalized);
+      if (!id) return;
+      setMessageOverrides((prev) => {
+        const prior = prev[id] || {};
+        return {
+          ...prev,
+          [id]: mergePollRealtimeMessage(prior, normalized),
+        };
+      });
+    },
+    []
+  );
+
+  useOrgRoomMessageRealtime({
+    roomId: selectedChannelId,
+    on,
+    off,
+    enabled: Boolean(selectedChannelId && orgId),
+    onEdited: onRoomEdited,
+    onRecalled: onRoomRecalled,
+    onDeleted: onRoomDeleted,
+    onPollUpdated: applyPollUpdate,
+  });
+
   const messages = useMemo(() => {
     const fromApi = normalizeOrgChatMessages(messagesQuery.messages || []);
     const merged = mergeById(fromApi, extraMessages);
@@ -219,7 +295,7 @@ export default function useProjectOrgChat({
       .map((m) => {
         const id = messageId(m);
         const ov = messageOverrides[id];
-        const row = ov ? { ...m, ...ov } : m;
+        const row = ov ? mergePollRealtimeMessage(m, { ...m, ...ov }) : m;
         return normalizeOrgChatMessage(row);
       });
   }, [messagesQuery.messages, extraMessages, messageOverrides, deletedMessageIds]);
@@ -443,7 +519,7 @@ export default function useProjectOrgChat({
           ? await dmMessageService.removeReaction(mid, emoji)
           : await dmMessageService.addReaction(mid, emoji);
         const updated = dmMessageService.unwrap(resp);
-        patchMessage(mid, updated);
+        patchMessage(mid, normalizeOrgChatMessage(updated) || updated);
       } catch {
         toast.error(t('friendChat.reactionFail'));
       }
@@ -482,6 +558,7 @@ export default function useProjectOrgChat({
       try {
         await api.delete(`/messages/${mid}`);
         setDeletedMessageIds((prev) => new Set([...prev, String(mid)]));
+        removeOrgChannelMessageCache(queryClient, selectedChannelId, orgId, mid);
         toast.success(t('organizations.msgDeleted'));
         return true;
       } catch {
@@ -489,7 +566,7 @@ export default function useProjectOrgChat({
         return false;
       }
     },
-    [t]
+    [t, queryClient, selectedChannelId, orgId]
   );
 
   const recallMessage = useCallback(
@@ -498,7 +575,7 @@ export default function useProjectOrgChat({
       try {
         const resp = await dmMessageService.recallMessage(mid);
         const updated = dmMessageService.unwrap(resp);
-        patchMessage(mid, updated);
+        patchMessage(mid, normalizeOrgChatMessage(updated) || updated);
         toast.success(t('friendChat.recallOk'));
         return true;
       } catch {
@@ -602,5 +679,6 @@ export default function useProjectOrgChat({
     deleteMessage,
     recallMessage,
     forwardMessage,
+    applyPollUpdate,
   };
 }

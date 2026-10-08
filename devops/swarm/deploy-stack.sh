@@ -35,10 +35,11 @@ export PORT="${PORT:-3005}"
 
 # shellcheck disable=SC1091
 source "$ROOT/devops/swarm/resolve-swarm-images.sh"
+# Prefer immutable release pin when VOICEHUB_RELEASE_MANIFEST is set (see deploy-release.sh).
 resolve_swarm_images
 
 if [[ "${SKIP_SECURITY_ENV_CHECK:-}" != "1" ]]; then
-  VOICEHUB_ENV_CHECK="${VOICEHUB_ENV_CHECK:-staging}" bash devops/scripts/check-security-env.sh
+  VOICEHUB_ENV_CHECK="${VOICEHUB_ENV_CHECK:-staging}" bash devops/scripts/security/check-security-env.sh
 fi
 
 ENTERPRISE_NET="${ENTERPRISE_NETWORK_NAME:-voicehub_enterprise-network}"
@@ -53,6 +54,18 @@ if docker network inspect "$ENTERPRISE_NET" >/dev/null 2>&1; then
     exit 1
   fi
 fi
+
+# Ollama (và voice) cần label trên node — Docker Desktop 1-node thường thiếu nếu chưa chạy dev-enable-profile.
+NODE_ID="$(docker node ls -q 2>/dev/null | head -1 || true)"
+if [[ -n "$NODE_ID" ]]; then
+  docker node update --label-add ai=true "$NODE_ID" 2>/dev/null || true
+  docker node update --label-add voice=true "$NODE_ID" 2>/dev/null || true
+fi
+
+# Volumes external (tên legacy Compose extra) — tạo nếu máy mới chưa có.
+for vol in voicehub-extra_ollama_data voicehub-extra_minio_data voicehub-extra_meilisearch_data voicehub-extra_qdrant_data; do
+  docker volume create "$vol" >/dev/null 2>&1 || true
+done
 
 echo "Deploying stack ${STACK_NAME} with ${STACK_FILE}"
 docker stack deploy -c "${STACK_FILE}" "${STACK_NAME}" --with-registry-auth

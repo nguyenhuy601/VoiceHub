@@ -129,8 +129,18 @@ function cloneProjectExperience(item) {
   const status = PROJECT_EXPERIENCE_STATUSES.has(String(item.status || ''))
     ? String(item.status)
     : 'suggested';
+  const domain = String(item.domain || item.businessDomain || '')
+    .trim()
+    .slice(0, 80);
+  let months;
+  if (item.months != null && item.months !== '') {
+    const m = Number(item.months);
+    if (Number.isFinite(m) && m >= 0 && m <= 600) months = Math.floor(m);
+  }
   const out = { name, role, work, source, status };
   if (year != null) out.year = year;
+  if (domain) out.domain = domain;
+  if (months != null) out.months = months;
   if (item.evidenceBoardId) out.evidenceBoardId = item.evidenceBoardId;
   return out;
 }

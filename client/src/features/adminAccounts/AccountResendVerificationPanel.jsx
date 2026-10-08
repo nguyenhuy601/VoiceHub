@@ -11,59 +11,43 @@ import {
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { unwrapApi } from '../../utils/adminUserUtils';
+import {
+  AccountLoadError,
+  AccountStatusPill,
+  DevLinkNotice,
+  unwrapSummary,
+  useAccountAuthSummary,
+} from './accountPanelParts';
 
 export default function AccountResendVerificationPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
-  const [summary, setSummary] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState('');
-  const [reloadTick, setReloadTick] = useState(0);
+  const { summary, setSummary, loading, loadError, reload } = useAccountAuthSummary(
+    orgId,
+    userId,
+    'adminAccounts.verificationFail'
+  );
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null);
+  const [devUrl, setDevUrl] = useState('');
 
   useEffect(() => {
-    if (!orgId || !userId) {
-      setSummary(null);
-      setLoadError('');
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setLoadError('');
-      try {
-        const res = await adminUserAPI.getAuthSummary(orgId, userId);
-        if (!cancelled) setSummary(unwrapApi(res)?.data ?? unwrapApi(res));
-      } catch (error) {
-        if (!cancelled) {
-          setSummary(null);
-          setLoadError(resolveApiErrorMessage(error, { t, fallback: t('adminAccounts.verificationFail') }));
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, userId, t, reloadTick]);
+    setDevUrl('');
+  }, [orgId, userId]);
 
   const send = async () => {
     if (!orgId || !userId || busy) return;
     setBusy(true);
     try {
       const res = await adminUserAPI.resendVerification(orgId, userId, window.location.origin);
-      const data = unwrapApi(res)?.data ?? unwrapApi(res);
-      setResult(data);
+      const data = unwrapSummary(res);
+      setDevUrl(typeof data?.verificationUrl === 'string' ? data.verificationUrl : '');
       if (data?.alreadyVerified) {
-        toast.error(t('adminAccounts.alreadyVerified'));
+        setSummary((prev) => (prev ? { ...prev, isEmailVerified: true } : prev));
+        toast.success(t('adminAccounts.alreadyVerified'));
       } else {
         toast.success(t('adminAccounts.verificationSent'));
       }
-      setLoadError('');
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminAccounts.verificationFail') }));
     } finally {
@@ -81,52 +65,32 @@ export default function AccountResendVerificationPanel({ orgId, embedded = false
       {!userId ? (
         <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
       ) : loading ? (
-        <p className="mb-4 text-sm text-muted-foreground">{t('common.loading')}</p>
+        <p className="mb-4 text-sm text-muted-foreground" aria-busy="true">
+          {t('common.loading')}
+        </p>
       ) : loadError ? (
-        <div className="mb-4 space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {loadError}
-          </p>
-          <button
-            type="button"
-            className={adminPrimaryBtnClass()}
-            disabled={busy}
-            onClick={() => setReloadTick((n) => n + 1)}
-          >
-            {t('adminRbac.retry')}
-          </button>
-        </div>
+        <AccountLoadError message={loadError} onRetry={reload} disabled={busy} />
       ) : summary ? (
-        <div className="mb-4 flex items-center gap-2">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">{t('adminAccounts.emailVerified')}:</span>
-          <span
-            className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${
-              isVerified
-                ? 'bg-emerald-500/12 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300'
-                : 'bg-amber-500/12 text-amber-800 ring-amber-500/25 dark:text-amber-200'
-            }`}
-          >
+          <AccountStatusPill tone={isVerified ? 'success' : 'warning'}>
             {isVerified ? t('adminAccounts.verifiedYes') : t('adminAccounts.verifiedNo')}
-          </span>
+          </AccountStatusPill>
+          {summary.email ? <span className="text-sm text-foreground">{summary.email}</span> : null}
         </div>
       ) : (
-        <p className="mb-4 text-sm text-muted-foreground">{t('common.loading')}</p>
+        <p className="mb-4 text-sm text-muted-foreground">{t('adminAccounts.summaryUnavailable')}</p>
       )}
       <button
         type="button"
-        disabled={!userId || busy || isVerified || Boolean(loadError)}
+        disabled={!userId || busy || loading || isVerified || Boolean(loadError)}
         className={adminPrimaryBtnClass()}
         onClick={send}
       >
-        <MailCheck className="h-3.5 w-3.5" />
+        <MailCheck className="h-3.5 w-3.5" aria-hidden />
         {busy ? t('common.saving') : t('adminAccounts.sendVerification')}
       </button>
-      {result?.verificationUrl ? (
-        <div className="mt-4 rounded-xl border border-border/70 bg-muted/20 p-3">
-          <p className="text-xs font-medium text-muted-foreground">{t('adminAccounts.devVerifyUrl')}</p>
-          <p className="mt-1 break-all font-mono text-xs text-foreground">{result.verificationUrl}</p>
-        </div>
-      ) : null}
+      <DevLinkNotice label={t('adminAccounts.devVerifyUrl')} url={devUrl} />
     </AdminUserFormCard>
   );
 

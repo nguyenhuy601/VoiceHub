@@ -65,6 +65,13 @@ const planningArtifactSchema = new mongoose.Schema(
       po: { type: reviewGateSchema, default: () => ({}) },
     },
     rejectionReason: { type: String, trim: true, default: '', maxlength: 2000 },
+    /** Gate that sent changes_requested — resubmit must return here (DEC D9). */
+    changesRequestedFrom: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 32,
+    },
     publishedWorkItemId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,

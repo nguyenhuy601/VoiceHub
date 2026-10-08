@@ -1,8 +1,26 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Search } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
-import { adminPrimaryBtnClass, AdminDenseTableCard, AdminDenseTableScroll } from '../../components/adminUsers/adminUserPanelUi';
+import {
+  AdminDenseMobileList,
+  AdminDenseTableCard,
+  AdminDenseTableScroll,
+  AdminUserPanelShell,
+  adminDenseRowClass,
+  adminInputClass,
+  adminManageLinkClass,
+  adminPrimaryBtnClass,
+  adminSecondaryBtnClass,
+} from '../../components/adminUsers/adminUserPanelUi';
 import useAdminVoiceRooms from '../../hooks/useAdminVoiceRooms';
+import { adminQueryHubLink } from '../../utils/adminHubLinks';
+
+const VOICE_MANAGE_ROOMS = '/app/admin/voice/manage-rooms';
+
+function roomId(ch) {
+  return String(ch._id || ch.id);
+}
 
 export default function VoiceRoomsListPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -20,66 +38,90 @@ export default function VoiceRoomsListPanel({ orgId }) {
     });
   }, [voiceRooms, query]);
 
+  const manageLink = (ch) => (
+    <Link to={adminQueryHubLink(VOICE_MANAGE_ROOMS, { roomId: roomId(ch) })} className={adminManageLinkClass()}>
+      {t('adminDomains.voice.manageRooms')}
+    </Link>
+  );
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-semibold">{t('adminDomains.voice.rooms')}</h2>
-          <p className="text-sm text-muted-foreground">{t('adminVoice.roomsHint')}</p>
-        </div>
-        <Link
-          to="/app/admin/voice/manage-rooms"
-          className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted/40"
-        >
+    <AdminUserPanelShell
+      title={t('adminDomains.voice.rooms')}
+      hint={t('adminVoice.roomsHint')}
+      wide
+      actions={
+        <Link to={VOICE_MANAGE_ROOMS} className={adminSecondaryBtnClass()}>
           {t('adminDomains.voice.manageRooms')}
         </Link>
+      }
+    >
+      <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+        <div className="relative max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t('adminVoice.searchRoom')}
+            aria-label={t('adminVoice.searchRoom')}
+            className={`${adminInputClass()} pl-9`}
+          />
+        </div>
       </div>
-      <input
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder={t('adminVoice.searchRoom')}
-        className="w-full max-w-md rounded-lg border border-border bg-background px-3 py-2 text-sm"
-      />
+
       <AdminDenseTableCard>
         {loading ? (
-          <p className="px-3 py-4 text-sm text-muted-foreground">{t('common.loading')}</p>
+          <p className="px-4 py-8 text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : error ? (
-          <div className="space-y-3 px-3 py-4">
-            <p className="text-sm text-destructive">{error}</p>
+          <div className="space-y-3 px-4 py-6">
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
             <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadRooms()}>
-              {t('adminRbac.retry')}
+              {t('common.retry')}
             </button>
           </div>
         ) : (
           <AdminDenseTableScroll>
-            <table className="min-w-full text-sm">
-              <thead className="sticky top-0 z-10 bg-muted/95 text-left text-xs uppercase text-muted-foreground backdrop-blur">
+            <AdminDenseMobileList
+              items={filtered}
+              getKey={roomId}
+              ariaLabel={t('adminDomains.voice.rooms')}
+              renderTitle={(ch) => ch.name || '—'}
+              renderMeta={(ch) => ch._scopeName || '—'}
+              renderActions={manageLink}
+            />
+            <table className="hidden min-w-full text-sm md:table">
+              <thead className="sticky top-0 z-10 bg-muted text-left text-xs uppercase text-muted-foreground backdrop-blur">
                 <tr>
-                  <th className="px-3 py-2">{t('adminVoice.colRoom')}</th>
-                  <th className="px-3 py-2">{t('adminVoice.colScope')}</th>
-                  <th className="px-3 py-2">{t('adminVoice.colId')}</th>
+                  <th className="px-4 py-3">{t('adminVoice.colRoom')}</th>
+                  <th className="px-4 py-3">{t('adminVoice.colScope')}</th>
+                  <th className="px-4 py-3">{t('adminVoice.colId')}</th>
+                  <th className="px-4 py-3">{t('adminVoice.colActions')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((ch) => {
-                  const id = String(ch._id || ch.id);
+                  const id = roomId(ch);
                   return (
-                    <tr key={id} className="border-t border-border/60">
-                      <td className="px-3 py-2 font-medium">{ch.name || '—'}</td>
-                      <td className="px-3 py-2 text-muted-foreground">{ch._scopeName || '—'}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{id}</td>
+                    <tr key={id} className={adminDenseRowClass()}>
+                      <td className="px-4 py-3 font-medium text-foreground">{ch.name || '—'}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{ch._scopeName || '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{id}</td>
+                      <td className="px-4 py-3">{manageLink(ch)}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
             {!filtered.length ? (
-              <p className="px-3 py-4 text-sm text-muted-foreground">{t('adminVoice.noRooms')}</p>
+              <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+                {voiceRooms.length ? t('adminVoice.noRoomsMatch') : t('adminVoice.noRooms')}
+              </p>
             ) : null}
           </AdminDenseTableScroll>
         )}
       </AdminDenseTableCard>
-    </div>
+    </AdminUserPanelShell>
   );
 }

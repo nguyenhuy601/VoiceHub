@@ -14,6 +14,7 @@ import { projectAPI } from '../../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { ConfirmDialog } from '../../../components/Shared';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import ProjectHubBacklogIssueRow from './ProjectHubBacklogIssueRow';
 import WorkItemDetail from './WorkItemDetail';
 import { childWorkStats } from './projectHubBacklogStats';
@@ -27,6 +28,7 @@ import {
   buildSprintMemberIdsBySprintId,
   countIssuesByStatusBucket,
   defaultSprintDateRange,
+  toastScheduleWarnings,
   formatHubDate,
   mergeIssueWithOverlay,
   unwrapPlanningEntity,
@@ -125,39 +127,36 @@ export default function ProjectHubPlanningPanel({
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
-  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
-  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const muted = 'text-muted-foreground';
+  const titleCls = 'text-foreground';
   const inputCls =
-    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
+    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring';
   const cardCls = 'rounded-xl border border-border bg-surface px-3 py-2.5';
+  const tabBtn =
+    'min-h-11 shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
-  const canCreateEpic = Boolean(canManage || hubCaps?.canCreateEpic);
-  const canDeleteEpic = Boolean(canManage || hubCaps?.canDeleteEpic);
-  const canUpdateBacklog = Boolean(canManage || hubCaps?.canUpdateBacklog);
-  const canCreateStory = Boolean(canManage || hubCaps?.canCreateStory);
-  const canCreateTask = Boolean(canManage || hubCaps?.canCreateTask);
-  const canCreateBug = Boolean(canManage || hubCaps?.canCreateBug);
+  const canCreateEpic = Boolean(hubCaps?.canCreateEpic);
+  const canDeleteEpic = Boolean(hubCaps?.canDeleteEpic);
+  const canUpdateBacklog = Boolean(hubCaps?.canUpdateBacklog);
+  const canCreateStory = Boolean(hubCaps?.canCreateStory);
+  const canCreateTask = Boolean(hubCaps?.canCreateTask);
+  const canCreateBug = Boolean(hubCaps?.canCreateBug);
   const canLinkEpic = Boolean(
-    canManage || hubCaps?.canUpdateEpic || hubCaps?.canUpdateStory || hubCaps?.canUpdateBacklog
+    hubCaps?.canUpdateEpic || hubCaps?.canUpdateStory || hubCaps?.canUpdateBacklog
   );
-  const canManageSprints = Boolean(canManage || hubCaps?.canManageSprints);
+  const canManageSprints = Boolean(hubCaps?.canManageSprints);
   const hubPerms = Array.isArray(hubCaps?.permissions) ? hubCaps.permissions : [];
-  const canDeleteSprint = Boolean(
-    canManage ||
-      hubCaps?.canDeleteSprint ||
-      hubPerms.includes('sprint:delete') ||
-      canManageSprints
-  );
+  const canDeleteSprint = Boolean(hubCaps?.canDeleteSprint || hubPerms.includes('sprint:delete'));
   const canChangeStatus = Boolean(
-    canManage ||
-      hubCaps?.canUpdateBacklog ||
+    hubCaps?.canUpdateBacklog ||
       hubCaps?.canCreateTask ||
       hubCaps?.canCreateBug ||
       hubCaps?.canUpdateStory ||
       hubPerms.includes('task:change_status') ||
-      hubPerms.includes('task:update')
+      hubPerms.includes('task:update') ||
+      hubPerms.includes('task:drag_to_done')
   );
-  const canDeleteIssue = Boolean(canManage || canUpdateBacklog);
+  const canDeleteIssue = Boolean(canUpdateBacklog || hubCaps?.canDeleteEpic);
   const hasBoardColumn = Boolean(boardId && defaultListId);
   const { config: workTypeConfig } = useProjectWorkTypes(projectId, {
     serverConfig: serverWorkTypeConfig,
@@ -165,7 +164,7 @@ export default function ProjectHubPlanningPanel({
   const allowedCreateTypes = useMemo(() => {
     const menu = visibleCreateMenuTypes(workTypeConfig, {
       epic: canCreateEpic,
-      feature: Boolean(canManage || canUpdateBacklog),
+      feature: Boolean(canUpdateBacklog || canCreateEpic),
       story: canCreateStory,
       task: canCreateTask,
       bug: canCreateBug,
@@ -177,7 +176,6 @@ export default function ProjectHubPlanningPanel({
   }, [
     workTypeConfig,
     canCreateEpic,
-    canManage,
     canUpdateBacklog,
     canCreateStory,
     canCreateTask,
@@ -478,8 +476,9 @@ export default function ProjectHubPlanningPanel({
     }
     setBusy(true);
     try {
-      await projectAPI.patchSprint(projectId, editSprint._id, patch);
+      const savedSprint = await projectAPI.patchSprint(projectId, editSprint._id, patch);
       toast.success(t('workspace.projectHubBacklogSprintUpdated'));
+      toastScheduleWarnings(savedSprint, toast, t);
       setEditSprint(null);
       await onReloadSprints?.();
     } catch (err) {
@@ -612,7 +611,7 @@ export default function ProjectHubPlanningPanel({
     if (!text || busy) return;
 
     if (isPlanningCreateType(typeId)) {
-      const allowed = typeId === 'epic' ? canCreateEpic : Boolean(canManage || canUpdateBacklog);
+      const allowed = typeId === 'epic' ? canCreateEpic : Boolean(canUpdateBacklog || canCreateEpic);
       if (!allowed) return;
       setBusy(true);
       try {
@@ -941,15 +940,12 @@ export default function ProjectHubPlanningPanel({
 
   if (loadError) {
     return (
-      <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-        <p className={`text-sm ${muted}`}>{t('workspace.projectHubPlanLoadFail')}</p>
-        <button
-          type="button"
-          onClick={reload}
-          className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
-        >
-          {t('workspace.projectHubPlanRetry')}
-        </button>
+      <div className="flex flex-col items-center px-4 py-10">
+        <AdminLoadErrorState
+          message={t('workspace.projectHubPlanLoadFail')}
+          onRetry={reload}
+          disabled={loading}
+        />
       </div>
     );
   }
@@ -970,12 +966,10 @@ export default function ProjectHubPlanningPanel({
               role="tab"
               aria-selected={view === tab.id}
               onClick={() => setView(tab.id)}
-              className={`min-h-11 shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold ${
+              className={`${tabBtn} ${
                 view === tab.id
                   ? 'bg-primary text-primary-foreground'
-                  : isDarkMode
-                    ? 'bg-white/5 text-slate-300'
-                    : 'bg-muted text-muted-foreground'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'
               }`}
             >
               {t(tab.labelKey)}
@@ -991,7 +985,7 @@ export default function ProjectHubPlanningPanel({
               <label className="relative min-w-0 flex-1">
                 <Search size={14} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
-                  className="w-full rounded-lg border border-border bg-background py-2 pl-7 pr-3 text-sm outline-none focus:border-primary"
+                  className="w-full rounded-lg border border-border bg-background py-2 pl-7 pr-3 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={t('workspace.projectHubBacklogSearch')}
@@ -999,7 +993,7 @@ export default function ProjectHubPlanningPanel({
                 />
               </label>
               <select
-                className="rounded-lg border border-border bg-background px-2 py-2 text-xs font-semibold"
+                className="rounded-lg border border-border bg-background px-2 py-2 text-xs font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 value={epicFilter}
                 onChange={(e) => setEpicFilter(e.target.value)}
                 aria-label={t('workspace.projectHubPlanFilterEpic')}
@@ -1267,6 +1261,7 @@ export default function ProjectHubPlanningPanel({
         }
         confirmText={t('workspace.projectHubBacklogDeleteIssue')}
         cancelText={t('common.cancel')}
+        variant="danger"
         onConfirm={() => {
           if (confirm?.kind === 'sprint') return deleteSprint(confirm.id);
           if (confirm?.kind === 'issue') return deleteIssue(confirm.id);
@@ -1317,7 +1312,7 @@ export default function ProjectHubPlanningPanel({
           if (keys.length === 1 && keys[0] === 'comments') return;
           if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
             try {
-              await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
+              return await taskAPI.updateBoardCard(cardId, patch, apiCtx || {});
             } catch (err) {
               toast.error(
                 resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubPlanCreateFail') })

@@ -2,7 +2,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import AdminMeetingPicker from '../../components/adminVoice/AdminMeetingPicker';
-import { GradientButton } from '../../components/Shared';
+import { ConfirmDialog, GradientButton } from '../../components/Shared';
 import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
 import meetingAPI from '../../services/api/meetingAPI';
 import useAdminMeetings from '../../hooks/useAdminMeetings';
@@ -26,12 +26,16 @@ export default function MeetingModeratePanel({ orgId, embedded = false }) {
   const meeting = meetings.find((m) => meetingId(m) === meetingIdParam);
   const participants = (meeting?.participants || []).filter((p) => !p.leftAt);
   const [busyKey, setBusyKey] = useState('');
+  const [kickTarget, setKickTarget] = useState(null);
+
+  const requestKick = (targetId) => {
+    if (!meetingIdParam || !targetId || busyKey) return;
+    const participant = participants.find((p) => participantUserId(p) === targetId);
+    setKickTarget({ id: targetId, label: participant ? participantLabel(participant) : targetId });
+  };
 
   const runModerate = async (targetId, action) => {
     if (!meetingIdParam || !targetId || busyKey) return;
-    const name = participants.find((p) => participantUserId(p) === targetId);
-    const label = name ? participantLabel(name) : targetId;
-    if (action === 'kick' && !window.confirm(t('adminVoice.kickConfirm', { name: label }))) return;
 
     const key = `${action}:${targetId}`;
     setBusyKey(key);
@@ -60,16 +64,16 @@ export default function MeetingModeratePanel({ orgId, embedded = false }) {
   };
 
   const body = (
-    <div className="rounded-xl border border-border bg-card/40 p-4">
+    <div className="rounded-xl border border-border bg-card p-4">
       <h2 className="text-lg font-semibold">{t('adminDomains.voice.moderate')}</h2>
       <p className="mt-2 text-sm text-muted-foreground">{t('adminVoice.moderateHint')}</p>
       {error ? (
         <div className="mt-4 space-y-3">
-          <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <p className="rounded-xl border border-destructive px-3 py-2 text-sm text-destructive">
             {error}
           </p>
           <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadMeetings()}>
-            {t('adminRbac.retry')}
+            {t('common.retry')}
           </button>
         </div>
       ) : loading ? (
@@ -83,7 +87,7 @@ export default function MeetingModeratePanel({ orgId, embedded = false }) {
             {isActiveMeeting(meeting) ? t('adminVoice.statusActive') : meeting.status} ·{' '}
             {t('adminVoice.participantsCount', { n: participants.length })}
           </p>
-          <ul className="max-h-64 space-y-2 overflow-auto rounded-lg border border-border/60 p-2 text-sm">
+          <ul className="max-h-64 space-y-2 overflow-auto rounded-lg border border-border p-2 text-sm">
             {participants.length ? (
               participants.map((p) => {
                 const uid = participantUserId(p);
@@ -91,12 +95,12 @@ export default function MeetingModeratePanel({ orgId, embedded = false }) {
                 return (
                   <li
                     key={uid || participantLabel(p)}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-muted/30"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md px-2 py-1.5 transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
                   >
                     <span className="min-w-0 text-foreground">
                       {participantLabel(p)}
                       {muted ? (
-                        <span className="ml-2 text-[10px] uppercase text-amber-600 dark:text-amber-200">
+                        <span className="ml-2 text-[10px] uppercase text-warning">
                           {t('adminVoice.mutedBadge')}
                         </span>
                       ) : null}
@@ -106,15 +110,15 @@ export default function MeetingModeratePanel({ orgId, embedded = false }) {
                         type="button"
                         disabled={Boolean(busyKey) || !uid}
                         onClick={() => runModerate(uid, muted ? 'unmute' : 'mute')}
-                        className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/50 disabled:opacity-50"
+                        className="rounded border border-border px-2 py-0.5 text-xs transition-colors duration-150 hover:bg-muted disabled:opacity-50 motion-reduce:transition-none"
                       >
                         {muted ? t('adminVoice.unmute') : t('adminVoice.mute')}
                       </button>
                       <button
                         type="button"
                         disabled={Boolean(busyKey) || !uid}
-                        onClick={() => runModerate(uid, 'kick')}
-                        className="rounded border border-red-500/40 px-2 py-0.5 text-xs text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-300"
+                        onClick={() => requestKick(uid)}
+                        className="rounded border border-destructive px-2 py-0.5 text-xs text-destructive transition-colors duration-150 hover:bg-muted disabled:opacity-50 motion-reduce:transition-none"
                       >
                         {t('adminVoice.kick')}
                       </button>
@@ -132,13 +136,23 @@ export default function MeetingModeratePanel({ orgId, embedded = false }) {
             </Link>
             <Link
               to={`/app/communicate/voice?meetingId=${encodeURIComponent(meetingIdParam)}`}
-              className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted/40"
+              className="rounded-lg border border-border px-3 py-2 text-sm transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
             >
               {t('adminVoice.openVoiceRoom')}
             </Link>
           </div>
         </div>
       )}
+      <ConfirmDialog
+        isOpen={Boolean(kickTarget)}
+        onClose={() => setKickTarget(null)}
+        onConfirm={() => runModerate(kickTarget?.id, 'kick')}
+        variant="danger"
+        title={t('adminTasks.confirmTitle')}
+        message={t('adminVoice.kickConfirm', { name: kickTarget?.label || '' })}
+        confirmText={t('adminVoice.kick')}
+        cancelText={t('common.cancel')}
+      />
     </div>
   );
 

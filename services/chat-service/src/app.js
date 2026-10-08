@@ -3,9 +3,11 @@ const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPoli
 const { authenticate } = require('@enterprise/shared/middleware/auth');
 const { MAX_UPLOAD_BYTES } = require('./config/fileRetention');
 const messageController = require('./controllers/message.controller');
+const { messageWriteLimiter } = require('./middleware/userWriteRateLimit');
 require('dotenv').config();
 
 const app = express();
+app.disable('x-powered-by');
 
 // Middleware
 app.use(createCorsMiddleware());
@@ -14,6 +16,7 @@ app.use(createCorsMiddleware());
 const rawUploadParser = express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES });
 const uploadStorageHandlers = [
   authenticate,
+  messageWriteLimiter,
   rawUploadParser,
   messageController.uploadStorageObject.bind(messageController),
 ];
@@ -25,8 +28,8 @@ const downloadStorageHandlers = [
 ];
 app.get('/api/messages/storage/object', ...downloadStorageHandlers);
 
-app.use(express.json({ limit: '5mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Routes
 app.get('/health', (req, res) => {
@@ -37,17 +40,9 @@ app.get('/health', (req, res) => {
 const messageRoutes = require('./routes/message.routes');
 app.use('/api/messages', messageRoutes);
 
-// 404
-app.use((req, res) => {
-  const { sendServiceError } = require('./middleware/sendServiceError');
-  sendServiceError(res, 404, {
-    errorCode: 'MESSAGE_NOT_FOUND',
-    messageUser: 'Không tìm thấy tài nguyên.',
-    message: 'Not found',
-  });
-});
+const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
-const errorHandler = require('./middleware/errorHandler');
+app.use(notFoundHandler);
 app.use(errorHandler);
 
 module.exports = app;

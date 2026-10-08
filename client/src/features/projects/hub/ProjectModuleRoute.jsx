@@ -8,6 +8,8 @@ import SpaceCalendarModule from '../../spaceModules/SpaceCalendarModule';
 import SpaceDocumentsModule from '../../spaceModules/SpaceDocumentsModule';
 import SpaceProjectChatModule from '../../spaceModules/SpaceProjectChatModule';
 import Phase1Shell from '../phase1/Phase1Shell';
+import Phase4Shell from './phase4/Phase4Shell';
+import { isPhase4DeliveryPhase } from './phase4/phase4Ui';
 import { MODULE_TO_HUB_TAB, normalizeProjectModule } from '../../../utils/suiteNavConfig';
 import {
   coerceDeliveryPhase,
@@ -31,6 +33,8 @@ import { SpaceProvider, SPACE_KIND } from '../../../context/SpaceContext';
 import { fetchProjectHubProject } from './useProjectHubQueries';
 import { queryKeys } from '../../../lib/queryKeys';
 import { useAppStrings } from '../../../locales/appStrings';
+import { isAiHitlIncomplete, resolveAiProjectEntryPath } from '../phase1/aiHitl/aiHitlNavState';
+import { loadLinkedPackForAiNav } from '../phase1/aiHitl/loadLinkedPackForAiNav';
 
 const PHASE1_MODULES = new Set([
   'overview',
@@ -45,6 +49,7 @@ const PHASE1_MODULES = new Set([
   'traceability',
   'analysis-reviews',
   'srs-baselines',
+  'ai-hitl',
   ...Object.keys(ARTIFACT_KIND_BY_MODULE),
   ...Object.keys(PLANNING_KIND_BY_MODULE),
   ...Object.values(PLANNING_SUB_TO_MODULE),
@@ -76,6 +81,17 @@ export default function ProjectModuleRoute() {
   const orgId = resolveProjectOrganizationId({
     search: searchParams,
     projectRow,
+  });
+
+  const needsAiHitlGuard =
+    Boolean(projectRow && orgId) &&
+    (deliveryPhase === 'requirement_analysis' || !projectRow?.deliveryPhase);
+
+  const { data: linkedPack, isPending: packPending } = useQuery({
+    queryKey: ['aiHitlNavLinkedPack', String(orgId || ''), String(projectId || '')],
+    queryFn: () => loadLinkedPackForAiNav(orgId, projectId),
+    enabled: needsAiHitlGuard,
+    staleTime: 30_000,
   });
 
   useEffect(() => {
@@ -114,7 +130,36 @@ export default function ProjectModuleRoute() {
     );
   }
 
-  if (projectRow && !isModuleAllowedForPhase(module, deliveryPhase)) {
+  if (needsAiHitlGuard && packPending && linkedPack === undefined) {
+    return (
+      <div className="flex min-h-[12rem] items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        <span>{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  const aiHitlIncomplete =
+    Boolean(projectRow) &&
+    isAiHitlIncomplete({ project: projectRow, pack: linkedPack || null });
+
+  // Incomplete AI → stay on ai-hitl in Phase1Shell; other modules redirect to HITL.
+  if (aiHitlIncomplete && module !== 'ai-hitl') {
+    const hitlPath = resolveAiProjectEntryPath({
+      projectId,
+      project: projectRow,
+      pack: linkedPack || null,
+      boardId: searchParams.get('boardId') || '',
+      organizationId: orgId,
+    });
+    return <Navigate to={hitlPath} replace />;
+  }
+
+  if (
+    projectRow &&
+    module !== 'ai-hitl' &&
+    !isModuleAllowedForPhase(module, deliveryPhase)
+  ) {
     return (
       <Navigate to={buildProjectsModulePath(projectId, phaseHomeModule(deliveryPhase))} replace />
     );
@@ -122,7 +167,7 @@ export default function ProjectModuleRoute() {
 
   if (
     projectRow &&
-    isPhase1DeliveryPhase(deliveryPhase) &&
+    (module === 'ai-hitl' || isPhase1DeliveryPhase(deliveryPhase)) &&
     (PHASE1_MODULES.has(module) ||
       module === 'overview' ||
       module === 'chat' ||
@@ -132,6 +177,10 @@ export default function ProjectModuleRoute() {
       module === 'settings')
   ) {
     return <Phase1Shell module={module} />;
+  }
+
+  if (projectRow && isPhase4DeliveryPhase(deliveryPhase)) {
+    return <Phase4Shell module={module} />;
   }
 
   const hubTab = MODULE_TO_HUB_TAB[module] || null;

@@ -117,7 +117,16 @@ async function listEntity(req, res) {
   try {
     const userId = asUserId(req);
     if (!userId) return unauthorized(res);
+    const { isValidEntityRef } = require('../utils/approval/approvalAccess');
+    if (!isValidEntityRef(req.params.entityType, req.params.entityId)) {
+      return sendServiceError(res, 400, {
+        errorCode: 'VALIDATION_FAILED',
+        messageUser: 'entityType/entityId không hợp lệ.',
+        message: 'Invalid entity ref',
+      });
+    }
     const data = await approvalService.listForEntity({
+      userId,
       entityType: req.params.entityType,
       entityId: req.params.entityId,
     });

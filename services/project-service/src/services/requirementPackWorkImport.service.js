@@ -11,7 +11,8 @@ const {
   assertBlueprintReadyForProjectCreate,
   mapBlueprintTasksToImportPlan,
 } = require('../utils/aiAnalysis/aiAnalysisBlueprintImport');
-const { getJobStatus, ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+const { isPhaseHowConfirmed } = require('../utils/aiAnalysis/phaseGate2');
 
 const IMPORT_HOURS_RATIONALE = 'requirement_pack_import';
 
@@ -28,9 +29,9 @@ const IMPORT_HOURS_RATIONALE = 'requirement_pack_import';
  */
 async function importRequirementPackWorkItems(input) {
   const pack = input?.pack;
+  // ensureAiAnalysisContainer migrates legacy jobs.projectPlan → phaseRuns.phase_how
   const container = ensureAiAnalysisContainer(pack?.aiAnalysis);
-  const jobPlan = getJobStatus(container, 'projectPlan');
-  if (jobPlan === 'confirmed' && (container.planning?.tasks || []).length) {
+  if (isPhaseHowConfirmed(container) && (container.planning?.tasks || []).length) {
     const blueprintPlan = mapBlueprintTasksToImportPlan(container, {
       applyAssignees: input.applyAssignees !== false,
       taskIds: input.taskIds || null,
@@ -40,12 +41,12 @@ async function importRequirementPackWorkItems(input) {
       blueprintPlan,
     });
   }
-  // Legacy FR→Task only when Blueprint projectPlan not confirmed
+  // Legacy FR→Task only when Gate2 phase_how not confirmed
   return importRequirementPackWorkItemsFast(input);
 }
 
 /**
- * Require projectPlan confirmed then import blueprint tasks.
+ * Require Gate2 (phase_how confirmed) then import blueprint tasks.
  */
 async function importBlueprintFromPack(input) {
   assertBlueprintReadyForProjectCreate(input.pack);
@@ -71,10 +72,9 @@ async function seedProjectMembersFromAssignees({
   leafAssignments = [],
 }) {
   const container = ensureAiAnalysisContainer(pack?.aiAnalysis);
-  const jobPlan = getJobStatus(container, 'projectPlan');
   const roleByUser = new Map();
 
-  if (jobPlan === 'confirmed' && (container.resource?.assignments || []).length) {
+  if (isPhaseHowConfirmed(container) && (container.resource?.assignments || []).length) {
     const roleByTask = new Map(
       (container.planning?.tasks || []).map((t) => [
         String(t.id),

@@ -1,0 +1,33 @@
+{
+  "schema": "candidateConflictBaseline.v1",
+  "capturedAt": "2026-09-29T04:14:22.356Z",
+  "note": "LEGACY status+shared object → conflict (FP). Not used in production.",
+  "signalsCount": 6,
+  "candidates": 5,
+  "clear": 1,
+  "legacyConflictFrCount": 3,
+  "candidateFrIds": [
+    "FR-01",
+    "FR-02",
+    "FR-03",
+    "FR-04",
+    "FR-06"
+  ],
+  "clearFrIds": [
+    "FR-05"
+  ],
+  "byReasonSchema": [
+    "missing_actor",
+    "missing_ac",
+    "thin_text",
+    "ambiguous",
+    "duplicate",
+    "cross_module",
+    "potential_conflict",
+    "high_impact"
+  ],
+  "pairCountSchema": {
+    "pairCount": "number",
+    "affectedFrCount": "number"
+  }
+}

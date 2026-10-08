@@ -12,7 +12,7 @@ Docker Desktop trên Windows lưu data trong file VHDX trên ổ C. VHDX **chỉ
 | Ưu tiên | Tránh trên máy dev / ổ gần đầy |
 |---------|----------------------------------|
 | **`docker pull`** image ghcr/public đã có sẵn | `build-local-images.sh` cho **cả stack** |
-| **`docker service update --force`** một service | `rolling-update-phase1-env.sh` / redeploy toàn stack khi không bắt buộc |
+| **`docker service update --force`** một service | Redeploy toàn stack khi không bắt buộc |
 | **Compose `up -d --no-build`** khi image local đã có | `compose up -d --build` mọi lần |
 | **Build local đúng 1 service** vừa sửa code | Build lại voice-service + 18 microservice “cho chắc” |
 
@@ -33,11 +33,12 @@ bash devops/swarm/build-local-images.sh <service-name>   # CHỈ service đó
 docker service update --force --update-parallelism 1 --update-order start-first voicehub_<service>
 ```
 
-**Compose extra** (ollama, minio, workers): xem [swarm-compose-split.mdc](./swarm-compose-split.mdc).
+**Infra AI trên Swarm** (ollama, minio, qdrant, meili): xem [swarm-compose-split.mdc](./swarm-compose-split.mdc).
 
 ```bash
+bash devops/swarm/dev-enable-profile.sh
+# hoặc chỉ refresh model sau khi stack đã có ollama:
 bash devops/swarm/dev-enable-profile.sh --skip-deploy
-docker compose -f docker-compose.swarm-extra.yml --env-file .env up -d --no-build
 ```
 
 ## GC định kỳ (giảm layer + container Exited)
@@ -45,7 +46,6 @@ docker compose -f docker-compose.swarm-extra.yml --env-file .env up -d --no-buil
 Swarm **không** tự xóa task container đã chết — mỗi `service update` / crash loop để lại container `Exited`.
 
 ```bash
-bash devops/swarm/swarm-exited-task-gc.sh          # hoặc chạy nền
 docker container prune -f
 docker image prune -f
 docker volume prune -f    # chỉ volume không gắn container
@@ -57,7 +57,7 @@ docker volume prune -f    # chỉ volume không gắn container
 
 - Trước build: kiểm tra đã có `voicehub-<service>:latest` hoặc có thể `docker pull` từ ghcr không.
 - Không gợi ý `build-local-images.sh` không tham số (build all) trừ khi user yêu cầu hoặc image local hoàn toàn thiếu.
-- Sau nhiều deploy: nhắc `swarm-exited-task-gc.sh` + prune.
+- Sau nhiều deploy: nhắc `docker container prune` + `docker image prune`.
 - Ổ C < ~5GB trống: **không** build image nặng (voice-service ~2.3GB, workers ~1.5GB, ollama pull); nhắc giải phóng disk trước.
 
 ## Thu hồi dung lượng Windows (VHDX)
@@ -69,4 +69,4 @@ docker volume prune -f    # chỉ volume không gắn container
 
 ## Image “cố định” dev (~15–20GB cần giữ)
 
-ollama (~8GB), voice-service (~2.3GB), voice workers Compose (~3GB), ~18 microservice Swarm (~7–8GB). Phần còn lại của 30GB+ thường là **container Exited**, build cache, volume orphan — đó là mục tiêu GC, không phải xóa hết stack.
+ollama (~8GB volume models), voice-service (~2.3GB), ~18 microservice + minio/qdrant/meili Swarm (~8–10GB). Phần còn lại của 30GB+ thường là **container Exited**, build cache, volume orphan — đó là mục tiêu GC, không phải xóa hết stack.

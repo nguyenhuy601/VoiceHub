@@ -12,7 +12,7 @@ export default function ChatAttachmentContextMenu({
   y = 0,
   items = [],
   onClose,
-  isDarkMode = false,
+  isDarkMode: _isDarkMode = false,
 }) {
   const ref = useRef(null);
 
@@ -34,14 +34,10 @@ export default function ChatAttachmentContextMenu({
 
   if (!open || !items.length) return null;
 
-  const panel = isDarkMode
-    ? 'border-white/10 bg-[#1a1d26] text-gray-100 shadow-2xl'
-    : 'border-slate-200 bg-white text-slate-800 shadow-xl';
-
   return createPortal(
     <div
       ref={ref}
-      className={`fixed z-[350] min-w-[220px] overflow-hidden rounded-xl border py-1 ${panel}`}
+      className="fixed z-[350] min-w-[220px] overflow-hidden rounded-xl border border-border bg-popover py-1 text-popover-foreground shadow-xl"
       style={{ left: Math.min(x, window.innerWidth - 240), top: Math.min(y, window.innerHeight - 320) }}
       role="menu"
     >
@@ -55,15 +51,17 @@ export default function ChatAttachmentContextMenu({
             if (!item.disabled) item.onClick?.();
             onClose?.();
           }}
-          className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition ${
+          className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm motion-safe:transition-colors motion-reduce:transition-none disabled:opacity-40 ${
             item.danger
-              ? 'text-red-500 hover:bg-red-500/10 disabled:opacity-40'
-              : isDarkMode
-                ? 'hover:bg-white/[0.06] disabled:opacity-40'
-                : 'hover:bg-slate-50 disabled:opacity-40'
+              ? 'text-destructive hover:bg-destructive/10'
+              : 'text-foreground hover:bg-muted'
           }`}
         >
-          {item.icon && <span className="w-5 shrink-0 text-center text-base">{item.icon}</span>}
+          {item.icon ? (
+            <span className="flex w-5 shrink-0 items-center justify-center text-base" aria-hidden>
+              {item.icon}
+            </span>
+          ) : null}
           <span>{item.label}</span>
         </button>
       ))}

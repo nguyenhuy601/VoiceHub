@@ -1,7 +1,7 @@
 # Cloudflare origin lockdown — operator reference
 
 > **Parent:** [phase5-origin-lockdown.md](../../docs/phase5-origin-lockdown.md)  
-> **IP list:** `bash devops/scripts/cloudflare-fetch-ips.sh`
+> **IP list:** [Cloudflare IPs](https://www.cloudflare.com/ips/)
 
 ## Rule matrix
 
@@ -15,11 +15,7 @@
 
 ## Linux (ufw)
 
-```bash
-bash devops/scripts/cloudflare-fetch-ips.sh
-bash devops/scripts/cloudflare-origin-lockdown.sh --dry-run
-ADMIN_SSH_CIDRS="203.0.113.10/32" sudo bash devops/scripts/cloudflare-origin-lockdown.sh
-```
+Cấu hình ufw thủ công theo rule matrix (ALLOW CF ranges trên 443; ALLOW UDP 40000–40010; SSH chỉ admin CIDR).
 
 ## AWS Security Group (example)
 

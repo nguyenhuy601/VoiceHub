@@ -204,6 +204,10 @@ const userProfileSchema = new mongoose.Schema(
           role: { type: String, trim: true, default: '' },
           work: { type: String, trim: true, maxlength: 300, default: '' },
           year: { type: Number, min: 1970, max: 2100, default: undefined },
+          /** Optional business domain for HOW history soft match (additive). */
+          domain: { type: String, trim: true, maxlength: 80, default: '' },
+          /** Optional duration in months (additive; never invented at match time). */
+          months: { type: Number, min: 0, max: 600, default: undefined },
           source: {
             type: String,
             enum: ['excel_import', 'closed_board', 'cv_parse', 'manual'],

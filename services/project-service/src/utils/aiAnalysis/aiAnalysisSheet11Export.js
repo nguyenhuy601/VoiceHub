@@ -31,8 +31,8 @@ function collectConfirmedRows(aiAnalysis, { includePlanning = false } = {}) {
     // Requirement / SRS path: only WHAT jobs (ADR 0003 RULE-05)
     if (!includePlanning && !isAiAnalysisWhatJob(job)) continue;
 
-    const meta = c.jobs[job];
-    if (meta.status !== 'confirmed') continue;
+    const meta = c.jobs?.[job];
+    if (!meta || meta.status !== 'confirmed') continue;
     const section = `Job:${job}`;
     pushRow(rows, section, 'status', meta.status);
     pushRow(rows, section, 'confirmedAt', meta.confirmedAt || '');

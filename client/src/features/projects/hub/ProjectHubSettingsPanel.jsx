@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStrings } from '../../../locales/appStrings';
 import { taskAPI, unwrapTaskApiPayload } from '../../../services/api/taskAPI';
@@ -9,7 +10,7 @@ import { organizationAPI } from '../../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
 import { flattenOrgStructureDepartments } from '../../../utils/orgMemberStructureScope';
-import { toDateInputValue, isProjectDateRangeInvalid } from './projectHubUtils';
+import { toDateInputValue, isProjectDateRangeInvalid, toastScheduleWarnings, formatHubProjectStatus } from './projectHubUtils';
 import ProjectHubSettingsPopover from './ProjectHubSettingsPopover';
 import ProjectHubWorkTypeHierarchy from './ProjectHubWorkTypeHierarchy';
 import ProjectHubDelegationSection from './ProjectHubDelegationSection';
@@ -29,15 +30,23 @@ import {
   PROJECT_PRIORITIES,
   PROJECT_TYPES,
 } from '../../adminTasks/createProjectSeed';
+import { coerceDeliveryPhase } from '../../../utils/projectPhaseNav';
 import { ensureProjectHubRoleCatalog } from './useProjectHubQueries';
 
-/** Status DA có thể sửa trên Hub Settings — không gồm closed (dùng luồng Complete). */
-const PROFILE_EDITABLE_STATUSES = Object.freeze([
-  'planning',
-  'ready_for_planning',
-  'in_development',
-  'on_hold',
-]);
+/** Status đúng một phase. Dropdown chỉ status đó và on_hold — không chọn lệch phase. */
+const STATUS_FOR_DELIVERY_PHASE = Object.freeze({
+  requirement_analysis: 'draft',
+  delivery_planning: 'ready',
+  development: 'in_development',
+  qa_uat: 'qa_uat',
+  release_handover: 'release_handover',
+});
+
+function statusChoicesForPhase(deliveryPhase) {
+  const phase = coerceDeliveryPhase(deliveryPhase);
+  const aligned = STATUS_FOR_DELIVERY_PHASE[phase] || 'in_development';
+  return Object.freeze([aligned, 'on_hold']);
+}
 
 const SPRINT_WEEKDAYS = Object.freeze([
   'monday',
@@ -180,6 +189,7 @@ export default function ProjectHubSettingsPanel({
   canArchiveProject = false,
   canArchiveWithoutComplete = false,
   isProjectCompleted = false,
+  isDraftProject = false,
   projectStillActive = true,
   onRequestArchive = null,
   isDarkMode = false,
@@ -204,7 +214,7 @@ export default function ProjectHubSettingsPanel({
   const [projectType, setProjectType] = useState('software');
   const [category, setCategory] = useState('internal');
   const [projectPriority, setProjectPriority] = useState('medium');
-  const [projectStatus, setProjectStatus] = useState('ready_for_planning');
+  const [projectStatus, setProjectStatus] = useState('draft');
   const [tagsInput, setTagsInput] = useState('');
   const [estimatedDurationDays, setEstimatedDurationDays] = useState('');
   const [workingCalendar, setWorkingCalendar] = useState('standard');
@@ -229,18 +239,22 @@ export default function ProjectHubSettingsPanel({
   const [bindingApproval, setBindingApproval] = useState(false);
   const [openSection, setOpenSection] = useState(null);
   const [catalogToken, setCatalogToken] = useState(0);
+  const [catalogLoadError, setCatalogLoadError] = useState('');
   const [workflowDoc, setWorkflowDoc] = useState(null);
   const [workflowStates, setWorkflowStates] = useState([]);
   const [priorityItems, setPriorityItems] = useState(() => normalizePriorityConfig(null).items);
 
-  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
+  const titleCls = 'text-foreground';
   /** Hint / phụ đề — đủ sáng trên nền tối (tránh slate-400 quá mờ). */
-  const muted = isDarkMode ? 'text-slate-300' : 'text-muted-foreground';
+  const muted = 'text-muted-foreground';
   const fieldLabelCls = `block text-xs font-semibold ${titleCls}`;
   const inputCls =
     'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary';
 
   const resolvedProjectId = String(projectId || board?.projectId || '').trim();
+  const statusChoices = statusChoicesForPhase(
+    (projectPayload || board || {}).deliveryPhase
+  );
 
   useEffect(() => {
     const src = projectPayload || board || {};
@@ -300,10 +314,15 @@ export default function ProjectHubSettingsPanel({
     setCategory(PROJECT_CATEGORIES.includes(nextCategory) ? nextCategory : 'internal');
     const nextPriority = String(src.priority || 'medium').trim().toLowerCase();
     setProjectPriority(PROJECT_PRIORITIES.includes(nextPriority) ? nextPriority : 'medium');
-    const nextStatus = String(src.status || 'ready_for_planning').trim().toLowerCase();
-    setProjectStatus(
-      PROFILE_EDITABLE_STATUSES.includes(nextStatus) ? nextStatus : 'ready_for_planning'
-    );
+    const nextStatus = String(src.status || 'draft').trim().toLowerCase();
+    const statusAlias = {
+      planning: 'draft',
+      ready_for_planning: 'ready',
+      active: 'in_development',
+    };
+    const coerced = statusAlias[nextStatus] || nextStatus;
+    const choices = statusChoicesForPhase(src.deliveryPhase || board?.deliveryPhase);
+    setProjectStatus(choices.includes(coerced) ? coerced : choices[0]);
     setTagsInput(tagsToInputValue(src.tags));
     const duration = src.estimatedDurationDays;
     setEstimatedDurationDays(
@@ -349,6 +368,7 @@ export default function ProjectHubSettingsPanel({
     let cancelled = false;
     (async () => {
       setRolesLoading(true);
+      setCatalogLoadError('');
       try {
         const catalogOpts = resolvedProjectId ? { projectId: resolvedProjectId } : {};
         const [roleList, structureRes, wfRes, apRes, orgVisRes] = await Promise.all([
@@ -384,12 +404,15 @@ export default function ProjectHubSettingsPanel({
           setApprovalPolicies(Array.isArray(ap) ? ap : []);
           if (orgVis?.policy) setOrgPolicySeed(normalizeVisibilityPolicy(orgVis.policy));
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setRoleCatalog([]);
           setDepartments([]);
           setWorkflowTemplates([]);
           setApprovalPolicies([]);
+          setCatalogLoadError(
+            resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubSettingsCatalogLoadFail') })
+          );
         }
       } finally {
         if (!cancelled) setRolesLoading(false);
@@ -398,7 +421,7 @@ export default function ProjectHubSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [canManage, resolvedOrganizationId, resolvedProjectId, catalogToken, queryClient]);
+  }, [canManage, resolvedOrganizationId, resolvedProjectId, catalogToken, queryClient, t]);
 
   useEffect(() => {
     if (!canManage || !boardId) {
@@ -593,8 +616,9 @@ export default function ProjectHubSettingsPanel({
       if (visibilityMode === 'custom') {
         body.visibilityPolicy = visibilityPolicy;
       }
+      let savedProject = null;
       if (resolvedProjectId) {
-        await projectAPI.patch(resolvedProjectId, {
+        savedProject = await projectAPI.patch(resolvedProjectId, {
           ...body,
           priorityConfig: { items: priorityItems },
         });
@@ -631,6 +655,7 @@ export default function ProjectHubSettingsPanel({
         );
       }
       toast.success(t('workspace.projectHubSettingsSaved'));
+      toastScheduleWarnings(savedProject, toast, t);
       onSaved?.();
     } catch (err) {
       toast.error(
@@ -694,8 +719,9 @@ export default function ProjectHubSettingsPanel({
           (openSection === 'profile' && !profileHydrated) ||
           (openSection === 'workflow' && !profileHydrated)
         }
+        aria-busy={saving || undefined}
         onClick={() => handleSave()}
-        className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+        className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
       >
         {saving ? '…' : t('workspace.projectHubSettingsSave')}
       </button>
@@ -837,9 +863,9 @@ export default function ProjectHubSettingsPanel({
           disabled={!profileHydrated || saving}
           onChange={(e) => setProjectStatus(e.target.value)}
         >
-          {PROFILE_EDITABLE_STATUSES.map((value) => (
+          {statusChoices.map((value) => (
             <option key={value} value={value}>
-              {t(`workspace.projectHubProjectStatus_${value}`)}
+              {formatHubProjectStatus(value, t)}
             </option>
           ))}
         </select>
@@ -1355,13 +1381,22 @@ export default function ProjectHubSettingsPanel({
           <p className={`mt-0.5 max-w-xl text-xs leading-relaxed ${muted}`}>{t('workspace.projectHubSettingsHint')}</p>
         </header>
 
+        {catalogLoadError ? (
+          <AdminLoadErrorState
+            className="mb-4"
+            message={catalogLoadError}
+            onRetry={() => setCatalogToken((n) => n + 1)}
+            disabled={rolesLoading}
+          />
+        ) : null}
+
         <ul className="grid gap-2 sm:grid-cols-2">
           {groups.map((group) => (
             <li key={group.id}>
               <button
                 type="button"
                 onClick={() => setOpenSection(group.id)}
-                className="flex w-full items-start gap-2 rounded-xl border border-border bg-surface px-3 py-3 text-left text-foreground hover:border-primary/40"
+                className="flex w-full items-start gap-2 rounded-xl border border-border bg-surface px-3 py-3 text-left text-foreground transition-colors motion-reduce:transition-none hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t('workspace.projectHubSettingsOpenAria', { title: group.title })}
               >
                 <div className="min-w-0 flex-1">
@@ -1383,12 +1418,21 @@ export default function ProjectHubSettingsPanel({
               id="project-hub-settings-danger-title"
               className={`text-sm font-bold ${titleCls}`}
             >
-              {t('workspace.projectHubSettingsDangerTitle')}
+              {isDraftProject
+                ? t('workspace.projectHubSettingsDangerDraftTitle')
+                : t('workspace.projectHubSettingsDangerTitle')}
             </h4>
             <p className={`mt-1 text-xs leading-relaxed ${muted}`}>
-              {t('workspace.projectHubSettingsDangerHint')}
+              {isDraftProject
+                ? t('workspace.projectHubSettingsDangerDraftHint')
+                : t('workspace.projectHubSettingsDangerHint')}
             </p>
-            {!canArchiveNow && !isProjectCompleted && !canArchiveWithoutComplete ? (
+            {!canArchiveNow && isDraftProject && !canArchiveWithoutComplete ? (
+              <p className="mt-2 text-xs text-muted-foreground" role="status">
+                {t('workspace.projectHubSettingsDeleteDraftNeedPerm')}
+              </p>
+            ) : null}
+            {!canArchiveNow && !isDraftProject && !isProjectCompleted && !canArchiveWithoutComplete ? (
               <p className="mt-2 text-xs text-muted-foreground" role="status">
                 {t('workspace.projectHubSettingsArchiveNeedComplete')}
               </p>
@@ -1399,7 +1443,9 @@ export default function ProjectHubSettingsPanel({
               onClick={() => onRequestArchive?.()}
               className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {t('workspace.projectHubArchiveProject')}
+              {isDraftProject
+                ? t('workspace.projectHubDeleteDraft')
+                : t('workspace.projectHubArchiveProject')}
             </button>
           </section>
         ) : null}

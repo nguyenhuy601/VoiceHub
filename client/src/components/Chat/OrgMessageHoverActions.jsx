@@ -1,18 +1,17 @@
 import { useEffect, useState } from 'react';
-import { MoreHorizontal, Reply, Sparkles } from 'lucide-react';
+import { MoreHorizontal, Reply } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 
 const EMOJI_QUICK = ['👍', '❤️', '😂', '🎉', '🚀', '✅', '🔥', '👀'];
 
 /**
- * Thanh hover emoji / reply / AI / menu — UI only (Figma WorkspaceSlugPage).
+ * Thanh hover emoji / reply / menu — UI only (Figma WorkspaceSlugPage).
  */
 export default function OrgMessageHoverActions({
   visible = false,
   className = '',
   onEmojiPick,
   onReply,
-  onAiExtract,
   onMenu,
   /** Parent giữ toolbar khi panel emoji mở (tránh mất hover → click chết). */
   onEmojiMenuOpenChange,
@@ -100,21 +99,6 @@ export default function OrgMessageHoverActions({
       >
         <Reply size={13} />
       </button>
-
-      {typeof onAiExtract === 'function' ? (
-        <button
-          type="button"
-          title={t('chat.aiExtractTask')}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onAiExtract();
-          }}
-          className="flex h-7 w-7 items-center justify-center rounded-md bg-ai-subtle text-ai transition hover:bg-ai-muted"
-        >
-          <Sparkles size={13} />
-        </button>
-      ) : null}
 
       <button
         type="button"

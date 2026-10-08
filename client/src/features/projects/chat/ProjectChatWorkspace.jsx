@@ -12,7 +12,8 @@ import ChatUploadProgressBar from '../../../components/Chat/ChatUploadProgressBa
 import ChatContextPicker from '../../../components/Chat/ChatContextPicker';
 import ChatContextPreview from '../../../components/Chat/ChatContextPreview';
 import ForwardChannelModal from '../../../components/Organization/ForwardChannelModal';
-import { Modal } from '../../../components/Shared';
+import { ConfirmDialog } from '../../../components/Shared';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import ProjectChannelMessageRow from './ProjectChannelMessageRow';
 import WorkItemDetail from '../hub/WorkItemDetail/WorkItemDetail';
 import { hydrateWorkItemDetailFromHub } from '../hub/WorkItemDetail/hydrateWorkItemDetailFromHub';
@@ -92,6 +93,7 @@ export default function ProjectChatWorkspace({
     deleteMessage,
     recallMessage,
     forwardMessage,
+    applyPollUpdate,
   } = chat;
 
   const fileInputRef = useRef(null);
@@ -416,7 +418,10 @@ export default function ProjectChatWorkspace({
 
   if (shellLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div
+        className="flex h-full items-center justify-center text-sm text-muted-foreground"
+        aria-busy="true"
+      >
         {t('common.loading')}
       </div>
     );
@@ -431,15 +436,8 @@ export default function ProjectChatWorkspace({
           ? t('organizations.loadFailTimeout')
           : t('organizations.loadFail');
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-sm text-muted-foreground">{hint}</p>
-        <button
-          type="button"
-          className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted"
-          onClick={() => void refetchShell()}
-        >
-          {t('common.refresh')}
-        </button>
+      <div className="flex h-full flex-col items-center justify-center px-6 py-8">
+        <AdminLoadErrorState message={hint} onRetry={() => void refetchShell()} />
       </div>
     );
   }
@@ -496,30 +494,25 @@ export default function ProjectChatWorkspace({
                   <button
                     type="button"
                     disabled={loadingOlder}
+                    aria-busy={loadingOlder ? 'true' : undefined}
                     onClick={() => void loadOlderMessages()}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                      isDarkMode
-                        ? 'border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-50'
-                        : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50'
-                    }`}
+                    className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {loadingOlder ? t('friendChat.loadingOlder') : t('friendChat.loadOlder')}
                   </button>
                 </div>
               ) : null}
               {loadingMessages ? (
-                <p className="text-center text-xs text-muted-foreground">{t('orgPanel.loadingMsgs')}</p>
+                <p className="text-center text-xs text-muted-foreground" aria-busy="true">
+                  {t('orgPanel.loadingMsgs')}
+                </p>
               ) : null}
               {messagesError && !loadingMessages ? (
-                <div className="flex flex-col items-center gap-2 py-4 text-center">
-                  <p className="text-xs text-muted-foreground">{t('organizations.loadMessagesFail')}</p>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
-                    onClick={() => void refetchMessages()}
-                  >
-                    {t('common.refresh')}
-                  </button>
+                <div className="flex flex-col items-center gap-2 py-4">
+                  <AdminLoadErrorState
+                    message={t('organizations.loadMessagesFail')}
+                    onRetry={() => void refetchMessages()}
+                  />
                 </div>
               ) : null}
               {!loadingMessages && !messagesError && messages.length === 0 ? (
@@ -600,12 +593,16 @@ export default function ProjectChatWorkspace({
                   onSubmitEdit={submitEditMessage}
                   onCancelEdit={cancelEditMessage}
                   onDelete={(mid) => setDeleteConfirmId(mid)}
+                  onPollUpdated={applyPollUpdate}
                   onRecall={recallMessage}
                 />
                 );
               })}
             </div>
-            <div className="relative z-10 shrink-0 border-t border-border bg-surface p-3">
+            <div
+              className="relative z-10 shrink-0 border-t border-border bg-surface p-3"
+              aria-busy={sending || mediaPickerSending ? 'true' : undefined}
+            >
               {isAnnouncement ? (
                 <p className="text-center text-xs text-muted-foreground">
                   {t('orgPanel.announcementComposerHint')}
@@ -641,7 +638,7 @@ export default function ProjectChatWorkspace({
                       </span>
                       <button
                         type="button"
-                        className="ml-2 shrink-0 rounded p-0.5 hover:bg-muted"
+                        className="ml-2 shrink-0 rounded p-0.5 transition-colors hover:bg-muted motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         aria-label={t('nav.close')}
                         onClick={() => setReplyToMessage(null)}
                       >
@@ -817,34 +814,19 @@ export default function ProjectChatWorkspace({
         }}
       />
 
-      <Modal
+      <ConfirmDialog
         isOpen={Boolean(deleteConfirmId)}
         onClose={() => setDeleteConfirmId(null)}
         title={t('organizations.deleteMsgTitle')}
-        size="sm"
-      >
-        <p className="mb-4 text-sm text-muted-foreground">{t('organizations.deleteMsgMsg')}</p>
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            className="rounded-lg border border-border px-3 py-2 text-sm"
-            onClick={() => setDeleteConfirmId(null)}
-          >
-            {t('common.cancel')}
-          </button>
-          <button
-            type="button"
-            className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white"
-            onClick={async () => {
-              const id = deleteConfirmId;
-              setDeleteConfirmId(null);
-              if (id) await deleteMessage(id);
-            }}
-          >
-            {t('orgPanel.menuDeleteMessage')}
-          </button>
-        </div>
-      </Modal>
+        message={t('organizations.deleteMsgMsg')}
+        confirmText={t('orgPanel.menuDeleteMessage')}
+        cancelText={t('common.cancel')}
+        variant="danger"
+        onConfirm={async () => {
+          const id = deleteConfirmId;
+          if (id) await deleteMessage(id);
+        }}
+      />
 
       <ChatContextPreview
         target={previewTarget}

@@ -58,6 +58,9 @@ export default function NotificationsFigmaView({
   loading = false,
   getActionKind,
   actingNotifId = '',
+  markingAll = false,
+  bulkActing = false,
+  markingReadId = '',
   onSelectNotification,
   onOpenNotification,
   onMarkReadNotification,
@@ -154,7 +157,9 @@ export default function NotificationsFigmaView({
           <button
             type="button"
             onClick={onMarkAllRead}
-            className="inline-flex h-[34px] items-center gap-1.5 rounded-lg border-none bg-muted px-3 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+            aria-busy={markingAll}
+            disabled={markingAll}
+            className="inline-flex h-[34px] items-center gap-1.5 rounded-lg border-none bg-muted px-3 text-[0.8125rem] text-muted-foreground transition-colors motion-reduce:transition-none hover:bg-primary/10 hover:text-primary disabled:opacity-60"
           >
             <CheckCheck className="h-3.5 w-3.5" aria-hidden />
             {resolvedMarkAllReadLabel}
@@ -251,6 +256,7 @@ export default function NotificationsFigmaView({
               onClear={onBulkClear}
               onMarkRead={onBulkMarkRead}
               onDelete={onBulkDelete}
+              busy={bulkActing}
               labels={{
                 regionAria: t('notifications.bulkBarAria'),
                 selectedCount: t('notifications.bulkSelectedCount', { n: checkedCount }),
@@ -321,6 +327,9 @@ export default function NotificationsFigmaView({
                   showBack={hasSelection}
                   onBack={onClearSelection}
                   onOpen={onOpenNotification}
+                  markingRead={
+                    selectedNotification ? markingReadId === selectedNotification.id : false
+                  }
                   onMarkRead={onMarkReadNotification}
                   onDelete={onDeleteNotification}
                   onAcceptFriend={onAcceptFriend}

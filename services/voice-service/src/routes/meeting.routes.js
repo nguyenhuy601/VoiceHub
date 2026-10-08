@@ -10,25 +10,6 @@ router.delete(
   meetingController.purgeOrganizationMeetings.bind(meetingController)
 );
 
-const meetingRecordingController = require('../controllers/meetingRecording.controller');
-router.patch(
-  '/internal/:meetingId/recording',
-  internalGatewayAuth,
-  meetingRecordingController.internalPatchRecording.bind(meetingRecordingController)
-);
-
-router.patch(
-  '/internal/:meetingId/transcript-chunk',
-  internalGatewayAuth,
-  meetingRecordingController.internalPatchTranscriptChunk.bind(meetingRecordingController)
-);
-
-router.patch(
-  '/internal/:meetingId/summary',
-  internalGatewayAuth,
-  meetingRecordingController.internalPatchSummary.bind(meetingRecordingController)
-);
-
 router.use(authenticate);
 
 // Tạo meeting mới
@@ -36,9 +17,6 @@ router.post('/', meetingController.createMeeting.bind(meetingController));
 
 // Lấy danh sách meetings
 router.get('/', meetingController.getMeetings.bind(meetingController));
-
-const meetingRecordingRoutes = require('./meetingRecording.routes');
-router.use('/:meetingId/recording', meetingRecordingRoutes);
 
 // Lấy meeting theo ID
 router.get('/:meetingId', meetingController.getMeetingById.bind(meetingController));
@@ -62,6 +40,3 @@ router.delete('/:meetingId/participants/:userId', meetingController.removePartic
 router.post('/:meetingId/participants/:userId/mute', meetingController.muteParticipant.bind(meetingController));
 
 module.exports = router;
-
-
-

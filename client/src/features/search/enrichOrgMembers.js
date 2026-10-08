@@ -94,8 +94,8 @@ export async function enrichUserIdsWithProfiles(userIds, options = {}) {
           profile?.displayName ||
           profile?.fullName ||
           profile?.username ||
-          (profile?.email ? String(profile.email).split('@')[0] : '') ||
           displayName;
+        // Peer profiles omit email; leave empty unless self/admin returned it.
         email = String(profile?.email || '').trim();
       } catch {
         /* */

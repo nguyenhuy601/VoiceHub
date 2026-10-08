@@ -151,7 +151,12 @@ export default function PeoplePanel({ orgId }) {
             <option value="hr">hr</option>
             <option value="admin">admin</option>
           </select>
-          <GradientButton type="submit" disabled={saving}>
+          <GradientButton
+            type="submit"
+            disabled={saving}
+            aria-busy={saving}
+            className="motion-reduce:transition-none motion-reduce:hover:scale-100"
+          >
             {saving ? t('common.saving') : t('companyAdmin.sendInvite')}
           </GradientButton>
         </form>

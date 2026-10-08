@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AdminUserPanelShell } from '../adminUsers/adminUserPanelUi';
+import { AdminHubTablist, AdminHubTabPanel, useAdminHubTabIds } from './AdminHubTablist';
 
 /**
  * Hub cấu hình toàn công ty: chỉ tabs (không picker entity).
@@ -15,6 +16,7 @@ export default function AdminConfigTabsHubShell({
   children,
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const tabIdPrefix = useAdminHubTabIds();
 
   const activeTab = useMemo(() => {
     const raw = String(searchParams.get(tabParam) || '').trim();
@@ -31,29 +33,17 @@ export default function AdminConfigTabsHubShell({
 
   return (
     <AdminUserPanelShell title={title} hint={hint} wide>
-      <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label={title}>
-        {tabs.map((tab) => {
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setTab(tab.id)}
-              className={[
-                'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-                active
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-              ].join(' ')}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-      <div role="tabpanel">{children({ activeTab })}</div>
+      <AdminHubTablist
+        idPrefix={tabIdPrefix}
+        label={title}
+        tabs={tabs}
+        activeTab={activeTab}
+        onSelect={setTab}
+        className="mb-4"
+      />
+      <AdminHubTabPanel idPrefix={tabIdPrefix} tabs={tabs} activeTab={activeTab}>
+        {children({ activeTab })}
+      </AdminHubTabPanel>
     </AdminUserPanelShell>
   );
 }

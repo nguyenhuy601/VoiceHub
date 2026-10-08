@@ -9,7 +9,6 @@
   - `task-ai.sync`
   - `voicehub.task.from_file`
   - `voicehub.notification.dispatch`
-  - `voicehub.webhook.delivery`
 - API latency p95 on gateway.
 - Socket reconnect rate and disconnect reasons.
 
@@ -21,8 +20,8 @@
 ```bash
 docker stack services voicehub
 docker stack ps voicehub --no-trunc
-bash devops/scripts/rabbit-queue-depth.sh
-bash devops/swarm/observability/export-swarm-metrics.sh
+# (removed) check Rabbit depth via management UI / rabbitmqctl
+# (export-swarm-metrics.sh đã gỡ) — dùng docker service ls / Rabbit UI
 docker service logs -f voicehub_socket-service
 docker service logs -f voicehub_ai-task-extract-worker
 docker service logs -f voicehub_project-worker
@@ -31,7 +30,7 @@ docker service logs -f voicehub_project-worker
 Deploy stack observability (khi cần):
 
 ```bash
-bash devops/swarm/observability/deploy-observability-stack.sh
+docker stack deploy -c devops/swarm/observability/docker-compose.observability.yml voicehub-obs
 ```
 
 ## Success threshold

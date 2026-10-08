@@ -7,7 +7,7 @@ const {
   TEMPLATE_VERSION,
 } = require('../../constants/requirementTemplate.constants');
 const { normalizeFunctionalRequirementsLevels } = require('./requirementFrLevel');
-const { normHeader, normId, normKey, normProse, isTruthyYes } = require('./requirementTemplateTextNorm');
+const { normHeader, normId, normKey, normProse, isTruthyYes, normalizeScopeType } = require('./requirementTemplateTextNorm');
 
 function normalizeHeader(raw) {
   return normHeader(raw);
@@ -131,8 +131,7 @@ function parseScopeFromContextRows(rows) {
 
 function parseScope(rows) {
   return rows.map((row) => {
-    const rawType = normHeader(row['Scope Type']);
-    const type = rawType.includes('out') ? 'out' : 'in';
+    const type = normalizeScopeType(row['Scope Type']);
     return { type, description: normProse(row.Description), _rowNumber: row._rowNumber };
   });
 }

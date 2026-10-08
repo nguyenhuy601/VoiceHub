@@ -30,14 +30,10 @@ declare -a ALL_IMAGES=(
   "role-permission-service:services/role-permission-service/Dockerfile"
   "chat-service:services/chat-service/Dockerfile"
   "project-service:services/project-service/Dockerfile"
-  "ai-task-service:services/ai-task-service/Dockerfile"
-  "ai-task-worker:services/ai-task-worker/Dockerfile"
-  "summary-service:services/summary-service/Dockerfile"
-  "summary-worker:services/summary-worker/Dockerfile"
+  "ai-project-planning-service:services/ai-project-planning-service/Dockerfile"
   "document-service:services/document-service/Dockerfile"
   "voice-service:services/voice-service/Dockerfile"
   "notification-service:services/notification-service/Dockerfile"
-  "webhook-service:services/webhook-service/Dockerfile"
   "socket-service:services/socket-service/Dockerfile"
 )
 
@@ -47,11 +43,7 @@ build_one() {
   local local_tag="voicehub-${name}:${TAG}"
 
   echo "==> Building ${local_tag} (${dockerfile})"
-  if [[ "$dockerfile" == services/webhook-service/Dockerfile ]]; then
-    docker build -f "${ROOT}/${dockerfile}" -t "${local_tag}" "${ROOT}/services/webhook-service"
-  else
-    docker build -f "${ROOT}/${dockerfile}" -t "${local_tag}" "${ROOT}"
-  fi
+  docker build -f "${ROOT}/${dockerfile}" -t "${local_tag}" "${ROOT}"
 
   if [[ "${BUILD_TAG_REGISTRY:-0}" == "1" && -n "${REGISTRY:-}" && -n "${OWNER:-}" ]]; then
     local remote="${REGISTRY}/${OWNER}/voicehub/${name}:${TAG}"
@@ -104,4 +96,4 @@ echo "[OK] Local images ready (voicehub-*:${TAG})"
 echo "Deploy: SWARM_USE_LOCAL_IMAGES=1 bash devops/swarm/deploy-stack.sh"
 echo "Tip: ghcr.io/* trùng Image ID là do tag kép — xóa tag registry (giữ voicehub-*):"
 echo "  docker rmi ghcr.io/${OWNER:-OWNER}/voicehub/<service>:${TAG}"
-echo "Tip: container Swarm Exited vẫn cần GC định kỳ: bash devops/swarm/swarm-exited-task-gc.sh"
+echo "Tip: container Swarm Exited — docker container prune -f"

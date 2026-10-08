@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import {
+  AdminEmptyState,
+  AdminListSkeleton,
+  AdminLoadErrorState,
+} from '../../components/adminUsers/adminPanelStates';
 import { AdminUserPanelShell } from '../../components/adminUsers/adminUserPanelUi';
-import ProjectHubChangeRequestsPanel from '../projects/hub/ProjectHubChangeRequestsPanel';
 import { useTheme } from '../../context/ThemeContext';
 import { useAppStrings } from '../../locales/appStrings';
 import projectAPI from '../../services/api/projectAPI';
 import { taskAPI, unwrapTaskApiPayload } from '../../services/api/taskAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import ProjectHubChangeRequestsPanel from '../projects/hub/ProjectHubChangeRequestsPanel';
+import { resolveHubCapabilities } from '../projects/hub/hubCaps';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
 
 function unwrapProject(res) {
@@ -16,6 +21,7 @@ function unwrapProject(res) {
 
 /**
  * Admin — Change Requests theo project (reuse Hub panel; không list org-wide).
+ * Chỉ vỏ trang: picker, caps fail-closed, trạng thái tải.
  */
 export default function TasksChangeRequestsPanel({ orgId }) {
   const { t, locale } = useAppStrings();
@@ -23,8 +29,11 @@ export default function TasksChangeRequestsPanel({ orgId }) {
   const [params, setParams] = useSearchParams();
   const boardId = String(params.get('boardId') || '').trim();
   const [projectId, setProjectId] = useState('');
-  const [projectCode, setProjectCode] = useState('');
+  const [projectRow, setProjectRow] = useState(null);
+  const [projectLoading, setProjectLoading] = useState(false);
+  const [projectError, setProjectError] = useState('');
   const [boardCards, setBoardCards] = useState([]);
+  const [boardCardsError, setBoardCardsError] = useState('');
 
   const setBoardId = (id) => {
     const next = new URLSearchParams(params);
@@ -37,31 +46,48 @@ export default function TasksChangeRequestsPanel({ orgId }) {
     setProjectId(String(id || '').trim());
   }, []);
 
-  useEffect(() => {
+  const loadProject = useCallback(async () => {
     const pid = String(projectId || '').trim();
     if (!pid) {
-      setProjectCode('');
-      return undefined;
+      setProjectRow(null);
+      setProjectError('');
+      setProjectLoading(false);
+      return;
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await projectAPI.get(pid);
-        const data = unwrapProject(res);
-        if (!cancelled) setProjectCode(String(data?.projectCode || '').trim());
-      } catch {
-        if (!cancelled) setProjectCode('');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
+    setProjectLoading(true);
+    setProjectError('');
+    setProjectRow(null);
+    try {
+      const res = await projectAPI.get(pid);
+      setProjectRow(unwrapProject(res));
+    } catch (error) {
+      setProjectRow(null);
+      setProjectError(
+        resolveApiErrorMessage(error, { t, fallback: t('adminTasks.crProjectLoadFail') })
+      );
+    } finally {
+      setProjectLoading(false);
+    }
+  }, [projectId, t]);
+
+  useEffect(() => {
+    void loadProject();
+  }, [loadProject]);
+
+  const hubCaps = useMemo(
+    () => resolveHubCapabilities(projectRow, { canManageFallback: false }),
+    [projectRow]
+  );
+  const canCreate = Boolean(projectRow && hubCaps.canCreateChangeRequest);
+  const canUpdate = Boolean(projectRow && hubCaps.canUpdateChangeRequest);
+  const canDelete = Boolean(projectRow && hubCaps.canDeleteChangeRequest);
+  const projectCode = String(projectRow?.projectCode || '').trim();
 
   const loadBoardCards = useCallback(async () => {
     const bid = String(boardId || '').trim();
     if (!bid) {
       setBoardCards([]);
+      setBoardCardsError('');
       return;
     }
     try {
@@ -73,15 +99,52 @@ export default function TasksChangeRequestsPanel({ orgId }) {
           ? data.tasks
           : [];
       setBoardCards(list.filter((c) => c?.isActive !== false));
+      setBoardCardsError('');
     } catch (error) {
       setBoardCards([]);
-      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.manageLoadFail') }));
+      setBoardCardsError(
+        resolveApiErrorMessage(error, { t, fallback: t('adminTasks.manageLoadFail') })
+      );
     }
   }, [boardId, orgId, t]);
 
   useEffect(() => {
     void loadBoardCards();
   }, [loadBoardCards]);
+
+  let projectBody;
+  if (!projectId) {
+    projectBody = <AdminEmptyState message={t('adminTasks.crPickProject')} />;
+  } else if (projectLoading) {
+    projectBody = <AdminListSkeleton rows={6} />;
+  } else if (projectError) {
+    projectBody = (
+      <AdminLoadErrorState message={projectError} onRetry={loadProject} disabled={projectLoading} />
+    );
+  } else {
+    projectBody = (
+      <div className="min-h-[24rem] overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        {boardCardsError ? (
+          <p role="status" className="border-b border-border px-3 py-2 text-xs text-muted-foreground">
+            {boardCardsError}
+          </p>
+        ) : null}
+        <ProjectHubChangeRequestsPanel
+          key={projectId}
+          projectId={projectId}
+          listActive
+          isDarkMode={isDarkMode}
+          locale={locale}
+          projectCode={projectCode}
+          canCreate={canCreate}
+          canUpdate={canUpdate}
+          canDelete={canDelete}
+          boardCards={boardCards}
+          onRefreshBoard={boardId ? loadBoardCards : null}
+        />
+      </div>
+    );
+  }
 
   return (
     <AdminUserPanelShell
@@ -95,26 +158,7 @@ export default function TasksChangeRequestsPanel({ orgId }) {
         onBoardIdChange={setBoardId}
         onProjectIdChange={onProjectIdChange}
       />
-
-      {!projectId ? (
-        <p className="text-sm text-muted-foreground">{t('adminTasks.crPickProject')}</p>
-      ) : (
-        <div className="min-h-[24rem] overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          <ProjectHubChangeRequestsPanel
-            key={projectId}
-            projectId={projectId}
-            listActive
-            isDarkMode={isDarkMode}
-            locale={locale}
-            projectCode={projectCode}
-            canCreate
-            canUpdate
-            canDelete
-            boardCards={boardCards}
-            onRefreshBoard={boardId ? loadBoardCards : null}
-          />
-        </div>
-      )}
+      {projectBody}
     </AdminUserPanelShell>
   );
 }

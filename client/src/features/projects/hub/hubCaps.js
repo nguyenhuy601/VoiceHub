@@ -139,6 +139,9 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
         canArchiveProject: flagOrPerm(caps, 'canManageBoard', ['project:archive', 'project:delete']),
         canArchiveWithoutComplete: permissions.includes('project:delete'),
         canChangeDeliveryPhase: flagOrPerm(caps, 'canChangeDeliveryPhase', ['delivery_phase:change']),
+        canSignOffUat: flagOrPerm(caps, 'canSignOffUat', ['uat:sign_off']),
+        // SoD: chỉ tin flag BE (role matrix) — không suy từ permissions dump (creator/admin).
+        canAcceptHandover: caps?.canAcceptHandover === true,
         allowedIssueTypes: allowedIssueTypesFromCaps(caps),
         permissions,
       },
@@ -180,6 +183,8 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
       canArchiveProject: fallback,
       canArchiveWithoutComplete: fallback,
       canChangeDeliveryPhase: fallback,
+      canSignOffUat: fallback,
+      canAcceptHandover: false,
       allowedIssueTypes: fallback ? ['story', 'task', 'bug'] : [],
       permissions: [],
     },

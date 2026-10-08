@@ -46,6 +46,13 @@ const EXTRA_JOB_TITLE_OPTIONS = [
 
 const JOB_TITLE_CUSTOM = '__custom__';
 
+const EMAIL_MAX_LENGTH = 254;
+const NAME_MAX_LENGTH = 100;
+const JOB_TITLE_MAX_LENGTH = 100;
+
+const TEXT_LINK_CLASS =
+  'inline-block rounded text-xs font-semibold text-primary underline-offset-2 transition-colors duration-150 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none';
+
 function unitId(row) {
   return String(row?._id || row?.id || '').trim();
 }
@@ -233,7 +240,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
           <input
             type="text"
             readOnly
-            className={`${adminInputClass()} bg-muted/40 font-mono`}
+            className={`${adminInputClass()} bg-muted font-mono`}
             value={previewCode || t('adminUsers.employeeCodeLoading')}
           />
           <p className="mt-1 text-xs text-muted-foreground">{t('adminUsers.employeeCodeAutoHint')}</p>
@@ -244,6 +251,8 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
           <input
             type="email"
             required
+            maxLength={EMAIL_MAX_LENGTH}
+            autoComplete="off"
             className={adminInputClass()}
             placeholder={t('companyAdmin.emailPlaceholder')}
             value={form.email}
@@ -255,6 +264,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
           <label className="block">
             <span className={adminLabelClass()}>{t('companyAdmin.firstName')}</span>
             <input
+              maxLength={NAME_MAX_LENGTH}
               className={adminInputClass()}
               placeholder={t('companyAdmin.firstName')}
               value={form.firstName}
@@ -264,6 +274,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
           <label className="block">
             <span className={adminLabelClass()}>{t('companyAdmin.lastName')}</span>
             <input
+              maxLength={NAME_MAX_LENGTH}
               className={adminInputClass()}
               placeholder={t('companyAdmin.lastName')}
               value={form.lastName}
@@ -289,7 +300,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
             ))}
           </select>
           {!depsLoading && !departments.length ? (
-            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{t('adminUsers.inviteNoDepartments')}</p>
+            <p className="mt-1 text-xs text-warning" role="status">{t('adminUsers.inviteNoDepartments')}</p>
           ) : null}
         </label>
 
@@ -325,6 +336,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
               <span className={adminLabelClass()}>{t('adminUsers.inviteJobTitleCustomLabel')}</span>
               <input
                 required
+                maxLength={JOB_TITLE_MAX_LENGTH}
                 className={adminInputClass()}
                 placeholder={t('adminUsers.inviteJobTitlePlaceholder')}
                 value={form.jobTitle}
@@ -332,10 +344,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
               />
             </label>
           ) : null}
-          <Link
-            to="/app/admin/rbac/positions"
-            className="inline-block text-xs font-medium text-primary underline-offset-2 hover:underline"
-          >
+          <Link to="/app/admin/rbac/positions" className={TEXT_LINK_CLASS}>
             {t('adminUsers.inviteJobTitleManageLink')}
           </Link>
         </div>
@@ -354,7 +363,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
           <p className="mt-1.5 text-xs text-muted-foreground">{t('adminUsers.membershipRoleInviteHint')}</p>
         </label>
 
-        <label className="flex items-start gap-2 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-sm">
+        <label className="flex items-start gap-2 rounded-xl border border-border bg-muted px-3 py-2.5 text-sm">
           <input
             type="checkbox"
             className="mt-0.5"
@@ -368,7 +377,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
         </label>
 
         {includeHireCapability ? (
-          <div className="space-y-4 rounded-xl border border-border/80 p-3">
+          <div className="space-y-4 rounded-xl border border-border p-3 motion-safe:animate-fade-in-fast">
             <label className="block">
               <span className={adminLabelClass()}>{t('adminUsers.inviteHireDomain')}</span>
               <select
@@ -425,12 +434,13 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
                   {form.skills.map((name) => (
                     <li
                       key={name}
-                      className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-foreground"
+                      className="inline-flex items-center gap-1 rounded-full bg-primary-subtle px-2 py-0.5 text-xs font-medium text-foreground"
                     >
                       {name}
                       <button
                         type="button"
-                        className="text-muted-foreground hover:text-destructive"
+                        aria-label={`${t('common.delete')} ${name}`}
+                        className="rounded text-muted-foreground transition-colors duration-150 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
                         onClick={() =>
                           setForm((f) => ({ ...f, skills: f.skills.filter((s) => s !== name) }))
                         }
@@ -471,7 +481,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
             <div className="space-y-2">
               <span className={adminLabelClass()}>{t('adminUsers.inviteHirePastProjects')}</span>
               {(form.pastProjects || []).map((p, idx) => (
-                <div key={`past-${idx}`} className="grid grid-cols-1 gap-2 rounded-lg border border-border/60 p-2 sm:grid-cols-2">
+                <div key={`past-${idx}`} className="grid grid-cols-1 gap-2 rounded-lg border border-border p-2 sm:grid-cols-2">
                   <input
                     className={adminInputClass()}
                     placeholder={t('adminUsers.inviteHireProjectName')}
@@ -523,7 +533,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
                   />
                   <button
                     type="button"
-                    className="text-xs font-medium text-destructive underline-offset-2 hover:underline"
+                    className="rounded text-xs font-medium text-destructive underline-offset-2 transition-colors duration-150 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
                     onClick={() =>
                       setForm((f) => ({
                         ...f,
@@ -538,7 +548,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
               {(form.pastProjects || []).length < MAX_INVITE_PAST_PROJECTS ? (
                 <button
                   type="button"
-                  className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                  className={TEXT_LINK_CLASS}
                   onClick={() =>
                     setForm((f) => ({
                       ...f,
@@ -555,18 +565,23 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
 
         <p className="text-xs text-muted-foreground">{t('adminUsers.inviteSelfServeHint')}</p>
 
-        <button type="submit" disabled={saving || !departments.length} className={adminPrimaryBtnClass('w-full sm:w-auto')}>
+        <button
+          type="submit"
+          disabled={saving || !departments.length}
+          aria-busy={saving}
+          className={adminPrimaryBtnClass('w-full sm:w-auto')}
+        >
           {saving ? t('common.saving') : t('companyAdmin.sendInvite')}
         </button>
       </form>
 
       {manualInviteUrl ? (
-        <div className="mx-auto mt-4 max-w-lg rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+        <div className="mx-auto mt-4 max-w-lg rounded-xl border border-warning bg-warning-bg p-3 text-sm" role="status">
           <p className="font-medium text-foreground">{t('adminUsers.inviteManualLinkTitle')}</p>
           <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{manualInviteUrl}</p>
           <button
             type="button"
-            className="mt-2 text-xs font-semibold text-primary underline-offset-2 hover:underline"
+            className={`mt-2 ${TEXT_LINK_CLASS}`}
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(manualInviteUrl);

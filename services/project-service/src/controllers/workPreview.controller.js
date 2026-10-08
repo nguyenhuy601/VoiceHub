@@ -18,7 +18,11 @@ async function getWorkPreview(req, res) {
     }
     const { projectId } = req.params;
     if (!mongoose.isValidObjectId(String(projectId || ''))) {
-      return res.status(400).json({ success: false, message: 'projectId không hợp lệ' });
+      return sendServiceError(res, 400, {
+        errorCode: 'VALIDATION_REQUIRED',
+        messageUser: 'projectId không hợp lệ',
+        message: 'projectId không hợp lệ',
+      });
     }
     const data = await workPreviewService.getWorkPreview({
       userId,

@@ -20,6 +20,7 @@ const PACK_LIST_SELECT = [
   'overview.platform',
   'overview.startDate',
   'overview.priority',
+  'overview.analysisMode',
   'planningReadiness',
 ].join(' ');
 
@@ -41,6 +42,8 @@ const PACK_WIZARD_SELECT = [
   'approvedAt',
   'overview',
   'planningReadiness',
+  'aiAnalysisActiveSnapshotId',
+  'aiAnalysisSnapshotMeta',
 ].join(' ');
 
 function hasStoredReadiness(row) {
@@ -133,6 +136,7 @@ function toRequirementPackListItem(row) {
       startDate: overview.startDate || null,
       platform: Array.isArray(overview.platform) ? overview.platform : [],
       priority: overview.priority || '',
+      analysisMode: String(overview.analysisMode || '').trim().toLowerCase(),
     },
     // Legacy AI Planning removed — stub for older clients
     aiPlanning: {
@@ -193,6 +197,8 @@ function toRequirementPackWizardItem(row) {
       sourcePackVersion: null,
     },
     planningReadiness: readiness,
+    aiAnalysisActiveSnapshotId: row.aiAnalysisActiveSnapshotId || null,
+    aiAnalysisSnapshotMeta: row.aiAnalysisSnapshotMeta || null,
   };
 }
 

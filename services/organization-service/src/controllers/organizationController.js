@@ -45,11 +45,14 @@ const { getOrgShellVersion } = require('../services/orgShellRealtime.service');
 const { buildDocumentsOverview } = require('../services/documentsOverview.service');
 const { fetchUserRolesInOrg } = require('../utils/orgRoles');
 const { resolveOrgAccess, toObjectId } = require('../utils/orgAccess');
+const { canIncludeInactiveStructure } = require('../utils/orgElevatedAccess');
 const {
   normalizeRoleChannelPermissions,
   hasAnyRoleChannelPermission,
 } = require('../utils/orgChannelAclHelpers');
 const { assertCanCreateOrganization } = require('../utils/singleCompanyPolicy');
+const { assertTextLimits, assertHttpUrl } = require('../utils/orgTextLimits');
+const { toPlainId, MAX_MEMBER_IDS } = require('../utils/orgMemberIds');
 
 const getUserId = (req) => {
   const raw = req.user?.id || req.user?.userId || req.user?._id;
@@ -57,6 +60,17 @@ const getUserId = (req) => {
   return s || null;
 };
 const MAX_OWNED_ORGS_PER_USER = 3;
+
+function readRoleAccessEntries(body) {
+  const entries = Array.isArray(body?.entries) ? body.entries : [];
+  if (entries.length > MAX_MEMBER_IDS) {
+    throw Object.assign(new Error(`Tối đa ${MAX_MEMBER_IDS} vai trò mỗi lần lưu.`), {
+      statusCode: 400,
+      errorCode: 'ORG_BATCH_TOO_LARGE',
+    });
+  }
+  return entries;
+}
 const RESERVED_SLUGS = new Set(['admin', 'system', 'support', 'api', 'workspace', 'root']);
 const STRUCTURE_PROVISION = {
   PENDING: 'pending',
@@ -89,17 +103,25 @@ const normalizeHierarchyBlueprint = (raw, { allowEmpty = false } = {}) => {
   const branches = sourceBranches
     .map((branch, bIdx) => {
       const branchName = String(branch?.name || '').trim() || `Chi nhánh ${bIdx + 1}`;
+      const branchLocation = String(branch?.location || '').trim();
+      assertTextLimits({ name: branchName, description: branchLocation });
       const divisionsRaw = Array.isArray(branch?.divisions) ? branch.divisions : [];
       const divisions = divisionsRaw
         .map((division, dIdx) => {
           const divisionName = String(division?.name || '').trim() || `Khối ${dIdx + 1}`;
+          assertTextLimits({ name: divisionName });
           const departmentsRaw = Array.isArray(division?.departments) ? division.departments : [];
           const departments = departmentsRaw
             .map((department, depIdx) => {
               const departmentName = String(department?.name || '').trim() || `Phòng ban ${depIdx + 1}`;
+              assertTextLimits({ name: departmentName });
               const teamsRaw = Array.isArray(department?.teams) ? department.teams : [];
               const teams = teamsRaw
-                .map((team, tIdx) => ({ name: String(team?.name || '').trim() || `Team ${tIdx + 1}` }))
+                .map((team, tIdx) => {
+                  const teamName = String(team?.name || '').trim() || `Team ${tIdx + 1}`;
+                  assertTextLimits({ name: teamName });
+                  return { name: teamName };
+                })
                 .slice(0, 30);
               return { name: departmentName, teams: teams.length ? teams : [{ name: 'Team chung' }] };
             })
@@ -112,7 +134,7 @@ const normalizeHierarchyBlueprint = (raw, { allowEmpty = false } = {}) => {
         .slice(0, 30);
       return {
         name: branchName,
-        location: String(branch?.location || '').trim(),
+        location: branchLocation,
         divisions: divisions.length ? divisions : [{ name: 'Khối mặc định', departments: [{ name: 'Phòng ban chung', teams: [{ name: 'Team chung' }] }] }],
       };
     })
@@ -497,6 +519,7 @@ exports.createOrganization = async (req, res, next) => {
     if (normalizedName.length < 2) {
       return orgValidation(res, 'Organization name must be at least 2 characters');
     }
+    assertTextLimits({ name: normalizedName, description });
 
     const normalizedSlug = normalizeSlug(slug || normalizedName);
     if (normalizedSlug.length < 3) {
@@ -645,13 +668,32 @@ exports.getOrganization = async (req, res, next) => {
 
 exports.updateOrganization = async (req, res, next) => {
   try {
-    const { name, description, logo, settings } = req.body;
+    const orgId = requireObjectId(res, req.params.id, 'orgId');
+    if (!orgId) return;
+    const { name, description, logo } = req.body || {};
+    try {
+      assertTextLimits({ name, description });
+      assertHttpUrl(logo, 'logo');
+    } catch (validationError) {
+      return orgCatch(res, validationError);
+    }
 
-    const organization = await Organization.findByIdAndUpdate(
-      req.params.id,
-      { name, description, logo, settings },
-      { new: true, runValidators: true }
-    );
+    const patch = {};
+    if (name !== undefined) {
+      const trimmedName = String(name).trim();
+      if (!trimmedName) return orgValidation(res, 'Tên tổ chức không được để trống.');
+      patch.name = trimmedName;
+    }
+    if (description !== undefined) patch.description = description;
+    if (logo !== undefined) patch.logo = logo;
+
+    const organization = await Organization.findByIdAndUpdate(orgId, patch, {
+      new: true,
+      runValidators: true,
+    });
+    if (!organization) {
+      return orgNotFound(res);
+    }
 
     await emitRealtimeEvent({
       event: 'organization:updated',
@@ -715,7 +757,7 @@ exports.getOrganizationStructure = async (req, res, next) => {
       return orgAccessDenied(res);
     }
 
-    const includeInactive = String(req.query?.includeInactive || '') === '1';
+    const includeInactive = await canIncludeInactiveStructure(req);
     // Huy: includeInactive bypass cache — panel vô hiệu cần thấy unit đã tắt
     const data = includeInactive
       ? await buildOrganizationStructureData(orgId, { includeInactive: true })
@@ -919,7 +961,8 @@ exports.grantChannelAccess = async (req, res, next) => {
   try {
     const actorId = getUserId(req);
     const { orgId, channelId } = req.params;
-    const { userId, permissions } = req.body || {};
+    const { permissions } = req.body || {};
+    const userId = toPlainId(req.body?.userId);
     if (!userId) {
       return orgValidation(res, 'userId is required');
     }
@@ -970,7 +1013,7 @@ exports.grantChannelAccess = async (req, res, next) => {
 exports.revokeChannelAccess = async (req, res, next) => {
   try {
     const { orgId, channelId } = req.params;
-    const { userId } = req.body || {};
+    const userId = toPlainId(req.body?.userId);
     if (!userId) {
       return orgValidation(res, 'userId is required');
     }
@@ -1021,7 +1064,7 @@ exports.saveChannelRoleAccess = async (req, res, next) => {
   try {
     const actorId = getUserId(req);
     const { orgId, channelId } = req.params;
-    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    const entries = readRoleAccessEntries(req.body);
     const channel = await Channel.findOne({
       _id: channelId,
       organization: orgId,
@@ -1123,7 +1166,7 @@ exports.saveDivisionRoleAccess = async (req, res, next) => {
   try {
     const actorId = getUserId(req);
     const { orgId, divisionId } = req.params;
-    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    const entries = readRoleAccessEntries(req.body);
     const division = await Division.findOne({
       _id: divisionId,
       organization: orgId,
@@ -1180,7 +1223,7 @@ exports.saveDepartmentRoleAccess = async (req, res, next) => {
   try {
     const actorId = getUserId(req);
     const { orgId, departmentId } = req.params;
-    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    const entries = readRoleAccessEntries(req.body);
     const department = await Department.findOne({
       _id: departmentId,
       organization: orgId,
@@ -1237,7 +1280,7 @@ exports.saveTeamRoleAccess = async (req, res, next) => {
   try {
     const actorId = getUserId(req);
     const { orgId, teamId } = req.params;
-    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    const entries = readRoleAccessEntries(req.body);
     const team = await Team.findOne({
       _id: teamId,
       organization: orgId,

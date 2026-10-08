@@ -1,3 +1,5 @@
+const { compareGatewayToken } = require('@enterprise/shared/middleware/compareGatewayToken');
+
 /**
  * Chỉ cho phép API Gateway (hoặc service có cùng GATEWAY_INTERNAL_TOKEN) gọi nội bộ.
  */
@@ -10,7 +12,7 @@ function internalGatewayAuth(req, res, next) {
     });
   }
   const got = String(req.headers['x-gateway-internal-token'] || '').trim();
-  if (got !== expected) {
+  if (!compareGatewayToken(got, expected)) {
     return res.status(401).json({
       success: false,
       message: 'Unauthorized',

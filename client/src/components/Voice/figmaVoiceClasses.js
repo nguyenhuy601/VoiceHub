@@ -111,7 +111,7 @@ export const FIGMA_VOICE_CTRL_GROUP = 'flex items-center gap-1 sm:gap-1.5';
 export const FIGMA_VOICE_CTRL_DIVIDER = 'mx-0.5 h-7 w-px shrink-0 bg-border dark:bg-white/12';
 
 export const FIGMA_VOICE_CTRL_BTN =
-  'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-0 transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
+  'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-0 motion-safe:transition-colors motion-safe:duration-150 motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
 
 export const FIGMA_VOICE_CTRL_BTN_IDLE =
   'bg-muted text-foreground hover:bg-muted/80 dark:bg-white/[0.07] dark:text-white dark:hover:bg-white/12';
@@ -123,7 +123,7 @@ export const FIGMA_VOICE_CTRL_BTN_DANGER =
   'bg-destructive/90 text-destructive-foreground hover:bg-destructive dark:bg-destructive/85';
 
 export const FIGMA_VOICE_CTRL_END =
-  'flex items-center gap-1.5 rounded-full border-0 bg-destructive px-4 py-2 text-sm font-bold text-destructive-foreground shadow-[0_4px_14px_rgba(239,68,68,0.4)] transition-shadow hover:shadow-[0_6px_20px_rgba(239,68,68,0.55)]';
+  'flex items-center gap-1.5 rounded-full border-0 bg-destructive px-4 py-2 text-sm font-bold text-destructive-foreground shadow-[0_4px_14px_rgba(239,68,68,0.4)] motion-safe:transition-shadow motion-safe:duration-150 motion-reduce:transition-none hover:shadow-[0_6px_20px_rgba(239,68,68,0.55)]';
 
 /** Panel phải inline (desktop Figma) — width do parent style. */
 export const FIGMA_VOICE_SIDE_PANEL_INLINE =
@@ -304,22 +304,22 @@ export const FIGMA_VOICE_LOBBY_JOIN_CARD =
   'rounded-2xl border border-border bg-surface p-5 shadow-sm transition-[box-shadow,border-color] duration-150 sm:p-6 lg:p-7 md:hover:-translate-y-0.5 md:hover:border-primary/20 md:hover:shadow-md';
 
 export const FIGMA_VOICE_LOBBY_JOIN_ICON =
-  'mb-[18px] flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-500/20 bg-cyan-500/10';
+  'mb-[18px] flex h-12 w-12 items-center justify-center rounded-xl border border-primary/20 bg-primary/10';
 
 export const FIGMA_VOICE_LOBBY_FEATURE_CHIP =
   'rounded-full border border-primary/20 bg-primary/10 px-2.5 py-0.5 text-[0.6875rem] font-semibold text-primary-hover';
 
 export const FIGMA_VOICE_LOBBY_PRIMARY_BTN =
-  'inline-flex h-10 items-center gap-1.5 rounded-[9px] border-none bg-gradient-to-br from-primary to-primary-hover px-[22px] text-sm font-semibold text-primary-foreground shadow-[0_4px_14px_rgba(37,99,235,0.4)] transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-[0_5px_20px_rgba(37,99,235,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';
+  'inline-flex h-10 items-center gap-1.5 rounded-[9px] border-none bg-gradient-to-br from-primary to-primary-hover px-[22px] text-sm font-semibold text-primary-foreground shadow-[0_4px_14px_rgba(37,99,235,0.4)] motion-safe:transition-[box-shadow,transform] motion-safe:duration-150 motion-reduce:transition-none motion-reduce:hover:translate-y-0 hover:-translate-y-0.5 hover:shadow-[0_5px_20px_rgba(37,99,235,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';
 
 export const FIGMA_VOICE_LOBBY_JOIN_INPUT =
-  'h-10 flex-1 rounded-[9px] border border-border bg-input-background px-3 font-mono text-[0.9375rem] tracking-[0.12em] text-foreground outline-none transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-muted-foreground focus:border-cyan-400 focus:shadow-[0_0_0_3px_rgba(34,211,238,0.14)] [-webkit-text-fill-color:var(--foreground)]';
+  'h-10 flex-1 rounded-[9px] border border-border bg-input-background px-3 font-mono text-[0.9375rem] tracking-[0.12em] text-foreground outline-none motion-safe:transition-[border-color,box-shadow,background-color] motion-safe:duration-150 motion-reduce:transition-none placeholder:text-muted-foreground focus:border-primary focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--primary)_22%,transparent)] [-webkit-text-fill-color:var(--foreground)]';
 
 export const FIGMA_VOICE_LOBBY_JOIN_BTN =
-  'h-10 shrink-0 rounded-[9px] border-none px-[18px] text-sm font-semibold text-primary-foreground transition-[box-shadow,opacity,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';
+  'h-10 shrink-0 rounded-[9px] border-none px-[18px] text-sm font-semibold text-primary-foreground motion-safe:transition-[box-shadow,opacity,transform] motion-safe:duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';
 
 export const FIGMA_VOICE_LOBBY_JOIN_BTN_ACTIVE =
-  'cursor-pointer bg-gradient-to-br from-cyan-400 to-cyan-600 shadow-[0_3px_12px_rgba(34,211,238,0.35)] hover:-translate-y-0.5 hover:shadow-[0_5px_18px_rgba(34,211,238,0.45)]';
+  'cursor-pointer bg-gradient-to-br from-primary to-primary-hover shadow-[0_3px_12px_color-mix(in_srgb,var(--primary)_35%,transparent)] motion-safe:transition-[box-shadow,transform] motion-safe:duration-150 motion-reduce:transition-none motion-reduce:hover:translate-y-0 hover:-translate-y-0.5 hover:shadow-[0_5px_18px_color-mix(in_srgb,var(--primary)_45%,transparent)]';
 
 export const FIGMA_VOICE_LOBBY_JOIN_BTN_IDLE =
   'cursor-default bg-muted text-muted-foreground';
@@ -340,7 +340,7 @@ export const FIGMA_VOICE_LOBBY_ROOM_LIVE =
   'flex items-center gap-1 rounded-full border border-success/20 bg-success/10 px-1.5 py-0.5';
 
 export const FIGMA_VOICE_LOBBY_ROOM_JOIN_BTN =
-  'h-9 shrink-0 rounded-lg border-none px-[18px] text-[0.8125rem] font-semibold text-primary-foreground transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';
+  'h-9 shrink-0 rounded-lg border-none px-[18px] text-[0.8125rem] font-semibold text-primary-foreground motion-safe:transition-[box-shadow,transform] motion-safe:duration-150 motion-reduce:transition-none motion-reduce:hover:translate-y-0 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';
 
 export const FIGMA_VOICE_AI_TRANSCRIBE_BTN =
   'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border-none px-3.5 py-2 text-xs font-bold transition-all duration-150';
@@ -349,7 +349,7 @@ export const FIGMA_VOICE_AI_TRANSCRIBE_IDLE =
   'bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary dark:bg-white/[0.08] dark:hover:bg-primary/15';
 
 export const FIGMA_VOICE_AI_TRANSCRIBE_ACTIVE =
-  'bg-gradient-to-br from-primary to-cyan-400 text-primary-foreground shadow-[0_4px_16px_rgba(37,99,235,0.45)]';
+  'bg-gradient-to-br from-primary to-primary-hover text-primary-foreground shadow-[0_4px_16px_color-mix(in_srgb,var(--primary)_45%,transparent)]';
 
 export const figmaVoiceLobbyJoinBtn = (enabled) =>
   [

@@ -11,6 +11,7 @@ const DEFAULT_JOB_WALL_MS = Object.freeze({
   hierarchyDecomposition: 120_000,
   requirementAnalysis: 300_000,
   capabilityAnalysis: 240_000,
+  requirementInsights: 180_000,
   wbsGeneration: 240_000,
   dependencyAnalysis: 180_000,
   architectureRiskAnalysis: 240_000,

@@ -107,12 +107,15 @@ async function listOrgResourcePool({
   projectRoleKeys,
   offset,
   fitAvailable,
+  projectId,
+  assigneeUserId,
   /** Internal: caller already asserted capacity / AI-planning permission */
   skipCapacityAuth = false,
   /** Internal: include compact verified projectExperiences on capability (AI planning enrich) */
   forAiPlanning = false,
 } = {}) {
-  if (String(view || '').trim() === 'roleSuggest') {
+  const poolView = String(view || '').trim();
+  if (poolView === 'roleSuggest' || poolView === 'staffingMatch') {
     const { listOrgRoleSuggestCandidates } = require('./projectMemberCandidate.service');
     return listOrgRoleSuggestCandidates({
       organizationId,
@@ -121,6 +124,11 @@ async function listOrgResourcePool({
       limit,
       offset,
       fitAvailable,
+      projectId,
+      assigneeUserId,
+      allowDeliveryRole: poolView === 'staffingMatch',
+      fromDate: poolView === 'staffingMatch' ? fromDate : undefined,
+      toDate: poolView === 'staffingMatch' ? toDate : undefined,
     });
   }
 

@@ -11,6 +11,7 @@ import {
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
 import AdminRoleInsertPositionPicker from '../../components/adminUsers/AdminRoleInsertPositionPicker';
+import { AdminBusySpinner, AdminLoadErrorState } from '../../components/adminUsers/adminPanelStates';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { slugifyRoleKey, ensureRoleKeyNamespace } from '../../utils/roleKeySlug';
@@ -30,6 +31,8 @@ export default function ProjectRoleCreatePanel({ orgId }) {
   const [busy, setBusy] = useState(false);
   const [roles, setRoles] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
+  const [rolesError, setRolesError] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
   const [insertPlace, setInsertPlace] = useState({ place: 'end' });
 
   const keyPreview = useMemo(
@@ -42,6 +45,7 @@ export default function ProjectRoleCreatePanel({ orgId }) {
     let cancelled = false;
     (async () => {
       setRolesLoading(true);
+      setRolesError('');
       try {
         const res = await projectRolesAPI.listRoles(orgId);
         const list = res?.data?.data || res?.data?.roles || res?.data || [];
@@ -54,7 +58,7 @@ export default function ProjectRoleCreatePanel({ orgId }) {
         }
       } catch (error) {
         if (!cancelled) {
-          toast.error(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
+          setRolesError(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
           setRoles([]);
         }
       } finally {
@@ -64,7 +68,7 @@ export default function ProjectRoleCreatePanel({ orgId }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, t]);
+  }, [orgId, t, reloadTick]);
 
   const submit = async () => {
     if (!orgId || busy) return;
@@ -93,19 +97,20 @@ export default function ProjectRoleCreatePanel({ orgId }) {
         <AdminUserFormCard title={t('adminDomains.rbac.projectRoleCreate')}>
           <label className="mb-4 block">
             <span className={adminLabelClass()}>{t('adminRbac.roleLabelField')}</span>
-            <div className="flex overflow-hidden rounded-lg border border-border bg-background">
+            <div className="flex overflow-hidden rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-ring">
               <span className="shrink-0 border-r border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
                 {PROJECT_ROLE_LABEL_PREFIX.trimEnd()}
               </span>
               <input
                 className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
+                maxLength={120}
                 value={suffix}
                 onChange={(e) => setSuffix(e.target.value)}
                 placeholder={t('adminRbac.projectRoleLabelPlaceholder')}
               />
             </div>
             {suffix.trim() && looksLikeOrgStructureForProjectRole(suffix) ? (
-              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{t('adminRbac.projectRoleLooksLikeOrgHint')}</p>
+              <p className="mt-1 text-xs text-warning">{t('adminRbac.projectRoleLooksLikeOrgHint')}</p>
             ) : null}
           </label>
 
@@ -114,6 +119,7 @@ export default function ProjectRoleCreatePanel({ orgId }) {
             <input
               className={adminInputClass()}
               value={suffix.trim() ? keyPreview : ''}
+              maxLength={64}
               readOnly
               placeholder={t('adminRbac.roleKeyAutoPlaceholder')}
             />
@@ -130,31 +136,42 @@ export default function ProjectRoleCreatePanel({ orgId }) {
             <span className="text-muted-foreground">{t('adminRbac.canAssignField')}</span>
           </label>
 
-          <AdminRoleInsertPositionPicker
-            roles={roles}
-            value={insertPlace}
-            onChange={setInsertPlace}
-            loading={rolesLoading}
-            title={t('adminRbac.roleInsertPlaceTitle')}
-            hint={t('adminRbac.roleInsertPlaceHint')}
-            startLabel={t('adminRbac.roleInsertStart')}
-            endLabel={t('adminRbac.roleInsertEnd')}
-            afterPrefix={t('adminRbac.roleInsertAfter')}
-            emptyLabel={t('adminRbac.roleInsertEmpty')}
-            previewLabel={suffix.trim() || keyPreview || ''}
-          />
+          {rolesError ? (
+            <AdminLoadErrorState
+              className="mb-4"
+              message={rolesError}
+              disabled={busy}
+              onRetry={() => setReloadTick((n) => n + 1)}
+            />
+          ) : (
+            <AdminRoleInsertPositionPicker
+              roles={roles}
+              value={insertPlace}
+              onChange={setInsertPlace}
+              loading={rolesLoading}
+              title={t('adminRbac.roleInsertPlaceTitle')}
+              hint={t('adminRbac.roleInsertPlaceHint')}
+              startLabel={t('adminRbac.roleInsertStart')}
+              endLabel={t('adminRbac.roleInsertEnd')}
+              afterPrefix={t('adminRbac.roleInsertAfter')}
+              emptyLabel={t('adminRbac.roleInsertEmpty')}
+              previewLabel={suffix.trim() || keyPreview || ''}
+            />
+          )}
 
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={!suffix.trim() || busy}
+              disabled={!suffix.trim() || busy || Boolean(rolesError)}
+              aria-busy={busy}
               className={adminPrimaryBtnClass()}
               onClick={submit}
             >
+              <AdminBusySpinner busy={busy} />
               {busy ? t('common.saving') : t('common.save')}
             </button>
             <button type="button" disabled={busy} className={adminSecondaryBtnClass()} onClick={() => navigate('/app/admin/rbac/project-roles')}>
-              {t('common.cancel') || 'Cancel'}
+              {t('common.cancel')}
             </button>
           </div>
         </AdminUserFormCard>

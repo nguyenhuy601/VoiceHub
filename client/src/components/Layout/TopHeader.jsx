@@ -1,36 +1,33 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Bell,
-  Bot,
-  ChevronRight,
-  Grid3X3,
   Languages,
+  LayoutDashboard,
   MessageCircle,
   PanelLeft,
-  Search,
   Shield,
   User,
-  X,
   Zap,
   ClipboardList,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useWorkspaceSuite, SUITE } from '../../context/WorkspaceSuiteContext';
 import { useAppStrings } from '../../locales/appStrings';
-import { useNotificationBadge } from '../../hooks/queries';
-import { getDefaultPathForSuite, normalizeSuite } from '../../utils/suitePathUtils';
 import { getUserDisplayName } from '../../utils/helpers';
 import UserAvatar from '../Shared/UserAvatar';
 import { FIGMA_TOP_HEADER } from './figmaShellClasses';
 import ShellCommandPalette from './ShellCommandPalette';
-import AppSwitcherOverlay from './AppSwitcherOverlay';
-import useUiRole from '../../hooks/useUiRole';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useShellLayout } from '../../context/ShellLayoutContext';
+import { fetchProjectHubProject } from '../../features/projects/hub/useProjectHubQueries';
+import { queryKeys } from '../../lib/queryKeys';
+import {
+  projectIdFromPathname,
+  resolveDeliveryRoleBadges,
+} from './profileDeliveryRoleBadge';
 
 function getSuiteMeta(t) {
   return {
@@ -97,111 +94,35 @@ function getSuiteMeta(t) {
   };
 }
 
-function AppSwitcherDropdown({ currentSuite, onSelect, onClose, anchorRef, allowedSuites, t }) {
-  const panelRef = useRef(null);
-  const [hoveredSuite, setHoveredSuite] = useState(null);
-  const SUITE_META = getSuiteMeta(t);
-
-  useEffect(() => {
-    const handle = (e) => {
-      if (
-        panelRef.current &&
-        !panelRef.current.contains(e.target) &&
-        anchorRef.current &&
-        !anchorRef.current.contains(e.target)
-      ) {
-        onClose();
-      }
-    };
-    document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handle);
-  }, [anchorRef, onClose]);
-
-  return (
-    <div
-      ref={panelRef}
-      className="absolute left-0 top-[calc(100%+8px)] z-[200] w-[min(320px,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
-    >
-      <div className="p-2">
-        {Object.entries(SUITE_META).map(([suite, meta]) => {
-          if (allowedSuites.length && !allowedSuites.includes(suite)) return null;
-          const Icon = meta.Icon;
-          const isActive = suite === currentSuite;
-          const isHovered = suite === hoveredSuite;
-          return (
-            <button
-              key={suite}
-              type="button"
-              onClick={() => onSelect(suite)}
-              onMouseEnter={() => setHoveredSuite(suite)}
-              onMouseLeave={() => setHoveredSuite(null)}
-              className="flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors"
-              style={{
-                borderColor: isActive || isHovered ? `${meta.color}33` : 'transparent',
-                background: isActive || isHovered ? meta.bgGlow : 'transparent',
-              }}
-            >
-              <div
-                className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px]"
-                style={{
-                  background: `linear-gradient(135deg, ${meta.gradStart}, ${meta.gradEnd})`,
-                  boxShadow: isActive ? `0 4px 12px ${meta.color}33` : 'none',
-                }}
-              >
-                <Icon size={18} color="#fff" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-semibold text-foreground">{meta.label}</span>
-                  {isActive && (
-                    <span
-                      className="rounded-full px-1.5 py-px text-[0.5625rem] font-bold tracking-wider"
-                      style={{ background: `${meta.color}18`, color: meta.color }}
-                    >
-                      {t('header.suiteActive')}
-                    </span>
-                  )}
-                </div>
-                <div className="mt-px text-xs text-muted-foreground">{meta.sublabel}</div>
-              </div>
-              {isActive && <ChevronRight size={14} style={{ color: meta.color }} />}
-            </button>
-          );
-        })}
-      </div>
-      <div className="border-t border-border px-4 py-2">
-        <div className="flex items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
-          <Bot size={11} className="shrink-0 text-ai" />
-          <span>{t('header.suiteFooter')}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function TopHeader() {
-  const [searchFocused, setSearchFocused] = useState(false);
-  const [searchValue, setSearchValue] = useState('');
-  const [showSwitcher, setShowSwitcher] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const switcherBtnRef = useRef(null);
   const profileRef = useRef(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { locale, toggleLocale } = useLocale();
   const { isDarkMode, toggleTheme } = useTheme();
   const { t } = useAppStrings();
   const { openMobileNav, mobileNavOpen } = useShellLayout();
-  const { currentSuite, navigateToSuite } = useWorkspaceSuite();
-  const { unreadCount } = useNotificationBadge({ scope: 'personal', enabled: Boolean(user) });
-  const { allowedSuites: roleSuites } = useUiRole();
-  const { canAccessHub } = useCompanyAdminAccess();
-  const allowedSuites = useMemo(() => {
-    const normalized = roleSuites.map((s) => normalizeSuite(s));
-    if (!canAccessHub) return normalized;
-    if (normalized.includes(SUITE.ADMIN)) return normalized;
-    return [...normalized, SUITE.ADMIN];
-  }, [roleSuites, canAccessHub]);
+  const { currentSuite } = useWorkspaceSuite();
+
+  const projectId = useMemo(
+    () => projectIdFromPathname(location.pathname),
+    [location.pathname]
+  );
+  const { data: hubProject } = useQuery({
+    queryKey: queryKeys.projectHub.project(projectId),
+    queryFn: () => fetchProjectHubProject(projectId),
+    enabled: Boolean(projectId),
+    staleTime: 30_000,
+  });
+  const roleBadges = useMemo(
+    () =>
+      resolveDeliveryRoleBadges(
+        hubProject?.capabilities?.viewerProjectRoleKeys || hubProject?.viewerProjectRoleKeys
+      ),
+    [hubProject]
+  );
 
   const SUITE_META = getSuiteMeta(t);
   const activeMeta = SUITE_META[currentSuite] || SUITE_META[SUITE.COMMUNICATE];
@@ -220,11 +141,6 @@ export default function TopHeader() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  const handleSuiteSelect = (suite) => {
-    if (allowedSuites.length && !allowedSuites.includes(suite)) return;
-    navigateToSuite(suite, { path: getDefaultPathForSuite(suite) });
-  };
-
   const handleLogout = async () => {
     try {
       await logout();
@@ -235,15 +151,6 @@ export default function TopHeader() {
     navigate('/login');
   };
 
-  const notifPath =
-    currentSuite === SUITE.COLLABORATE || currentSuite === SUITE.COMPANY
-      ? '/app/company/notifications'
-      : currentSuite === SUITE.PROJECTS
-        ? '/app/company/notifications'
-      : currentSuite === SUITE.ADMIN
-        ? '/app/company/notifications'
-        : '/app/communicate/notifications';
-
   const suiteLabel = activeMeta.shortLabel;
 
   const handleLocaleToggle = () => {
@@ -253,11 +160,6 @@ export default function TopHeader() {
 
   return (
     <>
-      <AppSwitcherOverlay
-        open={showSwitcher}
-        onClose={() => setShowSwitcher(false)}
-        closeAriaLabel={t('header.closeMenuSuiteAria')}
-      />
       <header className={FIGMA_TOP_HEADER}>
         <div className="flex shrink-0 items-center gap-2">
           <button
@@ -295,115 +197,9 @@ export default function TopHeader() {
           </div>
         </div>
 
-        <div className="hidden min-w-0 flex-1 justify-center px-2 md:flex sm:px-6">
-          <div className="relative w-full max-w-[480px]">
-            <Search
-              size={14}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 transition-colors"
-              style={{ color: searchFocused ? '#2563EB' : 'var(--muted-foreground)' }}
-            />
-            <input
-              type="text"
-              placeholder={t('header.searchPlaceholder')}
-              value={searchValue}
-              onChange={(e) => setSearchValue(e.target.value)}
-              onFocus={() => setSearchFocused(true)}
-              onBlur={() => setSearchFocused(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  window.dispatchEvent(
-                    new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
-                  );
-                }
-              }}
-              className="h-9 w-full rounded-lg border text-sm text-foreground outline-none transition"
-              style={{
-                paddingLeft: '36px',
-                paddingRight: '80px',
-                borderColor: searchFocused ? '#2563EB' : 'var(--border)',
-                background: searchFocused ? 'var(--surface)' : 'var(--input-background, var(--muted))',
-                boxShadow: searchFocused ? '0 0 0 3px rgba(37,99,235,0.15)' : 'none',
-              }}
-            />
-            <div className="pointer-events-none absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-[5px] bg-border px-1.5 py-0.5 font-mono text-[0.6875rem] text-muted-foreground">
-              ⌘K
-            </div>
-          </div>
-        </div>
-
-        <div className="min-w-0 flex-1 md:hidden" aria-hidden />
+        <div className="min-w-0 flex-1" aria-hidden />
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
-          <button
-            type="button"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground md:hidden"
-            aria-label={t('header.searchPlaceholder')}
-            onClick={() => {
-              window.dispatchEvent(
-                new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
-              );
-            }}
-          >
-            <Search size={16} aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={handleLocaleToggle}
-            title={locale === 'vi' ? t('header.switchLocaleEn') : t('header.switchLocaleVi')}
-            aria-label={t('nav.ariaLang')}
-            className="flex h-8 w-8 items-center justify-center rounded-[7px] border border-border bg-muted text-xs font-bold tracking-wide text-foreground transition hover:border-primary/35 hover:bg-primary/10 hover:text-primary sm:w-auto sm:gap-1 sm:px-2.5"
-          >
-            <Languages size={13} aria-hidden />
-            <span className="hidden sm:inline">{({ en: 'VI', vi: 'EN' }[locale] || 'EN')}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate(notifPath)}
-            aria-label={t('dashboard.ariaNotifications')}
-            title={t('dashboard.ariaNotifications')}
-            className="relative flex h-[34px] w-[34px] items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground"
-          >
-            <Bell size={16} aria-hidden />
-            {unreadCount > 0 && (
-              <span className="absolute right-[7px] top-[7px] h-1.5 w-1.5 rounded-full border-[1.5px] border-surface bg-error" />
-            )}
-          </button>
-
-          <div className="relative hidden lg:block">
-            <button
-              ref={switcherBtnRef}
-              type="button"
-              onClick={() => setShowSwitcher((s) => !s)}
-              title={t('nav.switchSuite')}
-              aria-label={t('nav.switchSuite')}
-              aria-expanded={showSwitcher}
-              className={`flex h-[34px] w-[34px] items-center justify-center rounded-lg transition hover:bg-muted ${
-                showSwitcher
-                  ? 'border border-primary/25 bg-primary/10 text-primary'
-                  : 'border border-transparent text-foreground/80 hover:text-foreground'
-              }`}
-            >
-              <Grid3X3 size={16} strokeWidth={2} aria-hidden />
-            </button>
-            {showSwitcher && (
-              <AppSwitcherDropdown
-                currentSuite={currentSuite}
-                onSelect={(suite) => {
-                  handleSuiteSelect(suite);
-                  setShowSwitcher(false);
-                }}
-                onClose={() => setShowSwitcher(false)}
-                anchorRef={switcherBtnRef}
-                allowedSuites={allowedSuites}
-                t={t}
-              />
-            )}
-          </div>
-
-          <div className="mx-0.5 hidden h-5 w-px bg-border lg:block" aria-hidden />
-
           <div className="relative" ref={profileRef}>
             <button
               type="button"
@@ -424,7 +220,7 @@ export default function TopHeader() {
             </button>
 
             {showProfileMenu && (
-              <div className="absolute right-0 top-[calc(100%+6px)] z-[100] w-[220px] animate-scale-in overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
+              <div className="absolute right-0 top-[calc(100%+6px)] z-[100] w-[240px] animate-scale-in overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
                 <div className="border-b border-border px-3.5 py-3">
                   <div className="flex items-center gap-2.5">
                     <UserAvatar
@@ -437,6 +233,18 @@ export default function TopHeader() {
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-foreground">{displayName}</div>
                       <div className="truncate text-[0.6875rem] text-muted-foreground">{user?.email}</div>
+                      {roleBadges.length ? (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {roleBadges.map((b) => (
+                            <span
+                              key={b.key}
+                              className={`inline-flex items-center rounded px-1.5 py-0.5 text-[0.625rem] font-bold tracking-wide ${b.className}`}
+                            >
+                              {b.short}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -450,7 +258,33 @@ export default function TopHeader() {
                     className="flex w-full items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-[0.8125rem] text-foreground transition hover:bg-muted"
                   >
                     <User size={14} className="shrink-0 text-muted-foreground" aria-hidden />
-                    {t('nav.editProfile')}
+                    {t('nav.myProfile')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowProfileMenu(false);
+                      navigate('/app/me/dashboard');
+                    }}
+                    className="flex w-full items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-[0.8125rem] text-foreground transition hover:bg-muted"
+                  >
+                    <LayoutDashboard size={14} className="shrink-0 text-muted-foreground" aria-hidden />
+                    {t('nav.overview')}
+                  </button>
+                  <div className="my-0.5 h-px bg-border" aria-hidden />
+                  <button
+                    type="button"
+                    onClick={handleLocaleToggle}
+                    className="flex w-full items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-[0.8125rem] text-foreground transition hover:bg-muted"
+                    aria-label={t('nav.ariaLang')}
+                  >
+                    <Languages size={14} className="shrink-0 text-muted-foreground" aria-hidden />
+                    <span className="flex-1 text-left">
+                      {locale === 'vi' ? t('header.switchLocaleEn') : t('header.switchLocaleVi')}
+                    </span>
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[0.6875rem] font-bold tracking-wide text-muted-foreground">
+                      {({ en: 'EN', vi: 'VI' }[locale] || 'VI')}
+                    </span>
                   </button>
                   <button
                     type="button"

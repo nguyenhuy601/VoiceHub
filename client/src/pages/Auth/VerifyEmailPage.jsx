@@ -4,8 +4,6 @@ import toast from 'react-hot-toast';
 import { ArrowRight, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
 import AuthPageLayout from '../../components/Auth/AuthPageLayout';
 import AuthMarketingAside from '../../components/Auth/AuthMarketingAside';
-import { authPrimaryButtonClass } from '../../components/Auth/authFieldClasses';
-import { useTheme } from '../../context/ThemeContext';
 import authService from '../../services/authService';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -13,7 +11,6 @@ import { readAuthTokenFromUrl } from '../../utils/authUrlToken';
 
 function VerifyEmailPage() {
   const navigate = useNavigate();
-  const { isDarkMode } = useTheme();
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -23,11 +20,11 @@ function VerifyEmailPage() {
   const isEmailChangeMode = mode === 'email-change' || window.location.pathname === '/verify-email-change';
   const hasRunRef = useRef(false);
 
-  const btnPrimary = authPrimaryButtonClass(isDarkMode);
-  const titleCls = isDarkMode ? 'text-white' : 'text-[#0f172a]';
-  const mutedCls = isDarkMode ? 'text-slate-400' : 'text-slate-600';
-  const iconWrap = isDarkMode ? 'bg-cyan-500/15 text-cyan-300' : 'bg-cyan-100 text-cyan-700';
-  const iconWrapSuccess = isDarkMode ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700';
+  const titleCls = 'text-foreground';
+  const mutedCls = 'text-muted-foreground';
+  const iconWrap = 'bg-primary/15 text-primary';
+  const iconWrapSuccess = 'bg-success/15 text-success';
+  const motionBtn = 'motion-safe:transition-colors motion-reduce:transition-none';
 
   useEffect(() => {
     if (!token) {
@@ -101,7 +98,7 @@ function VerifyEmailPage() {
             <p className={`mt-3 max-w-md text-base leading-relaxed sm:text-lg ${mutedCls}`}>{t('verifyEmail.bodySuccess')}</p>
             <Link
               to="/login"
-              className={`mt-8 inline-flex items-center justify-center gap-2 rounded-2xl px-8 py-4 text-lg font-bold text-white shadow-lg transition ${btnPrimary}`}
+              className={`mt-8 inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-8 py-4 text-lg font-bold text-primary-foreground shadow-lg hover:bg-primary-hover ${motionBtn}`}
             >
               {t('verifyEmail.ctaLogin')}
               <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />
@@ -123,13 +120,9 @@ function VerifyEmailPage() {
               {loading ? t('verifyEmail.bodyLoading') : t('verifyEmail.bodyDone')}
             </p>
             <div
-              className={`mx-auto mt-6 h-1.5 w-44 overflow-hidden rounded-full ${isDarkMode ? 'bg-slate-700' : 'bg-slate-200'}`}
+              className="mx-auto mt-6 h-1.5 w-44 overflow-hidden rounded-full bg-muted"
             >
-              <div
-                className={`h-full w-1/2 animate-[pulse_1.4s_ease-in-out_infinite] rounded-full bg-gradient-to-r ${
-                  isDarkMode ? 'from-cyan-500 to-teal-500' : 'from-cyan-500 to-sky-500'
-                }`}
-              />
+              <div className="h-full w-1/2 animate-[pulse_1.4s_ease-in-out_infinite] rounded-full bg-primary motion-reduce:animate-none" />
             </div>
           </div>
         </>

@@ -1,0 +1,44 @@
+{
+  "id": "case-003-reporting",
+  "legacyG4Input": {
+    "snapshotId": "snap-report-003",
+    "packId": "pack-report",
+    "functionalRequirements": [
+      {
+        "id": "FR-RPT-01",
+        "title": "Export attendance report",
+        "description": "HR exports attendance CSV by period"
+      },
+      {
+        "id": "FR-RPT-02",
+        "title": "Dashboard KPIs",
+        "description": "Manager sees attendance KPI cards"
+      }
+    ],
+    "actors": [{ "id": "ACT-HR", "name": "HR" }],
+    "domain": { "name": "Reporting" }
+  },
+  "expectedSemantic": {
+    "requirements": [
+      {
+        "id": "FR-RPT-01",
+        "title": "Export attendance report",
+        "description": "HR exports attendance CSV by period"
+      },
+      {
+        "id": "FR-RPT-02",
+        "title": "Dashboard KPIs",
+        "description": "Manager sees attendance KPI cards"
+      }
+    ],
+    "relationships": [],
+    "ambiguities": [],
+    "assumptions": [],
+    "semanticItems": [],
+    "conflicts": [],
+    "evidence": { "items": [] },
+    "facts": {},
+    "signalsMeta": null,
+    "meta": {}
+  }
+}

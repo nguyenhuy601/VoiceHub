@@ -75,16 +75,6 @@ export function docTypeLabel(type, { t, locale = 'vi' } = {}) {
   return createTranslator(locale)('documents.docTypeFileFallback');
 }
 
-export function readOcrFromRaw(raw) {
-  const meta = raw?.metadata && typeof raw.metadata === 'object' ? raw.metadata : {};
-  const status = String(meta.ocrStatus || raw?.ocrStatus || 'idle').toLowerCase();
-  const progress = Number(meta.ocrProgress ?? raw?.ocrProgress ?? 0);
-  return {
-    ocrStatus: ['processing', 'done', 'idle'].includes(status) ? status : 'idle',
-    ocrProgress: Number.isFinite(progress) ? progress : 0,
-  };
-}
-
 export function formatRelativeVi(iso, { t, locale = 'vi' } = {}) {
   if (!iso) return '';
   const d = new Date(iso);

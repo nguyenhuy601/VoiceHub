@@ -1,0 +1,28 @@
+# Gitleaks — VoiceHub
+# .env từng bị commit vào lịch sử; đã untrack khỏi HEAD. Allowlist path .env*
+# để CI không fail trên commit cũ; vẫn bắt secret trong source/code.
+
+title = "VoiceHub gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Env files, tests, caches, docs/skills false positives"
+paths = [
+  '''(?i)(^|/)\.env$''',
+  '''(?i)(^|/)\.env\..*$''',
+  '''(?i)\.env\.swarm\.example$''',
+  '''(?i)/tests/.*\.test\.js$''',
+  '''(?i)\.test\.(js|cjs|mjs|jsx)$''',
+  '''(?i)ecosystem-primer/SKILL\.md$''',
+  '''(?i)openapi\.bundle\.json$''',
+  '''(?i)/swagger/paths/.*\.paths\.js$''',
+  '''(?i)\.cursor/plans/''',
+  '''(?i)^docs/''',
+  '''(?i)PlanningGanttPanel\.jsx$''',
+]
+regexes = [
+  '''(?i)test-invite-secret''',
+  '''(?i)CHANGE_ME|changeme|placeholder|your-secret''',
+]

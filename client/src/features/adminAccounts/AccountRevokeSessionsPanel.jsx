@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { LogOut } from 'lucide-react';
@@ -21,6 +21,10 @@ export default function AccountRevokeSessionsPanel({ orgId, embedded = false }) 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
 
+  useEffect(() => {
+    setActionError('');
+  }, [orgId, userId]);
+
   const confirm = async () => {
     if (!orgId || !userId || busy) return;
     setBusy(true);
@@ -28,7 +32,6 @@ export default function AccountRevokeSessionsPanel({ orgId, embedded = false }) 
     try {
       await adminUserAPI.revokeSessions(orgId, userId);
       toast.success(t('adminAccounts.revokeSuccess'));
-      setOpen(false);
     } catch (error) {
       const msg = resolveApiErrorMessage(error, { t, fallback: t('adminAccounts.revokeFail') });
       setActionError(msg);
@@ -42,25 +45,30 @@ export default function AccountRevokeSessionsPanel({ orgId, embedded = false }) 
     <>
       <AdminUserFormCard title={t('adminDomains.accounts.revokeSessions')} hint={t('adminAccounts.revokeHint')} danger>
         <p className="mb-4 text-sm text-muted-foreground">{t('adminAccounts.revokeDescription')}</p>
-        {actionError ? <p className="mb-3 text-sm text-destructive">{actionError}</p> : null}
+        {actionError ? (
+          <p role="alert" className="mb-3 rounded-xl border border-destructive bg-card px-3 py-2 text-sm text-destructive">
+            {actionError}
+          </p>
+        ) : null}
         <button
           type="button"
-          disabled={!userId}
+          disabled={!userId || busy}
           className={adminDangerBtnClass()}
           onClick={() => setOpen(true)}
         >
-          <LogOut className="h-3.5 w-3.5" />
-          {t('adminAccounts.revokeSessions')}
+          <LogOut className="h-3.5 w-3.5" aria-hidden />
+          {busy ? t('common.saving') : t('adminAccounts.revokeSessions')}
         </button>
       </AdminUserFormCard>
       <ConfirmDialog
         isOpen={open}
-        onClose={() => !busy && setOpen(false)}
+        onClose={() => setOpen(false)}
         onConfirm={confirm}
         title={t('adminAccounts.revokeConfirmTitle')}
         message={t('adminAccounts.revokeConfirmMessage')}
         confirmText={t('adminAccounts.revokeSessions')}
         cancelText={t('common.cancel')}
+        variant="danger"
       />
     </>
   );

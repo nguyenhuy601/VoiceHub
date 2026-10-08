@@ -3,6 +3,7 @@ const router = express.Router();
 const authMiddleware = require('../middlewares/auth.middleware');
 const permissionMiddleware = require('../middlewares/permission.middleware');
 const proxyMiddleware = require('../middlewares/proxy.middleware');
+const { searchLimiter } = require('../middlewares/rateLimiters');
 const { publicBffRouter, orgBffRouter } = require('../bff');
 
 // Health check
@@ -27,6 +28,7 @@ router.get('/metrics', (req, res) => {
 
 // Apply authentication middleware cho tất cả routes (trừ public routes)
 router.use(authMiddleware);
+router.use(searchLimiter);
 
 // BFF — bootstrap / dashboard (trước permission)
 router.use(publicBffRouter);

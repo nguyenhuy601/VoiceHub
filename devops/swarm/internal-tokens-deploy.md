@@ -18,16 +18,13 @@
 ## Checklist deploy
 
 ```bash
-# 1. Rotate hoặc set token (min 24 ký tự)
-bash devops/scripts/rotate-staging-secrets.sh --apply
+# 1. Set token trong .env (min 24 ký tự) rồi verify
+VOICEHUB_ENV_CHECK=staging bash devops/scripts/security/check-security-env.sh
 
-# 2. Verify env
-VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
-
-# 3. Redeploy (ví dụ Swarm)
+# 2. Redeploy (ví dụ Swarm)
 docker stack deploy -c docker-stack.yml voicehub
 
-# 4. Smoke nội bộ (từ container trên overlay)
+# 3. Smoke nội bộ (từ container trên overlay)
 # Không token → 401
 curl -s -o /dev/null -w "%{http_code}" -X POST http://socket-service:3017/internal/realtime/publish \
   -H "Content-Type: application/json" -d '{}'

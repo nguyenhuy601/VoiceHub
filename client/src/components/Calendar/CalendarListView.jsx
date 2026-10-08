@@ -11,6 +11,7 @@ export default function CalendarListView({
   selectedDate,
   onSelectDate,
   onSelectEvent,
+  selectedEvent,
   locale = 'vi',
   t,
 }) {
@@ -33,7 +34,7 @@ export default function CalendarListView({
 
   return (
     <div className="flex flex-col gap-2">
-      {sorted.map((ev) => {
+      {sorted.map((ev, index) => {
         const dateKey = ev.date || '';
         const showHeader = dateKey !== lastKey;
         lastKey = dateKey;
@@ -46,7 +47,7 @@ export default function CalendarListView({
             {showHeader && d && !Number.isNaN(d.getTime()) && (
               <div
                 className={`mb-2 mt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground ${
-                  sorted.indexOf(ev) === 0 ? 'mt-0' : ''
+                  index === 0 ? 'mt-0' : ''
                 }`}
               >
                 {d.getDate()} {monthLabel(d, locale)} {d.getFullYear()}
@@ -58,11 +59,13 @@ export default function CalendarListView({
                 if (d) onSelectDate?.(d);
                 onSelectEvent?.(ev);
               }}
+              aria-pressed={selectedEvent?.id === ev.id}
               className={`${FIGMA_CAL_LIST_ROW} w-full text-left ${
                 isSelected ? 'border-primary/40 bg-primary/[0.05]' : ''
               }`}
             >
               <div
+                aria-hidden="true"
                 className="h-10 w-1 shrink-0 rounded-full"
                 style={{ background: meta.color }}
               />
@@ -71,18 +74,18 @@ export default function CalendarListView({
                 <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                   {ev.time && (
                     <span className="inline-flex items-center gap-1">
-                      <Clock size={11} />
+                      <Clock size={11} aria-hidden="true" />
                       {ev.time}
                       {ev.duration ? ` · ${ev.duration}` : ''}
                     </span>
                   )}
                   {ev.attendees > 0 && (
                     <span className="inline-flex items-center gap-1">
-                      <Users size={11} />
+                      <Users size={11} aria-hidden="true" />
                       {t('calendar.peopleCount', { n: ev.attendees })}
                     </span>
                   )}
-                  {meta.key === 'recurring' && <Repeat2 size={11} />}
+                  {meta.key === 'recurring' && <Repeat2 size={11} aria-hidden="true" />}
                 </div>
               </div>
               <span

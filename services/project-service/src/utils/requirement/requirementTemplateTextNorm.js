@@ -19,6 +19,12 @@ const PRIORITY_CANONICAL = Object.freeze({
   high: 'High',
   medium: 'Medium',
   low: 'Low',
+  // MoSCoW → mức chuẩn của mẫu phân tích
+  must: 'Critical',
+  should: 'High',
+  could: 'Medium',
+  wont: 'Low',
+  "won't": 'Low',
 });
 
 function toText(raw) {
@@ -117,6 +123,30 @@ function normProse(raw) {
     .replace(WHITESPACE_RUN_RE, ' ');
 }
 
+const SCOPE_IN = new Set(['in', 'inscope', 'trong', 'trongphamvi', 'trong phạm vi']);
+const SCOPE_OUT = new Set(['out', 'outofscope', 'ngoai', 'ngoaiphamvi', 'ngoài', 'ngoài phạm vi']);
+
+/**
+ * in / out khi khớp danh sách; giá trị khác giữ nguyên để BA tự nhập.
+ */
+function normalizeScopeType(raw) {
+  const base = stripInvisibleAndUnicode(raw)
+    .replace(SMART_QUOTES_RE, "'")
+    .replace(SMART_DOUBLE_QUOTES_RE, '"')
+    .trim()
+    .replace(WHITESPACE_RUN_RE, ' ');
+  if (!base) return '';
+  const token = base.toLowerCase();
+  const compact = token.replace(/\s+/g, '');
+  if (SCOPE_OUT.has(token) || SCOPE_OUT.has(compact) || token === 'out' || token.startsWith('out of')) {
+    return 'out';
+  }
+  if (SCOPE_IN.has(token) || SCOPE_IN.has(compact) || token === 'in' || token.startsWith('in scope')) {
+    return 'in';
+  }
+  return base;
+}
+
 function isTruthyYes(raw) {
   const v = normKey(raw, { kind: 'bool' });
   return v === 'Yes';
@@ -129,6 +159,7 @@ module.exports = {
   normId,
   normKey,
   normProse,
+  normalizeScopeType,
   isTruthyYes,
   LEVEL_CANONICAL,
   PRIORITY_CANONICAL,

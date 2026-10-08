@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useId, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import AdminUserPicker from '../adminUsers/AdminUserPicker';
 import { AdminUserPanelShell } from '../adminUsers/adminUserPanelUi';
@@ -64,6 +64,27 @@ export default function AdminEntityOpsHubShell({
     setSearchParams(params, { replace: true });
   };
 
+  const tabIdPrefix = `hub-${useId().replace(/:/g, '')}`;
+  const tabRefs = useRef({});
+  const showTablist = tabs.length > 1;
+
+  const focusTabAt = (index) => {
+    const next = tabs[(index + tabs.length) % tabs.length];
+    if (!next) return;
+    setTab(next.id);
+    tabRefs.current[next.id]?.focus();
+  };
+
+  const handleTabKeyDown = (event) => {
+    const currentIndex = tabs.findIndex((tab) => tab.id === activeTab);
+    if (event.key === 'ArrowRight') focusTabAt(currentIndex + 1);
+    else if (event.key === 'ArrowLeft') focusTabAt(currentIndex - 1);
+    else if (event.key === 'Home') focusTabAt(0);
+    else if (event.key === 'End') focusTabAt(tabs.length - 1);
+    else return;
+    event.preventDefault();
+  };
+
   return (
     <AdminUserPanelShell title={title} hint={hint} wide fillHeight>
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-stretch">
@@ -79,29 +100,48 @@ export default function AdminEntityOpsHubShell({
           />
         </div>
         <div className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto">
-          <div className="flex shrink-0 flex-wrap gap-2" role="tablist" aria-label={title}>
-            {tabs.map((tab) => {
-              const active = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setTab(tab.id)}
-                  className={[
-                    'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-                    active
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-                  ].join(' ')}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-          <div role="tabpanel" className="min-h-0">
+          {showTablist ? (
+            <div
+              className="flex shrink-0 flex-wrap gap-2"
+              role="tablist"
+              aria-label={title}
+              onKeyDown={handleTabKeyDown}
+            >
+              {tabs.map((tab) => {
+                const active = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    ref={(el) => {
+                      tabRefs.current[tab.id] = el;
+                    }}
+                    id={`${tabIdPrefix}-tab-${tab.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    aria-controls={`${tabIdPrefix}-panel`}
+                    tabIndex={active ? 0 : -1}
+                    onClick={() => setTab(tab.id)}
+                    className={[
+                      'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-150 motion-reduce:transition-none',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                      active
+                        ? 'bg-primary text-primary-foreground shadow-sm'
+                        : 'bg-muted text-muted-foreground hover:bg-primary-subtle hover:text-foreground',
+                    ].join(' ')}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          <div
+            id={`${tabIdPrefix}-panel`}
+            role={showTablist ? 'tabpanel' : undefined}
+            aria-labelledby={showTablist ? `${tabIdPrefix}-tab-${activeTab}` : undefined}
+            className="min-h-0"
+          >
             {children({ activeTab, userId })}
           </div>
         </div>

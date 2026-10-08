@@ -16,7 +16,7 @@ Writing a new feature from scratch.
 
 ## Related Rules
 
-- `.cursor/rules/role-code-reviewer.mdc`
+- `.cursor/rules/deep-agents-dispatch.mdc` (agent: `reviewer`)
 - `.cursor/rules/clean-code.mdc`
 - `.cursor/rules/voicehub-constraints.mdc`
 

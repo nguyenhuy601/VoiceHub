@@ -62,8 +62,10 @@ export default function ProjectHubStartSprintModal({
   const endDateLocked = duration !== 'custom';
 
   const inputCls =
-    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary';
+    'mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring';
   const inputDisabledCls = `${inputCls} opacity-60 cursor-not-allowed`;
+  const btnFocus =
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none';
 
   return (
     <Modal
@@ -141,12 +143,12 @@ export default function ProjectHubStartSprintModal({
           role="switch"
           aria-checked={autoComplete}
           onClick={() => setAutoComplete((v) => !v)}
-          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
             autoComplete ? 'bg-primary' : 'bg-muted'
           }`}
         >
           <span
-            className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-background shadow transition-transform ${
+            className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-background shadow transition-transform motion-reduce:transition-none ${
               autoComplete ? 'translate-x-5' : 'translate-x-0'
             }`}
           />
@@ -167,13 +169,14 @@ export default function ProjectHubStartSprintModal({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground"
+          className={`rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors ${btnFocus}`}
         >
           {t('common.cancel')}
         </button>
         <button
           type="button"
           disabled={busy || !canSubmit}
+          aria-busy={busy || undefined}
           onClick={() =>
             onStart?.({
               sprintName: sprintName.trim(),
@@ -184,7 +187,7 @@ export default function ProjectHubStartSprintModal({
               sprintGoal,
             })
           }
-          className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          className={`rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors disabled:opacity-50 ${btnFocus}`}
         >
           {t('workspace.projectHubStartSprintConfirm')}
         </button>

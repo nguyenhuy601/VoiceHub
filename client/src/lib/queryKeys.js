@@ -9,6 +9,12 @@ export const queryKeys = {
     all: ['org'],
     shell: (orgId) => ['org', String(orgId || ''), 'shell'],
     documentsOverview: (orgId) => ['org', String(orgId || ''), 'documents-overview'],
+    libraryDocuments: (orgId, projectId = '') => [
+      'org',
+      String(orgId || ''),
+      'library-documents',
+      String(projectId || ''),
+    ],
     detail: (orgId) => ['org', String(orgId || ''), 'detail'],
     levels: (orgId) => ['org', String(orgId || ''), 'levels'],
     structure: (orgId, includeInactive = false) => [
@@ -135,7 +141,12 @@ export const queryKeys = {
   projectHub: {
     all: ['projectHub'],
     overview: (projectId) => [...queryKeys.projectHub.all, 'overview', String(projectId || '')],
-    project: (projectId) => [...queryKeys.projectHub.all, 'project', String(projectId || '')],
+    project: (projectId, view = 'hub') => [
+      ...queryKeys.projectHub.all,
+      'project',
+      String(projectId || ''),
+      String(view || 'hub'),
+    ],
     /** GET /projects/:id/boards — share page redirect + fast path + hydrate */
     boards: (projectId, organizationId = '') => [
       ...queryKeys.projectHub.all,

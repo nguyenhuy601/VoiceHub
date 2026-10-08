@@ -1,0 +1,57 @@
+{
+  "schema": "candidateConflictBaseline.v1",
+  "capturedAt": "2026-09-29T04:14:22.360Z",
+  "note": "Current: no status+shared FP; potential_conflict only from structured PotentialConflict relations.",
+  "signalsCount": 6,
+  "candidates": 4,
+  "clear": 2,
+  "legacyConflictFrCount": 0,
+  "byReason": {
+    "missing_actor": 2,
+    "missing_ac": 2,
+    "thin_text": 1,
+    "ambiguous": 0,
+    "duplicate": 0,
+    "cross_module": 0,
+    "potential_conflict": 0,
+    "high_impact": 1
+  },
+  "conflicts": {
+    "pairCount": 0,
+    "affectedFrCount": 0
+  },
+  "invariant": true,
+  "candidateFrIds": [
+    "FR-01",
+    "FR-02",
+    "FR-04",
+    "FR-06"
+  ],
+  "clearFrIds": [
+    "FR-03",
+    "FR-05"
+  ],
+  "gatePreview": {
+    "candidateCount": 4,
+    "byReason": {
+      "missing_actor": 2,
+      "missing_ac": 2,
+      "potential_conflict": 0,
+      "high_impact": 1,
+      "thin_text": 1,
+      "ambiguous": 0,
+      "duplicate": 0,
+      "cross_module": 0
+    },
+    "conflicts": {
+      "pairCount": 0,
+      "affectedFrCount": 0
+    }
+  },
+  "deltaVsLegacy": {
+    "candidatesBefore": 5,
+    "candidatesAfter": 4,
+    "legacyConflictRemoved": 3,
+    "note": "FP removal drops candidates that only had status+shared conflict stamp"
+  }
+}

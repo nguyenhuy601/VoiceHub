@@ -3,6 +3,7 @@ import ChannelMessageToolbar from '../../../components/Organization/ChannelMessa
 import ChannelMessageMoreMenu from '../../../components/Organization/ChannelMessageMoreMenu';
 import OrgMessageInlineEditor from '../../../components/Organization/OrgMessageInlineEditor';
 import ActivityMessageCard from '../../../components/Chat/ActivityMessageCard';
+import PollCard from '../../../components/Chat/PollCard';
 import {
   EST_TOOLBAR_PX,
   GAP_PX,
@@ -44,12 +45,15 @@ export default function ProjectChannelMessageRow({
   onCancelEdit,
   onDelete,
   onRecall,
+  onPollUpdated,
 }) {
   const mid = String(message?._id || message?.id || '');
   const isMine = Boolean(currentUserId && senderIdFromMessage(message) === currentUserId);
   const type = String(message?.messageType || 'text');
   const isEditing = editingMessageId && String(editingMessageId) === mid;
-  const showToolbar = !isEditing && !sending && type !== 'system' && !message?.isDeleted;
+  const isRecalled = Boolean(message?.isRecalled);
+  const showToolbar =
+    !isEditing && !sending && type !== 'system' && !message?.isDeleted && !isRecalled;
 
   const [toolbarPlace, setToolbarPlace] = useState('above');
   const [moreMenu, setMoreMenu] = useState({ open: false, anchorRect: null });
@@ -142,7 +146,11 @@ export default function ProjectChannelMessageRow({
           </div>
         ) : null}
 
-        {isEditing ? (
+        {isRecalled ? (
+          <p className={`text-sm italic text-muted-foreground ${isMine ? 'text-right' : ''}`}>
+            {t('friendChat.recalledPlaceholder')}
+          </p>
+        ) : isEditing ? (
           <OrgMessageInlineEditor
             value={editDraft}
             onChange={onEditDraftChange}
@@ -151,6 +159,10 @@ export default function ProjectChannelMessageRow({
             isDarkMode={isDarkMode}
             saving={savingEdit}
           />
+        ) : String(message?.messageType || '') === 'poll' && message?.poll ? (
+          <div className={isMine ? 'ml-auto max-w-[80%]' : 'max-w-[80%]'}>
+            <PollCard message={message} t={t} onUpdated={onPollUpdated} />
+          </div>
         ) : (
           <ActivityMessageCard
             message={message}

@@ -213,7 +213,7 @@ node --test shared/tests/<relevant>.test.js
 node --test services/<service>/tests/<relevant>.test.js
 cd client && npm run build
 # if security:
-bash devops/scripts/check-security-env.sh
+bash devops/scripts/security/check-security-env.sh
 ```
 
 ### 5.7 Pass Criteria
@@ -244,7 +244,7 @@ bash devops/scripts/check-security-env.sh
 ### 6.3 Security
 
 - Token / authn / authz / logging / secrets / injection / rate limit (as relevant)
-- After security fix: `bash devops/scripts/check-security-env.sh` + `devops/scripts/security-regression-smoke.md`
+- After security fix: `bash devops/scripts/security/check-security-env.sh`
 
 ### 6.4 Rollback
 

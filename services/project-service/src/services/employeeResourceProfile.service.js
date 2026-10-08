@@ -3,6 +3,7 @@ const Project = require('../models/Project');
 const ProjectMember = require('../models/ProjectMember');
 const ProjectMembership = require('../models/ProjectMembership');
 const ProjectRole = require('../models/ProjectRole');
+const PlanningArtifact = require('../models/PlanningArtifact');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { fetchUserPlacement } = require('../clients/orgStructure.client');
 const { fetchOrgWorkingCalendar } = require('./governance.service');
@@ -35,11 +36,57 @@ function monthRangeUtc(asOf = new Date()) {
   return { fromMs, toMs, year: y, month: m + 1 };
 }
 
+async function assertPlanningCanViewAssignee({
+  actorUserId,
+  organizationId,
+  projectId,
+  targetUserId,
+}) {
+  const pid = String(projectId || '').trim();
+  if (!mongoose.isValidObjectId(pid)) {
+    const err = new Error('projectId không hợp lệ');
+    err.statusCode = 400;
+    throw err;
+  }
+  const project = await Project.findOne({ _id: pid, organizationId, isActive: true })
+    .select('_id')
+    .lean();
+  if (!project) {
+    const err = new Error('Project không tồn tại');
+    err.statusCode = 404;
+    throw err;
+  }
+  const { assertUserProjectPermission } = require('./projectAccess.service');
+  await assertUserProjectPermission({
+    userId: actorUserId,
+    projectId: pid,
+    permission: 'planning:view',
+    message: 'Không có quyền xem năng lực người được giao',
+  });
+  const [member, assigned] = await Promise.all([
+    ProjectMembership.findOne({ projectId: pid, userId: targetUserId }).select('_id').lean(),
+    PlanningArtifact.findOne({
+      projectId: pid,
+      isActive: true,
+      'structured.assigneeUserId': String(targetUserId),
+    })
+      .select('_id')
+      .lean(),
+  ]);
+  if (!member && !assigned) {
+    const err = new Error('Chỉ xem năng lực người đang được giao trên dự án');
+    err.statusCode = 403;
+    err.errorCode = 'RESOURCE_CAPACITY_FORBIDDEN';
+    throw err;
+  }
+}
+
 async function getEmployeeResourceProfile({
   organizationId,
   userId,
   actorUserId,
   asOf,
+  projectId,
 } = {}) {
   const orgId = String(organizationId || '').trim();
   const targetUserId = String(userId || '').trim();
@@ -57,6 +104,13 @@ async function getEmployeeResourceProfile({
   }
   if (accessMode === 'self') {
     await assertOrgMember(actorUserId, orgId);
+  } else if (String(projectId || '').trim()) {
+    await assertPlanningCanViewAssignee({
+      actorUserId,
+      organizationId: orgId,
+      projectId,
+      targetUserId,
+    });
   } else {
     await assertCanViewOrgCapacity(actorUserId, orgId);
   }

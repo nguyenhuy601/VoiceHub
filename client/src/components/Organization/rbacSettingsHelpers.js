@@ -77,6 +77,29 @@ export function isProtectedDefaultRole(role) {
   return false;
 }
 
+/** Chip màu theo tên role — chỉ design tokens (không slate/cyan/text-white). */
+export function roleAccentClass(role) {
+  const name = String(role?.name || '').toLowerCase();
+  const norm = stripDiacritics(name);
+  if (norm.includes('quan tri') || norm.includes('admin')) {
+    return 'border-destructive/40 bg-destructive/10 text-destructive';
+  }
+  if (norm.includes('nhan su') || norm === 'hr') {
+    return 'border-primary/40 bg-primary/10 text-primary';
+  }
+  if (role?.isDefault || norm.includes('thanh vien') || norm.includes('member')) {
+    return 'border-border bg-muted text-foreground';
+  }
+  return 'border-primary/30 bg-primary/5 text-foreground';
+}
+
+/** Filter gán quyền theo role id (không theo nhãn i18n). */
+export function assignRowMatchesFilter(assignedRoles, filterId) {
+  if (!filterId || filterId === 'all') return true;
+  const want = String(filterId);
+  return (assignedRoles || []).some((r) => normalizeRoleId(r) === want);
+}
+
 export function normalizeRoleId(role) {
   if (role == null || role === '') return '';
   if (typeof role === 'string' || typeof role === 'number') {

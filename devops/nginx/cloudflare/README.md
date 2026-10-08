@@ -16,11 +16,9 @@ devops/nginx/certs/cf-origin-key.pem
 devops/nginx/certs/cf-origin.pem
 ```
 
-**Install:**
+**Install:** copy PEM + key vào `certs/cf-origin.pem` và `certs/cf-origin-key.pem`, rồi:
 
 ```bash
-bash devops/scripts/install-cf-origin-cert.sh --check
-bash devops/scripts/install-cf-origin-cert.sh /path/to/cert.pem /path/to/key.pem
 bash devops/nginx/verify-cf-origin-ssl.sh
 ```
 

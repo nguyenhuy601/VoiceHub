@@ -237,7 +237,7 @@ function buildFeatureSlices(pack, { maxItems = 200 } = {}) {
 
 function buildProjectContextSlice(pack) {
   const o = pack?.overview || {};
-  return {
+  const base = {
     name: truncate(o.requirementName || '', CONTEXT_MAX),
     objective: truncate(o.projectObjective || '', CONTEXT_MAX),
     platform: Array.isArray(o.platform)
@@ -247,6 +247,18 @@ function buildProjectContextSlice(pack) {
         : [],
     priority: truncate(o.priority || '', 32) || undefined,
   };
+  try {
+    const {
+      isRequirementAiContextEnabled,
+      enrichProjectContextWithRequirementAi,
+    } = require('../tools/buildRequirementAiContext');
+    if (isRequirementAiContextEnabled()) {
+      return enrichProjectContextWithRequirementAi(base, pack);
+    }
+  } catch {
+    // tools module optional for isolated tests
+  }
+  return base;
 }
 
 module.exports = {

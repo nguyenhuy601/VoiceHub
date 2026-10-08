@@ -6,6 +6,7 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import { getInitials } from '../../utils/helpers';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import {
+  accountRoleLabel,
   memberDisplayName,
   memberEmail,
   memberHasRbacRole,
@@ -16,25 +17,29 @@ import {
   memberStatusLabel,
   memberUserId,
 } from '../../utils/adminUserUtils';
-import { adminInputClass } from './adminUserPanelUi';
+import { adminInputClass, adminPrimaryBtnClass } from './adminUserPanelUi';
 
 const RBAC_ROLE_FILTER_ALL = 'all';
 const RBAC_ROLE_FILTER_WITH = 'withRole';
 const RBAC_ROLE_FILTER_WITHOUT = 'withoutRole';
 
+const PAGER_BTN_CLASS =
+  'inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none';
+
 function StatusDot({ member, t }) {
   const key = memberStatusKey(member);
   const color =
     key === 'active'
-      ? 'bg-emerald-500'
+      ? 'bg-success'
       : key === 'locked' || key === 'mustChangePassword'
-        ? 'bg-amber-500'
-        : 'bg-slate-400';
+        ? 'bg-warning'
+        : 'bg-muted-foreground';
+  const label = memberStatusLabel(member, t);
   return (
-    <span
-      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${color}`}
-      title={memberStatusLabel(member, t)}
-    />
+    <>
+      <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${color}`} title={label} aria-hidden />
+      <span className="sr-only">{label}</span>
+    </>
   );
 }
 
@@ -149,10 +154,11 @@ export default function AdminUserPicker({
         key={value}
         type="button"
         onClick={() => setRbacRoleFilter(value)}
-        className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition ${
+        aria-pressed={active}
+        className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
           active
             ? 'bg-primary text-primary-foreground shadow-sm'
-            : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+            : 'bg-muted text-muted-foreground hover:bg-primary-subtle hover:text-foreground'
         }`}
       >
         {label}
@@ -177,6 +183,8 @@ export default function AdminUserPicker({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t('adminUsers.searchPlaceholder')}
+          aria-label={t('adminUsers.searchPlaceholder')}
+          maxLength={100}
           className={`${adminInputClass()} pl-9`}
         />
       </div>
@@ -188,24 +196,24 @@ export default function AdminUserPicker({
         </div>
       ) : null}
       {loading ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        <div className="space-y-2" aria-busy="true" aria-label={t('common.loading')}>
+          {Array.from({ length: 5 }, (_, idx) => (
+            <div key={idx} className="h-11 rounded-lg bg-muted motion-safe:animate-pulse" />
+          ))}
+        </div>
       ) : errorMessage ? (
-        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3">
+        <div className="rounded-xl border border-destructive bg-card p-3" role="alert">
           <p className="text-sm text-destructive">{errorMessage}</p>
           <div className="mt-3">
-            <button
-              type="button"
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() => loadMembers()}
-            >
+            <button type="button" className={adminPrimaryBtnClass()} onClick={() => loadMembers()}>
               {t('adminRbac.retry')}
             </button>
           </div>
         </div>
       ) : (
         <>
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border/70">
-            <ul className="divide-y divide-border/50">
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border">
+            <ul className="divide-y divide-border">
               {paged.map((m) => {
                 const id = memberUserId(m);
                 const name = memberDisplayName(m);
@@ -216,14 +224,15 @@ export default function AdminUserPicker({
                     <button
                       type="button"
                       onClick={() => pick(id)}
-                      className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
-                        active ? 'bg-red-500/10' : 'hover:bg-muted/30'
+                      aria-current={active ? 'true' : undefined}
+                      className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                        active ? 'bg-primary-subtle' : 'hover:bg-muted'
                       }`}
                     >
                       {m.avatar ? (
                         <img src={m.avatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
                       ) : (
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-500 to-slate-700 text-[10px] font-bold text-white">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-foreground">
                           {getInitials(name)}
                         </div>
                       )}
@@ -234,8 +243,8 @@ export default function AdminUserPicker({
                         </div>
                         <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
                       </div>
-                      <span className="shrink-0 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-semibold capitalize text-muted-foreground">
-                        {memberOrgRole(m)}
+                      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                        {accountRoleLabel(memberOrgRole(m), t)}
                       </span>
                     </button>
                   </li>
@@ -249,12 +258,12 @@ export default function AdminUserPicker({
             ) : null}
           </div>
           {perPage > 0 && filtered.length > 0 ? (
-            <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
+            <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
               <button
                 type="button"
                 disabled={safePage <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+                className={PAGER_BTN_CLASS}
                 aria-label={t('adminUsers.listPrev')}
               >
                 <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
@@ -267,7 +276,7 @@ export default function AdminUserPicker({
                 type="button"
                 disabled={safePage >= totalPages}
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+                className={PAGER_BTN_CLASS}
                 aria-label={t('adminUsers.listNext')}
               >
                 {t('adminUsers.listNext')}

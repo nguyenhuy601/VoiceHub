@@ -36,7 +36,20 @@ const {
   allocateUniqueProjectCode,
 } = require('@enterprise/shared/utils/projectCodeGenerate');
 const { buildBoardIdentityPatch, resolveBoardScope } = require('../utils/project/boardIdentityPatch');
-const { buildProjectInitFields, coerceProjectLifecycleStatus } = require('../utils/project/projectInitFields');
+const { pickSprintBoardId } = require('../utils/project/sprintBoardScope');
+const {
+  buildProjectInitFields,
+  coerceProjectLifecycleStatus,
+  alignedLifecycleFields,
+  STATUS_FOR_DELIVERY_PHASE,
+} = require('../utils/project/projectInitFields');
+const {
+  WARN_V1,
+  omitClientSchedulePolicy,
+  todayYmdInVietnam,
+  dateWarningsForProject,
+  attachScheduleWarnings,
+} = require('../utils/project/schedulePolicy');
 const {
   assertPatchDoesNotCloseActiveSprint,
   assertProjectWritable,
@@ -65,9 +78,15 @@ const {
 } = require('../utils/project/projectListMembershipScope');
 const { attachListProjectCardSummaries } = require('../utils/project/listProjectCardSummary');
 const { isCardListView, toProjectListCardItem, CARD_LIST_PROJECT_SELECT } = require('../utils/project/projectListCardView');
+const {
+  FALLBACK_BOARD_TITLE,
+  resolveDefaultBoardTitle,
+  resolveBoardTitle,
+} = require('../utils/project/defaultBoardTitle');
 
-const DEFAULT_BOARD_TITLE = 'Main';
-const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Done']);
+const DEFAULT_BOARD_TITLE = FALLBACK_BOARD_TITLE;
+const DEFAULT_LIST_TITLES = Object.freeze(['To Do', 'In Progress', 'Ready for QA', 'Done']);
+const DEFAULT_LIST_STATUS_KEYS = Object.freeze(['todo', 'in_progress', 'qa', 'done']);
 
 const LEAD_ROLE_SLOT_KEYS = Object.freeze({
   projectManagerId: DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER,
@@ -124,11 +143,10 @@ async function logActivity({
 }
 
 async function seedDefaultLists(boardId) {
-  const STATUS_KEYS = ['todo', 'in_progress', 'done'];
   const rows = DEFAULT_LIST_TITLES.map((title, idx) => ({
     boardId,
     title,
-    statusKey: STATUS_KEYS[idx] || '',
+    statusKey: DEFAULT_LIST_STATUS_KEYS[idx] || '',
     order: (idx + 1) * 1000,
     isArchived: false,
     isDefault: idx === 0,
@@ -138,7 +156,7 @@ async function seedDefaultLists(boardId) {
 }
 
 /**
- * Create Project + default Board (Main) + lists + PM ownership (status ready_for_planning).
+ * Create Project + default Board (Main) + lists + PM ownership (status draft, phase requirement_analysis).
  * projectId !== boardId.
  */
 function normalizeBudgetStub(raw) {
@@ -194,6 +212,7 @@ async function createProject({
   relatedDepartmentIds,
   requiredProjectRoles,
   budgetStub,
+  analysisMode,
 }) {
   const scope = await fetchTaskWorkspaceScope(userId, organizationId);
   if (!scope || !canCreateProjectInScope(scope)) {
@@ -240,7 +259,7 @@ async function createProject({
   }
 
   const init = buildProjectInitFields({
-    status: 'ready_for_planning',
+    status: 'draft',
     projectType,
     category,
     priority,
@@ -308,6 +327,13 @@ async function createProject({
   const normalizedBudget =
     budgetStub !== undefined ? normalizeBudgetStub(budgetStub) : undefined;
 
+  const resolvedAnalysisMode =
+    String(analysisMode || '')
+      .trim()
+      .toLowerCase() === 'ai'
+      ? 'ai'
+      : 'manual';
+
   const project = await Project.create({
     organizationId,
     teamId: null,
@@ -327,9 +353,18 @@ async function createProject({
     createdBy: userId,
     isActive: true,
     ...init.fields,
+    // AI birth = Phase 0 draft; manual = Phase 1 RA (same phase/status, analysisMode differs for tab).
+    status: 'draft',
+    analysisMode: resolvedAnalysisMode,
     dueDate: init.fields.dueDate !== undefined ? init.fields.dueDate : due,
+    schedulePolicy: WARN_V1,
     ...(normalizedRoles !== undefined ? { requiredProjectRoles: normalizedRoles } : {}),
     ...(normalizedBudget !== undefined ? { budgetStub: normalizedBudget } : {}),
+  });
+  logger.info('[createProject] created', {
+    projectId: String(project._id),
+    analysisMode: resolvedAnalysisMode,
+    deliveryPhase: project.deliveryPhase,
   });
 
   const board = await TaskBoard.create({
@@ -545,6 +580,80 @@ function toOidList(ids = []) {
     .map((id) => new mongoose.Types.ObjectId(id));
 }
 
+const PRESERVED_PROJECT_STATUSES = Object.freeze([
+  'on_hold',
+  'closed',
+  'cancelled',
+  'canceled',
+  'completed',
+  'archived',
+]);
+
+/** List GET: doc lệch phase/status trong org → status của phase. Bỏ qua on_hold và closed. */
+async function alignOrgProjectStatusToPhase(orgOid) {
+  const phases = Object.keys(STATUS_FOR_DELIVERY_PHASE);
+  const missingPhaseClause = {
+    $or: [{ deliveryPhase: null }, { deliveryPhase: '' }, { deliveryPhase: { $exists: false } }],
+  };
+  await Promise.all([
+    ...phases.map((phase) => {
+      const status = STATUS_FOR_DELIVERY_PHASE[phase];
+      return Project.updateMany(
+        {
+          organizationId: orgOid,
+          deliveryPhase: phase,
+          status: { $nin: [status, ...PRESERVED_PROJECT_STATUSES] },
+        },
+        { $set: { status } }
+      );
+    }),
+    // Draft / AI Phase 0 missing phase → RA (do not promote to development).
+    Project.updateMany(
+      {
+        organizationId: orgOid,
+        $and: [
+          missingPhaseClause,
+          { status: { $nin: PRESERVED_PROJECT_STATUSES } },
+          { $or: [{ status: 'draft' }, { analysisMode: 'ai' }] },
+        ],
+      },
+      { $set: { deliveryPhase: 'requirement_analysis', status: 'draft' } }
+    ),
+    // Other missing-phase docs → development (legacy hub rule).
+    Project.updateMany(
+      {
+        organizationId: orgOid,
+        $and: [
+          missingPhaseClause,
+          { status: { $nin: [...PRESERVED_PROJECT_STATUSES, 'draft'] } },
+          { analysisMode: { $ne: 'ai' } },
+        ],
+      },
+      { $set: { deliveryPhase: 'development', status: 'in_development' } }
+    ),
+  ]);
+}
+
+/** GET một dự án: gắn status/phase trước khi trả, kể cả phase đang trống. */
+async function alignOneProjectStatusToPhase(projectId) {
+  if (!mongoose.Types.ObjectId.isValid(String(projectId || ''))) return;
+  const doc = await Project.findById(projectId).select('status deliveryPhase analysisMode').lean();
+  if (!doc) return;
+  const aligned = alignedLifecycleFields({
+    status: doc.status,
+    deliveryPhase: doc.deliveryPhase,
+    analysisMode: doc.analysisMode,
+  });
+  const $set = {};
+  if (String(doc.status || '') !== aligned.status) $set.status = aligned.status;
+  const storedPhase = doc.deliveryPhase == null ? '' : String(doc.deliveryPhase);
+  if (aligned.deliveryPhase && storedPhase !== aligned.deliveryPhase) {
+    $set.deliveryPhase = aligned.deliveryPhase;
+  }
+  if (!Object.keys($set).length) return;
+  await Project.updateOne({ _id: doc._id }, { $set });
+}
+
 async function listProjects({
   userId,
   organizationId,
@@ -578,6 +687,8 @@ async function listProjects({
     ? new mongoose.Types.ObjectId(String(organizationId))
     : null;
   if (!userOid || !orgOid) return [];
+
+  await alignOrgProjectStatusToPhase(orgOid);
 
   let allowArchived = false;
   if (includeArchived) {
@@ -791,11 +902,11 @@ async function listProjects({
 }
 
 async function getProject({ userId, projectId }) {
+  const { makeProjectNotFoundError } = require('../utils/project/projectNotFoundError');
+  await alignOneProjectStatusToPhase(projectId);
   const project = await Project.findById(projectId).lean();
   if (!project || project.isActive === false) {
-    const err = new Error('Project không tồn tại');
-    err.statusCode = 404;
-    throw err;
+    throw makeProjectNotFoundError();
   }
 
   const useV2 = isProjectVisibilityV2Enabled();
@@ -821,9 +932,7 @@ async function getProject({ userId, projectId }) {
       !isOrgElevatedMembershipRole(visibilityCtx.membershipRole) &&
       !isMember
     ) {
-      const err = new Error('Project không tồn tại');
-      err.statusCode = 404;
-      throw err;
+      throw makeProjectNotFoundError();
     }
     const access = resolveProjectAccess({
       actor: {
@@ -842,9 +951,7 @@ async function getProject({ userId, projectId }) {
       orgPolicy: visibilityCtx.policy,
     });
     if (!access.discover) {
-      const err = new Error('Project không tồn tại');
-      err.statusCode = 404;
-      throw err;
+      throw makeProjectNotFoundError();
     }
 
     const boards =
@@ -871,14 +978,10 @@ async function getProject({ userId, projectId }) {
   if (defaultBoard) {
     const ok = await boardService.ensureBoardViewAccess(defaultBoard._id, userId);
     if (!ok && String(project.createdBy) !== String(userId)) {
-      const err = new Error('Không có quyền xem dự án');
-      err.statusCode = 403;
-      throw err;
+      throw makeProjectNotFoundError();
     }
   } else if (String(project.createdBy) !== String(userId)) {
-    const err = new Error('Không có quyền xem dự án');
-    err.statusCode = 403;
-    throw err;
+    throw makeProjectNotFoundError();
   }
   return attachProjectCapabilities(
     {
@@ -904,65 +1007,101 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       payload.priorityConfig
     );
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  const { resolveUserProjectPermissions } = require('./projectAccess.service');
+  const {
+    isProjectRbacV2Enabled,
+    hasPermission,
+    matrixPermissionsFromRoleKeys,
+  } = require('../utils/project/projectPermissionMatrix');
   if (!isProjectRbacV2Enabled()) {
     return payload;
   }
-  const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const perms = resolved.permissions || [];
   const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  // Nút trên UI theo role key (PO / PM / BA / Tech). Không dùng creator/admin dump —
+  // dump đó làm PM thấy nút duyệt BA, Tech, PO.
+  const roleMatrixPerms = matrixPermissionsFromRoleKeys(resolved.roles || []);
+  const roleHas = (key) => hasPermission(roleMatrixPerms, key);
+  const canImportFromRole =
+    roleHas('analysis:artifact_import') && roleHas('analysis:document_upload');
+  /** Draft / gửi lại changes_requested — chỉ BA theo role matrix (không creator/admin bypass). */
+  const canBaAuthorFromRole =
+    roleHas('analysis:submit_ba_review') ||
+    roleHas('analysis:artifact_import') ||
+    roleHas('analysis:ba_review');
+  let hasAnalysisTechReviewer = false;
+  let hasPlanningTechReviewer = false;
+  try {
+    const {
+      projectHasAnalysisTechReviewer,
+      projectHasPlanningTechReviewer,
+    } = require('../utils/phase1GatePolicy');
+    hasAnalysisTechReviewer = await projectHasAnalysisTechReviewer(projectId);
+    hasPlanningTechReviewer = await projectHasPlanningTechReviewer(projectId);
+  } catch {
+    /* non-blocking */
+  }
   return {
     ...payload,
     capabilities: {
       ...resolved.capabilities,
-      permissions: perms,
-      canManagePlanning: bypass || hasPermission(perms, 'project:edit'),
-      canManageMembers: bypass || hasPermission(perms, 'members:manage'),
+      permissions: roleMatrixPerms,
+      canManagePlanning: roleHas('project:edit'),
+      canManageMembers: roleHas('members:manage'),
       canViewMembers:
-        bypass ||
-        hasPermission(perms, 'members:view') ||
-        hasPermission(perms, 'members:manage'),
-      canManageSettings: bypass || hasPermission(perms, 'settings:update'),
+        bypass || roleHas('members:view') || roleHas('members:manage'),
+      canManageSettings: roleHas('settings:update') || roleHas('project:edit'),
       canManageSprints:
-        bypass ||
-        hasPermission(perms, 'sprint:create') ||
-        hasPermission(perms, 'sprint:start') ||
-        hasPermission(perms, 'sprint:close'),
-      canDeleteSprint: bypass || hasPermission(perms, 'sprint:delete'),
-      canCreateEpic: bypass || hasPermission(perms, 'epic:create'),
-      canUpdateEpic: bypass || hasPermission(perms, 'epic:update'),
-      canDeleteEpic: bypass || hasPermission(perms, 'epic:delete'),
-      canCreateStory: bypass || hasPermission(perms, 'story:create'),
-      canUpdateStory: bypass || hasPermission(perms, 'story:update'),
-      canCreateTask: bypass || hasPermission(perms, 'task:create'),
-      canCreateBug: bypass || hasPermission(perms, 'bug:create'),
-      canPrioritizeBacklog: bypass || hasPermission(perms, 'backlog:prioritize'),
-      canUpdateBacklog: bypass || hasPermission(perms, 'backlog:update'),
-      canEstimate: bypass || hasPermission(perms, 'task:estimate'),
-      canViewAnalysis: bypass || hasPermission(perms, 'analysis:view'),
-      canEditAnalysis: bypass || hasPermission(perms, 'analysis:artifact_edit'),
-      canImportAnalysis: bypass || hasPermission(perms, 'analysis:artifact_import'),
-      canReviewAnalysisBa: bypass || hasPermission(perms, 'analysis:ba_review'),
-      canReviewAnalysisTech: bypass || hasPermission(perms, 'analysis:tech_review'),
-      canReviewAnalysisPo: bypass || hasPermission(perms, 'analysis:po_review'),
-      canChangeDeliveryPhase: bypass || hasPermission(perms, 'delivery_phase:change'),
-      canCutSrs: bypass || hasPermission(perms, 'analysis:cut_srs'),
-      canViewPlanning: bypass || hasPermission(perms, 'planning:view'),
-      canEditPlanning: bypass || hasPermission(perms, 'planning:artifact_edit'),
-      canReviewPlanning: bypass ||
-        hasPermission(perms, 'planning:ba_review') ||
-        hasPermission(perms, 'planning:tech_review') ||
-        hasPermission(perms, 'planning:pm_review') ||
-        hasPermission(perms, 'planning:po_review'),
-      canCutPlanningBaseline: bypass || hasPermission(perms, 'planning:cut_baseline'),
-      canPublishPlanningWbs: bypass || hasPermission(perms, 'planning:publish_wbs'),
+        roleHas('sprint:create') ||
+        roleHas('sprint:start') ||
+        roleHas('sprint:close') ||
+        roleHas('project:edit'),
+      canDeleteSprint: roleHas('sprint:delete') || roleHas('project:edit'),
+      canCreateEpic: roleHas('epic:create'),
+      canUpdateEpic: roleHas('epic:update'),
+      canDeleteEpic: roleHas('epic:delete'),
+      canCreateStory: roleHas('story:create'),
+      canUpdateStory: roleHas('story:update'),
+      canCreateTask: roleHas('task:create'),
+      canCreateBug: roleHas('bug:create'),
+      canPrioritizeBacklog: roleHas('backlog:prioritize'),
+      canUpdateBacklog: roleHas('backlog:update'),
+      canEstimate: roleHas('task:estimate'),
+      canViewAnalysis: bypass || roleHas('analysis:view'),
+      canEditAnalysis: roleHas('analysis:artifact_edit'),
+      canImportAnalysis: canImportFromRole,
+      /** BA chủ trì draft / sửa sau request-changes — role matrix, không bypass creator. */
+      canBaAuthorAnalysis: canBaAuthorFromRole,
+      canReviewAnalysisBa: roleHas('analysis:ba_review'),
+      canReviewAnalysisTech: roleHas('analysis:tech_review'),
+      canReviewAnalysisPo: roleHas('analysis:po_review'),
+      viewerProjectRoleKeys: Array.isArray(resolved.roles)
+        ? resolved.roles.map((r) => String(r?.key || '').trim()).filter(Boolean)
+        : [],
+      hasAnalysisTechReviewer,
+      hasPlanningTechReviewer,
+      canChangeDeliveryPhase: roleHas('delivery_phase:change'),
+      canSignOffUat: roleHas('uat:sign_off'),
+      /** SoD Phase 4 — chỉ role matrix product_owner (handover:accept); không creator/admin dump. */
+      canAcceptHandover: roleHas('handover:accept'),
+      canCutSrs: roleHas('analysis:cut_srs'),
+      canViewPlanning: bypass || roleHas('planning:view'),
+      canEditPlanning: roleHas('planning:artifact_edit'),
+      canReviewPlanning:
+        roleHas('planning:tech_review') ||
+        roleHas('planning:pm_review') ||
+        roleHas('planning:po_review'),
+      canReviewPlanningTech: roleHas('planning:tech_review'),
+      canReviewPlanningPm: roleHas('planning:pm_review'),
+      canReviewPlanningPo: roleHas('planning:po_review'),
+      canCutPlanningBaseline: roleHas('planning:cut_baseline'),
+      canPublishPlanningWbs: roleHas('planning:publish_wbs'),
     },
   };
 }
 
 async function listProjectMembersForUser({ userId, projectId }) {
-  await getProject({ userId, projectId });
+  const project = await getProject({ userId, projectId });
   const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
   if (isProjectRbacV2Enabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
@@ -974,7 +1113,23 @@ async function listProjectMembersForUser({ userId, projectId }) {
     });
   }
   const { listProjectMemberships } = require('./projectTeam.service');
-  return listProjectMemberships(projectId);
+  const rows = await listProjectMemberships(projectId);
+  const { omitMemberEmails, canSeeMemberEmails } = require('../utils/project/projectMemberEmailOmit');
+  let membershipRole = '';
+  try {
+    const scope = await fetchTaskWorkspaceScope(userId, project.organizationId);
+    membershipRole = String(scope?.membershipRole || '').toLowerCase();
+  } catch {
+    /* best-effort */
+  }
+  const canAdmin = await userCanAdminProject(userId, project);
+  const allowEmail = canSeeMemberEmails({
+    userId,
+    project,
+    canAdminProject: canAdmin,
+    membershipRole,
+  });
+  return allowEmail ? rows : omitMemberEmails(rows);
 }
 
 async function userCanAdminProject(userId, project) {
@@ -1008,28 +1163,105 @@ async function assertProjectMatrixOrAdmin(userId, project, permissions, message)
   }
 }
 
+function normalizeHandoverChecklist(raw, checklistIds = []) {
+  const ids = Array.isArray(checklistIds) ? checklistIds.map(String) : [];
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const out = {};
+  for (const id of ids) {
+    out[id] = src[id] === true;
+  }
+  return out;
+}
+
+async function resolveReleaseLabelForProject(projectId) {
+  try {
+    const ChangeRequest = require('../models/ChangeRequest');
+    const latest = await ChangeRequest.findOne({
+      projectId,
+      status: 'applied',
+    })
+      .sort({ appliedAt: -1, updatedAt: -1 })
+      .select('releaseLabel')
+      .lean();
+    const fromCr = String(latest?.releaseLabel || '').trim();
+    if (fromCr) return fromCr.slice(0, 64);
+  } catch {
+    /* fall through */
+  }
+  const d = new Date();
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `REL-${y}${m}${day}`;
+}
+
+function withSprintScheduleWarnings(project, sprintObj) {
+  if (!sprintObj) return sprintObj;
+  const warnings = dateWarningsForProject(project, {
+    startDate: sprintObj.startDate,
+    endDate: sprintObj.endDate,
+    todayYmd: todayYmdInVietnam(),
+    subjectKey: String(sprintObj._id || ''),
+    endField: 'endDate',
+  });
+  return attachScheduleWarnings(sprintObj, warnings);
+}
+
 async function patchProject({ userId, projectId, patch }) {
+  omitClientSchedulePolicy(patch);
   const project = await Project.findById(projectId);
   if (!project || project.isActive === false) throw new Error('Project không tồn tại');
   assertProjectWritable(project);
   if (patch && Object.prototype.hasOwnProperty.call(patch, 'status')) {
     assertPatchDoesNotCloseProject(project.status, patch.status);
   }
+  const hasDeliveryPhasePatch = Object.prototype.hasOwnProperty.call(
+    patch || {},
+    'deliveryPhase'
+  );
+  const hasHandoverChecklistPatch = Object.prototype.hasOwnProperty.call(
+    patch || {},
+    'handoverChecklist'
+  );
+  const hasDeployEvidencePatch = Object.prototype.hasOwnProperty.call(
+    patch || {},
+    'deployEvidence'
+  );
   const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  let canPhaseActor = false;
+  let canAcceptActor = false;
   if (isProjectRbacV2Enabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
-    const hasDeliveryPhasePatch = Object.prototype.hasOwnProperty.call(
-      patch || {},
-      'deliveryPhase'
+    // Client must not set releaseLabel (RULE-06)
+    if (Object.prototype.hasOwnProperty.call(patch || {}, 'releaseLabel')) {
+      delete patch.releaseLabel;
+    }
+    canPhaseActor =
+      hasPermission(resolved.permissions, 'delivery_phase:change') ||
+      resolved.isOrgAdmin ||
+      resolved.isCreator;
+    // SoD: chỉ membership role có handover:accept (PO) — không creator/admin bypass
+    const { matrixPermissionsFromRoleKeys } = require('../utils/project/projectPermissionMatrix');
+    canAcceptActor = hasPermission(
+      matrixPermissionsFromRoleKeys(resolved.roles || []),
+      'handover:accept'
     );
-    if (hasDeliveryPhasePatch) {
-      const canPhase =
-        hasPermission(resolved.permissions, 'delivery_phase:change') ||
-        resolved.isOrgAdmin ||
-        resolved.isCreator;
-      if (!canPhase) {
+    const phaseLikePatch =
+      hasDeliveryPhasePatch || hasHandoverChecklistPatch || hasDeployEvidencePatch;
+    if (phaseLikePatch) {
+      if (!canPhaseActor && hasDeliveryPhasePatch) {
         const err = new Error('Không có quyền đổi deliveryPhase (delivery_phase:change)');
+        err.statusCode = 403;
+        throw err;
+      }
+      if (hasHandoverChecklistPatch && !canPhaseActor && !canAcceptActor) {
+        const err = new Error('Không có quyền cập nhật checklist bàn giao');
+        err.statusCode = 403;
+        throw err;
+      }
+      if (!canPhaseActor && hasDeployEvidencePatch) {
+        const err = new Error('Không có quyền cập nhật bằng chứng deploy');
         err.statusCode = 403;
         throw err;
       }
@@ -1039,16 +1271,18 @@ async function patchProject({ userId, projectId, patch }) {
       hasPermission(resolved.permissions, 'project:edit') ||
       resolved.isOrgAdmin ||
       resolved.isCreator;
-    if (!canSettings && !hasDeliveryPhasePatch) {
+    if (!canSettings && !phaseLikePatch) {
       const err = new Error('Không có quyền sửa settings dự án (settings:update)');
       err.statusCode = 403;
       throw err;
     }
-    if (!canSettings && hasDeliveryPhasePatch) {
-      // PM may change only deliveryPhase without full settings:update
-      const onlyPhase =
-        Object.keys(patch || {}).filter((k) => patch[k] !== undefined).length === 1;
-      if (!onlyPhase) {
+    if (!canSettings && phaseLikePatch) {
+      // PM/PO may change phase / checklist / deploy evidence without full settings:update
+      const allowedKeys = new Set(['deliveryPhase', 'handoverChecklist', 'deployEvidence']);
+      const extra = Object.keys(patch || {}).filter(
+        (k) => patch[k] !== undefined && !allowedKeys.has(k)
+      );
+      if (extra.length) {
         const err = new Error('Không có quyền sửa settings dự án (settings:update)');
         err.statusCode = 403;
         throw err;
@@ -1057,12 +1291,21 @@ async function patchProject({ userId, projectId, patch }) {
   } else {
     const canAdmin = await userCanAdminProject(userId, project.toObject());
     if (!canAdmin) throw new Error('Không có quyền sửa settings dự án');
+    canPhaseActor = true;
+    canAcceptActor = true;
+  }
+
+  // Always strip client releaseLabel even in legacy RBAC path
+  if (patch && Object.prototype.hasOwnProperty.call(patch, 'releaseLabel')) {
+    delete patch.releaseLabel;
   }
 
   const {
     canTransitionDeliveryPhase,
     coerceDeliveryPhase: coercePhase,
+    RELEASE_HANDOVER_CHECKLIST,
   } = require('../constants/projectDeliveryPhase');
+  const { assertHandoverGate } = require('../utils/work/assertHandoverGate');
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'deliveryPhase')) {
     const from = coercePhase(project.deliveryPhase);
     const to = coercePhase(patch.deliveryPhase, { missingAsExisting: false });
@@ -1071,6 +1314,28 @@ async function patchProject({ userId, projectId, patch }) {
       err.statusCode = 400;
       err.errorCode = 'DELIVERY_PHASE_TRANSITION_DENIED';
       throw err;
+    }
+    if (from === 'qa_uat' && to === 'release_handover') {
+      const checklistIds = RELEASE_HANDOVER_CHECKLIST.map((row) => row.id);
+      const upcomingChecklist = Object.prototype.hasOwnProperty.call(patch, 'handoverChecklist')
+        ? normalizeHandoverChecklist(patch.handoverChecklist, checklistIds)
+        : normalizeHandoverChecklist(project.handoverChecklist, checklistIds);
+      const gate = assertHandoverGate({
+        releaseReadyStatus: project.releaseReadyStatus,
+        uatStatus: project.uatStatus,
+        handoverChecklist: upcomingChecklist,
+        checklistIds,
+      });
+      if (!gate.ok) {
+        const err = new Error(
+          `Chưa đủ điều kiện bàn giao (${(gate.blockers || []).join(', ') || 'not_ready'})`
+        );
+        err.statusCode = 409;
+        err.errorCode = 'HANDOVER_GATE_DENIED';
+        err.blockers = gate.blockers;
+        err.details = { blockers: gate.blockers };
+        throw err;
+      }
     }
   }
 
@@ -1085,7 +1350,17 @@ async function patchProject({ userId, projectId, patch }) {
     'informationLevelOverrides',
     'relatedDepartmentIds',
   ].some((k) => Object.prototype.hasOwnProperty.call(patch || {}, k));
-  if (!built.ok && !init.ok && !hasStaffingPatch && !hasVisibilityPatch && !hasWorkTypeConfigPatch && !hasPriorityConfigPatch) {
+  if (
+    !built.ok &&
+    !init.ok &&
+    !hasStaffingPatch &&
+    !hasVisibilityPatch &&
+    !hasWorkTypeConfigPatch &&
+    !hasPriorityConfigPatch &&
+    !hasHandoverChecklistPatch &&
+    !hasDeployEvidencePatch &&
+    !hasDeliveryPhasePatch
+  ) {
     const err = new Error(built.message || init.message || 'Không có field hợp lệ');
     err.statusCode = 400;
     throw err;
@@ -1119,8 +1394,86 @@ async function patchProject({ userId, projectId, patch }) {
     ...(built.ok ? built.$set : {}),
     ...(init.ok ? init.fields : {}),
   };
+  const aligned = alignedLifecycleFields({
+    status: Object.prototype.hasOwnProperty.call($set, 'status') ? $set.status : project.status,
+    deliveryPhase: Object.prototype.hasOwnProperty.call($set, 'deliveryPhase')
+      ? $set.deliveryPhase
+      : project.deliveryPhase,
+  });
+  $set.status = aligned.status;
+  if (aligned.status !== 'on_hold' && aligned.status !== 'closed') {
+    $set.deliveryPhase = aligned.deliveryPhase;
+  }
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'requiredProjectRoles')) {
     $set.requiredProjectRoles = normalizeRequiredProjectRoles(patch.requiredProjectRoles);
+  }
+  if (hasHandoverChecklistPatch) {
+    const { RELEASE_HANDOVER_CHECKLIST } = require('../constants/projectDeliveryPhase');
+    const {
+      assertHandoverChecklistAuthz,
+      assertDeployVerifiedEvidence,
+      buildChecklistMetaPatch,
+    } = require('../utils/work/handoverChecklistPolicy');
+    const checklistIds = RELEASE_HANDOVER_CHECKLIST.map((row) => row.id);
+    const prevChecklist = normalizeHandoverChecklist(project.handoverChecklist, checklistIds);
+    const nextChecklist = normalizeHandoverChecklist(patch.handoverChecklist, checklistIds);
+    const authz = assertHandoverChecklistAuthz({
+      prevChecklist,
+      nextChecklist,
+      canPhase: canPhaseActor,
+      canAccept: canAcceptActor,
+    });
+    if (!authz.ok) {
+      const err = new Error(authz.message);
+      err.statusCode = authz.statusCode;
+      err.errorCode = authz.errorCode;
+      throw err;
+    }
+    // Plan D RULE-01 — cannot claim Production verify before UAT Pass
+    if (nextChecklist.deployment_verified === true && String(project.uatStatus || '') !== 'pass') {
+      const err = new Error('Chỉ tick “Đã verify deploy” sau khi UAT Pass (Staging)');
+      err.statusCode = 409;
+      err.errorCode = 'DEPLOY_VERIFY_BEFORE_UAT';
+      throw err;
+    }
+    const { normalizeDeployEvidence } = require('../utils/work/normalizeDeployEvidence');
+    const effectiveEvidence = hasDeployEvidencePatch
+      ? normalizeDeployEvidence(patch.deployEvidence, {
+          userId,
+          releaseLabel: project.releaseLabel,
+        })
+      : project.deployEvidence;
+    const evidenceGate = assertDeployVerifiedEvidence({
+      prevChecklist,
+      nextChecklist,
+      deployEvidence: effectiveEvidence,
+    });
+    if (!evidenceGate.ok) {
+      const err = new Error(evidenceGate.message);
+      err.statusCode = evidenceGate.statusCode;
+      err.errorCode = evidenceGate.errorCode;
+      throw err;
+    }
+    $set.handoverChecklist = nextChecklist;
+    $set.handoverChecklistMeta = buildChecklistMetaPatch({
+      prevChecklist,
+      nextChecklist,
+      prevMeta: project.handoverChecklistMeta,
+      userId,
+    });
+  }
+  if (hasDeployEvidencePatch) {
+    const { normalizeDeployEvidence } = require('../utils/work/normalizeDeployEvidence');
+    if (String(project.uatStatus || '') !== 'pass') {
+      const err = new Error('Chỉ ghi bằng chứng deploy sau khi UAT Pass');
+      err.statusCode = 409;
+      err.errorCode = 'DEPLOY_EVIDENCE_BEFORE_UAT';
+      throw err;
+    }
+    $set.deployEvidence = normalizeDeployEvidence(patch.deployEvidence, {
+      userId,
+      releaseLabel: project.releaseLabel,
+    });
   }
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'relatedDepartmentIds')) {
     $set.relatedDepartmentIds = normalizeRelatedDepartmentIds(patch.relatedDepartmentIds);
@@ -1177,6 +1530,16 @@ async function patchProject({ userId, projectId, patch }) {
     $set.projectCode = await ensureUniqueProjectCode(project.organizationId, $set.projectCode);
   }
 
+  // Plan B C4 — set releaseLabel once on first successful advance to handover
+  if (
+    $set.deliveryPhase === 'release_handover' &&
+    coercePhase(project.deliveryPhase) === 'qa_uat' &&
+    !String(project.releaseLabel || '').trim()
+  ) {
+    $set.releaseLabel = await resolveReleaseLabelForProject(project._id);
+  }
+
+  delete $set.schedulePolicy;
   const beforeSnap = project.toObject();
   Object.assign(project, $set);
   await project.save();
@@ -1219,12 +1582,27 @@ async function patchProject({ userId, projectId, patch }) {
   const boards = await TaskBoard.find({ projectId: project._id, isActive: true })
     .sort({ createdAt: 1 })
     .lean();
-  return {
+  const dateTouched =
+    Object.prototype.hasOwnProperty.call(patch || {}, 'startDate') ||
+    Object.prototype.hasOwnProperty.call(patch || {}, 'expectedEndDate') ||
+    Object.prototype.hasOwnProperty.call(patch || {}, 'dueDate');
+  let saved = {
     ...project.toObject(),
     projectId: String(project._id),
     defaultBoardId: boards[0] ? String(boards[0]._id) : null,
     boards,
   };
+  if (dateTouched) {
+    const warnings = dateWarningsForProject(project, {
+      startDate: project.startDate,
+      endDate: project.expectedEndDate,
+      todayYmd: todayYmdInVietnam(),
+      subjectKey: String(project._id),
+      endField: 'expectedEndDate',
+    });
+    saved = attachScheduleWarnings(saved, warnings);
+  }
+  return saved;
 }
 
 async function archiveProject({ userId, projectId }) {
@@ -1477,6 +1855,8 @@ async function getProjectActivity({ userId, projectId, limit = 50 }) {
     if (!canView) {
       const err = new Error('Không có quyền xem activity');
       err.statusCode = 403;
+      err.errorCode = 'PROJECT_PERMISSION_DENIED';
+      err.messageUser = 'Không có quyền xem activity';
       throw err;
     }
     if (resolved.informationLevel === 'summary') {
@@ -1577,16 +1957,21 @@ async function getProjectFiles({ userId, projectId }) {
   })
     .select('title attachments boardId')
     .lean();
+  const { readTaskFromStored } = require('../utils/task/taskPii');
   const files = [];
   for (const c of cards) {
-    for (const a of c.attachments || []) {
-      if (!a?.url) continue;
+    const decrypted = readTaskFromStored(c);
+    for (const a of decrypted.attachments || []) {
+      const url = String(a?.url || a?.storagePath || '').trim();
+      if (!url) continue;
       files.push({
-        name: a.name || a.url,
-        url: a.url,
+        name: a.name || url,
+        url,
+        storagePath: String(a?.storagePath || '').trim() || undefined,
         documentId: a.documentId || null,
+        mimeType: a.mimeType || a.contentType || undefined,
         taskId: c._id,
-        taskTitle: c.title,
+        taskTitle: decrypted.title || c.title,
         boardId: c.boardId,
       });
     }
@@ -1633,7 +2018,23 @@ async function createProjectSprint({
   const st = ['planned', 'active', 'closed'].includes(String(status || ''))
     ? String(status)
     : 'planned';
-  let bid = boardId || project.defaultBoardId || null;
+  const requestedBoardId = typeof boardId === 'string' ? boardId.trim() : '';
+  const foundBoard =
+    requestedBoardId && mongoose.isValidObjectId(requestedBoardId)
+      ? await TaskBoard.findOne({
+          _id: requestedBoardId,
+          projectId,
+          isActive: { $ne: false },
+        })
+          .select('_id projectId isActive')
+          .lean()
+      : null;
+  const bid = pickSprintBoardId({
+    requestedBoardId,
+    projectId,
+    defaultBoardId: project.defaultBoardId,
+    foundBoard,
+  });
   const row = await Sprint.create({
     organizationId: project.organizationId,
     projectId,
@@ -1646,7 +2047,7 @@ async function createProjectSprint({
     autoComplete: Boolean(autoComplete),
     createdBy: userId,
   });
-  return row.toObject();
+  return withSprintScheduleWarnings(project, row.toObject());
 }
 
 async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
@@ -1699,7 +2100,7 @@ async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
     sprint.reviewNotes = String(patch.reviewNotes || '').trim().slice(0, 4000);
   }
   await sprint.save();
-  return sprint.toObject();
+  return withSprintScheduleWarnings(project, sprint.toObject());
 }
 
 async function deleteProjectSprint({ userId, projectId, sprintId }) {

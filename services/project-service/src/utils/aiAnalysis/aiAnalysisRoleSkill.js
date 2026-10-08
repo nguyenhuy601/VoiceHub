@@ -6,7 +6,21 @@
 const { normalizeRoleKey, isKnownProjectRole } = require('../requirement/requirementStaffingParse');
 const { normProse } = require('../requirement/requirementTemplateTextNorm');
 const { truncate } = require('./aiAnalysisFrSlice');
-const { AREA_ROLE_HINT } = require('./aiAnalysisWbs');
+const AREA_ROLE_HINT = Object.freeze({
+  frontend: 'frontend_developer',
+  backend: 'backend_developer',
+  database: 'backend_developer',
+  api: 'backend_developer',
+  auth: 'backend_developer',
+  infrastructure: 'devops_engineer',
+  external: 'backend_developer',
+  security: 'backend_developer',
+  deployment: 'devops_engineer',
+  qa: 'qa_engineer',
+  design: 'ui_ux_designer',
+  management: 'project_manager',
+  analysis: 'business_analyst',
+});
 
 const ALWAYS_ROLES = Object.freeze(['project_manager', 'business_analyst']);
 
