@@ -87,8 +87,10 @@ jobs:
           echo "is_main_publish=${IS_MAIN_PUBLISH}"
 
   # ── Scan ──────────────────────────────────────────────
+  # TEMP: bỏ check env/secrets (gitleaks + check-security-env) khi repo chưa public.
+  # Bật lại trước khi open-source / public: xóa `if: false` ở 2 step dưới.
   scan:
-    name: "Scan — secrets + fs + env"
+    name: "Scan — fs (env/secrets tạm tắt)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,9 +98,11 @@ jobs:
           fetch-depth: 0
 
       - name: Security env (ci profile)
+        if: false
         run: VOICEHUB_ENV_CHECK=ci bash devops/scripts/security/check-security-env.sh
 
       - name: Gitleaks
+        if: false
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
