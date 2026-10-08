@@ -244,7 +244,7 @@ bash devops/scripts/security/check-security-env.sh
 ### 6.3 Security
 
 - Token / authn / authz / logging / secrets / injection / rate limit (as relevant)
-- After security fix: `bash devops/scripts/security/check-security-env.sh` + `devops/scripts/security-regression-smoke.md`
+- After security fix: `bash devops/scripts/security/check-security-env.sh`
 
 ### 6.4 Rollback
 

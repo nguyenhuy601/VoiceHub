@@ -182,8 +182,6 @@ Cây phân cấp (organization-service):
 **Single-company** (`shared/config/singleCompany.js`):
 
 - Env: `SINGLE_ORG_MODE`, `ALLOW_PUBLIC_REGISTER`
-- Seed: `node devops/scripts/seed-single-company.js`
-- Smoke: `node devops/scripts/smoke-single-company.js`
 
 UI admin: `/app/admin/*` (hub, users, structure, RBAC, …).
 
@@ -236,13 +234,6 @@ cd client && npm install && npm run dev
 ```
 
 Verify: `powershell -File devops/nginx/verify-lan-https.ps1 -BaseUrl https://voicehub.local`
-
-### 4. Single-company seed / smoke
-
-```bash
-node devops/scripts/seed-single-company.js
-node devops/scripts/smoke-single-company.js
-```
 
 ### Compose full stack (tuỳ chọn)
 

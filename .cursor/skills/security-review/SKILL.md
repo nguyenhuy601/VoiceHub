@@ -27,7 +27,7 @@ Diff or file list
 ## Workflow
 
 1. Scan for token exposure, bypass, secret leakage, injection, unsafe logging.
-2. Require check-security-env.sh + security-regression-smoke.md when fixing security.
+2. Require check-security-env.sh when fixing security.
 3. Report Critical/High/Medium with remediation.
 
 ## Expected output

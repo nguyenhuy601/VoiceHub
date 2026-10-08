@@ -1,26 +1,23 @@
 #!/usr/bin/env bash
-# Bật profile dev đầy đủ trên Docker Desktop (~9.5GB VM):
-# - Deploy / refresh stack app (docker-stack.yml) — không gồm ollama
-# - Gỡ leftover Swarm ollama + paddleocr (nếu còn từ stack cũ)
-# - Compose extra: ollama, minio, meilisearch, qdrant
+# Bật profile dev đầy đủ trên Docker Desktop:
+# - Deploy / refresh stack app (docker-stack.yml) — gồm ollama, minio, qdrant, meilisearch
+# - Gỡ leftover Compose extra (voicehub-extra) nếu còn
+# - Pull model Ollama trên task Swarm
 #
 # Usage:
 #   bash devops/swarm/dev-enable-profile.sh
-#   bash devops/swarm/dev-enable-profile.sh --skip-deploy   # chỉ gỡ leftover + compose
-#   bash devops/swarm/dev-enable-profile.sh --ai-only       # chỉ ollama (compose)
+#   bash devops/swarm/dev-enable-profile.sh --skip-deploy   # chỉ pull model + dọn leftover
+#   bash devops/swarm/dev-enable-profile.sh --ai-only       # alias --skip-deploy (infra đã trong Swarm)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 STACK="${STACK_NAME:-voicehub}"
-COMPOSE_EXTRA=(docker compose -f docker-compose.swarm-extra.yml --env-file .env)
 SKIP_DEPLOY=0
-AI_ONLY=0
 
 for arg in "$@"; do
   case "$arg" in
-    --skip-deploy) SKIP_DEPLOY=1 ;;
-    --ai-only) AI_ONLY=1 ;;
+    --skip-deploy|--ai-only) SKIP_DEPLOY=1 ;;
   esac
 done
 
@@ -31,41 +28,34 @@ fi
 
 NODE_ID="$(docker node ls -q 2>/dev/null | head -1 || true)"
 if [[ -n "$NODE_ID" ]]; then
-  echo "[1/6] Gắn label node (ai, voice) nếu thiếu..."
+  echo "[1/5] Gắn label node (ai, voice) nếu thiếu..."
   docker node update --label-add ai=true "$NODE_ID" 2>/dev/null || true
   docker node update --label-add voice=true "$NODE_ID" 2>/dev/null || true
 fi
 
 if [[ "$SKIP_DEPLOY" != "1" ]]; then
-  echo "[2/6] Deploy stack app (ollama chỉ chạy Compose extra)..."
+  echo "[2/5] Deploy stack app (gồm ollama, minio, qdrant, meilisearch)..."
   SWARM_USE_LOCAL_IMAGES="${SWARM_USE_LOCAL_IMAGES:-1}" \
     STACK_FILE="${STACK_FILE:-docker-stack.yml}" \
     bash "$ROOT/devops/swarm/deploy-stack.sh"
 else
-  echo "[2/6] Bỏ qua deploy (--skip-deploy)"
+  echo "[2/5] Bỏ qua deploy (--skip-deploy)"
 fi
 
-echo "[3/6] Gỡ leftover Swarm ollama + paddleocr (nếu còn từ stack cũ)..."
-docker service rm "${STACK}_ollama" "${STACK}_paddleocr-service" 2>/dev/null || true
+echo "[3/5] Gỡ leftover Compose extra (voicehub-extra) nếu còn..."
+docker compose -f docker-compose.swarm-extra.yml --env-file .env down 2>/dev/null || true
+# Legacy container names
+docker rm -f $(docker ps -aq -f "name=voicehub-extra-" 2>/dev/null) 2>/dev/null || true
 
-NET="${ENTERPRISE_NETWORK_NAME:-voicehub_enterprise-network}"
-if ! docker network inspect "$NET" >/dev/null 2>&1; then
-  echo "[WARN] Overlay $NET chưa tồn tại — chạy deploy stack trước." >&2
-fi
-
-if [[ "$AI_ONLY" == "1" ]]; then
-  echo "[4/6] Compose extra — chỉ AI (ollama)..."
-  "${COMPOSE_EXTRA[@]}" up -d ollama
-else
-  echo "[4/6] Compose extra (ollama, minio, meilisearch, qdrant)..."
-  "${COMPOSE_EXTRA[@]}" up -d --build
-fi
-
-echo "[5/6] Pull model Ollama (Compose extra)..."
-OLLAMA_CID="$("${COMPOSE_EXTRA[@]}" ps -q ollama 2>/dev/null | head -1 || true)"
-if [[ -z "$OLLAMA_CID" ]]; then
-  OLLAMA_CID="$(docker ps -q -f "name=voicehub-extra-ollama" | head -1 || true)"
-fi
+echo "[4/5] Pull model Ollama (Swarm service ${STACK}_ollama)..."
+OLLAMA_CID=""
+for _ in $(seq 1 30); do
+  OLLAMA_CID="$(docker ps -q -f "name=${STACK}_ollama" 2>/dev/null | head -1 || true)"
+  if [[ -n "$OLLAMA_CID" ]]; then
+    break
+  fi
+  sleep 2
+done
 if [[ -n "$OLLAMA_CID" ]]; then
   # shellcheck disable=SC1091
   PROVIDER="$(grep -E '^LLM_PROVIDER=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
@@ -83,18 +73,20 @@ if [[ -n "$OLLAMA_CID" ]]; then
       ;;
   esac
 else
-  echo "[WARN] Chưa thấy container ollama extra — kiểm tra: docker compose -f docker-compose.swarm-extra.yml ps"
+  echo "[WARN] Chưa thấy task ${STACK}_ollama — kiểm tra: docker service ls | grep ollama"
+  echo "  Đảm bảo node có label ai=true (bước 1)."
 fi
 
 echo ""
 echo "=== Swarm replicas ==="
 docker service ls --filter "name=${STACK}_" --format "{{.Name}} {{.Replicas}}" 2>/dev/null | sort
 echo ""
-echo "=== Compose extra ==="
-"${COMPOSE_EXTRA[@]}" ps 2>/dev/null || true
+echo "=== Infra AI (Swarm) ==="
+for svc in ollama minio qdrant meilisearch minio-init; do
+  docker service ls --filter "name=${STACK}_${svc}" --format "{{.Name}} {{.Replicas}} {{.Image}}" 2>/dev/null || true
+done
 echo ""
 echo "=== Container memory (top) ==="
 docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}" 2>/dev/null | head -45
 echo ""
-echo "[OK] Profile dev đã bật."
-echo "  Ollama: Compose voicehub-extra (không nằm trong Swarm)."
+echo "[OK] Profile dev đã bật — Ollama/MinIO/Qdrant/Meili chạy trên Swarm."

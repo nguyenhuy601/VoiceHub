@@ -1,12 +1,7 @@
 # P2-Workers — Manual autoscale runbook (Swarm)
 
 **Policy:** [`autoscale-policy.md`](./autoscale-policy.md)  
-**Scripts:** [`scale-workers.sh`](./scale-workers.sh), [`rabbit-queue-depth.sh`](../scripts/rabbit-queue-depth.sh)  
-**Inventory:** [`docs/phase2-replica-inventory-staging.md`](../../docs/phase2-replica-inventory-staging.md)
-
-## Mục tiêu
-
-Scale queue workers **thủ công** trên Docker Swarm (không HPA/autoscaler plugin). Verify queue drain sau burst và có rollback rõ ràng.
+**Scale:** `docker service scale` (helper `scale-workers.sh` đã gỡ)
 
 ## Guardrails (staging single-node)
 
@@ -17,83 +12,27 @@ Scale queue workers **thủ công** trên Docker Swarm (không HPA/autoscaler pl
 | ai-task-extract-worker | 1 | 2 | `node.labels.ai == true` |
 | ai-task-sync-worker | 1 | 2 | `node.labels.ai == true` |
 
-**DB-bound (`project-worker`):** tăng tối đa **+1 replica / 10 phút**; theo dõi Mongo connection trước khi scale tiếp.
-
-**AI workers:** không vượt `P2_WORKER_MAX_REPLICAS` nếu Docker Desktop thiếu RAM.
-
-## Scale out (manual)
-
-### Cách 1 — `.env` + stack deploy (khuyến nghị, reproducible)
+## Scale out
 
 ```bash
-# Root .env (ví dụ staging burst window)
+# Root .env (ví dụ)
 TASK_WORKER_REPLICAS=2
 NOTIFICATION_DISPATCH_WORKER_REPLICAS=2
-AI_TASK_EXTRACT_WORKER_REPLICAS=2
-AI_TASK_SYNC_WORKER_REPLICAS=2
 
-bash devops/swarm/scale-workers.sh deploy
+bash devops/swarm/deploy-stack.sh
+# hoặc nhanh:
+docker service scale voicehub_project-worker=2 voicehub_notification-dispatch-worker=2
 ```
 
-### Cách 2 — `docker service scale` nhanh
+## Scale in
 
 ```bash
-bash devops/swarm/scale-workers.sh up 2
+docker service scale voicehub_project-worker=1 voicehub_notification-dispatch-worker=1
 ```
 
-## Scale in (rollback)
+## Verify
 
 ```bash
-bash devops/swarm/scale-workers.sh down
+docker service ls --filter name=voicehub_ | grep -E 'worker|Worker'
+# Queue depth: Rabbit management UI / rabbitmqctl
 ```
-
-Hoặc restore từ [`backup/phase2-prep-2026-06-19/replica-env-snapshot.txt`](../../backup/phase2-prep-2026-06-19/replica-env-snapshot.txt) (worker vars = 1) rồi `scale-workers.sh deploy`.
-
-## Verify sau scale
-
-```bash
-bash devops/swarm/scale-workers.sh status
-bash devops/scripts/rabbit-queue-depth.sh
-```
-
-### Queue drain pass criteria
-
-- Critical queue depth → **~0** trong `P2_DRAIN_WAIT_SEC` (default 90s)
-- DLQ không spike bất thường (so với retry exhausted)
-- Worker replicas **N/N** ổn định, không restart loop
-
-## Burst test (notification)
-
-1. Baseline: `rabbitmqctl list_queues`
-2. Burst publish notification dispatch jobs, rồi poll queue:
-
-```bash
-watch -n5 bash devops/scripts/rabbit-queue-depth.sh
-```
-
-3. So sánh thời gian drain **1 vs 2 replica** (optional benchmark)
-
-## Idempotency / double consume
-
-Phase 1 đã có:
-
-- DM: `dm:corr` / quorum consumers
-- Org events: idempotency keys
-
-Khi scale in về 1 replica: không xóa queue; chỉ giảm consumer count.
-
-## Rollback nhanh
-
-```bash
-docker service scale \
-  voicehub_project-worker=1 \
-  voicehub_notification-dispatch-worker=1 \
-  voicehub_ai-task-extract-worker=1 \
-  voicehub_ai-task-sync-worker=1
-```
-
-## References
-
-- [`autoscale-policy.md`](./autoscale-policy.md)
-- [`load-chaos-validation.md`](./load-chaos-validation.md)
-- [`observability-baseline.md`](./observability-baseline.md)

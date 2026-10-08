@@ -25,10 +25,15 @@ docs/*
 !docs/LICENSE
 # Local/dev generated scripts (repo-root ./scripts/; pattern also matches **/scripts/)
 scripts/
-# CI/CD devops scripts are source-controlled (un-ignore parents so Git can traverse)
+# Only CI/CD devops scripts are source-controlled (un-ignore parents so Git can traverse)
 !devops/
 !devops/scripts/
-!devops/scripts/**
+!devops/scripts/security/
+!devops/scripts/security/**
+!devops/scripts/docker/
+!devops/scripts/docker/**
+!devops/scripts/release/
+!devops/scripts/release/**
 
 # ========================
 # Build Outputs
