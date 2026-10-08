@@ -1,8 +1,8 @@
 # CI — Continuous Integration (VoiceHub)
-# PR:   Lint → Test → Scan(fs) → Build (push=false) → ci-gate
-# main: Lint → Test → Scan(fs) → Build+Push → Scan(image) → Manifest → ci-gate
+# branch push / PR→main: Lint → Test → Scan(fs) → Build (push=false) → ci-gate
+# main push:             Lint → Test → Scan(fs) → Build+Push → Scan(image) → Manifest → ci-gate
 # Không dual CI / không release.yml — publish chỉ trên main trong workflow này.
-# CD không rebuild (xem cd.yml).
+# CD không rebuild (xem cd.yml); CD chỉ lắng nghe CI trên main.
 
 name: CI
 
@@ -10,7 +10,11 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    # Mọi feature branch + main — push NhatHuy cũng chạy CI (verify, không publish).
+    branches:
+      - "**"
+    tags-ignore:
+      - "**"
   workflow_dispatch:
     inputs:
       publish:
@@ -23,7 +27,8 @@ on:
         default: false
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Cùng nhánh: PR synchronize + push dùng chung group (tránh 2 run song song).
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -245,7 +250,10 @@ jobs:
     needs: changes
     if: >-
       (
-        github.event_name == 'pull_request' && (
+        (
+          github.event_name == 'pull_request' ||
+          (github.event_name == 'push' && needs.changes.outputs.is_main_publish != 'true')
+        ) && (
           needs.changes.outputs.docker == 'true' ||
           needs.changes.outputs.shared == 'true' ||
           needs.changes.outputs.api_gateway == 'true' ||
@@ -276,6 +284,7 @@ jobs:
       - id: set
         env:
           IS_MAIN: ${{ needs.changes.outputs.is_main_publish }}
+          EVENT_NAME: ${{ github.event_name }}
           FORCE_ALL_INPUT: ${{ github.event.inputs.force_all_images || 'false' }}
           SHARED_CHANGED: ${{ needs.changes.outputs.shared }}
           DOCKER_CHANGED: ${{ needs.changes.outputs.docker }}
@@ -291,6 +300,12 @@ jobs:
             if [[ -z "${BASE}" || "${BASE}" =~ ^0+$ ]]; then
               BASE="$(git rev-parse HEAD~1 2>/dev/null || true)"
             fi
+          elif [[ "${EVENT_NAME}" == "push" ]]; then
+            # Feature-branch push: path-filter vs previous commit (giống PR verify).
+            BASE="${BEFORE}"
+            if [[ -z "${BASE}" || "${BASE}" =~ ^0+$ ]]; then
+              BASE="$(git rev-parse HEAD~1 2>/dev/null || true)"
+            fi
           fi
           EXTRA=()
           if [[ "${FORCE_ALL_INPUT}" == "true" || "${SHARED_CHANGED}" == "true" || "${DOCKER_CHANGED}" == "true" ]]; then
@@ -301,12 +316,15 @@ jobs:
           ARGS+=("${EXTRA[@]}")
           bash .github/scripts/resolve-docker-matrix.sh "${ARGS[@]}"
 
-  # ── PR only: build verify (push=false) ────────────────
+  # ── PR / feature-branch push: build verify (push=false) ─
   build-docker:
     name: "Build — ${{ matrix.image }} (no push)"
     needs: [changes, resolve-docker-matrix]
     if: >-
-      github.event_name == 'pull_request' &&
+      (
+        github.event_name == 'pull_request' ||
+        (github.event_name == 'push' && needs.changes.outputs.is_main_publish != 'true')
+      ) &&
       needs.resolve-docker-matrix.outputs.has_images == 'true'
     runs-on: ubuntu-latest
     strategy:
