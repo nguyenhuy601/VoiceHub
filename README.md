@@ -64,7 +64,7 @@ Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/MIGRATION.md`
 | Runtime | File / lệnh | Dùng cho |
 |---------|-------------|----------|
 | **Docker Swarm** | `docker-stack.yml` + `bash devops/swarm/deploy-stack.sh` | Toàn bộ microservices app (`api-gateway`, `auth`, `chat`, `voice`, …) |
-| **Compose extra** | `docker-compose.swarm-extra.yml` | Infra/AI bổ sung trên cùng overlay: `ollama`, `minio`, `meilisearch`, `qdrant`, … |
+| **Swarm infra AI** | trong `docker-stack.yml` | `ollama`, `minio`, `qdrant`, `meilisearch` (DNS cùng overlay) |
 | **Compose legacy** | `docker-compose.yml` (+ infra/core/dev) | Có thể chạy full stack local; **không** thay Swarm khi môi trường đã deploy Swarm |
 
 **Không** `docker compose up` cho các service đã nằm trong Swarm. Cập nhật một service: build đúng image đó + `docker service update --force` — xem [`.cursor/rules/swarm-compose-split.mdc`](.cursor/rules/swarm-compose-split.mdc), [`devops/swarm/README.md`](devops/swarm/README.md).
@@ -216,11 +216,13 @@ bash devops/swarm/deploy-stack.sh
 # hoặc: docker service update --force --update-parallelism 1 --update-order start-first voicehub_<service>
 ```
 
-### 2. Compose extra (recording / STT / MinIO / Ollama)
+### 2. Infra AI trên Swarm (Ollama / MinIO / Qdrant / Meili)
+
+Đã nằm trong `docker-stack.yml`. Sau deploy lần đầu (hoặc đổi model):
 
 ```bash
-bash devops/swarm/dev-enable-profile.sh --skip-deploy   # scale Swarm trùng tên về 0 nếu cần
-docker compose -f docker-compose.swarm-extra.yml --env-file .env up -d --no-build
+bash devops/swarm/dev-enable-profile.sh          # deploy + pull model
+# hoặc: bash devops/swarm/dev-enable-profile.sh --skip-deploy
 ```
 
 ### 3. Edge HTTPS + frontend

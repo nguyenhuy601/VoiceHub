@@ -1,7 +1,7 @@
 ---
 name: deployment-analysis
 description: >-
-  Guides VoiceHub deploy/update: Swarm for app microservices, Compose extra for ollama/minio/workers; build only the changed service; avoid full-stack rebuilds and VHDX bloat.
+  Guides VoiceHub deploy/update: Swarm for app microservices and infra AI (ollama/minio/qdrant/meili); build only the changed service; avoid full-stack rebuilds and VHDX bloat.
 ---
 
 # deployment analysis
@@ -21,14 +21,14 @@ Client-only HMR with no image change.
 
 ## Input
 
-Service name; Swarm vs compose-extra
+Service name; Swarm (app hoặc infra AI)
 
 ## Workflow
 
-1. Classify: docker-stack Swarm vs docker-compose.swarm-extra.yml.
-2. Propose build-local-images.sh <service> then docker service update --force.
-3. Compose extra: up -d --no-build unless Dockerfile changed.
-4. Never suggest build-all or compose up for app microservices.
+1. Classify: luôn Swarm `docker-stack.yml` (app + ollama/minio/qdrant/meili).
+2. App code: build-local-images.sh <service> rồi docker service update --force.
+3. Infra public image: service update --force hoặc deploy-stack / dev-enable-profile.
+4. Never suggest build-all hoặc compose up cho service trong stack.
 
 ## Expected output
 
