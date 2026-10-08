@@ -21,7 +21,7 @@
 ## Quick start
 
 1. `bash devops/scripts/rotate-staging-secrets.sh --apply`
-2. `VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh`
+2. `VOICEHUB_ENV_CHECK=staging bash devops/scripts/security/check-security-env.sh`
 3. `bash devops/swarm/build-local-images.sh`
 4. `bash devops/swarm/node-labels.sh`
 5. `bash devops/swarm/deploy-stack.sh`

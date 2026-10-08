@@ -44,7 +44,7 @@
 | Script | Mục đích |
 |--------|----------|
 | [`build-client-static.sh`](../scripts/build-client-static.sh) | Build SPA `client/dist` |
-| [`check-security-env.sh`](../scripts/check-security-env.sh) | Audit biến môi trường |
+| [`check-security-env.sh`](../scripts/security/check-security-env.sh) | Audit biến môi trường |
 | [`rotate-staging-secrets.sh`](../scripts/rotate-staging-secrets.sh) | Rotate secret staging |
 | [`cloudflare-fetch-ips.sh`](../scripts/cloudflare-fetch-ips.sh) | Tải danh sách IP Cloudflare |
 | [`cloudflare-origin-lockdown.sh`](../scripts/cloudflare-origin-lockdown.sh) | Firewall origin chỉ CF |
@@ -68,7 +68,7 @@
 
 ```bash
 bash devops/scripts/rotate-staging-secrets.sh --apply
-VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
+VOICEHUB_ENV_CHECK=staging bash devops/scripts/security/check-security-env.sh
 bash devops/swarm/build-local-images.sh
 bash devops/swarm/node-labels.sh
 bash devops/swarm/deploy-stack.sh

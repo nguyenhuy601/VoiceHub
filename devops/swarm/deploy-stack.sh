@@ -39,7 +39,7 @@ source "$ROOT/devops/swarm/resolve-swarm-images.sh"
 resolve_swarm_images
 
 if [[ "${SKIP_SECURITY_ENV_CHECK:-}" != "1" ]]; then
-  VOICEHUB_ENV_CHECK="${VOICEHUB_ENV_CHECK:-staging}" bash devops/scripts/check-security-env.sh
+  VOICEHUB_ENV_CHECK="${VOICEHUB_ENV_CHECK:-staging}" bash devops/scripts/security/check-security-env.sh
 fi
 
 ENTERPRISE_NET="${ENTERPRISE_NETWORK_NAME:-voicehub_enterprise-network}"

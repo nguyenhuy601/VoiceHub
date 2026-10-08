@@ -69,7 +69,7 @@ jobs:
               - '.github/swarm-app-images.json'
               - '.github/workflows/ci.yml'
               - '.github/workflows/cd.yml'
-              - '.github/scripts/**'
+              - 'devops/scripts/**'
       - id: meta
         env:
           EVENT: ${{ github.event_name }}
@@ -96,7 +96,7 @@ jobs:
           fetch-depth: 0
 
       - name: Security env (ci profile)
-        run: VOICEHUB_ENV_CHECK=ci bash devops/scripts/check-security-env.sh
+        run: VOICEHUB_ENV_CHECK=ci bash devops/scripts/security/check-security-env.sh
 
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
@@ -314,7 +314,7 @@ jobs:
           ARGS=(--event "${EVENT_ARG}" --head HEAD --github-output)
           [[ -n "${BASE}" ]] && ARGS+=(--base "${BASE}")
           ARGS+=("${EXTRA[@]}")
-          bash .github/scripts/resolve-docker-matrix.sh "${ARGS[@]}"
+          bash devops/scripts/docker/resolve-docker-matrix.sh "${ARGS[@]}"
 
   # ── PR / feature-branch push: build verify (push=false) ─
   build-docker:
@@ -482,7 +482,7 @@ jobs:
             echo "No previous voicehub-R* release found"
           fi
 
-          node .github/scripts/generate-release-manifest.mjs \
+          node devops/scripts/release/generate-release-manifest.mjs \
             --commit "${SHA}" \
             --release-id "${RELEASE_ID}" \
             --owner "${OWNER}" \

@@ -72,7 +72,7 @@ Chỉ mục đầy đủ: [`.cursor/plans/stabilization/00-master-index.plan.md`
 ## Health & vận hành
 
 - Mỗi service: `GET /health`
-- Kiểm tra env: `bash devops/scripts/check-security-env.sh`
+- Kiểm tra env: `bash devops/scripts/security/check-security-env.sh`
 - Smoke stabilization: checklist trong [devops/swarm/load-chaos-validation.md](../devops/swarm/load-chaos-validation.md)
 
 ## Lưu ý cho contributor

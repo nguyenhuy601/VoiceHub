@@ -25,7 +25,12 @@ docs/*
 !docs/LICENSE
 !docs/bao-cao-chuyen-llm-ollama-alibaba.md
 !docs/llm-alibaba-dashscope-switch.md
+# Local/dev generated scripts (repo-root ./scripts/; pattern also matches **/scripts/)
 scripts/
+# CI/CD devops scripts are source-controlled (un-ignore parents so Git can traverse)
+!devops/
+!devops/scripts/
+!devops/scripts/**
 
 # ========================
 # Build Outputs

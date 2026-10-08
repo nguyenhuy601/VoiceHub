@@ -70,7 +70,7 @@ Khi tạo/cập nhật plan (CreatePlan / `.cursor/plans/*`), **luôn đủ 6 m�
 
 Dấu hiệu đạt chuẩn: biết sửa/không sửa file nào, blast radius, lệnh test, rủi ro, rollback; step + STOP for review; DoD đo được.
 
-Sau khi vá rủi ro bảo mật: `bash devops/scripts/check-security-env.sh` và checklist `devops/scripts/security-regression-smoke.md`.
+Sau khi vá rủi ro bảo mật: `bash devops/scripts/security/check-security-env.sh` và checklist `devops/scripts/security-regression-smoke.md`.
 
 ## Hoàn tất plan — bắt buộc kiểm thử trước khi kết thúc
 

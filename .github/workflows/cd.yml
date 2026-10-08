@@ -275,7 +275,7 @@ jobs:
           cat <<EOF
           === Smoke development ===
           releaseId=${RELEASE_ID} SHA=${SHA}
-          1) VOICEHUB_ENV_CHECK=ci bash devops/scripts/check-security-env.sh
+          1) VOICEHUB_ENV_CHECK=ci bash devops/scripts/security/check-security-env.sh
           2) node devops/scripts/smoke-single-company.js
           3) devops/nginx/verify-lan-https.ps1 -BaseUrl https://voicehub.local
           EOF
@@ -310,7 +310,7 @@ jobs:
           Pin digests from manifest (không :latest)
 
           Manual:
-            VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
+            VOICEHUB_ENV_CHECK=staging bash devops/scripts/security/check-security-env.sh
             bash devops/swarm/deploy-release.sh --release-id ${RELEASE_ID} --env staging
 
           Rollback: bash devops/swarm/deploy-release.sh --release-id <previous> --env staging
@@ -336,7 +336,7 @@ jobs:
           cat <<EOF
           === Smoke staging ===
           releaseId=${RELEASE_ID} SHA=${SHA}
-          - VOICEHUB_ENV_CHECK=staging bash devops/scripts/check-security-env.sh
+          - VOICEHUB_ENV_CHECK=staging bash devops/scripts/security/check-security-env.sh
           - node devops/scripts/smoke-single-company.js
           - devops/swarm/voice-staging-smoke.md
           EOF
