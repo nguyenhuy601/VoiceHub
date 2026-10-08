@@ -10,8 +10,13 @@ pnpm-lock.yaml
 # ========================
 # Environment Variables
 # ========================
-
-/services/ai-project-planning-service/.env
+# Không commit secret — chỉ giữ *.example / *.sample nếu có
+.env
+.env.*
+!**/.env.example
+!**/.env.sample
+!**/.env.*.example
+!devops/swarm/.env.swarm.example
 
 # Cloudflare Origin CA (P5 — never commit)
 devops/nginx/certs/cf-origin.pem
@@ -34,6 +39,9 @@ scripts/
 !devops/scripts/docker/**
 !devops/scripts/release/
 !devops/scripts/release/**
+
+# Local analysis cache (false-positive noise for secret scanners)
+.grapuco/
 
 # ========================
 # Build Outputs
