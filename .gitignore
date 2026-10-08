@@ -23,6 +23,8 @@ docs/*
 !docs/MIGRATION.md
 !docs/STRUCTURE.md
 !docs/LICENSE
+!docs/bao-cao-chuyen-llm-ollama-alibaba.md
+!docs/llm-alibaba-dashscope-switch.md
 scripts/
 
 # ========================
