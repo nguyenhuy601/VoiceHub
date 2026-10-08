@@ -15,7 +15,6 @@ paths = [
   '''(?i)\.env\.swarm\.example$''',
   '''(?i)/tests/.*\.test\.js$''',
   '''(?i)\.test\.(js|cjs|mjs|jsx)$''',
-  '''(?i)\.grapuco/''',
   '''(?i)ecosystem-primer/SKILL\.md$''',
   '''(?i)openapi\.bundle\.json$''',
   '''(?i)/swagger/paths/.*\.paths\.js$''',

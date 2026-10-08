@@ -114,7 +114,6 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
-          trivyignores: .trivyignore
           skip-dirs: node_modules,.git,client/dist,devops/nginx/logs,.grapuco
 
   # ── Lint ──────────────────────────────────────────────
