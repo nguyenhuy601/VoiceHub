@@ -5,6 +5,7 @@ import logging
 
 import requests
 from src.storage import download_to_temp
+from src.summary_llm import extract_json_object, request_summary_text
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +75,6 @@ def summarize_structured(transcript: str) -> dict:
     if not text:
         return {"summary": "", "keyPoints": [], "actionItems": []}
 
-    base = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
-    model = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b-instruct")
     prompt = f"""Bạn là trợ lý tóm tắt cuộc họp thoại. Dựa trên transcript sau, trả về JSON hợp lệ (không markdown) với các key:
 - summary: tóm tắt 3-6 câu
 - keyPoints: mảng các ý chính (string)
@@ -86,21 +85,17 @@ Transcript:
 """
 
     try:
-        res = requests.post(
-            f"{base}/api/generate",
-            json={"model": model, "prompt": prompt, "stream": False, "format": "json"},
-            timeout=180,
-        )
-        res.raise_for_status()
-        raw = str(res.json().get("response") or "").strip()
-        parsed = json.loads(raw)
+        raw = request_summary_text(prompt)
+        parsed = extract_json_object(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError("summary_json_missing")
         return {
             "summary": str(parsed.get("summary") or "").strip(),
             "keyPoints": [str(x) for x in (parsed.get("keyPoints") or []) if str(x).strip()],
             "actionItems": [str(x) for x in (parsed.get("actionItems") or []) if str(x).strip()],
         }
     except Exception as exc:
-        logger.warning("Structured summary failed: %s", exc)
+        logger.warning("Structured summary failed: %s", type(exc).__name__)
         fallback = text[:400] + ("..." if len(text) > 400 else "")
         return {"summary": fallback, "keyPoints": [], "actionItems": []}
 
