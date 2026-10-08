@@ -8,18 +8,11 @@ import {
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
-import {
-  AdminBusySpinner,
-  AdminEmptyState,
-  AdminListSkeleton,
-  AdminLoadErrorState,
-} from '../../components/adminUsers/adminPanelStates';
-import useAdminMembers from '../../hooks/useAdminMembers';
 import projectDeliveryAPI from '../../services/api/projectDeliveryAPI';
 import projectAPI from '../../services/api/projectAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { memberLabelById, memberUserId } from '../../utils/adminUserUtils';
+import { memberUserId } from '../../utils/adminUserUtils';
 import { isOtSoftWarning, readOtSoftWarningMeta } from '../../utils/otSoftWarning';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
 import OtOverrideConfirmModal from './OtOverrideConfirmModal';
@@ -31,6 +24,26 @@ function unwrap(res) {
 function shortRoleLabel(label, key) {
   const raw = String(label || key || '').trim();
   return raw.replace(/^(Dự án —|Project —)\s*/i, '').trim() || key || '';
+}
+
+function memberDisplayLabel(m) {
+  const nested = m?.user && typeof m.user === 'object' ? m.user : null;
+  const email = String(m?.email || nested?.email || '').trim();
+  const emailLocal = email.includes('@') ? email.split('@')[0] : '';
+  const label =
+    m?.displayName ||
+    nested?.displayName ||
+    m?.fullName ||
+    nested?.fullName ||
+    m?.name ||
+    nested?.name ||
+    m?.username ||
+    nested?.username ||
+    emailLocal ||
+    '';
+  if (label) return String(label);
+  const id = String(m?.userId || '').trim();
+  return id ? id.slice(-8) : '—';
 }
 
 function roleKeysForUser(members, uid) {
@@ -56,13 +69,11 @@ export default function TasksProjectTeamPanel({
   const [roles, setRoles] = useState([]);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState('');
   const [selectedRoleKeys, setSelectedRoleKeys] = useState([]);
   const [saving, setSaving] = useState(false);
   const [removingKey, setRemovingKey] = useState('');
   const [otModal, setOtModal] = useState(null);
   const syncedUserIdRef = useRef(null);
-  const { membersByIdAll } = useAdminMembers(orgId, { view: 'directory' });
   /** Pending save after OT soft-warning: assign form or remove one role. */
   const pendingActionRef = useRef(null);
 
@@ -82,11 +93,9 @@ export default function TasksProjectTeamPanel({
     if (!boardId) {
       setRoles([]);
       setMembers([]);
-      setLoadError('');
       return;
     }
     setLoading(true);
-    setLoadError('');
     try {
       const [rolesRes, membersRes] = await Promise.all([
         projectDeliveryAPI.listProjectRoles(boardId),
@@ -95,7 +104,7 @@ export default function TasksProjectTeamPanel({
       setRoles(unwrap(rolesRes) || []);
       setMembers(unwrap(membersRes) || []);
     } catch (error) {
-      setLoadError(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.teamRolesFail') }));
+      toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminTasks.teamRolesFail') }));
       setRoles([]);
       setMembers([]);
     } finally {
@@ -323,10 +332,8 @@ export default function TasksProjectTeamPanel({
 
       {!boardId ? (
         <p className="text-sm text-muted-foreground">{t('adminTasks.needBoard')}</p>
-      ) : loading && !members?.length && !loadError ? (
-        <AdminListSkeleton rows={5} />
-      ) : loadError ? (
-        <AdminLoadErrorState message={loadError} onRetry={load} disabled={loading} />
+      ) : loading ? (
+        <p className="text-sm text-muted-foreground">{t('adminTasks.loading')}</p>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start">
           <AdminUserPicker
@@ -356,7 +363,7 @@ export default function TasksProjectTeamPanel({
                         const checked = selectedRoleKeys.includes(rk);
                         return (
                           <li key={rk}>
-                            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border px-3 py-2 transition-colors duration-150 hover:bg-muted motion-reduce:transition-none">
+                            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border px-3 py-2 hover:bg-muted/40">
                               <input
                                 type="checkbox"
                                 checked={checked}
@@ -370,16 +377,12 @@ export default function TasksProjectTeamPanel({
                       })}
                     </ul>
                   )}
-                  <button
-                    type="submit"
-                    className={adminPrimaryBtnClass()}
-                    disabled={saving || !canSubmit}
-                    aria-busy={saving}
-                  >
-                    <AdminBusySpinner busy={saving} />
-                    {selectedRoleKeys.length === 0 && hadRolesBefore
-                      ? t('adminTasks.teamClearRoles')
-                      : t('adminTasks.teamSetRoles')}
+                  <button type="submit" className={adminPrimaryBtnClass()} disabled={!canSubmit}>
+                    {saving
+                      ? '…'
+                      : selectedRoleKeys.length === 0 && hadRolesBefore
+                        ? t('adminTasks.teamClearRoles')
+                        : t('adminTasks.teamSetRoles')}
                   </button>
                 </form>
               )}
@@ -395,9 +398,7 @@ export default function TasksProjectTeamPanel({
                       className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
                     >
                       <div className="min-w-0">
-                        <span className="truncate text-sm font-medium">
-                          {memberLabelById(membersByIdAll, m.userId, t('adminTasks.briefsPmUnknown'))}
-                        </span>
+                        <span className="truncate font-medium">{memberDisplayLabel(m)}</span>
                         <span className="ml-2 text-muted-foreground">→ {roleLabel || '—'}</span>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
@@ -412,18 +413,19 @@ export default function TasksProjectTeamPanel({
                         <button
                           type="button"
                           className={adminSecondaryBtnClass('!px-2 !py-1 text-xs text-destructive')}
-                          disabled={busy || rowBusy}
+                          disabled={busy}
                           onClick={() => removeOneRole(m)}
                         >
-                          <AdminBusySpinner busy={rowBusy} />
-                          {t('adminTasks.teamRemoveRole')}
+                          {rowBusy ? '…' : t('adminTasks.teamRemoveRole')}
                         </button>
                       </div>
                     </li>
                   );
                 })}
+                {!members?.length ? (
+                  <li className="text-muted-foreground">{t('adminTasks.teamEmpty')}</li>
+                ) : null}
               </ul>
-              {!members?.length ? <AdminEmptyState message={t('adminTasks.teamEmpty')} /> : null}
             </AdminUserFormCard>
           </div>
         </div>

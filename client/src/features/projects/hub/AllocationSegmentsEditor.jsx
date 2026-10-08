@@ -1,25 +1,7 @@
-﻿/**
+/**
  * Editor for dated allocation segments (start/end + %).
- * Empty segments = no saved plan yet (do not invent a phantom 100% row).
  * Client-side overlap warning when same-day total > 100%.
  */
-
-export function toDateInput(value) {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toISOString().slice(0, 10);
-}
-
-/** First segment when user explicitly adds a time range. */
-export function createDefaultAllocSegment() {
-  return {
-    startDate: toDateInput(new Date()),
-    endDate: '',
-    allocationPct: 100,
-  };
-}
-
 export default function AllocationSegmentsEditor({
   segments = [],
   onChange,
@@ -29,14 +11,13 @@ export default function AllocationSegmentsEditor({
   /** Optional: peer projects for multi-project timeline hint */
   peerProjects = [],
 }) {
-  const muted = 'text-muted-foreground';
-  const titleCls = 'text-foreground';
-  const inputCls = isDarkMode
-    ? 'w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring [color-scheme:dark]'
-    : 'w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none transition-colors motion-reduce:transition-none focus:border-primary focus-visible:ring-2 focus-visible:ring-ring';
+  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
+  const inputCls =
+    'w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary';
 
-  const rows = Array.isArray(segments) ? segments : [];
-  const isEmpty = rows.length === 0;
+  const rows = Array.isArray(segments) && segments.length
+    ? segments
+    : [{ startDate: '', endDate: '', allocationPct: 100 }];
 
   const updateRow = (index, key, value) => {
     const next = rows.map((row, i) => (i === index ? { ...row, [key]: value } : row));
@@ -44,22 +25,18 @@ export default function AllocationSegmentsEditor({
   };
 
   const addRow = () => {
-    if (isEmpty) {
-      onChange?.([createDefaultAllocSegment()]);
-      return;
-    }
     onChange?.([...rows, { startDate: '', endDate: '', allocationPct: 50 }]);
   };
 
   const removeRow = (index) => {
     if (rows.length <= 1) {
-      onChange?.([]);
+      onChange?.([{ startDate: '', endDate: '', allocationPct: 100 }]);
       return;
     }
     onChange?.(rows.filter((_, i) => i !== index));
   };
 
-  const localOver = !isEmpty && isLocallyOverallocated(rows);
+  const localOver = isLocallyOverallocated(rows);
   const peerLines = Array.isArray(peerProjects) ? peerProjects : [];
 
   return (
@@ -78,85 +55,71 @@ export default function AllocationSegmentsEditor({
           </button>
         ) : null}
       </div>
-      {isEmpty ? (
-        <div
-          className={`rounded-lg border border-dashed border-border px-3 py-3 text-[11px] leading-snug ${muted}`}
-          role="status"
-        >
-          <p className={`font-medium ${titleCls}`}>
-            {t('workspace.projectHubAllocEmptyTitle')}
-          </p>
-          <p className="mt-1">{t('workspace.projectHubAllocEmptyHint')}</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {rows.map((row, index) => (
-            <div
-              key={`alloc-${index}`}
-              className="grid gap-2 sm:grid-cols-[1fr_1fr_90px_auto]"
-            >
-              <label className={`block text-[11px] ${muted}`}>
-                {t('workspace.projectHubAllocStart')}
-                <input
-                  type="date"
-                  className={`${inputCls} mt-0.5`}
-                  value={row.startDate || ''}
-                  disabled={disabled}
-                  onChange={(e) => updateRow(index, 'startDate', e.target.value)}
-                />
-              </label>
-              <label className={`block text-[11px] ${muted}`}>
-                {t('workspace.projectHubAllocEnd')}
-                <input
-                  type="date"
-                  className={`${inputCls} mt-0.5`}
-                  value={row.endDate || ''}
-                  disabled={disabled}
-                  onChange={(e) => updateRow(index, 'endDate', e.target.value)}
-                />
-              </label>
-              <label className={`block text-[11px] ${muted}`}>
-                %
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  className={`${inputCls} mt-0.5`}
-                  value={row.allocationPct ?? ''}
-                  disabled={disabled}
-                  onChange={(e) => updateRow(index, 'allocationPct', e.target.value)}
-                />
-              </label>
-              {!disabled ? (
-                <button
-                  type="button"
-                  onClick={() => removeRow(index)}
-                  className="self-end pb-1.5 text-xs text-destructive"
-                  aria-label={t('workspace.projectHubAllocRemoveSegment')}
-                >
-                  ×
-                </button>
-              ) : (
-                <span />
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      {!disabled && !(Array.isArray(segments) && segments.length) ? (
+        <p className={`text-[11px] leading-snug ${muted}`}>
+          {t('workspace.projectHubAllocEmptyHint')}
+        </p>
+      ) : null}
+      <div className="space-y-2">
+        {rows.map((row, index) => (
+          <div
+            key={`alloc-${index}`}
+            className="grid gap-2 sm:grid-cols-[1fr_1fr_90px_auto]"
+          >
+            <label className={`block text-[11px] ${muted}`}>
+              {t('workspace.projectHubAllocStart')}
+              <input
+                type="date"
+                className={`${inputCls} mt-0.5`}
+                value={row.startDate || ''}
+                disabled={disabled}
+                onChange={(e) => updateRow(index, 'startDate', e.target.value)}
+              />
+            </label>
+            <label className={`block text-[11px] ${muted}`}>
+              {t('workspace.projectHubAllocEnd')}
+              <input
+                type="date"
+                className={`${inputCls} mt-0.5`}
+                value={row.endDate || ''}
+                disabled={disabled}
+                onChange={(e) => updateRow(index, 'endDate', e.target.value)}
+              />
+            </label>
+            <label className={`block text-[11px] ${muted}`}>
+              %
+              <input
+                type="number"
+                min={0}
+                max={100}
+                className={`${inputCls} mt-0.5`}
+                value={row.allocationPct ?? ''}
+                disabled={disabled}
+                onChange={(e) => updateRow(index, 'allocationPct', e.target.value)}
+              />
+            </label>
+            {!disabled ? (
+              <button
+                type="button"
+                onClick={() => removeRow(index)}
+                className="self-end pb-1.5 text-xs text-destructive"
+              >
+                ×
+              </button>
+            ) : (
+              <span />
+            )}
+          </div>
+        ))}
+      </div>
       {localOver ? (
-        <p className={`rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-[11px] ${
-          isDarkMode ? 'text-destructive400' : 'text-destructive'
-        }`}>
+        <p className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-700">
           {t('workspace.projectHubAllocLocalOverWarn')}
         </p>
       ) : null}
       {peerLines.length ? (
-        <div
-          className={`rounded-md border px-2.5 py-1.5 text-[11px] ${muted} ${
-            isDarkMode ? 'border-border bg-slate-800/50' : 'border-border bg-muted/30'
-          }`}
-        >
-          <p className={`mb-1 font-semibold ${titleCls}`}>
+        <div className={`rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-[11px] ${muted}`}>
+          <p className="mb-1 font-semibold text-foreground/80">
             {t('workspace.projectHubAllocTimeline')}
           </p>
           <ul className="space-y-0.5">
@@ -199,6 +162,13 @@ export function isLocallyOverallocated(segments = []) {
     if (running > 100.0001) return true;
   }
   return false;
+}
+
+export function toDateInput(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
 }
 
 export function segmentsFromApi(allocations = []) {

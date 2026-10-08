@@ -1,10 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Loader2 } from 'lucide-react';
 import { analysisAPI } from '../../../../services/api/analysisAPI';
 import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
-import { AdminLoadErrorState } from '../../../../components/adminUsers/adminPanelStates';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
 import {
   buildPhase1ModulePath,
@@ -86,13 +84,7 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
   const { capabilities, isLoading: capsLoading } = useProjectCapabilities(projectId);
   const planningUnlocked = isPlanningUnlocked(deliveryPhase);
 
-  const {
-    data: gaps,
-    isLoading,
-    isError: gapsError,
-    error: gapsQueryError,
-    refetch: refetchGaps,
-  } = useQuery({
+  const { data: gaps, isLoading } = useQuery({
     queryKey: ['projectAnalysisGaps', String(projectId || '')],
     queryFn: async () => unwrap(await analysisAPI.getGaps(projectId)),
     enabled: Boolean(projectId) && !capsLoading && capabilities.canViewAnalysis,
@@ -142,22 +134,9 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-base font-semibold tracking-tight">{t('workspace.phase1OverviewTitle')}</h1>
         {isLoading ? (
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground" aria-busy="true">
-            <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden />
-            {t('common.loading')}
-          </span>
+          <span className="text-xs text-muted-foreground">{t('common.loading')}</span>
         ) : null}
       </div>
-
-      {gapsError ? (
-        <AdminLoadErrorState
-          message={resolveApiErrorMessage(gapsQueryError, {
-            t,
-            fallback: t('workspace.phase1ShellLoadFail'),
-          })}
-          onRetry={() => void refetchGaps()}
-        />
-      ) : null}
 
       {/* 1. Tổng tiến độ — chỉ cổng + CTA (không nhét inbox phân tích/planning) */}
       <OverviewSection index={1} title={t('workspace.phase1SectionProgress')}>
@@ -203,9 +182,8 @@ export default function Phase1OverviewPage({ projectId, organizationId, delivery
             </p>
             <button
               type="button"
-              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors disabled:opacity-50 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
               disabled={startMut.isPending}
-              aria-busy={startMut.isPending ? 'true' : undefined}
               onClick={() => startMut.mutate()}
             >
               {t('workspace.phase1StartPlanning')}
