@@ -36,7 +36,7 @@
 
 ## P3 prod-edge (static SPA)
 
-1. `bash devops/scripts/build-client-static.sh`
+1. Build SPA: `cd client && npm ci && npm run build` (output `client/dist`)
 2. Dừng nginx `dev-https.conf` nếu đang chiếm :443
 3. `devops/nginx/start-prod-edge.bat` hoặc:
    ```bash

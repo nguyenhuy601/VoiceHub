@@ -31,8 +31,6 @@ if ! docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
   exit 1
 fi
 
-bash "$ROOT/devops/scripts/normalize-sh-lf.sh"
-
 echo "Deploying RabbitMQ cluster stack: $STACK_NAME (network=$NETWORK_NAME, nodes=$CLUSTER_SIZE)"
 export ENTERPRISE_NETWORK_NAME="$NETWORK_NAME"
 export RABBITMQ_USER RABBITMQ_PASS RABBITMQ_ERLANG_COOKIE

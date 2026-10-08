@@ -55,7 +55,7 @@ A plan document with sections 1–6 (including 6.1–6.5 when applicable) ready 
 - [ ] §4 steps ordered with dependencies; Review Gate on large plans
 - [ ] §5 has unit/integration/smoke/regression + concrete commands + pass checklist
 - [ ] §6 has risks table + decision/alternative/reason + rollback
-- [ ] Security work references `check-security-env.sh` / security-regression-smoke.md
+- [ ] Security work references `check-security-env.sh`
 
 ## Tools
 

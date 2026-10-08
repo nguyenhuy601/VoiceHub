@@ -19,13 +19,13 @@
 **Gate G2 PASS:** [`docs/phase-gate-2026-06-22-g2.md`](../../docs/phase-gate-2026-06-22-g2.md)  
 **Validation (sign-off 2026-06-22):** [ha-baseline-staging-phase2-2026-06.md](../../docs/ha-baseline-staging-phase2-2026-06.md) · [phase-gate-2026-06-22-g2.md](../../docs/phase-gate-2026-06-22-g2.md)
 
-- Gateway `API_GATEWAY_REPLICAS=2`; socket `2/2`; workers manual scale ([`scale-workers.sh`](./scale-workers.sh))
+- Gateway `API_GATEWAY_REPLICAS=2`; socket `2/2`; workers: `docker service scale`
 - Voice UDP strategy documented; Nginx TLS staging ([`lan-https-voicehub.local.md`](../../docs/lan-https-voicehub.local.md))
 - Observability baseline ([`phase2-observability-staging.md`](../../docs/phase2-observability-staging.md))
 - **Next:** [Phase 3 edge prod-like](../../.cursor/plans/phase-3-edge-prod/00-master-index.plan.md) — sau Gate G2 PASS
 
 **P2-0 prep:** [`docs/phase2-replica-inventory-staging.md`](../../docs/phase2-replica-inventory-staging.md) · [`phase2-prep-runbook.md`](./phase2-prep-runbook.md)  
-**P2-Workers:** [`phase2-workers-autoscale-runbook.md`](./phase2-workers-autoscale-runbook.md) · [`scale-workers.sh`](./scale-workers.sh)  
+**P2-Workers:** [`phase2-workers-autoscale-runbook.md`](./phase2-workers-autoscale-runbook.md)  
 **P2-Voice:** [`voice-swarm-scale-strategy.md`](../../docs/voice-swarm-scale-strategy.md) · [`voice-staging-smoke.md`](./voice-staging-smoke.md)  
 **P2-Edge:** [`lan-https-voicehub.local.md`](../../docs/lan-https-voicehub.local.md) · [`staging-nginx-edge.md`](./staging-nginx-edge.md)  
 **P2-Obs:** [`phase2-observability-staging.md`](../../docs/phase2-observability-staging.md) · [`observability-baseline.md`](./observability-baseline.md)

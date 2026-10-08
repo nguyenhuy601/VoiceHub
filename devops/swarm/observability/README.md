@@ -1,11 +1,11 @@
 # P2-Obs — optional Prometheus stack (staging)
 
-Lightweight observability overlay — **không bắt buộc**; script baseline đủ cho sign-off.
+Lightweight observability overlay — **không bắt buộc**.
 
-## Deploy
+Deploy script đã gỡ. Stack YAML (nếu còn):
 
 ```bash
-bash devops/swarm/observability/deploy-observability-stack.sh
+docker stack deploy -c devops/swarm/observability/docker-compose.observability.yml voicehub-obs
 ```
 
 | Service | Role |
@@ -13,24 +13,8 @@ bash devops/swarm/observability/deploy-observability-stack.sh
 | `prometheus` | Scrape node-exporter; rules in `alerts.yml` |
 | `node-exporter` | Host CPU/RAM/disk (global) |
 
-**Queue depth** không scrape trực tiếp từ Rabbit management (không public). Dùng:
-
-```bash
-bash devops/swarm/observability/export-swarm-metrics.sh
-```
-
 ## Rollback
 
 ```bash
 docker stack rm voicehub-obs
 ```
-
-## Resource
-
-~320M RAM limit total. Trên Docker Desktop 14GB — deploy sau khi scale workers xuống nếu `insufficient resources`.
-
-## Liên kết
-
-- [`docs/phase2-observability-staging.md`](../../../docs/phase2-observability-staging.md)
-- [`docs/phase4-oncall-runbook.md`](../../../docs/phase4-oncall-runbook.md) — P4 alert → action
-- [`alerts.yml`](./alerts.yml) — thresholds = [`autoscale-policy.md`](../autoscale-policy.md)

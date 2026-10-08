@@ -70,7 +70,7 @@ Khi tạo/cập nhật plan (CreatePlan / `.cursor/plans/*`), **luôn đủ 6 m�
 
 Dấu hiệu đạt chuẩn: biết sửa/không sửa file nào, blast radius, lệnh test, rủi ro, rollback; step + STOP for review; DoD đo được.
 
-Sau khi vá rủi ro bảo mật: `bash devops/scripts/security/check-security-env.sh` và checklist `devops/scripts/security-regression-smoke.md`.
+Sau khi vá rủi ro bảo mật: `bash devops/scripts/security/check-security-env.sh`.
 
 ## Hoàn tất plan — bắt buộc kiểm thử trước khi kết thúc
 
@@ -84,7 +84,7 @@ Sau khi vá rủi ro bảo mật: `bash devops/scripts/security/check-security-e
    - `node --test services/<service>/tests/*.test.js` (service vừa sửa)
    - **Test hygiene:** ưu tiên in-memory/buffer (mẫu `rankRoleSuggestCandidates.test.js`); không `write*Asset` / không để lại xlsx/tmp trong repo sau `node --test`; temp bắt buộc → `os.tmpdir()` + xóa trong `after`/`finally`. Chỉ báo pass/fail, không commit file do test sinh ra.
 3. **Smoke / integration** khi đụng API hoặc deploy:
-   - Stack local: `docker compose up` (hoặc swarm dev) rồi script smoke tương ứng (ví dụ pivot single-company: `node devops/scripts/smoke-single-company.js` sau `node devops/scripts/seed-single-company.js`).
+   - Stack local: Swarm + Compose extra (hoặc swarm dev); verify health/login/bootstrap.
    - Ghi trong báo cáo: pass/fail từng mã T*, command đã chạy, và **blocker** nếu gateway không lên (không giả vờ pass).
 4. **FE** (khi sửa `client/`): build hoặc lint file đã đổi — `cd client && npm run build` (hoặc `npm run lint` nếu có).
 5. **Regression tối thiểu** theo plan: chat DM, voice, notifications — ít nhất health/login/bootstrap không 500.
@@ -92,7 +92,7 @@ Sau khi vá rủi ro bảo mật: `bash devops/scripts/security/check-security-e
 ### Báo cáo kết thúc plan (cho user)
 
 - Bảng ngắn: test id → pass/fail/skip + lý do skip.
-- Nếu skip do môi trường: nêu command user cần chạy để verify tay (`https://voicehub.local`, seed, v.v.).
+- Nếu skip do môi trường: nêu command user cần chạy để verify tay (`https://voicehub.local`, v.v.).
 
 ### Single-company pivot (tham chiếu nhanh)
 
@@ -100,6 +100,4 @@ Sau khi vá rủi ro bảo mật: `bash devops/scripts/security/check-security-e
 |----|-------------------|
 | Unit | `node --test shared/tests/singleCompany.test.js` |
 | Unit org | `node --test services/organization-service/tests/singleCompanyPolicy.test.js` |
-| Seed | `node devops/scripts/seed-single-company.js` |
-| Smoke T1–T4 | `node devops/scripts/smoke-single-company.js` |
 | Manual FE | Login admin → không org picker; `/app/collaborate/admin`; `/register` → login |

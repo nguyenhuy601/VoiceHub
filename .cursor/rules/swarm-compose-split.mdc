@@ -1,5 +1,5 @@
 ---
-description: VoiceHub dev — phân tách Docker Swarm (app) vs Compose (extra infra/AI)
+description: VoiceHub dev — Docker Swarm chứa app + infra AI (ollama/minio/qdrant/meili)
 alwaysApply: true
 ---
 
@@ -9,24 +9,14 @@ alwaysApply: true
 
 | Runtime | File / lệnh | Services |
 |---------|-------------|----------|
-| **Docker Swarm** | `docker-stack.yml` + `bash devops/swarm/deploy-stack.sh` | Toàn bộ app microservices: `api-gateway`, `auth-service`, `user-service`, `chat-service`, `socket-service`, `voice-service`, … |
-| **Docker Compose** | `docker-compose.swarm-extra.yml` | **Chỉ** infra/AI bổ sung: `ollama`, `minio`, `minio-init`, `meilisearch`, `voice-recording-worker`, `voice-stt-worker` |
+| **Docker Swarm** | `docker-stack.yml` + `bash devops/swarm/deploy-stack.sh` | App microservices **và** infra AI: `ollama`, `minio`, `minio-init`, `qdrant`, `meilisearch`, `api-gateway`, `auth-service`, … |
+| **Docker Compose extra** | `docker-compose.swarm-extra.yml` | **Deprecated** (trống) — không còn runtime; giữ file để script cũ `down` leftover |
 
-**Không** dùng `docker compose up` cho `api-gateway`, `user-service`, hay bất kỳ service trong `docker-stack.yml`.
-**Không** đưa `ollama` vào Swarm — chúng chỉ chạy Compose extra.
+**Không** dùng `docker compose up` cho `api-gateway`, `user-service`, `ollama`, `minio`, hay bất kỳ service trong `docker-stack.yml`.
 
-## Compose extra (`docker-compose.swarm-extra.yml`)
+DNS trên overlay (cùng stack): `http://ollama:11434`, `http://minio:9000`, `http://qdrant:6333`, `http://meilisearch:7700`.
 
-- Gắn overlay `voicehub_enterprise-network` (external) — cùng network với Swarm.
-- Script `bash devops/swarm/dev-enable-profile.sh` gỡ leftover Swarm ollama (nếu còn) rồi `compose up` extra.
-- Lệnh chuẩn:
-
-```bash
-docker compose -f docker-compose.swarm-extra.yml --env-file .env up -d --no-build
-# Chỉ --build khi đổi Dockerfile worker hoặc image chưa có
-```
-
-## Swarm app — cập nhật sau khi sửa code
+## Swarm — cập nhật sau khi sửa code
 
 **Ưu tiên pull/update, hạn chế build** — chi tiết: [docker-vhdx-disk.mdc](./docker-vhdx-disk.mdc).
 
@@ -37,11 +27,17 @@ bash devops/swarm/build-local-images.sh <service-name>
 docker service update --force --update-parallelism 1 --update-order start-first voicehub_<service-name>
 ```
 
-Compose extra: dùng `--no-build` nếu image `voicehub-extra-*` đã có; chỉ `--build` khi đổi Dockerfile worker.
+Infra image public (ollama/minio/qdrant/meili): không build local — `docker service update --force voicehub_<name>` hoặc redeploy stack.
+
+Profile dev (label ai + pull model):
+
+```bash
+bash devops/swarm/dev-enable-profile.sh
+```
 
 ## Khi agent gợi ý lệnh Docker
 
 - Sửa một microservice → **build đúng service đó** + `service update --force`; tránh `build-local-images.sh` không tham số.
-- Sửa worker/minio trong extra compose → **`docker compose -f docker-compose.swarm-extra.yml …`**.
+- Sửa/restart ollama/minio/qdrant/meili → Swarm `docker service update --force voicehub_<name>` (không `compose up`).
 - Không nhầm `docker compose up` root/stack yml cho microservices đã deploy Swarm.
-- Tránh `rolling-update-phase1-env.sh` / redeploy toàn stack khi chỉ cần rolling một service.
+- Tránh redeploy toàn stack khi chỉ cần rolling một service.

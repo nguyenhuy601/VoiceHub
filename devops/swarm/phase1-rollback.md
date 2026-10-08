@@ -3,7 +3,7 @@
 > **Plan A** = single-node `mongodb` + `redis` + `rabbitmq` trong stack `voicehub`, Mongo URI local/Atlas tùy `.env` backup.
 
 **Checkpoint file:** `docker-stack.plan-a.yml`  
-**Snapshot script:** `bash devops/swarm/phase1-pre-cutover-snapshot.sh`
+**Snapshot:** thủ công (volume/DB) trước rollback nếu cần.
 
 ## Khi nào rollback
 
@@ -66,7 +66,7 @@ bash devops/swarm/deploy-stack.sh
 ### 4. Rolling recreate
 
 ```bash
-STACK_FILE=docker-stack.plan-a.yml bash devops/swarm/rolling-update-phase1-env.sh
+STACK_FILE=docker-stack.plan-a.yml bash devops/swarm/deploy-stack.sh
 ```
 
 ### 5. Verify
@@ -99,5 +99,4 @@ git checkout <tag-before-cutover> -- docker-stack.yml .env   # chỉ khi cần
 ## Liên quan
 
 - [`cutover-runbook.md`](./cutover-runbook.md) — deploy order
-- [`deploy-phase1-cutover.sh`](./deploy-phase1-cutover.sh) — cutover forward
 - [`p1-quorum-migration.md`](./rabbitmq-cluster/p1-quorum-migration.md) — quorum rollback

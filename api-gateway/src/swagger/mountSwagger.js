@@ -24,15 +24,13 @@ function loadBundleSpec() {
 }
 
 /**
- * Live rebuild từ monorepo (dev only) — chạy build-openapi logic nhẹ qua require scan.
+ * Live rebuild từ monorepo (dev only) — merge path modules under swagger/paths.
  */
 function buildLiveSpec() {
   const repoRoot = path.resolve(__dirname, '../../..');
-  const { scanPublicRoutePaths } = require(path.join(repoRoot, 'devops/scripts/openapi-scan-routes'));
   const { globSync } = require('glob');
   const definition = buildOpenApiBase();
-  const scanned = scanPublicRoutePaths(repoRoot);
-  definition.paths = { ...scanned };
+  definition.paths = { ...(definition.paths || {}) };
   const files = globSync('api-gateway/src/swagger/paths/**/*.paths.js', {
     cwd: repoRoot,
     absolute: true,

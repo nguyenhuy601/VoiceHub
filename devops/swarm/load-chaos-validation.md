@@ -8,7 +8,7 @@
 ```bash
 docker stack services voicehub
 curl -sf http://127.0.0.1:3000/health
-bash devops/scripts/rabbit-queue-depth.sh
+# (removed) check Rabbit depth via management UI / rabbitmqctl
 ```
 
 ## Load scenarios
@@ -24,7 +24,7 @@ bash devops/scripts/rabbit-queue-depth.sh
 3. Restart RabbitMQ: `docker service update --force voicehub_rabbitmq-1`.
 4. Drain node labeled `ai=true`.
 
-Sau mỗi chaos: `bash devops/scripts/rabbit-queue-depth.sh` — depth về ~0.
+Sau mỗi chaos: `# (removed) check Rabbit depth via management UI / rabbitmqctl` — depth về ~0.
 
 ## Pass criteria
 - No message loss (DLQ only for exhausted retries).

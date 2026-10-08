@@ -4,6 +4,8 @@
 **Tiếp theo:** [cutover/p1-swarm-stack-cutover](../../.cursor/plans/phase-1-stateful-ha/cutover/p1-swarm-stack-cutover.plan.md) (gỡ `mongodb` service sau verify)  
 **Config (no secrets):** [`docs/atlas-staging-config.md`](../../docs/atlas-staging-config.md)
 
+> **Note:** Helper `devops/scripts/phase1-*` đã gỡ. Restore/URI cutover làm thủ công (`mongorestore`, chỉnh `.env`).
+
 ## Mục tiêu
 
 - Mọi microservice kết nối `mongodb+srv://` Atlas

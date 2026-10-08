@@ -4,6 +4,8 @@
 **Tiếp theo:** [MongoDB Atlas migration](../../.cursor/plans/phase-1-stateful-ha/mongodb/p1-atlas-migration.plan.md)  
 **Inventory (no secrets):** [`docs/phase1-inventory-staging.md`](../../docs/phase1-inventory-staging.md)
 
+> **Note:** Helper `devops/scripts/phase1-*.sh` đã gỡ. Dùng `mongodump` / `docker volume` thủ công theo các bước dưới (bỏ qua lệnh trỏ script cũ).
+
 ## Mục tiêu
 
 Trước khi cutover stateful HA (Mongo Atlas / Redis Sentinel / Rabbit quorum):

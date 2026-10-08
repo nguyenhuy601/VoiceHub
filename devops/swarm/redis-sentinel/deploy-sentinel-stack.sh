@@ -22,8 +22,6 @@ if [[ -z "${REDIS_PASSWORD:-}" ]]; then
   exit 1
 fi
 
-bash "$ROOT/devops/scripts/normalize-sh-lf.sh"
-
 if ! docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
   echo "[FAIL] Overlay network $NETWORK_NAME not found — deploy main stack first" >&2
   exit 1

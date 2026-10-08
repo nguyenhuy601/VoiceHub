@@ -10,7 +10,7 @@
 3. **Purge / delete** classic queue (staging OK mất message tạm):
 
 ```bash
-bash devops/swarm/rabbitmq-cluster/purge-classic-queues.sh
+# (script đã gỡ) purge classic queues thủ công qua rabbitmqctl / management UI
 ```
 
 4. Set `RABBITMQ_QUORUM_QUEUES=true` trong `.env` (mặc định code = true)
@@ -22,19 +22,12 @@ bash devops/swarm/rabbitmq-cluster/purge-classic-queues.sh
 
 Queues: `voice.recording.process`, `voice.stt.chunk`, `voice.summary.process` (+ DLQ tương ứng).
 
-```bash
-# Dừng producer/consumer → xóa classic → workers declare quorum → voice-service
-bash devops/swarm/rabbitmq-cluster/migrate-voice-queues-to-quorum.sh
-```
+Helper migrate/purge đã gỡ. Làm thủ công:
 
-Hoặc chỉ purge (đã scale down thủ công):
-
-```bash
-bash devops/swarm/rabbitmq-cluster/migrate-voice-queues-to-quorum.sh --purge-only
-bash devops/swarm/rabbitmq-cluster/purge-classic-queues.sh   # toàn bộ app queues
-```
-
-Sau migrate, rebuild/redeploy `voice-service` + Python workers (`voice-recording-worker`, `voice-stt-worker`).
+1. Scale down voice/workers
+2. `rabbitmqctl list_queues` → delete classic queues voice.*
+3. Set `RABBITMQ_QUORUM_QUEUES=true` → redeploy consumers rồi publishers
+4. Rebuild/redeploy `voice-service` (+ workers nếu còn)
 
 ### Điều kiện cluster (quan trọng)
 
@@ -44,12 +37,6 @@ Quorum queue **không chạy** nếu cluster metadata có 3 disk node nhưng ch�
 |------------|---------|
 | Production | `RABBITMQ_CLUSTER_SIZE=3`, ≥2 node healthy |
 | Dev 1 node | Cluster **chỉ** có 1 disk member (redeploy stack rabbit sạch), không để metadata 3 node |
-
-Kiểm tra trước migrate:
-
-```bash
-bash devops/swarm/rabbitmq-cluster/ensure-quorum-cluster-ready.sh
-```
 
 Dev single-node bị lệch metadata (đã từng chạy 3 node): redeploy cluster stack sau khi xóa volume rabbit, hoặc scale đủ 2/3 node trước khi migrate.
 
