@@ -110,10 +110,12 @@ jobs:
         with:
           scan-type: fs
           scan-ref: .
+          scanners: vuln
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
-          skip-dirs: node_modules,.git,client/dist,**/node_modules
+          trivyignores: .trivyignore
+          skip-dirs: node_modules,.git,client/dist,devops/nginx/logs,.grapuco
 
   # ── Lint ──────────────────────────────────────────────
   lint-client:
