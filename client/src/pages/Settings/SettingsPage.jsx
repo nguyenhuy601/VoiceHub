@@ -191,16 +191,8 @@ function SettingsPage() {
     }
     if (apiKeyData) setApiKeys(JSON.parse(apiKeyData));
     if (integrationData) setIntegrations(JSON.parse(integrationData));
-    if (securityData) {
-      try {
-        const parsed = JSON.parse(securityData);
-        if (Array.isArray(parsed)) {
-          setSecuritySettings(parsed.map((x) => ({ id: x.id, checked: Boolean(x.checked) })));
-        }
-      } catch {
-        /* ignore */
-      }
-    }
+    // settings:security — legacy localStorage; security UI removed (no setter).
+    void securityData;
     if (notificationData) {
       try {
         const parsed = JSON.parse(notificationData);

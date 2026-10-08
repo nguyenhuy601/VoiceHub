@@ -343,59 +343,16 @@ class MeetingService {
     };
     const rows = await Meeting.find(filter)
       .sort({ startTime: -1 })
-      .select('_id audioStoragePath tempStoragePath')
+      .select('_id')
       .lean();
     if (rows.length <= keepN) return { deleted: 0, deletedIds: [] };
     const overflow = rows.slice(keepN);
     const overflowIds = overflow.map((r) => r._id);
 
-    const meetingRecordingService = require('./meetingRecording.service');
-    for (const row of overflow) {
-      try {
-        await meetingRecordingService.deleteMeetingStorage(row);
-      } catch (storageErr) {
-        logger.warn(`trimUserMeetingHistory storage delete failed meeting=${row._id}: ${storageErr.message}`);
-      }
-    }
-
     const result = await Meeting.deleteMany({ _id: { $in: overflowIds } });
     const deletedIds = overflowIds.map((id) => String(id));
     logger.info(`trimUserMeetingHistory user=${uidStr} deleted=${result.deletedCount || 0}`);
     return { deleted: result.deletedCount || 0, deletedIds };
-  }
-
-  enrichMeetingsWithRecordingFields(meetings) {
-    const meetingRecordingService = require('./meetingRecording.service');
-    if (!Array.isArray(meetings)) return meetings;
-    return meetings.map((m) => meetingRecordingService.enrichMeetingRecordingFields(m));
-  }
-
-  async enrichMeetingsWithRecordingFieldsAsync(meetings) {
-    const meetingRecordingService = require('./meetingRecording.service');
-    const meetingRecordingSegmentService = require('./meetingRecordingSegment.service');
-    if (!Array.isArray(meetings) || !meetings.length) return meetings;
-
-    const meetingIds = meetings
-      .map((m) => m?._id || m?.id)
-      .filter(Boolean);
-
-    const segmentsByMeeting = new Map();
-    if (meetingIds.length) {
-      const MeetingRecordingSegment = require('../models/MeetingRecordingSegment');
-      const rows = await MeetingRecordingSegment.find({ meetingId: { $in: meetingIds } })
-        .sort({ segmentIndex: 1 })
-        .lean();
-      for (const row of rows) {
-        const mid = String(row.meetingId);
-        if (!segmentsByMeeting.has(mid)) segmentsByMeeting.set(mid, []);
-        segmentsByMeeting.get(mid).push(meetingRecordingSegmentService.mapSegment(row));
-      }
-    }
-
-    return meetings.map((m) => {
-      const mid = String(m?._id || m?.id || '');
-      return meetingRecordingService.enrichMeetingRecordingFields(m, segmentsByMeeting.get(mid) || []);
-    });
   }
 
   async enrichMeetingsWithHostProfiles(meetings) {

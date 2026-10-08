@@ -10,6 +10,8 @@ import {
   memberDisplayName,
   memberLabelById,
   memberDepartmentId,
+  memberMatchesQuery,
+  normalizeSearchText,
 } from './adminUserUtils.js';
 import {
   TIER_EXEC,
@@ -47,6 +49,7 @@ test('memberMatchesQuery finds by email local and accent-free name', () => {
   assert.equal(memberMatchesQuery(m, 'tranlan'), true);
   assert.equal(memberMatchesQuery(m, 'vh-012'), true);
   assert.equal(memberMatchesQuery(m, 'zzz'), false);
+});
 
 test('memberNeedsOnboardingAssignment khi thiếu phòng ban hoặc RBAC', () => {
   const rbac = { u1: [], u2: [{ name: 'Member' }] };

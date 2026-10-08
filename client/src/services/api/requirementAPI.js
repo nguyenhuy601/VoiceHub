@@ -37,6 +37,18 @@ export const requirementAPI = {
     });
   },
 
+  /** Chuẩn hóa dữ liệu khách → Customer_Requirement_Raw.xlsx (blob). */
+  normalizeToCustomerRaw: (organizationId, file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return apiClient.post('/projects/requirements/import/normalize', form, {
+      ...withOrg(organizationId),
+      headers: { 'Content-Type': 'multipart/form-data' },
+      responseType: 'blob',
+      skipGlobalErrorHandling: true,
+    });
+  },
+
   confirmImport: (organizationId, sessionId) =>
     apiClient.post(
       '/projects/requirements/import/confirm',
@@ -138,11 +150,25 @@ export const requirementAPI = {
     );
   },
 
-  getAiAnalysis: (organizationId, packId, params = {}) =>
-    apiClient.get(
+  getAiAnalysis: (organizationId, packId, options = {}) => {
+    const view = String(options.view || '').trim();
+    const job = String(options.job || '').trim();
+    // Backward-compat: callers may still pass a raw params object without view/job.
+    const legacyParams =
+      options && typeof options === 'object' && !view && !job && !options.params
+        ? options
+        : options.params;
+    return apiClient.get(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,
-      withOrg(organizationId, { params })
-    ),
+      withOrg(organizationId, {
+        params: {
+          ...(legacyParams && typeof legacyParams === 'object' ? legacyParams : {}),
+          ...(view ? { view } : {}),
+          ...(job ? { job } : {}),
+        },
+      })
+    );
+  },
 
   createAiAnalysisSnapshot: (organizationId, packId, body = {}) =>
     apiClient.post(
@@ -214,18 +240,4 @@ export const requirementAPI = {
         skipGlobalErrorHandling: true,
       }
     ),
-
-  getAiAnalysis: (organizationId, packId, options = {}) => {
-    const view = String(options.view || '').trim();
-    const job = String(options.job || '').trim();
-    return apiClient.get(
-      `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis`,
-      withOrg(organizationId, {
-        params: {
-          ...(view ? { view } : {}),
-          ...(job ? { job } : {}),
-        },
-      })
-    );
-  },
 };

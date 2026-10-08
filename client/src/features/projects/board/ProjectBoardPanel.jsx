@@ -15,12 +15,10 @@ import {
     verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, CheckCircle2, Circle, Eye, GripVertical, MoreHorizontal, Pencil, Plus, Search, Sparkles, X } from 'lucide-react';
+import { Check, CheckCircle2, Circle, Eye, GripVertical, MoreHorizontal, Pencil, Plus, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Modal } from '../../../components/Shared';
 import { useAppStrings } from '../../../locales/appStrings';
-import aiTaskService from '../../../services/aiTaskService';
 import { projectAPI } from '../../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { repairUtf8Mojibake } from '../../../utils/utf8Mojibake';
@@ -449,9 +447,6 @@ export default function TaskBoardWorkspacePanel({
   boardCapabilities = null,
   canManageLists = false,
   canCreateCards = false,
-  organizationId = '',
-  canUseAiAssign = false,
-  onAiAssignComplete = null,
   renderCardExtra = null,
   /** Tăng số này từ parent (nút Search header) để focus ô tìm thẻ trên board. */
   boardSearchFocusToken = 0,
@@ -562,11 +557,6 @@ export default function TaskBoardWorkspacePanel({
   const [cardMenuAnchor, setCardMenuAnchor] = useState(null);
   const [detailCard, setDetailCard] = useState(null);
   const [detailPanel, setDetailPanel] = useState('detail');
-  const [aiAssignOpen, setAiAssignOpen] = useState(false);
-  const [aiAssignList, setAiAssignList] = useState(null);
-  const [aiAssignDraftId, setAiAssignDraftId] = useState('');
-  const [aiAssignItems, setAiAssignItems] = useState([]);
-  const [aiAssignLoading, setAiAssignLoading] = useState(false);
   const [draggingListId, setDraggingListId] = useState('');
   const [draggingCard, setDraggingCard] = useState(null);
   const [cardItemsByList, setCardItemsByList] = useState({});
@@ -818,60 +808,6 @@ export default function TaskBoardWorkspacePanel({
       setSubmittingList(false);
     }
   }, [statusColumnSuggestions, submittingList, onAddList]);
-
-  const openAiAssign = useCallback(
-    async (list) => {
-      if (!canCreateCards || !canUseAiAssign || !organizationId || !selectedBoardId || !list?._id) {
-        return;
-      }
-      setAiAssignList(list);
-      setAiAssignOpen(true);
-      setAiAssignLoading(true);
-      setAiAssignItems([]);
-      setAiAssignDraftId('');
-      try {
-        const res = await aiTaskService.suggestTeamCards(selectedBoardId, list._id, {
-          organizationId: String(organizationId),
-          listTitle: list.title,
-          boardTitle: activeBoardMeta?.title || '',
-          prompt: `${activeBoardMeta?.description || ''} — ${list.title}`,
-        });
-        const data = res?.data?.data || res?.data || {};
-        setAiAssignDraftId(String(data.draftId || ''));
-        setAiAssignItems(Array.isArray(data.suggestions) ? data.suggestions : []);
-      } catch (err) {
-        toast.error(resolveApiErrorMessage(err, t('taskBoard.aiAssignFail')));
-        setAiAssignOpen(false);
-      } finally {
-        setAiAssignLoading(false);
-      }
-    },
-    [
-      canCreateCards,
-      canUseAiAssign,
-      organizationId,
-      selectedBoardId,
-      activeBoardMeta?.title,
-      activeBoardMeta?.description,
-      t,
-    ]
-  );
-
-  const confirmAiAssign = useCallback(async () => {
-    if (!aiAssignDraftId || !aiAssignItems.length) return;
-    setAiAssignLoading(true);
-    try {
-      await aiTaskService.confirmTeamAssignDraft(aiAssignDraftId, { items: aiAssignItems });
-      toast.success(t('taskBoard.aiAssignSuccess'));
-      setAiAssignOpen(false);
-      onAiAssignComplete?.();
-      onRefresh?.();
-    } catch (err) {
-      toast.error(resolveApiErrorMessage(err, t('taskBoard.aiAssignFail')));
-    } finally {
-      setAiAssignLoading(false);
-    }
-  }, [aiAssignDraftId, aiAssignItems, onAiAssignComplete, onRefresh, t]);
 
   const skipCardLayoutSyncRef = useRef(false);
   const cardDragSnapshotRef = useRef({
@@ -1154,7 +1090,7 @@ export default function TaskBoardWorkspacePanel({
         !isBugCard &&
         isWorkflowEndList(targetList) &&
         !isWorkflowEndList(originList) &&
-        !Boolean(readyToDoneMap[activeCardId]?.ready)
+        !readyToDoneMap[activeCardId]?.ready
       ) {
         toast.error(
           'Chưa sẵn sàng Done — Pass hết TC rồi bấm Confirm Done (không kéo thẳng sang Done)'
@@ -2048,7 +1984,6 @@ export default function TaskBoardWorkspacePanel({
                 const composerOpen = Boolean(cardComposerOpen[listKey]);
                 const listCards = filterCardsForView(cardItemsByList[listKey] || []);
                 const cardSortableIds = listCards.map((c) => cardSortId(c._id));
-                const isTeamList = /^team\s+/i.test(String(list.title || '').trim());
                 return (
                   <KanbanListColumn
                     key={listKey}
@@ -2061,23 +1996,6 @@ export default function TaskBoardWorkspacePanel({
                     cardSortableIds={cardSortableIds}
                     isCardsOver={cardsOverListId === listKey}
                   >
-                  {isTeamList && canCreateCards && canUseAiAssign ? (
-                    <div className="px-2 pb-1">
-                      <button
-                        type="button"
-                        title={t('taskBoard.aiAssignTeamHint')}
-                        onClick={() => openAiAssign(list)}
-                        className={`inline-flex w-full items-center justify-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium ${
-                          isDarkMode
-                            ? 'border-violet-400/40 bg-violet-500/15 text-violet-100'
-                            : 'border-violet-300 bg-violet-50 text-violet-700'
-                        }`}
-                      >
-                        <Sparkles className="h-3 w-3" />
-                        {t('taskBoard.aiAssignTeam')}
-                      </button>
-                    </div>
-                  ) : null}
                   <div className="scrollbar-overlay min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-1">
                     {listCards.map((card) => (
                       <KanbanSortableCard
@@ -2489,57 +2407,6 @@ export default function TaskBoardWorkspacePanel({
           return saved;
         }}
       />
-
-      <Modal
-        isOpen={aiAssignOpen}
-        onClose={() => !aiAssignLoading && setAiAssignOpen(false)}
-        title={t('taskBoard.aiAssignTeam')}
-        size="md"
-      >
-        <div className="space-y-3">
-          <p className="text-xs text-slate-400">
-            {aiAssignList?.title || ''} — {t('taskBoard.aiAssignTeamHint')}
-          </p>
-          {aiAssignLoading && !aiAssignItems.length ? (
-            <p className="text-sm text-slate-300">{t('taskBoard.aiProjectSuggesting')}</p>
-          ) : (
-            <ul className="max-h-64 space-y-2 overflow-y-auto">
-              {aiAssignItems.map((item, idx) => (
-                <li
-                  key={`${item.title}-${idx}`}
-                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
-                >
-                  <div className="font-medium">{item.title}</div>
-                  <div className="mt-0.5 text-xs text-slate-400">
-                    {item.assigneeName || t('taskBoard.unassigned')}
-                    {item.dueDate
-                      ? ` · ${new Date(item.dueDate).toLocaleDateString(locale === 'en' ? 'en-US' : 'vi-VN')}`
-                      : ''}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              disabled={aiAssignLoading}
-              onClick={() => setAiAssignOpen(false)}
-              className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-white hover:bg-white/10"
-            >
-              {t('nav.cancel')}
-            </button>
-            <button
-              type="button"
-              disabled={aiAssignLoading || !aiAssignItems.length}
-              onClick={confirmAiAssign}
-              className="rounded-lg bg-[#5865F2] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {aiAssignLoading ? t('taskBoard.aiProjectSuggesting') : t('taskBoard.aiAssignConfirm')}
-            </button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

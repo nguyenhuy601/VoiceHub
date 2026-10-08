@@ -16,8 +16,6 @@ const { isReportServiceEnabled, resolveReportServiceUrl } = require('@enterprise
 
 const PROJECT_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!PROJECT_SERVICE_URL) throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL');
-const AI_TASK_SERVICE_URL = String(process.env.AI_TASK_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!AI_TASK_SERVICE_URL) throw new Error('Thiếu biến môi trường: AI_TASK_SERVICE_URL');
 /**
  * Optional — AI Project Planning is S2S from project-service (browser never calls it).
  * If unset, skip proxy registration so existing .env keeps working.
@@ -27,8 +25,6 @@ const AI_PROJECT_PLANNING_SERVICE_URL = String(
 )
   .trim()
   .replace(/\/+$/, '');
-/** Optional — thiếu URL thì không mount route /api/ai/summaries (gateway vẫn boot). */
-const SUMMARY_SERVICE_URL = String(process.env.SUMMARY_SERVICE_URL || '').trim().replace(/\/+$/, '');
 /** Optional — ADR-003 report-service (C2/C4); chỉ mount khi URL + REPORT_AGGREGATOR_MODE. */
 const REPORT_SERVICE_URL = isReportServiceEnabled() ? resolveReportServiceUrl() : '';
 const DOCUMENT_SERVICE_URL = String(process.env.DOCUMENT_SERVICE_URL || '').trim().replace(/\/+$/, '');
@@ -76,24 +72,12 @@ const services = {
     // /api/projects giữ để workspace boards (getServiceByPath ưu tiên project trước; boards workspace dùng isWorkspaceTaskBoardPath).
     routes: ['/api/tasks', '/api/projects'],
   },
-  aiTask: {
-    url: AI_TASK_SERVICE_URL,
-    routes: ['/api/ai/tasks'],
-  },
   // Internal-only diagnostic proxy (optional). Primary path: project → S2S Docker DNS.
   ...(AI_PROJECT_PLANNING_SERVICE_URL
     ? {
         aiProjectPlanning: {
           url: AI_PROJECT_PLANNING_SERVICE_URL,
           routes: ['/api/ai/project-planning'],
-        },
-      }
-    : {}),
-  ...(SUMMARY_SERVICE_URL
-    ? {
-        summary: {
-          url: SUMMARY_SERVICE_URL,
-          routes: ['/api/ai/summaries'],
         },
       }
     : {}),

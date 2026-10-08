@@ -62,11 +62,6 @@ import MeetingsListPanel from '../../features/adminVoice/MeetingsListPanel';
 import MeetingHistoryPanel from '../../features/adminVoice/MeetingHistoryPanel';
 import MeetingEndPanel from '../../features/adminVoice/MeetingEndPanel';
 import MeetingModeratePanel from '../../features/adminVoice/MeetingModeratePanel';
-import {
-  MeetingRecordingPanel,
-  MeetingTranscriptPanel,
-  MeetingAiSummaryPanel,
-} from '../../features/adminVoice/MeetingArtifactPanels';
 import PosManageHubPanel from '../../features/adminRbac/PosManageHubPanel';
 import OrgRoleManageHubPanel from '../../features/adminRbac/OrgRoleManageHubPanel';
 import ProjectRoleManageHubPanel from '../../features/adminRbac/ProjectRoleManageHubPanel';
@@ -216,9 +211,6 @@ const VOICE_PANELS = {
   'voice-meetings': MeetingsListPanel,
   'voice-end-meeting': MeetingEndPanel,
   'voice-moderate': MeetingModeratePanel,
-  'voice-recording': MeetingRecordingPanel,
-  'voice-transcript': MeetingTranscriptPanel,
-  'voice-ai-summary': MeetingAiSummaryPanel,
   'voice-history': MeetingHistoryPanel,
   'voice-meeting-ops': MeetingOpsHubPanel,
 };

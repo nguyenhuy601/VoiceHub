@@ -1,7 +1,7 @@
 /**
  * Pure helpers for Fix Suggestion panel (WorkItemDetail).
  */
-function normalizeFixSuggestion(raw) {
+export function normalizeFixSuggestion(raw) {
   if (!raw || typeof raw !== 'object') {
     return { status: 'none', text: '' };
   }
@@ -12,16 +12,10 @@ function normalizeFixSuggestion(raw) {
   };
 }
 
-function canProposeFixSuggestion(status, canEdit) {
+export function canProposeFixSuggestion(status, canEdit) {
   return Boolean(canEdit) && (status === 'none' || status === 'rejected');
 }
 
-function canDecideFixSuggestion(status, canEdit) {
+export function canDecideFixSuggestion(status, canEdit) {
   return Boolean(canEdit) && status === 'pending';
 }
-
-module.exports = {
-  normalizeFixSuggestion,
-  canProposeFixSuggestion,
-  canDecideFixSuggestion,
-};

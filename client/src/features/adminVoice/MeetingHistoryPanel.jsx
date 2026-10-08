@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
 import useAdminMeetings from '../../hooks/useAdminMeetings';
@@ -52,7 +51,6 @@ export default function MeetingHistoryPanel({ orgId }) {
                   <th className="px-3 py-2">{t('adminVoice.colTitle')}</th>
                   <th className="px-3 py-2">{t('adminVoice.colStatus')}</th>
                   <th className="px-3 py-2">{t('adminVoice.colWhen')}</th>
-                  <th className="px-3 py-2">{t('adminVoice.colActions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -64,28 +62,6 @@ export default function MeetingHistoryPanel({ orgId }) {
                       <td className="px-3 py-2 text-muted-foreground">{meetingStatus(m)}</td>
                       <td className="px-3 py-2 text-muted-foreground">
                         {formatMeetingWhen(m.endedAt || m.startTime || m.createdAt, locale)}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-wrap gap-1">
-                          <Link
-                            to={`/app/admin/voice/recording?meetingId=${encodeURIComponent(id)}`}
-                            className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
-                          >
-                            {t('adminDomains.voice.recording')}
-                          </Link>
-                          <Link
-                            to={`/app/admin/voice/transcript?meetingId=${encodeURIComponent(id)}`}
-                            className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
-                          >
-                            {t('adminDomains.voice.transcript')}
-                          </Link>
-                          <Link
-                            to={`/app/admin/voice/ai-summary?meetingId=${encodeURIComponent(id)}`}
-                            className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted/40"
-                          >
-                            {t('adminDomains.voice.aiSummary')}
-                          </Link>
-                        </div>
                       </td>
                     </tr>
                   );

@@ -46,10 +46,6 @@ export default function NotificationPreviewPane({
 
   const meta = resolveNotificationVisual(notif);
   const Icon = meta.Icon;
-  const isAi =
-    String(notif?.rawType || '').includes('ai') ||
-    String(notif?.title || '').includes('VoiceHubAI') ||
-    String(notif?.data?.kind || '') === 'ai_proposal_pending';
   const showFriendActions = actionKind === 'friend_request';
   const showVoiceAction =
     actionKind === 'voice_join' ||
@@ -85,11 +81,6 @@ export default function NotificationPreviewPane({
             <h3 className="m-0 text-base font-semibold leading-snug text-foreground">
               {notif.title || t('notifications.defaultTitle')}
             </h3>
-            {isAi ? (
-              <span className="rounded bg-ai/15 px-1.5 py-0.5 text-[0.625rem] font-bold tracking-wide text-ai">
-                AI
-              </span>
-            ) : null}
             {!notif.read ? (
               <span
                 className={`rounded-full px-2 py-0.5 text-[0.625rem] font-bold ${meta.bg} ${meta.color}`}

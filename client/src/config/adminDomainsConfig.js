@@ -629,9 +629,6 @@ export const ADMIN_DOMAINS = [
             labelKey: 'adminDomains.voice.meetingOpsHub',
             implementation: 'voice-meeting-ops',
           },
-          { id: 'recording', path: '/app/admin/voice/recording', labelKey: 'adminDomains.voice.recording', implementation: 'voice-recording', nav: 'hidden' },
-          { id: 'transcript', path: '/app/admin/voice/transcript', labelKey: 'adminDomains.voice.transcript', implementation: 'voice-transcript', nav: 'hidden' },
-          { id: 'ai-summary', path: '/app/admin/voice/ai-summary', labelKey: 'adminDomains.voice.aiSummary', implementation: 'voice-ai-summary', nav: 'hidden' },
           { id: 'moderate', path: '/app/admin/voice/moderate', labelKey: 'adminDomains.voice.moderate', implementation: 'voice-moderate', nav: 'hidden' },
           { id: 'end-meeting', path: '/app/admin/voice/end-meeting', labelKey: 'adminDomains.voice.endMeeting', implementation: 'voice-end-meeting', nav: 'hidden' },
         ],
@@ -1164,9 +1161,9 @@ const LEGACY_PATH_REDIRECTS = {
   '/app/admin/rbac/revoke': '/app/admin/rbac/roles/manage?tab=revoke',
   '/app/admin/rbac/delete': '/app/admin/rbac/roles/manage?tab=delete',
 
-  '/app/admin/voice/recording': '/app/admin/voice/meeting-ops?tab=recording',
-  '/app/admin/voice/transcript': '/app/admin/voice/meeting-ops?tab=transcript',
-  '/app/admin/voice/ai-summary': '/app/admin/voice/meeting-ops?tab=summary',
+  '/app/admin/voice/recording': '/app/admin/voice/meeting-ops',
+  '/app/admin/voice/transcript': '/app/admin/voice/meeting-ops',
+  '/app/admin/voice/ai-summary': '/app/admin/voice/meeting-ops',
   '/app/admin/voice/moderate': '/app/admin/voice/meeting-ops?tab=moderate',
   '/app/admin/voice/end-meeting': '/app/admin/voice/meeting-ops?tab=end',
 

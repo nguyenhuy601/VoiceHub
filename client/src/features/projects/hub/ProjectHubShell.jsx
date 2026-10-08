@@ -973,7 +973,7 @@ export default function ProjectHubShell({
     if (!activeModule) return;
     const id = String(activeModule).trim();
     if (id && id !== tab) setTabState(id);
-  }, [activeModule]); // eslint-disable-line react-hooks/exhaustive-deps — sync from URL only
+  }, [activeModule]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [visitedTabs, setVisitedTabs] = useState(() => ({ overview: true }));
   const prevHubProjectIdRef = useRef('');
@@ -2138,9 +2138,9 @@ export default function ProjectHubShell({
           onArchived={() => {
             toast.success(t('workspace.projectHubArchiveSuccess'));
             setArchiveProjectOpen(false);
-            if (deletedDraft) {
-              writeStoredLastProjectId('');
-              void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+            writeStoredLastProjectId('');
+            void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+            if (organizationId) {
               navigate(buildProjectsPickerPath(organizationId), { replace: true });
               return;
             }

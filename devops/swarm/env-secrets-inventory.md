@@ -29,9 +29,8 @@ Output overlay: `devops/swarm/.env` (gitignored). Stack vẫn đọc root `.env`
 - `FIREBASE_PRIVATE_KEY`
 - `FIREBASE_STORAGE_BUCKET`
 
-## AI / OCR
+## AI / LLM
 - `OLLAMA_BASE_URL`, `OLLAMA_MODEL`
-- `PADDLEOCR_BASE_URL`
 - `LLM_PROVIDER`
 
 ## Notification (S2S)

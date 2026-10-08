@@ -64,7 +64,7 @@ Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/MIGRATION.md`
 | Runtime | File / lệnh | Dùng cho |
 |---------|-------------|----------|
 | **Docker Swarm** | `docker-stack.yml` + `bash devops/swarm/deploy-stack.sh` | Toàn bộ microservices app (`api-gateway`, `auth`, `chat`, `voice`, …) |
-| **Compose extra** | `docker-compose.swarm-extra.yml` | Infra/AI bổ sung trên cùng overlay: `ollama`, `minio`, `meilisearch`, `voice-recording-worker`, `voice-stt-worker`, … |
+| **Compose extra** | `docker-compose.swarm-extra.yml` | Infra/AI bổ sung trên cùng overlay: `ollama`, `minio`, `meilisearch`, `qdrant`, … |
 | **Compose legacy** | `docker-compose.yml` (+ infra/core/dev) | Có thể chạy full stack local; **không** thay Swarm khi môi trường đã deploy Swarm |
 
 **Không** `docker compose up` cho các service đã nằm trong Swarm. Cập nhật một service: build đúng image đó + `docker service update --force` — xem [`.cursor/rules/swarm-compose-split.mdc`](.cursor/rules/swarm-compose-split.mdc), [`devops/swarm/README.md`](devops/swarm/README.md).
@@ -78,12 +78,12 @@ Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/MIGRATION.md`
 | Chat / realtime | `chat-service`, `socket-service` |
 | Work | `project-service`, `project-worker`, `document-service` |
 | Voice | `voice-service` (mediasoup; UDP media publish ra host) |
-| AI / summary | `ai-task-service`, `ai-task-worker`, `ai-task-extract-worker`, `ai-task-sync-worker`, `summary-service`, `summary-worker` |
+| AI | `ai-project-planning-service`, `ai-project-planning-wbs-worker` |
 | Notify / webhook | `notification-service`, `notification-dispatch-worker`, `webhook-service`, `webhook-delivery-worker` |
 
-### Compose extra (AI / storage / STT)
+### Compose extra (AI / storage)
 
-`voice-recording-worker`, `voice-stt-worker`, MinIO (ghi âm meeting), Meilisearch, Ollama/PaddleOCR khi chạy ngoài Swarm.
+MinIO, Meilisearch, Qdrant, Ollama khi chạy ngoài Swarm.
 
 ### Cổng / edge
 
@@ -105,7 +105,7 @@ Infra HA (staging): Mongo Atlas, Redis Sentinel, Rabbit cluster — xem [`docs/A
 | Frontend | React 18, Vite, React Router (suite shell), Tailwind, Axios, Socket.IO client, mediasoup-client |
 | Backend | Node.js + Express (microservices); Python (webhook / một số worker) |
 | Dữ liệu / queue | MongoDB, Redis, RabbitMQ |
-| Media / AI | mediasoup, MinIO (recording), Ollama, Meilisearch (tuỳ bật) |
+| Media / AI | mediasoup, MinIO, Ollama, Meilisearch (tuỳ bật) |
 | Triển khai | **Swarm** app + **Compose extra**; Compose full stack vẫn có cho local |
 
 Cấu hình: file **`.env`** (root + từng service). Không dùng `.env.example` làm luồng chuẩn.
@@ -127,16 +127,11 @@ VoiceHub/
     chat-service/
     socket-service/
     voice-service/
-    voice-recording-worker/
-    voice-stt-worker/
     project-service/
     document-service/
     notification-service/
     webhook-service/
-    ai-task-service/
-    ai-task-worker/
-    summary-service/
-    summary-worker/
+    ai-project-planning-service/
     …
   shared/                   # @enterprise/shared (gatewayTrust, singleCompany, …)
   devops/                   # swarm/, nginx/, scripts/
@@ -162,8 +157,6 @@ Cây chi tiết: [`docs/STRUCTURE.md`](docs/STRUCTURE.md) (một số tên worke
 | `/api/messages` | chat-service |
 | `/api/voice`, `/api/meetings` | voice-service |
 | `/api/tasks` | project-service |
-| `/api/ai/tasks` | ai-task-service |
-| `/api/ai/summaries` | summary-service |
 | `/api/documents` | document-service |
 | `/api/notifications` | notification-service |
 

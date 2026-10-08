@@ -33,9 +33,7 @@ import OrganizationNotificationsWorkspacePanel from '../../features/orgNotificat
 import { useAppStrings } from '../../locales/appStrings';
 import useTaskWorkspaceScope from '../../hooks/useTaskWorkspaceScope';
 import { entShell, roleBadgeClass, roleBadgeLabel } from '../../theme/enterpriseWorkspace';
-import { AI_TASK_SOFT_BLOCK_CODES, getAiTaskEligibility, getAiTaskTooltipShort } from '../../utils/aiTaskEligibility';
 import { isWorkspaceAuxTab, normalizeWorkspaceTab } from '../../utils/workspaceTabUtils';
-import CreateTaskFromAiModal from '../Chat/CreateTaskFromAiModal';
 import DepartmentMeetingsPanel from './DepartmentMeetingsPanel';
 import DepartmentMembersPanel from './DepartmentMembersPanel';
 
@@ -82,7 +80,6 @@ import {
     unwrapTaskApiPayload,
     unwrapTaskBoardDetailPayload
 } from '../../services/api/taskAPI';
-import { parseMessageMentions } from '../../utils/parseMessageMentions';
 import { buildCollaborateProjectsNewPath } from '../../utils/suitePathUtils';
 import { collectMentionLabelsFromContacts } from '../../utils/tokenizeMessageMentions';
 import OrgMessageHoverActions from '../Chat/OrgMessageHoverActions';
@@ -721,9 +718,6 @@ const OrganizationMainPanel = ({
   const [editDraft, setEditDraft] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
   const [moreMenu, setMoreMenu] = useState({ open: false, anchorRect: null, message: null });
-  const [createTaskModalOpen, setCreateTaskModalOpen] = useState(false);
-  const [createTaskSourceMessage, setCreateTaskSourceMessage] = useState(null);
-  const [createTaskMentions, setCreateTaskMentions] = useState([]);
   /** Hover: thanh công cụ phía trên bubble hoặc phía dưới (tránh cắt khi tin ở đầu khung chat) */
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
   const [workspaceTab, setWorkspaceTab] = useState(() => normalizeWorkspaceTab(workspaceTabView));
@@ -1495,7 +1489,6 @@ const OrganizationMainPanel = ({
   }, []);
 
   const canCreateWorkspaceTask = Boolean(taskWorkspaceScope?.canCreateTask);
-  const canUseAiWorkspaceTask = Boolean(taskWorkspaceScope?.canUseAiTask ?? taskWorkspaceScope?.canCreateTask);
   const canOpenCreateProjectWizard = Boolean(canCreateProjectCapability);
 
   const openProjectSetupWizard = useCallback(
@@ -1620,23 +1613,6 @@ const OrganizationMainPanel = ({
     task?.createdByUser?.displayName ||
     task?.createdByUser?.username ||
     (task?.createdBy ? String(task.createdBy).slice(-6) : '—');
-
-  const menuCreateTaskCheck = useMemo(() => {
-    const base = getAiTaskEligibility(moreMenu.message, {
-      organizationId: orgIdForTask ? String(orgIdForTask) : null,
-    }, t);
-    if (!canUseAiWorkspaceTask) {
-      return {
-        ok: false,
-        reason: t('taskBoard.aiTaskDenied'),
-        code: 'aiTaskDenied',
-      };
-    }
-    if (!base.ok && AI_TASK_SOFT_BLOCK_CODES.has(base.code)) {
-      return { ok: true, reason: base.reason || '', code: base.code };
-    }
-    return base;
-  }, [moreMenu.message, orgIdForTask, canUseAiWorkspaceTask, t]);
 
   /** Workspace (kênh tổ chức): luôn gọi hook trước mọi return sớm. */
   const workspace = useMemo(() => {
@@ -1964,10 +1940,6 @@ const OrganizationMainPanel = ({
   const useFigmaChannelHeader =
     suiteLayout && isChatLikeTab && !isVoiceChannel;
   const useFigmaOrgChatChrome = suiteLayout && isChatLikeTab && !isVoiceChannel;
-  const channelUnreadForCatchUp = channelUnreadCount(selectedChannel);
-  const channelCatchUpName = selectedChannel?.name
-    ? `#${channelNameToDisplaySlug(selectedChannel.name, locale)}`
-    : '';
   const selectedBranch = branches.find((b) => String(b._id) === String(selectedBranchId)) || null;
   const selectedDivision = selectedBranch?.divisions?.find((d) => String(d._id) === String(selectedDivisionId)) || null;
   const branchName = selectedBranch?.name ? displayDepartmentName(selectedBranch.name, locale) : '—';
@@ -2747,13 +2719,6 @@ const OrganizationMainPanel = ({
               <OrganizationChatView
                 scrollRef={chatScrollRef}
                 onScroll={handleChatScroll}
-                unreadCount={channelUnreadForCatchUp}
-                channelName={channelCatchUpName}
-                organizationId={organizationId ? String(organizationId) : ''}
-                roomId={selectedChannelId ? String(selectedChannelId) : ''}
-                currentUserId={currentUserId ? String(currentUserId) : ''}
-                locale={locale}
-                showCatchUp={useFigmaOrgChatChrome}
                 className={useFigmaOrgChatChrome ? undefined : 'contents'}
               >
               <div
@@ -2886,34 +2851,6 @@ const OrganizationMainPanel = ({
                                 visible
                                 onEmojiPick={(emoji) => onQuickReactMessage?.(message, emoji)}
                                 onReply={() => onReplyToMessage?.(message)}
-                                onAiExtract={
-                                  canUseAiWorkspaceTask && canCreateCardsUi
-                                    ? () => {
-                                        const base = getAiTaskEligibility(
-                                          message,
-                                          {
-                                            organizationId: orgIdForTask
-                                              ? String(orgIdForTask)
-                                              : null,
-                                          },
-                                          t
-                                        );
-                                        if (!base.ok && !AI_TASK_SOFT_BLOCK_CODES.has(base.code)) {
-                                          toast.error(base.reason || t('taskBoard.aiTaskDenied'));
-                                          return;
-                                        }
-                                        if (!base.ok && base.reason) {
-                                          toast(base.reason, { icon: 'ℹ️' });
-                                        }
-                                        const content = plainTextForMessage(message);
-                                        setCreateTaskMentions(
-                                          parseMessageMentions(content, normalizedContacts)
-                                        );
-                                        setCreateTaskSourceMessage(message);
-                                        setCreateTaskModalOpen(true);
-                                      }
-                                    : undefined
-                                }
                                 onMenu={(e) => {
                                   const r = e?.currentTarget?.getBoundingClientRect?.();
                                   if (r) {
@@ -3382,45 +3319,6 @@ const OrganizationMainPanel = ({
         onDelete={() => {
           const m = moreMenu.message;
           if (m) onDeleteMessage?.(m._id || m.id);
-        }}
-        onCreateTask={
-          canCreateWorkspaceTask && canUseAiWorkspaceTask
-            ? () => {
-                const m = moreMenu.message;
-                if (!m) return;
-                const content = plainTextForMessage(m);
-                setCreateTaskMentions(parseMessageMentions(content, normalizedContacts));
-                setCreateTaskSourceMessage(m);
-                setCreateTaskModalOpen(true);
-              }
-            : undefined
-        }
-        createTaskDisabled={!menuCreateTaskCheck.ok}
-        createTaskHoverTitle={
-          menuCreateTaskCheck.ok ? getAiTaskTooltipShort(t) : menuCreateTaskCheck.reason
-        }
-      />
-
-      <CreateTaskFromAiModal
-        isOpen={createTaskModalOpen}
-        onClose={() => {
-          setCreateTaskModalOpen(false);
-          setCreateTaskSourceMessage(null);
-          setCreateTaskMentions([]);
-        }}
-        messageId={createTaskSourceMessage?._id || createTaskSourceMessage?.id}
-        organizationId={orgIdForTask ? String(orgIdForTask) : null}
-        workspaceSlug={workspaceSlugForTask}
-        currentUserId={currentUserId}
-        mentions={createTaskMentions}
-        channelId={selectedChannelId ? String(selectedChannelId) : null}
-        teamId={selectedTeamId ? String(selectedTeamId) : null}
-        messagePreview={
-          createTaskSourceMessage ? plainTextForMessage(createTaskSourceMessage).slice(0, 500) : ''
-        }
-        onConfirmed={() => {
-          toast.success(t('orgPanel.taskFromAiOk'));
-          onWorkspaceTasksRefresh?.();
         }}
       />
 

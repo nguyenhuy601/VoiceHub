@@ -26,10 +26,6 @@ export default function NotificationFeedItem({
   const { t } = useAppStrings();
   const meta = resolveNotificationVisual(notif);
   const Icon = meta.Icon;
-  const isAi =
-    String(notif?.rawType || '').includes('ai') ||
-    String(notif?.title || '').includes('VoiceHubAI') ||
-    String(notif?.data?.kind || '') === 'ai_proposal_pending';
   const showFriendActions = !bulkMode && actionKind === 'friend_request';
   const showVoiceAction =
     !bulkMode &&
@@ -98,11 +94,6 @@ export default function NotificationFeedItem({
             }`}
           >
             {notif.title}
-            {isAi ? (
-              <span className="ml-1.5 inline-flex align-middle rounded bg-ai/15 px-1 py-px text-[0.625rem] font-bold tracking-wide text-ai">
-                AI
-              </span>
-            ) : null}
           </span>
           <time className="shrink-0 text-[0.6875rem] tabular-nums text-muted-foreground">
             {notif.time}

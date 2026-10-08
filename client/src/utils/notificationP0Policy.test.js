@@ -28,7 +28,7 @@ describe('isP0Notification', () => {
     );
     assert.equal(
       isP0Notification({ rawType: 'system', data: { kind: 'ai_proposal_pending' } }),
-      true
+      false
     );
     assert.equal(
       isP0Notification({ rawType: 'system', data: { kind: 'ready_to_done_proposed' } }),

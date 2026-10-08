@@ -22,11 +22,7 @@ const map = {
   'role-permission-service': 'ROLE_PERMISSION_SERVICE_IMAGE',
   'chat-service': 'CHAT_SERVICE_IMAGE',
   'project-service': 'PROJECT_SERVICE_IMAGE',
-  'ai-task-service': 'AI_TASK_SERVICE_IMAGE',
-  'ai-task-worker': 'AI_TASK_WORKER_IMAGE',
   'ai-project-planning-service': 'AI_PROJECT_PLANNING_SERVICE_IMAGE',
-  'summary-service': 'SUMMARY_SERVICE_IMAGE',
-  'summary-worker': 'SUMMARY_WORKER_IMAGE',
   'document-service': 'DOCUMENT_SERVICE_IMAGE',
   'voice-service': 'VOICE_SERVICE_IMAGE',
   'notification-service': 'NOTIFICATION_SERVICE_IMAGE',
@@ -67,11 +63,7 @@ NODE
   export ROLE_PERMISSION_SERVICE_IMAGE="$(_swarm_image role-permission-service)"
   export CHAT_SERVICE_IMAGE="$(_swarm_image chat-service)"
   export PROJECT_SERVICE_IMAGE="$(_swarm_image project-service)"
-  export AI_TASK_SERVICE_IMAGE="$(_swarm_image ai-task-service)"
-  export AI_TASK_WORKER_IMAGE="$(_swarm_image ai-task-worker)"
   export AI_PROJECT_PLANNING_SERVICE_IMAGE="$(_swarm_image ai-project-planning-service)"
-  export SUMMARY_SERVICE_IMAGE="$(_swarm_image summary-service)"
-  export SUMMARY_WORKER_IMAGE="$(_swarm_image summary-worker)"
   export DOCUMENT_SERVICE_IMAGE="$(_swarm_image document-service)"
   export VOICE_SERVICE_IMAGE="$(_swarm_image voice-service)"
   export NOTIFICATION_SERVICE_IMAGE="$(_swarm_image notification-service)"

@@ -235,11 +235,9 @@ class MeetingController {
         });
       }
 
-      const enriched = meetingService.enrichMeetingsWithRecordingFields([meeting])[0];
-
       res.json({
         success: true,
-        data: enriched,
+        data: meeting,
       });
     } catch (error) {
       logger.error('Get meeting error:', error);
@@ -405,13 +403,12 @@ class MeetingController {
       });
 
       const enrichedMeetings = await meetingService.enrichMeetingsWithHostProfiles(result.meetings);
-      const withRecording = await meetingService.enrichMeetingsWithRecordingFieldsAsync(enrichedMeetings);
 
       res.json({
         success: true,
         data: {
           ...result,
-          meetings: withRecording,
+          meetings: enrichedMeetings,
         },
       });
     } catch (error) {

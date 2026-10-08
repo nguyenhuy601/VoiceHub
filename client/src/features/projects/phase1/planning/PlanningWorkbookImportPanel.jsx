@@ -10,6 +10,10 @@ import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import PlanningWorkbookPreviewModal from './PlanningWorkbookPreviewModal';
 
+function unwrap(res) {
+  return res?.data?.data ?? res?.data ?? res;
+}
+
 function intakeLockStorageKey(projectId) {
   return `vh-planning-intake:${projectId}`;
 }

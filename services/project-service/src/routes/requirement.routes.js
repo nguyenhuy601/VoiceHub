@@ -7,6 +7,11 @@ const router = express.Router();
 
 router.get('/import/template', controller.downloadTemplate);
 router.post('/import/preview', requirementImportUpload.single('file'), controller.previewImport);
+router.post(
+  '/import/normalize',
+  requirementImportUpload.single('file'),
+  controller.normalizeImport
+);
 router.post('/import/confirm', controller.confirmImport);
 router.post('/intake-draft', controller.createIntakeDraft);
 router.post(

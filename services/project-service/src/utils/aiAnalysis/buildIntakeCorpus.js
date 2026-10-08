@@ -162,7 +162,7 @@ function resolveCorpusFromSource(source) {
 
 /**
  * RULE-PROMPT-01: workbook structured excerpts (method=xlsx) never enter
- * requirement reasoning / data-analysis prompts. PDF/TXT/image (utf8/ocr) stay.
+ * requirement reasoning / data-analysis prompts. Unstructured prose (utf8) stays.
  */
 function isUnstructuredDocumentExcerpt(ex) {
   if (!ex || typeof ex !== 'object') return false;
@@ -170,7 +170,7 @@ function isUnstructuredDocumentExcerpt(ex) {
   if (method === 'xlsx' || method === 'xls') return false;
   const filename = String(ex.filename || '').toLowerCase();
   if (/\.xlsx?$/i.test(filename)) return false;
-  // Keep utf8 / ocr / unknown prose from txt/md/pdf/png
+  // Keep utf8 / unknown prose from txt/md (PDF/image skipped at extract)
   return Boolean(String(ex.text || '').trim());
 }
 

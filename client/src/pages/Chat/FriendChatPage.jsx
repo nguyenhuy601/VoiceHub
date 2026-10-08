@@ -34,7 +34,6 @@ import FriendProfileModal from '../../components/Chat/FriendProfileModal';
 import ChannelMessageToolbar from '../../components/Organization/ChannelMessageToolbar';
 import ChannelMessageMoreMenu from '../../components/Organization/ChannelMessageMoreMenu';
 import ForwardToFriendModal from '../../components/Organization/ForwardToFriendModal';
-import CreateTaskFromAiModal from '../../components/Chat/CreateTaskFromAiModal';
 import FriendChatRightPanel from '../../components/Chat/FriendChatRightPanel';
 import FriendPendingRequestsRail from '../../components/Friends/FriendPendingRequestsRail';
 import UserAvatar from '../../components/Shared/UserAvatar';
@@ -50,7 +49,7 @@ import {
 import { copyImageToClipboard } from '../../utils/copyMediaToClipboard';
 import { formatMessagePreview } from '../../features/search/formatMessagePreview';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useFriendPending, useFriendsList, useOrganizationsMy } from '../../hooks/queries';
+import { useFriendPending, useFriendsList } from '../../hooks/queries';
 import { fetchFriendsList } from '../../hooks/queries/fetchers';
 import FriendChatSidebarTabs from '../../components/Chat/FriendChatSidebarTabs';
 import NewColleagueDmModal from '../../components/Chat/NewColleagueDmModal';
@@ -63,7 +62,6 @@ import { parseMessageListPage } from '../../lib/parseMessageListPage';
 import { STALE_TIME_FRIENDS_MS } from '../../lib/queryClient';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { readSingleOrgModeFlag } from '../../utils/singleCompanyMode';
-import { getAiTaskEligibility } from '../../utils/aiTaskEligibility';
 import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import Modal from '../../components/Shared/Modal';
 import Toast from '../../components/Shared/Toast';
@@ -272,9 +270,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   const [forwardModalOpen, setForwardModalOpen] = useState(false);
   const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
   const [forwarding, setForwarding] = useState(false);
-  const [createTaskModalOpen, setCreateTaskModalOpen] = useState(false);
-  const [createTaskSourceMessage, setCreateTaskSourceMessage] = useState(null);
-  const [defaultOrgIdForTask, setDefaultOrgIdForTask] = useState(null);
   const [toolbarPlacementById, setToolbarPlacementById] = useState({});
   const [inlineToast, setInlineToast] = useState(null);
   const [mutedFriendIds, setMutedFriendIds] = useState(() => loadIdList(DM_MUTE_STORAGE_KEY));
@@ -536,20 +531,12 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     [selectedFriendId, startFriendCall]
   );
 
-  const { data: myOrganizations = [] } = useOrganizationsMy({ enabled: !landingDemo });
   const acceptedFriendsQuery = useFriendsList({ status: 'accepted', enabled: !landingDemo });
   const blockedFriendsQuery = useFriendsList({ status: 'blocked', enabled: !landingDemo });
 
   const refreshFriendsCache = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
   }, [queryClient]);
-
-  useEffect(() => {
-    if (landingDemo || !myOrganizations.length) return;
-    const first = myOrganizations[0];
-    const oid = first?._id || first?.id;
-    if (oid) setDefaultOrgIdForTask(String(oid));
-  }, [landingDemo, myOrganizations]);
 
   const mergedFriendsFromQuery = useMemo(() => {
     const tag = (rows, relationshipStatus) =>
@@ -3024,23 +3011,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
               const msg = moreMenu.message;
               if (msg) confirmRecallMessage(msg._id || msg.id);
             }}
-            /* D5: không truyền onCreateTask — ẩn AI extract task trên DM */
-          />
-
-          {/* Modal giữ mount an toàn nhưng không mở từ menu DM (D5). */}
-          <CreateTaskFromAiModal
-            isOpen={false}
-            onClose={() => {
-              setCreateTaskModalOpen(false);
-              setCreateTaskSourceMessage(null);
-            }}
-            messageId={createTaskSourceMessage?._id || createTaskSourceMessage?.id}
-            organizationId={defaultOrgIdForTask}
-            currentUserId={currentUserId}
-            messagePreview={
-              createTaskSourceMessage ? plainTextForMessage(createTaskSourceMessage).slice(0, 500) : ''
-            }
-            onConfirmed={() => showToast(t('friendChat.taskFromAi'), 'success')}
           />
 
           <ForwardToFriendModal

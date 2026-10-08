@@ -2,9 +2,10 @@
  * Notify P0 (team chốt) — tránh “notify mọi thứ”.
  * Sau B0, type `system` có data.kind đa dạng: không coi mọi system là P0.
  *
- * P0: gán/hoàn thành thẻ, hạn, HITL duyệt (project_approval + ai_proposal_pending),
+ * P0: gán/hoàn thành thẻ, hạn, HITL duyệt (project_approval),
  * thêm vào dự án, sprint sắp hết, document, @mention kênh dự án, capability/HR,
  * và system cũ không có kind.
+ * Legacy kind `ai_proposal_pending` (AI Task đã gỡ FE): không P0; map như system generic.
  *
  * === H1 SoT — cố ý KHÔNG P0 / không Inbox ===
  * - Chat tin thường kênh → socket only (không producer Inbox)
@@ -20,7 +21,6 @@ const P0_RAW_TYPES = new Set(['task_assigned', 'task_completed', 'document']);
 const P0_UI_TYPES = new Set(['task', 'document', 'deadline']);
 
 const P0_SYSTEM_KINDS = new Set([
-  'ai_proposal_pending',
   'task_due_soon',
   'task_overdue',
   'project_member_added',
@@ -62,6 +62,7 @@ export function mapNotificationUiType(rawType, kind) {
   }
   if (raw === 'meeting') return 'meeting';
   if (raw === 'org_join_application') return 'system';
+  // Legacy AI Task proposals: treat as generic system (no special UI).
   if (k === 'ai_proposal_pending') return 'system';
   return raw;
 }

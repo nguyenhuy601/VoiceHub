@@ -8,6 +8,8 @@ import {
   isCompanyChatModulePath,
   isCompanyDocumentsModulePath,
   isImmersiveCompanyModulePath,
+  organizationIdFromProjectRow,
+  resolveProjectOrganizationId,
 } from './suitePathUtils.js';
 
 describe('buildProjectsModulePath', () => {

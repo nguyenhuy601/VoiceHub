@@ -23,7 +23,6 @@ const {
   MAX_UPLOAD_BYTES,
   isMimeAllowed,
 } = require('../config/fileRetention');
-const { publishTaskAiSyncEvent } = require('../messaging/taskAiSyncPublisher');
 const {
   buildTrustedGatewayHeaders,
   isTrustedGatewayForward,
@@ -261,43 +260,6 @@ class MessageController {
   }
 
   /**
-   * Nội bộ: export lịch sử kênh org (decrypted) cho summary pipeline.
-   */
-  async exportOrgThreadInternal(req, res) {
-    try {
-      const {
-        organizationId,
-        roomId,
-        sinceMessageId,
-        limit,
-        unreadOnly,
-        readerId,
-        userId,
-      } = req.query || {};
-
-      const data = await messageService.exportOrgThreadInternal({
-        organizationId,
-        roomId,
-        sinceMessageId,
-        limit,
-        unreadOnly,
-        readerId: readerId || userId,
-      });
-
-      return res.json({ success: true, data });
-    } catch (error) {
-      const status = Number(error?.statusCode) || 500;
-      return sendErrorFromCatch(
-        res,
-        error,
-        status,
-        status === 400 ? 'Yêu cầu không hợp lệ.' : 'Hệ thống tạm thời gặp sự cố.',
-        status === 400 ? 'CHAT_EXPORT_BAD_REQUEST' : 'CHAT_INTERNAL_ERROR'
-      );
-    }
-  }
-
-  /**
    * Nội bộ: ghi log cuộc gọi 1-1 đã kết thúc (voice-service).
    */
   async createCallLogInternal(req, res) {
@@ -358,7 +320,7 @@ class MessageController {
   }
 
   /**
-   * Nội bộ: tạo signed read URL từ storagePath (ai-task-worker, task-service, ...).
+   * Nội bộ: tạo signed read URL từ storagePath (S2S callers, ví dụ project-service).
    * Bảo vệ bằng header x-internal-token (CHAT_INTERNAL_TOKEN).
    */
   async getSignedReadUrlInternal(req, res) {
@@ -1606,19 +1568,6 @@ class MessageController {
           messageId: String(messageId),
         });
       }
-
-      try {
-        if (message?.organizationId) {
-          await publishTaskAiSyncEvent({
-            messageId: String(messageId),
-            organizationId: String(message.organizationId),
-            changeType: 'deleted',
-          });
-        }
-      } catch (e) {
-        // best-effort
-        console.warn('[chat-service] publish task-ai.sync failed:', e.message);
-      }
     } catch (error) {
       return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }
@@ -1652,18 +1601,6 @@ class MessageController {
         await emitDmToParticipants('friend:message_recalled', data, {
           messageId: String(messageId),
         });
-      }
-
-      try {
-        if (message?.organizationId) {
-          await publishTaskAiSyncEvent({
-            messageId: String(messageId),
-            organizationId: String(message.organizationId),
-            changeType: 'recalled',
-          });
-        }
-      } catch (e) {
-        console.warn('[chat-service] publish task-ai.sync failed:', e.message);
       }
     } catch (error) {
       return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
@@ -1712,18 +1649,6 @@ class MessageController {
         message: 'Message edited successfully',
         data: payloadMessage,
       });
-
-      try {
-        if (message?.organizationId) {
-          await publishTaskAiSyncEvent({
-            messageId: String(messageId),
-            organizationId: String(message.organizationId),
-            changeType: 'edited',
-          });
-        }
-      } catch (e) {
-        console.warn('[chat-service] publish task-ai.sync failed:', e.message);
-      }
     } catch (error) {
       return sendErrorFromCatch(res, error, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');
     }

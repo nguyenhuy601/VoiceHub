@@ -1,21 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Bot, Check, ClipboardList, X } from 'lucide-react';
+import { Check, ClipboardList, X } from 'lucide-react';
 import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
 import { useAppStrings } from '../../locales/appStrings';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { projectAPI } from '../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { buildProjectsPickerPath } from '../../utils/suitePathUtils';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
 /**
- * Work approval inbox — Phase 5 project approval requests (+ AI drafts tip).
+ * Work approval inbox — Phase 5 project approval requests.
  */
 export default function ApprovalInboxPage() {
   const { t } = useAppStrings();
@@ -166,20 +165,6 @@ export default function ApprovalInboxPage() {
                 })}
               </ul>
             )}
-          </section>
-
-          <section className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-3 flex items-center gap-2 text-primary">
-              <Bot size={20} />
-              <h2 className="font-semibold">{t('approvals.aiDraftsTitle')}</h2>
-            </div>
-            <p className="text-sm text-muted-foreground">{t('approvals.aiDraftsHint')}</p>
-            <Link
-              to={buildProjectsPickerPath(orgId)}
-              className="mt-3 inline-block text-sm text-primary hover:underline"
-            >
-              {t('approvals.openProjects')}
-            </Link>
           </section>
         </div>
       </main>

@@ -136,6 +136,47 @@ async function previewImport(req, res) {
   }
 }
 
+/** Chuẩn hóa dữ liệu → Customer Raw xlsx (binary). */
+async function normalizeImport(req, res) {
+  try {
+    const organizationId = resolveOrgId(req);
+    const userId = resolveUserId(req);
+    if (!req.file?.buffer) {
+      return res.status(400).json({
+        success: false,
+        message: 'file (.xlsx) bắt buộc',
+        errorCode: 'REQ_IMPORT_FILE_REQUIRED',
+      });
+    }
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'organizationId bắt buộc' });
+    }
+    const {
+      normalizeCustomerWorkbookToRaw,
+    } = require('../services/customerRawNormalize.service');
+    const result = await normalizeCustomerWorkbookToRaw({
+      userId,
+      organizationId,
+      fileBuffer: req.file.buffer,
+      fileName: req.file.originalname || '',
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${result.fileName}"`
+    );
+    if (result.profile) {
+      res.setHeader('X-Raw-Normalize-Profile', String(result.profile));
+    }
+    return res.status(200).send(result.buffer);
+  } catch (err) {
+    return jsonError(res, err);
+  }
+}
+
 async function createIntakeDraft(req, res) {
   try {
     const organizationId = resolveOrgId(req);
@@ -623,6 +664,7 @@ async function exportAiAnalysis(req, res) {
 module.exports = {
   downloadTemplate,
   previewImport,
+  normalizeImport,
   createIntakeDraft,
   uploadPackCustomerDocumentCtrl,
   confirmImport,

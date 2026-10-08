@@ -594,9 +594,6 @@ export default function ProjectHubPage({
   );
 
   const canCreateWorkspaceTask = Boolean(taskWorkspaceScope?.canCreateTask);
-  const canUseAiWorkspaceTask = Boolean(
-    taskWorkspaceScope?.canUseAiTask ?? taskWorkspaceScope?.canCreateTask
-  );
   const canOpenCreateProjectWizard = Boolean(canCreateProjectCapability);
   const myAssignedProjectBriefs = useMemo(() => {
     const uid = String(currentUserId || '').trim();
@@ -691,9 +688,6 @@ export default function ProjectHubPage({
       boardCapabilities={boardCapabilities}
       canManageLists={canManageListsUi}
       canCreateCards={canCreateCardsUi}
-      organizationId={orgId || ''}
-      canUseAiAssign={canUseAiWorkspaceTask && canCreateCardsUi}
-      onAiAssignComplete={refreshTaskBoardView}
       renderCardExtra={(card) => kanbanCardSyncedExtra(card, [])}
       taskWorkspaceScope={taskWorkspaceScope}
       hideIdentityHeader={hideIdentityHeader}

@@ -23,21 +23,6 @@ const routeActionMap = {
   'POST /api/tasks/project-briefs/:briefId/accept': 'task:write',
   'POST /api/tasks/project-briefs/:briefId/cancel': 'task:write',
 
-  // AI Task Service
-  'POST /api/ai/tasks/extract': 'task:write',
-  'GET /api/ai/tasks/extractions': 'task:read',
-  'POST /api/ai/tasks/confirm': 'task:write',
-  'POST /api/ai/tasks/project-draft': 'task:write',
-  'GET /api/ai/tasks/project-drafts': 'task:read',
-  'POST /api/ai/tasks/project-drafts': 'task:write',
-  'POST /api/ai/tasks/boards': 'task:write',
-  'POST /api/ai/tasks/team-assign-drafts': 'task:write',
-
-  // Summary Service
-  'POST /api/ai/summaries': 'chat:write',
-  'GET /api/ai/summaries': 'chat:read',
-  'GET /api/ai/summaries/:id': 'chat:read',
-
   // Document Service
   'GET /api/documents': 'document:read',
   'POST /api/documents': 'document:write',
@@ -144,7 +129,6 @@ const DOWNSTREAM_AUTH_PREFIXES = [
   '/api/organizations',
   '/api/tasks',
   '/api/projects',
-  '/api/ai/tasks',
   '/api/workspaces',
   '/api/reports',
 ];
@@ -152,7 +136,6 @@ const DOWNSTREAM_AUTH_PREFIXES = [
 const TASK_AUTH_BYPASS_PREFIXES = [
   '/api/tasks',
   '/api/projects',
-  '/api/ai/tasks',
 ];
 
 const TASK_AUTH_BYPASS_REGEX = /^\/api\/workspaces\/[^/]+\/task-boards(\/|$)/;
@@ -569,13 +552,9 @@ const AUDITED_CLIENT_API_PATHS = [
   ['GET', '/api/organizations/org1/structure'],
   ['GET', '/api/tasks'],
   ['GET', '/api/projects/roles'],
-  ['POST', '/api/ai/tasks/extract'],
-  ['POST', '/api/ai/summaries'],
-  ['GET', '/api/ai/summaries/sum1'],
   ['GET', '/api/voice/calls/active'],
   ['GET', '/api/meetings'],
   ['POST', '/api/meetings/meeting1/end'],
-  ['GET', '/api/meetings/meeting1/recording'],
   ['GET', '/api/roles/server/org1'],
   ['GET', '/api/workspaces/ws1/task-boards'],
   ['GET', '/api/organizations/org1/members/with-roles'],

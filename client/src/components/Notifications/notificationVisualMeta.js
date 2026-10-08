@@ -181,6 +181,7 @@ export function resolveNotificationVisual(notif) {
   if (ui === 'mention') return VISUAL.mention;
   if (ui === 'message' || raw === 'message') return VISUAL.message;
   if (ui === 'file' || raw === 'document') return VISUAL.file;
+  // Legacy AI Task (`ai_proposal_pending`) and other AI labels → generic system visual.
   if (raw.includes('ai') || kind === 'ai_proposal_pending' || title.includes('VoiceHubAI')) {
     return VISUAL.system;
   }

@@ -73,12 +73,6 @@ router.post(
   messageController.createCallLogInternal.bind(messageController)
 );
 
-router.get(
-  '/internal/threads/org-export',
-  internalServiceOnly,
-  messageController.exportOrgThreadInternal.bind(messageController)
-);
-
 router.post(
   '/internal/system-channel-message',
   internalServiceOnly,

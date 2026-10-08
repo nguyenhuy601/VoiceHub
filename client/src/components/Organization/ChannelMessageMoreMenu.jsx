@@ -37,11 +37,6 @@ export default function ChannelMessageMoreMenu({
   onRecall,
   /** Tin nhắn văn bản — cho phép sao chép */
   canCopy,
-  /** Tạo task bằng AI */
-  onCreateTask,
-  createTaskDisabled = false,
-  /** Hiển thị khi hover (đặc biệt khi disabled) */
-  createTaskHoverTitle = '',
   onPinToggle,
   pinLabel = '',
 }) {
@@ -103,30 +98,6 @@ export default function ChannelMessageMoreMenu({
           {t('orgPanel.menuForward')}
           <span className="text-slate-400">↪️</span>
         </button>
-        {typeof onCreateTask === 'function' && (
-          <button
-            type="button"
-            role="menuitem"
-            disabled={createTaskDisabled}
-            title={createTaskHoverTitle || t('orgPanel.menuCreateTaskHint')}
-            className={`flex w-full items-center justify-between px-3 py-2.5 text-left ${
-              createTaskDisabled
-                ? 'cursor-not-allowed text-slate-500'
-                : 'text-slate-100 hover:bg-white/8'
-            }`}
-            onClick={() => {
-              if (createTaskDisabled) return;
-              onCreateTask();
-              onClose();
-            }}
-          >
-            <span className="flex min-w-0 flex-1 items-center gap-2">
-              <span className="shrink-0">✅</span>
-              <span className="truncate">{t('orgPanel.menuCreateTaskAi')}</span>
-            </span>
-            <span className="text-slate-400">🤖</span>
-          </button>
-        )}
         {isMine && typeof onEdit === 'function' && (
           <button
             type="button"

@@ -16,9 +16,6 @@ const MEETING_OPS_HUB = '/app/admin/voice/meeting-ops';
 const LINKS = [
   { tab: 'end', labelKey: 'adminDomains.voice.endMeeting', activeOnly: true },
   { tab: 'moderate', labelKey: 'adminDomains.voice.moderate', activeOnly: true },
-  { tab: 'recording', labelKey: 'adminDomains.voice.recording', activeOnly: false },
-  { tab: 'transcript', labelKey: 'adminDomains.voice.transcript', activeOnly: false },
-  { tab: 'summary', labelKey: 'adminDomains.voice.aiSummary', activeOnly: false },
 ];
 
 export default function MeetingsListPanel({ orgId }) {
