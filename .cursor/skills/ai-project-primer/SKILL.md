@@ -71,7 +71,7 @@ Không nhầm với **`ai-task-service`** (chat → task board).
 
 - `.cursor/rules/voicehub-constraints.mdc` — S2S clients trong `services/<name>/src/clients/`
 - Swarm: build **chỉ** `ai-project-planning-service` khi đổi AI; không rebuild project vì AI
-- Ollama / Qdrant: Compose extra — không nhét vào image project
+- Ollama / Qdrant: Swarm (`docker-stack.yml`) — không nhét vào image project
 - Snapshot ingest ≠ LLM input; Run bind `snapshotId`
 - **JEV deferred:** không implement `jevClient` / env vendor trong remediation Step 5 / holes A–H; không pin TypeSafe/OpenRouter làm SoT runtime
 - **Agent Core F2:** HOW graph available (`AGENT_CORE_F2`); default off — JS SoT; không interrupt Gate trong F2.0

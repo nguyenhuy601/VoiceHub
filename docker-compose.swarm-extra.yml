@@ -1,113 +1,13 @@
-# Infra / AI bổ sung cho Swarm dev — gắn overlay voicehub_enterprise-network
-# DNS alias: minio, ollama, meilisearch (app Swarm gọi cùng hostname).
-# Ollama chỉ chạy ở đây, không còn trong docker-stack.yml.
+# DEPRECATED — ollama / minio / qdrant / meilisearch đã chuyển vào docker-stack.yml (Swarm).
+# File giữ để script cũ không 404; không còn service runtime ở đây.
+# Voice recording/STT workers (nếu cần) sẽ thêm lại sau dưới profile riêng.
 #
+#   bash devops/swarm/deploy-stack.sh
 #   bash devops/swarm/dev-enable-profile.sh
 
 name: voicehub-extra
 
-services:
-  ollama:
-    image: ollama/ollama:latest
-    platform: linux/amd64
-    volumes:
-      - ollama_data:/root/.ollama
-    # AI Analysis Compact V2 (~8GB): keep 1 generate slot — do not raise OLLAMA_NUM_PARALLEL.
-    # Prefer OLLAMA_NUM_CTX=4096 via model Modelfile / client options (project-service).
-    environment:
-      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
-      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
-    mem_limit: 3072m
-    cpus: 4
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 30s
-      timeout: 15s
-      retries: 5
-      start_period: 45s
-    networks:
-      enterprise-network:
-        aliases:
-          - ollama
-
-  qdrant:
-    image: qdrant/qdrant:v1.13.2
-    platform: linux/amd64
-    volumes:
-      - qdrant_data:/qdrant/storage
-    mem_limit: 512m
-    cpus: 1
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-    networks:
-      enterprise-network:
-        aliases:
-          - qdrant
-
-  # Docker Hub minio/* community images removed (2025-10); use Quay mirrors.
-  minio:
-    image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
-    platform: linux/amd64
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
-    volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
-    networks:
-      enterprise-network:
-        aliases:
-          - minio
-
-  minio-init:
-    image: quay.io/minio/mc:latest
-    platform: linux/amd64
-    depends_on:
-      minio:
-        condition: service_healthy
-    environment:
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-      MINIO_BUCKET: ${MINIO_BUCKET:-meeting-recordings}
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 $$MINIO_ACCESS_KEY $$MINIO_SECRET_KEY &&
-      mc mb --ignore-existing local/$$MINIO_BUCKET &&
-      exit 0
-      "
-    networks:
-      - enterprise-network
-
-  meilisearch:
-    image: getmeili/meilisearch:v1.12
-    environment:
-      MEILI_ENV: ${MEILI_ENV}
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
-      MEILI_NO_ANALYTICS: "true"
-    volumes:
-      - meilisearch_data:/meili_data
-    networks:
-      enterprise-network:
-        aliases:
-          - meilisearch
-
-volumes:
-  ollama_data:
-  minio_data:
-  meilisearch_data:
-  qdrant_data:
+services: {}
 
 networks:
   enterprise-network:
