@@ -133,7 +133,6 @@ export function WorkItemDetailProvider({
     if (!open) return;
     setActiveTab(pickInitialVisibleTab(tabCtx, mapInitialPanelToTab(initialPanel)));
     // tabCtx lấy bản sau render khi issueId/initialPanel đổi; cố ý không đưa vào deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- xem comment trên
   }, [open, issueId, initialPanel]);
 
   const [title, setTitle] = useState('');

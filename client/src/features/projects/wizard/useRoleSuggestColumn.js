@@ -33,7 +33,7 @@ export function useRoleSuggestColumn({
   useEffect(() => {
     setItems(Array.isArray(initialItems) ? initialItems : []);
     setHasMore(Boolean(initialHasMore));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed captures first-page identity
+    // seed captures first-page identity
   }, [orgId, roleKey, seed, initialHasMore, fitAvailable]);
 
   useEffect(() => {

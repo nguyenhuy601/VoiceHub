@@ -67,7 +67,6 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   useEffect(() => {

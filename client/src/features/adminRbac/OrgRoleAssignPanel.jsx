@@ -84,12 +84,10 @@ export default function OrgRoleAssignPanel({ orgId }) {
 
   useEffect(() => {
     loadCatalog();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   useEffect(() => {
     loadAssignmentsForUser(userIdParam);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, userIdParam]);
 
   const setUserAssignments = async (nextRoleKeys) => {

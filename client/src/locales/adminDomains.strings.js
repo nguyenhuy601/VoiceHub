@@ -1531,7 +1531,7 @@ export const adminDomainStrings = {
       teamPickerHint: 'Chọn thành viên đã có trong dự án (theo Project / Board phía trên) để gán Project Role.',
       teamPickerEmpty: 'Chưa có thành viên trong dự án này — thêm member ở Project Hub trước.',
       teamSelectUserFirst: 'Chọn một thành viên dự án ở bảng bên trái.',
-      sprintHint: 'Sprint theo board: tạo, active/close, gắn thẻ (cardIds).',
+      sprintHint: 'Sprint theo bảng: tạo, active/close, gắn thẻ (cardIds).',
       sprintLoadFail: 'Không tải được sprint.',
       sprintCreate: 'Tạo sprint',
       sprintCreated: 'Đã tạo sprint.',

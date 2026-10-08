@@ -132,7 +132,7 @@ export default function Phase1Gate1ReviewPanel({
         ? summary.reviewDecisions
         : {};
     setLocalDecisions({ ...fromServer });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reseed when reviewVersion changes
+    // only reseed when reviewVersion changes
   }, [active, summary?.reviewVersion, isControlled]);
 
   const readyForGate1 = summary?.readyForGate1 !== false;

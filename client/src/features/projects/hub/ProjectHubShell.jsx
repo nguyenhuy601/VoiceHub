@@ -973,7 +973,7 @@ export default function ProjectHubShell({
     if (!activeModule) return;
     const id = String(activeModule).trim();
     if (id && id !== tab) setTabState(id);
-  }, [activeModule]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeModule]);
 
   const [visitedTabs, setVisitedTabs] = useState(() => ({ overview: true }));
   const prevHubProjectIdRef = useRef('');

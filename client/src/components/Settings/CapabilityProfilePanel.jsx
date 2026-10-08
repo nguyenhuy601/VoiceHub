@@ -114,7 +114,6 @@ export default function CapabilityProfilePanel() {
     if (!me || typeof me !== 'object') return;
     applyServerCapability(me);
     // hydrate form từ cache shared — không put lại setMeData
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me]);
 
   const hydrate = useCallback(async () => {

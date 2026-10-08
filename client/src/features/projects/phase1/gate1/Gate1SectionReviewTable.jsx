@@ -75,7 +75,6 @@ export default function Gate1SectionReviewTable({
   const scrollPageSize = Number(cfg.scrollPageSize) || GATE1_SCROLL_PAGE_SIZE;
   const columns = useMemo(
     () => cfg.getColumnsForSection(section),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cfg helpers are stable per parent
     [section, cfg.getColumnsForSection]
   );
   const [visibleCount, setVisibleCount] = useState(scrollPageSize);
