@@ -1,6 +1,6 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, LayoutGrid, Loader2 } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, ExternalLink, FileText, LayoutGrid, Loader2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
 import { projectAPI } from '../../../services/api/projectAPI';
@@ -27,7 +27,6 @@ import useSprintAutoCompletePrompt from './useSprintAutoCompletePrompt';
 import { isBoardSprintReady } from './projectHubHierarchy';
 import { buildProjectsPickerPath, isProjectChatTabEnabled } from '../../../utils/suitePathUtils';
 import { writeStoredLastProjectId } from '../picker/projectPickerRemember';
-import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import {
   PROJECT_HUB_TABS,
   buildOverviewDashboardCharts,
@@ -65,13 +64,14 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../../lib/queryKeys';
 
-function OverviewMetricSkeleton({ count = 4 }) {
+function OverviewMetricSkeleton({ count = 4, isDarkMode }) {
+  const pulse = isDarkMode ? 'bg-white/10' : 'bg-muted';
   return (
     <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
       {Array.from({ length: count }, (_, i) => (
         <div
           key={i}
-          className="h-[4.25rem] animate-pulse rounded-lg bg-muted motion-reduce:animate-none"
+          className={`h-[4.25rem] animate-pulse rounded-lg motion-reduce:animate-none ${pulse}`}
           aria-hidden
         />
       ))}
@@ -79,27 +79,24 @@ function OverviewMetricSkeleton({ count = 4 }) {
   );
 }
 
-function OverviewContextSkeleton() {
+function OverviewContextSkeleton({ isDarkMode }) {
+  const pulse = isDarkMode ? 'bg-white/10' : 'bg-muted';
   return (
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {[0, 1, 2].map((i) => (
           <div
             key={i}
-            className={`h-56 animate-pulse rounded-xl bg-muted motion-reduce:animate-none ${
+            className={`h-56 animate-pulse rounded-xl motion-reduce:animate-none ${
               i === 2 ? 'sm:col-span-2 lg:col-span-1' : ''
-            }`}
+            } ${pulse}`}
             aria-hidden
           />
         ))}
       </div>
       <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
         {[0, 1].map((i) => (
-          <div
-            key={i}
-            className="h-40 animate-pulse rounded-xl bg-muted motion-reduce:animate-none"
-            aria-hidden
-          />
+          <div key={i} className={`h-40 animate-pulse rounded-xl motion-reduce:animate-none ${pulse}`} aria-hidden />
         ))}
       </div>
     </div>
@@ -252,11 +249,9 @@ function OverviewPanel({
     canOpenBacklog: false,
     canOpenBoard: false,
   };
-  const muted = 'text-muted-foreground';
-  const titleCls = 'text-foreground';
+  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
+  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
   const cardCls = 'rounded-xl border border-border bg-surface p-4';
-  const focusBtn =
-    'transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
   const statusLabel = formatHubProjectStatus(projectStatus, t);
   const phaseLabel = t(deliveryPhaseLabelKey(deliveryPhase));
   const attention = hubAttentionState({ overdue: summary.overdue });
@@ -275,7 +270,7 @@ function OverviewPanel({
   const showBacklogCta = Boolean(vis.canOpenBacklog);
   const showBoardCta = Boolean(vis.canOpenBoard);
   const ctaCount = (showBacklogCta ? 1 : 0) + (showBoardCta ? 1 : 0);
-  const showActivitySection = Boolean(vis.canViewActivity);
+  const showActivity = Boolean(vis.canViewActivity) && !activityRestricted;
 
   return (
     <div className="scrollbar-overlay min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
@@ -349,7 +344,7 @@ function OverviewPanel({
                   type="button"
                   onClick={onOpenBacklog}
                   aria-label={t('workspace.projectHubOpenBacklog')}
-                  className={`inline-flex min-h-11 items-center justify-center rounded-lg border border-border bg-background px-3 py-2 text-center text-xs font-semibold text-foreground hover:bg-muted ${focusBtn}`}
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border bg-background px-3 py-2 text-center text-xs font-semibold text-foreground hover:bg-muted"
                 >
                   <span className="lg:hidden">{t('workspace.projectHubOpenBacklogShort')}</span>
                   <span className="hidden lg:inline">{t('workspace.projectHubOpenBacklog')}</span>
@@ -360,7 +355,7 @@ function OverviewPanel({
                   type="button"
                   onClick={onOpenBoard}
                   aria-label={t('workspace.projectHubOpenBoard')}
-                  className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-center text-xs font-semibold text-primary-foreground ${focusBtn}`}
+                  className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-center text-xs font-semibold text-primary-foreground"
                 >
                   <LayoutGrid size={14} className="shrink-0" aria-hidden />
                   <span className="lg:hidden">{t('workspace.projectHubOpenBoardShort')}</span>
@@ -381,7 +376,7 @@ function OverviewPanel({
           {t('workspace.projectHubProjectHealth')}
         </h3>
         {boardLoading ? (
-          <OverviewMetricSkeleton count={4} />
+          <OverviewMetricSkeleton count={4} isDarkMode={isDarkMode} />
         ) : (
           <>
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -538,7 +533,7 @@ function OverviewPanel({
 
       {boardLoading ? (
         <div className="mt-3">
-          <OverviewContextSkeleton />
+          <OverviewContextSkeleton isDarkMode={isDarkMode} />
         </div>
       ) : vis.canViewTaskMetrics && dashboardCharts ? (
         <ProjectHubOverviewCharts
@@ -596,7 +591,7 @@ function OverviewPanel({
                       <button
                         type="button"
                         onClick={() => onOpenNextAction?.(a.id)}
-                        className={`w-full rounded-sm text-left text-sm hover:text-primary ${focusBtn}`}
+                        className="w-full rounded-sm text-left text-sm hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       >
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className={`text-[10px] font-semibold uppercase tracking-wide ${muted}`}>
@@ -671,7 +666,9 @@ function OverviewPanel({
               </p>
               {sprintContextLoading ? (
                 <div
-                  className="h-16 animate-pulse rounded-lg bg-muted motion-reduce:animate-none"
+                  className={`h-16 animate-pulse rounded-lg motion-reduce:animate-none ${
+                    isDarkMode ? 'bg-white/10' : 'bg-muted'
+                  }`}
                   aria-busy="true"
                   aria-label={t('common.loading')}
                 />
@@ -706,7 +703,9 @@ function OverviewPanel({
               </p>
               {planningContextLoading ? (
                 <div
-                  className="h-12 animate-pulse rounded-lg bg-muted motion-reduce:animate-none"
+                  className={`h-12 animate-pulse rounded-lg motion-reduce:animate-none ${
+                    isDarkMode ? 'bg-white/10' : 'bg-muted'
+                  }`}
                   aria-busy="true"
                   aria-label={t('common.loading')}
                 />
@@ -735,40 +734,42 @@ function OverviewPanel({
         </div>
       )}
 
-      {showActivitySection ? (
+      {showActivity ? (
       <div className={`${cardCls} mt-3`}>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p className={`text-xs font-semibold uppercase tracking-wide ${muted}`}>
             {t('workspace.projectHubRecentActivity')}
           </p>
-          {!activityRestricted &&
-          !activityLoading &&
-          !activityError &&
-          activity.length > 0 ? (
+          {!activityLoading && !activityError && activity.length > 0 ? (
             <button
               type="button"
               onClick={onViewAllActivity}
-              className={`rounded-sm text-xs font-semibold text-primary hover:underline ${focusBtn}`}
+              className="text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-sm"
             >
               {t('workspace.projectHubActivityViewAll')}
             </button>
           ) : null}
         </div>
-        {activityRestricted ? (
-          <p className={`text-sm ${muted}`} role="status">
-            {t('workspace.projectHubOverviewActivityRestricted')}
-          </p>
-        ) : activityLoading ? (
+        {activityLoading ? (
           <div
-            className="h-24 animate-pulse rounded-lg bg-muted motion-reduce:animate-none"
+            className={`h-24 animate-pulse rounded-lg motion-reduce:animate-none ${
+              isDarkMode ? 'bg-white/10' : 'bg-muted'
+            }`}
             aria-busy="true"
             aria-label={t('common.loading')}
           />
         ) : activityError ? (
-          <AdminLoadErrorState
-            message={t('workspace.projectHubActivityLoadFail')}
-            onRetry={onRetryActivity}
-          />
+          <div className="flex flex-col items-start gap-2">
+            <p className={`text-sm ${muted}`}>{t('workspace.projectHubActivityLoadFail')}</p>
+            <button
+              type="button"
+              onClick={onRetryActivity}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+            >
+              <RefreshCw size={14} aria-hidden />
+              {t('workspace.projectHubActivityRetry')}
+            </button>
+          </div>
         ) : activity.length === 0 ? (
           <p className={`text-sm ${muted}`}>{t('workspace.projectHubActivityEmpty')}</p>
         ) : (
@@ -953,8 +954,6 @@ export default function ProjectHubShell({
 }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
-  const hubNavPrefix = `hub-${useId().replace(/:/g, '')}`;
-  const hubTabRefs = useRef({});
   const [tab, setTabState] = useState(() =>
     activeModule && typeof activeModule === 'string' ? activeModule : 'overview'
   );
@@ -974,7 +973,6 @@ export default function ProjectHubShell({
     if (!activeModule) return;
     const id = String(activeModule).trim();
     if (id && id !== tab) setTabState(id);
-    // Sync tab from URL module only; omit `tab` to avoid feedback loops.
   }, [activeModule]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [visitedTabs, setVisitedTabs] = useState(() => ({ overview: true }));
@@ -1267,31 +1265,6 @@ export default function ProjectHubShell({
     if (tab && !allowed.has(tab)) setTab('overview');
   }, [tab, visibleTabs]);
 
-  const focusHubTabAt = useCallback(
-    (index) => {
-      if (visibleTabs.length <= 1) return;
-      const next = visibleTabs[(index + visibleTabs.length) % visibleTabs.length];
-      if (!next) return;
-      setTab(next.id);
-      hubTabRefs.current[next.id]?.focus();
-    },
-    [visibleTabs, setTab]
-  );
-
-  const handleHubTabKeyDown = useCallback(
-    (event) => {
-      if (visibleTabs.length <= 1) return;
-      const currentIndex = visibleTabs.findIndex((item) => item.id === tab);
-      if (event.key === 'ArrowRight') focusHubTabAt(currentIndex + 1);
-      else if (event.key === 'ArrowLeft') focusHubTabAt(currentIndex - 1);
-      else if (event.key === 'Home') focusHubTabAt(0);
-      else if (event.key === 'End') focusHubTabAt(visibleTabs.length - 1);
-      else return;
-      event.preventDefault();
-    },
-    [visibleTabs, tab, focusHubTabAt]
-  );
-
   useEffect(() => {
     setVisitedTabs((prev) => (prev[tab] ? prev : { ...prev, [tab]: true }));
   }, [tab]);
@@ -1559,8 +1532,8 @@ export default function ProjectHubShell({
 
   const hasBoard = Boolean(boardId && resolvedBoard);
   const initials = projectInitials(resolvedBoard?.title);
-  const muted = 'text-muted-foreground';
-  const titleCls = 'text-foreground';
+  const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
+  const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
   const sprintsReadyForCompleteGate = sprintsHydrated;
   const hasOpenSprints = (sprints || []).some((s) => {
     const st = String(s?.status || '').toLowerCase();
@@ -1625,7 +1598,7 @@ export default function ProjectHubShell({
           type="button"
           onClick={() => setCompleteSprintId(String(activeSprint._id))}
           disabled={!boardReady}
-          className="rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className="rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold disabled:opacity-50"
         >
           {t('workspace.projectHubPlanCompleteSprint')}
         </button>
@@ -1636,12 +1609,20 @@ export default function ProjectHubShell({
   if (!hasBoard) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+        <div
+          className={`flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2 ${
+            isDarkMode ? 'border-white/10' : 'border-border'
+          }`}
+        >
           {onBack ? (
             <button
               type="button"
               onClick={() => onBack()}
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={`rounded-md p-1.5 transition ${
+                isDarkMode
+                  ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
               aria-label={t('taskBoard.backAria')}
             >
               <ChevronLeft size={18} />
@@ -1657,7 +1638,11 @@ export default function ProjectHubShell({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {/* Compact enterprise header — identity + tabs in one contained area */}
-      <header className="shrink-0 border-b border-border bg-surface">
+      <header
+        className={`shrink-0 border-b ${
+          isDarkMode ? 'border-white/10 bg-[#0b1120]/90' : 'border-border bg-surface'
+        }`}
+      >
         {/* Identity row */}
         <div className="flex min-w-0 flex-col gap-2 px-3 pt-2.5 pb-2 sm:flex-row sm:items-center sm:gap-2.5 sm:px-4">
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
@@ -1665,7 +1650,11 @@ export default function ProjectHubShell({
               <button
                 type="button"
                 onClick={() => onBack()}
-                className="-ml-1 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-auto sm:w-auto"
+                className={`-ml-1 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md p-1 transition sm:h-auto sm:w-auto ${
+                  isDarkMode
+                    ? 'text-slate-400 hover:bg-white/10 hover:text-white'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
                 aria-label={t('taskBoard.backAria')}
               >
                 <ChevronLeft size={18} />
@@ -1680,16 +1669,30 @@ export default function ProjectHubShell({
               </h2>
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                 {resolvedBoard?.projectCode ? (
-                  <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${
+                      isDarkMode ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
+                    }`}
+                  >
                     {resolvedBoard.projectCode}
                   </span>
                 ) : null}
                 {resolvedBoard?.methodology ? (
-                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                      isDarkMode ? 'bg-white/10 text-slate-200' : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
                     {formatHubMethodology(resolvedBoard.methodology, t)}
                   </span>
                 ) : null}
-                <span className="shrink-0 rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-primary">
+                <span
+                  className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
+                    isDarkMode
+                      ? 'border-primary/40 bg-primary/20 text-primary'
+                      : 'border-primary/30 bg-primary/10 text-primary'
+                  }`}
+                >
                   {t(deliveryPhaseLabelKey(overviewDeliveryPhase))}
                 </span>
                 <span className={`max-w-full text-[11px] leading-tight sm:truncate ${muted}`}>
@@ -1712,13 +1715,11 @@ export default function ProjectHubShell({
         </div>
 
         {/* Tab bar — underline style (hidden when suite sidebar owns nav) */}
-        {!hideTabBar && visibleTabs.length > 1 ? (
+        {!hideTabBar ? (
         <nav
           className="flex gap-0 overflow-x-auto overscroll-x-contain px-3 sm:px-4"
-          role="tablist"
           aria-label={t('workspace.projectHubNavAria')}
           style={{ scrollbarWidth: 'none' }}
-          onKeyDown={handleHubTabKeyDown}
         >
           {visibleTabs.map((item) => {
             const active = tab === item.id;
@@ -1726,26 +1727,20 @@ export default function ProjectHubShell({
             return (
               <button
                 key={item.id}
-                ref={(el) => {
-                  hubTabRefs.current[item.id] = el;
-                }}
-                id={`${hubNavPrefix}-tab-${item.id}`}
                 type="button"
-                role="tab"
-                aria-selected={active}
-                aria-controls={`${hubNavPrefix}-panel-${item.id}`}
-                tabIndex={active ? 0 : -1}
                 disabled={disabled}
                 onClick={() => !disabled && setTab(item.id)}
-                className={[
-                  'min-h-11 shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-[11px] font-semibold transition-colors duration-150 motion-reduce:transition-none',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-[11px] font-semibold transition-colors ${
                   disabled
-                    ? 'cursor-not-allowed border-transparent text-muted-foreground'
+                    ? 'cursor-not-allowed border-transparent text-muted-foreground/40'
                     : active
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-muted-foreground hover:text-foreground',
-                ].join(' ')}
+                    ? isDarkMode
+                      ? 'border-primary text-white'
+                      : 'border-primary text-primary'
+                    : isDarkMode
+                      ? 'border-transparent text-slate-400 hover:text-slate-200'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
               >
                 {t(item.labelKey)}
               </button>
@@ -1946,30 +1941,29 @@ export default function ProjectHubShell({
         ) : null}
         {tab === 'board' && hubCaps.canViewWorkItems ? (
           !sprintsHydrated || sprintsFetching ? (
-            <div
-              className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-12 text-center"
-              aria-busy
-            >
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-12 text-center">
               <Loader2
-                className="h-5 w-5 animate-spin text-muted-foreground motion-reduce:animate-none"
+                className={`h-5 w-5 animate-spin ${isDarkMode ? 'text-slate-300' : 'text-muted-foreground'}`}
                 aria-hidden
               />
-              <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+              <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-muted-foreground'}`}>
+                {t('common.loading')}
+              </p>
             </div>
           ) : boardReady ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{boardKanban}</div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 py-12 text-center">
-              <p className="text-sm font-semibold text-foreground">
+              <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-foreground'}`}>
                 {t('workspace.projectHubBoardLockedTitle')}
               </p>
-              <p className="max-w-md text-xs text-muted-foreground">
+              <p className={`max-w-md text-xs ${isDarkMode ? 'text-slate-400' : 'text-muted-foreground'}`}>
                 {t('workspace.projectHubBoardLockedHint')}
               </p>
               {hubCaps.canViewBacklog ? (
               <button
                 type="button"
-                className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
                 onClick={() => setTab('planning')}
               >
                 {t('workspace.projectHubBoardLockedCta')}
