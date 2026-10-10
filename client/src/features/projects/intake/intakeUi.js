@@ -1,15 +1,15 @@
 /** Enterprise Project Intake Workspace — shared layout tokens. */
 export const intakeUi = {
-  shell: 'fixed inset-0 z-[80] flex flex-col bg-background text-foreground',
+  shell: 'fixed inset-0 z-[80] flex flex-col overflow-hidden bg-background text-foreground',
   pageGrid:
-    'flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]',
+    'flex min-h-0 flex-1 flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]',
   mainScroll: 'min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8',
-  mainInner: 'mx-auto w-full max-w-[760px] space-y-10',
+  mainInner: 'mx-auto w-full max-w-[760px] space-y-10 pb-2',
   summaryColumn:
-    'border-t border-border bg-muted/30 lg:border-l lg:border-t-0 lg:bg-muted/20 xl:bg-muted/25',
-  summarySticky: 'lg:sticky lg:top-0 lg:max-h-[100vh] lg:overflow-y-auto lg:p-6 xl:p-8',
-  summaryMobileWrap: 'border-t border-border bg-muted/20 px-4 py-4 lg:hidden',
-  header: 'shrink-0 border-b border-border bg-background/90 px-4 py-4 sm:px-6 lg:px-8',
+    'min-h-0 overflow-hidden border-t border-border bg-muted/30 lg:border-l lg:border-t-0 lg:bg-muted/20 xl:bg-muted/25',
+  summarySticky: 'h-full max-h-full overflow-y-auto p-4 lg:p-6 xl:p-8',
+  summaryMobileWrap: 'shrink-0 border-t border-border bg-muted/20 px-4 py-4 lg:hidden',
+  header: 'shrink-0 border-b border-border bg-background px-4 py-4 sm:px-6 lg:px-8',
   backLink:
     'inline-flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground',
   pageTitle: 'text-2xl font-semibold tracking-tight text-foreground sm:text-[1.65rem]',
@@ -43,7 +43,7 @@ export const intakeUi = {
   summaryRow: 'mt-1 text-sm text-foreground',
   summaryChecklist: 'space-y-1.5 text-sm',
   actionBar:
-    'sticky bottom-0 z-20 shrink-0 border-t border-border bg-background/90 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8',
+    'relative z-10 shrink-0 border-t border-border bg-background px-4 py-3 sm:px-6 lg:px-8',
   primaryBtn:
     'rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50',
   secondaryBtn:

@@ -383,6 +383,14 @@ export default function useCreateProjectWizard({
     if (!organizationId || busy) return null;
     setBusy(true);
     setSubmitPhase('creating_project');
+    /** Keep overlay until route unmounts — clearing it before navigate flashes the wizard. */
+    let handedOff = false;
+    const handOffToWorkspace = async (result) => {
+      setSubmitPhase('opening_workspace');
+      await onCreated?.(result);
+      handedOff = true;
+      return result;
+    };
     try {
       const { payload } = buildPayload();
       const projectRes = await projectAPI.create(payload, { skipPermissionDeniedToast: true });
@@ -414,14 +422,14 @@ export default function useCreateProjectWizard({
       const packId = String(pack?._id || pack?.id || '').trim();
       if (!packId) {
         toast.error(t('adminTasks.createFail') || 'Không tạo được requirement pack.');
-        return {
+        return handOffToWorkspace({
           projectId,
           defaultBoardId,
           packId: '',
           project,
           analysisMode: form.analysisMode || 'manual',
           _hitlIncomplete: true,
-        };
+        });
       }
 
       const queue = buildIntakeUploadQueue(form.intakeFiles);
@@ -442,7 +450,7 @@ export default function useCreateProjectWizard({
           t('adminTasks.wizardUploadPartialFail', { n: failCount }) ||
             `${failCount} file tải lên thất bại — thử lại ở Customer Documents.`
         );
-        return {
+        return handOffToWorkspace({
           projectId,
           defaultBoardId,
           packId,
@@ -451,7 +459,7 @@ export default function useCreateProjectWizard({
           analysisMode: form.analysisMode || 'manual',
           _intakeUpload: { total: queue.length, failed: failCount },
           _hitlIncomplete: true,
-        };
+        });
       }
 
       toast.success(
@@ -460,7 +468,7 @@ export default function useCreateProjectWizard({
       );
 
       const counts = countIntakeFiles(form.intakeFiles);
-      const result = {
+      return handOffToWorkspace({
         projectId,
         defaultBoardId,
         packId,
@@ -468,10 +476,7 @@ export default function useCreateProjectWizard({
         project,
         analysisMode: form.analysisMode || 'manual',
         _intakeUpload: { total: counts.total, failed: 0 },
-      };
-      setSubmitPhase('opening_workspace');
-      await onCreated?.(result);
-      return result;
+      });
     } catch (error) {
       const status = Number(error?.status || error?.response?.status || 0);
       toast.error(
@@ -485,8 +490,10 @@ export default function useCreateProjectWizard({
       );
       return null;
     } finally {
-      setBusy(false);
-      setSubmitPhase('idle');
+      if (!handedOff) {
+        setBusy(false);
+        setSubmitPhase('idle');
+      }
     }
   }, [
     validateStep,

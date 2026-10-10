@@ -80,7 +80,8 @@ export default function CreateProjectWizardPage() {
       buildProjectsModulePath(projectId, 'overview', {
         boardId,
         ...(packId ? { packId } : {}),
-      })
+      }),
+      { replace: true }
     );
   };
 
@@ -90,7 +91,8 @@ export default function CreateProjectWizardPage() {
         boardId,
         ...(packId ? { packId } : {}),
         startWhat: '1',
-      })
+      }),
+      { replace: true }
     );
   };
 
@@ -104,11 +106,22 @@ export default function CreateProjectWizardPage() {
     const projectId = String(result?.projectId || result?._id || '').trim();
     const analysisMode = String(result?.analysisMode || '').trim().toLowerCase();
 
+    // Navigate first so overlay stays until this page unmounts (no wizard flash).
+    if (projectId && analysisMode === 'ai') {
+      goAiHitl({ projectId, boardId, packId });
+    } else if (projectId) {
+      goPhase1Overview({ projectId, boardId, packId });
+    } else if (packId) {
+      navigate(buildCollaborateRequirementsPath(organizationId, { packId }), { replace: true });
+    } else {
+      navigate(projectsPickerPath, { replace: true });
+    }
+
     if (organizationId) {
-      await queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.projects.listAll(organizationId),
       });
-      await queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.requirements?.packs?.(organizationId) || ['requirements', organizationId],
       });
     }
@@ -120,24 +133,6 @@ export default function CreateProjectWizardPage() {
         toast.error(t('taskBoard.briefAcceptFail') || 'Không liên kết được brief với board.');
       }
     }
-
-    // AI birth → dedicated HITL workspace + auto-start WHAT
-    if (projectId && analysisMode === 'ai') {
-      goAiHitl({ projectId, boardId, packId });
-      return;
-    }
-
-    // Manual draft → Phase1Shell overview
-    if (projectId) {
-      goPhase1Overview({ projectId, boardId, packId });
-      return;
-    }
-
-    if (packId) {
-      navigate(buildCollaborateRequirementsPath(organizationId, { packId }));
-      return;
-    }
-    navigate(projectsPickerPath);
   };
 
   if (!organizationId) {
