@@ -40,7 +40,7 @@ export default function ProjectSummaryPanel({
       ? t('adminTasks.intakeModeAiTitle') || 'AI-assisted'
       : form.analysisMode === 'manual'
         ? t('adminTasks.wizardModeManual') || 'Manual'
-        : t('adminTasks.intakeSectionPending') || 'Chưa chọn';
+        : t('adminTasks.intakeNotSelected') || 'Chưa chọn';
 
   const panel = (
     <div className={intakeUi.summaryPanel}>
@@ -97,7 +97,7 @@ export default function ProjectSummaryPanel({
           </p>
           <p className={intakeUi.summaryRow}>
             {form.intakeFiles?.requirement?.name ||
-              t('adminTasks.intakeSectionPending') ||
+              t('adminTasks.intakeNoneYet') ||
               'Chưa có'}
           </p>
         </div>

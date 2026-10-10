@@ -15,7 +15,7 @@ export default function ProjectIntakeLayout({
 
   return (
     <div className={intakeUi.pageGrid}>
-      <div className="flex min-h-0 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
         <div className={intakeUi.mainScroll}>
           <div className={intakeUi.mainInner}>{formContent}</div>
         </div>
