@@ -2,7 +2,14 @@
 export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
   {
     title: 'Project',
-    keys: ['project:view', 'project:edit', 'project:archive', 'project:delete'],
+    keys: [
+      'project:view',
+      'project:edit',
+      'project:archive',
+      'project:complete',
+      'project:delete',
+      'project:roles',
+    ],
   },
   {
     title: 'Task',
@@ -11,8 +18,10 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
       'task:create',
       'task:update',
       'task:change_status',
+      'task:drag_to_done',
       'task:delete',
       'task:assign',
+      'task:ai_confirm',
       'task:comment',
       'task:estimate',
       'story:create',
@@ -37,7 +46,7 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
     ],
   },
   {
-    title: 'Approval / Delivery / Report',
+    title: 'Approval / Delivery / Report / Activity',
     keys: [
       'approval:request',
       'approval:decide',
@@ -45,6 +54,9 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
       'delivery:view',
       'delivery:manage',
       'report:view',
+      'activity:view',
+      'uat:sign_off',
+      'handover:accept',
     ],
   },
   {
@@ -54,6 +66,10 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
   {
     title: 'Wiki / Meeting / Release',
     keys: ['wiki:view', 'wiki:edit', 'meeting:view', 'meeting:create', 'release:view', 'release:create'],
+  },
+  {
+    title: 'Board',
+    keys: ['board:manage_lists', 'board:admin'],
   },
   {
     title: 'Files / Members / Settings',
@@ -67,6 +83,7 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
       'settings:update',
     ],
   },
+
   {
     title: 'Change request',
     keys: [
@@ -98,7 +115,7 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
       'planning:view',
       'planning:artifact_edit',
       'planning:submit_review',
-      'planning:ba_review',
+      // planning:ba_review — legacy DEC D9; không expose trong matrix UI
       'planning:tech_review',
       'planning:pm_review',
       'planning:po_review',

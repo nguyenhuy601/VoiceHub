@@ -20,6 +20,7 @@ import {
   splitLayerLabel,
 } from '../../utils/roleLayerNaming';
 import { PROJECT_ROLE_PERMISSION_GROUPS as PERMISSION_GROUPS } from '../projects/hub/projectRolePermissionGroups';
+import { isSodLockedPermission, sodLockedPermissionSet } from '../projects/hub/projectRoleSodLocks';
 
 function shortRoleLabel(label, key = '') {
   const raw = String(label || key || '').trim();
@@ -89,6 +90,7 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
   };
 
   const togglePerm = (key) => {
+    if (isSodLockedPermission(role?.key, key)) return;
     setSelectedPerms((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -101,8 +103,9 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
     if (!orgId || !roleId || !role || busy) return;
     setBusy(true);
     try {
+      const locked = sodLockedPermissionSet(role.key);
       const body = {
-        permissions: [...selectedPerms],
+        permissions: [...new Set([...selectedPerms, ...locked])],
       };
       if (!role.isSystem) {
         if (!suffix.trim()) {
@@ -213,19 +216,32 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
               {group.title}
             </p>
             <ul className="space-y-1">
-              {group.keys.map((key) => (
-                <li key={key}>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-muted">
-                    <input
-                      type="checkbox"
-                      checked={selectedPerms.has(key)}
-                      onChange={() => togglePerm(key)}
-                      className="h-4 w-4 rounded border-border accent-primary"
-                    />
-                    <span className="font-mono text-xs">{key}</span>
-                  </label>
-                </li>
-              ))}
+              {group.keys.map((key) => {
+                const sodLocked = isSodLockedPermission(role?.key, key);
+                return (
+                  <li key={key}>
+                    <label
+                      className={`flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm ${
+                        sodLocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:bg-muted'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPerms.has(key) || sodLocked}
+                        disabled={sodLocked}
+                        onChange={() => togglePerm(key)}
+                        className="h-4 w-4 rounded border-border accent-primary disabled:opacity-50"
+                      />
+                      <span className="font-mono text-xs">{key}</span>
+                      {sodLocked ? (
+                        <span className="ml-auto text-[10px] text-muted-foreground">
+                          {t('adminRbac.permissionMatrixSodLocked')}
+                        </span>
+                      ) : null}
+                    </label>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ))}

@@ -41,7 +41,7 @@ function hasKindViewPermission(kind, access) {
   const perms = resolved.permissions || [];
   if (kind === 'change_request') return hasPermission(perms, 'change_request:view');
   if (kind === 'project') {
-    return hasPermission(perms, 'project:view') || hasPermission(perms, 'task:view');
+    return hasPermission(perms, 'project:view');
   }
   return hasPermission(perms, 'task:view');
 }
@@ -165,8 +165,7 @@ async function buildTaskPreview(access, entityId) {
   const resolved = access.resolved || {};
   const canChangeStatus =
     Boolean(resolved.isOrgAdmin || resolved.isCreator) ||
-    hasPermission(resolved.permissions || [], 'task:change_status') ||
-    hasPermission(resolved.permissions || [], 'task:update');
+    hasPermission(resolved.permissions || [], 'task:change_status');
 
   return {
     restricted: false,

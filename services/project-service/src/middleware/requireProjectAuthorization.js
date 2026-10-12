@@ -37,8 +37,7 @@ async function requireProjectAuthorization(req, res, next) {
 
     const perms = resolved.permissions || [];
     // Fail-closed: only explicit view perms (not “any permission”).
-    const canView =
-      hasPermission(perms, 'project:view') || hasPermission(perms, 'task:view');
+    const canView = hasPermission(perms, 'project:view');
 
     if (!canView) {
       return sendServiceError(res, 403, {

@@ -184,6 +184,8 @@ export default function ProjectHubSettingsPanel({
   organizationId = '',
   apiCtx = null,
   canManage = false,
+  /** Matrix Project Role trong dự án (project:roles) — tách khỏi settings:update. */
+  canManageProjectRoles = false,
   canManageDelivery = false,
   canArchiveProject = false,
   canArchiveWithoutComplete = false,
@@ -650,7 +652,7 @@ export default function ProjectHubSettingsPanel({
     }
   };
 
-  if (!canManage) {
+  if (!canManage && !canManageProjectRoles) {
     return (
       <div className="px-4 py-8 text-center sm:px-6">
         <p className={`text-sm ${muted}`}>{t('workspace.projectHubSettingsDenied')}</p>
@@ -662,20 +664,64 @@ export default function ProjectHubSettingsPanel({
     'mt-2 grid max-h-44 grid-cols-1 gap-1.5 overflow-y-auto rounded-lg border border-border/80 bg-background/40 p-2 sm:grid-cols-2';
 
   const groups = [
-    { id: 'identity', title: t('workspace.projectHubSettingsIdentityTitle'), hint: t('workspace.projectHubSettingsGroupIdentityHint') },
-    { id: 'profile', title: t('workspace.projectHubSettingsProfileTitle'), hint: t('workspace.projectHubSettingsProfileHint') },
-    { id: 'visibility', title: t('workspace.projectHubSettingsGroupVisibilityTitle'), hint: t('workspace.projectHubSettingsGroupVisibilityHint') },
-    { id: 'staffing', title: t('workspace.projectHubSettingsStaffingTitle'), hint: t('workspace.projectHubSettingsGroupStaffingHint') },
-    {
-      id: 'rolePermissions',
-      title: t('workspace.projectHubRoleMatrixTitle'),
-      hint: t('workspace.projectHubRoleMatrixGroupHint'),
-    },
-    { id: 'workflow', title: t('workspace.projectHubWorkflowTitle'), hint: t('workspace.projectHubSettingsGroupWorkflowHint') },
-    { id: 'statusPriority', title: t('workspace.projectHubSettingsStatusPriorityTitle'), hint: t('workspace.projectHubSettingsStatusPriorityHint') },
-    { id: 'approval', title: t('workspace.projectHubApprovalTitle'), hint: t('workspace.projectHubSettingsGroupApprovalHint') },
-    { id: 'workTypes', title: t('workspace.projectHubSettingsWorkTypesTitle'), hint: t('workspace.projectHubSettingsWorkTypesIndexHint') },
-    ...(canManageDelivery && String(boardId || '').trim()
+    ...(canManage
+      ? [
+          {
+            id: 'identity',
+            title: t('workspace.projectHubSettingsIdentityTitle'),
+            hint: t('workspace.projectHubSettingsGroupIdentityHint'),
+          },
+          {
+            id: 'profile',
+            title: t('workspace.projectHubSettingsProfileTitle'),
+            hint: t('workspace.projectHubSettingsProfileHint'),
+          },
+          {
+            id: 'visibility',
+            title: t('workspace.projectHubSettingsGroupVisibilityTitle'),
+            hint: t('workspace.projectHubSettingsGroupVisibilityHint'),
+          },
+          {
+            id: 'staffing',
+            title: t('workspace.projectHubSettingsStaffingTitle'),
+            hint: t('workspace.projectHubSettingsGroupStaffingHint'),
+          },
+        ]
+      : []),
+    ...(canManageProjectRoles
+      ? [
+          {
+            id: 'rolePermissions',
+            title: t('workspace.projectHubRoleMatrixTitle'),
+            hint: t('workspace.projectHubRoleMatrixGroupHint'),
+          },
+        ]
+      : []),
+    ...(canManage
+      ? [
+          {
+            id: 'workflow',
+            title: t('workspace.projectHubWorkflowTitle'),
+            hint: t('workspace.projectHubSettingsGroupWorkflowHint'),
+          },
+          {
+            id: 'statusPriority',
+            title: t('workspace.projectHubSettingsStatusPriorityTitle'),
+            hint: t('workspace.projectHubSettingsStatusPriorityHint'),
+          },
+          {
+            id: 'approval',
+            title: t('workspace.projectHubApprovalTitle'),
+            hint: t('workspace.projectHubSettingsGroupApprovalHint'),
+          },
+          {
+            id: 'workTypes',
+            title: t('workspace.projectHubSettingsWorkTypesTitle'),
+            hint: t('workspace.projectHubSettingsWorkTypesIndexHint'),
+          },
+        ]
+      : []),
+    ...(canManage && canManageDelivery && String(boardId || '').trim()
       ? [
           {
             id: 'delegation',
@@ -1279,6 +1325,7 @@ export default function ProjectHubSettingsPanel({
         muted={muted}
         fieldLabelCls={fieldLabelCls}
         inputCls={inputCls}
+        canEdit={Boolean(canManageProjectRoles)}
       />
     ),
     workflow: workflowBody,

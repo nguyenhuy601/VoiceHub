@@ -54,12 +54,11 @@ async function assertPlanningPrioritizeOrWrite(userId, projectId, type) {
   if (!isProjectRbacV2Enabled()) {
     return assertPlanningManage(userId, projectId, { type, action: 'update' });
   }
-  const writeKey = planningWritePermission(type, 'update');
   await assertUserAnyProjectPermission({
     userId,
     projectId,
-    permissions: ['backlog:prioritize', writeKey],
-    message: `Không có quyền sắp xếp backlog (${writeKey} / backlog:prioritize)`,
+    permissions: ['backlog:prioritize'],
+    message: 'Không có quyền sắp xếp backlog (backlog:prioritize)',
   });
   const project = await projectService.getProject({ userId, projectId });
   assertProjectWritable(project);
@@ -402,7 +401,7 @@ async function linkTaskToEpic({ userId, projectId, taskId, epicId, issueType }) 
     await assertUserAnyProjectPermission({
       userId,
       projectId,
-      permissions: ['epic:update', 'story:update', 'backlog:update'],
+      permissions: ['epic:update'],
       message: 'Không có quyền gắn epic (epic:update)',
     });
   } else {

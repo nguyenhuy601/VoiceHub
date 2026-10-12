@@ -240,9 +240,31 @@ export function resolveWhatProgressViewModel(
   const macroDef = WHAT_MACRO_STEPS.find((m) => m.step === macroStep) || null;
   const activeMacroSubsteps = macroDef ? [...macroDef.substeps] : [];
 
-  const startedAt = liveRun?.startedAt ? new Date(liveRun.startedAt).getTime() : null;
-  const elapsedMs =
-    startedAt != null && Number.isFinite(startedAt) ? Math.max(0, now - startedAt) : 0;
+  const startedAt = resolveTimestampMs(
+    liveRun?.startedAt,
+    phaseWhat?.startedAt,
+    phaseWhat?.started
+  );
+  const completedAt = resolveTimestampMs(
+    liveRun?.completedAt,
+    liveRun?.finishedAt,
+    phaseWhat?.completedAt,
+    phaseWhat?.finishedAt,
+    phaseWhat?.endedAt
+  );
+  const durationFromMeta = Number(liveRun?.durationMs ?? phaseWhat?.durationMs);
+  const terminal =
+    state === 'succeeded' ||
+    state === 'failed' ||
+    state === 'cancelled' ||
+    state === 'waiting_human';
+  let elapsedMs = 0;
+  if (Number.isFinite(durationFromMeta) && durationFromMeta > 0 && terminal) {
+    elapsedMs = Math.max(0, durationFromMeta);
+  } else if (startedAt != null) {
+    const end = terminal && completedAt != null ? completedAt : now;
+    elapsedMs = Math.max(0, end - startedAt);
+  }
 
   const progressUpdatedAt = liveRun?.progressUpdatedAt
     ? new Date(liveRun.progressUpdatedAt).getTime()
@@ -280,6 +302,8 @@ export function resolveWhatProgressViewModel(
     activeMacroSubsteps,
     activity,
     elapsedMs,
+    startedAt,
+    completedAt,
     progressStaleMs,
     showSoftHint,
     softHintLong,
@@ -295,11 +319,46 @@ export function resolveWhatProgressViewModel(
   };
 }
 
+function resolveTimestampMs(...candidates) {
+  for (const raw of candidates) {
+    if (raw == null || raw === '') continue;
+    const ms = new Date(raw).getTime();
+    if (Number.isFinite(ms) && ms > 0) return ms;
+  }
+  return null;
+}
+
 export function formatElapsed(ms) {
   const totalSec = Math.floor(Math.max(0, Number(ms) || 0) / 1000);
-  const m = Math.floor(totalSec / 60);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/** Friendly pack status for Monitor header (no Mongo ids). */
+export function formatPackStatusLabel(status, t) {
+  const key = String(status || '')
+    .trim()
+    .toLowerCase();
+  const map = {
+    draft: ['requirements.phase1Status_draft', 'Nháp'],
+    under_review: ['requirements.phase1Status_pending_review', 'Chờ duyệt'],
+    approved: ['requirements.phase1Status_approved', 'Đã duyệt'],
+    rejected: ['requirements.phase1Status_rejected', 'Từ chối'],
+    project_linked: ['requirements.phase1Status_active', 'Đã gắn dự án'],
+    changes_requested: ['requirements.phase1Status_changes_requested', 'Cần chỉnh sửa'],
+  };
+  const entry = map[key];
+  if (!entry) return key ? key.replace(/_/g, ' ') : '—';
+  if (typeof t === 'function') {
+    const v = t(entry[0]);
+    if (v && v !== entry[0]) return v;
+  }
+  return entry[1];
 }
 
 export default resolveWhatProgressViewModel;

@@ -10,7 +10,11 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'project:view',
   'project:edit',
   'project:archive',
+  /** Hoàn thành dự án (complete) — tách khỏi project:archive. */
+  'project:complete',
   'project:delete',
+  /** Quản lý matrix Project Role trong dự án (PO) — khác settings:update và khác Admin catalog. */
+  'project:roles',
   'task:view',
   'task:create',
   'task:update',
@@ -18,6 +22,8 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'task:drag_to_done',
   'task:delete',
   'task:assign',
+  /** Xác nhận đề xuất AI trên board — tách khỏi task:assign. */
+  'task:ai_confirm',
   'task:comment',
   'task:estimate',
   'epic:create',
@@ -47,6 +53,10 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'members:manage',
   'settings:view',
   'settings:update',
+  /** Tạo / sắp xếp / archive cột (list) trên board — tách khỏi settings:update. */
+  'board:manage_lists',
+  /** Admin board (archive board, elevated board ops) — tách khỏi project:edit (cấu trúc dự án). */
+  'board:admin',
   'approval:request',
   'approval:decide',
   'approval:manage_policy',
@@ -56,6 +66,8 @@ const PROJECT_PERMISSION_KEYS = Object.freeze([
   'delivery:view',
   'delivery:manage',
   'report:view',
+  /** Tab / API activity log dự án — tách khỏi report:view. */
+  'activity:view',
   'change_request:view',
   'change_request:create',
   'change_request:update',
@@ -163,6 +175,7 @@ const VIEW_ONLY = Object.freeze([
   'backlog:view',
   'delivery:view',
   'report:view',
+  'activity:view',
   'change_request:view',
   ...ANALYSIS_VIEW,
   ...PLANNING_VIEW,
@@ -174,6 +187,7 @@ const DEV_PERMS = Object.freeze([
   'task:update',
   'task:change_status',
   'task:assign',
+  'task:ai_confirm',
   'task:comment',
   'task:estimate',
   'bug:create',
@@ -198,6 +212,7 @@ const LEAD_PERMS = Object.freeze([
 
 const PO_PERMS = Object.freeze([
   ...VIEW_ONLY,
+  'project:roles',
   'epic:create',
   'epic:update',
   'story:create',
@@ -242,10 +257,16 @@ const SM_PERMS = Object.freeze([
 const PM_PERMS = Object.freeze([
   ...VIEW_ONLY,
   'project:edit',
+  'project:archive',
+  'project:complete',
+  'project:roles',
+  'members:manage',
+  'settings:update',
+  'board:manage_lists',
+  'board:admin',
   'task:drag_to_done',
   'delivery:manage',
   'release:create',
-  'settings:view',
   'change_request:create',
   'change_request:update',
   'change_request:delete',
@@ -396,32 +417,45 @@ function defaultPermissionsForRoleKey(roleKey) {
   return normalizePermissionList(VIEW_ONLY);
 }
 
+/** Seed create/clone/reset: ưu tiên list đã có; rỗng → CODE_DEFAULT. */
+function seedPermissionsForRoleKey(roleKey, preferred) {
+  const pref = normalizePermissionList(preferred);
+  if (pref.length) return pref;
+  return defaultPermissionsForRoleKey(roleKey);
+}
+
 /**
- * Union permissions from multiple role docs.
- * Baseline = matrix theo role key; permissions trên doc chỉ bổ sung (không che matrix).
+ * SoT runtime = doc.permissions (Admin org hoặc PO project clone).
+ * Doc rỗng / thiếu → seed CODE_DEFAULT (legacy chưa hydrate).
+ * Doc có list (kể cả đã thu hẹp) → đúng list đó (revoke được).
+ * @param {{ key?: string, permissions?: string[] }} role
+ */
+function effectivePermissionsFromRoleDoc(role) {
+  const docPerms = normalizePermissionList(role?.permissions);
+  if (docPerms.length > 0) return docPerms;
+  return defaultPermissionsForRoleKey(role?.key);
+}
+
+/**
+ * Union permissions from multiple role docs (SoT = từng doc, không ∪ CODE_DEFAULT khi đã hydrate).
  * @param {Array<{ key?: string, permissions?: string[] }>} roles
  */
 function unionPermissionsFromRoles(roles = []) {
   const set = new Set();
   for (const role of Array.isArray(roles) ? roles : []) {
-    for (const p of defaultPermissionsForRoleKey(role?.key)) set.add(p);
-    for (const p of normalizePermissionList(role?.permissions)) set.add(p);
+    for (const p of effectivePermissionsFromRoleDoc(role)) set.add(p);
   }
   return [...set];
 }
 
 /**
- * Chỉ matrix theo role key — bỏ qua permissions array lưu trên doc (tránh seed cũ
- * còn analysis:document_upload / artifact_import cho PO/PM).
- * @param {Array<{ key?: string }>} roles
+ * SoD / matrix path — cùng SoT với union (doc.permissions).
+ * Khoá SoD bắt buộc khi PATCH qua applySodLockedPermissions.
+ * @param {Array<{ key?: string, permissions?: string[] }>} roles
  * @returns {string[]}
  */
 function matrixPermissionsFromRoleKeys(roles = []) {
-  const set = new Set();
-  for (const role of Array.isArray(roles) ? roles : []) {
-    for (const p of defaultPermissionsForRoleKey(role?.key)) set.add(p);
-  }
-  return [...set];
+  return unionPermissionsFromRoles(roles);
 }
 
 function hasPermission(permissionSet, permissionKey) {
@@ -457,30 +491,22 @@ function permissionsToBoardCapabilities(perms = [], { isCreator = false, isOrgAd
       permissions: [...PROJECT_PERMISSION_KEYS],
     };
   }
-  const canView = hasPermission(set, 'task:view') || hasPermission(set, 'project:view');
+  // Mỗi capability = đúng 1 permission key (không OR chéo domain).
   const canManageMembers = hasPermission(set, 'members:manage');
   return {
-    canView,
-    canManageBoard: hasPermission(set, 'project:edit') || hasPermission(set, 'project:archive'),
-    canManageLists: hasPermission(set, 'settings:update') || hasPermission(set, 'project:edit'),
-    canCreateCards:
-      hasPermission(set, 'task:create') ||
-      hasPermission(set, 'story:create') ||
-      hasPermission(set, 'bug:create'),
+    canView: hasPermission(set, 'project:view'),
+    canManageBoard: hasPermission(set, 'board:admin'),
+    canManageLists: hasPermission(set, 'board:manage_lists'),
+    canCreateCards: hasPermission(set, 'task:create'),
     canEditCards: hasPermission(set, 'task:update'),
     canAssign: hasPermission(set, 'task:assign'),
-    canMoveCards:
-      hasPermission(set, 'task:change_status') ||
-      hasPermission(set, 'task:update') ||
-      hasPermission(set, 'task:assign') ||
-      hasPermission(set, 'task:drag_to_done'),
+    canMoveCards: hasPermission(set, 'task:change_status'),
     canMoveToDone: hasPermission(set, 'task:drag_to_done'),
-    canChangeStatus:
-      hasPermission(set, 'task:change_status') || hasPermission(set, 'task:update'),
-    canUseAiConfirm: hasPermission(set, 'task:assign') || hasPermission(set, 'task:create'),
+    canChangeStatus: hasPermission(set, 'task:change_status'),
+    canUseAiConfirm: hasPermission(set, 'task:ai_confirm'),
     canManageMembers,
-    canViewMembers: canManageMembers || hasPermission(set, 'members:view'),
-    canUpdateSettings: hasPermission(set, 'settings:update') || hasPermission(set, 'project:edit'),
+    canViewMembers: hasPermission(set, 'members:view'),
+    canUpdateSettings: hasPermission(set, 'settings:update'),
     canViewFiles: hasPermission(set, 'files:view'),
     canViewRepository: hasPermission(set, 'repository:view'),
     permissions: [...set],
@@ -506,9 +532,56 @@ function assertPermission(perms, permissionKey, message) {
   throw err;
 }
 
+/**
+ * SoD keys không được gỡ khỏi role tương ứng (PATCH Admin/PO).
+ * Chỉ force-add nếu key thuộc CODE_DEFAULT của role đó.
+ */
+const SOD_LOCKED_BY_ROLE_KEY = Object.freeze({
+  business_analyst: Object.freeze([
+    'analysis:ba_review',
+    'analysis:submit_ba_review',
+    'analysis:document_upload',
+    'analysis:artifact_import',
+    'analysis:artifact_edit',
+  ]),
+  product_owner: Object.freeze([
+    'analysis:po_review',
+    'planning:po_review',
+    'handover:accept',
+    'uat:sign_off',
+  ]),
+  project_manager: Object.freeze([
+    'planning:pm_review',
+    'planning:artifact_edit',
+    'planning:cut_baseline',
+    'planning:publish_wbs',
+  ]),
+  technical_lead: Object.freeze(['analysis:tech_review', 'planning:tech_review']),
+  tech_lead: Object.freeze(['analysis:tech_review', 'planning:tech_review']),
+  solution_architect: Object.freeze(['analysis:tech_review', 'planning:tech_review']),
+  architect: Object.freeze(['analysis:tech_review', 'planning:tech_review']),
+});
+
+function sodLockedPermissionsForRoleKey(roleKey) {
+  const raw = String(roleKey || '').trim().toLowerCase();
+  const key = resolveCanonicalProjectRoleKey(raw) || raw;
+  const locked = SOD_LOCKED_BY_ROLE_KEY[key] || SOD_LOCKED_BY_ROLE_KEY[raw] || [];
+  if (!locked.length) return [];
+  const baseline = new Set(defaultPermissionsForRoleKey(key));
+  return locked.filter((p) => baseline.has(p));
+}
+
+/** PATCH permissions: giữ SoD locked keys của role (không cho revoke). */
+function applySodLockedPermissions(roleKey, permissions = []) {
+  const set = new Set(assertKnownPermissionList(permissions));
+  for (const p of sodLockedPermissionsForRoleKey(roleKey)) set.add(p);
+  return [...set];
+}
+
 module.exports = {
   PROJECT_PERMISSION_KEYS,
   DEFAULT_PERMISSIONS_BY_ROLE_KEY,
+  SOD_LOCKED_BY_ROLE_KEY,
   VIEW_ONLY,
   PO_PERMS,
   BA_PERMS,
@@ -521,8 +594,12 @@ module.exports = {
   splitPermissionList,
   assertKnownPermissionList,
   defaultPermissionsForRoleKey,
+  seedPermissionsForRoleKey,
+  effectivePermissionsFromRoleDoc,
   unionPermissionsFromRoles,
   matrixPermissionsFromRoleKeys,
+  sodLockedPermissionsForRoleKey,
+  applySodLockedPermissions,
   hasPermission,
   permissionsToBoardCapabilities,
   applyInformationLevelToPermissions,

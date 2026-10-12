@@ -18,9 +18,6 @@ export function allowedIssueTypesFromCaps(caps) {
   if (perms.includes('story:create') || caps?.canCreateStory) types.push('story');
   if (perms.includes('task:create') || caps?.canCreateTask) types.push('task');
   if (perms.includes('bug:create') || caps?.canCreateBug) types.push('bug');
-  if (!types.length && (caps?.canCreateCards || caps?.canManageBoard)) {
-    return ['story', 'task', 'bug'];
-  }
   return types;
 }
 
@@ -40,7 +37,10 @@ function applyReadOnly(caps, readOnly) {
     canUpdateChangeRequest: false,
     canDeleteChangeRequest: false,
     canManageSettings: false,
+    canManageProjectRoles: false,
     canManageSprints: false,
+    canStartSprint: false,
+    canCloseSprint: false,
     canDeleteSprint: false,
     canManageDelivery: false,
     canCreateEpic: false,
@@ -67,9 +67,7 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
     const canViewMembers =
       caps.canViewMembers != null
         ? Boolean(caps.canViewMembers)
-        : canManageMembers ||
-          permissions.includes('members:view') ||
-          permissions.includes('members:manage');
+        : permissions.includes('members:view');
     const canViewChangeRequests =
       caps.canViewChangeRequests != null
         ? Boolean(caps.canViewChangeRequests)
@@ -77,7 +75,7 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
     const canCreateChangeRequest = flagOrPerm(caps, 'canCreateChangeRequest', ['change_request:create']);
     const canUpdateChangeRequest = flagOrPerm(caps, 'canUpdateChangeRequest', ['change_request:update']);
     const canDeleteChangeRequest = flagOrPerm(caps, 'canDeleteChangeRequest', ['change_request:delete']);
-    const canViewBoard = Boolean(caps.canView ?? caps.canEditCards ?? true);
+    const canViewBoard = Boolean(caps.canView ?? true);
     const canViewBacklog =
       caps.canViewBacklog != null
         ? Boolean(caps.canViewBacklog)
@@ -85,10 +83,7 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
     const canViewWorkItems =
       caps.canViewWorkItems != null
         ? Boolean(caps.canViewWorkItems)
-        : canViewBoard &&
-          (permissions.includes('task:view') ||
-            permissions.includes('project:view') ||
-            permissions.length === 0);
+        : permissions.includes('task:view');
     const canViewReport =
       caps.canViewReport != null
         ? Boolean(caps.canViewReport)
@@ -98,13 +93,17 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
         ? Boolean(caps.canViewFiles)
         : permissions.includes('files:view');
     const canViewActivityTab =
-      caps.canViewActivityTab != null ? Boolean(caps.canViewActivityTab) : canViewWorkItems;
+      caps.canViewActivityTab != null
+        ? Boolean(caps.canViewActivityTab)
+        : permissions.includes('activity:view');
     const canViewSprints =
       caps.canViewSprints != null
         ? Boolean(caps.canViewSprints)
-        : permissions.includes('sprint:view') ||
-          permissions.includes('project:view') ||
-          Boolean(caps.canManageSprints);
+        : permissions.includes('sprint:view');
+    const canManageSprints =
+      caps.canManageSprints != null
+        ? Boolean(caps.canManageSprints)
+        : ['sprint:create', 'sprint:start', 'sprint:close'].some((k) => permissions.includes(k));
     return applyReadOnly(
       {
         canManagePlanning: Boolean(caps.canManagePlanning),
@@ -115,7 +114,13 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
         canUpdateChangeRequest,
         canDeleteChangeRequest,
         canManageSettings: Boolean(caps.canManageSettings),
-        canManageSprints: Boolean(caps.canManageSprints),
+        canManageProjectRoles:
+          caps.canManageProjectRoles != null
+            ? Boolean(caps.canManageProjectRoles)
+            : permissions.includes('project:roles'),
+        canManageSprints,
+        canStartSprint: flagOrPerm(caps, 'canStartSprint', ['sprint:start']),
+        canCloseSprint: flagOrPerm(caps, 'canCloseSprint', ['sprint:close']),
         canDeleteSprint: flagOrPerm(caps, 'canDeleteSprint', ['sprint:delete']),
         canManageDelivery: flagOrPerm(caps, 'canManageDelivery', ['delivery:manage']),
         canViewBoard,
@@ -135,11 +140,11 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
         canPrioritizeBacklog: flagOrPerm(caps, 'canPrioritizeBacklog', ['backlog:prioritize']),
         canUpdateBacklog: flagOrPerm(caps, 'canUpdateBacklog', ['backlog:update']),
         canEstimate: flagOrPerm(caps, 'canEstimate', ['task:estimate']),
-        canCompleteProject: flagOrPerm(caps, 'canManageBoard', ['project:archive', 'project:edit']),
-        canArchiveProject: flagOrPerm(caps, 'canManageBoard', ['project:archive', 'project:delete']),
+        canCompleteProject: flagOrPerm(caps, 'canCompleteProject', ['project:complete']),
+        canArchiveProject: flagOrPerm(caps, 'canArchiveProject', ['project:archive']),
         canArchiveWithoutComplete: permissions.includes('project:delete'),
-        canChangeDeliveryPhase: flagOrPerm(caps, 'canChangeDeliveryPhase', ['delivery_phase:change']),
-        canSignOffUat: flagOrPerm(caps, 'canSignOffUat', ['uat:sign_off']),
+        canChangeDeliveryPhase: caps?.canChangeDeliveryPhase === true,
+        canSignOffUat: caps?.canSignOffUat === true,
         // SoD: chỉ tin flag BE (role matrix) — không suy từ permissions dump (creator/admin).
         canAcceptHandover: caps?.canAcceptHandover === true,
         allowedIssueTypes: allowedIssueTypesFromCaps(caps),
@@ -159,7 +164,10 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
       canUpdateChangeRequest: fallback,
       canDeleteChangeRequest: fallback,
       canManageSettings: fallback,
+      canManageProjectRoles: fallback,
       canManageSprints: fallback,
+      canStartSprint: fallback,
+      canCloseSprint: fallback,
       canDeleteSprint: fallback,
       canManageDelivery: fallback,
       canViewBoard: true,

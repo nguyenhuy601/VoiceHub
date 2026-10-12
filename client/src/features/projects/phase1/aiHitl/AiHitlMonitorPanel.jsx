@@ -10,6 +10,18 @@ import {
   formatElapsed,
   resolveWhatProgressViewModel,
 } from './whatProgressViewModel';
+
+function formatClock(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return '';
+  try {
+    return new Date(ms).toLocaleString(undefined, {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+  } catch {
+    return '';
+  }
+}
 import { resolveHowProgressViewModel } from './howProgressViewModel';
 import HowMonitorResultsPanel from './HowMonitorResultsPanel';
 import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
@@ -72,7 +84,10 @@ function labelOf(t, key, fallback) {
 
 function MacroRow({ macros, activeMacro, srsApproved, t }) {
   return (
-    <ol className="mt-2 flex flex-wrap gap-1.5" aria-label="Phase WHAT steps">
+    <ol
+      className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:flex lg:flex-wrap"
+      aria-label="Phase steps"
+    >
       {macros.map((item) => {
         // Step 6 (Approved SRS) only green after PO approve — not when WHAT AI merely finished
         const done =
@@ -81,19 +96,60 @@ function MacroRow({ macros, activeMacro, srsApproved, t }) {
         return (
           <li
             key={item.step}
-            className={`rounded-full px-2 py-0.5 text-[11px] ${
+            className={`rounded-lg px-2.5 py-1.5 text-[11px] leading-snug sm:text-xs ${
               isCurrent
-                ? 'bg-primary text-primary-foreground'
+                ? 'bg-primary font-medium text-primary-foreground shadow-sm'
                 : done
                   ? 'bg-emerald-600/15 text-emerald-800 dark:text-emerald-300'
-                  : 'bg-muted text-muted-foreground'
+                  : 'bg-muted/80 text-muted-foreground'
             }`}
           >
-            {item.step}. {labelOf(t, item.labelKey, item.fallback)}
+            <span className="opacity-70">{item.step}.</span>{' '}
+            {labelOf(t, item.labelKey, item.fallback)}
           </li>
         );
       })}
     </ol>
+  );
+}
+
+function RunTimingFooter({ elapsedMs, startedAt, completedAt, inFlight, t }) {
+  const elapsed = elapsedMs > 0 ? formatElapsed(elapsedMs) : '';
+  const startedLabel = formatClock(startedAt);
+  const endedLabel = !inFlight ? formatClock(completedAt) : '';
+  if (!elapsed && !startedLabel) return null;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/70 pt-2.5 text-xs text-muted-foreground">
+      {elapsed ? (
+        <p>
+          <span className="font-medium text-foreground/80">
+            {labelOf(t, 'requirements.aiHitlMonitorElapsed', 'Thời gian chạy')}:
+          </span>{' '}
+          <span className="tabular-nums text-foreground">{elapsed}</span>
+          {inFlight ? (
+            <span className="ml-1 text-[10px] uppercase tracking-wide text-primary">
+              {labelOf(t, 'requirements.aiHitlMonitorElapsedLive', 'đang chạy')}
+            </span>
+          ) : null}
+        </p>
+      ) : null}
+      {startedLabel ? (
+        <p>
+          <span className="font-medium text-foreground/80">
+            {labelOf(t, 'requirements.aiHitlMonitorStartedAt', 'Bắt đầu')}:
+          </span>{' '}
+          <span className="tabular-nums">{startedLabel}</span>
+        </p>
+      ) : null}
+      {endedLabel ? (
+        <p>
+          <span className="font-medium text-foreground/80">
+            {labelOf(t, 'requirements.aiHitlMonitorEndedAt', 'Kết thúc')}:
+          </span>{' '}
+          <span className="tabular-nums">{endedLabel}</span>
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -160,15 +216,6 @@ function ActivityLine({ vm, t }) {
   );
 }
 
-function MetaLine({ label, value }) {
-  if (!value) return null;
-  return (
-    <p className="text-[11px] text-muted-foreground">
-      <span className="font-medium text-foreground/80">{label}:</span> {value}
-    </p>
-  );
-}
-
 function WhatMonitorBody({
   liveRun,
   phaseWhat,
@@ -221,11 +268,19 @@ function WhatMonitorBody({
         : stickyRef.current.macroStep || 0;
 
   return (
-    <section className="rounded-md border border-border bg-card px-3 py-3">
-      <h3 className="text-sm font-semibold text-foreground">
-        {labelOf(t, 'requirements.aiHitlMonitorWhatTitle', 'Phase WHAT — Requirement AI')}
-      </h3>
-      <p className="mt-0.5 text-xs text-muted-foreground">
+    <section className="rounded-xl border border-border/80 bg-card/95 px-3 py-3 shadow-sm sm:px-4 sm:py-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h3 className="text-sm font-semibold text-foreground sm:text-base">
+          {labelOf(t, 'requirements.aiHitlMonitorWhatTitle', 'Phase WHAT — Requirement AI')}
+        </h3>
+        {vm.elapsedMs > 0 ? (
+          <span className="rounded-md bg-muted/60 px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground sm:text-xs">
+            {labelOf(t, 'requirements.aiHitlMonitorElapsed', 'Thời gian')}:{' '}
+            <span className="font-medium text-foreground">{formatElapsed(vm.elapsedMs)}</span>
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
         {labelOf(
           t,
           srsApproved
@@ -282,21 +337,15 @@ function WhatMonitorBody({
           t={t}
         />
       ) : null}
-      {/* Same placement as HOW: action above Run meta — PO revise only */}
+      {/* Same placement as HOW: action above timing footer — PO revise only */}
       {phaseDone && !srsApproved && !inFlight ? rerunWhatButton : null}
-      <div className="mt-3 space-y-0.5 border-t border-border pt-2">
-        <MetaLine label="Run" value={String(vm.runId || '')} />
-        <MetaLine
-          label="Updated"
-          value={
-            vm.progressUpdatedAt
-              ? String(vm.progressUpdatedAt)
-              : vm.elapsedMs
-                ? formatElapsed(vm.elapsedMs)
-                : ''
-          }
-        />
-      </div>
+      <RunTimingFooter
+        elapsedMs={vm.elapsedMs}
+        startedAt={vm.startedAt}
+        completedAt={vm.completedAt}
+        inFlight={inFlight}
+        t={t}
+      />
     </section>
   );
 }
@@ -332,11 +381,19 @@ function HowMonitorBody({
   const activeMacro = phaseDone ? 3 : howNotStarted ? 0 : vm.macroStep || 1;
 
   return (
-    <section className="rounded-md border border-border bg-card px-3 py-3">
-      <h3 className="text-sm font-semibold text-foreground">
-        {labelOf(t, 'requirements.aiHitlMonitorHowTitle', 'Phase HOW — Planning AI')}
-      </h3>
-      <p className="mt-0.5 text-xs text-muted-foreground">
+    <section className="rounded-xl border border-border/80 bg-card/95 px-3 py-3 shadow-sm sm:px-4 sm:py-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h3 className="text-sm font-semibold text-foreground sm:text-base">
+          {labelOf(t, 'requirements.aiHitlMonitorHowTitle', 'Phase HOW — Planning AI')}
+        </h3>
+        {vm.elapsedMs > 0 ? (
+          <span className="rounded-md bg-muted/60 px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground sm:text-xs">
+            {labelOf(t, 'requirements.aiHitlMonitorElapsed', 'Thời gian')}:{' '}
+            <span className="font-medium text-foreground">{formatElapsed(vm.elapsedMs)}</span>
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
         {phaseDone
           ? labelOf(
               t,
@@ -401,13 +458,13 @@ function HowMonitorBody({
       ) : null}
       {howNotStarted ? startHowButton : null}
       {phaseDone || (!howNotStarted && !inFlight) ? rerunHowButton : null}
-      <div className="mt-3 space-y-0.5 border-t border-border pt-2">
-        <MetaLine label="Run" value={String(vm.runId || '')} />
-        <MetaLine
-          label={labelOf(t, 'requirements.aiHitlMonitorElapsed', 'Thời gian')}
-          value={vm.elapsedMs || vm.startedAt ? formatElapsed(vm.elapsedMs) : ''}
-        />
-      </div>
+      <RunTimingFooter
+        elapsedMs={vm.elapsedMs}
+        startedAt={vm.startedAt}
+        completedAt={vm.completedAt}
+        inFlight={inFlight}
+        t={t}
+      />
     </section>
   );
 }
@@ -620,16 +677,16 @@ export default function AiHitlMonitorPanel({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 sm:gap-5">
       <div>
-        <h2 className="text-sm font-semibold text-foreground">
-          {labelOf(t, 'requirements.aiHitlMonitorTitle', 'Theo dõi LangGraph / AI run')}
+        <h2 className="text-sm font-semibold text-foreground sm:text-base">
+          {labelOf(t, 'requirements.aiHitlMonitorTitle', 'Theo dõi tiến trình AI')}
         </h2>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
           {labelOf(
             t,
             'requirements.aiHitlMonitorHint',
-            'Hiển thị đúng phase đang chạy (WHAT hoặc HOW) với từng bước AI.'
+            'Theo dõi từng bước WHAT / HOW. Kết quả phân tích ở bên dưới — duyệt quyết định ở tab Duyệt.'
           )}
         </p>
       </div>

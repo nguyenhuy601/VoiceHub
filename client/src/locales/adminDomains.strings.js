@@ -1822,6 +1822,7 @@ export const adminDomainStrings = {
         'Mặc định org (resource:action) cho dự án mới / reset. Mỗi dự án có bản riêng chỉnh trong Hub → Cài đặt → Quyền Vai trò dự án.',
       projectRolePermAction: 'Quyền',
       permissionMatrixTitle: 'Gói quyền Matrix',
+      permissionMatrixSodLocked: 'SoD — không gỡ',
       permissionMatrixHint:
         'Tick quyền mặc định cho role. Dự án đã tạo không tự đổi — chỉ ảnh hưởng khi tạo mới hoặc Reset trong Hub.',
       projectRolePermNotSaved:
@@ -3917,8 +3918,9 @@ export const adminDomainStrings = {
         'Org defaults (resource:action) for new projects / reset. Each project has its own copy in Hub → Settings → Project role permissions.',
       projectRolePermAction: 'Permission',
       permissionMatrixTitle: 'Permission Matrix',
+      permissionMatrixSodLocked: 'SoD — locked',
       permissionMatrixHint:
-        'Toggle default permissions. Existing projects are unchanged until create-new or Hub Reset.',
+        'Org template only (SoT for new projects / Hub Reset). Existing projects stay unchanged. Locked SoD keys cannot be removed.',
       projectRolePermNotSaved:
         'Could not save permissions: {keys}. Deploy project-service required.',
       projectRoleCatalogEmpty: 'No Project roles yet — defaults are seeded when the list loads successfully.',

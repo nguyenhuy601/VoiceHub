@@ -1243,7 +1243,13 @@ export default function ProjectHubShell({
   const visibleTabs = useMemo(() => {
     return PROJECT_HUB_TABS.filter((item) => {
       if (isSummaryOnly && item.id !== 'overview') return false;
-      if (item.id === 'settings' && !hubCaps.canManageSettings) return false;
+      if (
+        item.id === 'settings' &&
+        !hubCaps.canManageSettings &&
+        !hubCaps.canManageProjectRoles
+      ) {
+        return false;
+      }
       if (item.id === 'members' && !hubCaps.canViewMembers) return false;
       if (item.id === 'changeRequests' && !hubCaps.canViewChangeRequests) return false;
       if (item.id === 'testCases' && !hubCaps.canViewWorkItems) return false;
@@ -1783,20 +1789,8 @@ export default function ProjectHubShell({
             organizationId={
               String(projectPayload?.organizationId || resolvedBoard?.organizationId || organizationId || '').trim()
             }
-            canChangeDeliveryPhase={Boolean(
-              hubCaps?.canChangeDeliveryPhase ||
-                (Array.isArray(hubCaps?.permissions) &&
-                  hubCaps.permissions.includes('delivery_phase:change')) ||
-                (Array.isArray(projectPayload?.capabilities?.permissions) &&
-                  projectPayload.capabilities.permissions.includes('delivery_phase:change'))
-            )}
-            canSignOffUat={Boolean(
-              hubCaps?.canSignOffUat ||
-                (Array.isArray(hubCaps?.permissions) &&
-                  hubCaps.permissions.includes('uat:sign_off')) ||
-                (Array.isArray(projectPayload?.capabilities?.permissions) &&
-                  projectPayload.capabilities.permissions.includes('uat:sign_off'))
-            )}
+            canChangeDeliveryPhase={Boolean(hubCaps?.canChangeDeliveryPhase)}
+            canSignOffUat={Boolean(hubCaps?.canSignOffUat)}
             canAcceptHandover={Boolean(hubCaps?.canAcceptHandover)}
             handoverChecklist={projectPayload?.handoverChecklist || null}
             releaseLabel={projectPayload?.releaseLabel || ''}
@@ -2048,14 +2042,10 @@ export default function ProjectHubShell({
             boardCards={cards}
             boardLists={lists}
             onPatchBoardCards={onPatchBoardCards}
-            canCreate={Boolean(hubCaps.canCreateTask || hubCaps.canCreateBug)}
+            canCreate={Boolean(hubCaps.canCreateTask)}
             canExecute={Boolean(
-              hubCaps.canCreateTask ||
-                hubCaps.canCreateBug ||
-                (Array.isArray(hubCaps.permissions) &&
-                  (hubCaps.permissions.includes('task:change_status') ||
-                    hubCaps.permissions.includes('task:update') ||
-                    hubCaps.permissions.includes('task:drag_to_done')))
+              Array.isArray(hubCaps.permissions) &&
+                hubCaps.permissions.includes('task:change_status')
             )}
           />
         </div>
@@ -2098,7 +2088,8 @@ export default function ProjectHubShell({
         {tab === 'activity' && hubCaps.canViewActivityTab ? (
           <ActivityPanel activity={activity} locale={locale} isDarkMode={isDarkMode} t={t} />
         ) : null}
-        {tab === 'settings' && hubCaps.canManageSettings ? (
+        {tab === 'settings' &&
+        (hubCaps.canManageSettings || hubCaps.canManageProjectRoles) ? (
           <ProjectHubSettingsPanel
             projectId={projectId}
             boardId={boardId}
@@ -2107,6 +2098,7 @@ export default function ProjectHubShell({
             organizationId={organizationId}
             apiCtx={apiCtx}
             canManage={Boolean(hubCaps.canManageSettings)}
+            canManageProjectRoles={Boolean(hubCaps.canManageProjectRoles)}
             canManageDelivery={Boolean(hubCaps.canManageDelivery)}
             canArchiveProject={Boolean(hubCaps.canArchiveProject)}
             canArchiveWithoutComplete={Boolean(hubCaps.canArchiveWithoutComplete)}
@@ -2119,7 +2111,11 @@ export default function ProjectHubShell({
             priorityConfig={projectPayload?.priorityConfig}
           />
         ) : null}
-        {tab === 'settings' && hideTabBar && capsReady && !hubCaps.canManageSettings ? (
+        {tab === 'settings' &&
+        hideTabBar &&
+        capsReady &&
+        !hubCaps.canManageSettings &&
+        !hubCaps.canManageProjectRoles ? (
           <div className="flex min-h-[8rem] items-center justify-center p-4 text-sm text-muted-foreground">
             {t('workspace.projectHubSettingsDenied')}
           </div>
@@ -2210,14 +2206,11 @@ export default function ProjectHubShell({
               Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment')
             )}
             canUpdateTask={Boolean(
-              Array.isArray(hubCaps?.permissions) &&
-                (hubCaps.permissions.includes('task:update') ||
-                  hubCaps.permissions.includes('bug:create'))
+              Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update')
             )}
             canChangeStatus={Boolean(
               Array.isArray(hubCaps?.permissions) &&
-                (hubCaps.permissions.includes('task:change_status') ||
-                  hubCaps.permissions.includes('task:drag_to_done'))
+                hubCaps.permissions.includes('task:change_status')
             )}
             canViewMembers={hubCaps.canViewMembers}
             onClose={() => setCrWorkIssue(null)}
@@ -2289,14 +2282,11 @@ export default function ProjectHubShell({
               Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment')
             )}
             canUpdateTask={Boolean(
-              Array.isArray(hubCaps?.permissions) &&
-                (hubCaps.permissions.includes('task:update') ||
-                  hubCaps.permissions.includes('bug:create'))
+              Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update')
             )}
             canChangeStatus={Boolean(
               Array.isArray(hubCaps?.permissions) &&
-                (hubCaps.permissions.includes('task:change_status') ||
-                  hubCaps.permissions.includes('task:drag_to_done'))
+                hubCaps.permissions.includes('task:change_status')
             )}
             canViewMembers={hubCaps.canViewMembers}
             onClose={() => setOverviewWorkIssue(null)}

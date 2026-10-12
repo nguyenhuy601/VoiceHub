@@ -1,7 +1,7 @@
 /**
  * Catalog org-level (workflow templates, approval policies):
  * - Org owner/admin: luôn đọc được
- * - Project member có settings:update | project:edit (hoặc creator / legacy admin): đọc khi có projectId
+ * - Project member có settings:view (hoặc creator / legacy admin): đọc khi có projectId
  * CRUD catalog vẫn chỉ org admin (caller enforce riêng).
  */
 async function assertCanReadOrgCatalog({ organizationId, userId, projectId }) {
@@ -39,12 +39,11 @@ async function assertCanReadOrgCatalog({ organizationId, userId, projectId }) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId: pid });
     const can =
-      hasPermission(resolved.permissions, 'settings:update') ||
-      hasPermission(resolved.permissions, 'project:edit') ||
+      hasPermission(resolved.permissions, 'settings:view') ||
       resolved.isOrgAdmin ||
       resolved.isCreator;
     if (!can) {
-      const err = new Error('Không có quyền xem catalog (cần settings:update trên dự án)');
+      const err = new Error('Không có quyền xem catalog (cần settings:view trên dự án)');
       err.statusCode = 403;
       throw err;
     }

@@ -71,8 +71,8 @@ async function assertCanViewProjectPlanner(actorUserId, project) {
     await assertUserProjectPermission({
       userId: actorUserId,
       projectId: project._id,
-      permission: 'members:manage',
-      message: 'Không có quyền xem Resource Planner',
+      permission: 'planning:view',
+      message: 'Không có quyền xem Resource Planner (planning:view)',
     });
     return { elevated: false };
   } catch (permErr) {

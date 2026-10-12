@@ -45,8 +45,6 @@ async function assertCanViewProjectRoles({ userId, project }) {
   if (
     resolved.isOrgAdmin ||
     resolved.isCreator ||
-    hasPermission(resolved.permissions, 'settings:view') ||
-    hasPermission(resolved.permissions, 'members:view') ||
     hasPermission(resolved.permissions, 'project:view')
   ) {
     return resolved;
@@ -63,15 +61,14 @@ async function assertCanUpdateProjectRoles({ userId, project }) {
     userId,
     projectId: project._id,
   });
-  const { hasPermission } = require('../utils/project/projectPermissionMatrix');
-  if (
-    resolved.isOrgAdmin ||
-    resolved.isCreator ||
-    hasPermission(resolved.permissions, 'settings:update')
-  ) {
+  const { hasPermission, unionPermissionsFromRoles } = require('../utils/project/projectPermissionMatrix');
+  // Catalog org (projectId=null) = Admin requireOrgAdmin.
+  // Trong dự án: project:roles (matrix ∪ Admin gắn trên role) — không settings:update, không creator dump.
+  const roleUnion = unionPermissionsFromRoles(resolved.roles || []);
+  if (resolved.isOrgAdmin || hasPermission(roleUnion, 'project:roles')) {
     return resolved;
   }
-  const err = Object.assign(new Error('Không có quyền sửa quyền Project Role (settings:update)'), {
+  const err = Object.assign(new Error('Không có quyền sửa quyền Project Role (project:roles)'), {
     statusCode: 403,
     errorCode: 'PROJECT_ACCESS_DENIED',
   });
@@ -157,8 +154,8 @@ async function updateProjectScopedRole(req, res) {
     }
     if (canAssign !== undefined) patch.canAssign = Boolean(canAssign);
     if (permissions !== undefined) {
-      const { assertKnownPermissionList } = require('../utils/project/projectPermissionMatrix');
-      patch.permissions = assertKnownPermissionList(permissions);
+      const { applySodLockedPermissions } = require('../utils/project/projectPermissionMatrix');
+      patch.permissions = applySodLockedPermissions(role.key, permissions);
     }
 
     if (!Object.keys(patch).length) {
@@ -250,13 +247,16 @@ async function resetProjectScopedRoleDefault(req, res) {
       });
     }
 
+    const { seedPermissionsForRoleKey } = require('../utils/project/projectPermissionMatrix');
+    const resetPerms = seedPermissionsForRoleKey(role.key, orgDefault.permissions);
+
     const updated = await ProjectRole.findOneAndUpdate(
       { _id: role._id, projectId: project._id },
       {
         $set: {
           label: orgDefault.label,
           canAssign: Boolean(orgDefault.canAssign),
-          permissions: Array.isArray(orgDefault.permissions) ? [...orgDefault.permissions] : [],
+          permissions: resetPerms,
           sortOrder: Number(orgDefault.sortOrder) || role.sortOrder,
         },
       },

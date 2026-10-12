@@ -235,13 +235,28 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
   const macroStep = activeStepId ? SUBSTEP_TO_MACRO[activeStepId] || 0 : phaseDone ? 3 : 0;
   const macroDef = HOW_MACRO_STEPS.find((m) => m.step === macroStep) || null;
 
-  const startedAt = liveRun?.startedAt
-    ? new Date(liveRun.startedAt).getTime()
-    : phaseHow?.startedAt
-      ? new Date(phaseHow.startedAt).getTime()
-      : null;
-  const elapsedMs =
-    startedAt != null && Number.isFinite(startedAt) ? Math.max(0, now - startedAt) : 0;
+  const startedRaw = liveRun?.startedAt || phaseHow?.startedAt || null;
+  const startedAt = startedRaw ? new Date(startedRaw).getTime() : null;
+  const completedRaw =
+    liveRun?.completedAt ||
+    liveRun?.finishedAt ||
+    phaseHow?.completedAt ||
+    phaseHow?.finishedAt ||
+    null;
+  const completedAt = completedRaw ? new Date(completedRaw).getTime() : null;
+  const durationFromMeta = Number(liveRun?.durationMs ?? phaseHow?.durationMs);
+  const terminal =
+    state === 'succeeded' ||
+    state === 'failed' ||
+    state === 'cancelled' ||
+    state === 'waiting_human';
+  let elapsedMs = 0;
+  if (Number.isFinite(durationFromMeta) && durationFromMeta > 0 && terminal) {
+    elapsedMs = Math.max(0, durationFromMeta);
+  } else if (startedAt != null && Number.isFinite(startedAt)) {
+    const end = terminal && completedAt != null && Number.isFinite(completedAt) ? completedAt : now;
+    elapsedMs = Math.max(0, end - startedAt);
+  }
 
   const progressUpdatedAt = liveRun?.progressUpdatedAt
     ? new Date(liveRun.progressUpdatedAt).getTime()
@@ -269,6 +284,7 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
     runId: liveRun?.runId || phaseHow?.remoteRunId || null,
     progressUpdatedAt: liveRun?.progressUpdatedAt || null,
     startedAt: startedAt != null && Number.isFinite(startedAt) ? startedAt : null,
+    completedAt: completedAt != null && Number.isFinite(completedAt) ? completedAt : null,
   };
 }
 

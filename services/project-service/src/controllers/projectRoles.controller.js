@@ -180,8 +180,8 @@ async function updateProjectRole(req, res) {
       if (canAssign !== undefined) patch.canAssign = Boolean(canAssign);
     }
     if (permissions !== undefined) {
-      const { assertKnownPermissionList } = require('../utils/project/projectPermissionMatrix');
-      patch.permissions = assertKnownPermissionList(permissions);
+      const { applySodLockedPermissions } = require('../utils/project/projectPermissionMatrix');
+      patch.permissions = applySodLockedPermissions(role.key, permissions);
     }
 
     if (!Object.keys(patch).length) {
