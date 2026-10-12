@@ -389,7 +389,6 @@ async function applyTemplateToProject({ userId, projectId, templateId, templateK
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
     const can =
       hasPermission(resolved.permissions, 'settings:update') ||
-      hasPermission(resolved.permissions, 'project:edit') ||
       resolved.isOrgAdmin ||
       resolved.isCreator;
     if (!can) {

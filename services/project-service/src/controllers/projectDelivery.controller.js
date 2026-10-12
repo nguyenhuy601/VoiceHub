@@ -111,8 +111,8 @@ async function listMembers(req, res) {
       await assertUserAnyProjectPermission({
         userId,
         boardId,
-        permissions: ['members:view', 'members:manage'],
-        message: 'Không có quyền xem thành viên dự án',
+        permissions: ['members:view'],
+        message: 'Không có quyền xem thành viên dự án (members:view)',
       });
     }
     const members = await listProjectMemberships(boardId);

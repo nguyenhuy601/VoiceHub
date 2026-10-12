@@ -224,8 +224,8 @@ async function createArtifact({ userId, projectId, body = {} }) {
     await assertUserAnyProjectPermission({
       userId,
       projectId,
-      permissions: ['analysis:artifact_import', 'analysis:artifact_edit'],
-      message: 'Không có quyền import/sửa artifact',
+      permissions: ['analysis:artifact_edit'],
+      message: 'Không có quyền sửa analysis artifact (analysis:artifact_edit)',
     });
   }
   const kind = normalizeArtifactKind(body.kind);
@@ -290,8 +290,8 @@ async function updateArtifactDraft({ userId, projectId, artifactId, body = {} })
     await assertUserAnyProjectPermission({
       userId,
       projectId,
-      permissions: ['analysis:artifact_edit', 'analysis:artifact_import'],
-      message: 'Không có quyền sửa analysis artifact',
+      permissions: ['analysis:artifact_edit'],
+      message: 'Không có quyền sửa analysis artifact (analysis:artifact_edit)',
     });
   }
   const doc = await AnalysisArtifact.findOne({ _id: artifactId, projectId, isActive: true });

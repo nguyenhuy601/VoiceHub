@@ -14,6 +14,7 @@ const { fetchEnabledProjectRoleKeys } = require('../clients/orgMasterData.client
 const { assertResolvedProjectRoleKeys } = require('../utils/project/assertResolvedProjectRoleKeys');
 const { enrichMembershipUserLabels } = require('../utils/common/userProfileLabels');
 const { createTtlCoalesceCache } = require('../utils/ttlCoalesceCache');
+const { seedPermissionsForRoleKey } = require('../utils/project/projectPermissionMatrix');
 
 const LEGACY_TO_PROJECT_ROLE = Object.freeze({
   owner: DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER,
@@ -90,9 +91,10 @@ async function ensureOrgProjectRoles(organizationId) {
       ).lean();
 
       if (!Array.isArray(row?.permissions) || row.permissions.length === 0) {
+        const seeded = seedPermissionsForRoleKey(def.key, def.permissions);
         row = await ProjectRole.findOneAndUpdate(
           { _id: row._id },
-          { $set: { permissions: def.permissions || [] } },
+          { $set: { permissions: seeded } },
           { new: true }
         ).lean();
       }
@@ -209,7 +211,7 @@ async function cloneOrgRolesToProject(projectId, organizationId) {
       key,
       label: def.label,
       canAssign: Boolean(def.canAssign),
-      permissions: Array.isArray(def.permissions) ? [...def.permissions] : [],
+      permissions: seedPermissionsForRoleKey(key, def.permissions),
       isSystem: Boolean(def.isSystem),
       sortOrder: Number(def.sortOrder) || 100,
     });
@@ -241,7 +243,7 @@ async function ensureProjectRolesCloned(projectId, organizationId) {
   return projectRolesEnsureCache.getOrLoad(pid, async () => {
     const existing = await ProjectRole.find({ projectId: pid }).select('_id').limit(1).lean();
     if (existing.length) {
-      const list = await ProjectRole.find({ projectId: pid })
+      let list = await ProjectRole.find({ projectId: pid })
         .sort({ sortOrder: 1 })
         .lean();
       let oid = String(organizationId || '').trim();
@@ -249,11 +251,43 @@ async function ensureProjectRolesCloned(projectId, organizationId) {
         const project = await Project.findById(pid).select('organizationId').lean();
         oid = String(project?.organizationId || '');
       }
+      list = await hydrateEmptyProjectRolePermissions(list, oid);
       if (oid) await remapMembershipsToProjectRoles(pid, oid, list);
       return list;
     }
     return cloneOrgRolesToProject(pid, organizationId);
   });
+}
+
+/**
+ * Project clone còn permissions [] → copy org template hoặc CODE_DEFAULT (không đụng doc đã customize).
+ */
+async function hydrateEmptyProjectRolePermissions(rows, organizationId) {
+  const list = Array.isArray(rows) ? rows : [];
+  const empty = list.filter((r) => !Array.isArray(r.permissions) || r.permissions.length === 0);
+  if (!empty.length) return list;
+
+  let orgByKey = new Map();
+  const oid = String(organizationId || '').trim();
+  if (oid) {
+    const orgRoles = await ProjectRole.find(orgDefaultFilter(oid)).select('key permissions').lean();
+    orgByKey = new Map((orgRoles || []).map((r) => [String(r.key), r]));
+  }
+
+  const ops = [];
+  for (const row of empty) {
+    const key = String(row.key || '').trim();
+    const seeded = seedPermissionsForRoleKey(key, orgByKey.get(key)?.permissions);
+    ops.push({
+      updateOne: {
+        filter: { _id: row._id, projectId: row.projectId },
+        update: { $set: { permissions: seeded } },
+      },
+    });
+    row.permissions = seeded;
+  }
+  if (ops.length) await ProjectRole.bulkWrite(ops);
+  return list;
 }
 
 async function listProjectRolesCached(projectId, organizationId) {

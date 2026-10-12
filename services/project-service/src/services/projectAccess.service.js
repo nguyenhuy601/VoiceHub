@@ -91,8 +91,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
     ? await ProjectRole.find({ _id: { $in: roleIds } }).select('key permissions canAssign').lean()
     : [];
 
-  // Board/hub ops capabilities: matrix ∪ permissions Admin gắn trên ProjectRole.
-  // (SoD analysis/planning vẫn tách matrix-only ở attachProjectCapabilities.)
+  // Board/hub ops: SoT = doc.permissions trên ProjectRole membership (org template hoặc project clone).
   const roleUiCapabilities = permissionsToBoardCapabilities(unionPermissionsFromRoles(roles));
 
   if (isOrgAdmin || isCreator) {

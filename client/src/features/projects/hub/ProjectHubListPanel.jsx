@@ -206,14 +206,7 @@ export default function ProjectHubListPanel({
   const canCreateTask = Boolean(hubCaps?.canCreateTask);
   const canCreateBug = Boolean(hubCaps?.canCreateBug);
   const canChangeStatus = Boolean(
-    hubCaps?.canUpdateBacklog ||
-      hubCaps?.canCreateTask ||
-      hubCaps?.canUpdateStory ||
-      hubCaps?.canCreateBug ||
-      (Array.isArray(hubCaps?.permissions) &&
-        (hubCaps.permissions.includes('task:change_status') ||
-          hubCaps.permissions.includes('task:update') ||
-          hubCaps.permissions.includes('task:drag_to_done')))
+    Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:change_status')
   );
   const canDeleteIssue = Boolean(canUpdateBacklog || canDeleteEpic);
   const hasBoardColumn = Boolean(boardId && defaultListId);
@@ -1536,9 +1529,7 @@ export default function ProjectHubListPanel({
           Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:comment')
         )}
         canUpdateTask={Boolean(
-          Array.isArray(hubCaps?.permissions) &&
-            (hubCaps.permissions.includes('task:update') ||
-              hubCaps.permissions.includes('bug:create'))
+          Array.isArray(hubCaps?.permissions) && hubCaps.permissions.includes('task:update')
         )}
         canChangeStatus={canChangeStatus}
         canViewMembers={Boolean(hubCaps?.canViewMembers)}

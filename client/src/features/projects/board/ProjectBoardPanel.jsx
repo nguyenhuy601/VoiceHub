@@ -2301,33 +2301,27 @@ export default function TaskBoardWorkspacePanel({
         taskWorkspaceScope={taskWorkspaceScope}
         canCreateTask={
           Array.isArray(boardCapabilities?.permissions)
-            ? boardCapabilities.permissions.includes('task:create') ||
-              Boolean(boardCapabilities?.canManageBoard)
+            ? boardCapabilities.permissions.includes('task:create')
             : canCreateCards
         }
         canEstimate={
           Array.isArray(boardCapabilities?.permissions)
-            ? boardCapabilities.permissions.includes('task:estimate') ||
-              Boolean(boardCapabilities?.canManageBoard)
+            ? boardCapabilities.permissions.includes('task:estimate')
             : true
         }
         canComment={
           Array.isArray(boardCapabilities?.permissions)
-            ? boardCapabilities.permissions.includes('task:comment') ||
-              Boolean(boardCapabilities?.canManageBoard)
+            ? boardCapabilities.permissions.includes('task:comment')
             : true
         }
         canChangeStatus={
           Array.isArray(boardCapabilities?.permissions)
-            ? boardCapabilities.permissions.includes('task:change_status') ||
-              Boolean(boardCapabilities?.canManageBoard)
+            ? boardCapabilities.permissions.includes('task:change_status')
             : true
         }
         canUpdateTask={
           Array.isArray(boardCapabilities?.permissions)
-            ? boardCapabilities.permissions.includes('task:update') ||
-              boardCapabilities.permissions.includes('bug:create') ||
-              Boolean(boardCapabilities?.canManageBoard)
+            ? boardCapabilities.permissions.includes('task:update')
             : true
         }
         canViewMembers={Boolean(hubSprintCard?.canViewMembers)}

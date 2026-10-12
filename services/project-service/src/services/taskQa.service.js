@@ -20,8 +20,8 @@ async function loadWritableTask({ userId, projectId, taskId }) {
   const resolved = await assertUserAnyProjectPermission({
     userId,
     projectId,
-    permissions: ['task:update', 'bug:create'],
-    message: 'Không có quyền cập nhật fix suggestion',
+    permissions: ['task:update'],
+    message: 'Không có quyền cập nhật fix suggestion (task:update)',
   });
   assertProjectWritable(resolved.project);
   const task = await Task.findOne({ _id: taskId, projectId, isActive: true });

@@ -1619,7 +1619,9 @@ export const pageStrings = {
       projectHubRoleMatrixTitle: 'Quyền Project Role',
       projectHubRoleMatrixGroupHint: 'Thiết lập matrix quyền cho từng role trên dự án này (không ảnh hưởng dự án khác).',
       projectHubRoleMatrixHint:
-        'Chỉnh quyền thao tác theo role trong dự án. Admin RBAC chỉ là mặc định khi tạo dự án mới hoặc khi đặt lại.',
+        'Chỉ ảnh hưởng dự án này. Checkbox = quyền thật trên doc (SoT). Mục SoD khoá không gỡ được. Reset lấy mẫu org — Admin sửa catalog không đẩy live vào dự án đã có.',
+      projectHubRoleMatrixSodLocked: 'SoD — không gỡ',
+      projectHubRoleMatrixDenied: 'Bạn không có quyền sửa matrix Project Role trong dự án (project:roles).',
       projectHubRoleMatrixPickRole: 'Chọn Project Role',
       projectHubRoleMatrixEmpty: 'Chưa có Project Role trên dự án. Mở lại Hub hoặc thêm thành viên để điền sẵn.',
       projectHubRoleMatrixReset: 'Đặt lại theo mặc định org',
@@ -3460,7 +3462,10 @@ export const pageStrings = {
       aiHitlMonitorHowHint: 'Đang chạy agent + tools. Chỉ hiện phase HOW.',
       aiHitlMonitorHowDone: 'HOW xong — mở tab Duyệt để xác nhận Gate 2 & kích hoạt.',
       aiHitlMonitorHowReady: 'Gate 1 xong — chạy AI Planning (HOW) tại đây.',
-      aiHitlMonitorElapsed: 'Thời gian',
+      aiHitlMonitorElapsed: 'Thời gian chạy',
+      aiHitlMonitorElapsedLive: 'đang chạy',
+      aiHitlMonitorStartedAt: 'Bắt đầu',
+      aiHitlMonitorEndedAt: 'Kết thúc',
       aiHitlMonitorResultsTitle: 'Kết quả chạy HOW',
       aiHitlMonitorResultsHint:
         'Bảng kết quả planning (WBS, phụ thuộc, phân công, lịch, rủi ro) — BA / PO / PM đều xem được. Duyệt quyết định ở tab Duyệt.',
@@ -8623,7 +8628,10 @@ export const pageStrings = {
       projectHubRoleMatrixTitle: 'Project Role permissions',
       projectHubRoleMatrixGroupHint: 'Permission matrix for each role on this project only.',
       projectHubRoleMatrixHint:
-        'Edit role permissions for this project. Admin RBAC defaults apply to new projects or when you reset.',
+        'Applies to this project only. Checkboxes are the real doc permissions (SoT). Locked SoD keys cannot be removed. Reset copies the org template — Admin catalog edits do not push live into existing projects.',
+      projectHubRoleMatrixSodLocked: 'SoD — locked',
+      projectHubRoleMatrixDenied:
+        'You do not have permission to edit the in-project Project Role matrix (project:roles).',
       projectHubRoleMatrixPickRole: 'Select Project Role',
       projectHubRoleMatrixEmpty: 'No project roles yet. Reopen Hub or add a member to seed.',
       projectHubRoleMatrixReset: 'Reset to org default',
@@ -10465,7 +10473,10 @@ export const pageStrings = {
       aiHitlMonitorHowHint: 'Running agent + tools. HOW phase only.',
       aiHitlMonitorHowDone: 'HOW done — open Review to confirm Gate 2 & activate.',
       aiHitlMonitorHowReady: 'Gate 1 done — run AI Planning (HOW) here.',
-      aiHitlMonitorElapsed: 'Elapsed',
+      aiHitlMonitorElapsed: 'Elapsed time',
+      aiHitlMonitorElapsedLive: 'running',
+      aiHitlMonitorStartedAt: 'Started',
+      aiHitlMonitorEndedAt: 'Finished',
       aiHitlMonitorResultsTitle: 'HOW run results',
       aiHitlMonitorResultsHint:
         'Planning results (WBS, dependencies, assignments, schedule, risks) — visible to BA / PO / PM. Decisions stay on the Review tab.',

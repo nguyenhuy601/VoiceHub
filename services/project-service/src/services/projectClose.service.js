@@ -66,8 +66,8 @@ async function assertCanCompleteProject({ userId, projectId, deps }) {
   await deps.assertUserAnyProjectPermission({
     userId,
     projectId,
-    permissions: ['project:archive', 'project:edit'],
-    message: 'Không có quyền hoàn thành dự án (project:archive)',
+    permissions: ['project:complete'],
+    message: 'Không có quyền hoàn thành dự án (project:complete)',
   });
 }
 

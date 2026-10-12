@@ -376,15 +376,9 @@ async function projectMembershipBoardCaps(userId, board) {
       }
     }
     return {
-      canView: hasPermission(permissions, 'task:view') || hasPermission(permissions, 'project:view'),
-      canEdit:
-        hasPermission(permissions, 'task:update') ||
-        hasPermission(permissions, 'task:create') ||
-        hasPermission(permissions, 'task:assign'),
-      isAdmin:
-        hasPermission(permissions, 'project:edit') ||
-        hasPermission(permissions, 'members:manage') ||
-        hasPermission(permissions, 'sprint:create'),
+      canView: hasPermission(permissions, 'project:view'),
+      canEdit: hasPermission(permissions, 'task:update'),
+      isAdmin: hasPermission(permissions, 'board:admin'),
       permissions,
     };
   }
@@ -718,18 +712,8 @@ async function ensureBoardEditAccess(boardId, userId) {
       projectId: board.projectId,
       boardId,
     });
-    const ok =
-      hasPermission(resolved.permissions, 'task:update') ||
-      hasPermission(resolved.permissions, 'task:create') ||
-      hasPermission(resolved.permissions, 'task:assign') ||
-      hasPermission(resolved.permissions, 'task:delete') ||
-      hasPermission(resolved.permissions, 'task:estimate') ||
-      hasPermission(resolved.permissions, 'story:create') ||
-      hasPermission(resolved.permissions, 'story:update') ||
-      hasPermission(resolved.permissions, 'bug:create') ||
-      hasPermission(resolved.permissions, 'backlog:prioritize') ||
-      hasPermission(resolved.permissions, 'project:edit');
-    if (!ok) return null;
+    // Một gate: task:update — không OR chéo create/assign/edit/project.
+    if (!hasPermission(resolved.permissions, 'task:update')) return null;
     await assertBoardProjectWritable(board);
     return board;
   }
@@ -1430,7 +1414,7 @@ async function getBoardDetail({ userId, boardId, includeCards, epicId, featureId
 
 async function createList({ userId, boardId, title }) {
   const board = await ensureBoardManageLists(boardId, userId);
-  if (!board) throw new Error('Chỉ PM/TL/Admin mới được tạo danh sách trên board');
+  if (!board) throw new Error('Không có quyền quản lý cột board (board:manage_lists)');
   const last = await TaskBoardList.findOne({ boardId }).sort({ order: -1 }).lean();
   const nextOrder = (Number(last?.order) || 0) + 1000;
   const row = await TaskBoardList.create({
@@ -1791,7 +1775,7 @@ async function movePlanningFeatureCard({ userId, cardId, toListId, position, ind
   }
 
   const isAssignee = feature.assigneeId && String(feature.assigneeId) === String(userId);
-  const canFreelyMove = caps.canCreateCards || caps.canEditCards || caps.canManageBoard;
+  const canFreelyMove = Boolean(caps.canMoveCards || caps.canEditCards);
   if (!canFreelyMove && !isAssignee) {
     throw new Error('Bạn chỉ được kéo thẻ được gán cho mình');
   }
@@ -1896,7 +1880,7 @@ async function moveTaskCard({ userId, card, cardId, toListId, position, index, o
   }
 
   const isAssignee = card.assigneeId && String(card.assigneeId) === String(userId);
-  const canFreelyMove = caps.canCreateCards || caps.canEditCards || caps.canManageBoard;
+  const canFreelyMove = Boolean(caps.canMoveCards || caps.canEditCards);
   if (!canFreelyMove) {
     if (!isAssignee) {
       throw new Error('Bạn chỉ được kéo thẻ được gán cho mình');
@@ -2268,7 +2252,7 @@ async function updateCard({
     if (contentTouched || issueType !== undefined) {
       const updateKey = updatePermissionForIssueType(nextIssueType);
       const resolvedPerms = Array.isArray(caps.permissions) ? caps.permissions : [];
-      if (!hasPermission(resolvedPerms, updateKey) && !caps.canManageBoard) {
+      if (!hasPermission(resolvedPerms, updateKey)) {
         await assertUserProjectPermission({
           userId,
           projectId: board.projectId,
@@ -2853,8 +2837,8 @@ async function archiveCard({ userId, cardId }) {
 }
 
 async function reorderList({ userId, boardId, listId, position }) {
-  const board = await ensureBoardEditAccess(boardId, userId);
-  if (!board) throw new Error('Không có quyền sửa board này');
+  const board = await ensureBoardManageLists(boardId, userId);
+  if (!board) throw new Error('Không có quyền quản lý cột board (board:manage_lists)');
   const boardOid = board._id;
   const listOid = toOid(listId);
   if (!listOid) throw new Error('listId không hợp lệ');
@@ -2873,8 +2857,8 @@ async function copyList({ userId, listId, title, toBoardId }) {
   const src = await TaskBoardList.findById(listId).lean();
   if (!src || src.isArchived) throw new Error('List không tồn tại');
   const targetBoardId = toBoardId || src.boardId;
-  const board = await ensureBoardEditAccess(targetBoardId, userId);
-  if (!board) throw new Error('Không có quyền sửa board đích');
+  const board = await ensureBoardManageLists(targetBoardId, userId);
+  if (!board) throw new Error('Không có quyền quản lý cột board (board:manage_lists)');
   const targetOid = board._id;
   const lists = await fetchActiveLists(targetOid);
   const nextOrder = (Number(lists[lists.length - 1]?.order) || 0) + 1000;
@@ -2975,10 +2959,8 @@ async function moveAllCardsInList({ userId, listId, toListId }) {
 }
 
 async function archiveList({ userId, boardId, listId }) {
-  const board = await ensureBoardViewAccess(boardId, userId);
-  if (!board) throw new Error('Không có quyền xem board này');
-  const canAdmin = await userCanAdminBoard(userId, board);
-  if (!canAdmin) throw new Error('Chỉ Owner/Admin mới được lưu trữ danh sách');
+  const board = await ensureBoardManageLists(boardId, userId);
+  if (!board) throw new Error('Không có quyền quản lý cột board (board:manage_lists)');
 
   const boardOid = board._id;
   const listOid = toOid(listId);
@@ -2993,7 +2975,7 @@ async function archiveList({ userId, boardId, listId }) {
     list,
     cardCount,
     activeListCount,
-    canAdmin: true,
+    canAdmin: Boolean(board),
   });
   if (!policy.canArchive) {
     throw new Error(policy.archiveBlockReason || 'Không thể lưu trữ danh sách');

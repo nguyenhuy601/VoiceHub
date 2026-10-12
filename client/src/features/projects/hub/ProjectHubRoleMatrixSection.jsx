@@ -6,6 +6,7 @@ import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { queryKeys } from '../../../lib/queryKeys';
 import { ensureProjectHubRoleCatalog } from './useProjectHubQueries';
 import { PROJECT_ROLE_PERMISSION_GROUPS } from './projectRolePermissionGroups';
+import { isSodLockedPermission, sodLockedPermissionSet } from './projectRoleSodLocks';
 
 function shortRoleLabel(label, key = '') {
   const raw = String(label || key || '').trim();
@@ -22,6 +23,8 @@ export default function ProjectHubRoleMatrixSection({
   muted,
   fieldLabelCls,
   inputCls,
+  /** project:roles — false = chỉ xem (Admin catalog vẫn ở /app/admin/rbac/project-roles). */
+  canEdit = true,
 }) {
   const queryClient = useQueryClient();
   const pid = String(projectId || '').trim();
@@ -69,6 +72,7 @@ export default function ProjectHubRoleMatrixSection({
   }, [roles, selectedRoleId]);
 
   const togglePerm = (key) => {
+    if (isSodLockedPermission(role?.key, key)) return;
     setSelectedPerms((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -78,13 +82,15 @@ export default function ProjectHubRoleMatrixSection({
   };
 
   const save = async () => {
-    if (!pid || !role || busy) return;
+    if (!canEdit || !pid || !role || busy) return;
     const roleId = String(role._id || role.id || '');
     if (!roleId) return;
     setBusy(true);
     try {
+      const locked = sodLockedPermissionSet(role.key);
+      const permissions = [...new Set([...selectedPerms, ...locked])];
       const res = await projectAPI.updateProjectScopedRole(pid, roleId, {
-        permissions: [...selectedPerms],
+        permissions,
       });
       const saved = res?.data?.data || res?.data || {};
       const savedPerms = Array.isArray(saved.permissions) ? saved.permissions.map(String) : [];
@@ -109,7 +115,7 @@ export default function ProjectHubRoleMatrixSection({
   };
 
   const resetDefault = async () => {
-    if (!pid || !role || busy) return;
+    if (!canEdit || !pid || !role || busy) return;
     const roleId = String(role._id || role.id || '');
     if (!roleId) return;
     setBusy(true);
@@ -166,42 +172,61 @@ export default function ProjectHubRoleMatrixSection({
                   {group.title}
                 </p>
                 <ul className="space-y-1">
-                  {group.keys.map((key) => (
-                    <li key={key}>
-                      <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border/70 px-2 py-1.5 text-sm hover:bg-muted/40">
-                        <input
-                          type="checkbox"
-                          checked={selectedPerms.has(key)}
-                          onChange={() => togglePerm(key)}
-                          className="h-4 w-4 rounded border-border accent-primary"
-                        />
-                        <span className="font-mono text-xs">{key}</span>
-                      </label>
-                    </li>
-                  ))}
+                  {group.keys.map((key) => {
+                    const sodLocked = isSodLockedPermission(role?.key, key);
+                    return (
+                      <li key={key}>
+                        <label
+                          className={`flex items-center gap-2 rounded-md border border-border/70 px-2 py-1.5 text-sm ${
+                            sodLocked || !canEdit
+                              ? 'cursor-not-allowed opacity-80'
+                              : 'cursor-pointer hover:bg-muted/40'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedPerms.has(key) || sodLocked}
+                            disabled={!canEdit || busy || sodLocked}
+                            onChange={() => togglePerm(key)}
+                            className="h-4 w-4 rounded border-border accent-primary disabled:opacity-50"
+                          />
+                          <span className="font-mono text-xs">{key}</span>
+                          {sodLocked ? (
+                            <span className="ml-auto text-[10px] text-muted-foreground">
+                              {t('workspace.projectHubRoleMatrixSodLocked')}
+                            </span>
+                          ) : null}
+                        </label>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ))}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={save}
-              className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-            >
-              {busy ? t('common.saving') : t('common.save')}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={resetDefault}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-            >
-              {t('workspace.projectHubRoleMatrixReset')}
-            </button>
-          </div>
+          {canEdit ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={save}
+                className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              >
+                {busy ? t('common.saving') : t('common.save')}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={resetDefault}
+                className="rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              >
+                {t('workspace.projectHubRoleMatrixReset')}
+              </button>
+            </div>
+          ) : (
+            <p className={`text-xs ${muted}`}>{t('workspace.projectHubRoleMatrixDenied')}</p>
+          )}
         </>
       ) : null}
     </div>

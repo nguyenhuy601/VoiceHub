@@ -263,7 +263,11 @@ export default function Phase1Shell({
 
   return (
     <SpaceProvider kind={SPACE_KIND.PROJECT} organizationId={orgId} projectId={projectId}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
+      <div
+        className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden ${
+          module === 'ai-hitl' ? 'overflow-hidden' : 'overflow-y-auto'
+        }`}
+      >
         {raReadOnly && module !== 'overview' && !String(module).startsWith('planning') ? (
           <div className="shrink-0 border-b border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-muted-foreground sm:px-4">
             {t('workspace.phase1RaReadOnlyBanner')}

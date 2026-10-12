@@ -75,7 +75,7 @@ async function assertCanCloseSprint({ userId, projectId, deps, message }) {
   await assertUserAnyProjectPermission({
     userId,
     projectId,
-    permissions: ['sprint:close', 'project:edit'],
+    permissions: ['sprint:close'],
     message,
   });
 }

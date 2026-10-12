@@ -38,12 +38,8 @@ async function requireBoardAdmin(boardId, userId, { permission = 'sprint:create'
       projectId: board.projectId,
       boardId,
     });
-    const startFallback =
-      permission === 'sprint:start' && hasPermission(resolved.permissions, 'sprint:create');
     if (
       !hasPermission(resolved.permissions, permission) &&
-      !startFallback &&
-      !hasPermission(resolved.permissions, 'project:edit') &&
       !resolved.isOrgAdmin &&
       !resolved.isCreator
     ) {

@@ -1182,49 +1182,64 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   }
 
   const packStatus = String(pack?.status || '');
+  const statusLabel =
+    ({
+      draft: t('requirements.phase1Status_draft') || 'Nháp',
+      under_review: t('requirements.phase1Status_pending_review') || 'Chờ duyệt',
+      approved: t('requirements.phase1Status_approved') || 'Đã duyệt',
+      rejected: t('requirements.phase1Status_rejected') || 'Từ chối',
+      project_linked: t('requirements.phase1Status_active') || 'Đã gắn dự án',
+      changes_requested: t('requirements.phase1Status_changes_requested') || 'Cần chỉnh sửa',
+    }[packStatus.toLowerCase()] ||
+      (packStatus ? packStatus.replace(/_/g, ' ') : ''));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 p-3 sm:p-4">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-base font-semibold text-foreground">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <header className="shrink-0 space-y-3 border-b border-border/60 px-3 pb-3 pt-3 sm:px-4 sm:pt-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
             {t('requirements.aiHitlPageTitle') || 'AI HITL — Monitor & Duyệt'}
           </h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            packId={packId} · {packStatus || '—'}
+          {statusLabel ? (
+            <span className="rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {statusLabel}
+            </span>
+          ) : null}
+        </div>
+
+        {errorMsg ? (
+          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {errorMsg}
           </p>
+        ) : null}
+
+        <div className="flex gap-1" role="tablist" aria-label="AI HITL tabs">
+          {[
+            ['monitor', t('requirements.aiHitlTabMonitor') || 'Monitor'],
+            ['review', t('requirements.aiHitlTabReview') || 'Duyệt'],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => setTab(id)}
+              className={`rounded-t-md border-b-2 px-3 py-2 text-sm font-medium transition-colors sm:px-4 ${
+                tab === id
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </header>
 
-      {errorMsg ? (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {errorMsg}
-        </p>
-      ) : null}
-
-      <div className="flex gap-1 border-b border-border">
-        {[
-          ['monitor', t('requirements.aiHitlTabMonitor') || 'Monitor'],
-          ['review', t('requirements.aiHitlTabReview') || 'Duyệt'],
-        ].map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={`border-b-2 px-3 py-2 text-sm font-medium ${
-              tab === id
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <div className="min-h-0 flex-1">
+      {/* Scrollable body — prevents results/footer clipping under flex shell */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 pb-8 sm:px-4 sm:py-4 sm:pb-10">
         {/* Keep both panels mounted so Gate1 decisions/checkboxes survive tab switches */}
-        <div className={tab === 'monitor' ? 'min-h-0 h-full' : 'hidden'}>
+        <div className={tab === 'monitor' ? 'block' : 'hidden'}>
           <AiHitlMonitorPanel
             liveRun={liveRun}
             phaseWhat={phaseWhat}
@@ -1250,7 +1265,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
             t={t}
           />
         </div>
-        <div className={tab === 'review' ? 'min-h-0 h-full' : 'hidden'}>
+        <div className={tab === 'review' ? 'block' : 'hidden'}>
           <AiHitlReviewPanel
             reviewMode={reviewMode}
             reviewView={gate1ReviewView}

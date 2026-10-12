@@ -91,9 +91,9 @@ function ReadOnlyResultsTable({ section, rows, t }) {
     <div className="mt-3 space-y-2">
       <div
         ref={scrollRootRef}
-        className="max-h-96 overflow-auto rounded-md border border-border overscroll-contain"
+        className="max-h-[min(28rem,55vh)] overflow-auto rounded-md border border-border overscroll-contain"
       >
-        <table className="w-full min-w-[40rem] border-collapse text-left text-xs">
+        <table className="w-full min-w-[32rem] border-collapse text-left text-xs sm:min-w-[40rem] sm:text-sm">
           <thead className="sticky top-0 z-[1] bg-muted/90 text-muted-foreground backdrop-blur-sm">
             <tr className="border-b border-border">
               {columns.map((col) => (
@@ -185,13 +185,13 @@ export default function WhatMonitorResultsPanel({ pack = null, t }) {
 
   return (
     <section
-      className="rounded-md border border-border bg-card px-3 py-3"
+      className="rounded-xl border border-border/80 bg-card/95 px-3 py-3 shadow-sm sm:px-4 sm:py-4"
       aria-label={labelOf(t, 'requirements.aiHitlMonitorWhatResultsTitle', 'Kết quả chạy WHAT')}
     >
-      <h3 className="text-sm font-semibold text-foreground">
+      <h3 className="text-sm font-semibold text-foreground sm:text-base">
         {labelOf(t, 'requirements.aiHitlMonitorWhatResultsTitle', 'Kết quả chạy WHAT')}
       </h3>
-      <p className="mt-0.5 text-xs text-muted-foreground">
+      <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
         {labelOf(
           t,
           'requirements.aiHitlMonitorWhatResultsHint',
@@ -201,7 +201,7 @@ export default function WhatMonitorResultsPanel({ pack = null, t }) {
       <WhatSummaryStrip bundle={bundle} t={t} />
 
       {sectionTabs.length ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="-mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:thin] sm:flex-wrap sm:overflow-visible">
           {sectionTabs.map((tab) => {
             const isMissing = Boolean(tab.missing) || !(bySection[tab.key]?.length || tab.count);
             const isActive = activeSection === tab.key;
@@ -211,7 +211,7 @@ export default function WhatMonitorResultsPanel({ pack = null, t }) {
                 key={tab.key}
                 type="button"
                 onClick={() => setActiveSection(tab.key)}
-                className={`rounded-md border px-2 py-1 text-xs ${
+                className={`shrink-0 rounded-md border px-2.5 py-1.5 text-xs whitespace-nowrap ${
                   isActive
                     ? hasConflict
                       ? 'border-amber-600 bg-amber-500/20 text-foreground'
@@ -220,7 +220,7 @@ export default function WhatMonitorResultsPanel({ pack = null, t }) {
                       ? 'border-amber-500/60 bg-amber-500/10 text-amber-900 dark:text-amber-100'
                       : isMissing
                         ? 'border-dashed border-border text-muted-foreground'
-                        : 'border-border text-muted-foreground'
+                        : 'border-border text-muted-foreground hover:bg-muted/40'
                 }`}
               >
                 {tab.label}

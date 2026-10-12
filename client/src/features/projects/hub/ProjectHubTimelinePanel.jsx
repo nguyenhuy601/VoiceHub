@@ -1288,8 +1288,7 @@ export default function ProjectHubTimelinePanel({
         )}
         canChangeStatus={Boolean(
           Array.isArray(hubCaps?.permissions) &&
-            (hubCaps.permissions.includes('task:change_status') ||
-              hubCaps.permissions.includes('task:drag_to_done'))
+            hubCaps.permissions.includes('task:change_status')
         )}
         onClose={() => setDetailIssue(null)}
         onOpenWorkItem={(card) => {

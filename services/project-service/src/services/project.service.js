@@ -1015,19 +1015,16 @@ async function attachProjectCapabilities(payload, userId, projectId) {
   }
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
   const bypass = resolved.isOrgAdmin || resolved.isCreator;
-  // SoD analysis/planning/handover: matrix theo role key (tránh seed cũ / creator dump).
+  // SoD + ops: cùng SoT doc.permissions (matrixPermissionsFromRoleKeys ≡ union).
+  // Creator/orgAdmin bypass vẫn tách; PATCH giữ SOD_LOCKED.
   const roleMatrixPerms = matrixPermissionsFromRoleKeys(resolved.roles || []);
   const matrixHas = (key) => hasPermission(roleMatrixPerms, key);
-  // Ops (Settings/Members/Board…): matrix ∪ permissions Admin gắn trên ProjectRole doc.
   const roleUnionPerms = unionPermissionsFromRoles(resolved.roles || []);
   const unionHas = (key) => hasPermission(roleUnionPerms, key);
   const canImportFromRole =
     matrixHas('analysis:artifact_import') && matrixHas('analysis:document_upload');
-  /** Draft / gửi lại changes_requested — chỉ BA theo role matrix (không creator/admin bypass). */
-  const canBaAuthorFromRole =
-    matrixHas('analysis:submit_ba_review') ||
-    matrixHas('analysis:artifact_import') ||
-    matrixHas('analysis:ba_review');
+  /** Draft BA — canonical submit gate (không OR chéo key). */
+  const canBaAuthorFromRole = matrixHas('analysis:submit_ba_review');
   let hasAnalysisTechReviewer = false;
   let hasPlanningTechReviewer = false;
   try {
@@ -1045,19 +1042,20 @@ async function attachProjectCapabilities(payload, userId, projectId) {
     capabilities: {
       ...resolved.capabilities,
       permissions: roleUnionPerms,
-      canManagePlanning: unionHas('project:edit'),
+      canManagePlanning: matrixHas('planning:artifact_edit'),
       canManageMembers: unionHas('members:manage'),
-      canViewMembers:
-        bypass || unionHas('members:view') || unionHas('members:manage'),
-      // Khớp updateProject: settings:update | project:edit | creator/org-admin.
-      canManageSettings:
-        bypass || unionHas('settings:update') || unionHas('project:edit'),
+      canViewMembers: bypass || unionHas('members:view'),
+      canManageSettings: bypass || unionHas('settings:update'),
+      canManageLists: unionHas('board:manage_lists'),
+      canManageBoard: unionHas('board:admin'),
+      /** Matrix Project Role trong dự án (PO/PM) — khác settings:update; catalog org = Admin. */
+      canManageProjectRoles: unionHas('project:roles'),
+      /** UI chrome sprint — cùng domain sprint:* (BE action vẫn 1 key). */
       canManageSprints:
-        unionHas('sprint:create') ||
-        unionHas('sprint:start') ||
-        unionHas('sprint:close') ||
-        unionHas('project:edit'),
-      canDeleteSprint: unionHas('sprint:delete') || unionHas('project:edit'),
+        unionHas('sprint:create') || unionHas('sprint:start') || unionHas('sprint:close'),
+      canStartSprint: unionHas('sprint:start'),
+      canCloseSprint: unionHas('sprint:close'),
+      canDeleteSprint: unionHas('sprint:delete'),
       canCreateEpic: unionHas('epic:create'),
       canUpdateEpic: unionHas('epic:update'),
       canDeleteEpic: unionHas('epic:delete'),
@@ -1068,6 +1066,7 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       canPrioritizeBacklog: unionHas('backlog:prioritize'),
       canUpdateBacklog: unionHas('backlog:update'),
       canEstimate: unionHas('task:estimate'),
+      canViewActivityTab: bypass || unionHas('activity:view'),
       canViewAnalysis: bypass || matrixHas('analysis:view'),
       canEditAnalysis: matrixHas('analysis:artifact_edit'),
       canImportAnalysis: canImportFromRole,
@@ -1088,15 +1087,15 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       canCutSrs: matrixHas('analysis:cut_srs'),
       canViewPlanning: bypass || matrixHas('planning:view'),
       canEditPlanning: matrixHas('planning:artifact_edit'),
-      canReviewPlanning:
-        matrixHas('planning:tech_review') ||
-        matrixHas('planning:pm_review') ||
-        matrixHas('planning:po_review'),
+      canReviewPlanning: matrixHas('planning:pm_review'),
       canReviewPlanningTech: matrixHas('planning:tech_review'),
       canReviewPlanningPm: matrixHas('planning:pm_review'),
       canReviewPlanningPo: matrixHas('planning:po_review'),
       canCutPlanningBaseline: matrixHas('planning:cut_baseline'),
       canPublishPlanningWbs: matrixHas('planning:publish_wbs'),
+      canManageDelivery: unionHas('delivery:manage'),
+      canCompleteProject: unionHas('project:complete'),
+      canArchiveProject: unionHas('project:archive'),
     },
   };
 }
@@ -1109,8 +1108,8 @@ async function listProjectMembersForUser({ userId, projectId }) {
     await assertUserAnyProjectPermission({
       userId,
       projectId,
-      permissions: ['members:view', 'members:manage'],
-      message: 'Không có quyền xem thành viên dự án',
+      permissions: ['members:view'],
+      message: 'Không có quyền xem thành viên dự án (members:view)',
     });
   }
   const { listProjectMemberships } = require('./projectTeam.service');
@@ -1269,7 +1268,6 @@ async function patchProject({ userId, projectId, patch }) {
     }
     const canSettings =
       hasPermission(resolved.permissions, 'settings:update') ||
-      hasPermission(resolved.permissions, 'project:edit') ||
       resolved.isOrgAdmin ||
       resolved.isCreator;
     if (!canSettings && !phaseLikePatch) {
@@ -1617,7 +1615,7 @@ async function archiveProject({ userId, projectId }) {
     const resolved = await assertUserAnyProjectPermission({
       userId,
       projectId,
-      permissions: ['project:archive', 'project:delete'],
+      permissions: ['project:archive'],
       message: 'Không có quyền đóng dự án (project:archive)',
     });
     skipCompleteGate = canSkipCompleteGateBeforeArchive({
@@ -1851,10 +1849,9 @@ async function getProjectActivity({ userId, projectId, limit = 50 }) {
     const canView =
       resolved.isOrgAdmin ||
       resolved.isCreator ||
-      hasPermission(resolved.permissions, 'task:view') ||
-      hasPermission(resolved.permissions, 'project:view');
+      hasPermission(resolved.permissions, 'activity:view');
     if (!canView) {
-      const err = new Error('Không có quyền xem activity');
+      const err = new Error('Không có quyền xem activity (activity:view)');
       err.statusCode = 403;
       err.errorCode = 'PROJECT_PERMISSION_DENIED';
       err.messageUser = 'Không có quyền xem activity';
@@ -1988,7 +1985,7 @@ async function listProjectSprints({ userId, projectId }) {
     await assertUserAnyProjectPermission({
       userId,
       projectId,
-      permissions: ['sprint:view', 'project:view'],
+      permissions: ['sprint:view'],
       message: 'Không có quyền xem sprint (sprint:view)',
     });
   }
@@ -2011,7 +2008,7 @@ async function createProjectSprint({
   await assertProjectMatrixOrAdmin(
     userId,
     project,
-    ['sprint:create', 'project:edit'],
+    ['sprint:create'],
     'Không có quyền tạo sprint (sprint:create)'
   );
   const title = String(name || '').trim();
@@ -2055,17 +2052,17 @@ async function patchProjectSprint({ userId, projectId, sprintId, patch = {} }) {
   const project = await getProject({ userId, projectId });
   assertProjectWritable(project);
   const statusNext = patch.status !== undefined ? String(patch.status || '').trim() : '';
-  const sprintPerms =
+  const sprintPerm =
     statusNext === 'closed'
-      ? ['sprint:close', 'project:edit']
+      ? 'sprint:close'
       : statusNext === 'active'
-        ? ['sprint:start', 'sprint:create', 'project:edit']
-        : ['sprint:create', 'project:edit'];
+        ? 'sprint:start'
+        : 'sprint:create';
   await assertProjectMatrixOrAdmin(
     userId,
     project,
-    sprintPerms,
-    'Không có quyền cập nhật sprint'
+    [sprintPerm],
+    `Không có quyền cập nhật sprint (${sprintPerm})`
   );
   const sprint = await Sprint.findOne({ _id: sprintId, projectId });
   if (!sprint) {
@@ -2110,7 +2107,7 @@ async function deleteProjectSprint({ userId, projectId, sprintId }) {
   await assertProjectMatrixOrAdmin(
     userId,
     project,
-    ['sprint:delete', 'project:edit'],
+    ['sprint:delete'],
     'Không có quyền xóa sprint (sprint:delete)'
   );
   const sprint = await Sprint.findOne({ _id: sprintId, projectId });
