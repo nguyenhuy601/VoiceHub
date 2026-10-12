@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../locales/appStrings';
+import { useShellLayout } from '../../context/ShellLayoutContext';
 import ProjectsLandingGrid from '../../features/projects/landing/ProjectsLandingGrid';
 import { isProjectListableForUi } from '../../features/projects/landing/projectLandingActive';
 import {
@@ -44,6 +45,9 @@ export default function ProjectsLandingPage() {
   const { t } = useAppStrings();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const [enteringId, setEnteringId] = useState(null);
+  const enteringLockRef = useRef(false);
+  const { showHeaderLoading, hideHeaderLoading } = useShellLayout();
   const orgId = orgQueryFromSearch(searchParams) || readStoredLastOrganizationId();
   const boardIdFromQuery = boardQueryFromSearch(searchParams);
   const boardRedirectTriedRef = useRef('');
@@ -166,28 +170,37 @@ export default function ProjectsLandingPage() {
   const handleSelect = useCallback(
     async (project) => {
       const projectId = String(project?._id || project?.projectId || '').trim();
-      if (!projectId) return;
-      const boardId = String(project?.defaultBoardId || project?.boards?.[0]?._id || '').trim();
-      const phase = String(project?.deliveryPhase || '').trim().toLowerCase();
-      let pack = null;
-      if (!phase || phase === 'requirement_analysis') {
-        try {
-          pack = await loadLinkedPackForAiNav(orgId, projectId);
-        } catch {
-          pack = null;
+      if (!projectId || enteringLockRef.current) return;
+      enteringLockRef.current = true;
+      setEnteringId(projectId);
+      showHeaderLoading(t('nav.projectsEntering'));
+      try {
+        const boardId = String(project?.defaultBoardId || project?.boards?.[0]?._id || '').trim();
+        const phase = String(project?.deliveryPhase || '').trim().toLowerCase();
+        let pack = null;
+        if (!phase || phase === 'requirement_analysis') {
+          try {
+            pack = await loadLinkedPackForAiNav(orgId, projectId);
+          } catch {
+            pack = null;
+          }
         }
+        navigate(
+          resolveAiProjectEntryPath({
+            projectId,
+            project,
+            pack,
+            boardId,
+            organizationId: orgId,
+          })
+        );
+      } finally {
+        enteringLockRef.current = false;
+        setEnteringId(null);
+        hideHeaderLoading();
       }
-      navigate(
-        resolveAiProjectEntryPath({
-          projectId,
-          project,
-          pack,
-          boardId,
-          organizationId: orgId,
-        })
-      );
     },
-    [navigate, orgId]
+    [hideHeaderLoading, navigate, orgId, showHeaderLoading, t]
   );
 
   if (!orgId) {
@@ -231,6 +244,7 @@ export default function ProjectsLandingPage() {
         createProjectDisabled={createDisabled}
         createProjectWithAiDisabled={createWithAiDisabled}
         onSelectProject={handleSelect}
+        enteringProjectId={enteringId}
       />
     </div>
   );

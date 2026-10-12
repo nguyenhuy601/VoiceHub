@@ -6,11 +6,13 @@ import AdminConfigTabsHubShell from '../../components/Admin/AdminConfigTabsHubSh
 import { adminSecondaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
 import OrganizationSettingsPanel from '../../components/Organization/OrganizationSettingsPanel';
 import RetentionPolicyPanel from '../adminTasks/RetentionPolicyPanel';
+import EffortEstimationSettingsPanel from './EffortEstimationSettingsPanel';
 import { useCompanyAdminContext } from '../../pages/Admin/CompanyAdminLayout';
 
 const TAB_COMPANY = 'company';
 const TAB_RETENTION = 'retention';
 const TAB_STRUCTURE = 'structure';
+const TAB_EFFORT = 'effort';
 
 function SettingsEmbed({ organization, lockTab, onUpdated }) {
   if (!organization) return null;
@@ -49,6 +51,10 @@ export default function SystemConfigHubPanel({ orgId }) {
       { id: TAB_COMPANY, label: t('adminDomains.systemConfig.company') },
       { id: TAB_RETENTION, label: t('adminDomains.systemConfig.retention') },
       { id: TAB_STRUCTURE, label: t('adminDomains.systemConfig.structure') },
+      {
+        id: TAB_EFFORT,
+        label: t('adminDomains.systemConfig.effortEstimation') || 'Effort estimation',
+      },
     ],
     [t]
   );
@@ -63,6 +69,10 @@ export default function SystemConfigHubPanel({ orgId }) {
       {({ activeTab }) => {
         if (activeTab === TAB_RETENTION) {
           return <RetentionPolicyPanel orgId={orgId} embedded />;
+        }
+        if (activeTab === TAB_EFFORT) {
+          if (!isFullAccess) return <NoAccessState />;
+          return <EffortEstimationSettingsPanel organizationId={orgId} />;
         }
         if (!isFullAccess) return <NoAccessState />;
         const lockTab = activeTab === TAB_STRUCTURE ? 'structure' : 'general';

@@ -697,13 +697,12 @@ export function formatHubProjectStatus(status, t) {
   return label === key ? raw : label;
 }
 
-/** i18n methodology (kanban / scrum / waterfall). */
+/** i18n methodology — product is Scrum-only; coerce display until DB migrate. */
 export function formatHubMethodology(methodology, t) {
-  const raw = String(methodology || '').trim();
-  if (!raw) return '';
-  const key = `workspace.projectHubMethodology_${raw.toLowerCase()}`;
+  if (!String(methodology || '').trim()) return '';
+  const key = 'workspace.projectHubMethodology_scrum';
   const label = t(key);
-  return label === key ? raw : label;
+  return label === key ? 'Scrum' : label;
 }
 
 /**

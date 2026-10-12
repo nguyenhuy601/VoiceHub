@@ -23,6 +23,7 @@ import {
 import { getVisibleAdminDomains } from '../../config/adminDomainsConfig';
 import AdminInsightTicker from '../../components/Admin/AdminInsightTicker';
 import useAdminHubInsights from '../../hooks/useAdminHubInsights';
+import { useAdminNavLoading } from '../../hooks/useAdminShellLoading';
 import { useAppStrings } from '../../locales/appStrings';
 import { useCompanyAdminContext } from './CompanyAdminLayout';
 
@@ -50,6 +51,7 @@ export default function AdminHubPage() {
   const { t } = useAppStrings();
   const { memberCount, orgId, isFullAccess } = useCompanyAdminContext();
   const { loading, messages, pendingCount, usersHref } = useAdminHubInsights(orgId);
+  const { markNavigating } = useAdminNavLoading();
   const domains = useMemo(() => getVisibleAdminDomains(isFullAccess), [isFullAccess]);
 
   return (
@@ -72,6 +74,7 @@ export default function AdminHubPage() {
             <Link
               key={domain.id}
               to={domain.path}
+              onClick={() => markNavigating()}
               className="group relative rounded-xl border border-border bg-card p-4 shadow-sm transition-[transform,border-color,background-color] duration-150 hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
             >
               <div className="flex items-start gap-3">

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Languages,
   LayoutDashboard,
+  Loader2,
   MessageCircle,
   PanelLeft,
   Shield,
@@ -103,13 +104,18 @@ export default function TopHeader() {
   const { locale, toggleLocale } = useLocale();
   const { isDarkMode, toggleTheme } = useTheme();
   const { t } = useAppStrings();
-  const { openMobileNav, mobileNavOpen } = useShellLayout();
+  const { openMobileNav, mobileNavOpen, headerLoadingLabel, hideHeaderLoading } = useShellLayout();
   const { currentSuite } = useWorkspaceSuite();
+  const headerLoading = headerLoadingLabel != null;
 
   const projectId = useMemo(
     () => projectIdFromPathname(location.pathname),
     [location.pathname]
   );
+
+  useEffect(() => {
+    hideHeaderLoading();
+  }, [location.pathname, hideHeaderLoading]);
   const { data: hubProject } = useQuery({
     queryKey: queryKeys.projectHub.project(projectId),
     queryFn: () => fetchProjectHubProject(projectId),
@@ -197,7 +203,21 @@ export default function TopHeader() {
           </div>
         </div>
 
-        <div className="min-w-0 flex-1" aria-hidden />
+        <div className="flex min-w-0 flex-1 items-center justify-center px-2">
+          {headerLoading ? (
+            <div
+              role="status"
+              aria-live="polite"
+              aria-busy="true"
+              className="inline-flex max-w-full items-center gap-2 rounded-xl border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-md"
+            >
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" aria-hidden />
+              <span className="truncate">
+                {headerLoadingLabel || t('common.loading')}
+              </span>
+            </div>
+          ) : null}
+        </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
           <div className="relative" ref={profileRef}>

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import useAdminMembers from '../../hooks/useAdminMembers';
-import { getInitials } from '../../utils/helpers';
+import UserAvatar from '../Shared/UserAvatar';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import {
   accountRoleLabel,
@@ -229,13 +229,13 @@ export default function AdminUserPicker({
                         active ? 'bg-primary-subtle' : 'hover:bg-muted'
                       }`}
                     >
-                      {m.avatar ? (
-                        <img src={m.avatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
-                      ) : (
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-foreground">
-                          {getInitials(name)}
-                        </div>
-                      )}
+                      <UserAvatar
+                        avatar={m.avatar}
+                        userId={id}
+                        name={name}
+                        size="chip"
+                        className="shrink-0"
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
                           <StatusDot member={m} t={t} />

@@ -928,6 +928,8 @@ export default function ProjectHubShell({
   projectId: projectIdProp = '',
   boardDetail = null,
   loadingBoardDetail = false,
+  /** True while project boards list is still resolving (avoid “chọn bảng” flash). */
+  loadingBoards = false,
   boards = [],
   isDarkMode = false,
   locale = 'vi',
@@ -1257,13 +1259,17 @@ export default function ProjectHubShell({
   }, [hubCaps, isSummaryOnly]);
 
   useEffect(() => {
+    // Suite sidebar owns URL when hideTabBar — do not bounce Operations deep-links
+    // (settings/members) to overview before caps load or when access is denied.
+    if (hideTabBar || !capsReady) return;
     if (isSummaryOnly && tab !== 'overview') setTab('overview');
-  }, [isSummaryOnly, tab]);
+  }, [isSummaryOnly, tab, hideTabBar, capsReady, setTab]);
 
   useEffect(() => {
+    if (hideTabBar || !capsReady) return;
     const allowed = new Set(visibleTabs.map((item) => item.id));
     if (tab && !allowed.has(tab)) setTab('overview');
-  }, [tab, visibleTabs]);
+  }, [tab, visibleTabs, hideTabBar, capsReady, setTab]);
 
   useEffect(() => {
     setVisitedTabs((prev) => (prev[tab] ? prev : { ...prev, [tab]: true }));
@@ -1531,6 +1537,10 @@ export default function ProjectHubShell({
   }, [projectId, needsFiles, queryClient]);
 
   const hasBoard = Boolean(boardId && resolvedBoard);
+  /** Boards/detail still resolving — never flash empty “select board” picker. */
+  const waitingForBoard =
+    !hasBoard &&
+    (Boolean(loadingBoards) || (Boolean(boardId) && Boolean(loadingBoardDetail)));
   const initials = projectInitials(resolvedBoard?.title);
   const muted = isDarkMode ? 'text-slate-400' : 'text-muted-foreground';
   const titleCls = isDarkMode ? 'text-white' : 'text-foreground';
@@ -1630,7 +1640,14 @@ export default function ProjectHubShell({
           ) : null}
           {toolbar}
         </div>
-        {emptySlot}
+        {waitingForBoard ? (
+          <div className="flex min-h-[12rem] flex-1 items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin shrink-0" aria-hidden />
+            <span>{t('common.loading')}</span>
+          </div>
+        ) : (
+          emptySlot
+        )}
       </div>
     );
   }
@@ -2066,6 +2083,17 @@ export default function ProjectHubShell({
           />
         </div>
         ) : null}
+        {tab === 'members' && hideTabBar && capsReady && !hubCaps.canViewMembers ? (
+          <div className="flex min-h-[8rem] items-center justify-center p-4 text-sm text-muted-foreground">
+            {t('workspace.projectHubMembersDenied')}
+          </div>
+        ) : null}
+        {tab === 'members' && hideTabBar && !capsReady ? (
+          <div className="flex min-h-[8rem] items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            <span>{t('common.loading')}</span>
+          </div>
+        ) : null}
         {tab === 'files' && hubCaps.canViewFiles ? <FilesPanel files={files} isDarkMode={isDarkMode} t={t} /> : null}
         {tab === 'activity' && hubCaps.canViewActivityTab ? (
           <ActivityPanel activity={activity} locale={locale} isDarkMode={isDarkMode} t={t} />
@@ -2090,6 +2118,17 @@ export default function ProjectHubShell({
             workTypeConfig={projectPayload?.workTypeConfig}
             priorityConfig={projectPayload?.priorityConfig}
           />
+        ) : null}
+        {tab === 'settings' && hideTabBar && capsReady && !hubCaps.canManageSettings ? (
+          <div className="flex min-h-[8rem] items-center justify-center p-4 text-sm text-muted-foreground">
+            {t('workspace.projectHubSettingsDenied')}
+          </div>
+        ) : null}
+        {tab === 'settings' && hideTabBar && !capsReady ? (
+          <div className="flex min-h-[8rem] items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            <span>{t('common.loading')}</span>
+          </div>
         ) : null}
 
         <ProjectHubCompleteSprintModal

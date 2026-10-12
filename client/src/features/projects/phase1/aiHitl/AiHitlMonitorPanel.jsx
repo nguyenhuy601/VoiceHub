@@ -13,6 +13,8 @@ import {
 import { resolveHowProgressViewModel } from './howProgressViewModel';
 import HowMonitorResultsPanel from './HowMonitorResultsPanel';
 import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
+import WhatMonitorResultsPanel from './WhatMonitorResultsPanel';
+import { shouldShowWhatMonitorResults } from './whatMonitorResultsVisibility';
 
 /**
  * Prefer last known mid-run macro/substep for same run (fills brief gaps after resume).
@@ -167,7 +169,15 @@ function MetaLine({ label, value }) {
   );
 }
 
-function WhatMonitorBody({ liveRun, phaseWhat, packStatus, pipeline, phaseDone, t }) {
+function WhatMonitorBody({
+  liveRun,
+  phaseWhat,
+  packStatus,
+  pipeline,
+  phaseDone,
+  rerunWhatButton = null,
+  t,
+}) {
   const [now, setNow] = useState(() => Date.now());
   const stickyRef = useRef({ runId: '', macroStep: 0, substep: null });
   const packNorm = String(packStatus || '')
@@ -272,6 +282,8 @@ function WhatMonitorBody({ liveRun, phaseWhat, packStatus, pipeline, phaseDone, 
           t={t}
         />
       ) : null}
+      {/* Same placement as HOW: action above Run meta — PO revise only */}
+      {phaseDone && !srsApproved && !inFlight ? rerunWhatButton : null}
       <div className="mt-3 space-y-0.5 border-t border-border pt-2">
         <MetaLine label="Run" value={String(vm.runId || '')} />
         <MetaLine
@@ -412,9 +424,14 @@ export default function AiHitlMonitorPanel({
   packStatus = '',
   pipeline = null,
   bootstrapping = false,
+  canStartWhat = false,
+  canRerunWhat = false,
   canRunHow = false,
   canRerunHow = false,
+  whatStartBusy = false,
   howStartBusy = false,
+  onStartWhat = null,
+  onRerunWhat = null,
   onStartHow = null,
   onRerunHow = null,
   t,
@@ -438,6 +455,45 @@ export default function AiHitlMonitorPanel({
     packNorm === 'approved' &&
     howNotStarted;
   const howInFlight = ['pending', 'running', 'queued', 'waiting_human'].includes(howStatus);
+
+  const startWhatButton =
+    canStartWhat && typeof onStartWhat === 'function' ? (
+      <button
+        type="button"
+        disabled={whatStartBusy}
+        onClick={onStartWhat}
+        className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+      >
+        {whatStartBusy ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        ) : (
+          <Play className="h-4 w-4" aria-hidden />
+        )}
+        {labelOf(t, 'requirements.aiHitlStartWhat', 'Chạy AI WHAT')}
+      </button>
+    ) : null;
+
+  const rerunWhatButton =
+    canRerunWhat && typeof onRerunWhat === 'function' ? (
+      <button
+        type="button"
+        disabled={whatStartBusy}
+        onClick={onRerunWhat}
+        className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted disabled:opacity-40"
+        title={labelOf(
+          t,
+          'requirements.aiHitlReviseUnderReviewHint',
+          'Chạy lại AI — reset duyệt BA→PO, BA phải xác nhận lại'
+        )}
+      >
+        {whatStartBusy ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        ) : (
+          <Play className="h-4 w-4" aria-hidden />
+        )}
+        {labelOf(t, 'requirements.aiHitlRevise', 'AI revise / chạy lại')}
+      </button>
+    ) : null;
 
   const startHowButton =
     howNotStarted && typeof onStartHow === 'function' ? (
@@ -502,13 +558,16 @@ export default function AiHitlMonitorPanel({
     );
   } else if (phase === 'idle') {
     body = (
-      <p className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-        {labelOf(
-          t,
-          'requirements.aiHitlMonitorIdle',
-          'Chưa chạy AI. Bấm «Chạy AI WHAT» để bắt đầu — Monitor sẽ hiện từng bước WHAT.'
-        )}
-      </p>
+      <section className="rounded-md border border-dashed border-border bg-card px-3 py-4">
+        <p className="text-sm text-muted-foreground">
+          {labelOf(
+            t,
+            'requirements.aiHitlMonitorIdle',
+            'Chưa chạy AI. Bấm «Chạy AI WHAT» để bắt đầu — Monitor sẽ hiện từng bước WHAT.'
+          )}
+        </p>
+        {startWhatButton}
+      </section>
     );
   } else if (phase === 'what') {
     body = (
@@ -518,6 +577,7 @@ export default function AiHitlMonitorPanel({
         packStatus={packStatus}
         pipeline={pipeline}
         phaseDone={false}
+        rerunWhatButton={rerunWhatButton}
         t={t}
       />
     );
@@ -541,6 +601,7 @@ export default function AiHitlMonitorPanel({
         packStatus={packStatus}
         pipeline={pipeline}
         phaseDone
+        rerunWhatButton={rerunWhatButton}
         t={t}
       />
     );
@@ -573,6 +634,9 @@ export default function AiHitlMonitorPanel({
         </p>
       </div>
       {body}
+      {shouldShowWhatMonitorResults(pack) ? (
+        <WhatMonitorResultsPanel pack={pack} t={t} />
+      ) : null}
       {shouldShowHowMonitorResults(pack) ? (
         <HowMonitorResultsPanel pack={pack} t={t} />
       ) : null}

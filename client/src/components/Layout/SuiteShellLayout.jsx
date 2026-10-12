@@ -1,6 +1,7 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { ShellLayoutProvider, useShellLayout } from '../../context/ShellLayoutContext';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import PageMotion from '../../motion/PageMotion';
 import JoinOrganizationModal from './JoinOrganizationModal';
 import NetworkOfflineBanner from './NetworkOfflineBanner';
 import ShellRoleBanner from './ShellRoleBanner';
@@ -28,7 +29,9 @@ function SuiteShellLayoutInner({ sidebar, landingDemo = false }) {
       <div className={FIGMA_SHELL_BODY}>
         {!hideChrome ? sidebar : null}
         <div className={FIGMA_SHELL_MAIN}>
-          <Outlet />
+          <PageMotion className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <Outlet />
+          </PageMotion>
         </div>
       </div>
     </div>

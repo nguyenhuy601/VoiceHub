@@ -7,6 +7,7 @@ import PlanningResourcesEffortPanel from './PlanningResourcesEffortPanel';
 import PlanningResourcesMatchPanel from './PlanningResourcesMatchPanel';
 import PlanningResourcesCapacityCalendarPanel from './PlanningResourcesCapacityCalendarPanel';
 import PlanningResourcesScheduleStaffingPanel from './PlanningResourcesScheduleStaffingPanel';
+import MeetingPlanPanel from './MeetingPlanPanel';
 
 const STEP_LABEL_KEYS = {
   wbs: 'workspace.phaseNavPlanningResourcesWbs',
@@ -53,10 +54,13 @@ export default function PlanningResourcesShell({
     );
   } else if (step === 'capacity') {
     body = (
-      <PlanningResourcesCapacityCalendarPanel
-        projectId={projectId}
-        organizationId={organizationId}
-      />
+      <div className="space-y-4">
+        <MeetingPlanPanel projectId={projectId} />
+        <PlanningResourcesCapacityCalendarPanel
+          projectId={projectId}
+          organizationId={organizationId}
+        />
+      </div>
     );
   } else if (step === 'schedule') {
     body = <PlanningResourcesScheduleStaffingPanel projectId={projectId} />;

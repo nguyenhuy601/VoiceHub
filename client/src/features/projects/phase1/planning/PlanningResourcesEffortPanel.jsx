@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Modal from '../../../../components/Shared/Modal';
 import { planningAPI } from '../../../../services/api/planningAPI';
@@ -186,33 +187,44 @@ export default function PlanningResourcesEffortPanel({ projectId }) {
       )}
 
       <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {leaves.map((a) => {
-          const id = String(a._id || a.id);
-          const r = assessEffortReadiness(a);
-          return (
-            <li key={id}>
-              <button
-                type="button"
-                className="flex h-full w-full flex-col gap-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-left hover:bg-muted/30"
-                onClick={() => openLeaf(a)}
-              >
-                <span className="line-clamp-2 text-sm font-medium text-foreground">{a.title || '—'}</span>
-                <span className="text-[11px] text-muted-foreground">
-                  {[
-                    r.hasDescription ? '2a✓' : '2a·',
-                    r.hasRoleOrSkill ? '2b✓' : '2b·',
-                    r.hasEffort ? `2c ${r.effortHours}h / ${r.manday}d` : '2c·',
-                  ].join('  ')}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-        {!leaves.length && !wbsQ.isLoading ? (
-          <li className="rounded-xl border border-dashed border-border bg-muted/15 px-3 py-6 text-center text-xs text-muted-foreground sm:col-span-2">
-            {t('workspace.phase1StaffingWbsEmpty')}
+        {wbsQ.isLoading ? (
+          <li className="flex items-center justify-center gap-2 rounded-xl border border-border bg-muted/15 px-3 py-6 text-xs text-muted-foreground sm:col-span-2 xl:col-span-3">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            <span>{t('common.loading')}</span>
           </li>
-        ) : null}
+        ) : (
+          <>
+            {leaves.map((a) => {
+              const id = String(a._id || a.id);
+              const r = assessEffortReadiness(a);
+              return (
+                <li key={id}>
+                  <button
+                    type="button"
+                    className="flex h-full w-full flex-col gap-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-left hover:bg-muted/30"
+                    onClick={() => openLeaf(a)}
+                  >
+                    <span className="line-clamp-2 text-sm font-medium text-foreground">
+                      {a.title || '—'}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {[
+                        r.hasDescription ? '2a✓' : '2a·',
+                        r.hasRoleOrSkill ? '2b✓' : '2b·',
+                        r.hasEffort ? `2c ${r.effortHours}h / ${r.manday}d` : '2c·',
+                      ].join('  ')}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+            {!leaves.length ? (
+              <li className="rounded-xl border border-dashed border-border bg-muted/15 px-3 py-6 text-center text-xs text-muted-foreground sm:col-span-2">
+                {t('workspace.phase1StaffingWbsEmpty')}
+              </li>
+            ) : null}
+          </>
+        )}
       </ul>
 
       <Modal

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -32,7 +32,6 @@ export default function Phase2GateBanner({
   const { capabilities } = useProjectCapabilities(projectId);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState('manual');
-  const [methodology, setMethodology] = useState('kanban');
   const [busy, setBusy] = useState(false);
   const [stagingOpen, setStagingOpen] = useState(false);
 
@@ -55,12 +54,6 @@ export default function Phase2GateBanner({
   const showBanner =
     gateRelevant && phase === 'delivery_planning' && ready && !stagingPending;
 
-  useEffect(() => {
-    if (String(stagingSummary?.methodology || '')) {
-      setMethodology(String(stagingSummary.methodology));
-    }
-  }, [stagingSummary?.methodology]);
-
   const invalidateHub = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.project(projectId) });
     await queryClient.invalidateQueries({
@@ -74,7 +67,7 @@ export default function Phase2GateBanner({
     try {
       await projectAPI.advancePhase2(projectId, {
         mode: 'automation',
-        methodology,
+        methodology: 'scrum',
         importWorkItems: false,
         applyAssignees: false,
         publishWbs: true,
@@ -99,16 +92,7 @@ export default function Phase2GateBanner({
     } finally {
       setBusy(false);
     }
-  }, [
-    projectId,
-    busy,
-    methodology,
-    t,
-    invalidateHub,
-    navigate,
-    organizationId,
-    searchParams,
-  ]);
+  }, [projectId, busy, t, invalidateHub, navigate, organizationId, searchParams]);
 
   const onConfirmChooser = useCallback(() => {
     if (mode === 'manual') {
@@ -228,23 +212,6 @@ export default function Phase2GateBanner({
               </label>
             </div>
 
-            {mode === 'automation' ? (
-              <label className="mt-3 block text-sm">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t('workspace.phase2Methodology')}
-                </span>
-                <select
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5"
-                  value={methodology}
-                  onChange={(e) => setMethodology(e.target.value)}
-                >
-                  <option value="kanban">Kanban</option>
-                  <option value="scrum">Scrum</option>
-                  <option value="waterfall">Waterfall</option>
-                </select>
-              </label>
-            ) : null}
-
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
@@ -273,7 +240,6 @@ export default function Phase2GateBanner({
 
       <Phase2ManualStagingModal
         projectId={projectId}
-        methodology={methodology}
         open={stagingOpen}
         onClose={() => setStagingOpen(false)}
         onSubmitted={invalidateHub}

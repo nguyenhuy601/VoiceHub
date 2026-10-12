@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAdminTabLoading } from '../../hooks/useAdminShellLoading';
 import AdminOrgUnitPicker from '../adminOrgStructure/AdminOrgUnitPicker';
 import { AdminUserPanelShell } from '../adminUsers/adminUserPanelUi';
 import { AdminHubTablist, AdminHubTabPanel, useAdminHubTabIds } from './AdminHubTablist';
@@ -56,6 +57,7 @@ export default function AdminOrgUnitOpsHubShell({
   }, [searchParams, tabParam, tabs, defaultTab]);
 
   const unitId = String(searchParams.get('unitId') || '').trim();
+  const { markTabSwitch } = useAdminTabLoading(activeTab);
 
   const pickerOverride = getPickerProps?.(activeTab) || {};
   const resolvedItems = pickerOverride.items ?? items;
@@ -64,6 +66,7 @@ export default function AdminOrgUnitOpsHubShell({
   const resolvedBadgeFn = pickerOverride.badgeFn ?? badgeFn;
 
   const setTab = (nextId) => {
+    markTabSwitch(nextId);
     const params = new URLSearchParams(searchParams);
     if (nextId === defaultTab) params.delete(tabParam);
     else params.set(tabParam, nextId);

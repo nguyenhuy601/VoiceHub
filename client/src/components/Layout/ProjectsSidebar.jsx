@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Activity,
@@ -6,7 +6,6 @@ import {
   Bot,
   Calendar,
   ChevronDown,
-  ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   FileSpreadsheet,
@@ -15,6 +14,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   List,
+  Loader2,
   Lock,
   MessageCircle,
   Plus,
@@ -29,6 +29,10 @@ import { useWorkspace } from '../../context/WorkspaceContext';
 import { useShellLayout } from '../../context/ShellLayoutContext';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import SidebarPositionFooter from './SidebarPositionFooter';
+import NavCollapse from '../../motion/NavCollapse';
+import { VH_NAV_CHEVRON } from '../../motion/classes';
+import useMotionPresence from '../../motion/useMotionPresence';
+import { VH_MOTION_BASE_MS } from '../../motion/tokens';
 import {
   FIGMA_SIDEBAR,
   FIGMA_SIDEBAR_COLLAPSED,
@@ -195,7 +199,16 @@ const MODULE_ICONS = {
   'planning-approval': Activity,
 };
 
-function NavItem({ item, collapsed, suiteColor, isActive, expanded, onToggleExpand }) {
+function NavItem({
+  item,
+  collapsed,
+  suiteColor,
+  isActive,
+  expanded,
+  onToggleExpand,
+  isPending = false,
+  onNavigatePending,
+}) {
   const Icon = item.icon || LayoutDashboard;
   const locked = Boolean(item.locked);
   const readOnly = Boolean(item.readOnly) && !locked;
@@ -210,7 +223,16 @@ function NavItem({ item, collapsed, suiteColor, isActive, expanded, onToggleExpa
         />
       )}
       {indent > 0 ? <span className="w-3 shrink-0" aria-hidden /> : null}
-      <Icon size={15} className="shrink-0" style={{ color: isActive && !locked ? suiteColor : undefined }} />
+      {isPending ? (
+        <Loader2
+          size={15}
+          className="shrink-0 animate-spin"
+          style={{ color: suiteColor }}
+          aria-hidden
+        />
+      ) : (
+        <Icon size={15} className="shrink-0" style={{ color: isActive && !locked ? suiteColor : undefined }} />
+      )}
       {!collapsed && (
         <span
           className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[0.8125rem] tracking-tight"
@@ -218,6 +240,7 @@ function NavItem({ item, collapsed, suiteColor, isActive, expanded, onToggleExpa
             fontWeight: isActive && !locked ? 500 : 400,
             color: locked ? 'rgba(255,255,255,0.28)' : isActive ? '#E2E8F0' : undefined,
             fontSize: indent > 0 ? '0.75rem' : undefined,
+            opacity: isPending ? 0.7 : undefined,
           }}
         >
           {item.label}
@@ -225,7 +248,7 @@ function NavItem({ item, collapsed, suiteColor, isActive, expanded, onToggleExpa
       )}
       {hasChildren && !collapsed && !locked ? (
         <span
-          className="shrink-0 text-white/40"
+          className={`${VH_NAV_CHEVRON} text-white/40 ${expanded ? 'rotate-0' : '-rotate-90'}`}
           aria-hidden
           onClick={(e) => {
             e.preventDefault();
@@ -242,7 +265,7 @@ function NavItem({ item, collapsed, suiteColor, isActive, expanded, onToggleExpa
           role="button"
           tabIndex={0}
         >
-          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <ChevronDown size={12} />
         </span>
       ) : null}
       {readOnly && !collapsed ? (
@@ -295,8 +318,10 @@ function NavItem({ item, collapsed, suiteColor, isActive, expanded, onToggleExpa
       to={targetPath}
       className="group relative block"
       title={linkTitle}
+      aria-busy={isPending || undefined}
       onClick={() => {
         if (hasChildren) onToggleExpand?.(item.key, true);
+        onNavigatePending?.(item.key);
       }}
     >
       <div className={className} style={style}>
@@ -310,11 +335,12 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   const [collapsed, setCollapsed] = useState(false);
   const [showSuitePicker, setShowSuitePicker] = useState(false);
   const [expandedNavParents, setExpandedNavParents] = useState(() => new Set(['planning-resources']));
+  const [pendingModule, setPendingModule] = useState(null);
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useAppStrings();
   const { navigateToSuite } = useWorkspaceSuite();
-  const { mobileNavOpen, closeMobileNav } = useShellLayout();
+  const { mobileNavOpen, closeMobileNav, showHeaderLoading, hideHeaderLoading } = useShellLayout();
   const { canAccessHub, isSystemAdmin } = useCompanyAdminAccess();
   const showAdminSuite = canAccessHub && !isSystemAdmin;
   const { projectId: projectIdParam, module: moduleParam, planningModule } = useParams();
@@ -326,12 +352,25 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
     ? `planning-${String(planningModule).toLowerCase()}`
     : normalizeProjectModule(moduleParam || '');
 
-  const { data: projectRow } = useQuery({
+  const { data: projectRow, isPending: projectRowPending } = useQuery({
     queryKey: queryKeys.projectHub.project(projectId),
     queryFn: () => fetchProjectHubProject(projectId),
     enabled: Boolean(projectId),
     staleTime: 30_000,
   });
+
+  useEffect(() => {
+    setPendingModule(null);
+    hideHeaderLoading();
+  }, [location.pathname, hideHeaderLoading]);
+
+  const onNavPending = useCallback(
+    (moduleKey) => {
+      setPendingModule(moduleKey);
+      showHeaderLoading(t('nav.projectsModuleSwitching'));
+    },
+    [showHeaderLoading, t]
+  );
 
   const viewerRoleKeys = useMemo(() => {
     const raw =
@@ -552,11 +591,47 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
     }
   }, [location.pathname, postItems]);
 
-  const visibleSectionItems = (items) =>
-    items.filter((item) => {
-      if (!item.navChildOf) return true;
-      return expandedNavParents.has(item.navChildOf);
+  const renderSectionNav = (items) => {
+    const roots = items.filter((item) => !item.navChildOf);
+    return roots.map((item) => {
+      const children = items.filter((child) => child.navChildOf === item.key);
+      const parentOpen = expandedNavParents.has(item.key) && !railCollapsed;
+      return (
+        <div key={item.key} className="mb-px">
+          <NavItem
+            item={item}
+            collapsed={railCollapsed}
+            suiteColor={suiteColor}
+            isActive={isItemActive(item)}
+            expanded={expandedNavParents.has(item.key)}
+            onToggleExpand={toggleNavParent}
+            isPending={pendingModule === item.key}
+            onNavigatePending={onNavPending}
+          />
+          {children.length > 0 ? (
+            <NavCollapse open={parentOpen} className="ml-0.5 border-l border-white/10 pl-0.5">
+              {children.map((child) => (
+                <NavItem
+                  key={child.key}
+                  item={child}
+                  collapsed={false}
+                  suiteColor={suiteColor}
+                  isActive={isItemActive(child)}
+                  isPending={pendingModule === child.key}
+                  onNavigatePending={onNavPending}
+                />
+              ))}
+            </NavCollapse>
+          ) : null}
+        </div>
+      );
     });
+  };
+
+  const { mounted: suitePickerMounted, phase: suitePickerPhase } = useMotionPresence(
+    showSuitePicker && !railCollapsed,
+    { durationMs: VH_MOTION_BASE_MS }
+  );
 
   return (
     <>
@@ -600,8 +675,8 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
                   </span>
                   <ChevronsRight
                     size={10}
-                    className="shrink-0 opacity-70"
-                    style={{ color: suiteColor, transform: showSuitePicker ? 'rotate(90deg)' : 'none' }}
+                    className={`${VH_NAV_CHEVRON} ${showSuitePicker ? 'rotate-90' : 'rotate-0'}`}
+                    style={{ color: suiteColor }}
                   />
                 </button>
                 <button
@@ -632,8 +707,13 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
             )}
           </div>
 
-          {showSuitePicker && !railCollapsed && (
-            <div className="absolute left-2 right-2 top-[calc(100%+4px)] z-[200] animate-scale-in overflow-hidden rounded-xl border border-white/10 bg-[#0D0D1A] shadow-2xl">
+          {suitePickerMounted ? (
+            <div
+              className="absolute left-2 right-2 top-[calc(100%+4px)] z-[200] overflow-hidden rounded-xl border border-white/10 bg-[#0D0D1A] shadow-2xl vh-presence-overlay vh-motion-respect"
+              data-motion-phase={suitePickerPhase || 'enter'}
+              role="menu"
+            >
+              <div className="vh-presence-panel px-0 py-0">
               <div className="px-2.5 pb-1 pt-2 text-[0.575rem] font-bold uppercase tracking-widest text-white/25">
                 {t('nav.chooseSpace')}
               </div>
@@ -685,8 +765,9 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
                 );
               })}
               <div className="h-1.5" />
+              </div>
             </div>
-          )}
+          ) : null}
         </div>
 
         {projectId && !railCollapsed ? (
@@ -711,7 +792,7 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
           </div>
         )}
 
-        <nav className={FIGMA_SIDEBAR_NAV}>
+        <nav className={FIGMA_SIDEBAR_NAV} aria-busy={Boolean(pendingModule) || undefined}>
           {!projectId
             ? preItems.map((item) => (
                 <NavItem
@@ -722,26 +803,26 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
                   isActive={isItemActive(item)}
                 />
               ))
-            : groupedPost.map((section) => (
-                <div key={section.group} className="mb-1">
-                  {!railCollapsed && section.label ? (
-                    <div className="px-2.5 pb-0.5 pt-2 text-[0.55rem] font-bold uppercase tracking-wider text-white/25">
-                      {section.label}
-                    </div>
-                  ) : null}
-                  {visibleSectionItems(section.items).map((item) => (
-                    <NavItem
-                      key={item.key}
-                      item={item}
-                      collapsed={railCollapsed}
-                      suiteColor={suiteColor}
-                      isActive={isItemActive(item)}
-                      expanded={expandedNavParents.has(item.key)}
-                      onToggleExpand={toggleNavParent}
-                    />
-                  ))}
-                </div>
-              ))}
+            : projectRowPending && !projectRow
+              ? Array.from({ length: 4 }).map((_, idx) => (
+                  <div
+                    key={`nav-skel-${idx}`}
+                    className={`mx-2 mb-1.5 rounded-md bg-white/10 animate-pulse ${
+                      railCollapsed ? 'h-8 w-8' : 'h-8'
+                    }`}
+                    aria-hidden
+                  />
+                ))
+              : groupedPost.map((section) => (
+                  <div key={section.group} className="mb-1">
+                    {!railCollapsed && section.label ? (
+                      <div className="px-2.5 pb-0.5 pt-2 text-[0.55rem] font-bold uppercase tracking-wider text-white/25">
+                        {section.label}
+                      </div>
+                    ) : null}
+                    {renderSectionNav(section.items)}
+                  </div>
+                ))}
         </nav>
 
         <div className={FIGMA_SIDEBAR_FOOTER}>

@@ -1,7 +1,8 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppStrings } from '../../../locales/appStrings';
+import { useShellLayout } from '../../../context/ShellLayoutContext';
 import ProjectsLandingGrid from '../landing/ProjectsLandingGrid';
 import { isProjectListableForUi } from '../landing/projectLandingActive';
 import {
@@ -35,6 +36,9 @@ export default function ProjectPickerPage() {
   const { t } = useAppStrings();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const [enteringId, setEnteringId] = useState(null);
+  const enteringLockRef = useRef(false);
+  const { showHeaderLoading, hideHeaderLoading } = useShellLayout();
   const orgId = orgQueryFromSearch(searchParams) || readStoredLastOrganizationId();
 
   const { organization } = useOrganizationDetail(orgId);
@@ -75,29 +79,38 @@ export default function ProjectPickerPage() {
   const enterProject = useCallback(
     async (project) => {
       const projectId = String(project?._id || project?.projectId || '').trim();
-      if (!projectId) return;
+      if (!projectId || enteringLockRef.current) return;
+      enteringLockRef.current = true;
+      setEnteringId(projectId);
+      showHeaderLoading(t('nav.projectsEntering'));
       writeStoredLastProjectId(projectId);
-      const boardId = String(project?.defaultBoardId || project?.boards?.[0]?._id || '').trim();
-      const phase = String(project?.deliveryPhase || '').trim().toLowerCase();
-      let pack = null;
-      if (!phase || phase === 'requirement_analysis') {
-        try {
-          pack = await loadLinkedPackForAiNav(orgId, projectId);
-        } catch {
-          pack = null;
+      try {
+        const boardId = String(project?.defaultBoardId || project?.boards?.[0]?._id || '').trim();
+        const phase = String(project?.deliveryPhase || '').trim().toLowerCase();
+        let pack = null;
+        if (!phase || phase === 'requirement_analysis') {
+          try {
+            pack = await loadLinkedPackForAiNav(orgId, projectId);
+          } catch {
+            pack = null;
+          }
         }
+        navigate(
+          resolveAiProjectEntryPath({
+            projectId,
+            project,
+            pack,
+            boardId,
+            organizationId: orgId,
+          })
+        );
+      } finally {
+        enteringLockRef.current = false;
+        setEnteringId(null);
+        hideHeaderLoading();
       }
-      navigate(
-        resolveAiProjectEntryPath({
-          projectId,
-          project,
-          pack,
-          boardId,
-          organizationId: orgId,
-        })
-      );
     },
-    [navigate, orgId]
+    [hideHeaderLoading, navigate, orgId, showHeaderLoading, t]
   );
 
   const handleCreate = useCallback(() => {
@@ -157,8 +170,13 @@ export default function ProjectPickerPage() {
         <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-3">
           <button
             type="button"
+            disabled={Boolean(enteringId)}
+            aria-busy={
+              enteringId ===
+              String(continueProject._id || continueProject.projectId || '').trim()
+            }
             onClick={() => enterProject(continueProject)}
-            className="text-sm font-semibold text-primary hover:underline"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline disabled:pointer-events-none disabled:opacity-60"
           >
             {t('nav.projectsContinue')}:{' '}
             {continueProject.title || continueProject.name || rememberedId}
@@ -174,6 +192,7 @@ export default function ProjectPickerPage() {
           createProjectDisabled={createDisabled}
           createProjectWithAiDisabled={createWithAiDisabled}
           onSelectProject={enterProject}
+          enteringProjectId={enteringId}
         />
       </div>
     </div>

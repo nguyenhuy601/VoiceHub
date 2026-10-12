@@ -1,0 +1,70 @@
+---
+description: Quy chuẩn animation/motion enterprise VoiceHub — token, map action→pattern, presence overlay, cấm invent keyframes
+globs: client/src/**/*.{jsx,tsx,css,js}
+alwaysApply: false
+---
+
+# Enterprise Motion Standard (SoT)
+
+CSS-first. Compose token/primitive từ `client/src/motion/` + utilities `vh-motion-*` / `vh-presence-*`. **Không** bật `framer-motion` trên feature pages. **Không** invent `@keyframes` / duration / easing ad-hoc.
+
+Chi tiết API: `client/src/motion/tokens.js`, `client/src/motion/classes.js`, `client/src/index.css`.
+
+## Tokens (khóa)
+
+| Token | Giá trị | Dùng cho |
+|-------|---------|----------|
+| `--vh-motion-fast` / `VH_MOTION_FAST_MS` | 100ms | hover color, row, press |
+| `--vh-motion-base` / `VH_MOTION_BASE_MS` | 150ms | button, input, tab fade, tooltip |
+| `--vh-motion-slow` / `VH_MOTION_SLOW_MS` | 220ms | modal/drawer/page enter-exit |
+| `--vh-motion-ease` | `cubic-bezier(0.4, 0, 0.2, 1)` | mặc định |
+| `--vh-motion-ease-out` | `cubic-bezier(0, 0, 0.2, 1)` | enter overlay |
+| `--vh-motion-ease-in` | `cubic-bezier(0.4, 0, 1, 1)` | exit overlay |
+| Distance | 4px Y / 8px X / scale 0.96 | fade-up / slide / scale |
+
+Nguyên tắc: ngắn, mượt — **không** bounce, spring mạnh, glow marketing.
+
+## Map action → pattern
+
+| Action | Pattern | Primitive |
+|--------|---------|-----------|
+| Click CTA | color 150ms + `active:scale(0.97)` | `vh-motion-btn` / `VH_MOTION_BTN` |
+| Hover row | bg 100ms | `vh-motion-row` |
+| Hover card | lift 2px + shadow; reduce tắt translate | `vh-motion-card` |
+| Modal open/close | backdrop fade + panel scale; presence exit | `useMotionPresence` + `vh-presence-*` |
+| Drawer | translateX 220ms | `vh-presence-drawer-right/left` |
+| Sidebar submenu / accordion | grid-rows + fade-up 220ms | `NavCollapse` / `vh-nav-collapse` |
+| Tab / segment | content `fade-in-fast` 150ms | `VH_MOTION_TAB_PANEL` |
+| Route change | `PageMotion` fade-in-fast | `client/src/motion/PageMotion.jsx` |
+| Popover | fade + 4px Y | `vh-presence-popover` |
+| Toast | slide-up + fade | `FIGMA_TOAST_ROOT` (SoT) |
+| Skeleton | `vh-skeleton`; reduce = static | existing |
+
+## Presence (overlay)
+
+```text
+isOpen true  → mounted=true, phase=enter
+isOpen false → phase=exit → sau duration (reduce=0) → mounted=false
+```
+
+- Public Modal/Confirm API giữ `isOpen` / `onClose`.
+- A11y (`useModalA11y`) theo **logical** `isOpen`; visual theo `phase`.
+- Exit: `pointer-events: none` trên overlay.
+
+## Cấm
+
+- `transition: all` mới (nợ `vh-transition` — alias, không nhân rộng).
+- Animate `width` / `height` layout thrash — ưu tiên `opacity` + `transform`.
+- Page-fade mỗi message chat/voice; invent keyframes feature khi đã có token.
+- Dùng legacy `animate-fadeIn` / `animate-scaleIn` trên Shared mới — dùng `animate-fade-in` / `animate-scale-in` + presence.
+
+## Reduced motion
+
+Mọi primitive mới: `vh-motion-respect` + `@media (prefers-reduced-motion: reduce)` → duration 0 / `animation: none` / không transform. Hook presence: duration 0 khi OS reduce.
+
+## Checklist trước khi coi xong UI có motion
+
+- [ ] Dùng token/class từ `client/src/motion` hoặc `vh-motion-*` / `vh-presence-*`
+- [ ] Không thêm keyframes one-off trừ domain đặc thù (waveform, board DnD) đã out-of-scope SoT
+- [ ] Có `motion-reduce` / `vh-motion-respect`
+- [ ] Overlay mount/unmount qua `useMotionPresence` nếu cần exit

@@ -32,6 +32,7 @@ export default function ProjectsLandingGrid({
   onSelectProject,
   onCreateTeam,
   onSelectTeam,
+  enteringProjectId = null,
 }) {
   const { t, locale } = useAppStrings();
   const useProjects = true;
@@ -150,22 +151,30 @@ export default function ProjectsLandingGrid({
     const nextHintLabelKey = card.nextHintLabelKey || nextHint?.key || null;
     const nextHintParams = card.nextHintParams || nextHint?.params || null;
     const nextHintText = nextHintLabelKey ? t(nextHintLabelKey, nextHintParams || {}) : '';
+    const isEntering =
+      Boolean(enteringProjectId) && String(card.id) === String(enteringProjectId);
+    const enterBlocked = Boolean(enteringProjectId);
 
     return (
       <div
         key={card.id}
         role="button"
-        tabIndex={0}
-        onClick={() =>
-          card.isProject ? onSelectProject?.(card.raw, card.id) : onSelectTeam?.(card.raw, card.id)
-        }
-        onKeyDown={(e) => {
-          if (e.key === 'Enter')
-            card.isProject
-              ? onSelectProject?.(card.raw, card.id)
-              : onSelectTeam?.(card.raw, card.id);
+        tabIndex={enterBlocked ? -1 : 0}
+        aria-busy={isEntering || undefined}
+        aria-disabled={enterBlocked || undefined}
+        onClick={() => {
+          if (enterBlocked) return;
+          if (card.isProject) onSelectProject?.(card.raw, card.id);
+          else onSelectTeam?.(card.raw, card.id);
         }}
-        className={`${FIGMA_WS_TEAM_CARD} group`}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || enterBlocked) return;
+          if (card.isProject) onSelectProject?.(card.raw, card.id);
+          else onSelectTeam?.(card.raw, card.id);
+        }}
+        className={`${FIGMA_WS_TEAM_CARD} group ${
+          enterBlocked ? 'pointer-events-none' : ''
+        } ${isEntering ? 'ring-2 ring-primary/40' : enterBlocked ? 'opacity-60' : ''}`}
       >
         <div className="flex items-start gap-3">
           <div

@@ -1012,23 +1012,26 @@ async function attachProjectCapabilities(payload, userId, projectId) {
     isProjectRbacV2Enabled,
     hasPermission,
     matrixPermissionsFromRoleKeys,
+    unionPermissionsFromRoles,
   } = require('../utils/project/projectPermissionMatrix');
   if (!isProjectRbacV2Enabled()) {
     return payload;
   }
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
   const bypass = resolved.isOrgAdmin || resolved.isCreator;
-  // Nút trên UI theo role key (PO / PM / BA / Tech). Không dùng creator/admin dump —
-  // dump đó làm PM thấy nút duyệt BA, Tech, PO.
+  // SoD analysis/planning/handover: matrix theo role key (tránh seed cũ / creator dump).
   const roleMatrixPerms = matrixPermissionsFromRoleKeys(resolved.roles || []);
-  const roleHas = (key) => hasPermission(roleMatrixPerms, key);
+  const matrixHas = (key) => hasPermission(roleMatrixPerms, key);
+  // Ops (Settings/Members/Board…): matrix ∪ permissions Admin gắn trên ProjectRole doc.
+  const roleUnionPerms = unionPermissionsFromRoles(resolved.roles || []);
+  const unionHas = (key) => hasPermission(roleUnionPerms, key);
   const canImportFromRole =
-    roleHas('analysis:artifact_import') && roleHas('analysis:document_upload');
+    matrixHas('analysis:artifact_import') && matrixHas('analysis:document_upload');
   /** Draft / gửi lại changes_requested — chỉ BA theo role matrix (không creator/admin bypass). */
   const canBaAuthorFromRole =
-    roleHas('analysis:submit_ba_review') ||
-    roleHas('analysis:artifact_import') ||
-    roleHas('analysis:ba_review');
+    matrixHas('analysis:submit_ba_review') ||
+    matrixHas('analysis:artifact_import') ||
+    matrixHas('analysis:ba_review');
   let hasAnalysisTechReviewer = false;
   let hasPlanningTechReviewer = false;
   try {
@@ -1045,57 +1048,59 @@ async function attachProjectCapabilities(payload, userId, projectId) {
     ...payload,
     capabilities: {
       ...resolved.capabilities,
-      permissions: roleMatrixPerms,
-      canManagePlanning: roleHas('project:edit'),
-      canManageMembers: roleHas('members:manage'),
+      permissions: roleUnionPerms,
+      canManagePlanning: unionHas('project:edit'),
+      canManageMembers: unionHas('members:manage'),
       canViewMembers:
-        bypass || roleHas('members:view') || roleHas('members:manage'),
-      canManageSettings: roleHas('settings:update') || roleHas('project:edit'),
+        bypass || unionHas('members:view') || unionHas('members:manage'),
+      // Khớp updateProject: settings:update | project:edit | creator/org-admin.
+      canManageSettings:
+        bypass || unionHas('settings:update') || unionHas('project:edit'),
       canManageSprints:
-        roleHas('sprint:create') ||
-        roleHas('sprint:start') ||
-        roleHas('sprint:close') ||
-        roleHas('project:edit'),
-      canDeleteSprint: roleHas('sprint:delete') || roleHas('project:edit'),
-      canCreateEpic: roleHas('epic:create'),
-      canUpdateEpic: roleHas('epic:update'),
-      canDeleteEpic: roleHas('epic:delete'),
-      canCreateStory: roleHas('story:create'),
-      canUpdateStory: roleHas('story:update'),
-      canCreateTask: roleHas('task:create'),
-      canCreateBug: roleHas('bug:create'),
-      canPrioritizeBacklog: roleHas('backlog:prioritize'),
-      canUpdateBacklog: roleHas('backlog:update'),
-      canEstimate: roleHas('task:estimate'),
-      canViewAnalysis: bypass || roleHas('analysis:view'),
-      canEditAnalysis: roleHas('analysis:artifact_edit'),
+        unionHas('sprint:create') ||
+        unionHas('sprint:start') ||
+        unionHas('sprint:close') ||
+        unionHas('project:edit'),
+      canDeleteSprint: unionHas('sprint:delete') || unionHas('project:edit'),
+      canCreateEpic: unionHas('epic:create'),
+      canUpdateEpic: unionHas('epic:update'),
+      canDeleteEpic: unionHas('epic:delete'),
+      canCreateStory: unionHas('story:create'),
+      canUpdateStory: unionHas('story:update'),
+      canCreateTask: unionHas('task:create'),
+      canCreateBug: unionHas('bug:create'),
+      canPrioritizeBacklog: unionHas('backlog:prioritize'),
+      canUpdateBacklog: unionHas('backlog:update'),
+      canEstimate: unionHas('task:estimate'),
+      canViewAnalysis: bypass || matrixHas('analysis:view'),
+      canEditAnalysis: matrixHas('analysis:artifact_edit'),
       canImportAnalysis: canImportFromRole,
       /** BA chủ trì draft / sửa sau request-changes — role matrix, không bypass creator. */
       canBaAuthorAnalysis: canBaAuthorFromRole,
-      canReviewAnalysisBa: roleHas('analysis:ba_review'),
-      canReviewAnalysisTech: roleHas('analysis:tech_review'),
-      canReviewAnalysisPo: roleHas('analysis:po_review'),
+      canReviewAnalysisBa: matrixHas('analysis:ba_review'),
+      canReviewAnalysisTech: matrixHas('analysis:tech_review'),
+      canReviewAnalysisPo: matrixHas('analysis:po_review'),
       viewerProjectRoleKeys: Array.isArray(resolved.roles)
         ? resolved.roles.map((r) => String(r?.key || '').trim()).filter(Boolean)
         : [],
       hasAnalysisTechReviewer,
       hasPlanningTechReviewer,
-      canChangeDeliveryPhase: roleHas('delivery_phase:change'),
-      canSignOffUat: roleHas('uat:sign_off'),
+      canChangeDeliveryPhase: matrixHas('delivery_phase:change'),
+      canSignOffUat: matrixHas('uat:sign_off'),
       /** SoD Phase 4 — chỉ role matrix product_owner (handover:accept); không creator/admin dump. */
-      canAcceptHandover: roleHas('handover:accept'),
-      canCutSrs: roleHas('analysis:cut_srs'),
-      canViewPlanning: bypass || roleHas('planning:view'),
-      canEditPlanning: roleHas('planning:artifact_edit'),
+      canAcceptHandover: matrixHas('handover:accept'),
+      canCutSrs: matrixHas('analysis:cut_srs'),
+      canViewPlanning: bypass || matrixHas('planning:view'),
+      canEditPlanning: matrixHas('planning:artifact_edit'),
       canReviewPlanning:
-        roleHas('planning:tech_review') ||
-        roleHas('planning:pm_review') ||
-        roleHas('planning:po_review'),
-      canReviewPlanningTech: roleHas('planning:tech_review'),
-      canReviewPlanningPm: roleHas('planning:pm_review'),
-      canReviewPlanningPo: roleHas('planning:po_review'),
-      canCutPlanningBaseline: roleHas('planning:cut_baseline'),
-      canPublishPlanningWbs: roleHas('planning:publish_wbs'),
+        matrixHas('planning:tech_review') ||
+        matrixHas('planning:pm_review') ||
+        matrixHas('planning:po_review'),
+      canReviewPlanningTech: matrixHas('planning:tech_review'),
+      canReviewPlanningPm: matrixHas('planning:pm_review'),
+      canReviewPlanningPo: matrixHas('planning:po_review'),
+      canCutPlanningBaseline: matrixHas('planning:cut_baseline'),
+      canPublishPlanningWbs: matrixHas('planning:publish_wbs'),
     },
   };
 }

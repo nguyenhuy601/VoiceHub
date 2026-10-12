@@ -1,11 +1,18 @@
 /**
- * Gate 1 — human approve must respect Gate A tool quality (or forceApprove + audit).
+ * Gate 1 approve — Gate A is advisory by default (does not block).
+ * Set GATE_A_ENFORCE=1 to restore hard Gate A fail / missing behavior.
  * Pure; no Mongo.
  */
 
 function isRequirementGate1Enabled() {
   const raw = String(process.env.REQUIREMENT_GATE1 || '1').trim().toLowerCase();
   return raw !== '0' && raw !== 'false' && raw !== 'off';
+}
+
+/** Rollback: hard-enforce Gate A quality on approve. Default off (advisory). */
+function isGateAEnforceEnabled() {
+  const raw = String(process.env.GATE_A_ENFORCE || '0').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'on';
 }
 
 /**
@@ -113,6 +120,26 @@ function assertRequirementGate1Approve({
   const gateA = resolveGateAFromPack(pack);
   const forced = forceApprove === true || forceApprove === 'true' || forceApprove === 1;
   const reason = String(overrideReason || '').trim().slice(0, 2000);
+  const enforce = isGateAEnforceEnabled();
+
+  // Advisory default: Gate A quality never blocks approve (warnings only on FE).
+  if (!enforce) {
+    return {
+      ok: true,
+      gateA,
+      override: conflictGate.override || null,
+      g4: Boolean(g4Gate.g4),
+      conflictAmbiguity: conflictGate.gate || null,
+      gateAAdvisory: true,
+      gateAHasWarnings: Boolean(
+        gateA &&
+          (gateA.hasWarnings === true ||
+            gateA.passed === false ||
+            (Array.isArray(gateA.checks) &&
+              gateA.checks.some((c) => c && !c.skipped && c.passed === false)))
+      ),
+    };
+  }
 
   // G4-only AI path may not have classic GateA tools yet — allow when G4 ready
   if (!gateA && g4Gate.g4 && !g4Gate.override?.missingG4) {
@@ -212,6 +239,7 @@ function assertRequirementGate1Approve({
 
 module.exports = {
   isRequirementGate1Enabled,
+  isGateAEnforceEnabled,
   resolveGateAFromPack,
   assertRequirementGate1Approve,
   assertG4ReadyForGate1,

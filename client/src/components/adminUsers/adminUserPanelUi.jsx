@@ -142,7 +142,11 @@ export function adminDenseRowClass(extra = '') {
   return `border-b border-border transition-colors duration-150 hover:bg-muted motion-reduce:transition-none ${extra}`.trim();
 }
 
-/** Keyframes for AdminUserDetailDrawer enter (inject once via style tag if needed). */
+/**
+ * @deprecated Prefer SoT `vh-presence-drawer-right` + `useMotionPresence`
+ * (see client/src/motion + .cursor/rules/enterprise-motion.mdc).
+ * Kept for drawers chưa migrate.
+ */
 export const ADMIN_DRAWER_KEYFRAMES = `
 @keyframes admin-drawer-in {
   from { transform: translateX(100%); opacity: 0.85; }

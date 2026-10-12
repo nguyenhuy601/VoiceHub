@@ -30,7 +30,7 @@ const STATUS_FOR_DELIVERY_PHASE = Object.freeze({
 
 const PROJECT_CATEGORIES = Object.freeze(['internal', 'customer']);
 const PROJECT_PRIORITIES = Object.freeze(['low', 'medium', 'high', 'urgent']);
-const PROJECT_METHODOLOGIES = Object.freeze(['scrum', 'kanban', 'waterfall']);
+const PROJECT_METHODOLOGIES = Object.freeze(['scrum']);
 const PROJECT_TYPES = Object.freeze([
   'software',
   'integration',
@@ -154,9 +154,9 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
   }
 
   if (body.methodology !== undefined || !partial) {
-    const m = String(body.methodology || 'kanban').trim().toLowerCase() || 'kanban';
+    const m = String(body.methodology || 'scrum').trim().toLowerCase() || 'scrum';
     if (!PROJECT_METHODOLOGIES.includes(m)) {
-      return { ok: false, message: 'methodology phải là scrum, kanban hoặc waterfall' };
+      return { ok: false, message: 'methodology phải là scrum' };
     }
     fields.methodology = m;
   }
@@ -166,7 +166,7 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
       ? body.methodologySettings
       : {};
   if (body.methodologySettings !== undefined || body.methodology !== undefined || !partial) {
-    const methodology = fields.methodology || String(body.methodology || 'kanban').toLowerCase();
+    const methodology = fields.methodology || String(body.methodology || 'scrum').toLowerCase();
     const settings = {};
     if (methodology === 'scrum') {
       const dur = Number(settingsRaw.sprintDurationDays ?? body.sprintDurationDays ?? 14);
@@ -181,13 +181,6 @@ function buildProjectInitFields(raw = {}, { partial = false } = {}) {
         return { ok: false, message: 'sprintStartDay không hợp lệ' };
       }
       settings.sprintStartDay = day;
-    }
-    if (methodology === 'kanban') {
-      const wip = Number(settingsRaw.wipLimit ?? body.wipLimit ?? 0);
-      if (!Number.isFinite(wip) || wip < 0 || wip > 500) {
-        return { ok: false, message: 'wipLimit không hợp lệ' };
-      }
-      settings.wipLimit = Math.round(wip);
     }
     fields.methodologySettings = settings;
   }

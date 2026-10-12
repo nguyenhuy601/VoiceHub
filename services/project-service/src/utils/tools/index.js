@@ -13,6 +13,10 @@ const { descriptor: completenessDescriptor } = require('./recipe/requirementComp
 const { descriptor: consistencyDescriptor } = require('./recipe/requirementConsistency');
 const { descriptor: complexityDescriptor } = require('./recipe/requirementComplexity');
 const { descriptor: gateADescriptor } = require('./validation/gateA');
+const {
+  collectGateAAdvisorySignals,
+  applyAdvisorySignalsToGateA,
+} = require('./gateAAdvisorySignals');
 
 const { descriptor: similarityDescriptor } = require('./onDemand/similarityDuplicate');
 const { descriptor: ambiguityDescriptor } = require('./onDemand/ambiguityDetection');
@@ -63,19 +67,56 @@ function getDefaultRegistry() {
 function buildRequirementToolsAnalysis({ pack, snapshot, aiAnalysis, thresholds } = {}) {
   const bundle = projectCanonicalBundle({ pack, snapshot, aiAnalysis });
   const registry = getDefaultRegistry();
-  const wave = runRecipeWave(registry, bundle, { runGateA: true, thresholds });
+  const signals = collectGateAAdvisorySignals({ pack, aiAnalysis, snapshot });
+
+  // Similarity pairs feed duplicate count (exact/G4 + title) without auto-merge.
+  let similarityPairs = [];
+  try {
+    const sim = registry.execute(
+      'requirement_similarity_duplicate',
+      { fr: bundle.fr || [], threshold: 0.85 },
+      { allowedModes: ['on_demand'] }
+    );
+    similarityPairs = Array.isArray(sim?.data?.pairs) ? sim.data.pairs : [];
+  } catch {
+    similarityPairs = [];
+  }
+
+  const duplicateCount = Number(signals.duplicateCount || 0) + similarityPairs.length;
+  const advisoryInput = {
+    thresholds,
+    duplicateCount,
+    missingSections: signals.missingSections,
+    duplicateDetail: {
+      ...(signals.duplicateDetail || {}),
+      similarityPairCount: similarityPairs.length,
+    },
+  };
+
+  const wave = runRecipeWave(registry, bundle, {
+    runGateA: true,
+    thresholds,
+    gateAInput: advisoryInput,
+  });
+
+  const gateA = applyAdvisorySignalsToGateA(wave.gateA, {
+    duplicateCount,
+    missingSections: signals.missingSections,
+    duplicateDetail: advisoryInput.duplicateDetail,
+  });
 
   return {
     status: 'ready',
     model: 'deterministic-tools',
     generatedAt: null,
     recipe: wave.recipe,
-    gateA: wave.gateA,
+    gateA,
     facts: wave.facts,
     meta: {
       ...wave.meta,
       inputHashes: wave.inputHashes,
-      schema: 'requirementTools.v1',
+      schema: 'requirementTools.v2',
+      gateAMode: 'advisory',
     },
   };
 }
@@ -134,4 +175,6 @@ module.exports = {
   runRequirementReasoning: require('./runRequirementReasoning').runRequirementReasoning,
   buildProposedSrsDraft: require('./buildProposedSrsDraft').buildProposedSrsDraft,
   runPreApprovalValidation: require('./runPreApprovalValidation').runPreApprovalValidation,
+  collectGateAAdvisorySignals: require('./gateAAdvisorySignals').collectGateAAdvisorySignals,
+  applyAdvisorySignalsToGateA: require('./gateAAdvisorySignals').applyAdvisorySignalsToGateA,
 };

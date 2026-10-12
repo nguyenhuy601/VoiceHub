@@ -358,7 +358,7 @@ export default function useCreateProjectWizard({
     const payload = buildCreateBoardPayload(
       {
         ...form,
-        methodology: 'kanban',
+        methodology: 'scrum',
         members: slotsToSeedMembers({ ...emptyIntakeSlots(), ...(form.intakeSlots || {}) }),
         relatedDepartmentIds: [],
         projectManagerId: pm?.userId,
@@ -546,7 +546,7 @@ export default function useCreateProjectWizard({
     setupPanel: '',
     setSetupPanel: () => {},
     previewColumns: [],
-    workflowMeta: { methodology: 'kanban' },
+    workflowMeta: { methodology: 'scrum' },
   };
 }
 

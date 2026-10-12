@@ -52,10 +52,10 @@ const PREFIX_BY_ENGINE = Object.freeze({
 /** Tuned from live evalCount (3B) — avoid over-predict that burns wall time. */
 const DEFAULT_MAX_TOKENS = Object.freeze({
   bg: 448,
-  br: 400,
-  uc: 400,
+  br: 512,
+  uc: 640,
   bpm: 320,
-  data: 256,
+  data: 320,
   interface: 256,
 });
 

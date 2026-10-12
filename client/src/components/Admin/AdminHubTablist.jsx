@@ -1,4 +1,5 @@
 import { useId, useRef } from 'react';
+import { VH_MOTION_TAB_PANEL } from '../../motion/classes';
 
 /**
  * Tablist dùng chung cho hub admin (roving tabindex, Arrow/Home/End, cuộn ngang trên mobile).
@@ -52,7 +53,7 @@ export function AdminHubTablist({ idPrefix, label, tabs, activeTab, onSelect, cl
             tabIndex={active ? 0 : -1}
             onClick={() => onSelect(tab.id)}
             className={[
-              'shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-150 motion-reduce:transition-none',
+              'shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium vh-motion-btn motion-reduce:transform-none',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               active
                 ? 'bg-primary text-primary-foreground shadow-sm'
@@ -76,7 +77,7 @@ export function AdminHubTabPanel({ idPrefix, tabs, activeTab, className, childre
       aria-labelledby={hasTablist ? `${idPrefix}-tab-${activeTab}` : undefined}
       className={className}
     >
-      <div key={activeTab} className="motion-safe:animate-fade-in-fast">
+      <div key={activeTab} className={VH_MOTION_TAB_PANEL}>
         {children}
       </div>
     </div>

@@ -272,6 +272,42 @@ function frRowsForGrounding(pack, input) {
 }
 
 /** Use-cases from FR modules; if one module, chunk FRs into several UCs. */
+/**
+ * Ensure UC set covers FR behaviorKeys (edit/delete/list/dup) when LLM collapses CRUD.
+ */
+function topUpUseCasesFromFrBehaviors(existing, pack, input) {
+  const rows = [...asArray(existing)];
+  const blob = rows.map((r) => `${r.name || r.title || ''} ${r.goal || ''}`).join('\n');
+  const frs = asArray(input?.frSlim || pack?.functionalRequirements);
+  const need = [
+    { key: 'dup_warning', re: /trùng|cảnh\s*báo|duplicate/i, label: 'Cảnh báo trùng tên vai trò' },
+    { key: 'add_role', re: /thêm|tạo|create|add/i, label: 'Thêm vai trò' },
+    { key: 'list_view', re: /danh\s*sách|list|STT|xem/i, label: 'Xem danh sách vai trò' },
+    { key: 'edit', re: /sửa|chỉnh\s*sửa|edit|update/i, label: 'Sửa vai trò' },
+    { key: 'delete', re: /xoá|xóa|delete|remove/i, label: 'Xóa vai trò' },
+    { key: 'task_salary', re: /lương\s*nhiệm\s*vụ|task.?salary|công\s*thức/i, label: 'Cấu hình lương nhiệm vụ' },
+  ];
+  let added = 0;
+  let i = rows.length;
+  for (const n of need) {
+    if (n.re.test(blob)) continue;
+    const fr = frs.find((f) => f.behaviorKey === n.key) || frs.find((f) => n.re.test(`${f.name || ''} ${f.description || ''}`));
+    if (!fr && !frs.some((f) => n.re.test(`${f.name || ''} ${f.description || ''}`))) continue;
+    const src = fr || frs.find((f) => n.re.test(`${f.name || ''} ${f.description || ''}`));
+    i += 1;
+    rows.push({
+      id: `UC-${i}`,
+      name: src?.name || n.label,
+      primaryActor: src?.actor || 'Admin',
+      goal: n.label,
+      sourceRefs: [src?.id || src?.externalId].filter(Boolean),
+      relatedFrIds: [src?.id || src?.externalId].filter(Boolean),
+    });
+    added += 1;
+  }
+  return { rows, added };
+}
+
 function buildDeterministicUseCases(pack, input) {
   const rows = frRowsForGrounding(pack, input);
   const byMod = new Map();
@@ -404,8 +440,16 @@ function applySectionDeriveQuality(engineId, rows, pack, input) {
   }
   if (id === 'uc') {
     const existing = asArray(rows).filter((r) => String(r.name || r.title || '').trim());
-    if (existing.length >= 3) {
-      return { rows: existing, quality: { filtered: 0, seeded: false, reason: null } };
+    const topped = topUpUseCasesFromFrBehaviors(existing, pack, input);
+    if (topped.rows.length >= 3) {
+      return {
+        rows: topped.rows.slice(0, 6),
+        quality: {
+          filtered: 0,
+          seeded: topped.added > 0,
+          reason: topped.added > 0 ? 'UC_BEHAVIOR_TOPUP' : null,
+        },
+      };
     }
     const seeded = buildDeterministicUseCases(pack, input);
     return {
@@ -435,6 +479,7 @@ module.exports = {
   buildDeterministicInterfaces,
   buildDeterministicUseCases,
   buildDeterministicProcesses,
+  topUpUseCasesFromFrBehaviors,
   applySectionDeriveQuality,
   looksLikeActorEntity,
   looksLikeFrCopiedInterface,

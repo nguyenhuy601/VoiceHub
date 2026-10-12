@@ -213,6 +213,7 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - LLM_CHAT_MODEL=${LLM_CHAT_MODEL:-}
     networks:
       - enterprise-network
     deploy:
@@ -243,6 +244,7 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - LLM_CHAT_MODEL=${LLM_CHAT_MODEL:-}
     networks:
       - enterprise-network
     deploy:
@@ -274,6 +276,7 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - LLM_CHAT_MODEL=${LLM_CHAT_MODEL:-}
       - G7_EMBEDDING_MODEL=${G7_EMBEDDING_MODEL:-qwen3-embedding:0.6b}
       - G7_EMBEDDING_VERSION=${G7_EMBEDDING_VERSION:-ollama-qwen3-emb-0.6b}
       - AGENT_CORE_F2=${AGENT_CORE_F2:-1}
@@ -334,6 +337,9 @@ services:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
       - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - LLM_CHAT_MODEL=${LLM_CHAT_MODEL:-}
       - RABBITMQ_URL=${RABBITMQ_URL}
       - RABBITMQ_WBS_LLM_QUEUE=${RABBITMQ_WBS_LLM_QUEUE:-ai.planning.wbs_llm}
       - RABBITMQ_QUORUM_QUEUES=${RABBITMQ_QUORUM_QUEUES:-true}

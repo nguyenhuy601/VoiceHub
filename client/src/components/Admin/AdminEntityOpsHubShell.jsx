@@ -1,5 +1,6 @@
 import { useId, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAdminTabLoading } from '../../hooks/useAdminShellLoading';
 import AdminUserPicker from '../adminUsers/AdminUserPicker';
 import { AdminUserPanelShell } from '../adminUsers/adminUserPanelUi';
 
@@ -50,6 +51,7 @@ export default function AdminEntityOpsHubShell({
   }, [searchParams, tabParam, tabs, defaultTab]);
 
   const userId = String(searchParams.get('userId') || '').trim();
+  const { markTabSwitch } = useAdminTabLoading(activeTab);
 
   const pickerOverride = getPickerProps?.(activeTab) || {};
   const resolvedPickerHint = pickerOverride.pickerHint ?? pickerHint;
@@ -58,6 +60,7 @@ export default function AdminEntityOpsHubShell({
   const resolvedPickerEmptyLabel = pickerOverride.pickerEmptyLabel ?? pickerEmptyLabel;
 
   const setTab = (nextId) => {
+    markTabSwitch(nextId);
     const params = new URLSearchParams(searchParams);
     if (nextId === defaultTab) params.delete(tabParam);
     else params.set(tabParam, nextId);

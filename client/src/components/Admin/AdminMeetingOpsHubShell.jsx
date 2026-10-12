@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAdminTabLoading } from '../../hooks/useAdminShellLoading';
 import AdminMeetingPicker from '../adminVoice/AdminMeetingPicker';
 import { AdminUserPanelShell } from '../adminUsers/adminUserPanelUi';
 
@@ -28,8 +29,10 @@ export default function AdminMeetingOpsHubShell({
   }, [searchParams, tabParam, tabs, defaultTab]);
 
   const meetingId = String(searchParams.get('meetingId') || '').trim();
+  const { markTabSwitch } = useAdminTabLoading(activeTab);
 
   const setTab = (nextId) => {
+    markTabSwitch(nextId);
     const params = new URLSearchParams(searchParams);
     if (nextId === defaultTab) params.delete(tabParam);
     else params.set(tabParam, nextId);

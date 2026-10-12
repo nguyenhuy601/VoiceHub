@@ -16,7 +16,7 @@ export const PROJECT_TYPES = Object.freeze([
 ]);
 export const PROJECT_CATEGORIES = Object.freeze(['internal', 'customer']);
 export const PROJECT_PRIORITIES = Object.freeze(['low', 'medium', 'high', 'urgent']);
-export const PROJECT_METHODOLOGIES = Object.freeze(['scrum', 'kanban', 'waterfall']);
+export const PROJECT_METHODOLOGIES = Object.freeze(['scrum']);
 
 /** Lead + common delivery roles for Create Project team picker. */
 export const CREATE_PROJECT_TEAM_ROLE_KEYS = Object.freeze([
@@ -108,7 +108,7 @@ export function buildCreateBoardPayload(form, ctx = {}) {
     : 'internal';
   const methodology = PROJECT_METHODOLOGIES.includes(String(form.methodology || '').toLowerCase())
     ? String(form.methodology).toLowerCase()
-    : 'kanban';
+    : 'scrum';
 
   const payload = {
     organizationId,
@@ -163,9 +163,6 @@ export function buildCreateBoardPayload(form, ctx = {}) {
   if (methodology === 'scrum') {
     payload.sprintDurationDays = Number(form.sprintDurationDays || 14);
     payload.sprintStartDay = String(form.sprintStartDay || 'monday').toLowerCase();
-  }
-  if (methodology === 'kanban') {
-    payload.wipLimit = Number(form.wipLimit || 0);
   }
 
   if (category === 'customer') {

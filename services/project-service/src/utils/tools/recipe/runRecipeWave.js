@@ -7,7 +7,7 @@ const { createFactStore } = require('../factStore');
 /**
  * @param {object} registry
  * @param {object} bundle — CanonicalRequirementBundle
- * @param {{ runGateA?: boolean, thresholds?: object, factStore?: object, weights?: object }} options
+ * @param {{ runGateA?: boolean, thresholds?: object, factStore?: object, weights?: object, gateAInput?: object }} options
  */
 function runRecipeWave(registry, bundle, options = {}) {
   const factStore = options.factStore || createFactStore();
@@ -80,7 +80,12 @@ function runRecipeWave(registry, bundle, options = {}) {
   if (options.runGateA !== false) {
     gateA = registry.execute(
       'gate_a_requirement_quality',
-      { thresholds: options.thresholds },
+      {
+        thresholds: options.thresholds,
+        ...(options.gateAInput && typeof options.gateAInput === 'object'
+          ? options.gateAInput
+          : {}),
+      },
       {
         factStore,
         context: recipeOpts.context,

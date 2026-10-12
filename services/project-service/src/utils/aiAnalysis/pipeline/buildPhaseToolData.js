@@ -91,11 +91,28 @@ function buildPhaseToolData(snapshot, phaseJob) {
     },
   };
 
-  // Single SoT picker — never invent; meetingHours = alias for ScheduleTool
+  // Booked = Planned Allocation % commitment hours — NOT meeting demand.
+  // Deprecated alias meetingHoursByUserDay kept one wave for ScheduleTool compat.
   const bookedMap = pickBookedHoursByUserDay(toolData, snapshot);
   if (bookedMap) {
     toolData.bookedHoursByUserDay = bookedMap;
     toolData.meetingHoursByUserDay = bookedMap;
+  }
+  // MeetingPlan/Event demand (person-hours) — orthogonal to booked commitment
+  const meetingDemand =
+    toolData.meetingDemandHoursByUserDay ||
+    snapshot?.meetingDemandHoursByUserDay ||
+    snapshot?.canonical?.meetingDemandHoursByUserDay ||
+    null;
+  if (meetingDemand && typeof meetingDemand === 'object' && !Array.isArray(meetingDemand)) {
+    toolData.meetingDemandHoursByUserDay = meetingDemand;
+  }
+  if (snapshot?.meetingPlan || toolData.meetingPlan) {
+    toolData.meetingPlan = toolData.meetingPlan || snapshot.meetingPlan;
+  }
+  if (snapshot?.effortEstimationConfigVersionId || toolData.effortEstimationConfigVersionId) {
+    toolData.effortEstimationConfigVersionId =
+      toolData.effortEstimationConfigVersionId || snapshot.effortEstimationConfigVersionId;
   }
 
   toolData.inputFingerprint = fingerprint({

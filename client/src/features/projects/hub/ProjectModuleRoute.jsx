@@ -7,6 +7,7 @@ import CollaborateRequirementsPage from '../../requirements/CollaborateRequireme
 import SpaceCalendarModule from '../../spaceModules/SpaceCalendarModule';
 import SpaceDocumentsModule from '../../spaceModules/SpaceDocumentsModule';
 import SpaceProjectChatModule from '../../spaceModules/SpaceProjectChatModule';
+import ProjectMeetingsPanel from './ProjectMeetingsPanel';
 import Phase1Shell from '../phase1/Phase1Shell';
 import Phase4Shell from './phase4/Phase4Shell';
 import { isPhase4DeliveryPhase } from './phase4/phase4Ui';
@@ -16,6 +17,7 @@ import {
   isModuleAllowedForPhase,
   isPhase1DeliveryPhase,
   phaseHomeModule,
+  PROJECT_COLLAB_OPS_MODULES,
 } from '../../../utils/projectPhaseNav';
 import {
   ARTIFACT_KIND_BY_MODULE,
@@ -143,8 +145,10 @@ export default function ProjectModuleRoute() {
     Boolean(projectRow) &&
     isAiHitlIncomplete({ project: projectRow, pack: linkedPack || null });
 
-  // Incomplete AI → stay on ai-hitl in Phase1Shell; other modules redirect to HITL.
-  if (aiHitlIncomplete && module !== 'ai-hitl') {
+  // Incomplete AI → stay on ai-hitl; still allow Collaboration/Operations modules.
+  const collabOpsAllowed =
+    module === 'ai-hitl' || PROJECT_COLLAB_OPS_MODULES.includes(module);
+  if (aiHitlIncomplete && !collabOpsAllowed) {
     const hitlPath = resolveAiProjectEntryPath({
       projectId,
       project: projectRow,
@@ -189,7 +193,12 @@ export default function ProjectModuleRoute() {
   if (module === 'chat') {
     body = <SpaceProjectChatModule />;
   } else if (module === 'calendar') {
-    body = <SpaceCalendarModule />;
+    body = (
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-3 sm:p-4">
+        <ProjectMeetingsPanel projectId={projectId} />
+        <SpaceCalendarModule />
+      </div>
+    );
   } else if (module === 'documents') {
     body = <SpaceDocumentsModule />;
   } else if (module === 'requirements') {

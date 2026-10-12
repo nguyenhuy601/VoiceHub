@@ -115,6 +115,7 @@ async function setUserLocked(userId, locked) {
     userAuth.isActive = false;
     userAuth.lockUntil = null;
     userAuth.loginAttempts = 0;
+    userAuth.softLockCount = 0;
   } else {
     if (!userAuth.isEmailVerified) {
       throw createServiceError(
@@ -127,6 +128,7 @@ async function setUserLocked(userId, locked) {
     userAuth.isActive = true;
     userAuth.lockUntil = null;
     userAuth.loginAttempts = 0;
+    userAuth.softLockCount = 0;
   }
   await userAuth.save();
   await bumpTokenVersion(userAuth);

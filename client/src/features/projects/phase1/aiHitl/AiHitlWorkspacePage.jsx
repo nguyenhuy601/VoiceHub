@@ -78,6 +78,8 @@ function buildGate1Summary(pack) {
       typeof pack.aiAnalysis.analyses.requirementTools.gateA === 'object'
         ? {
             passed: Boolean(pack.aiAnalysis.analyses.requirementTools.gateA.passed),
+            hasWarnings: Boolean(pack.aiAnalysis.analyses.requirementTools.gateA.hasWarnings),
+            mode: pack.aiAnalysis.analyses.requirementTools.gateA.mode || 'advisory',
             checks: Array.isArray(pack.aiAnalysis.analyses.requirementTools.gateA.checks)
               ? pack.aiAnalysis.analyses.requirementTools.gateA.checks
               : [],
@@ -304,7 +306,25 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const canRerunHow =
     canReviewGate2Po && packHowEligible && !howInFlight && howHasResult;
 
-  /** Start / re-run HOW from Monitor (or header for PO). Review tab stays decide-only. */
+  const whatStatusNorm = String(phaseWhat?.status || '').trim().toLowerCase();
+  const whatHasPriorRun =
+    ['under_review', 'rejected'].includes(packStatusEarly) ||
+    ['ready', 'completed', 'confirmed', 'failed', 'error'].includes(whatStatusNorm) ||
+    Boolean(phaseWhat?.remoteRunId || phaseWhat?.runId);
+  /** First WHAT start — BA/run capability (Monitor idle). */
+  const canStartWhat =
+    canRun &&
+    !whatInFlight &&
+    !['approved', 'project_linked'].includes(packStatusEarly) &&
+    !whatHasPriorRun;
+  /** Revise / re-run WHAT — PO only (same SoD as HOW re-run). */
+  const canRerunWhat =
+    canApprove &&
+    !whatInFlight &&
+    !['approved', 'project_linked'].includes(packStatusEarly) &&
+    whatHasPriorRun;
+
+  /** Start / re-run HOW from Monitor card (PO re-run). Review tab stays decide-only. */
   const startHowManual = useCallback(
     async ({ force = false } = {}) => {
       if (!organizationId || !packId || busy) return;
@@ -1174,51 +1194,6 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
             packId={packId} · {packStatus || '—'}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {canRerunHow ? (
-            <button
-              type="button"
-              disabled={busy || howInFlight}
-              onClick={rerunHow}
-              className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-40"
-              title={
-                t('requirements.aiHitlRerunHowHint') ||
-                'Chạy lại Phase HOW (WBS…Schedule) — Gate 2 reset về PM'
-              }
-            >
-              {t('requirements.aiHitlRerunHow') || 'Chạy lại HOW'}
-            </button>
-          ) : null}
-          {canRun &&
-          !whatInFlight &&
-          packStatus !== 'approved' &&
-          packStatus !== 'project_linked' ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={
-                packStatus === 'under_review' ||
-                packStatus === 'rejected' ||
-                Boolean(phaseWhat?.remoteRunId || phaseWhat?.status === 'ready')
-                  ? reviseWhat
-                  : startWhatManual
-              }
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
-              title={
-                packStatus === 'under_review'
-                  ? t('requirements.aiHitlReviseUnderReviewHint') ||
-                    'Chạy lại AI — reset duyệt BA→PO, BA phải xác nhận lại'
-                  : undefined
-              }
-            >
-              {packStatus === 'under_review' ||
-              packStatus === 'rejected' ||
-              Boolean(phaseWhat?.remoteRunId || phaseWhat?.status === 'ready')
-                ? t('requirements.aiHitlRevise') || 'AI revise / chạy lại'
-                : t('requirements.aiHitlStartWhat') || 'Chạy AI WHAT'}
-            </button>
-          ) : null}
-        </div>
       </header>
 
       {errorMsg ? (
@@ -1262,9 +1237,14 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
                 : null
             }
             bootstrapping={Boolean(autoStarting || (wantStartWhat && !whatInFlight))}
+            canStartWhat={canStartWhat}
+            canRerunWhat={canRerunWhat}
             canRunHow={canRun && (packStatus === 'approved' || packStatus === 'project_linked')}
             canRerunHow={canRerunHow}
+            whatStartBusy={busy}
             howStartBusy={busy}
+            onStartWhat={startWhatManual}
+            onRerunWhat={reviseWhat}
             onStartHow={startHowFirst}
             onRerunHow={rerunHow}
             t={t}

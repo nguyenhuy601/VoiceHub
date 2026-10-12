@@ -91,6 +91,15 @@
   --error-bg: rgba(239, 68, 68, 0.1);
   --info: #06b6d4;
   --info-bg: rgba(6, 182, 212, 0.1);
+
+  /* Enterprise motion tokens — sync client/src/motion/tokens.js */
+  --vh-motion-fast: 100ms;
+  --vh-motion-base: 150ms;
+  --vh-motion-slow: 220ms;
+  --vh-motion-press: 80ms;
+  --vh-motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --vh-motion-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --vh-motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
 }
 
 html.light {
@@ -315,39 +324,134 @@ html.dark {
   }
 }
 
-/* Enterprise micro-interactions (Figma animations.css) */
+/* Enterprise micro-interactions (Figma + Motion SoT) */
 @layer utilities {
+  /* Legacy aliases — prefer vh-motion-*; do not add new transition: all */
   .vh-transition {
-    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all var(--vh-motion-base) var(--vh-motion-ease);
   }
 
   .vh-transition-fast {
-    transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all var(--vh-motion-fast) var(--vh-motion-ease);
   }
 
   .vh-transition-slow {
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all var(--vh-motion-slow) var(--vh-motion-ease);
+  }
+
+  .vh-motion-btn {
+    transition:
+      background-color var(--vh-motion-base) var(--vh-motion-ease),
+      color var(--vh-motion-base) var(--vh-motion-ease),
+      border-color var(--vh-motion-base) var(--vh-motion-ease),
+      box-shadow var(--vh-motion-base) var(--vh-motion-ease),
+      opacity var(--vh-motion-base) var(--vh-motion-ease),
+      transform var(--vh-motion-press) var(--vh-motion-ease);
+  }
+
+  .vh-motion-btn:active,
+  .vh-btn-press:active {
+    transform: scale(0.97);
   }
 
   .vh-btn-press:active {
-    transform: scale(0.97);
-    transition: transform 0.08s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform var(--vh-motion-press) var(--vh-motion-ease);
   }
 
+  .vh-motion-row {
+    transition: background-color var(--vh-motion-fast) var(--vh-motion-ease);
+  }
+
+  .vh-motion-row:hover,
+  .vh-row:hover {
+    background-color: var(--muted);
+  }
+
+  .vh-row:hover {
+    transition: background-color var(--vh-motion-fast) var(--vh-motion-ease);
+  }
+
+  .vh-motion-card,
   .vh-card-lift {
     transition:
-      box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-      transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow var(--vh-motion-slow) var(--vh-motion-ease),
+      transform var(--vh-motion-slow) var(--vh-motion-ease);
   }
 
+  .vh-motion-card:hover,
   .vh-card-lift:hover {
     box-shadow: var(--shadow-lg);
     transform: translateY(-2px);
   }
 
-  .vh-row:hover {
-    background-color: var(--muted);
-    transition: background-color 0.1s ease;
+  /* Presence overlays — data-motion-phase=enter|exit */
+  .vh-presence-overlay[data-motion-phase='exit'] {
+    pointer-events: none;
+  }
+
+  .vh-presence-overlay[data-motion-phase='enter'] .vh-presence-backdrop {
+    animation: vh-fade-in-fast var(--vh-motion-slow) var(--vh-motion-ease-out) forwards;
+  }
+
+  .vh-presence-overlay[data-motion-phase='exit'] .vh-presence-backdrop {
+    animation: vh-fade-out var(--vh-motion-slow) var(--vh-motion-ease-in) forwards;
+  }
+
+  .vh-presence-overlay[data-motion-phase='enter'] .vh-presence-panel {
+    animation: vh-scale-in var(--vh-motion-slow) var(--vh-motion-ease-out) forwards;
+  }
+
+  .vh-presence-overlay[data-motion-phase='exit'] .vh-presence-panel {
+    animation: vh-scale-out var(--vh-motion-slow) var(--vh-motion-ease-in) forwards;
+  }
+
+  .vh-presence-drawer-right[data-motion-phase='enter'] {
+    animation: vh-drawer-in-right var(--vh-motion-slow) var(--vh-motion-ease-out) forwards;
+  }
+
+  .vh-presence-drawer-right[data-motion-phase='exit'] {
+    animation: vh-drawer-out-right var(--vh-motion-slow) var(--vh-motion-ease-in) forwards;
+  }
+
+  .vh-presence-drawer-left[data-motion-phase='enter'] {
+    animation: vh-drawer-in-left var(--vh-motion-slow) var(--vh-motion-ease-out) forwards;
+  }
+
+  .vh-presence-drawer-left[data-motion-phase='exit'] {
+    animation: vh-drawer-out-left var(--vh-motion-slow) var(--vh-motion-ease-in) forwards;
+  }
+
+  .vh-presence-popover {
+    animation: vh-fade-in var(--vh-motion-base) var(--vh-motion-ease-out) forwards;
+  }
+
+  /* Suite sidebar submenu / accordion */
+  .vh-nav-collapse {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows var(--vh-motion-slow) var(--vh-motion-ease);
+  }
+
+  .vh-nav-collapse[data-open='true'] {
+    grid-template-rows: 1fr;
+  }
+
+  .vh-nav-collapse-inner {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .vh-nav-collapse-content {
+    opacity: 0;
+    transform: translateY(-4px);
+    transition:
+      opacity var(--vh-motion-base) var(--vh-motion-ease),
+      transform var(--vh-motion-slow) var(--vh-motion-ease);
+  }
+
+  .vh-nav-collapse[data-open='true'] .vh-nav-collapse-content {
+    opacity: 1;
+    transform: translateY(0);
   }
 
   .vh-focus-ring:focus-visible {
@@ -357,7 +461,9 @@ html.dark {
   }
 
   .vh-input-focus {
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition:
+      border-color var(--vh-motion-base) var(--vh-motion-ease),
+      box-shadow var(--vh-motion-base) var(--vh-motion-ease);
   }
 
   .vh-input-focus:focus {
@@ -421,7 +527,9 @@ html.dark {
     padding: 7px 10px;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    transition: background-color 0.12s ease, color 0.12s ease;
+    transition:
+      background-color var(--vh-motion-fast) var(--vh-motion-ease),
+      color var(--vh-motion-fast) var(--vh-motion-ease);
     -webkit-tap-highlight-color: transparent;
     user-select: none;
   }
@@ -460,12 +568,130 @@ html.dark {
   }
 }
 
+@keyframes vh-fade-in-fast {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vh-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes vh-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes vh-scale-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes vh-drawer-in-right {
+  from {
+    opacity: 0.85;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes vh-drawer-out-right {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0.85;
+    transform: translateX(100%);
+  }
+}
+
+@keyframes vh-drawer-in-left {
+  from {
+    opacity: 0.85;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes vh-drawer-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0.85;
+    transform: translateX(-100%);
+  }
+}
+
 .vh-anim-fade-in {
   @apply animate-fade-in;
 }
 
 .vh-anim-scale-in {
   @apply animate-scale-in;
+}
+
+/* Reduced motion — SoT vh-motion-respect */
+@media (prefers-reduced-motion: reduce) {
+  .vh-motion-respect,
+  .vh-motion-respect *,
+  .vh-presence-overlay.vh-motion-respect .vh-presence-backdrop,
+  .vh-presence-overlay.vh-motion-respect .vh-presence-panel,
+  .vh-presence-drawer.vh-motion-respect,
+  .vh-nav-collapse.vh-motion-respect,
+  .vh-nav-collapse.vh-motion-respect .vh-nav-collapse-content {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .vh-nav-collapse.vh-motion-respect[data-open='false'] {
+    display: none;
+  }
+
+  .vh-nav-collapse.vh-motion-respect[data-open='true'] .vh-nav-collapse-content {
+    opacity: 1;
+    transform: none;
+  }
+
+  .vh-motion-btn:active,
+  .vh-btn-press:active,
+  .vh-motion-card:hover,
+  .vh-card-lift:hover {
+    transform: none !important;
+  }
+
+  .vh-skeleton {
+    animation: none !important;
+  }
 }
 
 @keyframes vh-voice-wave {
@@ -528,7 +754,7 @@ html {
 }
 
 html.light {
-  background-color: #f8fafc;
+  background-color: #eef6ff;
 }
 
 body {

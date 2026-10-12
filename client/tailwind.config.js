@@ -153,29 +153,36 @@ export default {
       },
 
       transitionTimingFunction: {
-        enterprise: 'cubic-bezier(0.4, 0, 0.2, 1)',
+        enterprise: 'var(--vh-motion-ease)',
+        'enterprise-out': 'var(--vh-motion-ease-out)',
+        'enterprise-in': 'var(--vh-motion-ease-in)',
       },
       transitionDuration: {
-        fast: '100ms',
-        DEFAULT: '150ms',
-        slow: '250ms',
+        fast: 'var(--vh-motion-fast)',
+        DEFAULT: 'var(--vh-motion-base)',
+        slow: 'var(--vh-motion-slow)',
       },
 
-      /* ─── Animations (Figma animations.css + legacy) ─── */
+      /* ─── Animations (Enterprise Motion SoT + legacy deprecated) ─── */
       animation: {
-        'fade-in': 'vh-fade-in 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards',
-        'fade-in-fast': 'vh-fade-in-fast 0.15s cubic-bezier(0.4, 0, 0.2, 1) forwards',
-        'scale-in': 'vh-scale-in 0.18s cubic-bezier(0.4, 0, 0.2, 1) forwards',
-        'slide-in-left': 'vh-slide-in-left 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards',
-        'slide-in-right': 'vh-slide-in-right 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards',
+        'fade-in': 'vh-fade-in var(--vh-motion-base) var(--vh-motion-ease-out) forwards',
+        'fade-in-fast': 'vh-fade-in-fast var(--vh-motion-base) var(--vh-motion-ease-out) forwards',
+        'fade-out': 'vh-fade-out var(--vh-motion-slow) var(--vh-motion-ease-in) forwards',
+        'scale-in': 'vh-scale-in var(--vh-motion-slow) var(--vh-motion-ease-out) forwards',
+        'scale-out': 'vh-scale-out var(--vh-motion-slow) var(--vh-motion-ease-in) forwards',
+        'slide-in-left': 'vh-slide-in-left var(--vh-motion-base) var(--vh-motion-ease-out) forwards',
+        'slide-in-right': 'vh-slide-in-right var(--vh-motion-base) var(--vh-motion-ease-out) forwards',
+        'drawer-in-right': 'vh-drawer-in-right var(--vh-motion-slow) var(--vh-motion-ease-out) forwards',
+        'drawer-out-right': 'vh-drawer-out-right var(--vh-motion-slow) var(--vh-motion-ease-in) forwards',
         shimmer: 'vh-shimmer 1.8s infinite linear',
         spin: 'vh-spin 1s linear infinite',
-        /* Legacy — giữ cho trang cũ */
+        /* Legacy — deprecated; prefer fade-in / scale-in / slide-in-* */
         'slide-in': 'slideIn 0.3s ease-out',
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         float: 'float 3s ease-in-out infinite',
         slideUp: 'slideUp 0.8s ease-out',
-        scaleIn: 'scaleIn 0.6s ease-out',
+        scaleIn: 'vh-scale-in var(--vh-motion-slow) var(--vh-motion-ease-out) forwards',
+        fadeIn: 'vh-fade-in-fast var(--vh-motion-base) var(--vh-motion-ease-out) forwards',
       },
       keyframes: {
         'vh-shimmer': {
@@ -190,9 +197,17 @@ export default {
           from: { opacity: '0' },
           to: { opacity: '1' },
         },
+        'vh-fade-out': {
+          from: { opacity: '1' },
+          to: { opacity: '0' },
+        },
         'vh-scale-in': {
           from: { opacity: '0', transform: 'scale(0.96)' },
           to: { opacity: '1', transform: 'scale(1)' },
+        },
+        'vh-scale-out': {
+          from: { opacity: '1', transform: 'scale(1)' },
+          to: { opacity: '0', transform: 'scale(0.96)' },
         },
         'vh-slide-in-left': {
           from: { opacity: '0', transform: 'translateX(-8px)' },
@@ -202,10 +217,26 @@ export default {
           from: { opacity: '0', transform: 'translateX(8px)' },
           to: { opacity: '1', transform: 'translateX(0)' },
         },
+        'vh-drawer-in-right': {
+          from: { opacity: '0.85', transform: 'translateX(100%)' },
+          to: { opacity: '1', transform: 'translateX(0)' },
+        },
+        'vh-drawer-out-right': {
+          from: { opacity: '1', transform: 'translateX(0)' },
+          to: { opacity: '0.85', transform: 'translateX(100%)' },
+        },
+        'vh-drawer-in-left': {
+          from: { opacity: '0.85', transform: 'translateX(-100%)' },
+          to: { opacity: '1', transform: 'translateX(0)' },
+        },
+        'vh-drawer-out-left': {
+          from: { opacity: '1', transform: 'translateX(0)' },
+          to: { opacity: '0.85', transform: 'translateX(-100%)' },
+        },
         'vh-spin': {
           to: { transform: 'rotate(360deg)' },
         },
-        /* Legacy keyframes */
+        /* Legacy keyframes — deprecated */
         fadeIn: {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },

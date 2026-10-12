@@ -20,22 +20,44 @@ function frId(row) {
   return String(row?.externalId || row?.logicalId || row?.id || row?.frId || '').trim();
 }
 
+function extractFormulaSnippet(text) {
+  const t = String(text || '');
+  const m = t.match(/Lương\s*=\s*[^\n.]{8,120}/i) || t.match(/Số\s*lượng\s*[x×*]\s*[^\n.]{5,80}/i);
+  return m ? clip(m[0], 120) : '';
+}
+
 function takeFrSlim(pack, opts = {}, max = 40) {
-  const fromProposal = asArray(opts.proposal?.generated?.functionalRequirements?.items).map((row) => ({
-    id: String(row.logicalId || row.id || '').trim(),
-    name: clip(row.title || row.name, 120),
-    module: clip(row.module || row.moduleLabel, 80),
-    actor: clip(row.actor || row.primaryActor, 60),
-  }));
-  const fromPack = asArray(pack?.functionalRequirements).map((row) => ({
-    id: frId(row),
-    name: clip(row.name || row.title, 120),
-    module: clip(
-      row.module || row.moduleLabel || row.feature || row.functional_scope || row.functionalScope || row.area,
-      80
-    ),
-    actor: clip(row.actor || row.primaryActor || row.userActor, 60),
-  }));
+  const fromProposal = asArray(opts.proposal?.generated?.functionalRequirements?.items).map((row) => {
+    const desc = clip(row.description || row.detail || '', 280);
+    const item = {
+      id: String(row.logicalId || row.id || '').trim(),
+      name: clip(row.title || row.name, 120),
+      module: clip(row.module || row.moduleLabel, 80),
+      actor: clip(row.actor || row.primaryActor, 60),
+      description: desc,
+    };
+    const formula = extractFormulaSnippet(`${row.description || ''} ${row.acceptanceCriteria || ''}`);
+    if (formula) item.formula = formula;
+    if (row.behaviorKey) item.behaviorKey = String(row.behaviorKey);
+    return item;
+  });
+  const fromPack = asArray(pack?.functionalRequirements).map((row) => {
+    const desc = clip(row.description || '', 280);
+    const item = {
+      id: frId(row),
+      name: clip(row.name || row.title, 120),
+      module: clip(
+        row.module || row.moduleLabel || row.feature || row.functional_scope || row.functionalScope || row.area,
+        80
+      ),
+      actor: clip(row.actor || row.primaryActor || row.userActor, 60),
+      description: desc,
+    };
+    const formula = extractFormulaSnippet(`${row.description || ''} ${row.acceptanceCriteria || ''}`);
+    if (formula) item.formula = formula;
+    if (row.behaviorKey) item.behaviorKey = String(row.behaviorKey);
+    return item;
+  });
   const out = [];
   const seen = new Set();
   for (const row of [...fromProposal, ...fromPack]) {
@@ -102,7 +124,7 @@ function buildBrDeriveInput(pack, opts = {}) {
     focus: 'business_rules',
     task: 'derive_business_rules',
     deriveInstruction:
-      'Extract enforceable business rules. JSON: rules[] with id, statement, sourceRefs. Max 6 short rules.',
+      'Extract enforceable business rules from FR text only. Include duplicate-name warning and the salary formula Lương = Số lượng x Tỉ lệ x Mốc when present in Input. Do not invent KPI schema, delete policy, or auth rules. JSON: rules[] with id, statement, sourceRefs. Max 8 short rules.',
     overview: overviewBits(pack),
     frSlim: takeFrSlim(pack, opts, 14),
     brqSlim: takeBrqSlim(pack, opts, 8),
@@ -116,7 +138,7 @@ function buildUcDeriveInput(pack, opts = {}) {
     focus: 'use_cases',
     task: 'derive_use_cases',
     deriveInstruction:
-      'Propose use cases. JSON: useCases[] with id, name, primaryActor, goal, sourceRefs. Max 5. No mainFlow.',
+      'Propose use cases covering distinct FR behaviors (create, edit, delete, list, duplicate warning, task-salary when present). JSON: useCases[] with id, name, primaryActor, goal, sourceRefs (FR ids). Max 6. No mainFlow. Prefer one UC per major behavior — do not collapse CRUD into a single UC when multiple FR ids are listed.',
     overview: overviewBits(pack),
     frSlim: takeFrSlim(pack, opts, 16),
   };

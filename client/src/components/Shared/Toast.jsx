@@ -25,7 +25,7 @@ function Toast({ message, type = 'success', onClose }) {
         <button
           type="button"
           onClick={onClose}
-          className="shrink-0 rounded-lg p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          className="shrink-0 rounded-lg p-1 text-muted-foreground vh-motion-btn hover:bg-muted hover:text-foreground motion-reduce:transform-none"
           aria-label={t('common.close')}
         >
           ✕

@@ -257,6 +257,56 @@ async function createOrReuseAiAnalysisSnapshot({
     ...bookedQuality,
   };
 
+  let meetingPlan = null;
+  let meetingDemandHoursByUserDay = null;
+  let effortEstimationConfigVersionId = null;
+  try {
+    const { isMeetingAllocationV1Enabled } = require('../constants/meetingAllocationFlags');
+    if (isMeetingAllocationV1Enabled() && packObj.projectId) {
+      const MeetingPlan = require('../models/MeetingPlan');
+      const plan = await MeetingPlan.findOne({
+        projectId: packObj.projectId,
+        status: { $in: ['draft', 'confirmed'] },
+      })
+        .sort({ version: -1 })
+        .lean();
+      if (plan) {
+        meetingPlan = {
+          id: String(plan._id),
+          version: plan.version,
+          status: plan.status,
+          lines: plan.lines || [],
+          timezone: plan.timezone,
+          configVersionId: plan.configVersionId ? String(plan.configVersionId) : null,
+        };
+        effortEstimationConfigVersionId = meetingPlan.configVersionId;
+        const { aggregateMeetingDemandBySubjectWeek } = require('../engines/allocation');
+        const MeetingEvent = require('../models/MeetingEvent');
+        const events = await MeetingEvent.find({ projectId: packObj.projectId })
+          .select('startAt endAt status participants planLineWeekKey')
+          .lean();
+        const rows = aggregateMeetingDemandBySubjectWeek({
+          planLines: plan.lines || [],
+          events: events.map((e) => ({
+            ...e,
+            id: String(e._id),
+            participants: e.participants || [],
+          })),
+        });
+        meetingDemandHoursByUserDay = {};
+        for (const row of rows) {
+          if (!String(row.subject || '').startsWith('user:')) continue;
+          const uid = row.subject.slice(5);
+          const key = `${uid}|${row.weekKey}`;
+          meetingDemandHoursByUserDay[key] = row.forecastDemandMeet;
+        }
+      }
+    }
+  } catch (_) {
+    meetingPlan = null;
+    meetingDemandHoursByUserDay = null;
+  }
+
   const snapshot = await AiAnalysisSnapshot.create({
     organizationId,
     packId,
@@ -273,6 +323,9 @@ async function createOrReuseAiAnalysisSnapshot({
     preparedByJob: payload.preparedByJob,
     ingestionValidation,
     bookedHoursByUserDay: bookedMap,
+    meetingPlan,
+    meetingDemandHoursByUserDay,
+    effortEstimationConfigVersionId,
     pipelineVersion: payload.pipelineVersion,
     status: 'active',
     createdBy: userId,

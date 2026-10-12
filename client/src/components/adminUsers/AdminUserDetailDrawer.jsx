@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
 import adminUserAPI from '../../services/api/adminUserAPI';
-import { getInitials } from '../../utils/helpers';
+import UserAvatar from '../Shared/UserAvatar';
 import {
   accountRoleLabel,
   memberDepartmentId,
@@ -244,13 +244,13 @@ export default function AdminUserDetailDrawer({
       >
         <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div className="flex min-w-0 items-center gap-3">
-            {member.avatar ? (
-              <img src={member.avatar} alt="" className="h-12 w-12 rounded-full object-cover" />
-            ) : (
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-subtle text-sm font-bold text-primary">
-                {getInitials(name)}
-              </div>
-            )}
+            <UserAvatar
+              avatar={member.avatar}
+              userId={userId}
+              name={name}
+              size="lg"
+              className="shrink-0"
+            />
             <div className="min-w-0">
               <h3 id={titleId} className="truncate text-base font-semibold text-foreground">
                 {name}
