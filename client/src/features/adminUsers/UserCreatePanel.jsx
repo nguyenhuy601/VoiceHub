@@ -233,7 +233,6 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
 
   const body = (
     <AdminUserFormCard>
-      <p className="mb-3 text-sm text-muted-foreground">{t('adminUsers.inviteFormHint')}</p>
       <form className="mx-auto max-w-lg space-y-4" onSubmit={handleSubmit}>
         <label className="block">
           <span className={adminLabelClass()}>{t('adminUsers.employeeCodeAuto')}</span>
@@ -243,7 +242,6 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
             className={`${adminInputClass()} bg-muted font-mono`}
             value={previewCode || t('adminUsers.employeeCodeLoading')}
           />
-          <p className="mt-1 text-xs text-muted-foreground">{t('adminUsers.employeeCodeAutoHint')}</p>
         </label>
 
         <label className="block">
@@ -329,7 +327,6 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
               ))}
               <option value={JOB_TITLE_CUSTOM}>{t('adminUsers.inviteJobTitleCustom')}</option>
             </select>
-            <p className="mt-1 text-xs text-muted-foreground">{t('adminUsers.inviteJobTitleCatalogHint')}</p>
           </label>
           {jobTitleSelect === JOB_TITLE_CUSTOM ? (
             <label className="block">
@@ -360,7 +357,6 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
             <option value="hr">{t('adminUsers.roleHr')}</option>
             <option value="admin">{t('adminUsers.roleAdmin')}</option>
           </select>
-          <p className="mt-1.5 text-xs text-muted-foreground">{t('adminUsers.membershipRoleInviteHint')}</p>
         </label>
 
         <label className="flex items-start gap-2 rounded-xl border border-border bg-muted px-3 py-2.5 text-sm">
@@ -372,7 +368,6 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
           />
           <span>
             <span className="font-medium text-foreground">{t('adminUsers.inviteHireKnToggle')}</span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">{t('adminUsers.inviteHireKnHint')}</span>
           </span>
         </label>
 
@@ -563,7 +558,6 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
           </div>
         ) : null}
 
-        <p className="text-xs text-muted-foreground">{t('adminUsers.inviteSelfServeHint')}</p>
 
         <button
           type="submit"

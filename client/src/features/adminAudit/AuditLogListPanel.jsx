@@ -229,7 +229,7 @@ export default function AuditLogListPanel({ orgId }) {
   );
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.audit.log')} hint={t('adminAudit.hint')} wide>
+    <AdminUserPanelShell title={t('adminDomains.audit.log')} wide>
       <form className="mb-3 flex flex-wrap items-start gap-2" onSubmit={applyFilters} noValidate>
         <label className={`${adminLabelClass()} min-w-[10rem]`}>
           {t('adminAudit.filterResourceType')}

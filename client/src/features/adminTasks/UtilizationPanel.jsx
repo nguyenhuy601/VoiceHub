@@ -147,7 +147,6 @@ export default function UtilizationPanel({ orgId }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.projects.utilization')}
-      hint={t('adminTasks.utilizationHint')}
       wide
       actions={
         <div className="flex flex-wrap items-end gap-2">
@@ -214,8 +213,7 @@ export default function UtilizationPanel({ orgId }) {
         </div>
       ) : null}
 
-      {body}
-      <p className="mt-3 text-[11px] text-muted-foreground">{t('adminTasks.utilizationApproxNote')}</p>
+      {body}
     </AdminUserPanelShell>
   );
 }

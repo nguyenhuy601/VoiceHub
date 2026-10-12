@@ -159,7 +159,6 @@ export default function ApprovalPoliciesPanel({ orgId }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.projects.approvalPolicies')}
-      hint={t('adminTasks.approvalPolicyHint')}
       wide
     >
       {body}

@@ -79,7 +79,6 @@ export default function RoleEditPanel({ orgId }) {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="text-lg font-semibold">{t('adminDomains.rbac.edit')}</h2>
-            <p className="text-sm text-muted-foreground">{t('adminRbac.editHint')}</p>
           </div>
           {role ? (
             <GradientButton type="button" disabled={busy} onClick={save}>
@@ -94,11 +93,6 @@ export default function RoleEditPanel({ orgId }) {
           </p>
         ) : (
           <>
-            {protectedRole ? (
-              <p className="rounded-lg border border-warning bg-warning-bg px-3 py-2 text-xs text-warning">
-                {t('adminRbac.protectedRoleEditNote')}
-              </p>
-            ) : null}
             <div className="grid gap-3 rounded-xl border border-border bg-card p-4 md:grid-cols-2">
               <label className="block text-sm md:col-span-2">
                 <span className="mb-1 block font-medium text-foreground">{t('adminRbac.roleName')}</span>
@@ -174,7 +168,6 @@ export default function RoleEditPanel({ orgId }) {
               </div>
             </div>
             <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-sm text-muted-foreground">{t('adminRbac.editPermissionsV2Hint')}</p>
               <Link to={permissionsHref} className={`${adminSecondaryBtnClass()} mt-3 inline-flex`}>
                 {t('adminRbac.editPermissionsV2Cta')}
               </Link>

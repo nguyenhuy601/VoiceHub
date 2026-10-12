@@ -156,11 +156,7 @@ export default function RequirementSourceSection({
         <div id="intake-field-normalize">
           <p className={intakeUi.fieldLabel}>
             {t('adminTasks.intakeNormalizeTitle') || 'Chuẩn hóa dữ liệu'}
-          </p>
-          <p className="mb-2 text-xs text-muted-foreground">
-            {t('adminTasks.intakeNormalizeHint') ||
-              'File Excel khách (vd. bảng mô tả) → tải về Customer Requirement Raw. Mục thiếu để trống. Không dùng AI.'}
-          </p>
+          </p>
           <button
             type="button"
             className={`${intakeUi.uploadZone} w-full`}

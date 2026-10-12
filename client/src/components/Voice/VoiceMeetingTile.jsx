@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { MicOff } from 'lucide-react';
 import UserAvatar from '../Shared/UserAvatar';
 import VoiceSpeakingWaveform from './VoiceSpeakingWaveform';
+import { useAppStrings } from '../../locales/appStrings';
 import { voiceParticipantColor, voiceParticipantInitials } from '../../utils/voiceParticipantColor';
 import {
   FIGMA_VOICE_TILE_AVATAR_FALLBACK,
@@ -45,6 +46,7 @@ export default function VoiceMeetingTile({
   legacyClasses = {},
 }) {
   const [hovered, setHovered] = useState(false);
+  const { t } = useAppStrings();
   const accent = voiceParticipantColor(name);
   const initials = voiceParticipantInitials(name);
 
@@ -169,12 +171,12 @@ export default function VoiceMeetingTile({
         <div className={FIGMA_VOICE_TILE_HOVER_OVERLAY}>
           {onHoverMute ? (
             <button type="button" className={FIGMA_VOICE_TILE_HOVER_BTN} onClick={onHoverMute}>
-              Tắt mic
+              {t('voiceRoom.hostMute')}
             </button>
           ) : null}
           {onHoverKick ? (
             <button type="button" className={FIGMA_VOICE_TILE_HOVER_BTN_DANGER} onClick={onHoverKick}>
-              Kick
+              {t('voiceRoom.hostKick')}
             </button>
           ) : null}
         </div>

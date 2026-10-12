@@ -131,17 +131,13 @@ export default function MasterDataEnablePanel({ orgId }) {
 
   if (!orgId) {
     return (
-      <AdminUserPanelShell title={t('adminRbac.masterDataTitle')} hint={t('adminRbac.masterDataHint')}>
-        <p className="text-sm text-muted-foreground">{t('adminOrg.selectOrgHint')}</p>
+      <AdminUserPanelShell title={t('adminRbac.masterDataTitle')}>
       </AdminUserPanelShell>
     );
   }
 
   return (
-    <AdminUserPanelShell title={t('adminRbac.masterDataTitle')} hint={t('adminRbac.masterDataHint')} wide>
-      <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
-        {t('adminRbac.masterDataNoCreateHint')}
-      </p>
+    <AdminUserPanelShell title={t('adminRbac.masterDataTitle')} wide>
       {loading && !catalog ? (
         <AdminListSkeleton />
       ) : loadError ? (

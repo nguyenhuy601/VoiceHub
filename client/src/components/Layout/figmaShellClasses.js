@@ -41,7 +41,7 @@ export const FIGMA_SIDEBAR_SUITE_STRIP =
   'flex min-h-[44px] shrink-0 items-center gap-1.5 border-b border-sidebar-border';
 
 export const FIGMA_SIDEBAR_SECTION_LABEL =
-  'px-3 pb-0.5 pt-2.5 text-[0.5875rem] font-bold uppercase tracking-[0.1em] text-white/20';
+  'px-3 pb-0.5 pt-2.5 text-[0.5875rem] font-bold uppercase tracking-[0.1em] text-white/55';
 
 export const FIGMA_SIDEBAR_NAV = 'flex flex-1 flex-col gap-px overflow-y-auto px-1.5 py-0.5';
 
@@ -54,7 +54,7 @@ export const figmaNavItemClass = (isActive, suiteColor, collapsed) => {
   const pad = collapsed ? 'justify-center px-0 py-2' : 'gap-2.5 px-2.5 py-[7px]';
   const state = isActive
     ? 'text-white'
-    : 'text-white/50 hover:bg-white/[0.07]';
+    : 'text-white/80 hover:bg-white/[0.07] hover:text-white';
   return `${base} ${pad} ${state}`;
 };
 

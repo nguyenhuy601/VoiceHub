@@ -16,7 +16,6 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 import {
   ORG_ROLE_LABEL_PREFIX,
-  looksLikeHrPositionForOrgRole,
   normalizeLayerLabel,
   splitLayerLabel,
 } from '../../utils/roleLayerNaming';
@@ -121,9 +120,6 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
                 placeholder={t('adminRbac.orgRoleLabelPlaceholder')}
               />
             </div>
-            {suffix.trim() && looksLikeHrPositionForOrgRole(suffix) ? (
-              <p className="mt-1 text-xs text-warning">{t('adminRbac.orgRoleLooksLikePositionHint')}</p>
-            ) : null}
           </label>
           <label className="mb-4 block">
             <span className={adminLabelClass()}>{t('adminRbac.roleDescriptionField')}</span>
@@ -135,7 +131,6 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
               onChange={(e) => setDescription(e.target.value)}
             />
           </label>
-          <p className="mb-2 text-xs text-muted-foreground">{t('adminRbac.roleOrderViaListHint')}</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
@@ -160,7 +155,7 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
     const loadingBody = <AdminListSkeleton />;
     if (embedded) return loadingBody;
     return (
-      <AdminUserPanelShell title={t('adminDomains.rbac.orgRoleEdit')} hint={t('adminRbac.orgRoleCatalogHint')}>
+      <AdminUserPanelShell title={t('adminDomains.rbac.orgRoleEdit')}>
         {loadingBody}
       </AdminUserPanelShell>
     );
@@ -169,15 +164,15 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
   if (embedded) return formCard;
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.rbac.orgRoleEdit')} hint={t('adminRbac.orgRoleCatalogHint')}>
+    <AdminUserPanelShell title={t('adminDomains.rbac.orgRoleEdit')}>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         {formCard}
 
-        <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-          {role?.isSystem
-            ? t('adminRbac.orgRoleEditSystemHint')
-            : t('adminRbac.orgRoleEditHint')}
-        </div>
+        {role?.isSystem ? (
+          <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+            {t('adminRbac.orgRoleEditSystemHint')}
+          </div>
+        ) : null}
       </div>
     </AdminUserPanelShell>
   );

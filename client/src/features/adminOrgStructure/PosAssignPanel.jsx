@@ -256,7 +256,7 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
   if (embedded) return body;
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.rbac.posAssign')} hint={t('adminOrg.posAssignHint')} wide>
+    <AdminUserPanelShell title={t('adminDomains.rbac.posAssign')} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
         <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminOrg.posAssignUserHint')} />
         {body}

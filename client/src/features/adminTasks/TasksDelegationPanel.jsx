@@ -295,7 +295,6 @@ export default function TasksDelegationPanel({ orgId }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.projects.delegation')}
-      hint={t('adminTasks.delegationHint')}
       wide
     >
       <AdminTaskBoardPicker orgId={orgId} boardId={boardId} onBoardIdChange={setBoardId} />

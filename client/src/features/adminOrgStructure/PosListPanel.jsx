@@ -135,8 +135,7 @@ export default function PosListPanel({ orgId }) {
 
   if (!orgId) {
     return (
-      <AdminUserPanelShell title={t('adminDomains.rbac.posList')} hint={t('adminRbac.posListHint')}>
-        <p className="text-sm text-muted-foreground">{t('adminOrg.selectOrgHint')}</p>
+      <AdminUserPanelShell title={t('adminDomains.rbac.posList')}>
       </AdminUserPanelShell>
     );
   }
@@ -144,7 +143,6 @@ export default function PosListPanel({ orgId }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.rbac.posList')}
-      hint={t('adminRbac.posListHint')}
       wide
       actions={
         <div className="flex flex-wrap gap-2">
@@ -158,7 +156,7 @@ export default function PosListPanel({ orgId }) {
       }
     >
       <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
-        {t('adminRbac.positionCatalogZeroPerm')} {t('adminRbac.posListMasterHint')}
+        {t('adminRbac.positionCatalogZeroPerm')}
       </p>
 
       {loadError || membersError ? (

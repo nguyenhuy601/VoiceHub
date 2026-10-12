@@ -2249,10 +2249,10 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                 👥
               </div>
               <div className="text-[0.9375rem] font-semibold text-foreground">
-                Quản lý lời mời kết bạn
+                {t('friendChat.invitesTitle')}
               </div>
               <p className="max-w-[260px] text-[0.8125rem] leading-relaxed text-muted-foreground">
-                Chấp nhận lời mời để bắt đầu trò chuyện, hoặc thu hồi lời mời đã gửi từ danh sách bên trái.
+                {t('friendChat.invitesHint')}
               </p>
             </div>
           ) : friendsLoading ? (
@@ -2488,7 +2488,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                         : 'border-amber-200 bg-amber-50 text-amber-900'
                     }`}
                   >
-                    <span className="min-w-0 flex-1">{t('friendChat.blockedByPeerBanner')}</span>
                   </div>
                 )}
                 {isCurrentFriendBlocked && (
@@ -2499,7 +2498,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                         : 'border-rose-200 bg-rose-50 text-rose-900'
                     }`}
                   >
-                    <span className="min-w-0 flex-1">{t('friendChat.blockedBanner')}</span>
                     <button
                       type="button"
                       onClick={() => setUnblockConfirmOpen(true)}

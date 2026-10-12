@@ -548,6 +548,12 @@ html.light .text-white {
   color: var(--text-primary) !important;
 }
 
+/* Sidebar rail stays dark in light theme, so its white labels must stay white. */
+html.light .bg-sidebar .text-white,
+html.light .bg-sidebar.text-white {
+  color: #ffffff !important;
+}
+
 html.light .text-gray-400,
 html.light .text-gray-300 {
   color: #475569 !important;

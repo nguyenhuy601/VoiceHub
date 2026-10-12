@@ -3,7 +3,8 @@ import Phase1Gate1ReviewPanel from './aiHitl/Phase1Gate1ReviewPanel';
 
 function labelOf(t, key, fallback) {
   const value = typeof t === 'function' ? t(key) : '';
-  return value || fallback;
+  if (value == null || value === '' || value === key) return fallback || '';
+  return value;
 }
 
 /** Legacy modal wrapper — body lives in Phase1Gate1ReviewPanel. */

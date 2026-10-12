@@ -223,7 +223,7 @@ export default function MasterPermissionTreeEditor({
         })}
         {!filtered.length ? (
           <p className="rounded-xl border border-border bg-card/40 p-4 text-sm text-muted-foreground">
-            Không có permission khớp bộ lọc.
+            {t('adminRbac.noFilterMatch')}
           </p>
         ) : null}
       </div>

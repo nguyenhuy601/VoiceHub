@@ -98,9 +98,6 @@ export default function OrgStructureSetupModal({ orgId, open, onCompleted }) {
         <h2 id="org-structure-setup-title" className="text-lg font-semibold text-foreground">
           {t('adminOrg.setupTitle')}
         </h2>
-        <p id="org-structure-setup-hint" className="mt-2 text-sm text-muted-foreground">
-          {t('adminOrg.setupHint')}
-        </p>
 
         {loading && !templates.length ? (
           <AdminListSkeleton rows={3} className="mt-4" />

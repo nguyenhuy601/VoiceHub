@@ -37,7 +37,7 @@ export default function RbacTaxonomyHubPanel() {
   const { t } = useAppStrings();
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.rbac.taxonomy')} hint={t('adminRbac.taxonomyHint')}>
+    <AdminUserPanelShell title={t('adminDomains.rbac.taxonomy')}>
       <div className="grid gap-3 sm:grid-cols-2">
         {LAYER_CARDS.map((card) => (
           <AdminUserFormCard key={card.titleKey} title={t(`adminRbac.${card.titleKey}`)}>

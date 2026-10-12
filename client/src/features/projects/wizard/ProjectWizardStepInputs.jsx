@@ -157,11 +157,7 @@ export default function ProjectWizardStepInputs({
       <div>
         <h1 className={wizardUi.title}>
           {t('adminTasks.wizardIntakeTitle') || 'Import & thông tin dự án'}
-        </h1>
-        <p className={wizardUi.subtitle}>
-          {t('adminTasks.wizardIntakeHint') ||
-            'Tải Customer Requirement Raw để tự điền thông tin. Các mục không có trong file vẫn nhập tay bên dưới.'}
-        </p>
+        </h1>
       </div>
 
       <UploadZone

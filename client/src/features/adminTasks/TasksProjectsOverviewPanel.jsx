@@ -195,7 +195,6 @@ export default function TasksProjectsOverviewPanel({ orgId }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.projects.overview')}
-      hint={t('adminTasks.projectsOverviewHint')}
       wide
     >
       <>

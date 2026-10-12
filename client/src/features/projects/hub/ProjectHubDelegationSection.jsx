@@ -135,7 +135,6 @@ export default function ProjectHubDelegationSection({ boardId = '', t, muted = '
 
   return (
     <div className="space-y-4">
-      <p className={`text-xs leading-relaxed ${muted}`}>{t('workspace.projectHubDelegationHint')}</p>
 
       {templates.length ? (
         <div>

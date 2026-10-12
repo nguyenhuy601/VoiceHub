@@ -420,8 +420,6 @@ export const extraStrings = {
       rejectLabel: 'Lý do từ chối',
       position: 'Vị trí công ty (Position)',
       jobTitleEmpty: 'Chưa gán — liên hệ HR/Admin',
-      jobTitleHint:
-        'Position do HR/Admin gán (Admin → Position). Không đổi tại form năng lực.',
       domain: 'Chuyên môn chính',
       years: 'Số năm kinh nghiệm',
       skills: 'Kỹ năng',
@@ -430,6 +428,7 @@ export const extraStrings = {
       level: 'Mức',
       maxSkills: 'Tối đa {n} kỹ năng.',
       availability: 'Mức độ sẵn sàng',
+      maxConcurrentProjects: 'Số dự án tối đa đồng thời',
       summary: 'Tóm tắt ngắn',
       summaryPlaceholder: 'Ví dụ: Backend Node/Mongo, từng làm hệ thống realtime…',
       selectPlaceholder: '— Chọn —',
@@ -466,8 +465,6 @@ export const extraStrings = {
         partial: 'Nhận việc hạn chế',
       },
       cvUploadTitle: 'Upload CV (PDF)',
-      cvUploadHint:
-        'Hệ thống đọc PDF và gợi ý điền form. Bạn phải kiểm tra rồi nộp HR — không tự xác minh.',
       cvUploadBtn: 'Chọn file PDF',
       cvUploading: 'Đang đọc CV…',
       cvFileLabel: 'File đã tải',
@@ -478,10 +475,6 @@ export const extraStrings = {
       cvUploadFail: 'Không upload / đọc được CV.',
       pastProjects: 'Dự án quá khứ',
       pastProjectsEmpty: 'Chưa có dự án quá khứ trên hồ sơ.',
-      pastProjectsHint:
-        'Không paste CV / không PDF. Excel: HR chọn tối đa 5 DA (việc + công nghệ). Trong cty: đóng board → nháp → Đúng rồi.',
-      excelLockedHint:
-        'Hồ sơ HR đã xác minh (Excel hoặc mời 1 người kèm KN) — không sửa chuyên môn / kỹ năng / năm KN tại đây. Sai JD: HR Preview file mới hoặc mời lại. Chỉ xác nhận DA đóng board (Đúng rồi).',
       experiencePending: 'Chờ xác nhận',
       experienceVerified: 'Đã xác nhận',
       confirmExperience: 'Đúng rồi',
@@ -960,8 +953,6 @@ export const extraStrings = {
       rejectLabel: 'Rejection reason',
       position: 'Company position',
       jobTitleEmpty: 'Not assigned — contact HR/Admin',
-      jobTitleHint:
-        'Position is set by HR/Admin (Admin → Position). Not editable on this form.',
       domain: 'Primary domain',
       years: 'Years of experience',
       skills: 'Skills',
@@ -970,6 +961,7 @@ export const extraStrings = {
       level: 'Level',
       maxSkills: 'Maximum {n} skills.',
       availability: 'Availability',
+      maxConcurrentProjects: 'Maximum concurrent projects',
       summary: 'Short summary',
       summaryPlaceholder: 'e.g. Backend Node/Mongo, realtime systems…',
       selectPlaceholder: '— Select —',
@@ -1006,8 +998,6 @@ export const extraStrings = {
         partial: 'Limited availability',
       },
       cvUploadTitle: 'Upload CV (PDF)',
-      cvUploadHint:
-        'We parse the PDF and suggest form fields. You must review and submit for HR — never auto-verified.',
       cvUploadBtn: 'Choose PDF',
       cvUploading: 'Reading CV…',
       cvFileLabel: 'Uploaded file',
@@ -1018,10 +1008,6 @@ export const extraStrings = {
       cvUploadFail: 'Could not upload or parse CV.',
       pastProjects: 'Past projects',
       pastProjectsEmpty: 'No past projects on this profile yet.',
-      pastProjectsHint:
-        'No resume dump / no PDF. Excel: HR picks up to 5 projects (work + tech). In-company: close board → draft → confirm.',
-      excelLockedHint:
-        'HR-verified profile (Excel or invite with capability) — domain, skills, and years are read-only here. Wrong JD: HR re-previews a file or re-invites. Only confirm closed-board projects.',
       experiencePending: 'Awaiting confirmation',
       experienceVerified: 'Confirmed',
       confirmExperience: 'Looks right',

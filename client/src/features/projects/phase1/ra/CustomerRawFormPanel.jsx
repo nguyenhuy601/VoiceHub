@@ -29,12 +29,7 @@ export default function CustomerRawFormPanel({ formValidation, className = '' })
           ? t('workspace.phase1RawFormOk') || 'Form template Raw: OK'
           : t('workspace.phase1RawFormInvalid') || 'Form template Raw: chưa đúng'}
       </p>
-      {ok ? (
-        <p className="mt-1 text-xs text-muted-foreground">
-          {t('workspace.phase1RawFormOkHint') ||
-            'Đủ sheet và cột theo Customer Requirement Raw. Nội dung từng dự án không bị ràng buộc quota.'}
-        </p>
-      ) : (
+      {ok ? null : (
         <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
           {issues.map((line) => (
             <li key={line}>{line}</li>

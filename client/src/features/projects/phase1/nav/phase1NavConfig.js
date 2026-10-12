@@ -288,7 +288,6 @@ export function getPhase1SidebarGroups({
       locked: false,
       /** After Start Planning: chỉ Overview + SRS Baseline (DEC P1-H). */
       readOnly: Boolean(raReadOnly),
-      readOnlyHintKey: 'workspace.phase1RaReadOnlyNavHint',
       items: raItems,
     },
   ];

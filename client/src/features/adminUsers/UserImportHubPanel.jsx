@@ -61,7 +61,7 @@ export default function UserImportHubPanel({ orgId }) {
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.users.import')} hint={t('adminUsers.importHubHint')}>
+    <AdminUserPanelShell title={t('adminDomains.users.import')}>
       <div
         role="tablist"
         aria-label={t('adminDomains.users.import')}

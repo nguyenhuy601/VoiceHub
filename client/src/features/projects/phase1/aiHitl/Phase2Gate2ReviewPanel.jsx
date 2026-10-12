@@ -17,7 +17,7 @@ import { resolveHowPlanSummary } from './howPlanSummary';
 
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
-  if (value) return value;
+  if (value && value !== key) return value;
   if (!vars) return fallback;
   return Object.entries(vars).reduce(
     (text, [name, raw]) => text.replace(`{${name}}`, String(raw ?? '')),
@@ -272,11 +272,7 @@ export default function Phase2Gate2ReviewPanel({
               'requirements.gate2PoHint',
               'PO xem lại bản PM đã xác nhận — Duyệt để kích hoạt, hoặc Từ chối để trả về PM.'
             )
-          : labelOf(
-              t,
-              'requirements.gate2PmHint',
-              'PM quyết từng item (Accept/Edit/Reject). Gửi PO duyệt khi đủ quyết định.'
-            )}
+          : ''}
       </p>
       {showPo && bundle.activeSubmissionId ? (
         <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-900 dark:text-emerald-100">

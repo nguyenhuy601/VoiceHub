@@ -43,10 +43,7 @@ export default function PermPackManageHubPanel({ orgId }) {
     [t]
   );
 
-  const hubHint =
-    activeTab === TAB_DELETE
-      ? t('adminRbac.permPackManageHubHintDelete')
-      : t('adminRbac.permPackManageHubHint');
+  const hubHint = activeTab === TAB_DELETE ? t('adminRbac.permPackManageHubHintDelete') : '';
 
   const renderPicker = useCallback(
     (tab) => {

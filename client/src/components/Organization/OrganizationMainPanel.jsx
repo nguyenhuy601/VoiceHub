@@ -2367,7 +2367,7 @@ const OrganizationMainPanel = ({
                       isDarkMode ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'
                     }`}
                   >
-                    Mời
+                    {t('orgPanel.inviteShort')}
                   </button>
                 ) : null}
               </div>
@@ -3564,7 +3564,7 @@ const OrganizationMainPanel = ({
                   : 'border border-white/15 text-gray-300 hover:bg-white/10'
               }`}
             >
-              Chọn từ danh sách
+              {t('orgPanel.pickFromList')}
             </button>
             <button
               type="button"
@@ -3579,7 +3579,7 @@ const OrganizationMainPanel = ({
                   : 'border border-white/15 text-gray-300 hover:bg-white/10'
               }`}
             >
-              Nhập thủ công
+              {t('orgPanel.enterManually')}
             </button>
           </div>
 

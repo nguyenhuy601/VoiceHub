@@ -154,10 +154,7 @@ export default function OrganizationDocumentsWorkspacePanel({
 
   const title = panelTitle || t(driveScopeTitleKey(scope));
   const hint = scopeHint || t(driveScopeHintKey(scope));
-  const emptyMessage =
-    scope === DRIVE_SCOPE.PROJECT && !files.length
-      ? t('nav.projectDocumentsPhaseAHint')
-      : t(driveScopeEmptyKey(scope));
+  const emptyMessage = t(driveScopeEmptyKey(scope));
 
   return (
     <DriveWorkspaceShell

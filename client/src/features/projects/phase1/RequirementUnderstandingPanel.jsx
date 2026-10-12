@@ -110,10 +110,6 @@ export default function RequirementUnderstandingPanel({
       <h3 className="text-sm font-semibold text-foreground">
         {t('requirements.understandingTitle') || 'Requirement Understanding'}
       </h3>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {t('requirements.understandingHint') ||
-          'Chuẩn bị intake (prefill workbook + corpus + tools). Chỉnh FR/artifacts rồi Submit/Approve Gate 1 — không chạy AI WHAT trước duyệt.'}
-      </p>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>
           {t('requirements.understandingPackStatus') || 'Pack'}: {packStatus || '—'}

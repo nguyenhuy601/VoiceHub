@@ -190,8 +190,6 @@ export default function ProjectHubWorkTypeHierarchy({ t, projectId = '', serverC
 
   return (
     <div>
-      <p className="mb-1 text-xs text-muted-foreground">{t('workspace.projectHubSettingsWorkTypesHint')}</p>
-      <p className="mb-3 text-xs text-muted-foreground">{t('workspace.projectHubWorkTypeSameLevelHint')}</p>
       <p className="mb-3 text-[11px] text-muted-foreground">{t('workspace.projectHubWorkTypeLocalOnly')}</p>
       <DndContext
         sensors={sensors}

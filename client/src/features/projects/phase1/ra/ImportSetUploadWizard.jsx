@@ -398,9 +398,6 @@ export default function ImportSetUploadWizard({
             {rawFormValidation ? (
               <CustomerRawFormPanel formValidation={rawFormValidation} />
             ) : null}
-            <p className="text-sm text-muted-foreground">
-              {t('workspace.phase1ImportWizardAnalysisHint')}
-            </p>
             <div className="flex flex-wrap gap-2">
               {organizationId ? (
                 <button

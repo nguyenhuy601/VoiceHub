@@ -173,7 +173,6 @@ export default function UserPerformancePanel({ orgId }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.projects.performance')}
-      hint={t('adminTasks.performanceHint')}
       wide
       actions={
         <div className="flex flex-wrap items-center gap-2">

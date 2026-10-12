@@ -272,9 +272,6 @@ export default function ProjectHubReleaseReadyPanel({
                   {t('workspace.phaseUatStagingBadge')}
                 </span>
               </h4>
-              <p className={`mt-1 text-[11px] leading-relaxed ${muted}`}>
-                {t('workspace.phaseUatHint')}
-              </p>
               {uatPassed ? (
                 <p className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                   {t('workspace.phaseUatPassed')}

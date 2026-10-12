@@ -957,7 +957,6 @@ export default function ProjectHubPlanningPanel({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="shrink-0 border-b border-border px-4 pt-3">
         <h3 className={`text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabPlanning')}</h3>
-        <p className={`mb-2 text-xs ${muted}`}>{t('workspace.projectHubPlanHint')}</p>
         <div className="flex gap-1 overflow-x-auto overscroll-x-contain pb-2" role="tablist" aria-label={t('workspace.projectHubTabPlanning')}>
           {PLAN_VIEWS.map((tab) => (
             <button

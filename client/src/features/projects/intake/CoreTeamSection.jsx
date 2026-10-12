@@ -234,7 +234,6 @@ export default function CoreTeamSection({
       index={3}
       sectionId="intake-section-team"
       title={t('adminTasks.intakeSectionTeam') || 'Core team'}
-      subtitle={t('adminTasks.wizardStepTeamHint')}
       status={sectionStatus}
       statusDetail={statusDetail}
       t={t}

@@ -72,9 +72,6 @@ export default function PlanningResourcesShell({
           <h1 className="text-lg font-semibold text-foreground">
             {t(STEP_LABEL_KEYS[step] || STEP_LABEL_KEYS.wbs)}
           </h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {t('workspace.phase1StaffingPipelineHint')}
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {prev ? (

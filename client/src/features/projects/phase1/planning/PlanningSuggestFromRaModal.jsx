@@ -149,10 +149,6 @@ export default function PlanningSuggestFromRaModal({
       }
     >
       <div className="flex max-h-[min(70vh,32rem)] flex-col gap-3">
-        <p className="text-xs text-muted-foreground">{t('workspace.phase1AiSuggestModalHint')}</p>
-        <p className="rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-          {t('workspace.phase1AiSuggestWorkbookHint')}
-        </p>
 
         <div className="flex flex-wrap items-center gap-2">
           <span className={kindChipClass(kind)}>{kind}</span>

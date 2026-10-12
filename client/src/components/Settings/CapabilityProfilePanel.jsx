@@ -311,9 +311,6 @@ export default function CapabilityProfilePanel() {
           {status === 'pending_hr' ? (
             <span className="text-xs text-muted-foreground">{t('settingsCapability.pendingHint')}</span>
           ) : null}
-          {excelLocked ? (
-            <p className="basis-full text-xs text-muted-foreground">{t('settingsCapability.excelLockedHint')}</p>
-          ) : null}
 
           <span className={`rounded-md px-2.5 py-1 text-xs font-semibold ${resourceBadgeClass}`}>
             Capacity: {resourceStatusLabel}
@@ -348,9 +345,6 @@ export default function CapabilityProfilePanel() {
           >
             {jobTitle || t('settingsCapability.jobTitleEmpty')}
           </div>
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            {t('settingsCapability.jobTitleHint')}
-          </p>
         </div>
 
         <div>
@@ -585,7 +579,7 @@ export default function CapabilityProfilePanel() {
 
         <div>
           <label className="mb-2 block text-sm font-medium text-foreground">
-            Số dự án tối đa đồng thời
+            {t('settingsCapability.maxConcurrentProjects')}
           </label>
           <input
             type="number"
@@ -655,7 +649,6 @@ export default function CapabilityProfilePanel() {
           ) : (
             <p className="text-sm text-muted-foreground">{t('settingsCapability.pastProjectsEmpty')}</p>
           )}
-          <p className="mt-1.5 text-xs text-muted-foreground">{t('settingsCapability.pastProjectsHint')}</p>
         </div>
 
         <div>

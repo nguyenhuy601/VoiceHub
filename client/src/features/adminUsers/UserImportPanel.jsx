@@ -136,7 +136,7 @@ export default function UserImportPanel({ orgId, embedded = false }) {
   if (embedded) return body;
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.users.importCsvTab')} hint={t('adminUsers.importHint')}>
+    <AdminUserPanelShell title={t('adminDomains.users.importCsvTab')}>
       {body}
     </AdminUserPanelShell>
   );

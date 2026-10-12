@@ -10,7 +10,7 @@ import GateAChecksPanel from '../../../requirements/GateAChecksPanel';
 
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
-  if (value) return value;
+  if (value && value !== key) return value;
   if (!vars) return fallback;
   return Object.entries(vars).reduce(
     (text, [name, raw]) => text.replace(`{${name}}`, String(raw ?? '')),
@@ -202,11 +202,7 @@ export default function Phase1Gate1ReviewPanel({
                 'requirements.phase1Gate1WaitingPo',
                 'Đã gửi duyệt. Chờ PO duyệt để sang Phase 2.'
               )
-            : labelOf(
-                t,
-                'requirements.phase1Gate1ModalHint',
-                'BA quyết từng item (Accept/Edit/Reject). Xác nhận duyệt để chuyển PO.'
-              )}
+            : ''}
       </p>
       {reviewLaneView === 'showPoPanel' && activeSubmissionId ? (
         <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-900 dark:text-emerald-100">

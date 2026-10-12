@@ -77,9 +77,8 @@ export default function UserDeletePanel({ orgId, embedded = false }) {
           </button>
         </div>
       ) : (
-        <AdminUserFormCard title={t('adminUsers.removeMember')} hint={t('adminUsers.deleteHint')} danger>
-          <p className="mb-4 text-sm text-muted-foreground">
-            {t('adminUsers.deleteHint')}{' '}
+        <AdminUserFormCard title={t('adminUsers.removeMember')} danger>
+          <p className="mb-4 text-sm">
             <Link
               to={lockHref}
               className="rounded font-medium text-destructive transition-colors duration-150 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
@@ -121,7 +120,7 @@ export default function UserDeletePanel({ orgId, embedded = false }) {
   if (embedded) return body;
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.users.delete')} hint={t('adminUsers.deleteHint')} wide>
+    <AdminUserPanelShell title={t('adminDomains.users.delete')} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
         <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminUsers.deletePickerHint')} />
         {body}

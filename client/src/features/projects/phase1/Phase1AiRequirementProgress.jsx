@@ -56,7 +56,8 @@ const SUBSTEP_FALLBACK = {
 
 function labelOf(t, key, fallback) {
   const value = typeof t === 'function' ? t(key) : '';
-  return value || fallback;
+  if (value == null || value === '' || value === key) return fallback || '';
+  return value;
 }
 
 export default function Phase1AiRequirementProgress({ step = 0, substep = null, t }) {

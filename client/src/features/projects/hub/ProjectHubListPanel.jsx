@@ -1217,7 +1217,6 @@ export default function ProjectHubListPanel({
       <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border px-4 py-2 sm:px-4">
         <div className="min-w-0">
           <h3 className={`text-sm font-bold ${titleCls}`}>{t('workspace.projectHubTabList')}</h3>
-          <p className={`text-xs ${muted}`}>{t('workspace.projectHubListHint')}</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           <button
@@ -1495,9 +1494,9 @@ export default function ProjectHubListPanel({
         isOpen={Boolean(confirmWg)}
         onClose={handleDeclineWorkGroup}
         onConfirm={handleConfirmWorkGroup}
-        title={t('workspace.projectHubWorkGroupTitle', { fallback: 'Tạo nhóm làm việc' })}
-        message={t('workspace.projectHubWorkGroupMsg', { fallback: 'Tạo nhóm làm việc (work group) cho feature này? Các thành viên được giao task sẽ tự động được thêm vào nhóm chat.' })}
-        confirmText={t('workspace.projectHubWorkGroupConfirm', { fallback: 'Tạo nhóm' })}
+        title={t('workspace.projectHubWorkGroupTitle')}
+        message={t('workspace.projectHubWorkGroupMsg')}
+        confirmText={t('workspace.projectHubWorkGroupConfirm')}
         cancelText={t('common.cancel')}
       />
 

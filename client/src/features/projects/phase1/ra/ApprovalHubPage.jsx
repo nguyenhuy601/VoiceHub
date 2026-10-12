@@ -125,11 +125,6 @@ export default function ApprovalHubPage({ projectId, readOnly = false }) {
     () => importSets.filter((s) => s.status === 'pending_review'),
     [importSets]
   );
-  const activeSet = useMemo(
-    () => importSets.find((s) => s.status === 'active') || null,
-    [importSets]
-  );
-
   const {
     data: rows = [],
     isLoading,
@@ -239,9 +234,6 @@ export default function ApprovalHubPage({ projectId, readOnly = false }) {
       <div>
         <h1 className="text-base font-semibold">{t('workspace.phaseNavAnalysisReviews')}</h1>
         <p className="text-xs text-muted-foreground">{t('workspace.phase1ApprovalHint')}</p>
-        {activeSet ? (
-          <p className="text-[11px] text-muted-foreground">{t('workspace.phase1DoubleGateHint')}</p>
-        ) : null}
       </div>
 
       <Phase1CollapsibleCard
@@ -328,9 +320,7 @@ export default function ApprovalHubPage({ projectId, readOnly = false }) {
 
       {!queues.length ? (
         <p className="text-sm text-muted-foreground">
-          {pendingSets.length && (canSetBa || canSetTech || canSetPo)
-            ? t('workspace.phase1ApprovalSetOnlyHint')
-            : t('workspace.phase1NoReviewPerm')}
+          {t('workspace.phase1NoReviewPerm')}
         </p>
       ) : null}
 
@@ -367,11 +357,6 @@ export default function ApprovalHubPage({ projectId, readOnly = false }) {
               ) : null
             }
           >
-            {q.status === 'tech_review' ? (
-              <p className="mb-2 rounded-lg border border-sky-500/20 bg-sky-500/5 px-2.5 py-1.5 text-[11px] text-sky-900 dark:text-sky-100">
-                {t('workspace.phase1TechFocusQueueHint')}
-              </p>
-            ) : null}
             <Phase1KindGroupQueue
               items={q.items.slice(0, 80)}
               kindOrder={ANALYSIS_KIND_ORDER}

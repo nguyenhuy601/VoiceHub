@@ -326,9 +326,7 @@ export default function ProjectHubSprintBoardCard({
           disabled={busy}
           title={
             childrenIncomplete
-              ? t('workspace.projectHubBoardChildrenIncompleteHint', {
-                  names: incompleteHint || String(childStats.total - childStats.done),
-                })
+              ? undefined
               : t('workspace.projectHubBoardChildrenOpenHint')
           }
           aria-label={t('workspace.projectHubBacklogChildrenComplete', {

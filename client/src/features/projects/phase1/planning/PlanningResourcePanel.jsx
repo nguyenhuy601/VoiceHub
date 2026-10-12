@@ -268,7 +268,6 @@ export default function PlanningResourcePanel({ projectId, artifact, canEdit, on
 
       {panelOpen ? (
         <div className="space-y-3 px-3 py-3">
-          <p className="text-[11px] text-muted-foreground">{t('workspace.phase1ResourceRolesHint')}</p>
           <ul className="grid gap-2 sm:grid-cols-2">
             {roles.map((role, idx) => (
               <RoleCard

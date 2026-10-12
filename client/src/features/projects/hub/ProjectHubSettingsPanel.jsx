@@ -688,7 +688,7 @@ export default function ProjectHubSettingsPanel({
       hint: t('workspace.projectHubRoleMatrixGroupHint'),
     },
     { id: 'workflow', title: t('workspace.projectHubWorkflowTitle'), hint: t('workspace.projectHubSettingsGroupWorkflowHint') },
-    { id: 'statusPriority', title: t('workspace.projectHubSettingsStatusPriorityTitle'), hint: t('workspace.projectHubSettingsStatusPriorityHint') },
+    { id: 'statusPriority', title: t('workspace.projectHubSettingsStatusPriorityTitle') },
     { id: 'approval', title: t('workspace.projectHubApprovalTitle'), hint: t('workspace.projectHubSettingsGroupApprovalHint') },
     { id: 'workTypes', title: t('workspace.projectHubSettingsWorkTypesTitle'), hint: t('workspace.projectHubSettingsWorkTypesIndexHint') },
     ...(canManageDelivery && String(boardId || '').trim()
@@ -802,9 +802,6 @@ export default function ProjectHubSettingsPanel({
 
   const profileBody = (
     <div className="grid gap-3 sm:grid-cols-2">
-      <p className={`text-xs leading-relaxed sm:col-span-2 ${muted}`}>
-        {t('workspace.projectHubSettingsProfileBodyHint')}
-      </p>
       {!profileHydrated ? (
         <p className={`text-xs sm:col-span-2 ${muted}`} role="status">
           {t('workspace.projectHubSettingsCatalogLoading')}
@@ -956,9 +953,7 @@ export default function ProjectHubSettingsPanel({
   const visibilityBody = (
     <div>
       <p className={`text-xs leading-relaxed ${muted}`}>
-        {visibilityMode === 'custom'
-          ? t('workspace.projectHubVisCustomHint')
-          : t('workspace.projectHubVisInheritHint')}
+        {visibilityMode === 'custom' ? null : t('workspace.projectHubVisInheritHint')}
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <label className={fieldLabelCls}>
@@ -1013,9 +1008,6 @@ export default function ProjectHubSettingsPanel({
             <p className={`text-xs font-semibold ${titleCls}`}>
               {t('workspace.projectHubVisOverrideTitle')}
             </p>
-            <p className={`mt-0.5 text-[11px] leading-relaxed ${muted}`}>
-              {t('workspace.projectHubVisOverrideHint')}
-            </p>
             <label className="mt-3 flex items-start gap-2 text-sm font-medium text-foreground">
               <input
                 type="checkbox"
@@ -1030,7 +1022,6 @@ export default function ProjectHubSettingsPanel({
       ) : null}
       <div className="mt-4">
         <p className={fieldLabelCls}>{t('workspace.projectHubFieldRelatedDepts')}</p>
-        <p className={`mt-1 text-[11px] font-normal leading-relaxed ${muted}`}>{t('workspace.projectHubRelatedDeptsHint')}</p>
         <div className={chipRowCls}>
           {!departments.length ? (
             <p className={`px-1 py-2 text-[11px] font-normal ${muted}`}>
@@ -1067,7 +1058,6 @@ export default function ProjectHubSettingsPanel({
 
   const staffingBody = (
     <div>
-      <p className={`text-xs leading-relaxed ${muted}`}>{t('workspace.projectHubSettingsStaffingHint')}</p>
       {rolesLoading ? (
         <p className={`mt-3 text-xs ${muted}`}>{t('workspace.projectHubSettingsCatalogLoading')}</p>
       ) : !assignableRoles.length ? (
@@ -1099,9 +1089,6 @@ export default function ProjectHubSettingsPanel({
   const workflowBody = (
     <div className="space-y-5">
       <div>
-        <p className={`text-xs leading-relaxed ${muted}`}>
-          {t('workspace.projectHubWorkflowMethodologyHint')}
-        </p>
         {!profileHydrated ? (
           <p className={`mt-2 text-xs ${muted}`} role="status">
             {t('workspace.projectHubSettingsCatalogLoading')}
@@ -1230,7 +1217,6 @@ export default function ProjectHubSettingsPanel({
     <div className="space-y-5">
       <div>
         <p className={`text-xs font-semibold ${titleCls}`}>{t('adminTasks.statusList')}</p>
-        <p className={`mb-2 text-xs leading-relaxed ${muted}`}>{t('workspace.projectHubSettingsStatusHint')}</p>
         {workflowDoc ? (
           <CatalogKeyLabelEditor
             items={statesToEditorItems(workflowStates)}
@@ -1247,7 +1233,6 @@ export default function ProjectHubSettingsPanel({
       </div>
       <div>
         <p className={`text-xs font-semibold ${titleCls}`}>{t('adminTasks.priorityList')}</p>
-        <p className={`mb-2 text-xs leading-relaxed ${muted}`}>{t('workspace.projectHubSettingsPriorityHint')}</p>
         <CatalogKeyLabelEditor
           items={priorityItems}
           disabled={saving}
@@ -1401,7 +1386,7 @@ export default function ProjectHubSettingsPanel({
               >
                 <div className="min-w-0 flex-1">
                   <p className={`text-sm font-semibold ${titleCls}`}>{group.title}</p>
-                  <p className={`mt-0.5 text-[11px] leading-snug ${muted}`}>{group.hint}</p>
+                  {group.hint ? <p className={`mt-0.5 text-[11px] leading-snug ${muted}`}>{group.hint}</p> : null}
                 </div>
                 <ChevronRight size={16} className={`mt-0.5 shrink-0 ${muted}`} aria-hidden />
               </button>

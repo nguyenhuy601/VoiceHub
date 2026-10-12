@@ -66,7 +66,7 @@ export default function TasksTransferPanel({ orgId }) {
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.tasks.transfer')} hint={t('adminTasks.transferApiHint')} wide>
+    <AdminUserPanelShell title={t('adminDomains.tasks.transfer')} wide>
       <AdminTaskBoardPicker orgId={orgId} boardId={boardId} onBoardIdChange={setBoardId} />
       {!boardId ? (
         <p className="text-sm text-muted-foreground">{t('adminTasks.needBoard')}</p>

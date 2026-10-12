@@ -22,9 +22,7 @@ export default function AnalysisMethodSection({
     {
       id: 'ai',
       title: t('adminTasks.intakeModeAiTitle') || 'AI-assisted',
-      hint:
-        t('adminTasks.intakeModeAiHint') ||
-        'AI chuẩn bị đề xuất phân tích từ nguồn đã tải. BA rà soát và phê duyệt trước khi thành requirement chính thức.',
+      hint: '',
       bullets: [
         t('adminTasks.intakeModeAiBullet1') || 'Phân tích ban đầu nhanh hơn',
         t('adminTasks.intakeModeAiBullet2') || 'Đề xuất có thể truy vết',
@@ -67,7 +65,9 @@ export default function AnalysisMethodSection({
               }`}
             >
               <p className="text-sm font-semibold text-foreground">{opt.title}</p>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{opt.hint}</p>
+              {opt.hint ? (
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{opt.hint}</p>
+              ) : null}
               {opt.bullets?.length ? (
                 <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
                   {opt.bullets.map((line) => (

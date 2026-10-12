@@ -151,10 +151,7 @@ export default function TasksProjectVisibilityPolicyPanel({ orgId }) {
   } else {
     body = (
       <div className="space-y-4">
-        <AdminUserFormCard title={t('adminTasks.visibilityPolicyDiscoverTitle')}>
-          <p className="mb-3 text-xs text-muted-foreground">
-            {t('adminTasks.visibilityPolicyDiscoverHint')}
-          </p>
+        <AdminUserFormCard title={t('adminTasks.visibilityPolicyDiscoverTitle')}>
           <ul className="space-y-2">
             {rows.map(({ key, locked }) => (
               <li

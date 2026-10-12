@@ -661,9 +661,6 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
       <div>
         <h1 className="text-lg font-semibold">{t('workspace.phaseNavTraceability')}</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">{t('workspace.phase1TraceHubHint')}</p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          {t('workspace.phase1TraceChainHint')}
-        </p>
       </div>
 
       {catalogLoading ? (

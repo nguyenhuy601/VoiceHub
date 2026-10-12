@@ -38,9 +38,6 @@ export default function DepartmentAnnouncementSurface({
                 ? t('workspace.deptAnnounceTitle', { name })
                 : t('workspace.moduleAnnouncement')}
             </p>
-            <p className={`mt-0.5 text-[0.6875rem] leading-relaxed ${muted}`}>
-              {t('workspace.deptAnnounceBanner')}
-            </p>
             <p className={`mt-1.5 text-[0.625rem] font-semibold uppercase tracking-wide ${muted}`}>
               {t('workspace.deptAnnounceNoTaskNote')}
             </p>

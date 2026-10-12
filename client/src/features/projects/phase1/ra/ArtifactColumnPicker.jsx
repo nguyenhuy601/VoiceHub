@@ -57,9 +57,6 @@ export default function ArtifactColumnPicker({ kind, visibleIds, onChange }) {
           className="absolute right-0 z-30 mt-1 max-h-72 w-64 overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-lg"
           role="listbox"
         >
-          <p className="mb-2 px-1 text-[11px] text-muted-foreground">
-            {t('workspace.phase1ColumnsPickerHint')}
-          </p>
           <ul className="space-y-0.5">
             {catalog.map((c) => {
               const checked = visibleIds.includes(c.id);

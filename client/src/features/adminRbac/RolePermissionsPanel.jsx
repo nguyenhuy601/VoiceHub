@@ -133,7 +133,6 @@ export default function RolePermissionsPanel({ orgId }) {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="text-lg font-semibold">{t('adminDomains.rbac.permissions')}</h2>
-            <p className="text-sm text-muted-foreground">{t('adminRbac.permissionsHint')}</p>
             {role ? (
               <p className="mt-1 text-xs text-muted-foreground">
                 {t('adminRbac.rolePrefix')}{' '}
@@ -165,7 +164,7 @@ export default function RolePermissionsPanel({ orgId }) {
           <AdminListSkeleton />
         ) : catalogError || !tree.length ? (
           <p role="alert" className="rounded-xl border border-destructive bg-card p-4 text-sm text-destructive">
-            {t('adminRbac.createHint')}
+            {t('adminRbac.loadFail')}
           </p>
         ) : !bindings.length ? (
           <p className="rounded-xl border border-warning bg-warning-bg p-4 text-sm text-muted-foreground">

@@ -73,7 +73,6 @@ export default function RolesListPanel({ orgId }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold">{t('adminDomains.rbac.roles')}</h2>
-          <p className="text-sm text-muted-foreground">{t('adminRbac.listHint')}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
@@ -100,7 +99,6 @@ export default function RolesListPanel({ orgId }) {
       <div className="space-y-2 rounded-xl border border-warning bg-warning-bg px-3 py-3 text-sm">
         <p className="font-medium text-foreground">{t('adminRbac.listV2Title')}</p>
         <p className="text-muted-foreground">{t('adminRbac.listV2Body')}</p>
-        <p className="text-muted-foreground">{t('adminRbac.listScopeNote')}</p>
         <div className="flex flex-wrap gap-2 pt-1">
           <Link
             to="/app/admin/rbac/positions"

@@ -427,7 +427,7 @@ export default function UserExcelImportPanel({ orgId, embedded = false }) {
   if (embedded) return body;
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.users.modeExcel')} hint={t('adminUsers.hrExcelHint')}>
+    <AdminUserPanelShell title={t('adminDomains.users.modeExcel')}>
       {body}
     </AdminUserPanelShell>
   );

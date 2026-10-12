@@ -214,12 +214,11 @@ export default function CreateProjectBriefModal({
       ? t('taskBoard.briefPmPrefillHead')
       : pmPrefillKind === 'leader'
         ? t('taskBoard.briefPmPrefillLeader')
-        : t('taskBoard.briefPmHint');
+        : '';
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={t('taskBoard.briefCreateTitle')} size="md">
       <div className="space-y-4">
-        <p className="text-xs text-slate-400">{t('taskBoard.briefCreateHint')}</p>
 
         <div>
           <div className="mb-1 text-sm font-semibold text-white">{t('taskBoard.briefTitleLabel')} *</div>
@@ -286,7 +285,7 @@ export default function CreateProjectBriefModal({
             ))}
           </select>
           {membersError ? <p className="mt-1 text-xs text-rose-300">{membersError}</p> : null}
-          {!loadingMembers && memberOptions.length > 0 ? (
+          {!loadingMembers && memberOptions.length > 0 && prefillHint ? (
             <p className="mt-1 text-xs text-slate-500">{prefillHint}</p>
           ) : null}
         </div>

@@ -240,11 +240,7 @@ export default function TasksStatusPriorityPanel({ orgId }) {
       <div className="grid gap-4 md:grid-cols-2">
         <AdminUserFormCard
           title={t('adminTasks.statusList')}
-          hint={
-            workflowDoc
-              ? `${t('adminTasks.catalogStatusHint')} ${t('adminTasks.statusUnsavedHint')}`
-              : t('adminTasks.catalogStatusHint')
-          }
+          hint={workflowDoc ? t('adminTasks.statusUnsavedHint') : undefined}
         >
           {workflowLoadError ? (
             <AdminLoadErrorState
@@ -278,7 +274,7 @@ export default function TasksStatusPriorityPanel({ orgId }) {
             </div>
           )}
         </AdminUserFormCard>
-        <AdminUserFormCard title={t('adminTasks.priorityList')} hint={t('adminTasks.catalogPriorityHint')}>
+        <AdminUserFormCard title={t('adminTasks.priorityList')}>
           {priorityLoading ? (
             <AdminListSkeleton rows={3} />
           ) : priorityLoadError ? (
@@ -306,7 +302,6 @@ export default function TasksStatusPriorityPanel({ orgId }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.projects.statusPriority')}
-      hint={t('adminTasks.statusPriorityHint')}
       actions={
         <button
           type="button"

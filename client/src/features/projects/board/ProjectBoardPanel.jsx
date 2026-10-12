@@ -1519,7 +1519,6 @@ export default function TaskBoardWorkspacePanel({
             isDarkMode ? 'border-white/10 text-slate-400' : 'border-slate-300 text-slate-600'
           }`}
         >
-          <p>{t('taskBoard.boardEmptyHint')}</p>
         </div>
       ) : !selectedBoardId ? (
         <div

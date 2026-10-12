@@ -44,7 +44,6 @@ export default function RoleDeletePanel({ orgId, embedded = false }) {
     <>
       <div className="rounded-xl border border-border bg-card/40 p-4">
         <h2 className="text-lg font-semibold">{t('adminDomains.rbac.delete')}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">{t('adminRbac.deleteHint')}</p>
         {role && isProtectedDefaultRole(role) ? (
           <p className="mt-4 text-sm text-warning">{t('adminRbac.protectedRole')}</p>
         ) : null}

@@ -161,7 +161,7 @@ export default function TasksProjectsBoardsPanel({ orgId }) {
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.projects.overview')} hint={t('adminTasks.boardsHint')} wide>
+    <AdminUserPanelShell title={t('adminDomains.projects.overview')} wide>
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
         <div className="relative min-w-[12rem] max-w-md flex-1">
           <Search

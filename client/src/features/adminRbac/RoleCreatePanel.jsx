@@ -97,7 +97,7 @@ export default function RoleCreatePanel({ orgId }) {
     <div className="mx-auto max-w-3xl space-y-4">
       <div>
         <h2 className="text-lg font-semibold">{t('adminDomains.rbac.create')}</h2>
-        <p className="text-sm text-muted-foreground">{t('adminRbac.createHint')}</p>
+        
       </div>
 
       <div className="space-y-2 rounded-xl border border-warning bg-warning-bg px-3 py-3 text-sm">

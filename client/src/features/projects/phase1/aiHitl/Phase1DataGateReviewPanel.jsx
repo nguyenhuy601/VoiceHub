@@ -29,7 +29,7 @@ const COLUMNS = [
 
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
-  if (value) return value;
+  if (value && value !== key) return value;
   if (!vars) return fallback;
   return Object.entries(vars).reduce(
     (text, [name, raw]) => text.replace(`{${name}}`, String(raw ?? '')),
@@ -134,13 +134,6 @@ export default function Phase1DataGateReviewPanel({
 
   return (
     <div className={className}>
-      <p className="text-sm text-muted-foreground">
-        {labelOf(
-          t,
-          'requirements.phase1DataGateHint',
-          'Pass để chạy Semantic Fetch. Reject dừng lần chạy; bạn có thể sửa artifact rồi chạy lại.'
-        )}
-      </p>
       <ul className="mt-3 grid grid-cols-2 gap-2 text-sm">
         <li>{countLabel(t, 'requirements.phase1DataGateFr', '{count} FR', data.frCount)}</li>
         <li>

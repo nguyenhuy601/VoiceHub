@@ -83,7 +83,6 @@ export default function TaskWorklogPanel({
         <Clock className={`h-4 w-4 ${muted}`} />
         <h4 className="text-sm font-semibold">{t('taskBoard.worklogTitle')}</h4>
       </div>
-      <p className={`mb-2 text-[11px] leading-snug ${muted}`}>{t('taskBoard.worklogHint')}</p>
       {canEdit ? (
         <p className={`mb-2 text-[11px] leading-snug ${muted}`}>{t('taskBoard.worklogUpsertHint')}</p>
       ) : null}

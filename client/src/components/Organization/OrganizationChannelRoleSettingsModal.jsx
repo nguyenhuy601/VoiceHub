@@ -370,9 +370,6 @@ export default function OrganizationChannelRoleSettingsModal({
                 </div>
               ) : (
                 <div className="scrollbar-chat min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                  <p className="mb-4 text-xs text-muted-foreground">
-                    {t('organizations.channelRolePermScopeNote', { channel: channelLabel })}
-                  </p>
 
                   {permGroups.map((group) => (
                     <section key={group.id} className="mb-6">

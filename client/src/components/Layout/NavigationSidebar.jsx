@@ -950,7 +950,7 @@ const NavigationSidebar = ({ landingDemo = false, suite: suiteProp = null } = {}
                     isDarkMode ? 'bg-white/10 text-white hover:bg-white/15' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
                   }`}
                 >
-                  Hủy
+                  {t('common.cancel')}
                 </button>
                 <button
                   type="button"

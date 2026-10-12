@@ -156,7 +156,6 @@ export default function RolesHierarchyPanel({ orgId }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold">{t('adminDomains.rbac.hierarchy')}</h2>
-          <p className="text-sm text-muted-foreground">{t('adminRbac.hierarchyHint')}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link

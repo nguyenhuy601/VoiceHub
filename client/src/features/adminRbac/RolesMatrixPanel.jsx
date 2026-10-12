@@ -102,7 +102,7 @@ export default function RolesMatrixPanel({ orgId }) {
         <p className="text-sm text-muted-foreground">{t('adminRbac.noRoles')}</p>
       ) : !slots.length ? (
         <p className="rounded-xl border border-warning bg-warning-bg px-3 py-2 text-sm text-warning">
-          {t('adminRbac.createHint')}
+          {t('adminRbac.noRoles')}
         </p>
       ) : (
         <>

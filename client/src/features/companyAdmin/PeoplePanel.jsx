@@ -118,7 +118,6 @@ export default function PeoplePanel({ orgId }) {
 
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={t('companyAdmin.addEmployee')}>
         <form className="space-y-3" onSubmit={handleInvite}>
-          <p className="text-sm text-muted-foreground">{t('companyAdmin.inviteEmailHint')}</p>
           <input
             type="email"
             required

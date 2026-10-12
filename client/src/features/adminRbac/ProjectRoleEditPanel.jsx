@@ -15,7 +15,6 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { projectRolesAPI } from '../../services/api/projectRolesAPI';
 import {
   PROJECT_ROLE_LABEL_PREFIX,
-  looksLikeOrgStructureForProjectRole,
   normalizeLayerLabel,
   splitLayerLabel,
 } from '../../utils/roleLayerNaming';
@@ -162,11 +161,6 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
                 placeholder={t('adminRbac.projectRoleLabelPlaceholder')}
               />
             </div>
-            {suffix.trim() && looksLikeOrgStructureForProjectRole(suffix) ? (
-              <p className="mt-1 text-xs text-warning">
-                {t('adminRbac.projectRoleLooksLikeOrgHint')}
-              </p>
-            ) : null}
           </label>
 
           <label className="mb-4 flex items-start gap-2.5 text-sm">
@@ -203,9 +197,6 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
 
   const permissionMatrixCard = role ? (
     <AdminUserFormCard title={t('adminRbac.permissionMatrixTitle')}>
-      <p className="mb-3 text-xs text-muted-foreground">
-        {t('adminRbac.permissionMatrixHint')}
-      </p>
       <div className="max-h-[28rem] space-y-4 overflow-auto pr-1">
         {PERMISSION_GROUPS.map((group) => (
           <div key={group.title}>
@@ -243,7 +234,6 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
     return (
       <AdminUserPanelShell
         title={t('adminDomains.rbac.projectRoleEdit')}
-        hint={t('adminRbac.projectRolePermissionsHint')}
         wide
       >
         {loadingBody}
@@ -263,7 +253,6 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.rbac.projectRoleEdit')}
-      hint={t('adminRbac.projectRolePermissionsHint')}
       wide
     >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)_minmax(0,1.2fr)]">

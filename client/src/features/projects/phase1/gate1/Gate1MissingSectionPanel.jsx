@@ -5,7 +5,7 @@
 
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
-  if (value) return value;
+  if (value && value !== key) return value;
   if (!vars) return fallback;
   return Object.entries(vars).reduce(
     (text, [name, raw]) => text.replace(`{${name}}`, String(raw ?? '')),

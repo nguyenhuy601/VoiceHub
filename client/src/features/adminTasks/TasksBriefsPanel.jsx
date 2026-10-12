@@ -84,7 +84,7 @@ export default function TasksBriefsPanel({ orgId }) {
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.tasks.briefs')} hint={t('adminTasks.briefsHint')} wide>
+    <AdminUserPanelShell title={t('adminDomains.tasks.briefs')} wide>
       <div
         className="flex flex-wrap gap-2 rounded-xl border border-border bg-card p-4 shadow-sm"
         role="group"

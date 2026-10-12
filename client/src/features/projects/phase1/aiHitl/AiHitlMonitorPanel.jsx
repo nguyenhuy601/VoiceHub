@@ -65,7 +65,8 @@ function applyStickyWhatProgress(vm, stickyRef) {
 
 function labelOf(t, key, fallback) {
   const value = typeof t === 'function' ? t(key) : '';
-  return value || fallback;
+  if (value == null || value === '' || value === key) return fallback || '';
+  return value;
 }
 
 function MacroRow({ macros, activeMacro, srsApproved, t }) {

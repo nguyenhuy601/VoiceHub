@@ -32,7 +32,6 @@ export default function AiWizardStepAssign({
     <div className="space-y-6">
       <div>
         <h1 className={wizardUi.title}>{t('aiCreateWizard.assignTitle')}</h1>
-        <p className={wizardUi.subtitle}>{t('aiCreateWizard.assignSubtitle')}</p>
         <p className="mt-2 text-xs text-muted-foreground">
           {t('aiCreateWizard.assignProgress', { assigned: assignedCount, total: leafRows.length })}
         </p>

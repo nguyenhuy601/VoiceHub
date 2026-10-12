@@ -241,10 +241,8 @@ export default function RequirementAccessPolicyPanel({ orgId }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">{t(sk('hint'))}</p>
 
       <AdminUserFormCard title={t(sk('mappingTitle'))}>
-        <p className="mb-3 text-xs text-muted-foreground">{t(sk('mappingHint'))}</p>
         <div className="space-y-4">
           {['submitter', 'approver'].map((personaKey) => (
             <div key={personaKey} className="rounded-lg border border-border p-3">

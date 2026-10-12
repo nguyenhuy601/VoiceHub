@@ -408,9 +408,6 @@ export default function ProjectHubChangeRequestDetailDrawer({
           <p className="text-sm font-semibold text-foreground">
             {t('workspace.phaseQaCrApplyTitle')}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t('workspace.phaseQaCrApplyHint')}
-          </p>
           <button
             type="button"
             disabled={applying}

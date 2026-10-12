@@ -15,11 +15,7 @@ import { AdminBusySpinner, AdminLoadErrorState } from '../../components/adminUse
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { slugifyRoleKey, ensureRoleKeyNamespace } from '../../utils/roleKeySlug';
-import {
-  PROJECT_ROLE_LABEL_PREFIX,
-  looksLikeOrgStructureForProjectRole,
-  normalizeLayerLabel,
-} from '../../utils/roleLayerNaming';
+import { PROJECT_ROLE_LABEL_PREFIX, normalizeLayerLabel } from '../../utils/roleLayerNaming';
 import { projectRolesAPI } from '../../services/api/projectRolesAPI';
 
 export default function ProjectRoleCreatePanel({ orgId }) {
@@ -92,7 +88,7 @@ export default function ProjectRoleCreatePanel({ orgId }) {
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.rbac.projectRoleCreate')} hint={t('adminRbac.projectRoleCatalogHint')}>
+    <AdminUserPanelShell title={t('adminDomains.rbac.projectRoleCreate')}>
       <div className="max-w-xl">
         <AdminUserFormCard title={t('adminDomains.rbac.projectRoleCreate')}>
           <label className="mb-4 block">
@@ -109,9 +105,6 @@ export default function ProjectRoleCreatePanel({ orgId }) {
                 placeholder={t('adminRbac.projectRoleLabelPlaceholder')}
               />
             </div>
-            {suffix.trim() && looksLikeOrgStructureForProjectRole(suffix) ? (
-              <p className="mt-1 text-xs text-warning">{t('adminRbac.projectRoleLooksLikeOrgHint')}</p>
-            ) : null}
           </label>
 
           <label className="mb-4 block">
@@ -123,7 +116,6 @@ export default function ProjectRoleCreatePanel({ orgId }) {
               readOnly
               placeholder={t('adminRbac.roleKeyAutoPlaceholder')}
             />
-            <p className="mt-1 text-xs text-muted-foreground">{t('adminRbac.roleKeyAutoHint')}</p>
           </label>
 
           <label className="mb-4 flex items-start gap-2.5 text-sm">
@@ -175,7 +167,6 @@ export default function ProjectRoleCreatePanel({ orgId }) {
             </button>
           </div>
         </AdminUserFormCard>
-        <p className="mt-3 text-sm text-muted-foreground">{t('adminRbac.projectRoleCreateHint')}</p>
       </div>
     </AdminUserPanelShell>
   );

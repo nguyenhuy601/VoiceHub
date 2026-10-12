@@ -367,8 +367,8 @@ export default function ProjectHubDeliveryPhasePanel({
             <Rocket className="h-4 w-4 shrink-0 text-primary" aria-hidden />
             {t('workspace.phaseQaDeliveryPhaseTitle')}
           </h3>
-          <p className={`mt-1 text-xs ${muted}`}>
-            {t('workspace.phaseQaDeliveryPhaseCurrent')}:{' '}
+      <p className={`mt-1 text-xs ${muted}`}>
+        {t('workspace.phaseQaDeliveryPhaseCurrent')}:{' '}
             <span className="font-semibold text-foreground">
               {t(deliveryPhaseLabelKey(phase))}
             </span>
@@ -520,9 +520,9 @@ export default function ProjectHubDeliveryPhasePanel({
               const blocked = isHandover && !canAdvanceHandover;
               const blockerN = isHandover ? handoverGateBlockers.length : 0;
               return (
-                <button
-                  key={target}
-                  type="button"
+            <button
+              key={target}
+              type="button"
                   onClick={() => setAdvanceCardOpen(target)}
                   className={`flex items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition hover:brightness-[0.98] ${
                     blocked
@@ -546,7 +546,7 @@ export default function ProjectHubDeliveryPhasePanel({
                     </span>
                   </span>
                   <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 ${muted}`} aria-hidden />
-                </button>
+            </button>
               );
             })
           : null}
@@ -565,9 +565,6 @@ export default function ProjectHubDeliveryPhasePanel({
         size="md"
       >
         <div className="space-y-3">
-          <p className={`text-[11px] leading-relaxed ${muted}`}>
-            {t('workspace.phaseAdvanceModalHint')}
-          </p>
           {advanceCardOpen === 'release_handover' && !canAdvanceHandover ? (
             <div>
               <p className={`mb-1.5 text-[11px] font-semibold ${titleCls}`}>
@@ -764,7 +761,7 @@ export default function ProjectHubDeliveryPhasePanel({
               const allowed = isPoItem ? canAcceptHandover : canChangePhase;
               const disabled = !allowed || busy || deployLocked;
               return (
-                <li key={id}>
+              <li key={id}>
                   <label
                     className={`flex items-start gap-2 rounded-xl border px-2.5 py-2.5 text-sm transition ${
                       isOn ? tone.on : tone.idle
@@ -775,9 +772,9 @@ export default function ProjectHubDeliveryPhasePanel({
                     }`}
                   >
                     {allowed ? (
-                      <input
-                        type="checkbox"
-                        className="mt-0.5"
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
                         checked={isOn}
                         disabled={disabled}
                         onChange={(e) => onToggleChecklist(id, e.target.checked)}
@@ -809,8 +806,8 @@ export default function ProjectHubDeliveryPhasePanel({
                     >
                       {isOn ? 'OK' : '—'}
                     </span>
-                  </label>
-                </li>
+                </label>
+              </li>
               );
             })}
           </ul>

@@ -59,7 +59,6 @@ export default function OrgLevelsPanel({ orgId }) {
   return (
     <AdminUserPanelShell
       title={t('adminOrg.levelsLockedTitle')}
-      hint={t('adminOrg.levelsLockedHint')}
       wide
     >
       <AdminUserFormCard title={t('adminOrg.levelsTitle')}>

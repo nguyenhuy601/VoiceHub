@@ -97,7 +97,7 @@ function AdminDomainPicker({ domains, selectedDomain, onSelect }) {
 
   return (
     <div ref={rootRef} className="relative z-20 mb-3 px-1">
-      <label className="mb-1 block text-[0.625rem] font-semibold uppercase tracking-wider text-white/35">
+      <label className="mb-1 block text-[0.625rem] font-semibold uppercase tracking-wider text-white/60">
         {t('adminDomains.selectDomain')}
       </label>
       <button
@@ -177,7 +177,7 @@ function AdminNavItem({ item, collapsed, isActive, badge = 0 }) {
       title={collapsed ? label : undefined}
     >
       <span
-        className={`h-[6px] w-[6px] shrink-0 rounded-full ${isActive ? 'bg-red-400' : 'bg-white/25'}`}
+        className={`h-[6px] w-[6px] shrink-0 rounded-full ${isActive ? 'bg-red-400' : 'bg-white/55'}`}
         aria-hidden
       />
       {!collapsed ? (
@@ -241,7 +241,7 @@ function AdminNavActionGroup({ items, labelKey, collapsed, isActivePath, badgeFo
         title={collapsed ? label : undefined}
       >
         <span
-          className={`h-[6px] w-[6px] shrink-0 rounded-full ${hasActive ? 'bg-red-400' : 'bg-white/25'}`}
+          className={`h-[6px] w-[6px] shrink-0 rounded-full ${hasActive ? 'bg-red-400' : 'bg-white/55'}`}
           aria-hidden
         />
         {!collapsed ? (
@@ -567,7 +567,7 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
           {!collapsed && !isSystemAdmin ? (
             <Link
               to="/app/collaborate/workspaces"
-              className="mt-2 block rounded-lg border border-dashed border-white/10 px-2.5 py-2 text-[0.75rem] text-white/45 transition hover:border-white/20 hover:text-white/70"
+              className="mt-2 block rounded-lg border border-dashed border-white/15 px-2.5 py-2 text-[0.75rem] text-white/75 transition hover:border-white/25 hover:text-white"
             >
               {t('companyAdmin.backToWork')}
             </Link>

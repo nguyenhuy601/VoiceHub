@@ -163,10 +163,6 @@ export default function ProjectWizardStepSetup({
         <h2 className="text-xl font-semibold text-foreground">
           {t('adminTasks.wizardViewsTitle') || 'Views'}
         </h2>
-        <p className="text-sm text-muted-foreground">
-          {t('adminTasks.wizardViewsHint') ||
-            'Bật tab Project Hub (Overview, Planning, Board…). Có thể đổi sau trong Settings.'}
-        </p>
         <ul className="space-y-2">
           {PROJECT_HUB_VIEW_OPTIONS.map((v) => (
             <li key={v.id}>
@@ -197,7 +193,6 @@ export default function ProjectWizardStepSetup({
         <h2 className="text-xl font-semibold text-foreground">
           {t('adminTasks.wizardProjectDatesTitle')}
         </h2>
-        <p className="text-sm text-muted-foreground">{t('adminTasks.wizardProjectDatesHint')}</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block text-xs font-semibold text-muted-foreground">
             {t('adminTasks.wizardProjectDateStart')}

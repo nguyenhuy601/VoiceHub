@@ -50,9 +50,6 @@ export default function PlanningRolesFormSection({
         <p className="text-xs font-semibold text-foreground">
           {t('workspace.phase1PlanningFieldRoles')}
         </p>
-        <p className="text-[11px] text-muted-foreground">
-          {t('workspace.phase1PlanningRolesFormHint')}
-        </p>
       </div>
       {(rolesDraft?.length ? rolesDraft : [emptyPlanningRoleDraft()]).map((role, idx) => (
         <div

@@ -537,9 +537,6 @@ function ProfileModal({ isOpen, onClose }) {
                     onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
                     className={inputClass}
                   />
-                  <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>
-                    {t('settingsPage.emailChangeHint')}
-                  </p>
                 </div>
                 <div>
                   <label className={labelClass}>{t('profileModal.birthDate')}</label>

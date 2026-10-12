@@ -197,7 +197,7 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
           locked: Boolean(g.locked),
           lockHintKey: g.lockHintKey,
           readOnly: itemReadOnly,
-          readOnlyHintKey: itemReadOnly ? g.readOnlyHintKey : undefined,
+          readOnlyHintKey: undefined,
           hasChildren: children.length > 0,
           defaultChildPathSeg: children[0]?.pathSeg || m.pathSeg,
         };
@@ -208,7 +208,7 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
             locked: Boolean(g.locked),
             lockHintKey: g.lockHintKey,
             readOnly: itemReadOnly,
-            readOnlyHintKey: itemReadOnly ? g.readOnlyHintKey : undefined,
+            readOnlyHintKey: undefined,
             navChildOf: m.key,
             navIndent: 1,
           });

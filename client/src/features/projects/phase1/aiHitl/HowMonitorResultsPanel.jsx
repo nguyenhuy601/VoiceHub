@@ -15,7 +15,7 @@ import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
 
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
-  if (value) return value;
+  if (value && value !== key) return value;
   if (!vars) return fallback;
   return Object.entries(vars).reduce(
     (text, [name, raw]) => text.replace(`{${name}}`, String(raw ?? '')),
@@ -188,13 +188,6 @@ export default function HowMonitorResultsPanel({ pack = null, t }) {
       <h3 className="text-sm font-semibold text-foreground">
         {labelOf(t, 'requirements.aiHitlMonitorResultsTitle', 'Kết quả chạy HOW')}
       </h3>
-      <p className="mt-0.5 text-xs text-muted-foreground">
-        {labelOf(
-          t,
-          'requirements.aiHitlMonitorResultsHint',
-          'Bảng kết quả planning (WBS, phụ thuộc, phân công, lịch, rủi ro) — BA / PO / PM đều xem được. Duyệt quyết định ở tab Duyệt.'
-        )}
-      </p>
       <HowPlanSummaryStrip pack={pack} t={t} />
 
       {sectionTabs.length ? (

@@ -11,11 +11,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
       <div>
         <h1 className={wizardUi.title}>
           {t('adminTasks.wizardIdentityTitle') || 'Thông tin dự án'}
-        </h1>
-        <p className={wizardUi.subtitle}>
-          {t('adminTasks.wizardIdentityHint') ||
-            'Tạo dự án Phase 1 — Requirement Analysis. Board/workflow cấu hình khi chuyển Phase 2.'}
-        </p>
+        </h1>
       </div>
 
       <label className="block">

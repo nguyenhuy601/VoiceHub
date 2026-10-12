@@ -558,9 +558,6 @@ export default function ProjectHubTestCasesPanel({
                   <FlaskConical className="h-4 w-4 shrink-0 text-[#1677FF]" aria-hidden />
                   {t('workspace.phaseQaTestCasesTitle')}
                 </h3>
-                <p className={`mt-1 text-[11px] leading-relaxed ${muted}`}>
-                  {t('workspace.phaseQaTestCasesHint')}
-                </p>
               </div>
               <dl className="flex flex-wrap gap-2 text-[11px]">
                 {[
@@ -705,7 +702,6 @@ export default function ProjectHubTestCasesPanel({
               ) : null}
             </div>
             <div className="px-3.5 py-3">
-              <p className={`mb-2 text-[11px] ${muted}`}>{t('workspace.phaseQaCatalogAttachHint')}</p>
               <ul className="divide-y divide-border/50 overflow-hidden rounded-lg border border-border/50">
                 {catalogAttachRows.map((row) => {
                   const id = rowId(row);
@@ -818,9 +814,6 @@ export default function ProjectHubTestCasesPanel({
                 ({queueCardGroups.length} {t('workspace.phaseQaQueueCardUnit')} · {counts.total} TC)
               </span>
             </h4>
-            <p className={`mt-0.5 text-[11px] font-normal ${muted}`}>
-              {t('workspace.phaseQaQueueByCardHint')}
-            </p>
           </div>
           <div className="px-3.5 py-3">
             {loading && items.length === 0 ? (

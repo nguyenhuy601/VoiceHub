@@ -207,8 +207,7 @@ export default function ProjectWizardStepTeam({
       <div className="shrink-0">
         <h3 className="text-base font-semibold text-foreground">
           {t('adminTasks.wizardStepTeamBring') || t('adminTasks.wizardStepTeam')}
-        </h3>
-        <p className="mt-1 text-sm text-muted-foreground">{t('adminTasks.wizardStepTeamHint')}</p>
+        </h3>
         <p className="mt-1 text-xs text-muted-foreground">{t('adminTasks.wizardIntakeDualOk')}</p>
         <p className="mt-2 text-xs text-muted-foreground">{t('adminTasks.wizardSuggestFitAvailable')}</p>
       </div>

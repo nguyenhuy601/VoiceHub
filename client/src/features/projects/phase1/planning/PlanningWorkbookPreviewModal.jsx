@@ -251,9 +251,6 @@ export default function PlanningWorkbookPreviewModal({
       }
     >
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-0.5">
-        <p className="text-xs text-muted-foreground">
-          {t('workspace.phase1DumpPreviewModalHint')}
-        </p>
 
         {errors.length ? (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2">

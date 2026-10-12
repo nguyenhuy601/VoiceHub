@@ -19,11 +19,7 @@ export default function ProjectWizardStepConfirm({ form, t }) {
       <div>
         <h1 className={wizardUi.title}>
           {t('adminTasks.wizardConfirmTitle') || 'Xác nhận tạo dự án'}
-        </h1>
-        <p className={wizardUi.subtitle}>
-          {t('adminTasks.wizardConfirmHint') ||
-            'Dự án sẽ mở ở Phase 1 — Requirement Analysis (status draft).'}
-        </p>
+        </h1>
       </div>
 
       <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-3 text-sm">

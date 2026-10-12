@@ -62,7 +62,6 @@ export default function DepartmentCapacityPanel({ orgId }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.projects.capacity')}
-      hint={t('adminTasks.capacityHint')}
       wide
       actions={
         <div className="flex flex-wrap items-center gap-2">

@@ -48,7 +48,6 @@ export default function AiWizardStepSource({
     <div className="w-full max-w-xl space-y-6">
       <div>
         <h1 className={wizardUi.title}>{t('aiCreateWizard.sourceTitle')}</h1>
-        <p className={wizardUi.subtitle}>{t('aiCreateWizard.sourceSubtitle')}</p>
       </div>
 
       {packsLoading ? (

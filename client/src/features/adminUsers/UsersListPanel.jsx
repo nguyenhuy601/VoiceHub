@@ -646,7 +646,7 @@ export default function UsersListPanel({ orgId }) {
                       dir={sortDir}
                       onSort={handleSortColumn}
                     />
-                    <th className="px-4 py-3" title={t('adminUsers.colOrgRoleHint')}>
+                    <th className="px-4 py-3">
                       {t('adminUsers.colOrgRole')}
                     </th>
                     <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>

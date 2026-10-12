@@ -310,7 +310,6 @@ export default function ResourcePlannerPanel({
   return (
     <AdminUserPanelShell
       title={t('adminDomains.projects.planner')}
-      hint={t('adminTasks.plannerHint')}
       wide
     >
       {body}

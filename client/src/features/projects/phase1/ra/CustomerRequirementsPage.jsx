@@ -149,7 +149,6 @@ function ImportSetDetail({
   onClose,
 }) {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
   const isTrash = set.status === 'trashed';
   const isPending = set.status === 'pending_review';
   const isRejected = set.status === 'rejected';
@@ -287,33 +286,6 @@ function ImportSetDetail({
           </section>
         ) : null}
 
-        {/* Help — collapsible, not permanent wall of text */}
-        {!isTrash ? (
-          <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-border dark:bg-surface">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-2 border-b border-[#E8E8E8] bg-[#E8F4FC] px-3 py-2 text-left dark:border-border dark:bg-surface"
-              onClick={() => setHelpOpen((v) => !v)}
-              aria-expanded={helpOpen}
-            >
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#262626] dark:text-primary-foreground">
-                <HelpCircle size={14} className="text-[#1677FF]" aria-hidden />
-                {t('workspace.phase1ImportSetHelpTitle')}
-              </span>
-              <span className="text-xs text-muted-foreground">{helpOpen ? '▾' : '▸'}</span>
-            </button>
-            {helpOpen ? (
-              <ul className="list-disc space-y-1.5 px-3 py-3 pl-7 text-[11px] leading-relaxed text-muted-foreground">
-                <li>{t('workspace.phase1ImportSetDraftFixHint')}</li>
-                {isPending ? <li>{t('workspace.phase1ImportSetRejectVsTrashHint')}</li> : null}
-                {isPending ? <li>{t('workspace.phase1ImportSetWaitingGate')}</li> : null}
-              </ul>
-            ) : (
-              <p className="px-3 py-2 text-[11px] text-muted-foreground">
-                {t('workspace.phase1ImportSetHelpSummary')}
-              </p>
-            )}
-          </section>
         ) : null}
       </div>
 
@@ -670,16 +642,7 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
         summary={t('workspace.phase1CustomerDocsHelpSummary')}
         defaultOpen={false}
         toneClass="border-[#D9D9D9] bg-white shadow-sm dark:border-border dark:bg-surface"
-      >
-        <ul className="list-disc space-y-1.5 pl-4 text-[11px] leading-relaxed text-muted-foreground">
-          <li>{t('workspace.phase1CustomerDocsHint')}</li>
-          <li>{t('workspace.phase1ImportSetDraftFixHint')}</li>
-          <li>{t('workspace.phase1FileLibraryHint')}</li>
-          {activeSet && listFilter === 'live' ? (
-            <li>{t('workspace.phase1DoubleGateHint')}</li>
-          ) : null}
-        </ul>
-      </Phase1CollapsibleCard>
+      />
 
       {preview ? (
         <section className={SECTION_SHELL}>
@@ -884,9 +847,9 @@ export default function CustomerRequirementsPage({ projectId, organizationId, re
         title={t('workspace.phase1RollbackConfirmTitle')}
         message={
           rollbackDiff
-            ? `${t('workspace.phase1RollbackDiffHint')} ${t('workspace.phase1RollbackManualEdited', {
+            ? t('workspace.phase1RollbackManualEdited', {
                 count: rollbackDiff.manualEditedArtifacts?.length || 0,
-              })}`
+              })
             : ''
         }
         confirmText={t('workspace.phase1RestoreImportSet')}

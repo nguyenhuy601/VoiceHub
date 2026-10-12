@@ -235,7 +235,6 @@ export default function PlanningApprovalPage({ projectId }) {
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 sm:p-4">
       <div>
         <h1 className="text-base font-semibold">{t('workspace.phaseNavPlanningApproval')}</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">{t('workspace.phase1PlanningGateHint')}</p>
       </div>
 
       {isLoading ? (

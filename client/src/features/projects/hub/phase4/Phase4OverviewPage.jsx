@@ -59,7 +59,6 @@ export default function Phase4OverviewPage({ projectId }) {
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 p-3 sm:p-4">
       <Phase4SectionCard
         title={t('workspace.phase4OverviewTitle')}
-        description={t('workspace.phase4OverviewHint')}
         aside={
           releaseLabel ? (
             <span className="rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-bold tabular-nums text-primary">
@@ -131,7 +130,7 @@ export default function Phase4OverviewPage({ projectId }) {
         </div>
       </Phase4SectionCard>
 
-      <Phase4SectionCard title={t('workspace.phase4OverviewCtaTitle')} description={t('workspace.phase4OverviewCtaHint')}>
+      <Phase4SectionCard title={t('workspace.phase4OverviewCtaTitle')}>
         <div className="grid gap-2 sm:grid-cols-2">
           {CTA_MODULES.map(({ module, id }) => {
             const done = id ? Boolean(checklist[id]) : checklistDone === checklistTotal;

@@ -324,7 +324,7 @@ export default function TasksManagePanel({ orgId }) {
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.tasks.manageTasks')} hint={t('adminTasks.manageHint')}>
+    <AdminUserPanelShell title={t('adminDomains.tasks.manageTasks')}>
       <AdminTaskBoardPicker orgId={orgId} boardId={boardId} onBoardIdChange={setBoardId} />
 
       {boardId ? (

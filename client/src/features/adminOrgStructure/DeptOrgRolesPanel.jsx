@@ -287,7 +287,6 @@ export default function DeptOrgRolesPanel({ orgId, embedded = false }) {
   return (
     <AdminUserPanelShell
       title={t('adminDomains.orgStructure.deptOrgRoles')}
-      hint={t('adminOrg.deptOrgRolesHint')}
       wide
     >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">

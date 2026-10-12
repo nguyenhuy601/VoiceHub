@@ -71,7 +71,7 @@ export default function AccountActivatePanel({ orgId, embedded = false }) {
 
   const body = (
     <>
-      <AdminUserFormCard title={t('adminDomains.accounts.activate')} hint={t('adminAccounts.activateHint')}>
+      <AdminUserFormCard title={t('adminDomains.accounts.activate')}>
         {!userId ? (
           <p className="mb-4 text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
         ) : loading ? (
@@ -126,7 +126,7 @@ export default function AccountActivatePanel({ orgId, embedded = false }) {
   if (embedded) return body;
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.accounts.activate')} hint={t('adminAccounts.activateHint')} wide>
+    <AdminUserPanelShell title={t('adminDomains.accounts.activate')} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
         <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminAccounts.activatePickerHint')} />
         {body}

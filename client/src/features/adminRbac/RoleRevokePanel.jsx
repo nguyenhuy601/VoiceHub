@@ -165,7 +165,6 @@ export default function RoleRevokePanel({ orgId, embedded = false }) {
             <p className="text-sm font-medium text-foreground">
               {t('adminRbac.revokeHierarchySection')}
             </p>
-            <p className="text-xs text-muted-foreground">{t('adminRbac.revokeHierarchyHint')}</p>
             <ul className="space-y-2">
               {hierarchyRoles.map((item) => renderRoleRow(item, { hierarchy: true }))}
             </ul>
@@ -178,7 +177,6 @@ export default function RoleRevokePanel({ orgId, embedded = false }) {
   const body = (
     <div className="rounded-xl border border-border bg-card p-4">
       <h2 className="text-lg font-semibold">{t('adminDomains.rbac.revoke')}</h2>
-      <p className="mt-2 text-sm text-muted-foreground">{t('adminRbac.revokeHint')}</p>
       {renderAssignedBody()}
       <ConfirmDialog
         isOpen={Boolean(hierarchyConfirm)}

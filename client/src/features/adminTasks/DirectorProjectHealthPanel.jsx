@@ -204,7 +204,6 @@ export default function DirectorProjectHealthPanel({ orgId }) {
   return (
     <AdminUserPanelShell
       title={t('adminTasks.directorHealthTitle')}
-      hint={t('adminTasks.directorHealthHint')}
       wide
     >
       <div className="mb-3 flex flex-wrap items-center gap-3">

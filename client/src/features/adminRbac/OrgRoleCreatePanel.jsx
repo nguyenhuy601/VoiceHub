@@ -15,11 +15,7 @@ import { AdminBusySpinner, AdminLoadErrorState } from '../../components/adminUse
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { slugifyRoleKey, ensureRoleKeyNamespace } from '../../utils/roleKeySlug';
-import {
-  ORG_ROLE_LABEL_PREFIX,
-  looksLikeHrPositionForOrgRole,
-  normalizeLayerLabel,
-} from '../../utils/roleLayerNaming';
+import { ORG_ROLE_LABEL_PREFIX, normalizeLayerLabel } from '../../utils/roleLayerNaming';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 
 export default function OrgRoleCreatePanel({ orgId }) {
@@ -93,7 +89,7 @@ export default function OrgRoleCreatePanel({ orgId }) {
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.rbac.orgRoleCreate')} hint={t('adminRbac.orgRoleCatalogHint')}>
+    <AdminUserPanelShell title={t('adminDomains.rbac.orgRoleCreate')}>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <AdminUserFormCard title={t('adminDomains.rbac.orgRoleCreate')}>
           <label className="mb-4 block">
@@ -110,9 +106,6 @@ export default function OrgRoleCreatePanel({ orgId }) {
                 placeholder={t('adminRbac.orgRoleLabelPlaceholder')}
               />
             </div>
-            {suffix.trim() && looksLikeHrPositionForOrgRole(suffix) ? (
-              <p className="mt-1 text-xs text-warning">{t('adminRbac.orgRoleLooksLikePositionHint')}</p>
-            ) : null}
           </label>
           <label className="mb-4 block">
             <span className={adminLabelClass()}>{t('adminRbac.roleKeyField')}</span>
@@ -123,7 +116,6 @@ export default function OrgRoleCreatePanel({ orgId }) {
               readOnly
               placeholder={t('adminRbac.roleKeyAutoPlaceholder')}
             />
-            <p className="mt-1 text-xs text-muted-foreground">{t('adminRbac.roleKeyAutoHint')}</p>
           </label>
           <label className="mb-4 block">
             <span className={adminLabelClass()}>{t('adminRbac.roleDescriptionField')}</span>
@@ -182,10 +174,7 @@ export default function OrgRoleCreatePanel({ orgId }) {
         </AdminUserFormCard>
 
         <div>
-          <div className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-            {t('adminRbac.orgRoleCreateHint')}
-          </div>
-          <div className="mt-4 rounded-xl border border-border bg-card p-4">
+          <div className="rounded-xl border border-border bg-card p-4">
             <p className="text-sm font-medium">{t('adminDomains.rbac.orgRoleAssign')}</p>
             <p className="mt-1 text-sm text-muted-foreground">
               {t('adminRbac.orgRoleCreateAfterHint')}

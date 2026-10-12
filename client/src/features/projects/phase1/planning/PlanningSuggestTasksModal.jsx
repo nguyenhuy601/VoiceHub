@@ -98,7 +98,6 @@ export default function PlanningSuggestTasksModal({ projectId, open, onClose }) 
       size="lg"
     >
       <div className="flex max-h-[70vh] flex-col gap-3">
-        <p className="text-xs text-muted-foreground">{t('workspace.phase1SuggestTasksHint')}</p>
 
         <div className="flex flex-wrap gap-2">
           <button

@@ -159,7 +159,7 @@ export default function ProjectRoleListPanel({ orgId }) {
   };
 
   return (
-    <AdminUserPanelShell title={t('adminDomains.rbac.sectionProjectRoles')} hint={t('adminRbac.projectRoleCatalogHint')} wide>
+    <AdminUserPanelShell title={t('adminDomains.rbac.sectionProjectRoles')} wide>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">{t('adminRbac.roleListDragHint')}</p>
         <div className="flex flex-wrap gap-2">
@@ -224,11 +224,7 @@ export default function ProjectRoleListPanel({ orgId }) {
                     <div className="truncate" title={role.label}>
                       {role.label}
                     </div>
-                    {role.legacyOutsideMaster ? (
-                      <div className="mt-0.5 text-[10px] text-warning">
-                        {t('adminRbac.legacyOutsideMasterHint')}
-                      </div>
-                    ) : !hasLayerPrefix(role.label, 'project') ? (
+                    {!role.legacyOutsideMaster && !hasLayerPrefix(role.label, 'project') ? (
                       <div className="mt-0.5 text-[10px] text-warning">
                         {t('adminRbac.listLegacyNameHint')}
                       </div>

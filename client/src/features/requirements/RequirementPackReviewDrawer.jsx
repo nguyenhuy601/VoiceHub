@@ -107,7 +107,7 @@ export default function RequirementPackReviewDrawer({
     sheetIssueBanner: t('requirements.sheetIssueBanner'),
     noIssuesOnSheet: t('requirements.noIssuesOnSheet'),
     emptyExcel: t('requirements.noExcelPreview'),
-    derivedFromPackHint: t('requirements.derivedFromPackHint'),
+    derivedFromPackHint: '',
     planningScore: t('requirements.planningScore'),
     planningNotReady: t('requirements.planningNotReady'),
     previewPlanningLowScore: t('requirements.previewPlanningLowScore'),

@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { FileText } from 'lucide-react';
 import { useAppStrings } from '../../../locales/appStrings';
@@ -15,8 +14,6 @@ export default function ProjectPhasePlaceholderPage() {
   const titleKey = PHASE_MODULE_LABEL_KEYS[module];
   const title = titleKey ? t(titleKey) : module;
 
-  const hint = useMemo(() => t('workspace.phaseModulePlaceholderHint'), [t]);
-
   return (
     <div className="scrollbar-overlay flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-4 sm:px-4">
       <div className="mx-auto w-full max-w-3xl rounded-xl border border-border bg-surface p-6">
@@ -26,7 +23,6 @@ export default function ProjectPhasePlaceholderPage() {
           </span>
           <div className="min-w-0">
             <h1 className="text-lg font-semibold text-foreground">{title}</h1>
-            <p className="mt-2 text-sm text-muted-foreground">{hint}</p>
             <p className="mt-3 font-mono text-xs text-muted-foreground">{module}</p>
           </div>
         </div>
