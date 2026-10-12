@@ -1,32 +1,21 @@
 /**
  * Pure maps for fullscreen wizard (node:test).
+ * Scrum-only — legacy Agile/Kanban cards removed.
  */
-const PROJECT_WIZARD_STEPS = Object.freeze(['name', 'setup', 'team']);
+const PROJECT_WIZARD_STEPS = Object.freeze(['intake']);
 
 const PROJECT_WORKFLOW_CARDS = Object.freeze([
-  {
-    id: 'agile',
-    methodology: 'scrum',
-    workflowTemplateKey: 'startup',
-    columns: Object.freeze(['To Do', 'Doing', 'Done']),
-  },
   {
     id: 'scrum',
     methodology: 'scrum',
     workflowTemplateKey: 'sme',
     columns: Object.freeze(['To Do', 'Doing', 'Review', 'Done']),
   },
-  {
-    id: 'kanban',
-    methodology: 'kanban',
-    workflowTemplateKey: 'default_board',
-    columns: Object.freeze(['To Do', 'In Progress', 'In Review', 'Done']),
-  },
 ]);
 
 function resolveWorkflowCard(cardId) {
   const id = String(cardId || '').trim().toLowerCase();
-  return PROJECT_WORKFLOW_CARDS.find((c) => c.id === id) || PROJECT_WORKFLOW_CARDS[2];
+  return PROJECT_WORKFLOW_CARDS.find((c) => c.id === id) || PROJECT_WORKFLOW_CARDS[0];
 }
 
 function mapWorkflowCardToBackend(cardId) {

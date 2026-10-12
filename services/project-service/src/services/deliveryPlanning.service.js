@@ -595,6 +595,13 @@ async function cutBaseline({ userId, projectId, body = {} }) {
   );
 
   try {
+    const { snapshotActivePlan } = require('./meetingPlan.service');
+    let meetingPlanSnapshot = null;
+    try {
+      meetingPlanSnapshot = await snapshotActivePlan(projectId);
+    } catch (_) {
+      meetingPlanSnapshot = null;
+    }
     const doc = await PlanningBaseline.create({
       organizationId: project.organizationId,
       projectId,
@@ -609,6 +616,7 @@ async function cutBaseline({ userId, projectId, body = {} }) {
         version: a.version,
         status: a.status,
       })),
+      meetingPlanSnapshot,
       approvedBy: userId,
       approvedAt: new Date(),
       notes: String(body.notes || '').trim().slice(0, 2000),
@@ -623,6 +631,7 @@ async function cutBaseline({ userId, projectId, body = {} }) {
         planVersion: doc.planVersion,
         artifactCount: approved.length,
         missingRecommended: readiness.missingRecommended,
+        meetingPlanVersion: meetingPlanSnapshot?.version ?? null,
       },
       meta: { projectId: String(projectId) },
     });

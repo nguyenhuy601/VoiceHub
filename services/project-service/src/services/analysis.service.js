@@ -1812,8 +1812,12 @@ async function advanceToPhase2({
   assignStatusForPhase(projectDoc, 'development');
   if (methodology) {
     const m = String(methodology).trim().toLowerCase();
-    if (['scrum', 'kanban', 'waterfall'].includes(m)) {
+    if (m === 'scrum') {
       projectDoc.methodology = m;
+    } else if (m) {
+      const err = new Error('methodology phải là scrum');
+      err.statusCode = 400;
+      throw err;
     }
   }
   await projectDoc.save();

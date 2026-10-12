@@ -14,6 +14,7 @@ const { runAllRawSectionDerives } = require('./runRawSectionDerive');
 
 const { buildActorsFromRaw, buildScopeFromRaw } = require('../srsProposal/engines/actorsFromRaw');
 const { buildAssumptionsFromRaw } = require('../srsProposal/engines/assumptionsFromRaw');
+const { decomposeFrCandidates } = require('../engines/frCandidateDecompose');
 
 const {
 
@@ -161,7 +162,7 @@ function stampLockedSection(proposal, resultsById, deriveStatuses, engineId) {
 
 async function applyRawSectionDerive(opts = {}) {
 
-  const pack = opts.pack || {};
+  let pack = opts.pack || {};
 
   const env = opts.env || process.env;
 
@@ -170,6 +171,7 @@ async function applyRawSectionDerive(opts = {}) {
   const resultsById = { ...(opts.resultsById || {}) };
 
   const deriveStatuses = {};
+  let frDecomposeMeta = null;
 
 
 
@@ -393,6 +395,36 @@ async function applyRawSectionDerive(opts = {}) {
   // Active LLM derive (UC → BG by default). Throws RAW_DERIVE_FAILED on critical fail.
 
   const deriveStartedAt = Date.now();
+  // Upstream: split monolithic Customer Raw FR into PROPOSED candidates before UC/BR/Data derive.
+  const frCount = Array.isArray(pack.functionalRequirements) ? pack.functionalRequirements.length : 0;
+  const decomposeOn =
+    String(env.PHASE1_FR_DECOMPOSE ?? '1').trim().toLowerCase() !== '0' &&
+    String(env.PHASE1_FR_DECOMPOSE ?? '1').trim().toLowerCase() !== 'false';
+  if (decomposeOn && frCount > 0) {
+    try {
+      const dec = await decomposeFrCandidates({
+        pack,
+        env,
+        generateJsonFn: opts.generateJsonFn,
+      });
+      frDecomposeMeta = dec.meta || null;
+      if (dec.ok && Array.isArray(dec.candidates) && dec.candidates.length > frCount) {
+        pack = dec.pack;
+        // eslint-disable-next-line no-console
+        console.info(
+          '[fr_decompose] sourceFr=%d candidates=%d llmCalls=%d heuristic=%d',
+          frCount,
+          dec.candidates.length,
+          dec.meta?.llmCalls || 0,
+          dec.meta?.heuristic || 0
+        );
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[fr_decompose] soft-fail', err?.message || err);
+    }
+  }
+
   const derived = await runAllRawSectionDerives({
 
     pack,
@@ -589,7 +621,14 @@ async function applyRawSectionDerive(opts = {}) {
     },
   };
 
-  return { proposal, resultsById, deriveStatuses, timingMeta };
+  return {
+    proposal,
+    resultsById,
+    deriveStatuses,
+    timingMeta,
+    pack,
+    frDecomposeMeta,
+  };
 
 }
 

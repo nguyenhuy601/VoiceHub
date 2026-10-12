@@ -65,14 +65,14 @@ export default function OtOverrideConfirmModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[10100] flex items-center justify-center p-4 animate-fadeIn"
+      className="fixed inset-0 z-[10100] flex items-center justify-center p-4 motion-safe:animate-fade-in-fast motion-reduce:animate-none"
       onClick={handleClose}
       role="presentation"
     >
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" aria-hidden />
       <div
         ref={dialogRef}
-        className="relative w-full max-w-md rounded-2xl border border-warning bg-card shadow-2xl animate-scaleIn motion-reduce:animate-none"
+        className="relative w-full max-w-md rounded-2xl border border-warning bg-card shadow-2xl motion-safe:animate-scale-in motion-reduce:animate-none"
         onClick={(e) => e.stopPropagation()}
         role="alertdialog"
         aria-modal="true"

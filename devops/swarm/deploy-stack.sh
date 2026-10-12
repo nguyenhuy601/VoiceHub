@@ -28,10 +28,22 @@ source_env_file() {
   set +a
 }
 
+# Voice .env vẫn có thể pin LLM_PROVIDER=ollama — giữ chat LLM từ root trước khi source.
+_VH_LLM_PROVIDER="${LLM_PROVIDER:-}"
+_VH_OPENAI_BASE_URL="${OPENAI_BASE_URL:-}"
+_VH_DASHSCOPE_API_KEY="${DASHSCOPE_API_KEY:-}"
+_VH_LLM_CHAT_MODEL="${LLM_CHAT_MODEL:-}"
+
 source_env_file "$ROOT/services/voice-service/.env"
 # Git Bash trên Windows convert /voice-socket → C:/Program Files/Git/voice-socket khi source .env
 export VOICE_SIGNAL_PATH='/voice-socket'
 export PORT="${PORT:-3005}"
+
+[[ -n "$_VH_LLM_PROVIDER" ]] && export LLM_PROVIDER="$_VH_LLM_PROVIDER"
+[[ -n "$_VH_OPENAI_BASE_URL" ]] && export OPENAI_BASE_URL="$_VH_OPENAI_BASE_URL"
+[[ -n "$_VH_DASHSCOPE_API_KEY" ]] && export DASHSCOPE_API_KEY="$_VH_DASHSCOPE_API_KEY"
+[[ -n "$_VH_LLM_CHAT_MODEL" ]] && export LLM_CHAT_MODEL="$_VH_LLM_CHAT_MODEL"
+unset _VH_LLM_PROVIDER _VH_OPENAI_BASE_URL _VH_DASHSCOPE_API_KEY _VH_LLM_CHAT_MODEL
 
 # shellcheck disable=SC1091
 source "$ROOT/devops/swarm/resolve-swarm-images.sh"

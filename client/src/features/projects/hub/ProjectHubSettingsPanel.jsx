@@ -26,7 +26,6 @@ import {
 } from './workflowStatusEditor';
 import {
   PROJECT_CATEGORIES,
-  PROJECT_METHODOLOGIES,
   PROJECT_PRIORITIES,
   PROJECT_TYPES,
 } from '../../adminTasks/createProjectSeed';
@@ -222,10 +221,8 @@ export default function ProjectHubSettingsPanel({
   const [customerCompany, setCustomerCompany] = useState('');
   const [customerContact, setCustomerContact] = useState('');
   const [customerContractCode, setCustomerContractCode] = useState('');
-  const [methodology, setMethodology] = useState('kanban');
   const [sprintDurationDays, setSprintDurationDays] = useState('14');
   const [sprintStartDay, setSprintStartDay] = useState('monday');
-  const [wipLimit, setWipLimit] = useState('0');
   const [roleCatalog, setRoleCatalog] = useState([]);
   const [requiredProjectRoles, setRequiredProjectRoles] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
@@ -335,8 +332,6 @@ export default function ProjectHubSettingsPanel({
     setCustomerContact(String(customer.contactPerson || '').trim());
     setCustomerContractCode(String(customer.contractCode || '').trim());
 
-    const nextMethodology = String(src.methodology || 'kanban').trim().toLowerCase();
-    setMethodology(PROJECT_METHODOLOGIES.includes(nextMethodology) ? nextMethodology : 'kanban');
     const methodSettings =
       src.methodologySettings && typeof src.methodologySettings === 'object'
         ? src.methodologySettings
@@ -352,8 +347,6 @@ export default function ProjectHubSettingsPanel({
       .trim()
       .toLowerCase();
     setSprintStartDay(SPRINT_WEEKDAYS.includes(startDay) ? startDay : 'monday');
-    const wip = methodSettings.wipLimit ?? src.wipLimit ?? 0;
-    setWipLimit(wip === null || wip === undefined || wip === '' ? '0' : String(wip));
   }, [board, projectPayload, serverPriorityConfig]);
 
   const resolvedOrganizationId = String(organizationId || board?.organizationId || '').trim();
@@ -590,8 +583,8 @@ export default function ProjectHubSettingsPanel({
                 contractCode: customerContractCode.trim(),
               }
             : null;
-        body.methodology = methodology;
-        if (methodology === 'scrum') {
+        body.methodology = 'scrum';
+        {
           const days = Number(sprintDurationDays);
           if (!Number.isFinite(days) || days < 1 || days > 60) {
             toast.error(t('workspace.projectHubWorkflowSprintDaysInvalid'));
@@ -602,15 +595,6 @@ export default function ProjectHubSettingsPanel({
           body.sprintStartDay = SPRINT_WEEKDAYS.includes(sprintStartDay)
             ? sprintStartDay
             : 'monday';
-        }
-        if (methodology === 'kanban') {
-          const wip = Number(wipLimit);
-          if (!Number.isFinite(wip) || wip < 0 || wip > 500) {
-            toast.error(t('workspace.projectHubWorkflowWipInvalid'));
-            setSaving(false);
-            return;
-          }
-          body.wipLimit = Math.round(wip);
         }
       }
       if (visibilityMode === 'custom') {
@@ -1095,71 +1079,34 @@ export default function ProjectHubSettingsPanel({
           </p>
         ) : null}
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label className={`${fieldLabelCls} sm:col-span-2`}>
-            {t('workspace.projectHubFieldMethodology')}
+          <label className={fieldLabelCls}>
+            {t('workspace.projectHubFieldSprintDuration')}
+            <input
+              type="number"
+              min="1"
+              max="60"
+              step="1"
+              className={inputCls}
+              value={sprintDurationDays}
+              disabled={!profileHydrated || saving}
+              onChange={(e) => setSprintDurationDays(e.target.value)}
+            />
+          </label>
+          <label className={fieldLabelCls}>
+            {t('workspace.projectHubFieldSprintStartDay')}
             <select
               className={inputCls}
-              value={methodology}
+              value={sprintStartDay}
               disabled={!profileHydrated || saving}
-              onChange={(e) => setMethodology(e.target.value)}
+              onChange={(e) => setSprintStartDay(e.target.value)}
             >
-              {PROJECT_METHODOLOGIES.map((value) => (
-                <option key={value} value={value}>
-                  {t(`workspace.projectHubMethodology_${value}`)}
+              {SPRINT_WEEKDAYS.map((day) => (
+                <option key={day} value={day}>
+                  {t(`workspace.projectHubWeekday_${day}`)}
                 </option>
               ))}
             </select>
           </label>
-          {methodology === 'scrum' ? (
-            <>
-              <label className={fieldLabelCls}>
-                {t('workspace.projectHubFieldSprintDuration')}
-                <input
-                  type="number"
-                  min="1"
-                  max="60"
-                  step="1"
-                  className={inputCls}
-                  value={sprintDurationDays}
-                  disabled={!profileHydrated || saving}
-                  onChange={(e) => setSprintDurationDays(e.target.value)}
-                />
-              </label>
-              <label className={fieldLabelCls}>
-                {t('workspace.projectHubFieldSprintStartDay')}
-                <select
-                  className={inputCls}
-                  value={sprintStartDay}
-                  disabled={!profileHydrated || saving}
-                  onChange={(e) => setSprintStartDay(e.target.value)}
-                >
-                  {SPRINT_WEEKDAYS.map((day) => (
-                    <option key={day} value={day}>
-                      {t(`workspace.projectHubWeekday_${day}`)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          ) : null}
-          {methodology === 'kanban' ? (
-            <label className={`${fieldLabelCls} sm:col-span-2`}>
-              {t('workspace.projectHubFieldWipLimit')}
-              <input
-                type="number"
-                min="0"
-                max="500"
-                step="1"
-                className={inputCls}
-                value={wipLimit}
-                disabled={!profileHydrated || saving}
-                onChange={(e) => setWipLimit(e.target.value)}
-              />
-              <span className={`mt-1 block text-[11px] font-normal ${muted}`}>
-                {t('workspace.projectHubFieldWipLimitHint')}
-              </span>
-            </label>
-          ) : null}
         </div>
       </div>
       <div className="border-t border-border/60 pt-4">

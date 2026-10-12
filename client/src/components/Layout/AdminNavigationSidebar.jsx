@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   BarChart3,
@@ -36,9 +36,14 @@ import { useShellLayout } from '../../context/ShellLayoutContext';
 import { useAppStrings } from '../../locales/appStrings';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { useAdminNavLoading } from '../../hooks/useAdminShellLoading';
 import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
 import { filterAdminDomainByGrant } from '../../config/rbacUiGrantMap';
 import OrgStructureSetupModal from '../../features/adminOrgStructure/OrgStructureSetupModal';
+import NavCollapse from '../../motion/NavCollapse';
+import { VH_NAV_CHEVRON } from '../../motion/classes';
+import useMotionPresence from '../../motion/useMotionPresence';
+import { VH_MOTION_BASE_MS } from '../../motion/tokens';
 import {
   FIGMA_SIDEBAR,
   FIGMA_SIDEBAR_COLLAPSED,
@@ -113,65 +118,77 @@ function AdminDomainPicker({ domains, selectedDomain, onSelect }) {
         </span>
         <ChevronDown
           size={14}
-          className={`shrink-0 text-white/40 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`${VH_NAV_CHEVRON} text-white/40 ${open ? 'rotate-180' : 'rotate-0'}`}
           aria-hidden
         />
       </button>
 
-      {open ? (
-        <>
-          <button
-            type="button"
-            aria-label={t('common.close')}
-            className="fixed inset-0 z-30 cursor-default bg-black/40"
-            onClick={() => setOpen(false)}
-          />
-          <div
-            role="listbox"
-            className="absolute left-1 right-1 z-40 mt-1 max-h-[min(16rem,42vh)] overflow-y-auto rounded-lg border border-red-500/30 bg-[#12080A] py-1 shadow-[0_12px_32px_rgba(0,0,0,0.65)]"
-          >
-            {domains.map((domain) => {
-              const DomainItemIcon = DOMAIN_ICONS[domain.icon] || LayoutGrid;
-              const active = domain.id === selectedDomain?.id;
-              return (
-                <button
-                  key={domain.id}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  onClick={() => {
-                    onSelect(domain);
-                    setOpen(false);
-                  }}
-                  className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-[0.8125rem] transition ${
-                    active
-                      ? 'bg-red-500/20 font-medium text-red-100'
-                      : 'text-white/80 hover:bg-white/[0.06] hover:text-white'
-                  }`}
-                >
-                  <DomainItemIcon
-                    size={14}
-                    className={`shrink-0 ${active ? 'text-red-400' : 'text-white/45'}`}
-                    aria-hidden
-                  />
-                  <span className="truncate">{t(domain.labelKey)}</span>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      ) : null}
+      <AdminDomainPickerMenu open={open} domains={domains} selectedDomain={selectedDomain} onSelect={onSelect} onClose={() => setOpen(false)} t={t} />
     </div>
   );
 }
 
-function AdminNavItem({ item, collapsed, isActive, badge = 0 }) {
+function AdminDomainPickerMenu({ open, domains, selectedDomain, onSelect, onClose, t }) {
+  const { mounted, phase } = useMotionPresence(open, { durationMs: VH_MOTION_BASE_MS });
+  if (!mounted) return null;
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={t('common.close')}
+        className="fixed inset-0 z-30 cursor-default bg-black/40"
+        onClick={onClose}
+      />
+      <div
+        role="listbox"
+        data-motion-phase={phase || 'enter'}
+        className="absolute left-1 right-1 z-40 mt-1 max-h-[min(16rem,42vh)] overflow-y-auto rounded-lg border border-red-500/30 bg-[#12080A] py-1 shadow-[0_12px_32px_rgba(0,0,0,0.65)] vh-presence-overlay vh-motion-respect"
+      >
+        <div className="vh-presence-panel px-0 py-0 shadow-none border-0 bg-transparent rounded-none max-h-none">
+          {domains.map((domain) => {
+            const DomainItemIcon = DOMAIN_ICONS[domain.icon] || LayoutGrid;
+            const active = domain.id === selectedDomain?.id;
+            return (
+              <button
+                key={domain.id}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={() => {
+                  onSelect(domain);
+                  onClose();
+                }}
+                className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-[0.8125rem] transition duration-fast ease-enterprise motion-reduce:transition-none ${
+                  active
+                    ? 'bg-red-500/20 font-medium text-red-100'
+                    : 'text-white/80 hover:bg-white/[0.06] hover:text-white'
+                }`}
+              >
+                <DomainItemIcon
+                  size={14}
+                  className={`shrink-0 ${active ? 'text-red-400' : 'text-white/45'}`}
+                  aria-hidden
+                />
+                <span className="truncate">{t(domain.labelKey)}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function AdminNavItem({ item, collapsed, isActive, badge = 0, onNavigate }) {
   const { t } = useAppStrings();
   const label = t(item.labelKey);
 
   return (
     <Link
       to={item.path}
+      onClick={() => {
+        if (!isActive) onNavigate?.();
+      }}
       className={`${figmaNavItemClass(isActive, ADMIN_COLOR, collapsed)} ${isActive ? '!text-white' : ''}`}
       style={figmaNavItemBg(isActive, ADMIN_COLOR)}
       title={collapsed ? label : undefined}
@@ -199,7 +216,7 @@ function AdminNavItem({ item, collapsed, isActive, badge = 0 }) {
   );
 }
 
-function AdminNavActionGroup({ items, labelKey, collapsed, isActivePath, badgeForItem }) {
+function AdminNavActionGroup({ items, labelKey, collapsed, isActivePath, badgeForItem, onNavigate }) {
   const { t } = useAppStrings();
   const rootRef = useRef(null);
   const listId = useId();
@@ -251,37 +268,51 @@ function AdminNavActionGroup({ items, labelKey, collapsed, isActivePath, badgeFo
             </span>
             <ChevronDown
               size={13}
-              className={`shrink-0 opacity-70 transition-transform ${open ? 'rotate-180' : ''}`}
+              className={`${VH_NAV_CHEVRON} ${open ? 'rotate-180' : 'rotate-0'}`}
               aria-hidden
             />
           </>
         ) : null}
       </button>
-      {open ? (
-        <div
-          id={listId}
-          className={
-            collapsed
-              ? 'absolute left-full top-0 z-40 ml-1 min-w-[11rem] rounded-lg border border-red-500/30 bg-[#12080A] py-1 shadow-[0_12px_32px_rgba(0,0,0,0.65)]'
-              : 'mb-1 ml-1.5 mt-0.5 space-y-px border-l border-red-500/20 pl-1'
-          }
-        >
-          {items.map((item) => (
-            <AdminNavItem
-              key={item.id}
-              item={item}
-              collapsed={false}
-              isActive={isActivePath(item)}
-              badge={badgeForItem(item)}
-            />
-          ))}
-        </div>
-      ) : null}
+      {collapsed ? (
+        open ? (
+          <div
+            id={listId}
+            className="absolute left-full top-0 z-40 ml-1 min-w-[11rem] rounded-lg border border-red-500/30 bg-[#12080A] py-1 shadow-[0_12px_32px_rgba(0,0,0,0.65)] motion-safe:animate-fade-in-fast"
+          >
+            {items.map((item) => (
+              <AdminNavItem
+                key={item.id}
+                item={item}
+                collapsed={false}
+                isActive={isActivePath(item)}
+                badge={badgeForItem(item)}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </div>
+        ) : null
+      ) : (
+        <NavCollapse open={open} id={listId} className="mb-1 ml-1.5 border-l border-red-500/20 pl-1">
+          <div className="mt-0.5 space-y-px">
+            {items.map((item) => (
+              <AdminNavItem
+                key={item.id}
+                item={item}
+                collapsed={false}
+                isActive={isActivePath(item)}
+                badge={badgeForItem(item)}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </div>
+        </NavCollapse>
+      )}
     </div>
   );
 }
 
-function renderNavRows({ items, collapsed, isActivePath, badgeForItem }) {
+function renderNavRows({ items, collapsed, isActivePath, badgeForItem, onNavigate }) {
   return splitNavSectionItems(items).map((row) => {
     if (row.type === 'group') {
       return (
@@ -292,6 +323,7 @@ function renderNavRows({ items, collapsed, isActivePath, badgeForItem }) {
           collapsed={collapsed}
           isActivePath={isActivePath}
           badgeForItem={badgeForItem}
+          onNavigate={onNavigate}
         />
       );
     }
@@ -302,6 +334,7 @@ function renderNavRows({ items, collapsed, isActivePath, badgeForItem }) {
         collapsed={collapsed}
         isActive={isActivePath(row.item)}
         badge={badgeForItem(row.item)}
+        onNavigate={onNavigate}
       />
     );
   });
@@ -315,6 +348,7 @@ function AdminNavSectionGroup({
   onToggle,
   isActivePath,
   badgeForItem,
+  onNavigate,
 }) {
   const { t } = useAppStrings();
   const hasActive = section.items.some((item) => isActivePath(item));
@@ -325,7 +359,7 @@ function AdminNavSectionGroup({
         {!collapsed && section.labelKey ? (
           <div className={FIGMA_SIDEBAR_SECTION_LABEL}>{t(section.labelKey)}</div>
         ) : null}
-        {renderNavRows({ items: section.items, collapsed, isActivePath, badgeForItem })}
+        {renderNavRows({ items: section.items, collapsed, isActivePath, badgeForItem, onNavigate })}
       </div>
     );
   }
@@ -346,16 +380,19 @@ function AdminNavSectionGroup({
           <span className="text-[0.625rem] font-bold uppercase tracking-[0.08em]">{t(section.labelKey)}</span>
           <ChevronDown
             size={13}
-            className={`shrink-0 opacity-70 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+            className={`${VH_NAV_CHEVRON} ${isExpanded ? 'rotate-180' : 'rotate-0'}`}
             aria-hidden
           />
         </button>
       ) : null}
-      {isExpanded && !collapsed ? (
-        <div className="mb-1 ml-1.5 mt-0.5 space-y-px border-l border-red-500/20 pl-1">
-          {renderNavRows({ items: section.items, collapsed, isActivePath, badgeForItem })}
+      <NavCollapse
+        open={Boolean(isExpanded && !collapsed)}
+        className="mb-1 ml-1.5 border-l border-red-500/20 pl-1"
+      >
+        <div className="mt-0.5 space-y-px">
+          {renderNavRows({ items: section.items, collapsed, isActivePath, badgeForItem, onNavigate })}
         </div>
-      ) : null}
+      </NavCollapse>
     </div>
   );
 }
@@ -365,6 +402,7 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { mobileNavOpen, closeMobileNav } = useShellLayout();
+  const { markNavigating } = useAdminNavLoading();
   const { isSystemAdmin, orgId } = useCompanyAdminAccess();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
 
@@ -453,11 +491,17 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
     localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next));
   };
 
-  const handleDomainSelect = (domain) => {
-    setSelectedDomainId(domain.id);
-    localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, domain.id);
-    navigate(domain.path);
-  };
+  const handleDomainSelect = useCallback(
+    (domain) => {
+      setSelectedDomainId(domain.id);
+      localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, domain.id);
+      if (normalizeAdminPath(domain.path) !== currentPath) {
+        markNavigating();
+      }
+      navigate(domain.path);
+    },
+    [currentPath, markNavigating, navigate]
+  );
 
   const toggleNavSection = (sectionId) => {
     if (!selectedDomain) return;
@@ -499,6 +543,9 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
               <>
                 <Link
                   to="/app/admin"
+                  onClick={() => {
+                    if (currentPath !== '/app/admin') markNavigating();
+                  }}
                   className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2 py-1 transition hover:opacity-90"
                   style={{
                     background: `${ADMIN_COLOR}18`,
@@ -561,13 +608,15 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
               onToggle={() => toggleNavSection(section.id)}
               isActivePath={isActivePath}
               badgeForItem={badgeForItem}
+              onNavigate={markNavigating}
             />
           ))}
 
           {!collapsed && !isSystemAdmin ? (
             <Link
               to="/app/collaborate/workspaces"
-              className="mt-2 block rounded-lg border border-dashed border-white/15 px-2.5 py-2 text-[0.75rem] text-white/75 transition hover:border-white/25 hover:text-white"
+              onClick={() => markNavigating()}
+              className="mt-2 block rounded-lg border border-dashed border-white/10 px-2.5 py-2 text-[0.75rem] text-white/45 transition hover:border-white/20 hover:text-white/70"
             >
               {t('companyAdmin.backToWork')}
             </Link>
@@ -584,7 +633,10 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
           const raw = visibleDomains.find((d) => d.id === 'org-structure');
           const filtered = applyOrgLevelFilterToDomain(raw, levels, { setupCompleted: true });
           const firstItem = filtered?.sections?.flatMap((s) => s.items || []).find((item) => item?.path);
-          if (firstItem?.path) navigate(firstItem.path);
+          if (firstItem?.path) {
+            markNavigating();
+            navigate(firstItem.path);
+          }
         }}
       />
     </>

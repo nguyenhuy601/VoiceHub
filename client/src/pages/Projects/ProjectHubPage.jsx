@@ -95,8 +95,14 @@ export default function ProjectHubPage({
   );
 
   const [taskBoards, setTaskBoards] = useState([]);
-  const [loadingTaskBoards, setLoadingTaskBoards] = useState(false);
-  const [selectedTaskBoardId, setSelectedTaskBoardId] = useState('');
+  /** Assume loading until first boards fetch finishes — avoids select-board flash on mount. */
+  const [loadingTaskBoards, setLoadingTaskBoards] = useState(() =>
+    Boolean(String(orgIdFromQuery || projectId || '').trim())
+  );
+  /** Seed from URL immediately — avoid emptySlot “chọn bảng” flash before boards load. */
+  const [selectedTaskBoardId, setSelectedTaskBoardId] = useState(() =>
+    String(boardIdFromQuery || '').trim()
+  );
   const [accessibleTaskBoards, setAccessibleTaskBoards] = useState([]);
   const [projectBriefs, setProjectBriefs] = useState([]);
   const [loadingProjectBriefs, setLoadingProjectBriefs] = useState(false);
@@ -115,12 +121,20 @@ export default function ProjectHubPage({
     if (preferred && list.some((b) => String(b._id) === preferred)) {
       return preferred;
     }
+    if (preferred) return preferred;
     if (projectId && list.some((b) => String(b.projectId || '') === projectId)) {
       const hit = list.find((b) => String(b.projectId || '') === projectId);
       return hit?._id ? String(hit._id) : '';
     }
     return list[0]?._id ? String(list[0]._id) : '';
   }, [boardIdFromQuery, projectId]);
+
+  // Keep selection aligned with URL boardId (module switches / deep-links).
+  useEffect(() => {
+    const preferred = String(boardIdFromQuery || '').trim();
+    if (!preferred) return;
+    setSelectedTaskBoardId((prev) => (prev === preferred ? prev : preferred));
+  }, [boardIdFromQuery]);
 
   const applyBoardPickerList = useCallback(
     (list) => {
@@ -721,6 +735,7 @@ export default function ProjectHubPage({
         }
         boardDetail={taskBoardDetail}
         loadingBoardDetail={loadingTaskBoardDetail}
+        loadingBoards={loadingTaskBoards}
         boards={taskBoards}
         isDarkMode={isDarkMode}
         locale={locale}

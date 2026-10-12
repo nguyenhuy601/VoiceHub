@@ -346,8 +346,8 @@ const projectSchema = new mongoose.Schema(
     },
     methodology: {
       type: String,
-      enum: ['scrum', 'kanban', 'waterfall'],
-      default: 'kanban',
+      enum: ['scrum'],
+      default: 'scrum',
     },
     methodologySettings: {
       type: methodologySettingsSchema,

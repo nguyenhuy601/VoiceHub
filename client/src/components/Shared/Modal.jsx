@@ -2,6 +2,8 @@ import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
+import useMotionPresence from '../../motion/useMotionPresence';
+import { VH_MOTION_OVERLAY_MS } from '../../motion/tokens';
 import useModalA11y from './useModalA11y';
 import {
   FIGMA_MODAL_BACKDROP,
@@ -39,6 +41,7 @@ function resolveOverlayClass(layerClassName = '') {
 /**
  * Shared modal — portal to document.body so shell nav (z-1200) / page siblings
  * cannot paint over the overlay (stacking context of ThreeFrameLayout center).
+ * Enter/exit via Enterprise Motion presence (CSS); a11y follows logical isOpen.
  */
 const Modal = ({
   isOpen,
@@ -59,6 +62,9 @@ const Modal = ({
   const { t } = useAppStrings();
   const panelRef = useRef(null);
   const titleId = useId();
+  const { mounted, phase } = useMotionPresence(isOpen, {
+    durationMs: VH_MOTION_OVERLAY_MS,
+  });
 
   useModalA11y({
     isOpen,
@@ -69,15 +75,15 @@ const Modal = ({
   });
 
   useEffect(() => {
-    if (!isOpen || typeof document === 'undefined') return undefined;
+    if (!mounted || typeof document === 'undefined') return undefined;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [isOpen]);
+  }, [mounted]);
 
-  if (!isOpen) return null;
+  if (!mounted) return null;
   if (typeof document === 'undefined') return null;
 
   const sizeClass = fill
@@ -92,11 +98,13 @@ const Modal = ({
   const overlayClass = resolveOverlayClass(layerClassName);
   const headerClass = `${FIGMA_MODAL_HEADER} ${headerClassName}`.trim();
   const titleClass = `${FIGMA_MODAL_TITLE} ${titleClassName}`.trim();
+  const canDismiss = closable && isOpen;
 
   const tree = (
     <div
       className={overlayClass}
-      onClick={closable ? onClose : undefined}
+      data-motion-phase={phase || 'enter'}
+      onClick={canDismiss ? onClose : undefined}
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? titleId : undefined}
@@ -118,6 +126,7 @@ const Modal = ({
               onClick={onClose}
               className={FIGMA_MODAL_CLOSE_BTN}
               aria-label={t('common.close')}
+              disabled={!isOpen}
             >
               <X className="h-4 w-4" aria-hidden />
             </button>

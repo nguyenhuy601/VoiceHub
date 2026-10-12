@@ -36,6 +36,11 @@ const planningBaselineSchema = new mongoose.Schema(
     approvedAt: { type: Date, required: true, default: Date.now },
     notes: { type: String, trim: true, default: '', maxlength: 2000 },
     isActive: { type: Boolean, default: true, index: true },
+    /** Frozen MeetingPlan at cut time — org config changes must not rewrite this. */
+    meetingPlanSnapshot: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
   },
   { timestamps: true }
 );

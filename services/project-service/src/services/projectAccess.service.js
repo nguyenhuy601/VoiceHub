@@ -91,9 +91,9 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
     ? await ProjectRole.find({ _id: { $in: roleIds } }).select('key permissions canAssign').lean()
     : [];
 
-  // API enforcement vẫn bypass creator/org-admin. Capabilities trả cho UI chỉ theo role key
-  // (PO / PM / BA / Tech…) để không hiện nút của vai khác.
-  const roleUiCapabilities = permissionsToBoardCapabilities(matrixPermissionsFromRoleKeys(roles));
+  // Board/hub ops capabilities: matrix ∪ permissions Admin gắn trên ProjectRole.
+  // (SoD analysis/planning vẫn tách matrix-only ở attachProjectCapabilities.)
+  const roleUiCapabilities = permissionsToBoardCapabilities(unionPermissionsFromRoles(roles));
 
   if (isOrgAdmin || isCreator) {
     return {
@@ -147,7 +147,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
 
   return {
     permissions: normalizePermissionList(perms),
-    capabilities: permissionsToBoardCapabilities(matrixPermissionsFromRoleKeys(roles)),
+    capabilities: permissionsToBoardCapabilities(perms),
     isOrgAdmin,
     isCreator,
     informationLevel,

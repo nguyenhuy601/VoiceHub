@@ -39,6 +39,10 @@ const aiAnalysisSnapshotSchema = new mongoose.Schema(
     ingestionValidation: { type: mongoose.Schema.Types.Mixed, default: null },
     /** Planned-allocation hours by user/day in planning window — real data only, never invented. */
     bookedHoursByUserDay: { type: mongoose.Schema.Types.Mixed, default: null },
+    /** MeetingPlan snapshot for HOW (orthogonal to booked commitment hours). */
+    meetingPlan: { type: mongoose.Schema.Types.Mixed, default: null },
+    meetingDemandHoursByUserDay: { type: mongoose.Schema.Types.Mixed, default: null },
+    effortEstimationConfigVersionId: { type: String, default: null, trim: true },
     pipelineVersion: { type: Number, default: 1 },
     status: {
       type: String,

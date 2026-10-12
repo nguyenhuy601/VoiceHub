@@ -1,8 +1,11 @@
 /**
- * Display Gate A requirement-quality checks (coverage / consistency / completeness / ambiguity).
+ * Display Gate A advisory quality checks (duplicates / missing sections / consistency…).
+ * Does not block Gate 1 approve — warnings only.
  */
 
 const CHECK_LABEL_KEYS = {
+  duplicates: 'requirements.gateACheckDuplicates',
+  missing_sections: 'requirements.gateACheckMissingSections',
   coverage: 'requirements.gateACheckCoverage',
   consistency: 'requirements.gateACheckConsistency',
   completeness: 'requirements.gateACheckCompleteness',
@@ -39,7 +42,9 @@ function checkLabel(id, t) {
     if (translated && translated !== key) return translated;
   }
   const fallbacks = {
-    coverage: 'Coverage (độ phủ FR)',
+    duplicates: 'Trùng dữ liệu AI generate',
+    missing_sections: 'Các cột/section đang thiếu dữ liệu',
+    coverage: 'Coverage (tham khảo — không chặn)',
     consistency: 'Consistency (xung đột)',
     completeness: 'Completeness (đủ field FR)',
     ambiguity: 'Ambiguity (mơ hồ)',
@@ -48,43 +53,55 @@ function checkLabel(id, t) {
 }
 
 /**
- * @param {{ gateA: { passed: boolean, checks?: array } | null, t?: function, className?: string }} props
+ * @param {{ gateA: { passed: boolean, hasWarnings?: boolean, checks?: array } | null, t?: function, className?: string }} props
  */
 export default function GateAChecksPanel({ gateA = null, t = (k) => k, className = '' }) {
   if (!gateA || typeof gateA !== 'object') return null;
 
   const checks = Array.isArray(gateA.checks) ? gateA.checks : [];
-  const passed = Boolean(gateA.passed);
-  const failed = checks.filter((c) => c && c.passed === false);
+  const visibleChecks = checks.filter((c) => c && !c.skipped);
+  const skippedCoverage = checks.filter((c) => c?.id === 'coverage' && c.skipped);
+  const hasWarnings =
+    gateA.hasWarnings === true ||
+    gateA.passed === false ||
+    visibleChecks.some((c) => c && c.passed === false);
+  const failed = visibleChecks.filter((c) => c && c.passed === false);
 
   return (
     <div
       className={`rounded-md border px-3 py-2 ${
-        passed
-          ? 'border-emerald-500/40 bg-emerald-500/5'
-          : 'border-amber-500/40 bg-amber-500/5'
+        hasWarnings
+          ? 'border-amber-500/40 bg-amber-500/5'
+          : 'border-emerald-500/40 bg-emerald-500/5'
       } ${className}`.trim()}
       role="status"
       aria-live="polite"
     >
       <p
         className={`text-sm font-medium ${
-          passed ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-800 dark:text-amber-300'
+          hasWarnings
+            ? 'text-amber-800 dark:text-amber-300'
+            : 'text-emerald-700 dark:text-emerald-400'
         }`}
       >
-        {passed
-          ? t('requirements.gateAPassed') || 'Gate A: đạt'
-          : t('requirements.gateANotPassed') || 'Gate A: chưa đạt (cần sửa hoặc force duyệt)'}
+        {hasWarnings
+          ? t('requirements.gateAHasWarnings') ||
+            'Gate A: có cảnh báo — không chặn duyệt'
+          : t('requirements.gateAPassed') || 'Gate A: không có cảnh báo'}
       </p>
-      {!passed && failed.length > 0 ? (
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        {t('requirements.gateAAdvisoryHint') ||
+          'Chỉ thông báo chất lượng (trùng AI / section thiếu). PO vẫn duyệt Gate 1 bình thường.'}
+      </p>
+      {hasWarnings && failed.length > 0 ? (
         <p className="mt-0.5 text-xs text-muted-foreground">
           {t('requirements.gateAFailedSummary', { count: failed.length }) ||
-            `${failed.length} tiêu chuẩn chưa đạt`}
+            `${failed.length} tiêu chuẩn cần lưu ý`}
         </p>
       ) : null}
-      {checks.length > 0 ? (
+      {visibleChecks.length > 0 ? (
         <ul className="mt-2 space-y-1.5">
-          {checks.map((c) => {
+          {visibleChecks.map((c) => {
             const id = c?.id || 'check';
             const ok = c?.passed === true;
             const threshold = formatThreshold(c);
@@ -96,11 +113,13 @@ export default function GateAChecksPanel({ gateA = null, t = (k) => k, className
                 <span className="text-foreground">
                   <span
                     className={`mr-1.5 inline-block font-semibold ${
-                      ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-300'
+                      ok
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-amber-700 dark:text-amber-300'
                     }`}
                     aria-hidden
                   >
-                    {ok ? '✓' : '✗'}
+                    {ok ? '✓' : '!'}
                   </span>
                   {checkLabel(id, t)}
                 </span>
@@ -115,7 +134,7 @@ export default function GateAChecksPanel({ gateA = null, t = (k) => k, className
                   <span className="ml-1.5 font-sans font-medium">
                     {ok
                       ? t('requirements.gateACheckPass') || 'đạt'
-                      : t('requirements.gateACheckFail') || 'chưa đạt'}
+                      : t('requirements.gateACheckWarn') || 'cảnh báo'}
                   </span>
                 </span>
               </li>
@@ -127,6 +146,15 @@ export default function GateAChecksPanel({ gateA = null, t = (k) => k, className
           {t('requirements.gateANoChecks') || 'Chưa có chi tiết từng tiêu chuẩn trong kết quả Gate A.'}
         </p>
       )}
+      {skippedCoverage.length > 0 ? (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          {t('requirements.gateACoverageSkippedHint') ||
+            'Coverage (độ phủ FR) chỉ tham khảo — không dùng để chặn duyệt.'}
+          {skippedCoverage[0]?.value != null
+            ? ` · ${formatRatio(skippedCoverage[0].value)}`
+            : ''}
+        </p>
+      ) : null}
     </div>
   );
 }

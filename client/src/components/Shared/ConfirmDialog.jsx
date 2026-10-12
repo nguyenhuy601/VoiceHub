@@ -1,15 +1,17 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import useMotionPresence from '../../motion/useMotionPresence';
+import { VH_MOTION_OVERLAY_MS } from '../../motion/tokens';
 import useModalA11y from './useModalA11y';
 
 const DANGER_CONFIRM_CLASS =
-  'bg-destructive text-destructive-foreground transition-colors duration-150 hover:brightness-110 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2 disabled:opacity-60 motion-reduce:transition-none motion-reduce:transform-none';
+  'bg-destructive text-destructive-foreground vh-motion-btn hover:brightness-110 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2 disabled:opacity-60 motion-reduce:transform-none';
 
 const DEFAULT_CONFIRM_CLASS =
-  'bg-primary text-primary-foreground shadow-sm transition-colors duration-150 hover:bg-primary-hover active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60 motion-reduce:transition-none motion-reduce:transform-none';
+  'bg-primary text-primary-foreground shadow-sm vh-motion-btn hover:bg-primary-hover active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60 motion-reduce:transform-none';
 
 const CANCEL_BTN_CLASS =
-  'border border-border bg-background px-4 py-3 font-semibold text-foreground transition-colors duration-150 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none';
+  'border border-border bg-background px-4 py-3 font-semibold text-foreground vh-motion-btn hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none';
 
 const ConfirmDialog = ({
   isOpen,
@@ -30,6 +32,9 @@ const ConfirmDialog = ({
   const cancelRef = useRef(null);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
+  const { mounted, phase } = useMotionPresence(isOpen, {
+    durationMs: VH_MOTION_OVERLAY_MS,
+  });
 
   useModalA11y({
     isOpen,
@@ -46,10 +51,10 @@ const ConfirmDialog = ({
     }
   }, [isOpen]);
 
-  if (!isOpen || typeof document === 'undefined') return null;
+  if (!mounted || typeof document === 'undefined') return null;
 
   const handleConfirm = () => {
-    if (pendingRef.current) return;
+    if (pendingRef.current || !isOpen) return;
     pendingRef.current = true;
     setPending(true);
     let ret;
@@ -68,7 +73,7 @@ const ConfirmDialog = ({
   };
 
   const handleBackdropClick = () => {
-    if (!pendingRef.current) onClose();
+    if (!pendingRef.current && isOpen) onClose();
   };
 
   const isDanger = variant === 'danger';
@@ -77,14 +82,18 @@ const ConfirmDialog = ({
 
   return createPortal(
     <div
-      className={`fixed inset-0 ${layerClassName} flex items-center justify-center p-4 animate-fadeIn`}
+      className={`fixed inset-0 ${layerClassName} flex items-center justify-center p-4 vh-presence-overlay vh-motion-respect`}
+      data-motion-phase={phase || 'enter'}
       onClick={handleBackdropClick}
       role="presentation"
     >
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" aria-hidden />
+      <div
+        className="absolute inset-0 bg-black/80 backdrop-blur-sm vh-presence-backdrop"
+        aria-hidden
+      />
       <div
         ref={dialogRef}
-        className={`relative rounded-2xl max-w-md w-full animate-scaleIn backdrop-blur-md ${shell}`}
+        className={`relative max-w-md w-full rounded-2xl backdrop-blur-md vh-presence-panel ${shell}`}
         onClick={(e) => e.stopPropagation()}
         role={isDanger ? 'alertdialog' : 'dialog'}
         aria-modal="true"
@@ -104,7 +113,7 @@ const ConfirmDialog = ({
               ref={cancelRef}
               type="button"
               onClick={onClose}
-              disabled={pending}
+              disabled={pending || !isOpen}
               className={`flex-1 rounded-xl disabled:cursor-not-allowed disabled:opacity-60 ${CANCEL_BTN_CLASS}`}
             >
               {cancelText}
@@ -112,7 +121,7 @@ const ConfirmDialog = ({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={pending}
+              disabled={pending || !isOpen}
               className={`flex-1 rounded-xl px-4 py-3 font-semibold disabled:cursor-not-allowed ${confirmBtn}`}
             >
               {confirmText}

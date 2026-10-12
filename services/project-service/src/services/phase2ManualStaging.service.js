@@ -84,7 +84,7 @@ async function buildPhase2StagingPreview({ userId, projectId }) {
     );
     return {
       projectId: String(projectId),
-      methodology: existing.methodology || project.methodology || 'kanban',
+      methodology: existing.methodology || project.methodology || 'scrum',
       status: existing.status,
       rows,
       note: existing.note || '',
@@ -124,7 +124,7 @@ async function buildPhase2StagingPreview({ userId, projectId }) {
 
   return {
     projectId: String(projectId),
-    methodology: project.methodology || 'kanban',
+    methodology: project.methodology || 'scrum',
     status: 'draft',
     rows,
     note: '',
@@ -155,12 +155,17 @@ async function savePhase2StagingDraft({ userId, projectId, methodology, rows, no
     err.statusCode = 400;
     throw err;
   }
-  const m = String(methodology || projectDoc.methodology || 'kanban')
+  const m = String(methodology || projectDoc.methodology || 'scrum')
     .trim()
     .toLowerCase();
+  if (m && m !== 'scrum') {
+    const err = new Error('methodology phải là scrum');
+    err.statusCode = 400;
+    throw err;
+  }
   projectDoc.phase2ManualStaging = {
     status: 'draft',
-    methodology: ['scrum', 'kanban', 'waterfall'].includes(m) ? m : 'kanban',
+    methodology: 'scrum',
     rows: list.slice(0, 500),
     note: String(note || '')
       .trim()
@@ -214,13 +219,18 @@ async function submitPhase2ManualStaging({ userId, projectId, methodology, rows,
     throw err;
   }
 
-  const m = String(methodology || projectDoc.methodology || 'kanban')
+  const m = String(methodology || projectDoc.methodology || 'scrum')
     .trim()
     .toLowerCase();
+  if (m && m !== 'scrum') {
+    const err = new Error('methodology phải là scrum');
+    err.statusCode = 400;
+    throw err;
+  }
   const now = new Date();
   projectDoc.phase2ManualStaging = {
     status: 'po_review',
-    methodology: ['scrum', 'kanban', 'waterfall'].includes(m) ? m : 'kanban',
+    methodology: 'scrum',
     rows: list.slice(0, 500),
     note: String(note || '')
       .trim()

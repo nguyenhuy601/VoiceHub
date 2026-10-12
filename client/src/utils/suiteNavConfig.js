@@ -221,7 +221,8 @@ export function getProjectsPostSelectNavItems(projectId, opts = {}) {
           m.key,
           m.labelKey,
           m.module,
-          m.group === 'ops' ? PROJECT_MENU_GROUPS.OPS : PROJECT_MENU_GROUPS.COLLAB
+          m.group === 'ops' ? PROJECT_MENU_GROUPS.OPS : PROJECT_MENU_GROUPS.COLLAB,
+          m.pathSeg
         )
       );
     }

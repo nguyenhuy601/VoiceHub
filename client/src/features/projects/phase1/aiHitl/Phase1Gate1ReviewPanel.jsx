@@ -225,7 +225,11 @@ export default function Phase1Gate1ReviewPanel({
       {summary?.gateA ? (
         <div className="mt-3">
           <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {labelOf(t, 'requirements.gateAPanelTitle', 'Gate A — chất lượng requirement')}
+            {labelOf(
+              t,
+              'requirements.gateAPanelTitle',
+              'Gate A — cảnh báo chất lượng (advisory)'
+            )}
           </p>
           <GateAChecksPanel gateA={summary.gateA} t={t} />
         </div>

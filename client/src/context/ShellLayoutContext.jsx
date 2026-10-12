@@ -9,12 +9,17 @@ const ShellLayoutContext = createContext({
   closeMobileNav: () => {},
   immersiveChrome: false,
   setImmersiveChrome: () => {},
+  /** Non-null label = show small loading pill in TopHeader */
+  headerLoadingLabel: null,
+  showHeaderLoading: () => {},
+  hideHeaderLoading: () => {},
 });
 
 export function ShellLayoutProvider({ children }) {
   const [joinModalOpen, setJoinModalOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [immersiveChrome, setImmersiveChrome] = useState(false);
+  const [headerLoadingLabel, setHeaderLoadingLabel] = useState(null);
 
   const openJoinModal = useCallback(() => setJoinModalOpen(true), []);
   const closeJoinModal = useCallback(() => setJoinModalOpen(false), []);
@@ -22,6 +27,12 @@ export function ShellLayoutProvider({ children }) {
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   const setImmersiveChromeSafe = useCallback((next) => {
     setImmersiveChrome(Boolean(next));
+  }, []);
+  const showHeaderLoading = useCallback((label) => {
+    setHeaderLoadingLabel(label == null || label === true ? '' : String(label));
+  }, []);
+  const hideHeaderLoading = useCallback(() => {
+    setHeaderLoadingLabel(null);
   }, []);
 
   useEffect(() => {
@@ -48,6 +59,9 @@ export function ShellLayoutProvider({ children }) {
       closeMobileNav,
       immersiveChrome,
       setImmersiveChrome: setImmersiveChromeSafe,
+      headerLoadingLabel,
+      showHeaderLoading,
+      hideHeaderLoading,
     }),
     [
       joinModalOpen,
@@ -58,6 +72,9 @@ export function ShellLayoutProvider({ children }) {
       closeMobileNav,
       immersiveChrome,
       setImmersiveChromeSafe,
+      headerLoadingLabel,
+      showHeaderLoading,
+      hideHeaderLoading,
     ]
   );
 

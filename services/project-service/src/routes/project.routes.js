@@ -118,6 +118,13 @@ router.get('/governance/working-calendar', governance.getWorkingCalendar);
 router.put('/governance/working-calendar', governance.putWorkingCalendar);
 router.get('/governance/security-flags', governance.securityFlags);
 
+const effortEstimationConfig = require('../controllers/effortEstimationConfig.controller');
+router.get('/governance/effort-estimation', effortEstimationConfig.getPublished);
+router.get('/governance/effort-estimation/versions', effortEstimationConfig.listVersions);
+router.get('/governance/effort-estimation/draft', effortEstimationConfig.getDraft);
+router.put('/governance/effort-estimation/draft', effortEstimationConfig.putDraft);
+router.post('/governance/effort-estimation/publish', effortEstimationConfig.publish);
+
 /** Requirement Template Management — org-scoped packs (trước /:projectId) */
 const requirementRoutes = require('./requirement.routes');
 router.use('/requirements', requirementRoutes);
@@ -317,6 +324,9 @@ router.use('/:projectId', analysisRoutes);
 
 const planningRoutes = require('./planning.routes');
 router.use('/:projectId/planning', planningRoutes);
+
+const meetingRoutes = require('./meeting.routes');
+router.use('/:projectId/meetings-planning', meetingRoutes);
 
 router.patch('/:projectId', controller.patchProject);
 router.get('/:projectId', controller.getProject);

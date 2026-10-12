@@ -13,7 +13,16 @@ export const DELIVERY_PHASES = Object.freeze([
 
 export const DEFAULT_DELIVERY_PHASE_EXISTING = 'development';
 
-const COLLAB_MIN = ['chat', 'calendar', 'documents', 'settings', 'members'];
+/** Chat / calendar / documents / members / settings — always available in project suite. */
+export const PROJECT_COLLAB_OPS_MODULES = Object.freeze([
+  'chat',
+  'calendar',
+  'documents',
+  'settings',
+  'members',
+]);
+
+const COLLAB_MIN = PROJECT_COLLAB_OPS_MODULES;
 
 export const DEVELOPMENT_MODULES = Object.freeze([
   'overview',

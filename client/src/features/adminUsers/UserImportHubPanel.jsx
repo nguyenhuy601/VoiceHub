@@ -1,5 +1,6 @@
 import { useId, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAdminTabLoading } from '../../hooks/useAdminShellLoading';
 import { useAppStrings } from '../../locales/appStrings';
 import { AdminUserPanelShell } from '../../components/adminUsers/adminUserPanelUi';
 import UserExcelImportPanel from './UserExcelImportPanel';
@@ -31,7 +32,10 @@ export default function UserImportHubPanel({ orgId }) {
     return MODE_EXCEL;
   }, [searchParams]);
 
+  const { markTabSwitch } = useAdminTabLoading(mode);
+
   const setMode = (next) => {
+    markTabSwitch(next);
     const params = new URLSearchParams(searchParams);
     params.delete('tab');
     if (next === MODE_EXCEL) params.delete('mode');

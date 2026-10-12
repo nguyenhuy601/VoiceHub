@@ -39,7 +39,6 @@ function LockedColumnHeader({ label, whyLabel, onWhy }) {
  */
 export default function Phase2ManualStagingModal({
   projectId,
-  methodology: initialMethodology = 'kanban',
   open,
   onClose,
   onSubmitted,
@@ -47,7 +46,6 @@ export default function Phase2ManualStagingModal({
   const { t } = useAppStrings();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [methodology, setMethodology] = useState(initialMethodology);
   const [rows, setRows] = useState([]);
   const [note, setNote] = useState('');
   const [status, setStatus] = useState('draft');
@@ -63,7 +61,6 @@ export default function Phase2ManualStagingModal({
         await projectAPI.advancePhase2(projectId, { action: 'preview_staging' })
       );
       setRows(Array.isArray(data?.rows) ? data.rows : []);
-      setMethodology(data?.methodology || initialMethodology || 'kanban');
       setNote(data?.note || '');
       setStatus(data?.status || 'draft');
       setReviewNote(data?.reviewNote || '');
@@ -78,7 +75,7 @@ export default function Phase2ManualStagingModal({
     } finally {
       setLoading(false);
     }
-  }, [projectId, open, initialMethodology, t]);
+  }, [projectId, open, t]);
 
   useEffect(() => {
     load();
@@ -149,7 +146,7 @@ export default function Phase2ManualStagingModal({
     try {
       await projectAPI.advancePhase2(projectId, {
         action: 'submit_staging',
-        methodology,
+        methodology: 'scrum',
         rows,
         note,
       });
@@ -200,21 +197,6 @@ export default function Phase2ManualStagingModal({
         </div>
 
         <div className="flex flex-wrap items-end gap-3 border-b border-border px-4 py-2">
-          <label className="text-sm">
-            <span className="text-xs font-medium text-muted-foreground">
-              {t('workspace.phase2Methodology')}
-            </span>
-            <select
-              className="mt-1 block rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
-              value={methodology}
-              onChange={(e) => setMethodology(e.target.value)}
-              disabled={busy || loading}
-            >
-              <option value="kanban">Kanban</option>
-              <option value="scrum">Scrum</option>
-              <option value="waterfall">Waterfall</option>
-            </select>
-          </label>
           <label className="min-w-[12rem] flex-1 text-sm">
             <span className="text-xs font-medium text-muted-foreground">
               {t('workspace.phase2StagingNote') || 'Ghi chú cho PO'}

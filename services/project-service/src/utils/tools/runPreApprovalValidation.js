@@ -38,12 +38,19 @@ function runPreApprovalValidation(pack = {}) {
     check('schema.frExternalIds', frMissingId === 0, { missingCount: frMissingId })
   );
 
-  const coverageOk =
-    facts['coverage.passed'] === true ||
-    (facts['coverage.weighted'] != null && Number(facts['coverage.weighted']) >= 0.8);
+  // Coverage / Gate A are advisory — do not hard-fail pre-approval.
+  const dupCheck = gateA?.checks?.find((c) => c?.id === 'duplicates');
+  const missCheck = gateA?.checks?.find((c) => c?.id === 'missing_sections');
   checks.push(
-    check('coverage', coverageOk || gateA?.checks?.some((c) => c.id === 'coverage' && c.passed), {
-      weighted: facts['coverage.weighted'] ?? null,
+    check('duplicates', dupCheck ? dupCheck.passed !== false : true, {
+      value: dupCheck?.value ?? null,
+      advisory: true,
+    })
+  );
+  checks.push(
+    check('missing_sections', missCheck ? missCheck.passed !== false : true, {
+      value: missCheck?.value ?? null,
+      advisory: true,
     })
   );
 
@@ -52,6 +59,7 @@ function runPreApprovalValidation(pack = {}) {
   checks.push(
     check('completeness', completenessOk, {
       score: facts['completeness.score'] ?? null,
+      advisory: true,
     })
   );
 
@@ -71,18 +79,16 @@ function runPreApprovalValidation(pack = {}) {
     check('traceability', traceOk, {
       dangling: facts['trace.danglingCount'] ?? null,
       orphan: facts['trace.orphanCount'] ?? null,
+      advisory: true,
     })
   );
 
-  const gateAPassed =
-    gateA?.passed === true ||
-    (gateA == null &&
-      checks.filter((c) =>
-        ['coverage', 'completeness', 'consistency'].includes(c.id)
-      ).every((c) => c.passed));
+  // Gate A present → informational; overall preApproval ignores advisory fails below.
   checks.push(
-    check('gateA', gateA != null ? Boolean(gateA.passed) : gateAPassed, {
+    check('gateA', true, {
       source: gateA ? 'requirementTools.gateA' : 'derived',
+      advisory: true,
+      hasWarnings: Boolean(gateA?.hasWarnings || gateA?.passed === false),
     })
   );
 
@@ -108,17 +114,33 @@ function runPreApprovalValidation(pack = {}) {
     })
   );
 
-  const passed = checks.every((c) => c.passed);
+  // Advisory checks never hard-fail pre-approval (Gate A notify-only).
+  const advisoryIds = new Set([
+    'duplicates',
+    'missing_sections',
+    'completeness',
+    'traceability',
+    'gateA',
+    'coverage',
+  ]);
+  const passed = checks.every(
+    (c) => c.advisory === true || advisoryIds.has(c.id) || c.passed
+  );
 
   return {
-    schemaVersion: 'preApproval.v1',
+    schemaVersion: 'preApproval.v2',
     passed,
     checks,
     gateA: gateA
-      ? { passed: Boolean(gateA.passed), checks: gateA.checks || [] }
+      ? {
+          passed: Boolean(gateA.passed),
+          hasWarnings: Boolean(gateA.hasWarnings),
+          mode: gateA.mode || 'advisory',
+          checks: gateA.checks || [],
+        }
       : null,
     meta: {
-      note: 'Pre-approval for Waiting Review — Gate1 approve remains separate',
+      note: 'Pre-approval for Waiting Review — Gate A advisory; Gate1 approve remains separate',
     },
   };
 }

@@ -52,6 +52,9 @@ import { COMPANY_SPACE_LEVEL } from '../../utils/companySpaceLevel';
 import { useAuth } from '../../context/AuthContext';
 import { shouldShowCollaborateRequirementsNavForUser } from '../../utils/collaborateRequirementsNav';
 import VoiceHubAIPanel from './VoiceHubAIPanel';
+import { VH_NAV_CHEVRON } from '../../motion/classes';
+import useMotionPresence from '../../motion/useMotionPresence';
+import { VH_MOTION_BASE_MS } from '../../motion/tokens';
 import {
   FIGMA_SIDEBAR,
   FIGMA_SIDEBAR_COLLAPSED,
@@ -636,6 +639,10 @@ export default function FigmaNavigationSidebar({
   const railCollapsed = collapsed && !mobileNavOpen;
   const widthClass = railCollapsed ? FIGMA_SIDEBAR_COLLAPSED : FIGMA_SIDEBAR_EXPANDED;
   const sidebarTranslate = mobileNavOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0';
+  const { mounted: suitePickerMounted, phase: suitePickerPhase } = useMotionPresence(
+    showSuitePicker && !railCollapsed,
+    { durationMs: VH_MOTION_BASE_MS }
+  );
 
   return (
     <>
@@ -679,8 +686,8 @@ export default function FigmaNavigationSidebar({
                 </span>
                 <ChevronsRight
                   size={10}
-                  className="shrink-0 opacity-70 transition-transform"
-                  style={{ color: suiteColor, transform: showSuitePicker ? 'rotate(90deg)' : 'none' }}
+                  className={`${VH_NAV_CHEVRON} ${showSuitePicker ? 'rotate-90' : 'rotate-0'}`}
+                  style={{ color: suiteColor }}
                 />
               </button>
               <button
@@ -711,63 +718,69 @@ export default function FigmaNavigationSidebar({
           )}
         </div>
 
-        {showSuitePicker && !railCollapsed && (
-          <div className="absolute left-2 right-2 top-[calc(100%+4px)] z-[200] animate-scale-in overflow-hidden rounded-xl border border-white/10 bg-[#0D0D1A] shadow-2xl">
-            <div className="px-2.5 pb-1 pt-2 text-[0.575rem] font-bold uppercase tracking-widest text-white/25">
-              {t('nav.chooseSpace')}
-            </div>
-            {allowedSuites.map((sId) => {
-              const isCurrent = sId === suiteSegment;
-              const labels = {
-                label: t(`nav.suite.${sId}.label`),
-                sublabel: t(`nav.suite.${sId}.sublabel`),
-              };
-              const sc = SUITE_COLORS[sId];
-              return (
-                <button
-                  key={sId}
-                  type="button"
-                  onClick={() => {
-                    const suiteMap = {
-                      communicate: SUITE.COMMUNICATE,
-                      company: SUITE.COMPANY,
-                      projects: SUITE.PROJECTS,
-                      collaborate: SUITE.COMPANY,
-                      me: SUITE.ME,
-                      admin: SUITE.ADMIN,
-                    };
-                    navigateToSuite(suiteMap[sId], { path: getDefaultPathForSuite(suiteMap[sId]) });
-                    setShowSuitePicker(false);
-                  }}
-                  className="flex w-full items-center gap-2.5 border-none px-3 py-2 text-left transition"
-                  style={{
-                    background: isCurrent ? `${sc}18` : 'transparent',
-                    borderLeft: `3px solid ${isCurrent ? sc : 'transparent'}`,
-                  }}
-                >
-                  <div
-                    className="h-[7px] w-[7px] shrink-0 rounded-full"
-                    style={{ background: sc, boxShadow: isCurrent ? `0 0 6px ${sc}` : 'none' }}
-                  />
-                  <div>
+        {suitePickerMounted ? (
+          <div
+            className="absolute left-2 right-2 top-[calc(100%+4px)] z-[200] overflow-hidden rounded-xl border border-white/10 bg-[#0D0D1A] shadow-2xl vh-presence-overlay vh-motion-respect"
+            data-motion-phase={suitePickerPhase || 'enter'}
+            role="menu"
+          >
+            <div className="vh-presence-panel px-0 py-0">
+              <div className="px-2.5 pb-1 pt-2 text-[0.575rem] font-bold uppercase tracking-widest text-white/25">
+                {t('nav.chooseSpace')}
+              </div>
+              {allowedSuites.map((sId) => {
+                const isCurrent = sId === suiteSegment;
+                const labels = {
+                  label: t(`nav.suite.${sId}.label`),
+                  sublabel: t(`nav.suite.${sId}.sublabel`),
+                };
+                const sc = SUITE_COLORS[sId];
+                return (
+                  <button
+                    key={sId}
+                    type="button"
+                    onClick={() => {
+                      const suiteMap = {
+                        communicate: SUITE.COMMUNICATE,
+                        company: SUITE.COMPANY,
+                        projects: SUITE.PROJECTS,
+                        collaborate: SUITE.COMPANY,
+                        me: SUITE.ME,
+                        admin: SUITE.ADMIN,
+                      };
+                      navigateToSuite(suiteMap[sId], { path: getDefaultPathForSuite(suiteMap[sId]) });
+                      setShowSuitePicker(false);
+                    }}
+                    className="flex w-full items-center gap-2.5 border-none px-3 py-2 text-left transition duration-fast ease-enterprise motion-reduce:transition-none"
+                    style={{
+                      background: isCurrent ? `${sc}18` : 'transparent',
+                      borderLeft: `3px solid ${isCurrent ? sc : 'transparent'}`,
+                    }}
+                  >
                     <div
-                      className="text-[0.7812rem]"
-                      style={{
-                        fontWeight: isCurrent ? 700 : 500,
-                        color: isCurrent ? sc : 'rgba(255,255,255,0.6)',
-                      }}
-                    >
-                      {labels.label}
+                      className="h-[7px] w-[7px] shrink-0 rounded-full"
+                      style={{ background: sc, boxShadow: isCurrent ? `0 0 6px ${sc}` : 'none' }}
+                    />
+                    <div>
+                      <div
+                        className="text-[0.7812rem]"
+                        style={{
+                          fontWeight: isCurrent ? 700 : 500,
+                          color: isCurrent ? sc : 'rgba(255,255,255,0.6)',
+                        }}
+                      >
+                        {labels.label}
+                      </div>
+                      <div className="text-[0.625rem] text-white/25">{labels.sublabel}</div>
                     </div>
-                    <div className="text-[0.625rem] text-white/25">{labels.sublabel}</div>
-                  </div>
-                  {isCurrent && <ChevronsRight size={11} className="ml-auto" style={{ color: sc }} />}
-                </button>
-              );
-            })}
-            <div className="h-1.5" />
+                    {isCurrent && <ChevronsRight size={11} className="ml-auto" style={{ color: sc }} />}
+                  </button>
+                );
+              })}
+              <div className="h-1.5" />
+            </div>
           </div>
-        )}
+        ) : null}
       </div>
 
       {contextSwitch

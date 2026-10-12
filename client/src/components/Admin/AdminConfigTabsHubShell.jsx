@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAdminTabLoading } from '../../hooks/useAdminShellLoading';
 import { AdminUserPanelShell } from '../adminUsers/adminUserPanelUi';
 import { AdminHubTablist, AdminHubTabPanel, useAdminHubTabIds } from './AdminHubTablist';
 
@@ -24,7 +25,10 @@ export default function AdminConfigTabsHubShell({
     return defaultTab;
   }, [searchParams, tabParam, tabs, defaultTab]);
 
+  const { markTabSwitch } = useAdminTabLoading(activeTab);
+
   const setTab = (nextId) => {
+    markTabSwitch(nextId);
     const params = new URLSearchParams(searchParams);
     if (nextId === defaultTab) params.delete(tabParam);
     else params.set(tabParam, nextId);

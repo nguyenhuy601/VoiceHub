@@ -87,7 +87,23 @@ function hydrateToolDataFromSnapshot(toolData, snapshot) {
   const booked = pickBookedHoursByUserDay(base, snap);
   if (booked) {
     out.bookedHoursByUserDay = booked;
+    // Deprecated alias: booked commitment hours (not MeetingPlan demand)
     out.meetingHoursByUserDay = booked;
+  }
+  const meetingDemand =
+    base.meetingDemandHoursByUserDay ||
+    snap?.meetingDemandHoursByUserDay ||
+    snap?.canonical?.meetingDemandHoursByUserDay ||
+    null;
+  if (meetingDemand && typeof meetingDemand === 'object' && !Array.isArray(meetingDemand)) {
+    out.meetingDemandHoursByUserDay = meetingDemand;
+  }
+  if (base.meetingPlan || snap?.meetingPlan) {
+    out.meetingPlan = base.meetingPlan || snap.meetingPlan;
+  }
+  if (base.effortEstimationConfigVersionId || snap?.effortEstimationConfigVersionId) {
+    out.effortEstimationConfigVersionId =
+      base.effortEstimationConfigVersionId || snap.effortEstimationConfigVersionId;
   }
 
   const didEmployeeBackfill = employeeSource !== 'toolData';

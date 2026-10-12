@@ -1513,7 +1513,15 @@ export default function TaskBoardWorkspacePanel({
         }
       `}</style>
 
-      {!loadingBoards && boards.length === 0 ? (
+      {loadingBoards && !selectedBoardId ? (
+        <div
+          className={`m-4 rounded-xl p-4 text-sm ${
+            isDarkMode ? 'bg-white/5 text-slate-300' : 'bg-white text-slate-600'
+          }`}
+        >
+          {t('common.loading')}
+        </div>
+      ) : !loadingBoards && boards.length === 0 ? (
         <div
           className={`m-4 rounded-xl border border-dashed p-4 text-sm ${
             isDarkMode ? 'border-white/10 text-slate-400' : 'border-slate-300 text-slate-600'
@@ -1530,7 +1538,7 @@ export default function TaskBoardWorkspacePanel({
         </div>
       ) : loadingBoardDetail ? (
         <div className={`m-4 rounded-xl p-4 text-sm ${isDarkMode ? 'bg-white/5 text-slate-300' : 'bg-white text-slate-600'}`}>
-          Đang tải nội dung board...
+          {t('common.loading')}
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">

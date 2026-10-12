@@ -6,8 +6,10 @@ function buildSemanticPrompt(batch = []) {
   return [
     'You are Requirement Semantic Projection (G4). Return JSON only.',
     'Do NOT invent effort, schedule, capacity, FTE, or employee assignments.',
-    'For each FR return semanticInterpretation, ambiguities, relationships, and evidence.',
+    'For EACH input FR emit exactly one object inside items[] — do not flatten ambiguities to top-level items.',
+    'Each item MUST have frId matching an input FR id.',
     'Schema: { "items":[{ "frId", "semanticInterpretation":{"capability","intent"}, "ambiguities":[{"field","issue"}], "relationships":[{"target","reason"}], "evidence":[{"type","id","field","value"}] }] }',
+    'Example: { "items":[{ "frId":"CR-1", "semanticInterpretation":{"capability":"…","intent":"…"}, "ambiguities":[{"field":"kpi","issue":"undefined"}], "relationships":[], "evidence":[{"type":"source_fr","id":"CR-1"}] }] }',
     'Each item MUST include evidence referencing source_fr and/or signal.',
     'Candidates:',
     JSON.stringify(
@@ -52,8 +54,55 @@ function ensureEvidence(item, frId) {
   return evidence;
 }
 
-function normalizeSemanticItems(data, requireEvidence) {
+function coerceSemanticItemsShape(data, batch = []) {
   const items = Array.isArray(data?.items) ? data.items : [];
+  if (!items.length) return [];
+  // Happy path: objects already have frId
+  if (items.some((x) => String(x?.frId || '').trim())) {
+    return items.filter((x) => String(x?.frId || '').trim());
+  }
+  // Model sometimes flattens fields into items[] without frId — rebuild one item per batch FR
+  const fallbackId = String(batch[0]?.frId || '').trim();
+  if (!fallbackId) return [];
+  const ambiguities = [];
+  const relationships = [];
+  let capability = null;
+  let intent = null;
+  const evidence = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'object') continue;
+    if (raw.capability || raw.intent || raw.semanticInterpretation) {
+      capability = raw.capability || raw.semanticInterpretation?.capability || capability;
+      intent = raw.intent || raw.semanticInterpretation?.intent || intent;
+    }
+    if (raw.field || raw.issue) {
+      ambiguities.push({ field: raw.field || null, issue: raw.issue || null });
+    }
+    if (raw.target || raw.reason) {
+      relationships.push({ target: raw.target || null, reason: raw.reason || null });
+    }
+    if (raw.type === 'source_fr' || raw.id) {
+      evidence.push({
+        type: raw.type || 'source_fr',
+        id: raw.id || fallbackId,
+        field: raw.field || null,
+        value: raw.value || null,
+      });
+    }
+  }
+  return [
+    {
+      frId: fallbackId,
+      semanticInterpretation: { capability, intent },
+      ambiguities,
+      relationships,
+      evidence: evidence.length ? evidence : [{ type: 'source_fr', id: fallbackId }],
+    },
+  ];
+}
+
+function normalizeSemanticItems(data, requireEvidence, batch = []) {
+  const items = coerceSemanticItemsShape(data, batch);
   const out = [];
   for (const raw of items) {
     const frId = String(raw?.frId || '').trim();
@@ -120,7 +169,7 @@ async function runSemanticProjection(opts = {}) {
       promptChars,
     };
   }
-  const items = normalizeSemanticItems(result.data, opts.requireEvidence !== false);
+  const items = normalizeSemanticItems(result.data, opts.requireEvidence !== false, batch);
   return {
     ok: true,
     skipped: false,

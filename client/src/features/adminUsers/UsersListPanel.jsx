@@ -13,7 +13,7 @@ import {
 import { useCompanyAdminContext } from '../../pages/Admin/CompanyAdminLayout';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
-import { getInitials } from '../../utils/helpers';
+import UserAvatar from '../../components/Shared/UserAvatar';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useDebouncedValue } from '../search/useDebouncedValue';
 import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
@@ -82,7 +82,7 @@ function StatusBadge({ member, t }) {
 function UsersTableSkeletonRows({ rows = USERS_LIST_PAGE_SIZE }) {
   return Array.from({ length: rows }, (_, rowIdx) => (
     <tr key={`sk-${rowIdx}`} className="border-b border-border">
-      {Array.from({ length: 7 }, (_, colIdx) => (
+      {Array.from({ length: 8 }, (_, colIdx) => (
         <td key={colIdx} className="px-4 py-3">
           <span className="inline-block h-4 w-full max-w-[7rem] rounded bg-muted motion-safe:animate-pulse" />
         </td>
@@ -100,20 +100,29 @@ function OrgRoleCell({ rows, emptyLabel }) {
     return <span className="text-xs text-muted-foreground">{emptyLabel}</span>;
   }
   return (
-    <div className="flex max-w-[180px] flex-col gap-1">
+    <div className="flex max-w-[180px] flex-wrap gap-1">
       {rows.map((row) => (
-        <div key={row.id} className="min-w-0">
-          <span className="inline-flex rounded-full bg-primary-subtle px-2 py-0.5 text-[10px] font-medium text-primary ring-1 ring-border">
-            {row.label}
-          </span>
-          {row.scopeName ? (
-            <div className="mt-0.5 truncate text-[10px] text-muted-foreground" title={row.scopeName}>
-              {row.scopeName}
-            </div>
-          ) : null}
-        </div>
+        <span
+          key={row.id}
+          className="inline-flex rounded-full bg-primary-subtle px-2 py-0.5 text-[10px] font-medium text-primary ring-1 ring-border"
+          title={row.scopeName || undefined}
+        >
+          {row.label}
+        </span>
       ))}
     </div>
+  );
+}
+
+function PositionCell({ title, emptyLabel }) {
+  const value = String(title || '').trim();
+  if (!value) {
+    return <span className="text-xs text-muted-foreground">{emptyLabel}</span>;
+  }
+  return (
+    <span className="max-w-[160px] truncate text-sm text-foreground" title={value}>
+      {value}
+    </span>
   );
 }
 
@@ -649,6 +658,7 @@ export default function UsersListPanel({ orgId }) {
                     <th className="px-4 py-3">
                       {t('adminUsers.colOrgRole')}
                     </th>
+                    <th className="px-4 py-3">{t('adminUsers.colPosition')}</th>
                     <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>
                     <th className="px-4 py-3">{t('adminUsers.colCapability')}</th>
                     <th className="w-12 px-2 py-3 text-center">
@@ -675,13 +685,13 @@ export default function UsersListPanel({ orgId }) {
                             className="flex max-w-[240px] items-center gap-3 rounded-lg text-left transition-transform duration-200 ease-out hover:translate-x-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:hover:translate-x-0"
                             onClick={() => setDetailMember(m)}
                           >
-                            {m.avatar ? (
-                              <img src={m.avatar} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
-                            ) : (
-                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-subtle text-[11px] font-bold text-primary">
-                                {getInitials(name)}
-                              </div>
-                            )}
+                            <UserAvatar
+                              avatar={m.avatar}
+                              userId={id}
+                              name={name}
+                              size="sm"
+                              className="shrink-0"
+                            />
                             <span className="min-w-0">
                               <span className="truncate font-medium text-foreground hover:underline">{name}</span>
                               {isSystemAdmin ? (
@@ -700,6 +710,12 @@ export default function UsersListPanel({ orgId }) {
                           <OrgRoleCell
                             rows={orgRoleByUser[id]}
                             emptyLabel={t('adminUsers.orgRoleNone')}
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <PositionCell
+                            title={memberJobTitle(m)}
+                            emptyLabel={t('adminUsers.taxonomyNone')}
                           />
                         </td>
                         <td className="px-4 py-3">

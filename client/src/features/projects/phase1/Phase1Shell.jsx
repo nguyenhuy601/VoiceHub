@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Loader2 } from 'lucide-react';
 import { SpaceProvider, SPACE_KIND } from '../../../context/SpaceContext';
+import { useShellLayout } from '../../../context/ShellLayoutContext';
 import { fetchProjectHubProject } from '../hub/useProjectHubQueries';
 import { queryKeys } from '../../../lib/queryKeys';
 import {
@@ -59,6 +61,8 @@ export default function Phase1Shell({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useAppStrings();
+  const { showHeaderLoading } = useShellLayout();
+  const [leavingAfterPromote, setLeavingAfterPromote] = useState(false);
   const projectId = String(projectIdParam || '').trim();
 
   const planningSub = planningSubProp || planningModule || '';
@@ -106,12 +110,14 @@ export default function Phase1Shell({
   );
 
   const onHitlPromoted = useCallback(() => {
+    setLeavingAfterPromote(true);
+    showHeaderLoading(t('nav.projectsModuleSwitching'));
     queryClient.invalidateQueries({ queryKey: queryKeys.projectHub.project(projectId) });
     queryClient.invalidateQueries({
       queryKey: ['aiHitlNavLinkedPack', String(orgId || ''), String(projectId || '')],
     });
     navigate(postPromotePath, { replace: true });
-  }, [navigate, orgId, postPromotePath, projectId, queryClient]);
+  }, [navigate, orgId, postPromotePath, projectId, queryClient, showHeaderLoading, t]);
 
   useEffect(() => {
     if (orgId) writeStoredLastOrganizationId(orgId);
@@ -121,11 +127,12 @@ export default function Phase1Shell({
     return <Navigate to={buildProjectsPickerPath(orgId)} replace />;
   }
 
-  // Avoid redirecting planning → hub while project row is still refetching.
-  if (projectPending && !projectRow) {
+  // Avoid redirecting planning → hub while project row is still refetching / leaving after HITL.
+  if (leavingAfterPromote || (projectPending && !projectRow)) {
     return (
-      <div className="flex min-h-[8rem] items-center justify-center p-4 text-sm text-muted-foreground">
-        {t('common.loading')}
+      <div className="flex min-h-[8rem] items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        <span>{t('common.loading')}</span>
       </div>
     );
   }
@@ -239,8 +246,10 @@ export default function Phase1Shell({
       <ProjectHubPage
         controlledModule={module}
         hideTabBar
-        onModuleChange={() => {}}
-        onSwitchProject={() => {}}
+        onModuleChange={(tabId) => {
+          navigate(buildPhase1ModulePath(projectId, tabId || 'overview', { boardId }));
+        }}
+        onSwitchProject={() => navigate(buildProjectsPickerPath(orgId))}
       />
     );
   } else {

@@ -106,6 +106,11 @@ const userAuthSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /** Số lần đã bị soft-lock 15s; đủ ngưỡng → khóa tạm (cần admin mở). */
+    softLockCount: {
+      type: Number,
+      default: 0,
+    },
     /** Tăng khi logout/đổi mật khẩu để vô hiệu access token cũ */
     tokenVersion: {
       type: Number,
@@ -140,6 +145,7 @@ const userAuthSchema = new mongoose.Schema(
         delete ret.pendingEmailBlindIndex;
         delete ret.loginAttempts;
         delete ret.lockUntil;
+        delete ret.softLockCount;
         delete ret.tokenVersion;
         delete ret.__v;
         return ret;
@@ -160,6 +166,7 @@ const userAuthSchema = new mongoose.Schema(
         delete ret.pendingEmailBlindIndex;
         delete ret.loginAttempts;
         delete ret.lockUntil;
+        delete ret.softLockCount;
         delete ret.tokenVersion;
         delete ret.__v;
         return ret;
@@ -174,6 +181,28 @@ userAuthSchema.index({ emailBlindIndex: 1 }, { unique: true, sparse: true });
 userAuthSchema.index({ userId: 1 }, { unique: true, sparse: true });
 userAuthSchema.index({ refreshToken: 1 });
 
+/** Sai MK bao nhiêu lần thì soft-lock 15s. */
+const LOGIN_FAILS_BEFORE_SOFT_LOCK = Math.max(
+  1,
+  Number(process.env.LOGIN_FAILS_BEFORE_SOFT_LOCK || 3) || 3
+);
+/** Thời gian soft-lock (ms). */
+const LOGIN_SOFT_LOCK_MS = Math.max(
+  1000,
+  Number(process.env.LOGIN_SOFT_LOCK_MS || 15_000) || 15_000
+);
+/** Soft-lock bao nhiêu lần thì khóa tạm (cần admin mở). */
+const LOGIN_SOFT_LOCKS_BEFORE_HARD = Math.max(
+  1,
+  Number(process.env.LOGIN_SOFT_LOCKS_BEFORE_HARD || 3) || 3
+);
+/** Khóa tạm dài — chỉ hết khi admin mở (không tự hết trong thực tế). */
+const LOGIN_HARD_LOCK_MS = Math.max(
+  LOGIN_SOFT_LOCK_MS,
+  Number(process.env.LOGIN_HARD_LOCK_MS || 100 * 365 * 24 * 60 * 60 * 1000) ||
+    100 * 365 * 24 * 60 * 60 * 1000
+);
+
 // Virtual để kiểm tra account có bị lock không
 userAuthSchema.virtual('isLocked').get(function () {
   return !!(this.lockUntil && this.lockUntil > Date.now());
@@ -181,7 +210,7 @@ userAuthSchema.virtual('isLocked').get(function () {
 
 // Method để tăng số lần đăng nhập sai
 userAuthSchema.methods.incLoginAttempts = async function () {
-  // Nếu đã unlock hoặc chưa lock, reset loginAttempts
+  // Soft-lock đã hết hạn → bắt đầu chu kỳ đếm mới (giữ softLockCount).
   if (this.lockUntil && this.lockUntil < Date.now()) {
     return this.updateOne({
       $set: { loginAttempts: 1 },
@@ -189,28 +218,45 @@ userAuthSchema.methods.incLoginAttempts = async function () {
     });
   }
 
-  const updates = { $inc: { loginAttempts: 1 } };
-  
-  // Lock account sau 5 lần đăng nhập sai trong 2 giờ
-  if (this.loginAttempts + 1 >= 5 && !this.isLocked) {
-    updates.$set = { lockUntil: Date.now() + 2 * 60 * 60 * 1000 }; // 2 hours
+  const nextAttempts = Number(this.loginAttempts || 0) + 1;
+  if (nextAttempts < LOGIN_FAILS_BEFORE_SOFT_LOCK || this.isLocked) {
+    return this.updateOne({ $inc: { loginAttempts: 1 } });
   }
 
-  return this.updateOne(updates);
+  const nextSoftLocks = Number(this.softLockCount || 0) + 1;
+  if (nextSoftLocks >= LOGIN_SOFT_LOCKS_BEFORE_HARD) {
+    // Khóa tạm tài khoản — cần admin mở khóa.
+    return this.updateOne({
+      $set: {
+        loginAttempts: 0,
+        softLockCount: nextSoftLocks,
+        lockUntil: new Date(Date.now() + LOGIN_HARD_LOCK_MS),
+      },
+    });
+  }
+
+  // Soft-lock 15s sau 3 lần sai.
+  return this.updateOne({
+    $set: {
+      loginAttempts: 0,
+      softLockCount: nextSoftLocks,
+      lockUntil: new Date(Date.now() + LOGIN_SOFT_LOCK_MS),
+    },
+  });
 };
 
 // Method để reset login attempts
 userAuthSchema.methods.resetLoginAttempts = async function () {
   return this.updateOne({
-    $set: { loginAttempts: 0 },
+    $set: { loginAttempts: 0, softLockCount: 0 },
     $unset: { lockUntil: 1 },
   });
 };
 
 const UserAuth = mongoose.model('UserAuth', userAuthSchema);
 
+UserAuth.LOGIN_FAILS_BEFORE_SOFT_LOCK = LOGIN_FAILS_BEFORE_SOFT_LOCK;
+UserAuth.LOGIN_SOFT_LOCK_MS = LOGIN_SOFT_LOCK_MS;
+UserAuth.LOGIN_SOFT_LOCKS_BEFORE_HARD = LOGIN_SOFT_LOCKS_BEFORE_HARD;
+
 module.exports = UserAuth;
-
-
-
-
