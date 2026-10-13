@@ -141,18 +141,15 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const autoStartRef = useRef(false);
   const startedWhatKeyRef = useRef('');
 
-  // Project PO/BA role (sidebar) must drive Gate1 — org persona alone misses project-only PO.
+  // Gate1/2 HITL: matrix caps SoT — không OR role-key / canApproveOrg (PM org ≠ Gate1 PO).
   const hitlFlags = useMemo(
     () =>
       resolveHitlRequirementFlags({
         canSubmitOrg: Boolean(requirementAccess?.canSubmit),
-        canApproveOrg: Boolean(requirementAccess?.canApprove),
         canRunOrg: Boolean(requirementAccess?.canRunAiPlanning),
         canPromoteOrg: Boolean(requirementAccess?.canCreateFromPack),
-        viewerProjectRoleKeys: projectCaps.viewerProjectRoleKeys,
         canReviewAnalysisPo: projectCaps.canReviewAnalysisPo,
         canBaAuthorAnalysis: projectCaps.canBaAuthorAnalysis,
-        canReviewAnalysisBa: projectCaps.canReviewAnalysisBa,
         canReviewPlanningPm: projectCaps.canReviewPlanningPm,
         canReviewPlanningPo: projectCaps.canReviewPlanningPo,
       }),
