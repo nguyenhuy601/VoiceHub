@@ -1245,6 +1245,7 @@ export default function ProjectHubShell({
       if (isSummaryOnly && item.id !== 'overview') return false;
       if (
         item.id === 'settings' &&
+        !hubCaps.canViewSettings &&
         !hubCaps.canManageSettings &&
         !hubCaps.canManageProjectRoles
       ) {
@@ -2089,7 +2090,9 @@ export default function ProjectHubShell({
           <ActivityPanel activity={activity} locale={locale} isDarkMode={isDarkMode} t={t} />
         ) : null}
         {tab === 'settings' &&
-        (hubCaps.canManageSettings || hubCaps.canManageProjectRoles) ? (
+        (hubCaps.canViewSettings ||
+          hubCaps.canManageSettings ||
+          hubCaps.canManageProjectRoles) ? (
           <ProjectHubSettingsPanel
             projectId={projectId}
             boardId={boardId}
@@ -2098,6 +2101,7 @@ export default function ProjectHubShell({
             organizationId={organizationId}
             apiCtx={apiCtx}
             canManage={Boolean(hubCaps.canManageSettings)}
+            canViewSettings={Boolean(hubCaps.canViewSettings)}
             canManageProjectRoles={Boolean(hubCaps.canManageProjectRoles)}
             canManageDelivery={Boolean(hubCaps.canManageDelivery)}
             canArchiveProject={Boolean(hubCaps.canArchiveProject)}
@@ -2114,6 +2118,7 @@ export default function ProjectHubShell({
         {tab === 'settings' &&
         hideTabBar &&
         capsReady &&
+        !hubCaps.canViewSettings &&
         !hubCaps.canManageSettings &&
         !hubCaps.canManageProjectRoles ? (
           <div className="flex min-h-[8rem] items-center justify-center p-4 text-sm text-muted-foreground">

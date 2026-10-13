@@ -1046,6 +1046,8 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       canManageMembers: unionHas('members:manage'),
       canViewMembers: bypass || unionHas('members:view'),
       canManageSettings: bypass || unionHas('settings:update'),
+      /** Vào Settings chỉ đọc — tách khỏi settings:update / project:roles. */
+      canViewSettings: bypass || unionHas('settings:view'),
       canManageLists: unionHas('board:manage_lists'),
       canManageBoard: unionHas('board:admin'),
       /** Matrix Project Role trong dự án (PO/PM) — khác settings:update; catalog org = Admin. */
@@ -1072,6 +1074,16 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       canImportAnalysis: canImportFromRole,
       /** BA chủ trì draft / sửa sau request-changes — role matrix, không bypass creator. */
       canBaAuthorAnalysis: canBaAuthorFromRole,
+      /**
+       * Kinds được tạo/sửa artifact: '*' | ['BG','SCOPE'] | [].
+       * SoT = resolveAnalysisAuthorKinds (khớp assertCanAuthorKind).
+       */
+      analysisAuthorKinds: require('../utils/project/analysisAuthorKinds').resolveAnalysisAuthorKinds(
+        roleMatrixPerms,
+        { bypass }
+      ),
+      /** Tạo trace link — tách khỏi canEditAnalysis. */
+      canManageTrace: bypass || matrixHas('analysis:manage_trace'),
       canReviewAnalysisBa: matrixHas('analysis:ba_review'),
       canReviewAnalysisTech: matrixHas('analysis:tech_review'),
       canReviewAnalysisPo: matrixHas('analysis:po_review'),
@@ -1087,6 +1099,7 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       canCutSrs: matrixHas('analysis:cut_srs'),
       canViewPlanning: bypass || matrixHas('planning:view'),
       canEditPlanning: matrixHas('planning:artifact_edit'),
+      canSubmitPlanning: matrixHas('planning:submit_review'),
       canReviewPlanning: matrixHas('planning:pm_review'),
       canReviewPlanningTech: matrixHas('planning:tech_review'),
       canReviewPlanningPm: matrixHas('planning:pm_review'),

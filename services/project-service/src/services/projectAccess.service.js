@@ -79,6 +79,18 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
     };
   }
 
+  // Snapshot SoT: đảm bảo project có role clone + membership không còn trỏ org template.
+  try {
+    const { ensureProjectRolesCloned } = require('./projectTeam.service');
+    await ensureProjectRolesCloned(project._id, project.organizationId);
+  } catch (err) {
+    logger.warn(
+      '[projectAccess] ensureProjectRolesCloned failed project=%s: %s',
+      String(project._id),
+      err?.message || err
+    );
+  }
+
   const memberships = await ProjectMembership.find({
     projectId: project._id,
     userId: uid,
@@ -88,8 +100,18 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
   const hasMembership = memberships.length > 0;
   const roleIds = memberships.map((m) => m.projectRoleId).filter(Boolean);
   const roles = roleIds.length
-    ? await ProjectRole.find({ _id: { $in: roleIds } }).select('key permissions canAssign').lean()
+    ? await ProjectRole.find({ _id: { $in: roleIds } }).select('key permissions canAssign projectId').lean()
     : [];
+
+  const orgScopedRoleCount = roles.filter((r) => r && (r.projectId == null || r.projectId === undefined)).length;
+  if (orgScopedRoleCount > 0) {
+    logger.warn(
+      '[projectAccess] membership still resolves org-template roles project=%s user=%s count=%s',
+      String(project._id),
+      uid,
+      orgScopedRoleCount
+    );
+  }
 
   // Board/hub ops: SoT = doc.permissions trên ProjectRole membership (org template hoặc project clone).
   const roleUiCapabilities = permissionsToBoardCapabilities(unionPermissionsFromRoles(roles));

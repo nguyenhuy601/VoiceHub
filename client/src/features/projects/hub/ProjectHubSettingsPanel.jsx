@@ -184,6 +184,8 @@ export default function ProjectHubSettingsPanel({
   organizationId = '',
   apiCtx = null,
   canManage = false,
+  /** settings:view — vào Settings chỉ đọc khi không có settings:update. */
+  canViewSettings = false,
   /** Matrix Project Role trong dự án (project:roles) — tách khỏi settings:update. */
   canManageProjectRoles = false,
   canManageDelivery = false,
@@ -354,7 +356,7 @@ export default function ProjectHubSettingsPanel({
   const resolvedOrganizationId = String(organizationId || board?.organizationId || '').trim();
 
   useEffect(() => {
-    if (!canManage || !resolvedProjectId) {
+    if ((!canManage && !canViewSettings) || !resolvedProjectId) {
       setRoleCatalog([]);
       setDepartments([]);
       setOrgPolicySeed(null);
@@ -416,7 +418,7 @@ export default function ProjectHubSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [canManage, resolvedOrganizationId, resolvedProjectId, catalogToken, queryClient, t]);
+  }, [canManage, canViewSettings, resolvedOrganizationId, resolvedProjectId, catalogToken, queryClient, t]);
 
   useEffect(() => {
     if (!canManage || !boardId) {
@@ -652,7 +654,7 @@ export default function ProjectHubSettingsPanel({
     }
   };
 
-  if (!canManage && !canManageProjectRoles) {
+  if (!canManage && !canViewSettings && !canManageProjectRoles) {
     return (
       <div className="px-4 py-8 text-center sm:px-6">
         <p className={`text-sm ${muted}`}>{t('workspace.projectHubSettingsDenied')}</p>
@@ -660,11 +662,13 @@ export default function ProjectHubSettingsPanel({
     );
   }
 
+  const canSeeProjectSettingsGroups = Boolean(canManage || canViewSettings);
+
   const chipRowCls =
     'mt-2 grid max-h-44 grid-cols-1 gap-1.5 overflow-y-auto rounded-lg border border-border/80 bg-background/40 p-2 sm:grid-cols-2';
 
   const groups = [
-    ...(canManage
+    ...(canSeeProjectSettingsGroups
       ? [
           {
             id: 'identity',
@@ -697,7 +701,7 @@ export default function ProjectHubSettingsPanel({
           },
         ]
       : []),
-    ...(canManage
+    ...(canSeeProjectSettingsGroups
       ? [
           {
             id: 'workflow',
@@ -772,19 +776,46 @@ export default function ProjectHubSettingsPanel({
     <div className="grid gap-3 sm:grid-cols-2">
       <label className={`${fieldLabelCls} sm:col-span-2`}>
         {t('workspace.projectHubFieldTitle')}
-        <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} required />
+        <input
+          className={inputCls}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          required
+          disabled={!canManage || saving}
+          readOnly={!canManage}
+        />
       </label>
       <label className={`${fieldLabelCls} sm:col-span-2`}>
         {t('workspace.projectHubFieldCode')}
-        <input className={inputCls} value={projectCode} onChange={(e) => setProjectCode(e.target.value)} />
+        <input
+          className={inputCls}
+          value={projectCode}
+          onChange={(e) => setProjectCode(e.target.value)}
+          disabled={!canManage || saving}
+          readOnly={!canManage}
+        />
       </label>
       <label className={fieldLabelCls}>
         {t('workspace.projectHubFieldStart')}
-        <input type="date" className={inputCls} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        <input
+          type="date"
+          className={inputCls}
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+          disabled={!canManage || saving}
+          readOnly={!canManage}
+        />
       </label>
       <label className={fieldLabelCls}>
         {t('workspace.projectHubFieldDue')}
-        <input type="date" className={inputCls} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        <input
+          type="date"
+          className={inputCls}
+          value={dueDate}
+          onChange={(e) => setDueDate(e.target.value)}
+          disabled={!canManage || saving}
+          readOnly={!canManage}
+        />
       </label>
       {isProjectDateRangeInvalid(startDate, dueDate) ? (
         <p className="text-sm text-destructive sm:col-span-2" role="alert">
@@ -793,7 +824,13 @@ export default function ProjectHubSettingsPanel({
       ) : null}
       <label className={`${fieldLabelCls} sm:col-span-2`}>
         {t('workspace.projectHubFieldDescription')}
-        <textarea className={`${inputCls} min-h-[72px] resize-y`} value={description} onChange={(e) => setDescription(e.target.value)} />
+        <textarea
+          className={`${inputCls} min-h-[72px] resize-y`}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          disabled={!canManage || saving}
+          readOnly={!canManage}
+        />
       </label>
       <div className={`${fieldLabelCls} sm:col-span-2`}>
         <span>{t('workspace.projectHubFieldBackground')}</span>
@@ -807,10 +844,14 @@ export default function ProjectHubSettingsPanel({
                 title={preset}
                 aria-label={preset}
                 aria-pressed={selected}
-                onClick={() => setBackground(preset)}
+                disabled={!canManage || saving}
+                onClick={() => {
+                  if (!canManage || saving) return;
+                  setBackground(preset);
+                }}
                 className={`h-9 w-9 shrink-0 rounded-lg border-2 shadow-inner transition ${
                   selected ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/50'
-                }`}
+                } ${!canManage ? 'cursor-not-allowed opacity-60' : ''}`}
                 style={{ background: preset }}
               />
             );
@@ -821,6 +862,7 @@ export default function ProjectHubSettingsPanel({
               className="h-6 w-8 cursor-pointer rounded border-0 bg-transparent p-0"
               value={normalizeHexForPicker(background)}
               onChange={(e) => setBackground(e.target.value)}
+              disabled={!canManage || saving}
               aria-label={t('workspace.projectHubBackgroundPickColor')}
             />
             <span className={muted}>{t('workspace.projectHubBackgroundPickColor')}</span>
@@ -842,7 +884,7 @@ export default function ProjectHubSettingsPanel({
         <select
           className={inputCls}
           value={projectType}
-          disabled={!profileHydrated || saving}
+          disabled={!canManage || !profileHydrated || saving}
           onChange={(e) => setProjectType(e.target.value)}
         >
           {PROJECT_TYPES.map((value) => (
@@ -857,7 +899,7 @@ export default function ProjectHubSettingsPanel({
         <select
           className={inputCls}
           value={category}
-          disabled={!profileHydrated || saving}
+          disabled={!canManage || !profileHydrated || saving}
           onChange={(e) => setCategory(e.target.value)}
         >
           {PROJECT_CATEGORIES.map((value) => (
@@ -872,7 +914,7 @@ export default function ProjectHubSettingsPanel({
         <select
           className={inputCls}
           value={projectPriority}
-          disabled={!profileHydrated || saving}
+          disabled={!canManage || !profileHydrated || saving}
           onChange={(e) => setProjectPriority(e.target.value)}
         >
           {PROJECT_PRIORITIES.map((value) => (
@@ -887,7 +929,7 @@ export default function ProjectHubSettingsPanel({
         <select
           className={inputCls}
           value={projectStatus}
-          disabled={!profileHydrated || saving}
+          disabled={!canManage || !profileHydrated || saving}
           onChange={(e) => setProjectStatus(e.target.value)}
         >
           {statusChoices.map((value) => (
@@ -906,7 +948,7 @@ export default function ProjectHubSettingsPanel({
           step="1"
           className={inputCls}
           value={estimatedDurationDays}
-          disabled={!profileHydrated || saving}
+          disabled={!canManage || !profileHydrated || saving}
           onChange={(e) => setEstimatedDurationDays(e.target.value)}
           placeholder="—"
         />
@@ -916,7 +958,7 @@ export default function ProjectHubSettingsPanel({
         <input
           className={inputCls}
           value={workingCalendar}
-          disabled={!profileHydrated || saving}
+          disabled={!canManage || !profileHydrated || saving}
           onChange={(e) => setWorkingCalendar(e.target.value)}
         />
       </label>
@@ -925,7 +967,7 @@ export default function ProjectHubSettingsPanel({
         <input
           className={inputCls}
           value={tagsInput}
-          disabled={!profileHydrated || saving}
+          disabled={!canManage || !profileHydrated || saving}
           onChange={(e) => setTagsInput(e.target.value)}
           placeholder={t('workspace.projectHubFieldTagsPlaceholder')}
         />
@@ -943,7 +985,7 @@ export default function ProjectHubSettingsPanel({
             <input
               className={inputCls}
               value={customerName}
-              disabled={!profileHydrated || saving}
+              disabled={!canManage || !profileHydrated || saving}
               onChange={(e) => setCustomerName(e.target.value)}
               required
             />
@@ -953,7 +995,7 @@ export default function ProjectHubSettingsPanel({
             <input
               className={inputCls}
               value={customerCompany}
-              disabled={!profileHydrated || saving}
+              disabled={!canManage || !profileHydrated || saving}
               onChange={(e) => setCustomerCompany(e.target.value)}
             />
           </label>
@@ -962,7 +1004,7 @@ export default function ProjectHubSettingsPanel({
             <input
               className={inputCls}
               value={customerContact}
-              disabled={!profileHydrated || saving}
+              disabled={!canManage || !profileHydrated || saving}
               onChange={(e) => setCustomerContact(e.target.value)}
             />
           </label>
@@ -971,7 +1013,7 @@ export default function ProjectHubSettingsPanel({
             <input
               className={inputCls}
               value={customerContractCode}
-              disabled={!profileHydrated || saving}
+              disabled={!canManage || !profileHydrated || saving}
               onChange={(e) => setCustomerContractCode(e.target.value)}
             />
           </label>
@@ -1134,7 +1176,7 @@ export default function ProjectHubSettingsPanel({
               step="1"
               className={inputCls}
               value={sprintDurationDays}
-              disabled={!profileHydrated || saving}
+              disabled={!canManage || !profileHydrated || saving}
               onChange={(e) => setSprintDurationDays(e.target.value)}
             />
           </label>
@@ -1143,7 +1185,7 @@ export default function ProjectHubSettingsPanel({
             <select
               className={inputCls}
               value={sprintStartDay}
-              disabled={!profileHydrated || saving}
+              disabled={!canManage || !profileHydrated || saving}
               onChange={(e) => setSprintStartDay(e.target.value)}
             >
               {SPRINT_WEEKDAYS.map((day) => (
@@ -1164,7 +1206,7 @@ export default function ProjectHubSettingsPanel({
               className={inputCls}
               value={workflowTemplateId}
               onChange={(e) => setWorkflowTemplateId(e.target.value)}
-              disabled={applyingWorkflow}
+              disabled={!canManage || applyingWorkflow}
             >
               <option value="">—</option>
               {workflowTemplates.map((tpl) => (
@@ -1176,7 +1218,7 @@ export default function ProjectHubSettingsPanel({
           </label>
           <button
             type="button"
-            disabled={!workflowTemplateId || !resolvedProjectId || applyingWorkflow}
+            disabled={!canManage || !workflowTemplateId || !resolvedProjectId || applyingWorkflow}
             className="h-10 shrink-0 rounded-lg border border-border px-4 text-sm font-semibold disabled:opacity-50"
             onClick={async () => {
               if (!resolvedProjectId || !workflowTemplateId) return;
@@ -1213,7 +1255,7 @@ export default function ProjectHubSettingsPanel({
         {workflowDoc ? (
           <CatalogKeyLabelEditor
             items={statesToEditorItems(workflowStates)}
-            disabled={saving}
+            disabled={!canManage || saving}
             addKeyPh="blocked"
             addLabelPh="Blocked"
             addText={t('adminTasks.workflowAddState')}
@@ -1228,7 +1270,7 @@ export default function ProjectHubSettingsPanel({
         <p className={`text-xs font-semibold ${titleCls}`}>{t('adminTasks.priorityList')}</p>
         <CatalogKeyLabelEditor
           items={priorityItems}
-          disabled={saving}
+          disabled={!canManage || saving}
           addKeyPh="blocker"
           addLabelPh="Blocker"
           addText={t('adminTasks.catalogAddPriority')}
@@ -1246,7 +1288,7 @@ export default function ProjectHubSettingsPanel({
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
           <label className={`min-w-0 flex-1 ${fieldLabelCls}`}>
             {t('workspace.projectHubApprovalPolicyLabel')}
-            <select className={inputCls} value={taskDonePolicyId} onChange={(e) => setTaskDonePolicyId(e.target.value)} disabled={bindingApproval}>
+            <select className={inputCls} value={taskDonePolicyId} onChange={(e) => setTaskDonePolicyId(e.target.value)} disabled={!canManage || bindingApproval}>
               <option value="">{t('workspace.projectHubApprovalNone')}</option>
               {approvalPolicies
                 .filter((p) => (p.entityTypes || []).includes('task') || String(p.key || '').startsWith('task_done'))
@@ -1262,7 +1304,7 @@ export default function ProjectHubSettingsPanel({
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
           <label className={`min-w-0 flex-1 ${fieldLabelCls}`}>
             {t('workspace.projectHubCrApprovalPolicyLabel')}
-            <select className={inputCls} value={crApprovalPolicyId} onChange={(e) => setCrApprovalPolicyId(e.target.value)} disabled={bindingApproval}>
+            <select className={inputCls} value={crApprovalPolicyId} onChange={(e) => setCrApprovalPolicyId(e.target.value)} disabled={!canManage || bindingApproval}>
               <option value="">{t('workspace.projectHubApprovalNone')}</option>
               {approvalPolicies
                 .filter((p) => (p.entityTypes || []).includes('change_request') || p.key === 'change_request_default')
@@ -1273,10 +1315,10 @@ export default function ProjectHubSettingsPanel({
           </label>
           <button
             type="button"
-            disabled={!resolvedProjectId || bindingApproval}
+            disabled={!canManage || !resolvedProjectId || bindingApproval}
             className="h-10 shrink-0 rounded-lg border border-border px-4 text-sm font-semibold disabled:opacity-50"
             onClick={async () => {
-              if (!resolvedProjectId) return;
+              if (!canManage || !resolvedProjectId) return;
               setBindingApproval(true);
               try {
                 await projectAPI.bindProjectApprovalPolicy(resolvedProjectId, taskDonePolicyId || null, {
@@ -1336,12 +1378,13 @@ export default function ProjectHubSettingsPanel({
 
   const activeGroup = groups.find((g) => g.id === openSection);
   const showSaveFooter =
-    openSection === 'identity' ||
-    openSection === 'profile' ||
-    openSection === 'visibility' ||
-    openSection === 'staffing' ||
-    openSection === 'statusPriority' ||
-    openSection === 'workflow';
+    Boolean(canManage) &&
+    (openSection === 'identity' ||
+      openSection === 'profile' ||
+      openSection === 'visibility' ||
+      openSection === 'staffing' ||
+      openSection === 'statusPriority' ||
+      openSection === 'workflow');
 
   const canArchiveNow =
     Boolean(canArchiveProject) &&
