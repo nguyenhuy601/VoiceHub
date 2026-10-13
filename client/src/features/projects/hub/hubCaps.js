@@ -37,6 +37,7 @@ function applyReadOnly(caps, readOnly) {
     canUpdateChangeRequest: false,
     canDeleteChangeRequest: false,
     canManageSettings: false,
+    canViewSettings: false,
     canManageProjectRoles: false,
     canManageSprints: false,
     canStartSprint: false,
@@ -63,7 +64,10 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
   const caps = projectPayload?.capabilities || null;
   if (caps) {
     const permissions = permSet(caps);
-    const canManageMembers = Boolean(caps.canManageMembers);
+    const canManageMembers =
+      caps.canManageMembers != null
+        ? Boolean(caps.canManageMembers)
+        : permissions.includes('members:manage');
     const canViewMembers =
       caps.canViewMembers != null
         ? Boolean(caps.canViewMembers)
@@ -114,6 +118,10 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
         canUpdateChangeRequest,
         canDeleteChangeRequest,
         canManageSettings: Boolean(caps.canManageSettings),
+        canViewSettings:
+          caps.canViewSettings != null
+            ? Boolean(caps.canViewSettings)
+            : permissions.includes('settings:view'),
         canManageProjectRoles:
           caps.canManageProjectRoles != null
             ? Boolean(caps.canManageProjectRoles)
@@ -164,6 +172,7 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
       canUpdateChangeRequest: fallback,
       canDeleteChangeRequest: fallback,
       canManageSettings: fallback,
+      canViewSettings: fallback,
       canManageProjectRoles: fallback,
       canManageSprints: fallback,
       canStartSprint: fallback,
