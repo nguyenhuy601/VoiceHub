@@ -285,8 +285,6 @@ function ImportSetDetail({
             </p>
           </section>
         ) : null}
-
-        ) : null}
       </div>
 
       {canMutate ? (

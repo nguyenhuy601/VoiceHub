@@ -80,6 +80,8 @@ function RegisterPage({ suiteLayout = false } = {}) {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [gatewayTrust, setGatewayTrust] = useState(null);
+  const submitDisabled =
+    loading || gatewayTrust === null || (gatewayTrust && !gatewayTrust.ok) || !agreedToTerms;
 
   useEffect(() => {
     let cancelled = false;

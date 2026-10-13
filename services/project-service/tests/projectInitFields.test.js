@@ -6,11 +6,11 @@ const assert = require('node:assert/strict');
 const { buildProjectInitFields } = require('../src/utils/projectInitFields');
 
 describe('buildProjectInitFields', () => {
-  it('defaults to ready_for_planning + kanban + internal on create', () => {
+  it('defaults to draft + scrum + internal on create', () => {
     const r = buildProjectInitFields({});
     assert.equal(r.ok, true);
-    assert.equal(r.fields.status, 'ready_for_planning');
-    assert.equal(r.fields.methodology, 'kanban');
+    assert.equal(r.fields.status, 'draft');
+    assert.equal(r.fields.methodology, 'scrum');
     assert.equal(r.fields.category, 'internal');
     assert.equal(r.fields.customer, undefined);
   });
@@ -40,10 +40,10 @@ describe('buildProjectInitFields', () => {
     assert.equal(r.fields.methodologySettings.sprintDurationDays, 14);
   });
 
-  it('partial patch can update status only', () => {
+  it('partial patch normalizes ready_for_planning → ready', () => {
     const r = buildProjectInitFields({ status: 'ready_for_planning' }, { partial: true });
     assert.equal(r.ok, true);
-    assert.equal(r.fields.status, 'ready_for_planning');
+    assert.equal(r.fields.status, 'ready');
     assert.equal(r.fields.methodology, undefined);
   });
 });

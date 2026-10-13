@@ -142,7 +142,7 @@ describe('projectPermissionMatrix', () => {
     assert.equal(po.includes('approval:manage_policy'), false);
   });
 
-  it('T10: members:view off → canViewMembers false; members:manage implies view', () => {
+  it('T10: members:view / members:manage are 1:1 (manage does not imply view)', () => {
     const noMembers = permissionsToBoardCapabilities(['project:view', 'files:view', 'task:view']);
     assert.equal(noMembers.canViewMembers, false);
     assert.equal(noMembers.canManageMembers, false);
@@ -150,8 +150,11 @@ describe('projectPermissionMatrix', () => {
     assert.equal(viewOnly.canViewMembers, true);
     assert.equal(viewOnly.canManageMembers, false);
     const manageOnly = permissionsToBoardCapabilities(['project:view', 'members:manage']);
-    assert.equal(manageOnly.canViewMembers, true);
+    assert.equal(manageOnly.canViewMembers, false);
     assert.equal(manageOnly.canManageMembers, true);
+    const both = permissionsToBoardCapabilities(['project:view', 'members:view', 'members:manage']);
+    assert.equal(both.canViewMembers, true);
+    assert.equal(both.canManageMembers, true);
   });
 
   it('T2-wire: comment denied without task:comment; decide denied without approval:decide', () => {

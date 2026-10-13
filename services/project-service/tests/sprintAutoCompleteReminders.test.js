@@ -7,12 +7,9 @@ const {
 
 describe('sprintAutoCompleteReminders.job', () => {
   it('buildActionUrl encodes project hub path', () => {
-    assert.equal(buildActionUrl(''), '/app/collaborate/projects');
+    assert.equal(buildActionUrl(''), '/app/projects');
     assert.equal(buildActionUrl('abc123'), '/app/collaborate/projects/abc123');
-    assert.equal(
-      buildActionUrl('a/b'),
-      '/app/collaborate/projects/a%2Fb'
-    );
+    assert.equal(buildActionUrl('a/b'), '/app/collaborate/projects/a%2Fb');
   });
 
   it('reminder window is 3 days', () => {
