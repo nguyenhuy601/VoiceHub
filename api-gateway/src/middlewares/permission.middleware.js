@@ -16,7 +16,8 @@ const {
 const { isPublicRoute, isAuthInternalS2SPath, resolveReqApiPath } = require('../config/services');
 const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
 
-const DENY_UNMAPPED = String(process.env.PERMISSION_DENY_UNMAPPED || 'true').trim() !== 'false';
+const { resolveDenyUnmapped } = require('./permissionDenyUnmapped');
+const DENY_UNMAPPED = resolveDenyUnmapped();
 
 /** Cache kết quả checkPermission (giảm tải role-service) */
 const permissionCache = new Map();

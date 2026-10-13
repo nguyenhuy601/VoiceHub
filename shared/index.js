@@ -25,4 +25,6 @@ module.exports = {
   ...require('./utils/cryptoMetrics'),
   ...require('./utils/migration'),
   resolveFrontendUrl: require('./utils/resolveFrontendUrl').resolveFrontendUrl,
+  trustedFrontendUrl: require('./utils/trustedFrontendUrl').trustedFrontendUrl,
+  isAllowedOrigin: require('./utils/trustedFrontendUrl').isAllowedOrigin,
 };

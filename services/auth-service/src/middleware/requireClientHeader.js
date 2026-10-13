@@ -1,4 +1,5 @@
 const { sendServiceError } = require('./sendServiceError');
+const { logSecurityEvent } = require('../utils/securityEventLog');
 
 /**
  * Guard nhẹ chống CSRF cho các endpoint dựa vào HttpOnly cookie.
@@ -11,6 +12,11 @@ function requireClientHeader(options = {}) {
   return (req, res, next) => {
     const actual = String(req.headers?.[headerName.toLowerCase()] || '').trim();
     if (actual !== expected) {
+      logSecurityEvent({
+        type: 'csrf_header_invalid',
+        ip: String(req.ip || '').trim() || null,
+        errorCode: 'AUTH_CSRF_INVALID',
+      });
       return sendServiceError(res, 403, {
         errorCode: 'AUTH_CSRF_INVALID',
         messageUser: 'Phiên đăng nhập không hợp lệ. Vui lòng thử lại.',

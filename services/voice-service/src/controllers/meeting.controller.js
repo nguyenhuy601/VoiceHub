@@ -109,7 +109,9 @@ class MeetingController {
         });
       }
 
-      const meeting = await meetingService.addParticipant(meetingId, userId);
+      const meeting = await meetingService.addParticipant(meetingId, userId, {
+        authorizationHeader: req.headers.authorization,
+      });
 
       res.json({
         success: true,
@@ -117,9 +119,11 @@ class MeetingController {
       });
     } catch (error) {
       logger.error('Add participant error:', error);
-      res.status(400).json({
+      const status = Number(error?.statusCode) || 400;
+      res.status(status).json({
         success: false,
         message: safeErrorMessage(error, 'Không thể cập nhật cuộc họp'),
+        errorCode: error?.errorCode || undefined,
       });
     }
   }
@@ -513,7 +517,9 @@ class MeetingController {
         const mid = String(found._id);
         const isHost = String(found.hostId) === String(userId);
         if (!voiceRoomAccess.userInMeeting(found, userId)) {
-          await meetingService.addParticipant(mid, userId);
+          await meetingService.addParticipant(mid, userId, {
+            authorizationHeader: authHeader,
+          });
         }
         voiceRoomAccess.rememberLobbyBootstrap(roomId, userId);
         return res.json({

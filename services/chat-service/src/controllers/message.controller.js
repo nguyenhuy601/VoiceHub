@@ -15,6 +15,12 @@ const {
   withUtf8ContentType,
 } = require('../utils/storageRead');
 const {
+  STORAGE_READ,
+  isStorageReadStrict,
+  decideStorageRead,
+  buildDownloadHeaders,
+} = require('../utils/storageAccess');
+const {
   attachSignedReadUrlsToMessages,
   attachSignedReadUrlToMessage,
 } = require('../utils/attachSignedReadUrls');
@@ -521,12 +527,45 @@ class MessageController {
     }
   }
 
-  /** Tải object storage (MinIO/Firebase) qua same-origin — JWT, tránh href storagePath trong SPA. */
+  /** Tải object storage (MinIO/Firebase) qua same-origin — JWT + ACL tin nhắn. */
   async downloadStorageObject(req, res) {
     try {
+      const userId = requireUserId(res, req);
+      if (!userId) return;
+
       const storagePath = String(req.query?.storagePath || '').trim();
       if (!storagePath) {
         return res.status(400).json({ success: false, message: 'storagePath is required' });
+      }
+
+      assertAllowedStoragePath(storagePath);
+
+      const linkedMessage = await Message.findOne({ 'fileMeta.storagePath': storagePath })
+        .select('senderId receiverId roomId organizationId visibility fileMeta')
+        .lean();
+
+      let canAccessLinked = false;
+      if (linkedMessage) {
+        try {
+          await assertCanAccessMessage(linkedMessage, userId, req);
+          canAccessLinked = true;
+        } catch (accessErr) {
+          if (Number(accessErr?.statusCode) === 403 || Number(accessErr?.statusCode) === 401) {
+            return chatForbidden(res, 'Không đủ quyền tải tệp này.');
+          }
+          throw accessErr;
+        }
+      }
+
+      const decision = decideStorageRead({
+        storagePath,
+        userId,
+        linkedMessage,
+        canAccessLinked,
+        strict: isStorageReadStrict(),
+      });
+      if (decision === STORAGE_READ.DENY) {
+        return chatForbidden(res, 'Không đủ quyền tải tệp này.');
       }
 
       const { stream, fileName } = await openStorageObjectReadStream(storagePath);
@@ -535,9 +574,14 @@ class MessageController {
         String(req.query?.mimeType || '').split(';')[0].trim() ||
         guessContentTypeFromFileName(fileName).split(';')[0].trim();
       const contentType = withUtf8ContentType(mimeBase);
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
-      res.setHeader('Cache-Control', 'private, max-age=60');
+      const headers = buildDownloadHeaders({
+        mimeType: mimeBase,
+        fileName: safeName,
+        contentType,
+      });
+      for (const [key, value] of Object.entries(headers)) {
+        res.setHeader(key, value);
+      }
       stream.on('error', (err) => {
         if (!res.headersSent) {
           sendErrorFromCatch(res, err, 500, 'Hệ thống tạm thời gặp sự cố.', 'CHAT_INTERNAL_ERROR');

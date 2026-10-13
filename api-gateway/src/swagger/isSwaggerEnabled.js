@@ -20,6 +20,12 @@ function isSwaggerEnabled(env = process.env) {
   const allowInProd = envFlagOn(env.SWAGGER_ALLOW_IN_PRODUCTION);
   if (nodeEnv === 'production' && !allowInProd) return false;
 
+  if (nodeEnv === 'production' && allowInProd) {
+    console.warn(
+      '[api-gateway] SWAGGER_ALLOW_IN_PRODUCTION is on — OpenAPI UI exposed in production'
+    );
+  }
+
   // Default on when enabled path reached
   if (env.SWAGGER_ENABLED === undefined || env.SWAGGER_ENABLED === '') return true;
   return !envFlagOff(env.SWAGGER_ENABLED);

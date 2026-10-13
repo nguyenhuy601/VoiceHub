@@ -40,17 +40,25 @@ async function findAuthByUserId(userId) {
   return null;
 }
 
-async function recordLoginEvent({ userId, success, ip, userAgent, errorCode }) {
+async function recordLoginEvent({ userId, emailHash, success, ip, userAgent, errorCode }) {
   const uid = normalizeUserId(userId);
-  if (!uid) return;
+  const hash = truncateForStore(emailHash, 64);
+  // Known user OR unknown-email fail (hash only) — never drop silent fail without uid.
+  if (!uid && !hash) return;
   try {
-    await AuthLoginEvent.create({
-      userId: uid,
+    const doc = {
       success: Boolean(success),
       ip: truncateForStore(ip, MAX_EVENT_IP_LENGTH),
       userAgent: truncateForStore(userAgent, MAX_EVENT_UA_LENGTH),
       errorCode: truncateForStore(errorCode, 64),
-    });
+    };
+    if (uid) {
+      doc.userId = uid;
+    }
+    if (hash) {
+      doc.emailHash = hash;
+    }
+    await AuthLoginEvent.create(doc);
   } catch {
     // non-blocking
   }

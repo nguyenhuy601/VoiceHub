@@ -40,7 +40,7 @@ async function assertCanManageMeeting(meeting, actor) {
 
 const { resolveParticipantRemoval } = require('./meetingModeratePolicy');
 const { createMeetingError, MEETING_ERROR_CODES } = require('../utils/meetingAccessPolicy');
-
+const { assertCanJoinMeeting } = require('../utils/meetingJoinPolicy');
 
 class MeetingService {
   // Tạo meeting mới
@@ -145,8 +145,8 @@ class MeetingService {
     }
   }
 
-  // Thêm participant vào meeting
-  async addParticipant(meetingId, userId) {
+  // Thêm participant vào meeting (opts.authorizationHeader cho assert org channel)
+  async addParticipant(meetingId, userId, opts = {}) {
     try {
       const meeting = await Meeting.findById(meetingId);
 
@@ -158,13 +158,18 @@ class MeetingService {
         throw createMeetingError(409, MEETING_ERROR_CODES.NOT_ACTIVE, 'Meeting is not active');
       }
 
-      // Kiểm tra đã tham gia chưa
       const existing = meeting.participants.find(
         (p) => p.userId.toString() === userId.toString() && !p.leftAt
       );
 
       if (existing) {
         return meeting;
+      }
+
+      if (!opts.skipJoinAssert) {
+        await assertCanJoinMeeting(meeting, userId, {
+          authorizationHeader: opts.authorizationHeader,
+        });
       }
 
       meeting.participants.push({
@@ -392,10 +397,12 @@ const meetingServiceInstance = new MeetingService();
 meetingServiceInstance.userCanAccessMeeting = userCanAccessMeeting;
 meetingServiceInstance.assertMeetingHost = assertMeetingHost;
 meetingServiceInstance.assertCanManageMeeting = assertCanManageMeeting;
+meetingServiceInstance.assertCanJoinMeeting = assertCanJoinMeeting;
 meetingServiceInstance.resolveParticipantRemoval = resolveParticipantRemoval;
 
 module.exports = meetingServiceInstance;
 module.exports.resolveParticipantRemoval = resolveParticipantRemoval;
 module.exports.assertCanManageMeeting = assertCanManageMeeting;
+module.exports.assertCanJoinMeeting = assertCanJoinMeeting;
 module.exports.assertMeetingHost = assertMeetingHost;
 

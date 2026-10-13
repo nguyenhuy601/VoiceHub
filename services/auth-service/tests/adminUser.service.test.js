@@ -9,9 +9,50 @@ const tokenVersionPath = path.resolve(__dirname, '../src/utils/tokenVersion.js')
 const emailServicePath = path.resolve(__dirname, '../src/utils/email.js');
 const authEmailPiiPath = path.resolve(__dirname, '../src/utils/authEmailPii.js');
 const passwordPath = path.resolve(__dirname, '../src/utils/password.js');
+const oneTimeTokenPath = path.resolve(__dirname, '../src/utils/oneTimeToken.js');
+
+function resolveSharedMongoPath() {
+  try {
+    return require.resolve('@enterprise/shared/config/mongo');
+  } catch {
+    return null;
+  }
+}
+
+function installSharedMongoMock() {
+  const mongoPath = resolveSharedMongoPath();
+  if (!mongoPath) return null;
+  require.cache[mongoPath] = {
+    id: mongoPath,
+    filename: mongoPath,
+    loaded: true,
+    exports: {
+      mongoose: {
+        connection: { readyState: 1 },
+        Types: {
+          ObjectId: {
+            isValid: (v) => /^[a-f0-9]{24}$/i.test(String(v || '')),
+          },
+        },
+      },
+    },
+  };
+  return mongoPath;
+}
 
 function clearServiceModules() {
-  for (const p of [servicePath, userAuthPath, loginEventPath, tokenVersionPath, emailServicePath, authEmailPiiPath, passwordPath]) {
+  const mongoPath = resolveSharedMongoPath();
+  for (const p of [
+    servicePath,
+    userAuthPath,
+    loginEventPath,
+    tokenVersionPath,
+    emailServicePath,
+    authEmailPiiPath,
+    passwordPath,
+    oneTimeTokenPath,
+    mongoPath,
+  ].filter(Boolean)) {
     delete require.cache[p];
   }
 }
@@ -24,6 +65,7 @@ describe('adminUser.service', () => {
     bumpCalls = 0;
     savedDocs = [];
     clearServiceModules();
+    installSharedMongoMock();
 
     require.cache[userAuthPath] = {
       exports: {
