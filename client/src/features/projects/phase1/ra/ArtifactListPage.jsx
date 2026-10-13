@@ -23,6 +23,7 @@ import {
   buildArtifactUpdateBody,
   isArtifactContentEditable,
 } from './artifactFieldCatalog';
+import { canAuthorAnalysisKindOnClient } from './analysisAuthorKinds';
 import Phase1SplitWorkspace from '../shared/Phase1SplitWorkspace';
 import Phase1InlineActionBar from '../shared/Phase1InlineActionBar';
 import {
@@ -112,7 +113,7 @@ export default function ArtifactListPage({
   }, [filter]);
 
   const canEdit =
-    (capabilities.canEditAnalysis || capabilities.canImportAnalysis) && !readOnly;
+    !readOnly && canAuthorAnalysisKindOnClient(capabilities, kind);
   const canSubmitBa = !readOnly && Boolean(capabilities.canBaAuthorAnalysis);
 
   const ARTIFACT_NEXT = {

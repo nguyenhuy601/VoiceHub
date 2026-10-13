@@ -156,8 +156,7 @@ export default function TraceabilityPage({ projectId, readOnly = false }) {
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
 
-  const canLink =
-    (capabilities.canEditAnalysis || capabilities.canImportAnalysis) && !readOnly;
+  const canLink = !readOnly && Boolean(capabilities.canManageTrace);
 
   const renderPeerButton = (kind, id, label, extra = null) => (
     <button
