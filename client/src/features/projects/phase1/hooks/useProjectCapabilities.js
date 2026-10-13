@@ -27,6 +27,17 @@ export default function useProjectCapabilities(projectId) {
       canEditAnalysis: Boolean(c.canEditAnalysis),
       canImportAnalysis: Boolean(c.canImportAnalysis),
       canBaAuthorAnalysis: Boolean(c.canBaAuthorAnalysis),
+      /** '*' | string[] — kinds được tạo/sửa artifact (SoT BE). */
+      analysisAuthorKinds:
+        c.analysisAuthorKinds === '*' || c.analysisAuthorKinds === 'all'
+          ? '*'
+          : Array.isArray(c.analysisAuthorKinds)
+            ? c.analysisAuthorKinds
+            : undefined,
+      canManageTrace:
+        c.canManageTrace != null
+          ? Boolean(c.canManageTrace)
+          : Array.isArray(c.permissions) && c.permissions.includes('analysis:manage_trace'),
       canReviewAnalysisBa: Boolean(c.canReviewAnalysisBa),
       canReviewAnalysisTech: Boolean(c.canReviewAnalysisTech),
       canReviewAnalysisPo: Boolean(c.canReviewAnalysisPo),
@@ -38,6 +49,10 @@ export default function useProjectCapabilities(projectId) {
       canCutSrs: Boolean(c.canCutSrs),
       canViewPlanning: Boolean(c.canViewPlanning),
       canEditPlanning: Boolean(c.canEditPlanning),
+      canSubmitPlanning:
+        c.canSubmitPlanning != null
+          ? Boolean(c.canSubmitPlanning)
+          : Array.isArray(c.permissions) && c.permissions.includes('planning:submit_review'),
       canReviewPlanning: Boolean(c.canReviewPlanning),
       canReviewPlanningTech: Boolean(c.canReviewPlanningTech),
       canReviewPlanningPm: Boolean(c.canReviewPlanningPm),

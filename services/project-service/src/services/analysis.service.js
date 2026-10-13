@@ -6,7 +6,6 @@ const ArtifactTraceLink = require('../models/ArtifactTraceLink');
 const SrsBaseline = require('../models/SrsBaseline');
 const {
   normalizeArtifactKind,
-  PO_AUTHOR_KINDS,
   ANALYSIS_ARTIFACT_SOURCES,
   ARTIFACT_TRACE_LINK_TYPES,
   CUSTOMER_DOC_CLASSES,
@@ -189,8 +188,11 @@ async function getArtifact({ userId, projectId, artifactId }) {
 }
 
 function assertCanAuthorKind({ permissions, kind, isBypass }) {
+  const {
+    resolveAnalysisAuthorKinds,
+    canAuthorAnalysisKind,
+  } = require('../utils/project/analysisAuthorKinds');
   if (isBypass) return;
-  const k = normalizeArtifactKind(kind);
   const canImport = hasPermission(permissions, 'analysis:artifact_import');
   const canEdit = hasPermission(permissions, 'analysis:artifact_edit');
   if (!canImport && !canEdit) {
@@ -198,21 +200,15 @@ function assertCanAuthorKind({ permissions, kind, isBypass }) {
     err.statusCode = 403;
     throw err;
   }
-  // PO (artifact_edit, no BA import): chỉ BG/SCOPE. BA (ba_review / submit) full kinds.
-  if (PO_AUTHOR_KINDS.includes(k)) return;
-  if (
-    !hasPermission(permissions, 'analysis:submit_ba_review') &&
-    !hasPermission(permissions, 'analysis:ba_review')
-  ) {
-    if (
-      hasPermission(permissions, 'analysis:po_review') &&
-      !hasPermission(permissions, 'analysis:ba_review')
-    ) {
-      const err = new Error('PO chỉ được tạo/sửa BG và SCOPE');
-      err.statusCode = 403;
-      throw err;
-    }
-  }
+  if (canAuthorAnalysisKind(permissions, kind, { bypass: false })) return;
+  const allowed = resolveAnalysisAuthorKinds(permissions, { bypass: false });
+  const err = new Error(
+    Array.isArray(allowed) && allowed.length
+      ? 'PO chỉ được tạo/sửa BG và SCOPE'
+      : 'Không có quyền tạo/sửa analysis artifact'
+  );
+  err.statusCode = 403;
+  throw err;
 }
 
 async function createArtifact({ userId, projectId, body = {} }) {
