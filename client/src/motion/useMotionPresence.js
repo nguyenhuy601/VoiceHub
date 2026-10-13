@@ -47,8 +47,6 @@ export default function useMotionPresence(isOpen, options = {}) {
       onExitRef.current?.();
     }, ms);
     return () => window.clearTimeout(timer);
-    // state.mounted: only needed when closing while already mounted; re-run on isOpen/duration
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: drive from isOpen
   }, [isOpen, durationMs]);
 
   return {

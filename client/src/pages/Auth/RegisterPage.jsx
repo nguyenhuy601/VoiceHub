@@ -65,13 +65,8 @@ function RegisterPage({ suiteLayout = false } = {}) {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [gatewayTrust, setGatewayTrust] = useState(null);
-  const [registeredEmail, setRegisteredEmail] = useState('');
-  const [resendLoading, setResendLoading] = useState(false);
-  const [cooldownUntil, setCooldownUntil] = useState(0);
-  const [cooldownSeconds, setCooldownSeconds] = useState(0);
-
   const submitDisabled =
-    loading || gatewayTrust === null || (gatewayTrust && !gatewayTrust.ok);
+    loading || gatewayTrust === null || (gatewayTrust && !gatewayTrust.ok) || !agreedToTerms;
 
   useEffect(() => {
     let cancelled = false;

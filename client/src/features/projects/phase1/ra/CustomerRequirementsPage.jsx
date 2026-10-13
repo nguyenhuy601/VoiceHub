@@ -286,35 +286,6 @@ function ImportSetDetail({
             </p>
           </section>
         ) : null}
-
-        {/* Help — collapsible, not permanent wall of text */}
-        {!isTrash ? (
-          <section className="overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-sm dark:border-border dark:bg-surface">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-2 border-b border-[#E8E8E8] bg-[#E8F4FC] px-3 py-2 text-left dark:border-border dark:bg-surface"
-              onClick={() => setHelpOpen((v) => !v)}
-              aria-expanded={helpOpen}
-            >
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#262626] dark:text-primary-foreground">
-                <HelpCircle size={14} className="text-[#1677FF]" aria-hidden />
-                {t('workspace.phase1ImportSetHelpTitle')}
-              </span>
-              <span className="text-xs text-muted-foreground">{helpOpen ? '▾' : '▸'}</span>
-            </button>
-            {helpOpen ? (
-              <ul className="list-disc space-y-1.5 px-3 py-3 pl-7 text-[11px] leading-relaxed text-muted-foreground">
-                <li>{t('workspace.phase1ImportSetDraftFixHint')}</li>
-                {isPending ? <li>{t('workspace.phase1ImportSetRejectVsTrashHint')}</li> : null}
-                {isPending ? <li>{t('workspace.phase1ImportSetWaitingGate')}</li> : null}
-              </ul>
-            ) : (
-              <p className="px-3 py-2 text-[11px] text-muted-foreground">
-                {t('workspace.phase1ImportSetHelpSummary')}
-              </p>
-            )}
-          </section>
-        ) : null}
       </div>
 
       {canMutate ? (
