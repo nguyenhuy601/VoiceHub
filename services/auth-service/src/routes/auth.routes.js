@@ -107,12 +107,15 @@ router.get(
 
 router.post('/internal/users-auth-summary', internalGatewayAuth, internalAuthSummaryBatch);
 
+const sensitiveAuthLimiter = createSensitiveAuthLimiter();
+/** Defense in depth nếu gọi thẳng auth-service (bypass gateway loginLimiter). */
+const loginRouteLimiter = createSensitiveAuthLimiter();
+
 // Public routes — OpenAPI SSOT: api-gateway/src/swagger/paths/*.paths.js (+ scan stubs)
-router.post('/login', authController.login.bind(authController));
+router.post('/login', loginRouteLimiter, authController.login.bind(authController));
 router.post('/register', authController.register.bind(authController));
 router.post('/refresh-token', requireClientHeader(), authController.refreshToken.bind(authController));
 
-const sensitiveAuthLimiter = createSensitiveAuthLimiter();
 router.post('/forgot-password', sensitiveAuthLimiter, authController.forgotPassword.bind(authController));
 router.post('/resend-verification', sensitiveAuthLimiter, authController.resendVerification.bind(authController));
 router.post('/reset-password', sensitiveAuthLimiter, authController.resetPassword.bind(authController));

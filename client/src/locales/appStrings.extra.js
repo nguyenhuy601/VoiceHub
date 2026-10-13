@@ -331,6 +331,8 @@ export const extraStrings = {
       toastCreated: 'Đã tạo tài khoản thành công.',
       toastExisting: 'Tài khoản đã sẵn sàng. Vui lòng đăng nhập hoặc dùng Quên mật khẩu.',
       loginFlashCredentials: 'Tài khoản đã được cấp. Hãy lưu mật khẩu tạm — chỉ hiện một lần.',
+      loginFlashSetPassword:
+        'Tài khoản đã được tạo. Kiểm tra email để đặt mật khẩu, rồi đăng nhập bằng email được mời.',
       loginFlashReady: 'Bạn có thể đăng nhập bằng email đã được mời.',
       loginNoTempTitle: 'Không có mật khẩu tạm lần này',
       loginNoTempBody:
@@ -892,6 +894,8 @@ export const extraStrings = {
       toastCreated: 'Account created successfully.',
       toastExisting: 'Account is ready. Please sign in or use Forgot password.',
       loginFlashCredentials: 'Your credentials were issued. Save the temporary password — shown only once.',
+      loginFlashSetPassword:
+        'Account created. Check your email to set a password, then sign in with the invited email.',
       loginFlashReady: 'You can sign in with the invited email.',
       loginNoTempTitle: 'No temporary password this time',
       loginNoTempBody:

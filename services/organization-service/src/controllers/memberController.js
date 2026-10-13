@@ -36,7 +36,10 @@ const { invalidateOrgReadCache, invalidateOrgAcl } = require('../services/orgRea
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
 const { provisionUserByAdmin } = require('../clients/authProvision.client');
 const { searchUserByEmail } = require('../clients/userLookup.client');
-const { sendCompanyInviteEmail } = require('../clients/authInviteEmail.client');
+const {
+  sendCompanyInviteEmail,
+  sendProvisionSetPasswordEmail,
+} = require('../clients/authInviteEmail.client');
 const { assertOrgInviteAllowed, assertPublicAcceptAllowed } = require('../utils/orgInviteLimit');
 const { fetchProfilesByUserIds } = require('../clients/userProfilesBatch.client');
 const { fetchAuthSummaryByUserIds } = require('../clients/authSummaryBatch.client');
@@ -675,7 +678,7 @@ exports.inviteMember = async (req, res, next) => {
 
 /**
  * Public — nhân viên mở link trong email: tạo tài khoản (nếu chưa có) + membership active.
- * Trả email + temporaryPassword đúng một lần (khi vừa tạo mới).
+ * Không trả temporaryPassword (RULE-02); tài khoản mới nhận email đặt mật khẩu.
  */
 exports.acceptCompanyInvite = async (req, res, next) => {
   try {
@@ -698,10 +701,9 @@ exports.acceptCompanyInvite = async (req, res, next) => {
         status: 'success',
         data: {
           email: invite.email,
-          temporaryPassword: null,
           alreadyAccepted: true,
           alreadyHadAccount: true,
-          mustChangePassword: false,
+          mustSetPassword: false,
           organizationId: String(invite.organization),
         },
         message: 'Tài khoản đã được tạo trước đó. Vui lòng đăng nhập.',
@@ -832,14 +834,29 @@ exports.acceptCompanyInvite = async (req, res, next) => {
     );
 
     const created = Boolean(provisionMeta.created);
+    if (created) {
+      const frontendUrl = trustedFrontendUrl(req);
+      void sendProvisionSetPasswordEmail({
+        userId: resolvedUserId,
+        frontendUrl,
+        organizationName: undefined,
+        firstName: invite.firstName || '',
+        lastName: invite.lastName || '',
+      }).catch((mailErr) => {
+        logger.warn('[acceptCompanyInvite] set-password email failed (fail-soft):', {
+          errorCode: mailErr?.errorCode,
+          statusCode: mailErr?.statusCode,
+        });
+      });
+    }
+
     res.json({
       status: 'success',
       data: {
         email: invite.email,
-        temporaryPassword: created ? provisionMeta.temporaryPassword || null : null,
         alreadyAccepted: false,
         alreadyHadAccount: !created,
-        mustChangePassword: created || Boolean(provisionMeta.mustChangePassword),
+        mustSetPassword: created || Boolean(provisionMeta.mustChangePassword),
         organizationId: String(invite.organization),
         membershipId: String(membership._id),
         userId: resolvedUserId,
@@ -848,7 +865,7 @@ exports.acceptCompanyInvite = async (req, res, next) => {
         departmentId: invite.departmentId ? String(invite.departmentId) : null,
       },
       message: created
-        ? 'Tài khoản đã được tạo. Vui lòng đăng nhập bằng thông tin được cấp.'
+        ? 'Tài khoản đã được tạo. Vui lòng kiểm tra email để đặt mật khẩu rồi đăng nhập.'
         : 'Tài khoản đã tồn tại và đã được thêm vào công ty. Vui lòng đăng nhập.',
     });
   } catch (error) {

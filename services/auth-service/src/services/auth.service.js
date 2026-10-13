@@ -44,6 +44,16 @@ function invalidCredentialsError() {
   return createServiceError('Email hoặc mật khẩu không đúng', 401, 'AUTH_INVALID_CREDENTIALS');
 }
 
+/** Client luôn thấy cùng mã — lý do thật gắn internalErrorCode cho log. */
+function opaqueLoginFailure(internalErrorCode) {
+  const err = invalidCredentialsError();
+  Object.defineProperty(err, 'internalErrorCode', {
+    value: String(internalErrorCode || 'AUTH_INVALID_CREDENTIALS'),
+    enumerable: false,
+  });
+  return err;
+}
+
 let dummyHashPromise = null;
 /** Hash giả sinh lười — không hardcode, không tốn bcrypt lúc khởi động. */
 function getDummyHash() {
@@ -328,15 +338,20 @@ class AuthService {
         throw invalidCredentialsError();
       }
 
-      // Giữ trước kiểm mật khẩu để lockout còn tác dụng (đánh đổi: tài khoản đang khóa vẫn dò được).
+      // Lockout trước MK (vẫn dò qua timing) — client không thấy mã riêng.
       if (userAuth.isLocked) {
-        throw createServiceError('Tài khoản tạm khóa do đăng nhập sai nhiều lần', 401, 'AUTH_ACCOUNT_LOCKED');
+        const lockedErr = opaqueLoginFailure('AUTH_ACCOUNT_LOCKED');
+        Object.defineProperty(lockedErr, 'attemptedUserId', {
+          value: userAuth.userId ? String(userAuth.userId) : null,
+          enumerable: false,
+        });
+        throw lockedErr;
       }
 
       const isPasswordValid = await comparePassword(password, userAuth.password);
       if (!isPasswordValid) {
         await userAuth.incLoginAttempts();
-        const err = invalidCredentialsError();
+        const err = opaqueLoginFailure('AUTH_INVALID_CREDENTIALS');
         Object.defineProperty(err, 'attemptedUserId', {
           value: userAuth.userId ? String(userAuth.userId) : null,
           enumerable: false,
@@ -346,21 +361,30 @@ class AuthService {
 
       // Excel/HR pending: chưa đặt mk qua mail / chưa admin activate
       if (!userAuth.isEmailVerified && !userAuth.isActive) {
-        throw createServiceError(
-          'Tài khoản đang chờ kích hoạt. Kiểm tra email đặt mật khẩu hoặc liên hệ admin.',
-          401,
-          'AUTH_PENDING_ACTIVATION'
-        );
+        const err = opaqueLoginFailure('AUTH_PENDING_ACTIVATION');
+        Object.defineProperty(err, 'attemptedUserId', {
+          value: userAuth.userId ? String(userAuth.userId) : null,
+          enumerable: false,
+        });
+        throw err;
       }
 
-      // Kiểm tra email đã được verify chưa
       if (!userAuth.isEmailVerified) {
-        throw createServiceError('Vui lòng xác thực email trước khi đăng nhập', 401, 'AUTH_EMAIL_NOT_VERIFIED');
+        const err = opaqueLoginFailure('AUTH_EMAIL_NOT_VERIFIED');
+        Object.defineProperty(err, 'attemptedUserId', {
+          value: userAuth.userId ? String(userAuth.userId) : null,
+          enumerable: false,
+        });
+        throw err;
       }
 
-      // Kiểm tra account có active không
       if (!userAuth.isActive) {
-        throw createServiceError('Tài khoản chưa kích hoạt.', 401, 'AUTH_ACCOUNT_INACTIVE');
+        const err = opaqueLoginFailure('AUTH_ACCOUNT_INACTIVE');
+        Object.defineProperty(err, 'attemptedUserId', {
+          value: userAuth.userId ? String(userAuth.userId) : null,
+          enumerable: false,
+        });
+        throw err;
       }
 
       const plainEmail = await hydrateAuthEmailDoc(userAuth);

@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { resolveFrontendUrl } = require('@enterprise/shared');
+const { trustedFrontendUrl } = require('@enterprise/shared/utils/trustedFrontendUrl');
 
 const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || '')
   .trim()
@@ -171,5 +171,6 @@ module.exports = {
   markJoinRequestNotificationsResolved,
   lookupUserIdByEmail,
   sendVoiceRoomInviteEmail,
-  resolveFrontendUrl,
+  resolveFrontendUrl: trustedFrontendUrl,
+  trustedFrontendUrl,
 };

@@ -14,6 +14,7 @@ const {
   clearRefreshCookie,
   shouldClearCookiesOnRefreshFailure,
 } = require('../utils/refreshCookie');
+const { hashEmailForLoginEvent, logSecurityEvent } = require('../utils/securityEventLog');
 
 function sendError(res, err, fallbackStatus, fallbackMessage, fallbackCode) {
   return sendErrorFromCatch(res, err, fallbackStatus, fallbackMessage, fallbackCode || 'AUTH_INTERNAL_ERROR');
@@ -151,6 +152,7 @@ class AuthController {
     const ip = String(req.ip || '').trim();
     const userAgent = String(req.headers['user-agent'] || '').trim();
     let attemptedUserId = null;
+    let emailHash = null;
     try {
       const { email, password } = req.body;
 
@@ -160,6 +162,8 @@ class AuthController {
           message: 'Email and password are required',
         });
       }
+
+      emailHash = hashEmailForLoginEvent(email);
 
       const result = await authService.login(email, password);
       attemptedUserId = result?.user?.id || result?.user?.userId || result?.userId || null;
@@ -181,14 +185,25 @@ class AuthController {
         data: safeData,
       });
     } catch (error) {
+      const uid = attemptedUserId || error?.attemptedUserId || null;
+      const errorCode =
+        error?.internalErrorCode || error?.errorCode || 'AUTH_LOGIN_FAILED';
       void adminUserService.recordLoginEvent({
-        userId: attemptedUserId || error?.attemptedUserId || null,
+        userId: uid,
+        emailHash: uid ? null : emailHash,
         success: false,
         ip,
         userAgent,
-        errorCode: error?.errorCode || 'AUTH_LOGIN_FAILED',
+        errorCode,
       });
-      return sendError(res, error, 401, 'Đăng nhập thất bại', 'AUTH_LOGIN_FAILED');
+      logSecurityEvent({
+        type: 'login_failed',
+        userId: uid,
+        emailHash: uid ? null : emailHash,
+        ip,
+        errorCode,
+      });
+      return sendError(res, error, 401, 'Đăng nhập thất bại', 'AUTH_INVALID_CREDENTIALS');
     }
   }
 

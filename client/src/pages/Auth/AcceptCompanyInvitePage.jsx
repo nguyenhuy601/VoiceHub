@@ -10,8 +10,6 @@ import { useAuth } from '../../context/AuthContext';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { stashOneTimeLoginCredentials } from '../../utils/oneTimeLoginCredentials';
-
 const unwrap = (payload) => payload?.data ?? payload;
 
 /** Chống StrictMode remount gọi accept 2 lần (ref bị reset khi unmount). */
@@ -56,18 +54,13 @@ export default function AcceptCompanyInvitePage() {
         const payload = unwrap(res);
         const data = payload?.data ?? payload;
         const email = String(data?.email || '').trim().toLowerCase();
-        const temporaryPassword = String(data?.temporaryPassword || '');
         const alreadyHadAccount = Boolean(data?.alreadyHadAccount);
-        const hasTempPassword = Boolean(email && temporaryPassword);
-
-        if (hasTempPassword) {
-          stashOneTimeLoginCredentials({ email, password: temporaryPassword });
-        }
+        const mustSetPassword = Boolean(data?.mustSetPassword);
 
         setPhase('done');
 
-        const message = hasTempPassword
-          ? t('acceptCompanyInvite.loginFlashCredentials')
+        const message = mustSetPassword
+          ? t('acceptCompanyInvite.loginFlashSetPassword')
           : alreadyHadAccount
             ? t('acceptCompanyInvite.toastExisting')
             : t('acceptCompanyInvite.loginFlashReady');
@@ -77,7 +70,8 @@ export default function AcceptCompanyInvitePage() {
             replace: true,
             state: {
               fromCompanyInvite: true,
-              hasTempPassword,
+              hasTempPassword: false,
+              mustSetPassword,
               alreadyHadAccount,
               message,
               prefillEmail: email,
