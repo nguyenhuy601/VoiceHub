@@ -81,7 +81,13 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
   const [timelineOpen, setTimelineOpen] = useState(false);
 
   const canEdit = capabilities.canEditPlanning;
-  const canReview = Boolean(capabilities.canReviewPlanning);
+  const canSubmit = Boolean(capabilities.canSubmitPlanning);
+  const canReview = Boolean(
+    capabilities.canReviewPlanning ||
+      capabilities.canReviewPlanningPm ||
+      capabilities.canReviewPlanningTech ||
+      capabilities.canReviewPlanningPo
+  );
   const showGantt = GANTT_KINDS.has(String(kind || '').toUpperCase());
 
   const PLANNING_NEXT = {
@@ -331,11 +337,14 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
     if (st === 'pm_review') to = hasTech ? 'tech_review' : 'po_review';
     if (st === 'ba_review') to = hasTech ? 'tech_review' : 'pm_review';
     if (!to) return null;
-    if (st === 'draft' || st === 'rejected' || st === 'changes_requested') {
-      return canEdit || canReview ? to : null;
+    if (st === 'draft') {
+      return canSubmit ? to : null;
+    }
+    if (st === 'rejected' || st === 'changes_requested') {
+      return canEdit ? to : null;
     }
     return canReview ? to : null;
-  }, [editingRow, canEdit, canReview, capabilities.hasPlanningTechReviewer]);
+  }, [editingRow, canSubmit, canEdit, canReview, capabilities.hasPlanningTechReviewer]);
 
   const isDirty = useMemo(() => {
     if (!inlineDraft || !inlineBaseline) return false;
