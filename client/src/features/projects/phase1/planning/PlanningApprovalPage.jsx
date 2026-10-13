@@ -41,7 +41,10 @@ function nextPlanningStatus(status, hasTech, changesRequestedFrom) {
 
 function canActOnPlanningStatus(status, capabilities) {
   const s = String(status || '');
-  if (s === 'draft' || s === 'changes_requested' || s === 'rejected') {
+  // draft → submit_review (không dùng canEdit làm proxy submit)
+  if (s === 'draft') return Boolean(capabilities.canSubmitPlanning);
+  // changes_requested / rejected → artifact_edit rồi re-submit
+  if (s === 'changes_requested' || s === 'rejected') {
     return Boolean(capabilities.canEditPlanning);
   }
   if (s === 'pm_review') return Boolean(capabilities.canReviewPlanningPm);
@@ -324,7 +327,7 @@ export default function PlanningApprovalPage({ projectId }) {
               }
               // SoD / wrong queue stage — explain missing bulk for this role.
               let hintKey = 'workspace.phase1PlanningBulkNoActionHint';
-              if ((queueCounts.draft || 0) > 0 && !capabilities.canEditPlanning) {
+              if ((queueCounts.draft || 0) > 0 && !capabilities.canSubmitPlanning) {
                 hintKey = 'workspace.phase1PlanningBulkNeedPmForDraft';
               } else if ((queueCounts.pm_review || 0) > 0 && !capabilities.canReviewPlanningPm) {
                 hintKey = 'workspace.phase1PlanningBulkNeedPmReview';
@@ -380,14 +383,16 @@ export default function PlanningApprovalPage({ projectId }) {
             </button>
             {hasBaseline ? (
               <>
-                <button
-                  type="button"
-                  className="rounded-lg border border-border px-2.5 py-1 text-xs disabled:opacity-50"
-                  disabled={publishMut.isPending}
-                  onClick={() => publishMut.mutate()}
-                >
-                  {t('workspace.phase1PublishWbs')}
-                </button>
+                {capabilities.canPublishPlanningWbs ? (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-border px-2.5 py-1 text-xs disabled:opacity-50"
+                    disabled={publishMut.isPending}
+                    onClick={() => publishMut.mutate()}
+                  >
+                    {t('workspace.phase1PublishWbs')}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"

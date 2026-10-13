@@ -655,18 +655,21 @@ export default function ProjectHubPage({
   );
 
   const boardCapabilities = taskBoardDetail?.capabilities || null;
+  // Caps đã load → chỉ tin board detail; không fallback workspace / canManageBoard→members.
   const canManageListsUi =
-    Boolean(boardCapabilities?.canManageLists ?? canCreateWorkspaceTask) &&
-    !isSelectedProjectCompleted;
+    Boolean(
+      boardCapabilities != null
+        ? boardCapabilities.canManageLists
+        : canCreateWorkspaceTask
+    ) && !isSelectedProjectCompleted;
   const canCreateCardsUi =
-    Boolean(boardCapabilities?.canCreateCards ?? canCreateWorkspaceTask) &&
-    !isSelectedProjectCompleted;
-  const canManageMembersUi = Boolean(
-    boardCapabilities?.canManageMembers ?? boardCapabilities?.canManageBoard
-  );
-  const canUpdateSettingsUi = Boolean(
-    boardCapabilities?.canUpdateSettings ?? boardCapabilities?.canManageBoard
-  );
+    Boolean(
+      boardCapabilities != null
+        ? boardCapabilities.canCreateCards
+        : canCreateWorkspaceTask
+    ) && !isSelectedProjectCompleted;
+  const canManageMembersUi = Boolean(boardCapabilities?.canManageMembers);
+  const canUpdateSettingsUi = Boolean(boardCapabilities?.canUpdateSettings);
 
   const renderTaskBoardPanel = (hideIdentityHeader = false) => (
     <ProjectBoardPanel

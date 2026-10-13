@@ -1589,20 +1589,21 @@ const OrganizationMainPanel = ({
   }, [projectBriefs, currentUserId]);
 
   const boardCapabilities = taskBoardDetail?.capabilities || null;
-  const canManageBoardRaw = Boolean(
-    boardCapabilities?.canManageBoard ?? canCreateWorkspaceTask
-  );
-  const canManageBoardUi = canManageBoardRaw && !isSelectedProjectCompleted;
+  // Caps đã load → chỉ tin board detail; không fallback workspace / canManageBoard→members.
   const canManageListsUi =
-    Boolean(boardCapabilities?.canManageLists ?? canCreateWorkspaceTask) && !isSelectedProjectCompleted;
+    Boolean(
+      boardCapabilities != null
+        ? boardCapabilities.canManageLists
+        : canCreateWorkspaceTask
+    ) && !isSelectedProjectCompleted;
   const canCreateCardsUi =
-    Boolean(boardCapabilities?.canCreateCards ?? canCreateWorkspaceTask) && !isSelectedProjectCompleted;
-  const canManageMembersUi = Boolean(
-    boardCapabilities?.canManageMembers ?? boardCapabilities?.canManageBoard ?? canManageBoardUi
-  );
-  const canUpdateSettingsUi = Boolean(
-    boardCapabilities?.canUpdateSettings ?? boardCapabilities?.canManageBoard ?? canManageBoardUi
-  );
+    Boolean(
+      boardCapabilities != null
+        ? boardCapabilities.canCreateCards
+        : canCreateWorkspaceTask
+    ) && !isSelectedProjectCompleted;
+  const canManageMembersUi = Boolean(boardCapabilities?.canManageMembers);
+  const canUpdateSettingsUi = Boolean(boardCapabilities?.canUpdateSettings);
 
   const taskAssigneeLabel = (task) =>
     task?.assignee?.displayName ||
