@@ -6,6 +6,7 @@
 export const STAFFING_STEPS = Object.freeze([
   'wbs',
   'effort',
+  'budget',
   'match',
   'capacity',
   'schedule',

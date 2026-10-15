@@ -72,6 +72,7 @@ flowchart LR
 ## AI Project (Two-Phase HITL)
 
 - **Sản phẩm:** Phase 1 WHAT → Gate 1 → Phase 2 HOW → Gate 2; compute trên **`ai-project-planning-service`**; pack/project + Gate HTTP + G20 trên **`project-service`**.
+- **Hybrid HITL SoT:** Gate 1/2 = Mongo Pack HTTP; in-run clarify/edit_draft = LangGraph checkpointer (Redis+RedisJSON, không Postgres). Chi tiết: [`ai-project/hybrid-hitl-langgraph.md`](ai-project/hybrid-hitl-langgraph.md).
 - **SoT nhóm G1–G20:** [`.cursor/plans/ai-project-build-spec-groups.plan.md`](../.cursor/plans/ai-project-build-spec-groups.plan.md); primer: [`.cursor/skills/ai-project-primer/SKILL.md`](../.cursor/skills/ai-project-primer/SKILL.md).
 - **Luồng 3-layer (A/B/C):** [`ai-project/main-flow-3layer.md`](ai-project/main-flow-3layer.md) — cùng backbone; kính đọc Workflow / Agent / Governance.
 - **Vá 3 track trước Agent Core:** [`ai-project/pre-agent-core-3tracks.md`](ai-project/pre-agent-core-3tracks.md) — C→A→B rồi mới LangGraph F2 / JEV runtime (RULE-14).

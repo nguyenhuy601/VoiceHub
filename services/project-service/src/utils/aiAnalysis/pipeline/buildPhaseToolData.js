@@ -98,6 +98,16 @@ function buildPhaseToolData(snapshot, phaseJob) {
     toolData.bookedHoursByUserDay = bookedMap;
     toolData.meetingHoursByUserDay = bookedMap;
   }
+  // Forecast demand (budget+task+meeting) when FORECAST_CAPACITY_V1 snapshot present
+  const forecastMap =
+    snapshot?.forecastDemandByUserWeek &&
+    typeof snapshot.forecastDemandByUserWeek === 'object' &&
+    !Array.isArray(snapshot.forecastDemandByUserWeek)
+      ? snapshot.forecastDemandByUserWeek
+      : null;
+  if (forecastMap && Object.keys(forecastMap).length) {
+    toolData.forecastDemandByUserWeek = forecastMap;
+  }
   // MeetingPlan/Event demand (person-hours) — orthogonal to booked commitment
   const meetingDemand =
     toolData.meetingDemandHoursByUserDay ||

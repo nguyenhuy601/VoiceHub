@@ -714,6 +714,12 @@ export const ADMIN_DOMAINS = [
             implementation: 'tasks-resource-planner',
           },
           {
+            id: 'role-effort-budget-template',
+            path: '/app/admin/projects/role-effort-budget-template',
+            labelKey: 'adminDomains.projects.roleEffortBudgetTemplate',
+            implementation: 'tasks-role-effort-budget-template',
+          },
+          {
             id: 'utilization',
             path: '/app/admin/projects/utilization',
             labelKey: 'adminDomains.projects.utilization',

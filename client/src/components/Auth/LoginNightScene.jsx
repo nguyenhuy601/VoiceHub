@@ -1,21 +1,27 @@
-import './loginNightOwl.css';
-
 /**
  * Aside night landscape only — owl mascot lives above the email field.
+ * (Legacy helper; LoginAsideLandscape is the active showcase landscape.)
  */
 function LoginNightScene({ active = false }) {
   if (!active) return null;
 
   return (
-    <div className="login-night-scene" aria-hidden>
-      <div className="login-night-scene__moon" />
-      <div className="login-night-scene__stars">
-        <span style={{ top: '18%', left: '62%' }} />
-        <span style={{ top: '28%', left: '78%', width: 3, height: 3 }} />
-        <span style={{ top: '14%', left: '48%' }} />
-        <span style={{ top: '36%', left: '22%' }} />
-        <span style={{ top: '22%', left: '88%' }} />
-        <span style={{ top: '42%', left: '70%' }} />
+    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+      <div
+        className="absolute right-[18%] top-[12%] h-14 w-14 rounded-full"
+        style={{
+          background:
+            'radial-gradient(circle at 35% 35%, #f8fafc 0%, #e2e8f0 42%, #94a3b833 72%, transparent 78%)',
+          boxShadow: '0 0 25px rgba(226, 232, 240, 0.7)',
+        }}
+      />
+      <div className="absolute inset-0">
+        <span className="absolute h-0.5 w-0.5 rounded-full bg-slate-200 opacity-85" style={{ top: '18%', left: '62%' }} />
+        <span className="absolute h-[3px] w-[3px] rounded-full bg-slate-200 opacity-85" style={{ top: '28%', left: '78%' }} />
+        <span className="absolute h-0.5 w-0.5 rounded-full bg-slate-200 opacity-85" style={{ top: '14%', left: '48%' }} />
+        <span className="absolute h-0.5 w-0.5 rounded-full bg-slate-200 opacity-85" style={{ top: '36%', left: '22%' }} />
+        <span className="absolute h-0.5 w-0.5 rounded-full bg-slate-200 opacity-85" style={{ top: '22%', left: '88%' }} />
+        <span className="absolute h-0.5 w-0.5 rounded-full bg-slate-200 opacity-85" style={{ top: '42%', left: '70%' }} />
       </div>
 
       <svg

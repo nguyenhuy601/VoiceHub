@@ -171,7 +171,16 @@ export function resolveNotificationVisual(notif) {
     kind === 'planning_changes_requested' ||
     kind === 'analysis_gate_pending' ||
     kind === 'planning_gate_pending' ||
-    kind === 'phase1_gate_pending'
+    kind === 'phase1_gate_pending' ||
+    kind === 'ai_hitl_gate1_ba' ||
+    kind === 'ai_hitl_gate1_po' ||
+    kind === 'ai_hitl_gate1_approved' ||
+    kind === 'ai_hitl_gate1_rejected' ||
+    kind === 'ai_hitl_gate2' ||
+    kind === 'ai_hitl_gate2_po' ||
+    kind === 'ai_hitl_gate2_approved' ||
+    kind === 'ai_hitl_gate2_rejected' ||
+    kind === 'ai_hitl_gate_pending'
   ) {
     return VISUAL.needsAction;
   }

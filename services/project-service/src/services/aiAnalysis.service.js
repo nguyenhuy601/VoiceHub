@@ -389,6 +389,24 @@ async function confirmAiAnalysisJob({
     pack.aiAnalysis = container;
     pack.markModified('aiAnalysis');
     await pack.save();
+
+    // DEC D8 — PM submit Gate 2 → PO
+    if (projectId) {
+      const { notifyAiHitlGateReviewers } = require('../utils/phase1GatePolicy');
+      void notifyAiHitlGateReviewers({
+        projectId: String(projectId),
+        organizationId,
+        actorUserId: userId,
+        packId: String(packId),
+        nextPermission: 'planning:po_review',
+        title: 'Gate 2 — PM đã xác nhận, chờ PO',
+        content: noteTrim
+          ? `PM đã gửi kế hoạch. ${noteTrim}`
+          : 'Mở tab Duyệt trên AI HITL để PO xác nhận Gate 2.',
+        kind: 'ai_hitl_gate2_po',
+      });
+    }
+
     return {
       phase: 'how',
       job: 'phase_how',
@@ -468,6 +486,22 @@ async function confirmAiAnalysisJob({
     pack.aiAnalysis = container;
     pack.markModified('aiAnalysis');
     await pack.save();
+
+    // DEC D8 — PO reject Gate 2 → PM
+    if (projectId) {
+      const { notifyAiHitlGateReviewers } = require('../utils/phase1GatePolicy');
+      void notifyAiHitlGateReviewers({
+        projectId: String(projectId),
+        organizationId,
+        actorUserId: userId,
+        packId: String(packId),
+        nextPermission: 'planning:pm_review',
+        title: 'Gate 2 — PO từ chối, trả về PM',
+        content: reason.slice(0, 500),
+        kind: 'ai_hitl_gate2_rejected',
+      });
+    }
+
     return {
       phase: 'how',
       job: 'phase_how',
@@ -500,6 +534,23 @@ async function confirmAiAnalysisJob({
   pack.aiAnalysisStatus = 'ready';
   pack.markModified('aiAnalysis');
   await pack.save();
+
+  // DEC D8 — PO approve Gate 2 → PM (phase HOW)
+  if (projectId) {
+    const { notifyAiHitlGateReviewers } = require('../utils/phase1GatePolicy');
+    void notifyAiHitlGateReviewers({
+      projectId: String(projectId),
+      organizationId,
+      actorUserId: userId,
+      packId: String(packId),
+      nextPermission: 'planning:pm_review',
+      title: 'Gate 2 — PO đã duyệt kế hoạch',
+      content: noteTrim
+        ? `PO đã chấp nhận kế hoạch. ${noteTrim}`
+        : 'PO đã chấp nhận kế hoạch HOW — dự án có thể promote sang delivery.',
+      kind: 'ai_hitl_gate2_approved',
+    });
+  }
 
   // Auto Phase 2 delivery: board tasks + deliveryPhase=development + P3/P4 skeleton
   let promote = null;
@@ -966,7 +1017,8 @@ async function applyRemotePhaseRunResult({
         organizationId: pack.organizationId,
         actorUserId: null,
         packId: String(packId),
-        nextPermission: 'requirement:submit',
+        // Matrix: BA — alias requirement:submit → analysis:submit_ba_review
+        nextPermission: 'analysis:submit_ba_review',
         title: 'Gate 1 — AI đã xong, chờ BA xác nhận duyệt',
         content: 'Output sẵn trên Monitor; mở tab Duyệt để BA xác nhận.',
         kind: 'ai_hitl_gate1_ba',
@@ -977,9 +1029,10 @@ async function applyRemotePhaseRunResult({
         organizationId: pack.organizationId,
         actorUserId: null,
         packId: String(packId),
-        nextPermission: 'requirement:run-ai-planning',
+        // Matrix: PM chủ trì Gate 2 (không dùng requirement:run-ai-planning — PO cũng có)
+        nextPermission: 'planning:pm_review',
         title: 'Gate 2 — kế hoạch AI sẵn sàng duyệt',
-        content: 'HOW đã xong — mở trang AI HITL để xác nhận Gate 2.',
+        content: 'HOW đã xong — mở trang AI HITL để PM xác nhận Gate 2.',
         kind: 'ai_hitl_gate2',
       });
     }
@@ -993,6 +1046,80 @@ async function applyRemotePhaseRunResult({
  * WHAT under WHAT_G4_ENABLED: remote G4 on ai-project-planning-service (202).
  * prepare_only stays local Stage1.
  */
+/**
+ * Hybrid HITL — in-run resume (clarify / edit_draft) via S2S only.
+ * Does **not** stamp Gate 1/2 (RULE-H1). Governance stays on Pack HTTP approve/confirm.
+ */
+async function resumeInRunHitl({
+  userId,
+  organizationId,
+  packId,
+  runId,
+  kind,
+  resume = null,
+  projectId = null,
+}) {
+  const {
+    normalizeInRunKind,
+    isInRunHitlKind,
+  } = require('../utils/aiAnalysis/inRunHitlKinds');
+  const kindNorm = normalizeInRunKind(kind || 'clarify');
+  if (!isInRunHitlKind(kindNorm)) {
+    const err = new Error('kind must be clarify or edit_draft');
+    err.statusCode = 400;
+    err.errorCode = 'IN_RUN_HITL_KIND_INVALID';
+    throw err;
+  }
+  const pack = await loadPackForAiAnalysis({ packId, organizationId });
+  let authzProjectId = projectId || pack.projectId || null;
+  if (authzProjectId && typeof authzProjectId === 'object') {
+    authzProjectId = String(authzProjectId._id || authzProjectId);
+  }
+  await assertRequirementPermission({
+    userId,
+    organizationId,
+    permission: 'requirement:run-ai-planning',
+    projectId: authzProjectId ? String(authzProjectId) : null,
+  });
+
+  const container = ensurePackContainer(pack);
+  const phaseWhat = container.phaseRuns?.phase_what || {};
+  const phaseHow = container.phaseRuns?.phase_how || {};
+  const boundWhat = String(phaseWhat.remoteRunId || '');
+  const boundHow = String(phaseHow.remoteRunId || '');
+  const bound = String(runId || '').trim();
+  if (!bound || (bound !== boundWhat && bound !== boundHow)) {
+    const err = new Error('runId does not belong to this pack');
+    err.statusCode = 409;
+    err.errorCode = 'RUN_PACK_MISMATCH';
+    throw err;
+  }
+
+  const s2s = await aiProjectPlanningClient.resumeRun(bound, {
+    action: 'in_run_hitl',
+    kind: kindNorm,
+    resume: resume && typeof resume === 'object' ? resume : {},
+  });
+  if (s2s.status < 200 || s2s.status >= 300) {
+    const err = new Error(s2s.data?.message || 'In-run HITL resume rejected');
+    err.statusCode = s2s.status >= 400 ? s2s.status : 502;
+    err.errorCode = s2s.data?.errorCode || 'IN_RUN_HITL_RESUME_FAILED';
+    throw err;
+  }
+
+  return {
+    accepted: true,
+    remote: true,
+    action: 'resume_in_run',
+    kind: kindNorm,
+    runId: bound,
+    status: s2s.data?.data?.status || s2s.data?.status || 'accepted',
+    httpStatus: s2s.status === 202 ? 202 : 200,
+    governanceGate: false,
+    note: 'In-run HITL only — Gate 1/2 remain Pack HTTP stamps',
+  };
+}
+
 /**
  * RULE-R07: Data Gate HITL removed.
  * resume_data_gate (pass|reject) cancels legacy waiting_human:data_review and releases activeKey.
@@ -1074,9 +1201,12 @@ async function startPhaseAiPlanningRun({
   action = '',
   decision = '',
   runId = '',
+  kind = '',
+  resume = null,
   idempotencyKey = '',
   parentRunId: parentRunIdHint = '',
   contextProjectId = null,
+  locale = '',
 }) {
   const RequirementPack = require('../models/RequirementPack');
   const packMeta = await RequirementPack.findOne({
@@ -1106,12 +1236,24 @@ async function startPhaseAiPlanningRun({
     projectId: authzProjectId,
   });
 
-  if (String(action || '').trim().toLowerCase() === 'resume_data_gate') {
+  const actionNorm = String(action || '').trim().toLowerCase();
+  if (actionNorm === 'resume_data_gate') {
     return resumeWhatDataGate({
       organizationId,
       packId,
       decision,
       runId,
+    });
+  }
+  if (actionNorm === 'resume_in_run' || actionNorm === 'resume_in_run_hitl') {
+    return resumeInRunHitl({
+      userId,
+      organizationId,
+      packId,
+      runId,
+      kind,
+      resume,
+      projectId: contextProjectId,
     });
   }
 
@@ -1454,9 +1596,11 @@ async function startPhaseAiPlanningRun({
     (phaseJob === 'phase_what' && force && rejectReason ? rejectReason.slice(0, 2000) : '');
 
   // RULE-DL-07: new runs forbid embedded input.snapshot / input.pack — APS hydrates via S2S
+  const deriveLocale = String(locale || '').trim().toLowerCase() === 'en' ? 'en' : 'vi';
   const slimInput = {
     container,
     toolData: phaseJob === 'phase_how' ? toolData : {},
+    locale: deriveLocale,
     packContentHash:
       snapshotObject?.packContentHash ||
       packForPhase.aiAnalysisSnapshotMeta?.packContentHash ||
@@ -1484,11 +1628,12 @@ async function startPhaseAiPlanningRun({
             },
             g4Opts: {
               loop1Reenter: true,
+              locale: deriveLocale,
               ...reuseSeed,
             },
           };
         })()
-      : {}),
+      : { g4Opts: { locale: deriveLocale } }),
   };
   if (slimInput.snapshot != null || slimInput.pack != null) {
     delete slimInput.snapshot;
@@ -1563,6 +1708,7 @@ module.exports = {
   runAiAnalysisJob,
   startRemoteAiPlanningRun,
   startPhaseAiPlanningRun,
+  resumeInRunHitl,
   isAiPlanningRemoteEnabled,
   shouldRunRemoteAiPlanning,
   isDuplicateRemoteRun,

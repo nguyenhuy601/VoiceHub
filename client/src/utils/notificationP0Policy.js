@@ -36,6 +36,16 @@ const P0_SYSTEM_KINDS = new Set([
   'analysis_gate_pending',
   'planning_gate_pending',
   'phase1_gate_pending',
+  /** AI HITL Two-Phase — Gate 1/2 chờ action hoặc kết quả PO */
+  'ai_hitl_gate1_ba',
+  'ai_hitl_gate1_po',
+  'ai_hitl_gate1_approved',
+  'ai_hitl_gate1_rejected',
+  'ai_hitl_gate2',
+  'ai_hitl_gate2_po',
+  'ai_hitl_gate2_approved',
+  'ai_hitl_gate2_rejected',
+  'ai_hitl_gate_pending',
 ]);
 
 /** Kind system đã gửi nhưng cố ý không đưa vào chip Ưu tiên */

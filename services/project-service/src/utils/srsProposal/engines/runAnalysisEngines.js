@@ -20,13 +20,9 @@ const ENGINE_MODULES = {
   nfr: () => require('./nfrEngine'),
   scope: () => require('./scopeEngine'),
   bpm: () => require('./bpmEngine'),
-  interface: () => require('./interfaceEngine'),
   fr: () => require('./frEngine'),
   uc: () => require('./ucEngine'),
   data: () => require('./dataEngine'),
-  glossary: () => require('./glossaryEngine'),
-  assumption: () => require('./assumptionEngine'),
-  traceability: () => require('./traceabilityEngine'),
 };
 
 function loadEngine(id) {
@@ -41,7 +37,7 @@ function loadEngine(id) {
 
 /**
  * When FR engine is skipped (already on proposal), seed resultsById.fr so
- * assumption can lift CQ and UC/data can read dependencyResults.fr.
+ * UC/data can read dependencyResults.fr.
  * @param {object} resultsById
  * @param {object} proposal
  * @param {Set<string>} skip
@@ -78,7 +74,6 @@ function buildProjections(opts = {}) {
     nfr: projections.nfr || { rows: pack.nonFunctionalRequirements || pack.nfrs },
     scope: projections.scope || { rows: pack.scope || pack.scopeItems },
     bpm: projections.bpm || { rows: pack.businessProcesses || pack.processes },
-    interface: projections.interface || { rows: pack.interfaces },
     fr:
       projections.fr ||
       (opts.proposalFragment
@@ -86,11 +81,6 @@ function buildProjections(opts = {}) {
         : { items: pack.functionalRequirements || opts.existingFrItems || [] }),
     uc: projections.uc || { rows: pack.useCases },
     data: projections.data || { rows: pack.entities || pack.domainEntities },
-    glossary: projections.glossary || { rows: pack.glossary || pack.glossaryTerms },
-    assumption: projections.assumption || { rows: pack.assumptions },
-    traceability: projections.traceability || {
-      rawRows: opts.rawRows || pack.rawRows || [],
-    },
   };
 }
 

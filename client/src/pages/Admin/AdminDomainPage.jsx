@@ -84,6 +84,7 @@ import TasksExportPanel from '../../features/adminTasks/TasksExportPanel';
 import TasksProjectVisibilityPolicyPanel from '../../features/adminTasks/TasksProjectVisibilityPolicyPanel';
 import DepartmentCapacityPanel from '../../features/adminTasks/DepartmentCapacityPanel';
 import ResourcePlannerPanel from '../../features/adminTasks/ResourcePlannerPanel';
+import RoleEffortBudgetTemplatePanel from '../../features/adminTasks/RoleEffortBudgetTemplatePanel';
 import RequirementTemplatePanel from '../../features/adminRequirements/RequirementTemplatePanel';
 import UtilizationPanel from '../../features/adminTasks/UtilizationPanel';
 import UserPerformancePanel from '../../features/adminTasks/UserPerformancePanel';
@@ -264,6 +265,7 @@ const TASK_PANELS = {
   'tasks-project-visibility-policy': TasksProjectVisibilityPolicyPanel,
   'tasks-department-capacity': DepartmentCapacityPanel,
   'tasks-resource-planner': ResourcePlannerPanel,
+  'tasks-role-effort-budget-template': RoleEffortBudgetTemplatePanel,
   'tasks-utilization': UtilizationPanel,
   'tasks-user-performance': UserPerformancePanel,
   'tasks-approval-policies': ApprovalPoliciesPanel,

@@ -12,10 +12,24 @@ function emptyStages() {
     g4_synthesis: null,
     g4_total: null,
     bg_derive: null,
+    /** Nested wall inside bg_derive (FR LLM decompose); excluded from sumStages. */
+    fr_decompose: null,
+    /** Nested wall inside bg_derive (section LLM derives); excluded from sumStages. */
+    raw_section_derive: null,
     engines: null,
     meta: null,
   };
 }
+
+/** Stages that are exclusive wall slices (avoid double-count nested / G4 sub-stages). */
+const SUM_STAGE_KEYS = Object.freeze([
+  'hydrate',
+  'understand',
+  'g4_total',
+  'bg_derive',
+  'engines',
+  'meta',
+]);
 
 /**
  * @param {{ round?: number|string, packId?: string, snapshotId?: string, runId?: string }} [meta]
@@ -66,8 +80,8 @@ function mergeStageDetail(timing, stage, detail) {
 
 function sumStageMs(stages = {}) {
   let sum = 0;
-  for (const key of Object.keys(stages || {})) {
-    const ms = Number(stages[key]?.ms);
+  for (const key of SUM_STAGE_KEYS) {
+    const ms = Number(stages?.[key]?.ms);
     if (Number.isFinite(ms)) sum += ms;
   }
   return sum;
@@ -104,6 +118,7 @@ function startSpan() {
 
 module.exports = {
   emptyStages,
+  SUM_STAGE_KEYS,
   createWhatTiming,
   markStage,
   mergeStageDetail,

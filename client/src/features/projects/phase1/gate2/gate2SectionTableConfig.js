@@ -227,4 +227,7 @@ export function countGate2PendingDecisions(bySection, decisions = {}) {
 
 export const GATE2_SCROLL_PAGE_SIZE = 30;
 
+/** Fixed body height for Gate2 / HOW Monitor tables (align with Gate1). */
+export const GATE2_TABLE_BODY_HEIGHT_CLASS = 'h-96';
+
 export default getGate2ColumnsForSection;

@@ -5,8 +5,20 @@ import { forwardRef } from 'react';
  */
 const LoginOwlMascot = forwardRef(function LoginOwlMascot({ lit = false }, ref) {
   return (
-    <div ref={ref} className={`login-owl-mascot ${lit ? 'is-lit' : 'is-idle'}`} aria-hidden>
-      <svg className="login-owl-mascot__svg" viewBox="0 0 80 88" fill="none">
+    <div
+      ref={ref}
+      className={`pointer-events-none absolute bottom-[calc(100%-0.15rem)] left-[0.85rem] z-[4] flex w-[2.85rem] flex-col items-center transition-[opacity,filter] duration-[250ms] ease-in-out motion-reduce:transition-none ${
+        lit ? 'opacity-100' : 'opacity-0'
+      }`}
+      aria-hidden
+    >
+      <svg
+        className={`block h-12 w-[2.75rem] ${
+          lit ? 'drop-shadow-[0_0_12px_rgba(251,191,36,0.6)]' : ''
+        }`}
+        viewBox="0 0 80 88"
+        fill="none"
+      >
         <defs>
           <radialGradient id="loginOwlGlow" cx="50%" cy="42%" r="50%">
             <stop offset="0%" stopColor="#fde68a" stopOpacity="0.55" />
@@ -39,8 +51,20 @@ const LoginOwlMascot = forwardRef(function LoginOwlMascot({ lit = false }, ref) 
 
         <circle cx="30" cy="40" r="10.5" fill="#0f172a" />
         <circle cx="50" cy="40" r="10.5" fill="#0f172a" />
-        <circle cx="30" cy="40" r="7.8" fill="url(#loginOwlEyeIris)" className="login-owl-mascot__iris" />
-        <circle cx="50" cy="40" r="7.8" fill="url(#loginOwlEyeIris)" className="login-owl-mascot__iris" />
+        <circle
+          cx="30"
+          cy="40"
+          r="7.8"
+          fill="url(#loginOwlEyeIris)"
+          className={lit ? 'drop-shadow-[0_0_5px_#fbbf24]' : undefined}
+        />
+        <circle
+          cx="50"
+          cy="40"
+          r="7.8"
+          fill="url(#loginOwlEyeIris)"
+          className={lit ? 'drop-shadow-[0_0_5px_#fbbf24]' : undefined}
+        />
         <circle cx="30" cy="40" r="3.2" fill="#0f172a" />
         <circle cx="50" cy="40" r="3.2" fill="#0f172a" />
         <circle cx="27.2" cy="37.2" r="2.4" fill="#fff" opacity="0.95" />
@@ -49,9 +73,28 @@ const LoginOwlMascot = forwardRef(function LoginOwlMascot({ lit = false }, ref) 
         <path d="M40 46 L36.5 52 L43.5 52 Z" fill="#f59e0b" />
         <path d="M40 47.5 L38 51 L42 51 Z" fill="#fbbf24" />
 
-        <path d="M32 78 L28 84 M32 78 L32 84 M32 78 L36 84" stroke="#94a3b8" strokeWidth="1.6" strokeLinecap="round" />
-        <path d="M48 78 L44 84 M48 78 L48 84 M48 78 L52 84" stroke="#94a3b8" strokeWidth="1.6" strokeLinecap="round" />
-        <line x1="18" y1="85" x2="62" y2="85" stroke="#64748b" strokeWidth="2" strokeLinecap="round" opacity="0.65" />
+        <path
+          d="M32 78 L28 84 M32 78 L32 84 M32 78 L36 84"
+          stroke="#94a3b8"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+        <path
+          d="M48 78 L44 84 M48 78 L48 84 M48 78 L52 84"
+          stroke="#94a3b8"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+        <line
+          x1="18"
+          y1="85"
+          x2="62"
+          y2="85"
+          stroke="#64748b"
+          strokeWidth="2"
+          strokeLinecap="round"
+          opacity="0.65"
+        />
       </svg>
     </div>
   );

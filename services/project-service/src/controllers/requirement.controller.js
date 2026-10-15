@@ -655,6 +655,8 @@ async function startPhaseAiPlanning(req, res) {
         req.body?.idempotencyKey ||
         ''
     ).trim();
+    const localeRaw = String(req.body?.locale || req.get('X-UI-Locale') || '').trim().toLowerCase();
+    const locale = localeRaw === 'en' || localeRaw.startsWith('en') ? 'en' : localeRaw === 'vi' || localeRaw.startsWith('vi') ? 'vi' : '';
     const data = await startPhaseAiPlanningRun({
       userId,
       organizationId,
@@ -666,8 +668,11 @@ async function startPhaseAiPlanning(req, res) {
       action: req.body?.action || '',
       decision: req.body?.decision || '',
       runId: req.body?.runId || '',
+      kind: req.body?.kind || '',
+      resume: req.body?.resume ?? null,
       parentRunId: req.body?.parentRunId || '',
       contextProjectId: req.body?.projectId || null,
+      locale: locale || undefined,
       idempotencyKey,
     });
     const httpStatus = Number(data?.httpStatus) === 200 ? 200 : 202;

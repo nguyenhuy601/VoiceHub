@@ -31,7 +31,6 @@ function buildGateDecision(proposal, readiness, sectionReviews) {
     BG: countSection(proposal, 'businessGoals'),
     Scope: countSection(proposal, 'scope'),
     Data: countSection(proposal, 'entities'),
-    Interface: countSection(proposal, 'interfaces'),
   };
 
   const blockingIssues = (readiness.missingForGate1 || []).map((code) => ({

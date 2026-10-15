@@ -12,6 +12,7 @@ import {
   formatGate1ApproveError,
 } from '../../../requirements/approveRequirementPackWithGate1';
 import useReviewNotePrompt from '../../../../hooks/useReviewNotePrompt';
+import ConfirmDialog from '../../../../components/Shared/ConfirmDialog';
 import { buildGate1ProposalItems } from '../buildGate1ProposalItems';
 import { attachConflictAmbiguityToGate1Bundle } from '../gate1/resolveConflictAmbiguityUi';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
@@ -21,6 +22,10 @@ import { resolveAiHitlReviewMode } from './aiHitlReviewMode';
 import { resolveGate1ReviewLane, resolveGate1ReviewView } from './gate1ReviewLane';
 import { resolveGate2ReviewLane, resolveGate2ReviewView } from './gate2ReviewLane';
 import { resolveHitlRequirementFlags } from './resolveHitlRequirementFlags';
+import {
+  isPhaseInFlightStatus,
+  protectPackDuringFreshRunAwait,
+} from './freshRunUiGuard';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -92,10 +97,12 @@ function buildGate1Summary(pack) {
 /** Drop stale Data Gate / Gate1 payload from local state when starting a new WHAT run. */
 function clearStaleReviewLiveRun(prev) {
   if (!prev || typeof prev !== 'object') {
-    return { status: 'queued', gatePreview: null, gate: null };
+    return { status: 'queued', runId: null, gatePreview: null, gate: null };
   }
   return {
     ...prev,
+    // New local epoch — do not keep prior runId (sticky progress / merge anti-regress).
+    runId: null,
     status: 'queued',
     gate: null,
     gatePreview: null,
@@ -117,6 +124,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const { capabilities: projectCaps } = useProjectCapabilities(projectId);
   const { shouldPausePolling } = useNetworkStatus();
   const { requestNote, noteDialog } = useReviewNotePrompt();
+  const [ackDialog, setAckDialog] = useState(null);
 
   const packIdFromQuery = String(searchParams.get('packId') || '').trim();
   const wantStartWhat = ['1', 'true'].includes(String(searchParams.get('startWhat') || '').toLowerCase());
@@ -132,6 +140,11 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const [packId, setPackId] = useState(packIdFromQuery);
   const [pack, setPack] = useState(null);
   const [liveRun, setLiveRun] = useState(null);
+  /** 'what' | 'how' — hide stale Monitor results until poll shows a real new run. */
+  const [awaitingFreshRun, setAwaitingFreshRun] = useState(null);
+  const awaitingFreshRunRef = useRef(null);
+  const packRef = useRef(null);
+  const liveRunRef = useRef(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [autoStarting, setAutoStarting] = useState(false);
   const [gate1Decisions, setGate1Decisions] = useState({});
@@ -179,6 +192,25 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     return String(linked?._id || linked?.id || '').trim();
   }, [organizationId, packIdFromQuery, projectId]);
 
+  const markAwaitingFreshRun = useCallback((phase) => {
+    const next = phase === 'how' ? 'how' : phase === 'what' ? 'what' : null;
+    awaitingFreshRunRef.current = next;
+    setAwaitingFreshRun(next);
+  }, []);
+
+  const clearAwaitingFreshRun = useCallback(() => {
+    awaitingFreshRunRef.current = null;
+    setAwaitingFreshRun(null);
+  }, []);
+
+  // Keep refs aligned for refresh() races (optimistic clear vs poll).
+  useEffect(() => {
+    packRef.current = pack;
+  }, [pack]);
+  useEffect(() => {
+    liveRunRef.current = liveRun;
+  }, [liveRun]);
+
   const refresh = useCallback(async () => {
     const id = packId || (await resolvePackId());
     if (!organizationId || !id) {
@@ -188,25 +220,54 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     if (id !== packId) setPackId(id);
     const packRes = await requirementAPI.getPack(organizationId, id, { view: 'full' });
     const next = unwrap(packRes);
-    setPack(next);
-    setLiveRun((prev) => {
-      const incoming = next?.liveRun || null;
-      if (!prev || !incoming) return incoming;
-      if (String(prev.runId || '') !== String(incoming.runId || '')) return incoming;
-      const prevStep = Number(prev.pipelineStep) || 0;
-      const nextStep = Number(incoming.pipelineStep) || 0;
-      // Same run: never regress business progress (post–Data Gate claim gaps).
-      if (prev.pipelineSubstep && (!incoming.pipelineSubstep || nextStep < prevStep)) {
-        return {
-          ...incoming,
-          pipelineStep: prev.pipelineStep,
-          pipelineSubstep: prev.pipelineSubstep,
-        };
+    const awaiting = awaitingFreshRunRef.current;
+    const guarded = protectPackDuringFreshRunAwait(packRef.current, next, awaiting);
+    const acceptedPack = guarded.pack;
+    packRef.current = acceptedPack;
+    setPack(acceptedPack);
+    if (guarded.release && awaiting) {
+      awaitingFreshRunRef.current = null;
+      setAwaitingFreshRun(null);
+    }
+
+    const prevLive = liveRunRef.current;
+    const incoming = acceptedPack?.liveRun || null;
+    let nextLive = incoming;
+    // Re-run local epoch: keep optimistic queued clear until server shows in-flight liveRun.
+    if (
+      awaiting &&
+      !guarded.release &&
+      prevLive &&
+      (!incoming || !isPhaseInFlightStatus(incoming.status))
+    ) {
+      nextLive = prevLive;
+    } else if (prevLive && incoming) {
+      if (String(prevLive.runId || '') !== String(incoming.runId || '')) {
+        nextLive = incoming;
+      } else if (
+        !prevLive.runId &&
+        isPhaseInFlightStatus(prevLive.status) &&
+        !isPhaseInFlightStatus(incoming.status)
+      ) {
+        // Local clear nulls runId — do not restore a still-completed server liveRun.
+        nextLive = prevLive;
+      } else {
+        const prevStep = Number(prevLive.pipelineStep) || 0;
+        const nextStep = Number(incoming.pipelineStep) || 0;
+        // Same run: never regress business progress (post–Data Gate claim gaps).
+        if (prevLive.pipelineSubstep && (!incoming.pipelineSubstep || nextStep < prevStep)) {
+          nextLive = {
+            ...incoming,
+            pipelineStep: prevLive.pipelineStep,
+            pipelineSubstep: prevLive.pipelineSubstep,
+          };
+        }
       }
-      return incoming;
-    });
+    }
+    liveRunRef.current = nextLive;
+    setLiveRun(nextLive);
     setLoading(false);
-    return next;
+    return acceptedPack;
   }, [organizationId, packId, resolvePackId]);
 
   useEffect(() => {
@@ -279,23 +340,43 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   }, [packId, searchParams, setSearchParams]);
 
   /** HOW start → Monitor handoff (same pattern as WHAT start). */
-  const onHowStarted = useCallback(() => {
-    goMonitorTab();
-    // Optimistic pending so auto-open Review cannot yank back before start API returns.
-    setPack((prev) => {
-      if (!prev) return prev;
-      const ai = { ...(prev.aiAnalysis || {}) };
-      ai.phaseRuns = {
-        ...(ai.phaseRuns || {}),
-        phase_how: {
-          ...(ai.phaseRuns?.phase_how || {}),
-          status: 'pending',
-          error: null,
-        },
-      };
-      return { ...prev, aiAnalysis: ai };
-    });
-  }, [goMonitorTab]);
+  const onHowStarted = useCallback(
+    ({ clearResults = false } = {}) => {
+      goMonitorTab();
+      markAwaitingFreshRun('how');
+      // Optimistic pending so auto-open Review cannot yank back before start API returns.
+      setPack((prev) => {
+        if (!prev) return prev;
+        const ai = { ...(prev.aiAnalysis || {}) };
+        if (clearResults) {
+          // Drop HOW tables so Monitor does not keep prior WBS/schedule during re-run.
+          ai.planning = undefined;
+          const analyses = { ...(ai.analyses || {}) };
+          delete analyses.dependency;
+          delete analyses.assignment;
+          delete analyses.schedule;
+          delete analyses.risk;
+          delete analyses.risks;
+          ai.analyses = analyses;
+        }
+        ai.phaseRuns = {
+          ...(ai.phaseRuns || {}),
+          phase_how: {
+            ...(ai.phaseRuns?.phase_how || {}),
+            status: 'pending',
+            error: null,
+            pipelineStep: null,
+            pipelineSubstep: null,
+            remoteRunId: null,
+          },
+        };
+        const next = { ...prev, aiAnalysis: ai };
+        packRef.current = next;
+        return next;
+      });
+    },
+    [goMonitorTab, markAwaitingFreshRun]
+  );
 
   const howHasResult = ['ready', 'completed', 'confirmed', 'failed', 'error'].includes(
     howStatusNorm
@@ -330,7 +411,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       if (!organizationId || !packId || busy) return;
       const useForce = force === true;
       setBusy(true);
-      onHowStarted();
+      onHowStarted({ clearResults: useForce });
       if (useForce) setGate2Decisions({});
       try {
         await requirementAPI.startPhaseAiPlanning(organizationId, packId, {
@@ -345,6 +426,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         );
         await refresh();
       } catch (err) {
+        clearAwaitingFreshRun();
         toast.error(
           resolveApiErrorMessage(err, {
             fallback: t('requirements.aiHowRunFail') || 'Không start được AI Planning (HOW).',
@@ -355,7 +437,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         setBusy(false);
       }
     },
-    [organizationId, packId, projectId, busy, onHowStarted, refresh, t]
+    [organizationId, packId, projectId, busy, onHowStarted, refresh, clearAwaitingFreshRun, t]
   );
 
   const startHowFirst = useCallback(() => startHowManual({ force: false }), [startHowManual]);
@@ -422,7 +504,12 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     (async () => {
       setBusy(true);
       setAutoStarting(true);
-      setLiveRun(clearStaleReviewLiveRun);
+      markAwaitingFreshRun('what');
+      setLiveRun((prev) => {
+        const next = clearStaleReviewLiveRun(prev);
+        liveRunRef.current = next;
+        return next;
+      });
       goMonitorTab();
       toast.success(
         t('requirements.aiWhatRunStarted') || 'Đã bắt đầu AI Requirement (WHAT).'
@@ -433,6 +520,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       } catch (err) {
         autoStartRef.current = false;
         startedWhatKeyRef.current = '';
+        clearAwaitingFreshRun();
         toast.error(
           resolveApiErrorMessage(err, {
             fallback: t('requirements.aiWhatRunFail') || 'Không start được AI Requirement.',
@@ -458,6 +546,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     runWhatPipeline,
     stripStartWhatParam,
     goMonitorTab,
+    markAwaitingFreshRun,
+    clearAwaitingFreshRun,
     t,
   ]);
 
@@ -585,6 +675,17 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     }));
   }, []);
 
+  const clearGate1Decision = useCallback((logicalId) => {
+    const id = String(logicalId || '').trim();
+    if (!id) return;
+    setGate1Decisions((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, id)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     setGate2Decisions({});
     gate2SeededVersionRef.current = null;
@@ -704,16 +805,28 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     if (note === null) return;
     setBusy(true);
     try {
-      await requirementAPI.submitPack(organizationId, packId, {
+      const submitRes = await requirementAPI.submitPack(organizationId, packId, {
         reviewDecisions,
         expectedReviewVersion: reviewVersion,
         expectedRevisionIds: expectedRevisionIds || undefined,
         withdrawSubmissionId: withdrawSubmissionId || undefined,
         note: note || undefined,
       });
-      toast.success(
-        t('requirements.understandingGate1Submitted') || 'Đã xác nhận duyệt — chờ PO.'
-      );
+      const submittedPack = unwrap(submitRes);
+      const submissionId = submittedPack?.aiAnalysis?.gate1?.activeSubmissionId;
+      if (!submissionId) {
+        toast.error(
+          t('requirements.phase1Gate1SubmitMissingSubmission') ||
+            'BA submit chưa ghi nhận GateSubmission — thử Xác nhận duyệt lại.'
+        );
+        await refresh();
+        return;
+      }
+      setAckDialog({
+        title: t('requirements.phase1Gate1SubmitSuccessTitle') || 'Đã gửi duyệt Gate 1',
+        message:
+          t('requirements.understandingGate1Submitted') || 'Đã xác nhận duyệt — chờ PO.',
+      });
       // Allow one reseed from server after submit (new reviewVersion / persisted decisions)
       clearGate1DecisionsForReseed();
       await refresh();
@@ -763,7 +876,10 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
           }),
       });
       if (!result.ok) return;
-      toast.success(t('requirements.phase1ApproveOk') || 'PO đã duyệt Gate 1.');
+      setAckDialog({
+        title: t('requirements.phase1Gate1ApproveSuccessTitle') || 'Gate 1 đã được duyệt',
+        message: t('requirements.phase1ApproveOk') || 'PO đã duyệt Gate 1.',
+      });
       // Monitor → Phase How + start HOW immediately after PO final confirm
       goMonitorTab();
       setPack((prev) => {
@@ -1073,8 +1189,13 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   }) => {
     if (!canRun || !organizationId || !packId || busy) return;
     setBusy(true);
+    markAwaitingFreshRun('what');
     // Clear Review UI immediately (stale Data Gate / Gate1 from previous run)
-    setLiveRun(clearStaleReviewLiveRun);
+    setLiveRun((prev) => {
+      const next = clearStaleReviewLiveRun(prev);
+      liveRunRef.current = next;
+      return next;
+    });
     setPack((prev) => {
       if (!prev?.aiAnalysis) return prev;
       const ai = { ...prev.aiAnalysis };
@@ -1102,7 +1223,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         },
       };
       const prevStatus = String(prev.status || '');
-      return {
+      const next = {
         ...prev,
         status:
           prevStatus === 'under_review' || prevStatus === 'rejected' ? 'draft' : prev.status,
@@ -1110,6 +1231,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         submittedAt: undefined,
         aiAnalysis: ai,
       };
+      packRef.current = next;
+      return next;
     });
     // Stay on Monitor — also sync ?tab= so URL deep-link cannot bounce back to Review.
     goMonitorTab();
@@ -1120,6 +1243,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       await runWhatPipeline({ force, feedback, parentRunId, idempotencyKey });
       await refresh();
     } catch (err) {
+      clearAwaitingFreshRun();
       toast.error(
         resolveApiErrorMessage(err, {
           fallback: force
@@ -1252,6 +1376,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
                 : null
             }
             bootstrapping={Boolean(autoStarting || (wantStartWhat && !whatInFlight))}
+            awaitingFreshRun={awaitingFreshRun}
             canStartWhat={canStartWhat}
             canRerunWhat={canRerunWhat}
             canRunHow={canRun && (packStatus === 'approved' || packStatus === 'project_linked')}
@@ -1277,6 +1402,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
             gate1Busy={busy}
             gate1Decisions={gate1Decisions}
             setGate1Decision={setGate1Decision}
+            clearGate1Decision={clearGate1Decision}
             onGate1Submit={onGate1Submit}
             onGate1Approve={onGate1Approve}
             onGate1Reject={onGate1Reject}
@@ -1296,6 +1422,15 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         </div>
       </div>
       {noteDialog}
+      <ConfirmDialog
+        isOpen={Boolean(ackDialog)}
+        onClose={() => setAckDialog(null)}
+        onConfirm={() => setAckDialog(null)}
+        title={ackDialog?.title || ''}
+        message={ackDialog?.message || ''}
+        confirmText={t('common.confirm') || t('common.close') || 'Đóng'}
+        cancelText=""
+      />
     </div>
   );
 }

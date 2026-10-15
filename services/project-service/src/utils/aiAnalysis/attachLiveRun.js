@@ -190,7 +190,7 @@ async function maybeNotifyDataGateWaiting(pack) {
     organizationId: pack.organizationId,
     actorUserId: null,
     packId,
-    nextPermission: 'requirement:submit',
+    nextPermission: 'analysis:submit_ba_review',
     title: 'Data Gate — AI đang chờ duyệt dữ liệu',
     content: 'Mở trang AI HITL để Pass/Reject Data Gate.',
     kind: 'ai_hitl_data_gate',

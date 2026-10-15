@@ -1,7 +1,8 @@
 /**
  * Gate1 Review — column config per Analysis Proposal section.
  * Decision column is rendered by Gate1SectionReviewTable, not listed here.
- * headerKey uses requirements.* i18n; render(row, t) for localized cell values.
+ * headerKey uses requirements.* i18n; render(row, t, ctx?) for localized cell values.
+ * "Nguồn" = audit source (FILE / AI / HUMAN / BA); BA when create or BA_ADDED; HUMAN when edit.
  */
 
 function tr(t, key, fallback) {
@@ -16,22 +17,49 @@ function clip(value, max = 120) {
   return `${text.slice(0, max)}…`;
 }
 
-function statusLabel(row, t) {
-  const raw = String(row?.status || '').trim();
-  if (!raw) return '—';
-  const code = raw.toUpperCase();
-  return tr(t, `requirements.phase1ItemStatus_${code}`, raw);
+/** Audit source codes shown in Gate1 "Nguồn" column. */
+export const GATE1_AUDIT_SOURCE = Object.freeze({
+  FILE: 'FILE',
+  AI: 'AI',
+  HUMAN: 'HUMAN',
+  BA: 'BA',
+});
+
+/**
+ * Resolve audit source for a proposal row.
+ * BA when create / BA_ADDED; HUMAN when Gate1 decision is edit; else provenance/origin.
+ * @param {object} row
+ * @param {{ action?: string }|null|undefined} decision
+ * @returns {'FILE'|'AI'|'HUMAN'|'BA'}
+ */
+export function resolveGate1AuditSource(row, decision) {
+  const action = String(decision?.action || '').toLowerCase();
+  if (action === 'create') {
+    return GATE1_AUDIT_SOURCE.BA;
+  }
+  const type = String(row?.provenance?.type || row?.origin?.type || '')
+    .trim()
+    .toUpperCase();
+  if (type === 'BA_ADDED' || type === 'BA') {
+    return GATE1_AUDIT_SOURCE.BA;
+  }
+  if (action === 'edit') {
+    return GATE1_AUDIT_SOURCE.HUMAN;
+  }
+  if (type === 'EXTRACTED') return GATE1_AUDIT_SOURCE.FILE;
+  // HEURISTIC / DERIVED / AI_SYNTHESIS (and unknown proposal origins) → AI đề xuất
+  return GATE1_AUDIT_SOURCE.AI;
 }
 
-function provenanceLabel(row, t) {
-  const p = row?.provenance;
-  if (!p || typeof p !== 'object') return '—';
-  const typeRaw = p.type || '';
-  const type = typeRaw
-    ? tr(t, `requirements.phase1Origin_${String(typeRaw).toUpperCase()}`, String(typeRaw))
-    : '';
-  const from = Array.isArray(p.derivedFrom) ? p.derivedFrom.join(', ') : '';
-  return from ? `${type}: ${from}` : type || '—';
+function auditSourceLabel(row, t, ctx) {
+  const code = resolveGate1AuditSource(row, ctx?.decision);
+  const fallbacks = {
+    FILE: 'Trích xuất file',
+    AI: 'AI đề xuất',
+    HUMAN: 'Người',
+    BA: 'BA',
+  };
+  return tr(t, `requirements.phase1AuditSource_${code}`, fallbacks[code] || code);
 }
 
 function stepsLabel(row, t) {
@@ -89,7 +117,8 @@ const COL_ID = {
   editable: false,
   defaultPx: 88,
   minPx: 64,
-  render: (r) => r.logicalId || r.id || '—',
+  /** ctx.displayId = compacted label after reject (logicalId stays decision key). */
+  render: (r, _t, ctx) => ctx?.displayId || r.logicalId || r.id || '—',
 };
 
 const COL_TITLE = {
@@ -103,14 +132,15 @@ const COL_TITLE = {
   render: (r) => r.title || '—',
 };
 
-const COL_STATUS = {
-  key: 'status',
-  headerKey: 'requirements.phase1ColItemStatus',
-  headerFallback: 'Trạng thái',
+const COL_AUDIT_SOURCE = {
+  key: 'auditSource',
+  headerKey: 'requirements.phase1ColAuditSource',
+  headerFallback: 'Nguồn',
   editable: false,
-  defaultPx: 110,
-  minPx: 80,
-  render: statusLabel,
+  defaultPx: 120,
+  minPx: 90,
+  /** @param {object} row @param {function} [t] @param {{ decision?: object }} [ctx] */
+  render: auditSourceLabel,
 };
 
 /** @type {Record<string, Gate1Column[]>} */
@@ -128,7 +158,7 @@ export const GATE1_SECTION_COLUMNS = {
       minPx: 140,
       render: (r) => clip(r.ac || r.acceptanceCriteria, 100) || '—',
     },
-    COL_STATUS,
+    COL_AUDIT_SOURCE,
   ],
   nonFunctionalRequirements: [
     COL_ID,
@@ -143,9 +173,9 @@ export const GATE1_SECTION_COLUMNS = {
       minPx: 90,
       render: (r) => r.category || '—',
     },
-    COL_STATUS,
+    COL_AUDIT_SOURCE,
   ],
-  businessRules: [COL_ID, COL_TITLE, COL_STATUS],
+  businessRules: [COL_ID, COL_TITLE, COL_AUDIT_SOURCE],
   actors: [
     COL_ID,
     {
@@ -158,9 +188,9 @@ export const GATE1_SECTION_COLUMNS = {
       minPx: 120,
       render: (r) => r.title || r.name || '—',
     },
-    COL_STATUS,
+    COL_AUDIT_SOURCE,
   ],
-  businessGoals: [COL_ID, COL_TITLE, COL_STATUS],
+  businessGoals: [COL_ID, COL_TITLE, COL_AUDIT_SOURCE],
   processes: [
     COL_ID,
     {
@@ -182,22 +212,9 @@ export const GATE1_SECTION_COLUMNS = {
       minPx: 72,
       render: stepsLabel,
     },
-    COL_STATUS,
+    COL_AUDIT_SOURCE,
   ],
-  useCases: [
-    COL_ID,
-    COL_TITLE,
-    {
-      key: 'provenance',
-      headerKey: 'requirements.phase1ColProvenance',
-      headerFallback: 'Xuất xứ',
-      editable: false,
-      defaultPx: 160,
-      minPx: 100,
-      render: provenanceLabel,
-    },
-    COL_STATUS,
-  ],
+  useCases: [COL_ID, COL_TITLE, COL_AUDIT_SOURCE],
   entities: [
     COL_ID,
     {
@@ -219,16 +236,7 @@ export const GATE1_SECTION_COLUMNS = {
       minPx: 100,
       render: attributesLabel,
     },
-    {
-      key: 'provenance',
-      headerKey: 'requirements.phase1ColProvenance',
-      headerFallback: 'Xuất xứ',
-      editable: false,
-      defaultPx: 160,
-      minPx: 100,
-      render: provenanceLabel,
-    },
-    COL_STATUS,
+    COL_AUDIT_SOURCE,
   ],
   scope: [
     COL_ID,
@@ -242,87 +250,7 @@ export const GATE1_SECTION_COLUMNS = {
       minPx: 90,
       render: inOutLabel,
     },
-    COL_STATUS,
-  ],
-  interfaces: [
-    COL_ID,
-    {
-      key: 'title',
-      headerKey: 'requirements.phase1ColInterfaceName',
-      headerFallback: 'Tên giao diện',
-      field: 'title',
-      editable: true,
-      defaultPx: 220,
-      minPx: 120,
-      render: (r) => r.title || '—',
-    },
-    COL_STATUS,
-  ],
-  glossary: [
-    COL_ID,
-    {
-      key: 'term',
-      headerKey: 'requirements.phase1ColTerm',
-      headerFallback: 'Thuật ngữ',
-      field: 'title',
-      editable: true,
-      defaultPx: 180,
-      minPx: 100,
-      render: (r) => r.title || r.name || '—',
-    },
-    COL_STATUS,
-  ],
-  assumptions: [
-    COL_ID,
-    COL_TITLE,
-    {
-      key: 'classification',
-      headerKey: 'requirements.phase1ColClassification',
-      headerFallback: 'Phân loại',
-      field: 'classification',
-      editable: true,
-      defaultPx: 140,
-      minPx: 90,
-      render: (r) => r.classification || '—',
-    },
-    COL_STATUS,
-  ],
-  traceability: [
-    COL_ID,
-    {
-      key: 'analysisId',
-      headerKey: 'requirements.phase1ColAnalysisId',
-      headerFallback: 'Mã phân tích',
-      field: 'analysisId',
-      editable: true,
-      defaultPx: 130,
-      minPx: 90,
-      render: (r) => r.analysisId || '—',
-    },
-    {
-      key: 'source',
-      headerKey: 'requirements.phase1ColTraceSource',
-      headerFallback: 'Nguồn',
-      editable: false,
-      defaultPx: 180,
-      minPx: 100,
-      render: (r) => {
-        const up = r.upstreamId ? `← ${r.upstreamId}` : '';
-        const src = sourceClip(r);
-        return clip([up, src].filter((x) => x && x !== '—').join(' · ') || '—', 100);
-      },
-    },
-    {
-      key: 'linkSection',
-      headerKey: 'requirements.phase1ColLinkSection',
-      headerFallback: 'Mục',
-      field: 'linkSection',
-      editable: true,
-      defaultPx: 120,
-      minPx: 80,
-      render: (r) => r.linkSection || r.itemSection || '—',
-    },
-    COL_STATUS,
+    COL_AUDIT_SOURCE,
   ],
 };
 
@@ -378,11 +306,12 @@ export function getGate1RowId(row, index = 0) {
   return String(row?.logicalId || row?.id || `row-${index}`).trim();
 }
 
-const DECISION_ACTIONS = new Set(['accept', 'edit', 'reject']);
+const DECISION_ACTIONS = new Set(['accept', 'edit', 'reject', 'create']);
 
 /**
- * True when every item across all sections has accept|edit|reject.
+ * True when every item across all sections has accept|edit|reject|create.
  * Empty sections (no rows) are skipped. NEEDS_CONFIRMATION + accept needs note+resolution.
+ * create rows still count as decided (title validated separately before submit).
  */
 export function areGate1SectionDecisionsComplete(bySection, decisions = {}) {
   if (!bySection || typeof bySection !== 'object') return false;
@@ -427,3 +356,6 @@ export function countGate1PendingDecisions(bySection, decisions = {}) {
 }
 
 export const GATE1_SCROLL_PAGE_SIZE = 30;
+
+/** Fixed body height for Gate1 section table / missing panel (all tabs same). */
+export const GATE1_TABLE_BODY_HEIGHT_CLASS = 'h-96';

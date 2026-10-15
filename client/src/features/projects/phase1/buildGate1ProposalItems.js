@@ -1,9 +1,7 @@
 /**
  * Build Gate1 Analysis Review rows from Analysis Proposal (persist: srsProposal).
- * Always emits 12 Analysis section tabs; empty sections → missing metadata for UI.
+ * Active Analysis tabs (8 + actors); Interface/Glossary/Assumption/Traceability trimmed.
  */
-
-
 
 const SECTION_ORDER = [
   'functionalRequirements',
@@ -15,18 +13,10 @@ const SECTION_ORDER = [
   'entities',
   'actors',
   'scope',
-  'interfaces',
-  'glossary',
-  'assumptions',
-  'traceability',
 ];
-
-
 
 /** Legacy foundation — domain/context not shown; actors are Gate1-sensitive (RULE-03). */
 const LEGACY_EXCLUDED = new Set(['domain', 'context']);
-
-
 
 const SECTION_LABELS = {
   functionalRequirements: 'FR',
@@ -38,10 +28,6 @@ const SECTION_LABELS = {
   entities: 'Data',
   actors: 'Actor',
   scope: 'Scope',
-  interfaces: 'Interface',
-  glossary: 'Glossary',
-  assumptions: 'Assumption',
-  traceability: 'Traceability',
 };
 
 
@@ -118,7 +104,7 @@ function mapItem(row, section, index) {
     classification: row?.classification || null,
     analysisId: row?.analysisId || null,
     upstreamId: row?.upstreamId || null,
-    linkSection: row?.section && section === 'traceability' ? row.section : null,
+    linkSection: null,
     itemSection: row?.section || null,
     sourceRefs: Array.isArray(row?.sourceRefs) ? row.sourceRefs : [],
   };
@@ -200,7 +186,7 @@ export function buildGate1ProposalItems(opts = {}) {
 
 
 
-  // Always 12 Analysis tabs — empty → missing for Gate1 UI
+  // Active Analysis tabs — empty → missing for Gate1 UI
   const sections = SECTION_ORDER.map((key) => {
     const rows = bySection[key] || [];
     const count = rows.length;

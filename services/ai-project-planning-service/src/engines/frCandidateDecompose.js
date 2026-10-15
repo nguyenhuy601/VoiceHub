@@ -240,67 +240,153 @@ function heuristicDecompose(row) {
   return out;
 }
 
+/** Default concurrent LLM decompose calls (openai_compatible benefits; Ollama queues if NUM_PARALLEL=1). */
+const DEFAULT_FR_DECOMPOSE_CONCURRENCY = 4;
+
 /**
- * @param {{ pack?: object, env?: object, generateJsonFn?: Function, forceHeuristic?: boolean }} opts
+ * @param {NodeJS.ProcessEnv|object} [env]
+ * @returns {number}
+ */
+function resolveFrDecomposeConcurrency(env = process.env) {
+  const raw = Number(env?.PHASE1_FR_DECOMPOSE_CONCURRENCY);
+  if (Number.isFinite(raw) && raw >= 1) return Math.min(16, Math.floor(raw));
+  return DEFAULT_FR_DECOMPOSE_CONCURRENCY;
+}
+
+/**
+ * Bounded parallel map — preserves result index order.
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} concurrency
+ * @param {(item: T, index: number) => Promise<R>} fn
+ * @returns {Promise<R[]>}
+ */
+async function mapPool(items, concurrency, fn) {
+  const n = Array.isArray(items) ? items.length : 0;
+  const results = new Array(n);
+  if (n === 0) return results;
+  const limit = Math.max(1, Math.min(Math.floor(concurrency) || 1, n));
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const i = next;
+      next += 1;
+      if (i >= n) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+  return results;
+}
+
+/**
+ * Decompose one FR row — same rules as former serial loop body.
+ * @returns {Promise<{ rows: object[], llmCalls: number, heuristic: number, skipped: number, error: string|null }>}
+ */
+async function decomposeOneFr(row, index, frCount, opts) {
+  const env = opts.env || process.env;
+  const generate = opts.generateJsonFn || generateJson;
+
+  if (!looksMonolithic(row) && frCount > 1) {
+    return {
+      rows: [
+        {
+          ...row,
+          status: row.status || 'EXTRACTED',
+          behaviorKey: row.behaviorKey || 'other',
+          openQuestions: Array.isArray(row.openQuestions) ? row.openQuestions : [],
+          sourceFrId: frId(row, index),
+        },
+      ],
+      llmCalls: 0,
+      heuristic: 0,
+      skipped: 1,
+      error: null,
+    };
+  }
+  if (!looksMonolithic(row) && frCount === 1 && proseOf(row).length < 80) {
+    return {
+      rows: [{ ...row, status: row.status || 'EXTRACTED' }],
+      llmCalls: 0,
+      heuristic: 0,
+      skipped: 1,
+      error: null,
+    };
+  }
+
+  let produced = [];
+  let llmCalls = 0;
+  let error = null;
+  if (!opts.forceHeuristic && isLlmEnabled(env)) {
+    const prompt = buildDecomposePrompt(row);
+    const result = await generate({
+      prompt,
+      numPredict: 1024,
+      numCtx: 4096,
+      timeoutMs: 120000,
+      temperature: 0.1,
+      env,
+    });
+    llmCalls = result.skipped ? 0 : 1;
+    if (result.ok && result.data) {
+      produced = normalizeCandidates(result.data, row);
+    } else {
+      error = result.error || 'decompose_failed';
+    }
+  }
+
+  let heuristic = 0;
+  if (produced.length < 3) {
+    produced = heuristicDecompose(row);
+    heuristic = 1;
+  } else {
+    // Fill missing required behaviors the LLM omitted (still PROPOSED + openQuestions).
+    const merged = mergeMissingBehaviors(produced, heuristicDecompose(row));
+    if (merged.length > produced.length) {
+      heuristic = 1;
+      produced = merged;
+    }
+  }
+  return { rows: produced, llmCalls, heuristic, skipped: 0, error };
+}
+
+/**
+ * @param {{ pack?: object, env?: object, generateJsonFn?: Function, forceHeuristic?: boolean, concurrency?: number }} opts
  */
 async function decomposeFrCandidates(opts = {}) {
   const pack = opts.pack || {};
   const env = opts.env || process.env;
-  const generate = opts.generateJsonFn || generateJson;
   const frs = Array.isArray(pack.functionalRequirements) ? pack.functionalRequirements : [];
+  const concurrency = Math.max(
+    1,
+    opts.concurrency != null && Number.isFinite(Number(opts.concurrency))
+      ? Math.min(16, Math.floor(Number(opts.concurrency)))
+      : resolveFrDecomposeConcurrency(env)
+  );
+  const startedAt = Date.now();
+
+  const parts = await mapPool(frs, concurrency, (row, i) =>
+    decomposeOneFr(row, i, frs.length, opts)
+  );
+
   const candidates = [];
-  const meta = { llmCalls: 0, heuristic: 0, skipped: 0, errors: [] };
-
-  for (let i = 0; i < frs.length; i += 1) {
-    const row = frs[i];
-    if (!looksMonolithic(row) && frs.length > 1) {
-      candidates.push({
-        ...row,
-        status: row.status || 'EXTRACTED',
-        behaviorKey: row.behaviorKey || 'other',
-        openQuestions: Array.isArray(row.openQuestions) ? row.openQuestions : [],
-        sourceFrId: frId(row, i),
-      });
-      meta.skipped += 1;
-      continue;
-    }
-    if (!looksMonolithic(row) && frs.length === 1 && proseOf(row).length < 80) {
-      candidates.push({ ...row, status: row.status || 'EXTRACTED' });
-      meta.skipped += 1;
-      continue;
-    }
-
-    let produced = [];
-    if (!opts.forceHeuristic && isLlmEnabled(env)) {
-      const prompt = buildDecomposePrompt(row);
-      const result = await generate({
-        prompt,
-        numPredict: 1024,
-        numCtx: 4096,
-        timeoutMs: 120000,
-        temperature: 0.1,
-        env,
-      });
-      meta.llmCalls += result.skipped ? 0 : 1;
-      if (result.ok && result.data) {
-        produced = normalizeCandidates(result.data, row);
-      } else {
-        meta.errors.push(result.error || 'decompose_failed');
-      }
-    }
-    if (produced.length < 3) {
-      produced = heuristicDecompose(row);
-      meta.heuristic += 1;
-    } else {
-      // Fill missing required behaviors the LLM omitted (still PROPOSED + openQuestions).
-      const merged = mergeMissingBehaviors(produced, heuristicDecompose(row));
-      if (merged.length > produced.length) {
-        meta.heuristic += 1;
-        produced = merged;
-      }
-    }
-    candidates.push(...produced);
+  const meta = {
+    llmCalls: 0,
+    heuristic: 0,
+    skipped: 0,
+    errors: [],
+    concurrency,
+    durationMs: 0,
+  };
+  for (const part of parts) {
+    if (!part) continue;
+    candidates.push(...(part.rows || []));
+    meta.llmCalls += Number(part.llmCalls) || 0;
+    meta.heuristic += Number(part.heuristic) || 0;
+    meta.skipped += Number(part.skipped) || 0;
+    if (part.error) meta.errors.push(part.error);
   }
+  meta.durationMs = Math.max(0, Date.now() - startedAt);
 
   const packOut = {
     ...pack,
@@ -321,5 +407,7 @@ module.exports = {
   heuristicDecompose,
   mergeMissingBehaviors,
   normalizeCandidates,
+  resolveFrDecomposeConcurrency,
+  mapPool,
   decomposeFrCandidates,
 };

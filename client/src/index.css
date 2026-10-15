@@ -825,7 +825,8 @@ html.light .hover\:bg-white\/5:hover {
   background-color: #e8eef8 !important;
 }
 
-html.light input,
+/* Exclude checkbox/radio — ép background che mất tick native (Windows/Chrome). */
+html.light input:not([type='checkbox']):not([type='radio']),
 html.light textarea,
 html.light select {
   background-color: var(--input-light) !important;

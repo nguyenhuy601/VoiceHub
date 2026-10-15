@@ -58,6 +58,8 @@ async function runWhatPhaseLangGraph({
   }
 
   const { checkpointer, kind: checkpointerKind } = await getLangGraphCheckpointer();
+  const { assertDurableCheckpointerForInRunHitl } = require('./hitlCheckpointerPolicy');
+  assertDurableCheckpointerForInRunHitl({ kind: checkpointerKind });
   const graph = buildWhatPhaseGraph({ onProgress, onCheckpoint, checkpointer });
   const threadId = String(runId || snapshotId || `what-${startedAt}`);
 

@@ -2,6 +2,8 @@
  * Agent Core F2 — LangGraph checkpointer factory.
  * Prefer RedisSaver only when Redis has RedisJSON (JSON.SET).
  * Plain redis:7-alpine → MemorySaver (G15 onCheckpoint remains SoT).
+ * No Postgres — Hybrid HITL durable path is Redis+RedisJSON only.
+ * When AGENT_CORE_HITL_INTERRUPT=1, callers must assertDurableCheckpointerForInRunHitl.
  */
 
 const { MemorySaver } = require('@langchain/langgraph');
@@ -10,7 +12,14 @@ let cachedRedis = null;
 let cachedRedisUrl = null;
 let cachedProbe = null;
 
+/**
+ * Prefer dedicated LangGraph Redis Stack (RedisJSON) over app Redis alpine.
+ * LG_REDIS_URL / AGENT_CORE_LG_REDIS_URL — ví dụ redis://redis-lg:6379
+ */
 function redisUrlFromEnv(env = process.env) {
+  const lg =
+    String(env.LG_REDIS_URL || env.AGENT_CORE_LG_REDIS_URL || '').trim();
+  if (lg) return lg;
   const explicit = String(env.REDIS_URL || '').trim();
   if (explicit) return explicit;
   const host = String(env.REDIS_HOST || '127.0.0.1').trim() || '127.0.0.1';
@@ -113,5 +122,6 @@ module.exports = {
   getLangGraphCheckpointer,
   redisUrlFromEnv,
   probeRedisJsonSupport,
+  preferMemory,
   _resetLangGraphCheckpointerCacheForTests,
 };

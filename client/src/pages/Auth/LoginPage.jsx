@@ -17,7 +17,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import authService from '../../services/authService';
 import { consumeOneTimeLoginCredentials } from '../../utils/oneTimeLoginCredentials';
-import '../../components/Auth/loginNightOwl.css';
 
 function LoginPage({ landingDemo = false } = {}) {
   const navigate = useNavigate();
@@ -179,16 +178,21 @@ function LoginPage({ landingDemo = false } = {}) {
         angleDeg={angleDeg}
       />
 
-      <div className={`login-form-stage ${closeColor}`}>
+      <div className={`relative z-20 w-full max-w-[22rem] pointer-events-auto ${closeColor}`}>
         {!landingDemo ? (
-          <Link to="/" className="login-form-stage__close" aria-label={t('authLayout.home')} title={t('authLayout.home')}>
+          <Link
+            to="/"
+            className="absolute -right-[0.15rem] -top-[0.35rem] z-[5] flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-inherit opacity-55 transition-[opacity,background] duration-150 ease-in-out hover:bg-[color-mix(in_srgb,currentColor_10%,transparent)] hover:opacity-100"
+            aria-label={t('authLayout.home')}
+            title={t('authLayout.home')}
+          >
             <X className="h-5 w-5" strokeWidth={2} aria-hidden />
           </Link>
         ) : null}
 
         <h2
           className={`text-center text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${
-            visualNight ? 'login-form-stage__title--night' : 'text-[#0f172a]'
+            visualNight ? 'text-white' : 'text-[#0f172a]'
           }`}
         >
           {t('login.title')}
@@ -222,7 +226,7 @@ function LoginPage({ landingDemo = false } = {}) {
         ) : null}
 
         <form onSubmit={handleSubmit} className="relative mt-8 space-y-5">
-          <div className="login-email-block relative pt-8">
+          <div className="relative pt-8">
             {enableFlash ? <LoginOwlMascot ref={owlRef} lit={owlLit} /> : null}
             <input
               id="email"
@@ -245,7 +249,9 @@ function LoginPage({ landingDemo = false } = {}) {
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 className={`${inputBase} relative z-[2] pr-12 ${
-                  passwordRevealed && isFlashlight ? 'login-pwd-reveal' : ''
+                  passwordRevealed && isFlashlight
+                    ? 'font-mono tracking-[0.04em] !text-[#fef9c3] [text-shadow:0_0_8px_rgba(250,204,21,0.55)]'
+                    : ''
                 }`}
                 placeholder={t('login.placeholderPwd')}
                 autoComplete="current-password"
@@ -264,7 +270,7 @@ function LoginPage({ landingDemo = false } = {}) {
                 {enableFlash ? (
                   isFlashlight ? (
                     <LoginFlashlightIcon
-                      className="login-flashlight-icon h-5 w-5"
+                      className="h-5 w-5 origin-center text-[#fde047] drop-shadow-[0_0_6px_rgba(250,204,21,0.75)] transition-transform duration-[40ms] ease-linear motion-reduce:transition-none"
                       strokeWidth={2}
                       style={{ transform: `rotate(${angleDeg}deg)` }}
                     />

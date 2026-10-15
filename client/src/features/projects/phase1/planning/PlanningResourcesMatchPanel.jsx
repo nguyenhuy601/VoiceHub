@@ -35,6 +35,7 @@ const SKIP_REASON_KEYS = {
   missing_role: 'workspace.phase1StaffingSkipMissingRole',
   missing_effort: 'workspace.phase1StaffingSkipMissingEffort',
   insufficient_hours: 'workspace.phase1StaffingSkipHours',
+  forecast_overload: 'workspace.phase1StaffingSkipForecastOverload',
 };
 
 async function fetchAllStaffingCandidates({ orgId, projectId, roleKey, fromDate, toDate }) {

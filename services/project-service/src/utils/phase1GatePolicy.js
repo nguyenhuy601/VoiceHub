@@ -74,12 +74,36 @@ function assertGateStampSoD({ actorUserId, priorStamps = [], bypass = false }) {
 }
 
 /**
+ * requirement:* is org/persona auth — NOT in project role matrix.
+ * Map to matrix keys so gate notify finds BA/PM/PO on the project.
+ * @see requirementAccess.service.js + projectPermissionMatrix.js
+ */
+const GATE_NOTIFY_PERM_ALIASES = Object.freeze({
+  'requirement:submit': 'analysis:submit_ba_review',
+  'requirement:approve': 'analysis:po_review',
+  /** HOW done / Gate2 PM lane — PM chủ trì, không phải PO run-ai-planning */
+  'requirement:run-ai-planning': 'planning:pm_review',
+});
+
+/**
+ * @param {string} permission
+ * @returns {string}
+ */
+function resolveGateNotifyPermission(permission) {
+  const raw = String(permission || '').trim();
+  if (!raw) return '';
+  return GATE_NOTIFY_PERM_ALIASES[raw] || raw;
+}
+
+/**
  * Collect membership userIds that hold a permission.
  * @param {string} projectId
  * @param {string} permission
  * @returns {Promise<string[]>}
  */
 async function userIdsWithProjectPermission(projectId, permission) {
+  const matrixPerm = resolveGateNotifyPermission(permission);
+  if (!matrixPerm) return [];
   const ProjectMembership = require('../models/ProjectMembership');
   const { resolveUserProjectPermissions } = require('../services/projectAccess.service');
   const memberships = await ProjectMembership.find({ projectId }).select('userId').lean();
@@ -88,7 +112,7 @@ async function userIdsWithProjectPermission(projectId, permission) {
     const uid = String(m.userId || '').trim();
     if (!uid) continue;
     const resolved = await resolveUserProjectPermissions({ userId: uid, projectId });
-    if (hasPermission(resolved.permissions, permission)) out.push(uid);
+    if (hasPermission(resolved.permissions, matrixPerm)) out.push(uid);
   }
   return [...new Set(out)];
 }
@@ -177,10 +201,12 @@ async function notifyAiHitlGateReviewers({
 
 module.exports = {
   GATE_SOD_ERROR,
+  GATE_NOTIFY_PERM_ALIASES,
   isGateSodEnabled,
   projectHasAnalysisTechReviewer,
   projectHasPlanningTechReviewer,
   assertGateStampSoD,
+  resolveGateNotifyPermission,
   userIdsWithProjectPermission,
   notifyNextGateReviewers,
   notifyAiHitlGateReviewers,

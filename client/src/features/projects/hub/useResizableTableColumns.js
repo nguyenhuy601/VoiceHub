@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  buildFillGridTemplate,
   buildGridTemplate,
   clampColWidth,
   readStoredColumnWidths,
@@ -10,6 +11,7 @@ import {
 /**
  * Cột CSS grid co giãn — persist localStorage.
  * Cột `resizable: false` vẫn có width cố định, không hiện handle.
+ * `fillContainer: true` — trải đủ chiều ngang (minmax + 1fr), không để trống góc phải.
  */
 const RESIZE_EDGE_PAD_PX = 8;
 
@@ -18,6 +20,7 @@ export function useResizableTableColumns({
   columns = [],
   storage = typeof localStorage !== 'undefined' ? localStorage : null,
   containerRef = null,
+  fillContainer = false,
 } = {}) {
   const colsRef = useRef(columns);
   colsRef.current = columns;
@@ -35,8 +38,11 @@ export function useResizableTableColumns({
   }, [widths, storageKey, storage]);
 
   const gridTemplateColumns = useMemo(
-    () => buildGridTemplate(columns, widths),
-    [columns, widths]
+    () =>
+      fillContainer
+        ? buildFillGridTemplate(columns, widths)
+        : buildGridTemplate(columns, widths),
+    [columns, widths, fillContainer]
   );
 
   const minWidthPx = useMemo(
@@ -49,8 +55,9 @@ export function useResizableTableColumns({
       display: 'grid',
       gridTemplateColumns,
       minWidth: minWidthPx,
+      ...(fillContainer ? { width: '100%' } : null),
     }),
-    [gridTemplateColumns, minWidthPx]
+    [gridTemplateColumns, minWidthPx, fillContainer]
   );
 
   const resizeColumn = useCallback((id, nextPx, maxPx) => {

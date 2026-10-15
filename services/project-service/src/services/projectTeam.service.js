@@ -956,6 +956,19 @@ async function setUserProjectRoles({
     }
   }
 
+  try {
+    const { seedBudgetsForMember } = require('./roleEffortBudget.service');
+    await seedBudgetsForMember({
+      organizationId: orgId,
+      projectId: pid,
+      userId,
+      projectRoleKeys: keys,
+      actorUserId: addedBy || userId,
+    });
+  } catch {
+    /* best-effort — forecast flag / template */
+  }
+
   if (!beforeKeys.length && String(userId) !== String(addedBy || userId)) {
     const { notifySystemKind, projectHubActionUrl } = require('../clients/notification.client');
     let pname = String(knownProjectTitle || '').trim();

@@ -200,6 +200,115 @@ function blockingMatchesRow(block, row) {
   return false;
 }
 
+/** Labels from requirementGaps / RequirementAnalysisTool → row field keys. */
+const MISSING_LABEL_FIELD_KEYS = {
+  'Acceptance criteria': ['ac', 'acceptanceCriteria'],
+  Description: ['description', 'desc'],
+  Priority: ['priority'],
+  Actor: ['actor', 'actors', 'primaryActor'],
+  'Error handling': ['errorHandling', 'error_handling'],
+};
+
+function nonEmptyField(value) {
+  return String(value ?? '').trim().length > 0;
+}
+
+/**
+ * Merge row + BA edit payload for integrity re-check (UI).
+ * Gate snapshot can stay stale after Sửa fills Acceptance criteria.
+ */
+export function effectiveRowFieldsForIntegrity(row, editedPayload) {
+  const base = row && typeof row === 'object' ? row : {};
+  const patch =
+    editedPayload && typeof editedPayload === 'object' ? editedPayload : {};
+  const ac =
+    patch.ac ??
+    patch.acceptanceCriteria ??
+    base.ac ??
+    base.acceptanceCriteria ??
+    '';
+  return {
+    ...base,
+    ...patch,
+    ac,
+    acceptanceCriteria: patch.acceptanceCriteria ?? patch.ac ?? base.acceptanceCriteria ?? base.ac ?? ac,
+    description: patch.description ?? patch.desc ?? base.description ?? base.desc ?? '',
+    priority: patch.priority ?? base.priority ?? '',
+  };
+}
+
+function isMissingLabelStillEmpty(label, effective) {
+  const keys = MISSING_LABEL_FIELD_KEYS[String(label || '').trim()] || [
+    String(label || '')
+      .trim()
+      .replace(/\s+(\w)/g, (_, c) => c.toUpperCase())
+      .replace(/^./, (c) => c.toLowerCase()),
+  ];
+  return !keys.some((k) => k && nonEmptyField(effective[k]));
+}
+
+/**
+ * True when any row in the section still has unresolved integrity issues
+ * after applying current Gate1 decisions / editedPayload.
+ */
+export function sectionHasUnresolvedIntegrityIssues(
+  rows,
+  decisions = {},
+  getRowId = (row, index) => String(row?.logicalId || row?.id || `row-${index}`)
+) {
+  const list = Array.isArray(rows) ? rows : [];
+  const dec = decisions && typeof decisions === 'object' ? decisions : {};
+  for (let i = 0; i < list.length; i += 1) {
+    const row = list[i];
+    const id = getRowId(row, i);
+    const remaining = filterBlockingIssuesForCurrentValues(
+      row?.blockingIssues,
+      row,
+      dec[id]
+    );
+    if (remaining.length) return true;
+  }
+  return false;
+}
+
+/**
+ * Drop / shrink incomplete_fields issues once the row (or edit) has the field.
+ * Relationship integrity issues are kept as-is.
+ */
+export function filterBlockingIssuesForCurrentValues(issues, row, decision = null) {
+  const list = Array.isArray(issues) ? issues : [];
+  if (!list.length) return [];
+  const effective = effectiveRowFieldsForIntegrity(row, decision?.editedPayload);
+  const out = [];
+  for (const issue of list) {
+    const blockKind = normalizeIntegrityBlockKind(issue);
+    if (blockKind !== 'data_integrity') {
+      out.push(issue);
+      continue;
+    }
+    const missing = Array.isArray(issue?.missing)
+      ? issue.missing.map(String).filter(Boolean)
+      : [];
+    if (!missing.length) {
+      // No structured missing list — if AC/desc look complete, hide generic incomplete flag.
+      const stillLooksIncomplete =
+        isMissingLabelStillEmpty('Acceptance criteria', effective) ||
+        isMissingLabelStillEmpty('Description', effective);
+      if (!stillLooksIncomplete && String(issue?.kind || '') === 'incomplete_fields') {
+        continue;
+      }
+      out.push(issue);
+      continue;
+    }
+    const stillMissing = missing.filter((label) =>
+      isMissingLabelStillEmpty(label, effective)
+    );
+    if (!stillMissing.length) continue;
+    out.push({ ...issue, missing: stillMissing });
+  }
+  return out;
+}
+
 /**
  * Annotate Gate1 bundle rows/sections with integrity UI metadata.
  */

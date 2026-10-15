@@ -8,6 +8,8 @@ import { useAppStrings } from '../../../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../../../utils/resolveApiErrorMessage';
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
 import PlanningResourcePanel from './PlanningResourcePanel';
+import { Link } from 'react-router-dom';
+import { buildPhase1ModulePath } from '../nav/phase1NavConfig';
 import {
   assessEffortReadiness,
   effortDelta,
@@ -169,6 +171,17 @@ export default function PlanningResourcesEffortPanel({ projectId }) {
       </div>
 
       <p className="text-sm text-muted-foreground">{t('workspace.phase1StaffingEffortIntro')}</p>
+      <p className="text-[11px] text-muted-foreground">
+        <span className="mr-2 rounded bg-muted px-1.5 py-0.5 font-medium text-foreground">
+          {t('workspace.phase1ForecastPlannedOnly')}
+        </span>
+        <Link
+          className="text-primary underline-offset-2 hover:underline"
+          to={buildPhase1ModulePath(projectId, 'planning/resources/budget')}
+        >
+          {t('workspace.phaseNavPlanningResourcesBudget')} →
+        </Link>
+      </p>
       {delta.warn ? (
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
           {t('workspace.phase1StaffingEffortDeltaWarn', {

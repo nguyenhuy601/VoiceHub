@@ -206,8 +206,8 @@ function buildRawDeriveInput(engineId, pack, opts = {}) {
       'Project Analysis candidates ONLY from functionalRequirements + requirementUnderstanding + evidenceRefs + overview. Do not invent features without source ids.',
   };
 
-  // LLM Analysis sections: slim V2 (BG contract + per-sec builders). Legacy dump unused.
-  if (['bg', 'br', 'uc', 'bpm', 'data', 'interface'].includes(id)) {
+  // LLM Analysis sections: V2 builders with full semantic context (+ actors when unlocked).
+  if (['bg', 'br', 'uc', 'bpm', 'data', 'nfr', 'scope', 'actors'].includes(id)) {
     return buildDeriveInputForSection(id, pack, opts);
   }
   if (id === 'actors') {

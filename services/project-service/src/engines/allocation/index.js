@@ -3,4 +3,6 @@ module.exports = {
   ...require('./dedupePlanEvent'),
   ...require('./meetingDemand'),
   ...require('./workloadAggregate'),
+  ...require('./weekSpread'),
+  ...require('./forecastDemand'),
 };

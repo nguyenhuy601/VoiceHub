@@ -30,17 +30,19 @@ const ConfirmDialog = ({
   const messageId = useId();
   const dialogRef = useRef(null);
   const cancelRef = useRef(null);
+  const confirmRef = useRef(null);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const { mounted, phase } = useMotionPresence(isOpen, {
     durationMs: VH_MOTION_OVERLAY_MS,
   });
+  const showCancel = Boolean(cancelText);
 
   useModalA11y({
     isOpen,
     onClose,
     containerRef: dialogRef,
-    initialFocusRef: cancelRef,
+    initialFocusRef: showCancel ? cancelRef : confirmRef,
     isBusy: pending,
   });
 
@@ -109,16 +111,19 @@ const ConfirmDialog = ({
             {message}
           </p>
           <div className="flex gap-3">
+            {showCancel ? (
+              <button
+                ref={cancelRef}
+                type="button"
+                onClick={onClose}
+                disabled={pending || !isOpen}
+                className={`flex-1 rounded-xl disabled:cursor-not-allowed disabled:opacity-60 ${CANCEL_BTN_CLASS}`}
+              >
+                {cancelText}
+              </button>
+            ) : null}
             <button
-              ref={cancelRef}
-              type="button"
-              onClick={onClose}
-              disabled={pending || !isOpen}
-              className={`flex-1 rounded-xl disabled:cursor-not-allowed disabled:opacity-60 ${CANCEL_BTN_CLASS}`}
-            >
-              {cancelText}
-            </button>
-            <button
+              ref={confirmRef}
               type="button"
               onClick={handleConfirm}
               disabled={pending || !isOpen}

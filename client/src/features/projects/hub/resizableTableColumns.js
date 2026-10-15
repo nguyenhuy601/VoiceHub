@@ -39,6 +39,23 @@ export function buildGridTemplate(columns, widths) {
     .join(' ');
 }
 
+/**
+ * Grid trải đủ chiều ngang container: cột cố định giữ px,
+ * cột resizable dùng minmax(min, Nfr) theo tỉ lệ width đã lưu.
+ */
+export function buildFillGridTemplate(columns, widths) {
+  return (columns || [])
+    .map((col) => {
+      const w = clampColWidth(widths?.[col.id] ?? col.defaultPx, col.minPx);
+      if (col?.resizable === false) return `${w}px`;
+      const min = Number.isFinite(Number(col?.minPx))
+        ? Math.max(16, Math.round(Number(col.minPx)))
+        : 40;
+      return `minmax(${min}px, ${w}fr)`;
+    })
+    .join(' ');
+}
+
 export function readStoredColumnWidths(storage, key) {
   if (!storage || !key) return {};
   try {

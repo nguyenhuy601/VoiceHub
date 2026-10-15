@@ -332,7 +332,7 @@ async function submitRequirementPack({
       organizationId,
       actorUserId: userId,
       packId: String(packId),
-      nextPermission: 'requirement:approve',
+      nextPermission: 'analysis:po_review',
       title: sensitiveDetection.hasSensitiveEdit
         ? 'Gate 1 cần PO xác nhận duyệt lại (BA đã sửa mục nhạy cảm)'
         : 'Gate 1 — BA đã xác nhận, chờ PO',
@@ -397,12 +397,13 @@ async function approveRequirementPack({
     const GateSubmission = require('../models/GateSubmission');
     const proposal = pack.aiAnalysis?.analyses?.srsProposal;
     if (proposal) {
-      const activeSub = await loadActiveGateSubmission(
-        pack.toObject ? pack.toObject() : pack,
-        organizationId
-      );
+      const packLean = pack.toObject ? pack.toObject() : pack;
+      const activeSub = await loadActiveGateSubmission(packLean, organizationId);
       const required = isGate1SubmissionRequiredEnabled();
-      const hadReviewSession = Boolean(pack.aiAnalysis?.gate1?.activeReviewId);
+      const gate1Shell = pack.aiAnalysis?.gate1 || {};
+      const hadReviewSession = Boolean(
+        gate1Shell.activeReviewId || gate1Shell.activeSubmissionId || gate1Shell.lastSubmittedAt
+      );
       if (!activeSub) {
         // Legacy compat: never had trust session → allow; withdrawn/missing after session → 409
         if (required && hadReviewSession) {
@@ -411,13 +412,21 @@ async function approveRequirementPack({
           );
           err.statusCode = 409;
           err.errorCode = 'GATE_SUBMISSION_REQUIRED';
+          err.details = {
+            activeSubmissionId: gate1Shell.activeSubmissionId || null,
+            activeReviewId: gate1Shell.activeReviewId || null,
+            hint: 'BA mở tab Duyệt → Xác nhận duyệt lại để tạo GateSubmission ACTIVE',
+          };
           throw err;
         }
       } else {
         // Stamp submission id on gate1 for Approved SRS lineage pointer (Wave A)
+        // Heal stale/missing activeSubmissionId pointer when submission was found by fallback
         const shell = pack.aiAnalysis && typeof pack.aiAnalysis === 'object' ? { ...pack.aiAnalysis } : {};
         shell.gate1 = {
           ...(shell.gate1 || {}),
+          activeSubmissionId: activeSub.submissionId,
+          activeReviewId: activeSub.reviewId || shell.gate1?.activeReviewId || null,
           approvedAgainstSubmissionId: activeSub.submissionId,
           approvedManifestHash: activeSub.manifestHash,
         };
@@ -608,6 +617,25 @@ async function approveRequirementPack({
   }
 
   await pack.save();
+
+  // DEC D8 — PO approve Gate 1 → báo BA (phase WHAT)
+  if (pack.projectId) {
+    const { notifyAiHitlGateReviewers } = require('../utils/phase1GatePolicy');
+    const approveNote = String(note || '').trim().slice(0, 500);
+    void notifyAiHitlGateReviewers({
+      projectId: String(pack.projectId),
+      organizationId,
+      actorUserId: userId,
+      packId: String(packId),
+      nextPermission: 'analysis:submit_ba_review',
+      title: 'Gate 1 — PO đã duyệt',
+      content: approveNote
+        ? `PO đã chấp nhận gói yêu cầu. ${approveNote}`
+        : 'PO đã chấp nhận gói yêu cầu — có thể chuyển sang Phase HOW.',
+      kind: 'ai_hitl_gate1_approved',
+    });
+  }
+
   return attachPlanningReadiness(pack.toObject());
 }
 
@@ -683,7 +711,7 @@ async function rejectRequirementPack({
       organizationId,
       actorUserId: userId,
       packId: String(packId),
-      nextPermission: 'requirement:submit',
+      nextPermission: 'analysis:submit_ba_review',
       title: 'Gate 1 — PO từ chối, bản duyệt trả về BA',
       content: String(reason || 'PO đã từ chối gói yêu cầu.').slice(0, 500),
       kind: 'ai_hitl_gate1_rejected',

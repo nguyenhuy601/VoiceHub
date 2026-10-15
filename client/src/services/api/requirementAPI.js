@@ -194,14 +194,27 @@ export const requirementAPI = {
         ? crypto.randomUUID()
         : `phase-run-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
     const { idempotencyKey: _omit, ...restBody } = body || {};
+    // Account UI locale (voicehub-locale) → AI proposal language Vi/EN
+    let uiLocale = 'vi';
+    try {
+      const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('voicehub-locale') : null;
+      if (saved === 'en' || saved === 'vi') uiLocale = saved;
+    } catch {
+      /* ignore */
+    }
+    const payload = {
+      ...restBody,
+      locale: restBody.locale === 'en' || restBody.locale === 'vi' ? restBody.locale : uiLocale,
+    };
     return apiClient.post(
       `/projects/requirements/${encodeURIComponent(packId)}/ai-analysis/phase-run`,
-      restBody,
+      payload,
       withOrg(organizationId, {
         timeout: options.timeout ?? 120000,
         headers: {
           ...(options.headers || {}),
           'Idempotency-Key': String(idempotencyKey),
+          'X-UI-Locale': payload.locale,
         },
       })
     );

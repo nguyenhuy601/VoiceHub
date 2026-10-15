@@ -184,24 +184,12 @@ async function applyGate1TrustOnSubmit({
   withdrawSubmissionId = null,
   requestId = '',
 }) {
-  const activeSubmissionId = container.gate1?.activeSubmissionId || null;
-
-  let forceNewRound = false;
-  // Re-submit: auto-withdraw prior ACTIVE (idempotent if none / already withdrawn)
-  if (activeSubmissionId || withdrawSubmissionId) {
-    await withdrawActiveSubmission({
-      pack: { ...pack, aiAnalysis: container },
-      organizationId,
-      userId,
-      withdrawSubmissionId: withdrawSubmissionId || activeSubmissionId,
-    });
-    forceNewRound = true;
-    container.gate1 = {
-      ...(container.gate1 || {}),
-      activeSubmissionId: null,
-      activeReviewId: null,
-    };
-  }
+  // Keep prior id until NEW submission is ACTIVE — avoid PO seeing “no ACTIVE”
+  // when withdraw-then-create fails mid-flight.
+  const previousSubmissionId = String(
+    container.gate1?.activeSubmissionId || withdrawSubmissionId || ''
+  ).trim() || null;
+  const forceNewRound = Boolean(previousSubmissionId);
 
   const { review } = await ensureOpenGateReview({
     pack,
@@ -251,6 +239,28 @@ async function applyGate1TrustOnSubmit({
     status: 'ACTIVE',
   });
 
+  // Withdraw previous only AFTER new ACTIVE exists
+  if (
+    previousSubmissionId &&
+    String(previousSubmissionId) !== String(createdSub.submissionId)
+  ) {
+    await GateSubmission.updateOne(
+      {
+        submissionId: String(previousSubmissionId),
+        packId: pack._id || pack.id,
+        organizationId,
+        status: 'ACTIVE',
+      },
+      {
+        $set: {
+          status: 'WITHDRAWN',
+          withdrawnAt: new Date(),
+          withdrawnBy: userId,
+        },
+      }
+    );
+  }
+
   await GateReview.updateOne(
     { reviewId: review.reviewId },
     {
@@ -297,6 +307,13 @@ async function applyGate1TrustOnSubmit({
     reviewLaneUpdatedAt: new Date().toISOString(),
   };
 
+  if (!container.gate1.activeSubmissionId) {
+    const err = new Error('GateSubmission không được ghi nhận sau BA submit');
+    err.statusCode = 500;
+    err.errorCode = 'GATE_SUBMISSION_PERSIST_FAILED';
+    throw err;
+  }
+
   return {
     proposal: nextProposal,
     submission: createdSub.toObject(),
@@ -307,16 +324,42 @@ async function applyGate1TrustOnSubmit({
 
 /**
  * Load active GateSubmission for PO approve.
+ * Heals stale pack pointer (withdrawn / missing) by reviewId or latest ACTIVE.
  */
 async function loadActiveGateSubmission(pack, organizationId) {
+  const packId = pack._id || pack.id;
   const submissionId = pack?.aiAnalysis?.gate1?.activeSubmissionId;
-  if (!submissionId) return null;
+  if (submissionId) {
+    const byPointer = await GateSubmission.findOne({
+      submissionId: String(submissionId),
+      packId,
+      organizationId,
+      status: 'ACTIVE',
+    }).lean();
+    if (byPointer) return byPointer;
+  }
+
+  const reviewId = pack?.aiAnalysis?.gate1?.activeReviewId;
+  if (reviewId) {
+    const byReview = await GateSubmission.findOne({
+      reviewId: String(reviewId),
+      packId,
+      organizationId,
+      status: 'ACTIVE',
+    })
+      .sort({ sequenceNo: -1 })
+      .lean();
+    if (byReview) return byReview;
+  }
+
+  // Last resort: latest ACTIVE for this pack (pointer lost after failed re-submit)
   return GateSubmission.findOne({
-    submissionId: String(submissionId),
-    packId: pack._id || pack.id,
+    packId,
     organizationId,
     status: 'ACTIVE',
-  }).lean();
+  })
+    .sort({ sequenceNo: -1 })
+    .lean();
 }
 
 function isGate1SubmissionRequiredEnabled(env = process.env) {

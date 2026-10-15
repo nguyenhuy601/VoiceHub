@@ -344,7 +344,7 @@ export const projectAPI = {
       `/projects/${encodeURIComponent(projectId)}/roles/${encodeURIComponent(roleId)}/reset-default`
     ),
 
-  /** Phase 3 — Department Capacity */
+  /** Phase 3 — Department Capacity (view=forecast + userId → 3 metrics) */
   getDepartmentCapacity: (organizationId, params = {}, config = {}) =>
     apiClient.get(
       '/projects/resources/capacity',
@@ -352,6 +352,56 @@ export const projectAPI = {
         params: { ...params, organizationId },
         skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
       })
+    ),
+
+  getUserForecastCapacity: (organizationId, userId, params = {}, config = {}) =>
+    apiClient.get(
+      `/projects/resources/users/${encodeURIComponent(userId)}/forecast-capacity`,
+      withOrg(organizationId, {
+        params: { organizationId, ...params },
+        skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      })
+    ),
+
+  listRoleEffortBudgetTemplates: (organizationId, config = {}) =>
+    apiClient.get(
+      '/projects/resources/role-effort-budget-templates',
+      withOrg(organizationId, {
+        params: { organizationId },
+        skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      })
+    ),
+
+  putRoleEffortBudgetTemplate: (organizationId, body = {}, config = {}) =>
+    apiClient.put(
+      '/projects/resources/role-effort-budget-templates',
+      { ...body, organizationId },
+      withOrg(organizationId, {
+        skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+      })
+    ),
+
+  listProjectRoleEffortBudgets: (projectId, params = {}, config = {}) =>
+    apiClient.get(`/projects/${encodeURIComponent(projectId)}/role-effort-budgets`, {
+      params,
+      skipPermissionDeniedToast: Boolean(config.skipPermissionDeniedToast),
+    }),
+
+  patchProjectRoleEffortBudget: (projectId, budgetId, body = {}) =>
+    apiClient.patch(
+      `/projects/${encodeURIComponent(projectId)}/role-effort-budgets/${encodeURIComponent(budgetId)}`,
+      body
+    ),
+
+  approveProjectRoleEffortBudget: (projectId, budgetId) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/role-effort-budgets/${encodeURIComponent(budgetId)}/approve`
+    ),
+
+  allocateProjectRoleEffortBudget: (projectId, budgetId, body = {}) =>
+    apiClient.post(
+      `/projects/${encodeURIComponent(projectId)}/role-effort-budgets/${encodeURIComponent(budgetId)}/allocate`,
+      body
     ),
 
   /** Phase 3 — Resource Planner (org-scoped). config.skipPermissionDeniedToast cho best-effort badge. */

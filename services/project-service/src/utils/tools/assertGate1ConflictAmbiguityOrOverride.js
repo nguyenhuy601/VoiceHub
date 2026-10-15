@@ -147,6 +147,194 @@ function isGate1ConflictAmbiguityEnforceEnabled(env = process.env) {
   return raw !== '0' && raw !== 'false' && raw !== 'off';
 }
 
+/** Labels from RequirementAnalysisTool / requirementGaps → content field keys. */
+const MISSING_LABEL_FIELD_KEYS = {
+  'Acceptance criteria': ['ac', 'acceptanceCriteria'],
+  Description: ['description', 'desc'],
+  Priority: ['priority'],
+  Actor: ['actor', 'actors', 'primaryActor'],
+  'Error handling': ['errorHandling', 'error_handling'],
+};
+
+function nonEmpty(value) {
+  return String(value ?? '').trim().length > 0;
+}
+
+function collectProposalItemsById(proposal) {
+  const map = new Map();
+  const generated = proposal?.generated && typeof proposal.generated === 'object'
+    ? proposal.generated
+    : {};
+  for (const [section, block] of Object.entries(generated)) {
+    if (section === 'synthesis' || section === '_legacySynthesisDisplay') continue;
+    if (!block || typeof block !== 'object') continue;
+    for (const it of block.items || []) {
+      const logicalId = String(it?.logicalId || it?.id || '').trim();
+      if (!logicalId) continue;
+      map.set(logicalId, { section, item: it });
+    }
+  }
+  return map;
+}
+
+function collectReviewDecisions(pack) {
+  const proposal =
+    pack?.aiAnalysis?.analyses?.srsProposal ||
+    pack?.analyses?.srsProposal ||
+    null;
+  const fromProposal =
+    proposal?.review?.decisions && typeof proposal.review.decisions === 'object'
+      ? proposal.review.decisions
+      : {};
+  return { proposal, decisions: fromProposal, itemsById: collectProposalItemsById(proposal) };
+}
+
+function itemIdSet(logicalId, item) {
+  return new Set(
+    [logicalId, item?.logicalId, item?.id, item?.frId, item?.externalId, item?.upstreamId]
+      .filter(Boolean)
+      .map((v) => String(v))
+  );
+}
+
+function findProposalEntryForBlock(block, itemsById) {
+  const keys = [block?.requirementId, block?.frId, block?.id, block?.from, block?.to]
+    .filter(Boolean)
+    .map(String);
+  for (const k of keys) {
+    if (itemsById.has(k)) return { logicalId: k, ...itemsById.get(k) };
+  }
+  for (const [logicalId, entry] of itemsById.entries()) {
+    const ids = itemIdSet(logicalId, entry.item);
+    if (keys.some((k) => ids.has(k))) return { logicalId, ...entry };
+  }
+  return null;
+}
+
+function effectiveContentFields(item, decision) {
+  const base = item && typeof item === 'object' ? item : {};
+  const patch =
+    decision?.editedPayload && typeof decision.editedPayload === 'object'
+      ? decision.editedPayload
+      : {};
+  const ac =
+    patch.ac ??
+    patch.acceptanceCriteria ??
+    base.ac ??
+    base.acceptanceCriteria ??
+    '';
+  return {
+    ...base,
+    ...patch,
+    ac,
+    acceptanceCriteria:
+      patch.acceptanceCriteria ?? patch.ac ?? base.acceptanceCriteria ?? base.ac ?? ac,
+    description: patch.description ?? patch.desc ?? base.description ?? base.desc ?? '',
+    priority: patch.priority ?? base.priority ?? '',
+  };
+}
+
+function isMissingLabelStillEmpty(label, fields) {
+  const keys = MISSING_LABEL_FIELD_KEYS[String(label || '').trim()] || [];
+  if (!keys.length) {
+    const camel = String(label || '')
+      .trim()
+      .replace(/\s+(\w)/g, (_, c) => c.toUpperCase())
+      .replace(/^./, (c) => c.toLowerCase());
+    return !nonEmpty(fields[camel]);
+  }
+  return !keys.some((k) => nonEmpty(fields[k]));
+}
+
+function decisionAction(decisions, logicalId) {
+  const d = decisions?.[logicalId] || decisions?.[String(logicalId)];
+  return String(d?.action || '').toLowerCase();
+}
+
+/**
+ * Re-evaluate integrity blocking against BA review (edit/reject/create) + proposal content.
+ * Snapshot gate from G4 can stay stale after BA Sửa / Từ chối / Thêm dòng.
+ */
+function filterIntegrityBlockingByBaReview(pack, blocking) {
+  const list = Array.isArray(blocking) ? blocking : [];
+  if (!list.length) return [];
+  const { decisions, itemsById } = collectReviewDecisions(pack);
+  const out = [];
+
+  for (const block of list) {
+    const blockKind = String(block?.blockKind || '');
+    const kind = String(block?.kind || '');
+    const isData =
+      blockKind === 'data_integrity' ||
+      blockKind === 'ambiguity' ||
+      kind === 'incomplete_fields' ||
+      (!blockKind && kind === 'incomplete_fields');
+    const isRel =
+      blockKind === 'relationship_integrity' ||
+      blockKind === 'conflict' ||
+      HARD_REL_CODES.has(String(block?.code || ''));
+
+    const entry = findProposalEntryForBlock(block, itemsById);
+    const logicalId = entry?.logicalId || String(block?.requirementId || block?.id || '');
+    const action = decisionAction(decisions, logicalId);
+    const decision = decisions?.[logicalId] || decisions?.[String(logicalId)] || null;
+
+    if (action === 'reject') {
+      // Rejected rows are out of scope for Gate 1 integrity hard-block
+      continue;
+    }
+
+    if (isRel) {
+      const fromId = block?.from != null ? String(block.from) : '';
+      const toId = block?.to != null ? String(block.to) : '';
+      const fromRejected = fromId && decisionAction(decisions, fromId) === 'reject';
+      const toRejected = toId && decisionAction(decisions, toId) === 'reject';
+      if (fromRejected || toRejected) continue;
+      out.push(block);
+      continue;
+    }
+
+    if (!isData) {
+      out.push(block);
+      continue;
+    }
+
+    const fields = effectiveContentFields(entry?.item, decision);
+    const missing = Array.isArray(block?.missing)
+      ? block.missing.map(String).filter(Boolean)
+      : [];
+
+    if (!missing.length) {
+      // Generic incomplete — drop when AC + description present after BA edit
+      const still =
+        isMissingLabelStillEmpty('Acceptance criteria', fields) ||
+        isMissingLabelStillEmpty('Description', fields);
+      if (!still && (action === 'edit' || action === 'create' || nonEmpty(fields.ac))) {
+        continue;
+      }
+      out.push(block);
+      continue;
+    }
+
+    const stillMissing = missing.filter((label) => isMissingLabelStillEmpty(label, fields));
+    if (!stillMissing.length) continue;
+    out.push({ ...block, missing: stillMissing });
+  }
+
+  return out;
+}
+
+function applyBaReviewToIntegrityGate(pack, gate) {
+  if (!gate || gate.passed === true) return gate;
+  const blocking = filterIntegrityBlockingByBaReview(pack, gate.blocking);
+  return {
+    ...gate,
+    passed: blocking.length === 0,
+    blocking,
+    filteredByBaReview: true,
+  };
+}
+
 /**
  * @param {{
  *   pack: object,
@@ -170,7 +358,8 @@ function assertGate1ConflictAmbiguityOrOverride({
     };
   }
 
-  const gate = resolveConflictAmbiguityFromPack(pack);
+  const rawGate = resolveConflictAmbiguityFromPack(pack);
+  const gate = applyBaReviewToIntegrityGate(pack, rawGate);
   const forced = forceApprove === true || forceApprove === 'true' || forceApprove === 1;
   const reason = String(overrideReason || '').trim().slice(0, 2000);
 
@@ -215,6 +404,7 @@ function assertGate1ConflictAmbiguityOrOverride({
       warnings: Array.isArray(gate.warnings) ? gate.warnings.slice(0, 20) : [],
       source: gate.source,
       gateKind: gate.gateKind || 'requirement_integrity',
+      filteredByBaReview: Boolean(gate.filteredByBaReview),
     },
   };
   throw err;
@@ -225,6 +415,8 @@ module.exports = {
   resolveConflictAmbiguityFromPack,
   isGate1ConflictAmbiguityEnforceEnabled,
   isHardBlockingItem,
+  filterIntegrityBlockingByBaReview,
+  applyBaReviewToIntegrityGate,
   HARD_BLOCK_KINDS,
   LEGACY_BLOCK_KINDS,
 };

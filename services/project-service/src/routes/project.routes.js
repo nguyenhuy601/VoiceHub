@@ -14,6 +14,7 @@ const readyToDone = require('../controllers/readyToDone.controller');
 const releaseReady = require('../controllers/releaseReady.controller');
 const taskQa = require('../controllers/taskQa.controller');
 const resource = require('../controllers/resource.controller');
+const roleEffortBudget = require('../controllers/roleEffortBudget.controller');
 const workPreview = require('../controllers/workPreview.controller');
 const workflowTemplates = require('../controllers/workflowTemplate.controller');
 const approval = require('../controllers/approval.controller');
@@ -34,6 +35,7 @@ bindObjectIdParams(router, [
   'crId',
   'testCaseId',
   'userId',
+  'budgetId',
 ]);
 
 /**
@@ -79,6 +81,9 @@ router.get('/resources/performance/users/:userId', resource.getUserPerformance);
 router.get('/resources/estimate-hints', resource.getEstimateHints);
 router.get('/resources/users/:userId/allocations', resource.getUserAllocations);
 router.get('/resources/employees/:userId/profile', resource.getEmployeeResourceProfile);
+router.get('/resources/role-effort-budget-templates', roleEffortBudget.listOrgTemplates);
+router.put('/resources/role-effort-budget-templates', roleEffortBudget.putOrgTemplate);
+router.get('/resources/users/:userId/forecast-capacity', roleEffortBudget.getForecastCapacity);
 
 /** Phase 4 — Workflow template catalog */
 router.get('/workflow-templates', workflowTemplates.listTemplates);
@@ -209,6 +214,10 @@ router.post(
   projectScopedRoles.resetProjectScopedRoleDefault
 );
 router.get('/:projectId/resources/planner', resource.getPlanner);
+router.get('/:projectId/role-effort-budgets', roleEffortBudget.listProjectRoleBudgets);
+router.patch('/:projectId/role-effort-budgets/:budgetId', roleEffortBudget.patchBudget);
+router.post('/:projectId/role-effort-budgets/:budgetId/approve', roleEffortBudget.approveBudget);
+router.post('/:projectId/role-effort-budgets/:budgetId/allocate', roleEffortBudget.allocateBudget);
 router.post('/:projectId/workflow/apply', workflowTemplates.applyToProject);
 router.put('/:projectId/approval-policy', approval.bindProjectPolicy);
 

@@ -1,6 +1,6 @@
 /**
- * OpenAI-compatible Chat Completions (DashScope MaaS / compatible-mode/v1).
- * Chat only — G7 embed stays on Ollama in this phase.
+ * OpenAI-compatible Chat Completions + Embeddings (DashScope MaaS / compatible-mode/v1).
+ * G7 RAG embed uses embeddingsCreate when LLM_PROVIDER is dashscope / openai_compatible.
  */
 
 const axios = require('axios');
@@ -39,6 +39,26 @@ function chatModel(env = process.env, fallback = 'qwen3.8-max') {
     return String(env.LLM_CHAT_MODEL || '').trim();
   }
   return String(env.OLLAMA_MODEL || fallback).trim() || fallback;
+}
+
+/** Free-quota DashScope text embed (OpenAI-compatible). Override via G7_EMBEDDING_MODEL. */
+const DEFAULT_REMOTE_EMBED_MODEL = 'text-embedding-v4';
+
+function remoteEmbedModel(env = process.env, fallback = DEFAULT_REMOTE_EMBED_MODEL) {
+  const raw = String(env.G7_EMBEDDING_MODEL || env.LLM_EMBED_MODEL || '').trim();
+  // Ignore leftover Ollama tags (e.g. qwen3-embedding:0.6b) when on DashScope.
+  if (raw && !raw.includes(':')) {
+    return raw;
+  }
+  return String(fallback).trim() || DEFAULT_REMOTE_EMBED_MODEL;
+}
+
+function remoteEmbedDimensions(env = process.env) {
+  const n = Number(env.G7_EMBED_DIMENSIONS);
+  if (Number.isFinite(n) && n >= 64 && n <= 2560) {
+    return Math.round(n);
+  }
+  return 1024;
 }
 
 function sleep(ms) {
@@ -180,12 +200,110 @@ async function chatCompletionsText(opts = {}) {
   };
 }
 
+/**
+ * OpenAI-compatible embeddings.create — DashScope text-embedding-v3/v4 (free quota).
+ * @param {{
+ *   text: string,
+ *   model?: string,
+ *   dimensions?: number,
+ *   timeoutMs?: number,
+ *   env?: NodeJS.ProcessEnv,
+ *   axiosImpl?: object,
+ *   sleepImpl?: (ms: number) => Promise<void>,
+ * }} opts
+ * @returns {Promise<{ ok: boolean, embedding: number[], model: string, error?: string }>}
+ */
+async function embeddingsCreate(opts = {}) {
+  const env = opts.env || process.env;
+  const model = String(opts.model || remoteEmbedModel(env)).trim() || DEFAULT_REMOTE_EMBED_MODEL;
+  const http = opts.axiosImpl || axios;
+  const wait = opts.sleepImpl || sleep;
+  const baseUrl = openAiBaseUrl(env);
+  const apiKey = openAiApiKey(env);
+  const text = String(opts.text || '').trim();
+
+  if (!text) {
+    return { ok: false, embedding: [], model, error: 'empty_text' };
+  }
+  if (!baseUrl) {
+    return { ok: false, embedding: [], model, error: 'OPENAI_BASE_URL_missing' };
+  }
+  if (!apiKey) {
+    return { ok: false, embedding: [], model, error: 'DASHSCOPE_API_KEY_missing' };
+  }
+
+  const timeout =
+    opts.timeoutMs != null && Number.isFinite(Number(opts.timeoutMs))
+      ? Math.max(5000, Math.min(120000, Number(opts.timeoutMs)))
+      : Number(env.G7_EMBED_TIMEOUT_MS) > 0
+        ? Math.max(5000, Math.min(120000, Number(env.G7_EMBED_TIMEOUT_MS)))
+        : 60000;
+
+  const dimensions =
+    opts.dimensions != null && Number.isFinite(Number(opts.dimensions))
+      ? Math.round(Number(opts.dimensions))
+      : remoteEmbedDimensions(env);
+
+  const body = {
+    model,
+    input: text,
+    encoding_format: 'float',
+  };
+  if (dimensions) {
+    body.dimensions = dimensions;
+  }
+
+  let lastError = 'openai_embed_error';
+  for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
+    try {
+      const res = await http.post(`${baseUrl}/embeddings`, body, {
+        timeout,
+        validateStatus: () => true,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!res || res.status < 200 || res.status >= 300) {
+        const status = res?.status || 0;
+        lastError = `openai_embed_http_${status}`;
+        if (isRetryableHttpStatus(status) && attempt < MAX_TRANSIENT_RETRIES) {
+          await wait(RETRY_DELAY_MS);
+          continue;
+        }
+        return { ok: false, embedding: [], model, error: lastError };
+      }
+
+      const vector = res.data?.data?.[0]?.embedding;
+      if (!Array.isArray(vector) || !vector.length) {
+        return { ok: false, embedding: [], model, error: 'openai_embed_empty' };
+      }
+      return { ok: true, embedding: vector, model };
+    } catch (err) {
+      const code = err.code === 'ECONNABORTED' ? 'openai_embed_timeout' : 'openai_embed_error';
+      lastError = code;
+      if (code === 'openai_embed_timeout' && attempt < MAX_TRANSIENT_RETRIES) {
+        await wait(RETRY_DELAY_MS);
+        continue;
+      }
+      return { ok: false, embedding: [], model, error: lastError };
+    }
+  }
+
+  return { ok: false, embedding: [], model, error: lastError };
+}
+
 module.exports = {
   REMOTE_PROVIDERS,
+  DEFAULT_REMOTE_EMBED_MODEL,
   llmProvider,
   isOpenAiCompatibleProvider,
   openAiBaseUrl,
   openAiApiKey,
   chatModel,
+  remoteEmbedModel,
+  remoteEmbedDimensions,
   chatCompletionsText,
+  embeddingsCreate,
 };

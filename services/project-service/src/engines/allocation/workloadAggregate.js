@@ -1,6 +1,7 @@
 /**
  * Cross-project workload aggregate — pure.
- * Commitment % is NOT computed here (ProjectMember.allocations is separate SoT).
+ * Forecast demand (Wave 1) prefers forecastDemand.js (budget+task+meeting).
+ * Commitment % stays on ProjectMember.allocations (separate SoT).
  */
 
 const { availableCapacityHours, workloadPct, weekKeyFromDate } = require('./capacity');

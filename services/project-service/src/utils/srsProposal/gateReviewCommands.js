@@ -10,10 +10,12 @@ const {
   DECISION_ACCEPT,
   DECISION_EDIT,
   DECISION_REJECT,
+  DECISION_CREATE,
 } = require('./review');
 const {
   ORIGIN_AI,
   ORIGIN_BA_EDIT,
+  ORIGIN_BA_CREATED,
   ORIGIN_LEGACY,
   extractRevisionContent,
   buildRevisionDoc,
@@ -22,6 +24,19 @@ const {
   sectionToArtifactType,
   newRevisionId,
 } = require('./artifactRevision');
+
+/** BA create — mirror FE GATE1_ADDABLE_SECTIONS. */
+const GATE1_CREATE_ALLOWED_SECTIONS = Object.freeze([
+  'functionalRequirements',
+  'nonFunctionalRequirements',
+  'businessRules',
+  'businessGoals',
+  'processes',
+  'useCases',
+  'entities',
+  'actors',
+  'scope',
+]);
 const {
   newReviewId,
   buildGateSubmissionDoc,
@@ -32,6 +47,7 @@ const GATE1_AUDIT_ACTIONS = Object.freeze({
   REVIEW_STARTED: 'REVIEW_STARTED',
   REVIEW_ACCEPTED: 'REVIEW_ACCEPTED',
   REVIEW_EDITED: 'REVIEW_EDITED',
+  REVIEW_CREATED: 'REVIEW_CREATED',
   REVIEW_REJECTED: 'REVIEW_REJECTED',
   REVIEW_SUBMITTED: 'REVIEW_SUBMITTED',
   REVIEW_WITHDRAWN: 'REVIEW_WITHDRAWN',
@@ -44,8 +60,152 @@ function actionToAuditEvent(action) {
   const a = String(action || '').toLowerCase();
   if (a === DECISION_ACCEPT) return GATE1_AUDIT_ACTIONS.REVIEW_ACCEPTED;
   if (a === DECISION_EDIT) return GATE1_AUDIT_ACTIONS.REVIEW_EDITED;
+  if (a === DECISION_CREATE) return GATE1_AUDIT_ACTIONS.REVIEW_CREATED;
   if (a === DECISION_REJECT) return GATE1_AUDIT_ACTIONS.REVIEW_REJECTED;
   return null;
+}
+
+function resolveCreateTitle(editedPayload) {
+  const payload = editedPayload && typeof editedPayload === 'object' ? editedPayload : {};
+  return String(payload.title || payload.name || '').trim();
+}
+
+/**
+ * BA create: insert new proposal item + baseline revision (no prior tip).
+ */
+function applyCreateDecisionPure({
+  proposal,
+  logicalId,
+  decision,
+  userId,
+  organizationId,
+  pack,
+  reviewId,
+  expectedReviewVersion,
+}) {
+  if (
+    expectedReviewVersion != null &&
+    Number(proposal.reviewVersion || 0) !== Number(expectedReviewVersion)
+  ) {
+    const err = new Error('Stale reviewVersion');
+    err.statusCode = 409;
+    err.errorCode = 'STALE_REVIEW_VERSION';
+    throw err;
+  }
+
+  const section = String(decision?.section || '').trim();
+  if (!GATE1_CREATE_ALLOWED_SECTIONS.includes(section)) {
+    const err = new Error(`Create not allowed for section: ${section || '(missing)'}`);
+    err.statusCode = 400;
+    err.errorCode = 'GATE1_CREATE_SECTION_NOT_ALLOWED';
+    throw err;
+  }
+
+  const id = String(logicalId || '').trim();
+  if (!id) {
+    const err = new Error('logicalId required for create');
+    err.statusCode = 400;
+    err.errorCode = 'GATE1_CREATE_LOGICAL_ID_REQUIRED';
+    throw err;
+  }
+
+  const existing = listProposalItems(proposal).find((x) => String(x.logicalId) === id);
+  if (existing) {
+    const err = new Error(`Proposal item already exists: ${id}`);
+    err.statusCode = 409;
+    err.errorCode = 'PROPOSAL_ITEM_ALREADY_EXISTS';
+    throw err;
+  }
+
+  const title = resolveCreateTitle(decision?.editedPayload);
+  if (!title) {
+    const err = new Error('Create requires editedPayload.title (or name)');
+    err.statusCode = 400;
+    err.errorCode = 'GATE1_CREATE_TITLE_REQUIRED';
+    throw err;
+  }
+
+  const payload =
+    decision.editedPayload && typeof decision.editedPayload === 'object'
+      ? { ...decision.editedPayload }
+      : {};
+  if (!payload.title) payload.title = title;
+  if (section === 'actors' && !payload.name) payload.name = title;
+
+  const newItem = {
+    logicalId: id,
+    id,
+    ...payload,
+    title,
+    status: 'PROPOSED',
+    provenance: {
+      type: 'BA_ADDED',
+      producer: 'ba_manual',
+      derivedFrom: [],
+      rule: null,
+    },
+    origin: { type: 'BA_ADDED' },
+  };
+
+  const content = extractRevisionContent(newItem);
+  const newRevision = buildRevisionDoc({
+    revisionId: newRevisionId(),
+    organizationId,
+    projectId: pack.projectId ? String(pack.projectId) : null,
+    packId: String(pack._id || pack.id || pack.packId),
+    reviewId,
+    artifactType: sectionToArtifactType(section),
+    logicalId: id,
+    section,
+    revisionNo: 1,
+    parentRevisionId: null,
+    origin: ORIGIN_BA_CREATED,
+    content,
+    snapshotId: resolveSnapshotId(pack),
+    createdBy: userId || null,
+    createdByType: 'HUMAN',
+  });
+
+  const next = JSON.parse(JSON.stringify(proposal));
+  next.generated = next.generated || {};
+  if (!next.generated[section] || typeof next.generated[section] !== 'object') {
+    next.generated[section] = { items: [] };
+  }
+  if (!Array.isArray(next.generated[section].items)) {
+    next.generated[section].items = [];
+  }
+  next.generated[section].items.push(newItem);
+
+  next.review = next.review || { decisions: {}, locks: {}, summary: {} };
+  next.review.decisions = { ...(next.review.decisions || {}) };
+  next.review.decisions[id] = {
+    action: DECISION_CREATE,
+    note: decision.note || null,
+    resolution: decision.resolution || null,
+    editedPayload: payload,
+    section,
+    revisionId: newRevision.revisionId,
+    at: new Date().toISOString(),
+    by: userId || null,
+  };
+  next.reviewVersion = Number(next.reviewVersion || 0) + 1;
+  next.review.summary = computeReviewSummary(next);
+
+  const audit = {
+    action: GATE1_AUDIT_ACTIONS.REVIEW_CREATED,
+    logicalId: id,
+    fromRevisionId: null,
+    toRevisionId: newRevision.revisionId,
+    note: decision.note || 'ba_create',
+    reasonCode: decision.reasonCode || null,
+  };
+
+  return {
+    proposal: next,
+    newRevision,
+    tipRevision: newRevision,
+    audit,
+  };
 }
 
 function resolveSnapshotId(pack) {
@@ -152,6 +312,20 @@ function applyOneDecisionPure({
   reviewId,
   expectedReviewVersion,
 }) {
+  const actionEarly = String(decision?.action || '').toLowerCase();
+  if (actionEarly === DECISION_CREATE) {
+    return applyCreateDecisionPure({
+      proposal,
+      logicalId,
+      decision,
+      userId,
+      organizationId,
+      pack,
+      reviewId,
+      expectedReviewVersion,
+    });
+  }
+
   if (
     expectedReviewVersion != null &&
     Number(proposal.reviewVersion || 0) !== Number(expectedReviewVersion)
@@ -499,12 +673,14 @@ function createMongooseRevisionStore(ArtifactRevisionModel) {
 
 module.exports = {
   GATE1_AUDIT_ACTIONS,
+  GATE1_CREATE_ALLOWED_SECTIONS,
   REVIEW_POLICY_VERSION,
   actionToAuditEvent,
   resolveSnapshotId,
   tipMapFromRevisions,
   ensureBaselineRevisions,
   applyOneDecisionPure,
+  applyCreateDecisionPure,
   normalizeDecisionEntries,
   applyGate1DecisionBatch,
   buildSubmissionFromBatchResult,

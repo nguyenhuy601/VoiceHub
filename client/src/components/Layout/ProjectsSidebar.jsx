@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Activity,
@@ -199,6 +199,129 @@ const MODULE_ICONS = {
   'planning-approval': Activity,
 };
 
+/**
+ * Accordion section for project phase menu groups (RA / Planning / Work / …).
+ * Expanded: AdminNavSectionGroup-style (NavCollapse + VH_NAV_CHEVRON).
+ * Rail collapsed: AdminNavActionGroup-style flyout (fade-in), not a full icon dump.
+ */
+function ProjectNavSectionGroup({
+  section,
+  railCollapsed,
+  suiteColor,
+  isExpanded,
+  onToggle,
+  hasActive,
+  children,
+  flyoutItems = null,
+  closeFlyoutSignal = '',
+}) {
+  const reactId = useId();
+  const listId = `projects-nav-section-${section.group}-${reactId}`;
+  const rootRef = useRef(null);
+  const [flyoutOpen, setFlyoutOpen] = useState(false);
+
+  useEffect(() => {
+    if (!railCollapsed) setFlyoutOpen(false);
+  }, [railCollapsed]);
+
+  useEffect(() => {
+    setFlyoutOpen(false);
+  }, [closeFlyoutSignal]);
+
+  useEffect(() => {
+    if (!flyoutOpen) return undefined;
+    const onDoc = (event) => {
+      if (rootRef.current?.contains(event.target)) return;
+      setFlyoutOpen(false);
+    };
+    const onKey = (event) => {
+      if (event.key === 'Escape') setFlyoutOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [flyoutOpen]);
+
+  if (!section.label) {
+    return <div className="mb-1">{children}</div>;
+  }
+
+  if (railCollapsed) {
+    const LeadIcon = flyoutItems?.[0]?.icon || FolderKanban;
+    return (
+      <div ref={rootRef} className="relative mb-px">
+        <button
+          type="button"
+          aria-expanded={flyoutOpen}
+          aria-controls={listId}
+          title={section.label}
+          onClick={() => setFlyoutOpen((v) => !v)}
+          className={`${figmaNavItemClass(hasActive, suiteColor, true)} w-full`}
+          style={figmaNavItemBg(hasActive, suiteColor)}
+        >
+          <LeadIcon
+            size={15}
+            className="shrink-0"
+            style={{ color: hasActive ? suiteColor : undefined }}
+            aria-hidden
+          />
+        </button>
+        {flyoutOpen ? (
+          <div
+            id={listId}
+            role="menu"
+            aria-label={section.label}
+            className="absolute left-full top-0 z-40 ml-1 min-w-[12rem] rounded-lg border border-white/10 bg-[#0D0D1A] py-1 shadow-[0_12px_32px_rgba(0,0,0,0.65)] motion-safe:animate-fade-in-fast"
+          >
+            <div className="px-2.5 pb-1 pt-1.5 text-[0.55rem] font-bold uppercase tracking-wider text-white/35">
+              {section.label}
+            </div>
+            <div className="space-y-px px-1 pb-1">{children}</div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isExpanded}
+        aria-controls={listId}
+        className={`flex w-full items-center justify-between gap-2 rounded-[7px] px-2.5 py-2 text-left transition ${
+          hasActive
+            ? 'text-white/90'
+            : 'text-white/50 hover:bg-white/[0.05] hover:text-white/75'
+        }`}
+        style={
+          hasActive
+            ? { background: `${suiteColor}22`, color: suiteColor }
+            : undefined
+        }
+      >
+        <span className="text-[0.55rem] font-bold uppercase tracking-wider">{section.label}</span>
+        <ChevronDown
+          size={13}
+          className={`${VH_NAV_CHEVRON} ${isExpanded ? 'rotate-180' : 'rotate-0'}`}
+          aria-hidden
+        />
+      </button>
+      <NavCollapse
+        open={isExpanded}
+        id={listId}
+        className="mb-1 ml-1.5 border-l border-white/10 pl-1"
+      >
+        <div className="mt-0.5 space-y-px">{children}</div>
+      </NavCollapse>
+    </div>
+  );
+}
+
 function NavItem({
   item,
   collapsed,
@@ -335,6 +458,8 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   const [collapsed, setCollapsed] = useState(false);
   const [showSuitePicker, setShowSuitePicker] = useState(false);
   const [expandedNavParents, setExpandedNavParents] = useState(() => new Set(['planning-resources']));
+  /** Accordion: one phase/menu group open at a time (Admin-style). */
+  const [expandedMenuGroup, setExpandedMenuGroup] = useState(null);
   const [pendingModule, setPendingModule] = useState(null);
   const location = useLocation();
   const navigate = useNavigate();
@@ -591,16 +716,33 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
     }
   }, [location.pathname, postItems]);
 
+  // Open the menu group that contains the active route (accordion SoT).
+  useEffect(() => {
+    if (!groupedPost.length) return;
+    const activeSection = groupedPost.find((section) =>
+      section.items.some((item) => isItemActive(item))
+    );
+    if (!activeSection) return;
+    setExpandedMenuGroup((prev) =>
+      prev === activeSection.group ? prev : activeSection.group
+    );
+  }, [location.pathname, activeModule, groupedPost, projectId]);
+
+  const toggleMenuGroup = (group) => {
+    setExpandedMenuGroup((prev) => (prev === group ? null : group));
+  };
+
+  // Section body always shows labels (accordion panel or rail flyout) — never the thin icon rail.
   const renderSectionNav = (items) => {
     const roots = items.filter((item) => !item.navChildOf);
     return roots.map((item) => {
       const children = items.filter((child) => child.navChildOf === item.key);
-      const parentOpen = expandedNavParents.has(item.key) && !railCollapsed;
+      const parentOpen = expandedNavParents.has(item.key);
       return (
         <div key={item.key} className="mb-px">
           <NavItem
             item={item}
-            collapsed={railCollapsed}
+            collapsed={false}
             suiteColor={suiteColor}
             isActive={isItemActive(item)}
             expanded={expandedNavParents.has(item.key)}
@@ -813,16 +955,25 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
                     aria-hidden
                   />
                 ))
-              : groupedPost.map((section) => (
-                  <div key={section.group} className="mb-1">
-                    {!railCollapsed && section.label ? (
-                      <div className="px-2.5 pb-0.5 pt-2 text-[0.55rem] font-bold uppercase tracking-wider text-white/25">
-                        {section.label}
-                      </div>
-                    ) : null}
-                    {renderSectionNav(section.items)}
-                  </div>
-                ))}
+              : groupedPost.map((section) => {
+                  const sectionHasActive = section.items.some((item) => isItemActive(item));
+                  const roots = section.items.filter((item) => !item.navChildOf);
+                  return (
+                    <ProjectNavSectionGroup
+                      key={section.group}
+                      section={section}
+                      railCollapsed={railCollapsed}
+                      suiteColor={suiteColor}
+                      isExpanded={expandedMenuGroup === section.group}
+                      onToggle={() => toggleMenuGroup(section.group)}
+                      hasActive={sectionHasActive}
+                      flyoutItems={roots}
+                      closeFlyoutSignal={location.pathname}
+                    >
+                      {renderSectionNav(section.items)}
+                    </ProjectNavSectionGroup>
+                  );
+                })}
         </nav>
 
         <div className={FIGMA_SIDEBAR_FOOTER}>

@@ -219,9 +219,6 @@ async function runOneEngineNode(engineId, state, env = process.env) {
     !sheetAlreadyPresent &&
     !skipLegacySemantic &&
     engineId !== 'fr' &&
-    engineId !== 'glossary' &&
-    engineId !== 'assumption' &&
-    engineId !== 'traceability' &&
     semanticStatus === TASK_POLICIES.RUN
   ) {
     const rows = packRows;
@@ -282,11 +279,14 @@ async function runDeriveRawSectionsNode(state) {
     g4Understanding: state.g4Understanding || null,
     evidence: state.g4Understanding?.evidence || null,
     snapshot: state.snapshot || null,
+    locale: state.g4Opts?.locale || pack?.aiAnalysis?.deriveLocale || null,
   });
   const wallMs = endDerive();
   proposal = derived.proposal;
   resultsById = { ...resultsById, ...(derived.resultsById || {}) };
   const bgMeta = derived.timingMeta?.bg_derive || {};
+  const frSpan = derived.timingMeta?.fr_decompose || bgMeta.fr_decompose || null;
+  const rawSpan = derived.timingMeta?.raw_section_derive || bgMeta.raw_section_derive || null;
   if (whatTiming) {
     whatTiming = markStage(whatTiming, 'bg_derive', {
       ms: wallMs,
@@ -299,7 +299,20 @@ async function runDeriveRawSectionsNode(state) {
       items: bgMeta.items || 0,
       llmCalls: bgMeta.llmCalls || 0,
       bySection: bgMeta.bySection || null,
+      fr_decompose: frSpan,
+      raw_section_derive: rawSpan,
     });
+    if (frSpan && frSpan.ms != null) {
+      whatTiming = markStage(whatTiming, 'fr_decompose', frSpan);
+    }
+    if (rawSpan && rawSpan.ms != null) {
+      whatTiming = markStage(whatTiming, 'raw_section_derive', {
+        ms: rawSpan.ms,
+        wallMs: rawSpan.wallMs ?? rawSpan.ms,
+        llmCalls: rawSpan.llmCalls || 0,
+        items: rawSpan.items || 0,
+      });
+    }
   }
   return {
     srsProposal: proposal,

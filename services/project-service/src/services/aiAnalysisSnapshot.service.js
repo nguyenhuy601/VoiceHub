@@ -134,7 +134,39 @@ async function loadLivePoolAndCalendar({
     }
   }
 
-  return { poolItems, calendar, bookedHoursByUserDay, hadPlanningWindow };
+  let enrichedPool = poolItems;
+  try {
+    const {
+      isForecastCapacityV1Enabled,
+    } = require('../constants/roleEffortBudgetDefaults');
+    if (isForecastCapacityV1Enabled() && poolItems.length) {
+      const {
+        enrichPoolItemsWithForecast,
+        buildForecastDemandByUserWeek,
+      } = require('./forecastCapacity.service');
+      enrichedPool = await enrichPoolItemsWithForecast(poolItems, {
+        organizationId,
+      });
+      const userIds = enrichedPool.map((row) => row.userId).filter(Boolean);
+      const forecastDemandByUserWeek = await buildForecastDemandByUserWeek({
+        organizationId,
+        userIds,
+        fromMs,
+        toMs,
+      });
+      return {
+        poolItems: enrichedPool,
+        calendar,
+        bookedHoursByUserDay,
+        hadPlanningWindow,
+        forecastDemandByUserWeek,
+      };
+    }
+  } catch {
+    enrichedPool = poolItems;
+  }
+
+  return { poolItems: enrichedPool, calendar, bookedHoursByUserDay, hadPlanningWindow };
 }
 
 /**
@@ -215,12 +247,17 @@ async function createOrReuseAiAnalysisSnapshot({
     }
   }
 
-  const { poolItems, calendar, bookedHoursByUserDay, hadPlanningWindow } =
-    await loadLivePoolAndCalendar({
-      organizationId,
-      userId,
-      packId,
-    });
+  const {
+    poolItems,
+    calendar,
+    bookedHoursByUserDay,
+    hadPlanningWindow,
+    forecastDemandByUserWeek = null,
+  } = await loadLivePoolAndCalendar({
+    organizationId,
+    userId,
+    packId,
+  });
   const skillCatalog = buildSkillCatalogStub(packObj);
   const payload = buildSnapshotPayload({
     pack: packObj,
@@ -323,6 +360,12 @@ async function createOrReuseAiAnalysisSnapshot({
     preparedByJob: payload.preparedByJob,
     ingestionValidation,
     bookedHoursByUserDay: bookedMap,
+    forecastDemandByUserWeek:
+      forecastDemandByUserWeek &&
+      typeof forecastDemandByUserWeek === 'object' &&
+      Object.keys(forecastDemandByUserWeek).length
+        ? forecastDemandByUserWeek
+        : null,
     meetingPlan,
     meetingDemandHoursByUserDay,
     effortEstimationConfigVersionId,

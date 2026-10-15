@@ -277,15 +277,20 @@ services:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
       - LLM_CHAT_MODEL=${LLM_CHAT_MODEL:-}
-      - G7_EMBEDDING_MODEL=${G7_EMBEDDING_MODEL:-qwen3-embedding:0.6b}
-      - G7_EMBEDDING_VERSION=${G7_EMBEDDING_VERSION:-ollama-qwen3-emb-0.6b}
+      # DashScope free embed when LLM_PROVIDER=openai_compatible|dashscope; Ollama tags ignored in code
+      - G7_EMBEDDING_MODEL=${G7_EMBEDDING_MODEL:-text-embedding-v4}
+      - G7_EMBEDDING_VERSION=${G7_EMBEDDING_VERSION:-dashscope-text-embedding-v4}
+      - G7_EMBED_DIMENSIONS=${G7_EMBED_DIMENSIONS:-1024}
       - AGENT_CORE_F2=${AGENT_CORE_F2:-1}
       - G7_RAG_MODE=${G7_RAG_MODE:-hybrid}
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - QDRANT_COLLECTION=${QDRANT_COLLECTION:-vh_ai_plan_g7}
+      # In-run HITL only (clarify/edit_draft). Gate 1/2 stay HTTP on project-service.
+      # Requires Redis+RedisJSON when =1 — MemorySaver fail-fast (no Postgres).
       - AGENT_CORE_HITL_INTERRUPT=${AGENT_CORE_HITL_INTERRUPT:-0}
       - JEV_CONTROL=${JEV_CONTROL:-0}
-      - AGENT_CORE_LG_MEMORY=${AGENT_CORE_LG_MEMORY:-1}
+      # 0 = try RedisSaver (RedisJSON); 1 = force MemorySaver (incompatible with HITL interrupt=1)
+      - AGENT_CORE_LG_MEMORY=${AGENT_CORE_LG_MEMORY:-0}
       - HOW_WBS_LLM=${HOW_WBS_LLM:-0}
       - HOW_WBS_LLM_QUEUE=${HOW_WBS_LLM_QUEUE:-0}
       - HOW_WBS_LLM_NUM_CTX=${HOW_WBS_LLM_NUM_CTX:-1536}
@@ -304,6 +309,8 @@ services:
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_URL=${REDIS_URL:-}
+      # Optional Redis Stack (RedisJSON) for LangGraph checkpointer — see devops/swarm/redis-stack-lg/
+      - LG_REDIS_URL=${LG_REDIS_URL:-}
       - REDIS_SENTINELS=${REDIS_SENTINELS:-}
       - REDIS_SENTINEL_NAME=${REDIS_SENTINEL_NAME:-mymaster}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}

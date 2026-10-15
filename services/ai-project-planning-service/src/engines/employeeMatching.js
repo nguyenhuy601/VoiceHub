@@ -161,6 +161,10 @@ function normalizePoolItemsForMatching(items = []) {
         history: Array.isArray(item.history)
           ? item.history
           : item.capability?.projectExperiences || [],
+        forecastWorkloadPct:
+          item.forecastWorkloadPct != null ? Number(item.forecastWorkloadPct) : undefined,
+        forecastDemandHours:
+          item.forecastDemandHours != null ? Number(item.forecastDemandHours) : undefined,
       };
     });
 }
@@ -404,7 +408,28 @@ async function runEmployeeMatching(
       if (softOverload) reasons.push('overload');
       for (const r of sim.reasons || []) reasons.push(r);
 
-      const feasible = sim.feasible !== false;
+      // Wave 1 hard-gate: projected forecast workload ≤ 100% (from pool forecast fields)
+      let forecastOverload = false;
+      const forecastPct = Number(item.forecastWorkloadPct);
+      if (Number.isFinite(forecastPct) && taskHours > 0) {
+        const reservedPct = (reserved / HOURS_PER_FTE) * 100;
+        const addPct = (taskHours / HOURS_PER_FTE) * 100;
+        const projected = forecastPct + reservedPct + addPct;
+        if (projected > 100) {
+          forecastOverload = true;
+          reasons.push('forecast_overload');
+        }
+      } else if (
+        Number.isFinite(availableHours) &&
+        taskHours > 0 &&
+        availableHours - reserved < taskHours &&
+        item.forecastDemandHours != null
+      ) {
+        forecastOverload = true;
+        reasons.push('forecast_overload');
+      }
+
+      const feasible = sim.feasible !== false && !forecastOverload;
       const displayName = String(item.displayName || '').trim();
       scored.push({
         userId: item.userId,
@@ -413,7 +438,8 @@ async function runEmployeeMatching(
         score: feasible ? fitScore : Math.max(0, fitScore - 0.5),
         available_capacity: Math.max(0, Math.round((availableHours - reserved) * 100) / 100),
         reservedHours: reserved,
-        overload: Boolean(softOverload),
+        overload: Boolean(softOverload || forecastOverload),
+        forecastWorkloadPct: Number.isFinite(forecastPct) ? forecastPct : undefined,
         reasons: [...new Set(reasons)],
         ...(displayName ? { displayName } : {}),
       });

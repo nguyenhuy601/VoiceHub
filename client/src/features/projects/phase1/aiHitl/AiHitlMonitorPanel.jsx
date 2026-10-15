@@ -27,6 +27,7 @@ import HowMonitorResultsPanel from './HowMonitorResultsPanel';
 import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
 import WhatMonitorResultsPanel from './WhatMonitorResultsPanel';
 import { shouldShowWhatMonitorResults } from './whatMonitorResultsVisibility';
+import { formatMonitorToolActivity } from './monitorActivityLabels';
 
 /**
  * Prefer last known mid-run macro/substep for same run (fills brief gaps after resume).
@@ -191,12 +192,7 @@ function ActivityLine({ vm, t }) {
   const { activity } = vm;
   let text = labelOf(t, 'requirements.aiHitlMonitorProcessing', 'Đang xử lý…');
   if (activity?.kind === 'call_tool') {
-    const tool = activity.toolName || '—';
-    text =
-      labelOf(t, 'requirements.aiHitlMonitorCallingTool', 'Đang gọi tool: {tool}').replace(
-        '{tool}',
-        tool
-      ) || `Đang gọi tool: ${tool}`;
+    text = formatMonitorToolActivity(activity.toolName, t);
   } else if (activity?.labelKey) {
     const fallbacks = {
       understand: 'Đang hiểu ngữ cảnh…',
@@ -208,11 +204,60 @@ function ActivityLine({ vm, t }) {
   }
 
   return (
-    <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-foreground">
+    <p
+      className="mt-2 flex items-center gap-1.5 text-xs font-medium text-foreground"
+      aria-live="polite"
+    >
       <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" aria-hidden />
       <span>{text}</span>
-      <span className="tabular-nums text-muted-foreground">{formatElapsed(vm.elapsedMs)}</span>
     </p>
+  );
+}
+
+function ProgressStaleLine({ show, t }) {
+  if (!show) return null;
+  return (
+    <p
+      className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-100"
+      role="status"
+    >
+      {labelOf(
+        t,
+        'requirements.aiHitlMonitorProgressStale',
+        'Tiến trình chưa cập nhật gần đây — có thể đang chờ backend. Giữ tab Monitor; thử chạy lại nếu quá lâu.'
+      )}
+    </p>
+  );
+}
+
+function RunTerminalBanner({ state, errorMessage, actionSlot = null, t }) {
+  const isFailed = state === 'failed' || state === 'error';
+  const isCancelled = state === 'cancelled';
+  if (!isFailed && !isCancelled) return null;
+
+  return (
+    <div
+      className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+      role="alert"
+    >
+      <p className="font-semibold text-sm">
+        {isCancelled
+          ? labelOf(t, 'requirements.aiHitlMonitorRunCancelled', 'Chạy AI đã bị hủy')
+          : labelOf(t, 'requirements.aiHitlMonitorRunFailed', 'Chạy AI thất bại')}
+      </p>
+      {errorMessage ? (
+        <p className="mt-1 break-words text-destructive/90">{errorMessage}</p>
+      ) : (
+        <p className="mt-1 text-destructive/80">
+          {labelOf(
+            t,
+            'requirements.aiHitlMonitorRunFailedHint',
+            'Xem lại dữ liệu đầu vào hoặc bấm chạy lại khi sẵn sàng.'
+          )}
+        </p>
+      )}
+      {actionSlot}
+    </div>
   );
 }
 
@@ -267,20 +312,17 @@ function WhatMonitorBody({
         ? vm.macroStep
         : stickyRef.current.macroStep || 0;
 
+  const descTone =
+    vm.showSoftHint && !vm.waitingHuman && !phaseDone && !srsApproved
+      ? 'text-amber-800 dark:text-amber-200'
+      : 'text-muted-foreground';
+
   return (
     <section className="rounded-xl border border-border/80 bg-card/95 px-3 py-3 shadow-sm sm:px-4 sm:py-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <h3 className="text-sm font-semibold text-foreground sm:text-base">
-          {labelOf(t, 'requirements.aiHitlMonitorWhatTitle', 'Phase WHAT — Requirement AI')}
-        </h3>
-        {vm.elapsedMs > 0 ? (
-          <span className="rounded-md bg-muted/60 px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground sm:text-xs">
-            {labelOf(t, 'requirements.aiHitlMonitorElapsed', 'Thời gian')}:{' '}
-            <span className="font-medium text-foreground">{formatElapsed(vm.elapsedMs)}</span>
-          </span>
-        ) : null}
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
+      <h3 className="text-sm font-semibold text-foreground sm:text-base">
+        {labelOf(t, 'requirements.aiHitlMonitorWhatTitle', 'Phase WHAT — Requirement AI')}
+      </h3>
+      <p className={`mt-1 text-xs sm:text-sm ${descTone}`}>
         {labelOf(
           t,
           srsApproved
@@ -304,18 +346,29 @@ function WhatMonitorBody({
           )}
         </p>
       ) : null}
-      {vm.showSoftHint && !vm.waitingHuman ? (
-        <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
-          {labelOf(t, vm.descriptionKey, vm.descriptionFallback)}
-        </p>
-      ) : null}
+      <ProgressStaleLine show={Boolean(vm.showProgressStale)} t={t} />
+      <RunTerminalBanner
+        state={vm.state}
+        errorMessage={vm.errorMessage}
+        actionSlot={
+          vm.state === 'failed' || vm.state === 'cancelled' || vm.state === 'error'
+            ? rerunWhatButton
+            : null
+        }
+        t={t}
+      />
       <MacroRow
         macros={WHAT_MACRO_STEPS}
         activeMacro={activeMacro > 0 ? activeMacro : 1}
         srsApproved={srsApproved}
         t={t}
       />
-      {!phaseDone && activeMacro >= 1 && activeMacro <= 4 ? (
+      {!phaseDone &&
+      vm.state !== 'failed' &&
+      vm.state !== 'cancelled' &&
+      vm.state !== 'error' &&
+      activeMacro >= 1 &&
+      activeMacro <= 4 ? (
         <div className="mt-2">
           <p className="text-[11px] font-medium text-foreground/80">
             {labelOf(t, vm.titleKey, vm.titleFallback)}
@@ -338,7 +391,14 @@ function WhatMonitorBody({
         />
       ) : null}
       {/* Same placement as HOW: action above timing footer — PO revise only */}
-      {phaseDone && !srsApproved && !inFlight ? rerunWhatButton : null}
+      {phaseDone &&
+      !srsApproved &&
+      !inFlight &&
+      vm.state !== 'failed' &&
+      vm.state !== 'cancelled' &&
+      vm.state !== 'error'
+        ? rerunWhatButton
+        : null}
       <RunTimingFooter
         elapsedMs={vm.elapsedMs}
         startedAt={vm.startedAt}
@@ -382,17 +442,9 @@ function HowMonitorBody({
 
   return (
     <section className="rounded-xl border border-border/80 bg-card/95 px-3 py-3 shadow-sm sm:px-4 sm:py-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <h3 className="text-sm font-semibold text-foreground sm:text-base">
-          {labelOf(t, 'requirements.aiHitlMonitorHowTitle', 'Phase HOW — Planning AI')}
-        </h3>
-        {vm.elapsedMs > 0 ? (
-          <span className="rounded-md bg-muted/60 px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground sm:text-xs">
-            {labelOf(t, 'requirements.aiHitlMonitorElapsed', 'Thời gian')}:{' '}
-            <span className="font-medium text-foreground">{formatElapsed(vm.elapsedMs)}</span>
-          </span>
-        ) : null}
-      </div>
+      <h3 className="text-sm font-semibold text-foreground sm:text-base">
+        {labelOf(t, 'requirements.aiHitlMonitorHowTitle', 'Phase HOW — Planning AI')}
+      </h3>
       <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
         {phaseDone
           ? labelOf(
@@ -408,13 +460,30 @@ function HowMonitorBody({
               )
             : labelOf(t, vm.descriptionKey, vm.descriptionFallback)}
       </p>
+      <ProgressStaleLine show={Boolean(vm.showProgressStale)} t={t} />
+      <RunTerminalBanner
+        state={vm.state}
+        errorMessage={vm.errorMessage}
+        actionSlot={
+          vm.state === 'failed' || vm.state === 'cancelled' || vm.state === 'error'
+            ? rerunHowButton
+            : null
+        }
+        t={t}
+      />
       <MacroRow
         macros={HOW_MACRO_STEPS}
         activeMacro={activeMacro > 0 ? activeMacro : howNotStarted ? 0 : 1}
         srsApproved={phaseDone}
         t={t}
       />
-      {!phaseDone && !howNotStarted && activeMacro >= 1 && activeMacro <= 3 ? (
+      {!phaseDone &&
+      !howNotStarted &&
+      vm.state !== 'failed' &&
+      vm.state !== 'cancelled' &&
+      vm.state !== 'error' &&
+      activeMacro >= 1 &&
+      activeMacro <= 3 ? (
         <div className="mt-2">
           <p className="text-[11px] font-medium text-foreground/80">
             {labelOf(t, vm.titleKey, vm.titleFallback)}
@@ -429,24 +498,6 @@ function HowMonitorBody({
           <ActivityLine vm={vm} t={t} />
         </div>
       ) : null}
-      {howNotStarted ? (
-        <div className="mt-2 space-y-2">
-          {HOW_MACRO_STEPS.map((macro) => (
-            <div key={macro.step}>
-              <p className="text-[11px] font-medium text-muted-foreground">
-                {macro.step}. {labelOf(t, macro.labelKey, macro.fallback)}
-              </p>
-              <SubstepChecklist
-                substeps={macro.substeps}
-                activeSubstep={null}
-                phaseDone={false}
-                t={t}
-                labelKeyPrefix="requirements.aiHitlHowStep_"
-              />
-            </div>
-          ))}
-        </div>
-      ) : null}
       {phaseDone ? (
         <SubstepChecklist
           substeps={HOW_MACRO_STEPS.find((m) => m.step === 3)?.substeps || []}
@@ -457,7 +508,14 @@ function HowMonitorBody({
         />
       ) : null}
       {howNotStarted ? startHowButton : null}
-      {phaseDone || (!howNotStarted && !inFlight) ? rerunHowButton : null}
+      {phaseDone ||
+      (!howNotStarted &&
+        !inFlight &&
+        vm.state !== 'failed' &&
+        vm.state !== 'cancelled' &&
+        vm.state !== 'error')
+        ? rerunHowButton
+        : null}
       <RunTimingFooter
         elapsedMs={vm.elapsedMs}
         startedAt={vm.startedAt}
@@ -481,6 +539,8 @@ export default function AiHitlMonitorPanel({
   packStatus = '',
   pipeline = null,
   bootstrapping = false,
+  /** 'what' | 'how' | null — re-run start window; force progress UI + hide stale tables. */
+  awaitingFreshRun = null,
   canStartWhat = false,
   canRerunWhat = false,
   canRunHow = false,
@@ -493,15 +553,20 @@ export default function AiHitlMonitorPanel({
   onRerunHow = null,
   t,
 }) {
-  const phase = resolveAiHitlMonitorPhase({
+  let phase = resolveAiHitlMonitorPhase({
     packStatus,
     phaseWhat,
     phaseHow,
     liveRun,
   });
+  // Re-run / start loading: show in-progress checklist, not prior *_done + old tables.
+  if (awaitingFreshRun === 'what') phase = 'what';
+  else if (awaitingFreshRun === 'how') phase = 'how';
 
   const packNorm = String(packStatus || '').trim().toLowerCase();
   const howStatus = String(phaseHow?.status || '').trim().toLowerCase();
+  const whatStatus = String(phaseWhat?.status || '').trim().toLowerCase();
+  const liveStatus = String(liveRun?.status || '').trim().toLowerCase();
   const howNotStarted =
     packNorm === 'approved' &&
     !['pending', 'running', 'waiting_human', 'ready', 'completed', 'confirmed'].includes(
@@ -512,6 +577,13 @@ export default function AiHitlMonitorPanel({
     packNorm === 'approved' &&
     howNotStarted;
   const howInFlight = ['pending', 'running', 'queued', 'waiting_human'].includes(howStatus);
+  const startBusy = Boolean(whatStartBusy || howStartBusy);
+  const monitorInFlight =
+    Boolean(awaitingFreshRun) ||
+    startBusy ||
+    ['pending', 'running', 'queued', 'waiting_human'].includes(whatStatus) ||
+    howInFlight ||
+    ['pending', 'running', 'queued', 'waiting_human'].includes(liveStatus);
 
   const startWhatButton =
     canStartWhat && typeof onStartWhat === 'function' ? (
@@ -691,10 +763,10 @@ export default function AiHitlMonitorPanel({
         </p>
       </div>
       {body}
-      {shouldShowWhatMonitorResults(pack) ? (
+      {!monitorInFlight && shouldShowWhatMonitorResults(pack) ? (
         <WhatMonitorResultsPanel pack={pack} t={t} />
       ) : null}
-      {shouldShowHowMonitorResults(pack) ? (
+      {!monitorInFlight && shouldShowHowMonitorResults(pack) ? (
         <HowMonitorResultsPanel pack={pack} t={t} />
       ) : null}
     </div>

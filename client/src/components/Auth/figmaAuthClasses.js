@@ -14,10 +14,10 @@ export const FIGMA_LOGIN_ASIDE_SHOWCASE =
   'hidden lg:flex flex-col flex-shrink-0 relative w-[440px] p-7 items-stretch justify-center border-r border-border/40 bg-gradient-to-br from-[#d8ecee] via-[#c5dfe3] to-[#b7d4da]';
 /** Login showcase night frame. */
 export const FIGMA_LOGIN_ASIDE_SHOWCASE_NIGHT =
-  'hidden lg:flex flex-col flex-shrink-0 relative w-[440px] p-7 items-stretch justify-center border-r border-white/10 bg-gradient-to-br from-[#0a0a14] via-[#0c0c18] to-[#080810] login-night-owl';
+  'hidden lg:flex flex-col flex-shrink-0 relative w-[440px] p-7 items-stretch justify-center border-r border-white/10 bg-gradient-to-br from-[#0a0a14] via-[#0c0c18] to-[#080810]';
 /** Local night-owl easter egg (does not touch html.dark / ThemeContext). */
 export const FIGMA_LOGIN_ASIDE_NIGHT =
-  'hidden lg:flex flex-col justify-between flex-shrink-0 relative overflow-hidden w-[420px] p-10 border-r border-white/10 bg-gradient-to-br from-[#05050f] to-[#0a0a1a] login-night-owl';
+  'hidden lg:flex flex-col justify-between flex-shrink-0 relative overflow-hidden w-[420px] p-10 border-r border-white/10 bg-gradient-to-br from-[#05050f] to-[#0a0a1a]';
 export const FIGMA_LOGIN_ASIDE_GLOW_PRIMARY =
   'pointer-events-none absolute -left-20 -top-20 h-[340px] w-[340px] rounded-full bg-primary/20 blur-3xl';
 export const FIGMA_LOGIN_ASIDE_GLOW_SECONDARY =
@@ -25,7 +25,7 @@ export const FIGMA_LOGIN_ASIDE_GLOW_SECONDARY =
 export const FIGMA_LOGIN_MAIN =
   'flex flex-1 items-center justify-center px-6 py-10 bg-background/75 backdrop-blur-sm dark:bg-background/65';
 export const FIGMA_LOGIN_MAIN_NIGHT =
-  'flex flex-1 items-center justify-center px-6 py-10 relative bg-[#070712]/90 backdrop-blur-md login-night-owl';
+  'flex flex-1 items-center justify-center px-6 py-10 relative bg-[#070712]/90 backdrop-blur-md';
 export const FIGMA_LOGIN_INNER = 'w-full max-w-[380px]';
 export const FIGMA_LOGIN_MOBILE_LOGO = 'lg:hidden flex items-center gap-[10px] mb-10 justify-center';
 export const FIGMA_LOGIN_MOBILE_LOGO_ICON = 'w-8 h-8 rounded-lg flex items-center justify-center bg-primary';
@@ -33,7 +33,7 @@ export const FIGMA_LOGIN_HEADER = 'mb-7';
 export const FIGMA_LOGIN_HEADER_SUB = 'text-[0.875rem] text-muted-foreground';
 export const FIGMA_LOGIN_CARD = 'rounded-[14px] p-7 border border-border bg-surface/30';
 export const FIGMA_LOGIN_CARD_NIGHT =
-  'rounded-[14px] p-7 border border-white/10 bg-white/[0.06] backdrop-blur-md shadow-lg shadow-black/30 login-night-owl';
+  'rounded-[14px] p-7 border border-white/10 bg-white/[0.06] backdrop-blur-md shadow-lg shadow-black/30';
 export const FIGMA_LOGIN_CARD_GLASS = 'rounded-[14px] p-7 border border-border/80 bg-surface/40 backdrop-blur-sm';
 export const FIGMA_LOGIN_FORM = 'flex flex-col gap-[18px]';
 export const FIGMA_LOGIN_FOOTER = 'mt-[18px] text-center text-[0.8125rem] text-muted-foreground';

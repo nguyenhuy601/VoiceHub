@@ -7,6 +7,7 @@ const crypto = require('crypto');
 
 const ORIGIN_AI = 'AI_GENERATED';
 const ORIGIN_BA_EDIT = 'BA_EDITED';
+const ORIGIN_BA_CREATED = 'BA_CREATED';
 const ORIGIN_LEGACY = 'LEGACY_BASELINE';
 const ORIGIN_SYSTEM = 'SYSTEM_BASELINE';
 
@@ -183,6 +184,7 @@ function sectionToArtifactType(section) {
 module.exports = {
   ORIGIN_AI,
   ORIGIN_BA_EDIT,
+  ORIGIN_BA_CREATED,
   ORIGIN_LEGACY,
   ORIGIN_SYSTEM,
   stableStringify,

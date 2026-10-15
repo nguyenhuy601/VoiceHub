@@ -1,11 +1,13 @@
 const mongoose = require('../db');
 
 /**
- * Resource allocation — 1 row / user / project (SSOT cho join/leave/allocation).
+ * Resource allocation — 1 row / user / project (SSOT cho join/leave/commitment).
  * ProjectMembership vẫn giữ multi-role; ProjectMember không lặp theo số role.
  *
- * `allocations[].allocationPct` = Planned Allocation (kế hoạch PM/RM nhập) —
- * không derive từ Task/Sprint/Worklog (Actual → Phase 3b).
+ * `allocations[].allocationPct` = **Commitment %** (PM/RM cam kết nhân sự theo kỳ) —
+ * không phải Forecast workload và không derive từ Task/Meeting/Worklog.
+ * Forecast = Role budget residual + Task planned + Planned meeting (ForecastEngine).
+ * Actual = Wave 2 (worklog / activity + verify) — không lấy forecast thế chỗ.
  */
 const allocationSegmentSchema = new mongoose.Schema(
   {
