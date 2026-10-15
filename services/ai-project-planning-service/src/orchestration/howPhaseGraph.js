@@ -1,7 +1,8 @@
 /**
  * Agent Core F2 — HOW Phase StateGraph (Layer B).
  * Thin nodes wrap Track A/B/C helpers; no biz metrics in LLM nodes (RULE-F2-01).
- * Gate HITL stays on project-service (RULE-F2-03 — no interrupt).
+ * Governance Gate HITL stays on project-service HTTP (RULE-F2-03 / RULE-H1).
+ * Optional awaitHuman = in-run edit_draft only (RULE-H2) — not Gate 2 stamp.
  */
 
 const {
@@ -396,17 +397,19 @@ function buildHowPhaseGraph(hooks = {}) {
   });
 
   graph.addNode('awaitHuman', async (state) => {
-    const { awaitHumanGate } = require('./hitlInterrupt');
-    const resumed = awaitHumanGate({
-      gate: 'gate2',
+    const { awaitInRunHitl } = require('./hitlInterrupt');
+    const resumed = awaitInRunHitl({
+      kind: 'edit_draft',
       runId: state.runId,
       snapshotId: state.snapshotId,
       summary: {
         evaluate: state.evaluate,
         toolCount: Array.isArray(state.toolResults) ? state.toolResults.length : 0,
+        phase: 'how',
       },
+      prompt: 'In-run review of HOW draft before emit (not Gate 2 Pack stamp)',
     });
-    const history = [...(state.history || []), 'awaitHuman:gate2'];
+    const history = [...(state.history || []), 'awaitHuman:in_run:edit_draft'];
     return { history, humanResume: resumed };
   });
 

@@ -97,6 +97,12 @@ export const PHASE1_PLANNING_MODULES = Object.freeze([
         pathSeg: 'planning/resources/effort',
       },
       {
+        key: 'planning-resources-budget',
+        module: 'planning-resources',
+        labelKey: 'workspace.phaseNavPlanningResourcesBudget',
+        pathSeg: 'planning/resources/budget',
+      },
+      {
         key: 'planning-resources-match',
         module: 'planning-resources',
         labelKey: 'workspace.phaseNavPlanningResourcesMatch',
@@ -182,6 +188,7 @@ export const PLANNING_SUB_TO_MODULE = Object.freeze({
 export const PLANNING_RESOURCES_STEPS = Object.freeze([
   'wbs',
   'effort',
+  'budget',
   'match',
   'capacity',
   'schedule',

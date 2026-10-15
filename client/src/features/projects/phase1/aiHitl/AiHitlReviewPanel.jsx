@@ -23,6 +23,7 @@ export default function AiHitlReviewPanel({
   gate1Busy = false,
   gate1Decisions = null,
   setGate1Decision = null,
+  clearGate1Decision = null,
   onGate1Submit,
   onGate1Approve,
   onGate1Reject,
@@ -97,6 +98,7 @@ export default function AiHitlReviewPanel({
           busy={gate1Busy}
           decisions={gate1Decisions}
           setDecision={setGate1Decision}
+          clearDecision={clearGate1Decision}
           t={t}
           onSubmit={onGate1Submit}
           onApprove={onGate1Approve}

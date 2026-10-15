@@ -1,0 +1,36 @@
+# Optional Redis Stack (RedisJSON) — chỉ cho LangGraph in-run HITL checkpointer.
+# App cache vẫn dùng redis:7-alpine / Sentinel. Không thay REDIS_HOST toàn stack.
+#
+# Deploy: bash devops/swarm/redis-stack-lg/deploy-redis-stack-lg.sh
+# Down:   bash devops/swarm/redis-stack-lg/deploy-redis-stack-lg.sh --down
+
+services:
+  redis-lg:
+    image: ${REDIS_STACK_LG_IMAGE:-redis/redis-stack-server:7.4.0-v1}
+    hostname: redis-lg
+    environment:
+      # Overlay nội bộ — không publish port; không auth (chỉ mạng Swarm).
+      REDIS_ARGS: "--save 60 1 --loglevel notice"
+    volumes:
+      - redis_lg_data:/data
+    networks:
+      - enterprise-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 384M
+        reservations:
+          cpus: "0.10"
+          memory: 128M
+
+volumes:
+  redis_lg_data:
+
+networks:
+  enterprise-network:
+    external: true
+    name: ${ENTERPRISE_NETWORK_NAME:-voicehub_enterprise-network}

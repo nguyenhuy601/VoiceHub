@@ -5,6 +5,23 @@
  */
 
 import { formatElapsed } from './whatProgressViewModel.js';
+import { WHAT_MONITOR_CONFIG } from './WHAT_MONITOR_CONFIG.js';
+
+function resolveHowRunErrorMessage(liveRun, phaseMeta) {
+  const candidates = [
+    liveRun?.error?.message,
+    liveRun?.errorMessage,
+    liveRun?.message,
+    phaseMeta?.error?.message,
+    phaseMeta?.errorMessage,
+    typeof phaseMeta?.error === 'string' ? phaseMeta.error : null,
+  ];
+  for (const raw of candidates) {
+    const text = String(raw || '').trim();
+    if (text) return text;
+  }
+  return '';
+}
 
 /** Macro catalog — groups flat HOW agent/tool steps for Monitor UX */
 export const HOW_MACRO_STEPS = Object.freeze([
@@ -146,7 +163,13 @@ export function resolveHowActiveStepId(liveRun = null, phaseMeta = null) {
 }
 
 function resolveHowActivity(liveRun, state) {
-  if (state === 'waiting_human' || state === 'succeeded' || state === 'failed' || state === 'idle') {
+  if (
+    state === 'waiting_human' ||
+    state === 'succeeded' ||
+    state === 'failed' ||
+    state === 'cancelled' ||
+    state === 'idle'
+  ) {
     return { kind: null, toolName: null, labelKey: null };
   }
   const tool = String(liveRun?.currentTool || liveRun?.currentToolName || '').trim() || null;
@@ -261,9 +284,21 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
   const progressUpdatedAt = liveRun?.progressUpdatedAt
     ? new Date(liveRun.progressUpdatedAt).getTime()
     : null;
+  const progressStaleMs =
+    progressUpdatedAt != null && Number.isFinite(progressUpdatedAt)
+      ? Math.max(0, now - progressUpdatedAt)
+      : elapsedMs;
 
   const activity = resolveHowActivity(liveRun, state);
   const showSpinner = state === 'running' || state === 'queued';
+  const waitingHuman = state === 'waiting_human';
+  const staleThresholdMs = WHAT_MONITOR_CONFIG.progressStaleMs;
+  const showProgressStale =
+    !waitingHuman &&
+    state === 'running' &&
+    Number.isFinite(staleThresholdMs) &&
+    progressStaleMs >= staleThresholdMs;
+  const errorMessage = resolveHowRunErrorMessage(liveRun, phaseHow);
 
   return {
     phase: 'how',
@@ -274,8 +309,11 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
     activeMacroSubsteps: macroDef ? [...macroDef.substeps] : [],
     activity,
     elapsedMs,
+    progressStaleMs,
+    showProgressStale,
+    errorMessage,
     showSpinner,
-    waitingHuman: state === 'waiting_human',
+    waitingHuman,
     titleKey: macroDef?.labelKey || 'requirements.aiHitlMonitorHowTitle',
     titleFallback: macroDef?.fallback || 'Phase HOW',
     descriptionKey: macroDef?.descriptionKey || 'requirements.aiHitlMonitorHowHint',

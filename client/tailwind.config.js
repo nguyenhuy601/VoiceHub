@@ -183,8 +183,19 @@ export default {
         slideUp: 'slideUp 0.8s ease-out',
         scaleIn: 'vh-scale-in var(--vh-motion-slow) var(--vh-motion-ease-out) forwards',
         fadeIn: 'vh-fade-in-fast var(--vh-motion-base) var(--vh-motion-ease-out) forwards',
+        'ambient-shift': 'vh-ambient-shift 28s ease-in-out infinite',
+        'login-star-twinkle': 'login-star-twinkle 2.4s ease-in-out infinite',
       },
       keyframes: {
+        'vh-ambient-shift': {
+          '0%': { backgroundPosition: '0% 40%' },
+          '50%': { backgroundPosition: '100% 60%' },
+          '100%': { backgroundPosition: '0% 40%' },
+        },
+        'login-star-twinkle': {
+          '0%, 100%': { opacity: '0.35' },
+          '50%': { opacity: '1' },
+        },
         'vh-shimmer': {
           '0%': { backgroundPosition: '-500px 0' },
           '100%': { backgroundPosition: '500px 0' },

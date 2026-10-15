@@ -2,42 +2,43 @@
  * Customer Raw → Analysis section derive policy (RULE-RAW-DERIVE-01…05).
  * Analysis workbook path keeps no-cross-fill / RULE-EMPTY.
  *
- * Unlock sequentially via PHASE1_RAW_DERIVE_SECTIONS (comma list, run order).
- * Recommended order: bg → br → uc → bpm → data → interface (same pipeline, per-sec input).
- * Deterministic: PHASE1_RAW_DERIVE_DETERMINISTIC=scope,actors,assumption.
+ * Wave-1 trim: interface / assumption removed from derive.
+ * Default unlock: full LLM catalog (bg,br,uc,bpm,data,nfr,scope).
+ * Deterministic: actors only (scope extract-first runs separately in applyRawSectionDerive).
  */
 
-/** Full LLM catalog (registry / docs). Runtime active set may be smaller. */
+/** Full LLM catalog (registry / docs). Runtime active set may be smaller via env. */
 const LLM_DERIVE_SECTIONS = Object.freeze([
   'bg',
   'br',
   'uc',
   'bpm',
   'data',
-  'interface',
+  'nfr',
+  'scope',
+  'actors',
 ]);
 
-/** Default active LLM derive order — BG only; unlock next secs after success+timing. */
-const DEFAULT_ACTIVE_LLM_DERIVE_SECTIONS = Object.freeze(['bg']);
-
-/** Default locked LLM sections (skipped until unlock). */
-const DEFAULT_LOCKED_LLM_DERIVE_SECTIONS = Object.freeze([
+/** Default active LLM derive order — full unlock for remaining Gate1 sections. */
+const DEFAULT_ACTIVE_LLM_DERIVE_SECTIONS = Object.freeze([
+  'bg',
   'br',
   'uc',
   'bpm',
   'data',
-  'interface',
-]);
-
-/** Deterministic catalog (no LLM). */
-const DETERMINISTIC_RAW_SECTIONS = Object.freeze(['actors', 'scope', 'assumption']);
-
-/** Default: scope + actors + assumption (Customer Raw fill). */
-const DEFAULT_ACTIVE_DETERMINISTIC_RAW_SECTIONS = Object.freeze([
+  'nfr',
   'scope',
   'actors',
-  'assumption',
 ]);
+
+/** Default locked LLM sections (empty when full unlock). */
+const DEFAULT_LOCKED_LLM_DERIVE_SECTIONS = Object.freeze([]);
+
+/** Deterministic catalog (no LLM) — actors only after Assumption trim. */
+const DETERMINISTIC_RAW_SECTIONS = Object.freeze(['actors']);
+
+/** Default: actors (Customer Raw fill). */
+const DEFAULT_ACTIVE_DETERMINISTIC_RAW_SECTIONS = Object.freeze(['actors']);
 
 const LLM_DERIVE_SET = new Set(LLM_DERIVE_SECTIONS);
 const DETERMINISTIC_RAW_SET = new Set(DETERMINISTIC_RAW_SECTIONS);
@@ -64,7 +65,7 @@ function parseSectionList(raw, fallback) {
 }
 
 /**
- * Active LLM derive engines in run order (default: bg).
+ * Active LLM derive engines in run order.
  * @param {NodeJS.ProcessEnv} [env]
  */
 function getActiveLlmDeriveSections(env = process.env) {
@@ -73,7 +74,7 @@ function getActiveLlmDeriveSections(env = process.env) {
 }
 
 /**
- * Active deterministic Raw sections (default: scope only).
+ * Active deterministic Raw sections (default: actors).
  * @param {NodeJS.ProcessEnv} [env]
  */
 function getActiveDeterministicRawSections(env = process.env) {
@@ -192,9 +193,21 @@ function isDeterministicRawSection(engineId) {
   return DETERMINISTIC_RAW_SET.has(String(engineId || ''));
 }
 
-/** Sections that must succeed or abort phase_what (active LLM set). */
+/**
+ * Sections that must succeed or abort phase_what.
+ * Default critical core: bg,br,uc,bpm,data — nfr/scope soft-gap when empty (still LLM-attempted).
+ * Override via PHASE1_RAW_DERIVE_CRITICAL.
+ */
+const DEFAULT_CRITICAL_LLM_DERIVE_SECTIONS = Object.freeze(['bg', 'br', 'uc', 'bpm', 'data']);
+
 function isCriticalRawDeriveSection(engineId, env = process.env) {
-  return getActiveLlmDeriveSections(env).includes(String(engineId || ''));
+  const id = String(engineId || '');
+  if (!getActiveLlmDeriveSections(env).includes(id)) return false;
+  const critical = parseSectionList(
+    env.PHASE1_RAW_DERIVE_CRITICAL,
+    DEFAULT_CRITICAL_LLM_DERIVE_SECTIONS
+  );
+  return critical.includes(id);
 }
 
 module.exports = {
@@ -214,5 +227,5 @@ module.exports = {
   isLlmDeriveSection,
   isDeterministicRawSection,
   isCriticalRawDeriveSection,
+  DEFAULT_CRITICAL_LLM_DERIVE_SECTIONS,
 };
-

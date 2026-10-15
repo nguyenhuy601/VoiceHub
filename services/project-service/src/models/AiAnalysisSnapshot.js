@@ -39,6 +39,8 @@ const aiAnalysisSnapshotSchema = new mongoose.Schema(
     ingestionValidation: { type: mongoose.Schema.Types.Mixed, default: null },
     /** Planned-allocation hours by user/day in planning window — real data only, never invented. */
     bookedHoursByUserDay: { type: mongoose.Schema.Types.Mixed, default: null },
+    /** Forecast demand hours by user|week (budget+task+meeting) when FORECAST_CAPACITY_V1=1. */
+    forecastDemandByUserWeek: { type: mongoose.Schema.Types.Mixed, default: null },
     /** MeetingPlan snapshot for HOW (orthogonal to booked commitment hours). */
     meetingPlan: { type: mongoose.Schema.Types.Mixed, default: null },
     meetingDemandHoursByUserDay: { type: mongoose.Schema.Types.Mixed, default: null },

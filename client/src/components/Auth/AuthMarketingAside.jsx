@@ -1,7 +1,6 @@
 import { ShieldCheck, Zap } from 'lucide-react';
 import LoginAsideLandscape from './LoginAsideLandscape';
 import { useAppStrings } from '../../locales/appStrings';
-import './loginNightOwl.css';
 
 const FEATURE_DOT_COLORS = ['#3B82F6', '#34D399', '#FBBF24', '#22D3EE'];
 
@@ -14,11 +13,33 @@ function AuthMarketingAside({ nightOwl = false, compact = false }) {
 
   if (compact) {
     return (
-      <div className={`login-aside-popup ${nightOwl ? 'is-night' : 'is-day'}`}>
-        <LoginAsideLandscape />
-        <div className="login-aside-popup__copy">
-          <h2 className="login-aside-popup__title">{t('authMarketing.loginAsideTitle')}</h2>
-          <p className="login-aside-popup__body">{t('authMarketing.loginAsideBody')}</p>
+      <div
+        className={`relative flex h-full min-h-[30rem] w-full flex-col justify-end overflow-hidden rounded-[1.15rem] border transition-[background,border-color,box-shadow] duration-[800ms] ease-in-out ${
+          nightOwl
+            ? 'border-white/10 shadow-[0_18px_40px_-14px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.08)]'
+            : 'border-white/35 shadow-[0_18px_40px_-16px_rgba(15,23,42,0.35),inset_0_1px_0_rgba(255,255,255,0.4)]'
+        }`}
+        style={{
+          background: nightOwl
+            ? 'linear-gradient(165deg, #070b14 0%, #0c1220 50%, #111a2e 100%)'
+            : 'linear-gradient(165deg, #bddadb 0%, #9ec4c5 48%, #7ea5a6 100%)',
+        }}
+      >
+        <LoginAsideLandscape night={nightOwl} />
+        <div
+          className="relative z-30 flex flex-col items-center justify-center px-[1.35rem] pb-7 pt-6 text-center transition-[background] duration-[800ms] ease-in-out"
+          style={{
+            background: nightOwl
+              ? 'linear-gradient(0deg, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.2) 65%, transparent 100%)'
+              : 'linear-gradient(0deg, rgba(15, 23, 42, 0.55) 0%, rgba(15, 23, 42, 0.12) 70%, transparent 100%)',
+          }}
+        >
+          <h2 className="font-display mb-[0.55rem] text-center text-2xl font-bold leading-snug tracking-[-0.02em] text-white">
+            {t('authMarketing.loginAsideTitle')}
+          </h2>
+          <p className="mx-auto max-w-[18rem] text-center text-[0.8125rem] leading-[1.65] text-white/90">
+            {t('authMarketing.loginAsideBody')}
+          </p>
         </div>
       </div>
     );

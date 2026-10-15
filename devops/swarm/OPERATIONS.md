@@ -26,6 +26,7 @@ Scale replica: `docker service scale voicehub_<service>=N`
 | Script | Mục đích |
 |--------|----------|
 | [`redis-sentinel/deploy-sentinel-stack.sh`](./redis-sentinel/deploy-sentinel-stack.sh) | Deploy Redis Sentinel |
+| [`redis-stack-lg/deploy-redis-stack-lg.sh`](./redis-stack-lg/deploy-redis-stack-lg.sh) | Optional Redis Stack (RedisJSON) cho LangGraph HITL — `--wire` gắn AI planning |
 | [`rabbitmq-cluster/deploy-cluster-stack.sh`](./rabbitmq-cluster/deploy-cluster-stack.sh) | Deploy RabbitMQ cluster |
 
 ## Scripts hỗ trợ (`devops/scripts/`)

@@ -3,6 +3,8 @@
  * Customer Raw: Analysis sections are derived from CR/NFR/context — not Excel Analysis sheets.
  */
 
+import { GATE1_TABLE_BODY_HEIGHT_CLASS } from './gate1SectionTableConfig';
+
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
   if (value && value !== key) return value;
@@ -20,12 +22,9 @@ const RAW_ANALYSIS_DERIVED_SECTIONS = new Set([
   'processes',
   'businessGoals',
   'entities',
-  'interfaces',
   'actors',
   'scope',
-  'glossary',
-  'assumptions',
-  'traceability',
+  'nonFunctionalRequirements',
 ]);
 
 const RAW_SOFT_REASONS = new Set([
@@ -110,7 +109,9 @@ export default function Gate1MissingSectionPanel({
   const reasonText = labelOf(t, reasonEntry[0], reasonEntry[1]);
 
   return (
-    <div className="mt-3 rounded-md border border-dashed border-border bg-muted/30 px-4 py-6 text-center">
+    <div
+      className={`mt-3 flex ${GATE1_TABLE_BODY_HEIGHT_CLASS} flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/30 px-4 text-center`}
+    >
       <p className="text-sm font-medium text-foreground">
         {labelOf(t, 'requirements.phase1Gate1MissingData', 'Thiếu dữ liệu')}
         {sectionLabel ? ` — ${sectionLabel}` : ''}

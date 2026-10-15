@@ -4,6 +4,7 @@ import { buildPhase1ModulePath, resolvePlanningResourcesStep } from '../nav/phas
 import { STAFFING_STEPS } from './staffingPipelineModel';
 import PlanningResourcesWbsPanel from './PlanningResourcesWbsPanel';
 import PlanningResourcesEffortPanel from './PlanningResourcesEffortPanel';
+import PlanningResourcesRoleBudgetPanel from './PlanningResourcesRoleBudgetPanel';
 import PlanningResourcesMatchPanel from './PlanningResourcesMatchPanel';
 import PlanningResourcesCapacityCalendarPanel from './PlanningResourcesCapacityCalendarPanel';
 import PlanningResourcesScheduleStaffingPanel from './PlanningResourcesScheduleStaffingPanel';
@@ -12,6 +13,7 @@ import MeetingPlanPanel from './MeetingPlanPanel';
 const STEP_LABEL_KEYS = {
   wbs: 'workspace.phaseNavPlanningResourcesWbs',
   effort: 'workspace.phaseNavPlanningResourcesEffort',
+  budget: 'workspace.phaseNavPlanningResourcesBudget',
   match: 'workspace.phaseNavPlanningResourcesMatch',
   capacity: 'workspace.phaseNavPlanningResourcesCapacity',
   schedule: 'workspace.phaseNavPlanningResourcesSchedule',
@@ -48,6 +50,8 @@ export default function PlanningResourcesShell({
     body = <PlanningResourcesWbsPanel projectId={projectId} />;
   } else if (step === 'effort') {
     body = <PlanningResourcesEffortPanel projectId={projectId} />;
+  } else if (step === 'budget') {
+    body = <PlanningResourcesRoleBudgetPanel projectId={projectId} />;
   } else if (step === 'match') {
     body = (
       <PlanningResourcesMatchPanel projectId={projectId} organizationId={organizationId} />

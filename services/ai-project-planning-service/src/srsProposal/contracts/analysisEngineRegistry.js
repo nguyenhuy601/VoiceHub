@@ -2,6 +2,8 @@
  * AnalysisEngineRegistry — catalog + dependency metadata.
  * Registry order is NOT execution order (orchestrator builds DAG).
  * Meta Gate is NOT registered here.
+ *
+ * Wave-1: 8 engines (interface / glossary / assumption / traceability removed from active registry).
  */
 
 const KIND = Object.freeze({ SECTION: 'SECTION', CROSS_CUTTING: 'CROSS_CUTTING' });
@@ -66,15 +68,6 @@ const ANALYSIS_ENGINE_REGISTRY = Object.freeze([
     writesSection: 'processes',
   },
   {
-    id: 'interface',
-    section: 'interfaces',
-    kind: KIND.SECTION,
-    mode: 'source_ingest',
-    dependsOn: [],
-    optionalDependsOn: [],
-    writesSection: 'interfaces',
-  },
-  {
     id: 'fr',
     section: 'functionalRequirements',
     kind: KIND.SECTION,
@@ -101,52 +94,13 @@ const ANALYSIS_ENGINE_REGISTRY = Object.freeze([
     optionalDependsOn: ['fr'],
     writesSection: 'entities',
   },
-  {
-    id: 'glossary',
-    section: 'glossary',
-    kind: KIND.SECTION,
-    mode: 'collect',
-    dependsOn: ['bg', 'br', 'bpm', 'fr', 'uc', 'nfr', 'scope', 'interface', 'data'],
-    optionalDependsOn: [],
-    writesSection: 'glossary',
-  },
-  {
-    id: 'assumption',
-    section: 'assumptions',
-    kind: KIND.SECTION,
-    mode: 'collect_lift',
-    dependsOn: ['bg', 'br', 'bpm', 'fr', 'uc', 'nfr', 'scope', 'interface', 'data', 'glossary'],
-    optionalDependsOn: [],
-    writesSection: 'assumptions',
-  },
-  {
-    id: 'traceability',
-    section: 'traceability',
-    kind: KIND.CROSS_CUTTING,
-    mode: 'deterministic_map',
-    dependsOn: [
-      'bg',
-      'br',
-      'bpm',
-      'fr',
-      'uc',
-      'nfr',
-      'scope',
-      'interface',
-      'data',
-      'glossary',
-      'assumption',
-    ],
-    optionalDependsOn: [],
-    writesSection: 'traceability',
-  },
 ]);
 
 const REGISTRY_BY_ID = Object.freeze(
   Object.fromEntries(ANALYSIS_ENGINE_REGISTRY.map((e) => [e.id, e]))
 );
 
-const SECTION_ENGINE_COUNT = 12;
+const SECTION_ENGINE_COUNT = 8;
 
 function listRegistryEngines() {
   return [...ANALYSIS_ENGINE_REGISTRY];

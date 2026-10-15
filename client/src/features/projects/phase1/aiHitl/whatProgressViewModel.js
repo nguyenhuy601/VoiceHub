@@ -170,8 +170,30 @@ function resolveMacroStep(pipelineStep, substep, state, packStatus) {
   return 0;
 }
 
+function resolveRunErrorMessage(liveRun, phaseMeta) {
+  const candidates = [
+    liveRun?.error?.message,
+    liveRun?.errorMessage,
+    liveRun?.message,
+    phaseMeta?.error?.message,
+    phaseMeta?.errorMessage,
+    typeof phaseMeta?.error === 'string' ? phaseMeta.error : null,
+  ];
+  for (const raw of candidates) {
+    const text = String(raw || '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
 function resolveActivity(liveRun, state) {
-  if (state === 'waiting_human' || state === 'succeeded' || state === 'failed' || state === 'idle') {
+  if (
+    state === 'waiting_human' ||
+    state === 'succeeded' ||
+    state === 'failed' ||
+    state === 'cancelled' ||
+    state === 'idle'
+  ) {
     return { kind: null, toolName: null, labelKey: null };
   }
   const tool = String(liveRun?.currentTool || '').trim() || null;
@@ -277,15 +299,22 @@ export function resolveWhatProgressViewModel(
   const waitingHuman = state === 'waiting_human';
   const softHintMs = config.softHintMs ?? WHAT_MONITOR_CONFIG.softHintMs;
   const softHintLongMs = config.softHintLongMs ?? WHAT_MONITOR_CONFIG.softHintLongMs;
+  const staleThresholdMs = config.progressStaleMs ?? WHAT_MONITOR_CONFIG.progressStaleMs;
   const showSoftHint =
     !waitingHuman &&
     state === 'running' &&
     (substep === 'prepare' || !substep) &&
     elapsedMs >= softHintMs;
   const softHintLong = showSoftHint && elapsedMs >= softHintLongMs;
+  const showProgressStale =
+    !waitingHuman &&
+    state === 'running' &&
+    Number.isFinite(staleThresholdMs) &&
+    progressStaleMs >= staleThresholdMs;
 
   const activity = resolveActivity(liveRun, state);
   const showSpinner = state === 'running' || state === 'queued';
+  const errorMessage = resolveRunErrorMessage(liveRun, phaseWhat);
 
   const copy = getWhatStatusCopy({
     macroStep: macroStep || 1,
@@ -305,8 +334,10 @@ export function resolveWhatProgressViewModel(
     startedAt,
     completedAt,
     progressStaleMs,
+    showProgressStale,
     showSoftHint,
     softHintLong,
+    errorMessage,
     titleKey: copy.titleKey,
     descriptionKey: copy.descriptionKey,
     titleFallback: copy.titleFallback,

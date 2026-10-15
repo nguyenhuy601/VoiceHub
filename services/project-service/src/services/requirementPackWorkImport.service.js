@@ -125,6 +125,18 @@ async function seedProjectMembersFromAssignees({
       logger.warn('[requirement] seed member user=%s failed: %s', uid, err.message);
     }
   }
+  try {
+    const { recomputeForecastForUsers } = require('./forecastCapacity.service');
+    const Project = require('../models/Project');
+    const project = await Project.findById(projectId).select('organizationId').lean();
+    const orgId = project?.organizationId;
+    const userIds = [...roleByUser.keys()];
+    if (orgId && userIds.length) {
+      await recomputeForecastForUsers({ organizationId: orgId, userIds });
+    }
+  } catch {
+    /* best-effort */
+  }
   return { membersSeeded: added };
 }
 

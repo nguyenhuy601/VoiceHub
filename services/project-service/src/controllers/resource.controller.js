@@ -42,6 +42,25 @@ async function getCapacity(req, res) {
         message: 'organizationId required',
       });
     }
+    const view = String(req.query.view || '').trim().toLowerCase();
+    if (view === 'forecast') {
+      const { getUserForecastCapacity } = require('../services/forecastCapacity.service');
+      const targetUserId = String(req.query.userId || '').trim();
+      if (!mongoose.isValidObjectId(targetUserId)) {
+        return sendServiceError(res, 400, {
+          errorCode: 'VALIDATION_REQUIRED',
+          messageUser: 'userId là bắt buộc khi view=forecast',
+          message: 'userId required for view=forecast',
+        });
+      }
+      const data = await getUserForecastCapacity({
+        organizationId,
+        userId: targetUserId,
+        weekKey: req.query.weekKey || null,
+        projectId: req.query.projectId || null,
+      });
+      return res.json({ success: true, data });
+    }
     const data = await getDepartmentCapacity({
       organizationId,
       departmentIds: parseDeptIds(req.query.departmentIds),

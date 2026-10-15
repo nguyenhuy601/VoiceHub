@@ -33,16 +33,10 @@ function packRowsForEngine(engineId, pack = {}) {
       return pack.scope || pack.scopeItems || [];
     case 'bpm':
       return pack.businessProcesses || pack.processes || [];
-    case 'interface':
-      return pack.interfaces || [];
     case 'uc':
       return pack.useCases || [];
     case 'data':
       return pack.entities || pack.domainEntities || [];
-    case 'glossary':
-      return pack.glossary || pack.glossaryTerms || [];
-    case 'assumption':
-      return pack.assumptions || [];
     case 'fr':
       return pack.functionalRequirements || [];
     default:
@@ -175,7 +169,7 @@ async function runAnalysisEnginePipeline(opts = {}) {
 
   // Optional Semantic Runtime enrich for non-FR when policy RUN (sheet present)
   for (const entry of ANALYSIS_ENGINE_REGISTRY) {
-    if (entry.id === 'fr' || entry.id === 'glossary' || entry.id === 'assumption' || entry.id === 'traceability') {
+    if (entry.id === 'fr') {
       continue;
     }
     const rows = packRowsForEngine(entry.id, pack);

@@ -1,12 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 
 import Gate1SectionReviewTable from '../gate1/Gate1SectionReviewTable';
 import Gate1MissingSectionPanel from '../gate1/Gate1MissingSectionPanel';
 import {
   areGate1SectionDecisionsComplete,
   countGate1PendingDecisions,
+  getGate1RowId,
+  seedGate1EditedPayload,
+  getGate1ColumnsForSection,
 } from '../gate1/gate1SectionTableConfig';
-import GateAChecksPanel from '../../../requirements/GateAChecksPanel';
+import {
+  areGate1CreateRowsReady,
+  buildGate1AddedRow,
+  isGate1SectionAddable,
+  mergeGate1SectionRows,
+  nextGate1LogicalId,
+} from '../gate1/gate1AddRow';
+import GateAChecksPanel, {
+  listMissingSectionRows,
+} from '../../../requirements/GateAChecksPanel';
+import { sectionHasUnresolvedIntegrityIssues } from '../gate1/resolveConflictAmbiguityUi';
 
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
@@ -34,8 +48,8 @@ function bySectionFromSummary(summary) {
     map[key].push({
       ...row,
       logicalId: row.logicalId || row.id,
-      sectionLabel: row.sectionLabel || key,
     });
+    map[key][map[key].length - 1].sectionLabel = row.sectionLabel || key;
   }
   return map;
 }
@@ -54,6 +68,7 @@ export default function Phase1Gate1ReviewPanel({
   /** Controlled decisions from parent (AI HITL page) — survives remount */
   decisions: controlledDecisions = null,
   setDecision: controlledSetDecision = null,
+  clearDecision: controlledClearDecision = null,
   t,
   onSubmit,
   onApprove,
@@ -70,31 +85,71 @@ export default function Phase1Gate1ReviewPanel({
     (reviewLaneView === 'showPoPanel' ||
       (!reviewLaneView && underReview));
   const activeSubmissionId = summary?.activeSubmissionId || null;
+  // Stuck recover: under_review nhưng mất GateSubmission ACTIVE → BA phải submit lại
+  const needsBaResubmit =
+    underReview && Boolean(canSubmit) && !canApprove && !activeSubmissionId;
   // Row actions (checkbox + Accept/Edit/Reject) — BA panel only; SoD: approver never gets BA CTA
   const allowDecide =
     Boolean(canSubmit) &&
     !canApprove &&
     (reviewLaneView === 'showBaPanel' ||
+      needsBaResubmit ||
       (!reviewLaneView &&
         (packStatus === 'draft' ||
           packStatus === 'approved' ||
           packStatus === 'changes_requested' ||
-          (underReview && Boolean(activeSubmissionId)))));
+          underReview)));
   // Footer «Xác nhận duyệt» for BA only
   const showSubmit = allowDecide;
 
-  const bySection = useMemo(() => bySectionFromSummary(summary), [summary]);
-  const sectionTabs = useMemo(() => {
-    if (Array.isArray(summary?.proposalSections) && summary.proposalSections.length) {
-      return summary.proposalSections;
+  const serverBySection = useMemo(() => bySectionFromSummary(summary), [summary]);
+  const [addedRows, setAddedRows] = useState([]);
+  const addedSeedVersionRef = useRef(null);
+
+  // Clear local BA-added drafts when reviewVersion / pack review epoch changes
+  useEffect(() => {
+    if (!active) {
+      setAddedRows([]);
+      addedSeedVersionRef.current = null;
+      return;
     }
-    return Object.entries(bySection).map(([key, rows]) => ({
-      key,
-      label: rows[0]?.sectionLabel || key,
-      count: rows.length,
-      missing: !rows.length,
-    }));
-  }, [summary, bySection]);
+    const version = summary?.reviewVersion ?? 0;
+    if (addedSeedVersionRef.current === version) return;
+    addedSeedVersionRef.current = version;
+    setAddedRows([]);
+  }, [active, summary?.reviewVersion]);
+
+  const bySection = useMemo(() => {
+    const merged = {};
+    const keys = new Set([
+      ...Object.keys(serverBySection || {}),
+      ...addedRows.map((r) => String(r.section || '').trim()).filter(Boolean),
+    ]);
+    for (const key of keys) {
+      merged[key] = mergeGate1SectionRows(serverBySection[key] || [], addedRows, key);
+    }
+    return merged;
+  }, [serverBySection, addedRows]);
+
+  const sectionTabs = useMemo(() => {
+    const base =
+      Array.isArray(summary?.proposalSections) && summary.proposalSections.length
+        ? summary.proposalSections
+        : Object.entries(serverBySection).map(([key, rows]) => ({
+            key,
+            label: rows[0]?.sectionLabel || key,
+            count: rows.length,
+            missing: !rows.length,
+          }));
+    return base.map((tab) => {
+      const mergedCount = bySection[tab.key]?.length || 0;
+      return {
+        ...tab,
+        count: mergedCount,
+        missing: mergedCount === 0,
+      };
+    });
+  }, [summary, serverBySection, bySection]);
 
   const [activeSection, setActiveSection] = useState('');
   const [localDecisions, setLocalDecisions] = useState({});
@@ -136,30 +191,50 @@ export default function Phase1Gate1ReviewPanel({
   }, [active, summary?.reviewVersion, isControlled]);
 
   const readyForGate1 = summary?.readyForGate1 !== false;
-  const reviewComplete = Boolean(summary?.reviewComplete);
   const decisionsComplete = useMemo(
     () => areGate1SectionDecisionsComplete(bySection, decisions),
+    [bySection, decisions]
+  );
+  const createRowsReady = useMemo(
+    () => areGate1CreateRowsReady(bySection, decisions, getGate1RowId),
     [bySection, decisions]
   );
   const pendingDecisionCount = useMemo(
     () => countGate1PendingDecisions(bySection, decisions),
     [bySection, decisions]
   );
-  const canConfirmSubmit = readyForGate1 && decisionsComplete;
-  const conflictGate = summary?.conflictAmbiguity || null;
-  const conflictBlocking = Array.isArray(conflictGate?.blocking) ? conflictGate.blocking : [];
-  const conflictOpen = Boolean(conflictGate && conflictGate.passed === false && conflictBlocking.length);
+  const canConfirmSubmit = readyForGate1 && decisionsComplete && createRowsReady;
+  const gateAWarnSections = useMemo(() => {
+    const checks = Array.isArray(summary?.gateA?.checks) ? summary.gateA.checks : [];
+    const missingCheck = checks.find((c) => c?.id === 'missing_sections');
+    const rows = listMissingSectionRows(missingCheck?.detail);
+    return new Set(rows.map((r) => r.section));
+  }, [summary?.gateA]);
+
+  const sectionHasIssue = (tab) => {
+    if (!tab) return false;
+    const rows = bySection[tab.key] || [];
+    const isMissing = Boolean(tab.missing) || !(rows.length || tab.count);
+    // Re-check vs current edits — không giữ icon theo snapshot integrity cũ
+    const hasConflict = sectionHasUnresolvedIntegrityIssues(
+      rows,
+      decisions,
+      getGate1RowId
+    );
+    return isMissing || hasConflict || gateAWarnSections.has(tab.key);
+  };
+
   const activeTab = sectionTabs.find((tab) => tab.key === activeSection) || null;
   const activeRows = bySection[activeSection] || [];
   const activeLabel = activeTab?.label || activeSection || '—';
-  const activeMissing = Boolean(activeTab?.missing) || activeRows.length === 0;
-  const totalArtifacts = sectionTabs.reduce((sum, tab) => sum + (Number(tab.count) || 0), 0);
-  const missingCount = sectionTabs.filter(
-    (tab) => tab.missing || !(bySection[tab.key]?.length || tab.count)
-  ).length;
-  const conflictSectionCount = sectionTabs.filter(
-    (tab) => tab.hasConflict || Number(tab.conflictCount) > 0
-  ).length;
+  const sectionAddable = isGate1SectionAddable(activeSection);
+  const showAddableTable =
+    Boolean(activeSection) &&
+    (activeRows.length > 0 || (allowDecide && sectionAddable));
+  const activeMissing =
+    !showAddableTable &&
+    (Boolean(activeTab?.missing) || activeRows.length === 0);
+  const activeHasIssue = sectionHasIssue(activeTab);
 
   const setDecision = (logicalId, patch) => {
     if (isControlled) {
@@ -172,9 +247,55 @@ export default function Phase1Gate1ReviewPanel({
     }));
   };
 
+  const clearDecision = useCallback(
+    (logicalId) => {
+      const id = String(logicalId || '').trim();
+      if (!id) return;
+      if (isControlled && typeof controlledClearDecision === 'function') {
+        controlledClearDecision(id);
+        return;
+      }
+      setLocalDecisions((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    },
+    [isControlled, controlledClearDecision]
+  );
+
+  const handleAddRow = useCallback(
+    (sectionKey) => {
+      const sec = String(sectionKey || activeSection || '').trim();
+      if (!allowDecide || !isGate1SectionAddable(sec)) return;
+      const existing = mergeGate1SectionRows(serverBySection[sec] || [], addedRows, sec);
+      const logicalId = nextGate1LogicalId(sec, existing);
+      const row = buildGate1AddedRow({ section: sec, logicalId });
+      const columns = getGate1ColumnsForSection(sec);
+      setAddedRows((prev) => [...prev, row]);
+      setDecision(logicalId, {
+        action: 'create',
+        section: sec,
+        editedPayload: seedGate1EditedPayload(row, columns),
+      });
+    },
+    [allowDecide, activeSection, serverBySection, addedRows, setDecision]
+  );
+
+  const handleRemoveAddedRow = useCallback(
+    (logicalId) => {
+      const id = String(logicalId || '').trim();
+      if (!id) return;
+      setAddedRows((prev) => prev.filter((r) => String(r.logicalId || r.id) !== id));
+      clearDecision(id);
+    },
+    [clearDecision]
+  );
+
   const handleSubmit = () => {
     if (typeof onSubmit !== 'function') return;
     if (!areGate1SectionDecisionsComplete(bySection, decisions)) return;
+    if (!areGate1CreateRowsReady(bySection, decisions, getGate1RowId)) return;
     const expectedRevisionIds = { ...(summary?.expectedRevisionIds || {}) };
     for (const [logicalId, d] of Object.entries(decisions)) {
       if (d?.revisionId) expectedRevisionIds[logicalId] = String(d.revisionId);
@@ -196,6 +317,12 @@ export default function Phase1Gate1ReviewPanel({
               'requirements.phase1Gate1PoHint',
               'PO xem lại bản BA đã xác nhận — Xác nhận để sang Phase How, hoặc Từ chối để trả về BA.'
             )
+          : needsBaResubmit
+            ? labelOf(
+                t,
+                'requirements.phase1Gate1SubmitMissingSubmission',
+                'BA submit chưa ghi nhận GateSubmission — thử «Xác nhận duyệt» lại trước khi PO duyệt.'
+              )
           : underReview && !canApprove
             ? labelOf(
                 t,
@@ -222,109 +349,80 @@ export default function Phase1Gate1ReviewPanel({
           </p>
         </div>
       ) : null}
-      {summary?.gateA ? (
-        <div className="mt-3">
-          <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {labelOf(
-              t,
-              'requirements.gateAPanelTitle',
-              'Gate A — cảnh báo chất lượng (advisory)'
-            )}
-          </p>
-          <GateAChecksPanel gateA={summary.gateA} t={t} />
+      {summary?.gateA ||
+      (showSubmit && pendingDecisionCount > 0) ||
+      summary?.poReapprovalRequired ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {summary?.gateA ? <GateAChecksPanel gateA={summary.gateA} t={t} /> : null}
+          {showSubmit && pendingDecisionCount > 0 ? (
+            <span className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+              {labelOf(
+                t,
+                'requirements.phase1Gate1PendingDecisions',
+                'Còn {count} dòng chưa quyết định (mọi section)',
+                { count: pendingDecisionCount }
+              )}
+            </span>
+          ) : null}
+          {summary?.poReapprovalRequired ? (
+            <span className="text-xs font-medium text-foreground">
+              {labelOf(t, 'requirements.phase1Gate1PoReapproval', 'Cần PO duyệt lại (mục nhạy cảm)')}
+            </span>
+          ) : null}
         </div>
       ) : null}
-      <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-        <span>readyForGate1: {readyForGate1 ? 'true' : 'false'}</span>
-        <span>reviewComplete: {reviewComplete ? 'true' : 'false'}</span>
-        {showSubmit && pendingDecisionCount > 0 ? (
-          <span className="font-medium text-amber-800 dark:text-amber-200">
-            {labelOf(
-              t,
-              'requirements.phase1Gate1PendingDecisions',
-              'Còn {count} dòng chưa quyết định (mọi section)',
-              { count: pendingDecisionCount }
-            )}
-          </span>
-        ) : null}
-        {missingCount > 0 ? (
-          <span>
-            {labelOf(t, 'requirements.phase1Gate1MissingTabs', '{count} section thiếu dữ liệu', {
-              count: missingCount,
-            })}
-          </span>
-        ) : null}
-        {conflictOpen ? (
-          <span className="font-medium text-amber-800 dark:text-amber-200">
-            {labelOf(
-              t,
-              'requirements.phase1Gate1IntegrityMeta',
-              'Integrity: {count} lỗi cấu trúc · {sections} phần',
-              { count: conflictBlocking.length, sections: conflictSectionCount || 1 }
-            )}
-          </span>
-        ) : null}
-        {summary?.poReapprovalRequired ? (
-          <span className="font-medium text-foreground">
-            {labelOf(t, 'requirements.phase1Gate1PoReapproval', 'Cần PO duyệt lại (mục nhạy cảm)')}
-          </span>
-        ) : null}
-      </div>
 
       {sectionTabs.length ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {sectionTabs.map((tab) => {
-            const isMissing = Boolean(tab.missing) || !(bySection[tab.key]?.length || tab.count);
-            const isActive = activeSection === tab.key;
-            const hasConflict = Boolean(tab.hasConflict) || Number(tab.conflictCount) > 0;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setActiveSection(tab.key)}
-                className={`rounded-md border px-2 py-1 text-xs ${
-                  isActive
-                    ? hasConflict
-                      ? 'border-amber-600 bg-amber-500/20 text-foreground'
-                      : 'border-primary bg-primary/10 text-foreground'
-                    : hasConflict
-                      ? 'border-amber-500/60 bg-amber-500/10 text-amber-900 dark:text-amber-100'
-                      : isMissing
-                        ? 'border-dashed border-border text-muted-foreground'
-                        : 'border-border text-muted-foreground'
-                }`}
-              >
-                {tab.label}
-                {isMissing
-                  ? ` · ${labelOf(t, 'requirements.phase1Gate1TabMissing', 'Thiếu')}`
-                  : ` (${tab.count})`}
-                {hasConflict
-                  ? ` · ${labelOf(t, 'requirements.phase1Gate1TabIntegrity', 'Integrity')} ${
-                      tab.conflictCount || ''
-                    }`
-                  : ''}
-              </button>
-            );
-          })}
+        <div className="mt-3 border-b border-border">
+          <div
+            className="flex gap-0 overflow-x-auto overscroll-x-contain"
+            role="tablist"
+            aria-label={labelOf(
+              t,
+              'requirements.phase1Gate1SectionTabsAria',
+              'Các section Gate 1'
+            )}
+          >
+            {sectionTabs.map((tab) => {
+              const isActive = activeSection === tab.key;
+              const hasIssue = sectionHasIssue(tab);
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setActiveSection(tab.key)}
+                  className={`relative shrink-0 border-b-2 px-3 py-2 pr-5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    isActive
+                      ? hasIssue
+                        ? 'border-amber-600 text-amber-900 dark:border-amber-400 dark:text-amber-100'
+                        : 'border-emerald-600 text-emerald-800 dark:border-emerald-400 dark:text-emerald-100'
+                      : hasIssue
+                        ? 'border-transparent text-amber-800/80 hover:text-amber-950 dark:text-amber-200/80'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <span className="whitespace-nowrap">{tab.label}</span>
+                  {hasIssue ? (
+                    <AlertTriangle
+                      className="pointer-events-none absolute right-1 top-1 h-3 w-3 text-amber-600 dark:text-amber-400"
+                      aria-hidden
+                    />
+                  ) : null}
+                  <span className="sr-only">
+                    {hasIssue
+                      ? labelOf(t, 'requirements.phase1Gate1TabHasIssue', 'Có cảnh báo')
+                      : labelOf(t, 'requirements.phase1Gate1TabOk', 'Đạt')}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : null}
 
-      {summary?.done ? (
-        <ul className="mt-3 space-y-1 text-sm text-foreground">
-          <li>
-            {labelOf(t, 'requirements.phase1Seeded', 'Đã seed {count} artifacts', {
-              count: totalArtifacts || summary.g4RequirementCount || 0,
-            })}
-          </li>
-          <li>
-            {labelOf(t, 'requirements.phase1Citations', '{count} citations', {
-              count: summary.citationCount || 0,
-            })}
-          </li>
-        </ul>
-      ) : null}
-
-      {activeSection && !activeMissing && activeRows.length ? (
+      {showAddableTable ? (
         <Gate1SectionReviewTable
           section={activeSection}
           rows={activeRows}
@@ -333,8 +431,12 @@ export default function Phase1Gate1ReviewPanel({
           showSubmit={allowDecide}
           busy={busy}
           t={t}
+          headerTone={activeHasIssue ? 'warn' : 'ok'}
+          canAddRow={allowDecide && sectionAddable}
+          onAddRow={handleAddRow}
+          onRemoveAddedRow={handleRemoveAddedRow}
         />
-      ) : summary?.done && activeSection ? (
+      ) : summary?.done && activeSection && activeMissing ? (
         <Gate1MissingSectionPanel
           sectionLabel={activeLabel}
           sectionKey={activeSection}
@@ -368,6 +470,12 @@ export default function Phase1Gate1ReviewPanel({
                       'requirements.phase1Gate1ConfirmBlockedHint',
                       'Quyết định đủ mọi dòng ở tất cả section trước khi xác nhận duyệt'
                     )
+                  : !createRowsReady
+                    ? labelOf(
+                        t,
+                        'requirements.phase1Gate1CreateTitleRequired',
+                        'Điền tiêu đề cho dòng BA vừa thêm trước khi xác nhận duyệt'
+                      )
                   : !readyForGate1
                     ? labelOf(
                         t,

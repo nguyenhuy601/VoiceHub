@@ -126,7 +126,7 @@ function planningEnvFromProcess() {
     ...process.env,
     AI_PLANNING_LLM: '1',
     PHASE1_RAW_SECTION_DERIVE: '1',
-    PHASE1_RAW_DERIVE_SECTIONS: 'bg,br,uc,bpm,data,interface',
+    PHASE1_RAW_DERIVE_SECTIONS: 'bg,br,uc,bpm,data,nfr,scope',
     PHASE1_UC_GROUNDED_FIRST: '0',
     PHASE1_BPM_GROUNDED_FIRST: '0',
     PHASE1_DATA_GROUNDED_FIRST: '0',

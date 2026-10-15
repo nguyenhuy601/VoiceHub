@@ -621,11 +621,25 @@ async function processRunAsync(runId) {
         });
       }
 
+      const { normalizeDeriveLocale } = require('../semantic/buildSemanticDeriveContext');
+      const deriveLocale = normalizeDeriveLocale(
+        run.input?.locale || run.input?.g4Opts?.locale || process.env.PHASE1_DERIVE_LOCALE || 'vi'
+      );
+      const packWithLocale = {
+        ...(cpState?.pack || runtimePack || {}),
+      };
+      if (!packWithLocale.aiAnalysis || typeof packWithLocale.aiAnalysis !== 'object') {
+        packWithLocale.aiAnalysis = {};
+      } else {
+        packWithLocale.aiAnalysis = { ...packWithLocale.aiAnalysis };
+      }
+      packWithLocale.aiAnalysis.deriveLocale = deriveLocale;
+
       const { runAgentPhase } = require('../orchestration/agentLoopRunner');
       const phaseOut = await runAgentPhase({
         phase: run.job === 'phase_what' ? 'what' : 'how',
         container: cpState?.container || run.input?.container,
-        pack: cpState?.pack || runtimePack,
+        pack: packWithLocale,
         toolData: cpState?.toolData || toolData,
         snapshot: runtimeSnapshot,
         snapshotId: run.snapshotId,
@@ -635,6 +649,7 @@ async function processRunAsync(runId) {
         g4Opts: {
           ...whatG4Opts(run, cpState),
           ...(run.input?.g4Opts || {}),
+          locale: deriveLocale,
           loop1Reenter: Boolean(humanFeedback?.kind === 'requirement_feedback'),
           priorPartial:
             run.input?.g4Opts?.priorPartial ||
@@ -1105,6 +1120,60 @@ async function resumeRun(req, res) {
     }
 
     const decision = String(req.body?.decision || '').trim().toLowerCase();
+    const actionNorm = String(req.body?.action || '').trim().toLowerCase();
+    const {
+      normalizeInRunKind,
+      isInRunHitlKind,
+    } = require('../orchestration/hitlInterrupt');
+
+    // Hybrid HITL — in-run resume payload (clarify|edit_draft). Not Gate 1/2 stamp.
+    const explicitInRun =
+      actionNorm === 'in_run_hitl' || actionNorm === 'resume_in_run';
+    if (explicitInRun || isInRunHitlKind(req.body?.kind)) {
+      const kind = normalizeInRunKind(
+        req.body?.kind || (explicitInRun ? 'clarify' : '')
+      );
+      if (!isInRunHitlKind(kind)) {
+        return res.status(400).json({
+          success: false,
+          message: 'kind must be clarify or edit_draft',
+          errorCode: 'IN_RUN_HITL_KIND_INVALID',
+        });
+      }
+      const resumePayload =
+        req.body?.resume && typeof req.body.resume === 'object'
+          ? req.body.resume
+          : {};
+      const loaded = await loadCheckpoint(req.params.runId);
+      const prior = loaded?.checkpoint?.state || {};
+      await saveCheckpoint(req.params.runId, {
+        ...prior,
+        humanResume: {
+          type: 'in_run_hitl',
+          kind,
+          resume: resumePayload,
+          at: new Date().toISOString(),
+          governanceGate: false,
+        },
+        snapshotId: existing.snapshotId,
+        runId: String(existing._id),
+        job: existing.job,
+      });
+      const doc = await resumeRunStore(req.params.runId);
+      if (!doc) {
+        return res.status(404).json({ success: false, message: 'Run not found' });
+      }
+      const runId = String(doc._id || doc.runId);
+      setImmediate(() => {
+        processRunAsync(runId).catch(() => {});
+      });
+      return res.status(202).json({
+        success: true,
+        data: toPublicRun(doc),
+        inRunHitl: { kind, governanceGate: false },
+      });
+    }
+
     const isLegacyDataGate =
       String(existing.status) === 'waiting_human' &&
       String(existing.gate || '') === 'data_review';

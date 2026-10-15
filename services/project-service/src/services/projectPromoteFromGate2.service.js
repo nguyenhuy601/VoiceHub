@@ -247,6 +247,28 @@ async function promoteProjectFromGate2({
       pack: pack.toObject(),
       leafAssignments: normalizedLeafAssignments,
     });
+    try {
+      const { recomputeForecastForUsers } = require('./forecastCapacity.service');
+      const packAi = pack.toObject ? pack.toObject() : pack;
+      const assignUserIds = [
+        ...new Set(
+          (normalizedLeafAssignments || [])
+            .map((a) => String(a?.userId || a?.assigneeUserId || '').trim())
+            .filter(Boolean)
+        ),
+      ];
+      const fromContainer = Array.isArray(packAi?.aiAnalysis?.resource?.assignments)
+        ? packAi.aiAnalysis.resource.assignments
+            .map((a) => String(a?.userId || '').trim())
+            .filter(Boolean)
+        : [];
+      const userIds = [...new Set([...assignUserIds, ...fromContainer])];
+      if (userIds.length) {
+        await recomputeForecastForUsers({ organizationId, userIds });
+      }
+    } catch {
+      /* best-effort forecast recompute */
+    }
   }
 
   // 3) Promote lifecycle → Phase 2 hub (development).

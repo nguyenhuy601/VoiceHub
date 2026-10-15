@@ -35,7 +35,7 @@ function actorBanSet(pack, input) {
     const n = normName(part);
     if (n.length >= 2) ban.add(n);
   }
-  for (const row of asArray(input?.frSlim || pack?.functionalRequirements)) {
+  for (const row of asArray(input?.frFull || input?.frSlim || pack?.functionalRequirements)) {
     const actors = String(row.actor || row.primaryActor || '').split(/[,;/|]+/);
     for (const a of actors) {
       const n = normName(a);
@@ -47,7 +47,7 @@ function actorBanSet(pack, input) {
 
 function frNameSet(pack, input) {
   const set = new Set();
-  for (const row of asArray(input?.frSlim || pack?.functionalRequirements)) {
+  for (const row of asArray(input?.frFull || input?.frSlim || pack?.functionalRequirements)) {
     const n = normName(row.name || row.title);
     if (n.length >= 8) set.add(n);
   }
@@ -117,7 +117,7 @@ function filterInterfaces(rows, pack, input) {
 function buildDeterministicInterfaces(pack, input) {
   const signals = [];
   const texts = [];
-  for (const row of asArray(input?.frSlim || pack?.functionalRequirements)) {
+  for (const row of asArray(input?.frFull || input?.frSlim || pack?.functionalRequirements)) {
     texts.push(`${row.id || ''} ${row.name || row.title || ''}`);
   }
   for (const row of asArray(input?.nfrSlim || pack?.nonFunctionalRequirements)) {
@@ -185,7 +185,7 @@ function buildDeterministicEntities(pack, input) {
     'báo cáo': ['HrReport'],
   };
 
-  for (const row of asArray(input?.frSlim || pack?.functionalRequirements)) {
+  for (const row of asArray(input?.frFull || input?.frSlim || pack?.functionalRequirements)) {
     const mod = String(row.module || '').toLowerCase();
     const refs = row.id ? [{ externalId: row.id, sheet: '03_Requirement' }] : [];
     for (const [key, ents] of Object.entries(moduleMap)) {
@@ -252,7 +252,7 @@ function resolveFrModule(row) {
 }
 
 function frRowsForGrounding(pack, input) {
-  const fromInput = asArray(input?.frSlim);
+  const fromInput = asArray(input?.frFull || input?.frSlim);
   if (fromInput.length) {
     return fromInput.map((r) => ({
       id: String(r.id || '').trim(),
@@ -278,7 +278,7 @@ function frRowsForGrounding(pack, input) {
 function topUpUseCasesFromFrBehaviors(existing, pack, input) {
   const rows = [...asArray(existing)];
   const blob = rows.map((r) => `${r.name || r.title || ''} ${r.goal || ''}`).join('\n');
-  const frs = asArray(input?.frSlim || pack?.functionalRequirements);
+  const frs = asArray(input?.frFull || input?.frSlim || pack?.functionalRequirements);
   const need = [
     { key: 'dup_warning', re: /trùng|cảnh\s*báo|duplicate/i, label: 'Cảnh báo trùng tên vai trò' },
     { key: 'add_role', re: /thêm|tạo|create|add/i, label: 'Thêm vai trò' },

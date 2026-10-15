@@ -8,6 +8,7 @@ const ORIGIN_TYPES = Object.freeze([
   'HEURISTIC',
   'DERIVED',
   'AI_SYNTHESIS',
+  'BA_ADDED',
 ]);
 
 const ITEM_STATUSES = Object.freeze([

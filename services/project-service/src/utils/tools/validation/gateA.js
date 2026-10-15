@@ -4,6 +4,11 @@
  */
 
 const { makeFact, makeWarning, makeToolResult, hashInput } = require('../toolContract');
+const {
+  filterContentMissingSections,
+  formatMissingSectionsMessage,
+  sanitizeGateAForSourceAbsence,
+} = require('../gateAAdvisorySignals');
 
 const TOOL_NAME = 'gate_a_requirement_quality';
 const TOOL_VERSION = 2;
@@ -31,11 +36,12 @@ function runGateA(input = {}, ctx = {}) {
     input.duplicateCount != null
       ? Number(input.duplicateCount)
       : Number(factStore?.get('advisory.duplicateCount')?.value ?? 0);
-  const missingSections = Array.isArray(input.missingSections)
+  const missingSectionsRaw = Array.isArray(input.missingSections)
     ? input.missingSections
     : Array.isArray(factStore?.get('advisory.missingSections')?.value)
       ? factStore.get('advisory.missingSections').value
       : [];
+  const missingSections = filterContentMissingSections(missingSectionsRaw);
 
   const checks = [];
 
@@ -47,12 +53,14 @@ function runGateA(input = {}, ctx = {}) {
     detail: input.duplicateDetail || null,
   });
 
+  const missingMessage = formatMissingSectionsMessage(missingSections);
   checks.push({
     id: 'missing_sections',
     passed: missingSections.length <= Number(thresholds.maxMissingSections ?? 0),
     value: missingSections.length,
     threshold: thresholds.maxMissingSections ?? 0,
     detail: missingSections,
+    ...(missingMessage ? { message: missingMessage } : {}),
   });
 
   const conflictOk =
@@ -105,17 +113,13 @@ function runGateA(input = {}, ctx = {}) {
     );
   }
 
-  const warningChecks = checks.filter((c) => c && !c.skipped && c.passed === false);
-  const hasWarnings = warningChecks.length > 0;
   // passed=false means "has warnings" for UI; assert Gate1 does not enforce (unless GATE_A_ENFORCE).
-  const passed = !hasWarnings;
-  const data = {
-    passed,
-    hasWarnings,
+  const data = sanitizeGateAForSourceAbsence({
     mode: 'advisory',
     checks,
     thresholds: { ...thresholds, advisory: true },
-  };
+  });
+  const { passed, hasWarnings, checks: sanitizedChecks } = data;
 
   const tool = ctx.tool || TOOL_NAME;
   const version = ctx.version || TOOL_VERSION;
@@ -130,7 +134,7 @@ function runGateA(input = {}, ctx = {}) {
     }),
     makeFact({
       key: 'gateA.checks',
-      value: checks,
+      value: sanitizedChecks,
       tool,
       version,
     }),
@@ -148,7 +152,14 @@ function runGateA(input = {}, ctx = {}) {
     }),
   ];
 
-  return makeToolResult({ data, facts, warnings, tool, version, inputHash });
+  return makeToolResult({
+    data: { ...data, checks: sanitizedChecks },
+    facts,
+    warnings,
+    tool,
+    version,
+    inputHash,
+  });
 }
 
 const descriptor = {

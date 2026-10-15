@@ -27,7 +27,8 @@ export default function ReviewNoteDialog({
   variant = 'generic',
   maxLength = 1000,
   noteOptional = false,
-  layerClassName = 'z-[220]',
+  /** Override z-index only when needed — default inherits FIGMA_MODAL_OVERLAY (z-[10050]). */
+  layerClassName = '',
 }) {
   const { t } = useAppStrings();
   const [note, setNote] = useState('');

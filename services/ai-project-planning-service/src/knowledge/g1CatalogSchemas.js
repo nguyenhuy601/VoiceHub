@@ -230,6 +230,14 @@ const METRIC_CATALOG_SEED = Object.freeze([
     ruleId: 'G4-LLM-REL-001',
   }),
   Object.freeze({
+    metricId: 'semantic_projection',
+    formula: 'llm_semantic_fr_projection',
+    unit: 'ref',
+    description: 'G4 LLM semantic interpretation projection per FR candidate',
+    owners: ['G4:semanticProjection', 'evidenceBuilder'],
+    ruleId: 'G4-SEM-001',
+  }),
+  Object.freeze({
     metricId: 'job_status',
     formula: 'planning_job_status',
     unit: 'enum',

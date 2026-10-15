@@ -14,6 +14,7 @@ import {
   staffingPersonLabel,
 } from './staffingPipelineModel';
 import { useProjectMemberNames } from './useProjectMemberNames';
+import ForecastWorkloadBreakdown from './ForecastWorkloadBreakdown';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -77,6 +78,22 @@ export default function PlanningResourcesCapacityCalendarPanel({
       );
       return raw;
     },
+    enabled: Boolean(orgId && projectId && assigneeUserId),
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  const forecastQ = useQuery({
+    queryKey: ['userForecastCapacity', orgId, projectId, assigneeUserId],
+    queryFn: async () =>
+      unwrap(
+        await projectAPI.getUserForecastCapacity(
+          orgId,
+          assigneeUserId,
+          { projectId },
+          { skipPermissionDeniedToast: true }
+        )
+      ),
     enabled: Boolean(orgId && projectId && assigneeUserId),
     staleTime: 60_000,
     retry: false,
@@ -166,6 +183,22 @@ export default function PlanningResourcesCapacityCalendarPanel({
                 </Link>
               </div>
             ) : null}
+            <div className="rounded-lg border border-border/70 px-2.5 py-2">
+              <h4 className="mb-1.5 text-xs font-semibold text-muted-foreground">
+                {t('workspace.phase1ForecastTitle')}
+              </h4>
+              {forecastQ.isLoading ? (
+                <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+              ) : (
+                <ForecastWorkloadBreakdown data={forecastQ.data} t={t} />
+              )}
+              <Link
+                to={buildPhase1ModulePath(projectId, 'planning/resources/budget')}
+                className="mt-2 inline-block text-[11px] font-medium text-sky-700 hover:underline dark:text-sky-300"
+              >
+                {t('workspace.phaseNavPlanningResourcesBudget')} →
+              </Link>
+            </div>
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
               <div className="rounded-lg border border-border/70 px-2.5 py-2">
                 <dt className="text-[11px] text-muted-foreground">
@@ -188,7 +221,7 @@ export default function PlanningResourcesCapacityCalendarPanel({
             </dl>
             <div>
               <h4 className="mb-1 text-xs font-semibold text-muted-foreground">
-                {t('workspace.phase1StaffingAllocations')}
+                {t('workspace.phase1StaffingCommitments')}
               </h4>
               {profileQ.isLoading ? (
                 <p className="text-xs text-muted-foreground">{t('common.loading')}</p>

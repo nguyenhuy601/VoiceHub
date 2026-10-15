@@ -328,10 +328,7 @@ export default function RequirementPackReviewDrawer({
                 const gateA = readPackGateA(pack);
                 if (!gateA) return null;
                 return (
-                  <div className="mb-4">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {t('requirements.gateAPanelTitle') || 'Gate A — chất lượng requirement'}
-                    </p>
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
                     <GateAChecksPanel gateA={gateA} t={t} />
                   </div>
                 );

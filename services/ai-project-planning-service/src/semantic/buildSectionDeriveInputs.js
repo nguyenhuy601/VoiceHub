@@ -1,10 +1,14 @@
 /**
- * Slim V2 derive inputs per section (same process as BG; section-specific payload).
- * Avoid dumping full AC / requirementUnderstanding / huge schema — 3B + time budget.
+ * Per-section derive inputs — full semantic context (FR full + G4 + evidence + locale).
+ * Avoid aggressive FR slim that drops description/AC.
  */
 
 const { buildBgDeriveInput } = require('./buildBgDeriveInput');
-const { INTEGRATION_RE } = require('./sectionDeriveQuality');
+const {
+  buildSemanticDeriveContext,
+  takeFrFull,
+  takeBrqFull,
+} = require('./buildSemanticDeriveContext');
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -16,154 +20,30 @@ function clip(value, max = 160) {
   return `${t.slice(0, max)}…`;
 }
 
-function frId(row) {
-  return String(row?.externalId || row?.logicalId || row?.id || row?.frId || '').trim();
-}
-
-function extractFormulaSnippet(text) {
-  const t = String(text || '');
-  const m = t.match(/Lương\s*=\s*[^\n.]{8,120}/i) || t.match(/Số\s*lượng\s*[x×*]\s*[^\n.]{5,80}/i);
-  return m ? clip(m[0], 120) : '';
-}
-
-function takeFrSlim(pack, opts = {}, max = 40) {
-  const fromProposal = asArray(opts.proposal?.generated?.functionalRequirements?.items).map((row) => {
-    const desc = clip(row.description || row.detail || '', 280);
-    const item = {
-      id: String(row.logicalId || row.id || '').trim(),
-      name: clip(row.title || row.name, 120),
-      module: clip(row.module || row.moduleLabel, 80),
-      actor: clip(row.actor || row.primaryActor, 60),
-      description: desc,
-    };
-    const formula = extractFormulaSnippet(`${row.description || ''} ${row.acceptanceCriteria || ''}`);
-    if (formula) item.formula = formula;
-    if (row.behaviorKey) item.behaviorKey = String(row.behaviorKey);
-    return item;
-  });
-  const fromPack = asArray(pack?.functionalRequirements).map((row) => {
-    const desc = clip(row.description || '', 280);
-    const item = {
-      id: frId(row),
-      name: clip(row.name || row.title, 120),
-      module: clip(
-        row.module || row.moduleLabel || row.feature || row.functional_scope || row.functionalScope || row.area,
-        80
-      ),
-      actor: clip(row.actor || row.primaryActor || row.userActor, 60),
-      description: desc,
-    };
-    const formula = extractFormulaSnippet(`${row.description || ''} ${row.acceptanceCriteria || ''}`);
-    if (formula) item.formula = formula;
-    if (row.behaviorKey) item.behaviorKey = String(row.behaviorKey);
-    return item;
-  });
-  const out = [];
-  const seen = new Set();
-  for (const row of [...fromProposal, ...fromPack]) {
-    if (!row.id && !row.name) continue;
-    const key = row.id || row.name;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(row);
-    if (out.length >= max) break;
-  }
-  return out;
-}
-
-function takeBrqSlim(pack, opts = {}, max = 40) {
-  const canonical = opts.snapshot?.canonicalRaw || pack?.aiAnalysis?.canonicalRaw || null;
-  let rows = [];
-  if (canonical?.sections) {
-    const sec = canonical.sections.businessRequests || canonical.sections.business_requests;
-    rows = asArray(sec?.rows || sec);
-  }
-  if (!rows.length) {
-    rows = asArray(pack?.aiAnalysis?.customerRawRows?.businessRequests);
-  }
-  return rows
-    .slice(0, max)
-    .map((r) => ({
-      id: String(r.requestId || r.id || r.externalId || '').trim(),
-      statement: clip(r.statement || r.description || r.businessGoal || r.title || r.name, 200),
-      category: clip(r.category || r.priority, 40),
-    }))
-    .filter((r) => r.id || r.statement);
-}
-
-function takeNfrSlim(pack, max = 20) {
-  return asArray(pack?.nonFunctionalRequirements)
-    .slice(0, max)
-    .map((r) => ({
-      id: String(r.id || r.externalId || '').trim(),
-      category: clip(r.category, 40),
-      statement: clip(r.statement || r.description || r.name, 160),
-    }))
-    .filter((r) => r.id || r.statement);
-}
-
 function overviewBits(pack) {
   const ov = pack?.overview && typeof pack.overview === 'object' ? pack.overview : {};
   return {
     projectName: clip(ov.requirementName || ov.projectName || ov.name, 120),
-    objective: clip(ov.projectObjective || ov.problemStatement || ov.summary, 280),
-    scope: clip(ov.businessScope || ov.scope, 280),
-    constraint: clip(ov.constraint, 200),
-    assumption: clip(ov.assumption, 200),
+    objective: clip(ov.projectObjective || ov.problemStatement || ov.summary, 400),
+    scope: clip(ov.businessScope || ov.scope, 400),
+    constraint: clip(ov.constraint, 280),
+    assumption: clip(ov.assumption, 280),
     platform: clip(ov.platform || ov.existingSystem, 120),
-    existingSystem: clip(ov.existingSystem, 120),
-    integration: clip(ov.integration, 160),
-    expectedUsers: clip(ov.expectedUsers || ov.targetUsers, 160),
+    existingSystem: clip(ov.existingSystem, 160),
+    integration: clip(ov.integration, 200),
+    expectedUsers: clip(ov.expectedUsers || ov.targetUsers, 200),
   };
 }
 
-function buildBrDeriveInput(pack, opts = {}) {
-  return {
-    engineId: 'br',
-    mode: 'raw_derive_v2',
-    focus: 'business_rules',
-    task: 'derive_business_rules',
-    deriveInstruction:
-      'Extract enforceable business rules from FR text only. Include duplicate-name warning and the salary formula Lương = Số lượng x Tỉ lệ x Mốc when present in Input. Do not invent KPI schema, delete policy, or auth rules. JSON: rules[] with id, statement, sourceRefs. Max 8 short rules.',
-    overview: overviewBits(pack),
-    frSlim: takeFrSlim(pack, opts, 14),
-    brqSlim: takeBrqSlim(pack, opts, 8),
-  };
-}
-
-function buildUcDeriveInput(pack, opts = {}) {
-  return {
-    engineId: 'uc',
-    mode: 'raw_derive_v2',
-    focus: 'use_cases',
-    task: 'derive_use_cases',
-    deriveInstruction:
-      'Propose use cases covering distinct FR behaviors (create, edit, delete, list, duplicate warning, task-salary when present). JSON: useCases[] with id, name, primaryActor, goal, sourceRefs (FR ids). Max 6. No mainFlow. Prefer one UC per major behavior — do not collapse CRUD into a single UC when multiple FR ids are listed.',
-    overview: overviewBits(pack),
-    frSlim: takeFrSlim(pack, opts, 16),
-  };
-}
-
-function buildBpmDeriveInput(pack, opts = {}) {
-  return {
-    engineId: 'bpm',
-    mode: 'raw_derive_v2',
-    focus: 'business_processes',
-    task: 'derive_business_processes',
-    deriveInstruction:
-      'High-level processes by module. JSON: processes[] with id, name, steps (≤4 short strings), sourceRefs. Max 4.',
-    overview: overviewBits(pack),
-    frSlim: takeFrSlim(pack, opts, 14),
-  };
-}
-
-/** Data derive: modules + FR nouns only — omit actor (3B copies roles as entities). */
-function takeFrForData(pack, opts = {}, max = 24) {
-  return takeFrSlim(pack, opts, max).map((r) => ({
-    id: r.id,
-    name: r.name,
-    module: r.module,
-  }));
+function takeNfrRows(pack, max = 20) {
+  return asArray(pack?.nonFunctionalRequirements)
+    .slice(0, max)
+    .map((r) => ({
+      id: String(r.id || r.externalId || '').trim(),
+      category: clip(r.category, 80),
+      statement: clip(r.statement || r.description || r.name, 400),
+      target: clip(r.target || r.metric || '', 120),
+    }));
 }
 
 function uniqueModules(frRows) {
@@ -177,67 +57,188 @@ function uniqueModules(frRows) {
     seen.add(key);
     out.push(m);
   }
-  return out.slice(0, 12);
+  return out.slice(0, 16);
 }
 
-function takeFrForInterface(pack, opts = {}, max = 14) {
-  const all = takeFrSlim(pack, opts, 60).map((r) => ({
-    id: r.id,
-    name: r.name,
-    module: r.module,
-  }));
-  const hit = all.filter((r) => INTEGRATION_RE.test(`${r.name} ${r.module}`));
-  const picked = hit.length ? hit : all.filter((r) => /file|email|excel|csv|api|export|import|thông báo|đính kèm/i.test(r.name));
-  return (picked.length ? picked : all.slice(0, 8)).slice(0, max);
+function withSemantic(base, pack, opts) {
+  const sem = buildSemanticDeriveContext(pack, opts);
+  return {
+    ...base,
+    locale: sem.locale,
+    languageInstruction: sem.languageInstruction,
+    deriveInstruction: [base.deriveInstruction, sem.languageInstruction].filter(Boolean).join(' '),
+    frFull: sem.frFull,
+    brqFull: sem.brqFull,
+    requirementUnderstanding: sem.requirementUnderstanding,
+    evidenceRefs: sem.evidenceRefs,
+    // Keep frSlim alias as frFull for older prompt/quality paths that still read frSlim
+    frSlim: sem.frFull,
+    brqSlim: sem.brqFull,
+  };
+}
+
+function buildBrDeriveInput(pack, opts = {}) {
+  return withSemantic(
+    {
+      engineId: 'br',
+      mode: 'raw_derive_v2',
+      focus: 'business_rules',
+      task: 'derive_business_rules',
+      deriveInstruction:
+        'Extract enforceable business rules from FR + requirementUnderstanding + BRQ + evidence. ' +
+        'Include formulas when present in Input. Do not invent unrelated policies. ' +
+        'JSON: rules[] with id, statement, sourceRefs. Max 10.',
+      overview: overviewBits(pack),
+    },
+    pack,
+    opts
+  );
+}
+
+function buildUcDeriveInput(pack, opts = {}) {
+  return withSemantic(
+    {
+      engineId: 'uc',
+      mode: 'raw_derive_v2',
+      focus: 'use_cases',
+      task: 'derive_use_cases',
+      deriveInstruction:
+        'Propose use cases from FR behaviors + semantic capability/intent. ' +
+        'JSON: useCases[] with id, name, primaryActor, goal, sourceRefs (FR ids). Max 8. No mainFlow. ' +
+        'Prefer one UC per major behavior.',
+      overview: overviewBits(pack),
+    },
+    pack,
+    opts
+  );
+}
+
+function buildBpmDeriveInput(pack, opts = {}) {
+  return withSemantic(
+    {
+      engineId: 'bpm',
+      mode: 'raw_derive_v2',
+      focus: 'business_processes',
+      task: 'derive_business_processes',
+      deriveInstruction:
+        'High-level processes by module from FR + semantic understanding. ' +
+        'JSON: processes[] with id, name, steps (≤5 short strings), sourceRefs. Max 6.',
+      overview: overviewBits(pack),
+    },
+    pack,
+    opts
+  );
 }
 
 function buildDataDeriveInput(pack, opts = {}) {
-  const frSlim = takeFrForData(pack, opts, 16);
+  const sem = buildSemanticDeriveContext(pack, opts);
   const ov = overviewBits(pack);
-  return {
-    engineId: 'data',
-    mode: 'raw_derive_v2',
-    focus: 'domain_entities',
-    task: 'derive_domain_entities',
-    deriveInstruction:
-      'DOMAIN ENTITIES only (not actors). Examples: Employee, Department, LeaveRequest. ' +
-      'JSON: entities[] id,name,attributes,sourceRefs. Max 6.',
-    projectContext: {
-      projectName: ov.projectName,
-      objective: ov.objective,
-      scope: ov.scope,
+  const frForModules = takeFrFull(pack, opts, 32);
+  return withSemantic(
+    {
+      engineId: 'data',
+      mode: 'raw_derive_v2',
+      focus: 'domain_entities',
+      task: 'derive_domain_entities',
+      deriveInstruction:
+        'DOMAIN ENTITIES only (not actors/roles). Use FR description/AC + semantic capability. ' +
+        'JSON: entities[] id,name,attributes,sourceRefs. Max 8.',
+      projectContext: {
+        projectName: ov.projectName,
+        objective: ov.objective,
+        scope: ov.scope,
+      },
+      modules: uniqueModules(frForModules),
+      forbidNames: String(ov.expectedUsers || '')
+        .split(/[,;/|]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 16),
     },
-    modules: uniqueModules(frSlim),
-    frSlim,
-    forbidNames: String(ov.expectedUsers || '')
-      .split(/[,;/|]+/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .slice(0, 12),
-  };
+    pack,
+    { ...opts, _sem: sem }
+  );
 }
 
-function buildInterfaceDeriveInput(pack, opts = {}) {
+function buildNfrDeriveInput(pack, opts = {}) {
   const ov = overviewBits(pack);
-  const frSlim = takeFrForInterface(pack, opts, 10);
-  const nfrSlim = takeNfrSlim(pack, 6);
-  return {
-    engineId: 'interface',
-    mode: 'raw_derive_v2',
-    focus: 'external_interfaces',
-    task: 'derive_external_interfaces',
-    deriveInstruction:
-      'EXTERNAL systems only (not FR titles). Examples: Email gateway, Excel/CSV import, File storage, SSO. ' +
-      'JSON: interfaces[] id,name,protocol,direction,sourceRefs. Max 4.',
-    projectContext: {
-      projectName: ov.projectName,
-      platform: ov.platform,
-      existingSystem: ov.existingSystem,
-      integration: ov.integration || 'Infer from FR signals (email, file, Excel/CSV, API).',
+  return withSemantic(
+    {
+      engineId: 'nfr',
+      mode: 'raw_derive_v2',
+      focus: 'non_functional_requirements',
+      task: 'derive_nfr_candidates',
+      deriveInstruction:
+        'NFR candidates (performance, security, availability, usability, compliance) from FR/BRQ/semantic. ' +
+        'JSON: nfrs[] nfrId,category,statement,metric?,threshold?,sourceRefs. Max 8.',
+      projectContext: {
+        projectName: ov.projectName,
+        objective: ov.objective,
+        scope: ov.scope,
+        platform: ov.platform,
+      },
+      nfrSlim: takeNfrRows(pack, 12),
     },
-    integrationSignals: frSlim,
-    nfrSlim,
-  };
+    pack,
+    opts
+  );
+}
+
+function buildScopeDeriveInput(pack, opts = {}) {
+  const ov = overviewBits(pack);
+  return withSemantic(
+    {
+      engineId: 'scope',
+      mode: 'raw_derive_v2',
+      focus: 'scope_in_out',
+      task: 'derive_scope_items',
+      deriveInstruction:
+        'Scope IN vs OUT from overview/BRQ/FR/semantic. Do not expand beyond source. ' +
+        'JSON: scopeItems[] scopeId,inOut(in|out),statement,rationale?,sourceRefs. Max 10.',
+      projectContext: {
+        projectName: ov.projectName,
+        objective: ov.objective,
+        scope: ov.scope,
+      },
+    },
+    pack,
+    opts
+  );
+}
+
+/**
+ * Actors — LLM when deterministic extract empty; grounded on FR.actor + semantic actors + expectedUsers.
+ */
+function buildActorsDeriveInput(pack, opts = {}) {
+  const ov = overviewBits(pack);
+  const fr = takeFrFull(pack, opts, 40);
+  const actorsFromFr = [];
+  const seen = new Set();
+  for (const row of fr) {
+    const a = String(row.actor || '').trim();
+    if (!a) continue;
+    const key = a.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    actorsFromFr.push({ name: a, relatedFrIds: row.id ? [row.id] : [] });
+  }
+  return withSemantic(
+    {
+      engineId: 'actors',
+      mode: 'raw_derive_v2',
+      focus: 'actors',
+      task: 'derive_actors',
+      deriveInstruction:
+        'Propose distinct human/system actors from FR.actor fields, requirementUnderstanding.actors, ' +
+        'expectedUsers, and BRQ stakeholders. Do not invent unrelated roles. ' +
+        'JSON: actors[] with id, name, type(human|system), relatedFrIds, sourceRefs. Max 10.',
+      overview: ov,
+      actorSignals: actorsFromFr,
+      expectedUsers: ov.expectedUsers,
+    },
+    pack,
+    opts
+  );
 }
 
 /**
@@ -247,17 +248,33 @@ function buildInterfaceDeriveInput(pack, opts = {}) {
  */
 function buildDeriveInputForSection(engineId, pack, opts = {}) {
   const id = String(engineId || '').toLowerCase();
-  if (id === 'bg') return buildBgDeriveInput(pack, opts);
+  if (id === 'bg') {
+    // BG keeps its own slim V2 contract — do not attach frFull (would duplicate requirements[]).
+    const base = buildBgDeriveInput(pack, opts);
+    const sem = buildSemanticDeriveContext(pack, opts);
+    return {
+      ...base,
+      locale: sem.locale,
+      languageInstruction: sem.languageInstruction,
+      deriveInstruction: [base.deriveInstruction, sem.languageInstruction].filter(Boolean).join(' '),
+      requirementUnderstanding: sem.requirementUnderstanding || undefined,
+    };
+  }
   if (id === 'br') return buildBrDeriveInput(pack, opts);
   if (id === 'uc') return buildUcDeriveInput(pack, opts);
   if (id === 'bpm') return buildBpmDeriveInput(pack, opts);
   if (id === 'data') return buildDataDeriveInput(pack, opts);
-  if (id === 'interface') return buildInterfaceDeriveInput(pack, opts);
+  if (id === 'nfr') return buildNfrDeriveInput(pack, opts);
+  if (id === 'scope') return buildScopeDeriveInput(pack, opts);
+  if (id === 'actors') return buildActorsDeriveInput(pack, opts);
+  const sem = buildSemanticDeriveContext(pack, opts);
   return {
     engineId: id,
     mode: 'raw_derive_v2',
     overview: overviewBits(pack),
-    frSlim: takeFrSlim(pack, opts, 20),
+    ...sem,
+    frSlim: sem.frFull,
+    brqSlim: sem.brqFull,
   };
 }
 
@@ -267,5 +284,9 @@ module.exports = {
   buildUcDeriveInput,
   buildBpmDeriveInput,
   buildDataDeriveInput,
-  buildInterfaceDeriveInput,
+  buildNfrDeriveInput,
+  buildScopeDeriveInput,
+  buildActorsDeriveInput,
+  takeFrFull,
+  takeBrqFull,
 };

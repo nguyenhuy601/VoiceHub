@@ -5,6 +5,7 @@
 const DECISION_ACCEPT = 'accept';
 const DECISION_EDIT = 'edit';
 const DECISION_REJECT = 'reject';
+const DECISION_CREATE = 'create';
 
 function listProposalItems(proposal) {
   const generated = proposal?.generated || {};
@@ -52,7 +53,7 @@ function computeReviewSummary(proposal) {
     const d = decisions[row.logicalId];
     const action = String(d?.action || '').toLowerCase();
     if (action === DECISION_ACCEPT) accepted += 1;
-    else if (action === DECISION_EDIT) edited += 1;
+    else if (action === DECISION_EDIT || action === DECISION_CREATE) edited += 1;
     else if (action === DECISION_REJECT) rejected += 1;
     else {
       pending += 1;
@@ -157,6 +158,7 @@ module.exports = {
   DECISION_ACCEPT,
   DECISION_EDIT,
   DECISION_REJECT,
+  DECISION_CREATE,
   listProposalItems,
   computeReviewSummary,
   assertNeedsConfirmationAccept,

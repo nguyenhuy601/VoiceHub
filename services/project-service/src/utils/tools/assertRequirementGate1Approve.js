@@ -17,20 +17,24 @@ function isGateAEnforceEnabled() {
 
 /**
  * Resolve gateA from pack / requirementTools shell.
+ * Strips sheet-empty missing_sections so stale snapshots do not warn/enforce.
  * @returns {{ passed: boolean, checks: array, source: string } | null}
  */
 function resolveGateAFromPack(pack) {
+  const { sanitizeGateAForSourceAbsence } = require('./gateAAdvisorySignals');
   const tools =
     pack?.aiAnalysis?.analyses?.requirementTools ||
     pack?.analyses?.requirementTools ||
     null;
   const gateA = tools?.gateA;
   if (gateA && typeof gateA === 'object') {
+    const cleaned = sanitizeGateAForSourceAbsence(gateA);
     return {
-      passed: Boolean(gateA.passed),
-      checks: Array.isArray(gateA.checks) ? gateA.checks : [],
+      passed: Boolean(cleaned.passed),
+      checks: Array.isArray(cleaned.checks) ? cleaned.checks : [],
       source: 'requirementTools.gateA',
-      thresholds: gateA.thresholds || null,
+      thresholds: cleaned.thresholds || gateA.thresholds || null,
+      hasWarnings: cleaned.hasWarnings,
     };
   }
   const factPassed = tools?.facts?.['gateA.passed'];
@@ -221,8 +225,14 @@ function assertRequirementGate1Approve({
   }
 
   const failedChecks = (gateA.checks || []).filter((c) => c && c.passed === false);
+  const missCheck = failedChecks.find((c) => c?.id === 'missing_sections');
+  const missMsg =
+    (missCheck && typeof missCheck.message === 'string' && missCheck.message.trim()) ||
+    '';
   const err = new Error(
-    'Gate A (requirement quality) chưa đạt — sửa pack/chạy lại tools, hoặc forceApprove kèm lý do.'
+    missMsg
+      ? `Gate A chưa đạt — ${missMsg}. Sửa pack/chạy lại tools, hoặc forceApprove kèm lý do.`
+      : 'Gate A (requirement quality) chưa đạt — sửa pack/chạy lại tools, hoặc forceApprove kèm lý do.'
   );
   err.statusCode = 409;
   err.errorCode = 'GATE_A_FAILED';

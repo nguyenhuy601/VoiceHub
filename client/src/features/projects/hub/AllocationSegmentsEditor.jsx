@@ -43,7 +43,7 @@ export default function AllocationSegmentsEditor({
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <p className={`text-xs font-semibold uppercase tracking-wide ${muted}`}>
-          {t('workspace.projectHubAllocSegments')}
+          {t('workspace.projectHubCommitmentSegments')}
         </p>
         {!disabled ? (
           <button

@@ -24,7 +24,7 @@ function decisionTouchesSensitiveSection(decision, sectionFromItem = '') {
   const section = String(decision?.section || sectionFromItem || '').trim();
   if (!isSensitiveGate1Section(section)) return false;
   const action = String(decision?.action || '').toLowerCase();
-  if (action === 'edit') return true;
+  if (action === 'edit' || action === 'create') return true;
   if (action === 'accept' && decision?.editedPayload && typeof decision.editedPayload === 'object') {
     return true;
   }

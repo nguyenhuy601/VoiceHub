@@ -26,8 +26,10 @@ export const WHAT_MONITOR_STEPS = Object.freeze(
   )
 );
 
-const IN_FLIGHT = new Set(['pending', 'running', 'waiting_human', 'stopped']);
+const IN_FLIGHT = new Set(['pending', 'running', 'queued', 'waiting_human', 'stopped']);
 const READY = new Set(['ready', 'completed', 'confirmed']);
+/** Keep Monitor on the phase that just failed — do not drop to idle. */
+const TERMINAL_FAIL = new Set(['failed', 'cancelled', 'error']);
 
 function norm(value) {
   return String(value || '')
@@ -81,6 +83,17 @@ export function resolveAiHitlMonitorPhase({
 
   // Live run active before approve → treat as WHAT
   if (isInFlight(liveSt)) {
+    return 'what';
+  }
+
+  // Terminal fail/cancel: stay on the phase that ran (P0 Monitor UX)
+  if (
+    TERMINAL_FAIL.has(howSt) ||
+    (TERMINAL_FAIL.has(liveSt) && (pack === 'approved' || pack === 'project_linked'))
+  ) {
+    return 'how';
+  }
+  if (TERMINAL_FAIL.has(whatSt) || TERMINAL_FAIL.has(liveSt)) {
     return 'what';
   }
 

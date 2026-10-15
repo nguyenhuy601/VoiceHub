@@ -4,8 +4,10 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import {
   GATE1_SCROLL_PAGE_SIZE,
+  GATE1_TABLE_BODY_HEIGHT_CLASS,
   getGate1ColumnsForSection,
   getGate1RowId,
 } from '../gate1/gate1SectionTableConfig';
@@ -26,40 +28,19 @@ function labelOf(t, key, fallback, vars) {
 
 export { shouldShowWhatMonitorResults };
 
-function WhatSummaryStrip({ bundle, t }) {
-  const items = bundle?.items || [];
-  if (!items.length) return null;
-  const sectionsWithData = (bundle?.sections || []).filter((s) => (s.count || 0) > 0).length;
-  const conflictCount = items.filter((row) => Boolean(row?.hasConflict)).length;
-  const softGaps = Array.isArray(bundle?.softGaps) ? bundle.softGaps.length : 0;
-  return (
-    <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-      <span>
-        {labelOf(t, 'requirements.aiHitlMonitorWhatItemCount', 'Mục')}: {items.length}
-      </span>
-      <span>
-        {labelOf(t, 'requirements.aiHitlMonitorWhatSectionCount', 'Section có dữ liệu')}:{' '}
-        {sectionsWithData}
-      </span>
-      {conflictCount > 0 ? (
-        <span className="font-medium text-amber-800 dark:text-amber-200">
-          {labelOf(t, 'requirements.gate2ConflictCount', 'Conflicts')}: {conflictCount}
-        </span>
-      ) : null}
-      {softGaps > 0 ? (
-        <span>
-          {labelOf(t, 'requirements.aiHitlMonitorWhatSoftGaps', 'Soft gaps')}: {softGaps}
-        </span>
-      ) : null}
-    </div>
-  );
+function sectionHasIssue(tab, bySection) {
+  if (!tab) return false;
+  const isMissing = Boolean(tab.missing) || !(bySection[tab.key]?.length || tab.count);
+  const hasConflict = Boolean(tab.hasConflict) || Number(tab.conflictCount) > 0;
+  return isMissing || hasConflict;
 }
 
-function ReadOnlyResultsTable({ section, rows, t }) {
+function ReadOnlyResultsTable({ section, rows, t, headerTone = 'ok' }) {
   const columns = useMemo(() => getGate1ColumnsForSection(section), [section]);
   const [visibleCount, setVisibleCount] = useState(GATE1_SCROLL_PAGE_SIZE);
   const sentinelRef = useRef(null);
   const scrollRootRef = useRef(null);
+  const isWarnHeader = headerTone === 'warn';
 
   useEffect(() => {
     setVisibleCount(GATE1_SCROLL_PAGE_SIZE);
@@ -87,19 +68,25 @@ function ReadOnlyResultsTable({ section, rows, t }) {
 
   if (!rows.length) return null;
 
+  const theadClass = isWarnHeader
+    ? 'sticky top-0 z-[1] border-b border-amber-600/40 bg-amber-100 text-amber-950 dark:bg-amber-950/80 dark:text-amber-50'
+    : 'sticky top-0 z-[1] border-b border-emerald-600/40 bg-emerald-100 text-emerald-950 dark:bg-emerald-950/80 dark:text-emerald-50';
+
   return (
     <div className="mt-3 space-y-2">
       <div
         ref={scrollRootRef}
-        className="max-h-[min(28rem,55vh)] overflow-auto rounded-md border border-border overscroll-contain"
+        className={`${GATE1_TABLE_BODY_HEIGHT_CLASS} overflow-auto rounded-md border bg-card text-foreground shadow-sm overscroll-contain ${
+          isWarnHeader ? 'border-amber-600/40' : 'border-emerald-600/40'
+        }`}
       >
         <table className="w-full min-w-[32rem] border-collapse text-left text-xs sm:min-w-[40rem] sm:text-sm">
-          <thead className="sticky top-0 z-[1] bg-muted/90 text-muted-foreground backdrop-blur-sm">
-            <tr className="border-b border-border">
+          <thead className={theadClass}>
+            <tr>
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="whitespace-nowrap px-2 py-1.5 font-medium"
+                  className="whitespace-nowrap px-2 py-1.5 text-xs font-semibold"
                   style={{ minWidth: col.minPx || 64 }}
                 >
                   {labelOf(t, col.headerKey, col.headerFallback)}
@@ -156,6 +143,22 @@ function ReadOnlyResultsTable({ section, rows, t }) {
   );
 }
 
+function EmptySectionPanel({ t }) {
+  return (
+    <div
+      className={`mt-3 flex ${GATE1_TABLE_BODY_HEIGHT_CLASS} flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/30 px-3 text-center`}
+    >
+      <p className="text-xs text-muted-foreground">
+        {labelOf(
+          t,
+          'requirements.aiHitlMonitorWhatResultsEmptySection',
+          'Section này chưa có dữ liệu từ lần chạy WHAT.'
+        )}
+      </p>
+    </div>
+  );
+}
+
 /**
  * Monitor WHAT results — read-only; no role gate (BA / PO / PM).
  */
@@ -182,6 +185,7 @@ export default function WhatMonitorResultsPanel({ pack = null, t }) {
   const activeRows = bySection[activeSection] || [];
   const activeTab = sectionTabs.find((tab) => tab.key === activeSection);
   const activeMissing = Boolean(activeTab?.missing) || activeRows.length === 0;
+  const activeHasIssue = sectionHasIssue(activeTab, bySection);
 
   return (
     <section
@@ -198,51 +202,66 @@ export default function WhatMonitorResultsPanel({ pack = null, t }) {
           'Bảng kết quả phân tích (FR, NFR, UC, BR…) — BA / PO / PM đều xem được. Duyệt quyết định ở tab Duyệt.'
         )}
       </p>
-      <WhatSummaryStrip bundle={bundle} t={t} />
 
       {sectionTabs.length ? (
-        <div className="-mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:thin] sm:flex-wrap sm:overflow-visible">
-          {sectionTabs.map((tab) => {
-            const isMissing = Boolean(tab.missing) || !(bySection[tab.key]?.length || tab.count);
-            const isActive = activeSection === tab.key;
-            const hasConflict = Boolean(tab.hasConflict) || Number(tab.conflictCount) > 0;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setActiveSection(tab.key)}
-                className={`shrink-0 rounded-md border px-2.5 py-1.5 text-xs whitespace-nowrap ${
-                  isActive
-                    ? hasConflict
-                      ? 'border-amber-600 bg-amber-500/20 text-foreground'
-                      : 'border-primary bg-primary/10 text-foreground'
-                    : hasConflict
-                      ? 'border-amber-500/60 bg-amber-500/10 text-amber-900 dark:text-amber-100'
-                      : isMissing
-                        ? 'border-dashed border-border text-muted-foreground'
-                        : 'border-border text-muted-foreground hover:bg-muted/40'
-                }`}
-              >
-                {tab.label}
-                {isMissing
-                  ? ` · ${labelOf(t, 'requirements.phase1Gate1TabMissing', 'Thiếu')}`
-                  : ` (${tab.count})`}
-              </button>
-            );
-          })}
+        <div className="mt-3 border-b border-border">
+          <div
+            className="flex gap-0 overflow-x-auto overscroll-x-contain"
+            role="tablist"
+            aria-label={labelOf(
+              t,
+              'requirements.aiHitlMonitorWhatSectionTabsAria',
+              'Các section WHAT'
+            )}
+          >
+            {sectionTabs.map((tab) => {
+              const isActive = activeSection === tab.key;
+              const hasIssue = sectionHasIssue(tab, bySection);
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setActiveSection(tab.key)}
+                  className={`relative shrink-0 border-b-2 px-3 py-2 pr-5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    isActive
+                      ? hasIssue
+                        ? 'border-amber-600 text-amber-900 dark:border-amber-400 dark:text-amber-100'
+                        : 'border-emerald-600 text-emerald-800 dark:border-emerald-400 dark:text-emerald-100'
+                      : hasIssue
+                        ? 'border-transparent text-amber-800/80 hover:text-amber-950 dark:text-amber-200/80'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <span className="whitespace-nowrap">{tab.label}</span>
+                  {hasIssue ? (
+                    <AlertTriangle
+                      className="pointer-events-none absolute right-1 top-1 h-3 w-3 text-amber-600 dark:text-amber-400"
+                      aria-hidden
+                    />
+                  ) : null}
+                  <span className="sr-only">
+                    {hasIssue
+                      ? labelOf(t, 'requirements.phase1Gate1TabHasIssue', 'Có cảnh báo')
+                      : labelOf(t, 'requirements.phase1Gate1TabOk', 'Đạt')}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : null}
 
       {!activeMissing && activeRows.length ? (
-        <ReadOnlyResultsTable section={activeSection} rows={activeRows} t={t} />
+        <ReadOnlyResultsTable
+          section={activeSection}
+          rows={activeRows}
+          t={t}
+          headerTone={activeHasIssue ? 'warn' : 'ok'}
+        />
       ) : activeSection ? (
-        <p className="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
-          {labelOf(
-            t,
-            'requirements.aiHitlMonitorWhatResultsEmptySection',
-            'Section này chưa có dữ liệu từ lần chạy WHAT.'
-          )}
-        </p>
+        <EmptySectionPanel t={t} />
       ) : null}
     </section>
   );

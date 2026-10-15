@@ -1,6 +1,8 @@
 /**
  * Per-section derive config — same pipeline as BG, section-specific input/output.
  * Unlock order via PHASE1_RAW_DERIVE_SECTIONS (comma list).
+ *
+ * Wave-1: interface removed; nfr + scope added to LLM catalog.
  */
 
 const LLM_DERIVE_ORDER = Object.freeze([
@@ -9,7 +11,9 @@ const LLM_DERIVE_ORDER = Object.freeze([
   'uc',
   'bpm',
   'data',
-  'interface',
+  'nfr',
+  'scope',
+  'actors',
 ]);
 
 const SECTION_BY_ENGINE = Object.freeze({
@@ -18,7 +22,9 @@ const SECTION_BY_ENGINE = Object.freeze({
   bpm: 'processes',
   uc: 'useCases',
   data: 'entities',
-  interface: 'interfaces',
+  nfr: 'nonFunctionalRequirements',
+  scope: 'scope',
+  actors: 'actors',
 });
 
 const RESULT_KEY_BY_ENGINE = Object.freeze({
@@ -27,7 +33,9 @@ const RESULT_KEY_BY_ENGINE = Object.freeze({
   bpm: 'processes',
   uc: 'useCases',
   data: 'entities',
-  interface: 'interfaces',
+  nfr: 'nfrs',
+  scope: 'scopeItems',
+  actors: 'actors',
 });
 
 const RESULT_ALIASES = Object.freeze({
@@ -36,7 +44,9 @@ const RESULT_ALIASES = Object.freeze({
   bpm: ['businessProcesses', 'business_processes'],
   uc: ['use_cases'],
   data: ['domainEntities', 'domain_entities'],
-  interface: ['externalInterfaces', 'interfaces'],
+  nfr: ['nonFunctionalRequirements', 'nfr'],
+  scope: ['scope', 'scopes'],
+  actors: ['actor', 'roles'],
 });
 
 const PREFIX_BY_ENGINE = Object.freeze({
@@ -45,18 +55,21 @@ const PREFIX_BY_ENGINE = Object.freeze({
   bpm: 'BPM',
   uc: 'UC',
   data: 'ENT',
-  interface: 'IF',
+  nfr: 'NFR',
+  scope: 'SC',
+  actors: 'ACT',
 });
 
 /** Default num_predict per section (3B-friendly). Override via PHASE1_<SEC>_DERIVE_MAX_TOKENS. */
-/** Tuned from live evalCount (3B) — avoid over-predict that burns wall time. */
 const DEFAULT_MAX_TOKENS = Object.freeze({
   bg: 448,
   br: 512,
   uc: 640,
   bpm: 320,
   data: 320,
-  interface: 256,
+  nfr: 384,
+  scope: 320,
+  actors: 320,
 });
 
 const SECTION_LABEL = Object.freeze({
@@ -65,7 +78,9 @@ const SECTION_LABEL = Object.freeze({
   bpm: 'BPM',
   uc: 'UC',
   data: 'Data',
-  interface: 'Interface',
+  nfr: 'NFR',
+  scope: 'Scope',
+  actors: 'Actors',
 });
 
 function resolveSectionMaxTokens(engineId, env = process.env) {

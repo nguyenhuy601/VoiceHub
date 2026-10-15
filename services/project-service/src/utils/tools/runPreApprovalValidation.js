@@ -39,8 +39,12 @@ function runPreApprovalValidation(pack = {}) {
   );
 
   // Coverage / Gate A are advisory — do not hard-fail pre-approval.
-  const dupCheck = gateA?.checks?.find((c) => c?.id === 'duplicates');
-  const missCheck = gateA?.checks?.find((c) => c?.id === 'missing_sections');
+  const {
+    sanitizeGateAForSourceAbsence,
+  } = require('./gateAAdvisorySignals');
+  const gateAClean = gateA ? sanitizeGateAForSourceAbsence(gateA) : null;
+  const dupCheck = gateAClean?.checks?.find((c) => c?.id === 'duplicates');
+  const missCheck = gateAClean?.checks?.find((c) => c?.id === 'missing_sections');
   checks.push(
     check('duplicates', dupCheck ? dupCheck.passed !== false : true, {
       value: dupCheck?.value ?? null,
@@ -50,6 +54,8 @@ function runPreApprovalValidation(pack = {}) {
   checks.push(
     check('missing_sections', missCheck ? missCheck.passed !== false : true, {
       value: missCheck?.value ?? null,
+      detail: missCheck?.detail ?? null,
+      message: missCheck?.message || null,
       advisory: true,
     })
   );
@@ -131,12 +137,12 @@ function runPreApprovalValidation(pack = {}) {
     schemaVersion: 'preApproval.v2',
     passed,
     checks,
-    gateA: gateA
+    gateA: gateAClean
       ? {
-          passed: Boolean(gateA.passed),
-          hasWarnings: Boolean(gateA.hasWarnings),
-          mode: gateA.mode || 'advisory',
-          checks: gateA.checks || [],
+          passed: Boolean(gateAClean.passed),
+          hasWarnings: Boolean(gateAClean.hasWarnings),
+          mode: gateAClean.mode || 'advisory',
+          checks: gateAClean.checks || [],
         }
       : null,
     meta: {
