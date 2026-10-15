@@ -2,7 +2,7 @@ const mongoose = require('../db');
 const projectService = require('../services/project.service');
 const sprintCloseService = require('../services/sprintClose.service');
 const projectCloseService = require('../services/projectClose.service');
-const { setUserProjectRoles } = require('../services/projectTeam.service');
+const { setUserProjectRoles, setUserProjectRolesBulk } = require('../services/projectTeam.service');
 const { listMemberCandidates } = require('../services/projectMemberCandidate.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
 const { isHubView, toProjectHubView } = require('../utils/project/projectHubView');
@@ -354,6 +354,69 @@ async function putMemberRoles(req, res) {
   }
 }
 
+async function putMemberRolesBulk(req, res) {
+  try {
+    const userId = asUserId(req);
+    const { projectId } = req.params;
+    const body = req.body || {};
+    const {
+      userIds,
+      projectRoleKeys,
+      boardRole,
+      allocations,
+      joinDate,
+      leaveDate,
+      billable,
+      status,
+      clearAllRoles,
+    } = body;
+    if (!userId) return unauthorized(res);
+    const project = await projectService.getProject({ userId, projectId });
+    const canAdmin = await projectService.userCanAdminProject(userId, project);
+    if (!canAdmin) {
+      return sendServiceError(res, 403, {
+        errorCode: 'PROJECT_FORBIDDEN',
+        messageUser: 'Không có quyền quản lý thành viên.',
+        message: 'Forbidden',
+      });
+    }
+    console.info('[project] members roles bulk', {
+      projectId: String(projectId),
+      actorUserId: String(userId),
+      userIdsLength: Array.isArray(userIds) ? userIds.length : 0,
+    });
+    const data = await setUserProjectRolesBulk({
+      projectId,
+      boardId: project.defaultBoardId,
+      userIds,
+      projectRoleKeys,
+      addedBy: userId,
+      boardRole,
+      allocations,
+      joinDate,
+      leaveDate,
+      billable,
+      status,
+      clearAllRoles: Boolean(clearAllRoles),
+    });
+    console.info('[project] members roles bulk done', {
+      projectId: String(projectId),
+      actorUserId: String(userId),
+      ok: data.ok,
+      fail: data.fail,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    return sendErrorFromCatch(
+      res,
+      err,
+      err.statusCode || 400,
+      'Không thể cập nhật roles hàng loạt',
+      err.errorCode || 'PROJECT_MEMBER_ROLES_BULK_FAILED'
+    );
+  }
+}
+
 async function listBoards(req, res) {
   try {
     const userId = asUserId(req);
@@ -607,6 +670,7 @@ module.exports = {
   listMembers,
   listMemberCandidatesController,
   putMemberRoles,
+  putMemberRolesBulk,
   listBoards,
   createBoard,
   listSprints,

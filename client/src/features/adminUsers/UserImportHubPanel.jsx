@@ -1,21 +1,19 @@
-import { useId, useMemo, useRef } from 'react';
+import { useEffect, useId, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAdminTabLoading } from '../../hooks/useAdminShellLoading';
 import { useAppStrings } from '../../locales/appStrings';
 import { AdminUserPanelShell } from '../../components/adminUsers/adminUserPanelUi';
 import UserExcelImportPanel from './UserExcelImportPanel';
 import UserCreatePanel from './UserCreatePanel';
-import UserImportPanel from './UserImportPanel';
 
 const MODE_EXCEL = 'excel';
 const MODE_INVITE = 'invite';
-const MODE_CSV = 'csv';
 
 /**
  * Một cửa “Thêm nhân sự”:
  * - excel (mặc định): nạp HR master (profile + phòng + capacity)
  * - invite: mời 1 người
- * - csv: advanced (cùng pipeline invite), không cạnh Excel như peer
+ * CSV advanced đã deprecate — ?mode=csv coerce về Excel (SoT import nhiều người).
  */
 export default function UserImportHubPanel({ orgId }) {
   const { t } = useAppStrings();
@@ -28,9 +26,20 @@ export default function UserImportHubPanel({ orgId }) {
       .toLowerCase()
       .trim();
     if (raw === MODE_INVITE || raw === 'create') return MODE_INVITE;
-    if (raw === MODE_CSV) return MODE_CSV;
     return MODE_EXCEL;
   }, [searchParams]);
+
+  // Deep-link cũ ?mode=csv|tab=csv → normalize URL về Excel.
+  useEffect(() => {
+    const raw = String(searchParams.get('mode') || searchParams.get('tab') || '')
+      .toLowerCase()
+      .trim();
+    if (raw !== 'csv') return;
+    const params = new URLSearchParams(searchParams);
+    params.delete('mode');
+    params.delete('tab');
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const { markTabSwitch } = useAdminTabLoading(mode);
 
@@ -46,7 +55,6 @@ export default function UserImportHubPanel({ orgId }) {
   const tabs = [
     { id: MODE_EXCEL, label: t('adminDomains.users.modeExcel') },
     { id: MODE_INVITE, label: t('adminDomains.users.modeInvite') },
-    ...(mode === MODE_CSV ? [{ id: MODE_CSV, label: t('adminDomains.users.modeCsvAdvanced') }] : []),
   ];
 
   const focusTab = (index) => {
@@ -102,18 +110,7 @@ export default function UserImportHubPanel({ orgId }) {
       <div id={`${baseId}-panel`} role="tabpanel" aria-labelledby={`${baseId}-tab-${mode}`}>
         {mode === MODE_INVITE ? <UserCreatePanel orgId={orgId} embedded /> : null}
         {mode === MODE_EXCEL ? <UserExcelImportPanel orgId={orgId} embedded /> : null}
-        {mode === MODE_CSV ? <UserImportPanel orgId={orgId} embedded /> : null}
       </div>
-
-      {mode !== MODE_CSV ? (
-        <button
-          type="button"
-          className="mt-4 rounded text-xs text-muted-foreground underline-offset-2 transition-colors duration-150 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-          onClick={() => setMode(MODE_CSV)}
-        >
-          {t('adminUsers.openCsvAdvanced')}
-        </button>
-      ) : null}
     </AdminUserPanelShell>
   );
 }

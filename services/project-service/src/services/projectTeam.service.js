@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const ProjectRole = require('../models/ProjectRole');
 const ProjectMembership = require('../models/ProjectMembership');
 const TaskBoardMember = require('../models/TaskBoardMember');
@@ -15,6 +16,11 @@ const { assertResolvedProjectRoleKeys } = require('../utils/project/assertResolv
 const { enrichMembershipUserLabels } = require('../utils/common/userProfileLabels');
 const { createTtlCoalesceCache } = require('../utils/ttlCoalesceCache');
 const { seedPermissionsForRoleKey } = require('../utils/project/projectPermissionMatrix');
+const {
+  BULK_MEMBER_ROLES_CONCURRENCY,
+  normalizeBulkMemberUserIds,
+  aggregateBulkMemberRoleResults,
+} = require('../utils/project/memberRolesBulk');
 
 const LEGACY_TO_PROJECT_ROLE = Object.freeze({
   owner: DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER,
@@ -1007,6 +1013,86 @@ async function ensurePmMembershipFromBrief({ boardId, projectId, pmUserId, added
   });
 }
 
+/**
+ * Bulk gán cùng projectRoleKeys + allocations cho nhiều user (1 HTTP từ Hub Bulk).
+ * Partial success: lỗi 1 user không abort các user khác.
+ */
+async function setUserProjectRolesBulk({
+  projectId,
+  boardId,
+  userIds,
+  projectRoleKeys,
+  addedBy,
+  boardRole,
+  allocations,
+  joinDate,
+  leaveDate,
+  billable,
+  status,
+  clearAllRoles = false,
+}) {
+  const ids = normalizeBulkMemberUserIds(userIds, {
+    isValidId: (id) => mongoose.Types.ObjectId.isValid(id),
+  });
+
+  const pid = String(projectId || '').trim();
+  const project = await Project.findById(pid).lean();
+  if (!project) {
+    const err = new Error('Project không tồn tại');
+    err.statusCode = 404;
+    err.errorCode = 'PROJECT_NOT_FOUND';
+    throw err;
+  }
+  const orgId = project.organizationId;
+  let aclBoardId = boardId || project.defaultBoardId || null;
+  if (!aclBoardId) {
+    const main = await TaskBoard.findOne({ projectId: pid, isActive: true }).sort({ createdAt: 1 }).lean();
+    aclBoardId = main?._id || null;
+  }
+  await ensureProjectRolesCloned(pid, orgId);
+
+  const results = [];
+  for (let i = 0; i < ids.length; i += BULK_MEMBER_ROLES_CONCURRENCY) {
+    const chunk = ids.slice(i, i + BULK_MEMBER_ROLES_CONCURRENCY);
+    const chunkRows = await Promise.all(
+      chunk.map(async (memberUserId) => {
+        try {
+          const data = await setUserProjectRoles({
+            projectId: pid,
+            boardId: aclBoardId,
+            userId: memberUserId,
+            projectRoleKeys,
+            addedBy,
+            boardRole,
+            allocations,
+            joinDate,
+            leaveDate,
+            billable,
+            status,
+            clearAllRoles: Boolean(clearAllRoles),
+            skipActorPermissionCheck: true,
+            skipEnsureRoles: true,
+          });
+          return {
+            userId: memberUserId,
+            ok: true,
+            allocationStatus: data?.allocationStatus || data?.resource?.allocationStatus || 'ok',
+          };
+        } catch (err) {
+          return {
+            userId: memberUserId,
+            ok: false,
+            errorCode: err.errorCode || err.code || 'PROJECT_MEMBER_ROLES_FAILED',
+          };
+        }
+      })
+    );
+    results.push(...chunkRows);
+  }
+
+  return aggregateBulkMemberRoleResults(results);
+}
+
 module.exports = {
   ensureOrgProjectRoles,
   getRoleByKey,
@@ -1025,6 +1111,7 @@ module.exports = {
   listUserProjectRolesOnBoard,
   listUserProjectRolesOnProject,
   setUserProjectRoles,
+  setUserProjectRolesBulk,
   ensurePmMembershipFromBrief,
   LEGACY_TO_PROJECT_ROLE,
   _clearProjectRolesCachesForTests,

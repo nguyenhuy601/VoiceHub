@@ -712,25 +712,18 @@ export default function ProjectHubMembersPanel({
     }
 
     setBulkBusy(true);
-    let ok = 0;
-    let fail = 0;
-    let over = 0;
     try {
-      for (const user of targets) {
-        try {
-          const res = await projectAPI.setMemberRoles(projectIdStr, user.id, keys, options);
-          const data = unwrap(res);
-          if ((data?.allocationStatus || data?.resource?.allocationStatus) === 'overallocated') {
-            over += 1;
-          }
-          ok += 1;
-        } catch {
-          fail += 1;
-        }
-      }
+      const userIds = targets.map((u) => u.id).filter(Boolean);
+      const res = await projectAPI.setMemberRolesBulk(projectIdStr, userIds, keys, options);
+      const data = unwrap(res) || {};
+      const ok = Number(data.ok) || 0;
+      const fail = Number(data.fail) || 0;
+      const over = Number(data.overallocated) || 0;
       toast.success(t('workspace.projectHubBulkDone', { ok, fail, over }));
       await load();
       if (ok > 0) onMembersChanged?.();
+    } catch (err) {
+      toast.error(resolveApiErrorMessage(err, { t, fallback: t('workspace.projectHubMembersRoleSaveFail') }));
     } finally {
       setBulkBusy(false);
     }

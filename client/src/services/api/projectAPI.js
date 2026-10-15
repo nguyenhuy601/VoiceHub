@@ -177,6 +177,30 @@ export const projectAPI = {
     );
   },
 
+  /**
+   * Bulk gán cùng roles + allocations cho nhiều user (1 request).
+   * @param {string} projectId
+   * @param {string[]} userIds
+   * @param {string[]} projectRoleKeys
+   * @param {object} [options] — cùng shape options của setMemberRoles
+   */
+  setMemberRolesBulk: (projectId, userIds, projectRoleKeys, options = {}) => {
+    const body = {
+      userIds: Array.isArray(userIds) ? userIds : [],
+      projectRoleKeys,
+    };
+    if (options && typeof options === 'object') {
+      if (options.boardRole !== undefined) body.boardRole = options.boardRole;
+      if (options.allocations !== undefined) body.allocations = options.allocations;
+      if (options.joinDate !== undefined) body.joinDate = options.joinDate;
+      if (options.leaveDate !== undefined) body.leaveDate = options.leaveDate;
+      if (options.billable !== undefined) body.billable = options.billable;
+      if (options.status !== undefined) body.status = options.status;
+      if (options.clearAllRoles) body.clearAllRoles = true;
+    }
+    return apiClient.put(`/projects/${encodeURIComponent(projectId)}/members/roles`, body);
+  },
+
   listBoards: (projectId, organizationId, config = {}) =>
     apiClient.get(
       `/projects/${encodeURIComponent(projectId)}/boards`,

@@ -264,6 +264,8 @@ router.put('/:projectId/approval-policy', approval.bindProjectPolicy);
  *       500:
  *         $ref: '#/components/responses/InternalError'
  */
+// Collection bulk — phải đăng ký trước :memberUserId để không bị nuốt path "roles".
+router.put('/:projectId/members/roles', controller.putMemberRolesBulk);
 router.put('/:projectId/members/:memberUserId/roles', controller.putMemberRoles);
 router.get('/:projectId/boards', controller.listBoards);
 router.post('/:projectId/boards', controller.createBoard);
