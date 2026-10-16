@@ -1,60 +1,38 @@
 /* ========================================
-   FRIENDSERVICE.JS - FRIENDS API SERVICE
-   Quản lý bạn bè, friend requests, block/unblock
-   Kết nối: friend-service
-
-   Flow thêm bạn:
-   1. A gửi request → sendRequest(B.id)
-   2. B nhận pending request
-   3. B accept → acceptFriend(B.id người gửi)
-   4. A và B trở thành friends
+   FRIENDSERVICE.JS — derived DM roster
+   Graph request/accept/block retired (410 FRIEND_GRAPH_GONE).
+   Roster: GET /friends from organization-service.
 ======================================== */
 import api from './api';
-
-function friendActionPath(friendId, action) {
-  return `/friends/${encodeURIComponent(String(friendId))}/${action}`;
-}
 
 const friendService = {
   getFriends: async (params = {}) => {
     return await api.get('/friends', { params });
   },
 
-  sendRequest: async (userId) => {
-    return await api.post('/friends/request', { userId });
-  },
+  /** @deprecated Graph gone — returns empty. */
+  getPendingRequests: async () => ({ data: { success: true, data: [] } }),
 
-  acceptFriend: async (friendId) => {
-    return await api.post(friendActionPath(friendId, 'accept'));
-  },
+  /** @deprecated Graph gone — soft no-op (UI retired). */
+  sendRequest: async () => ({ data: { success: false, errorCode: 'FRIEND_GRAPH_GONE' } }),
 
-  rejectFriend: async (friendId) => {
-    return await api.post(friendActionPath(friendId, 'reject'));
-  },
+  /** @deprecated Graph gone — soft no-op. */
+  acceptFriend: async () => ({ data: { success: false, errorCode: 'FRIEND_GRAPH_GONE' } }),
 
-  getPendingRequests: async (config = {}) => {
-    return await api.get('/friends/pending', config);
-  },
+  /** @deprecated Graph gone — soft no-op. */
+  rejectFriend: async () => ({ data: { success: false, errorCode: 'FRIEND_GRAPH_GONE' } }),
 
-  blockUser: async (userId) => {
-    return await api.post(friendActionPath(userId, 'block'));
-  },
+  /** @deprecated Graph gone — soft no-op. */
+  blockUser: async () => ({ data: { success: false, errorCode: 'FRIEND_GRAPH_GONE' } }),
 
-  unblockUser: async (userId) => {
-    return await api.post(friendActionPath(userId, 'unblock'));
-  },
+  /** @deprecated Graph gone — soft no-op. */
+  unblockUser: async () => ({ data: { success: false, errorCode: 'FRIEND_GRAPH_GONE' } }),
 
-  blockFriend: async (friendId) => {
-    return await api.post(friendActionPath(friendId, 'block'));
-  },
+  blockFriend: async (friendId) => friendService.blockUser(friendId),
+  unblockFriend: async (friendId) => friendService.unblockUser(friendId),
 
-  unblockFriend: async (friendId) => {
-    return await api.post(friendActionPath(friendId, 'unblock'));
-  },
-
-  searchByPhone: async (phone) => {
-    return await api.get(`/friends/search?phone=${encodeURIComponent(phone)}`);
-  },
+  /** @deprecated Graph gone — soft no-op. */
+  searchByPhone: async () => ({ data: { success: false, data: null, errorCode: 'FRIEND_GRAPH_GONE' } }),
 };
 
 export default friendService;

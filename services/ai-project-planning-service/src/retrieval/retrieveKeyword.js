@@ -10,9 +10,24 @@ const INTENT_BOOST = 0.35;
 
 /** Intent → preferred docType(s); boost only, never hard-drop. */
 const INTENT_DOC_TYPES = Object.freeze({
-  skill_def: Object.freeze(['skill_def']),
+  skill_def: Object.freeze(['skill_def', 'srs_technology']),
   metric_def: Object.freeze(['metric_def']),
-  requirement_evidence: Object.freeze(['evidence_span', 'srs_canonical']),
+  requirement_evidence: Object.freeze([
+    'evidence_span',
+    'srs_canonical',
+    'srs_nfr',
+    'srs_uc',
+    'srs_ac',
+  ]),
+  /** HOW planning assemble (Quality / Arch / Deploy context) */
+  how_planning: Object.freeze([
+    'srs_nfr',
+    'srs_uc',
+    'srs_ac',
+    'srs_technology',
+    'srs_canonical',
+    'skill_def',
+  ]),
   history_snippet: Object.freeze(['employee_history']),
   general: Object.freeze([]),
 });
@@ -83,6 +98,7 @@ function retrieveKeyword({ query = '', corpus = [], intent = 'general' } = {}) {
 module.exports = {
   retrieveKeyword,
   scoreText,
+  preferredDocTypes,
   INTENT_BOOST,
   INTENT_DOC_TYPES,
 };

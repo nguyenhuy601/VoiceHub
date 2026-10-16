@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
 
 import Gate1SectionReviewTable from '../gate1/Gate1SectionReviewTable';
 import Gate1MissingSectionPanel from '../gate1/Gate1MissingSectionPanel';
+import HitlSectionTabList from './HitlSectionTabList';
 import {
   areGate1SectionDecisionsComplete,
   countGate1PendingDecisions,
@@ -372,55 +372,18 @@ export default function Phase1Gate1ReviewPanel({
         </div>
       ) : null}
 
-      {sectionTabs.length ? (
-        <div className="mt-3 border-b border-border">
-          <div
-            className="flex gap-0 overflow-x-auto overscroll-x-contain"
-            role="tablist"
-            aria-label={labelOf(
-              t,
-              'requirements.phase1Gate1SectionTabsAria',
-              'Các section Gate 1'
-            )}
-          >
-            {sectionTabs.map((tab) => {
-              const isActive = activeSection === tab.key;
-              const hasIssue = sectionHasIssue(tab);
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  onClick={() => setActiveSection(tab.key)}
-                  className={`relative shrink-0 border-b-2 px-3 py-2 pr-5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    isActive
-                      ? hasIssue
-                        ? 'border-amber-600 text-amber-900 dark:border-amber-400 dark:text-amber-100'
-                        : 'border-emerald-600 text-emerald-800 dark:border-emerald-400 dark:text-emerald-100'
-                      : hasIssue
-                        ? 'border-transparent text-amber-800/80 hover:text-amber-950 dark:text-amber-200/80'
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <span className="whitespace-nowrap">{tab.label}</span>
-                  {hasIssue ? (
-                    <AlertTriangle
-                      className="pointer-events-none absolute right-1 top-1 h-3 w-3 text-amber-600 dark:text-amber-400"
-                      aria-hidden
-                    />
-                  ) : null}
-                  <span className="sr-only">
-                    {hasIssue
-                      ? labelOf(t, 'requirements.phase1Gate1TabHasIssue', 'Có cảnh báo')
-                      : labelOf(t, 'requirements.phase1Gate1TabOk', 'Đạt')}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+      <HitlSectionTabList
+        tabs={sectionTabs}
+        activeKey={activeSection}
+        onSelect={setActiveSection}
+        tabHasIssue={sectionHasIssue}
+        t={t}
+        ariaLabel={labelOf(
+          t,
+          'requirements.phase1Gate1SectionTabsAria',
+          'Các section Gate 1'
+        )}
+      />
 
       {showAddableTable ? (
         <Gate1SectionReviewTable

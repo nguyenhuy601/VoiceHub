@@ -89,6 +89,7 @@ const ScheduleTool = {
     properties: {
       schedule: { type: 'array' },
       taskDates: { type: 'object' },
+      schedulePlan: { type: 'object' },
     },
   },
   evidenceSchema: {
@@ -194,6 +195,42 @@ const WbsTool = { ...genericIo };
 const DependencyTool = { ...genericIo };
 const ProjectPlanTool = { ...genericIo };
 
+const QualityPlanTool = {
+  inputSchema: {
+    type: 'object',
+    properties: {
+      container: { type: 'object' },
+      pack: { type: 'object' },
+    },
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      qualityPlan: { type: 'object' },
+      structurallyOk: { type: 'boolean' },
+    },
+  },
+  evidenceSchema: genericIo.evidenceSchema,
+};
+
+const DeployPlanTool = {
+  inputSchema: {
+    type: 'object',
+    properties: {
+      container: { type: 'object' },
+      toolData: { type: 'object' },
+    },
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      deployPlan: { type: 'object' },
+      structurallyOk: { type: 'boolean' },
+    },
+  },
+  evidenceSchema: genericIo.evidenceSchema,
+};
+
 module.exports = {
   EmployeeMatchingTool,
   EffortTool,
@@ -208,4 +245,6 @@ module.exports = {
   WbsTool,
   DependencyTool,
   ProjectPlanTool,
+  QualityPlanTool,
+  DeployPlanTool,
 };

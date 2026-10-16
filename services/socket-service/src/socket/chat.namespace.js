@@ -158,7 +158,12 @@ module.exports = function registerChatNamespace(io) {
             const body = fr.data?.data;
             const list = Array.isArray(body) ? body : body?.friends || [];
             for (const row of list) {
-              const fid = String(row?.friendId || row?.userId || row?.id || row?._id || '').trim();
+              const raw = row?.friendId ?? row?.userId ?? row?.id ?? row?._id;
+              const fid = String(
+                typeof raw === 'object' && raw
+                  ? raw._id || raw.userId || raw.id
+                  : raw || ''
+              ).trim();
               if (fid) allowed.add(fid);
             }
           } catch {

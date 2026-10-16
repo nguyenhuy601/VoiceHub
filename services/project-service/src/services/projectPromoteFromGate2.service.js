@@ -288,6 +288,7 @@ async function promoteProjectFromGate2({
       organizationId,
       projectId,
       userId,
+      pack: pack.toObject ? pack.toObject() : pack,
     });
   } catch (seedErr) {
     logger.warn(

@@ -22,8 +22,6 @@ const PROJECT_SERVICE_URL = String(process.env.PROJECT_SERVICE_URL || '').trim()
 if (!PROJECT_SERVICE_URL) {
   throw new Error('Thiếu biến môi trường: PROJECT_SERVICE_URL');
 }
-const DOCUMENT_SERVICE_URL = String(process.env.DOCUMENT_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!DOCUMENT_SERVICE_URL) throw new Error('Thiếu biến môi trường: DOCUMENT_SERVICE_URL');
 const VOICE_SERVICE_URL = String(process.env.VOICE_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!VOICE_SERVICE_URL) throw new Error('Thiếu biến môi trường: VOICE_SERVICE_URL');
 const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().replace(/\/+$/, '');
@@ -90,11 +88,17 @@ async function purgeRemoteTasks(organizationId) {
   );
 }
 
+/** In-process Document wipe (document-service retired into org). */
 async function purgeRemoteDocuments(organizationId) {
-  const url = `${DOCUMENT_SERVICE_URL}/internal/documents/purge-organization/${encodeURIComponent(organizationId)}`;
-  await requestWithRetry(
-    () => axios.delete(url, { headers: gatewayHeaders(), timeout: 120000, validateStatus: () => true }),
-    'document-service purge'
+  const Document = require('../models/Document');
+  const { buildOrganizationDocumentPurgeFilter } = require('../utils/documentPurgeFilter');
+  const filter = buildOrganizationDocumentPurgeFilter(organizationId);
+  if (!filter) {
+    throw new Error(`document purge: invalid organizationId ${organizationId}`);
+  }
+  const result = await Document.deleteMany(filter);
+  logger.info(
+    `[organizationCascadePurge] documents deleted=${result.deletedCount} org=${organizationId}`
   );
 }
 

@@ -64,7 +64,7 @@ Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/MIGRATION.md`
 | Runtime | File / lệnh | Dùng cho |
 |---------|-------------|----------|
 | **Docker Swarm** | `docker-stack.yml` + `bash devops/swarm/deploy-stack.sh` | Toàn bộ microservices app (`api-gateway`, `auth`, `chat`, `voice`, …) |
-| **Swarm infra AI** | trong `docker-stack.yml` | `ollama`, `minio`, `qdrant`, `meilisearch` (DNS cùng overlay) |
+| **Swarm infra AI** | trong `docker-stack.yml` | `ollama`, `minio`, `qdrant` (DNS cùng overlay) |
 | **Compose legacy** | `docker-compose.yml` (+ infra/core/dev) | Có thể chạy full stack local; **không** thay Swarm khi môi trường đã deploy Swarm |
 
 **Không** `docker compose up` cho các service đã nằm trong Swarm. Cập nhật một service: build đúng image đó + `docker service update --force` — xem [`.cursor/rules/swarm-compose-split.mdc`](.cursor/rules/swarm-compose-split.mdc), [`devops/swarm/README.md`](devops/swarm/README.md).
@@ -74,16 +74,16 @@ Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/MIGRATION.md`
 | Nhóm | Service |
 |------|---------|
 | Edge / identity | `api-gateway`, `auth-service`, `user-service` |
-| Org / social | `organization-service`, `friend-service`, `role-permission-service` |
+| Org / social | `organization-service`, `role-permission-service` |
 | Chat / realtime | `chat-service`, `socket-service` |
-| Work | `project-service`, `project-worker`, `document-service` |
+| Work | `project-service`, `project-worker` |
 | Voice | `voice-service` (mediasoup; UDP media publish ra host) |
 | AI | `ai-project-planning-service`, `ai-project-planning-wbs-worker` |
 | Notify / webhook | `notification-service`, `notification-dispatch-worker`, `webhook-service`, `webhook-delivery-worker` |
 
 ### Compose extra (AI / storage)
 
-MinIO, Meilisearch, Qdrant, Ollama khi chạy ngoài Swarm.
+**Deprecated** — MinIO, Qdrant, Ollama đã nằm trong Swarm (`docker-stack.yml`).
 
 ### Cổng / edge
 
@@ -105,7 +105,7 @@ Infra HA (staging): Mongo Atlas, Redis Sentinel, Rabbit cluster — xem [`docs/A
 | Frontend | React 18, Vite, React Router (suite shell), Tailwind, Axios, Socket.IO client, mediasoup-client |
 | Backend | Node.js + Express (microservices); Python (webhook / một số worker) |
 | Dữ liệu / queue | MongoDB, Redis, RabbitMQ |
-| Media / AI | mediasoup, MinIO, Ollama, Meilisearch (tuỳ bật) |
+| Media / AI | mediasoup, MinIO, Ollama, Qdrant |
 | Triển khai | **Swarm** app + **Compose extra**; Compose full stack vẫn có cho local |
 
 Cấu hình: file **`.env`** (root + từng service). Không dùng `.env.example` làm luồng chuẩn.
@@ -121,14 +121,12 @@ VoiceHub/
   services/
     auth-service/
     user-service/
-    friend-service/
     organization-service/
     role-permission-service/
     chat-service/
     socket-service/
     voice-service/
     project-service/
-    document-service/
     notification-service/
     webhook-service/
     ai-project-planning-service/
@@ -151,13 +149,13 @@ Cây chi tiết: [`docs/STRUCTURE.md`](docs/STRUCTURE.md) (một số tên worke
 |-------------|---------|
 | `/api/auth` | auth-service |
 | `/api/users` | user-service |
-| `/api/friends` | friend-service |
+| `/api/friends` | organization-service (derived roster) |
 | `/api/organizations` | organization-service |
 | `/api/roles`, `/api/permissions` | role-permission-service |
 | `/api/messages` | chat-service |
 | `/api/voice`, `/api/meetings` | voice-service |
 | `/api/tasks` | project-service |
-| `/api/documents` | document-service |
+| `/api/documents` | organization-service |
 | `/api/notifications` | notification-service |
 
 **Public (không JWT trên gateway)** — đăng ký/đăng nhập (khi cho phép), refresh, forgot/reset, verify email, accept company invite, `GET /api/health/gateway-trust`. Map đầy đủ: [`api-gateway/src/config/services.js`](api-gateway/src/config/services.js).
@@ -216,7 +214,7 @@ bash devops/swarm/deploy-stack.sh
 # hoặc: docker service update --force --update-parallelism 1 --update-order start-first voicehub_<service>
 ```
 
-### 2. Infra AI trên Swarm (Ollama / MinIO / Qdrant / Meili)
+### 2. Infra AI trên Swarm (Ollama / MinIO / Qdrant)
 
 Đã nằm trong `docker-stack.yml`. Sau deploy lần đầu (hoặc đổi model):
 

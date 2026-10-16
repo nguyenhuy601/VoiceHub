@@ -25,6 +25,8 @@ const planningSkill = {
     'WbsTool',
     'DependencyTool',
     'ProjectPlanTool',
+    'QualityPlanTool',
+    'DeployPlanTool',
     'HierarchyTool',
     'CapabilityTool',
     'InsightsTool',

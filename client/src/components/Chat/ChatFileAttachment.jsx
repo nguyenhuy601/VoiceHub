@@ -10,7 +10,6 @@ import {
   Music,
   Paperclip,
 } from 'lucide-react';
-import friendService from '../../services/friendService';
 import toast from 'react-hot-toast';
 import apiClient from '../../services/api/apiClient';
 import {
@@ -620,22 +619,6 @@ export function ChatMessageAttachmentBody({
           </div>
         </div>
         <div className="mt-3 flex gap-2">
-          <button
-            type="button"
-            disabled={!targetUserId}
-            onClick={async () => {
-              if (!targetUserId) return;
-              try {
-                await friendService.sendRequest(targetUserId);
-                toast.success(t('orgPanel.contactFriendSent'));
-              } catch {
-                toast.error(t('orgPanel.contactFriendFail'));
-              }
-            }}
-            className={`rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50 ${MOTION_BTN}`}
-          >
-            {t('orgPanel.contactAddFriend')}
-          </button>
           <button
             type="button"
             onClick={goToFriendChat}

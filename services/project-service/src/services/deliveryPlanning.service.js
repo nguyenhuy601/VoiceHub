@@ -10,7 +10,10 @@ const {
   canResubmitPlanningFromChangesRequested,
   PLANNING_ARTIFACT_KINDS,
 } = require('../constants/planningArtifact');
-const { evaluatePlanningBaselineReadiness } = require('../constants/planningBaselinePolicy');
+const {
+  evaluatePlanningBaselineReadiness,
+  evaluatePackQualityDeployForBaseline,
+} = require('../constants/planningBaselinePolicy');
 const { normalizePlanningStructured } = require('../utils/planning/resourceStructured');
 const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
 const { assertUserProjectPermission } = require('./projectAccess.service');
@@ -587,6 +590,53 @@ async function cutBaseline({ userId, projectId, body = {} }) {
     throw err;
   }
 
+  // Step 8 — pack-embed Quality/Deploy DoD (when HOW present); override with forceApprove + notes
+  let packQualityDeploy = null;
+  let qualityDeployOverride = null;
+  try {
+    const RequirementPack = require('../models/RequirementPack');
+    const pack = await RequirementPack.findOne({
+      projectId,
+      organizationId: project.organizationId,
+      isActive: true,
+    })
+      .select('aiAnalysis')
+      .sort({ updatedAt: -1 })
+      .lean();
+    if (pack?.aiAnalysis) {
+      packQualityDeploy = evaluatePackQualityDeployForBaseline(pack.aiAnalysis);
+      if (packQualityDeploy.enforce && !packQualityDeploy.ok) {
+        const forced =
+          body.forceApprove === true ||
+          body.forceApprove === 'true' ||
+          body.forceApprove === 1;
+        const reason = String(body.notes || body.overrideReason || '').trim().slice(0, 2000);
+        if (!forced) {
+          const err = new Error(
+            'Quality/Deploy plan chưa đủ để cắt baseline — hoàn thiện plan HOW hoặc forceApprove kèm notes'
+          );
+          err.statusCode = 409;
+          err.errorCode = 'PLANNING_BASELINE_QUALITY_DEPLOY';
+          err.details = packQualityDeploy;
+          throw err;
+        }
+        if (!reason) {
+          const err = new Error(
+            'notes/overrideReason bắt buộc khi forceApprove cắt baseline khi Quality/Deploy plan chưa đủ'
+          );
+          err.statusCode = 400;
+          err.errorCode = 'PLANNING_BASELINE_OVERRIDE_REASON_REQUIRED';
+          err.details = packQualityDeploy;
+          throw err;
+        }
+        qualityDeployOverride = { forceApprove: true, reason, failures: packQualityDeploy.failures };
+      }
+    }
+  } catch (qdErr) {
+    if (qdErr?.errorCode) throw qdErr;
+    // Missing pack model / query — do not block kind-based baseline
+  }
+
   const planVersion = String(body.planVersion || body.version || '').trim() || `v${Date.now()}`;
 
   await PlanningBaseline.updateMany(
@@ -632,6 +682,15 @@ async function cutBaseline({ userId, projectId, body = {} }) {
         artifactCount: approved.length,
         missingRecommended: readiness.missingRecommended,
         meetingPlanVersion: meetingPlanSnapshot?.version ?? null,
+        ...(packQualityDeploy
+          ? {
+              qualityPlanOk: packQualityDeploy.qualityPlanOk,
+              deployPlanOk: packQualityDeploy.deployPlanOk,
+            }
+          : {}),
+        ...(qualityDeployOverride
+          ? { qualityDeployOverride: true, overrideReason: qualityDeployOverride.reason }
+          : {}),
       },
       meta: { projectId: String(projectId) },
     });

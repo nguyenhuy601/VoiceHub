@@ -53,9 +53,8 @@ Biến bắt buộc:
 |---------|------|
 | Hầu hết | `MONGODB_URI=mongodb+srv://***@cluster/.../<db>` |
 | chat-service | `CHAT_MONGODB_URI` (+ `MONGODB_URI` fallback) |
-| ai-task-service, ai-task-worker | `AI_TASK_MONGODB_URI` (+ `MONGODB_URI`) |
 
-**Thứ tự deploy rolling (downtime ngắn):** auth → user → role-permission → org → friend → notification → document → voice → project → chat → ai-task-service → ai-task-worker
+**Thứ tự deploy rolling (downtime ngắn):** auth → user → role-permission → org → friend → notification → document → voice → project → chat → ai-project-planning-service
 
 Ghi downtime thực tế vào runbook khi chạy staging.
 
@@ -86,5 +85,5 @@ Log mong đợi: `[MongoDB] Using Atlas connection (mongodb+srv://)`
 
 - [ ] Atlas M10+ RS + allowlist + user scoped
 - [ ] Data migrate / verify counts
-- [ ] `CHAT_MONGODB_URI`, `AI_TASK_MONGODB_URI` set; audit pass
+- [ ] `CHAT_MONGODB_URI` set; audit pass
 - [ ] E2E login/chat/org OK (thủ công)

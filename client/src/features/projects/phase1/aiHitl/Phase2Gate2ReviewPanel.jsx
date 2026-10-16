@@ -13,7 +13,15 @@ import {
   seedGate2EditedPayload,
 } from '../gate2/gate2SectionTableConfig';
 import { buildGate2ProposalItems } from '../buildGate2ProposalItems';
-import { resolveHowPlanSummary } from './howPlanSummary';
+import { useProjectMemberNames } from '../planning/useProjectMemberNames';
+import HowPlanSummaryChips from './HowPlanSummaryChips';
+import HitlSectionTabList from './HitlSectionTabList';
+
+function resolvePackProjectId(pack) {
+  const raw = pack?.projectId;
+  if (raw && typeof raw === 'object') return String(raw._id || raw.id || '').trim();
+  return String(raw || '').trim();
+}
 
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
@@ -33,34 +41,9 @@ const GATE2_TABLE_CONFIG = {
   patchEditedPayload: patchGate2EditedPayload,
   scrollPageSize: GATE2_SCROLL_PAGE_SIZE,
   storageKeyPrefix: 'gate2-review-cols-v2',
+  /** WBS / Tasks: collapse work packages (or stories) — click to expand tasks. */
+  wbsTreeCollapse: true,
 };
-
-function HowPlanSummaryBlock({ pack, t }) {
-  const summary = resolveHowPlanSummary(pack);
-  if (!summary.hasSummary) return null;
-  const dc = summary.deadlineConflict;
-  return (
-    <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-      <span>
-        {labelOf(t, 'requirements.gate2CriticalPathDays', 'CP (ngày)')}:{' '}
-        {summary.criticalPathDays == null ? '—' : summary.criticalPathDays}
-      </span>
-      <span>
-        {labelOf(t, 'requirements.gate2ConflictCount', 'Conflicts')}: {summary.conflictCount}
-      </span>
-      <span>
-        {labelOf(t, 'requirements.gate2UnassignedCount', 'Unassigned')}:{' '}
-        {summary.unassignedCount}
-      </span>
-      {dc ? (
-        <span className="font-medium text-amber-800 dark:text-amber-200">
-          {labelOf(t, 'requirements.gate2Deadline', 'Deadline')}: {dc.deadline || '—'} ·{' '}
-          {labelOf(t, 'requirements.gate2EstimatedEnd', 'Est. end')}: {dc.estimatedEnd || '—'}
-        </span>
-      ) : null}
-    </div>
-  );
-}
 
 /**
  * Gate 2 Planning Review — same table UX as Gate1, PM→PO (BA→PM).
@@ -68,7 +51,7 @@ function HowPlanSummaryBlock({ pack, t }) {
 export default function Phase2Gate2ReviewPanel({
   reviewView = 'waitingPm',
   howStatus = '',
-  reviewLane = 'pm',
+  reviewLane: _reviewLane = 'pm',
   rejectReason = '',
   busy = false,
   canPromote = false,
@@ -80,7 +63,12 @@ export default function Phase2Gate2ReviewPanel({
   onPoApprove,
   onPoReject,
 }) {
-  const bundle = useMemo(() => buildGate2ProposalItems({ pack }), [pack]);
+  const projectId = resolvePackProjectId(pack);
+  const nameByUserId = useProjectMemberNames(projectId);
+  const bundle = useMemo(
+    () => buildGate2ProposalItems({ pack, nameByUserId, t }),
+    [pack, nameByUserId, t]
+  );
   const bySection = bundle.proposalBySection || {};
   const sectionTabs = bundle.proposalSections || [];
 
@@ -143,31 +131,25 @@ export default function Phase2Gate2ReviewPanel({
 
   if (reviewView === 'waitingPm') {
     return (
-      <div>
-        <p className="text-sm text-muted-foreground">
-          {labelOf(
-            t,
-            'requirements.gate2WaitingPm',
-            'Chờ PM xác nhận kế hoạch trên tab Duyệt. (PO: đợi PM gửi — không chỉnh quyết định PM.)'
-          )}
-        </p>
-        <HowPlanSummaryBlock pack={pack} t={t} />
-      </div>
+      <p className="text-sm text-muted-foreground">
+        {labelOf(
+          t,
+          'requirements.gate2WaitingPm',
+          'Chờ PM xác nhận kế hoạch trên tab Duyệt.'
+        )}
+      </p>
     );
   }
 
   if (reviewView === 'waitingPo') {
     return (
-      <div>
-        <p className="text-sm text-muted-foreground">
-          {labelOf(
-            t,
-            'requirements.gate2WaitingPo',
-            'PM đã gửi duyệt. Chờ PO xác nhận Gate 2 & kích hoạt dự án.'
-          )}
-        </p>
-        <HowPlanSummaryBlock pack={pack} t={t} />
-      </div>
+      <p className="text-sm text-muted-foreground">
+        {labelOf(
+          t,
+          'requirements.gate2WaitingPo',
+          'PM đã gửi duyệt. Chờ PO xác nhận Gate 2.'
+        )}
+      </p>
     );
   }
 
@@ -229,6 +211,13 @@ export default function Phase2Gate2ReviewPanel({
   const activeRows = bySection[activeSection] || [];
   const activeLabel = activeTab?.label || activeSection || '—';
   const activeMissing = Boolean(activeTab?.missing) || activeRows.length === 0;
+  const sectionHasIssue = (tab) => {
+    if (!tab) return false;
+    const isMissing = Boolean(tab.missing) || !(bySection[tab.key]?.length || tab.count);
+    const hasConflict = Boolean(tab.hasConflict) || Number(tab.conflictCount) > 0;
+    return isMissing || hasConflict;
+  };
+  const activeHasIssue = sectionHasIssue(activeTab);
   const missingSections = sectionTabs.filter(
     (tab) => tab.missing || !(bySection[tab.key]?.length || tab.count)
   );
@@ -275,83 +264,41 @@ export default function Phase2Gate2ReviewPanel({
           : ''}
       </p>
       {showPo && bundle.activeSubmissionId ? (
-        <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-900 dark:text-emerald-100">
+        <div className="mb-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-900 dark:text-emerald-100">
           <p className="font-medium">
             {labelOf(
               t,
               'requirements.gate2PmSubmissionBanner',
-              'Bản PM đã gửi duyệt — xem quyết định từng section (chỉ đọc), rồi Duyệt hoặc Từ chối.'
+              'Bản PM đã gửi — xem từng section (chỉ đọc), rồi Duyệt hoặc Từ chối.'
             )}
           </p>
         </div>
       ) : null}
       {rejectReason ? (
-        <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-200">
+        <p className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-200">
           {labelOf(t, 'requirements.gate2LastReject', 'PO từ chối lần trước')}: {rejectReason}
         </p>
       ) : null}
-      <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-        <span>phase_how: {howStatus || '—'}</span>
-        <span>lane: {reviewLane || '—'}</span>
-        {allowDecide && pendingDecisionCount > 0 ? (
-          <span className="font-medium text-amber-800 dark:text-amber-200">
-            {labelOf(
-              t,
-              'requirements.phase1Gate1PendingDecisions',
-              'Còn {count} dòng chưa quyết định (mọi section)',
-              { count: pendingDecisionCount }
-            )}
-          </span>
-        ) : null}
-        {missingCount > 0 ? (
-          <span>
-            {labelOf(t, 'requirements.phase1Gate1MissingTabs', '{count} section thiếu dữ liệu', {
-              count: missingCount,
-            })}
-          </span>
-        ) : null}
-        {conflictSectionCount > 0 ? (
-          <span className="font-medium text-amber-800 dark:text-amber-200">
-            {labelOf(t, 'requirements.gate2ConflictSections', '{count} section có cảnh báo', {
-              count: conflictSectionCount,
-            })}
-          </span>
-        ) : null}
-      </div>
-      <HowPlanSummaryBlock pack={pack} t={t} />
-
-      {sectionTabs.length ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {sectionTabs.map((tab) => {
-            const isMissing = Boolean(tab.missing) || !(bySection[tab.key]?.length || tab.count);
-            const isActive = activeSection === tab.key;
-            const hasConflict = Boolean(tab.hasConflict) || Number(tab.conflictCount) > 0;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setActiveSection(tab.key)}
-                className={`rounded-md border px-2 py-1 text-xs ${
-                  isActive
-                    ? hasConflict
-                      ? 'border-amber-600 bg-amber-500/20 text-foreground'
-                      : 'border-primary bg-primary/10 text-foreground'
-                    : hasConflict
-                      ? 'border-amber-500/60 bg-amber-500/10 text-amber-900 dark:text-amber-100'
-                      : isMissing
-                        ? 'border-dashed border-border text-muted-foreground'
-                        : 'border-border text-muted-foreground'
-                }`}
-              >
-                {tab.label}
-                {isMissing
-                  ? ` · ${labelOf(t, 'requirements.phase1Gate1TabMissing', 'Thiếu')}`
-                  : ` (${tab.count})`}
-              </button>
-            );
-          })}
-        </div>
+      {allowDecide && pendingDecisionCount > 0 ? (
+        <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-200">
+          {labelOf(
+            t,
+            'requirements.phase1Gate1PendingDecisions',
+            'Còn {count} dòng chưa quyết định',
+            { count: pendingDecisionCount }
+          )}
+        </p>
       ) : null}
+      <HowPlanSummaryChips pack={pack} t={t} />
+
+      <HitlSectionTabList
+        tabs={sectionTabs}
+        activeKey={activeSection}
+        onSelect={setActiveSection}
+        tabHasIssue={sectionHasIssue}
+        t={t}
+        ariaLabel={labelOf(t, 'requirements.aiHitlMonitorHowSectionTabsAria', 'Các section HOW')}
+      />
 
       {activeSection && !activeMissing && activeRows.length ? (
         <Gate1SectionReviewTable
@@ -362,6 +309,7 @@ export default function Phase2Gate2ReviewPanel({
           showSubmit={allowDecide}
           busy={busy}
           t={t}
+          headerTone={activeHasIssue ? 'warn' : 'ok'}
           tableConfig={GATE2_TABLE_CONFIG}
         />
       ) : activeSection ? (
@@ -371,6 +319,8 @@ export default function Phase2Gate2ReviewPanel({
           status={activeTab?.missing ? 'NO_DATA' : 'EMPTY'}
           coverageReason={null}
           isCustomerRawIntake={false}
+          softHintKey="requirements.gate2MissingSoftHint"
+          softHintFallback="Chưa có đề xuất AI cho section này — chạy HOW trên Monitor hoặc bổ sung tay."
           t={t}
         />
       ) : null}

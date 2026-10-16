@@ -19,10 +19,6 @@ const {
   stopOrgEventsConsumer,
 } = require('./workers/orgEventsConsumer');
 const {
-  runMessageSearchIndexerLoop,
-  stopMessageSearchIndexer,
-} = require('./workers/messageSearchIndexer');
-const {
   runProjectChatEventsConsumerLoop,
   stopProjectChatEventsConsumer,
 } = require('./workers/projectChatEventsConsumer');
@@ -65,8 +61,6 @@ connectDB(mongoUri)
 
     runProjectChatEventsConsumerLoop();
 
-    runMessageSearchIndexerLoop();
-
     startStorageGcScheduler();
 
     // Khởi động server
@@ -86,7 +80,6 @@ process.on('SIGTERM', async () => {
     await stopFriendDmConsumer();
     await stopOrgEventsConsumer();
     await stopProjectChatEventsConsumer();
-    await stopMessageSearchIndexer();
   } catch (e) {
     console.error('[chat-service] stop consumers', e.message);
   }

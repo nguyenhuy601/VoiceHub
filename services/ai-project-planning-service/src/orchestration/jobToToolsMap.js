@@ -1,35 +1,27 @@
 /**
-
  * HOW phase G18 tool sequence — phase-only SoT (no job-id execute map).
-
  * RULE-PO-05: Selective filters this list by toolName.
-
+ *
+ * Mode (see config/howSemanticLlmFlags.js):
+ * - LLM hybrid (HOW_SEMANTIC_LLM / HOW_*_LLM): Wbs, Dependency, Architecture, Risk, Quality
+ * - Heuristic/deterministic only: Effort, Sequencing, EmployeeMatching, Schedule, Deploy, ProjectPlan
  */
 
-
-
 const HOW_PHASE_TOOL_STEPS = Object.freeze([
-
-  { toolName: 'WbsTool', autoConfirm: true },
-
-  { toolName: 'DependencyTool', autoConfirm: true },
-
-  { toolName: 'ArchitectureTool', autoConfirm: false },
-
-  { toolName: 'RiskTool', autoConfirm: true },
-
-  { toolName: 'EffortTool', autoConfirm: true },
-
-  { toolName: 'SequencingTool', autoConfirm: true },
-
-  { toolName: 'EmployeeMatchingTool', autoConfirm: true },
-
-  { toolName: 'ScheduleTool', autoConfirm: true },
-
+  { toolName: 'WbsTool', autoConfirm: true, mode: 'llm_hybrid' },
+  { toolName: 'DependencyTool', autoConfirm: true, mode: 'llm_hybrid' },
+  { toolName: 'ArchitectureTool', autoConfirm: false, mode: 'llm_hybrid' },
+  { toolName: 'RiskTool', autoConfirm: true, mode: 'llm_hybrid' },
+  // Step 4: Quality/Testing plan before Effort (QA work informs estimates)
+  { toolName: 'QualityPlanTool', autoConfirm: true, mode: 'llm_hybrid' },
+  { toolName: 'EffortTool', autoConfirm: true, mode: 'heuristic' },
+  { toolName: 'SequencingTool', autoConfirm: true, mode: 'heuristic' },
+  { toolName: 'EmployeeMatchingTool', autoConfirm: true, mode: 'heuristic' },
+  { toolName: 'ScheduleTool', autoConfirm: true, mode: 'heuristic' },
+  // Step 7: Deploy plan after Schedule (needs go-live / release dates)
+  { toolName: 'DeployPlanTool', autoConfirm: true, mode: 'heuristic' },
   // Gate2 HITL: ProjectPlanTool never auto-confirms (RULE-PO-05)
-
-  { toolName: 'ProjectPlanTool', autoConfirm: false },
-
+  { toolName: 'ProjectPlanTool', autoConfirm: false, mode: 'heuristic' },
 ]);
 
 

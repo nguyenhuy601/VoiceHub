@@ -23,8 +23,16 @@ function collectCapacityConflicts(resource = {}, planning = {}) {
   return [...fromResource, ...fromPlanningSchedule, ...fromResourceSchedule];
 }
 
+/** Prefer candidates[]; fall back to shortlist[] (HOW matching writes both). */
+function recommendationCandidates(rec = {}) {
+  if (Array.isArray(rec.candidates) && rec.candidates.length) return rec.candidates;
+  if (Array.isArray(rec.shortlist) && rec.shortlist.length) return rec.shortlist;
+  return [];
+}
+
 /**
- * Overload from legacy matching.overload OR candidates with overload / feasible:false reasons.
+ * Overload from legacy matching.overload OR candidates/shortlist with overload / feasible:false.
+ * HARD-01: do not ignore shortlist-only shapes.
  */
 function collectOverloadEntries(resource = {}) {
   const matching = resource.matching || {};
@@ -35,18 +43,18 @@ function collectOverloadEntries(resource = {}) {
     : [];
   for (const rec of recommendations) {
     const assigned = rec.assignedUserId || rec.selectedUserId || null;
-    const candidates = Array.isArray(rec.candidates) ? rec.candidates : [];
+    const candidates = recommendationCandidates(rec);
     for (const c of candidates) {
       const reasons = Array.isArray(c.reasons) ? c.reasons : [];
       const overloadReason = reasons.some((r) =>
         /overload|day_overload|cumulative_overload/i.test(String(r))
       );
-      const infeasible = c.feasible === false && overloadReason;
-      if (c.overload === true || overloadReason || infeasible) {
+      // Capacity/overload only — skill/role infeasible alone is not overload
+      if (c.overload === true || overloadReason) {
         fromRecs.push({
           taskId: rec.taskId,
           userId: c.userId,
-          reasons,
+          reasons: reasons.length ? reasons : ['overload'],
         });
       }
     }
@@ -76,7 +84,7 @@ function collectUnassigned(resource = {}, matching = null) {
     : [];
   return recommendations
     .filter((r) => {
-      const cands = Array.isArray(r.candidates) ? r.candidates : [];
+      const cands = recommendationCandidates(r);
       const feasible = cands.some((c) => c.feasible !== false);
       return !feasible || cands.length === 0;
     })
@@ -86,9 +94,19 @@ function collectUnassigned(resource = {}, matching = null) {
 
 /**
  * @param {{ toolResults?: object[], container?: object }} input
- * @returns {{ coverageOk: boolean, resourceOk: boolean, scheduleOk: boolean, architectureOk: boolean, riskOk: boolean }}
+ * @returns {{
+ *   coverageOk: boolean,
+ *   resourceOk: boolean,
+ *   scheduleOk: boolean,
+ *   architectureOk: boolean,
+ *   riskOk: boolean,
+ *   qualityPlanOk: boolean,
+ *   deployPlanOk: boolean,
+ * }}
  */
 function deriveFeasibilityFlags(input = {}) {
+  const { isQualityPlanStructurallyOk } = require('../engines/qualityPlan');
+  const { isDeployPlanStructurallyOk } = require('../engines/deployPlan');
   const toolResults = Array.isArray(input.toolResults) ? input.toolResults : [];
   const container =
     input.container && typeof input.container === 'object' ? input.container : {};
@@ -119,9 +137,21 @@ function deriveFeasibilityFlags(input = {}) {
     toolRan(toolResults, 'WbsTool') ||
     toolRan(toolResults, 'RequirementAnalysisTool');
 
+  const capacityPlan =
+    resource.capacityPlan && typeof resource.capacityPlan === 'object'
+      ? resource.capacityPlan
+      : null;
+  const capacityGapHours = Number(capacityPlan?.totalGapHours) || 0;
+  const hardCapacityConflicts = scheduleConflicts.filter((c) =>
+    ['zero_capacity_day', 'unresolved_effort'].includes(String(c?.type || ''))
+  );
+  // Hard-gate: unassigned / overload / demand>supply gap / packing infeasible days
   const resourceOk =
     !toolRan(toolResults, 'EmployeeMatchingTool') ||
-    (overload.length === 0 && unassigned.length === 0);
+    (overload.length === 0 &&
+      unassigned.length === 0 &&
+      capacityGapHours <= 0 &&
+      (!toolRan(toolResults, 'ScheduleTool') || hardCapacityConflicts.length === 0));
 
   const scheduleOk =
     !toolRan(toolResults, 'ScheduleTool') || scheduleConflicts.length === 0;
@@ -132,12 +162,22 @@ function deriveFeasibilityFlags(input = {}) {
 
   const riskOk = !toolRan(toolResults, 'RiskTool') || !riskHigh;
 
+  const qualityPlanOk =
+    !toolRan(toolResults, 'QualityPlanTool') ||
+    isQualityPlanStructurallyOk(planning.qualityPlan);
+
+  const deployPlanOk =
+    !toolRan(toolResults, 'DeployPlanTool') ||
+    isDeployPlanStructurallyOk(planning.deployPlan);
+
   return {
     coverageOk: Boolean(coverageOk),
     resourceOk: Boolean(resourceOk),
     scheduleOk: Boolean(scheduleOk),
     architectureOk: Boolean(architectureOk),
     riskOk: Boolean(riskOk),
+    qualityPlanOk: Boolean(qualityPlanOk),
+    deployPlanOk: Boolean(deployPlanOk),
   };
 }
 
@@ -146,4 +186,5 @@ module.exports = {
   collectCapacityConflicts,
   collectOverloadEntries,
   collectUnassigned,
+  recommendationCandidates,
 };

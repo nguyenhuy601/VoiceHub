@@ -630,6 +630,8 @@ async function confirmAiAnalysisPhase(req, res) {
       action: req.body?.action,
       note: req.body?.note || req.body?.reason || '',
       reviewDecisions: req.body?.reviewDecisions,
+      forceApprove: Boolean(req.body?.forceApprove),
+      overrideReason: String(req.body?.overrideReason || '').trim().slice(0, 2000),
     });
     return res.json({ success: true, data });
   } catch (err) {

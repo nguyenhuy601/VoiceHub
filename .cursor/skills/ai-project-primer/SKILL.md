@@ -12,7 +12,7 @@ description: >-
 
 **Runtime ownership (RULE-11):** LLM / orchestrator / tools compute / run / checkpoint sống trong **`ai-project-planning-service`** (+ optional worker). **`project-service`** = pack/project domain, Gate HTTP facade, **G20 materialize**, start-run **202** qua S2S — không chạy LLM in-process.
 
-Không nhầm với **`ai-task-service`** (chat → task board).
+Không nhầm với các pipeline AI chat/task đã **gỡ** (`ai-task-service` / `summary-service` — không còn trong repo).
 
 ## When to use
 
@@ -27,7 +27,6 @@ Không nhầm với **`ai-task-service`** (chat → task board).
 
 - Unrelated FE/BE features (chat, org, auth)
 - Pure RBAC without AI jobs
-- `ai-task-service` / chat extract tasks
 
 ## Layer choice (after this primer)
 

@@ -259,11 +259,26 @@ async function createOrReuseAiAnalysisSnapshot({
     packId,
   });
   const skillCatalog = buildSkillCatalogStub(packObj);
+
+  let technicalSetup = null;
+  if (packObj.projectId) {
+    try {
+      const Project = require('../models/Project');
+      const projectLean = await Project.findById(packObj.projectId)
+        .select('technicalSetup')
+        .lean();
+      technicalSetup = projectLean?.technicalSetup || null;
+    } catch {
+      technicalSetup = null;
+    }
+  }
+
   const payload = buildSnapshotPayload({
     pack: packObj,
     poolItems,
     calendar,
     skillCatalog,
+    technicalSetup,
     packContentHash,
     packStatus: pack.status,
   });

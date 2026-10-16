@@ -10,6 +10,8 @@ const SOURCE_IDS = Object.freeze([
   'org_calendar',
   /** View on employee history (verified PE) — not a separate fetch. */
   'project_history',
+  /** Project.technicalSetup whitelist — cicd / env / deployment (no secrets). */
+  'project_technical',
 ]);
 
 /** Field lists used by fieldProjection — do not dump full DB docs. */
@@ -55,6 +57,13 @@ const SOURCE_FIELD_MANIFEST = Object.freeze({
     'source',
     'year',
   ]),
+  project_technical: Object.freeze([
+    'environments',
+    'cicd',
+    'deployment',
+    'infrastructure',
+    'stack',
+  ]),
 });
 
 /** Which sources each planning job typically needs (after common filter). */
@@ -65,12 +74,12 @@ const JOB_SOURCE_NEEDS = Object.freeze({
   requirementInsights: ['srs_pack'],
   wbsGeneration: ['srs_pack'],
   dependencyAnalysis: ['srs_pack'],
-  architectureRiskAnalysis: ['srs_pack'],
+  architectureRiskAnalysis: ['srs_pack', 'project_technical'],
   effortRoleAnalysis: ['srs_pack', 'skill_catalog'],
   sequencingCpm: ['srs_pack'],
   employeeMatching: ['srs_pack', 'employee_pool', 'skill_catalog', 'project_history'],
   scheduleCapacity: ['srs_pack', 'employee_pool', 'org_calendar'],
-  projectPlan: ['srs_pack', 'org_calendar'],
+  projectPlan: ['srs_pack', 'org_calendar', 'project_technical'],
 });
 
 function sourcesForJob(job) {

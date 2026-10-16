@@ -56,14 +56,14 @@ async function buildBootstrap(userId, userEmail, suite = '', systemRole = '', mu
   const userUrl = `${services.user.url}/api/users/me`;
   const orgUrl = `${services.organization.url}/api/organizations/my`;
   const notifUrl = `${services.notification.url}/api/notifications?scope=personal&limit=1`;
-  const friendUrl = `${services.friend.url}/api/friends/pending`;
 
-  const [userRes, orgRes, notifRes, friendRes] = await Promise.all([
+  const [userRes, orgRes, notifRes] = await Promise.all([
     fetchJson(userUrl, headers, 'users/me'),
     fetchJson(orgUrl, headers, 'organizations/my'),
     fetchJson(notifUrl, headers, 'notifications'),
-    fetchJson(friendUrl, headers, 'friends/pending'),
   ]);
+  /** Friend graph pending retired — always empty. */
+  const friendRes = { ok: true, data: [] };
 
   const user = mapBootstrapUser(
     unwrapPayload(userRes.ok ? userRes.data : null),

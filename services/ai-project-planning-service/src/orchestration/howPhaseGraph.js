@@ -222,14 +222,22 @@ function buildHowPhaseGraph(hooks = {}) {
       budget,
       startedAt: state.startedAt,
       baseIteration: historyBase.length,
-      onToolStart: async ({ toolName }) => {
+      onToolStart: async ({ toolName, layerToolNames }) => {
         await onProgress?.({
           node: 'call_tool',
           phase: 'how',
           tool: toolName,
+          tools: Array.isArray(layerToolNames) ? layerToolNames : [toolName],
         });
       },
-      onToolDone: async ({ nextIndex, toolName, container, toolResults, history: h }) => {
+      onToolDone: async ({
+        nextIndex,
+        toolName,
+        toolNames,
+        container,
+        toolResults,
+        history: h,
+      }) => {
         await persistNode(
           {
             ...state,
@@ -239,7 +247,11 @@ function buildHowPhaseGraph(hooks = {}) {
           },
           'execute',
           onCheckpoint,
-          { currentToolIndex: nextIndex, currentToolName: toolName }
+          {
+            currentToolIndex: nextIndex,
+            currentToolName: toolName,
+            currentToolNames: Array.isArray(toolNames) ? toolNames : [toolName],
+          }
         );
       },
     });

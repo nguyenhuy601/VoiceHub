@@ -120,6 +120,43 @@ function blendHoursWithHistory(baseHours, complexity, historyMetrics) {
   return { hours: blended, confidence, usedHistory: weight > 0 };
 }
 
+/** SDLC phase bucket for effort.byPhase (Step 5). */
+const EFFORT_PHASES = Object.freeze(['dev', 'qa', 'deploy', 'mgmt']);
+
+function phaseForTask(task) {
+  const area = String(task?.area || '').toLowerCase().trim();
+  const role = String(task?.suggestedRoleKey || '').toLowerCase();
+  const blob = `${area} ${role} ${task?.name || ''} ${task?.title || ''}`.toLowerCase();
+  if (/qa|test|uat|e2e|regression/.test(blob)) return 'qa';
+  if (/deploy|devops|infra|infrastructure|sre|release|cicd/.test(blob)) return 'deploy';
+  if (
+    /management|analysis|design|pm\b|ba\b|po\b/.test(blob) ||
+    /project_manager|business_analyst|product_owner|tech_lead/.test(role)
+  ) {
+    return 'mgmt';
+  }
+  return 'dev';
+}
+
+/**
+ * Minimum QA hours implied by QualityPlanTool catalog/NFR (does not invent WBS tasks).
+ * Cap overlay so thin SRS cannot explode totals.
+ */
+function qualityPlanDerivedQaHours(qualityPlan, opts = {}) {
+  if (!qualityPlan || typeof qualityPlan !== 'object') return 0;
+  const catalog = Array.isArray(qualityPlan.catalogPlan) ? qualityPlan.catalogPlan.length : 0;
+  const nfr = Array.isArray(qualityPlan.nfrCoverage) ? qualityPlan.nfrCoverage.length : 0;
+  const hoursPerTc = Number(opts.hoursPerTc) > 0 ? Number(opts.hoursPerTc) : 2;
+  const hoursPerNfr = Number(opts.hoursPerNfr) > 0 ? Number(opts.hoursPerNfr) : 4;
+  const maxOverlay = Number(opts.maxOverlay) > 0 ? Number(opts.maxOverlay) : 120;
+  const raw = catalog * hoursPerTc + nfr * hoursPerNfr;
+  return Math.max(0, Math.min(maxOverlay, Math.round(raw)));
+}
+
+function emptyByPhase() {
+  return { dev: 0, qa: 0, deploy: 0, mgmt: 0 };
+}
+
 function runEffortEngine(container, opts = {}) {
   const maxHours = opts.maxEffortHours ?? MAX_EFFORT_HOURS;
   const historyMetrics = opts.historyMetrics || null;
@@ -127,6 +164,7 @@ function runEffortEngine(container, opts = {}) {
     (container?.analyses?.capability?.items || []).map((c) => [c.capabilityId, c])
   );
   const byRole = {};
+  const byPhase = emptyByPhase();
   let estimatedHoursTotal = 0;
   let totalStoryPoints = 0;
   let confidenceSum = 0;
@@ -159,17 +197,31 @@ function runEffortEngine(container, opts = {}) {
       clampRequiredLevel(LEVEL_FROM_COMPLEXITY[complexity] ?? 3) || 3;
     const storyPoints = COMPLEXITY_STORY_POINTS[complexity] ?? COMPLEXITY_STORY_POINTS.medium;
     const confidence = clamp01(blended.confidence);
+    const phase = phaseForTask(task);
 
     task.effortHours = hours;
     task.requiredLevel = requiredLevel;
     task.storyPoints = storyPoints;
     task.confidence = confidence;
     task.complexity = complexity;
+    task.effortPhase = phase;
     estimatedHoursTotal += hours;
     totalStoryPoints += storyPoints;
     confidenceSum += confidence;
+    byPhase[phase] = (byPhase[phase] || 0) + hours;
     const roleKey = normalizeRoleKey(task.suggestedRoleKey) || 'backend_developer';
     byRole[roleKey] = (byRole[roleKey] || 0) + hours;
+  }
+
+  // Ensure QA phase reflects Quality Plan when WBS has few/no qa leaves
+  const derivedQa = qualityPlanDerivedQaHours(container?.planning?.qualityPlan, opts);
+  const qaFromTasks = byPhase.qa || 0;
+  const qualityPlanDerivedHours = Math.max(0, derivedQa - qaFromTasks);
+  if (qualityPlanDerivedHours > 0) {
+    byPhase.qa = qaFromTasks + qualityPlanDerivedHours;
+    estimatedHoursTotal += qualityPlanDerivedHours;
+    const qaRole = 'qa_engineer';
+    byRole[qaRole] = (byRole[qaRole] || 0) + qualityPlanDerivedHours;
   }
 
   const confidence =
@@ -178,6 +230,8 @@ function runEffortEngine(container, opts = {}) {
   const effort = {
     estimatedHoursTotal,
     byRole,
+    byPhase,
+    qualityPlanDerivedHours,
     totalStoryPoints,
     confidence,
     status: 'ready',
@@ -196,6 +250,8 @@ function runEffortEngine(container, opts = {}) {
       maxEffortHours: maxHours,
       historyBlended: Boolean(historyMetrics),
       usedHistory: usedHistoryAny,
+      qualityPlanDerivedHours,
+      byPhase,
     },
   };
 }
@@ -218,11 +274,14 @@ module.exports = {
   COMPLEXITY_HOURS,
   COMPLEXITY_STORY_POINTS,
   AREA_HOUR_FACTOR,
+  EFFORT_PHASES,
   clampEffortHours,
   clampRequiredLevel,
   complexityForTask,
   areaFactor,
   scopeFactor,
+  phaseForTask,
+  qualityPlanDerivedQaHours,
   runEffortEngine,
   applyEffortToContainer,
 };

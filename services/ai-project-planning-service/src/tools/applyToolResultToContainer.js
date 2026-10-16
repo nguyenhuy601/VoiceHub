@@ -1,42 +1,25 @@
 /**
-
- * Merge G18 tool output container — artifacts only (no jobs shells).
-
+ * Merge G18 tool output container — deep-merge namespaces (parallel-safe).
  */
 
-
+const { deepMergePlanningContainers } = require('./mergePlanningContainers');
 
 /**
-
  * @param {object} container
-
  * @param {{ result?: object }} toolOut
-
  */
-
 function applyToolResultToContainer(container, toolOut) {
-
   const fromTool =
-
     toolOut?.result?.container && typeof toolOut.result.container === 'object'
-
       ? toolOut.result.container
-
-      : container;
-
-  let next = fromTool && typeof fromTool === 'object' ? { ...fromTool } : { ...(container || {}) };
-
-  if (next.jobs != null) {
-
-    delete next.jobs;
-
+      : null;
+  if (!fromTool) {
+    const next =
+      container && typeof container === 'object' ? { ...container } : {};
+    if (next.jobs != null) delete next.jobs;
+    return next;
   }
-
-  return next;
-
+  return deepMergePlanningContainers(container || {}, fromTool);
 }
 
-
-
 module.exports = { applyToolResultToContainer };
-

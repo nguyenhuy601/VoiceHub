@@ -12,6 +12,8 @@ const { insights } = require('./insights');
 const { wbs } = require('./wbs');
 const { dependency } = require('./dependency');
 const { projectPlan } = require('./projectPlan');
+const { qualityPlan } = require('./qualityPlan');
+const { deployPlan } = require('./deployPlan');
 const {
   EmployeeMatchingTool,
   EffortTool,
@@ -26,6 +28,8 @@ const {
   WbsTool,
   DependencyTool,
   ProjectPlanTool,
+  QualityPlanTool,
+  DeployPlanTool,
 } = require('./schemas/toolSchemas');
 
 let registered = false;
@@ -125,6 +129,32 @@ function registerDefaultTools() {
     outputSchema: RiskTool.outputSchema,
     evidenceSchema: RiskTool.evidenceSchema,
     execute: (input, ctx) => risk(input || {}, ctx),
+  });
+
+  registerTool({
+    toolName: 'QualityPlanTool',
+    version: '1.0.0',
+    description: 'Quality & testing plan from UC/AC/NFR + WBS (deterministic)',
+    allowedContexts: ['planning'],
+    requires: PLANNING_REQUIRES,
+    timeout: 30_000,
+    inputSchema: QualityPlanTool.inputSchema,
+    outputSchema: QualityPlanTool.outputSchema,
+    evidenceSchema: QualityPlanTool.evidenceSchema,
+    execute: (input, ctx) => qualityPlan(input || {}, ctx),
+  });
+
+  registerTool({
+    toolName: 'DeployPlanTool',
+    version: '1.0.0',
+    description: 'Deploy/release plan from SNAP technical + schedule (plan-only, no CI execute)',
+    allowedContexts: ['planning'],
+    requires: PLANNING_REQUIRES,
+    timeout: 30_000,
+    inputSchema: DeployPlanTool.inputSchema,
+    outputSchema: DeployPlanTool.outputSchema,
+    evidenceSchema: DeployPlanTool.evidenceSchema,
+    execute: (input, ctx) => deployPlan(input || {}, ctx),
   });
 
   registerTool({

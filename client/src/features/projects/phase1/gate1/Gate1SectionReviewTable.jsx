@@ -108,8 +108,11 @@ export default function Gate1SectionReviewTable({
   const [visibleCount, setVisibleCount] = useState(scrollPageSize);
   const [selectedBySection, setSelectedBySection] = useState(() => ({}));
   const selectedIds = selectedBySection[section] || new Set();
+  /** Gate2 WBS: ids of containers whose children are hidden (collapsed). */
+  const [wbsCollapsedIds, setWbsCollapsedIds] = useState(() => new Set());
   const sentinelRef = useRef(null);
   const scrollRootRef = useRef(null);
+  const wbsTreeCollapse = Boolean(cfg.wbsTreeCollapse) && section === 'tasks';
 
   const resizeColumns = useMemo(() => {
     const resizeAria = labelOf(t, 'workspace.projectHubTableResizeCol', 'Kéo để đổi độ rộng cột');
@@ -148,6 +151,31 @@ export default function Gate1SectionReviewTable({
     setVisibleCount(scrollPageSize);
   }, [section, scrollPageSize]);
 
+  // Default: collapse work_package (or story if no WP) so tasks stay tucked until click.
+  useEffect(() => {
+    if (!wbsTreeCollapse) return;
+    const hasWp = rows.some((r) => String(r?.level || '') === 'work_package');
+    const next = new Set();
+    for (const r of rows) {
+      const level = String(r?.level || '');
+      if (!r?.id || !r?.hasChildren) continue;
+      if (hasWp && level === 'work_package') next.add(String(r.id));
+      if (!hasWp && level === 'story') next.add(String(r.id));
+    }
+    setWbsCollapsedIds(next);
+  }, [wbsTreeCollapse, section, rows]);
+
+  const toggleWbsCollapse = useCallback((rowId) => {
+    const id = String(rowId || '');
+    if (!id) return;
+    setWbsCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
   const setSelectedIds = useCallback(
     (updater) => {
       setSelectedBySection((prev) => {
@@ -169,12 +197,37 @@ export default function Gate1SectionReviewTable({
     () => resolveGate1DisplayIds(rows, decisions, cfg.getRowId),
     [rows, decisions]
   );
+  const displayIdByRowId = useMemo(() => {
+    const map = new Map();
+    rows.forEach((row, index) => {
+      map.set(String(cfg.getRowId(row, index)), displayIds[index]);
+    });
+    return map;
+  }, [rows, displayIds, cfg.getRowId]);
+
+  const treeFilteredRows = useMemo(() => {
+    if (!wbsTreeCollapse || !wbsCollapsedIds.size) return rows;
+    const byId = new Map(rows.map((r) => [String(r.id), r]));
+    return rows.filter((r) => {
+      let pid = r.parentId != null && r.parentId !== '' ? String(r.parentId) : null;
+      let guard = 0;
+      while (pid && guard < 12) {
+        if (wbsCollapsedIds.has(pid)) return false;
+        pid =
+          byId.get(pid)?.parentId != null && byId.get(pid)?.parentId !== ''
+            ? String(byId.get(pid).parentId)
+            : null;
+        guard += 1;
+      }
+      return true;
+    });
+  }, [rows, wbsTreeCollapse, wbsCollapsedIds]);
 
   const visibleRows = useMemo(
-    () => rows.slice(0, visibleCount),
-    [rows, visibleCount]
+    () => treeFilteredRows.slice(0, visibleCount),
+    [treeFilteredRows, visibleCount]
   );
-  const hasMore = visibleCount < rows.length;
+  const hasMore = visibleCount < treeFilteredRows.length;
 
   const allRowsSelected =
     allRowIds.length > 0 && allRowIds.every((id) => selectedIds.has(id));
@@ -390,7 +443,8 @@ export default function Gate1SectionReviewTable({
           </div>
 
           {visibleRows.map((row, visibleIndex) => {
-            const rowIndex = visibleIndex; // visibleRows is a prefix slice of `rows`
+            const fullIndex = rows.indexOf(row);
+            const rowIndex = fullIndex >= 0 ? fullIndex : visibleIndex;
             const id = cfg.getRowId(row, rowIndex);
             const d = decisions[id] || {};
             const action = String(d.action || '').toLowerCase();
@@ -483,7 +537,12 @@ export default function Gate1SectionReviewTable({
                               ? cfg.getFieldValue(row, col, d.editedPayload) || '—'
                               : col.render(row, t, {
                                   decision: d,
-                                  displayId: displayIds[rowIndex],
+                                  displayId:
+                                    displayIdByRowId.get(id) || displayIds[rowIndex],
+                                  wbsExpanded: wbsTreeCollapse
+                                    ? !wbsCollapsedIds.has(String(row.id))
+                                    : true,
+                                  onToggleWbs: wbsTreeCollapse ? toggleWbsCollapse : null,
                                 })}
                           </span>
                           {col.key === columns[0]?.key && hasConflict ? (

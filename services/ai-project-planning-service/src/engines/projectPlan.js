@@ -1,7 +1,11 @@
 /**
  * Project plan — execution plan + additive planSummary (CP / conflicts / float rows).
  * HARD-03: summary derived from real container fields only.
+ * Step 8: quality/deploy counts — Quality Gate ≠ Testing Plan artifact.
  */
+
+const { isQualityPlanStructurallyOk } = require('./qualityPlan');
+const { isDeployPlanStructurallyOk } = require('./deployPlan');
 
 function toDateKey(value) {
   if (value == null || value === '') return null;
@@ -172,12 +176,50 @@ function buildPlanSummary(container = {}) {
     }
   }
 
+  const qualityPlan =
+    container?.planning?.qualityPlan && typeof container.planning.qualityPlan === 'object'
+      ? container.planning.qualityPlan
+      : null;
+  const deployPlan =
+    container?.planning?.deployPlan && typeof container.planning.deployPlan === 'object'
+      ? container.planning.deployPlan
+      : null;
+
+  const qualityCatalogCount = Array.isArray(qualityPlan?.catalogPlan)
+    ? qualityPlan.catalogPlan.length
+    : 0;
+  const qualityAcCoverageCount = Array.isArray(qualityPlan?.acCoverage)
+    ? qualityPlan.acCoverage.length
+    : 0;
+  const deployEnvCount = Array.isArray(deployPlan?.envMatrix) ? deployPlan.envMatrix.length : 0;
+  const deployRollbackSteps = Array.isArray(deployPlan?.rollbackPlan?.steps)
+    ? deployPlan.rollbackPlan.steps.length
+    : 0;
+
   return {
     criticalPathDays,
     conflictCount: conflicts.length,
     unassignedCount: unassignedIds,
     criticalFloatRows,
     deadlineConflict,
+    // Testing Plan artifact counts (≠ Quality Gate approve/baseline)
+    qualityPlan: {
+      present: Boolean(qualityPlan),
+      ok: isQualityPlanStructurallyOk(qualityPlan),
+      catalogCount: qualityCatalogCount,
+      acCoverageCount: qualityAcCoverageCount,
+      note: 'testing_plan_artifact',
+    },
+    deployPlan: {
+      present: Boolean(deployPlan),
+      ok: isDeployPlanStructurallyOk(deployPlan),
+      envCount: deployEnvCount,
+      rollbackStepCount: deployRollbackSteps,
+      releaseMode: deployPlan?.releaseStrategy?.mode || null,
+      note: 'deploy_plan_artifact',
+    },
+    qualityGateNote:
+      'Quality Gate = approve/baseline decision; Quality/Testing Plan and Deploy Plan are reviewable artifacts',
   };
 }
 

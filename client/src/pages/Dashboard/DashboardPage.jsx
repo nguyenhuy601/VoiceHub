@@ -15,7 +15,6 @@ import {
 import { AppSearchField } from '../../features/search';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import AddFriendModal from '../../components/Friends/AddFriendModal';
 import NavigationSidebar from '../../components/Layout/NavigationSidebar';
 import ShellWaveBackdrop from '../../components/Layout/ShellWaveBackdrop';
 import { GlassCard, GradientButton, Modal } from '../../components/Shared';
@@ -246,7 +245,6 @@ function DashboardPage({
   const [showActivityDetail, setShowActivityDetail] = useState(null);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
-  const [showAddFriendModal, setShowAddFriendModal] = useState(false);
   const [quickNavOpen, setQuickNavOpen] = useState(false);
   /** Tăng khi đổi danh sách bạn / lời mời để refetch metrics */
   const [metricsTick, setMetricsTick] = useState(0);
@@ -1698,7 +1696,7 @@ function DashboardPage({
         toast.success(t('dashboard.toastGotoWorkspace'));
         navigate(buildCompanyWorkspacePath());
       }}
-      onAddFriend={() => setShowAddFriendModal(true)}
+      onAddFriend={undefined}
       onWorkspaceClick={(ws) =>
         navigate(ws.slug ? buildCommunicateChannelsPath() : buildCompanyWorkspacePath())
       }
@@ -1755,12 +1753,6 @@ function DashboardPage({
         )}
       </div>
     </div>
-
-    <AddFriendModal
-      isOpen={showAddFriendModal}
-      onClose={() => setShowAddFriendModal(false)}
-      onFriendlistChanged={() => setMetricsTick((t) => t + 1)}
-    />
 
     {/* Welcome Greeting Modal (hiển thị 1 lần sau khi đăng nhập / vào web) */}
     <Modal

@@ -4,7 +4,6 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
 import {
   GATE1_SCROLL_PAGE_SIZE,
   GATE1_TABLE_BODY_HEIGHT_CLASS,
@@ -15,6 +14,7 @@ import {
   buildWhatMonitorResultsBundle,
   shouldShowWhatMonitorResults,
 } from './whatMonitorResultsVisibility';
+import HitlSectionTabList from './HitlSectionTabList';
 
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
@@ -80,7 +80,7 @@ function ReadOnlyResultsTable({ section, rows, t, headerTone = 'ok' }) {
           isWarnHeader ? 'border-amber-600/40' : 'border-emerald-600/40'
         }`}
       >
-        <table className="w-full min-w-[32rem] border-collapse text-left text-xs sm:min-w-[40rem] sm:text-sm">
+        <table className="w-full min-w-[40rem] border-collapse text-left text-xs">
           <thead className={theadClass}>
             <tr>
               {columns.map((col) => (
@@ -189,13 +189,13 @@ export default function WhatMonitorResultsPanel({ pack = null, t }) {
 
   return (
     <section
-      className="rounded-xl border border-border/80 bg-card/95 px-3 py-3 shadow-sm sm:px-4 sm:py-4"
+      className="rounded-md border border-border bg-card px-3 py-3"
       aria-label={labelOf(t, 'requirements.aiHitlMonitorWhatResultsTitle', 'Kết quả chạy WHAT')}
     >
-      <h3 className="text-sm font-semibold text-foreground sm:text-base">
+      <h3 className="text-sm font-semibold text-foreground">
         {labelOf(t, 'requirements.aiHitlMonitorWhatResultsTitle', 'Kết quả chạy WHAT')}
       </h3>
-      <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
+      <p className="mt-0.5 text-xs text-muted-foreground">
         {labelOf(
           t,
           'requirements.aiHitlMonitorWhatResultsHint',
@@ -203,55 +203,18 @@ export default function WhatMonitorResultsPanel({ pack = null, t }) {
         )}
       </p>
 
-      {sectionTabs.length ? (
-        <div className="mt-3 border-b border-border">
-          <div
-            className="flex gap-0 overflow-x-auto overscroll-x-contain"
-            role="tablist"
-            aria-label={labelOf(
-              t,
-              'requirements.aiHitlMonitorWhatSectionTabsAria',
-              'Các section WHAT'
-            )}
-          >
-            {sectionTabs.map((tab) => {
-              const isActive = activeSection === tab.key;
-              const hasIssue = sectionHasIssue(tab, bySection);
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  onClick={() => setActiveSection(tab.key)}
-                  className={`relative shrink-0 border-b-2 px-3 py-2 pr-5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    isActive
-                      ? hasIssue
-                        ? 'border-amber-600 text-amber-900 dark:border-amber-400 dark:text-amber-100'
-                        : 'border-emerald-600 text-emerald-800 dark:border-emerald-400 dark:text-emerald-100'
-                      : hasIssue
-                        ? 'border-transparent text-amber-800/80 hover:text-amber-950 dark:text-amber-200/80'
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <span className="whitespace-nowrap">{tab.label}</span>
-                  {hasIssue ? (
-                    <AlertTriangle
-                      className="pointer-events-none absolute right-1 top-1 h-3 w-3 text-amber-600 dark:text-amber-400"
-                      aria-hidden
-                    />
-                  ) : null}
-                  <span className="sr-only">
-                    {hasIssue
-                      ? labelOf(t, 'requirements.phase1Gate1TabHasIssue', 'Có cảnh báo')
-                      : labelOf(t, 'requirements.phase1Gate1TabOk', 'Đạt')}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+      <HitlSectionTabList
+        tabs={sectionTabs}
+        activeKey={activeSection}
+        onSelect={setActiveSection}
+        tabHasIssue={(tab) => sectionHasIssue(tab, bySection)}
+        t={t}
+        ariaLabel={labelOf(
+          t,
+          'requirements.aiHitlMonitorWhatSectionTabsAria',
+          'Các section WHAT'
+        )}
+      />
 
       {!activeMissing && activeRows.length ? (
         <ReadOnlyResultsTable

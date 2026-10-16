@@ -184,7 +184,7 @@ function areaAffinityContribution(item, task) {
 }
 
 /**
- * @returns {number} fitScore in [0,1]
+ * Legacy fitScore in [0,1] — used when ASSIGNMENT_POLICY_V1=0.
  */
 function computeFitScore({
   item,
@@ -216,8 +216,79 @@ function computeFitScore({
   return clamp01(score);
 }
 
+/**
+ * Policy-driven soft rank — weights from resolved Assignment Policy (no magic %).
+ * @returns {{ score: number, breakdown: object, missing: string[] }}
+ */
+function computePolicyRankScore({
+  item,
+  task,
+  container = {},
+  policy,
+  criticalSkillIds = null,
+  domainTokens = null,
+  taskHours = 0,
+  availableHours = null,
+  reservedHours = 0,
+  planningHints = null,
+} = {}) {
+  const { scoreSoft } = require('./assignmentCriteria');
+  const { applyRankWeightsFallback } = require('../config/assignmentPolicy.schema');
+
+  const critIds =
+    criticalSkillIds ||
+    planningHints?.criticalSkillIds ||
+    container?.merged?.requiredSkillIds ||
+    [];
+  const domains = domainTokens || planningHints?.domainTokens || [];
+
+  const ctx = {
+    item,
+    task,
+    container,
+    requiredSkillIds: critIds,
+    domainTokens: domains,
+    taskHours,
+    availableHours,
+    reservedHours,
+  };
+
+  const probe = scoreSoft(ctx, policy?.rankWeights || {});
+  // Any weighted criterion with no signal must redistribute — avoid renormalize bias
+  // that inflates remaining keys (e.g. missing similarExperience @ 0.7).
+  const missingWeighted = (probe.missing || []).filter(
+    (key) => (Number(policy?.rankWeights?.[key]) || 0) > 0
+  );
+  let adjusted = policy;
+  if (missingWeighted.length) {
+    const configuredTargets = (policy?.rankWeightsFallback?.redistributeTo || []).filter(
+      (key) => !missingWeighted.includes(key) && (Number(policy?.rankWeights?.[key]) || 0) > 0
+    );
+    const autoTargets = Object.keys(policy?.rankWeights || {}).filter(
+      (key) => !missingWeighted.includes(key) && (Number(policy.rankWeights[key]) || 0) > 0
+    );
+    adjusted = applyRankWeightsFallback(
+      {
+        ...policy,
+        rankWeightsFallback: {
+          whenMissing: missingWeighted,
+          redistributeTo: configuredTargets.length ? configuredTargets : autoTargets,
+        },
+      },
+      missingWeighted
+    );
+  }
+  const ranked = scoreSoft(ctx, adjusted?.rankWeights || policy?.rankWeights || {});
+  return {
+    score: ranked.score,
+    breakdown: ranked.breakdown,
+    missing: probe.missing,
+  };
+}
+
 module.exports = {
   computeFitScore,
+  computePolicyRankScore,
   roleFitContribution,
   criticalSkillBonus,
   domainFitContribution,
@@ -225,4 +296,5 @@ module.exports = {
   areaAffinityContribution,
   skillCoverageContribution,
   historyOverlapBonus,
+  requiredSkills,
 };

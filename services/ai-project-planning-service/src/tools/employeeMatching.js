@@ -23,6 +23,9 @@ async function employeeMatching(input = {}, context = {}) {
       toolData.filterMeta?.requiredSkillIds ||
       null,
     planningHints,
+    project: context.project || input.project || null,
+    org: context.org || input.org || null,
+    env: context.env || process.env,
     projectStart:
       toolData.overview?.startDate ||
       input.overview?.startDate ||

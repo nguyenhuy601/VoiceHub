@@ -2,12 +2,14 @@
  * Ported from project-service matching — Fit → Feasible → featureOwner (HARD-02 one path).
  */
 const { normalizeRoleKey } = require('./roleKey');
-const { computeFitScore } = require('./matchingFit');
+const { computeFitScore, computePolicyRankScore } = require('./matchingFit');
 const {
   simulateTaskCapacity,
   reserveHours,
 } = require('./matchingCapacitySim');
 const { assignFeatureOwners } = require('./featureOwnerAssign');
+const { resolveAssignmentPolicy } = require('./assignmentPolicyResolve');
+const { evaluateHard } = require('./assignmentCriteria');
 
 const SHORTLIST_K = 5;
 const HOURS_PER_FTE = 40;
@@ -288,6 +290,35 @@ function scorePoolItemForTask({
   return Math.max(0, Math.min(1, Math.round(score * 1000) / 1000));
 }
 
+function resolveTaskStartDate(task, projectStart, policy) {
+  if (policy?.hardGates?.dependencyEarliestStart) {
+    const es =
+      task?.earliestStart ||
+      task?.earliestStartDate ||
+      task?.es ||
+      task?.startDate ||
+      null;
+    if (es) return es;
+  }
+  return projectStart;
+}
+
+function bumpHardGateSummary(summary, reasons = []) {
+  for (const reason of reasons) {
+    if (reason === 'role_mismatch') summary.excludedByRole += 1;
+    else if (
+      reason === 'soft_overload' ||
+      reason === 'capacity_infeasible' ||
+      reason === 'forecast_overload' ||
+      reason === 'day_overload' ||
+      reason === 'cumulative_overload'
+    ) {
+      summary.excludedByCapacity += 1;
+    } else if (reason === 'skill_below_min') summary.excludedBySkill += 1;
+    else if (reason === 'project_cap') summary.excludedByProjectCap += 1;
+  }
+}
+
 function buildFteFromPlanning(container) {
   const hours = container?.planning?.effort?.byRole || {};
   const keys = new Set([
@@ -298,6 +329,63 @@ function buildFteFromPlanning(container) {
     roleKey,
     count: Math.max(1, Math.ceil((Number(hours[roleKey]) || 0) / HOURS_PER_FTE) || 1),
   }));
+}
+
+/**
+ * Demand (effort.byRole) vs supply (pool available hours) — Gate2 Capacity / G13 hard-gate.
+ * @param {{ container?: object, pool?: object[], matching?: object, hardGateSummary?: object }} input
+ */
+function buildCapacityPlan({
+  container = {},
+  pool = [],
+  matching = {},
+  hardGateSummary = null,
+} = {}) {
+  const demandByRole = container?.planning?.effort?.byRole || {};
+  const supplyByRole = {};
+  for (const item of Array.isArray(pool) ? pool : []) {
+    const roleKey = normalizeRoleKey(
+      item?.role || item?.jobTitle || item?.membershipRole || ''
+    );
+    if (!roleKey) continue;
+    supplyByRole[roleKey] =
+      Math.round(((supplyByRole[roleKey] || 0) + availableCapacityHours(item)) * 100) / 100;
+  }
+  const roleKeys = new Set([
+    ...Object.keys(demandByRole).map(normalizeRoleKey).filter(Boolean),
+    ...Object.keys(supplyByRole),
+  ]);
+  const byRole = [];
+  let totalDemandHours = 0;
+  let totalSupplyHours = 0;
+  let totalGapHours = 0;
+  for (const roleKey of [...roleKeys].sort()) {
+    const demandHours = Math.round((Number(demandByRole[roleKey]) || 0) * 100) / 100;
+    const supplyHours = Math.round((Number(supplyByRole[roleKey]) || 0) * 100) / 100;
+    const gapHours = Math.max(0, Math.round((demandHours - supplyHours) * 100) / 100);
+    totalDemandHours += demandHours;
+    totalSupplyHours += supplyHours;
+    totalGapHours += gapHours;
+    byRole.push({ roleKey, demandHours, supplyHours, gapHours });
+  }
+  const unassignedCount = Array.isArray(matching?.unassigned) ? matching.unassigned.length : 0;
+  const overloadCount = Array.isArray(matching?.overload) ? matching.overload.length : 0;
+  const byPhase =
+    container?.planning?.effort?.byPhase && typeof container.planning.effort.byPhase === 'object'
+      ? { ...container.planning.effort.byPhase }
+      : null;
+  return {
+    byRole,
+    byPhase,
+    totalDemandHours: Math.round(totalDemandHours * 100) / 100,
+    totalSupplyHours: Math.round(totalSupplyHours * 100) / 100,
+    totalGapHours: Math.round(totalGapHours * 100) / 100,
+    unassignedCount,
+    overloadCount,
+    hardGateSummary: hardGateSummary || null,
+    /** Hard-gate: gap or unassigned/overload — G13 resourceOk must fail when matching ran */
+    hardGate: totalGapHours > 0 || unassignedCount > 0 || overloadCount > 0,
+  };
 }
 
 function isOverloaded({ capacityRemaining, availableHours, taskHours }) {
@@ -313,7 +401,7 @@ function isLeafTask(task) {
 }
 
 async function runEmployeeMatching(
-  _pack,
+  pack,
   container,
   {
     poolItems = [],
@@ -324,8 +412,24 @@ async function runEmployeeMatching(
     requiredSkillIds = null,
     planningHints = null,
     projectStart = null,
+    project = null,
+    org = null,
+    env = process.env,
   } = {}
 ) {
+  const resolved = resolveAssignmentPolicy({
+    pack,
+    project,
+    org,
+    planningHints,
+    env,
+  });
+  const policyEnabled = resolved.enabled;
+  const policy = resolved.policy;
+  const effectiveShortlistK = policyEnabled
+    ? policy.globalAssign.shortlistK
+    : shortlistK || SHORTLIST_K;
+
   const excludeIds = new Set(
     (constraints?.excludeEmployeeIds || []).map((id) => String(id)).filter(Boolean)
   );
@@ -346,8 +450,14 @@ async function runEmployeeMatching(
   const blockers = blockingRoleKeys(container);
   let filteredProjectCap = 0;
   let overloadCount = 0;
+  const hardGateSummary = {
+    excludedByRole: 0,
+    excludedByCapacity: 0,
+    excludedBySkill: 0,
+    excludedByProjectCap: 0,
+  };
   const reservedHoursByUser = {};
-  const startDate =
+  const projectStartDate =
     projectStart ||
     container?.planning?.completion?.projectStart ||
     container?.overview?.startDate ||
@@ -357,7 +467,6 @@ async function runEmployeeMatching(
     .filter((task) => task?.id && isLeafTask(task))
     .slice()
     .sort((a, b) => {
-      // Critical + heavier work first so reservation / shortlist stays load-aware
       const aCrit = criticalIds.has(String(a.id)) ? 0 : 1;
       const bCrit = criticalIds.has(String(b.id)) ? 0 : 1;
       if (aCrit !== bCrit) return aCrit - bCrit;
@@ -369,17 +478,113 @@ async function runEmployeeMatching(
 
   let recommendations = matchTasks.map((task) => {
     const taskHours = Number(task.effortHours ?? task.effortSeedHours) || 0;
+    const startDate = resolveTaskStartDate(task, projectStartDate, policyEnabled ? policy : null);
     const scored = [];
+    const ineligible = [];
+
     for (const item of pool) {
+      const availableHours = availableCapacityHours(item);
+      const reserved = Number(reservedHoursByUser[item.userId]) || 0;
+      const availAfterReserve = Math.max(0, availableHours - reserved);
+      const displayName = String(item.displayName || '').trim();
+      const forecastPct = Number(item.forecastWorkloadPct);
+
+      if (policyEnabled) {
+        if (policy.hardGates.respectProjectCap && isAtProjectCap(item)) {
+          filteredProjectCap += 1;
+          hardGateSummary.excludedByProjectCap += 1;
+          ineligible.push({
+            userId: item.userId,
+            reasons: ['project_cap'],
+            ...(displayName ? { displayName } : {}),
+          });
+          continue;
+        }
+
+        const hard = evaluateHard(
+          {
+            item,
+            task,
+            container,
+            requiredSkillIds: reqSkillIds || [],
+            domainTokens: planningHints?.domainTokens || [],
+            taskHours,
+            availableHours: availAfterReserve,
+            reservedHours: reserved,
+            bookedHoursByUserDay: bookedMap,
+            startDate,
+            reservedHoursByUser,
+          },
+          {
+            ...policy.hardGates,
+            // project_cap already handled above to match legacy counter
+            respectProjectCap: false,
+          }
+        );
+
+        if (!hard.pass) {
+          if (hard.reasons.includes('soft_overload')) overloadCount += 1;
+          bumpHardGateSummary(hardGateSummary, hard.reasons);
+          ineligible.push({
+            userId: item.userId,
+            reasons: hard.reasons,
+            skillCoverage: hard.skillCoverage,
+            ...(displayName ? { displayName } : {}),
+          });
+          continue;
+        }
+
+        const ranked = computePolicyRankScore({
+          item,
+          task,
+          container,
+          policy,
+          criticalSkillIds: reqSkillIds,
+          domainTokens: planningHints?.domainTokens || [],
+          taskHours,
+          availableHours: availAfterReserve,
+          reservedHours: reserved,
+          planningHints,
+        });
+
+        let fitScore = ranked.score;
+        const roleKey = normalizeRoleKey(task?.suggestedRoleKey);
+        if (blockers.size && roleKey && blockers.has(roleKey)) {
+          fitScore = Math.max(0, fitScore - 0.05);
+        }
+        if (criticalIds.has(String(task.id))) {
+          fitScore = Math.min(1, fitScore + 0.08);
+        }
+        fitScore = Math.max(0, Math.min(1, Math.round(fitScore * 1000) / 1000));
+
+        const reasons = [];
+        if (criticalIds.has(String(task.id))) reasons.push('critical_work');
+
+        scored.push({
+          userId: item.userId,
+          fitScore,
+          feasible: true,
+          eligible: true,
+          score: fitScore,
+          available_capacity: Math.round(availAfterReserve * 100) / 100,
+          reservedHours: reserved,
+          overload: false,
+          forecastWorkloadPct: Number.isFinite(forecastPct) ? forecastPct : undefined,
+          reasons,
+          rankBreakdown: ranked.breakdown,
+          ...(displayName ? { displayName } : {}),
+        });
+        continue;
+      }
+
+      // ——— Legacy path (ASSIGNMENT_POLICY_V1=0) ———
       if (isAtProjectCap(item)) {
         filteredProjectCap += 1;
         continue;
       }
-      const availableHours = availableCapacityHours(item);
-      const reserved = Number(reservedHoursByUser[item.userId]) || 0;
       const softOverload = isOverloaded({
         capacityRemaining: item.capacityRemaining,
-        availableHours: Math.max(0, availableHours - reserved),
+        availableHours: availAfterReserve,
         taskHours,
       });
       if (softOverload) overloadCount += 1;
@@ -408,21 +613,18 @@ async function runEmployeeMatching(
       if (softOverload) reasons.push('overload');
       for (const r of sim.reasons || []) reasons.push(r);
 
-      // Wave 1 hard-gate: projected forecast workload ≤ 100% (from pool forecast fields)
       let forecastOverload = false;
-      const forecastPct = Number(item.forecastWorkloadPct);
       if (Number.isFinite(forecastPct) && taskHours > 0) {
         const reservedPct = (reserved / HOURS_PER_FTE) * 100;
         const addPct = (taskHours / HOURS_PER_FTE) * 100;
-        const projected = forecastPct + reservedPct + addPct;
-        if (projected > 100) {
+        if (forecastPct + reservedPct + addPct > 100) {
           forecastOverload = true;
           reasons.push('forecast_overload');
         }
       } else if (
         Number.isFinite(availableHours) &&
         taskHours > 0 &&
-        availableHours - reserved < taskHours &&
+        availAfterReserve < taskHours &&
         item.forecastDemandHours != null
       ) {
         forecastOverload = true;
@@ -430,13 +632,12 @@ async function runEmployeeMatching(
       }
 
       const feasible = sim.feasible !== false && !forecastOverload;
-      const displayName = String(item.displayName || '').trim();
       scored.push({
         userId: item.userId,
         fitScore,
         feasible,
         score: feasible ? fitScore : Math.max(0, fitScore - 0.5),
-        available_capacity: Math.max(0, Math.round((availableHours - reserved) * 100) / 100),
+        available_capacity: Math.round(availAfterReserve * 100) / 100,
         reservedHours: reserved,
         overload: Boolean(softOverload || forecastOverload),
         forecastWorkloadPct: Number.isFinite(forecastPct) ? forecastPct : undefined,
@@ -445,19 +646,27 @@ async function runEmployeeMatching(
       });
     }
 
-    // Prefer feasible → higher fit → more remaining capacity → lower reserved → stable id
-    scored.sort(
-      (a, b) =>
-        Number(b.feasible) - Number(a.feasible) ||
-        b.score - a.score ||
-        (Number(b.available_capacity) || 0) - (Number(a.available_capacity) || 0) ||
-        (Number(a.reservedHours) || 0) - (Number(b.reservedHours) || 0) ||
-        a.userId.localeCompare(b.userId)
-    );
-    const shortlist = scored.slice(0, shortlistK);
+    if (policyEnabled) {
+      scored.sort(
+        (a, b) =>
+          b.score - a.score ||
+          (Number(b.available_capacity) || 0) - (Number(a.available_capacity) || 0) ||
+          (Number(a.reservedHours) || 0) - (Number(b.reservedHours) || 0) ||
+          a.userId.localeCompare(b.userId)
+      );
+    } else {
+      scored.sort(
+        (a, b) =>
+          Number(b.feasible) - Number(a.feasible) ||
+          b.score - a.score ||
+          (Number(b.available_capacity) || 0) - (Number(a.available_capacity) || 0) ||
+          (Number(a.reservedHours) || 0) - (Number(b.reservedHours) || 0) ||
+          a.userId.localeCompare(b.userId)
+      );
+    }
 
-    // Reserve top feasible for cumulative awareness across tasks
-    const topFeasible = shortlist.find((c) => c.feasible);
+    const shortlist = scored.slice(0, effectiveShortlistK);
+    const topFeasible = shortlist.find((c) => c.feasible !== false);
     if (topFeasible && taskHours > 0) {
       reserveHours(reservedHoursByUser, topFeasible.userId, taskHours);
     }
@@ -466,6 +675,7 @@ async function runEmployeeMatching(
       taskId: task.id,
       candidates: shortlist,
       shortlist,
+      ...(policyEnabled && ineligible.length ? { ineligible: ineligible.slice(0, 20) } : {}),
     };
   });
 
@@ -492,6 +702,27 @@ async function runEmployeeMatching(
       }))
   );
 
+  const assignmentPolicyMeta = policyEnabled
+    ? {
+        profileId: resolved.meta.profileId,
+        version: resolved.meta.version,
+        hardGateSummary: { ...hardGateSummary },
+        sourceLayers: resolved.meta.sourceLayers,
+      }
+    : undefined;
+
+  const matching = {
+    unassigned,
+    overload,
+    ...(assignmentPolicyMeta ? { assignmentPolicy: assignmentPolicyMeta } : {}),
+  };
+  const capacityPlan = buildCapacityPlan({
+    container,
+    pool,
+    matching,
+    hardGateSummary: policyEnabled ? { ...hardGateSummary } : null,
+  });
+
   return {
     status: 'ready',
     model: null,
@@ -499,10 +730,8 @@ async function runEmployeeMatching(
     fte: buildFteFromPlanning(container),
     recommendations,
     featureOwners: owned.featureOwners,
-    matching: {
-      unassigned,
-      overload,
-    },
+    matching,
+    capacityPlan,
     meta: {
       source: pool.length ? 'pool' : 'fte_only',
       llmCalls: 0,
@@ -514,6 +743,10 @@ async function runEmployeeMatching(
       criticalWorkCount: (container?.planning?.criticalWorkIds || []).length,
       unassignedCount: unassigned.length,
       hasAssignments: false,
+      policyEnabled,
+      capacityHardGate: Boolean(capacityPlan.hardGate),
+      totalGapHours: capacityPlan.totalGapHours,
+      ...(assignmentPolicyMeta ? { assignmentPolicy: assignmentPolicyMeta } : {}),
       ...(pool.length ? {} : { error: 'empty_pool' }),
     },
   };
@@ -532,8 +765,12 @@ function applyMatchingToContainer(container, result) {
         ...(result.matching || {}),
         unassigned: result.matching?.unassigned || [],
         overload: result.matching?.overload || [],
+        ...(result.matching?.assignmentPolicy
+          ? { assignmentPolicy: result.matching.assignmentPolicy }
+          : {}),
       },
       unassigned: result.matching?.unassigned || [],
+      capacityPlan: result.capacityPlan || null,
     },
   };
 }
@@ -543,6 +780,7 @@ module.exports = {
   HOURS_PER_FTE,
   OVERLOAD_CAPACITY_THRESHOLD,
   buildFteFromPlanning,
+  buildCapacityPlan,
   skillsFromPoolItem,
   normalizePoolItemsForMatching,
   historyOverlapBonus,

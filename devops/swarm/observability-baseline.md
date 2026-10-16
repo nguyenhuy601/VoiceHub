@@ -5,8 +5,6 @@
 - Container restarts and `OOMKilled`.
 - Queue depth:
   - `voicehub.friend.dm`
-  - `task-ai.extract`
-  - `task-ai.sync`
   - `voicehub.task.from_file`
   - `voicehub.notification.dispatch`
 - API latency p95 on gateway.
@@ -23,7 +21,6 @@ docker stack ps voicehub --no-trunc
 # (removed) check Rabbit depth via management UI / rabbitmqctl
 # (export-swarm-metrics.sh đã gỡ) — dùng docker service ls / Rabbit UI
 docker service logs -f voicehub_socket-service
-docker service logs -f voicehub_ai-task-extract-worker
 docker service logs -f voicehub_project-worker
 ```
 

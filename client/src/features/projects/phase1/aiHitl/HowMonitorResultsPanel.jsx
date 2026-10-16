@@ -4,7 +4,6 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
 import { buildGate2ProposalItems } from '../buildGate2ProposalItems';
 import {
   GATE2_SCROLL_PAGE_SIZE,
@@ -12,7 +11,16 @@ import {
   getGate2ColumnsForSection,
   getGate2RowId,
 } from '../gate2/gate2SectionTableConfig';
+import { useProjectMemberNames } from '../planning/useProjectMemberNames';
 import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
+import HowPlanSummaryChips from './HowPlanSummaryChips';
+import HitlSectionTabList from './HitlSectionTabList';
+
+function resolvePackProjectId(pack) {
+  const raw = pack?.projectId;
+  if (raw && typeof raw === 'object') return String(raw._id || raw.id || '').trim();
+  return String(raw || '').trim();
+}
 
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
@@ -109,7 +117,9 @@ function ReadOnlyResultsTable({ section, rows, t, headerTone = 'ok' }) {
                   {columns.map((col) => (
                     <td key={col.key} className="max-w-[16rem] px-2 py-1.5 align-top text-foreground">
                       <span className="break-words">
-                        {typeof col.render === 'function' ? col.render(row, t) : row[col.field] || '—'}
+                        {typeof col.render === 'function'
+                          ? col.render(row, t, { decision: null })
+                          : row[col.field] || '—'}
                       </span>
                     </td>
                   ))}
@@ -150,7 +160,7 @@ function EmptySectionPanel({ t }) {
         {labelOf(
           t,
           'requirements.aiHitlMonitorResultsEmptySection',
-          'Section này chưa có dữ liệu từ lần chạy HOW.'
+          'Section này chưa có dữ liệu (Gate1 rollup hoặc lần chạy HOW).'
         )}
       </p>
     </div>
@@ -161,7 +171,12 @@ function EmptySectionPanel({ t }) {
  * Monitor HOW results — read-only; no role gate (BA / PO / PM).
  */
 export default function HowMonitorResultsPanel({ pack = null, t }) {
-  const bundle = useMemo(() => buildGate2ProposalItems({ pack }), [pack]);
+  const projectId = resolvePackProjectId(pack);
+  const nameByUserId = useProjectMemberNames(projectId);
+  const bundle = useMemo(
+    () => buildGate2ProposalItems({ pack, nameByUserId, t }),
+    [pack, nameByUserId, t]
+  );
   const bySection = bundle.proposalBySection || {};
   const sectionTabs = bundle.proposalSections || [];
   const hasRows = (bundle.items || []).length > 0;
@@ -197,59 +212,24 @@ export default function HowMonitorResultsPanel({ pack = null, t }) {
         {labelOf(
           t,
           'requirements.aiHitlMonitorResultsHint',
-          'Bảng kết quả planning (WBS, phụ thuộc, phân công, lịch, rủi ro) — BA / PO / PM đều xem được. Duyệt quyết định ở tab Duyệt.'
+          'Bảng kết quả kế hoạch (scope, WBS, phụ thuộc, kiến trúc, effort/roles, phân công, capacity, lịch, sprint/release, rủi ro/assumptions, quality, deploy) — gồm rollup Gate1 + HOW. BA / PO / PM đều xem được. Duyệt quyết định ở tab Duyệt.'
         )}
       </p>
 
-      {sectionTabs.length ? (
-        <div className="mt-3 border-b border-border">
-          <div
-            className="flex gap-0 overflow-x-auto overscroll-x-contain"
-            role="tablist"
-            aria-label={labelOf(
-              t,
-              'requirements.aiHitlMonitorHowSectionTabsAria',
-              'Các section HOW'
-            )}
-          >
-            {sectionTabs.map((tab) => {
-              const isActive = activeSection === tab.key;
-              const hasIssue = sectionHasIssue(tab, bySection);
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  onClick={() => setActiveSection(tab.key)}
-                  className={`relative shrink-0 border-b-2 px-3 py-2 pr-5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    isActive
-                      ? hasIssue
-                        ? 'border-amber-600 text-amber-900 dark:border-amber-400 dark:text-amber-100'
-                        : 'border-emerald-600 text-emerald-800 dark:border-emerald-400 dark:text-emerald-100'
-                      : hasIssue
-                        ? 'border-transparent text-amber-800/80 hover:text-amber-950 dark:text-amber-200/80'
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <span className="whitespace-nowrap">{tab.label}</span>
-                  {hasIssue ? (
-                    <AlertTriangle
-                      className="pointer-events-none absolute right-1 top-1 h-3 w-3 text-amber-600 dark:text-amber-400"
-                      aria-hidden
-                    />
-                  ) : null}
-                  <span className="sr-only">
-                    {hasIssue
-                      ? labelOf(t, 'requirements.phase1Gate1TabHasIssue', 'Có cảnh báo')
-                      : labelOf(t, 'requirements.phase1Gate1TabOk', 'Đạt')}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+      <HowPlanSummaryChips pack={pack} t={t} />
+
+      <HitlSectionTabList
+        tabs={sectionTabs}
+        activeKey={activeSection}
+        onSelect={setActiveSection}
+        tabHasIssue={(tab) => sectionHasIssue(tab, bySection)}
+        t={t}
+        ariaLabel={labelOf(
+          t,
+          'requirements.aiHitlMonitorHowSectionTabsAria',
+          'Các section HOW'
+        )}
+      />
 
       {!activeMissing && activeRows.length ? (
         <ReadOnlyResultsTable

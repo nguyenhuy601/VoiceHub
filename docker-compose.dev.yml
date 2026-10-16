@@ -29,12 +29,6 @@ services:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "500"
 
-  friend-service:
-    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
-    environment:
-      CHOKIDAR_USEPOLLING: "true"
-      CHOKIDAR_INTERVAL: "500"
-
   role-permission-service:
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
@@ -54,12 +48,6 @@ services:
       CHOKIDAR_INTERVAL: "500"
 
   project-service:
-    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
-    environment:
-      CHOKIDAR_USEPOLLING: "true"
-      CHOKIDAR_INTERVAL: "500"
-
-  document-service:
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; npm run dev"]
     environment:
       CHOKIDAR_USEPOLLING: "true"

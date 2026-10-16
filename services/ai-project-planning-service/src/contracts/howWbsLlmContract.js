@@ -1,10 +1,18 @@
 /**
  * Wave L — HOW WBS LLM contract (Step 0).
- * XOR with hierarchy heuristic; default OFF (HARD-02).
+ * XOR with hierarchy heuristic; flag via HOW_WBS_LLM or HOW_SEMANTIC_LLM master.
+ * Fail → hierarchy fallback (HARD-02).
  */
 
-const HOW_WBS_LLM_SHAPE_VERSION = 'how-wbs-llm-v2';
-const WBS_LLM_LEVELS = Object.freeze(['epic', 'feature', 'story', 'task']);
+const HOW_WBS_LLM_SHAPE_VERSION = 'how-wbs-llm-v3';
+/** Epic → Feature → Story → Work Package → Task */
+const WBS_LLM_LEVELS = Object.freeze([
+  'epic',
+  'feature',
+  'story',
+  'work_package',
+  'task',
+]);
 const WBS_LLM_MAX_NODES = 200;
 /** Compact prompt defaults (latency) — override via env HOW_WBS_LLM_* */
 const WBS_LLM_MAX_AC_PER_FR = 2;
@@ -28,8 +36,9 @@ const WBS_LLM_MAX_CHUNKS = 16;
  * @returns {boolean}
  */
 function isHowWbsLlmFlagOn(env = process.env) {
-  const flag = String(env.HOW_WBS_LLM ?? '0').trim().toLowerCase();
-  return ['1', 'true', 'on', 'yes'].includes(flag);
+  // HOW_WBS_LLM override, else HOW_SEMANTIC_LLM master (see howSemanticLlmFlags).
+  const { isHowSemanticSectionLlmOn } = require('../config/howSemanticLlmFlags');
+  return isHowSemanticSectionLlmOn('wbs', env);
 }
 
 function clampInt(raw, fallback, { min, max }) {

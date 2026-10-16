@@ -84,6 +84,8 @@ const REASON_I18N = {
  *   status?: string,
  *   coverageReason?: string|null,
  *   isCustomerRawIntake?: boolean,
+ *   softHintKey?: string,
+ *   softHintFallback?: string,
  *   t?: function,
  * }} props
  */
@@ -93,6 +95,8 @@ export default function Gate1MissingSectionPanel({
   status = 'NO_DATA',
   coverageReason = null,
   isCustomerRawIntake = false,
+  softHintKey = 'requirements.phase1Gate1MissingSoftHint',
+  softHintFallback = 'Không chặn gửi duyệt Gate 1 (chỉ FR là bắt buộc).',
   t,
 }) {
   const reasonKey = String(coverageReason || status || 'NO_DATA').toUpperCase();
@@ -118,11 +122,7 @@ export default function Gate1MissingSectionPanel({
       </p>
       <p className="mt-1 text-xs text-muted-foreground">{reasonText}</p>
       <p className="mt-2 text-xs text-muted-foreground">
-        {labelOf(
-          t,
-          'requirements.phase1Gate1MissingSoftHint',
-          'Không chặn gửi duyệt Gate 1 (chỉ FR là bắt buộc).'
-        )}
+        {labelOf(t, softHintKey, softHintFallback)}
       </p>
     </div>
   );

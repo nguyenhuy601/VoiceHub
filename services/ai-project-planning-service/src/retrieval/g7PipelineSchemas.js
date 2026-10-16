@@ -17,6 +17,7 @@ const QUERY_INTENTS = Object.freeze([
   'skill_def',
   'metric_def',
   'history_snippet',
+  'how_planning',
   'general',
 ]);
 
@@ -60,10 +61,25 @@ function getG7RagMode(env = process.env) {
 function classifyQueryIntent(query = '') {
   const q = String(query).toLowerCase();
   if (!q.trim()) return 'general';
+  // HOW assemble queries (howPhaseGraph / agentLoopRunner) — how_planning / how_planning_gap
+  if (
+    /how_planning/.test(q) ||
+    /\bhow planning\b/.test(q) ||
+    /\bquality plan\b/.test(q) ||
+    /\bdeploy plan\b/.test(q)
+  ) {
+    return 'how_planning';
+  }
   if (/\b(metric|capacity|hours|effort|allocation)\b/.test(q)) return 'metric_def';
-  if (/\b(skill|competenc|ngôn ngữ|framework|stack)\b/.test(q)) return 'skill_def';
+  if (/\b(skill|competenc|ngôn ngữ|framework|stack|technology|tech stack)\b/.test(q)) {
+    return 'skill_def';
+  }
   if (/\b(history|past project|kinh nghiệm|experience)\b/.test(q)) return 'history_snippet';
-  if (/\b(requirement|fr-|nfr|srs|evidence|accept)\b/.test(q)) return 'requirement_evidence';
+  if (
+    /\b(requirement|fr-|nfr|srs|evidence|accept|use.?case|uc-|acceptance)\b/.test(q)
+  ) {
+    return 'requirement_evidence';
+  }
   return 'general';
 }
 

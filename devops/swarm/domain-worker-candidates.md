@@ -2,9 +2,10 @@
 
 ## Priority 1 (implemented)
 - `project-worker`
-- `ai-task-extract-worker`
-- `ai-task-sync-worker`
 - `notification-dispatch-worker`
+- `report-etl-worker` (khi bật trong stack)
+
+> **Đã gỡ:** `ai-task-extract-worker` / `ai-task-sync-worker`.
 
 ## Priority 2 (evaluate by metrics)
 - `chat-media-worker`

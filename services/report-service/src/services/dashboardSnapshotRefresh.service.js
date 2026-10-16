@@ -94,15 +94,12 @@ async function refreshDashboardSnapshot(userId, eventId) {
   const startFrom = new Date();
   const startTo = new Date(startFrom.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const [orgRes, friendsRes, pendingRes, notifRes, meetingsRes] = await Promise.all([
+  const [orgRes, friendsRes, notifRes, meetingsRes] = await Promise.all([
     orgBase
       ? getJson(`${orgBase}/api/organizations/my`, headers, 'orgs')
       : Promise.resolve({ ok: false }),
     friendBase
       ? getJson(`${friendBase}/api/friends`, headers, 'friends')
-      : Promise.resolve({ ok: false }),
-    friendBase
-      ? getJson(`${friendBase}/api/friends/pending`, headers, 'pending')
       : Promise.resolve({ ok: false }),
     notifBase
       ? getJson(`${notifBase}/api/notifications?scope=personal&limit=1`, headers, 'notif')
@@ -115,6 +112,8 @@ async function refreshDashboardSnapshot(userId, eventId) {
         )
       : Promise.resolve({ ok: false }),
   ]);
+  /** Friend graph pending retired. */
+  const pendingRes = { ok: true, data: [] };
 
   const orgList = orgRes.ok && Array.isArray(orgRes.data) ? orgRes.data : [];
   const orgIds = orgList

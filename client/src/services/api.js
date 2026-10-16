@@ -72,7 +72,7 @@ function buildRejectedError(errorLike, fallbackKey = 'errors.generic') {
    /api/messages/* → chat-service (port 3006, REST only — WebSocket qua socket-service :3017 / gateway)
    /api/organizations/* → organization-service (port 3013)
    /api/tasks/* → task-service (port 3009)
-   /api/friends/* → friend-service (port 3014)
+   /api/friends/* → organization-service (derived roster)
 ======================================== */
 
 // Same-origin /api qua Nginx (https://voicehub.local) hoặc Vite proxy — không hardcode :3000.

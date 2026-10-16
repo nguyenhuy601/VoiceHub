@@ -1,15 +1,15 @@
 # Autoscale Policy (b5)
 
 ## CPU-bound workers
-Applies to:
-- `ai-task-extract-worker`
-- `ai-task-sync-worker`
+Applies to workers có CPU cao khi xử lý job (ví dụ `report-etl-worker`, worker AI Project khi bật).
 
 Scale out when:
 - CPU > 70% for 5 minutes OR queue depth > 100.
 
 Scale in when:
 - CPU < 35% and queue depth < 20 for 15 minutes.
+
+> **Đã gỡ:** `ai-task-extract-worker` / `ai-task-sync-worker` — không còn trong stack.
 
 ## IO-bound workers
 Applies to:
@@ -33,6 +33,5 @@ Scale cautiously:
 ## Guardrails
 - Keep min replicas:
   - project-worker: 1
-  - ai extract/sync: 1 each
   - notification-dispatch-worker: 1
 - Define hard max per node capacity.

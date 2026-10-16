@@ -38,16 +38,18 @@ export const HOW_MACRO_STEPS = Object.freeze([
     labelKey: 'requirements.aiHitlHowMacro2',
     fallback: 'Engines',
     descriptionKey: 'requirements.aiHitlHowMacroDesc2',
-    descriptionFallback: 'Running planning engines (WBS → Schedule).',
+    descriptionFallback: 'Running planning engines (WBS → Quality → Schedule → Deploy).',
     substeps: [
       'WbsTool',
       'DependencyTool',
       'ArchitectureTool',
       'RiskTool',
+      'QualityPlanTool',
       'EffortTool',
       'SequencingTool',
       'EmployeeMatchingTool',
       'ScheduleTool',
+      'DeployPlanTool',
     ],
   },
   {
@@ -122,7 +124,43 @@ export function matchHowStepIndex(nodeRaw) {
  * Resolve which HOW catalog step is active from live progress.
  * Prefer currentTool only when agent is in call_tool/execute (activity node ≠ checklist step).
  */
+/** Parallel HOW tools in-flight (DAG layer), if reporter sends currentToolNames. */
+export function resolveHowActiveStepIds(liveRun = null, phaseMeta = null) {
+  const raw =
+    liveRun?.currentToolNames ||
+    liveRun?.currentTools ||
+    phaseMeta?.currentToolNames ||
+    null;
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const ids = [];
+  const seen = new Set();
+  for (const name of raw) {
+    const idx = matchHowStepIndex(name);
+    if (idx < 0) continue;
+    const id = HOW_MONITOR_STEPS[idx].id;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids.length ? ids : null;
+}
+
 export function resolveHowActiveStepId(liveRun = null, phaseMeta = null) {
+  const multi = resolveHowActiveStepIds(liveRun, phaseMeta);
+  if (multi?.length) {
+    // Primary = earliest catalog index among parallel set
+    let best = multi[0];
+    let bestIdx = matchHowStepIndex(best);
+    for (const id of multi) {
+      const idx = matchHowStepIndex(id);
+      if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) {
+        best = id;
+        bestIdx = idx;
+      }
+    }
+    return best;
+  }
+
   const tool = String(liveRun?.currentTool || liveRun?.currentToolName || '').trim();
   const nodeRaw = String(
     liveRun?.currentNode || liveRun?.stage || liveRun?.pipelineSubstep || phaseMeta?.stage || ''
@@ -247,6 +285,9 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
   const stepId = phaseDone
     ? HOW_MONITOR_STEPS[HOW_MONITOR_STEPS.length - 1].id
     : resolveHowActiveStepId(liveRun, phaseHow);
+  const activeStepIds = phaseDone
+    ? null
+    : resolveHowActiveStepIds(liveRun, phaseHow);
 
   let activeIndex = stepId ? HOW_MONITOR_STEPS.findIndex((s) => s.id === stepId) : -1;
   if (activeIndex < 0 && (state === 'running' || state === 'queued')) {
@@ -255,6 +296,11 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
 
   const activeStepId =
     activeIndex >= 0 ? HOW_MONITOR_STEPS[activeIndex].id : null;
+  const activeIndices = Array.isArray(activeStepIds)
+    ? activeStepIds
+        .map((id) => HOW_MONITOR_STEPS.findIndex((s) => s.id === id))
+        .filter((i) => i >= 0)
+    : null;
   const macroStep = activeStepId ? SUBSTEP_TO_MACRO[activeStepId] || 0 : phaseDone ? 3 : 0;
   const macroDef = HOW_MACRO_STEPS.find((m) => m.step === macroStep) || null;
 
@@ -305,7 +351,9 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
     state,
     macroStep,
     activeStepId,
+    activeStepIds: activeStepIds || (activeStepId ? [activeStepId] : []),
     activeIndex,
+    activeIndices,
     activeMacroSubsteps: macroDef ? [...macroDef.substeps] : [],
     activity,
     elapsedMs,

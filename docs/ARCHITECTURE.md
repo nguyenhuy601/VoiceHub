@@ -63,11 +63,9 @@ flowchart LR
 | **project-service** | Project, task, board, requirement, comment; Gate 1/2 HTTP facade; G20 materialize; worker RabbitMQ tùy bật. |
 | **ai-project-planning-service** | AI Project planning runtime (G4/G7/G8/G15–G19, G17–G18) — LLM/orchestrator **không** in-process trong project-service. |
 | **voice-service** | Meeting / mediasoup signaling, UDP. |
-| **friend-service** | Bạn bè, lời mời, block. |
 | **role-permission-service** | Role, permission, check cho gateway. |
 | **notification-service** | Thông báo lưu trữ; webhook nội bộ dispatch notification (không còn service webhook độc lập). |
-| **document-service** | Metadata tài liệu. |
-| **ai-task-service** + **ai-task-worker** | Pipeline AI task chat→board (RabbitMQ, Ollama, …) — **không** trùng AI Project planning. |
+| **report-service** / **report-etl-worker** | Báo cáo / ETL (khi bật trong stack). |
 
 ## AI Project (Two-Phase HITL)
 
@@ -94,7 +92,7 @@ flowchart LR
 | Môi trường | Công cụ | Ghi chú |
 |------------|---------|---------|
 | **Local app microservices** | **Docker Swarm** | [`docker-stack.yml`](../docker-stack.yml), [`devops/swarm/deploy-stack.sh`](../devops/swarm/deploy-stack.sh) |
-| **Infra/AI (dev)** | Docker Swarm (`docker-stack.yml`) | ollama, minio, qdrant, meilisearch — cùng overlay với app; xem [`swarm-compose-split`](../.cursor/rules/swarm-compose-split.mdc) |
+| **Infra/AI (dev)** | Docker Swarm (`docker-stack.yml`) | ollama, minio, qdrant — cùng overlay với app; xem [`swarm-compose-split`](../.cursor/rules/swarm-compose-split.mdc) |
 | **Tương lai** | K8s, edge Cloudflare | Không phải path đang chạy — xem [`devops/swarm/ha-infra-roadmap.md`](../devops/swarm/ha-infra-roadmap.md) |
 
 Socket HA staging: `SOCKET_SERVICE_REPLICAS>=2`, `SOCKET_IO_REDIS_ADAPTER=true` — [`SOCKET_LB.md`](SOCKET_LB.md), [`devops/swarm/realtime-ha-checklist.md`](../devops/swarm/realtime-ha-checklist.md).

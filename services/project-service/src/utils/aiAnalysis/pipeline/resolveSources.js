@@ -11,6 +11,7 @@ const SOURCE_REASONS = Object.freeze({
   skill_catalog: 'capability_whitelist_pin',
   org_calendar: 'working_calendar_holidays',
   project_history: 'verified_pe_history_view_cv_and_closed_board',
+  project_technical: 'project_technical_setup_cicd_env_deploy',
 });
 
 /**
@@ -41,6 +42,7 @@ function resolveSources(opts = {}) {
   if (includeCalendar) {
     out.push({ id: 'org_calendar', reason: SOURCE_REASONS.org_calendar });
   }
+  out.push({ id: 'project_technical', reason: SOURCE_REASONS.project_technical });
 
   const allowed = new Set(SOURCE_IDS);
   return out.filter((s) => allowed.has(s.id));

@@ -114,11 +114,20 @@ function buildWbsLlmPrompt({ pack, capabilities, planningHints, env = process.en
 
   const maxLeaves = resolveWbsLlmMaxLeavesPerFr(env);
   const targetLeaves = Math.min(WBS_LLM_TARGET_LEAVES_PER_FR, maxLeaves);
+  // Account UI locale (pack.aiAnalysis.deriveLocale) — same contract as WHAT derive.
+  const {
+    normalizeDeriveLocale,
+    languageInstruction,
+  } = require('../semantic/buildSemanticDeriveContext');
+  const locale = normalizeDeriveLocale(
+    pack?.aiAnalysis?.deriveLocale || pack?.locale || env.PHASE1_DERIVE_LOCALE
+  );
   // Flat task leaves only — hierarchy wrap is deterministic post-LLM.
   const lines = [
+    languageInstruction(locale),
     'WBS leaves JSON only. No prose. No epic/feature/story nodes.',
     'Shape:{"nodes":[{"id","name","level":"task","parentId":null,"sourceFrIds","effortSeedHours","area"}]}',
-    `Rules: 1-${maxLeaves} task leaves per FR (target ~${targetLeaves}); split real work (API/DB/UI/QA) when FR has multiple steps — do NOT copy FR title as every leaf; short id like T-{frId}-{n}; sourceFrIds=[that FR]; effortSeedHours 4-40; area∈frontend|backend|qa|design|infra; use only FR ids listed.`,
+    `Rules: 1-${maxLeaves} task leaves per FR (target ~${targetLeaves}); split one FR into BE+FE+QA leaves (hierarchy wrap adds work_package per area) — NEVER copy FR title (t) as leaf name; NEVER emit epic/feature/story/work_package nodes; short id T-{frId}-{n}; sourceFrIds=[that FR] REQUIRED; effortSeedHours 2-24 per leaf; area∈frontend|backend|qa|design|infra; use only FR ids listed.`,
     `FRS=${JSON.stringify(frPayload)}`,
   ];
   if (caps.length) lines.push(`CAPS=${JSON.stringify(caps)}`);
@@ -205,11 +214,14 @@ function resolveModelName(env = process.env) {
   return String(env.OLLAMA_MODEL || env.LLM_MODEL || 'qwen2.5:3b-instruct').trim();
 }
 
-function applyHierarchyWrap(normalized, pack) {
+function applyHierarchyWrap(normalized, pack, capabilities = [], planningHints = null) {
+  // Prefer full pack (BG/NFR/UC) for soft SRS mapping — not FR-only slim prompt pack.
   const wrapped = wrapFlatTasksWithFrHierarchy({
     tasks: normalized.tasks,
     wbs: normalized.wbs,
     pack,
+    capabilities,
+    planningHints,
   });
   return {
     tasks: wrapped.tasks,
@@ -476,7 +488,7 @@ async function decomposeWbsWithLlm(opts = {}) {
       warnFallback(once.meta);
       return once;
     }
-    const applied = applyHierarchyWrap(once, packSlim);
+    const applied = applyHierarchyWrap(once, pack, capabilities, planningHints);
     return {
       ok: true,
       tasks: applied.tasks,
@@ -571,7 +583,7 @@ async function decomposeWbsWithLlm(opts = {}) {
     },
   };
   // Wrap once after merge so Epic/Feature ids stay shared across chunks (no cN-EPIC dup)
-  const applied = applyHierarchyWrap(flatMerged, packSlim);
+  const applied = applyHierarchyWrap(flatMerged, pack, capabilities, planningHints);
   const failedChunks = chunkMeta.filter((c) => !c.ok).length;
   const warnings = [];
   if (truncatedFr) warnings.push(`truncated_fr_to_${chunks.length * chunkSize}_of_${promptFrCount}`);

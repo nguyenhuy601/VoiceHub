@@ -31,11 +31,18 @@ function buildSnapshotPayload({
   poolItems = [],
   calendar = {},
   skillCatalog = {},
+  technicalSetup = null,
   packContentHash,
   packStatus,
 } = {}) {
   const sourcesResolved = resolveSources();
-  let projected = projectAllSources({ pack, poolItems, calendar, skillCatalog });
+  let projected = projectAllSources({
+    pack,
+    poolItems,
+    calendar,
+    skillCatalog,
+    technicalSetup,
+  });
   const ingestion = applyIngestionQuality(projected);
   projected = ingestion.projected;
 
