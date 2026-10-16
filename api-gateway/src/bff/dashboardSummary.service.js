@@ -65,14 +65,12 @@ async function buildDashboardSummaryFanout(userId, userEmail) {
 
   const orgUrl = `${services.organization.url}/api/organizations/my`;
   const friendsUrl = `${services.friend.url}/api/friends`;
-  const pendingUrl = `${services.friend.url}/api/friends/pending`;
   const notifUrl = `${services.notification.url}/api/notifications?scope=personal&limit=1`;
   const meetingsUrl = `${services.voice.url}/api/meetings?startFrom=${encodeURIComponent(startFrom.toISOString())}&startTo=${encodeURIComponent(startTo.toISOString())}&limit=8`;
 
-  const [orgRes, friendsRes, pendingRes, notifRes, meetingsRes] = await Promise.all([
+  const [orgRes, friendsRes, notifRes, meetingsRes] = await Promise.all([
     fetchJson(orgUrl, headers, 'organizations/my', SUMMARY_TIMEOUT_MS),
     fetchJson(friendsUrl, headers, 'friends', SUMMARY_TIMEOUT_MS),
-    fetchJson(pendingUrl, headers, 'friends/pending', SUMMARY_TIMEOUT_MS),
     fetchJson(notifUrl, headers, 'notifications', SUMMARY_TIMEOUT_MS),
     fetchJson(meetingsUrl, headers, 'meetings', SUMMARY_TIMEOUT_MS),
   ]);
@@ -84,8 +82,8 @@ async function buildDashboardSummaryFanout(userId, userEmail) {
     .filter((id) => /^[a-f\d]{24}$/i.test(id));
 
   const friendsRaw = friendsRes.ok ? unwrapFriendsList(friendsRes.data) : [];
-  const pendingRaw = pendingRes.ok ? unwrapPayload(pendingRes.data) : [];
-  const friendsPending = Array.isArray(pendingRaw) ? pendingRaw : [];
+  /** Friend graph pending retired. */
+  const friendsPending = [];
 
   let notificationsUnreadPersonal = 0;
   if (notifRes.ok) {

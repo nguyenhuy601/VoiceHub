@@ -1,6 +1,6 @@
 /**
  * Map FilterToken + ô tự do → query GET /messages/search (gateway /api).
- * Backend dùng Meilisearch khi MESSAGE_SEARCH_ENGINE=meilisearch; contract pageToken giữ nguyên.
+ * Backend search tin kênh org qua Mongo; contract pageToken giữ nguyên.
  */
 
 import api from '../../services/api';

@@ -69,6 +69,7 @@ async function ingestSnapshotToQdrant(opts = {}) {
     snapshotId,
     embeddingVersion: version,
     frs: frsForHash,
+    docs: corpus,
   });
 
   const prior = opts.priorCorpusHash != null ? String(opts.priorCorpusHash) : '';

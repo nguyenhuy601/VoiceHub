@@ -60,7 +60,6 @@ services:
 
       - user-service
 
-      - friend-service
 
       - organization-service
 
@@ -74,7 +73,6 @@ services:
 
       - project-service
 
-      - document-service
 
       - notification-service
 
@@ -206,48 +204,6 @@ services:
 
     command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
 
-  friend-service:
-
-    build:
-      context: .
-      dockerfile: services/friend-service/Dockerfile
-
-    container_name: enterprise-friend-service
-
-    env_file:
-
-      - .env
-
-      - ./services/friend-service/.env
-
-    depends_on:
-
-      - mongodb
-
-      - redis
-
-      - auth-service
-
-      - user-service
-
-      - chat-service
-
-      - socket-service
-
-    networks:
-
-      - enterprise-network
-
-    volumes:
-
-      - ./services/friend-service:/app
-
-      - ./shared:/shared
-
-      - /app/node_modules
-
-    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
-
   role-permission-service:
 
     build:
@@ -325,10 +281,6 @@ services:
       rabbitmq:
 
         condition: service_healthy
-
-      meilisearch:
-
-        condition: service_started
 
       user-service:
 
@@ -457,40 +409,6 @@ services:
     volumes:
 
       - ./services/project-service:/app
-
-      - ./shared:/shared
-
-      - /app/node_modules
-
-    command: ["sh", "-c", "npm ci || npm install; node /shared/postinstall-link.cjs; node src/server.js"]
-
-  document-service:
-
-    build:
-      context: .
-      dockerfile: services/document-service/Dockerfile
-
-    container_name: enterprise-document-service
-
-    env_file:
-
-      - .env
-
-      - ./services/document-service/.env
-
-    depends_on:
-
-      - mongodb
-
-      - redis
-
-    networks:
-
-      - enterprise-network
-
-    volumes:
-
-      - ./services/document-service:/app
 
       - ./shared:/shared
 

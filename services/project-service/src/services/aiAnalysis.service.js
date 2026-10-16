@@ -255,6 +255,8 @@ async function confirmAiAnalysisJob({
   note = '',
   reviewDecisions = null,
   edits = null,
+  forceApprove = false,
+  overrideReason = '',
 }) {
   void edits;
   const phaseHint = String(phaseRaw || '').trim().toLowerCase();
@@ -524,6 +526,29 @@ async function confirmAiAnalysisJob({
     priorStamps: [{ userId: prior.submittedBy }],
   });
   const noteTrim = String(note || '').trim().slice(0, 2000);
+  // Hole #2: do not confirm Gate2 when G13 / quality-deploy DoD fails (unless forceApprove+reason)
+  const {
+    assertGate2FeasibilityOrOverride,
+  } = require('../utils/tools/assertGate2FeasibilityOrOverride');
+  const g13BeforeConfirm = assertGate2FeasibilityOrOverride({
+    pack: { ...(pack.toObject?.() || pack), aiAnalysis: container },
+    forceApprove,
+    overrideReason: String(overrideReason || noteTrim || '').trim().slice(0, 2000),
+  });
+  if (g13BeforeConfirm.override) {
+    container = {
+      ...container,
+      gate2Override: {
+        forceApprove: true,
+        reason: g13BeforeConfirm.override.reason,
+        missingFeasibility: Boolean(g13BeforeConfirm.override.missingFeasibility),
+        failures: g13BeforeConfirm.override.failures || null,
+        by: userId,
+        at: new Date().toISOString(),
+        atStep: 'po_approve_confirm',
+      },
+    };
+  }
   container = markPhaseHowConfirmed(container);
   container = stampGate2ReviewLane(container, REVIEW_LANE.DONE, {
     confirmedBy: String(userId),
@@ -561,6 +586,8 @@ async function confirmAiAnalysisJob({
       userId,
       organizationId,
       packId,
+      forceApprove,
+      overrideReason: String(overrideReason || noteTrim || '').trim().slice(0, 2000),
     });
   } catch (promoteErr) {
     promoteError = {

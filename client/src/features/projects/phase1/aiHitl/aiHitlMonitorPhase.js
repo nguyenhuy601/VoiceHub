@@ -114,6 +114,18 @@ export function resolveAiHitlMonitorPhase({
 }
 
 /**
+ * Which results table to show under Monitor progress (RULE-M01 — never both).
+ * @param {'idle'|'what'|'how'|'what_done'|'how_done'} phase
+ * @param {boolean} [showHowReady] — WHAT done + Gate1 approved, HOW checklist ready (no WHAT results)
+ * @returns {'what'|'how'|null}
+ */
+export function resolveMonitorResultsKind(phase, showHowReady = false) {
+  if (phase === 'how' || phase === 'how_done') return 'how';
+  if (phase === 'what' || (phase === 'what_done' && !showHowReady)) return 'what';
+  return null;
+}
+
+/**
  * Active step index within the phase catalog (−1 if unknown / idle).
  * @param {'idle'|'what'|'how'|'what_done'|'how_done'} phase
  */
@@ -145,10 +157,20 @@ export function resolveActiveStepIndex(phase, liveRun = null, phaseMeta = null) 
 }
 
 /**
+ * @param {number} stepIndex
+ * @param {number} activeIndex — primary active (min of parallel set when multi)
+ * @param {boolean} [phaseDone]
+ * @param {number[]|null} [activeIndices] — all in-flight indices (parallel HOW tools)
  * @returns {'pending'|'current'|'done'}
  */
-export function stepVisualState(stepIndex, activeIndex, phaseDone = false) {
+export function stepVisualState(stepIndex, activeIndex, phaseDone = false, activeIndices = null) {
   if (phaseDone) return 'done';
+  if (Array.isArray(activeIndices) && activeIndices.length > 0) {
+    if (activeIndices.includes(stepIndex)) return 'current';
+    const minActive = Math.min(...activeIndices);
+    if (stepIndex < minActive) return 'done';
+    return 'pending';
+  }
   if (activeIndex < 0) return 'pending';
   if (stepIndex < activeIndex) return 'done';
   if (stepIndex === activeIndex) return 'current';

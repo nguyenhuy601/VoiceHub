@@ -1,7 +1,13 @@
 const axios = require('axios');
 const { buildTrustedGatewayHeaders } = require('@enterprise/shared/middleware/gatewayTrust');
 const Organization = require('../models/Organization');
+const Document = require('../models/Document');
 const { resolveOrgAccess } = require('../utils/orgAccess');
+const { buildDocumentListFilter } = require('../utils/documentListFilter');
+const {
+  resolveUploaderProfileMap,
+  attachUploadedByToDocuments,
+} = require('../utils/attachUploaderProfiles');
 const { getCachedAccessibleChannelData, getCachedOrganizationStructureData } = require('./orgReadCache.service');
 const {
   buildAccessibleChannelData,
@@ -10,8 +16,6 @@ const {
 
 const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!CHAT_SERVICE_URL) throw new Error('Thiếu biến môi trường: CHAT_SERVICE_URL');
-const DOCUMENT_SERVICE_URL = String(process.env.DOCUMENT_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!DOCUMENT_SERVICE_URL) throw new Error('Thiếu biến môi trường: DOCUMENT_SERVICE_URL');
 
 const MAX_ATTACHMENT_PAGES = Math.min(
   12,
@@ -80,19 +84,23 @@ async function fetchAttachmentMessages(orgId, userId, allowedRoomIds = []) {
   return { messages: all, truncated };
 }
 
+/** Local Document query — no DOCUMENT_SERVICE_URL hop. */
 async function fetchLibraryDocuments(orgId, userId) {
-  const headers = buildTrustedGatewayHeaders(userId);
-  const res = await axios.get(`${DOCUMENT_SERVICE_URL}/api/documents`, {
-    params: { organizationId: String(orgId), limit: 100 },
-    headers,
-    timeout: Number(process.env.ORG_DOCUMENTS_DOC_TIMEOUT_MS || 12000),
-    validateStatus: () => true,
-  });
-  if (res.status >= 400) return [];
-  const body = res.data?.data ?? res.data;
-  if (Array.isArray(body?.documents)) return body.documents;
-  if (Array.isArray(body)) return body;
-  return [];
+  const { filter, error } = buildDocumentListFilter(
+    { organizationId: String(orgId), limit: 100 },
+    userId
+  );
+  if (error || !filter) return [];
+  try {
+    const documents = await Document.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+    const profileMap = await resolveUploaderProfileMap(documents.map((d) => d.uploadedBy));
+    return attachUploadedByToDocuments(documents, profileMap);
+  } catch {
+    return [];
+  }
 }
 
 async function buildDocumentsOverview(orgId, userId) {

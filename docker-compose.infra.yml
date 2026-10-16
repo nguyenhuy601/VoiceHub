@@ -54,34 +54,6 @@ services:
 
 
 
-  meilisearch:
-
-    image: getmeili/meilisearch:v1.12
-
-    container_name: enterprise-meilisearch
-
-    # Không publish ra host — Windows Hyper-V thường reserve dải ~7600–7800.
-    # Service trong mạng Docker vẫn gọi meilisearch:7700 bình thường.
-    expose:
-      - "7700"
-
-    environment:
-
-      MEILI_ENV: ${MEILI_ENV}
-
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
-
-      MEILI_NO_ANALYTICS: "true"
-
-    volumes:
-
-      - meilisearch_data:/meili_data
-
-    networks:
-
-      - enterprise-network
-
-
 
   rabbitmq:
 
@@ -233,8 +205,6 @@ volumes:
   redis_data:
 
   rabbitmq_data:
-
-  meilisearch_data:
 
   ollama_data:
 

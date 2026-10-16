@@ -32,6 +32,10 @@ function checkFeasibility(planState = {}) {
   const architectureOk =
     flagsSource.architectureOk !== false && flagsSource.flags?.architecture !== false;
   const riskOk = flagsSource.riskOk !== false && flagsSource.flags?.risk !== false;
+  const qualityPlanOk =
+    flagsSource.qualityPlanOk !== false && flagsSource.flags?.quality !== false;
+  const deployPlanOk =
+    flagsSource.deployPlanOk !== false && flagsSource.flags?.deploy !== false;
 
   if (!coverageOk) {
     failures.push({ code: 'FEAS_COVERAGE', message: 'FR coverage incomplete' });
@@ -47,6 +51,19 @@ function checkFeasibility(planState = {}) {
   }
   if (!riskOk) {
     failures.push({ code: 'FEAS_RISK', message: 'Risk threshold exceeded' });
+  }
+  if (!qualityPlanOk) {
+    failures.push({
+      code: 'FEAS_QUALITY_PLAN',
+      message: 'Quality/testing plan incomplete (need levels + AC/catalog coverage)',
+    });
+  }
+  if (!deployPlanOk) {
+    failures.push({
+      code: 'FEAS_DEPLOY_PLAN',
+      message:
+        'Deploy plan incomplete (need envMatrix ≥2 or TBD, rollback steps, release mode, outOfScopeInApp)',
+    });
   }
 
   const pass = failures.length === 0;

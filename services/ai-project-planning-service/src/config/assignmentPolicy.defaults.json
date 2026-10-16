@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "profileId": "software_agile_v1",
+  "hardGates": {
+    "requireRoleMatch": true,
+    "minSkillCoverage": 0.5,
+    "capacityWindowFeasible": true,
+    "excludeSoftOverload": true,
+    "respectProjectCap": true,
+    "dependencyEarliestStart": true
+  },
+  "rankWeights": {
+    "skillFit": 0.3,
+    "similarExperience": 0.2,
+    "pastQuality": 0.15,
+    "scheduleConvenience": 0.15,
+    "domainArchFit": 0.1,
+    "resourceEfficiency": 0.1
+  },
+  "rankWeightsFallback": {
+    "whenMissing": ["pastQuality"],
+    "redistributeTo": ["skillFit", "similarExperience", "scheduleConvenience"]
+  },
+  "globalAssign": {
+    "mode": "max_rank_then_epsilon_balance",
+    "fitEpsilon": 0.03,
+    "shortlistK": 5,
+    "maxHoursPerUserFactor": 2
+  },
+  "hitl": {
+    "requirePmConfirm": true,
+    "allowPickOutsideShortlist": false
+  }
+}

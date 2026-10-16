@@ -177,7 +177,70 @@ function projectEmployee(item) {
  * @param {{ workingCalendar?: object, holidays?: object[] }} calendar
  * @param {{ skillNames?: string[] }} skillCatalog
  */
-function projectAllSources({ pack, poolItems = [], calendar = {}, skillCatalog = {} } = {}) {
+const MAX_TECHNICAL_ENVS = 12;
+const MAX_STACK_ITEMS = 40;
+
+/**
+ * Whitelist Project.technicalSetup for HOW Deploy/Arch context — no secrets/tokens.
+ * @param {object|null|undefined} technicalSetup
+ */
+function projectTechnicalSetup(technicalSetup) {
+  const src =
+    technicalSetup && typeof technicalSetup === 'object' && !Array.isArray(technicalSetup)
+      ? technicalSetup
+      : {};
+  const stack = src.stack && typeof src.stack === 'object' ? src.stack : {};
+  const cicd = src.cicd && typeof src.cicd === 'object' ? src.cicd : {};
+  const deployment = src.deployment && typeof src.deployment === 'object' ? src.deployment : {};
+  const infrastructure =
+    src.infrastructure && typeof src.infrastructure === 'object' ? src.infrastructure : {};
+
+  const environments = (Array.isArray(src.environments) ? src.environments : [])
+    .filter((e) => e && typeof e === 'object')
+    .slice(0, MAX_TECHNICAL_ENVS)
+    .map((e) => ({
+      key: String(e.key || 'custom').trim().slice(0, 32),
+      name: String(e.name || '').trim().slice(0, 120),
+      url: String(e.url || '').trim().slice(0, 500),
+    }));
+
+  const sliceStack = (arr) =>
+    (Array.isArray(arr) ? arr : [])
+      .map((x) => String(x || '').trim().slice(0, 64))
+      .filter(Boolean)
+      .slice(0, MAX_STACK_ITEMS);
+
+  return {
+    environments,
+    cicd: {
+      provider: String(cicd.provider || '').trim().slice(0, 64),
+      pipelineUrl: String(cicd.pipelineUrl || '').trim().slice(0, 500),
+      notes: String(cicd.notes || '').trim().slice(0, 2000),
+    },
+    deployment: {
+      strategy: String(deployment.strategy || '').trim().slice(0, 64),
+      target: String(deployment.target || '').trim().slice(0, 180),
+      notes: String(deployment.notes || '').trim().slice(0, 2000),
+    },
+    infrastructure: {
+      notes: String(infrastructure.notes || '').trim().slice(0, 2000),
+      cloudProvider: String(infrastructure.cloudProvider || '').trim().slice(0, 64),
+    },
+    stack: {
+      languages: sliceStack(stack.languages),
+      frameworks: sliceStack(stack.frameworks),
+      databases: sliceStack(stack.databases),
+    },
+  };
+}
+
+function projectAllSources({
+  pack,
+  poolItems = [],
+  calendar = {},
+  skillCatalog = {},
+  technicalSetup = null,
+} = {}) {
   const overview = pack?.overview || {};
   const staffing = pack?.staffingPlan || {};
   const frProjected = (pack?.functionalRequirements || [])
@@ -243,6 +306,7 @@ function projectAllSources({ pack, poolItems = [], calendar = {}, skillCatalog =
       workingCalendar: calendar.workingCalendar || {},
       holidays: Array.isArray(calendar.holidays) ? calendar.holidays : [],
     },
+    technical: projectTechnicalSetup(technicalSetup),
   };
 }
 
@@ -250,6 +314,8 @@ module.exports = {
   projectFrNode,
   projectNfr,
   projectEmployee,
+  projectTechnicalSetup,
   projectAllSources,
   skillsFromPoolItem,
+  MAX_TECHNICAL_ENVS,
 };

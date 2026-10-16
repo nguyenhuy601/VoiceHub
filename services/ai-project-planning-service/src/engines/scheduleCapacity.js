@@ -4,6 +4,7 @@
 const { greedyAssignFromShortlists } = require('./assignment');
 const { buildTaskGraph } = require('./sequencingCpm');
 const { levelScheduleAroundCriticalPath } = require('./scheduleFloatLeveling');
+const { buildSchedulePlan } = require('./sprintReleasePlan');
 
 const DAILY_CAP_HOURS = 8;
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -60,7 +61,12 @@ function isMilestoneTask(task) {
 
 function isLeafTaskForSchedule(task) {
   const level = String(task?.level || 'task').toLowerCase();
-  return level !== 'epic' && level !== 'feature' && level !== 'story';
+  return (
+    level !== 'epic' &&
+    level !== 'feature' &&
+    level !== 'story' &&
+    level !== 'work_package'
+  );
 }
 
 /** Critical ids from CPM + explicit list — used for ready-queue priority. */
@@ -365,6 +371,12 @@ function runScheduleCapacity(container, options = {}) {
       tasks: container?.planning?.tasks || [],
       featureOwners: container?.resource?.featureOwners || [],
       criticalWorkIds,
+      policy: options.policy || null,
+      globalAssign:
+        options.globalAssign ||
+        options.policy?.globalAssign ||
+        container?.resource?.matching?.assignmentPolicy?.globalAssign ||
+        null,
     }
   );
   const packed = packScheduleCapacity({
@@ -463,6 +475,22 @@ function applyScheduleCapacityToContainer(container, result) {
         : [],
     },
   };
+  // Enrich capacityPlan (from Matching) with schedule hard-conflict counts — Step 5
+  const conflicts = Array.isArray(result.capacityConflicts) ? result.capacityConflicts : [];
+  const hardConflictCount = conflicts.filter((c) =>
+    ['zero_capacity_day', 'unresolved_effort', 'past_deadline'].includes(String(c?.type || ''))
+  ).length;
+  const prevPlan =
+    next.resource.capacityPlan && typeof next.resource.capacityPlan === 'object'
+      ? next.resource.capacityPlan
+      : {};
+  next.resource.capacityPlan = {
+    ...prevPlan,
+    scheduleConflictCount: conflicts.length,
+    hardCapacityConflictCount: hardConflictCount,
+    hardGate:
+      Boolean(prevPlan.hardGate) || hardConflictCount > 0 || Boolean(prevPlan.totalGapHours > 0),
+  };
   if (result.theoreticalCpm && !next.planning.theoreticalCpm) {
     next.planning.theoreticalCpm = result.theoreticalCpm;
   }
@@ -471,6 +499,18 @@ function applyScheduleCapacityToContainer(container, result) {
       ...(next.resource.assignmentsMeta || {}),
       ...result.meta,
     };
+  }
+  // Step 6 — bucket sprints / releases into planning.schedulePlan
+  const schedulePlan = buildSchedulePlan({
+    completion: result.completion,
+    taskDates,
+    tasks: next.planning.tasks,
+    milestones: result.milestones,
+    capacityConflicts: result.capacityConflicts,
+  });
+  next.planning.schedulePlan = schedulePlan;
+  if (Array.isArray(schedulePlan.milestones)) {
+    next.planning.milestones = schedulePlan.milestones;
   }
   return next;
 }

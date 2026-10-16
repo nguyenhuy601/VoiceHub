@@ -32,7 +32,6 @@
     "./utils/*": "./utils/*.js",
     "./messaging/orgEvents": "./messaging/orgEvents.js",
     "./messaging/orgEventIdempotency": "./messaging/orgEventIdempotency.js",
-    "./messaging/messageSearchEvents": "./messaging/messageSearchEvents.js",
     "./messaging/orgAclEvents": "./messaging/orgAclEvents.js",
     "./messaging/taskDomainEvents": "./messaging/taskDomainEvents.js",
     "./messaging/rbacProjectionEvents": "./messaging/rbacProjectionEvents.js",

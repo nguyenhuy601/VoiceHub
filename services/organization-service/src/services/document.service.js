@@ -1,0 +1,215 @@
+const Document = require('../models/Document');
+const { fetchUserProfileByIdInternal } = require('../clients/documentUser.client');
+const { logger } = require('@enterprise/shared');
+const {
+  resolveUploaderProfileMap,
+  attachUploadedByToDocuments,
+} = require('../utils/attachUploaderProfiles');
+
+class DocumentService {
+  async createDocument(documentData) {
+    try {
+      const {
+        name,
+        description,
+        uploadedBy,
+        organizationId,
+        serverId,
+        projectId,
+        departmentId,
+        fileUrl,
+        fileSize,
+        mimeType,
+        tags,
+        isPublic,
+      } = documentData;
+
+      try {
+        await fetchUserProfileByIdInternal(uploadedBy);
+      } catch (error) {
+        throw new Error('Uploader user not found');
+      }
+
+      const document = new Document({
+        name,
+        description,
+        uploadedBy,
+        organizationId,
+        serverId,
+        projectId: projectId || undefined,
+        departmentId: departmentId || undefined,
+        fileUrl,
+        fileSize,
+        mimeType,
+        tags: tags || [],
+        isPublic: isPublic || false,
+        version: 1,
+      });
+
+      await document.save();
+
+      logger.info(`Document created: ${document._id}`);
+      try {
+        const { maybeNotifyDocumentShared } = require('../clients/documentNotification.client');
+        await maybeNotifyDocumentShared({
+          document,
+          actorUserId: uploadedBy,
+          reason: 'uploaded',
+        });
+      } catch (notifyErr) {
+        logger.warn('Document create notify skipped: %s', notifyErr?.message || notifyErr);
+      }
+      return document;
+    } catch (error) {
+      logger.error('Error creating document:', error);
+      throw new Error(`Error creating document: ${error.message}`);
+    }
+  }
+
+  async getDocumentById(documentId) {
+    try {
+      const document = await Document.findById(documentId).lean();
+      if (!document) return null;
+
+      const profileMap = await resolveUploaderProfileMap([document.uploadedBy]);
+      const [withProfile] = attachUploadedByToDocuments(document, profileMap);
+      return withProfile;
+    } catch (error) {
+      logger.error('Error getting document:', error);
+      throw new Error(`Error getting document: ${error.message}`);
+    }
+  }
+
+  async getDocuments(filter, options = {}) {
+    try {
+      const { page = 1, limit = 50, sort = { createdAt: -1 } } = options;
+
+      const documents = await Document.find(filter)
+        .sort(sort)
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
+        .lean();
+
+      const total = await Document.countDocuments(filter);
+
+      const profileMap = await resolveUploaderProfileMap(documents.map((d) => d.uploadedBy));
+      const documentsWithProfiles = attachUploadedByToDocuments(documents, profileMap);
+
+      return {
+        documents: documentsWithProfiles,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        total,
+      };
+    } catch (error) {
+      logger.error('Error getting documents:', error);
+      throw new Error(`Error getting documents: ${error.message}`);
+    }
+  }
+
+  async updateDocument(documentId, updateData, userId) {
+    try {
+      const document = await Document.findById(documentId);
+
+      if (!document) {
+        throw new Error('Document not found');
+      }
+
+      if (document.uploadedBy.toString() !== userId.toString()) {
+        throw new Error('Only uploader can update document');
+      }
+
+      const allowedFields = ['name', 'description', 'tags', 'isPublic'];
+      const updateFields = {};
+
+      for (const field of allowedFields) {
+        if (updateData[field] !== undefined) {
+          updateFields[field] = updateData[field];
+        }
+      }
+
+      const wasPublic = document.isPublic === true;
+      const updated = await Document.findByIdAndUpdate(
+        documentId,
+        { $set: updateFields },
+        { new: true, runValidators: true }
+      );
+
+      logger.info(`Document updated: ${documentId}`);
+      if (updateFields.isPublic === true && !wasPublic) {
+        try {
+          const { maybeNotifyDocumentShared } = require('../clients/documentNotification.client');
+          await maybeNotifyDocumentShared({
+            document: updated,
+            actorUserId: userId,
+            reason: 'shared',
+          });
+        } catch (notifyErr) {
+          logger.warn('Document share notify skipped: %s', notifyErr?.message || notifyErr);
+        }
+      }
+      return updated;
+    } catch (error) {
+      logger.error('Error updating document:', error);
+      throw new Error(`Error updating document: ${error.message}`);
+    }
+  }
+
+  async uploadNewVersion(documentId, fileUrl, fileSize, mimeType, userId) {
+    try {
+      const document = await Document.findById(documentId);
+
+      if (!document) {
+        throw new Error('Document not found');
+      }
+
+      if (document.uploadedBy.toString() !== userId.toString()) {
+        throw new Error('Only uploader can upload new version');
+      }
+
+      document.previousVersions.push({
+        fileUrl: document.fileUrl,
+        version: document.version,
+        uploadedAt: document.updatedAt,
+      });
+
+      document.fileUrl = fileUrl;
+      document.fileSize = fileSize;
+      document.mimeType = mimeType;
+      document.version += 1;
+
+      await document.save();
+
+      logger.info(`New version uploaded for document: ${documentId}, version: ${document.version}`);
+      return document;
+    } catch (error) {
+      logger.error('Error uploading new version:', error);
+      throw new Error(`Error uploading new version: ${error.message}`);
+    }
+  }
+
+  async deleteDocument(documentId, userId) {
+    try {
+      const document = await Document.findById(documentId);
+
+      if (!document) {
+        throw new Error('Document not found');
+      }
+
+      if (document.uploadedBy.toString() !== userId.toString()) {
+        throw new Error('Only uploader can delete document');
+      }
+
+      document.isActive = false;
+      await document.save();
+
+      logger.info(`Document deleted: ${documentId}`);
+      return document;
+    } catch (error) {
+      logger.error('Error deleting document:', error);
+      throw new Error(`Error deleting document: ${error.message}`);
+    }
+  }
+}
+
+module.exports = new DocumentService();

@@ -2,10 +2,12 @@ const AUTH_SERVICE_URL = String(process.env.AUTH_SERVICE_URL || '').trim().repla
 if (!AUTH_SERVICE_URL) throw new Error('Thiếu biến môi trường: AUTH_SERVICE_URL');
 const USER_SERVICE_URL = String(process.env.USER_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!USER_SERVICE_URL) throw new Error('Thiếu biến môi trường: USER_SERVICE_URL');
-const FRIEND_SERVICE_URL = String(process.env.FRIEND_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!FRIEND_SERVICE_URL) throw new Error('Thiếu biến môi trường: FRIEND_SERVICE_URL');
 const ORGANIZATION_SERVICE_URL = String(process.env.ORGANIZATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ORGANIZATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ORGANIZATION_SERVICE_URL');
+/** Friend graph retired — `/api/friends` served by organization-service (derived roster). Optional FRIEND_SERVICE_URL override for rollback. */
+const FRIEND_SERVICE_URL = String(process.env.FRIEND_SERVICE_URL || ORGANIZATION_SERVICE_URL || '')
+  .trim()
+  .replace(/\/+$/, '') || ORGANIZATION_SERVICE_URL;
 const ROLE_PERMISSION_SERVICE_URL = String(process.env.ROLE_PERMISSION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!ROLE_PERMISSION_SERVICE_URL) throw new Error('Thiếu biến môi trường: ROLE_PERMISSION_SERVICE_URL');
 const CHAT_SERVICE_URL = String(process.env.CHAT_SERVICE_URL || '').trim().replace(/\/+$/, '');
@@ -27,8 +29,10 @@ const AI_PROJECT_PLANNING_SERVICE_URL = String(
   .replace(/\/+$/, '');
 /** Optional — ADR-003 report-service (C2/C4); chỉ mount khi URL + REPORT_AGGREGATOR_MODE. */
 const REPORT_SERVICE_URL = isReportServiceEnabled() ? resolveReportServiceUrl() : '';
-const DOCUMENT_SERVICE_URL = String(process.env.DOCUMENT_SERVICE_URL || '').trim().replace(/\/+$/, '');
-if (!DOCUMENT_SERVICE_URL) throw new Error('Thiếu biến môi trường: DOCUMENT_SERVICE_URL');
+/** Documents served by organization-service. Optional DOCUMENT_SERVICE_URL override for rollback. */
+const DOCUMENT_SERVICE_URL = String(process.env.DOCUMENT_SERVICE_URL || ORGANIZATION_SERVICE_URL || '')
+  .trim()
+  .replace(/\/+$/, '') || ORGANIZATION_SERVICE_URL;
 const NOTIFICATION_SERVICE_URL = String(process.env.NOTIFICATION_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!NOTIFICATION_SERVICE_URL) throw new Error('Thiếu biến môi trường: NOTIFICATION_SERVICE_URL');
 const SOCKET_SERVICE_URL = String(process.env.SOCKET_SERVICE_URL || '').trim().replace(/\/+$/, '');

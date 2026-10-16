@@ -120,6 +120,11 @@ function emptyPlanningShell() {
     criticalWorkIds: [],
     completion: null,
     executionPlan: null,
+    qualityPlan: null,
+    deployPlan: null,
+    milestones: [],
+    schedulePlan: null,
+    planSummary: null,
   };
 }
 
@@ -347,6 +352,11 @@ function ensureAiAnalysisContainer(raw) {
         : [],
       completion: planningSrc.completion ?? null,
       executionPlan: planningSrc.executionPlan ?? null,
+      qualityPlan: planningSrc.qualityPlan ?? null,
+      deployPlan: planningSrc.deployPlan ?? null,
+      milestones: Array.isArray(planningSrc.milestones) ? planningSrc.milestones : [],
+      schedulePlan: planningSrc.schedulePlan ?? null,
+      planSummary: planningSrc.planSummary ?? null,
     },
     resource: {
       fte: Array.isArray(resourceSrc.fte) ? resourceSrc.fte : [],

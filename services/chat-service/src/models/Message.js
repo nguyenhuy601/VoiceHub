@@ -163,6 +163,11 @@ messageSchema.index({ conversationId: 1, createdAt: -1 });
 messageSchema.index({ organizationId: 1, createdAt: -1 });
 messageSchema.index({ roomId: 1, 'visibility.projectId': 1, createdAt: -1 });
 messageSchema.index({ organizationId: 1, createdAt: -1, _id: -1 });
+/** Org message search filter: org + room + soft flags + createdAt cursor */
+messageSchema.index(
+  { organizationId: 1, roomId: 1, isDeleted: 1, isRecalled: 1, createdAt: -1, _id: -1 },
+  { name: 'org_room_search_createdAt' }
+);
 messageSchema.index(
   { activityEventId: 1 },
   {

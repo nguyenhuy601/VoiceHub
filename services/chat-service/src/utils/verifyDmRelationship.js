@@ -14,7 +14,8 @@ function relationshipCacheKey(senderId, peerId) {
 }
 
 function isLazyEnsureEnabled() {
-  return String(process.env.DM_LAZY_ENSURE_FRIENDSHIP || 'true').toLowerCase() !== 'false';
+  /** Default false after friend graph → derived org roster (ensure-accepted is no-op). */
+  return String(process.env.DM_LAZY_ENSURE_FRIENDSHIP || 'false').toLowerCase() === 'true';
 }
 
 async function readRelationshipCache(senderId, peerId) {

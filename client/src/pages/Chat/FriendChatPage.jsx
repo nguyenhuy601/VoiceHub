@@ -38,7 +38,6 @@ import ChannelMessageToolbar from '../../components/Organization/ChannelMessageT
 import ChannelMessageMoreMenu from '../../components/Organization/ChannelMessageMoreMenu';
 import ForwardToFriendModal from '../../components/Organization/ForwardToFriendModal';
 import FriendChatRightPanel from '../../components/Chat/FriendChatRightPanel';
-import FriendPendingRequestsRail from '../../components/Friends/FriendPendingRequestsRail';
 import UserAvatar from '../../components/Shared/UserAvatar';
 import HoverTooltip from '../../components/Shared/HoverTooltip';
 import userService from '../../services/userService';
@@ -57,7 +56,6 @@ import { fetchFriendsList } from '../../hooks/queries/fetchers';
 import FriendChatSidebarTabs from '../../components/Chat/FriendChatSidebarTabs';
 import NewColleagueDmModal from '../../components/Chat/NewColleagueDmModal';
 import ColleagueDirectoryRail from '../../components/Chat/ColleagueDirectoryRail';
-import AddFriendModal from '../../components/Friends/AddFriendModal';
 import FriendChatFilterChips, { RAIL_FILTER } from '../../components/Chat/FriendChatFilterChips';
 import FriendChatInvitesPanel from '../../components/Chat/FriendChatInvitesPanel';
 import { queryKeys } from '../../lib/queryKeys';
@@ -232,7 +230,8 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     company?.id || company?._id || activeWorkspace?._id || activeWorkspace?.id || lastOrganizationId || ''
   ).trim();
   const showColleagueDirectory = Boolean(suiteLayout && directoryOrgId);
-  const showFriendInvites = Boolean(suiteLayout && !isSingleCompany);
+  /** Friend graph invites retired — derived roster ACL. */
+  const showFriendInvites = false;
   const [searchParams] = useSearchParams();
   const [friends, setFriends] = useState([]);
   const [selectedFriendId, setSelectedFriendId] = useState(null);
@@ -333,7 +332,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
     return 'messages';
   });
   const [railFilterTab, setRailFilterTab] = useState(RAIL_FILTER.ALL);
-  const [showAddFriendModal, setShowAddFriendModal] = useState(false);
   const [showNewDmModal, setShowNewDmModal] = useState(false);
   const [inviteActingKey, setInviteActingKey] = useState('');
   const queryClient = useQueryClient();
@@ -1976,41 +1974,11 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
   };
 
   const confirmBlockCurrentFriend = async () => {
-    if (!selectedFriendId || landingDemo) return;
-    setBlockingFriend(true);
-    try {
-      await friendService.blockFriend(selectedFriendId);
-      toast.success(t('friendChat.blockOk'));
-      setFriends((prev) =>
-        prev.map((row) => {
-          const uid = row.friendId?._id || row.friendId?.userId || row.friendId;
-          if (String(uid || '') !== String(selectedFriendId)) return row;
-          return { ...row, relationshipStatus: 'blocked' };
-        })
-      );
-      refreshFriendsCache();
-      refreshUnread();
-    } catch (err) {
-      toast.error(resolveApiErrorMessage(err, { t, fallback: t('friendChat.blockFail') }));
-    } finally {
-      setBlockingFriend(false);
-    }
+    toast.error(t('friendChat.blockFail'));
   };
 
   const confirmUnblockCurrentFriend = async () => {
-    if (!selectedFriendId || landingDemo) return;
-    setUnblockingFriend(true);
-    try {
-      await friendService.unblockFriend(selectedFriendId);
-      toast.success(t('friendChat.unblockOk'));
-      setBlockedByPeer(false);
-      refreshFriendsCache();
-      refreshUnread();
-    } catch (err) {
-      toast.error(resolveApiErrorMessage(err, { t, fallback: t('friendChat.unblockFail') }));
-    } finally {
-      setUnblockingFriend(false);
-    }
+    toast.error(t('friendChat.unblockFail'));
   };
 
   const replyLabelForDm = (msg) => {
@@ -2050,13 +2018,8 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
                   showInvites={showFriendInvites}
                   onNewMessage={() => {
                     if (showColleagueDirectory) setShowNewDmModal(true);
-                    else setShowAddFriendModal(true);
                   }}
-                  newMessageTitle={
-                    showColleagueDirectory
-                      ? t('friendChat.newDmTitle')
-                      : t('friendChat.addFriendTitle')
-                  }
+                  newMessageTitle={t('friendChat.newDmTitle')}
                 />
                 {sidebarMainTab === 'messages' ? (
                   <div className={FIGMA_CHAT_SIDEBAR_SEARCH_WRAP}>
@@ -2224,16 +2187,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
               </div>
             )}
           </div>
-          )}
-          {!landingDemo && !suiteLayout && (
-            <FriendPendingRequestsRail
-              isDarkMode={isDarkMode}
-              defaultExpanded={showPendingRequestsRail}
-              onAccepted={(item) => {
-                if (item?.id) setSelectedFriendId(item.id);
-                refreshFriendsCache();
-              }}
-            />
           )}
           </div>
         </aside>
@@ -3097,11 +3050,8 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
         attachments={friendAttachments}
         currentUserId={currentUserId}
         onClose={closeDmInfoPanel}
-        onBlock={() => {
-          if (isCurrentFriendBlocked) setUnblockConfirmOpen(true);
-          else setBlockConfirmOpen(true);
-        }}
-        isBlocked={isCurrentFriendBlocked}
+        onBlock={undefined}
+        isBlocked={false}
         onOpenProfile={() => setProfileModalOpen(true)}
         onOpenMediaAt={openMediaViewerAtGrid}
         onViewAllMedia={() => setMediaViewer({ open: true, index: 0 })}
@@ -3325,14 +3275,6 @@ function FriendChatPage({ landingDemo = false, suiteLayout = false } = {}) {
           onClose={() => setInlineToast(null)}
         />
       )}
-      <AddFriendModal
-        isOpen={showAddFriendModal && !showColleagueDirectory}
-        onClose={() => setShowAddFriendModal(false)}
-        onFriendlistChanged={() => {
-          refreshFriendsCache();
-          invalidateInviteQueries();
-        }}
-      />
       <NewColleagueDmModal
         isOpen={showNewDmModal && showColleagueDirectory}
         onClose={() => setShowNewDmModal(false)}

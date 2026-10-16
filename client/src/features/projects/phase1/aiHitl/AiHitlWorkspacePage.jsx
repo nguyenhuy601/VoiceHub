@@ -1030,7 +1030,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const onGate2PoApprove = async (meta = {}) => {
     if (!organizationId || !packId || busy) return;
     const activateOnly = Boolean(meta.activateOnly);
-    const forceApprove = Boolean(meta.forceApprove);
+    // Hole #3: soft UI warnings must NOT auto forceApprove — only explicit / activateOnly / G13 retry+note
+    const forceApprove = Boolean(meta.forceApprove) || Boolean(activateOnly);
     const warnParts = [];
     if (Number(meta.missingCount) > 0) {
       const labels = Array.isArray(meta.missingSectionLabels)
@@ -1050,10 +1051,16 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
           `${meta.conflictSectionCount} section có cảnh báo.`
       );
     }
+    if (meta.hasSoftWarnings && !forceApprove) {
+      warnParts.push(
+        t('requirements.gate2WarnSoftNoForce') ||
+          'Cảnh báo UI (thiếu tab/conflict) — vẫn có thể duyệt; G13 chỉ bị ghi đè khi bạn chọn force hoặc ghi chú sau lỗi feasibility.'
+      );
+    }
     if (forceApprove || activateOnly) {
       warnParts.push(
         t('requirements.gate2WarnForcePromote') ||
-          'Kích hoạt delivery có thể ghi đè cổng G13 feasibility (resource/schedule) nếu chưa đạt.'
+          'Kích hoạt delivery có thể ghi đè cổng G13 (resource/schedule/quality/deploy plan) nếu chưa đạt — cần ghi chú.'
       );
     }
     if (meta.canPromote === false && !canReviewGate2Po) {
@@ -1090,17 +1097,49 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     try {
       const howSt = String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || '');
       let promotePayload = null;
+      let confirmData = null;
+      const noteTrimmed = String(note || '').trim();
       const overrideReason =
-        String(note || '').trim() ||
+        noteTrimmed ||
         (forceApprove || activateOnly
           ? 'PO kích hoạt delivery sau Gate 2 (G13 override nếu cần).'
           : '');
       if (!activateOnly && howSt !== 'confirmed') {
-        const confirmRes = await requirementAPI.confirmPhaseGate2(organizationId, packId, {
+        const confirmBody = {
           action: 'po_approve',
-          ...(String(note || '').trim() ? { note: String(note).trim().slice(0, 1000) } : {}),
-        });
-        const confirmData = unwrap(confirmRes) || {};
+          ...(noteTrimmed ? { note: noteTrimmed.slice(0, 1000) } : {}),
+          ...(forceApprove || activateOnly
+            ? { forceApprove: true, overrideReason: overrideReason.slice(0, 2000) }
+            : {}),
+        };
+        try {
+          const confirmRes = await requirementAPI.confirmPhaseGate2(
+            organizationId,
+            packId,
+            confirmBody
+          );
+          confirmData = unwrap(confirmRes) || {};
+        } catch (confirmErr) {
+          // Hole #2/#3: confirm blocked by G13 — retry once with force when user left a note
+          const code = String(
+            confirmErr?.response?.data?.errorCode || confirmErr?.errorCode || ''
+          );
+          const g13Block = [
+            'G13_FEASIBILITY_FAILED',
+            'G13_FEASIBILITY_MISSING',
+            'G13_OVERRIDE_REASON_REQUIRED',
+          ].includes(code);
+          if (g13Block && noteTrimmed && !confirmBody.forceApprove) {
+            const retryRes = await requirementAPI.confirmPhaseGate2(organizationId, packId, {
+              ...confirmBody,
+              forceApprove: true,
+              overrideReason: noteTrimmed.slice(0, 2000),
+            });
+            confirmData = unwrap(retryRes) || {};
+          } else {
+            throw confirmErr;
+          }
+        }
         if (confirmData.promoted && confirmData.promote) {
           promotePayload = confirmData;
         } else if (confirmData.promoteError) {
@@ -1108,11 +1147,23 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         }
       }
       if (!promotePayload?.promoted) {
+        const g13Codes = new Set([
+          'G13_FEASIBILITY_FAILED',
+          'G13_FEASIBILITY_MISSING',
+          'FEAS_QUALITY_PLAN',
+          'FEAS_DEPLOY_PLAN',
+        ]);
+        const promoteErrCode = String(confirmData?.promoteError?.errorCode || '');
+        // Hole #3: G13 retry with force only when user left a note (explicit override intent)
+        const g13RetryWithNote = g13Codes.has(promoteErrCode) && Boolean(noteTrimmed);
         const res = await requirementAPI.createProjectFromPack(organizationId, packId, {
           importWorkItems: true,
           applyAssignees: true,
-          ...(forceApprove || activateOnly
-            ? { forceApprove: true, overrideReason: overrideReason.slice(0, 2000) }
+          ...(forceApprove || activateOnly || g13RetryWithNote
+            ? {
+                forceApprove: true,
+                overrideReason: (noteTrimmed || overrideReason).slice(0, 2000),
+              }
             : {}),
         });
         promotePayload = unwrap(res);

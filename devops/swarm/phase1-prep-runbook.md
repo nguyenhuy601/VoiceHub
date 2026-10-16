@@ -67,7 +67,7 @@ PHASE1_MONGODB_URI='mongodb+srv://***@cluster/...' bash devops/scripts/phase1-mo
 Per logical DB (khuyến nghị trước migrate):
 
 ```bash
-for db in auth_db user_db chat_db friend_db organization_db task_db notification_db document_db voice_db role_permission_db ai_task_db; do
+for db in auth_db user_db chat_db organization_db task_db notification_db voice_db role_permission_db ai_task_db; do
   bash devops/scripts/phase1-mongodump.sh --db "$db" --out "backup/phase1-$(date +%Y-%m-%d)/$db"
 done
 ```
@@ -130,7 +130,7 @@ node tests/phase1-prep-inventory.smoke.js
 ## Tiêu chí hoàn thành P1-0
 
 - [ ] `mongodump` + restore drill pass
-- [ ] Inventory đủ 3 biến Mongo (`MONGODB_URI`, `CHAT_MONGODB_URI`, `AI_TASK_MONGODB_URI`) + 6+ queue
+- [ ] Inventory đủ biến Mongo (`MONGODB_URI`, `CHAT_MONGODB_URI`) + 6+ queue
 - [ ] Snapshot volume hoặc export policy documented
 - [ ] Maintenance window approved
 - [ ] `phase1-prep-inventory.smoke.js` pass

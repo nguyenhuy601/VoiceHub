@@ -1,8 +1,12 @@
 /**
  * RULE-18 — kinds tối thiểu để cắt Planning Baseline.
+ * Step 8: optional pack-embed Quality/Deploy plan DoD (no new workbook kinds required).
  */
 
 const { PLANNING_ARTIFACT_KINDS } = require('./planningArtifact');
+const {
+  evaluateQualityDeployGate,
+} = require('../utils/aiAnalysis/qualityDeployPlanGate');
 
 /** Bắt buộc có ≥1 artifact approved cho mỗi kind. */
 const PLANNING_BASELINE_REQUIRED_KINDS = Object.freeze([
@@ -78,8 +82,39 @@ function evaluatePlanningBaselineReadiness(artifacts = [], opts = {}) {
   };
 }
 
+/**
+ * Step 8 — when HOW pack is present, require qualityPlan + deployPlan structural OK
+ * (embed in aiAnalysis — not workbook kinds). Override via forceApprove + notes at cut.
+ *
+ * @param {object|null|undefined} packAiAnalysis
+ * @returns {{
+ *   ok: boolean,
+ *   enforce: boolean,
+ *   qualityPlanOk: boolean,
+ *   deployPlanOk: boolean,
+ *   failures: Array,
+ *   counts: object,
+ * }}
+ */
+function evaluatePackQualityDeployForBaseline(packAiAnalysis) {
+  const gate = evaluateQualityDeployGate(
+    packAiAnalysis && typeof packAiAnalysis === 'object'
+      ? { aiAnalysis: packAiAnalysis }
+      : {}
+  );
+  return {
+    ok: gate.failures.length === 0,
+    enforce: gate.enforce,
+    qualityPlanOk: gate.qualityPlanOk,
+    deployPlanOk: gate.deployPlanOk,
+    failures: gate.failures,
+    counts: gate.counts,
+  };
+}
+
 module.exports = {
   PLANNING_BASELINE_REQUIRED_KINDS,
   PLANNING_BASELINE_RECOMMENDED_KINDS,
   evaluatePlanningBaselineReadiness,
+  evaluatePackQualityDeployForBaseline,
 };

@@ -61,6 +61,16 @@ function applyCommonFilter(canonical = {}, merged = {}, opts = {}) {
       startDate: canonical.staffing?.startDate || null,
     },
     technology,
+    technical:
+      canonical.technical && typeof canonical.technical === 'object'
+        ? canonical.technical
+        : {
+            environments: [],
+            cicd: {},
+            deployment: {},
+            infrastructure: {},
+            stack: { languages: [], frameworks: [], databases: [] },
+          },
     skillCatalog: canonical.skillCatalog,
     calendar: canonical.calendar,
     idMaps: canonical.idMaps,

@@ -4,6 +4,7 @@ import {
   HOW_MACRO_STEPS,
   WHAT_MACRO_STEPS,
   resolveAiHitlMonitorPhase,
+  resolveMonitorResultsKind,
   stepVisualState,
 } from './aiHitlMonitorPhase';
 import {
@@ -157,16 +158,22 @@ function RunTimingFooter({ elapsedMs, startedAt, completedAt, inFlight, t }) {
 function SubstepChecklist({
   substeps,
   activeSubstep,
+  activeSubsteps = null,
   phaseDone,
   t,
   labelKeyPrefix = 'requirements.phase1Substep_',
 }) {
   if (!substeps?.length) return null;
   const activeIndex = activeSubstep ? substeps.indexOf(activeSubstep) : -1;
+  const activeIndices = Array.isArray(activeSubsteps)
+    ? activeSubsteps
+        .map((id) => substeps.indexOf(id))
+        .filter((i) => i >= 0)
+    : null;
   return (
     <ul className="mt-2 space-y-0.5 text-xs" aria-live="polite">
       {substeps.map((id, index) => {
-        const state = stepVisualState(index, activeIndex, phaseDone);
+        const state = stepVisualState(index, activeIndex, phaseDone, activeIndices);
         const className =
           state === 'current'
             ? 'font-medium text-foreground'
@@ -491,6 +498,7 @@ function HowMonitorBody({
           <SubstepChecklist
             substeps={vm.activeMacroSubsteps}
             activeSubstep={vm.activeStepId}
+            activeSubsteps={vm.activeStepIds}
             phaseDone={false}
             t={t}
             labelKeyPrefix="requirements.aiHitlHowStep_"
@@ -763,10 +771,14 @@ export default function AiHitlMonitorPanel({
         </p>
       </div>
       {body}
-      {!monitorInFlight && shouldShowWhatMonitorResults(pack) ? (
+      {!monitorInFlight &&
+      resolveMonitorResultsKind(phase, showHowReady) === 'what' &&
+      shouldShowWhatMonitorResults(pack) ? (
         <WhatMonitorResultsPanel pack={pack} t={t} />
       ) : null}
-      {!monitorInFlight && shouldShowHowMonitorResults(pack) ? (
+      {!monitorInFlight &&
+      resolveMonitorResultsKind(phase, showHowReady) === 'how' &&
+      shouldShowHowMonitorResults(pack) ? (
         <HowMonitorResultsPanel pack={pack} t={t} />
       ) : null}
     </div>

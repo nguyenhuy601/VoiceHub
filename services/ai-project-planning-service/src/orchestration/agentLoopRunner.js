@@ -315,14 +315,33 @@ async function runHowPhase({
       budget,
       startedAt,
       baseIteration: history.length,
-      onToolStart: async ({ toolName }) => {
+      onToolStart: async ({ toolName, layerToolNames }) => {
         await onProgress?.({
           node: 'call_tool',
           phase: PHASE_HOW,
           tool: toolName,
+          tools: Array.isArray(layerToolNames) ? layerToolNames : [toolName],
         });
+        // One persist per parallel layer (first tool in canonical order)
+        if (
+          Array.isArray(layerToolNames) &&
+          layerToolNames.length > 1 &&
+          layerToolNames[0] === toolName
+        ) {
+          await persist('execute', {
+            currentToolName: toolName,
+            currentToolNames: layerToolNames,
+          });
+        }
       },
-      onToolDone: async ({ nextIndex, toolName, container: c, toolResults: tr, history: h }) => {
+      onToolDone: async ({
+        nextIndex,
+        toolName,
+        toolNames,
+        container: c,
+        toolResults: tr,
+        history: h,
+      }) => {
         next = c;
         toolResults.length = 0;
         toolResults.push(...tr);
@@ -333,6 +352,7 @@ async function runHowPhase({
         await persist('execute', {
           currentToolIndex: nextIndex,
           currentToolName: toolName,
+          currentToolNames: Array.isArray(toolNames) ? toolNames : [toolName],
         });
       },
     });

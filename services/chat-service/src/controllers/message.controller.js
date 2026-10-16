@@ -1568,6 +1568,38 @@ class MessageController {
     }
   }
 
+  async votePoll(req, res) {
+    try {
+      const { messageId } = req.params;
+      const optionIds = req.body?.optionIds ?? req.body?.options ?? [];
+      const userId = req.user?.id || req.user?._id;
+
+      const existing = await messageService.getMessageById(messageId);
+      if (!existing || existing.isDeleted || existing.isRecalled) {
+        return chatMessageNotFound(res);
+      }
+      await assertCanAccessMessage(existing, userId, req);
+
+      const message = await messageService.votePoll(messageId, userId, optionIds);
+      if (!message) {
+        return chatMessageNotFound(res);
+      }
+
+      const data = (await attachSignedReadUrlToMessage(message)) || message;
+      if (data?.roomId) {
+        await emitRealtimeEvent({
+          event: 'room:message_updated',
+          roomId: String(data.roomId),
+          payload: data,
+        });
+      }
+
+      res.json({ success: true, data });
+    } catch (error) {
+      return chatCatchError(res, error);
+    }
+  }
+
   // Xóa tin nhắn
   async deleteMessage(req, res) {
     try {

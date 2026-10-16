@@ -7,6 +7,9 @@ const {
   migrateJobsProjectionToPhaseRuns,
 } = require('../aiAnalysis/phaseGate2');
 const { ensureAiAnalysisContainer } = require('../aiAnalysis/aiAnalysisContainer');
+const {
+  mergeQualityDeployIntoFeasibility,
+} = require('../aiAnalysis/qualityDeployPlanGate');
 
 function isGate2FeasibilityEnforceEnabled(env = process.env) {
   const raw = String(env.GATE2_FEASIBILITY_ENFORCE ?? '1').trim().toLowerCase();
@@ -15,6 +18,7 @@ function isGate2FeasibilityEnforceEnabled(env = process.env) {
 
 /**
  * Resolve G13 result from pack.aiAnalysis after remote phase_how callback.
+ * Step 8: also enforce Quality/Testing Plan + Deploy Plan structural DoD on pack.
  * @returns {{ pass: boolean, failures: array, source: string } | null}
  */
 function resolveFeasibilityFromPack(pack) {
@@ -22,29 +26,47 @@ function resolveFeasibilityFromPack(pack) {
   const container = migrateJobsProjectionToPhaseRuns(
     ensureAiAnalysisContainer(raw && typeof raw === 'object' ? raw : {})
   );
+  const packView = { aiAnalysis: container };
   const how = container?.phaseRuns?.phase_how || {};
+  let base = null;
   const fromHow = how.feasibility;
   if (fromHow && typeof fromHow === 'object' && typeof fromHow.pass === 'boolean') {
-    return {
+    base = {
       pass: fromHow.pass === true,
       failures: Array.isArray(fromHow.failures) ? fromHow.failures : [],
       source: 'phaseRuns.phase_how.feasibility',
       evidenceRefs: Array.isArray(fromHow.evidenceRefs) ? fromHow.evidenceRefs : [],
     };
+  } else {
+    const fromAnalyses = container?.analyses?.g13Feasibility;
+    if (
+      fromAnalyses &&
+      typeof fromAnalyses === 'object' &&
+      typeof fromAnalyses.pass === 'boolean'
+    ) {
+      base = {
+        pass: fromAnalyses.pass === true,
+        failures: Array.isArray(fromAnalyses.failures) ? fromAnalyses.failures : [],
+        source: 'analyses.g13Feasibility',
+        evidenceRefs: Array.isArray(fromAnalyses.evidenceRefs)
+          ? fromAnalyses.evidenceRefs
+          : [],
+      };
+    }
   }
-  const fromAnalyses = container?.analyses?.g13Feasibility;
-  if (
-    fromAnalyses &&
-    typeof fromAnalyses === 'object' &&
-    typeof fromAnalyses.pass === 'boolean'
-  ) {
+
+  const { feasibility: merged, gate } = mergeQualityDeployIntoFeasibility(base, packView);
+  if (merged) return merged;
+  // No G13 payload yet — still block promote when HOW plans are structurally incomplete
+  if (gate.enforce && gate.failures.length) {
     return {
-      pass: fromAnalyses.pass === true,
-      failures: Array.isArray(fromAnalyses.failures) ? fromAnalyses.failures : [],
-      source: 'analyses.g13Feasibility',
-      evidenceRefs: Array.isArray(fromAnalyses.evidenceRefs)
-        ? fromAnalyses.evidenceRefs
-        : [],
+      pass: false,
+      failures: gate.failures,
+      source: 'pack.planning.quality_deploy',
+      evidenceRefs: [],
+      qualityPlanOk: gate.qualityPlanOk,
+      deployPlanOk: gate.deployPlanOk,
+      qualityDeployEnforced: true,
     };
   }
   return null;

@@ -1,15 +1,13 @@
 /**
  * People Ops — gán/gỡ members trên Department / Team (legacy members[]).
- * Sau khi gán: S2S auto-friend với peers cùng đơn vị (Directory DM) — fail-soft.
+ * Auto-friend graph retired — DM ACL derived from placement (dmRoster).
  */
 const { mongoose } = require('@enterprise/shared/config/mongo');
-const { logger } = require('@enterprise/shared');
 const Department = require('../models/Department');
 const Team = require('../models/Team');
 const { normalizeMemberIds } = require('./placementPolicy');
 const { invalidateOrgReadCache } = require('./orgReadCache.service');
 const { ORG_EVENT_TYPES } = require('../messaging/orgEvents.publisher');
-const { ensureAcceptedWithPeers } = require('../clients/departmentAutoFriend.client');
 
 const bump = (orgId) =>
   invalidateOrgReadCache(orgId, { eventType: ORG_EVENT_TYPES.CHANNEL_PROVISIONED }).catch(() => null);
@@ -20,46 +18,9 @@ function toObjectIds(ids) {
     .map((id) => new mongoose.Types.ObjectId(String(id)));
 }
 
-function toIdStrings(ids = []) {
-  return [
-    ...new Set(
-      (Array.isArray(ids) ? ids : [])
-        .map((id) => String(id || '').trim())
-        .filter(Boolean)
-    ),
-  ];
-}
-
-const MAX_PEERS = () =>
-  Math.max(2, Number(process.env.DEPARTMENT_AUTO_FRIEND_MAX_PEERS || 80) || 80);
-
-/**
- * Chỉ ensure các user mới vào nhóm với peers hiện có. Không block / không throw.
- * Chạy nền để không kéo latency API placement.
- */
-function scheduleAutoFriendForNewMembers(previousIds, nextIds, source) {
-  const prev = new Set(toIdStrings(previousIds));
-  const next = toIdStrings(nextIds);
-  if (next.length < 2) return;
-
-  const added = next.filter((id) => !prev.has(id));
-  const targets = added.length ? added : [];
-  if (!targets.length) return;
-
-  const peerCap = MAX_PEERS();
-  const peersBase = next.length > peerCap + 1 ? next.slice(0, peerCap + 1) : next;
-
-  setImmediate(() => {
-    (async () => {
-      for (const uid of targets) {
-        const peers = peersBase.filter((id) => id !== uid);
-        if (!peers.length) continue;
-        await ensureAcceptedWithPeers(uid, peers, { source });
-      }
-    })().catch((err) => {
-      logger.warn('[placement] departmentAutoFriend schedule failed:', err?.message || err);
-    });
-  });
+/** Graph auto-friend retired — no-op. */
+function scheduleAutoFriendForNewMembers() {
+  return;
 }
 
 /**

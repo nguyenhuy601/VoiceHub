@@ -27,11 +27,9 @@ export async function fetchFriendsList(status = 'accepted') {
   return unwrapFriendsList(resp);
 }
 
+/** Friend graph pending retired. */
 export async function fetchFriendPending() {
-  const resp = await friendService.getPendingRequests({ skipGlobalErrorHandling: true });
-  const raw = resp?.data ?? resp;
-  const arr = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
-  return arr;
+  return [];
 }
 
 export async function fetchNotificationBadge({ scope = 'personal', organizationId = '' } = {}) {

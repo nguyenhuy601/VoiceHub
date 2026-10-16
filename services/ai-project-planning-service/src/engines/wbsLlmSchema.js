@@ -68,6 +68,9 @@ function normalizeLevel(raw) {
   if (WBS_LLM_LEVELS.includes(l)) return l;
   if (l === 'requirement' || l === 'leaf') return 'task';
   if (l === 'module') return 'epic';
+  if (l === 'wp' || l === 'workpackage' || l === 'work-package' || l === 'package') {
+    return 'work_package';
+  }
   return null;
 }
 
@@ -251,9 +254,10 @@ function normalizeWbsLlmOutput(raw, ctx = {}) {
   let hasTask = [...nodesById.values()].some((n) => n.level === 'task');
   if (!hasTask) {
     const parents = [...nodesById.values()].filter((n) =>
-      ['story', 'feature', 'epic'].includes(n.level)
+      ['work_package', 'story', 'feature', 'epic'].includes(n.level)
     );
     const prefer =
+      parents.find((n) => n.level === 'work_package') ||
       parents.find((n) => n.level === 'story') ||
       parents.find((n) => n.level === 'feature') ||
       parents.find((n) => n.level === 'epic') ||

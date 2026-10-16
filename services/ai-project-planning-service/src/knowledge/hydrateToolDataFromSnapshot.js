@@ -106,6 +106,20 @@ function hydrateToolDataFromSnapshot(toolData, snapshot) {
       base.effortEstimationConfigVersionId || snap.effortEstimationConfigVersionId;
   }
 
+  const technical =
+    (base.technical && typeof base.technical === 'object' ? base.technical : null) ||
+    (common.technical && typeof common.technical === 'object' ? common.technical : null) ||
+    (canonical.technical && typeof canonical.technical === 'object'
+      ? canonical.technical
+      : null) ||
+    (projected.technical && typeof projected.technical === 'object'
+      ? projected.technical
+      : null) ||
+    null;
+  if (technical) {
+    out.technical = technical;
+  }
+
   const didEmployeeBackfill = employeeSource !== 'toolData';
   const hadBookedOnBase = Boolean(base.bookedHoursByUserDay || base.meetingHoursByUserDay);
   const didBookedMerge = Boolean(booked) && !hadBookedOnBase;

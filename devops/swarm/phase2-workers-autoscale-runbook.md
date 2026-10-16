@@ -9,8 +9,6 @@
 |--------|-----|-------------|-----------|
 | project-worker | 1 | 2–3 | any |
 | notification-dispatch-worker | 1 | 2–3 | IO-bound |
-| ai-task-extract-worker | 1 | 2 | `node.labels.ai == true` |
-| ai-task-sync-worker | 1 | 2 | `node.labels.ai == true` |
 
 ## Scale out
 

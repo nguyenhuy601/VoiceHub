@@ -36,7 +36,8 @@ export function resolveGate2ReviewLane(pack) {
 
 /**
  * What the Review tab should show for this actor.
- * RULE: PO never gets PM decide panel — even if also canReviewPlanningPm (dual).
+ * Lane PM: ưu tiên showPmPanel khi có planning:pm_review (PM chủ trì Gate 2).
+ * Dual PO+PM: vẫn cho PM submit; SoD BE chặn cùng userId po_approve sau pm_submit.
  * @returns {'showPmPanel'|'showPoPanel'|'waitingPm'|'waitingPo'|'done'|'howPending'}
  */
 export function resolveGate2ReviewView({
@@ -67,7 +68,6 @@ export function resolveGate2ReviewView({
   }
 
   if (effective === GATE2_REVIEW_LANE.PM) {
-    if (canReviewPo) return 'waitingPm';
     if (canReviewPm) return 'showPmPanel';
     return 'waitingPm';
   }

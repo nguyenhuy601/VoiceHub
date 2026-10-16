@@ -24,7 +24,14 @@ function frId(row, index = 0) {
 
 function isLeafTask(task) {
   const level = String(task?.level || '').toLowerCase();
-  if (level === 'epic' || level === 'feature' || level === 'story') return false;
+  if (
+    level === 'epic' ||
+    level === 'feature' ||
+    level === 'story' ||
+    level === 'work_package'
+  ) {
+    return false;
+  }
   return level === 'task' || !level;
 }
 

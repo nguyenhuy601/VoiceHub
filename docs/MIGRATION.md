@@ -14,7 +14,6 @@ Một **`chat-service`** (port 3006, REST) + **`socket-service`** (3017, realtim
 | socket-service | 3017 | Socket.IO `/chat` |
 | organization-service | 3013 | Org, channel, member |
 | task-service | 3009 | Task, board workers |
-| friend-service | 3014 | Friends, DM ACL events |
 | … | … | Xem [`ARCHITECTURE.md`](ARCHITECTURE.md), [`spec-pack/01-SYSTEM-SPEC.md`](spec-pack/01-SYSTEM-SPEC.md) |
 
 ## Môi trường triển khai

@@ -409,12 +409,14 @@ export default function FriendChatRightPanel({
             {friend.name}
           </button>
 
-          <div className="mt-4 flex w-full justify-center">
-            <button type="button" onClick={onBlock} className={actionCircle}>
-              <Ban className="h-5 w-5" aria-hidden />
-              <span>{isBlocked ? t('friendChat.unblockUser') : t('friendChat.blockUser')}</span>
-            </button>
-          </div>
+          {typeof onBlock === 'function' ? (
+            <div className="mt-4 flex w-full justify-center">
+              <button type="button" onClick={onBlock} className={actionCircle}>
+                <Ban className="h-5 w-5" aria-hidden />
+                <span>{isBlocked ? t('friendChat.unblockUser') : t('friendChat.blockUser')}</span>
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className={hairlineT}>

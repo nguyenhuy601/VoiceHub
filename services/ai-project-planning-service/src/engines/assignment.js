@@ -75,6 +75,59 @@ function buildCriticalIdSet(tasks = [], criticalWorkIds = []) {
   return ids;
 }
 
+function candidateScore(candidate) {
+  return Number(candidate?.score ?? candidate?.fitScore) || 0;
+}
+
+function sortCandidatesLegacyLoadFirst(candidates, { preferredFromRec, hoursUsed, usage }) {
+  return [...candidates].sort((a, b) => {
+    const aOwner = preferredFromRec && String(a.userId) === String(preferredFromRec) ? 1 : 0;
+    const bOwner = preferredFromRec && String(b.userId) === String(preferredFromRec) ? 1 : 0;
+    if (bOwner !== aOwner) return bOwner - aOwner;
+    const hoursDiff = (hoursUsed.get(a.userId) || 0) - (hoursUsed.get(b.userId) || 0);
+    if (hoursDiff) return hoursDiff;
+    const loadDiff = (usage.get(a.userId) || 0) - (usage.get(b.userId) || 0);
+    if (loadDiff) return loadDiff;
+    const availDiff =
+      (Number(b.available_capacity) || 0) - (Number(a.available_capacity) || 0);
+    if (availDiff) return availDiff;
+    return candidateScore(b) - candidateScore(a);
+  });
+}
+
+/**
+ * Max rank first; among candidates within fitEpsilon of the best score that still
+ * fit hour-cap, prefer lighter load (ε load-balance).
+ */
+function sortCandidatesMaxRankEpsilon(candidates, { preferredFromRec, hoursUsed, usage, fitEpsilon }) {
+  const eps = Number.isFinite(Number(fitEpsilon)) ? Number(fitEpsilon) : 0.03;
+  const bestScore = candidates.reduce((max, c) => Math.max(max, candidateScore(c)), 0);
+
+  return [...candidates].sort((a, b) => {
+    const aOwner = preferredFromRec && String(a.userId) === String(preferredFromRec) ? 1 : 0;
+    const bOwner = preferredFromRec && String(b.userId) === String(preferredFromRec) ? 1 : 0;
+    if (bOwner !== aOwner) return bOwner - aOwner;
+
+    const aScore = candidateScore(a);
+    const bScore = candidateScore(b);
+    const aNear = Math.abs(bestScore - aScore) <= eps;
+    const bNear = Math.abs(bestScore - bScore) <= eps;
+
+    if (aNear && bNear) {
+      const hoursDiff = (hoursUsed.get(a.userId) || 0) - (hoursUsed.get(b.userId) || 0);
+      if (hoursDiff) return hoursDiff;
+      const loadDiff = (usage.get(a.userId) || 0) - (usage.get(b.userId) || 0);
+      if (loadDiff) return loadDiff;
+    }
+
+    if (bScore !== aScore) return bScore - aScore;
+    const availDiff =
+      (Number(b.available_capacity) || 0) - (Number(a.available_capacity) || 0);
+    if (availDiff) return availDiff;
+    return String(a.userId).localeCompare(String(b.userId));
+  });
+}
+
 function greedyAssignFromShortlists(
   recommendations = [],
   {
@@ -83,8 +136,20 @@ function greedyAssignFromShortlists(
     featureOwners = [],
     maxHoursPerUser = HOURS_PER_FTE * 2,
     criticalWorkIds = [],
+    policy = null,
+    globalAssign = null,
   } = {}
 ) {
+  const ga = globalAssign || policy?.globalAssign || {};
+  const mode = String(ga.mode || 'max_rank_then_epsilon_balance');
+  const fitEpsilon = ga.fitEpsilon != null ? Number(ga.fitEpsilon) : 0.03;
+  const hoursFactor =
+    ga.maxHoursPerUserFactor != null ? Number(ga.maxHoursPerUserFactor) : null;
+  const effectiveMaxHours =
+    Number.isFinite(hoursFactor) && hoursFactor > 0
+      ? HOURS_PER_FTE * hoursFactor
+      : maxHoursPerUser;
+
   const usage = new Map();
   const hoursUsed = new Map();
   const ownerByFeature = new Map(
@@ -111,29 +176,20 @@ function greedyAssignFromShortlists(
     const preferredFromRec = recommendation.preferredOwnerUserId || preferredOwner;
     const taskHours = taskHoursFromContainer(tasks, recommendation.taskId);
 
-    const candidates = [...candidatesOf(recommendation)]
-      .filter((candidate) => candidate?.userId && candidate.feasible !== false)
-      .sort((a, b) => {
-        const aOwner = preferredFromRec && String(a.userId) === String(preferredFromRec) ? 1 : 0;
-        const bOwner = preferredFromRec && String(b.userId) === String(preferredFromRec) ? 1 : 0;
-        if (bOwner !== aOwner) return bOwner - aOwner;
-        // Prefer lighter hour load, then fewer tasks, then higher fit
-        const hoursDiff = (hoursUsed.get(a.userId) || 0) - (hoursUsed.get(b.userId) || 0);
-        if (hoursDiff) return hoursDiff;
-        const loadDiff = (usage.get(a.userId) || 0) - (usage.get(b.userId) || 0);
-        if (loadDiff) return loadDiff;
-        const availDiff =
-          (Number(b.available_capacity) || 0) - (Number(a.available_capacity) || 0);
-        if (availDiff) return availDiff;
-        return (
-          Number(b.score ?? b.fitScore ?? 0) - Number(a.score ?? a.fitScore ?? 0)
-        );
-      });
+    const eligible = [...candidatesOf(recommendation)].filter(
+      (candidate) => candidate?.userId && candidate.feasible !== false
+    );
+
+    const sortOpts = { preferredFromRec, hoursUsed, usage, fitEpsilon };
+    const candidates =
+      mode === 'legacy_load_first'
+        ? sortCandidatesLegacyLoadFirst(eligible, sortOpts)
+        : sortCandidatesMaxRankEpsilon(eligible, sortOpts);
 
     const candidate = candidates.find((item) => {
       if ((usage.get(item.userId) || 0) >= maxTasksPerUser) return false;
       const usedH = hoursUsed.get(item.userId) || 0;
-      if (taskHours > 0 && usedH + taskHours > maxHoursPerUser) return false;
+      if (taskHours > 0 && usedH + taskHours > effectiveMaxHours) return false;
       return true;
     });
     if (!candidate) continue;
@@ -143,7 +199,8 @@ function greedyAssignFromShortlists(
       taskId: recommendation.taskId,
       userId: candidate.userId,
       ...(candidate.displayName ? { displayName: candidate.displayName } : {}),
-      rationale: `greedy score=${Number(candidate.score ?? candidate.fitScore) || 0}`,
+      rationale: `${mode} score=${candidateScore(candidate)}`,
+      score: candidateScore(candidate),
     });
   }
   return assignments;
@@ -187,4 +244,7 @@ module.exports = {
   applyAssignmentToContainer,
   candidatesOf,
   buildCriticalIdSet,
+  sortCandidatesMaxRankEpsilon,
+  sortCandidatesLegacyLoadFirst,
+  candidateScore,
 };

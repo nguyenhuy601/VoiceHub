@@ -332,6 +332,61 @@ export const ADMIN_DOMAINS = [
           { id: 'branch-dept', path: '/app/admin/org-structure/branches/departments', labelKey: 'adminDomains.orgStructure.branchDept', implementation: 'org-branch-dept', nav: 'hidden', requiredGrant: 'organization.branch.update' },
         ],
       },
+      {
+        id: 'backup',
+        labelKey: 'adminDomains.backup.title',
+        items: [
+          {
+            id: 'backup',
+            path: '/app/admin/backup',
+            labelKey: 'adminDomains.backup.backup',
+            end: true,
+            implementation: 'backup-ops',
+            adminOnly: true,
+          },
+        ],
+      },
+      {
+        id: 'system-config',
+        labelKey: 'adminDomains.systemConfig.title',
+        items: [
+          {
+            id: 'config-hub',
+            path: '/app/admin/system-config',
+            labelKey: 'adminDomains.systemConfig.configHub',
+            end: true,
+            implementation: 'system-config-hub',
+            adminOnly: true,
+            requiredGrant: 'organization.policy.view',
+          },
+          {
+            id: 'company',
+            path: '/app/admin/system-config/company',
+            labelKey: 'adminDomains.systemConfig.company',
+            implementation: 'settings-general',
+            settingsTab: 'general',
+            nav: 'hidden',
+            requiredGrant: 'organization.policy.update',
+          },
+          {
+            id: 'retention',
+            path: '/app/admin/system-config/retention',
+            labelKey: 'adminDomains.systemConfig.retention',
+            implementation: 'governance-retention',
+            nav: 'hidden',
+            requiredGrant: 'organization.policy.update',
+          },
+          {
+            id: 'structure',
+            path: '/app/admin/system-config/structure',
+            labelKey: 'adminDomains.systemConfig.structure',
+            implementation: 'settings-structure',
+            settingsTab: 'structure',
+            nav: 'hidden',
+            requiredGrant: 'organization.structure.view',
+          },
+        ],
+      },
     ],
   },
   {
@@ -526,6 +581,7 @@ export const ADMIN_DOMAINS = [
     path: '/app/admin/channels',
     labelKey: 'adminDomains.channels.title',
     icon: 'Hash',
+    nav: 'hidden',
     sections: [
       {
         id: 'main',
@@ -792,6 +848,7 @@ export const ADMIN_DOMAINS = [
     path: '/app/admin/files',
     labelKey: 'adminDomains.files.title',
     icon: 'FolderOpen',
+    nav: 'hidden',
     sections: [
       {
         id: 'main',
@@ -855,6 +912,7 @@ export const ADMIN_DOMAINS = [
     path: '/app/admin/security',
     labelKey: 'adminDomains.security.title',
     icon: 'Lock',
+    nav: 'hidden',
     adminOnly: true,
     sections: [
       {
@@ -966,21 +1024,8 @@ export const ADMIN_DOMAINS = [
     labelKey: 'adminDomains.backup.title',
     icon: 'Database',
     adminOnly: true,
-    sections: [
-      {
-        id: 'main',
-        items: [
-          {
-            id: 'backup',
-            path: '/app/admin/backup',
-            labelKey: 'adminDomains.backup.backup',
-            end: true,
-            implementation: 'backup-ops',
-            adminOnly: true,
-          },
-        ],
-      },
-    ],
+    nav: 'hidden',
+    sections: [],
   },
   {
     id: 'system-config',
@@ -988,47 +1033,8 @@ export const ADMIN_DOMAINS = [
     labelKey: 'adminDomains.systemConfig.title',
     icon: 'Settings',
     adminOnly: true,
-    sections: [
-      {
-        id: 'main',
-        items: [
-          {
-            id: 'config-hub',
-            path: '/app/admin/system-config',
-            labelKey: 'adminDomains.systemConfig.configHub',
-            end: true,
-            implementation: 'system-config-hub',
-            requiredGrant: 'organization.policy.view',
-          },
-          {
-            id: 'company',
-            path: '/app/admin/system-config/company',
-            labelKey: 'adminDomains.systemConfig.company',
-            implementation: 'settings-general',
-            settingsTab: 'general',
-            nav: 'hidden',
-            requiredGrant: 'organization.policy.update',
-          },
-          {
-            id: 'retention',
-            path: '/app/admin/system-config/retention',
-            labelKey: 'adminDomains.systemConfig.retention',
-            implementation: 'governance-retention',
-            nav: 'hidden',
-            requiredGrant: 'organization.policy.update',
-          },
-          {
-            id: 'structure',
-            path: '/app/admin/system-config/structure',
-            labelKey: 'adminDomains.systemConfig.structure',
-            implementation: 'settings-structure',
-            settingsTab: 'structure',
-            nav: 'hidden',
-            requiredGrant: 'organization.structure.view',
-          },
-        ],
-      },
-    ],
+    nav: 'hidden',
+    sections: [],
   },
   {
     id: 'monitoring',
@@ -1275,6 +1281,9 @@ export function resolveAdminLegacyRedirect(pathname, currentSearch = '') {
 export function resolveAdminDomainFromPath(pathname) {
   const path = normalizeAdminPath(pathname);
   if (path === '/app/admin') return null;
+  // Ưu tiên domain sở hữu nav item (vd. backup/system-config nằm trong org-structure).
+  const navMatch = findAdminNavItem(path);
+  if (navMatch?.domain) return navMatch.domain;
   const match = path.match(/^\/app\/admin\/([^/]+)/);
   if (!match) return null;
   const slug = match[1];
@@ -1322,19 +1331,23 @@ export const ORG_LEVEL_KEY_TO_SECTION = {
   team: 'teams',
 };
 
-/** Sections luôn hiện (không gắn level hierarchy). */
-export const ORG_STRUCTURE_ALWAYS_SECTIONS = new Set(['dynamic']);
+/**
+ * Sections luôn hiện sau setup (không gắn org level).
+ * Không gồm `dynamic` — Levels ẩn sau setup một lần qua modal.
+ */
+export const ORG_STRUCTURE_ALWAYS_SECTIONS = new Set(['backup', 'system-config']);
 
 /**
  * Lọc sections Cơ cấu tổ chức theo trạng thái setup + levels đã lưu.
  * - Chưa setup (`setupCompleted !== true`): ẩn hierarchy (modal setup tự mở).
- * - Đã setup: section theo level; ẩn `dynamic` (Levels) — setup một lần qua modal.
+ * - Đã setup: section theo level + ALWAYS (backup / system-config); ẩn `dynamic`.
  */
 export function filterOrgStructureSections(sections, levels, { setupCompleted } = {}) {
   const list = Array.isArray(sections) ? sections : [];
 
   if (setupCompleted !== true) {
-    return [];
+    // Vẫn hiện backup / system-config; hierarchy chờ modal setup.
+    return list.filter((section) => ORG_STRUCTURE_ALWAYS_SECTIONS.has(section.id));
   }
 
   const enabledKeys = (Array.isArray(levels) ? levels : [])
@@ -1347,7 +1360,9 @@ export function filterOrgStructureSections(sections, levels, { setupCompleted } 
     if (sectionId) allowed.add(sectionId);
   }
 
-  return list.filter((section) => allowed.has(section.id));
+  return list.filter(
+    (section) => allowed.has(section.id) || ORG_STRUCTURE_ALWAYS_SECTIONS.has(section.id)
+  );
 }
 
 /**

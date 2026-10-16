@@ -97,9 +97,12 @@ services:
       - ./services/organization-service/.env
     environment:
       - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
+      - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL}
       - FRIEND_SERVICE_URL=${FRIEND_SERVICE_URL}
       - GATEWAY_INTERNAL_TOKEN=${GATEWAY_INTERNAL_TOKEN}
       - PROJECT_SERVICE_URL=http://project-service:3009
+      - USER_SERVICE_URL=${USER_SERVICE_URL}
+      - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
     networks:
       - enterprise-network
     deploy:
@@ -114,32 +117,8 @@ services:
           cpus: "0.10"
           memory: 80M
 
-  friend-service:
-    image: ${FRIEND_SERVICE_IMAGE}
-    env_file:
-      - .env
-      - ./services/friend-service/.env
-    environment:
-      - AUTH_SERVICE_URL=${AUTH_SERVICE_URL}
-      - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
-      - CHAT_INTERNAL_TOKEN=${CHAT_INTERNAL_TOKEN}
-      - USER_SERVICE_INTERNAL_TOKEN=${USER_SERVICE_INTERNAL_TOKEN}
-      - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL}
-      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: ${FRIEND_SERVICE_REPLICAS:-1}
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "0.50"
-          memory: 256M
-        reservations:
-          cpus: "0.10"
-          memory: 80M
-
+  # Graph retired — traffic on ORGANIZATION_SERVICE_URL via FRIEND_SERVICE_URL remap.
+  # Keep service definition + friend_db; default replicas 0 until Step 7 delete.
   role-permission-service:
     image: ${ROLE_PERMISSION_SERVICE_IMAGE}
     env_file:
@@ -273,7 +252,7 @@ services:
       - GATEWAY_INTERNAL_TOKEN=${GATEWAY_INTERNAL_TOKEN}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.8-max}
-      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai_compatible}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
       - LLM_CHAT_MODEL=${LLM_CHAT_MODEL:-}
@@ -291,7 +270,13 @@ services:
       - JEV_CONTROL=${JEV_CONTROL:-0}
       # 0 = try RedisSaver (RedisJSON); 1 = force MemorySaver (incompatible with HITL interrupt=1)
       - AGENT_CORE_LG_MEMORY=${AGENT_CORE_LG_MEMORY:-0}
-      - HOW_WBS_LLM=${HOW_WBS_LLM:-0}
+      # HOW semantic LLM (Arch/Dep/Risk/Quality/WBS) — DashScope via generateJson
+      - HOW_SEMANTIC_LLM=${HOW_SEMANTIC_LLM:-1}
+      - HOW_ARCH_LLM=${HOW_ARCH_LLM:-1}
+      - HOW_DEP_LLM=${HOW_DEP_LLM:-1}
+      - HOW_RISK_LLM=${HOW_RISK_LLM:-1}
+      - HOW_QUALITY_LLM=${HOW_QUALITY_LLM:-1}
+      - HOW_WBS_LLM=${HOW_WBS_LLM:-1}
       - HOW_WBS_LLM_QUEUE=${HOW_WBS_LLM_QUEUE:-0}
       - HOW_WBS_LLM_NUM_CTX=${HOW_WBS_LLM_NUM_CTX:-1536}
       - HOW_WBS_LLM_TIMEOUT_MS=${HOW_WBS_LLM_TIMEOUT_MS:-240000}
@@ -343,7 +328,7 @@ services:
       - AI_PLANNING_LLM=${AI_PLANNING_LLM:-1}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
-      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai_compatible}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
       - LLM_CHAT_MODEL=${LLM_CHAT_MODEL:-}
@@ -374,29 +359,8 @@ services:
           cpus: "0.25"
           memory: 128M
 
-  document-service:
-    image: ${DOCUMENT_SERVICE_IMAGE}
-    env_file:
-      - .env
-      - ./services/document-service/.env
-    environment:
-      - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN}
-      - NOTIFICATION_SERVICE_URL=${NOTIFICATION_SERVICE_URL}
-      - ORGANIZATION_SERVICE_URL=${ORGANIZATION_SERVICE_URL}
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: ${DOCUMENT_SERVICE_REPLICAS:-1}
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "0.50"
-          memory: 256M
-        reservations:
-          cpus: "0.10"
-          memory: 80M
-
+  # Documents retired into organization-service — traffic via DOCUMENT_SERVICE_URL remap.
+  # Keep service definition + document_db; default replicas 0 until folder delete approval.
   voice-service:
     image: ${VOICE_SERVICE_IMAGE}
     ports:
@@ -823,7 +787,7 @@ services:
           cpus: "0.20"
           memory: 96M
 
-  # --- Infra / AI (trước đây Compose extra) — DNS: ollama, minio, qdrant, meilisearch ---
+  # --- Infra / AI (trước đây Compose extra) — DNS: ollama, minio, qdrant ---
   ollama:
     image: ollama/ollama:latest
     environment:
@@ -932,28 +896,6 @@ services:
         delay: 5s
         max_attempts: 15
 
-  meilisearch:
-    image: getmeili/meilisearch:v1.12
-    environment:
-      MEILI_ENV: ${MEILI_ENV:-development}
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
-      MEILI_NO_ANALYTICS: "true"
-    volumes:
-      - meilisearch_data:/meili_data
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "0.50"
-          memory: 512M
-        reservations:
-          cpus: "0.10"
-          memory: 128M
-
 networks:
   enterprise-network:
     driver: overlay
@@ -968,9 +910,6 @@ volumes:
   minio_data:
     external: true
     name: voicehub-extra_minio_data
-  meilisearch_data:
-    external: true
-    name: voicehub-extra_meilisearch_data
   qdrant_data:
     external: true
     name: voicehub-extra_qdrant_data

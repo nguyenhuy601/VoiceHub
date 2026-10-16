@@ -426,14 +426,20 @@ function seedPermissionsForRoleKey(roleKey, preferred) {
 
 /**
  * SoT runtime = doc.permissions (Admin org hoặc PO project clone).
- * Doc rỗng / thiếu → seed CODE_DEFAULT (legacy chưa hydrate).
- * Doc có list (kể cả đã thu hẹp) → đúng list đó (revoke được).
+ * Doc rỗng / thiếu → CODE_DEFAULT.
+ * Doc đã hydrate → list đó cho phép revoke các key không-SoD.
+ * SoD locked keys (vd. planning:pm_review trên project_manager) luôn ∪ vào kết quả —
+ * khớp PATCH applySodLockedPermissions: khoá cổng không revoke được, kể cả doc seed cũ thiếu key.
  * @param {{ key?: string, permissions?: string[] }} role
  */
 function effectivePermissionsFromRoleDoc(role) {
   const docPerms = normalizePermissionList(role?.permissions);
-  if (docPerms.length > 0) return docPerms;
-  return defaultPermissionsForRoleKey(role?.key);
+  const base = docPerms.length > 0 ? docPerms : defaultPermissionsForRoleKey(role?.key);
+  const locked = sodLockedPermissionsForRoleKey(role?.key);
+  if (!locked.length) return base;
+  const set = new Set(base);
+  for (const p of locked) set.add(p);
+  return [...set];
 }
 
 /**

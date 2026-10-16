@@ -1,8 +1,27 @@
 /**
  * Hierarchical WBS: Epic → Feature → Story → Task (HARD-02 single-path).
- * Built from pack FR hierarchy + capability items; AC-split for leaves.
+ * Epic ← BG/outcome; Feature ← capability/module; Story ← FR value (soft sourceFrIds);
+ * AC → Task. FR/NFR/UC/BG are trace fields — not hierarchy identity.
  * (AREA_ROLE_HINT duplicated locally to avoid circular require with wbs.js)
  */
+
+const {
+  resolveFeatureDisplayName,
+  resolveStoryDisplayName,
+  resolveWorkPackageDisplayName,
+  resolveTaskDisplayName,
+  dedupeChildTitlesAgainstParents,
+  applyContainerEffortRollup,
+  roleKeyForArea,
+} = require('./wbsAgileNaming');
+const {
+  buildSrsMappingContext,
+  resolveEpicPlacement,
+  resolveFeaturePlacement,
+  resolveSoftTrace,
+  capabilityForFr: capabilityForFrMapped,
+  listBgRows,
+} = require('./wbsSrsMapping');
 
 const AREA_ROLE_HINT = Object.freeze({
   frontend: 'frontend_developer',
@@ -149,12 +168,15 @@ function makeNode({
   featureId = null,
   sourceCapabilityIds = [],
   sourceFrIds = [],
+  sourceBgIds = [],
+  sourceNfrIds = [],
   sourceUcIds = [],
   sourceAcIndexes = [],
   effortSeedHours = null,
   suggestedRoleKey = null,
   sortOrder = 0,
   isContainer = false,
+  epicOrigin = null,
 }) {
   const role =
     suggestedRoleKey || AREA_ROLE_HINT[area] || 'backend_developer';
@@ -167,11 +189,14 @@ function makeNode({
     featureId,
     sourceCapabilityIds: [...sourceCapabilityIds],
     sourceFrIds: [...sourceFrIds],
+    sourceBgIds: [...sourceBgIds],
+    sourceNfrIds: [...sourceNfrIds],
     sourceUcIds: [...sourceUcIds],
     sourceAcIndexes: [...sourceAcIndexes],
     suggestedRoleKey: role,
     sortOrder,
   };
+  if (epicOrigin) node.epicOrigin = epicOrigin;
   if (effortSeedHours != null) {
     node.effortSeedHours = effortSeedHours;
     if (!isContainer) node.effortHours = effortSeedHours;
@@ -183,9 +208,7 @@ function makeNode({
 }
 
 function capabilityForFr(capabilities, frId) {
-  return (capabilities || []).find((c) =>
-    (c.sourceFrIds || []).map(String).includes(String(frId))
-  );
+  return capabilityForFrMapped(capabilities, frId);
 }
 
 /**
@@ -194,6 +217,7 @@ function capabilityForFr(capabilities, frId) {
  */
 function buildHierarchicalWbs({ capabilities = [], pack = {}, planningHints = null } = {}) {
   const frRows = listFrRows(pack);
+  const srsCtx = buildSrsMappingContext(pack, capabilities, planningHints);
   const tasks = [];
   const nodeById = new Map();
   let sortOrder = 0;
@@ -205,44 +229,45 @@ function buildHierarchicalWbs({ capabilities = [], pack = {}, planningHints = nu
     return node;
   };
 
-  // Index modules / features from FR hierarchy
-  const moduleIds = new Map(); // key → epicId
-  const featureIds = new Map(); // key → featureId
+  // Epic keyed by BG/outcome/module — not by FR id
+  const epicIds = new Map(); // epicKey → epicId
+  const featureIds = new Map(); // epicId::featureKey → featureId
 
-  function ensureEpic(moduleName, frIdHint) {
-    const key = String(moduleName || 'General').toLowerCase() || 'general';
-    if (moduleIds.has(key)) return moduleIds.get(key);
-    const id = `EPIC-${compactIdToken(moduleName || frIdHint || 'general', 'm')}`;
+  function ensureEpicFromPlacement(placement) {
+    const key = placement.epicKey;
+    if (epicIds.has(key)) return epicIds.get(key);
+    const id = `EPIC-${compactIdToken(key, 'm')}`;
     const epic = makeNode({
       id,
-      name: moduleName || 'General',
+      name: placement.epicName || 'General',
       parentId: null,
       level: 'epic',
       area: 'management',
       suggestedRoleKey: 'project_manager',
+      sourceBgIds: placement.sourceBgIds || [],
+      epicOrigin: placement.epicOrigin || null,
       sortOrder: sortOrder++,
       isContainer: true,
       effortSeedHours: 0,
     });
     push(epic);
-    moduleIds.set(key, id);
+    epicIds.set(key, id);
     return id;
   }
 
-  function ensureFeature(featureName, epicId, frIds = []) {
+  function ensureFeatureUnderEpic(epicId, featureName, sourceCapabilityIds = []) {
     const key = `${epicId}::${String(featureName || 'Feature').toLowerCase()}`;
     if (featureIds.has(key)) return featureIds.get(key);
-    const id = `FEAT-${compactIdToken(
-      `${epicId}::${featureName || frIds[0] || featureIds.size + 1}`,
-      'f'
-    )}`;
+    const id = `FEAT-${compactIdToken(`${epicId}::${featureName || featureIds.size + 1}`, 'f')}`;
     const feature = makeNode({
       id,
       name: featureName || 'Feature',
       parentId: epicId,
       level: 'feature',
       featureId: id,
-      sourceFrIds: frIds,
+      // Soft: capability only — do not stamp FR ids on Feature (FR lives on Story/Task)
+      sourceCapabilityIds,
+      sourceFrIds: [],
       area: 'backend',
       sortOrder: sortOrder++,
       isContainer: true,
@@ -253,36 +278,68 @@ function buildHierarchicalWbs({ capabilities = [], pack = {}, planningHints = nu
     return id;
   }
 
-  // Explicit Module/Feature level rows
+  const workPackageIds = new Map(); // storyId::area → wpId
+  function ensureWorkPackageUnderStory({
+    storyId,
+    area,
+    featureId,
+    featureName,
+    moduleName,
+    storyName,
+    sourceFrIds = [],
+    sourceCapabilityIds = [],
+  }) {
+    const areaKey = String(area || 'backend').toLowerCase() || 'backend';
+    const key = `${storyId}::${areaKey}`;
+    if (workPackageIds.has(key)) return workPackageIds.get(key);
+    const id = `WP-${compactIdToken(key, 'w')}`;
+    const wp = makeNode({
+      id,
+      name: resolveWorkPackageDisplayName({
+        area: areaKey,
+        featureName,
+        moduleName,
+        storyName,
+      }),
+      parentId: storyId,
+      level: 'work_package',
+      featureId,
+      area: areaKey,
+      sourceFrIds,
+      sourceCapabilityIds,
+      suggestedRoleKey: roleKeyForArea(areaKey),
+      sortOrder: sortOrder++,
+      isContainer: true,
+      effortSeedHours: 0,
+    });
+    push(wp);
+    workPackageIds.set(key, id);
+    return id;
+  }
+
+  // Explicit Feature-level pack rows (rare) — still hang under outcome epic
   for (let i = 0; i < frRows.length; i += 1) {
     const row = frRows[i];
     const level = rowLevel(row);
-    if (level === 'Module' || level === 'Epic') {
-      ensureEpic(row.name || row.title || rowId(row, i), rowId(row, i));
-    }
+    if (level !== 'Feature') continue;
+    const placement = resolveEpicPlacement({
+      frId: rowId(row, i),
+      frRow: row,
+      pack,
+      frToBg: srsCtx.frToBg,
+    });
+    const epicId = ensureEpicFromPlacement(placement);
+    ensureFeatureUnderEpic(epicId, row.name || row.title || rowId(row, i), []);
   }
 
   const requirementRows = [];
   for (let i = 0; i < frRows.length; i += 1) {
     const row = frRows[i];
     const level = rowLevel(row);
-    if (level === 'Module' || level === 'Epic' || level === 'Feature') {
-      if (level === 'Feature') {
-        const parentMod =
-          row.module ||
-          row.moduleLabel ||
-          (frRows.find((r, j) => rowId(r, j) === String(row.parentExternalId || row.parentId || ''))
-            ?.name) ||
-          'General';
-        const epicId = ensureEpic(parentMod, rowId(row, i));
-        ensureFeature(row.name || row.title || rowId(row, i), epicId, [rowId(row, i)]);
-      }
-      continue;
-    }
+    if (level === 'Module' || level === 'Epic' || level === 'Feature') continue;
     requirementRows.push({ row, index: i, frId: rowId(row, i) });
   }
 
-  // Fallback: all rows as requirements when no level filtering left items but rows exist
   if (!requirementRows.length && frRows.length) {
     for (let i = 0; i < frRows.length; i += 1) {
       const level = rowLevel(frRows[i]);
@@ -293,40 +350,100 @@ function buildHierarchicalWbs({ capabilities = [], pack = {}, planningHints = nu
 
   for (const { row, frId } of requirementRows) {
     const cap = capabilityForFr(capabilities, frId);
-    const moduleName =
-      row.module || row.moduleLabel || cap?.module || 'General';
-    const featureName =
-      row.feature || row.featureLabel || cap?.feature || row.name || row.title || frId;
-    const epicId = ensureEpic(moduleName, frId);
-    const featureId = ensureFeature(featureName, epicId, [frId]);
+    const frTitle = row.name || row.title || frId;
+    const epicPlacement = resolveEpicPlacement({
+      frId,
+      frRow: row,
+      pack,
+      frToBg: srsCtx.frToBg,
+    });
+    const featurePlacement = resolveFeaturePlacement({
+      frId,
+      frRow: row,
+      frName: frTitle,
+      capabilities,
+      pack,
+    });
+    const epicId = ensureEpicFromPlacement(epicPlacement);
+    const featureId = ensureFeatureUnderEpic(
+      epicId,
+      featurePlacement.featureName,
+      featurePlacement.sourceCapabilityIds
+    );
     const area = cap ? inferAreaFromCapability(cap) : 'backend';
     const complexity = cap?.complexity || row.complexity || 'medium';
     const seed = complexityHours(complexity);
-    const sourceUcIds = [
-      ...(cap?.sourceUcIds || []),
-      ...ucIdsForFr(frId, planningHints, pack),
-    ].map(String);
-    const uniqueUc = [...new Set(sourceUcIds)];
+    const soft = resolveSoftTrace({
+      frId,
+      pack,
+      planningHints,
+      frToBg: srsCtx.frToBg,
+      frToNfr: srsCtx.frToNfr,
+      capabilities,
+      sourceUcIds: [
+        ...(cap?.sourceUcIds || []),
+        ...ucIdsForFr(frId, planningHints, pack),
+      ].map(String),
+    });
     const acTexts = splitAcTexts(row, planningHints, frId);
-    const sourceCapIds = cap?.capabilityId ? [cap.capabilityId] : [];
+
+    // Story = FR value once; SRS ids are soft trace only
+    const storyName = resolveStoryDisplayName({ frName: frTitle, frId });
+    const storyId = `STORY-${compactIdToken(frId, 's')}`;
+    push(
+      makeNode({
+        id: storyId,
+        name: storyName,
+        parentId: featureId,
+        level: 'story',
+        featureId,
+        area,
+        sourceCapabilityIds: soft.sourceCapabilityIds,
+        sourceFrIds: soft.sourceFrIds,
+        sourceBgIds: soft.sourceBgIds,
+        sourceNfrIds: soft.sourceNfrIds,
+        sourceUcIds: soft.sourceUcIds,
+        sourceAcIndexes: [],
+        effortSeedHours: 0,
+        suggestedRoleKey: AREA_ROLE_HINT[area],
+        sortOrder: sortOrder++,
+        isContainer: true,
+      })
+    );
+
+    const wpId = ensureWorkPackageUnderStory({
+      storyId,
+      area,
+      featureId,
+      featureName: featurePlacement.featureName,
+      moduleName: row.module || row.moduleLabel || '',
+      storyName,
+      sourceFrIds: soft.sourceFrIds,
+      sourceCapabilityIds: soft.sourceCapabilityIds,
+    });
 
     if (!acTexts.length) {
-      // Single leaf task under feature (story skipped when no AC)
-      const taskId = `TASK-${compactIdToken(frId, 't') || compactIdToken(featureName, 't') || tasks.length + 1}`;
+      const taskId = `TASK-${compactIdToken(frId, 't') || compactIdToken(featurePlacement.featureName, 't') || tasks.length + 1}`;
       push(
         makeNode({
           id: taskId,
-          name: row.name || row.title || cap?.name || frId,
-          parentId: featureId,
+          name: resolveTaskDisplayName({
+            leafName: cap?.name && cap.name !== frTitle ? cap.name : '',
+            storyName,
+            area,
+          }),
+          parentId: wpId,
           level: 'task',
           featureId,
           area,
-          sourceCapabilityIds: sourceCapIds,
-          sourceFrIds: [frId],
-          sourceUcIds: uniqueUc,
+          sourceCapabilityIds: soft.sourceCapabilityIds,
+          sourceFrIds: soft.sourceFrIds,
+          sourceBgIds: soft.sourceBgIds,
+          sourceNfrIds: soft.sourceNfrIds,
+          sourceUcIds: soft.sourceUcIds,
           sourceAcIndexes: [],
           effortSeedHours: seed,
-          suggestedRoleKey: AREA_ROLE_HINT[area],
+          suggestedRoleKey: roleKeyForArea(area),
           sortOrder: sortOrder++,
         })
       );
@@ -336,25 +453,6 @@ function buildHierarchicalWbs({ capabilities = [], pack = {}, planningHints = nu
     const leaves = acTexts.slice(0, MAX_LEAVES_PER_FR);
     for (let acIndex = 0; acIndex < leaves.length; acIndex += 1) {
       const acText = leaves[acIndex];
-      const storyId = `STORY-${compactIdToken(frId, 's')}-${acIndex + 1}`;
-      push(
-        makeNode({
-          id: storyId,
-          name: acText.slice(0, 120),
-          parentId: featureId,
-          level: 'story',
-          featureId,
-          area,
-          sourceCapabilityIds: sourceCapIds,
-          sourceFrIds: [frId],
-          sourceUcIds: uniqueUc,
-          sourceAcIndexes: [acIndex],
-          effortSeedHours: Math.max(1, Math.round(seed * 0.25)),
-          suggestedRoleKey: AREA_ROLE_HINT[area],
-          sortOrder: sortOrder++,
-          isContainer: true,
-        })
-      );
       const taskId = `TASK-${compactIdToken(frId, 't')}-ac${acIndex + 1}`;
       const leafHours = Math.max(
         1,
@@ -363,24 +461,31 @@ function buildHierarchicalWbs({ capabilities = [], pack = {}, planningHints = nu
       push(
         makeNode({
           id: taskId,
-          name: `Implement: ${acText.slice(0, 100)}`,
-          parentId: storyId,
+          name: resolveTaskDisplayName({
+            leafName: `Implement: ${acText.slice(0, 100)}`,
+            storyName,
+            area,
+            index: acIndex,
+          }),
+          parentId: wpId,
           level: 'task',
           featureId,
           area,
-          sourceCapabilityIds: sourceCapIds,
-          sourceFrIds: [frId],
-          sourceUcIds: uniqueUc,
+          sourceCapabilityIds: soft.sourceCapabilityIds,
+          sourceFrIds: soft.sourceFrIds,
+          sourceBgIds: soft.sourceBgIds,
+          sourceNfrIds: soft.sourceNfrIds,
+          sourceUcIds: soft.sourceUcIds,
           sourceAcIndexes: [acIndex],
           effortSeedHours: leafHours,
-          suggestedRoleKey: AREA_ROLE_HINT[area],
+          suggestedRoleKey: roleKeyForArea(area),
           sortOrder: sortOrder++,
         })
       );
     }
   }
 
-  // Capabilities without FR mapping → wrap under module epic / single epic
+  // Orphan capabilities (no FR covered) — Feature under outcome epic; Story soft-links FR if any
   const coveredFr = new Set(
     tasks.flatMap((t) => t.sourceFrIds || []).map(String)
   );
@@ -393,18 +498,68 @@ function buildHierarchicalWbs({ capabilities = [], pack = {}, planningHints = nu
   if (orphanCaps.length) {
     for (const cap of orphanCaps) {
       if (!cap?.capabilityId) continue;
-      const moduleName = cap.module || 'General';
-      const epicId = ensureEpic(moduleName, cap.capabilityId);
-      const featureName = cap.feature || cap.name || cap.capabilityId;
-      const featureId = ensureFeature(featureName, epicId, cap.sourceFrIds || []);
+      const hintFrId = Array.isArray(cap.sourceFrIds) && cap.sourceFrIds[0]
+        ? String(cap.sourceFrIds[0])
+        : cap.capabilityId;
+      const epicPlacement = resolveEpicPlacement({
+        frId: hintFrId,
+        frRow: { module: cap.module || 'General' },
+        pack,
+        frToBg: srsCtx.frToBg,
+      });
+      const epicId = ensureEpicFromPlacement(epicPlacement);
+      const featureName = resolveFeatureDisplayName({
+        feature: cap.feature,
+        capabilityName: cap.name,
+        frName: '',
+        moduleName: cap.module || 'General',
+      });
+      const featureId = ensureFeatureUnderEpic(epicId, featureName, [cap.capabilityId]);
       const area = inferAreaFromCapability(cap);
       const seed = complexityHours(cap.complexity);
       const base = slugPart(cap.capabilityId) || slugPart(cap.name) || 'cap';
+      const storyName = resolveStoryDisplayName({
+        frName: cap.name,
+        frId: cap.capabilityId,
+      });
+      const storyId = `STORY-${compactIdToken(cap.capabilityId, 's')}`;
+      push(
+        makeNode({
+          id: storyId,
+          name: storyName,
+          parentId: featureId,
+          level: 'story',
+          featureId,
+          area,
+          sourceCapabilityIds: [cap.capabilityId],
+          sourceFrIds: Array.isArray(cap.sourceFrIds) ? [...cap.sourceFrIds] : [],
+          sourceUcIds: Array.isArray(cap.sourceUcIds) ? [...cap.sourceUcIds] : [],
+          sourceAcIndexes: [],
+          effortSeedHours: 0,
+          suggestedRoleKey: AREA_ROLE_HINT[area],
+          sortOrder: sortOrder++,
+          isContainer: true,
+        })
+      );
+      const wpId = ensureWorkPackageUnderStory({
+        storyId,
+        area,
+        featureId,
+        featureName,
+        moduleName: cap.module || 'General',
+        storyName,
+        sourceFrIds: Array.isArray(cap.sourceFrIds) ? [...cap.sourceFrIds] : [],
+        sourceCapabilityIds: [cap.capabilityId],
+      });
       push(
         makeNode({
           id: `TASK-${base}`,
-          name: cap.name || cap.capabilityId,
-          parentId: featureId,
+          name: resolveTaskDisplayName({
+            leafName: '',
+            storyName,
+            area,
+          }),
+          parentId: wpId,
           level: 'task',
           featureId,
           area,
@@ -413,27 +568,92 @@ function buildHierarchicalWbs({ capabilities = [], pack = {}, planningHints = nu
           sourceUcIds: Array.isArray(cap.sourceUcIds) ? [...cap.sourceUcIds] : [],
           sourceAcIndexes: [],
           effortSeedHours: seed,
-          suggestedRoleKey: AREA_ROLE_HINT[area],
+          suggestedRoleKey: roleKeyForArea(area),
           sortOrder: sortOrder++,
         })
       );
     }
   }
 
-  // Only-capabilities path with zero FR rows already handled via orphanCaps.
-  // If still empty but capabilities exist without module — single epic wrap
   if (!tasks.length && (capabilities || []).length) {
-    const epicId = ensureEpic('Delivery', 'root');
+    const epicPlacement = resolveEpicPlacement({
+      frId: 'root',
+      frRow: { module: 'Delivery' },
+      pack,
+      frToBg: srsCtx.frToBg,
+    });
+    // Force delivery epic when pack has no BG/overview and only caps
+    const hasOutcome =
+      listBgRows(pack).length > 0 ||
+      Boolean(
+        pack.overview &&
+          (pack.overview.projectObjective ||
+            pack.overview.requirementName ||
+            pack.overview.businessScope)
+      );
+    const epicId = ensureEpicFromPlacement(
+      hasOutcome
+        ? epicPlacement
+        : {
+            epicKey: 'module:delivery',
+            epicName: 'Delivery',
+            sourceBgIds: [],
+            epicOrigin: 'module',
+          }
+    );
     for (const cap of capabilities) {
       if (!cap?.capabilityId) continue;
       const area = inferAreaFromCapability(cap);
-      const featureId = ensureFeature(cap.name || cap.capabilityId, epicId, cap.sourceFrIds || []);
+      const featureName = resolveFeatureDisplayName({
+        feature: cap.feature,
+        capabilityName: cap.name,
+        frName: '',
+        moduleName: 'Delivery',
+      });
+      const featureId = ensureFeatureUnderEpic(epicId, featureName, [cap.capabilityId]);
       const base = slugPart(cap.capabilityId) || 'cap';
+      const storyName = resolveStoryDisplayName({
+        frName: cap.name,
+        frId: cap.capabilityId,
+      });
+      const storyId = `STORY-${compactIdToken(cap.capabilityId, 's')}`;
+      push(
+        makeNode({
+          id: storyId,
+          name: storyName,
+          parentId: featureId,
+          level: 'story',
+          featureId,
+          area,
+          sourceCapabilityIds: [cap.capabilityId],
+          sourceFrIds: Array.isArray(cap.sourceFrIds) ? [...cap.sourceFrIds] : [],
+          sourceUcIds: [],
+          sourceAcIndexes: [],
+          effortSeedHours: 0,
+          suggestedRoleKey: AREA_ROLE_HINT[area],
+          sortOrder: sortOrder++,
+          isContainer: true,
+        })
+      );
+      const wpId = ensureWorkPackageUnderStory({
+        storyId,
+        area,
+        featureId,
+        featureName,
+        moduleName: 'Delivery',
+        storyName,
+        sourceFrIds: Array.isArray(cap.sourceFrIds) ? [...cap.sourceFrIds] : [],
+        sourceCapabilityIds: [cap.capabilityId],
+      });
       push(
         makeNode({
           id: `TASK-${base}`,
-          name: cap.name || cap.capabilityId,
-          parentId: featureId,
+          name: resolveTaskDisplayName({
+            leafName: '',
+            storyName,
+            area,
+          }),
+          parentId: wpId,
           level: 'task',
           featureId,
           area,
@@ -442,12 +662,18 @@ function buildHierarchicalWbs({ capabilities = [], pack = {}, planningHints = nu
           sourceUcIds: [],
           sourceAcIndexes: [],
           effortSeedHours: complexityHours(cap.complexity),
-          suggestedRoleKey: AREA_ROLE_HINT[area],
+          suggestedRoleKey: roleKeyForArea(area),
           sortOrder: sortOrder++,
         })
       );
     }
   }
+
+  const deduped = dedupeChildTitlesAgainstParents(tasks);
+  const rolled = applyContainerEffortRollup(deduped);
+  // Replace in-place so callers holding tasks ref stay consistent
+  tasks.length = 0;
+  for (const n of rolled) tasks.push(n);
 
   const roots = tasks.filter((t) => !t.parentId).map((t) => t.id);
   const wbs = {

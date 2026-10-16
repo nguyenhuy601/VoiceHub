@@ -19,11 +19,6 @@ const {
   encodePageToken,
   nextPageTokenFromDocs,
 } = require('@enterprise/shared/pagination/pageToken');
-const {
-  syncAfterCreate,
-  syncAfterUpdate,
-  syncAfterDelete,
-} = require('../search/messageSearchSync');
 const { mergeMongoFilter } = require('../utils/contextCallVisibility');
 const {
   createChatError,
@@ -34,6 +29,7 @@ const {
 } = require('../utils/chatErrorMap');
 const { assertVoteSelection } = require('../utils/pollPolicy');
 const { visibilityMongoClauseForViewer } = require('./projectMembershipReadModel');
+const { rankMessagesByKeyword } = require('../utils/messageKeywordScore');
 
 const MONGO_UNAVAILABLE_MSG = 'Service temporarily unavailable. Please try again later.';
 
@@ -62,6 +58,15 @@ function postFilterSearchMessages(messages, { qTrim, mentionTrim, hasLink, hasEm
     if (needLink && !/https?:\/\//i.test(text)) return false;
     if (needEmbed && !/<iframe|discord\.com\/channels|embed/i.test(text)) return false;
     return true;
+  });
+}
+
+/** Rank only within current page/batch — pageToken cursor stays createdAt+_id. */
+function rankSearchBatch(messages, qTrim, mentionTrim) {
+  const queryText = [qTrim, mentionTrim].filter(Boolean).join(' ').trim();
+  if (!queryText) return messages;
+  return rankMessagesByKeyword(messages, queryText, {
+    getContent: (m) => String(unwrapPlaintext(m.content) || ''),
   });
 }
 
@@ -161,7 +166,6 @@ class MessageService {
 
       const message = new Message(payload);
       await message.save();
-      void syncAfterCreate(message);
 
       const redis = getRedisClient();
       if (redis) {
@@ -749,8 +753,6 @@ class MessageService {
         await redis.del(cacheKey);
       }
 
-      void syncAfterDelete(message);
-
       const out = toClientMessage(message);
       const deletedStoragePath = message?.fileMeta?.storagePath;
       if (deletedStoragePath) {
@@ -792,8 +794,6 @@ class MessageService {
         const cacheKey = `message:${messageId}`;
         await redis.del(cacheKey);
       }
-
-      void syncAfterUpdate(message);
 
       return toClientMessage(message);
     } catch (error) {
@@ -868,8 +868,6 @@ class MessageService {
         await redis.del(cacheKey);
       }
 
-      void syncAfterUpdate(message);
-
       return toClientMessage(message);
     } catch (error) {
       throw toServiceError('editMessage', error);
@@ -913,18 +911,6 @@ class MessageService {
    */
   async searchOrgMessages(params) {
     try {
-      const { isMeiliSearchReady, searchOrgMessagesViaMeili } = require('./messageSearchEngine.service');
-      if (await isMeiliSearchReady()) {
-        try {
-          return await searchOrgMessagesViaMeili(params);
-        } catch (meiliErr) {
-          console.warn(
-            '[chat-service] Meilisearch search failed, fallback Mongo:',
-            meiliErr.message
-          );
-        }
-      }
-
       await ensureMongoReady();
       const {
         organizationId,
@@ -1038,6 +1024,8 @@ class MessageService {
             hasLink,
             hasEmbed,
           });
+          // Re-rank display order only; cursor token still from fetch slice (createdAt+_id).
+          out = rankSearchBatch(out, qTrim, mentionTrim);
           return {
             messages: out,
             nextPageToken: nextPageTokenFromDocs(slice, { hasMore }),
@@ -1059,6 +1047,7 @@ class MessageService {
         for (const m of messages) await maybeMigrateMessageContent(m);
         let out = messages.map((m) => toClientMessage(m, dtoOpts));
         out = postFilterSearchMessages(out, { qTrim: null, mentionTrim: null, hasLink, hasEmbed });
+        out = rankSearchBatch(out, qTrim, mentionTrim);
         const total = await Message.countDocuments(filter);
         return {
           messages: out,
@@ -1078,7 +1067,6 @@ class MessageService {
       for (const m of raw) await maybeMigrateMessageContent(m);
       let out = raw.map((m) => toClientMessage(m, dtoOpts));
       out = postFilterSearchMessages(out, { qTrim, mentionTrim, hasLink, hasEmbed });
-      const total = out.length;
       if (pageToken) {
         const tok = decodePageToken(pageToken);
         if (tok) {
@@ -1092,14 +1080,15 @@ class MessageService {
         }
       }
       const hasMore = out.length > lim;
-      const paged = out.slice(0, lim);
+      const selection = out.slice(0, lim);
+      const ranked = rankSearchBatch(selection, qTrim, mentionTrim);
       return {
-        messages: paged,
+        messages: ranked,
         total: null,
         currentPage: null,
         totalPages: null,
         hasMore,
-        nextPageToken: nextPageTokenFromDocs(paged, { hasMore }),
+        nextPageToken: nextPageTokenFromDocs(selection, { hasMore }),
       };
     } catch (error) {
       throw toServiceError('searchOrgMessages', error);
@@ -1269,7 +1258,7 @@ class MessageService {
   }
 
   /**
-   * Nội bộ: xuất lịch sử kênh org (plaintext) cho summary-service / worker.
+   * Nội bộ: xuất lịch sử kênh org (plaintext) cho consumer nội bộ / S2S.
    */
   async exportOrgThreadInternal(params = {}) {
     try {

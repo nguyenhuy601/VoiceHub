@@ -7,7 +7,6 @@ import { useSocket } from '../../context/SocketContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useAppStrings } from '../../locales/appStrings';
 import api from '../../services/api';
-import friendService from '../../services/friendService';
 import NotificationsFigmaView from '../../components/Notifications/NotificationsFigmaView';
 import { useNotificationInboxShortcuts } from '../../hooks/useNotificationInboxShortcuts';
 import {
@@ -515,39 +514,15 @@ function NotificationsPage({
   };
 
   const handleAcceptFriendRequest = async (notif) => {
-    if (!notif?.id || actingNotifId) return;
-    const counterpartyId = String(notif?.data?.userId || notif?.data?.friendId || '').trim();
-    if (!counterpartyId) return;
-    setActingNotifId(notif.id);
-    try {
-      await friendService.acceptFriend(counterpartyId);
-      await markFriendNotificationsResolved(counterpartyId);
-      markNotifResolvedLocal(notif.id);
-      queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
-      toast.success(t('notifications.toastFriendAccepted'));
-    } catch (err) {
-      toast.error(resolveApiErrorMessage(err, { t, fallback: t('notifications.toastFriendActionFail') }));
-    } finally {
-      setActingNotifId('');
-    }
+    if (!notif?.id) return;
+    markNotifResolvedLocal(notif.id);
+    toast(t('notifications.toastFriendActionFail'));
   };
 
   const handleRejectFriendRequest = async (notif) => {
-    if (!notif?.id || actingNotifId) return;
-    const counterpartyId = String(notif?.data?.userId || notif?.data?.friendId || '').trim();
-    if (!counterpartyId) return;
-    setActingNotifId(notif.id);
-    try {
-      await friendService.rejectFriend(counterpartyId);
-      await markFriendNotificationsResolved(counterpartyId);
-      markNotifResolvedLocal(notif.id);
-      queryClient.invalidateQueries({ queryKey: queryKeys.friends.all });
-      toast.success(t('notifications.toastFriendRejected'));
-    } catch (err) {
-      toast.error(resolveApiErrorMessage(err, { t, fallback: t('notifications.toastFriendActionFail') }));
-    } finally {
-      setActingNotifId('');
-    }
+    if (!notif?.id) return;
+    markNotifResolvedLocal(notif.id);
+    toast(t('notifications.toastFriendActionFail'));
   };
 
   const handleMarkAsRead = async (id, { silent = false } = {}) => {

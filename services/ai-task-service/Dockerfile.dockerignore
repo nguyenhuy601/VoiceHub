@@ -1,8 +1,0 @@
-**/.env
-**/.env.*
-**/node_modules
-**/.git
-**/npm-debug.log
-**/tests
-**/*.test.js
-**/*.md

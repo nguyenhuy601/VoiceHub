@@ -8,8 +8,6 @@ const {
 } = require('@enterprise/shared/messaging/orgEvents');
 const { isDuplicateOrgEvent } = require('@enterprise/shared/messaging/orgEventIdempotency');
 const { invalidateLocalOrgAcl } = require('../services/orgAccessReadModel');
-const { deleteOrgMessagesByOrganization } = require('../services/messageSearchIndex.service');
-const { isMeilisearchConfigured } = require('../services/meilisearchClient');
 const { assertQuorumQueue } = require('@enterprise/shared/messaging/rabbitQuorum');
 const { runWithReconnect, waitForAmqpClose } = require('@enterprise/shared/messaging/rabbitReconnect');
 
@@ -45,13 +43,6 @@ async function processOrgEvent(data) {
   switch (type) {
     case ORG_EVENT_TYPES.ORG_DELETED:
       await invalidateLocalOrgAcl(organizationId, null);
-      if (isMeilisearchConfigured()) {
-        try {
-          await deleteOrgMessagesByOrganization(organizationId);
-        } catch (e) {
-          console.warn('[orgEventsConsumer] meili purge org failed', e.message);
-        }
-      }
       break;
     case ORG_EVENT_TYPES.CHANNEL_PROVISIONED:
       await invalidateLocalOrgAcl(organizationId, null);

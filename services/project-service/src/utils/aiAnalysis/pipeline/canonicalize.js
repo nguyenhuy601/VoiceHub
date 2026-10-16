@@ -90,6 +90,17 @@ function canonicalizeProjected(projected = {}) {
     return { name, ...sk };
   });
 
+  const technical =
+    projected.technical && typeof projected.technical === 'object'
+      ? projected.technical
+      : {
+          environments: [],
+          cicd: {},
+          deployment: {},
+          infrastructure: {},
+          stack: { languages: [], frameworks: [], databases: [] },
+        };
+
   return {
     fr,
     technology,
@@ -109,6 +120,7 @@ function canonicalizeProjected(projected = {}) {
     overview: srs.overview || {},
     frSlices: srs.frSlices || [],
     nonFunctionalRequirements: srs.nonFunctionalRequirements || [],
+    technical,
     idMaps: {
       roles: Object.fromEntries(
         staffingRoles

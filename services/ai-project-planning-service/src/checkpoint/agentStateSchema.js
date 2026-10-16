@@ -68,6 +68,7 @@ const ALLOWED_KEYS = new Set([
   'corpus',
   'currentToolIndex',
   'currentToolName',
+  'currentToolNames',
   // Data-gate pause (WHAT) — partial prefix, not the public preview
   'g4Partial',
   'dataGateDecision',

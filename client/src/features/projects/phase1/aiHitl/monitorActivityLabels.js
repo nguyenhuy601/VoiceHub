@@ -19,6 +19,10 @@ const TOOL_ACTIVITY = Object.freeze({
     key: 'requirements.aiHitlMonitorActivity_RiskTool',
     fallback: 'Đang đánh giá rủi ro…',
   },
+  QualityPlanTool: {
+    key: 'requirements.aiHitlMonitorActivity_QualityPlanTool',
+    fallback: 'Đang lập kế hoạch kiểm thử…',
+  },
   EffortTool: {
     key: 'requirements.aiHitlMonitorActivity_EffortTool',
     fallback: 'Đang ước lượng effort…',
@@ -34,6 +38,10 @@ const TOOL_ACTIVITY = Object.freeze({
   ScheduleTool: {
     key: 'requirements.aiHitlMonitorActivity_ScheduleTool',
     fallback: 'Đang lập lịch…',
+  },
+  DeployPlanTool: {
+    key: 'requirements.aiHitlMonitorActivity_DeployPlanTool',
+    fallback: 'Đang lập kế hoạch deploy…',
   },
   ProjectPlanTool: {
     key: 'requirements.aiHitlMonitorActivity_ProjectPlanTool',

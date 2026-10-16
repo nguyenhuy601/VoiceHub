@@ -880,8 +880,7 @@ function OrganizationMemberSidebar({
         toast.success(t('organizations.toastMemberRemoved'));
         onMemberRemoved?.();
       } else {
-        await friendService.blockUser(m.userId);
-        toast.success(t('organizations.toastBlocked'));
+        toast.error(t('organizations.toastBlockFail'));
       }
     } catch (err) {
       const fallback =
@@ -1174,41 +1173,12 @@ function OrganizationMemberSidebar({
                 type="button"
                 role="menuitem"
                 className={contextMenuItemClass}
-                onClick={async () => {
-                  const m = menu.member;
-                  closeMenu();
-                  try {
-                    await friendService.sendRequest(m.userId);
-                    toast.success(t('organizations.toastFriendSent'));
-                  } catch (err) {
-                    toast.error(resolveApiErrorMessage(err, { t, fallback: t('organizations.toastFriendFail') }));
-                  }
-                }}
-              >
-                {t('organizations.memberMenuAddFriend')}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className={contextMenuItemClass}
                 onClick={() => {
                   closeMenu();
                   toast(t('organizations.toastIgnoreSoon'), { icon: '👁' });
                 }}
               >
                 {t('organizations.memberMenuIgnore')}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className={`${contextMenuItemClass} text-warning`}
-                onClick={() => {
-                  const m = menu.member;
-                  closeMenu();
-                  setMemberConfirm({ type: 'block', member: m });
-                }}
-              >
-                {t('organizations.memberMenuBlock')}
               </button>
             </>
           )}
