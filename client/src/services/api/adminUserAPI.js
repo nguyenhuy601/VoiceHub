@@ -19,8 +19,8 @@ export const adminUserAPI = {
   getProfile: (organizationId, userId) =>
     apiClient.get(`/users/${userId}`, withOrg(organizationId)),
 
-  patchProfile: (organizationId, userId, body) =>
-    apiClient.patch(`/users/${userId}`, { ...body, organizationId }, withOrg(organizationId)),
+  patchProfile: (organizationId, userId, body, config = {}) =>
+    apiClient.patch(`/users/${userId}`, { ...body, organizationId }, withOrg(organizationId, config)),
 
   /** C1 — HR verify hồ sơ năng lực */
   verifyCapability: (organizationId, userId) =>

@@ -12,6 +12,7 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { useCompanyAdminContext } from '../../pages/Admin/CompanyAdminLayout';
 import { organizationAPI } from '../../services/api/organizationAPI';
+import { orgRbacAPI } from '../../services/api/orgRbacAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import UserAvatar from '../../components/Shared/UserAvatar';
 import useAdminMembers from '../../hooks/useAdminMembers';
@@ -31,7 +32,7 @@ import {
   memberTeamId,
   memberUserId,
 } from '../../utils/adminUserUtils';
-import { buildOrgRoleRowsByUserId, memberJobTitle } from '../../utils/userTaxonomyUtils';
+import { buildOrgRoleRowsByUserId } from '../../utils/userTaxonomyUtils';
 import { adminUserHubLink } from '../../utils/adminHubLinks';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 
@@ -197,6 +198,7 @@ export default function UsersListPanel({ orgId }) {
   const [structureLoadFailed, setStructureLoadFailed] = useState(false);
   const [structureReloadKey, setStructureReloadKey] = useState(0);
   const [orgRoleByUser, setOrgRoleByUser] = useState({});
+  const [positionByUser, setPositionByUser] = useState({});
   const [capabilityOverrides, setCapabilityOverrides] = useState({});
   const [detailMember, setDetailMember] = useState(null);
 
@@ -259,28 +261,54 @@ export default function UsersListPanel({ orgId }) {
     (async () => {
       try {
         let assignmentsFailed = false;
-        const [structureRes, assignRes] = await Promise.all([
+        const [structureRes, assignRes, positionRes, positionAssignRes] = await Promise.all([
           organizationAPI.getStructure(orgId),
           orgRoleCatalogAPI.listAssignments(orgId).catch(() => {
             assignmentsFailed = true;
             return null;
           }),
+          organizationAPI.listHrPositions(orgId).catch(() => null),
+          orgRbacAPI.listAssignments(orgId, { status: 'active' }).catch(() => null),
         ]);
         const body = structureRes?.data?.data ?? structureRes?.data ?? structureRes;
         const assignments =
           assignRes?.data?.assignments ||
           assignRes?.data?.data?.assignments ||
           [];
+        const positions =
+          positionRes?.data?.positions ||
+          positionRes?.data?.data?.positions ||
+          [];
+        const positionAssignments =
+          positionAssignRes?.data?.assignments ||
+          positionAssignRes?.data?.data?.assignments ||
+          [];
+        const positionNameById = new Map(
+          (Array.isArray(positions) ? positions : []).map((row) => [
+            String(row?.id || row?._id || '').trim(),
+            String(row?.title || row?.name || '').trim(),
+          ])
+        );
+        const nextPositionByUser = {};
+        for (const row of Array.isArray(positionAssignments) ? positionAssignments : []) {
+          const uid = String(row?.userId || '').trim();
+          const name = positionNameById.get(String(row?.positionId || '').trim());
+          if (!uid || !name || nextPositionByUser[uid]) continue;
+          nextPositionByUser[uid] = name;
+        }
         if (!cancelled) {
           setStructureMaps(collectDeptTeamMaps(body));
-          const rowMap = buildOrgRoleRowsByUserId(body, assignments, t);
+          // Chỉ vai trò tổ chức đã gán. Trưởng phòng/nhóm trên cơ cấu không phải vai trò tổ chức.
+          const rowMap = buildOrgRoleRowsByUserId({ branches: [] }, assignments, t);
           setOrgRoleByUser(Object.fromEntries(rowMap));
+          setPositionByUser(nextPositionByUser);
           setStructureLoadFailed(assignmentsFailed);
         }
       } catch {
         if (!cancelled) {
           setStructureMaps({ departments: new Map(), teams: new Map() });
           setOrgRoleByUser({});
+          setPositionByUser({});
           setStructureLoadFailed(true);
         }
       }
@@ -340,7 +368,8 @@ export default function UsersListPanel({ orgId }) {
       const rbacLabels = formatRbacRoleLabels(rbacByUser[id] || [], (row) =>
         normalizeRoleDisplayName(row?.name || row?.role?.name)
       );
-      const jobTitle = memberJobTitle(m).toLowerCase();
+      const positionLabel = String(positionByUser[id] || '').toLowerCase();
+      const orgRoleLabels = (orgRoleByUser[id] || []).map((row) => String(row?.label || '').toLowerCase());
       const code = memberEmployeeCode(m).toLowerCase();
       const roleLabel = accountRoleLabel(memberOrgRole(m), t).toLowerCase();
       return (
@@ -348,7 +377,8 @@ export default function UsersListPanel({ orgId }) {
         memberEmail(m).toLowerCase().includes(q) ||
         memberOrgRole(m).includes(q) ||
         roleLabel.includes(q) ||
-        jobTitle.includes(q) ||
+        positionLabel.includes(q) ||
+        orgRoleLabels.some((label) => label.includes(q)) ||
         rbacLabels.some((label) => label.toLowerCase().includes(q)) ||
         dep.toLowerCase().includes(q) ||
         team.toLowerCase().includes(q) ||
@@ -366,6 +396,8 @@ export default function UsersListPanel({ orgId }) {
     structureMaps,
     rbacByUser,
     capabilityByUser,
+    positionByUser,
+    orgRoleByUser,
     t,
   ]);
 
@@ -615,12 +647,22 @@ export default function UsersListPanel({ orgId }) {
                   onSelect={setDetailMember}
                   selectedKey={detailMember ? memberUserId(detailMember) : null}
                   renderTitle={(m) => memberDisplayName(m)}
-                  renderMeta={(m) => (
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="min-w-0 truncate">{memberEmail(m)}</span>
-                      <StatusBadge member={m} t={t} />
-                    </span>
-                  )}
+                  renderMeta={(m) => {
+                    const id = memberUserId(m);
+                    const roleLabel = (orgRoleByUser[id] || []).map((row) => row.label).filter(Boolean).join(', ');
+                    const positionLabel = positionByUser[id] || '';
+                    return (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span className="min-w-0 truncate">{memberEmail(m)}</span>
+                        <span className="min-w-0 truncate text-muted-foreground">
+                          {roleLabel || t('adminUsers.orgRoleNone')}
+                          {' · '}
+                          {positionLabel || t('adminUsers.positionNone')}
+                        </span>
+                        <StatusBadge member={m} t={t} />
+                      </span>
+                    );
+                  }}
                   renderActions={(m) => (
                     <AdminUserActionsMenu
                       member={m}
@@ -658,7 +700,9 @@ export default function UsersListPanel({ orgId }) {
                     <th className="px-4 py-3">
                       {t('adminUsers.colOrgRole')}
                     </th>
-                    <th className="px-4 py-3">{t('adminUsers.colPosition')}</th>
+                    <th className="px-4 py-3" title={t('adminUsers.colPositionHint')}>
+                      {t('adminUsers.colPosition')}
+                    </th>
                     <th className="px-4 py-3">{t('adminUsers.colStatus')}</th>
                     <th className="px-4 py-3">{t('adminUsers.colCapability')}</th>
                     <th className="w-12 px-2 py-3 text-center">
@@ -714,8 +758,8 @@ export default function UsersListPanel({ orgId }) {
                         </td>
                         <td className="px-4 py-3">
                           <PositionCell
-                            title={memberJobTitle(m)}
-                            emptyLabel={t('adminUsers.taxonomyNone')}
+                            title={positionByUser[id]}
+                            emptyLabel={t('adminUsers.positionNone')}
                           />
                         </td>
                         <td className="px-4 py-3">
@@ -807,6 +851,9 @@ export default function UsersListPanel({ orgId }) {
         onCapabilityStatusChange={(userId, status) => {
           setCapabilityOverrides((prev) => ({ ...prev, [userId]: status }));
         }}
+        organizationalPosition={
+          detailMember ? positionByUser[memberUserId(detailMember)] || '' : ''
+        }
       />
     </div>
   );

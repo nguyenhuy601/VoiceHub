@@ -5,6 +5,7 @@ const { SCOPE_TYPES } = require('../models/OrgRolePermission');
 const OrganizationalPosition = require('../models/OrganizationalPosition');
 const PositionRoleBinding = require('../models/PositionRoleBinding');
 const EmployeePositionAssignment = require('../models/EmployeePositionAssignment');
+const { matchActivePosition } = require('../utils/positionAssignMatch');
 
 const SCOPE_RANK = Object.freeze({
   SELF: 1,
@@ -365,13 +366,23 @@ async function listAssignments(organizationId, { userId = null, status = 'active
 async function assignPositionToUser(organizationId, { userId, positionId, departmentId = null } = {}) {
   const oid = asObjectId(organizationId, 'organizationId');
   const uid = asObjectId(userId, 'userId');
-  const pid = asObjectId(positionId, 'positionId');
-  const position = await OrganizationalPosition.findOne({
-    _id: pid,
+  const key = String(positionId || '').trim();
+  if (!key) throw serviceError('positionId bắt buộc', 400, 'VALIDATION_REQUIRED');
+  const activePositions = await OrganizationalPosition.find({
     organizationId: oid,
     status: 'active',
-  }).lean();
-  if (!position) throw serviceError('Không tìm thấy vị trí active', 404, 'POSITION_NOT_FOUND');
+  })
+    .select('_id code name')
+    .lean();
+  const position = matchActivePosition(activePositions, key);
+  if (!position) {
+    throw serviceError(
+      'Vị trí tổ chức không còn trong danh sách hiện tại.',
+      400,
+      'POSITION_INVALID'
+    );
+  }
+  const pid = position._id;
 
   await EmployeePositionAssignment.updateMany(
     { organizationId: oid, userId: uid, status: 'active' },

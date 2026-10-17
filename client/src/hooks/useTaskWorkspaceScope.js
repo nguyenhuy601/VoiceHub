@@ -23,7 +23,7 @@ export async function fetchTaskWorkspaceScope(orgId) {
 
 /**
  * Shared task-workspace-scope — landing + hub.
- * Wave B: expose canCreateProject + capabilities.project.create (AND master grant).
+ * Tạo dự án: chỉ mã project.project.create trên grantScopes (vị trí → vai trò tổ chức).
  * @param {string} organizationId
  * @param {{ enabled?: boolean }} [options]
  */

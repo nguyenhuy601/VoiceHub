@@ -18,7 +18,6 @@ import {
   unwrapApi,
 } from '../../utils/adminUserUtils';
 import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
-import { memberJobTitle } from '../../utils/userTaxonomyUtils';
 import { adminUserHubLink } from '../../utils/adminHubLinks';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
@@ -118,6 +117,7 @@ export default function AdminUserDetailDrawer({
   rbacRoles = [],
   formatWhen,
   onCapabilityStatusChange,
+  organizationalPosition = '',
 }) {
   const { t } = useAppStrings();
   const { isFullAccess, canAccessHub } = useCompanyAdminAccess();
@@ -150,8 +150,6 @@ export default function AdminUserDetailDrawer({
   const userRoleLabels = formatRbacRoleLabels(rbacRoles, (row) =>
     normalizeRoleDisplayName(row?.name || row?.role?.name)
   );
-
-  const positionTitle = member ? memberJobTitle(member) : '';
 
   useEffect(() => {
     if (!open) setTab('info');
@@ -345,8 +343,8 @@ export default function AdminUserDetailDrawer({
                 </dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">{t('adminUsers.jobTitle')}</dt>
-                <dd>{positionTitle || t('adminUsers.taxonomyNone')}</dd>
+                <dt className="text-xs text-muted-foreground">{t('adminUsers.colPosition')}</dt>
+                <dd>{organizationalPosition || t('adminUsers.positionNone')}</dd>
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">{t('adminUsers.colDepartment')}</dt>

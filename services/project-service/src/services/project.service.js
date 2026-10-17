@@ -8,17 +8,9 @@ const TaskActivityLog = require('../models/TaskActivityLog');
 const Sprint = require('../models/Sprint');
 const ProjectMembership = require('../models/ProjectMembership');
 const { logger } = require('@enterprise/shared');
-const {
-  fetchTaskWorkspaceScope,
-  canCreateTaskInScope,
-  canCreateProjectInScope,
-} = require('./taskWorkspaceScope');
-const {
-  hasProjectCreateGrant,
-  ensureProjectCreateGrant,
-  requireGrantEnabled,
-  PROJECT_CREATE_GRANT,
-} = require('../clients/rolePermission.client');
+const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
+const { hasProjectCreateGrant } = require('../clients/rolePermission.client');
+const { assertProjectCreateGrant } = require('../utils/projectCreateGrantPolicy');
 const {
   setUserProjectRoles,
   cloneOrgRolesToProject,
@@ -210,37 +202,9 @@ async function createProject({
   budgetStub,
   analysisMode,
 }) {
-  const scope = await fetchTaskWorkspaceScope(userId, organizationId);
-  if (!scope || !canCreateProjectInScope(scope)) {
-    const err = new Error('Bạn không có quyền tạo dự án trong phạm vi tổ chức');
-    err.statusCode = 403;
-    err.errorCode = 'OUT_OF_ORG_SCOPE';
-    throw err;
-  }
-
-  if (requireGrantEnabled()) {
-    let hasGrant = await hasProjectCreateGrant(userId, organizationId);
-    if (!hasGrant) {
-      // RULE-02: migration when scope already allows create
-      const migrated = await ensureProjectCreateGrant(userId, organizationId, userId);
-      if (!migrated.ok) {
-        const err = new Error('Không thể cấp quyền tạo dự án (migration)');
-        err.statusCode = 403;
-        err.errorCode = migrated.errorCode || 'MIGRATION_BIND_FAILED';
-        throw err;
-      }
-      hasGrant = await hasProjectCreateGrant(userId, organizationId);
-    }
-    if (!hasGrant) {
-      const err = new Error(`Thiếu quyền ${PROJECT_CREATE_GRANT}`);
-      err.statusCode = 403;
-      err.errorCode = 'MISSING_PROJECT_CREATE_GRANT';
-      throw err;
-    }
-  } else if (!canCreateTaskInScope(scope)) {
-    // Hotfix flag path: still require legacy create-task scope semantics
-    throw new Error('Bạn không có quyền tạo dự án');
-  }
+  // Quyền tạo dự án: mã project.project.create trên vị trí → vai trò tổ chức.
+  // Không dùng placement owner/admin/trưởng phòng, không gắn gói quyền cũ.
+  assertProjectCreateGrant(await hasProjectCreateGrant(userId, organizationId));
   // Project thuộc Organization — map mọi create (kể cả legacy dept/team/div) sang org scope.
   const orgIdStr = String(organizationId || '').trim();
   if (!mongoose.Types.ObjectId.isValid(orgIdStr)) {
@@ -404,7 +368,7 @@ async function createProject({
     );
   }
 
-  // Lists + ACL board + clone roles song song (creator đã pass canCreateTaskInScope).
+  // Lists + ACL board + clone roles song song (creator đã có project.project.create).
   const [lists] = await Promise.all([
     seedDefaultLists(board._id),
     Promise.all(boardMemberCreates),

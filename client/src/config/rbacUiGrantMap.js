@@ -279,6 +279,19 @@ export function parseUserPermissionsPayload(res) {
     grantScopes[key] = String(scope || 'ORGANIZATION').trim().toUpperCase();
   }
 
+  // Response cũ chỉ có masterGrants (mảng mã), data là {resource, actions}.
+  const codeLists = [root?.masterGrants, !Array.isArray(body) ? body?.masterGrants : null];
+  for (const list of codeLists) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      const key = normalizeGrantKey(
+        typeof item === 'string' ? item : item?.key || item?.code || item?.permissionCode
+      );
+      if (!key || !key.includes('.')) continue;
+      if (!grantScopes[key]) grantScopes[key] = 'ORGANIZATION';
+    }
+  }
+
   return { permissions, grantScopes };
 }
 

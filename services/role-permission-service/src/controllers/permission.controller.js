@@ -35,11 +35,20 @@ class PermissionController {
       const { userId, serverId } = req.params;
       const result = await permissionService.getUserPermissions(userId, serverId);
       const permissions = Array.isArray(result) ? result : result?.permissions || [];
-      const masterGrants = Array.isArray(result) ? [] : result?.masterGrants || [];
+      const grantScopes =
+        !Array.isArray(result) &&
+        result?.grantScopes &&
+        typeof result.grantScopes === 'object' &&
+        !Array.isArray(result.grantScopes)
+          ? result.grantScopes
+          : {};
+      // data giữ mảng legacy {resource, actions}. Mã quyền mới nằm ở grantScopes.
+      const masterGrants = Object.keys(grantScopes);
 
       res.json({
         success: true,
         data: permissions,
+        grantScopes,
         masterGrants,
       });
     } catch (error) {
