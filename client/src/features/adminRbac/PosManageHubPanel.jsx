@@ -1,11 +1,9 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useAppStrings } from '../../locales/appStrings';
 import AdminRbacOpsHubShell from '../../components/Admin/AdminRbacOpsHubShell';
 import AdminUserPicker from '../../components/adminUsers/AdminUserPicker';
-import { AdminUserFormCard } from '../../components/adminUsers/adminUserPanelUi';
 import PosAssignPanel from '../adminOrgStructure/PosAssignPanel';
-import PosEditPanel from '../adminOrgStructure/PosEditPanel';
-import PosDisablePanel from '../adminOrgStructure/PosDisablePanel';
+import PosPeopleBulkPanel from '../adminOrgStructure/PosPeopleBulkPanel';
 
 const TAB_ASSIGN = 'assign';
 const TAB_EDIT = 'edit';
@@ -13,6 +11,7 @@ const TAB_DISABLE = 'disable';
 
 export default function PosManageHubPanel({ orgId }) {
   const { t } = useAppStrings();
+  const [selectedUserIds, setSelectedUserIds] = useState([]);
 
   const tabs = useMemo(
     () => [
@@ -24,17 +23,17 @@ export default function PosManageHubPanel({ orgId }) {
   );
 
   const renderPicker = useCallback(
-    (activeTab) => {
-      if (activeTab === TAB_ASSIGN) {
-        return <AdminUserPicker orgId={orgId} hint={t('adminOrg.posAssignUserHint')} />;
-      }
-      return (
-        <AdminUserFormCard title={t('adminOrg.posHubPickerTitle')} hint={t('adminOrg.posHubNoPickerHint')}>
-          <p className="text-sm text-muted-foreground">{t('adminOrg.posHubNoPickerBody')}</p>
-        </AdminUserFormCard>
-      );
-    },
-    [orgId, t]
+    () => (
+      <AdminUserPicker
+        orgId={orgId}
+        selectionMode="multiple"
+        scrollLoad
+        selectedUserIds={selectedUserIds}
+        onSelectedUserIdsChange={setSelectedUserIds}
+        hint={t('adminOrg.posAssignUserHint')}
+      />
+    ),
+    [orgId, selectedUserIds, t]
   );
 
   return (
@@ -47,9 +46,15 @@ export default function PosManageHubPanel({ orgId }) {
     >
       {({ activeTab }) => (
         <>
-          {activeTab === TAB_ASSIGN ? <PosAssignPanel orgId={orgId} embedded /> : null}
-          {activeTab === TAB_EDIT ? <PosEditPanel orgId={orgId} embedded /> : null}
-          {activeTab === TAB_DISABLE ? <PosDisablePanel orgId={orgId} embedded /> : null}
+          {activeTab === TAB_ASSIGN ? (
+            <PosAssignPanel orgId={orgId} embedded selectedUserIds={selectedUserIds} />
+          ) : null}
+          {activeTab === TAB_EDIT ? (
+            <PosPeopleBulkPanel orgId={orgId} mode="replace" selectedUserIds={selectedUserIds} />
+          ) : null}
+          {activeTab === TAB_DISABLE ? (
+            <PosPeopleBulkPanel orgId={orgId} mode="remove" selectedUserIds={selectedUserIds} />
+          ) : null}
         </>
       )}
     </AdminRbacOpsHubShell>

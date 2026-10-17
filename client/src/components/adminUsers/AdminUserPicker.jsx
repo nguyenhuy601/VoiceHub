@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { useAppStrings } from '../../locales/appStrings';
@@ -53,6 +53,11 @@ function StatusDot({ member, t }) {
  *   subtitleFn?: (member: object) => string,
  *   emptyLabel?: string,
  *   pageSize?: number,
+ *   scrollLoad?: boolean,
+ *   scrollPageSize?: number,
+ *   selectionMode?: 'single' | 'multiple',
+ *   selectedUserIds?: string[],
+ *   onSelectedUserIdsChange?: (userIds: string[]) => void,
  *   rbacAssignments?: { byUser?: Record<string, unknown[]>, ready?: boolean },
  *   showRbacRoleFilter?: boolean,
  *   fillHeight?: boolean,
@@ -67,6 +72,11 @@ export default function AdminUserPicker({
   subtitleFn,
   emptyLabel,
   pageSize = 0,
+  scrollLoad = false,
+  scrollPageSize = 20,
+  selectionMode = 'single',
+  selectedUserIds,
+  onSelectedUserIdsChange,
   rbacAssignments,
   showRbacRoleFilter = false,
   fillHeight = false,
@@ -75,7 +85,15 @@ export default function AdminUserPicker({
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
+  const [visibleCount, setVisibleCount] = useState(scrollPageSize);
+  const [internalSelectedIds, setInternalSelectedIds] = useState([]);
   const [rbacRoleFilter, setRbacRoleFilter] = useState(RBAC_ROLE_FILTER_ALL);
+  const scrollRef = useRef(null);
+  const sentinelRef = useRef(null);
+  const multiple = selectionMode === 'multiple';
+  const selectedIds = multiple
+    ? (Array.isArray(selectedUserIds) ? selectedUserIds : internalSelectedIds)
+    : [];
   const { members, loading, error, loadMembers } = useAdminMembers(orgId, { view: 'directory' });
 
   const activeId = String(selectedUserId || searchParams.get('userId') || '').trim();
@@ -114,17 +132,50 @@ export default function AdminUserPicker({
 
   useEffect(() => {
     setPage(1);
-  }, [query, rbacRoleFilter, filterFn, orgId]);
+    setVisibleCount(scrollPageSize);
+  }, [query, rbacRoleFilter, filterFn, orgId, scrollPageSize]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
   const paged = useMemo(() => {
+    if (scrollLoad) return filtered.slice(0, Math.max(scrollPageSize, visibleCount));
     if (perPage <= 0) return filtered;
     const start = (safePage - 1) * perPage;
     return filtered.slice(start, start + perPage);
-  }, [filtered, perPage, safePage]);
+  }, [filtered, perPage, safePage, scrollLoad, scrollPageSize, visibleCount]);
+
+  const hasMoreScroll = scrollLoad && paged.length < filtered.length;
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    const target = sentinelRef.current;
+    if (!scrollLoad || !hasMoreScroll || !root || !target) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((count) => count + scrollPageSize);
+        }
+      },
+      { root, rootMargin: '48px', threshold: 0 }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [scrollLoad, hasMoreScroll, scrollPageSize, paged.length]);
+
+  const setSelectedIds = (nextIds) => {
+    const uniqueIds = [...new Set(nextIds.map((id) => String(id || '').trim()).filter(Boolean))];
+    if (!Array.isArray(selectedUserIds)) setInternalSelectedIds(uniqueIds);
+    onSelectedUserIdsChange?.(uniqueIds);
+  };
+
+  const toggleUser = (userId) => {
+    const id = String(userId || '').trim();
+    if (!id) return;
+    if (selectedIds.includes(id)) setSelectedIds(selectedIds.filter((item) => item !== id));
+    else setSelectedIds([...selectedIds, id]);
+  };
 
   const pick = (userId) => {
     const id = String(userId || '').trim();
@@ -212,45 +263,99 @@ export default function AdminUserPicker({
         </div>
       ) : (
         <>
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border">
+          {multiple && filtered.length ? (
+            <div className="mb-2 flex shrink-0 items-center justify-between gap-2 text-xs">
+              <span className="text-muted-foreground">
+                {t('adminRbac.orgRoleBulkSelected', { count: selectedIds.length })}
+              </span>
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => setSelectedIds(filtered.map((member) => memberUserId(member)))}
+                >
+                  {t('adminRbac.orgRolePickerSelectAll')}
+                </button>
+                <button
+                  type="button"
+                  className="font-medium text-muted-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                  disabled={!selectedIds.length}
+                  onClick={() => setSelectedIds([])}
+                >
+                  {t('adminRbac.orgRolePickerClear')}
+                </button>
+              </span>
+            </div>
+          ) : null}
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border">
             <ul className="divide-y divide-border">
               {paged.map((m) => {
                 const id = memberUserId(m);
                 const name = memberDisplayName(m);
-                const active = id === activeId;
+                const picked = id === activeId;
+                const checked = selectedIds.includes(id);
                 const subtitle = resolveSubtitle(m);
+                const rowClass = `flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                  picked ? 'bg-primary-subtle' : 'hover:bg-muted'
+                }`;
+                const body = (
+                  <>
+                    <UserAvatar
+                      avatar={m.avatar}
+                      userId={id}
+                      name={name}
+                      size="chip"
+                      className="shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <StatusDot member={m} t={t} />
+                        <span className="truncate text-sm font-medium text-foreground">{name}</span>
+                      </div>
+                      <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                      {accountRoleLabel(memberOrgRole(m), t)}
+                    </span>
+                  </>
+                );
                 return (
                   <li key={id}>
-                    <button
-                      type="button"
-                      onClick={() => pick(id)}
-                      aria-current={active ? 'true' : undefined}
-                      className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
-                        active ? 'bg-primary-subtle' : 'hover:bg-muted'
-                      }`}
-                    >
-                      <UserAvatar
-                        avatar={m.avatar}
-                        userId={id}
-                        name={name}
-                        size="chip"
-                        className="shrink-0"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <StatusDot member={m} t={t} />
-                          <span className="truncate text-sm font-medium text-foreground">{name}</span>
-                        </div>
-                        <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
+                    {multiple ? (
+                      <div className="flex items-stretch">
+                        <label className="flex shrink-0 items-center px-3">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-primary"
+                            checked={checked}
+                            aria-label={name}
+                            onChange={() => toggleUser(id)}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => pick(id)}
+                          aria-current={picked ? 'true' : undefined}
+                          className={rowClass}
+                        >
+                          {body}
+                        </button>
                       </div>
-                      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                        {accountRoleLabel(memberOrgRole(m), t)}
-                      </span>
-                    </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => pick(id)}
+                        aria-current={picked ? 'true' : undefined}
+                        className={rowClass}
+                      >
+                        {body}
+                      </button>
+                    )}
                   </li>
                 );
               })}
             </ul>
+            {hasMoreScroll ? <div ref={sentinelRef} className="h-8" aria-hidden /> : null}
             {!paged.length ? (
               <p className="px-3 py-6 text-center text-sm text-muted-foreground">
                 {emptyLabel || t('adminUsers.noUsers')}

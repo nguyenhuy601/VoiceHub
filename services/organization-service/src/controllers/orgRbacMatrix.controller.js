@@ -219,6 +219,18 @@ async function putPositionBindings(req, res) {
   }
 }
 
+/* S2S: vị trí tổ chức đang gán — project-service gợi ý nhân sự. */
+async function listActivePositionsInternal(req, res) {
+  try {
+    const orgId = String(req.params.organizationId || req.params.orgId || '').trim();
+    if (!orgId) return orgValidation(res, 'organizationId bắt buộc');
+    const positions = await orgRbac.listActivePositionDirectory(orgId);
+    return sendData(res, { positions });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
 /* Assignments */
 async function listAssignments(req, res) {
   try {
@@ -284,6 +296,7 @@ module.exports = {
   deletePosition,
   getPositionBindings,
   putPositionBindings,
+  listActivePositionsInternal,
   listAssignments,
   assignPosition,
   endAssignment,

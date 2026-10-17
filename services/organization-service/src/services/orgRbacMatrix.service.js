@@ -355,6 +355,41 @@ async function replacePositionRoleBindings(organizationId, positionId, roleIds =
 
 /* ---------- Assignments ---------- */
 
+/**
+ * Gán vị trí đang hiệu lực: một dòng / user, kèm mã và tên vị trí tổ chức.
+ * S2S cho gợi ý nhân sự — không đọc chức danh CV.
+ */
+async function listActivePositionDirectory(organizationId) {
+  const oid = asObjectId(organizationId, 'organizationId');
+  const assignments = await EmployeePositionAssignment.find({
+    organizationId: oid,
+    status: 'active',
+  })
+    .sort({ updatedAt: -1 })
+    .select('userId positionId')
+    .lean();
+  const positionIds = [...new Set(assignments.map((row) => String(row.positionId || '')).filter(Boolean))];
+  const positions = positionIds.length
+    ? await OrganizationalPosition.find({ _id: { $in: positionIds }, status: 'active' })
+        .select('code name')
+        .lean()
+    : [];
+  const byId = new Map(positions.map((row) => [String(row._id), row]));
+  const byUser = new Map();
+  for (const row of assignments) {
+    const uid = String(row.userId || '').trim();
+    if (!uid || byUser.has(uid)) continue;
+    const position = byId.get(String(row.positionId || ''));
+    if (!position) continue;
+    byUser.set(uid, {
+      userId: uid,
+      positionCode: String(position.code || '').trim(),
+      positionName: String(position.name || '').trim(),
+    });
+  }
+  return [...byUser.values()];
+}
+
 async function listAssignments(organizationId, { userId = null, status = 'active' } = {}) {
   const oid = asObjectId(organizationId, 'organizationId');
   const filter = { organizationId: oid };
@@ -501,6 +536,7 @@ module.exports = {
   deletePosition,
   getPositionRoleBindings,
   replacePositionRoleBindings,
+  listActivePositionDirectory,
   listAssignments,
   assignPositionToUser,
   endAssignment,

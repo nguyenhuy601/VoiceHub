@@ -148,6 +148,36 @@ function SortableTh({ label, columnKey, activeKey, dir, onSort }) {
   );
 }
 
+/** Một org chỉ một lượt tải — effect chạy lại (StrictMode) dùng cùng promise. */
+const usersListEnrichmentInflight = new Map();
+
+function fetchUsersListEnrichment(orgId) {
+  const key = String(orgId || '').trim();
+  const pending = usersListEnrichmentInflight.get(key);
+  if (pending) return pending;
+
+  const task = (async () => {
+    let assignmentsFailed = false;
+    const [structureRes, assignRes, positionRes, positionAssignRes] = await Promise.all([
+      organizationAPI.getStructure(key),
+      orgRoleCatalogAPI.listAssignments(key).catch(() => {
+        assignmentsFailed = true;
+        return null;
+      }),
+      organizationAPI.listHrPositions(key).catch(() => null),
+      orgRbacAPI.listAssignments(key, { status: 'active' }).catch(() => null),
+    ]);
+    return { structureRes, assignRes, positionRes, positionAssignRes, assignmentsFailed };
+  })().finally(() => {
+    if (usersListEnrichmentInflight.get(key) === task) {
+      usersListEnrichmentInflight.delete(key);
+    }
+  });
+
+  usersListEnrichmentInflight.set(key, task);
+  return task;
+}
+
 function collectDeptTeamMaps(structure) {
   const departments = new Map();
   const teams = new Map();
@@ -176,6 +206,8 @@ function collectDeptTeamMaps(structure) {
 
 export default function UsersListPanel({ orgId }) {
   const { t, locale } = useAppStrings();
+  const tRef = useRef(t);
+  tRef.current = t;
   const navigate = useNavigate();
   const { organization } = useCompanyAdminContext();
   const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId, {
@@ -260,16 +292,13 @@ export default function UsersListPanel({ orgId }) {
     let cancelled = false;
     (async () => {
       try {
-        let assignmentsFailed = false;
-        const [structureRes, assignRes, positionRes, positionAssignRes] = await Promise.all([
-          organizationAPI.getStructure(orgId),
-          orgRoleCatalogAPI.listAssignments(orgId).catch(() => {
-            assignmentsFailed = true;
-            return null;
-          }),
-          organizationAPI.listHrPositions(orgId).catch(() => null),
-          orgRbacAPI.listAssignments(orgId, { status: 'active' }).catch(() => null),
-        ]);
+        const {
+          structureRes,
+          assignRes,
+          positionRes,
+          positionAssignRes,
+          assignmentsFailed,
+        } = await fetchUsersListEnrichment(orgId);
         const body = structureRes?.data?.data ?? structureRes?.data ?? structureRes;
         const assignments =
           assignRes?.data?.assignments ||
@@ -299,7 +328,7 @@ export default function UsersListPanel({ orgId }) {
         if (!cancelled) {
           setStructureMaps(collectDeptTeamMaps(body));
           // Chỉ vai trò tổ chức đã gán. Trưởng phòng/nhóm trên cơ cấu không phải vai trò tổ chức.
-          const rowMap = buildOrgRoleRowsByUserId({ branches: [] }, assignments, t);
+          const rowMap = buildOrgRoleRowsByUserId({ branches: [] }, assignments, tRef.current);
           setOrgRoleByUser(Object.fromEntries(rowMap));
           setPositionByUser(nextPositionByUser);
           setStructureLoadFailed(assignmentsFailed);
@@ -316,7 +345,7 @@ export default function UsersListPanel({ orgId }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, t, structureReloadKey]);
+  }, [orgId, structureReloadKey]);
 
   const formatWhen = (value) => {
     if (!value) return '—';

@@ -36,10 +36,13 @@ export default function ProjectIntakeForm({
       <CoreTeamSection
         orgId={organizationId}
         form={wizard.form}
-        setIntakeSlot={wizard.setIntakeSlot}
+        catalogRoles={wizard.catalogRoles}
+        addGateRole={wizard.addGateRole}
+        removeGateRole={wizard.removeGateRole}
+        setGateAssignee={wizard.setGateAssignee}
         fieldErrors={fieldErrors}
         showErrors={showErrors}
-        sectionMeta={sectionMeta.team}
+        sectionMeta={sectionMeta}
         t={t}
       />
       <AnalysisMethodSection

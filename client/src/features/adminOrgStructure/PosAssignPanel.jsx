@@ -22,11 +22,31 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { memberDisplayName } from '../../utils/adminUserUtils';
+import {
+  activeAssignmentByUser,
+  partitionPositionChange,
+  uniqueIds,
+} from './positionAssignmentBulk';
 
-export default function PosAssignPanel({ orgId, embedded = false }) {
+const PROFILE_PATCH = {
+  skipGlobalErrorHandling: true,
+  skipNotFoundToast: true,
+  skipPermissionDeniedToast: true,
+};
+
+function assignmentRows(res) {
+  return res?.data?.assignments || res?.data?.data?.assignments || [];
+}
+
+export default function PosAssignPanel({ orgId, embedded = false, selectedUserIds }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
+  const selectionControlled = Array.isArray(selectedUserIds);
+  const [localUserIds, setLocalUserIds] = useState([]);
+  const checkedIds = selectionControlled ? uniqueIds(selectedUserIds) : localUserIds;
+  const targetUserIds = checkedIds.length ? checkedIds : userId ? [userId] : [];
+  const singleUserId = targetUserIds.length === 1 ? targetUserIds[0] : '';
   const titleParam = String(searchParams.get('title') || '').trim();
   const { loadMembers, membersById, error: membersError } = useAdminMembers(orgId, { view: 'directory' });
   const [mode, setMode] = useState('existing');
@@ -40,10 +60,10 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
   const [saving, setSaving] = useState(false);
   const [confirmUnassign, setConfirmUnassign] = useState(false);
 
-  const selectedMember = membersById.get(userId) || null;
+  const selectedMember = membersById.get(singleUserId) || null;
   const memberName = selectedMember
-    ? memberDisplayName(selectedMember, userId)
-    : userId;
+    ? memberDisplayName(selectedMember, singleUserId)
+    : singleUserId;
 
   const positionLabel = (row) => {
     const title = String(row?.title || row?.name || '').trim();
@@ -106,14 +126,14 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
   }, [titleParam, hrPositions, selectedPositionId]);
 
   useEffect(() => {
-    if (!orgId || !userId) {
+    if (!orgId || !singleUserId) {
       setCurrentPositionId('');
       return undefined;
     }
     let cancelled = false;
     (async () => {
       try {
-        const asgRes = await orgRbacAPI.listAssignments(orgId, { userId, status: 'active' });
+        const asgRes = await orgRbacAPI.listAssignments(orgId, { userId: singleUserId, status: 'active' });
         const assignments = asgRes?.data?.assignments || asgRes?.data?.data?.assignments || [];
         const active = Array.isArray(assignments) ? assignments[0] : null;
         if (!cancelled) setCurrentPositionId(String(active?.positionId || '').trim());
@@ -124,7 +144,7 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
     return () => {
       cancelled = true;
     };
-  }, [orgId, userId, reloadTick]);
+  }, [orgId, singleUserId, reloadTick]);
 
   const selectedPosition = (hrPositions || []).find(
     (row) => String(row?.id || row?._id || '') === selectedPositionId
@@ -136,7 +156,7 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
 
   const save = async (e) => {
     e.preventDefault();
-    if (!orgId || !userId || saving) return;
+    if (!orgId || !targetUserIds.length || saving) return;
     if (mode === 'existing' && !selectedPositionId) return;
     if (mode === 'custom' && !jobTitle) return;
     setSaving(true);
@@ -159,19 +179,27 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
         toast.error(t('adminOrg.posAssignNeedPosition', 'Chọn hoặc tạo vị trí tổ chức trước khi gán.'));
         return;
       }
-      await orgRbacAPI.assignPosition(orgId, { userId, positionId });
-      setCurrentPositionId(positionId);
-      // Nhãn hồ sơ. Assignment đã lưu — thiếu hồ sơ không được báo "không tìm thấy tổ chức/dữ liệu".
-      try {
-        await adminUserAPI.patchProfile(orgId, userId, { jobTitle }, {
-          skipGlobalErrorHandling: true,
-          skipNotFoundToast: true,
-          skipPermissionDeniedToast: true,
-        });
-      } catch {
-        /* hồ sơ chỉ là nhãn hiển thị */
+      const listed = assignmentRows(await orgRbacAPI.listAssignments(orgId, { status: 'active' }));
+      const { changed, skipped } = partitionPositionChange(
+        targetUserIds,
+        activeAssignmentByUser(listed),
+        { mode: 'assign', toId: positionId }
+      );
+      for (const id of changed) {
+        await orgRbacAPI.assignPosition(orgId, { userId: id, positionId });
+        try {
+          await adminUserAPI.patchProfile(orgId, id, { jobTitle }, PROFILE_PATCH);
+        } catch {
+          /* hồ sơ chỉ là nhãn hiển thị */
+        }
       }
-      toast.success(t('adminOrg.posAssigned'));
+      if (singleUserId) setCurrentPositionId(positionId);
+      if (!changed.length) {
+        toast.error(t('adminOrg.posBulkNoneChanged'));
+        return;
+      }
+      toast.success(t('adminOrg.posBulkAssignDone', { count: changed.length }));
+      if (skipped.length) toast(t('adminOrg.posBulkSkipped', { count: skipped.length }));
       await loadMembers();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.posAssignFail') }));
@@ -181,33 +209,28 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
   };
 
   const unassign = async () => {
-    if (!orgId || !userId || !currentTitle || saving) return;
+    if (!orgId || !targetUserIds.length || saving) return;
     setSaving(true);
     try {
-      try {
-        const asgRes = await orgRbacAPI.listAssignments(orgId, { userId, status: 'active' });
-        const assignments =
-          asgRes?.data?.assignments || asgRes?.data?.data?.assignments || [];
-        for (const row of assignments) {
-          const aid = String(row?._id || row?.id || '').trim();
-          if (aid) await orgRbacAPI.endAssignment(orgId, aid);
+      const listed = assignmentRows(await orgRbacAPI.listAssignments(orgId, { status: 'active' }));
+      const byUser = activeAssignmentByUser(listed);
+      const { changed } = partitionPositionChange(targetUserIds, byUser, { mode: 'remove' });
+      for (const id of changed) {
+        const aid = byUser.get(id)?.assignmentId;
+        if (aid) await orgRbacAPI.endAssignment(orgId, aid);
+        try {
+          await adminUserAPI.patchProfile(orgId, id, { jobTitle: '' }, PROFILE_PATCH);
+        } catch {
+          /* hồ sơ chỉ là nhãn hiển thị */
         }
-      } catch (_) {
-        /* profile clear vẫn chạy */
       }
-      try {
-        await adminUserAPI.patchProfile(orgId, userId, { jobTitle: '' }, {
-          skipGlobalErrorHandling: true,
-          skipNotFoundToast: true,
-          skipPermissionDeniedToast: true,
-        });
-      } catch {
-        /* hồ sơ chỉ là nhãn hiển thị */
+      if (!changed.length) {
+        toast.error(t('adminOrg.posBulkNoneChanged'));
+        return;
       }
-      toast.success(t('adminOrg.posUnassigned'));
+      toast.success(t('adminOrg.posBulkRemoveDone', { count: changed.length }));
       setConfirmUnassign(false);
       setCurrentPositionId('');
-      setSelectedPositionId('');
       await loadMembers();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.posUnassignFail') }));
@@ -241,8 +264,14 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
         <AdminListSkeleton rows={3} />
       ) : (
         <form className="space-y-4" onSubmit={save}>
-        {!userId ? (
-          <p className="text-sm text-muted-foreground">{t('adminUsers.selectUserFirst')}</p>
+        {!targetUserIds.length ? (
+          <p className="text-sm text-muted-foreground">{t('adminOrg.posSelectUsersFirst')}</p>
+        ) : targetUserIds.length > 1 ? (
+          <p className="text-sm text-muted-foreground">
+            {t('adminOrg.posBulkSelected', { count: targetUserIds.length })}
+            {' '}
+            {t('adminOrg.posBulkAssignHint')}
+          </p>
         ) : (
           <p className="text-sm text-muted-foreground">
             {currentTitle
@@ -302,14 +331,14 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
         <div className="flex flex-wrap gap-2">
           <button
             type="submit"
-            disabled={saving || !userId || (mode === 'existing' ? !selectedPositionId : !jobTitle)}
+            disabled={saving || !targetUserIds.length || (mode === 'existing' ? !selectedPositionId : !jobTitle)}
             className={adminPrimaryBtnClass()}
           >
             {saving ? t('common.saving') : t('adminDomains.rbac.posAssign')}
           </button>
           <button
             type="button"
-            disabled={saving || !userId || !currentTitle}
+            disabled={saving || !targetUserIds.length || (targetUserIds.length === 1 && !currentPositionId)}
             className={adminDangerBtnClass()}
             onClick={() => setConfirmUnassign(true)}
           >
@@ -330,7 +359,11 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
         onConfirm={unassign}
         variant="danger"
         title={t('adminOrg.posUnassignFromMember')}
-        message={t('adminOrg.posUnassignConfirm', { name: currentTitle, user: memberName })}
+        message={
+          targetUserIds.length > 1
+            ? t('adminOrg.posBulkRemoveConfirmMessage', { count: targetUserIds.length, name: currentTitle })
+            : t('adminOrg.posUnassignConfirm', { name: currentTitle, user: memberName })
+        }
         confirmText={t('adminOrg.posUnassignFromMember')}
         cancelText={t('common.cancel')}
       />
@@ -342,7 +375,14 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
   return (
     <AdminUserPanelShell title={t('adminDomains.rbac.posAssign')} wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
-        <AdminUserPicker orgId={orgId} selectedUserId={userId} hint={t('adminOrg.posAssignUserHint')} />
+        <AdminUserPicker
+          orgId={orgId}
+          selectionMode="multiple"
+          scrollLoad
+          selectedUserIds={targetUserIds}
+          onSelectedUserIdsChange={setLocalUserIds}
+          hint={t('adminOrg.posAssignUserHint')}
+        />
         {body}
       </div>
     </AdminUserPanelShell>

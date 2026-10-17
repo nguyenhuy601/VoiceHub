@@ -10,16 +10,18 @@ const MENU_WIDTH = 220;
 const GAP = 4;
 const SAFE_TOP = 8;
 const SAFE_BOTTOM = 8;
-const MENU_HEIGHT_ESTIMATE = 400;
+const MENU_MIN_HEIGHT = 120;
+const MENU_HEIGHT_ESTIMATE = 480;
 
 /**
- * Chỉ dùng top + maxHeight (không dùng bottom) để overflow-y scroll luôn hoạt động.
- * Giữa màn hình: chọn phía nhiều chỗ hơn; luôn kẹp trong viewport.
+ * Khung menu luôn nằm trong viewport. Chiều cao nội dung lớn hơn khung thì
+ * vùng cuộn bên trong (không phải khung fixed) nhận overflow.
  */
 function computeMenuPos(btnRect, menuH, menuW = MENU_WIDTH) {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const natural = Math.max(menuH || MENU_HEIGHT_ESTIMATE, 120);
+  const viewportMax = Math.max(MENU_MIN_HEIGHT, vh - SAFE_TOP - SAFE_BOTTOM);
+  const natural = Math.min(Math.max(menuH || MENU_HEIGHT_ESTIMATE, MENU_MIN_HEIGHT), viewportMax);
 
   let left = btnRect.right - menuW;
   left = Math.max(SAFE_TOP, Math.min(left, vw - menuW - SAFE_TOP));
@@ -27,25 +29,20 @@ function computeMenuPos(btnRect, menuH, menuW = MENU_WIDTH) {
   const spaceBelow = Math.max(0, vh - SAFE_BOTTOM - (btnRect.bottom + GAP));
   const spaceAbove = Math.max(0, btnRect.top - GAP - SAFE_TOP);
 
-  // Đủ chỗ dưới → dưới; không đủ dưới nhưng đủ trên → trên; không đủ cả hai → phía rộng hơn
   let placeAbove = false;
   if (spaceBelow >= natural) placeAbove = false;
   else if (spaceAbove >= natural) placeAbove = true;
   else placeAbove = spaceAbove > spaceBelow;
 
   const available = placeAbove ? spaceAbove : spaceBelow;
-  const maxHeight = Math.max(120, Math.min(natural, available));
+  const maxHeight = Math.max(
+    Math.min(MENU_MIN_HEIGHT, viewportMax),
+    Math.min(natural, available, viewportMax)
+  );
 
-  let top;
-  if (placeAbove) {
-    top = btnRect.top - GAP - maxHeight;
-  } else {
-    top = btnRect.bottom + GAP;
-  }
-
-  // Kẹp chặt trong viewport — tránh phần trên/dưới bị cắt ngoài hộp (mất scroll)
-  top = Math.min(top, vh - SAFE_BOTTOM - maxHeight);
-  top = Math.max(SAFE_TOP, top);
+  let top = placeAbove ? btnRect.top - GAP - maxHeight : btnRect.bottom + GAP;
+  const maxTop = Math.max(SAFE_TOP, vh - SAFE_BOTTOM - maxHeight);
+  top = Math.min(Math.max(SAFE_TOP, top), maxTop);
 
   return {
     top,
@@ -77,18 +74,14 @@ export default function AdminUserActionsMenu({
   const [pos, setPos] = useState({ top: 0, left: 0, maxHeight: 320 });
   const btnRef = useRef(null);
   const menuRef = useRef(null);
+  const scrollRef = useRef(null);
 
   const placeMenu = () => {
     if (!btnRef.current || !menuRef.current) return;
     const rect = btnRef.current.getBoundingClientRect();
     const menuEl = menuRef.current;
-
-    // Đo chiều cao nội dung thật (tạm bỏ giới hạn)
-    const prevMax = menuEl.style.maxHeight;
-    menuEl.style.maxHeight = 'none';
-    const naturalH = Math.max(menuEl.scrollHeight, MENU_HEIGHT_ESTIMATE);
-    menuEl.style.maxHeight = prevMax;
-
+    // scrollHeight của vùng cuộn đã là chiều cao nội dung đầy đủ, kể cả khi đang bị maxHeight.
+    const naturalH = Math.max(scrollRef.current?.scrollHeight || menuEl.scrollHeight, MENU_MIN_HEIGHT);
     setPos(computeMenuPos(rect, naturalH, menuEl.offsetWidth || MENU_WIDTH));
     setReady(true);
   };
@@ -99,7 +92,19 @@ export default function AdminUserActionsMenu({
       return undefined;
     }
     placeMenu();
-    const onReposition = () => placeMenu();
+    const onReposition = (event) => {
+      const target = event?.target;
+      const scrollEl = scrollRef.current;
+      const menuEl = menuRef.current;
+      // Cuộn trong popup không được đo lại / đổi maxHeight — nếu không scrollTop bị kéo về 0.
+      if (
+        target
+        && (target === scrollEl || target === menuEl || scrollEl?.contains(target) || menuEl?.contains(target))
+      ) {
+        return;
+      }
+      placeMenu();
+    };
     window.addEventListener('resize', onReposition);
     window.addEventListener('scroll', onReposition, true);
     return () => {
@@ -226,16 +231,21 @@ export default function AdminUserActionsMenu({
               role="menu"
               aria-label={t('adminUsers.moreActions')}
               onKeyDown={handleMenuKeyDown}
-              className="fixed z-[10040] w-[220px] overscroll-contain rounded-xl border border-border bg-card py-1 shadow-xl motion-safe:animate-fade-in-fast"
+              className="fixed z-[10040] w-[220px] overflow-hidden rounded-xl border border-border bg-card shadow-xl motion-safe:animate-fade-in-fast"
               style={{
                 top: pos.top,
                 left: pos.left,
                 maxHeight: pos.maxHeight,
-                overflowY: 'auto',
                 visibility: ready ? 'visible' : 'hidden',
                 pointerEvents: ready ? 'auto' : 'none',
               }}
             >
+              <div
+                ref={scrollRef}
+                className="min-h-0 overflow-y-auto overscroll-contain py-1"
+                style={{ maxHeight: pos.maxHeight }}
+                onWheel={(event) => event.stopPropagation()}
+              >
               {variant === 'account' ? (
                 <>
                   <Group label={t('adminUsers.menuGroupInfo')}>
@@ -292,6 +302,9 @@ export default function AdminUserActionsMenu({
                     <ItemLink to={`/app/admin/rbac/org-roles/assign${q}`}>
                       {t('adminUsers.assignRole')}
                     </ItemLink>
+                    <ItemLink to={`/app/admin/rbac/positions/assign${q}`}>
+                      {t('adminUsers.assignPosition')}
+                    </ItemLink>
                     <ItemLink to={adminUserHubLink('/app/admin/users/people-ops', userId, 'assign-org')}>
                       {t('adminDomains.users.assignOrg')}
                     </ItemLink>
@@ -308,6 +321,7 @@ export default function AdminUserActionsMenu({
                   </Group>
                 </>
               )}
+              </div>
             </div>,
             document.body
           )

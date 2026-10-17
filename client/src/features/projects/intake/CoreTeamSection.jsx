@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Check, Circle } from 'lucide-react';
 import { queryKeys } from '../../../lib/queryKeys';
 import { projectAPI } from '../../../services/api/projectAPI';
+import { PROJECT_ROLE_LABELS } from '../../../utils/roleTaxonomy';
 import { isWorkloadFull, isWorkloadPartial } from '../../../utils/wizardRelatedDeptMembers';
 import {
-  INTAKE_LEAD_ROLE_KEYS,
-  INTAKE_LEAD_LABEL_KEYS,
   ROLE_SUGGEST_PAGE_SIZE,
-  emptyIntakeSlots,
+  countAssignedGateSlots,
+  gateRoleKeys,
+  positionHintsForRole,
 } from '../wizard/projectWizardIntakeRoles';
 import { useRoleSuggestColumn } from '../wizard/useRoleSuggestColumn';
 import { wizardUi } from '../wizard/projectWizardUi';
@@ -16,9 +17,16 @@ import { intakeUi } from './intakeUi';
 import IntakeSection from './IntakeSection';
 
 const FIT_AVAILABLE = true;
+const HIDDEN_ROLE_KEYS = new Set(['observer', 'watcher', 'intern', 'reviewer']);
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
+}
+
+function roleLabel(role) {
+  const key = String(role?.key || '').trim().toLowerCase();
+  const raw = String(role?.label || PROJECT_ROLE_LABELS[key] || key).trim();
+  return raw.replace(/^Dự án —\s*/i, '').replace(/^Project Role —\s*/i, '');
 }
 
 function CandidateLoad({ item, t }) {
@@ -51,7 +59,7 @@ function PickerList({ orgId, roleKey, initialItems, initialHasMore, selectedId, 
     roleKey,
     initialItems,
     initialHasMore,
-    enabled: Boolean(orgId),
+    enabled: Boolean(orgId && roleKey),
     fitAvailable: FIT_AVAILABLE,
   });
   const scrollRef = useRef(null);
@@ -87,7 +95,7 @@ function PickerList({ orgId, roleKey, initialItems, initialHasMore, selectedId, 
           >
             <p className="text-sm font-medium text-foreground">{item.displayName}</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {item.jobTitle || t('adminTasks.wizardSuggestNoTitle')}
+              {item.positionName || t('adminTasks.wizardSuggestNoPosition')}
             </p>
             <CandidateLoad item={item} t={t} />
           </button>
@@ -103,12 +111,15 @@ function PickerList({ orgId, roleKey, initialItems, initialHasMore, selectedId, 
 }
 
 function RoleCard({
+  processKey,
   roleKey,
+  label,
   slot,
   fieldError,
   showErrors,
   expanded,
   onToggle,
+  onRemove,
   orgId,
   pool,
   hasMoreByRole,
@@ -116,11 +127,11 @@ function RoleCard({
   t,
 }) {
   const assigned = Boolean(slot?.userId);
-  const label = t(INTAKE_LEAD_LABEL_KEYS[roleKey]);
+  const hints = positionHintsForRole(roleKey);
 
   return (
     <div
-      id={`intake-field-${roleKey}`}
+      id={`intake-field-${processKey}-${roleKey}`}
       className={`${intakeUi.roleCard} ${expanded ? intakeUi.roleCardOpen : ''}`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -133,24 +144,30 @@ function RoleCard({
             )}
             {label}
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {hints.length
+              ? t('adminTasks.intakePositionHint', { positions: hints.join(', ') })
+              : t('adminTasks.intakePositionUnmapped')}
+          </p>
           {assigned ? (
             <>
               <p className="mt-1 text-sm text-foreground">{slot.displayName || slot.userId}</p>
-              {slot.jobTitle ? (
-                <p className="text-xs text-muted-foreground">{slot.jobTitle}</p>
+              {slot.positionName ? (
+                <p className="text-xs text-muted-foreground">{slot.positionName}</p>
               ) : null}
             </>
           ) : (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t('adminTasks.intakeRoleNotAssigned') || 'Chưa gán — chọn thành viên'}
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{t('adminTasks.intakeRoleNotAssigned')}</p>
           )}
         </div>
-        <button type="button" className={intakeUi.secondaryBtn} onClick={onToggle}>
-          {assigned
-            ? t('adminTasks.intakeRoleChange') || 'Đổi'
-            : t('adminTasks.intakeRoleAssign') || 'Gán'}
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button type="button" className={intakeUi.secondaryBtn} onClick={onRemove}>
+            {t('adminTasks.intakeRemoveRole')}
+          </button>
+          <button type="button" className={intakeUi.secondaryBtn} onClick={onToggle}>
+            {assigned ? t('adminTasks.intakeRoleChange') : t('adminTasks.intakeRoleAssign')}
+          </button>
+        </div>
       </div>
       {showErrors && fieldError ? <p className={`mt-2 ${intakeUi.fieldError}`}>{fieldError}</p> : null}
       {expanded ? (
@@ -168,18 +185,137 @@ function RoleCard({
   );
 }
 
+function GateGroup({
+  index,
+  sectionId,
+  processKey,
+  title,
+  subtitle,
+  sectionMeta,
+  slots,
+  catalogRoles,
+  labelByKey,
+  orgId,
+  pool,
+  hasMoreByRole,
+  fieldErrors,
+  showErrors,
+  onAddRole,
+  onRemoveRole,
+  onPick,
+  t,
+}) {
+  const [openRole, setOpenRole] = useState('');
+  const [draftRole, setDraftRole] = useState('');
+  const selectedKeys = gateRoleKeys({ [processKey]: slots }, processKey);
+  const available = catalogRoles.filter((role) => !selectedKeys.includes(String(role.key || '').toLowerCase()));
+  const assigned = countAssignedGateSlots({ [processKey]: slots }, processKey);
+  const sectionStatus =
+    sectionMeta?.hint === 'error' ? 'error' : sectionMeta?.complete ? 'complete' : 'partial';
+  const processError = fieldErrors[processKey];
+
+  return (
+    <IntakeSection
+      index={index}
+      sectionId={sectionId}
+      title={title}
+      subtitle={subtitle}
+      status={sectionStatus}
+      statusDetail={assigned ? String(assigned) : ''}
+      t={t}
+    >
+      <p className="text-xs text-muted-foreground">{t('adminTasks.wizardIntakeDualOk')}</p>
+      <div id={`intake-field-${processKey}`} className="space-y-3">
+        {selectedKeys.map((roleKey) => (
+          <RoleCard
+            key={`${processKey}-${roleKey}`}
+            processKey={processKey}
+            roleKey={roleKey}
+            label={labelByKey.get(roleKey) || PROJECT_ROLE_LABELS[roleKey] || roleKey}
+            slot={slots[roleKey]}
+            fieldError={fieldErrors[`${processKey}:${roleKey}`]}
+            showErrors={showErrors}
+            expanded={openRole === roleKey}
+            onToggle={() => setOpenRole((prev) => (prev === roleKey ? '' : roleKey))}
+            onRemove={() => onRemoveRole(processKey, roleKey)}
+            orgId={orgId}
+            pool={pool}
+            hasMoreByRole={hasMoreByRole}
+            onPick={(item) => onPick(processKey, roleKey, item)}
+            t={t}
+          />
+        ))}
+        {!selectedKeys.length ? (
+          <p className="text-xs text-muted-foreground">{t('adminTasks.intakeNoRolesYet')}</p>
+        ) : null}
+      </div>
+      {showErrors && processError ? <p className={intakeUi.fieldError}>{processError}</p> : null}
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <label className="sr-only" htmlFor={`intake-add-role-${processKey}`}>
+          {t('adminTasks.intakePickRole')}
+        </label>
+        <select
+          id={`intake-add-role-${processKey}`}
+          className={intakeUi.select}
+          value={draftRole}
+          onChange={(event) => setDraftRole(event.target.value)}
+        >
+          <option value="">{t('adminTasks.intakePickRole')}</option>
+          {available.map((role) => (
+            <option key={role.key} value={role.key}>
+              {roleLabel(role, t)}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className={intakeUi.secondaryBtn}
+          disabled={!draftRole}
+          onClick={() => {
+            onAddRole(processKey, draftRole);
+            setDraftRole('');
+            setOpenRole(String(draftRole).toLowerCase());
+          }}
+        >
+          {t('adminTasks.intakeAddRole')}
+        </button>
+      </div>
+    </IntakeSection>
+  );
+}
+
 export default function CoreTeamSection({
   orgId,
   form,
-  setIntakeSlot,
+  catalogRoles = [],
+  addGateRole,
+  removeGateRole,
+  setGateAssignee,
   fieldErrors,
   showErrors,
   sectionMeta,
   t,
 }) {
-  const [openRole, setOpenRole] = useState('');
-  const slots = { ...emptyIntakeSlots(), ...(form.intakeSlots || {}) };
-  const roleKeysParam = INTAKE_LEAD_ROLE_KEYS.join(',');
+  const roles = useMemo(() => {
+    const list = (Array.isArray(catalogRoles) ? catalogRoles : [])
+      .map((role) => ({
+        ...role,
+        key: String(role?.key || '').trim().toLowerCase(),
+      }))
+      .filter((role) => role.key && !HIDDEN_ROLE_KEYS.has(role.key));
+    list.sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0));
+    return list;
+  }, [catalogRoles]);
+
+  const labelByKey = useMemo(() => {
+    const map = new Map();
+    for (const role of roles) map.set(role.key, roleLabel(role, t));
+    return map;
+  }, [roles, t]);
+
+  const whatSlots = form.gateSlots?.what || {};
+  const howSlots = form.gateSlots?.how || {};
+  const roleKeysParam = [...new Set([...Object.keys(whatSlots), ...Object.keys(howSlots)])].join(',');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: queryKeys.projects.roleSuggestPool(orgId, roleKeysParam, {
@@ -201,67 +337,59 @@ export default function CoreTeamSection({
       );
       return unwrap(res);
     },
-    enabled: Boolean(orgId),
+    enabled: Boolean(orgId && roleKeysParam),
     staleTime: 60_000,
   });
 
   const byRole = data?.byRole || {};
   const hasMoreByRole = data?.paging?.hasMoreByRole || {};
 
-  const sectionStatus =
-    sectionMeta?.hint === 'error' ? 'error' : sectionMeta?.complete ? 'complete' : 'partial';
-  const teamTotal = INTAKE_LEAD_ROLE_KEYS.length;
-  const statusDetail =
-    sectionMeta?.assigned != null && sectionMeta.assigned < teamTotal
-      ? `${sectionMeta.assigned} / ${teamTotal}`
-      : '';
-
-  const onPick = (roleKey, item) => {
-    const currentId = String(slots[roleKey]?.userId || '');
-    if (currentId && currentId === String(item.userId || '')) {
-      setIntakeSlot(roleKey, null);
-      return;
-    }
-    setIntakeSlot(roleKey, {
-      userId: item.userId,
-      displayName: item.displayName,
-      jobTitle: item.jobTitle,
-    });
-    setOpenRole('');
-  };
-
   return (
-    <IntakeSection
-      index={3}
-      sectionId="intake-section-team"
-      title={t('adminTasks.intakeSectionTeam') || 'Core team'}
-      status={sectionStatus}
-      statusDetail={statusDetail}
-      t={t}
-    >
-      <p className="text-xs text-muted-foreground">{t('adminTasks.wizardIntakeDualOk')}</p>
+    <>
       {isLoading ? <p className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
       {isError ? (
         <p className="text-sm text-muted-foreground">{t('adminTasks.wizardSuggestLoadFail')}</p>
       ) : null}
-      <div className="space-y-3">
-        {INTAKE_LEAD_ROLE_KEYS.map((roleKey) => (
-          <RoleCard
-            key={roleKey}
-            roleKey={roleKey}
-            slot={slots[roleKey]}
-            fieldError={fieldErrors[roleKey]}
-            showErrors={showErrors}
-            expanded={openRole === roleKey}
-            onToggle={() => setOpenRole((prev) => (prev === roleKey ? '' : roleKey))}
-            orgId={orgId}
-            pool={byRole}
-            hasMoreByRole={hasMoreByRole}
-            onPick={(item) => onPick(roleKey, item)}
-            t={t}
-          />
-        ))}
-      </div>
-    </IntakeSection>
+      <GateGroup
+        index={3}
+        sectionId="intake-section-analysis-team"
+        processKey="what"
+        title={t('adminTasks.intakeSectionAnalysisTeam')}
+        subtitle={t('adminTasks.intakeSectionAnalysisTeamHint')}
+        sectionMeta={sectionMeta?.analysisTeam}
+        slots={whatSlots}
+        catalogRoles={roles}
+        labelByKey={labelByKey}
+        orgId={orgId}
+        pool={byRole}
+        hasMoreByRole={hasMoreByRole}
+        fieldErrors={fieldErrors}
+        showErrors={showErrors}
+        onAddRole={addGateRole}
+        onRemoveRole={removeGateRole}
+        onPick={setGateAssignee}
+        t={t}
+      />
+      <GateGroup
+        index={4}
+        sectionId="intake-section-planning-team"
+        processKey="how"
+        title={t('adminTasks.intakeSectionPlanningTeam')}
+        subtitle={t('adminTasks.intakeSectionPlanningTeamHint')}
+        sectionMeta={sectionMeta?.planningTeam}
+        slots={howSlots}
+        catalogRoles={roles}
+        labelByKey={labelByKey}
+        orgId={orgId}
+        pool={byRole}
+        hasMoreByRole={hasMoreByRole}
+        fieldErrors={fieldErrors}
+        showErrors={showErrors}
+        onAddRole={addGateRole}
+        onRemoveRole={removeGateRole}
+        onPick={setGateAssignee}
+        t={t}
+      />
+    </>
   );
 }
