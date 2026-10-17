@@ -2,9 +2,14 @@
  * FE capability envelope (Wave B) — UI hint only; BE still enforces.
  */
 
-const PROJECT_CREATE_GRANT = 'project.project.create';
+export const PROJECT_CREATE_GRANT = 'project.project.create';
 
-/** @typedef {'grant' | 'scope' | 'grants_error' | null} CreateProjectDenyReason */
+/** Tạo dự án không có scope: không có dự án cá nhân, chỉ kiểm tra mã quyền. */
+export function isScopeLessGrant(code) {
+  return String(code || '').trim().toLowerCase() === PROJECT_CREATE_GRANT;
+}
+
+/** @typedef {'grant' | 'grants_error' | null} CreateProjectDenyReason */
 
 /**
  * @param {{
@@ -32,26 +37,15 @@ export function buildWorkspaceCapabilities(input = {}) {
   const grants = scopesProvided
     ? Object.keys(scope.grantScopes).map((g) => String(g || '').trim().toLowerCase()).filter(Boolean)
     : [];
-  const grantsProvided = scopesProvided;
-  // Unknown (not yet resolved) → rely on scope flag alone; resolved empty → deny create.
-  const hasCreateGrant = !grantsProvided
-    ? true
-    : grants.includes(PROJECT_CREATE_GRANT);
-
-  const canCreateProjectScope = Object.prototype.hasOwnProperty.call(scope, 'canCreateProject')
-    ? Boolean(scope.canCreateProject)
-    : Boolean(scope.canCreateTask);
+  // Chưa có grantScopes (đang tải / thiếu org) → từ chối. Không dùng cờ placement cũ.
+  const hasCreateGrant = Boolean(scopesProvided && grants.includes(PROJECT_CREATE_GRANT));
 
   const canCreateTask = Boolean(scope.canCreateTask);
-  const create = Boolean(canCreateProjectScope && hasCreateGrant);
+  const create = hasCreateGrant;
 
-  /** Prefer grant message when pack missing; else placement/scope. */
   /** @type {CreateProjectDenyReason} */
   let denyReason = null;
-  if (!create) {
-    if (!hasCreateGrant) denyReason = 'grant';
-    else if (!canCreateProjectScope) denyReason = 'scope';
-  }
+  if (!create) denyReason = 'grant';
 
   return {
     project: {
@@ -81,7 +75,6 @@ export function canCreateProjectUi(capabilities) {
  */
 export function createProjectDeniedI18nKey(capabilities) {
   const reason = capabilities?.project?.denyReason;
-  if (reason === 'scope') return 'taskBoard.createProjectDeniedScope';
   if (reason === 'grant' || reason === 'grants_error') {
     return 'taskBoard.createProjectDeniedGrant';
   }

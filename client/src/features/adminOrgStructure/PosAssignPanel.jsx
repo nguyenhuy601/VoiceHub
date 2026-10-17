@@ -22,16 +22,16 @@ import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { memberDisplayName } from '../../utils/adminUserUtils';
-import { memberJobTitle } from '../../utils/userTaxonomyUtils';
 
 export default function PosAssignPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const titleParam = String(searchParams.get('title') || '').trim();
-  const { members, loadMembers, membersById, error: membersError } = useAdminMembers(orgId, { view: 'directory' });
-  const [mode, setMode] = useState(titleParam ? 'existing' : 'existing');
-  const [selectedTitle, setSelectedTitle] = useState(titleParam);
+  const { loadMembers, membersById, error: membersError } = useAdminMembers(orgId, { view: 'directory' });
+  const [mode, setMode] = useState('existing');
+  const [selectedPositionId, setSelectedPositionId] = useState('');
+  const [currentPositionId, setCurrentPositionId] = useState('');
   const [customTitle, setCustomTitle] = useState('');
   const [hrPositions, setHrPositions] = useState([]);
   const [positionsLoading, setPositionsLoading] = useState(false);
@@ -41,22 +41,21 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
   const [confirmUnassign, setConfirmUnassign] = useState(false);
 
   const selectedMember = membersById.get(userId) || null;
-  const currentTitle = memberJobTitle(selectedMember);
   const memberName = selectedMember
     ? memberDisplayName(selectedMember, userId)
     : userId;
 
-  useEffect(() => {
-    if (titleParam) {
-      setSelectedTitle(titleParam);
-      setMode('existing');
-      return;
-    }
-    if (currentTitle) {
-      setSelectedTitle(currentTitle);
-      setMode('existing');
-    }
-  }, [titleParam, userId, currentTitle]);
+  const positionLabel = (row) => {
+    const title = String(row?.title || row?.name || '').trim();
+    const code = String(row?.key || row?.code || '').trim();
+    if (title && code) return `${title} (${code})`;
+    return title || code;
+  };
+
+  const currentPosition = (hrPositions || []).find(
+    (row) => String(row?.id || row?._id || '') === currentPositionId
+  );
+  const currentTitle = currentPosition ? positionLabel(currentPosition) : '';
 
   useEffect(() => {
     if (!orgId) return;
@@ -85,36 +84,64 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
     };
   }, [orgId, t, reloadTick]);
 
-  const titles = useMemo(() => {
-    const set = new Set();
-    for (const m of members) {
-      const title = memberJobTitle(m);
-      if (title) set.add(title);
-    }
-    for (const row of hrPositions || []) {
-      const title = String(row?.title || '').trim();
-      if (title) set.add(title);
-    }
-    if (String(selectedTitle || '').trim()) set.add(String(selectedTitle).trim());
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [members, hrPositions, selectedTitle]);
+  const positionOptions = useMemo(
+    () =>
+      (hrPositions || [])
+        .map((row) => ({
+          id: String(row?.id || row?._id || '').trim(),
+          label: positionLabel(row),
+        }))
+        .filter((row) => row.id && row.label)
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [hrPositions]
+  );
 
-  const jobTitle =
-    mode === 'custom' ? String(customTitle || '').trim() : String(selectedTitle || '').trim();
-
-  const resolvePositionId = () => {
-    const match = (hrPositions || []).find(
-      (row) => String(row?.title || row?.name || '').trim() === jobTitle
+  useEffect(() => {
+    if (!titleParam || !hrPositions.length || selectedPositionId) return;
+    const match = hrPositions.find(
+      (row) => String(row?.title || row?.name || '').trim() === titleParam
     );
-    return String(match?._id || match?.id || '').trim();
-  };
+    const id = String(match?.id || match?._id || '').trim();
+    if (id) setSelectedPositionId(id);
+  }, [titleParam, hrPositions, selectedPositionId]);
+
+  useEffect(() => {
+    if (!orgId || !userId) {
+      setCurrentPositionId('');
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const asgRes = await orgRbacAPI.listAssignments(orgId, { userId, status: 'active' });
+        const assignments = asgRes?.data?.assignments || asgRes?.data?.data?.assignments || [];
+        const active = Array.isArray(assignments) ? assignments[0] : null;
+        if (!cancelled) setCurrentPositionId(String(active?.positionId || '').trim());
+      } catch {
+        if (!cancelled) setCurrentPositionId('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, userId, reloadTick]);
+
+  const selectedPosition = (hrPositions || []).find(
+    (row) => String(row?.id || row?._id || '') === selectedPositionId
+  );
+  const jobTitle =
+    mode === 'custom'
+      ? String(customTitle || '').trim()
+      : String(selectedPosition?.title || selectedPosition?.name || '').trim();
 
   const save = async (e) => {
     e.preventDefault();
-    if (!orgId || !userId || !jobTitle || saving) return;
+    if (!orgId || !userId || saving) return;
+    if (mode === 'existing' && !selectedPositionId) return;
+    if (mode === 'custom' && !jobTitle) return;
     setSaving(true);
     try {
-      let positionId = resolvePositionId();
+      let positionId = mode === 'existing' ? selectedPositionId : '';
       if (!positionId && mode === 'custom') {
         const created = await organizationAPI.createHrPosition(orgId, { title: jobTitle });
         const pos = created?.data?.position || created?.data?.data?.position || created?.data;
@@ -133,8 +160,17 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
         return;
       }
       await orgRbacAPI.assignPosition(orgId, { userId, positionId });
-      // Label hồ sơ (không phải nguồn grant)
-      await adminUserAPI.patchProfile(orgId, userId, { jobTitle });
+      setCurrentPositionId(positionId);
+      // Nhãn hồ sơ. Assignment đã lưu — thiếu hồ sơ không được báo "không tìm thấy tổ chức/dữ liệu".
+      try {
+        await adminUserAPI.patchProfile(orgId, userId, { jobTitle }, {
+          skipGlobalErrorHandling: true,
+          skipNotFoundToast: true,
+          skipPermissionDeniedToast: true,
+        });
+      } catch {
+        /* hồ sơ chỉ là nhãn hiển thị */
+      }
       toast.success(t('adminOrg.posAssigned'));
       await loadMembers();
     } catch (error) {
@@ -159,10 +195,19 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
       } catch (_) {
         /* profile clear vẫn chạy */
       }
-      await adminUserAPI.patchProfile(orgId, userId, { jobTitle: '' });
+      try {
+        await adminUserAPI.patchProfile(orgId, userId, { jobTitle: '' }, {
+          skipGlobalErrorHandling: true,
+          skipNotFoundToast: true,
+          skipPermissionDeniedToast: true,
+        });
+      } catch {
+        /* hồ sơ chỉ là nhãn hiển thị */
+      }
       toast.success(t('adminOrg.posUnassigned'));
       setConfirmUnassign(false);
-      setSelectedTitle('');
+      setCurrentPositionId('');
+      setSelectedPositionId('');
       await loadMembers();
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('adminOrg.posUnassignFail') }));
@@ -231,13 +276,13 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
             <select
               required
               className={adminInputClass()}
-              value={selectedTitle}
-              onChange={(e) => setSelectedTitle(e.target.value)}
+              value={selectedPositionId}
+              onChange={(e) => setSelectedPositionId(e.target.value)}
             >
               <option value="">{t('adminOrg.selectTitle')}</option>
-              {titles.map((title) => (
-                <option key={title} value={title}>
-                  {title}
+              {positionOptions.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.label}
                 </option>
               ))}
             </select>
@@ -257,7 +302,7 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
         <div className="flex flex-wrap gap-2">
           <button
             type="submit"
-            disabled={saving || !userId || !jobTitle}
+            disabled={saving || !userId || (mode === 'existing' ? !selectedPositionId : !jobTitle)}
             className={adminPrimaryBtnClass()}
           >
             {saving ? t('common.saving') : t('adminDomains.rbac.posAssign')}

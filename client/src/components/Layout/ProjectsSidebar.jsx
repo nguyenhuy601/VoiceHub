@@ -71,6 +71,8 @@ import { coerceDeliveryPhase } from '../../utils/projectPhaseNav';
 import { isAiHitlIncomplete } from '../../features/projects/phase1/aiHitl/aiHitlNavState';
 import { loadLinkedPackForAiNav } from '../../features/projects/phase1/aiHitl/loadLinkedPackForAiNav';
 import { resolveDeliveryRoleBadges } from './profileDeliveryRoleBadge';
+import useGrantScopes from '../../hooks/useGrantScopes';
+import { PROJECT_CREATE_GRANT } from '../../lib/capabilities';
 
 const COLLAPSE_KEY = 'voicehub:sidebar-collapsed';
 
@@ -525,6 +527,8 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
     projectRow,
     workspaceOrgId,
   });
+  const { hasGrant, loading: grantsLoading, error: grantsError } = useGrantScopes(orgId);
+  const canCreateProject = !grantsLoading && !grantsError && hasGrant(PROJECT_CREATE_GRANT);
 
   const needsAiHitlPack =
     Boolean(projectId && orgId && projectRow) &&
@@ -584,16 +588,18 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   };
 
   const preItems = useMemo(() => {
-    return getProjectsPreSelectNavItems().map((item) => ({
-      ...item,
-      label: t(item.labelKey),
-      icon: MODULE_ICONS[item.key] || FolderKanban,
-      path:
-        item.key === 'new'
-          ? buildProjectsNewPath(orgId, { from: 'sidebar' })
-          : buildProjectsPickerPath(orgId),
-    }));
-  }, [orgId, t]);
+    return getProjectsPreSelectNavItems()
+      .filter((item) => item.key !== 'new' || canCreateProject)
+      .map((item) => ({
+        ...item,
+        label: t(item.labelKey),
+        icon: MODULE_ICONS[item.key] || FolderKanban,
+        path:
+          item.key === 'new'
+            ? buildProjectsNewPath(orgId, { from: 'sidebar' })
+            : buildProjectsPickerPath(orgId),
+      }));
+  }, [canCreateProject, orgId, t]);
 
   const boardId = boardQueryFromSearch(searchParams);
   const packIdQs = String(searchParams.get('packId') || '').trim();

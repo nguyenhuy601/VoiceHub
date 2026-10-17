@@ -1,5 +1,6 @@
 const OrgRoleCatalog = require('../models/OrgRoleCatalog');
 const OrgRoleAssignment = require('../models/OrgRoleAssignment');
+const OrganizationalRole = require('../models/OrganizationalRole');
 const {
   orgValidation,
   orgConflict,
@@ -28,9 +29,7 @@ const {
   normalizeLayerLabel,
   splitLayerLabel,
 } = require('@enterprise/shared/utils/roleLayerNaming');
-const {
-  validateAssignmentRoleKeys,
-} = require('../utils/orgRoleAssignPolicy');
+const { partitionOrgRoleAssignmentKeys } = require('../utils/orgRoleAssignPolicy');
 const {
   sortOrderFromIndex,
   nextAppendSortOrder,
@@ -290,20 +289,22 @@ async function listAssignments(req, res) {
     if (userId) filter.userId = toObjectId(userId);
     if (roleKey) filter.roleKey = roleKey;
 
-    const [assignments, rolesByKey] = await Promise.all([
+    const [assignments, orgRoles] = await Promise.all([
       OrgRoleAssignment.find(filter).lean(),
-      OrgRoleCatalog.find({ organizationId: oid }).select('key label').lean(),
+      OrganizationalRole.find({ organizationId: oid }).select('code name status').lean(),
     ]);
-    const roleMap = new Map((rolesByKey || []).map((r) => [r.key, r.label]));
+    const roleMap = new Map((orgRoles || []).map((r) => [r.code, r.name]));
 
-    const items = (assignments || []).map((a) => ({
-      userId: String(a.userId),
-      roleKey: a.roleKey,
-      roleLabel: roleMap.get(a.roleKey) || a.roleKey,
-      scopeType: 'org',
-      scopeName: 'Company',
-      assignedAt: a.createdAt,
-    }));
+    const items = (assignments || [])
+      .filter((a) => roleMap.has(a.roleKey))
+      .map((a) => ({
+        userId: String(a.userId),
+        roleKey: a.roleKey,
+        roleLabel: roleMap.get(a.roleKey) || a.roleKey,
+        scopeType: 'org',
+        scopeName: 'Company',
+        assignedAt: a.createdAt,
+      }));
 
     return res.json({ success: true, data: { assignments: items } });
   } catch (error) {
@@ -321,28 +322,44 @@ async function setAssignments(req, res) {
     if (!userId) return orgValidation(res, 'userId bắt buộc');
 
     const oid = toObjectId(organizationId);
-    await ensureDefaultCatalog(organizationId);
 
     const uid = toObjectId(userId);
     const keys = normalizeRoleKeys(roleKeys);
 
-    const roles = await OrgRoleCatalog.find({ organizationId: oid, key: { $in: keys } }).lean();
-    const roleByKey = new Map((roles || []).map((r) => [r.key, r]));
-
-    const validation = validateAssignmentRoleKeys(keys, roleByKey);
-    if (!validation.ok) {
-      return orgNotFound(res, `Org role không tồn tại: ${validation.key}`);
+    if (!keys.length) {
+      await OrgRoleAssignment.deleteMany({ organizationId: oid, userId: uid });
+      return res.json({ success: true, data: { assigned: [] } });
     }
 
-    // Reset assignment cho user.
+    const activeRoles = await OrganizationalRole.find({
+      organizationId: oid,
+      status: 'active',
+      code: { $in: keys },
+    })
+      .select('code')
+      .lean();
+    const partitioned = partitionOrgRoleAssignmentKeys(
+      keys,
+      (activeRoles || []).map((r) => r.code)
+    );
+    if (!partitioned.ok) {
+      return orgValidation(
+        res,
+        'Vai trò tổ chức không còn trong danh sách hiện tại.',
+        'ROLE_INVALID'
+      );
+    }
+    const assignKeys = partitioned.assignKeys;
+
+    // Reset assignment cho user. Khóa catalog cũ không còn vai trò tổ chức thì không ghi lại.
     await OrgRoleAssignment.deleteMany({ organizationId: oid, userId: uid });
 
-    if (!keys.length) {
+    if (!assignKeys.length) {
       return res.json({ success: true, data: { assigned: [] } });
     }
 
     const now = Date.now();
-    const docs = keys.map((k) => ({
+    const docs = assignKeys.map((k) => ({
       organizationId: oid,
       userId: uid,
       roleKey: k,
@@ -352,7 +369,7 @@ async function setAssignments(req, res) {
     }));
     await OrgRoleAssignment.insertMany(docs);
 
-    return res.json({ success: true, data: { assigned: keys } });
+    return res.json({ success: true, data: { assigned: assignKeys } });
   } catch (error) {
     return orgCatch(res, error);
   }

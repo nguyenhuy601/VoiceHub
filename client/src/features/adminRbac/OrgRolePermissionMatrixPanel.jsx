@@ -13,6 +13,7 @@ import { useAppStrings } from '../../locales/appStrings';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 import { orgRbacAPI } from '../../services/api/orgRbacAPI';
 import { roleAPI } from '../../services/api/roleAPI';
+import { isScopeLessGrant } from '../../lib/capabilities';
 import { unwrapCatalogPayload } from '../../utils/rbacUi';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
@@ -171,7 +172,8 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
     try {
       const permissions = Object.entries(selected).map(([permissionCode, scopeType]) => ({
         permissionCode,
-        scopeType,
+        // API vẫn bắt scopeType; quyền tạo dự án không dùng giá trị này.
+        scopeType: isScopeLessGrant(permissionCode) ? 'ORGANIZATION' : scopeType,
       }));
       await orgRbacAPI.putRolePermissions(orgId, roleId, permissions);
       toast.success(t('adminDomains.rbac.roleMatrixSaved', 'Đã lưu ma trận quyền cho vai trò'));
@@ -243,6 +245,7 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
                         <ul className="mt-1 space-y-1">
                           {mod.permissions.map((perm) => {
                             const on = Boolean(selected[perm.key]);
+                            const scopeLess = isScopeLessGrant(perm.key);
                             return (
                               <li key={perm.key} className="flex flex-wrap items-center gap-2 border-b border-border/40 py-1 text-sm">
                                 <label className="flex min-w-[240px] flex-1 items-center gap-2">
@@ -250,7 +253,12 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
                                   <span>{perm.label}</span>
                                   <code className="text-[11px] text-muted-foreground">{perm.key}</code>
                                 </label>
-                                {on ? (
+                                {on && scopeLess ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    {t('adminDomains.rbac.createProjectNoScope')}
+                                  </span>
+                                ) : null}
+                                {on && !scopeLess ? (
                                   <select
                                     className="rounded-md border border-border bg-background px-2 py-1 text-xs"
                                     value={selected[perm.key]}
