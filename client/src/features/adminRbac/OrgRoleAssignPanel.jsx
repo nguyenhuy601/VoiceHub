@@ -21,21 +21,32 @@ import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
+import {
+  applyOrgRoleBulk,
+  nextKeysForAssign,
+  nextKeysForRemove,
+  uniqueRoleKeys,
+} from './orgRoleAssignmentBulk';
 
-function unique(arr) {
-  return [...new Set((arr || []).map((x) => String(x).trim()).filter(Boolean))];
+function assignmentRows(res) {
+  return res?.data?.assignments || res?.data?.data?.assignments || [];
 }
 
 /**
  * Gán / gỡ Vai trò tổ chức (catalog) cho user — không phải gói quyền RBAC.
- * @param {{ orgId: string, embedded?: boolean }} props
+ * @param {{ orgId: string, embedded?: boolean, selectedUserIds?: string[] }} props
  */
-export default function OrgRoleAssignPanel({ orgId, embedded = false }) {
+export default function OrgRoleAssignPanel({ orgId, embedded = false, selectedUserIds }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const userIdParam = useMemo(() => String(searchParams.get('userId') || '').trim(), [searchParams]);
+  const selectionControlled = Array.isArray(selectedUserIds);
+  const [localUserIds, setLocalUserIds] = useState([]);
+  const checkedIds = selectionControlled ? uniqueRoleKeys(selectedUserIds) : localUserIds;
+  const targetUserIds = checkedIds.length ? checkedIds : userIdParam ? [userIdParam] : [];
+  const singleUserId = targetUserIds.length === 1 ? targetUserIds[0] : '';
   const roleIdParam = useMemo(() => String(searchParams.get('roleId') || '').trim(), [searchParams]);
   const roleKeyParam = useMemo(() => String(searchParams.get('roleKey') || '').trim(), [searchParams]);
 
@@ -78,8 +89,8 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false }) {
     }
     try {
       const res = await orgRoleCatalogAPI.listAssignments(orgId, { userId: uid });
-      const items = res?.data?.assignments || [];
-      setAssignedRoleKeys(unique(items.map((x) => x.roleKey)));
+      const items = assignmentRows(res);
+      setAssignedRoleKeys(uniqueRoleKeys(items.map((x) => x.roleKey)));
     } catch (error) {
       setAssignmentsError(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
       setAssignedRoleKeys([]);
@@ -92,43 +103,52 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false }) {
   }, [orgId]);
 
   useEffect(() => {
-    loadAssignmentsForUser(userIdParam);
+    loadAssignmentsForUser(singleUserId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, userIdParam]);
+  }, [orgId, singleUserId]);
 
   useEffect(() => {
     if (roleKeyParam) setSelectedRoleKey(roleKeyParam);
   }, [roleKeyParam]);
 
-  const setUserAssignments = async (nextRoleKeys) => {
-    if (!orgId) return;
-    if (!userIdParam) return;
+  const runBulk = async (nextKeysForUser, doneKey) => {
+    if (!orgId || !targetUserIds.length || !selectedRoleKey) return;
     setAssignBusy(true);
     try {
-      await orgRoleCatalogAPI.setAssignments(orgId, userIdParam, nextRoleKeys);
-      setAssignedRoleKeys(unique(nextRoleKeys));
-      toast.success(t('common.saveSuccess'));
+      const { changed, skipped } = await applyOrgRoleBulk({
+        userIds: targetUserIds,
+        nextKeysForUser,
+        listRows: async () => assignmentRows(await orgRoleCatalogAPI.listAssignments(orgId)),
+        saveKeys: (userId, roleKeys) => orgRoleCatalogAPI.setAssignments(orgId, userId, roleKeys),
+      });
+      if (singleUserId) await loadAssignmentsForUser(singleUserId);
+      if (!changed) {
+        toast.error(t('adminRbac.orgRoleBulkNoneChanged'));
+        return;
+      }
+      toast.success(t(doneKey, { count: changed }));
+      if (skipped) toast(t('adminRbac.orgRoleBulkSkipped', { count: skipped }));
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, { t, fallback: t('common.saveFail') }));
     } finally {
       setAssignBusy(false);
+      setConfirmRevoke(false);
     }
   };
 
   const addRole = () => {
-    if (!selectedRoleKey || !userIdParam) return;
-    const next = unique([...assignedRoleKeys, selectedRoleKey]);
-    setUserAssignments(next);
+    if (!selectedRoleKey || !targetUserIds.length) return;
+    return runBulk((current) => nextKeysForAssign(current, selectedRoleKey), 'adminRbac.orgRoleBulkAssignDone');
   };
 
   const removeRole = () => {
-    if (!selectedRoleKey || !userIdParam) return;
-    const next = assignedRoleKeys.filter((k) => String(k) !== String(selectedRoleKey));
-    return setUserAssignments(next);
+    if (!selectedRoleKey || !targetUserIds.length) return;
+    return runBulk((current) => nextKeysForRemove(current, selectedRoleKey), 'adminRbac.orgRoleBulkRemoveDone');
   };
 
   const selectedRole = roles.find((r) => r.key === selectedRoleKey) || null;
-  const selectedRoleAssigned = assignedRoleKeys.includes(selectedRoleKey);
+  const selectedRoleAssigned = Boolean(singleUserId) && assignedRoleKeys.includes(selectedRoleKey);
+  const canRevoke = Boolean(targetUserIds.length && selectedRoleKey) && (targetUserIds.length > 1 || selectedRoleAssigned);
 
   const formCard = (
     <AdminUserFormCard title={t('adminDomains.rbac.orgRoleAssign')}>
@@ -162,22 +182,28 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false }) {
             <AdminLoadErrorState
               className="mb-3"
               message={assignmentsError}
-              onRetry={() => loadAssignmentsForUser(userIdParam)}
+              onRetry={() => loadAssignmentsForUser(singleUserId)}
             />
           ) : (
             <div className="mb-3 rounded-lg border border-border bg-muted p-3 text-sm">
-              <div className="font-medium text-foreground">{t('adminRbac.orgRoleCurrentRoles')}</div>
+              <div className="font-medium text-foreground">
+                {targetUserIds.length > 1
+                  ? t('adminRbac.orgRoleBulkSelected', { count: targetUserIds.length })
+                  : t('adminRbac.orgRoleCurrentRoles')}
+              </div>
               <div className="mt-1 text-muted-foreground">
-                {userIdParam
-                  ? assignedRoleKeys.length
-                    ? assignedRoleKeys
-                        .map((key) => {
-                          const hit = roles.find((r) => r.key === key);
-                          return hit?.label || key;
-                        })
-                        .join(', ')
-                    : t('adminUsers.taxonomyNone')
-                  : t('adminUsers.selectUserFirst')}
+                {targetUserIds.length > 1
+                  ? t('adminRbac.orgRoleBulkAssignHint')
+                  : singleUserId
+                    ? assignedRoleKeys.length
+                      ? assignedRoleKeys
+                          .map((key) => {
+                            const hit = roles.find((r) => r.key === key);
+                            return hit?.label || key;
+                          })
+                          .join(', ')
+                      : t('adminUsers.taxonomyNone')
+                    : t('adminRbac.orgRoleSelectUsersFirst')}
               </div>
             </div>
           )}
@@ -185,7 +211,7 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false }) {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={!userIdParam || !selectedRoleKey || assignBusy}
+              disabled={!targetUserIds.length || !selectedRoleKey || assignBusy}
               aria-busy={assignBusy || undefined}
               className={adminPrimaryBtnClass()}
               onClick={addRole}
@@ -195,7 +221,7 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false }) {
             </button>
             <button
               type="button"
-              disabled={!userIdParam || !selectedRoleKey || !selectedRoleAssigned || assignBusy}
+              disabled={!canRevoke || assignBusy}
               className={adminDangerBtnClass()}
               onClick={() => setConfirmRevoke(true)}
             >
@@ -227,6 +253,7 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false }) {
       title={t('adminRbac.orgRoleRevokeConfirmTitle')}
       message={t('adminRbac.orgRoleRevokeConfirmMessage', {
         role: selectedRole?.label || selectedRoleKey,
+        count: targetUserIds.length,
       })}
       confirmText={t('adminRbac.orgRoleRevoke')}
       cancelText={t('common.cancel')}
@@ -251,7 +278,10 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false }) {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
         <AdminUserPicker
           orgId={orgId}
-          selectedUserId={userIdParam}
+          selectionMode="multiple"
+          scrollLoad
+          selectedUserIds={targetUserIds}
+          onSelectedUserIdsChange={setLocalUserIds}
           hint={t('adminRbac.orgRoleAssignPickerHint')}
         />
         {formCard}

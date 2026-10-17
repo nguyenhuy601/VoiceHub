@@ -1,10 +1,10 @@
 import { Check, Circle } from 'lucide-react';
 import { deliveryPhaseLabelKey } from '../../../utils/projectPhaseNav';
+import { PROJECT_ROLE_LABELS } from '../../../utils/roleTaxonomy';
 import {
-  INTAKE_LEAD_LABEL_KEYS,
-  INTAKE_LEAD_ROLE_KEYS,
-  emptyIntakeSlots,
+  gateRoleKeys,
   intakeSlotFilled,
+  normalizeGateSlots,
 } from '../wizard/projectWizardIntakeRoles';
 import { intakeUi } from './intakeUi';
 import { buildIntakeSectionMeta, intakeErrorCount } from './projectIntakeValidation';
@@ -22,6 +22,35 @@ function ChecklistRow({ ok, label }) {
   );
 }
 
+function GateSummaryList({ processKey, gates, t }) {
+  const keys = gateRoleKeys(gates, processKey);
+  if (!keys.length) {
+    return <p className={intakeUi.summaryRow}>{t('adminTasks.intakeNoneYet')}</p>;
+  }
+  return (
+    <ul className="mt-1 space-y-1">
+      {keys.map((key) => {
+        const slot = gates[processKey]?.[key];
+        const ok = intakeSlotFilled(gates[processKey], key);
+        const label = PROJECT_ROLE_LABELS[key] || key;
+        return (
+          <li key={key} className="flex items-center gap-2 text-sm">
+            {ok ? (
+              <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <Circle className="h-3.5 w-3.5 text-muted-foreground" />
+            )}
+            <span className="text-muted-foreground">{label}</span>
+            {ok && slot?.displayName ? (
+              <span className="truncate text-foreground">· {slot.displayName}</span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export default function ProjectSummaryPanel({
   form,
   fieldErrors,
@@ -30,7 +59,7 @@ export default function ProjectSummaryPanel({
   t,
   compact = false,
 }) {
-  const slots = { ...emptyIntakeSlots(), ...(form.intakeSlots || {}) };
+  const gates = normalizeGateSlots(form.gateSlots);
   const sections = buildIntakeSectionMeta(form, fieldErrors, showErrors);
   const errorCount = showErrors ? intakeErrorCount(fieldErrors) : 0;
   const ready = errorCount === 0 && sections.requirements.complete && sections.information.complete && sections.team.complete && sections.analysis.complete;
@@ -69,27 +98,15 @@ export default function ProjectSummaryPanel({
         </div>
         <div>
           <p className="text-xs text-muted-foreground">
-            {t('adminTasks.intakeSectionTeam') || 'Core team'}
+            {t('adminTasks.intakeSectionAnalysisTeam')}
           </p>
-          <ul className="mt-1 space-y-1">
-            {INTAKE_LEAD_ROLE_KEYS.map((key) => {
-              const ok = intakeSlotFilled(slots, key);
-              const slot = slots[key];
-              return (
-                <li key={key} className="flex items-center gap-2 text-sm">
-                  {ok ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                  ) : (
-                    <Circle className="h-3.5 w-3.5 text-muted-foreground" />
-                  )}
-                  <span className="text-muted-foreground">{t(INTAKE_LEAD_LABEL_KEYS[key])}</span>
-                  {ok && slot?.displayName ? (
-                    <span className="truncate text-foreground">· {slot.displayName}</span>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
+          <GateSummaryList processKey="what" gates={gates} t={t} />
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">
+            {t('adminTasks.intakeSectionPlanningTeam')}
+          </p>
+          <GateSummaryList processKey="how" gates={gates} t={t} />
         </div>
         <div>
           <p className="text-xs text-muted-foreground">
@@ -139,8 +156,12 @@ export default function ProjectSummaryPanel({
               label={t('adminTasks.intakeCheckIdentity') || 'Project identity'}
             />
             <ChecklistRow
-              ok={sections.team.complete}
-              label={t('adminTasks.intakeCheckTeam') || 'Core team'}
+              ok={sections.analysisTeam?.complete}
+              label={t('adminTasks.intakeCheckAnalysisTeam')}
+            />
+            <ChecklistRow
+              ok={sections.planningTeam?.complete}
+              label={t('adminTasks.intakeCheckPlanningTeam')}
             />
             <ChecklistRow
               ok={sections.analysis.complete}

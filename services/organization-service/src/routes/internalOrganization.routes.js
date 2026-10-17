@@ -119,4 +119,10 @@ router.get(
   orgRbacMatrixController.resolveEffectiveGrants
 );
 
+/** project-service: vị trí tổ chức đang gán (không phải chức danh CV). */
+router.get(
+  '/organizations/:organizationId/position-assignments',
+  orgRbacMatrixController.listActivePositionsInternal
+);
+
 module.exports = router;

@@ -141,8 +141,7 @@ export async function fetchAdminMembers(
 
   store.loading = true;
   store.error = null;
-  emit(store);
-
+  // Gán trước emit — listener đồng bộ không được mở thêm một GET with-roles.
   store.fetchPromise = (async () => {
     try {
       const res = await organizationAPI.getMembersWithRoles(key, { view: requested });
@@ -172,6 +171,7 @@ export async function fetchAdminMembers(
     }
   })();
 
+  emit(store);
   await store.fetchPromise;
 }
 

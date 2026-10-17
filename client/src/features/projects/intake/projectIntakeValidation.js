@@ -1,7 +1,9 @@
 import {
-  emptyIntakeSlots,
+  countAssignedGateSlots,
+  emptyGateSlots,
+  gateRoleKeys,
   intakeSlotFilled,
-  INTAKE_LEAD_ROLE_KEYS,
+  normalizeGateSlots,
 } from '../wizard/projectWizardIntakeRoles.js';
 
 /** Mirror validateCreateProjectIdentity — tránh kéo cả createProjectSeed vào node:test. */
@@ -56,18 +58,29 @@ export function buildIntakeFieldErrors(form, t) {
     );
   }
 
-  const slots = { ...emptyIntakeSlots(), ...(form?.intakeSlots || {}) };
-  if (!intakeSlotFilled(slots, 'product_owner')) {
-    errors.product_owner = tr('adminTasks.wizardNeedPo', 'Chọn Product Owner.');
+  const gates = normalizeGateSlots(form?.gateSlots || emptyGateSlots());
+  for (const processKey of ['what', 'how']) {
+    const missingAssignee = gateRoleKeys(gates, processKey).filter(
+      (roleKey) => !intakeSlotFilled(gates[processKey], roleKey)
+    );
+    for (const roleKey of missingAssignee) {
+      errors[`${processKey}:${roleKey}`] = tr(
+        'adminTasks.intakeNeedRoleAssignee',
+        'Gán nhân sự cho vai trò đã chọn.'
+      );
+    }
   }
-  if (!intakeSlotFilled(slots, 'project_manager')) {
-    errors.project_manager = tr('adminTasks.wizardNeedPm', 'Chọn Project Manager.');
+  if (!countAssignedGateSlots(gates, 'what')) {
+    errors.what = tr(
+      'adminTasks.intakeNeedAnalysisMember',
+      'Chọn ít nhất một thành viên cho phân tích yêu cầu.'
+    );
   }
-  if (!intakeSlotFilled(slots, 'business_analyst')) {
-    errors.business_analyst = tr('adminTasks.wizardRosterNeedBa', 'Chọn Business Analyst.');
-  }
-  if (!intakeSlotFilled(slots, 'tech_lead')) {
-    errors.tech_lead = tr('adminTasks.wizardNeedTl', 'Chọn Tech Lead.');
+  if (!countAssignedGateSlots(gates, 'how')) {
+    errors.how = tr(
+      'adminTasks.intakeNeedPlanningMember',
+      'Chọn ít nhất một thành viên cho lập kế hoạch dự án.'
+    );
   }
 
   const mode = String(form?.analysisMode || '').toLowerCase();
@@ -88,8 +101,15 @@ export function intakeErrorCount(errors) {
  * @param {boolean} showErrors
  */
 export function buildIntakeSectionMeta(form, errors, showErrors) {
-  const slots = { ...emptyIntakeSlots(), ...(form?.intakeSlots || {}) };
-  const teamFilled = INTAKE_LEAD_ROLE_KEYS.filter((k) => intakeSlotFilled(slots, k)).length;
+  const gates = normalizeGateSlots(form?.gateSlots || emptyGateSlots());
+  const analysisAssigned = countAssignedGateSlots(gates, 'what');
+  const planningAssigned = countAssignedGateSlots(gates, 'how');
+  const analysisRoles = gateRoleKeys(gates, 'what').length;
+  const planningRoles = gateRoleKeys(gates, 'how').length;
+  const analysisComplete =
+    analysisAssigned > 0 && analysisAssigned === analysisRoles;
+  const planningComplete =
+    planningAssigned > 0 && planningAssigned === planningRoles;
   const mode = String(form?.analysisMode || '').toLowerCase();
   const hasMode = mode === 'manual' || mode === 'ai';
 
@@ -108,19 +128,28 @@ export function buildIntakeSectionMeta(form, errors, showErrors) {
       complete: infoOk,
       hint: infoOk ? 'complete' : showErrors && (errors.title || errors.customerName || errors.dateRange) ? 'error' : 'pending',
     },
+    analysisTeam: {
+      complete: analysisComplete,
+      assigned: analysisAssigned,
+      hint: analysisComplete
+        ? 'complete'
+        : showErrors && (errors.what || Object.keys(errors).some((k) => k.startsWith('what:')))
+          ? 'error'
+          : 'partial',
+    },
+    planningTeam: {
+      complete: planningComplete,
+      assigned: planningAssigned,
+      hint: planningComplete
+        ? 'complete'
+        : showErrors && (errors.how || Object.keys(errors).some((k) => k.startsWith('how:')))
+          ? 'error'
+          : 'partial',
+    },
     team: {
-      complete: teamFilled === INTAKE_LEAD_ROLE_KEYS.length,
-      assigned: teamFilled,
-      hint:
-        teamFilled === INTAKE_LEAD_ROLE_KEYS.length
-          ? 'complete'
-          : showErrors &&
-              (errors.product_owner ||
-                errors.project_manager ||
-                errors.business_analyst ||
-                errors.tech_lead)
-            ? 'error'
-            : 'partial',
+      complete: analysisComplete && planningComplete,
+      assigned: analysisAssigned + planningAssigned,
+      hint: analysisComplete && planningComplete ? 'complete' : 'partial',
     },
     analysis: {
       complete: hasMode,
@@ -136,14 +165,19 @@ export function firstIntakeFieldAnchor(errors) {
     'title',
     'customerName',
     'dateRange',
-    'product_owner',
-    'project_manager',
-    'business_analyst',
-    'tech_lead',
+    'what',
+    'how',
     'analysisMode',
   ];
   for (const key of order) {
     if (errors[key]) return `intake-field-${key}`;
+  }
+  const roleError = Object.keys(errors).find(
+    (key) => key.startsWith('what:') || key.startsWith('how:')
+  );
+  if (roleError) {
+    const [processKey, roleKey] = roleError.split(':');
+    return `intake-field-${processKey}-${roleKey}`;
   }
   return null;
 }

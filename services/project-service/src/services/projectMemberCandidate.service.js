@@ -6,6 +6,7 @@ const { logger } = require('@enterprise/shared');
 const { fetchUserProfileByIdInternal } = require('../clients/userService.client');
 const { fetchDepartmentRoster } = require('../clients/orgStructure.client');
 const { fetchEnabledPositionKeys } = require('../clients/orgMasterData.client');
+const { fetchActiveOrgPositions } = require('../clients/orgPositionAssignment.client');
 const { fetchOrganizationMemberships } = require('../clients/orgMemberships.client');
 const { fetchProfilesByUserIds } = require('../clients/userProfilesBatch.client');
 const { uniqueMemberships, clampPoolLimit } = require('../utils/staffing/orgResourcePoolMerge');
@@ -24,6 +25,10 @@ const {
 } = require('../utils/staffing/rankRoleSuggestCandidates');
 const { summarizeProjectRoleStaffing } = require('../utils/project/projectStaffingSummary');
 const { scorePositionMatch } = require('../utils/staffing/positionCandidateMatch');
+const {
+  orgPositionMatchesRole,
+  preferredOrgPositionCodes,
+} = require('../utils/staffing/orgPositionSuggestMatch');
 const { scoreVerifiedCapability } = require('../utils/staffing/capabilityMatch');
 const {
   flattenSegments,
@@ -34,7 +39,7 @@ const {
   toDayMs,
   filterUsersToRelatedDepartments,
 } = require('../utils/staffing/allocationOverlap');
-const { fetchTaskWorkspaceScope, canCreateTaskInScope } = require('./taskWorkspaceScope');
+const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
 const { coalesceJobTitle } = require('../utils/common/jobTitleProfile');
 const { loadPerformanceByUserIds } = require('./userPerformance.service');
 const { scoreHistoricalPerformance } = require('../utils/staffing/performanceMatch');
@@ -318,19 +323,41 @@ function identityFromProfile(profile, userId) {
 }
 
 async function assertCanSuggestIntakeRoles(actorUserId, organizationId) {
-  const scope = await fetchTaskWorkspaceScope(actorUserId, organizationId);
-  if (!scope) {
-    const err = new Error('Không có quyền truy cập tổ chức');
-    err.statusCode = 403;
-    throw err;
-  }
-  if (!canCreateTaskInScope(scope)) {
-    const err = new Error('Bạn không có quyền tạo dự án');
-    err.statusCode = 403;
-    err.errorCode = 'PROJECT_CREATE_FORBIDDEN';
-    throw err;
-  }
-  return scope;
+  const { hasProjectCreateGrant } = require('../clients/rolePermission.client');
+  const { assertProjectCreateGrant } = require('../utils/projectCreateGrantPolicy');
+  assertProjectCreateGrant(await hasProjectCreateGrant(actorUserId, organizationId));
+}
+
+/**
+ * % quá tải tuần này từ forecast (task + họp + ngân sách vai trò).
+ * Không có forecast thì dùng % cam kết đang lưu trên phân bổ dự án.
+ */
+async function loadRealWorkloadByUser(organizationId, userIds, commitmentByUser) {
+  const { getUserForecastCapacity } = require('./forecastCapacity.service');
+  const out = new Map();
+  await Promise.all(
+    (userIds || []).map(async (uid) => {
+      const commitment = commitmentByUser.get(uid) || { allocatedPct: 0 };
+      let pct = Number(commitment.allocatedPct);
+      if (!Number.isFinite(pct)) pct = 0;
+      try {
+        const row = await getUserForecastCapacity({ organizationId, userId: uid });
+        const forecast = Number(row?.forecastWorkloadPct);
+        if (Number.isFinite(forecast)) pct = forecast;
+      } catch (err) {
+        logger.warn('[roleSuggest] forecast workload failed user=%s: %s', uid, err?.message || err);
+      }
+      const rounded = Math.round(pct * 100) / 100;
+      const availability =
+        rounded > 100 ? 'overallocated' : classifyAvailability(rounded);
+      out.set(uid, {
+        allocatedPct: rounded,
+        availablePct: Math.max(0, Math.round((100 - rounded) * 100) / 100),
+        availability,
+      });
+    })
+  );
+  return out;
 }
 
 /**
@@ -402,7 +429,7 @@ async function listOrgRoleSuggestCandidates({
     const err = new Error(
       staffingMatch
         ? 'projectRoleKeys phải là một vai trò dự án'
-        : 'projectRoleKeys phải là 1–4 vai trò intake: product_owner, project_manager, business_analyst, tech_lead'
+        : 'projectRoleKeys phải là 1–12 mã vai trò dự án'
     );
     err.statusCode = 400;
     err.errorCode = 'VALIDATION_REQUIRED';
@@ -447,6 +474,12 @@ async function listOrgRoleSuggestCandidates({
   }
 
   const userIds = memberships.map((m) => m.userId);
+  const needsOrgPosition = requestedKeys.some((key) => preferredOrgPositionCodes(key));
+  let positionByUser = new Map();
+  if (needsOrgPosition) {
+    const positionRows = await fetchActiveOrgPositions(orgId, actorUserId);
+    positionByUser = new Map(positionRows.map((row) => [row.userId, row]));
+  }
 
   let profileMap = new Map();
   try {
@@ -516,6 +549,20 @@ async function listOrgRoleSuggestCandidates({
     loadByUser.set(uid, { allocatedPct, availablePct, availability, flat });
   }
 
+  if (needsOrgPosition) {
+    const forecastIds = userIds.filter((uid) => {
+      const position = positionByUser.get(uid);
+      return requestedKeys.some(
+        (key) => preferredOrgPositionCodes(key) && orgPositionMatchesRole(position, key)
+      );
+    });
+    const realLoad = await loadRealWorkloadByUser(orgId, forecastIds, loadByUser);
+    for (const [uid, load] of realLoad) {
+      const prev = loadByUser.get(uid) || {};
+      loadByUser.set(uid, { ...prev, ...load });
+    }
+  }
+
   const hoursByUser = staffingMatch
     ? await loadStaffingMatchAvailableHours({
         organizationId: orgId,
@@ -532,8 +579,12 @@ async function listOrgRoleSuggestCandidates({
   let total = memberships.length;
 
   for (const roleKey of requestedKeys) {
-    const ranked = memberships.map((m) => {
+    const ranked = memberships.flatMap((m) => {
       const uid = m.userId;
+      const orgPosition = positionByUser.get(uid) || null;
+      if (preferredOrgPositionCodes(roleKey) && !orgPositionMatchesRole(orgPosition, roleKey)) {
+        return [];
+      }
       const identity = identityFromProfile(profileMap.get(uid), uid);
       const priorSet = priorKeysByUser.get(uid);
       const load = loadByUser.get(uid) || {
@@ -546,6 +597,7 @@ async function listOrgRoleSuggestCandidates({
           userId: uid,
           displayName: identity.displayName,
           jobTitle: identity.jobTitle,
+          orgPosition,
           verifiedCapability: identity.verifiedCapability,
           hasPriorRole: Boolean(priorSet && priorSet.has(roleKey)),
         },

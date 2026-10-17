@@ -37,7 +37,7 @@ export default function AnalysisMethodSection({
 
   return (
     <IntakeSection
-      index={4}
+      index={5}
       sectionId="intake-section-analysis"
       title={t('adminTasks.intakeSectionAnalysis') || 'Analysis method'}
       subtitle={

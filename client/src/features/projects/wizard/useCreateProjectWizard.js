@@ -21,9 +21,9 @@ import {
 } from './projectWizardConstants';
 import {
   INTAKE_LEAD_ROLE_KEYS,
-  emptyIntakeSlots,
-  slotsToSeedMembers,
-  intakeSlotsFromSeedMembers,
+  emptyGateSlots,
+  gateSlotsToSeedMembers,
+  normalizeGateSlots,
 } from './projectWizardIntakeRoles';
 import {
   emptyIntakeFiles,
@@ -62,9 +62,7 @@ function emptyForm(initial = {}) {
     projectCode: explicitCode || (title.trim() ? buildProjectCodeBase({ title }) : ''),
     projectCodeTouched: Boolean(explicitCode),
     seedMembers: Array.isArray(initial.seedMembers) ? initial.seedMembers : [],
-    intakeSlots: initial.intakeSlots
-      ? { ...emptyIntakeSlots(), ...initial.intakeSlots }
-      : intakeSlotsFromSeedMembers(initial.seedMembers),
+    gateSlots: normalizeGateSlots(initial.gateSlots || emptyGateSlots()),
     participationScale: 'company',
     relatedDepartmentIds: [],
     visibility: initial.visibility === 'workspace' ? 'workspace' : 'private',
@@ -270,29 +268,103 @@ export default function useCreateProjectWizard({
     setStep((s) => Math.max(s - 1, 0));
   }, []);
 
+  const setGateAssignee = useCallback((processKey, roleKey, candidate) => {
+    const process = processKey === 'how' ? 'how' : 'what';
+    const key = String(roleKey || '')
+      .trim()
+      .toLowerCase();
+    if (!key) return;
+    setForm((prev) => {
+      const gateSlots = normalizeGateSlots(prev.gateSlots);
+      const column = { ...gateSlots[process] };
+      if (!Object.prototype.hasOwnProperty.call(column, key)) return prev;
+      if (!candidate) {
+        column[key] = null;
+      } else {
+        const userId = String(candidate.userId || '').trim();
+        if (!userId) return prev;
+        const currentId = String(column[key]?.userId || '');
+        column[key] =
+          currentId && currentId === userId
+            ? null
+            : {
+                userId,
+                displayName: String(candidate.displayName || '').trim(),
+                positionName: String(candidate.positionName || candidate.jobTitle || '').trim(),
+              };
+      }
+      const nextGates = { ...gateSlots, [process]: column };
+      return {
+        ...prev,
+        gateSlots: nextGates,
+        seedMembers: gateSlotsToSeedMembers(nextGates),
+        relatedDepartmentIds: [],
+      };
+    });
+  }, []);
+
+  const addGateRole = useCallback((processKey, roleKey) => {
+    const process = processKey === 'how' ? 'how' : 'what';
+    const key = String(roleKey || '')
+      .trim()
+      .toLowerCase();
+    if (!key) return;
+    setForm((prev) => {
+      const gateSlots = normalizeGateSlots(prev.gateSlots);
+      if (Object.prototype.hasOwnProperty.call(gateSlots[process], key)) return prev;
+      const nextGates = {
+        ...gateSlots,
+        [process]: { ...gateSlots[process], [key]: null },
+      };
+      return { ...prev, gateSlots: nextGates };
+    });
+  }, []);
+
+  const removeGateRole = useCallback((processKey, roleKey) => {
+    const process = processKey === 'how' ? 'how' : 'what';
+    const key = String(roleKey || '')
+      .trim()
+      .toLowerCase();
+    if (!key) return;
+    setForm((prev) => {
+      const gateSlots = normalizeGateSlots(prev.gateSlots);
+      if (!Object.prototype.hasOwnProperty.call(gateSlots[process], key)) return prev;
+      const column = { ...gateSlots[process] };
+      delete column[key];
+      const nextGates = { ...gateSlots, [process]: column };
+      return {
+        ...prev,
+        gateSlots: nextGates,
+        seedMembers: gateSlotsToSeedMembers(nextGates),
+      };
+    });
+  }, []);
+
   const setIntakeSlot = useCallback((roleKey, candidate) => {
     const key = String(roleKey || '')
       .trim()
       .toLowerCase();
     if (!INTAKE_LEAD_ROLE_KEYS.includes(key)) return;
+    const process = key === 'project_manager' ? 'how' : 'what';
     setForm((prev) => {
-      const slots = { ...emptyIntakeSlots(), ...(prev.intakeSlots || {}) };
+      const gateSlots = normalizeGateSlots(prev.gateSlots);
+      const column = { ...gateSlots[process], [key]: gateSlots[process][key] ?? null };
       if (!candidate) {
-        slots[key] = null;
+        column[key] = null;
       } else {
         const userId = String(candidate.userId || '').trim();
         if (!userId) return prev;
-        slots[key] = {
+        column[key] = {
           userId,
           displayName: String(candidate.displayName || '').trim(),
-          jobTitle: String(candidate.jobTitle || '').trim(),
+          positionName: String(candidate.positionName || candidate.jobTitle || '').trim(),
         };
       }
+      const nextGates = { ...gateSlots, [process]: column };
       return {
         ...prev,
-        intakeSlots: slots,
-        seedMembers: slotsToSeedMembers(slots),
-        relatedDepartmentIds: [],
+        gateSlots: nextGates,
+        seedMembers: gateSlotsToSeedMembers(nextGates),
       };
     });
   }, []);
@@ -320,20 +392,23 @@ export default function useCreateProjectWizard({
         ...new Set(keys.map((k) => String(k || '').trim().toLowerCase()).filter(Boolean)),
       ];
       if (!projectRoleKeysNorm.length) return prev;
-      const rest = (prev.seedMembers || []).filter((m) => String(m.userId) !== userId);
       const displayName = fromString ? '' : String(rowOrUserId?.displayName || '').trim();
-      const seedMembers = [
-        ...rest,
-        {
-          userId,
-          projectRoleKeys: projectRoleKeysNorm,
-          ...(displayName ? { displayName } : {}),
-        },
-      ];
+      const gateSlots = normalizeGateSlots(prev.gateSlots);
+      for (const roleKey of projectRoleKeysNorm) {
+        const process = roleKey === 'project_manager' || roleKey === 'scrum_master' ? 'how' : 'what';
+        gateSlots[process] = {
+          ...gateSlots[process],
+          [roleKey]: {
+            userId,
+            displayName,
+            positionName: '',
+          },
+        };
+      }
       return {
         ...prev,
-        seedMembers,
-        intakeSlots: intakeSlotsFromSeedMembers(seedMembers),
+        gateSlots,
+        seedMembers: gateSlotsToSeedMembers(gateSlots),
       };
     });
   }, []);
@@ -341,14 +416,18 @@ export default function useCreateProjectWizard({
   const removeSeedMember = useCallback((userId) => {
     const id = String(userId || '').trim();
     setForm((prev) => {
-      const slots = { ...emptyIntakeSlots(), ...(prev.intakeSlots || {}) };
-      for (const key of INTAKE_LEAD_ROLE_KEYS) {
-        if (String(slots[key]?.userId || '') === id) slots[key] = null;
+      const gateSlots = normalizeGateSlots(prev.gateSlots);
+      for (const processKey of ['what', 'how']) {
+        const column = { ...gateSlots[processKey] };
+        for (const [roleKey, slot] of Object.entries(column)) {
+          if (String(slot?.userId || '') === id) column[roleKey] = null;
+        }
+        gateSlots[processKey] = column;
       }
       return {
         ...prev,
-        intakeSlots: slots,
-        seedMembers: slotsToSeedMembers(slots),
+        gateSlots,
+        seedMembers: gateSlotsToSeedMembers(gateSlots),
       };
     });
   }, []);
@@ -359,7 +438,7 @@ export default function useCreateProjectWizard({
       {
         ...form,
         methodology: 'scrum',
-        members: slotsToSeedMembers({ ...emptyIntakeSlots(), ...(form.intakeSlots || {}) }),
+        members: gateSlotsToSeedMembers(form.gateSlots),
         relatedDepartmentIds: [],
         projectManagerId: pm?.userId,
         analysisMode: form.analysisMode || 'manual',
@@ -538,6 +617,9 @@ export default function useCreateProjectWizard({
     addSeedMember,
     removeSeedMember,
     setIntakeSlot,
+    addGateRole,
+    removeGateRole,
+    setGateAssignee,
     clearIntakeSlot,
     defaultMemberRole: WIZARD_DEFAULT_MEMBER_ROLE,
     baRole: WIZARD_BA_ROLE,

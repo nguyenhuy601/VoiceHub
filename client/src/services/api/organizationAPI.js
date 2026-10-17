@@ -518,8 +518,14 @@ export const organizationAPI = {
     return response;
   },
 
-  createHrPosition: async (orgId, { title } = {}) => {
-    const response = await apiClient.post(`/organizations/${orgId}/hr-positions`, { title });
+  createHrPosition: async (orgId, { title, name, description, code } = {}) => {
+    const label = String(name || title || '').trim();
+    const response = await apiClient.post(`/organizations/${orgId}/hr-positions`, {
+      title: label,
+      name: label,
+      description: String(description || '').trim(),
+      code: code || undefined,
+    });
     return response;
   },
 };

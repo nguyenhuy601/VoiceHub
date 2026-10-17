@@ -67,25 +67,18 @@ const INTAKE_LEAD_ROLE_KEYS = Object.freeze([
   'tech_lead',
 ]);
 
-const INTAKE_LEAD_LABELS = Object.freeze({
-  product_owner: 'Product Owner',
-  project_manager: 'Project Manager',
-  business_analyst: 'Business Analyst',
-  tech_lead: 'Tech Lead',
-});
-
 /**
- * Public create (wizard): bắt buộc đủ vai trò intake — 1 user/slot, kiêm nhiệm OK.
+ * Public create: không bắt đủ PO/PM/BA/Tech Lead.
+ * Chỉ cần ít nhất một vai trò dự án đã gán (quy mô dự án tự chọn).
  */
 function assertIntakeLeadRoster(roleKeys = []) {
-  const keys = new Set(normalizeRoleKeys(roleKeys));
-  const missing = INTAKE_LEAD_ROLE_KEYS.filter((k) => !keys.has(k)).map(
-    (k) => INTAKE_LEAD_LABELS[k] || k
-  );
-  if (!missing.length) {
-    return { ok: true, keys: [...keys] };
+  const keys = normalizeRoleKeys(roleKeys);
+  if (keys.length) {
+    return { ok: true, keys };
   }
-  const err = new Error(`Team dự án thiếu: ${missing.join(', ')}`);
+  const err = new Error(
+    'Chọn ít nhất một thành viên tham gia phân tích yêu cầu hoặc lập kế hoạch.'
+  );
   err.statusCode = 400;
   err.errorCode = 'PROJECT_ROSTER_INCOMPLETE';
   throw err;

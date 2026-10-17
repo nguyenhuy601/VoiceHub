@@ -10,6 +10,7 @@ import {
   AdminUserPanelShell,
   adminDenseRowClass,
   adminInputClass,
+  adminPrimaryBtnClass,
   adminSecondaryBtnClass,
   adminManageLinkClass,
 } from '../../components/adminUsers/adminUserPanelUi';
@@ -32,6 +33,7 @@ export default function PosListPanel({ orgId }) {
   const { isFullAccess } = useCompanyAdminAccess();
   const { hasGrant } = useEffectiveMasterGrants(orgId);
   const canUpdatePosition = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.POSITION_UPDATE);
+  const canCreatePosition = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.POSITION_CREATE);
   const [query, setQuery] = useState('');
   const [hrPositions, setHrPositions] = useState([]);
   const [hrPositionsLoading, setHrPositionsLoading] = useState(false);
@@ -103,6 +105,11 @@ export default function PosListPanel({ orgId }) {
       wide
       actions={
         <div className="flex flex-wrap gap-2">
+          {canCreatePosition ? (
+            <Link to={`${RBAC_POS_BASE}/create`} className={adminPrimaryBtnClass()}>
+              {t('adminDomains.rbac.posCreate')}
+            </Link>
+          ) : null}
           <Link to={`${RBAC_POS_BASE}/roles`} className={adminSecondaryBtnClass()}>
             {t('adminDomains.rbac.assignPositionRoles')}
           </Link>

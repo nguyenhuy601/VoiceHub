@@ -66,7 +66,7 @@ function CandidateRow({ item, selected, onSelect, t }) {
     >
       <p className="text-sm font-medium text-foreground">{item.displayName}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        {item.jobTitle || t('adminTasks.wizardSuggestNoTitle')}
+        {item.positionName || t('adminTasks.wizardSuggestNoPosition')}
         {years != null ? ` · ${t('adminTasks.wizardSuggestYears', { n: years })}` : ''}
       </p>
       <CandidateLoad item={item} t={t} />
@@ -198,7 +198,7 @@ export default function ProjectWizardStepTeam({
     setIntakeSlot(roleKey, {
       userId: item.userId,
       displayName: item.displayName,
-      jobTitle: item.jobTitle,
+      positionName: item.positionName || '',
     });
   };
 

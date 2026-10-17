@@ -500,6 +500,13 @@ export const ADMIN_DOMAINS = [
             requiredGrant: 'organization.position.view',
           },
           {
+            id: 'pos-create',
+            path: '/app/admin/rbac/positions/create',
+            labelKey: 'adminDomains.rbac.posCreate',
+            implementation: 'rbac-pos-create',
+            requiredGrant: 'organization.position.create',
+          },
+          {
             id: 'pos-manage',
             path: '/app/admin/rbac/positions/manage',
             labelKey: 'adminDomains.rbac.posManageHub',
@@ -1141,8 +1148,7 @@ const LEGACY_PATH_REDIRECTS = {
   '/app/admin/policy': '/app/admin/system-config/policy',
   '/app/admin/security': '/app/admin/security',
   '/app/admin/org-structure/positions': '/app/admin/rbac/positions',
-  '/app/admin/org-structure/positions/create': '/app/admin/rbac/positions',
-  '/app/admin/rbac/positions/create': '/app/admin/rbac/positions',
+  '/app/admin/org-structure/positions/create': '/app/admin/rbac/positions/create',
   '/app/admin/org-structure/positions/edit': '/app/admin/rbac/positions/edit',
   '/app/admin/org-structure/positions/disable': '/app/admin/rbac/positions/disable',
   '/app/admin/org-structure/positions/assign': '/app/admin/rbac/positions/assign',

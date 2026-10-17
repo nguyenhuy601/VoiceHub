@@ -6,6 +6,10 @@
 
 const { scorePositionMatch } = require('./positionCandidateMatch');
 const { scoreVerifiedCapability } = require('./capabilityMatch');
+const {
+  orgPositionMatchesRole,
+  preferredOrgPositionCodes,
+} = require('./orgPositionSuggestMatch');
 
 const INTAKE_LEAD_ROLE_KEYS = Object.freeze([
   'product_owner',
@@ -52,21 +56,20 @@ function isExactIntakeRoleKeys(keys) {
   return INTAKE_LEAD_ROLE_KEYS.every((k) => set.has(k)) && set.size === INTAKE_LEAD_ROLE_KEYS.length;
 }
 
-/** 1–N key thuộc intake; không chấp nhận key lạ. */
+/** 1–N vai trò dự án (không khóa cứng 4 lead). */
 function isAllowedIntakeRoleKeys(keys) {
   const parsed = parseIntakeRoleKeys(keys);
-  if (!parsed.length || parsed.length > INTAKE_LEAD_ROLE_KEYS.length) return false;
-  const allowed = new Set(INTAKE_LEAD_ROLE_KEYS);
-  return parsed.every((k) => allowed.has(k));
+  if (!parsed.length || parsed.length > MAX_INTAKE_SUGGEST_ROLES) return false;
+  return parsed.every((k) => STAFFING_ROLE_KEY.test(k));
 }
 
 function resolveRequestedIntakeRoleKeys(raw) {
   if (!isAllowedIntakeRoleKeys(raw)) return null;
-  const set = new Set(parseIntakeRoleKeys(raw));
-  return INTAKE_LEAD_ROLE_KEYS.filter((k) => set.has(k));
+  return parseIntakeRoleKeys(raw);
 }
 
 const STAFFING_ROLE_KEY = /^[a-z][a-z0-9_]{0,63}$/;
+const MAX_INTAKE_SUGGEST_ROLES = 12;
 
 /** Một vai trò dự án (developer, tech_lead, …) cho bước phân công. */
 function resolveStaffingMatchRoleKey(raw) {
@@ -130,8 +133,36 @@ function filterRoleSuggestFitAvailable(items = []) {
   );
 }
 
+function rankByOrgPosition(input, roleKey) {
+  const position = input.orgPosition || null;
+  const preferred = orgPositionMatchesRole(position, roleKey);
+  const cap = input.verifiedCapability || null;
+  const isVerified = Boolean(cap && String(cap.verificationStatus || '') === 'verified');
+  const hasPriorRole = Boolean(input.hasPriorRole);
+  const suggestReasons = [];
+  if (preferred) suggestReasons.push('position_preferred');
+  if (hasPriorRole) suggestReasons.push('prior_role');
+
+  return {
+    userId: String(input.userId || ''),
+    displayName: String(input.displayName || '').trim() || String(input.userId || '').slice(-6),
+    jobTitle: '',
+    positionName: String(position?.positionName || '').trim(),
+    positionKey: String(position?.positionCode || '').trim() || null,
+    score: (preferred ? 15 : 0) + (hasPriorRole ? PRIOR_ROLE_BOOST : 0),
+    suggestReasons: [...new Set(suggestReasons)],
+    priorRoleKeys: hasPriorRole ? [roleKey] : [],
+    yearsExperience: isVerified && cap.yearsExperience != null && Number.isFinite(Number(cap.yearsExperience))
+      ? Number(cap.yearsExperience)
+      : undefined,
+  };
+}
+
 function rankRoleSuggestCandidate(input = {}, { projectRoleKey, enabledPositionKeys } = {}) {
   const roleKey = String(projectRoleKey || '').trim().toLowerCase();
+  if (preferredOrgPositionCodes(roleKey)) {
+    return rankByOrgPosition(input, roleKey);
+  }
   const jobTitle = String(input.jobTitle || '').trim();
   const cap = input.verifiedCapability || null;
   const isVerified = Boolean(cap && String(cap.verificationStatus || '') === 'verified');
@@ -177,6 +208,7 @@ function toRoleSuggestPublicItem(ranked = {}) {
     userId: String(ranked.userId || ''),
     displayName: String(ranked.displayName || '').trim() || String(ranked.userId || '').slice(-6),
     jobTitle: String(ranked.jobTitle || '').trim(),
+    positionName: String(ranked.positionName || '').trim(),
     positionKey: ranked.positionKey || null,
     score: Number(ranked.score) || 0,
     suggestReasons: Array.isArray(ranked.suggestReasons) ? ranked.suggestReasons.filter(Boolean) : [],

@@ -79,6 +79,115 @@ export function intakeSlotFilled(slots, roleKey) {
   return Boolean(slotUserId(slots?.[roleKey]));
 }
 
+/** Gate WHAT = review phân tích yêu cầu. Gate HOW = review lập kế hoạch. */
+export const GATE_PROCESS_KEYS = Object.freeze(['what', 'how']);
+
+/**
+ * Nhãn vị trí tổ chức dùng để gợi ý người cho từng vai trò dự án.
+ * Khớp ROLE_ORG_POSITION_CODES (master HR + mã vị trí cũ).
+ */
+export const ROLE_POSITION_HINTS = Object.freeze({
+  product_owner: ['Product Manager', 'Product Owner'],
+  project_manager: ['Team Lead', 'Project Manager'],
+  business_analyst: ['Business Analyst'],
+  tech_lead: ['Technical Lead', 'Engineering Manager'],
+  technical_lead: ['Technical Lead', 'Engineering Manager'],
+  solution_architect: ['Technical Lead'],
+  architect: ['Technical Lead'],
+  scrum_master: ['Scrum Master'],
+  qa_engineer: ['QA Engineer'],
+  qa_lead: ['QA Engineer'],
+  qa: ['QA Engineer'],
+  tester: ['QA Engineer'],
+  backend_developer: ['Software Developer'],
+  frontend_developer: ['Software Developer'],
+  mobile_developer: ['Software Developer'],
+  fullstack_developer: ['Software Developer'],
+  developer: ['Software Developer'],
+  senior_developer: ['Software Developer'],
+  junior: ['Software Developer'],
+  ui_ux_designer: ['UX Designer'],
+  devops_engineer: ['DevOps Engineer'],
+  release_manager: ['DevOps Engineer'],
+});
+
+export function emptyGateSlots() {
+  return { what: {}, how: {} };
+}
+
+export function positionHintsForRole(roleKey) {
+  const key = String(roleKey || '').trim().toLowerCase();
+  const hints = ROLE_POSITION_HINTS[key];
+  return Array.isArray(hints) ? hints : [];
+}
+
+function normalizeSlotMap(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [roleKey, slot] of Object.entries(raw)) {
+    const key = String(roleKey || '').trim().toLowerCase();
+    if (!key) continue;
+    if (!slot || !slotUserId(slot)) {
+      out[key] = slot ? { ...slot, userId: '' } : null;
+      continue;
+    }
+    out[key] = {
+      userId: slotUserId(slot),
+      displayName: String(slot.displayName || '').trim(),
+      positionName: String(slot.positionName || slot.jobTitle || '').trim(),
+    };
+  }
+  return out;
+}
+
+export function normalizeGateSlots(raw) {
+  return {
+    what: normalizeSlotMap(raw?.what),
+    how: normalizeSlotMap(raw?.how),
+  };
+}
+
+/** Vai trò đã thêm vào một cổng, kể cả chưa gán người. */
+export function gateRoleKeys(slots, processKey) {
+  const bag = slots?.[processKey];
+  if (!bag || typeof bag !== 'object') return [];
+  return Object.keys(bag);
+}
+
+export function countAssignedGateSlots(slots, processKey) {
+  return gateRoleKeys(slots, processKey).filter((key) => intakeSlotFilled(slots?.[processKey], key))
+    .length;
+}
+
+/**
+ * Gộp hai cổng → seed members. Cùng user nhiều vai trò → 1 row.
+ * @param {{ what?: object, how?: object }} gateSlots
+ */
+export function gateSlotsToSeedMembers(gateSlots = {}) {
+  const normalized = normalizeGateSlots(gateSlots);
+  const byUser = new Map();
+  for (const processKey of GATE_PROCESS_KEYS) {
+    for (const [roleKey, slot] of Object.entries(normalized[processKey])) {
+      const userId = slotUserId(slot);
+      if (!userId) continue;
+      const existing = byUser.get(userId) || {
+        userId,
+        projectRoleKeys: [],
+        displayName: '',
+      };
+      if (!existing.projectRoleKeys.includes(roleKey)) {
+        existing.projectRoleKeys.push(roleKey);
+      }
+      const name = String(slot?.displayName || '').trim();
+      if (name && !existing.displayName) existing.displayName = name;
+      byUser.set(userId, existing);
+    }
+  }
+  return [...byUser.values()].map((row) =>
+    row.displayName ? row : { userId: row.userId, projectRoleKeys: row.projectRoleKeys }
+  );
+}
+
 /** Append page, bỏ trùng userId (giữ item cũ). */
 export function mergeRoleSuggestItems(current = [], incoming = []) {
   const out = Array.isArray(current) ? [...current] : [];
