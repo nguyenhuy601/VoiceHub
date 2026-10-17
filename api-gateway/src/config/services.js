@@ -118,12 +118,10 @@ const publicRoutes = [
   '/api/auth/verify-email',
   '/api/auth/verify-email-change',
   '/api/organizations/company-invites/accept',
-  '/api/health/gateway-trust',
   '/api/docs',
   '/api/docs.json',
   '/api/docs.yaml',
   '/api/docs-assets',
-  '/health',
   '/metrics',
   '/favicon.ico',
 ];

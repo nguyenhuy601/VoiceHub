@@ -17,6 +17,7 @@ import {
 import { ConfirmDialog } from '../../components/Shared';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { organizationAPI } from '../../services/api/organizationAPI';
+import { orgRbacAPI } from '../../services/api/orgRbacAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
@@ -101,11 +102,38 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
   const jobTitle =
     mode === 'custom' ? String(customTitle || '').trim() : String(selectedTitle || '').trim();
 
+  const resolvePositionId = () => {
+    const match = (hrPositions || []).find(
+      (row) => String(row?.title || row?.name || '').trim() === jobTitle
+    );
+    return String(match?._id || match?.id || '').trim();
+  };
+
   const save = async (e) => {
     e.preventDefault();
     if (!orgId || !userId || !jobTitle || saving) return;
     setSaving(true);
     try {
+      let positionId = resolvePositionId();
+      if (!positionId && mode === 'custom') {
+        const created = await organizationAPI.createHrPosition(orgId, { title: jobTitle });
+        const pos = created?.data?.position || created?.data?.data?.position || created?.data;
+        positionId = String(pos?._id || pos?.id || '').trim();
+        if (!positionId && pos?.title) {
+          const refreshed = await organizationAPI.listHrPositions(orgId);
+          const data = refreshed?.data?.data ?? refreshed?.data ?? refreshed;
+          const list = Array.isArray(data?.positions) ? data.positions : [];
+          const found = list.find((r) => String(r?.title || r?.name || '').trim() === jobTitle);
+          positionId = String(found?._id || found?.id || '').trim();
+          setHrPositions(list);
+        }
+      }
+      if (!positionId) {
+        toast.error(t('adminOrg.posAssignNeedPosition', 'Chọn hoặc tạo vị trí tổ chức trước khi gán.'));
+        return;
+      }
+      await orgRbacAPI.assignPosition(orgId, { userId, positionId });
+      // Label hồ sơ (không phải nguồn grant)
       await adminUserAPI.patchProfile(orgId, userId, { jobTitle });
       toast.success(t('adminOrg.posAssigned'));
       await loadMembers();
@@ -120,6 +148,17 @@ export default function PosAssignPanel({ orgId, embedded = false }) {
     if (!orgId || !userId || !currentTitle || saving) return;
     setSaving(true);
     try {
+      try {
+        const asgRes = await orgRbacAPI.listAssignments(orgId, { userId, status: 'active' });
+        const assignments =
+          asgRes?.data?.assignments || asgRes?.data?.data?.assignments || [];
+        for (const row of assignments) {
+          const aid = String(row?._id || row?.id || '').trim();
+          if (aid) await orgRbacAPI.endAssignment(orgId, aid);
+        }
+      } catch (_) {
+        /* profile clear vẫn chạy */
+      }
       await adminUserAPI.patchProfile(orgId, userId, { jobTitle: '' });
       toast.success(t('adminOrg.posUnassigned'));
       setConfirmUnassign(false);

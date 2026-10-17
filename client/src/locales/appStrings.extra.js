@@ -188,14 +188,10 @@ export const extraStrings = {
       flashlightOn: 'Bật đèn pin',
       flashlightOff: 'Tắt đèn pin',
       remember: 'Ghi nhớ đăng nhập',
-      checkingConfig: 'Đang kiểm tra…',
       submitting: 'Đang đăng nhập…',
       submit: 'Đăng nhập',
       noAccount: 'Bạn chưa có tài khoản?',
       goRegister: 'Đăng ký',
-      gatewayAlertTitle: 'Không thể đăng nhập ổn định',
-      gatewayAlertFallback:
-        'API Gateway chưa cấu hình GATEWAY_INTERNAL_TOKEN. Thêm biến này vào api-gateway/.env và cùng giá trị với các microservice (xem .env.example ở root repo).',
       demoToast: 'Đây là bản demo trên trang chủ — đăng nhập thật từ trang Đăng nhập.',
       resendVerificationHint:
         'Tài khoản chưa xác thực email. Nhập đúng email và nhấn gửi lại để nhận liên kết kích hoạt.',
@@ -206,9 +202,6 @@ export const extraStrings = {
     register: {
       title: 'Tạo tài khoản mới',
       subtitle: 'Khởi tạo không gian làm việc chuyên nghiệp cho doanh nghiệp.',
-      gatewayAlertTitle: 'Chưa thể đăng ký ổn định',
-      gatewayAlertFallback:
-        'API Gateway chưa cấu hình GATEWAY_INTERNAL_TOKEN. Thêm biến vào api-gateway/.env và đồng bộ với docker-compose / các service.',
       lastName: 'Họ',
       firstName: 'Tên',
       email: 'Email',
@@ -752,14 +745,10 @@ export const extraStrings = {
       flashlightOn: 'Turn on flashlight',
       flashlightOff: 'Turn off flashlight',
       remember: 'Remember me',
-      checkingConfig: 'Checking…',
       submitting: 'Signing in…',
       submit: 'Log in',
       noAccount: "Don't have an account?",
       goRegister: 'Sign up',
-      gatewayAlertTitle: 'Unable to sign in reliably',
-      gatewayAlertFallback:
-        'API Gateway is missing GATEWAY_INTERNAL_TOKEN. Add it to api-gateway/.env and keep the same value across all microservices (see .env.example at the repo root).',
       demoToast: 'This is the home preview — sign in from the Log in page for real auth.',
       resendVerificationHint:
         'Your email is not verified yet. Enter the correct email and tap resend to get an activation link.',
@@ -770,9 +759,6 @@ export const extraStrings = {
     register: {
       title: 'Create an account',
       subtitle: 'Set up a professional workspace for your team.',
-      gatewayAlertTitle: 'Unable to register reliably',
-      gatewayAlertFallback:
-        'API Gateway is missing GATEWAY_INTERNAL_TOKEN. Add it to api-gateway/.env and keep it aligned with docker-compose and the services.',
       lastName: 'Last name',
       firstName: 'First name',
       email: 'Email',

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const permissionController = require('../controllers/permission.controller');
-const rbacV2Controller = require('../controllers/rbacV2.controller');
+const rbacController = require('../controllers/rbac.controller');
 const internalGatewayAuth = require('../middleware/internalGatewayAuth');
 const { authenticate } = require('@enterprise/shared/middleware/auth');
 const authenticateOrInternal = require('../middleware/authenticateOrInternal');
@@ -34,19 +34,25 @@ router.get(
   permissionController.getUserRole.bind(permissionController)
 );
 
-// ----- RBAC V2 (catalog / groups / assign) -----
-// Catalog là hệ thống immutable — chỉ cần đăng nhập (hoặc S2S).
+// ----- RBAC (system permissions / groups / assign) -----
+// Quyền hệ thống bất biến — chỉ cần đăng nhập (hoặc S2S).
+router.get(
+  '/system',
+  authenticateOrInternal,
+  rbacController.listSystemPermissions.bind(rbacController)
+);
+/** @deprecated Prefer GET /permissions/system */
 router.get(
   '/catalog',
   authenticateOrInternal,
-  rbacV2Controller.getCatalog.bind(rbacV2Controller)
+  rbacController.listSystemPermissions.bind(rbacController)
 );
 
 router.get(
   '/groups',
   authenticateOrInternal,
   requireOrgRoleManager,
-  rbacV2Controller.listGroups.bind(rbacV2Controller)
+  rbacController.listGroups.bind(rbacController)
 );
 
 router.post(
@@ -54,7 +60,7 @@ router.post(
   authenticateOrInternal,
   requireOrgRoleManager,
   rbacWriteLimit,
-  rbacV2Controller.cloneGroup.bind(rbacV2Controller)
+  rbacController.cloneGroup.bind(rbacController)
 );
 
 router.patch(
@@ -62,7 +68,7 @@ router.patch(
   authenticateOrInternal,
   requireOrgRoleManager,
   rbacWriteLimit,
-  rbacV2Controller.renameGroup.bind(rbacV2Controller)
+  rbacController.renameGroup.bind(rbacController)
 );
 
 router.put(
@@ -70,14 +76,14 @@ router.put(
   authenticateOrInternal,
   requireOrgRoleManager,
   rbacWriteLimit,
-  rbacV2Controller.setGroupGrants.bind(rbacV2Controller)
+  rbacController.setGroupGrants.bind(rbacController)
 );
 
 router.get(
   '/roles/:roleId/groups',
   authenticateOrInternal,
   requireOrgRoleManager,
-  rbacV2Controller.listRoleGroups.bind(rbacV2Controller)
+  rbacController.listRoleGroups.bind(rbacController)
 );
 
 router.put(
@@ -85,7 +91,7 @@ router.put(
   authenticateOrInternal,
   requireOrgRoleManager,
   rbacWriteLimit,
-  rbacV2Controller.replaceRoleGroups.bind(rbacV2Controller)
+  rbacController.replaceRoleGroups.bind(rbacController)
 );
 
 router.post(
@@ -93,14 +99,14 @@ router.post(
   authenticateOrInternal,
   requireOrgRoleManager,
   rbacWriteLimit,
-  rbacV2Controller.directReplace.bind(rbacV2Controller)
+  rbacController.directReplace.bind(rbacController)
 );
 
 /** Project-service S2S — Wave B Strict AND migration for Create Project */
 router.post(
   '/internal/ensure-project-create-grant',
   internalGatewayAuth,
-  rbacV2Controller.ensureProjectCreateGrant.bind(rbacV2Controller)
+  rbacController.ensureProjectCreateGrant.bind(rbacController)
 );
 
 module.exports = router;

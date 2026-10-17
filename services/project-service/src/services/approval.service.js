@@ -380,8 +380,8 @@ async function maybeStartTaskApproval({
   });
   if (!policy) return { blocked: false };
 
-  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled()) {
+  const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled()) {
     const { assertUserProjectPermission } = require('./projectAccess.service');
     await assertUserProjectPermission({
       userId,
@@ -525,8 +525,8 @@ async function decideRequest({
 
   const actor = await resolveActorContext(userId, request.projectId, request.organizationId);
   if (request.projectId) {
-    const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
-    if (isProjectRbacV2Enabled()) {
+    const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
+    if (isProjectRbacEnabled()) {
       const { assertUserProjectPermission } = require('./projectAccess.service');
       await assertUserProjectPermission({
         userId,
@@ -820,8 +820,8 @@ async function startStubEntityApproval({
       err.errorCode = 'VALIDATION_FAILED';
       throw err;
     }
-    const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
-    if (isProjectRbacV2Enabled()) {
+    const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
+    if (isProjectRbacEnabled()) {
       const { assertUserProjectPermission } = require('./projectAccess.service');
       await assertUserProjectPermission({
         userId,
@@ -883,8 +883,8 @@ async function bindProjectTaskDonePolicy({ userId, projectId, policyId, changeRe
     err.statusCode = 404;
     throw err;
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled()) {
+  const { isProjectRbacEnabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
     const can =

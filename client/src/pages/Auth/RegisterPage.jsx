@@ -64,25 +64,7 @@ function RegisterPage({ suiteLayout = false } = {}) {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
-  const [gatewayTrust, setGatewayTrust] = useState(null);
-  const submitDisabled =
-    loading || gatewayTrust === null || (gatewayTrust && !gatewayTrust.ok) || !agreedToTerms;
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const trust = await authService.checkGatewayTrust();
-      if (!cancelled) {
-        setGatewayTrust({
-          ok: trust.gatewayTrustConfigured,
-          message: trust.message || '',
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const submitDisabled = loading || !agreedToTerms;
 
   useEffect(() => {
     if (!cooldownUntil) {
@@ -295,16 +277,6 @@ function RegisterPage({ suiteLayout = false } = {}) {
           registerSuccessPanel
         ) : (
           <>
-            {gatewayTrust && !gatewayTrust.ok && (
-              <div
-                role="alert"
-                className="mb-4 rounded-lg border border-warning/40 bg-warning-bg px-4 py-3 text-[0.8125rem] leading-relaxed text-foreground-secondary"
-              >
-                <p className="font-semibold text-warning">{t('register.gatewayAlertTitle')}</p>
-                <p className="mt-1">{gatewayTrust.message || t('register.gatewayAlertFallback')}</p>
-              </div>
-            )}
-
             <form className="mt-8 space-y-5" onSubmit={handleRegister}>
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div>
@@ -531,8 +503,6 @@ function RegisterPage({ suiteLayout = false } = {}) {
                     <span className={FIGMA_BTN_SPINNER} />
                     {t('register.submitting')}
                   </span>
-                ) : gatewayTrust === null ? (
-                  t('login.checkingConfig')
                 ) : (
                   t('register.submit')
                 )}

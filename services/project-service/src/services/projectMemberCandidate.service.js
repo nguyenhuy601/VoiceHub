@@ -402,7 +402,7 @@ async function listOrgRoleSuggestCandidates({
     const err = new Error(
       staffingMatch
         ? 'projectRoleKeys phải là một vai trò dự án'
-        : 'projectRoleKeys phải là 1–3 vai trò intake: product_owner, project_manager, business_analyst'
+        : 'projectRoleKeys phải là 1–4 vai trò intake: product_owner, project_manager, business_analyst, tech_lead'
     );
     err.statusCode = 400;
     err.errorCode = 'VALIDATION_REQUIRED';

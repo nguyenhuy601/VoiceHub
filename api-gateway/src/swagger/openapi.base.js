@@ -20,7 +20,6 @@ function readGatewayPackageVersion() {
 }
 
 const MODULE_TAGS = [
-  { name: 'Health', description: 'Liveness / gateway trust' },
   { name: 'Auth', description: 'Đăng nhập, token, profile auth' },
   { name: 'BFF', description: 'Gateway BFF aggregate' },
   { name: 'Users', description: 'User profile, avatar, CV' },

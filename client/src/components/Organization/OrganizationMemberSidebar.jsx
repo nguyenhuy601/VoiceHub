@@ -252,7 +252,7 @@ function OrganizationMemberSidebar({
   const [savingTeamMembers, setSavingTeamMembers] = useState(false);
   const [orgPermissions, setOrgPermissions] = useState([]);
   const [orgPermissionsLoaded, setOrgPermissionsLoaded] = useState(false);
-  const [orgMasterGrants, setOrgMasterGrants] = useState([]);
+  const [orgGrantCodes, setOrgGrantCodes] = useState([]);
   const [teamTaskSections, setTeamTaskSections] = useState([]);
   const [loadingSidebarTasks, setLoadingSidebarTasks] = useState(false);
   const [sidebarTasksError, setSidebarTasksError] = useState('');
@@ -267,7 +267,7 @@ function OrganizationMemberSidebar({
   useEffect(() => {
     if (!organizationId || !currentUserId) {
       setOrgPermissions([]);
-      setOrgMasterGrants([]);
+      setOrgGrantCodes([]);
       setOrgPermissionsLoaded(false);
       return undefined;
     }
@@ -289,12 +289,12 @@ function OrganizationMemberSidebar({
               : [];
         if (!cancelled) {
           setOrgPermissions(list);
-          setOrgMasterGrants(parsed.masterGrants);
+          setOrgGrantCodes(Object.keys(parsed.grantScopes || {}));
         }
       } catch {
         if (!cancelled) {
           setOrgPermissions([]);
-          setOrgMasterGrants([]);
+          setOrgGrantCodes([]);
         }
       } finally {
         if (!cancelled) setOrgPermissionsLoaded(true);
@@ -351,8 +351,7 @@ function OrganizationMemberSidebar({
 
   const showAddTeamMember = Boolean(selectedTeamId) && (
     Boolean(canAddTeamMembers) ||
-    Boolean(isFullAccess) ||
-    orgMasterGrants.some((k) => String(k || '').trim().toLowerCase() === RBAC_GRANT.TEAM_UPDATE)
+    orgGrantCodes.some((k) => String(k || '').trim().toLowerCase() === RBAC_GRANT.TEAM_UPDATE)
   );
 
   const teamMemberIdSet = useMemo(

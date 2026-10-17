@@ -70,7 +70,7 @@ export const ADMIN_VI_WHITELIST = Object.freeze([
   'TEAM',
   'PERSONAL',
   'V2',
-  'RBAC V2',
+  'RBAC',
   'blank',
   'template',
   'clone',

@@ -1,4 +1,5 @@
 const roleService = require('../services/role.service');
+const { readStoredSystemAdminState } = require('../clients/storedSystemRole.client');
 const {
   getAction,
   extractServerId,
@@ -12,6 +13,8 @@ const {
   isDelegatedUserRoleRead,
   isDelegatedUserPermissionRead,
   isDelegatedRoleManageRoute,
+  isPositionGrantAction,
+  consultsStoredSystemAdmin,
 } = require('../config/permissions');
 const { isPublicRoute, isAuthInternalS2SPath, resolveReqApiPath } = require('../config/services');
 const { sendApiError, GENERIC_5XX_MESSAGE } = require('@enterprise/shared/middleware/httpErrorResponse');
@@ -25,6 +28,42 @@ const CACHE_TTL_MS = Math.max(5000, parseInt(process.env.GATEWAY_PERMISSION_CACH
 
 function cacheKey(userId, serverId, action) {
   return `${userId}|${serverId}|${action}`;
+}
+
+/**
+ * Grant vị trí hoặc hồ sơ user (user:read/user:write) không đủ: hỏi kho auth.
+ * Chỉ bản ghi system admin đang hiệu lực được phép. Claim JWT không tham gia.
+ * @returns {Promise<'allow'|'deny'|'unavailable'|'skip'>}
+ */
+async function resolveStoredAdminForPositionGrant(userId, action) {
+  if (!consultsStoredSystemAdmin(action)) return 'skip';
+  const stored = await readStoredSystemAdminState(userId);
+  if (stored.state === 'admin') return 'allow';
+  if (stored.state === 'unavailable') return 'unavailable';
+  return 'deny';
+}
+
+function denyPermission(res, reason) {
+  return res.status(403).json({
+    success: false,
+    message: 'Permission denied',
+    reason: reason || 'You do not have permission to perform this action',
+  });
+}
+
+async function finishPositionGrantDenial(res, userId, action, reason) {
+  const storedDecision = await resolveStoredAdminForPositionGrant(userId, action);
+  if (storedDecision === 'allow') return true;
+  if (storedDecision === 'unavailable') {
+    sendApiError(res, 503, {
+      errorCode: 'AUTH_SYSTEM_ROLE_UNAVAILABLE',
+      message: 'system role lookup failed',
+      messageUser: 'Không thể xác minh quyền quản trị hệ thống. Vui lòng thử lại.',
+    });
+    return false;
+  }
+  denyPermission(res, reason);
+  return false;
 }
 
 /**
@@ -99,10 +138,12 @@ const permissionMiddleware = async (req, res, next) => {
       });
     }
 
-    // Organization permissions được kiểm tra tại organization-service theo membership thực tế.
-    // Bỏ qua check role-service ở gateway để tránh false deny do khác ngữ cảnh serverId.
-    // Cả organization:write (legacy) lẫn organization.team.create (master V2).
-    if (action.startsWith('organization:') || action.startsWith('organization.')) {
+    // organization:read/write và grant org chưa map: organization-service tự authorize.
+    // Route RBAC 3 lớp (isPositionGrantAction) đi tiếp để check grantScopes.
+    if (
+      !isPositionGrantAction(action) &&
+      (action.startsWith('organization:') || action.startsWith('organization.'))
+    ) {
       return next();
     }
 
@@ -183,11 +224,9 @@ const permissionMiddleware = async (req, res, next) => {
       if (hit.allowed) {
         return next();
       }
-      return res.status(403).json({
-        success: false,
-        message: 'Permission denied',
-        reason: hit.reason || 'You do not have permission to perform this action',
-      });
+      const proceed = await finishPositionGrantDenial(res, userId, action, hit.reason);
+      if (proceed) return next();
+      return;
     }
 
     const { allowed, reason } = await roleService.checkPermission(
@@ -199,11 +238,9 @@ const permissionMiddleware = async (req, res, next) => {
     permissionCache.set(ck, { allowed, reason, at: now });
 
     if (!allowed) {
-      return res.status(403).json({
-        success: false,
-        message: 'Permission denied',
-        reason: reason || 'You do not have permission to perform this action',
-      });
+      const proceed = await finishPositionGrantDenial(res, userId, action, reason);
+      if (proceed) return next();
+      return;
     }
 
     next();

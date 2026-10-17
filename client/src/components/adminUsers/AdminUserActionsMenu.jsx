@@ -289,7 +289,9 @@ export default function AdminUserActionsMenu({
                     </ItemLink>
                   </Group>
                   <Group label={t('adminUsers.menuGroupAccess')}>
-                    <ItemLink to={`/app/admin/rbac/assign${q}`}>{t('adminUsers.assignRole')}</ItemLink>
+                    <ItemLink to={`/app/admin/rbac/org-roles/assign${q}`}>
+                      {t('adminUsers.assignRole')}
+                    </ItemLink>
                     <ItemLink to={adminUserHubLink('/app/admin/users/people-ops', userId, 'assign-org')}>
                       {t('adminDomains.users.assignOrg')}
                     </ItemLink>

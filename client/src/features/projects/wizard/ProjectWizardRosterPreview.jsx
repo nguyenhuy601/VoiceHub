@@ -39,7 +39,7 @@ export default function ProjectWizardRosterPreview({
         <p className="truncate text-lg font-semibold text-foreground">{displayTitle}</p>
         <p className="mt-0.5 font-mono text-xs text-muted-foreground">{projectCode || '—'}</p>
         <p className="mt-2 text-xs text-muted-foreground">
-          {t('adminTasks.wizardPreviewMembersHint')} · {filledCount}/3
+          {t('adminTasks.wizardPreviewMembersHint')} · {filledCount}/{INTAKE_LEAD_ROLE_KEYS.length}
         </p>
       </div>
       <div className="max-h-full overflow-auto">

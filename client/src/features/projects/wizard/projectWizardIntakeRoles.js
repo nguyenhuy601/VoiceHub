@@ -4,12 +4,14 @@ export const INTAKE_LEAD_ROLE_KEYS = Object.freeze([
   'product_owner',
   'project_manager',
   'business_analyst',
+  'tech_lead',
 ]);
 
 export const INTAKE_LEAD_LABEL_KEYS = Object.freeze({
   product_owner: 'adminTasks.wizardColPo',
   project_manager: 'adminTasks.wizardColPm',
   business_analyst: 'adminTasks.wizardColBa',
+  tech_lead: 'adminTasks.wizardColTl',
 });
 
 export function emptyIntakeSlots() {
@@ -17,6 +19,7 @@ export function emptyIntakeSlots() {
     product_owner: null,
     project_manager: null,
     business_analyst: null,
+    tech_lead: null,
   };
 }
 
@@ -25,7 +28,7 @@ function slotUserId(slot) {
 }
 
 /**
- * Merge 3 slot → seedMembers. Cùng user nhiều cột → 1 row, nhiều projectRoleKeys.
+ * Merge intake slots → seedMembers. Cùng user nhiều cột → 1 row, nhiều projectRoleKeys.
  * @param {Record<string, { userId?: string, displayName?: string }|null>} slots
  */
 export function slotsToSeedMembers(slots = {}) {

@@ -4,7 +4,7 @@ import { useAppStrings } from '../../locales/appStrings';
 import { adminInputClass, adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import useRoleMasterGrantsMap from '../../hooks/useRoleMasterGrantsMap';
-import { countMasterGrants } from '../../utils/rbacV2Ui';
+import { countMasterGrants } from '../../utils/rbacUi';
 import { normalizeRoleDisplayName, normalizeRoleId } from '../../utils/adminRbacUtils';
 import {
   AdminListSkeleton,

@@ -111,8 +111,11 @@ export const roleAPI = {
     );
   },
 
-  /* ----- RBAC V2 ----- */
-  getRbacCatalog: () => apiClient.get('/permissions/catalog'),
+  /* ----- RBAC ----- */
+  /** System permissions by domain (alias: /permissions/catalog). */
+  listSystemPermissions: () => apiClient.get('/permissions/system'),
+  /** @deprecated Prefer listSystemPermissions */
+  getRbacCatalog: () => apiClient.get('/permissions/system'),
 
   listPermissionGroups: (organizationId) =>
     apiClient.get('/permissions/groups', {

@@ -64,16 +64,18 @@ const INTAKE_LEAD_ROLE_KEYS = Object.freeze([
   'product_owner',
   'project_manager',
   'business_analyst',
+  'tech_lead',
 ]);
 
 const INTAKE_LEAD_LABELS = Object.freeze({
   product_owner: 'Product Owner',
   project_manager: 'Project Manager',
   business_analyst: 'Business Analyst',
+  tech_lead: 'Tech Lead',
 });
 
 /**
- * Public create (wizard): bắt buộc đúng 3 vai trò intake — 1 user/slot, kiêm nhiệm OK.
+ * Public create (wizard): bắt buộc đủ vai trò intake — 1 user/slot, kiêm nhiệm OK.
  */
 function assertIntakeLeadRoster(roleKeys = []) {
   const keys = new Set(normalizeRoleKeys(roleKeys));

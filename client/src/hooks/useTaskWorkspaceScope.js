@@ -3,8 +3,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { organizationAPI } from '../services/api/organizationAPI';
 import { queryKeys } from '../lib/queryKeys';
 import { STALE_TIME_TASK_SCOPE_MS } from '../lib/queryClient';
-import { buildWorkspaceCapabilities, canCreateProjectUi } from '../lib/capabilities';
-import { useEffectiveMasterGrants } from './useEffectiveMasterGrants';
+import {
+  buildWorkspaceCapabilities,
+  canCreateProjectUi,
+  createProjectDeniedI18nKey,
+} from '../lib/capabilities';
+import { useGrantScopes } from './useGrantScopes';
 
 function unwrapScope(payload) {
   return payload?.data?.data ?? payload?.data ?? payload ?? null;
@@ -36,11 +40,11 @@ export default function useTaskWorkspaceScope(organizationId, options = {}) {
   });
 
   const {
-    grants,
+    grantScopes,
     loading: grantsLoading,
     error: grantsError,
     reload: reloadGrants,
-  } = useEffectiveMasterGrants(enabled ? orgId : '');
+  } = useGrantScopes(enabled ? orgId : '');
 
   const scope = enabled ? query.data ?? null : null;
   const scopeLoading = Boolean(enabled) && query.isPending;
@@ -57,16 +61,20 @@ export default function useTaskWorkspaceScope(organizationId, options = {}) {
     () =>
       buildWorkspaceCapabilities({
         ...(scope || {}),
-        // Only pass masterGrants once RPS settled — empty resolved list = deny create.
-        ...(grantsResolved ? { masterGrants: grants } : {}),
+        ...(grantsResolved ? { grantScopes } : {}),
         ...(grantsError ? { grantsError: true } : {}),
       }),
-    [scope, grants, grantsResolved, grantsError]
+    [scope, grantScopes, grantsResolved, grantsError]
   );
 
   // Fail closed while grants/scope still loading — avoid brief false-allow on capability alone.
   const canCreateProjectCapability = Boolean(
     !loading && !grantsError && canCreateProjectUi(capabilities)
+  );
+
+  const createProjectDeniedKey = useMemo(
+    () => createProjectDeniedI18nKey(capabilities),
+    [capabilities]
   );
 
   const reload = useCallback(async () => {
@@ -85,6 +93,7 @@ export default function useTaskWorkspaceScope(organizationId, options = {}) {
     canCreateProject,
     capabilities,
     canCreateProjectCapability,
+    createProjectDeniedKey,
     loading,
     isError: Boolean(enabled) && (query.isError || grantsError),
     error: query.error,

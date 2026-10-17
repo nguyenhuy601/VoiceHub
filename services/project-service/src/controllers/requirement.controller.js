@@ -630,6 +630,10 @@ async function confirmAiAnalysisPhase(req, res) {
       action: req.body?.action,
       note: req.body?.note || req.body?.reason || '',
       reviewDecisions: req.body?.reviewDecisions,
+      track: req.body?.track,
+      proposal: req.body?.proposal,
+      proposalId: req.body?.proposalId,
+      decision: req.body?.decision,
       forceApprove: Boolean(req.body?.forceApprove),
       overrideReason: String(req.body?.overrideReason || '').trim().slice(0, 2000),
     });

@@ -2,7 +2,7 @@ const { MASTER_PROJECT_ROLES } = require('@enterprise/shared/config/masterData')
 const { defaultPermissionsForRoleKey } = require('../utils/project/projectPermissionMatrix');
 
 /**
- * RBAC V2: map Project Role key → Permission Group template (role-permission-service).
+ * RBAC: map Project Role key → Permission Group template (role-permission-service).
  * Project-service vẫn giữ permissions matrix cục bộ; templateKey dùng để sync/rebind group.
  */
 const PROJECT_ROLE_RBAC_TEMPLATE = Object.freeze({

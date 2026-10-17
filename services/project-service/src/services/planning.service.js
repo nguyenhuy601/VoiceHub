@@ -9,7 +9,7 @@ const Task = require('../models/Task');
 const projectService = require('./project.service');
 const { assertUserProjectPermission, assertUserAnyProjectPermission } = require('./projectAccess.service');
 const { assertProjectWritable } = require('../utils/project/projectCloseGate');
-const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
+const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
 const { planningWritePermission } = require('../utils/project/projectIssueTypePerms');
 const { buildPlanningListFilter } = require('../utils/work/listLazyQuery');
 const { enrichAssignableProfiles } = require('../utils/common/userProfileLabels');
@@ -24,7 +24,7 @@ async function assertProjectAccess(userId, projectId) {
 
 async function assertPlanningManage(userId, projectId, { type, action } = {}) {
   await assertProjectAccess(userId, projectId);
-  if (!isProjectRbacV2Enabled()) {
+  if (!isProjectRbacEnabled()) {
     const project = await projectService.getProject({ userId, projectId });
     const canAdmin = await projectService.userCanAdminProject(userId, project);
     if (!canAdmin) {
@@ -51,7 +51,7 @@ async function assertPlanningManage(userId, projectId, { type, action } = {}) {
 
 async function assertPlanningPrioritizeOrWrite(userId, projectId, type) {
   await assertProjectAccess(userId, projectId);
-  if (!isProjectRbacV2Enabled()) {
+  if (!isProjectRbacEnabled()) {
     return assertPlanningManage(userId, projectId, { type, action: 'update' });
   }
   await assertUserAnyProjectPermission({
@@ -157,7 +157,7 @@ function parseAssigneeId(raw) {
 
 async function listPlanningItems({ userId, projectId, type, parentId }) {
   await assertProjectAccess(userId, projectId);
-  if (isProjectRbacV2Enabled()) {
+  if (isProjectRbacEnabled()) {
     await assertUserProjectPermission({
       userId,
       projectId,
@@ -397,7 +397,7 @@ async function listBacklog({ userId, projectId }) {
 
 async function linkTaskToEpic({ userId, projectId, taskId, epicId, issueType }) {
   await assertProjectAccess(userId, projectId);
-  if (isProjectRbacV2Enabled()) {
+  if (isProjectRbacEnabled()) {
     await assertUserAnyProjectPermission({
       userId,
       projectId,

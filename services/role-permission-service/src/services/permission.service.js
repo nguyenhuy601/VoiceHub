@@ -1,5 +1,4 @@
 const UserRole = require('../models/UserRole');
-const Role = require('../models/Role');
 const { getRedisClient, logger } = require('@enterprise/shared');
 const { isTestUnlockEnabled } = require('../utils/rbacTestUnlock');
 const {
@@ -7,32 +6,53 @@ const {
   materializeLegacyPermissions,
   resolveMasterKeysForLegacyAction,
   isValidMasterPermission,
-} = require('../config/rbacV2Catalog');
+} = require('../config/rbacPermissions');
 
 /**
- * GET user permissions payload: legacy Role.permissions + V2 masterGrants.
- * `data` trên HTTP vẫn là mảng legacy (RoleAssignPanel); masterGrants đi field sibling.
+ * GET user permissions từ Position → Org Role.
+ * SoT FE: `grantScopes` { permissionCode: scope }.
  */
-function packUserPermissions(masterGrants, fallbackLegacy) {
-  const grants = Array.isArray(masterGrants)
-    ? [...new Set(masterGrants.map((k) => String(k || '').trim()).filter(isValidMasterPermission))]
-    : [];
-  if (grants.length) {
-    return {
-      permissions: materializeLegacyPermissions(grants),
-      masterGrants: grants,
-    };
-  }
+function packUserPermissions(grantScopes = {}) {
+  const scopes =
+    grantScopes && typeof grantScopes === 'object' && !Array.isArray(grantScopes)
+      ? grantScopes
+      : {};
+  const codes = Object.keys(scopes).filter(isValidMasterPermission);
+  const normalized = {};
+  for (const code of codes) normalized[code] = scopes[code];
   return {
-    permissions: Array.isArray(fallbackLegacy) ? fallbackLegacy : [],
-    masterGrants: [],
+    permissions: codes.length ? materializeLegacyPermissions(codes) : [],
+    grantScopes: normalized,
   };
 }
 
-let rbacV2Service;
-function getRbacV2() {
-  if (!rbacV2Service) rbacV2Service = require('./rbacV2.service');
-  return rbacV2Service;
+let rbacService;
+function getRbac() {
+  if (!rbacService) rbacService = require('./rbac.service');
+  return rbacService;
+}
+
+/** Cache mới: mã grantScopes. Mảng legacy `{resource, actions}` bỏ qua — nó gộp nhiều permission vào một resource. */
+function readCachedGrantCodes(raw) {
+  if (!raw) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Array.isArray(parsed.codes)) {
+    return null;
+  }
+  return parsed.codes.map((code) => String(code || '').trim()).filter(Boolean);
+}
+
+function grantCodesAllow(codes, action) {
+  const actionKey = String(action || '').trim();
+  if (!actionKey || !codes.length) return false;
+  if (isValidMasterPermission(actionKey) && codes.includes(actionKey)) return true;
+  const needed = resolveMasterKeysForLegacyAction(actionKey);
+  return needed.length > 0 && needed.some((key) => codes.includes(key));
 }
 
 class PermissionService {
@@ -46,12 +66,11 @@ class PermissionService {
       }
 
       const redis = getRedisClient();
+      const cacheKey = `permissions:${userId}:${serverId}`;
       if (redis) {
-        const cacheKey = `permissions:${userId}:${serverId}`;
-        const cached = await redis.get(cacheKey);
-        if (cached) {
-          const permissions = JSON.parse(cached);
-          const allowed = this.hasPermission(permissions, action);
+        const cachedCodes = readCachedGrantCodes(await redis.get(cacheKey));
+        if (cachedCodes) {
+          const allowed = grantCodesAllow(cachedCodes, action);
           return {
             allowed,
             reason: allowed ? null : 'Insufficient permissions',
@@ -59,61 +78,18 @@ class PermissionService {
         }
       }
 
-      // Union grants từ mọi gói Permission đã bind (checkPermission).
-      // Follow-up: gắn từng API vào matrix gói — hiện nhiều gate vẫn Membership/Org Role (vd. org planner).
-      // Chưa invent master key PM trong wave naming.
+      // Cutover: chỉ Position → Org Role → Permission (không UserRole/pack dual).
       let masterGrants = [];
       try {
-        masterGrants = await getRbacV2().collectEffectiveMasterGrants(userId, serverId);
+        masterGrants = await getRbac().collectEffectiveMasterGrants(userId, serverId);
       } catch (e) {
         logger.warn('[permission] collectEffectiveMasterGrants failed', e.message);
       }
 
-      if (masterGrants.length) {
-        const actionKey = String(action || '').trim();
-        if (isValidMasterPermission(actionKey) && masterGrants.includes(actionKey)) {
-          const materialized = materializeLegacyPermissions(masterGrants);
-          if (redis) {
-            await redis.setex(`permissions:${userId}:${serverId}`, 300, JSON.stringify(materialized));
-          }
-          return { allowed: true, reason: null };
-        }
-        const needed = resolveMasterKeysForLegacyAction(actionKey);
-        if (needed.length && needed.some((k) => masterGrants.includes(k))) {
-          const materialized = materializeLegacyPermissions(masterGrants);
-          if (redis) {
-            await redis.setex(`permissions:${userId}:${serverId}`, 300, JSON.stringify(materialized));
-          }
-          return { allowed: true, reason: null };
-        }
-      }
+      const allowed = grantCodesAllow(masterGrants, action);
 
-      // Fallback / also cache materialize: Role.permissions (rematerialized from groups)
-      const userRoles = await UserRole.find({
-        userId,
-        serverId,
-        isActive: true,
-        $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
-      }).populate('roleId');
-
-      const allPermissions = [];
-      for (const userRole of userRoles) {
-        if (userRole.roleId && userRole.roleId.permissions) {
-          allPermissions.push(...userRole.roleId.permissions);
-        }
-      }
-
-      // If we have master grants but legacy action didn't match via adapter, deny via master path
-      // still allow Role.permissions fallback for any rematerialized entries
-      const allowed = this.hasPermission(allPermissions, action);
-
-      if (redis) {
-        const cacheKey = `permissions:${userId}:${serverId}`;
-        const toCache =
-          masterGrants.length > 0
-            ? materializeLegacyPermissions(masterGrants)
-            : allPermissions;
-        await redis.setex(cacheKey, 300, JSON.stringify(toCache));
+      if (redis && masterGrants.length) {
+        await redis.setex(cacheKey, 300, JSON.stringify({ codes: masterGrants }));
       }
 
       return {
@@ -178,34 +154,17 @@ class PermissionService {
   async getUserPermissions(userId, serverId) {
     try {
       if (isTestUnlockEnabled()) {
-        return packUserPermissions(MASTER_PERMISSIONS, [{ resource: '*', actions: ['*'] }]);
+        const all = {};
+        for (const code of MASTER_PERMISSIONS) all[code] = 'ORGANIZATION';
+        return packUserPermissions(all);
       }
 
-      let masterGrants = [];
       try {
-        masterGrants = await getRbacV2().collectEffectiveMasterGrants(userId, serverId);
+        const access = await getRbac().collectEffectiveOrgAccess(userId, serverId);
+        return packUserPermissions(access.grantScopes);
       } catch (_) {
-        /* ignore */
+        return packUserPermissions({});
       }
-      if (masterGrants.length) {
-        return packUserPermissions(masterGrants, []);
-      }
-
-      const userRoles = await UserRole.find({
-        userId,
-        serverId,
-        isActive: true,
-        $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
-      }).populate('roleId');
-
-      const allPermissions = [];
-      for (const userRole of userRoles) {
-        if (userRole.roleId && userRole.roleId.permissions) {
-          allPermissions.push(...userRole.roleId.permissions);
-        }
-      }
-
-      return packUserPermissions([], allPermissions);
     } catch (error) {
       logger.error('Error getting user permissions:', error);
       throw new Error(`Error getting user permissions: ${error.message}`);

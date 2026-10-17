@@ -34,6 +34,7 @@ const CREATE_FROM_PACK_ROSTER_KEYS = Object.freeze([
   'product_owner',
   'project_manager',
   'business_analyst',
+  'tech_lead',
   'developer',
 ]);
 

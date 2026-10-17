@@ -15,9 +15,7 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 import {
-  ORG_ROLE_LABEL_PREFIX,
   looksLikeHrPositionForOrgRole,
-  normalizeLayerLabel,
   splitLayerLabel,
 } from '../../utils/roleLayerNaming';
 
@@ -71,7 +69,7 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
     setBusy(true);
     try {
       await orgRoleCatalogAPI.updateCatalog(orgId, roleId, {
-        label: normalizeLayerLabel(suffix, 'org'),
+        label: suffix.trim(),
         description,
       });
       toast.success(t('common.saveSuccess'));
@@ -108,19 +106,14 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
           </div>
           <label className="mb-4 block">
             <span className={adminLabelClass()}>{t('adminDomains.rbac.orgRoleLabel')}</span>
-            <div className="flex overflow-hidden rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-ring">
-              <span className="shrink-0 border-r border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-                {ORG_ROLE_LABEL_PREFIX.trimEnd()}
-              </span>
-              <input
-                className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
-                maxLength={120}
-                value={suffix}
-                onChange={(e) => setSuffix(e.target.value)}
-                disabled={role.isSystem}
-                placeholder={t('adminRbac.orgRoleLabelPlaceholder')}
-              />
-            </div>
+            <input
+              className={adminInputClass()}
+              maxLength={120}
+              value={suffix}
+              onChange={(e) => setSuffix(e.target.value)}
+              disabled={role.isSystem}
+              placeholder={t('adminRbac.orgRoleLabelPlaceholder')}
+            />
             {suffix.trim() && looksLikeHrPositionForOrgRole(suffix) ? (
               <p className="mt-1 text-xs text-warning">{t('adminRbac.orgRoleLooksLikePositionHint')}</p>
             ) : null}

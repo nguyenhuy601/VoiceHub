@@ -328,9 +328,9 @@ export default function FigmaNavigationSidebar({
   const { user } = useAuth();
   const { role, meta } = useUiRole();
   const isSingleCompany = singleOrgMode || readSingleOrgModeFlag();
-  const { canAccessHub, isSystemAdmin, myOrgRole } = useCompanyAdminAccess();
-  // System admin dùng shell /app/admin riêng; sidebar nhân viên chỉ hiện hub cho owner|admin|hr org.
-  const showAdminSuite = canAccessHub && !isSystemAdmin;
+  const { isSystemAdmin, myOrgRole } = useCompanyAdminAccess();
+  // /app/admin chỉ dành systemRole=admin và shell đó tự điều hướng. Sidebar nhân viên không mở phân hệ này.
+  const showAdminSuite = false;
   // Approvers include IC project roles (TL/QA) — inbox ACL is server-side (canAct / requester)
   const showApprovalInbox = suiteProp === 'collaborate' || suiteProp === 'company';
   // Menu theo Position (jobTitle); quyền thao tác vẫn qua access API trên trang.

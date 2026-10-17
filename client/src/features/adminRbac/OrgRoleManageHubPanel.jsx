@@ -16,8 +16,8 @@ export default function OrgRoleManageHubPanel({ orgId }) {
 
   const tabs = useMemo(
     () => [
-      { id: TAB_EDIT, label: t('adminDomains.rbac.orgRoleEdit') },
       { id: TAB_ASSIGN, label: t('adminDomains.rbac.orgRoleAssign') },
+      { id: TAB_EDIT, label: t('adminDomains.rbac.orgRoleEdit') },
       { id: TAB_DELETE, label: t('adminDomains.rbac.orgRoleDelete') },
     ],
     [t]
@@ -35,16 +35,16 @@ export default function OrgRoleManageHubPanel({ orgId }) {
 
   return (
     <AdminRbacOpsHubShell
-      title={t('adminDomains.rbac.orgRoleManageHub')}
-      hint={t('adminRbac.orgRoleManageHubHint')}
+      title={t('adminDomains.rbac.orgRoleAssign')}
+      hint={t('adminRbac.orgRoleAssignHint')}
       tabs={tabs}
-      defaultTab={TAB_EDIT}
+      defaultTab={TAB_ASSIGN}
       renderPicker={renderPicker}
     >
       {({ activeTab }) => (
         <>
-          {activeTab === TAB_EDIT ? <OrgRoleEditPanel orgId={orgId} embedded /> : null}
           {activeTab === TAB_ASSIGN ? <OrgRoleAssignPanel orgId={orgId} embedded /> : null}
+          {activeTab === TAB_EDIT ? <OrgRoleEditPanel orgId={orgId} embedded /> : null}
           {activeTab === TAB_DELETE ? <OrgRoleDeletePanel orgId={orgId} embedded /> : null}
         </>
       )}

@@ -18,7 +18,7 @@ router.get(
 /** GET membership role — role-permission-service requireOrgMember gọi S2S. */
 router.get('/membership/:organizationId/:userId', controller.getMembershipRole);
 
-/** GET active memberships — RBAC V2 rebind UserRole sau direct-replace (S2S). */
+/** GET active memberships — RBAC rebind UserRole sau direct-replace (S2S). */
 router.get('/memberships/:organizationId', controller.listActiveMemberships);
 
 /** Tên tổ chức cho service nội bộ (serverId RBAC = organizationId). */
@@ -111,5 +111,12 @@ router.get('/project-channel/:organizationId/:projectId', controller.getProjectC
 
 /** project-service S2S: update workgroup channel members */
 router.put('/project-workgroup-channel/:channelId/members', controller.updateProjectWorkgroupMembers);
+
+/** role-permission-service: effective org grants from Position → Org Role → Permission+Scope */
+const orgRbacMatrixController = require('../controllers/orgRbacMatrix.controller');
+router.get(
+  '/organizations/:organizationId/users/:userId/effective-grants',
+  orgRbacMatrixController.resolveEffectiveGrants
+);
 
 module.exports = router;

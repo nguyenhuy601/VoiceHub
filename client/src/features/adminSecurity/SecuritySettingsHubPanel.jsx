@@ -5,6 +5,7 @@ import AdminConfigTabsHubShell from '../../components/Admin/AdminConfigTabsHubSh
 import { AdminUserFormCard } from '../../components/adminUsers/adminUserPanelUi';
 import { SecurityWaveCStubPanel } from '../adminTasks/BackupOpsPanel';
 import { useCompanyAdminContext } from '../../pages/Admin/CompanyAdminLayout';
+import { useGrantScopes } from '../../hooks/useGrantScopes';
 import {
   LOGIN_LOCK_HOURS,
   LOGIN_LOCK_MAX_ATTEMPTS,
@@ -39,7 +40,9 @@ function PasswordPolicyCard() {
 
 export default function SecuritySettingsHubPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { isFullAccess } = useCompanyAdminContext();
+  const { orgId: ctxOrgId } = useCompanyAdminContext();
+  const { hasGrant } = useGrantScopes(orgId || ctxOrgId);
+  const canConfigureSecurity = hasGrant('organization.policy.update');
 
   const tabs = useMemo(
     () => [
@@ -59,7 +62,7 @@ export default function SecuritySettingsHubPanel({ orgId }) {
     >
       {({ activeTab }) => {
         if (activeTab === TAB_PASSWORD) {
-          if (!isFullAccess) {
+          if (!canConfigureSecurity) {
             return (
               <p role="alert" className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
                 {t('adminDomains.noPermission')}

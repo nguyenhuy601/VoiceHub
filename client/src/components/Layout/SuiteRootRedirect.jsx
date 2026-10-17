@@ -7,7 +7,7 @@ import { getDefaultPathForSuite, readStoredSuite, SUITE, writeStoredSuite } from
  * System admin luôn vào shell Admin (tách khỏi UI nhân viên).
  */
 const SuiteRootRedirect = () => {
-  const { isSystemAdmin, canAccessHub } = useCompanyAdminAccess();
+  const { isSystemAdmin } = useCompanyAdminAccess();
   const storedSuite = readStoredSuite();
 
   if (isSystemAdmin) {
@@ -15,9 +15,7 @@ const SuiteRootRedirect = () => {
     return <Navigate to={getDefaultPathForSuite(SUITE.ADMIN)} replace />;
   }
 
-  // Owner/admin/hr công ty: lần đầu từ communicate → admin; giữ suite đã chọn khác.
-  const targetSuite =
-    canAccessHub && storedSuite === SUITE.COMMUNICATE ? SUITE.ADMIN : storedSuite;
+  const targetSuite = storedSuite === SUITE.ADMIN ? SUITE.COLLABORATE : storedSuite;
   if (targetSuite !== storedSuite) writeStoredSuite(targetSuite);
 
   return <Navigate to={getDefaultPathForSuite(targetSuite)} replace />;

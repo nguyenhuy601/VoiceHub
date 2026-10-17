@@ -16,6 +16,8 @@ import { buildGate2ProposalItems } from '../buildGate2ProposalItems';
 import { useProjectMemberNames } from '../planning/useProjectMemberNames';
 import HowPlanSummaryChips from './HowPlanSummaryChips';
 import HitlSectionTabList from './HitlSectionTabList';
+import Gate2ConsolidationPanel from './Gate2ConsolidationPanel';
+import { GATE2_DOMAIN_FOCUS_KEY, sectionsForTrack } from './gate2ReviewOwnership.js';
 
 function resolvePackProjectId(pack) {
   const raw = pack?.projectId;
@@ -46,12 +48,12 @@ const GATE2_TABLE_CONFIG = {
 };
 
 /**
- * Gate 2 Planning Review — same table UX as Gate1, PM→PO (BA→PM).
+ * Gate 2 — review song song theo phần, rồi PM tổng hợp, PO duyệt cuối.
  */
 export default function Phase2Gate2ReviewPanel({
-  reviewView = 'waitingPm',
+  reviewView = 'waitingParallel',
   howStatus = '',
-  reviewLane: _reviewLane = 'pm',
+  reviewLane: _reviewLane = 'parallel',
   rejectReason = '',
   busy = false,
   canPromote = false,
@@ -59,7 +61,15 @@ export default function Phase2Gate2ReviewPanel({
   decisions: controlledDecisions = null,
   setDecision: controlledSetDecision = null,
   t,
-  onPmSubmit,
+  parallelTracks = [],
+  proposals = [],
+  onTrackSubmit,
+  onProposeChange,
+  onDecideChange,
+  onKeepOriginal,
+  onEscalate,
+  onResolveEscalation,
+  onPmConfirmPlan,
   onPoApprove,
   onPoReject,
 }) {
@@ -73,6 +83,7 @@ export default function Phase2Gate2ReviewPanel({
   const sectionTabs = bundle.proposalSections || [];
 
   const [activeSection, setActiveSection] = useState('');
+  const [activeTrack, setActiveTrack] = useState('');
   const [localDecisions, setLocalDecisions] = useState({});
   const seededReviewVersionRef = useRef(null);
   const isControlled =
@@ -80,14 +91,33 @@ export default function Phase2Gate2ReviewPanel({
   const decisions = isControlled ? controlledDecisions : localDecisions;
 
   useEffect(() => {
+    setActiveTrack((prev) => (parallelTracks.includes(prev) ? prev : parallelTracks[0] || ''));
+  }, [parallelTracks]);
+
+  const ownedSectionKeys = useMemo(
+    () => (reviewView === 'showParallel' && activeTrack ? sectionsForTrack(activeTrack) : null),
+    [reviewView, activeTrack]
+  );
+  const visibleTabs = useMemo(() => {
+    if (!ownedSectionKeys?.length) return sectionTabs;
+    return sectionTabs.filter((tab) => ownedSectionKeys.includes(tab.key));
+  }, [sectionTabs, ownedSectionKeys]);
+  const scopedBySection = useMemo(() => {
+    if (!ownedSectionKeys?.length) return bySection;
+    const next = {};
+    for (const key of ownedSectionKeys) next[key] = bySection[key] || [];
+    return next;
+  }, [bySection, ownedSectionKeys]);
+
+  useEffect(() => {
     setActiveSection((prev) => {
-      if (prev && sectionTabs.some((tab) => tab.key === prev)) return prev;
-      const withConflict = sectionTabs.find((tab) => tab.hasConflict || tab.conflictCount > 0);
+      if (prev && visibleTabs.some((tab) => tab.key === prev)) return prev;
+      const withConflict = visibleTabs.find((tab) => tab.hasConflict || tab.conflictCount > 0);
       if (withConflict?.key) return withConflict.key;
-      const withItems = sectionTabs.find((tab) => (bySection[tab.key]?.length || tab.count || 0) > 0);
-      return withItems?.key || sectionTabs[0]?.key || '';
+      const withItems = visibleTabs.find((tab) => (bySection[tab.key]?.length || tab.count || 0) > 0);
+      return withItems?.key || visibleTabs[0]?.key || '';
     });
-  }, [sectionTabs, bySection]);
+  }, [visibleTabs, bySection]);
 
   useEffect(() => {
     if (isControlled) return;
@@ -98,12 +128,12 @@ export default function Phase2Gate2ReviewPanel({
   }, [bundle.reviewVersion, bundle.reviewDecisions, isControlled]);
 
   const decisionsComplete = useMemo(
-    () => areGate2SectionDecisionsComplete(bySection, decisions),
-    [bySection, decisions]
+    () => areGate2SectionDecisionsComplete(scopedBySection, decisions),
+    [scopedBySection, decisions]
   );
   const pendingDecisionCount = useMemo(
-    () => countGate2PendingDecisions(bySection, decisions),
-    [bySection, decisions]
+    () => countGate2PendingDecisions(scopedBySection, decisions),
+    [scopedBySection, decisions]
   );
 
   const setDecision = (logicalId, patch) => {
@@ -129,13 +159,25 @@ export default function Phase2Gate2ReviewPanel({
     );
   }
 
-  if (reviewView === 'waitingPm') {
+  if (reviewView === 'waitingParallel' || reviewView === 'waitingPm' || reviewView === 'waitingTech') {
     return (
       <p className="text-sm text-muted-foreground">
         {labelOf(
           t,
-          'requirements.gate2WaitingPm',
-          'Chờ PM xác nhận kế hoạch trên tab Duyệt.'
+          'requirements.gate2WaitingParallel',
+          'Đang chờ các phần còn lại: PO (scope), Tech Lead (kỹ thuật), PM (tiến độ).'
+        )}
+      </p>
+    );
+  }
+
+  if (reviewView === 'waitingConsolidation') {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {labelOf(
+          t,
+          'requirements.gate2WaitingConsolidation',
+          'Đã đủ review song song. Chờ PM tổng hợp xung đột rồi gửi PO xác nhận cuối.'
         )}
       </p>
     );
@@ -147,7 +189,7 @@ export default function Phase2Gate2ReviewPanel({
         {labelOf(
           t,
           'requirements.gate2WaitingPo',
-          'PM đã gửi duyệt. Chờ PO xác nhận Gate 2.'
+          'PM đã gửi bản tổng hợp. Chờ PO xác nhận cuối Gate 2.'
         )}
       </p>
     );
@@ -203,11 +245,13 @@ export default function Phase2Gate2ReviewPanel({
     );
   }
 
-  const showPm = reviewView === 'showPmPanel';
+  const showParallel = reviewView === 'showParallel';
+  const showConsolidation = reviewView === 'showConsolidation';
+  const showChangeConfirm = reviewView === 'showChangeConfirm';
   const showPo = reviewView === 'showPoPanel';
-  const allowDecide = showPm;
+  const allowDecide = showParallel;
   const decisionsOk = decisionsComplete;
-  const activeTab = sectionTabs.find((tab) => tab.key === activeSection) || null;
+  const activeTab = visibleTabs.find((tab) => tab.key === activeSection) || null;
   const activeRows = bySection[activeSection] || [];
   const activeLabel = activeTab?.label || activeSection || '—';
   const activeMissing = Boolean(activeTab?.missing) || activeRows.length === 0;
@@ -218,23 +262,21 @@ export default function Phase2Gate2ReviewPanel({
     return isMissing || hasConflict;
   };
   const activeHasIssue = sectionHasIssue(activeTab);
-  const missingSections = sectionTabs.filter(
+  const missingSections = visibleTabs.filter(
     (tab) => tab.missing || !(bySection[tab.key]?.length || tab.count)
   );
   const missingCount = missingSections.length;
-  const conflictSectionCount = sectionTabs.filter(
+  const conflictSectionCount = visibleTabs.filter(
     (tab) => tab.hasConflict || Number(tab.conflictCount) > 0
   ).length;
   const hasSoftWarnings = missingCount > 0 || conflictSectionCount > 0;
 
-  const handlePmSubmit = () => {
-    if (typeof onPmSubmit !== 'function') return;
-    onPmSubmit({
+  const handleTrackSubmit = () => {
+    if (typeof onTrackSubmit !== 'function' || !activeTrack) return;
+    onTrackSubmit({
+      track: activeTrack,
       reviewDecisions: decisions,
       reviewVersion: bundle.reviewVersion,
-      missingCount,
-      conflictSectionCount,
-      missingSectionKeys: missingSections.map((tab) => tab.key),
       decisionsComplete: decisionsOk,
       hasSoftWarnings: hasSoftWarnings || !decisionsOk,
     });
@@ -254,13 +296,13 @@ export default function Phase2Gate2ReviewPanel({
 
   return (
     <div>
-      {showPo && bundle.activeSubmissionId ? (
+      {showPo ? (
         <div className="mb-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-900 dark:text-emerald-100">
           <p className="font-medium">
             {labelOf(
               t,
-              'requirements.gate2PmSubmissionBanner',
-              'Bản PM đã gửi — xem từng section (chỉ đọc), rồi Duyệt hoặc Từ chối.'
+              'requirements.gate2FinalBanner',
+              'Bản PM đã tổng hợp — PO xem và xác nhận cuối, hoặc từ chối để trả PM tổng hợp.'
             )}
           </p>
         </div>
@@ -280,10 +322,55 @@ export default function Phase2Gate2ReviewPanel({
           )}
         </p>
       ) : null}
+      {showParallel && parallelTracks.length > 1 ? (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {parallelTracks.map((track) => (
+            <button
+              key={track}
+              type="button"
+              onClick={() => setActiveTrack(track)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                track === activeTrack
+                  ? 'border-primary bg-primary/10 text-foreground'
+                  : 'border-border text-muted-foreground'
+              }`}
+            >
+              {track === 'po' ? 'PO' : track === 'tech' ? 'Tech Lead' : 'PM'}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {showParallel && activeTrack ? (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {labelOf(
+            t,
+            GATE2_DOMAIN_FOCUS_KEY[activeTrack],
+            activeTrack === 'po'
+              ? 'Scope, priority, business value'
+              : activeTrack === 'tech'
+                ? 'Architecture, technical WBS, effort, risk'
+                : 'Timeline, capacity, budget, feasibility'
+          )}
+        </p>
+      ) : null}
+      {showConsolidation || showChangeConfirm ? (
+        <Gate2ConsolidationPanel
+          mode={showChangeConfirm ? 'confirm' : 'consolidate'}
+          proposals={proposals}
+          busy={busy}
+          t={t}
+          onPropose={onProposeChange}
+          onDecide={onDecideChange}
+          onKeepOriginal={onKeepOriginal}
+          onEscalate={onEscalate}
+          onResolveEscalation={onResolveEscalation}
+          onConfirmPlan={onPmConfirmPlan}
+        />
+      ) : null}
       <HowPlanSummaryChips pack={pack} t={t} />
 
       <HitlSectionTabList
-        tabs={sectionTabs}
+        tabs={visibleTabs}
         activeKey={activeSection}
         onSelect={setActiveSection}
         tabHasIssue={sectionHasIssue}
@@ -317,30 +404,15 @@ export default function Phase2Gate2ReviewPanel({
       ) : null}
 
       <div className="mt-4 flex flex-wrap justify-end gap-2">
-        {showPm ? (
+        {showParallel ? (
           <button
             type="button"
-            disabled={busy || howStatus !== 'ready'}
-            onClick={handlePmSubmit}
-            title={
-              !decisionsOk
-                ? labelOf(
-                    t,
-                    'requirements.phase1Gate1ConfirmBlockedHint',
-                    'Quyết định đủ mọi dòng ở tất cả section trước khi xác nhận duyệt'
-                  )
-                : hasSoftWarnings
-                  ? labelOf(
-                      t,
-                      'requirements.gate2SoftWarnHint',
-                      'Có section thiếu / cảnh báo — sẽ hỏi xác nhận khi gửi'
-                    )
-                  : undefined
-            }
+            disabled={busy || howStatus !== 'ready' || !activeTrack}
+            onClick={handleTrackSubmit}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {labelOf(t, 'requirements.gate2PmSubmit', 'Gửi PO duyệt')}
+            {labelOf(t, 'requirements.gate2TrackSubmit', 'Xác nhận phần của tôi')}
           </button>
         ) : null}
         {showPo ? (

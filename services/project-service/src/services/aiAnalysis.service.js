@@ -255,6 +255,10 @@ async function confirmAiAnalysisJob({
   note = '',
   reviewDecisions = null,
   edits = null,
+  track = '',
+  proposal = null,
+  proposalId = '',
+  decision = '',
   forceApprove = false,
   overrideReason = '',
 }) {
@@ -316,7 +320,7 @@ async function confirmAiAnalysisJob({
   // Legacy one-shot confirm (no action) while still on PM lane — wizard / older clients.
   // Explicit HITL always sends action=pm_submit | po_approve | po_reject.
   const effectiveAction =
-    action || (lane === REVIEW_LANE.PO ? 'po_approve' : action ? action : '');
+    action || (lane === REVIEW_LANE.PO_FINAL ? 'po_approve' : '');
 
   if (!action && lane === REVIEW_LANE.PM) {
     // No sequential action: full confirm (compat). Prefer planning:po_review, else run-ai-planning.
@@ -357,66 +361,44 @@ async function confirmAiAnalysisJob({
   }
 
   if (!effectiveAction) {
-    const err = new Error('Gate 2 confirm cần action=pm_submit|po_approve|po_reject');
+    const err = new Error(
+      'Gate 2 confirm cần action=track_submit|propose_change|decide_change|pm_confirm_plan|po_approve|po_reject'
+    );
     err.statusCode = 400;
     err.errorCode = 'GATE2_ACTION_REQUIRED';
     throw err;
   }
 
-  assertActorMayActOnLane(effectiveAction, lane);
-
-  if (effectiveAction === 'pm_submit') {
-    await assertPlanningGate2Permission({
+  const COLLAB_ACTIONS = new Set([
+    'track_submit',
+    'pm_submit',
+    'tech_submit',
+    'propose_change',
+    'decide_change',
+    'keep_original',
+    'escalate',
+    'resolve_escalation',
+    'pm_confirm_plan',
+  ]);
+  if (COLLAB_ACTIONS.has(effectiveAction)) {
+    return applyCollaborativeGate2({
       userId,
+      organizationId,
+      pack,
+      packId,
       projectId,
-      permission: 'planning:pm_review',
+      container,
+      action: effectiveAction,
+      note,
+      reviewDecisions,
+      track,
+      proposal,
+      proposalId,
+      decision,
     });
-    const noteTrim = String(note || '').trim().slice(0, 2000);
-    const decisions =
-      reviewDecisions && typeof reviewDecisions === 'object' && !Array.isArray(reviewDecisions)
-        ? reviewDecisions
-        : {};
-    const prevVersion = Number(container?.gate2?.reviewVersion) || 0;
-    container = stampGate2ReviewLane(container, REVIEW_LANE.PO, {
-      submittedBy: String(userId),
-      submittedAt: new Date().toISOString(),
-      reviewDecisions: decisions,
-      reviewVersion: prevVersion + 1,
-      reviewComplete: true,
-      ...(noteTrim ? { submitNote: noteTrim } : {}),
-      lastRejectReason: null,
-      rejectedBy: null,
-      rejectedAt: null,
-    });
-    pack.aiAnalysis = container;
-    pack.markModified('aiAnalysis');
-    await pack.save();
-
-    // DEC D8 — PM submit Gate 2 → PO
-    if (projectId) {
-      const { notifyAiHitlGateReviewers } = require('../utils/phase1GatePolicy');
-      void notifyAiHitlGateReviewers({
-        projectId: String(projectId),
-        organizationId,
-        actorUserId: userId,
-        packId: String(packId),
-        nextPermission: 'planning:po_review',
-        title: 'Gate 2 — PM đã xác nhận, chờ PO',
-        content: noteTrim
-          ? `PM đã gửi kế hoạch. ${noteTrim}`
-          : 'Mở tab Duyệt trên AI HITL để PO xác nhận Gate 2.',
-        kind: 'ai_hitl_gate2_po',
-      });
-    }
-
-    return {
-      phase: 'how',
-      job: 'phase_how',
-      status: String(container.phaseRuns?.phase_how?.status || 'ready'),
-      reviewLane: REVIEW_LANE.PO,
-      schemaVersion: pack.aiAnalysis.schemaVersion,
-    };
   }
+
+  assertActorMayActOnLane(effectiveAction, lane);
 
   if (effectiveAction === 'po_reject') {
     await assertPlanningGate2Permission({
@@ -434,14 +416,12 @@ async function confirmAiAnalysisJob({
     const prior = pack.aiAnalysis?.gate2 || container.gate2 || {};
     assertGateStampSoD({
       actorUserId: userId,
-      priorStamps: [{ userId: prior.submittedBy }],
+      priorStamps: [{ userId: prior.submittedBy }, { userId: prior.techSubmittedBy }],
     });
-    container = stampGate2ReviewLane(container, REVIEW_LANE.PM, {
+    container = stampGate2ReviewLane(container, REVIEW_LANE.CONSOLIDATION, {
       lastRejectReason: reason,
       rejectedBy: String(userId),
       rejectedAt: new Date().toISOString(),
-      submittedBy: null,
-      submittedAt: null,
       reviewComplete: false,
     });
 
@@ -498,7 +478,7 @@ async function confirmAiAnalysisJob({
         actorUserId: userId,
         packId: String(packId),
         nextPermission: 'planning:pm_review',
-        title: 'Gate 2 — PO từ chối, trả về PM',
+        title: 'Gate 2 — PO từ chối bản tổng hợp, trả PM tổng hợp',
         content: reason.slice(0, 500),
         kind: 'ai_hitl_gate2_rejected',
       });
@@ -508,7 +488,7 @@ async function confirmAiAnalysisJob({
       phase: 'how',
       job: 'phase_how',
       status: String(container.phaseRuns?.phase_how?.status || 'ready'),
-      reviewLane: REVIEW_LANE.PM,
+      reviewLane: REVIEW_LANE.CONSOLIDATION,
       schemaVersion: pack.aiAnalysis.schemaVersion,
       loop2,
     };
@@ -523,7 +503,7 @@ async function confirmAiAnalysisJob({
   const prior = pack.aiAnalysis?.gate2 || container.gate2 || {};
   assertGateStampSoD({
     actorUserId: userId,
-    priorStamps: [{ userId: prior.submittedBy }],
+    priorStamps: [{ userId: prior.submittedBy }, { userId: prior.techSubmittedBy }],
   });
   const noteTrim = String(note || '').trim().slice(0, 2000);
   // Hole #2: do not confirm Gate2 when G13 / quality-deploy DoD fails (unless forceApprove+reason)
@@ -627,8 +607,112 @@ async function confirmAiAnalysisJob({
   };
 }
 
+const COLLAB_PERMISSION = Object.freeze({
+  track_submit: null,
+  pm_submit: 'planning:pm_review',
+  tech_submit: 'planning:tech_review',
+  propose_change: 'planning:pm_review',
+  keep_original: 'planning:pm_review',
+  escalate: 'planning:pm_review',
+  pm_confirm_plan: 'planning:pm_review',
+  resolve_escalation: 'planning:po_review',
+});
+
+async function applyCollaborativeGate2({
+  userId,
+  organizationId,
+  pack,
+  packId,
+  projectId,
+  container,
+  action,
+  note,
+  reviewDecisions,
+  track,
+  proposal,
+  proposalId,
+  decision,
+}) {
+  const { applyGate2CollaborativeAction } = require('../utils/aiAnalysis/gate2ChangeProposals');
+  const { TRACK_PERMISSION } = require('../utils/aiAnalysis/gate2ReviewOwnership');
+  const { projectHasPlanningTechReviewer, notifyAiHitlGateReviewers } = require('../utils/phase1GatePolicy');
+  const techRequired = projectId ? await projectHasPlanningTechReviewer(projectId) : false;
+  const act = String(action || '').trim().toLowerCase();
+
+  if (act === 'decide_change') {
+    const rows = Array.isArray(container?.gate2?.changeProposals)
+      ? container.gate2.changeProposals
+      : [];
+    const row = rows.find((item) => String(item?.id) === String(proposalId || ''));
+    const owner = String(row?.owner || '').toLowerCase();
+    const perm = TRACK_PERMISSION[owner];
+    if (!perm) {
+      const err = new Error('Đề xuất không có chủ phần để xác nhận.');
+      err.statusCode = 409;
+      err.errorCode = 'GATE2_PROPOSAL_OWNER';
+      throw err;
+    }
+    await assertPlanningGate2Permission({ userId, projectId, permission: perm });
+  } else if (act === 'track_submit' || act === 'pm_submit' || act === 'tech_submit') {
+    let which = String(track || '').trim().toLowerCase();
+    if (!which && act === 'pm_submit') which = 'pm';
+    if (!which && act === 'tech_submit') which = 'tech';
+    const perm = TRACK_PERMISSION[which];
+    if (!perm) {
+      const err = new Error('Thiếu track review (po, tech, pm).');
+      err.statusCode = 400;
+      err.errorCode = 'GATE2_TRACK_INVALID';
+      throw err;
+    }
+    await assertPlanningGate2Permission({ userId, projectId, permission: perm });
+  } else {
+    const perm = COLLAB_PERMISSION[act];
+    if (perm) {
+      await assertPlanningGate2Permission({ userId, projectId, permission: perm });
+    }
+  }
+
+  const applied = applyGate2CollaborativeAction({
+    gate2: container.gate2 || {},
+    action: act,
+    userId,
+    note,
+    reviewDecisions,
+    proposal,
+    proposalId,
+    decision,
+    track,
+    techRequired,
+  });
+  container.gate2 = applied.gate2;
+  pack.aiAnalysis = container;
+  pack.markModified('aiAnalysis');
+  await pack.save();
+
+  if (applied.notify && projectId) {
+    void notifyAiHitlGateReviewers({
+      projectId: String(projectId),
+      organizationId,
+      actorUserId: userId,
+      packId: String(packId),
+      nextPermission: applied.notify.permission,
+      title: applied.notify.title,
+      content: applied.notify.content,
+      kind: applied.notify.kind,
+    });
+  }
+
+  return {
+    phase: 'how',
+    job: 'phase_how',
+    status: String(container.phaseRuns?.phase_how?.status || 'ready'),
+    reviewLane: applied.reviewLane,
+    schemaVersion: pack.aiAnalysis.schemaVersion,
+  };
+}
+
 /**
- * Gate2 HITL — planning:pm_review / planning:po_review on linked project.
+ * Gate2 HITL — planning:pm_review / planning:tech_review / planning:po_review.
  */
 async function assertPlanningGate2Permission({ userId, projectId, permission }) {
   const pid = String(projectId || '').trim();
@@ -646,8 +730,10 @@ async function assertPlanningGate2Permission({ userId, projectId, permission }) 
   if (!bypass && !hasPermission(resolved.permissions, perm)) {
     const err = new Error(
       perm === 'planning:pm_review'
-        ? 'Chỉ Project Manager được gửi duyệt Gate 2'
-        : 'Chỉ Product Owner được duyệt Gate 2'
+        ? 'Cần quyền Project Manager (planning:pm_review) cho bước Gate 2 này'
+        : perm === 'planning:tech_review'
+          ? 'Cần quyền Tech Lead (planning:tech_review) cho bước Gate 2 này'
+          : 'Cần quyền Product Owner (planning:po_review) cho bước Gate 2 này'
     );
     err.statusCode = 403;
     err.errorCode = 'GATE2_PLANNING_FORBIDDEN';
@@ -1051,17 +1137,43 @@ async function applyRemotePhaseRunResult({
         kind: 'ai_hitl_gate1_ba',
       });
     } else if (job === 'phase_how') {
-      void notifyAiHitlGateReviewers({
-        projectId: String(pack.projectId),
-        organizationId: pack.organizationId,
-        actorUserId: null,
-        packId: String(packId),
-        // Matrix: PM chủ trì Gate 2 (không dùng requirement:run-ai-planning — PO cũng có)
-        nextPermission: 'planning:pm_review',
-        title: 'Gate 2 — kế hoạch AI sẵn sàng duyệt',
-        content: 'HOW đã xong — mở trang AI HITL để PM xác nhận Gate 2.',
-        kind: 'ai_hitl_gate2',
-      });
+      try {
+        const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
+        const { stampGate2ReviewLane, REVIEW_LANE: GATE2_LANE } = require('../utils/aiAnalysis/gate2ReviewLane');
+        const { emptyTracks } = require('../utils/aiAnalysis/gate2ChangeProposals');
+        const { projectHasPlanningTechReviewer } = require('../utils/phase1GatePolicy');
+        const techRequired = await projectHasPlanningTechReviewer(pack.projectId);
+        let shell = ensureAiAnalysisContainer(pack.aiAnalysis);
+        shell = stampGate2ReviewLane(shell, GATE2_LANE.PARALLEL, {
+          tracks: emptyTracks({ techRequired }),
+          changeProposals: [],
+        });
+        pack.aiAnalysis = shell;
+        pack.markModified('aiAnalysis');
+        await pack.save();
+      } catch (laneErr) {
+        console.warn('[phase_how] stamp reviewLane=parallel soft-fail', {
+          packId: String(packId),
+          message: laneErr.message,
+        });
+      }
+      const parallelNotice = [
+        ['planning:po_review', 'PO review scope, priority, business value'],
+        ['planning:tech_review', 'Tech Lead review architecture, WBS, effort, risk'],
+        ['planning:pm_review', 'PM review timeline, capacity, budget, feasibility'],
+      ];
+      for (const [nextPermission, focus] of parallelNotice) {
+        void notifyAiHitlGateReviewers({
+          projectId: String(pack.projectId),
+          organizationId: pack.organizationId,
+          actorUserId: null,
+          packId: String(packId),
+          nextPermission,
+          title: 'Gate 2 — kế hoạch AI sẵn sàng, review song song',
+          content: `HOW đã xong. ${focus}.`,
+          kind: 'ai_hitl_gate2',
+        });
+      }
     }
   }
 

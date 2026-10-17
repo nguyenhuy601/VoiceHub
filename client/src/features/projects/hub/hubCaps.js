@@ -1,5 +1,5 @@
 /**
- * Project Hub capability helpers — Phase 2.1 RBAC V2 + Scrum layers.
+ * Project Hub capability helpers — Phase 2.1 RBAC + Scrum layers.
  * @param {object|null|undefined} projectPayload — getProject response (data)
  */
 function permSet(caps) {

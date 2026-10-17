@@ -1,40 +1,10 @@
 /**
- * Curated paths — Health + BFF.
+ * Curated paths — BFF.
  */
 
 const { buildOperation, pathParam } = require('../components/op.helpers');
 
 module.exports = {
-  '/health': {
-    get: buildOperation({
-      operationId: 'getGatewayHealth',
-      tags: ['Health'],
-      summary: 'Gateway liveness',
-      description: 'Không cần JWT.',
-      public: true,
-      requireNotFound: false,
-      successExample: {
-        success: true,
-        message: 'API Gateway is running',
-        timestamp: '2026-08-06T07:00:00.000Z',
-      },
-    }),
-  },
-  '/api/health/gateway-trust': {
-    get: buildOperation({
-      operationId: 'getGatewayTrust',
-      tags: ['Health'],
-      summary: 'Kiểm tra GATEWAY_INTERNAL_TOKEN đã cấu hình',
-      description: 'Public diagnostic — không lộ giá trị token.',
-      public: true,
-      requireNotFound: false,
-      successExample: {
-        success: true,
-        gatewayTrustConfigured: true,
-        message: 'Gateway trust đã cấu hình (GATEWAY_INTERNAL_TOKEN).',
-      },
-    }),
-  },
   '/api/bootstrap': {
     get: buildOperation({
       operationId: 'getBootstrap',

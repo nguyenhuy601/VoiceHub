@@ -275,7 +275,7 @@ function AuthProvider({ children }) {
         console.error('[AuthContext] API URL:', API_URL);
         console.error('[AuthContext] Endpoint:', `${API_URL}/auth/register`);
         console.error('[AuthContext] 💡 Hướng dẫn debug:');
-        console.error('   1. Kiểm tra API Gateway có chạy: curl http://localhost:3000/health');
+        console.error('   1. Kiểm tra API Gateway (voicehub_api-gateway) đang chạy');
         console.error('   2. Kiểm tra Auth Service có chạy: curl http://localhost:3001/health');
         console.error('   3. Xem logs của API Gateway và Auth Service');
         return false;

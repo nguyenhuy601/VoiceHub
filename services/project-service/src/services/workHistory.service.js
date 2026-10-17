@@ -403,8 +403,8 @@ async function listPlanningItemHistory({ projectId, itemId, actorUserId, limit, 
   }
   const projectService = require('./project.service');
   await projectService.getProject({ userId: actorUserId, projectId: pid });
-  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled()) {
+  const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled()) {
     await assertUserProjectPermission({
       userId: actorUserId,
       projectId: pid,

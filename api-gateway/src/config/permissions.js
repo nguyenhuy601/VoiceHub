@@ -48,6 +48,7 @@ const routeActionMap = {
   'DELETE /api/roles/:roleId': 'role:write',
   'GET /api/permissions/user/:userId/server/:serverId': 'role:read',
   'GET /api/permissions/user/:userId/server/:serverId/role': 'role:read',
+  'GET /api/permissions/system': 'role:read',
   'GET /api/permissions/catalog': 'role:read',
   'GET /api/permissions/groups': 'role:read',
   'POST /api/permissions/groups/clone': 'role:write',
@@ -286,7 +287,112 @@ const ORG_MASTER_ROUTE_ACTIONS = [
     regex: /^\/api\/organizations\/[^/]+\/hierarchy\/channels\/[^/]+\/?$/,
     action: 'communication.channel.delete',
   },
+  // RBAC 3 lớp — grant theo vị trí (không gói quyền cũ)
+  {
+    method: 'GET',
+    regex: /^\/api\/organizations\/[^/]+\/org-roles\/?$/,
+    action: 'organization.organization_role.view',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/org-roles\/?$/,
+    action: 'organization.organization_role.update',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/org-roles\/reorder\/?$/,
+    action: 'organization.organization_role.update',
+  },
+  {
+    method: 'PATCH',
+    regex: /^\/api\/organizations\/[^/]+\/org-roles\/[^/]+\/?$/,
+    action: 'organization.organization_role.update',
+  },
+  {
+    method: 'DELETE',
+    regex: /^\/api\/organizations\/[^/]+\/org-roles\/[^/]+\/?$/,
+    action: 'organization.organization_role.update',
+  },
+  {
+    method: 'GET',
+    regex: /^\/api\/organizations\/[^/]+\/org-roles\/[^/]+\/permissions\/?$/,
+    action: 'organization.organization_role.view',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/org-roles\/[^/]+\/permissions\/?$/,
+    action: 'organization.organization_role.update',
+  },
+  {
+    method: 'GET',
+    regex: /^\/api\/organizations\/[^/]+\/hr-positions\/?$/,
+    action: 'organization.position.view',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/hr-positions\/?$/,
+    action: 'organization.position.create',
+  },
+  {
+    method: 'PATCH',
+    regex: /^\/api\/organizations\/[^/]+\/hr-positions\/[^/]+\/?$/,
+    action: 'organization.position.update',
+  },
+  {
+    method: 'DELETE',
+    regex: /^\/api\/organizations\/[^/]+\/hr-positions\/[^/]+\/?$/,
+    action: 'organization.position.update',
+  },
+  {
+    method: 'GET',
+    regex: /^\/api\/organizations\/[^/]+\/hr-positions\/[^/]+\/roles\/?$/,
+    action: 'organization.position.view',
+  },
+  {
+    method: 'PUT',
+    regex: /^\/api\/organizations\/[^/]+\/hr-positions\/[^/]+\/roles\/?$/,
+    action: 'organization.position.update',
+  },
+  {
+    method: 'GET',
+    regex: /^\/api\/organizations\/[^/]+\/position-assignments\/?$/,
+    action: 'organization.employee.view',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/position-assignments\/?$/,
+    action: 'organization.employee.update',
+  },
+  {
+    method: 'POST',
+    regex: /^\/api\/organizations\/[^/]+\/position-assignments\/[^/]+\/end\/?$/,
+    action: 'organization.employee.update',
+  },
 ];
+
+/** Grant org RBAC — gateway phải check, không bỏ qua như organization:read. */
+const POSITION_GRANT_ACTIONS = new Set([
+  'organization.organization_role.view',
+  'organization.organization_role.update',
+  'organization.position.view',
+  'organization.position.create',
+  'organization.position.update',
+  'organization.employee.view',
+  'organization.employee.update',
+]);
+
+function isPositionGrantAction(action) {
+  return POSITION_GRANT_ACTIONS.has(String(action || ''));
+}
+
+/**
+ * Grant vị trí không đủ, hoặc hồ sơ user gắn org (Gán vị trí gọi PATCH /users/:id).
+ * Gateway hỏi kho auth; không tin claim JWT. Action khác không được hỏi kho.
+ */
+function consultsStoredSystemAdmin(action) {
+  const key = String(action || '');
+  return isPositionGrantAction(key) || key === 'user:read' || key === 'user:write';
+}
 
 function matchOrgMasterAction(method, apiPath) {
   const m = String(method || '').toUpperCase();
@@ -481,10 +587,11 @@ function isOrgRoleCatalogRead(req, action) {
   return /^\/api\/roles\/server\/[^/]+\/?$/.test(roleReadPath(req));
 }
 
-/** Catalog RBAC V2 immutable — chỉ cần JWT; service không cần org context. */
+/** Danh sách quyền hệ thống — chỉ cần JWT. */
 function isRbacV2CatalogRead(req, action) {
   if (action !== 'role:read' || req.method !== 'GET') return false;
-  return /^\/api\/permissions\/catalog\/?$/.test(roleReadPath(req));
+  const path = roleReadPath(req);
+  return /^\/api\/permissions\/(?:catalog|system)\/?$/.test(path);
 }
 
 /**
@@ -502,7 +609,7 @@ function isDelegatedUserPermissionRead(req, action) {
   if (action !== 'role:read' || req.method !== 'GET') return false;
   const path = roleReadPath(req);
   if (/^\/api\/permissions\/user\/[^/]+\/server\/[^/]+(?:\/role)?\/?$/.test(path)) return true;
-  // RBAC V2 list groups / role bindings — org admin check ở role-service
+  // RBAC list groups / role bindings — org admin check ở role-service
   if (/^\/api\/permissions\/groups\/?$/.test(path)) return true;
   if (/^\/api\/permissions\/roles\/[^/]+\/groups\/?$/.test(path)) return true;
   return false;
@@ -520,7 +627,7 @@ function isDelegatedRoleManageRoute(req, action) {
     if (path === '/api/roles' || path === '/api/roles/assign' || path === '/api/roles/remove') {
       return true;
     }
-    // RBAC V2 clone / direct-replace
+    // RBAC clone / direct-replace
     if (path === '/api/permissions/groups/clone' || path === '/api/permissions/direct-replace') {
       return true;
     }
@@ -583,6 +690,7 @@ const AUDITED_CLIENT_API_PATHS = [
   ['DELETE', '/api/roles/role1'],
   ['GET', '/api/roles/user/user1/server/org1'],
   ['GET', '/api/permissions/user/user1/server/org1'],
+  ['GET', '/api/permissions/system'],
   ['GET', '/api/permissions/catalog'],
   ['GET', '/api/permissions/groups'],
   ['POST', '/api/permissions/groups/clone'],
@@ -603,6 +711,8 @@ module.exports = {
   isSelfRoleReadRequest,
   isOrgRoleCatalogRead,
   isRbacV2CatalogRead,
+  isPositionGrantAction,
+  consultsStoredSystemAdmin,
   isDelegatedUserRoleRead,
   isDelegatedUserPermissionRead,
   isDelegatedRoleManageRoute,

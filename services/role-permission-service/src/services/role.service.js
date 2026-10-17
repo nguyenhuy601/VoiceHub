@@ -168,7 +168,7 @@ class RoleService {
 
       const isInternal = Boolean(roleData.isInternal);
       const blankOk = canUseBlankLegacy({ isInternal, body: { allowBlankLegacy } });
-      // RBAC V2: cấm tạo role/permission blank — chỉ clone template (hoặc internal migration).
+      // RBAC: cấm tạo role/permission blank — chỉ clone template (hoặc internal migration).
       if (
         !blankOk &&
         !String(fromTemplateKey || '').trim() &&

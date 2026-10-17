@@ -42,6 +42,9 @@ import RoleRevokePanel from '../../features/adminRbac/RoleRevokePanel';
 import RolesMatrixPanel from '../../features/adminRbac/RolesMatrixPanel';
 import MasterDataEnablePanel from '../../features/adminRbac/MasterDataEnablePanel';
 import RbacTaxonomyHubPanel from '../../features/adminRbac/RbacTaxonomyHubPanel';
+import PermissionByDomainPage from '../../features/adminRbac/PermissionByDomainPage';
+import OrgRolePermissionMatrixPanel from '../../features/adminRbac/OrgRolePermissionMatrixPanel';
+import PositionRoleBindPanel from '../../features/adminRbac/PositionRoleBindPanel';
 import RbacOrgRoleDirectoryPanel from '../../features/adminRbac/RbacOrgRoleDirectoryPanel';
 import RbacOrgRoleLookupPanel from '../../features/adminRbac/RbacOrgRoleLookupPanel';
 import RbacProjectRoleBoardPanel from '../../features/adminRbac/RbacProjectRoleBoardPanel';
@@ -163,6 +166,9 @@ const ACCOUNT_PANELS = {
 
 const RBAC_PANELS = {
   'rbac-taxonomy': RbacTaxonomyHubPanel,
+  'rbac-permissions-by-domain': PermissionByDomainPage,
+  'rbac-org-role-permission-matrix': OrgRolePermissionMatrixPanel,
+  'rbac-pos-role-bind': PositionRoleBindPanel,
   'rbac-master-data': MasterDataEnablePanel,
   'rbac-pos-list': PosListPanel,
   'rbac-pos-edit': PosEditPanel,

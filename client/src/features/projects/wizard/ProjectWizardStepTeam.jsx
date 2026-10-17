@@ -221,7 +221,7 @@ export default function ProjectWizardStepTeam({
       ) : null}
 
       {!isLoading ? (
-        <div className="grid min-h-0 gap-3 md:grid-cols-3">
+        <div className="grid min-h-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
           {INTAKE_LEAD_ROLE_KEYS.map((roleKey) => (
             <RoleSuggestColumn
               key={`${orgId}-${roleKey}`}

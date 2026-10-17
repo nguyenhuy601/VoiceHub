@@ -601,7 +601,9 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
             />
           ) : null}
 
-          {selectedDomain?.sections.map((section) => (
+          {selectedDomain?.sections
+            .filter((section) => splitNavSectionItems(section.items).length > 0)
+            .map((section) => (
             <AdminNavSectionGroup
               key={section.id}
               section={section}

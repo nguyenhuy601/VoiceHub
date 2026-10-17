@@ -8,7 +8,7 @@ import {
   normalizeRoleDisplayName,
   normalizeRoleId,
 } from '../../utils/adminRbacUtils';
-import { countMasterGrants } from '../../utils/rbacV2Ui';
+import { countMasterGrants } from '../../utils/rbacUi';
 import { splitLayerLabel } from '../../utils/roleLayerNaming';
 import { adminRoleHubLink } from '../../utils/adminHubLinks';
 import {

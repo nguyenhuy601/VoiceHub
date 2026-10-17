@@ -69,8 +69,8 @@ If using Dockerized Nginx, mount:
 - Requests are routed:
   - `/` -> `127.0.0.1:5173`
   - `/api` -> `127.0.0.1:3000`
-  - `/socket.io` -> `127.0.0.1:3000`
-  - `/voice-socket` -> `127.0.0.1:3000`
+  - `/socket.io` -> `127.0.0.1:3017` (socket-service)
+  - `/voice-socket` -> `127.0.0.1:3005` (voice-service)
 
 ## 6) No-conflict guarantees
 

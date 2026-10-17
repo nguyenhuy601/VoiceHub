@@ -13,6 +13,7 @@ const PROJECT_ROLE_PREFERRED_POSITIONS = Object.freeze({
   scrum_master: ['scrum_master', 'team_lead'],
   solution_architect: ['technical_lead', 'engineering_manager'],
   technical_lead: ['technical_lead', 'engineering_manager', 'software_developer'],
+  tech_lead: ['technical_lead', 'engineering_manager', 'software_developer'],
   business_analyst: ['business_analyst'],
   backend_developer: ['software_developer', 'technical_lead'],
   frontend_developer: ['software_developer', 'ux_designer'],

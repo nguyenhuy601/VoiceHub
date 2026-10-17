@@ -7,7 +7,7 @@ import { useRbacCatalog } from '../../hooks/useRoleMasterGrantsMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { priorityFromTier, TIER_EXEC } from '../../utils/adminRbacUtils';
-import { isOrgCloneableTemplate } from '../../utils/rbacV2Ui';
+import { isOrgCloneableTemplate } from '../../utils/rbacUi';
 
 const CUSTOM_NAME_MAX_LENGTH = 100;
 const DESCRIPTION_MAX_LENGTH = 500;

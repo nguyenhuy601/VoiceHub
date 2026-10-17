@@ -1,5 +1,5 @@
 /**
- * Rank org members for wizard intake role suggest (PO / PM / BA).
+ * Rank org members for wizard intake role suggest (PO / PM / BA / Tech Lead).
  * Boost: Position match + verified CV capability + prior role / verified project experience.
  * No CV raw / experience.work in output.
  */
@@ -11,6 +11,7 @@ const INTAKE_LEAD_ROLE_KEYS = Object.freeze([
   'product_owner',
   'project_manager',
   'business_analyst',
+  'tech_lead',
 ]);
 
 const PRIOR_ROLE_BOOST = 12;
@@ -51,7 +52,7 @@ function isExactIntakeRoleKeys(keys) {
   return INTAKE_LEAD_ROLE_KEYS.every((k) => set.has(k)) && set.size === INTAKE_LEAD_ROLE_KEYS.length;
 }
 
-/** 1–3 key thuộc intake; không chấp nhận key lạ. */
+/** 1–N key thuộc intake; không chấp nhận key lạ. */
 function isAllowedIntakeRoleKeys(keys) {
   const parsed = parseIntakeRoleKeys(keys);
   if (!parsed.length || parsed.length > INTAKE_LEAD_ROLE_KEYS.length) return false;

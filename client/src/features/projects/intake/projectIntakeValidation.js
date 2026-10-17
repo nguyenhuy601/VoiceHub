@@ -66,6 +66,9 @@ export function buildIntakeFieldErrors(form, t) {
   if (!intakeSlotFilled(slots, 'business_analyst')) {
     errors.business_analyst = tr('adminTasks.wizardRosterNeedBa', 'Chọn Business Analyst.');
   }
+  if (!intakeSlotFilled(slots, 'tech_lead')) {
+    errors.tech_lead = tr('adminTasks.wizardNeedTl', 'Chọn Tech Lead.');
+  }
 
   const mode = String(form?.analysisMode || '').toLowerCase();
   if (mode !== 'manual' && mode !== 'ai') {
@@ -106,12 +109,16 @@ export function buildIntakeSectionMeta(form, errors, showErrors) {
       hint: infoOk ? 'complete' : showErrors && (errors.title || errors.customerName || errors.dateRange) ? 'error' : 'pending',
     },
     team: {
-      complete: teamFilled === 3,
+      complete: teamFilled === INTAKE_LEAD_ROLE_KEYS.length,
       assigned: teamFilled,
       hint:
-        teamFilled === 3
+        teamFilled === INTAKE_LEAD_ROLE_KEYS.length
           ? 'complete'
-          : showErrors && (errors.product_owner || errors.project_manager || errors.business_analyst)
+          : showErrors &&
+              (errors.product_owner ||
+                errors.project_manager ||
+                errors.business_analyst ||
+                errors.tech_lead)
             ? 'error'
             : 'partial',
     },
@@ -132,6 +139,7 @@ export function firstIntakeFieldAnchor(errors) {
     'product_owner',
     'project_manager',
     'business_analyst',
+    'tech_lead',
     'analysisMode',
   ];
   for (const key of order) {

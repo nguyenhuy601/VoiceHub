@@ -7,7 +7,7 @@ import { useSocket } from '../../context/SocketContext';
 import { queryKeys } from '../../lib/queryKeys';
 
 import { NOTIFICATIONS_REFRESH_EVENT } from '../../services/notificationSync';
-import { RBAC_GRANTS_CHANGED_EVENT } from '../../utils/rbacV2Ui';
+import { RBAC_GRANTS_CHANGED_EVENT } from '../../utils/rbacUi';
 
 /**
 

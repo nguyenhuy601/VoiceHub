@@ -6,15 +6,6 @@ const proxyMiddleware = require('../middlewares/proxy.middleware');
 const { searchLimiter } = require('../middlewares/rateLimiters');
 const { publicBffRouter, orgBffRouter } = require('../bff');
 
-// Health check
-router.get('/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'API Gateway is running',
-    timestamp: new Date().toISOString(),
-  });
-});
-
 router.get('/metrics', (req, res) => {
   res.json({
     success: true,
@@ -23,8 +14,6 @@ router.get('/metrics', (req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
-
-// GET /api/health/gateway-trust được đăng ký trong app.js (trước auth) — tránh 401 khi client chưa có JWT.
 
 // Apply authentication middleware cho tất cả routes (trừ public routes)
 router.use(authMiddleware);

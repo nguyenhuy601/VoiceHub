@@ -21,13 +21,18 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { reorderItemsByIds } from '../../utils/adminSortOrder';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
-import { hasLayerPrefix } from '../../utils/roleLayerNaming';
+import { splitLayerLabel } from '../../utils/roleLayerNaming';
 import { adminRoleHubLink } from '../../utils/adminHubLinks';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 
 const ORG_ROLE_MANAGE_HUB = '/app/admin/rbac/org-roles/manage';
+
+function orgRoleLabel(role) {
+  const raw = role?.label || role?.name || '';
+  return splitLayerLabel(raw, 'org').suffix || raw;
+}
 
 function SystemBadge({ isSystem, label }) {
   if (!isSystem) return null;
@@ -135,7 +140,7 @@ export default function OrgRoleListPanel({ orgId }) {
               items={roles}
               getKey={(role) => String(role._id || role.id || role.key)}
               ariaLabel={t('adminDomains.rbac.orgRoleCatalog')}
-              renderTitle={(role) => role.label || role.key}
+              renderTitle={(role) => orgRoleLabel(role) || role.key}
               renderMeta={(role) =>
                 [role.key, role.isSystem ? t('adminRbac.systemBadge') : null, role.description || null]
                   .filter(Boolean)
@@ -143,15 +148,24 @@ export default function OrgRoleListPanel({ orgId }) {
               }
               renderActions={
                 canUpdateOrgRole
-                  ? (role) =>
-                      role.isSystem ? null : (
+                  ? (role) => (
+                      <span className="flex flex-wrap gap-2">
                         <Link
-                          to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'edit')}
+                          to={`/app/admin/rbac/org-roles/permissions?roleId=${encodeURIComponent(role._id || role.id)}`}
                           className={adminManageLinkClass()}
                         >
-                          {t('adminDomains.rbac.orgRoleManageHub')}
+                          {t('adminDomains.rbac.assignRolePermissions')}
                         </Link>
-                      )
+                        {role.isSystem ? null : (
+                          <Link
+                            to={adminRoleHubLink(ORG_ROLE_MANAGE_HUB, role._id || role.id, 'edit')}
+                            className={adminManageLinkClass()}
+                          >
+                            {t('adminDomains.rbac.orgRoleManageHub')}
+                          </Link>
+                        )}
+                      </span>
+                    )
                   : undefined
               }
             />
@@ -182,18 +196,9 @@ export default function OrgRoleListPanel({ orgId }) {
                     />
                   </div>
                   <div className="min-w-0 self-center text-sm">
-                    <div className="truncate" title={role.label}>
-                      {role.label}
+                    <div className="truncate" title={orgRoleLabel(role)}>
+                      {orgRoleLabel(role)}
                     </div>
-                    {role.legacyOutsideMaster ? (
-                      <div className="mt-0.5 text-[10px] text-warning">
-                        {t('adminRbac.legacyOutsideMasterHint')}
-                      </div>
-                    ) : !hasLayerPrefix(role.label, 'org') ? (
-                      <div className="mt-0.5 text-[10px] text-warning">
-                        {t('adminRbac.listLegacyNameHint')}
-                      </div>
-                    ) : null}
                   </div>
                   <div
                     className="min-w-0 self-center truncate text-sm text-muted-foreground"
@@ -201,7 +206,15 @@ export default function OrgRoleListPanel({ orgId }) {
                   >
                     {role.description || '—'}
                   </div>
-                  <div className="flex justify-end self-center">
+                  <div className="flex justify-end gap-2 self-center">
+                    {canUpdateOrgRole ? (
+                      <Link
+                        to={`/app/admin/rbac/org-roles/permissions?roleId=${encodeURIComponent(role._id || role.id)}`}
+                        className={adminManageLinkClass('whitespace-nowrap')}
+                      >
+                        {t('adminDomains.rbac.assignRolePermissions')}
+                      </Link>
+                    ) : null}
                     {role.isSystem ? (
                       <span className="text-xs text-muted-foreground">{t('adminRbac.systemBadge')}</span>
                     ) : canUpdateOrgRole ? (

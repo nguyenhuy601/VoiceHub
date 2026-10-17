@@ -8,7 +8,7 @@ const ApprovalRequest = require('../models/ApprovalRequest');
 const projectService = require('./project.service');
 const { assertUserProjectPermission } = require('./projectAccess.service');
 const { assertProjectWritable } = require('../utils/project/projectCloseGate');
-const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
+const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
 const {
   normalizeChangeRequestType,
   normalizeChangeRequestPriority,
@@ -64,7 +64,7 @@ async function assertCrPermission(userId, projectId, permission) {
   if (permission !== 'change_request:view') {
     assertProjectWritable(project);
   }
-  if (!isProjectRbacV2Enabled()) {
+  if (!isProjectRbacEnabled()) {
     if (permission === 'change_request:view') return project;
     const canAdmin = await projectService.userCanAdminProject(userId, project);
     if (!canAdmin) {
@@ -709,7 +709,7 @@ async function unlinkWorkItemInternal({ item, projectId, taskId }) {
 
 async function submitChangeRequestApproval({ userId, projectId, crId }) {
   const project = await assertProjectAccess(userId, projectId);
-  if (isProjectRbacV2Enabled()) {
+  if (isProjectRbacEnabled()) {
     await assertUserProjectPermission({
       userId,
       projectId,

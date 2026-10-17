@@ -20,7 +20,7 @@ import {
   isToggleableMasterGrant,
   notifyRbacGrantsChanged,
   ORG_ALLOWED_PROJECT_GRANTS,
-} from '../../utils/rbacV2Ui';
+} from '../../utils/rbacUi';
 import { AdminListSkeleton, AdminLoadErrorState } from '../../components/adminUsers/adminPanelStates';
 import { adminInputClass } from '../../components/adminUsers/adminUserPanelUi';
 

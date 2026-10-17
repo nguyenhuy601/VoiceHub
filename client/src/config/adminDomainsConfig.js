@@ -394,7 +394,6 @@ export const ADMIN_DOMAINS = [
     path: '/app/admin/rbac',
     labelKey: 'adminDomains.rbac.title',
     icon: 'Shield',
-    adminOnly: true,
     navAccordion: true,
     sections: [
       {
@@ -407,39 +406,24 @@ export const ADMIN_DOMAINS = [
             labelKey: 'adminDomains.rbac.taxonomy',
             end: true,
             implementation: 'rbac-taxonomy',
-            requiredGrant: 'system.permission_group.view',
+            requiredGrant: 'organization.organization_role.view',
           },
+          {
+            id: 'permissions-by-domain',
+            path: '/app/admin/rbac/permissions-by-domain',
+            labelKey: 'adminDomains.rbac.permissionsByDomain',
+            implementation: 'rbac-permissions-by-domain',
+            requiredGrant: 'organization.organization_role.view',
+          },
+          // master-data Catalog — tắt (SoT mới = entity tạo thực)
           {
             id: 'master-data',
             path: '/app/admin/rbac/master-data',
             labelKey: 'adminDomains.rbac.masterData',
             implementation: 'rbac-master-data',
+            nav: 'hidden',
             requiredGrant: 'organization.master_data.view',
           },
-        ],
-      },
-      {
-        id: 'positions',
-        labelKey: 'adminDomains.rbac.sectionPositions',
-        items: [
-          {
-            id: 'pos-list',
-            path: '/app/admin/rbac/positions',
-            labelKey: 'adminDomains.rbac.posList',
-            end: true,
-            implementation: 'rbac-pos-list',
-            requiredGrant: 'organization.position.view',
-          },
-          {
-            id: 'pos-manage',
-            path: '/app/admin/rbac/positions/manage',
-            labelKey: 'adminDomains.rbac.posManageHub',
-            implementation: 'rbac-pos-manage',
-            requiredGrant: 'organization.position.view',
-          },
-          { id: 'pos-assign', path: '/app/admin/rbac/positions/assign', labelKey: 'adminDomains.rbac.posAssign', implementation: 'rbac-pos-assign', nav: 'hidden', requiredGrant: 'organization.employee.update' },
-          { id: 'pos-edit', path: '/app/admin/rbac/positions/edit', labelKey: 'adminDomains.rbac.posEdit', implementation: 'rbac-pos-edit', nav: 'hidden', requiredGrant: 'organization.position.update' },
-          { id: 'pos-disable', path: '/app/admin/rbac/positions/disable', labelKey: 'adminDomains.rbac.posDisable', implementation: 'rbac-pos-disable', nav: 'hidden', requiredGrant: 'organization.position.update' },
         ],
       },
       {
@@ -462,18 +446,11 @@ export const ADMIN_DOMAINS = [
             requiredGrant: 'organization.organization_role.update',
           },
           {
-            id: 'org-role-directory',
-            path: '/app/admin/rbac/org-roles/directory',
-            labelKey: 'adminDomains.rbac.orgRoleDirectory',
-            implementation: 'rbac-org-role-directory',
-            requiredGrant: 'organization.organization_role.view',
-          },
-          {
-            id: 'org-role-lookup',
-            path: '/app/admin/rbac/org-roles/lookup',
-            labelKey: 'adminDomains.rbac.orgRoleLookup',
-            implementation: 'rbac-org-role-lookup',
-            requiredGrant: 'organization.organization_role.view',
+            id: 'org-role-permission-matrix',
+            path: '/app/admin/rbac/org-roles/permissions',
+            labelKey: 'adminDomains.rbac.orgRolePermissionMatrix',
+            implementation: 'rbac-org-role-permission-matrix',
+            requiredGrant: 'organization.organization_role.update',
           },
           {
             id: 'org-role-manage',
@@ -483,8 +460,62 @@ export const ADMIN_DOMAINS = [
             requiredGrant: 'organization.organization_role.view',
           },
           { id: 'org-role-edit', path: '/app/admin/rbac/org-roles/edit', labelKey: 'adminDomains.rbac.orgRoleEdit', implementation: 'rbac-org-role-edit', nav: 'hidden', requiredGrant: 'organization.organization_role.update' },
-          { id: 'org-role-assign', path: '/app/admin/rbac/org-roles/assign', labelKey: 'adminDomains.rbac.orgRoleAssign', implementation: 'rbac-org-role-assign', nav: 'hidden', requiredGrant: 'organization.organization_role.update' },
           { id: 'org-role-delete', path: '/app/admin/rbac/org-roles/delete', labelKey: 'adminDomains.rbac.orgRoleDelete', implementation: 'rbac-org-role-delete', nav: 'hidden', requiredGrant: 'organization.organization_role.update' },
+          {
+            id: 'org-role-lookup',
+            path: '/app/admin/rbac/org-roles/lookup',
+            labelKey: 'adminDomains.rbac.orgRoleLookup',
+            implementation: 'rbac-org-role-lookup',
+            nav: 'hidden',
+            requiredGrant: 'organization.organization_role.view',
+          },
+          {
+            id: 'org-role-assign',
+            path: '/app/admin/rbac/org-roles/assign',
+            labelKey: 'adminDomains.rbac.orgRoleAssign',
+            implementation: 'rbac-org-role-assign',
+            nav: 'hidden',
+            requiredGrant: 'organization.organization_role.update',
+          },
+          {
+            id: 'org-role-directory',
+            path: '/app/admin/rbac/org-roles/directory',
+            labelKey: 'adminDomains.rbac.orgRoleDirectory',
+            implementation: 'rbac-org-role-directory',
+            nav: 'hidden',
+            requiredGrant: 'organization.organization_role.view',
+          },
+        ],
+      },
+      {
+        id: 'positions',
+        labelKey: 'adminDomains.rbac.sectionPositions',
+        items: [
+          {
+            id: 'pos-list',
+            path: '/app/admin/rbac/positions',
+            labelKey: 'adminDomains.rbac.posList',
+            end: true,
+            implementation: 'rbac-pos-list',
+            requiredGrant: 'organization.position.view',
+          },
+          {
+            id: 'pos-manage',
+            path: '/app/admin/rbac/positions/manage',
+            labelKey: 'adminDomains.rbac.posManageHub',
+            implementation: 'rbac-pos-manage',
+            requiredGrant: 'organization.position.view',
+          },
+          {
+            id: 'pos-role-bind',
+            path: '/app/admin/rbac/positions/roles',
+            labelKey: 'adminDomains.rbac.positionRoleBind',
+            implementation: 'rbac-pos-role-bind',
+            requiredGrant: 'organization.position.update',
+          },
+          { id: 'pos-assign', path: '/app/admin/rbac/positions/assign', labelKey: 'adminDomains.rbac.posAssign', implementation: 'rbac-pos-assign', requiredGrant: 'organization.employee.update' },
+          { id: 'pos-edit', path: '/app/admin/rbac/positions/edit', labelKey: 'adminDomains.rbac.posEdit', implementation: 'rbac-pos-edit', nav: 'hidden', requiredGrant: 'organization.position.update' },
+          { id: 'pos-disable', path: '/app/admin/rbac/positions/disable', labelKey: 'adminDomains.rbac.posDisable', implementation: 'rbac-pos-disable', nav: 'hidden', requiredGrant: 'organization.position.update' },
         ],
       },
       {
@@ -549,16 +580,17 @@ export const ADMIN_DOMAINS = [
         id: 'systemRoles',
         labelKey: 'adminDomains.rbac.sectionSystemRoles',
         items: [
-          { id: 'roles', path: '/app/admin/rbac/roles', labelKey: 'adminDomains.rbac.roles', implementation: 'rbac-list', requiredGrant: 'system.permission_group.view' },
-          { id: 'create', path: '/app/admin/rbac/create', labelKey: 'adminDomains.rbac.create', implementation: 'rbac-create', requiredGrant: 'system.permission_group.clone' },
-          { id: 'permissions', path: '/app/admin/rbac/permissions', labelKey: 'adminDomains.rbac.permissions', implementation: 'rbac-permissions', requiredGrant: 'system.permission_group.update_grant' },
-          { id: 'hierarchy', path: '/app/admin/rbac/hierarchy', labelKey: 'adminDomains.rbac.hierarchy', implementation: 'rbac-hierarchy', requiredGrant: 'system.permission_group.view' },
-          { id: 'matrix', path: '/app/admin/rbac/matrix', labelKey: 'adminDomains.rbac.matrix', implementation: 'rbac-matrix', requiredGrant: 'system.permission_group.view' },
+          { id: 'roles', path: '/app/admin/rbac/roles', labelKey: 'adminDomains.rbac.roles', implementation: 'rbac-list', nav: 'hidden', requiredGrant: 'system.permission_group.view' },
+          { id: 'create', path: '/app/admin/rbac/create', labelKey: 'adminDomains.rbac.create', implementation: 'rbac-create', nav: 'hidden', requiredGrant: 'system.permission_group.clone' },
+          { id: 'permissions', path: '/app/admin/rbac/permissions', labelKey: 'adminDomains.rbac.permissions', implementation: 'rbac-permissions', nav: 'hidden', requiredGrant: 'system.permission_group.update_grant' },
+          { id: 'hierarchy', path: '/app/admin/rbac/hierarchy', labelKey: 'adminDomains.rbac.hierarchy', implementation: 'rbac-hierarchy', nav: 'hidden', requiredGrant: 'system.permission_group.view' },
+          { id: 'matrix', path: '/app/admin/rbac/matrix', labelKey: 'adminDomains.rbac.matrix', implementation: 'rbac-matrix', nav: 'hidden', requiredGrant: 'system.permission_group.view' },
           {
             id: 'perm-pack-manage',
             path: '/app/admin/rbac/roles/manage',
             labelKey: 'adminDomains.rbac.permPackManageHub',
             implementation: 'rbac-perm-pack-manage',
+            nav: 'hidden',
             requiredGrant: 'system.permission_group.view',
           },
           { id: 'assign', path: '/app/admin/rbac/assign', labelKey: 'adminDomains.rbac.assign', implementation: 'rbac-assign', nav: 'hidden', requiredGrant: 'system.permission_group.assign' },
@@ -1086,7 +1118,7 @@ export const LEGACY_ADMIN_TAB_TO_PATH = {
   approvals: '/app/admin/users',
   general: '/app/admin/system-config',
   structure: '/app/admin/system-config?tab=structure',
-  roles: '/app/admin/rbac/roles',
+  roles: '/app/admin/rbac/org-roles',
   policy: '/app/admin/system-config/policy',
   join: '/app/admin/users',
   security: '/app/admin/security',
@@ -1099,12 +1131,18 @@ const LEGACY_PATH_REDIRECTS = {
   '/app/admin/system-config/policy': '/app/admin/system-config',
   '/app/admin/general': '/app/admin/system-config',
   '/app/admin/structure': '/app/admin/system-config?tab=structure',
-  '/app/admin/roles': '/app/admin/rbac/roles',
+  '/app/admin/roles': '/app/admin/rbac/org-roles',
+  '/app/admin/rbac/roles': '/app/admin/rbac/org-roles',
+  '/app/admin/rbac/roles/manage': '/app/admin/rbac/org-roles',
+  '/app/admin/rbac/create': '/app/admin/rbac/org-roles/create',
+  '/app/admin/rbac/permissions': '/app/admin/rbac/org-roles/permissions',
+  '/app/admin/rbac/assign': '/app/admin/rbac/positions/assign',
+  '/app/admin/rbac/matrix': '/app/admin/rbac/org-roles/permissions',
   '/app/admin/policy': '/app/admin/system-config/policy',
   '/app/admin/security': '/app/admin/security',
   '/app/admin/org-structure/positions': '/app/admin/rbac/positions',
-  '/app/admin/org-structure/positions/create': '/app/admin/rbac/master-data',
-  '/app/admin/rbac/positions/create': '/app/admin/rbac/master-data',
+  '/app/admin/org-structure/positions/create': '/app/admin/rbac/positions',
+  '/app/admin/rbac/positions/create': '/app/admin/rbac/positions',
   '/app/admin/org-structure/positions/edit': '/app/admin/rbac/positions/edit',
   '/app/admin/org-structure/positions/disable': '/app/admin/rbac/positions/disable',
   '/app/admin/org-structure/positions/assign': '/app/admin/rbac/positions/assign',
@@ -1315,8 +1353,8 @@ export function adminSettingsEmbedTabFromItem(item) {
   return item?.settingsTab || null;
 }
 
-export function getVisibleAdminDomains(isFullAccess) {
-  return ADMIN_DOMAINS.filter((d) => d.nav !== 'hidden' && (!d.adminOnly || isFullAccess));
+export function getVisibleAdminDomains() {
+  return ADMIN_DOMAINS.filter((d) => d.nav !== 'hidden');
 }
 
 export function flattenAdminNavItems(domain) {

@@ -16,7 +16,7 @@ const {
   isReviewNoteRequired,
 } = require('../constants/analysisArtifact');
 const {
-  isProjectRbacV2Enabled,
+  isProjectRbacEnabled,
   hasPermission,
 } = require('../utils/project/projectPermissionMatrix');
 const { assertUserProjectPermission, assertUserAnyProjectPermission } =
@@ -44,7 +44,7 @@ async function assertProjectMemberAccess({ userId, projectId }) {
 }
 
 async function assertAnalysisPerm({ userId, projectId, permission, message }) {
-  if (!isProjectRbacV2Enabled()) return;
+  if (!isProjectRbacEnabled()) return;
   const key = String(permission || '').trim().toLowerCase();
   if (key === 'analysis:document_upload' || key === 'analysis:artifact_import') {
     const { assertUserProjectRoleMatrixPermission } = require('./projectAccess.service');
