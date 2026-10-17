@@ -14,18 +14,18 @@ function internalHeaders() {
 }
 
 /**
- * Fetch active org memberships for RBAC V2 UserRole rebind.
+ * Fetch active org memberships for RBAC UserRole rebind.
  * @returns {Promise<Array<{ userId: string, role: string }>>}
  */
 async function fetchOrganizationMemberships(organizationId) {
   const oid = String(organizationId || '').trim();
   if (!oid) return [];
   if (!ORGANIZATION_SERVICE_URL) {
-    logger.warn('[rbacV2] ORGANIZATION_SERVICE_URL missing — cannot list memberships');
+    logger.warn('[rbac] ORGANIZATION_SERVICE_URL missing — cannot list memberships');
     return [];
   }
   if (!GATEWAY_INTERNAL_TOKEN) {
-    logger.warn('[rbacV2] GATEWAY_INTERNAL_TOKEN missing — cannot list memberships');
+    logger.warn('[rbac] GATEWAY_INTERNAL_TOKEN missing — cannot list memberships');
     return [];
   }
 
@@ -37,7 +37,7 @@ async function fetchOrganizationMemberships(organizationId) {
       validateStatus: () => true,
     });
     if (res.status !== 200) {
-      logger.warn('[rbacV2] fetchOrganizationMemberships failed', {
+      logger.warn('[rbac] fetchOrganizationMemberships failed', {
         organizationId: oid,
         status: res.status,
         message: res.data?.message,
@@ -47,7 +47,7 @@ async function fetchOrganizationMemberships(organizationId) {
     const data = res.data?.data;
     return Array.isArray(data) ? data : [];
   } catch (err) {
-    logger.warn('[rbacV2] fetchOrganizationMemberships error', err.message);
+    logger.warn('[rbac] fetchOrganizationMemberships error', err.message);
     return [];
   }
 }

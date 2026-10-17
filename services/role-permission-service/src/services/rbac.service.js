@@ -18,8 +18,8 @@ const {
   assertCatalogIntegrity,
   materializeLegacyPermissions,
   buildCatalogTree,
-} = require('../config/rbacV2Catalog');
-const { membershipRoleToTemplateKey } = require('../config/rbacV2RoleTemplateMap');
+} = require('../config/rbacPermissions');
+const { membershipRoleToTemplateKey } = require('../config/rbacRoleTemplateMap');
 const { fetchOrganizationMemberships } = require('../clients/organizationMemberships.client');
 const { getRedisClient, logger } = require('@enterprise/shared');
 
@@ -96,7 +96,7 @@ async function rematerializeRolePermissions(organizationId, roleId) {
   return permissions;
 }
 
-class RbacV2Service {
+class RbacService {
   async seedSystemTemplates() {
     assertCatalogIntegrity();
     for (const tpl of TEMPLATE_DEFINITIONS) {
@@ -118,7 +118,12 @@ class RbacV2Service {
     return PermissionGroupTemplate.find({ isActive: true }).sort({ key: 1 }).lean();
   }
 
+  /** @deprecated Prefer listSystemPermissions — alias kept for one release */
   async getCatalog() {
+    return this.listSystemPermissions();
+  }
+
+  async listSystemPermissions() {
     assertCatalogIntegrity();
     const templates = await PermissionGroupTemplate.find({ isActive: true }).sort({ key: 1 }).lean();
     return {
@@ -254,19 +259,21 @@ class RbacV2Service {
     if (!group) throw serviceError('Permission Group không tồn tại', 404, 'GROUP_NOT_FOUND');
 
     const normalized = uniqueStrings(grants);
+    // Drop keys not in MASTER_PERMISSIONS (e.g. orphan DB leftovers like organization.skill_registry.*).
     const invalid = normalized.filter((g) => !isValidMasterPermission(g));
     if (invalid.length) {
-      throw serviceError(
-        `Master Permission không hợp lệ: ${invalid.join(', ')}`,
-        400,
-        'MASTER_PERMISSION_INVALID'
-      );
+      logger.warn('[rbac] dropping invalid master permissions from org pack', {
+        groupId: String(gid),
+        templateKey: group.templateKey,
+        invalid,
+      });
     }
+    const validOnly = normalized.filter(isValidMasterPermission);
 
-    const nextGrants = stripProjectGrantsUnlessProjectPack(normalized, group.templateKey);
-    const stripped = normalized.filter((g) => isProjectMasterPermission(g) && !nextGrants.includes(g));
+    const nextGrants = stripProjectGrantsUnlessProjectPack(validOnly, group.templateKey);
+    const stripped = validOnly.filter((g) => isProjectMasterPermission(g) && !nextGrants.includes(g));
     if (stripped.length) {
-      logger.info('[rbacV2] stripped project.* grants from org permission pack', {
+      logger.info('[rbac] stripped project.* grants from org permission pack', {
         groupId: gid,
         templateKey: group.templateKey,
         stripped,
@@ -476,7 +483,7 @@ class RbacV2Service {
     const viewerRoleId = resolvedMap.viewer || null;
     const members = await fetchOrganizationMemberships(oid);
     if (!members.length) {
-      logger.warn('[rbacV2] rebindOrganizationMembers: no memberships returned', {
+      logger.warn('[rbac] rebindOrganizationMembers: no memberships returned', {
         organizationId: oid,
       });
       return { organizationId: oid, assigned: 0, skipped: 0, members: 0, details: [] };
@@ -525,11 +532,11 @@ class RbacV2Service {
       } catch (err) {
         skipped += 1;
         details.push({ userId, ok: false, reason: err.message, templateKey });
-        logger.warn('[rbacV2] rebind assign failed', { userId, organizationId: oid, err: err.message });
+        logger.warn('[rbac] rebind assign failed', { userId, organizationId: oid, err: err.message });
       }
     }
 
-    logger.info('[rbacV2] rebindOrganizationMembers done', {
+    logger.info('[rbac] rebindOrganizationMembers done', {
       organizationId: oid,
       members: members.length,
       assigned,
@@ -600,7 +607,7 @@ class RbacV2Service {
       }
       const role = await Role.create({
         name: group.name,
-        description: `RBAC V2 · template ${spec.templateKey}`,
+        description: `RBAC · template ${spec.templateKey}`,
         scope: 'ORGANIZATION',
         serverId: oid,
         organizationId: oid,
@@ -627,7 +634,7 @@ class RbacV2Service {
       actorUserId,
     });
 
-    logger.info('[rbacV2] directReplaceOrganization done', {
+    logger.info('[rbac] directReplaceOrganization done', {
       organizationId: oid,
       groups: createdGroups.length,
       roles: createdRoles.length,
@@ -642,41 +649,33 @@ class RbacV2Service {
     };
   }
 
+  /**
+   * Org effective access — ONLY Position → Org Role → Permission+Scope.
+   * @returns {Promise<string[]>} permission codes (keys of grantScopes)
+   */
   async collectEffectiveMasterGrants(userId, organizationId) {
-    const uid = asObjectId(userId, 'userId');
-    const oid = asObjectId(organizationId, 'organizationId');
-    const userRoles = await UserRole.find({
-      userId: uid,
-      serverId: oid,
-      isActive: true,
-      $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
-    })
-      .select('roleId')
-      .lean();
-    const roleIds = userRoles.map((ur) => ur.roleId).filter(Boolean);
-    if (!roleIds.length) return [];
+    const result = await this.collectEffectiveOrgAccess(userId, organizationId);
+    return Object.keys(result.grantScopes);
+  }
 
-    const bindings = await RolePermissionGroupBinding.find({
-      organizationId: oid,
-      roleId: { $in: roleIds },
-      isActive: true,
-    })
-      .select('permissionGroupId')
-      .lean();
-    const groupIds = bindings.map((b) => b.permissionGroupId);
-    if (!groupIds.length) return [];
+  /**
+   * @returns {Promise<{ grantScopes: Record<string, string> }>}
+   */
+  async collectEffectiveOrgAccess(userId, organizationId) {
+    const uid = String(userId || '').trim();
+    const oid = String(organizationId || '').trim();
+    if (!uid || !oid) return { grantScopes: {} };
 
-    const groups = await OrganizationPermissionGroup.find({
-      _id: { $in: groupIds },
-      organizationId: oid,
-      isActive: true,
-    })
-      .select('grants')
-      .lean();
-
-    const grants = [];
-    for (const g of groups) grants.push(...(g.grants || []));
-    return uniqueStrings(grants).filter(isValidMasterPermission);
+    const { fetchEffectiveOrgGrants } = require('../clients/orgRbacClient');
+    const raw = await fetchEffectiveOrgGrants(oid, uid);
+    const grantScopes = {};
+    const source = raw.grantScopes && typeof raw.grantScopes === 'object' ? raw.grantScopes : {};
+    for (const [code, scope] of Object.entries(source)) {
+      const key = String(code || '').trim().toLowerCase();
+      if (!key || !isValidMasterPermission(key)) continue;
+      grantScopes[key] = String(scope || 'ORGANIZATION').trim().toUpperCase();
+    }
+    return { grantScopes };
   }
 
   /**
@@ -745,7 +744,7 @@ class RbacV2Service {
       const permissions = materializeLegacyPermissions(group.grants || []);
       const role = await Role.create({
         name: group.name || 'Project Admin',
-        description: 'RBAC V2 · Wave B ensure project.project.create',
+        description: 'RBAC · Wave B ensure project.project.create',
         scope: 'ORGANIZATION',
         serverId: oid,
         organizationId: oid,
@@ -795,6 +794,6 @@ class RbacV2Service {
   }
 }
 
-module.exports = new RbacV2Service();
+module.exports = new RbacService();
 module.exports.rematerializeRolePermissions = rematerializeRolePermissions;
 module.exports.buildGroupName = buildGroupName;

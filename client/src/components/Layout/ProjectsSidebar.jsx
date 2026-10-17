@@ -27,7 +27,6 @@ import { useAppStrings } from '../../locales/appStrings';
 import { useWorkspaceSuite, SUITE } from '../../context/WorkspaceSuiteContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useShellLayout } from '../../context/ShellLayoutContext';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import SidebarPositionFooter from './SidebarPositionFooter';
 import NavCollapse from '../../motion/NavCollapse';
 import { VH_NAV_CHEVRON } from '../../motion/classes';
@@ -466,8 +465,8 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   const { t } = useAppStrings();
   const { navigateToSuite } = useWorkspaceSuite();
   const { mobileNavOpen, closeMobileNav, showHeaderLoading, hideHeaderLoading } = useShellLayout();
-  const { canAccessHub, isSystemAdmin } = useCompanyAdminAccess();
-  const showAdminSuite = canAccessHub && !isSystemAdmin;
+  // /app/admin chỉ mở bằng systemRole=admin (AdminShellLayout), không từ sidebar dự án.
+  const showAdminSuite = false;
   const { projectId: projectIdParam, module: moduleParam, planningModule } = useParams();
   const [searchParams] = useSearchParams();
   const { company, activeWorkspace } = useWorkspace();

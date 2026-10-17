@@ -30,8 +30,8 @@ async function requireBoardAdmin(boardId, userId, { permission = 'sprint:create'
     err.statusCode = 404;
     throw err;
   }
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled() && board.projectId) {
+  const { isProjectRbacEnabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled() && board.projectId) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
       userId,

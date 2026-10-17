@@ -10,7 +10,7 @@ import {
   normalizeRoleDisplayName,
   normalizeRoleId,
 } from '../../utils/adminRbacUtils';
-import { countMasterGrants } from '../../utils/rbacV2Ui';
+import { countMasterGrants } from '../../utils/rbacUi';
 import { AdminEmptyState, AdminListSkeleton, AdminLoadErrorState } from '../adminUsers/adminPanelStates';
 
 export default function AdminRolePicker({ orgId, selectedRoleId, onSelect, hint, systemOnly = true }) {

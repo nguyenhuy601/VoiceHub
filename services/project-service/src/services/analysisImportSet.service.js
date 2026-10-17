@@ -8,7 +8,7 @@ const RequirementPack = require('../models/RequirementPack');
 const ArtifactTraceLink = require('../models/ArtifactTraceLink');
 const objectStorage = require('../utils/common/objectStorage');
 const {
-  isProjectRbacV2Enabled,
+  isProjectRbacEnabled,
 } = require('../utils/project/projectPermissionMatrix');
 const {
   assertUserProjectPermission,
@@ -52,7 +52,7 @@ async function assertProjectMemberAccess({ userId, projectId }) {
 }
 
 async function assertAnalysisPerm({ userId, projectId, permission, message }) {
-  if (!isProjectRbacV2Enabled()) return;
+  if (!isProjectRbacEnabled()) return;
   const key = String(permission || '').trim().toLowerCase();
   // Raw/Analysis upload + confirm: BA role matrix (không creator dump)
   if (key === 'analysis:document_upload' || key === 'analysis:artifact_import') {
@@ -446,7 +446,7 @@ async function markSetActive(setDoc, userId, { revertedFromSetId = null } = {}) 
 }
 
 async function assertTechReviewerExists(projectId) {
-  if (!isProjectRbacV2Enabled()) return;
+  if (!isProjectRbacEnabled()) return;
   const memberships = await ProjectMembership.find({ projectId }).select('userId').lean();
   for (const m of memberships) {
     const resolved = await resolveUserProjectPermissions({

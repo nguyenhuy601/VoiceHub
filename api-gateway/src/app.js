@@ -14,24 +14,7 @@ require('dotenv').config();
 const app = express();
 const swaggerOn = isSwaggerEnabled();
 
-/** Liveness — đăng ký trước mọi middleware/proxy để không bị kẹt khi upstream chết. */
-app.get('/api/health/gateway-trust', (req, res) => {
-  const configured = Boolean(String(process.env.GATEWAY_INTERNAL_TOKEN || '').trim());
-  res.json({
-    success: true,
-    gatewayTrustConfigured: configured,
-    message: configured
-      ? 'Gateway trust đã cấu hình (GATEWAY_INTERNAL_TOKEN).'
-      : 'API Gateway chưa đặt GATEWAY_INTERNAL_TOKEN — đăng nhập sẽ không ổn định. Thêm biến này vào api-gateway/.env và đồng bộ với các microservice.',
-  });
-});
-app.get('/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'API Gateway is running',
-    timestamp: new Date().toISOString(),
-  });
-});
+/** Metrics — đăng ký trước middleware/proxy để vẫn trả lời khi upstream chết. */
 app.get('/metrics', (req, res) => {
   res.json({
     success: true,

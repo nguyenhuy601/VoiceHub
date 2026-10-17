@@ -19,10 +19,6 @@
   ],
   "tags": [
     {
-      "name": "Health",
-      "description": "Liveness / gateway trust"
-    },
-    {
       "name": "Auth",
       "description": "Đăng nhập, token, profile auth"
     },
@@ -25923,124 +25919,6 @@
             }
           }
         ]
-      }
-    },
-    "/health": {
-      "get": {
-        "operationId": "getGatewayHealth",
-        "tags": [
-          "Health"
-        ],
-        "summary": "Gateway liveness",
-        "description": "Không cần JWT.",
-        "security": [],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiSuccess"
-                },
-                "example": {
-                  "success": true,
-                  "message": "API Gateway is running",
-                  "timestamp": "2026-08-06T07:00:00.000Z"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request / validation failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorBody"
-                },
-                "example": {
-                  "success": false,
-                  "message": "Validation failed",
-                  "errorCode": "VALIDATION_REQUIRED",
-                  "messageUser": "Dữ liệu không hợp lệ.",
-                  "errors": [
-                    {
-                      "field": "email",
-                      "message": "must be a valid email"
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          }
-        }
-      }
-    },
-    "/api/health/gateway-trust": {
-      "get": {
-        "operationId": "getGatewayTrust",
-        "tags": [
-          "Health"
-        ],
-        "summary": "Kiểm tra GATEWAY_INTERNAL_TOKEN đã cấu hình",
-        "description": "Public diagnostic — không lộ giá trị token.",
-        "security": [],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiSuccess"
-                },
-                "example": {
-                  "success": true,
-                  "gatewayTrustConfigured": true,
-                  "message": "Gateway trust đã cấu hình (GATEWAY_INTERNAL_TOKEN)."
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request / validation failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationErrorBody"
-                },
-                "example": {
-                  "success": false,
-                  "message": "Validation failed",
-                  "errorCode": "VALIDATION_REQUIRED",
-                  "messageUser": "Dữ liệu không hợp lệ.",
-                  "errors": [
-                    {
-                      "field": "email",
-                      "message": "must be a valid email"
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          }
-        }
       }
     },
     "/api/bootstrap": {

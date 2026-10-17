@@ -27,7 +27,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { organizationAPI } from '../../services/api/organizationAPI';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { useGrantScopes } from '../../hooks/useGrantScopes';
 import { fetchOrganizationDetail } from '../../hooks/useOrganizationDetail';
 import { queryKeys } from '../../lib/queryKeys';
 import { STALE_TIME_ORG_DETAIL_MS } from '../../lib/queryClient';
@@ -196,12 +196,12 @@ function OrganizationSettingsPanel({
   const orgId = organization?._id || organization?.id;
   const myRole = String(organization?.myRole || 'member').toLowerCase();
 
-  const isOrgOwnerOrAdmin = useMemo(
-    () => myRole === 'owner' || myRole === 'admin',
-    [myRole]
-  );
-  const isFullAccess = isOrgOwnerOrAdmin;
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const { hasGrant } = useGrantScopes(orgId);
+  /** Tab quản trị org: theo grant từ vị trí, không theo membership owner/admin. */
+  const isFullAccess =
+    hasGrant('organization.structure.update') ||
+    hasGrant('organization.employee.update') ||
+    hasGrant('organization.policy.update');
   const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
 
   const [searchParams, setSearchParams] = useSearchParams();

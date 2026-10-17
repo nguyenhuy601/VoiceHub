@@ -37,7 +37,7 @@ function notFound(message) {
 function hasKindViewPermission(kind, access) {
   const resolved = access.resolved || {};
   if (resolved.isOrgAdmin || resolved.isCreator) return true;
-  if (!resolved.rbacV2) return Boolean(access.isMember);
+  if (!resolved.rbac) return Boolean(access.isMember);
   const perms = resolved.permissions || [];
   if (kind === 'change_request') return hasPermission(perms, 'change_request:view');
   if (kind === 'project') {

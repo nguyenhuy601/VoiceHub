@@ -1082,7 +1082,7 @@ const OrganizationMainPanel = ({
   const orgIdForTask =
     organizationId || selectedOrganization?._id || selectedOrganization?.id || null;
   const workspaceSlugForTask = String(selectedOrganization?.slug || '').trim();
-  const { canCreateProjectCapability } = useTaskWorkspaceScope(
+  const { canCreateProjectCapability, createProjectDeniedKey } = useTaskWorkspaceScope(
     orgIdForTask ? String(orgIdForTask) : ''
   );
   const taskBoardApiCtx = useMemo(
@@ -1499,7 +1499,7 @@ const OrganizationMainPanel = ({
         return;
       }
       if (!canOpenCreateProjectWizard) {
-        toast.error(t('taskBoard.createProjectDenied'));
+        toast.error(t(createProjectDeniedKey));
         return;
       }
       navigate(
@@ -1517,6 +1517,7 @@ const OrganizationMainPanel = ({
       orgIdForTask,
       organizationId,
       canOpenCreateProjectWizard,
+      createProjectDeniedKey,
       t,
       onCreateTaskBoardFromTeamMenu,
     ]

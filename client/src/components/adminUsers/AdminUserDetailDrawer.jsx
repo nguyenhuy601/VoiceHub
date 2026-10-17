@@ -408,7 +408,7 @@ export default function AdminUserDetailDrawer({
                 <p className="text-xs text-muted-foreground">ID: {memberTeamId(member) || '—'}</p>
               </div>
               <div className="flex flex-wrap gap-2 pt-2">
-                <Link to={`/app/admin/rbac/assign${q}`} className={DRAWER_LINK_CLASS}>
+                <Link to={`/app/admin/rbac/org-roles/assign${q}`} className={DRAWER_LINK_CLASS}>
                   {t('adminUsers.assignRole')}
                 </Link>
                 <Link

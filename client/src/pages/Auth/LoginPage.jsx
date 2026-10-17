@@ -15,7 +15,6 @@ import { useLoginFlashlight } from '../../components/Auth/useLoginFlashlight';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStrings } from '../../locales/appStrings';
-import authService from '../../services/authService';
 import { consumeOneTimeLoginCredentials } from '../../utils/oneTimeLoginCredentials';
 
 function LoginPage({ landingDemo = false } = {}) {
@@ -26,7 +25,6 @@ function LoginPage({ landingDemo = false } = {}) {
   const { t } = useAppStrings();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
-  const [gatewayTrust, setGatewayTrust] = useState(null);
   const [oneTimeCreds, setOneTimeCreds] = useState(null);
   const [inviteForgotHint, setInviteForgotHint] = useState(null);
 
@@ -57,8 +55,7 @@ function LoginPage({ landingDemo = false } = {}) {
       ? 'text-slate-300 hover:bg-slate-800/80'
       : 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-800';
   const btnPrimary = authPrimaryButtonClass(visualNight);
-  const submitDisabled =
-    loading || gatewayTrust === null || (!landingDemo && gatewayTrust && !gatewayTrust.ok);
+  const submitDisabled = loading;
   const closeColor = visualNight ? 'text-slate-200' : 'text-slate-500';
 
   useEffect(() => {
@@ -91,26 +88,6 @@ function LoginPage({ landingDemo = false } = {}) {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
-
-  useEffect(() => {
-    if (landingDemo) {
-      setGatewayTrust({ ok: true, message: '' });
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const trust = await authService.checkGatewayTrust();
-      if (!cancelled) {
-        setGatewayTrust({
-          ok: trust.gatewayTrustConfigured,
-          message: trust.message || '',
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [landingDemo]);
 
   useEffect(() => {
     if (landingDemo || authLoading) return;
@@ -198,18 +175,6 @@ function LoginPage({ landingDemo = false } = {}) {
           {t('login.title')}
         </h2>
 
-        {gatewayTrust && !gatewayTrust.ok && (
-          <div
-            role="alert"
-            className={`mt-4 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
-              visualNight ? 'border-amber-500/50 bg-amber-950/40 text-amber-100' : 'border-amber-400 bg-amber-50 text-amber-950'
-            }`}
-          >
-            <p className="font-semibold">{t('login.gatewayAlertTitle')}</p>
-            <p className="mt-1 opacity-95">{gatewayTrust.message || t('login.gatewayAlertFallback')}</p>
-          </div>
-        )}
-
         {inviteForgotHint ? (
           <div
             role="status"
@@ -296,7 +261,7 @@ function LoginPage({ landingDemo = false } = {}) {
             disabled={submitDisabled}
             className={`flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-bold text-white shadow-lg vh-transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
           >
-            {loading ? t('login.submitting') : gatewayTrust === null ? t('login.checkingConfig') : t('login.submit')}
+            {loading ? t('login.submitting') : t('login.submit')}
             {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
           </button>
         </form>

@@ -1005,12 +1005,12 @@ async function attachProjectCapabilities(payload, userId, projectId) {
   }
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const {
-    isProjectRbacV2Enabled,
+    isProjectRbacEnabled,
     hasPermission,
     matrixPermissionsFromRoleKeys,
     unionPermissionsFromRoles,
   } = require('../utils/project/projectPermissionMatrix');
-  if (!isProjectRbacV2Enabled()) {
+  if (!isProjectRbacEnabled()) {
     return payload;
   }
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
@@ -1115,8 +1115,8 @@ async function attachProjectCapabilities(payload, userId, projectId) {
 
 async function listProjectMembersForUser({ userId, projectId }) {
   const project = await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled()) {
+  const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
     await assertUserAnyProjectPermission({
       userId,
@@ -1157,8 +1157,8 @@ async function userCanAdminProject(userId, project) {
 }
 
 async function assertProjectMatrixOrAdmin(userId, project, permissions, message) {
-  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled()) {
+  const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
     await assertUserAnyProjectPermission({
       userId,
@@ -1240,10 +1240,10 @@ async function patchProject({ userId, projectId, patch }) {
     patch || {},
     'deployEvidence'
   );
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  const { isProjectRbacEnabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
   let canPhaseActor = false;
   let canAcceptActor = false;
-  if (isProjectRbacV2Enabled()) {
+  if (isProjectRbacEnabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
     // Client must not set releaseLabel (RULE-06)
@@ -1620,10 +1620,10 @@ async function patchProject({ userId, projectId, patch }) {
 async function archiveProject({ userId, projectId }) {
   const project = await Project.findById(projectId);
   if (!project || project.isActive === false) throw new Error('Project không tồn tại');
-  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
+  const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
   const { canSkipCompleteGateBeforeArchive } = require('../utils/project/projectCloseGate');
   let skipCompleteGate = false;
-  if (isProjectRbacV2Enabled()) {
+  if (isProjectRbacEnabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
     const resolved = await assertUserAnyProjectPermission({
       userId,
@@ -1855,8 +1855,8 @@ async function getProjectOverview({ userId, projectId }) {
 
 async function getProjectActivity({ userId, projectId, limit = 50 }) {
   const project = await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled()) {
+  const { isProjectRbacEnabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
     const canView =
@@ -1947,8 +1947,8 @@ async function getProjectActivity({ userId, projectId, limit = 50 }) {
 
 async function getProjectFiles({ userId, projectId }) {
   const project = await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled()) {
+  const { isProjectRbacEnabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
     if (
@@ -1992,8 +1992,8 @@ async function getProjectFiles({ userId, projectId }) {
 
 async function listProjectSprints({ userId, projectId }) {
   await getProject({ userId, projectId });
-  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled()) {
+  const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled()) {
     const { assertUserAnyProjectPermission } = require('./projectAccess.service');
     await assertUserAnyProjectPermission({
       userId,

@@ -44,8 +44,11 @@ export default function CreateProjectWizardPage() {
     ).trim();
   }, [params, company, activeWorkspace, lastOrganizationId]);
 
-  const { canCreateProjectCapability, loading: scopeLoading } =
-    useTaskWorkspaceScope(organizationId);
+  const {
+    canCreateProjectCapability,
+    createProjectDeniedKey,
+    loading: scopeLoading,
+  } = useTaskWorkspaceScope(organizationId);
 
   const briefId = String(params.get('briefId') || '').trim();
   const projectsPickerPath = buildProjectsPickerPath();
@@ -70,8 +73,8 @@ export default function CreateProjectWizardPage() {
     if (!organizationId || scopeLoading || canCreateProjectCapability) return;
     if (deniedToastRef.current) return;
     deniedToastRef.current = true;
-    toast.error(t('taskBoard.createProjectDenied'));
-  }, [organizationId, scopeLoading, canCreateProjectCapability, t]);
+    toast.error(t(createProjectDeniedKey));
+  }, [organizationId, scopeLoading, canCreateProjectCapability, createProjectDeniedKey, t]);
 
   const onCancel = () => navigate(projectsPickerPath);
 

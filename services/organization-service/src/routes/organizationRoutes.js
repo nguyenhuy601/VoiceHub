@@ -2,8 +2,8 @@ const express = require('express');
 const router = express.Router();
 const organizationController = require('../controllers/organizationController');
 const memberController = require('../controllers/memberController');
-const hrPositionController = require('../controllers/hrPositionController');
 const { protect, authorize, authorizeOrGrant } = require('../middleware/auth');
+const requireStoredSystemAdmin = require('../middleware/requireStoredSystemAdmin');
 const { registerObjectIdParams } = require('../middleware/objectIdParam');
 
 router.use(protect); // All routes require authentication
@@ -13,6 +13,8 @@ registerObjectIdParams(router, [
   'invitationId',
   'unitId',
   'roleId',
+  'positionId',
+  'assignmentId',
   'channelId',
   'divisionId',
   'departmentId',
@@ -76,65 +78,53 @@ router.get('/:orgId/accessible-channel-ids', organizationController.getAccessibl
 router.get('/:orgId/task-workspace-scope', organizationController.getTaskWorkspaceScope);
 
 const orgRoleAdminController = require('../controllers/orgRoleAdmin.controller');
+const orgRbacMatrixController = require('../controllers/orgRbacMatrix.controller');
 
 /**
- * @openapi
- * /api/organizations/{orgId}/org-roles:
- *   get:
- *     tags: [Organizations]
- *     summary: List Org Role catalog (runtime sync từ Master Data)
- *     description: Catalog lớp B — keys đã enable. Yêu cầu owner/admin.
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: orgId
- *         required: true
- *         schema: { type: string }
- *     responses:
- *       200:
- *         description: Roles catalog
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ApiSuccess'
- *       400:
- *         $ref: '#/components/responses/BadRequest'
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
- *       403:
- *         $ref: '#/components/responses/Forbidden'
- *       404:
- *         $ref: '#/components/responses/NotFound'
- *       500:
- *         $ref: '#/components/responses/InternalError'
+ * Org Roles — entity thật (Permission+Scope carrier). Không Catalog/master sync.
  */
 router.get(
   '/:orgId/org-roles',
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.view'),
-  orgRoleAdminController.listCatalog
+  orgRbacMatrixController.listRoles
 );
 router.post(
   '/:orgId/org-roles',
+  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
-  orgRoleAdminController.createCatalog
+  orgRbacMatrixController.createRole
 );
 router.put(
   '/:orgId/org-roles/reorder',
+  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
-  orgRoleAdminController.reorderCatalog
+  orgRbacMatrixController.reorderRoles
 );
 router.patch(
   '/:orgId/org-roles/:roleId',
+  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
-  orgRoleAdminController.updateCatalog
+  orgRbacMatrixController.updateRole
 );
 router.delete(
   '/:orgId/org-roles/:roleId',
+  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
-  orgRoleAdminController.deleteCatalog
+  orgRbacMatrixController.deleteRole
+);
+router.get(
+  '/:orgId/org-roles/:roleId/permissions',
+  authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.view'),
+  orgRbacMatrixController.getRoleMatrix
+);
+router.put(
+  '/:orgId/org-roles/:roleId/permissions',
+  requireStoredSystemAdmin,
+  authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
+  orgRbacMatrixController.putRoleMatrix
 );
 
+/** Legacy People-Graph assignment UI (KPI) — giữ route; không phải nguồn masterGrants */
 router.get(
   '/:orgId/org-role-assignments',
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.view'),
@@ -142,6 +132,7 @@ router.get(
 );
 router.put(
   '/:orgId/org-role-assignments',
+  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRoleAdminController.setAssignments
 );
@@ -174,15 +165,58 @@ router.put(
  *       500:
  *         $ref: '#/components/responses/InternalError'
  */
+/** Organizational Positions — entity thật (bind Org Role; không grant trực tiếp). */
 router.get(
   '/:orgId/hr-positions',
   authorizeOrGrant(['owner', 'admin'], 'organization.position.view'),
-  hrPositionController.listCatalog
+  orgRbacMatrixController.listPositions
 );
 router.post(
   '/:orgId/hr-positions',
+  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.position.create'),
-  hrPositionController.createCatalog
+  orgRbacMatrixController.createPosition
+);
+router.patch(
+  '/:orgId/hr-positions/:positionId',
+  requireStoredSystemAdmin,
+  authorizeOrGrant(['owner', 'admin'], 'organization.position.update'),
+  orgRbacMatrixController.updatePosition
+);
+router.delete(
+  '/:orgId/hr-positions/:positionId',
+  requireStoredSystemAdmin,
+  authorizeOrGrant(['owner', 'admin'], 'organization.position.update'),
+  orgRbacMatrixController.deletePosition
+);
+router.get(
+  '/:orgId/hr-positions/:positionId/roles',
+  authorizeOrGrant(['owner', 'admin'], 'organization.position.view'),
+  orgRbacMatrixController.getPositionBindings
+);
+router.put(
+  '/:orgId/hr-positions/:positionId/roles',
+  requireStoredSystemAdmin,
+  authorizeOrGrant(['owner', 'admin'], 'organization.position.update'),
+  orgRbacMatrixController.putPositionBindings
+);
+
+router.get(
+  '/:orgId/position-assignments',
+  authorizeOrGrant(['owner', 'admin'], 'organization.employee.view'),
+  orgRbacMatrixController.listAssignments
+);
+router.post(
+  '/:orgId/position-assignments',
+  requireStoredSystemAdmin,
+  authorizeOrGrant(['owner', 'admin'], 'organization.employee.update'),
+  orgRbacMatrixController.assignPosition
+);
+router.post(
+  '/:orgId/position-assignments/:assignmentId/end',
+  requireStoredSystemAdmin,
+  authorizeOrGrant(['owner', 'admin'], 'organization.employee.update'),
+  orgRbacMatrixController.endAssignment
 );
 
 router.get(

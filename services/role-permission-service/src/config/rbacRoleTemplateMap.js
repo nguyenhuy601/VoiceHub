@@ -1,5 +1,5 @@
 /**
- * Map Org Role / Project Role catalog keys → RBAC V2 Permission Group template keys.
+ * Map Org Role / Project Role catalog keys → RBAC Permission Group template keys.
  * Used by migration + UI hints; does not create Category/Module (immutable system catalog).
  */
 const ORG_ROLE_TO_TEMPLATE = Object.freeze({

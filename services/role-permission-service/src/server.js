@@ -18,11 +18,11 @@ connectDB()
     connectRedis();
 
     try {
-      const rbacV2Service = require('./services/rbacV2.service');
-      await rbacV2Service.seedSystemTemplates();
-      logger.info('RBAC V2 system templates seeded');
+      const rbacService = require('./services/rbac.service');
+      await rbacService.seedSystemTemplates();
+      logger.info('RBAC system templates seeded');
     } catch (seedErr) {
-      logger.warn('RBAC V2 template seed skipped/failed', seedErr.message);
+      logger.warn('RBAC template seed skipped/failed', seedErr.message);
     }
 
     runRbacProjectionConsumerLoop();

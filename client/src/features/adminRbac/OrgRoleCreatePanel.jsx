@@ -15,8 +15,7 @@ import { AdminBusySpinner, AdminLoadErrorState } from '../../components/adminUse
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { slugifyRoleKey, ensureRoleKeyNamespace } from '../../utils/roleKeySlug';
-import { ORG_ROLE_LABEL_PREFIX, normalizeLayerLabel } from '../../utils/roleLayerNaming';
-import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
+import { looksLikeHrPositionForOrgRole } from '../../utils/roleLayerNaming';import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 
 export default function OrgRoleCreatePanel({ orgId }) {
   const { t } = useAppStrings();
@@ -69,7 +68,7 @@ export default function OrgRoleCreatePanel({ orgId }) {
   const submit = async () => {
     if (!orgId || busy) return;
     if (!suffix.trim()) return;
-    const label = normalizeLayerLabel(suffix, 'org');
+    const label = suffix.trim();
     setBusy(true);
     try {
       await orgRoleCatalogAPI.createCatalog(orgId, {
@@ -94,19 +93,16 @@ export default function OrgRoleCreatePanel({ orgId }) {
         <AdminUserFormCard title={t('adminDomains.rbac.orgRoleCreate')}>
           <label className="mb-4 block">
             <span className={adminLabelClass()}>{t('adminRbac.roleLabelField')}</span>
-            <div className="flex overflow-hidden rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-ring">
-              <span className="shrink-0 border-r border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-                {ORG_ROLE_LABEL_PREFIX.trimEnd()}
-              </span>
-              <input
-                className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
-                maxLength={120}
-                value={suffix}
-                onChange={(e) => setSuffix(e.target.value)}
-                placeholder={t('adminRbac.orgRoleLabelPlaceholder')}
-              />
-            </div>
-          </label>
+            <input
+              className={adminInputClass()}
+              maxLength={120}
+              value={suffix}
+              onChange={(e) => setSuffix(e.target.value)}
+              placeholder={t('adminRbac.orgRoleLabelPlaceholder')}
+            />
+            {suffix.trim() && looksLikeHrPositionForOrgRole(suffix) ? (
+              <p className="mt-1 text-xs text-warning">{t('adminRbac.orgRoleLooksLikePositionHint')}</p>
+            ) : null}          </label>
           <label className="mb-4 block">
             <span className={adminLabelClass()}>{t('adminRbac.roleKeyField')}</span>
             <input

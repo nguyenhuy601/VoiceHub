@@ -46,12 +46,7 @@ async function authMiddlewareAsync(req, res, next) {
     .replace(/\/+/g, '/');
 
   // Bỏ qua các route public
-  if (
-    isPublicRoute(pathWithoutQuery) ||
-    isPublicRoute(fromOriginal) ||
-    pathWithoutQuery === '/api/health/gateway-trust' ||
-    fromOriginal.endsWith('/api/health/gateway-trust')
-  ) {
+  if (isPublicRoute(pathWithoutQuery) || isPublicRoute(fromOriginal)) {
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[API-Gateway] Public route: ${pathWithoutQuery}`);
     }

@@ -7,7 +7,7 @@ import roleAPI from '../../services/api/roleAPI';
 import useAdminRoles from '../../hooks/useAdminRoles';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import { notifyRbacGrantsChanged } from '../../utils/rbacV2Ui';
+import { notifyRbacGrantsChanged } from '../../utils/rbacUi';
 import {
   assignedRoleIdFromRow,
   isStructuralRole,

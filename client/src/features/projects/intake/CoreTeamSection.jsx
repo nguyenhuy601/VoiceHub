@@ -210,9 +210,10 @@ export default function CoreTeamSection({
 
   const sectionStatus =
     sectionMeta?.hint === 'error' ? 'error' : sectionMeta?.complete ? 'complete' : 'partial';
+  const teamTotal = INTAKE_LEAD_ROLE_KEYS.length;
   const statusDetail =
-    sectionMeta?.assigned != null && sectionMeta.assigned < 3
-      ? `${sectionMeta.assigned} / 3`
+    sectionMeta?.assigned != null && sectionMeta.assigned < teamTotal
+      ? `${sectionMeta.assigned} / ${teamTotal}`
       : '';
 
   const onPick = (roleKey, item) => {

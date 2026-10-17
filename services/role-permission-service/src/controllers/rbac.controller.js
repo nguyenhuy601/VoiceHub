@@ -1,4 +1,4 @@
-const rbacV2Service = require('../services/rbacV2.service');
+const rbacService = require('../services/rbac.service');
 const { logger } = require('@enterprise/shared');
 const { sendErrorFromCatch } = require('../middleware/sendServiceError');
 
@@ -8,14 +8,19 @@ function actorUserId(req) {
   return req.user?.id || req.user?.userId || req.userContext?.userId || null;
 }
 
-class RbacV2Controller {
+class RbacController {
+  /** @deprecated Prefer listSystemPermissions */
   async getCatalog(req, res) {
+    return this.listSystemPermissions(req, res);
+  }
+
+  async listSystemPermissions(req, res) {
     try {
-      const data = await rbacV2Service.getCatalog();
+      const data = await rbacService.listSystemPermissions();
       return res.json({ success: true, data });
     } catch (error) {
-      logger.error('RBAC V2 getCatalog error:', error);
-      return sendError(res, error, 500, 'Không thể tải catalog RBAC V2', 'RBAC_CATALOG_FAILED');
+      logger.error('RBAC listSystemPermissions error:', error);
+      return sendError(res, error, 500, 'Không thể tải danh sách quyền hệ thống', 'RBAC_PERMISSIONS_FAILED');
     }
   }
 
@@ -29,10 +34,10 @@ class RbacV2Controller {
           message: 'organizationId is required',
         });
       }
-      const data = await rbacV2Service.listOrganizationGroups({ organizationId });
+      const data = await rbacService.listOrganizationGroups({ organizationId });
       return res.json({ success: true, data });
     } catch (error) {
-      logger.error('RBAC V2 listGroups error:', error);
+      logger.error('RBAC listGroups error:', error);
       return sendError(res, error, 500, 'Không thể tải Permission Groups', 'RBAC_GROUP_LIST_FAILED');
     }
   }
@@ -59,7 +64,7 @@ class RbacV2Controller {
         });
       }
 
-      const group = await rbacV2Service.cloneTemplate({
+      const group = await rbacService.cloneTemplate({
         organizationId: oid,
         templateKey,
         specialization,
@@ -71,14 +76,14 @@ class RbacV2Controller {
       let role = null;
       if (createRole !== false) {
         const Role = require('../models/Role');
-        const { materializeLegacyPermissions } = require('../config/rbacV2Catalog');
+        const { materializeLegacyPermissions } = require('../config/rbacPermissions');
         const permissions = materializeLegacyPermissions(group.grants);
         if (!permissions.some((p) => p.resource === 'role' && (p.actions || []).includes('read'))) {
           permissions.push({ resource: 'role', actions: ['read'] });
         }
         role = await Role.create({
           name: group.name,
-          description: description != null ? String(description).trim() : `RBAC V2 · ${group.templateKey}`,
+          description: description != null ? String(description).trim() : `RBAC · ${group.templateKey}`,
           scope: 'ORGANIZATION',
           serverId: oid,
           organizationId: oid,
@@ -88,7 +93,7 @@ class RbacV2Controller {
           priority: Number(priority) || 50,
           isActive: true,
         });
-        await rbacV2Service.assignGroupToRole({
+        await rbacService.assignGroupToRole({
           organizationId: oid,
           roleId: role._id,
           permissionGroupId: group._id,
@@ -100,7 +105,7 @@ class RbacV2Controller {
 
       return res.status(201).json({ success: true, data: { group, role } });
     } catch (error) {
-      logger.error('RBAC V2 cloneGroup error:', error);
+      logger.error('RBAC cloneGroup error:', error);
       return sendError(res, error, 400, 'Không thể clone Permission Group', 'RBAC_CLONE_FAILED');
     }
   }
@@ -119,7 +124,7 @@ class RbacV2Controller {
       if (!oid) {
         return res.status(400).json({ success: false, message: 'organizationId is required' });
       }
-      const data = await rbacV2Service.renameOrganizationGroup({
+      const data = await rbacService.renameOrganizationGroup({
         organizationId: oid,
         groupId,
         specialization,
@@ -129,7 +134,7 @@ class RbacV2Controller {
       });
       return res.json({ success: true, data });
     } catch (error) {
-      logger.error('RBAC V2 renameGroup error:', error);
+      logger.error('RBAC renameGroup error:', error);
       return sendError(res, error, 400, 'Không thể đổi tên Permission Group', 'RBAC_RENAME_FAILED');
     }
   }
@@ -142,7 +147,7 @@ class RbacV2Controller {
       if (!oid) {
         return res.status(400).json({ success: false, message: 'organizationId is required' });
       }
-      const data = await rbacV2Service.setOrganizationGroupGrants({
+      const data = await rbacService.setOrganizationGroupGrants({
         organizationId: oid,
         groupId,
         grants,
@@ -150,7 +155,7 @@ class RbacV2Controller {
       });
       return res.json({ success: true, data });
     } catch (error) {
-      logger.error('RBAC V2 setGroupGrants error:', error);
+      logger.error('RBAC setGroupGrants error:', error);
       return sendError(res, error, 400, 'Không thể cập nhật grants', 'RBAC_GRANTS_FAILED');
     }
   }
@@ -163,8 +168,8 @@ class RbacV2Controller {
       if (!organizationId) {
         return res.status(400).json({ success: false, message: 'organizationId is required' });
       }
-      const bindings = await rbacV2Service.listRoleBindings({ organizationId, roleId });
-      const groups = await rbacV2Service.listOrganizationGroups({ organizationId });
+      const bindings = await rbacService.listRoleBindings({ organizationId, roleId });
+      const groups = await rbacService.listOrganizationGroups({ organizationId });
       const byId = new Map(groups.map((g) => [String(g._id), g]));
       const data = bindings.map((b) => ({
         ...b,
@@ -172,7 +177,7 @@ class RbacV2Controller {
       }));
       return res.json({ success: true, data });
     } catch (error) {
-      logger.error('RBAC V2 listRoleGroups error:', error);
+      logger.error('RBAC listRoleGroups error:', error);
       return sendError(res, error, 500, 'Không thể tải group bindings', 'RBAC_ROLE_GROUPS_FAILED');
     }
   }
@@ -190,7 +195,7 @@ class RbacV2Controller {
       if (!oid) {
         return res.status(400).json({ success: false, message: 'organizationId is required' });
       }
-      const data = await rbacV2Service.replaceRoleGroups({
+      const data = await rbacService.replaceRoleGroups({
         organizationId: oid,
         roleId,
         permissionGroupIds,
@@ -199,7 +204,7 @@ class RbacV2Controller {
       });
       return res.json({ success: true, data });
     } catch (error) {
-      logger.error('RBAC V2 replaceRoleGroups error:', error);
+      logger.error('RBAC replaceRoleGroups error:', error);
       return sendError(res, error, 400, 'Không thể gán Permission Groups', 'RBAC_ASSIGN_FAILED');
     }
   }
@@ -211,13 +216,13 @@ class RbacV2Controller {
       if (!organizationId) {
         return res.status(400).json({ success: false, message: 'organizationId is required' });
       }
-      const data = await rbacV2Service.directReplaceOrganization({
+      const data = await rbacService.directReplaceOrganization({
         organizationId,
         actorUserId: actorUserId(req),
       });
       return res.json({ success: true, data });
     } catch (error) {
-      logger.error('RBAC V2 directReplace error:', error);
+      logger.error('RBAC directReplace error:', error);
       return sendError(res, error, 500, 'Direct replace thất bại', 'RBAC_DIRECT_REPLACE_FAILED');
     }
   }
@@ -234,14 +239,14 @@ class RbacV2Controller {
           errorCode: 'VALIDATION_REQUIRED',
         });
       }
-      const data = await rbacV2Service.ensureProjectCreateGrant({
+      const data = await rbacService.ensureProjectCreateGrant({
         userId,
         organizationId,
         actorUserId: actorUserId(req) || userId,
       });
       return res.json({ success: true, data });
     } catch (error) {
-      logger.error('RBAC V2 ensureProjectCreateGrant error:', error);
+      logger.error('RBAC ensureProjectCreateGrant error:', error);
       return sendError(
         res,
         error,
@@ -253,4 +258,4 @@ class RbacV2Controller {
   }
 }
 
-module.exports = new RbacV2Controller();
+module.exports = new RbacController();

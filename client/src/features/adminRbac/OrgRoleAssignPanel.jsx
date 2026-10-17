@@ -26,7 +26,11 @@ function unique(arr) {
   return [...new Set((arr || []).map((x) => String(x).trim()).filter(Boolean))];
 }
 
-export default function OrgRoleAssignPanel({ orgId }) {
+/**
+ * Gán / gỡ Vai trò tổ chức (catalog) cho user — không phải gói quyền RBAC.
+ * @param {{ orgId: string, embedded?: boolean }} props
+ */
+export default function OrgRoleAssignPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -84,11 +88,17 @@ export default function OrgRoleAssignPanel({ orgId }) {
 
   useEffect(() => {
     loadCatalog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload catalog when org changes
   }, [orgId]);
 
   useEffect(() => {
     loadAssignmentsForUser(userIdParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, userIdParam]);
+
+  useEffect(() => {
+    if (roleKeyParam) setSelectedRoleKey(roleKeyParam);
+  }, [roleKeyParam]);
 
   const setUserAssignments = async (nextRoleKeys) => {
     if (!orgId) return;
@@ -120,100 +130,132 @@ export default function OrgRoleAssignPanel({ orgId }) {
   const selectedRole = roles.find((r) => r.key === selectedRoleKey) || null;
   const selectedRoleAssigned = assignedRoleKeys.includes(selectedRoleKey);
 
+  const formCard = (
+    <AdminUserFormCard title={t('adminDomains.rbac.orgRoleAssign')}>
+      {loading && !roles.length ? (
+        <AdminListSkeleton rows={3} />
+      ) : catalogError ? (
+        <AdminLoadErrorState message={catalogError} onRetry={() => loadCatalog()} />
+      ) : !roles.length ? (
+        <AdminEmptyState message={t('adminRbac.orgRoleCatalogEmpty')} />
+      ) : (
+        <>
+          <label className="mb-3 block">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">
+              {t('adminRbac.roleLabelField')}
+            </span>
+            <select
+              className={adminInputClass()}
+              value={selectedRoleKey}
+              onChange={(e) => setSelectedRoleKey(e.target.value)}
+            >
+              <option value="">-- {t('adminRbac.selectRole')} --</option>
+              {roles.map((r) => (
+                <option key={r._id || r.id} value={r.key}>
+                  {r.label || r.key}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {assignmentsError ? (
+            <AdminLoadErrorState
+              className="mb-3"
+              message={assignmentsError}
+              onRetry={() => loadAssignmentsForUser(userIdParam)}
+            />
+          ) : (
+            <div className="mb-3 rounded-lg border border-border bg-muted p-3 text-sm">
+              <div className="font-medium text-foreground">{t('adminRbac.orgRoleCurrentRoles')}</div>
+              <div className="mt-1 text-muted-foreground">
+                {userIdParam
+                  ? assignedRoleKeys.length
+                    ? assignedRoleKeys
+                        .map((key) => {
+                          const hit = roles.find((r) => r.key === key);
+                          return hit?.label || key;
+                        })
+                        .join(', ')
+                    : t('adminUsers.taxonomyNone')
+                  : t('adminUsers.selectUserFirst')}
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!userIdParam || !selectedRoleKey || assignBusy}
+              aria-busy={assignBusy || undefined}
+              className={adminPrimaryBtnClass()}
+              onClick={addRole}
+            >
+              <AdminBusySpinner busy={assignBusy} />
+              {assignBusy ? t('common.saving') : t('adminDomains.rbac.orgRoleAssign')}
+            </button>
+            <button
+              type="button"
+              disabled={!userIdParam || !selectedRoleKey || !selectedRoleAssigned || assignBusy}
+              className={adminDangerBtnClass()}
+              onClick={() => setConfirmRevoke(true)}
+            >
+              {t('adminRbac.orgRoleRevoke')}
+            </button>
+          </div>
+
+          <div className="mt-4">
+            <button
+              type="button"
+              className={adminSecondaryBtnClass()}
+              disabled={assignBusy}
+              onClick={() => navigate('/app/admin/rbac/org-roles/directory')}
+            >
+              {t('adminDomains.rbac.orgRoleDirectory')}
+            </button>
+          </div>
+        </>
+      )}
+    </AdminUserFormCard>
+  );
+
+  const dialog = (
+    <ConfirmDialog
+      isOpen={confirmRevoke}
+      onClose={() => setConfirmRevoke(false)}
+      onConfirm={removeRole}
+      variant="danger"
+      title={t('adminRbac.orgRoleRevokeConfirmTitle')}
+      message={t('adminRbac.orgRoleRevokeConfirmMessage', {
+        role: selectedRole?.label || selectedRoleKey,
+      })}
+      confirmText={t('adminRbac.orgRoleRevoke')}
+      cancelText={t('common.cancel')}
+    />
+  );
+
+  if (embedded) {
+    return (
+      <>
+        {formCard}
+        {dialog}
+      </>
+    );
+  }
+
   return (
     <AdminUserPanelShell
       title={t('adminDomains.rbac.orgRoleAssign')}
       wide
     >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
-        <AdminUserPicker orgId={orgId} selectedUserId={userIdParam} hint={t('adminRbac.orgRoleAssignPickerHint')} />
-
-        <AdminUserFormCard title={t('adminDomains.rbac.orgRoleAssign')}>
-          {loading && !roles.length ? (
-            <AdminListSkeleton rows={3} />
-          ) : catalogError ? (
-            <AdminLoadErrorState message={catalogError} onRetry={() => loadCatalog()} />
-          ) : !roles.length ? (
-            <AdminEmptyState message={t('adminRbac.orgRoleCatalogEmpty')} />
-          ) : (
-            <>
-              <label className="mb-3 block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">{t('adminRbac.roleLabelField')}</span>
-                <select
-                  className={adminInputClass()}
-                  value={selectedRoleKey}
-                  onChange={(e) => setSelectedRoleKey(e.target.value)}
-                >
-                  <option value="">-- {t('adminRbac.selectRole')} --</option>
-                  {roles.map((r) => (
-                    <option key={r._id || r.id} value={r.key}>
-                      {r.label || r.key}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {assignmentsError ? (
-                <AdminLoadErrorState
-                  className="mb-3"
-                  message={assignmentsError}
-                  onRetry={() => loadAssignmentsForUser(userIdParam)}
-                />
-              ) : (
-                <div className="mb-3 rounded-lg border border-border bg-muted p-3 text-sm">
-                  <div className="font-medium text-foreground">{t('adminRbac.orgRoleCurrentRoles')}</div>
-                  <div className="mt-1 text-muted-foreground">
-                    {userIdParam
-                      ? assignedRoleKeys.length
-                        ? assignedRoleKeys.join(', ')
-                        : t('adminUsers.taxonomyNone')
-                      : t('adminUsers.selectUserFirst')}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={!userIdParam || !selectedRoleKey || assignBusy}
-                  aria-busy={assignBusy || undefined}
-                  className={adminPrimaryBtnClass()}
-                  onClick={addRole}
-                >
-                  <AdminBusySpinner busy={assignBusy} />
-                  {assignBusy ? t('common.saving') : t('adminDomains.rbac.orgRoleAssign')}
-                </button>
-                <button
-                  type="button"
-                  disabled={!userIdParam || !selectedRoleKey || !selectedRoleAssigned || assignBusy}
-                  className={adminDangerBtnClass()}
-                  onClick={() => setConfirmRevoke(true)}
-                >
-                  {t('adminRbac.orgRoleRevoke')}
-                </button>
-              </div>
-
-              <div className="mt-4">
-                <button type="button" className={adminSecondaryBtnClass()} disabled={assignBusy} onClick={() => navigate('/app/admin/rbac/org-roles/directory')}>
-                  {t('adminDomains.rbac.orgRoleDirectory')}
-                </button>
-              </div>
-            </>
-          )}
-        </AdminUserFormCard>
+        <AdminUserPicker
+          orgId={orgId}
+          selectedUserId={userIdParam}
+          hint={t('adminRbac.orgRoleAssignPickerHint')}
+        />
+        {formCard}
       </div>
-      <ConfirmDialog
-        isOpen={confirmRevoke}
-        onClose={() => setConfirmRevoke(false)}
-        onConfirm={removeRole}
-        variant="danger"
-        title={t('adminRbac.orgRoleRevokeConfirmTitle')}
-        message={t('adminRbac.orgRoleRevokeConfirmMessage', {
-          role: selectedRole?.label || selectedRoleKey,
-        })}
-        confirmText={t('adminRbac.orgRoleRevoke')}
-        cancelText={t('common.cancel')}
-      />
+      {dialog}
     </AdminUserPanelShell>
   );
 }

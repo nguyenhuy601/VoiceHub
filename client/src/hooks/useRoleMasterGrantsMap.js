@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import roleAPI from '../services/api/roleAPI';
 import { normalizeRoleId, unwrapRoleApi } from '../utils/adminRbacUtils';
-import { flattenCatalogTree, normalizeMasterGrantList, unwrapCatalogPayload } from '../utils/rbacV2Ui';
+import { flattenCatalogTree, normalizeMasterGrantList, unwrapCatalogPayload } from '../utils/rbacUi';
 import { queryKeys } from '../lib/queryKeys';
 import { STALE_TIME_RBAC_CATALOG_MS, STALE_TIME_RBAC_GRANTS_MS } from '../lib/queryClient';
 
@@ -34,7 +34,7 @@ export function grantsFromRoleBindings(bindings) {
   return normalizeMasterGrantList([...merged]);
 }
 
-/** Shared RBAC V2 catalog (GET /permissions/catalog). */
+/** Shared RBAC catalog (GET /permissions/catalog). */
 export function useRbacCatalog({ enabled = true } = {}) {
   return useQuery({
     queryKey: queryKeys.rbac.catalog(),

@@ -1,12 +1,12 @@
 /**
- * Bốn lớp vai trò (People vs Delivery vs Ops).
+ * Org RBAC 3 lớp (+ Project / Membership tách riêng).
  *
- * - Position / HR Role: Senior Backend, QA… — hồ sơ nhân sự; CẤM dùng phân quyền / assign.
- * - Organization Role: Department Manager, Team Manager, Director — People Graph.
- * - Project Role: Tech Lead, Developer… — trong Project; Delegation Graph / CanAssign.
- * - Permission: quyền thao tác cụ thể — gắn qua System Role (= nhóm Permission).
+ * - Permission: mã hệ thống theo nhóm chức năng (chỉ đọc; không catalog org).
+ * - Organizational Role: entity per-org — carrier Permission+Scope (= gói quyền org).
+ * - Organizational Position: entity per-org — bind Role; gán User; không grant trực tiếp.
  *
- * System/Tenant membership (owner|admin|hr|member) vận hành tenant, không phải Organization Role phòng ban.
+ * Project Role: Delivery / CanAssign — không đồng nhất Org Role.
+ * Membership (owner|admin|hr|member): vai trò tài khoản tenant — không phải nguồn masterGrants sau cutover.
  */
 
 const ROLE_KIND = Object.freeze({

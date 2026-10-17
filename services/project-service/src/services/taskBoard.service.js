@@ -349,7 +349,7 @@ async function projectMembershipBoardCaps(userId, board) {
   if (!userOid) return empty;
 
   const {
-    isProjectRbacV2Enabled,
+    isProjectRbacEnabled,
     unionPermissionsFromRoles,
     hasPermission,
   } = require('../utils/project/projectPermissionMatrix');
@@ -366,7 +366,7 @@ async function projectMembershipBoardCaps(userId, board) {
     ? await ProjectRole.find({ _id: { $in: roleIds } }).select('key canAssign permissions').lean()
     : [];
 
-  if (isProjectRbacV2Enabled()) {
+  if (isProjectRbacEnabled()) {
     const permissions = unionPermissionsFromRoles(roles);
     for (const row of rows) {
       const legacy = String(row.legacyBoardRole || '');
@@ -425,8 +425,8 @@ async function resolveBoardCapabilities(userId, board) {
   if (!userId || !board) {
     return buildBoardCapabilities({});
   }
-  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled() && board.projectId) {
+  const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled() && board.projectId) {
     try {
       const { resolveUserProjectPermissions } = require('./projectAccess.service');
       const resolved = await resolveUserProjectPermissions({
@@ -704,8 +704,8 @@ async function ensureBoardViewAccess(boardId, userId) {
 async function ensureBoardEditAccess(boardId, userId) {
   const board = await TaskBoard.findById(boardId).lean();
   if (!board || !board.isActive) return null;
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled() && board.projectId) {
+  const { isProjectRbacEnabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled() && board.projectId) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
       userId,
@@ -738,8 +738,8 @@ async function ensureBoardManageLists(boardId, userId) {
 async function ensureBoardCreateCards(boardId, userId) {
   const board = await TaskBoard.findById(boardId).lean();
   if (!board || !board.isActive) return null;
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled() && board.projectId) {
+  const { isProjectRbacEnabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled() && board.projectId) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
       userId,
@@ -1484,8 +1484,8 @@ async function createCard({
     err.statusCode = 403;
     throw err;
   }
-  const { isProjectRbacV2Enabled: rbacV2On } = require('../utils/project/projectPermissionMatrix');
-  if (rbacV2On() && board.projectId) {
+  const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled() && board.projectId) {
     const { createPermissionForIssueType } = require('../utils/project/projectIssueTypePerms');
     const { assertUserProjectPermission } = require('./projectAccess.service');
     const createKey = createPermissionForIssueType(issueType, { parentTaskId });
@@ -2203,7 +2203,7 @@ async function updateCard({
   const board = await ensureBoardEditAccess(card.boardId, userId);
   if (!board) throw new Error('Không có quyền sửa card này');
   const caps = await resolveBoardCapabilities(userId, board);
-  const { isProjectRbacV2Enabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  const { isProjectRbacEnabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
 
   const next = {};
   if (title !== undefined) next.title = String(title).trim();
@@ -2223,7 +2223,7 @@ async function updateCard({
     const { normalizeEstimateHours } = require('../utils/task/timeTracking');
     next.estimateHours = normalizeEstimateHours(estimateHours);
   }
-  if (isProjectRbacV2Enabled() && board.projectId) {
+  if (isProjectRbacEnabled() && board.projectId) {
     const { assertUserProjectPermission } = require('./projectAccess.service');
     const { updatePermissionForIssueType } = require('../utils/project/projectIssueTypePerms');
     if (estimateHours !== undefined) {
@@ -2706,8 +2706,8 @@ async function addCardComment({ userId, cardId, content }) {
   if (!card || !card.boardId || !card.isActive) throw new Error('Card không tồn tại');
   const board = await ensureBoardEditAccess(card.boardId, userId);
   if (!board) throw new Error('Không có quyền sửa card này');
-  const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled() && board.projectId) {
+  const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled() && board.projectId) {
     const { assertUserProjectPermission } = require('./projectAccess.service');
     await assertUserProjectPermission({
       userId,
@@ -2810,8 +2810,8 @@ async function archiveCard({ userId, cardId }) {
   if (!card || !card.boardId || !card.isActive) throw new Error('Card không tồn tại');
   const board = await ensureBoardEditAccess(card.boardId, userId);
   if (!board) throw new Error('Không có quyền sửa board này');
-  const { isProjectRbacV2Enabled, hasPermission, assertPermission } = require('../utils/project/projectPermissionMatrix');
-  if (isProjectRbacV2Enabled() && board.projectId) {
+  const { isProjectRbacEnabled, hasPermission, assertPermission } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled() && board.projectId) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
       userId,

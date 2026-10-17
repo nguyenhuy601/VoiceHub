@@ -9,7 +9,7 @@ function labelOf(t, key, fallback) {
 
 /**
  * Host Gate1 / Gate2 panels by current HITL state.
- * Review tab = decide only (Gate1 BA/PO, Gate2 PM/PO). HOW run lives on Monitor.
+ * Review tab = decide only (Gate1 BA/PO, Gate2 PM/Tech/PO). HOW run lives on Monitor.
  */
 export default function AiHitlReviewPanel({
   reviewMode = 'idle',
@@ -38,7 +38,15 @@ export default function AiHitlReviewPanel({
   pack = null,
   gate2Decisions = null,
   setGate2Decision = null,
-  onGate2PmSubmit,
+  parallelTracks = [],
+  gate2Proposals = [],
+  onGate2TrackSubmit,
+  onGate2ProposeChange,
+  onGate2DecideChange,
+  onGate2KeepOriginal,
+  onGate2Escalate,
+  onGate2ResolveEscalation,
+  onGate2PmConfirmPlan,
   onGate2PoApprove,
   onGate2PoReject,
 }) {
@@ -126,7 +134,15 @@ export default function AiHitlReviewPanel({
           decisions={gate2Decisions}
           setDecision={setGate2Decision}
           t={t}
-          onPmSubmit={onGate2PmSubmit}
+          parallelTracks={parallelTracks}
+          proposals={gate2Proposals}
+          onTrackSubmit={onGate2TrackSubmit}
+          onProposeChange={onGate2ProposeChange}
+          onDecideChange={onGate2DecideChange}
+          onKeepOriginal={onGate2KeepOriginal}
+          onEscalate={onGate2Escalate}
+          onResolveEscalation={onGate2ResolveEscalation}
+          onPmConfirmPlan={onGate2PmConfirmPlan}
           onPoApprove={onGate2PoApprove}
           onPoReject={onGate2PoReject}
         />

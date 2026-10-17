@@ -8,6 +8,7 @@ import OrganizationSettingsPanel from '../../components/Organization/Organizatio
 import RetentionPolicyPanel from '../adminTasks/RetentionPolicyPanel';
 import EffortEstimationSettingsPanel from './EffortEstimationSettingsPanel';
 import { useCompanyAdminContext } from '../../pages/Admin/CompanyAdminLayout';
+import { useGrantScopes } from '../../hooks/useGrantScopes';
 
 const TAB_COMPANY = 'company';
 const TAB_RETENTION = 'retention';
@@ -44,7 +45,9 @@ function NoAccessState() {
 
 export default function SystemConfigHubPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { organization, isFullAccess, refreshOrganization } = useCompanyAdminContext();
+  const { organization, refreshOrganization, orgId: ctxOrgId } = useCompanyAdminContext();
+  const { hasGrant } = useGrantScopes(orgId || ctxOrgId);
+  const canConfigure = hasGrant('organization.structure.update') || hasGrant('organization.policy.update');
 
   const tabs = useMemo(
     () => [
@@ -71,10 +74,10 @@ export default function SystemConfigHubPanel({ orgId }) {
           return <RetentionPolicyPanel orgId={orgId} embedded />;
         }
         if (activeTab === TAB_EFFORT) {
-          if (!isFullAccess) return <NoAccessState />;
+          if (!canConfigure) return <NoAccessState />;
           return <EffortEstimationSettingsPanel organizationId={orgId} />;
         }
-        if (!isFullAccess) return <NoAccessState />;
+        if (!canConfigure) return <NoAccessState />;
         const lockTab = activeTab === TAB_STRUCTURE ? 'structure' : 'general';
         return <SettingsEmbed organization={organization} lockTab={lockTab} onUpdated={refreshOrganization} />;
       }}

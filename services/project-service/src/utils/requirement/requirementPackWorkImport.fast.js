@@ -14,7 +14,7 @@ const ProjectMembership = require('../../models/ProjectMembership');
 const TaskActivityLog = require('../../models/TaskActivityLog');
 const { DEFAULT_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
 const { assertProjectWritable } = require('../project/projectCloseGate');
-const { isProjectRbacV2Enabled, hasPermission } = require('../project/projectPermissionMatrix');
+const { isProjectRbacEnabled, hasPermission } = require('../project/projectPermissionMatrix');
 const { resolveUserProjectPermissions } = require('../../services/projectAccess.service');
 const { ensureProjectMembership } = require('../../services/projectTeam.service');
 const {
@@ -174,7 +174,7 @@ async function assertBoardCreateAccess({ userId, board }) {
     err.statusCode = 404;
     throw err;
   }
-  if (isProjectRbacV2Enabled() && board.projectId) {
+  if (isProjectRbacEnabled() && board.projectId) {
     const resolved = await resolveUserProjectPermissions({
       userId,
       projectId: board.projectId,

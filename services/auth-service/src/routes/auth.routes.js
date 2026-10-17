@@ -7,6 +7,7 @@ const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatew
 const { sendServiceError } = require('../middleware/sendServiceError');
 const { adminUserController, internalAuthSummaryBatch } = require('../controllers/adminUser.controller');
 const { companyAdminAuth } = require('../middleware/companyAdminAuth');
+const requireStoredSystemAdmin = require('../middleware/requireStoredSystemAdmin');
 const requireClientHeader = require('../middleware/requireClientHeader');
 const { createSensitiveAuthLimiter, createAdminAccountLimiter } = require('../middleware/sensitiveAuthLimiter');
 const UserAuth = require('../models/UserAuth');
@@ -133,7 +134,8 @@ router.get('/me', authenticate, authController.getMe.bind(authController));
 function mountCompanyUserAccountRoutes() {
   const pathPrefix = '/users';
   const hrAuth = [authenticate, companyAdminAuth({ requireFullAccess: false })];
-  const fullAuth = [authenticate, companyAdminAuth({ requireFullAccess: true })];
+  // Ghi tài khoản: systemRole lấy từ UserAuth, không từ claim JWT và không fallback owner/hr.
+  const fullAuth = [authenticate, requireStoredSystemAdmin, companyAdminAuth({ requireFullAccess: true })];
   const adminAccountLimiter = createAdminAccountLimiter();
   const bind = (fn) => fn.bind(adminUserController);
 

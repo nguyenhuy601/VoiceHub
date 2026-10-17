@@ -16,7 +16,7 @@ import {
   normalizeRoleId,
   unwrapUserRoleList,
 } from '../../utils/adminRbacUtils';
-import { notifyRbacGrantsChanged } from '../../utils/rbacV2Ui';
+import { notifyRbacGrantsChanged } from '../../utils/rbacUi';
 import {
   AdminListSkeleton,
 } from '../../components/adminUsers/adminPanelStates';

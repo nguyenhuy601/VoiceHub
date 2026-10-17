@@ -8,28 +8,28 @@ import {
 
 const LAYER_CARDS = [
   {
-    titleKey: 'taxonomyCardPositionTitle',
-    bodyKey: 'taxonomyCardPositionBody',
-    to: '/app/admin/rbac/positions',
-    ctaKey: 'listLinkPosition',
+    titleKey: 'taxonomyCardPermissionTitle',
+    bodyKey: 'taxonomyCardPermissionBody',
+    to: '/app/admin/rbac/permissions-by-domain',
+    ctaKey: 'taxonomyLinkPermissions',
   },
   {
     titleKey: 'taxonomyCardOrgRoleTitle',
     bodyKey: 'taxonomyCardOrgRoleBody',
-    to: '/app/admin/rbac/org-roles',
-    ctaKey: 'taxonomyLinkOrgRoles',
+    to: '/app/admin/rbac/org-roles/permissions',
+    ctaKey: 'taxonomyLinkOrgRoleMatrix',
+  },
+  {
+    titleKey: 'taxonomyCardPositionTitle',
+    bodyKey: 'taxonomyCardPositionBody',
+    to: '/app/admin/rbac/positions/roles',
+    ctaKey: 'taxonomyLinkPositionRoles',
   },
   {
     titleKey: 'taxonomyCardProjectRoleTitle',
     bodyKey: 'taxonomyCardProjectRoleBody',
     to: '/app/admin/rbac/project-roles',
     ctaKey: 'taxonomyLinkProjectRoles',
-  },
-  {
-    titleKey: 'taxonomyCardSystemRoleTitle',
-    bodyKey: 'taxonomyCardSystemRoleBody',
-    to: '/app/admin/rbac/roles',
-    ctaKey: 'taxonomyLinkRoles',
   },
 ];
 
@@ -50,13 +50,16 @@ export default function RbacTaxonomyHubPanel() {
           </AdminUserFormCard>
         ))}
       </div>
-      <AdminUserFormCard title={t('adminRbac.taxonomyLinkOrgDirectory')}>
+      <AdminUserFormCard title={t('adminDomains.rbac.posAssign', 'Gán vị trí')}>
         <div className="flex flex-wrap gap-2">
-          <Link to="/app/admin/rbac/org-roles/directory" className={adminSecondaryBtnClass()}>
-            {t('adminRbac.taxonomyLinkOrgDirectory')}
+          <Link to="/app/admin/rbac/org-roles" className={adminSecondaryBtnClass()}>
+            {t('adminRbac.taxonomyLinkOrgRoles')}
           </Link>
-          <Link to="/app/admin/rbac/project-roles/board" className={adminSecondaryBtnClass()}>
-            {t('adminRbac.taxonomyLinkProjectBoard')}
+          <Link to="/app/admin/rbac/positions" className={adminSecondaryBtnClass()}>
+            {t('adminRbac.listLinkPosition', 'Danh sách vị trí')}
+          </Link>
+          <Link to="/app/admin/rbac/positions/assign" className={adminSecondaryBtnClass()}>
+            {t('adminDomains.rbac.posAssign', 'Gán vị trí cho nhân viên')}
           </Link>
         </div>
       </AdminUserFormCard>

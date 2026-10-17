@@ -110,6 +110,7 @@ export default function ProjectHubPage({
     scope: taskWorkspaceScopeRaw,
     loading: taskWorkspaceScopeLoading,
     canCreateProjectCapability,
+    createProjectDeniedKey,
   } = useTaskWorkspaceScope(orgId);
   /** undefined = đang load (chưa có cache); null = không có scope */
   const taskWorkspaceScope = taskWorkspaceScopeLoading
@@ -595,7 +596,7 @@ export default function ProjectHubPage({
         return;
       }
       if (!canOpenCreateProjectWizard) {
-        toast.error(t('taskBoard.createProjectDenied'));
+        toast.error(t(createProjectDeniedKey));
         return;
       }
       navigate(
@@ -607,7 +608,7 @@ export default function ProjectHubPage({
         })
       );
     },
-    [canOpenCreateProjectWizard, navigate, orgId, t]
+    [canOpenCreateProjectWizard, createProjectDeniedKey, navigate, orgId, t]
   );
 
   const openCreateBoardFromBrief = useCallback(

@@ -1570,13 +1570,11 @@ function OrganizationsPage({
   const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
   const canCreateDepartment = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_CREATE);
   const canCreateChannel = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.CHANNEL_CREATE);
-  const canUpdateTeam =
-    isFullAccess ||
-    (!grantsLoading && canActWithGrant(false, hasGrant, RBAC_GRANT.TEAM_UPDATE));
+  const canUpdateTeam = !grantsLoading && canActWithGrant(false, hasGrant, RBAC_GRANT.TEAM_UPDATE);
 
   const canSelectTeam = useCallback(
     (teamId) => {
-      if (isOrgStructureAdmin) return true;
+      if (hasGrant('organization.structure.view') || hasGrant('organization.team.view')) return true;
       const id = String(teamId);
       if (membershipScope?.scopedTeamIds?.includes(id)) return true;
       return Object.entries(channelPermissionMatrix || {}).some(([channelId, perm]) => {
@@ -1585,7 +1583,7 @@ function OrganizationsPage({
         return Boolean(perm?.canSee || perm?.canRead);
       });
     },
-    [isOrgStructureAdmin, membershipScope?.scopedTeamIds, channels, channelPermissionMatrix]
+    [hasGrant, membershipScope?.scopedTeamIds, channels, channelPermissionMatrix]
   );
 
   const resolveTeamContext = useCallback(

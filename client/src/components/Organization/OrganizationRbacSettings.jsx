@@ -51,7 +51,7 @@ import {
   isToggleableMasterGrant,
   notifyRbacGrantsChanged,
   ORG_ALLOWED_PROJECT_GRANTS,
-} from '../../utils/rbacV2Ui';
+} from '../../utils/rbacUi';
 
 const MOTION_BTN =
   'motion-safe:transition-colors motion-reduce:transition-none';

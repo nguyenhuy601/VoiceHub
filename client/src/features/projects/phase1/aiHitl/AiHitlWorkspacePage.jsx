@@ -20,7 +20,8 @@ import AiHitlMonitorPanel from './AiHitlMonitorPanel';
 import AiHitlReviewPanel from './AiHitlReviewPanel';
 import { resolveAiHitlReviewMode } from './aiHitlReviewMode';
 import { resolveGate1ReviewLane, resolveGate1ReviewView } from './gate1ReviewLane';
-import { resolveGate2ReviewLane, resolveGate2ReviewView } from './gate2ReviewLane';
+import { useAuth } from '../../../../context/AuthContext';
+import { resolveGate2ReviewLane, resolveGate2ReviewView, openParallelTracks } from './gate2ReviewLane';
 import { resolveHitlRequirementFlags } from './resolveHitlRequirementFlags';
 import {
   isPhaseInFlightStatus,
@@ -164,6 +165,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         canReviewAnalysisPo: projectCaps.canReviewAnalysisPo,
         canBaAuthorAnalysis: projectCaps.canBaAuthorAnalysis,
         canReviewPlanningPm: projectCaps.canReviewPlanningPm,
+        canReviewPlanningTech: projectCaps.canReviewPlanningTech,
         canReviewPlanningPo: projectCaps.canReviewPlanningPo,
       }),
     [requirementAccess, projectCaps]
@@ -172,8 +174,12 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const canSubmit = hitlFlags.canSubmit;
   const canApprove = hitlFlags.canApprove;
   const canPromote = hitlFlags.canPromote;
+  const { user } = useAuth();
+  const actorUserId = String(user?._id || user?.id || '').trim();
   const canReviewGate2Pm = hitlFlags.canReviewGate2Pm;
+  const canReviewGate2Tech = hitlFlags.canReviewGate2Tech;
   const canReviewGate2Po = hitlFlags.canReviewGate2Po;
+  const hasPlanningTechReviewer = Boolean(projectCaps.hasPlanningTechReviewer);
 
   const resolvePackId = useCallback(async () => {
     if (packIdFromQuery) return packIdFromQuery;
@@ -562,15 +568,51 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
 
   const gate2ReviewLane = useMemo(() => resolveGate2ReviewLane(pack), [pack]);
   const gate2HowStatus = String(phaseHow?.status || '');
+  const gate2Tracks = pack?.aiAnalysis?.gate2?.tracks || null;
+  const gate2Proposals = Array.isArray(pack?.aiAnalysis?.gate2?.changeProposals)
+    ? pack.aiAnalysis.gate2.changeProposals
+    : [];
   const gate2ReviewView = useMemo(
     () =>
       resolveGate2ReviewView({
         lane: gate2ReviewLane,
         howStatus: gate2HowStatus,
         canReviewPm: canReviewGate2Pm,
+        canReviewTech: canReviewGate2Tech,
         canReviewPo: canReviewGate2Po,
+        tracks: gate2Tracks,
+        proposals: gate2Proposals,
+        techRequired: hasPlanningTechReviewer,
+        userId: actorUserId,
       }),
-    [gate2ReviewLane, gate2HowStatus, canReviewGate2Pm, canReviewGate2Po]
+    [
+      gate2ReviewLane,
+      gate2HowStatus,
+      canReviewGate2Pm,
+      canReviewGate2Tech,
+      canReviewGate2Po,
+      gate2Tracks,
+      gate2Proposals,
+      hasPlanningTechReviewer,
+      actorUserId,
+    ]
+  );
+  const gate2ParallelTracks = useMemo(
+    () =>
+      openParallelTracks({
+        canReviewPm: canReviewGate2Pm,
+        canReviewTech: canReviewGate2Tech,
+        canReviewPo: canReviewGate2Po,
+        tracks: gate2Tracks,
+        techRequired: hasPlanningTechReviewer,
+      }),
+    [
+      canReviewGate2Pm,
+      canReviewGate2Tech,
+      canReviewGate2Po,
+      gate2Tracks,
+      hasPlanningTechReviewer,
+    ]
   );
   const gate2RejectReason = String(pack?.aiAnalysis?.gate2?.lastRejectReason || '').trim();
 
@@ -960,71 +1002,171 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     }
   };
 
-  const onGate2PmSubmit = async (meta = {}) => {
+  const postGate2 = async (body, { ok, fail }) => {
     if (!organizationId || !packId || busy) return;
-    const payloadDecisions = meta.reviewDecisions;
-    const warnParts = [];
-    if (meta.decisionsComplete === false) {
-      warnParts.push(
-        t('requirements.gate2WarnIncompleteDecisions') ||
-          'Còn dòng chưa quyết định (Accept/Edit/Reject).'
-      );
+    setBusy(true);
+    try {
+      await requirementAPI.confirmPhaseGate2(organizationId, packId, body);
+      toast.success(ok);
+      await refresh();
+    } catch (err) {
+      toast.error(resolveApiErrorMessage(err, { fallback: fail }));
+    } finally {
+      setBusy(false);
     }
-    if (Number(meta.missingCount) > 0) {
-      warnParts.push(
-        t('requirements.gate2WarnMissingSections', { count: meta.missingCount }) ||
-          `${meta.missingCount} section thiếu dữ liệu (vd. Risks).`
-      );
-    }
-    if (Number(meta.conflictSectionCount) > 0) {
-      warnParts.push(
-        t('requirements.gate2WarnConflictSections', { count: meta.conflictSectionCount }) ||
-          `${meta.conflictSectionCount} section có cảnh báo.`
-      );
-    }
-    const baseDesc =
-      t('requirements.gate2PmSubmitDesc') ||
-      'PM xác nhận kế hoạch HOW và gửi PO. Ghi chú tuỳ chọn.';
-    const description = warnParts.length
-      ? `${t('requirements.gate2WarnLead') || 'Cảnh báo trước khi gửi duyệt:'}\n• ${warnParts.join('\n• ')}\n\n${baseDesc}`
-      : baseDesc;
+  };
+
+  const onGate2TrackSubmit = async (meta = {}) => {
+    if (!organizationId || !packId || busy) return;
     const note = await requestNote({
-      title: t('requirements.gate2PmSubmitTitle') || 'Gửi PO duyệt Gate 2',
-      description,
+      title: t('requirements.gate2TrackSubmitTitle') || 'Xác nhận phần review',
+      description:
+        t('requirements.gate2TrackSubmitDesc') ||
+        'Xác nhận các mục thuộc phần của bạn. Ba bên review song song.',
       placeholder: t('requirements.gate2SubmitNotePlaceholder') || 'Ghi chú (tuỳ chọn)…',
-      submitLabel:
-        warnParts.length
-          ? t('requirements.gate2PmSubmitAnyway') || 'Vẫn gửi PO duyệt'
-          : t('requirements.gate2PmSubmit') || 'Gửi PO duyệt',
-      variant: warnParts.length ? 'warning' : 'generic',
+      submitLabel: t('requirements.gate2TrackSubmit') || 'Xác nhận phần của tôi',
+      variant: 'generic',
       noteOptional: true,
       maxLength: 1000,
     });
     if (note === null) return;
-    setBusy(true);
-    try {
-      const decisions =
-        payloadDecisions && typeof payloadDecisions === 'object'
-          ? payloadDecisions
-          : gate2Decisions;
-      await requirementAPI.confirmPhaseGate2(organizationId, packId, {
-        action: 'pm_submit',
+    const decisions =
+      meta.reviewDecisions && typeof meta.reviewDecisions === 'object'
+        ? meta.reviewDecisions
+        : gate2Decisions;
+    await postGate2(
+      {
+        action: 'track_submit',
+        track: meta.track,
         reviewDecisions: decisions,
         ...(String(note || '').trim() ? { note: String(note).trim().slice(0, 1000) } : {}),
+      },
+      {
+        ok: t('requirements.gate2TrackSubmitOk') || 'Đã xác nhận phần review.',
+        fail: t('requirements.gate2PmSubmitFail') || 'Gửi duyệt Gate 2 thất bại',
+      }
+    );
+  };
+
+  const onGate2ProposeChange = async (draft = {}) => {
+    await postGate2(
+      { action: 'propose_change', proposal: draft, note: draft.reason || '' },
+      {
+        ok: t('requirements.gate2ProposalSent') || 'Đã gửi chủ phần xác nhận.',
+        fail: t('requirements.gate2ProposalFail') || 'Không gửi được đề xuất.',
+      }
+    );
+  };
+
+  const onGate2DecideChange = async ({ proposalId, decision } = {}) => {
+    let note = '';
+    if (decision === 'reject') {
+      const reason = await requestNote({
+        title: t('requirements.gate2ProposalReject') || 'Từ chối đề xuất',
+        description:
+          t('requirements.gate2ProposalRejectDesc') ||
+          'Giá trị mới không được áp dụng. PM có thể giữ nguyên, đề xuất lại, hoặc chuyển PO.',
+        placeholder: t('requirements.gate2RejectReasonPlaceholder') || 'Lý do từ chối…',
+        submitLabel: t('requirements.gate2ProposalReject') || 'Từ chối',
+        variant: 'warning',
+        noteOptional: false,
+        maxLength: 1000,
       });
-      toast.success(
-        t('requirements.gate2PmSubmitOk') || 'Đã gửi PO duyệt Gate 2.'
-      );
-      await refresh();
-    } catch (err) {
-      toast.error(
-        resolveApiErrorMessage(err, {
-          fallback: t('requirements.gate2PmSubmitFail') || 'Gửi duyệt Gate 2 thất bại',
-        })
-      );
-    } finally {
-      setBusy(false);
+      if (reason === null) return;
+      note = String(reason || '').trim();
     }
+    await postGate2(
+      { action: 'decide_change', proposalId, decision, ...(note ? { note } : {}) },
+      {
+        ok:
+          decision === 'accept'
+            ? t('requirements.gate2ProposalAccepted') || 'Đã chấp nhận'
+            : t('requirements.gate2ProposalRejected') || 'Đã từ chối',
+        fail: t('requirements.gate2ProposalFail') || 'Không gửi được quyết định.',
+      }
+    );
+  };
+
+  const onGate2KeepOriginal = async ({ proposalId } = {}) => {
+    await postGate2(
+      { action: 'keep_original', proposalId },
+      {
+        ok: t('requirements.gate2ProposalReverted') || 'Giữ nguyên giá trị đã duyệt',
+        fail: t('requirements.gate2ProposalFail') || 'Không cập nhật được.',
+      }
+    );
+  };
+
+  const onGate2Escalate = async ({ proposalId } = {}) => {
+    const note = await requestNote({
+      title: t('requirements.gate2Escalate') || 'Chuyển PO quyết trade-off',
+      description:
+        t('requirements.gate2EscalateDesc') ||
+        'Hai bên chưa thống nhất. PO quyết định trade-off — không được ghi là Tech Lead đã duyệt.',
+      placeholder: t('requirements.gate2EscalatePlaceholder') || 'Mô tả trade-off…',
+      submitLabel: t('requirements.gate2Escalate') || 'Chuyển PO',
+      variant: 'warning',
+      noteOptional: false,
+      maxLength: 1000,
+    });
+    if (note === null) return;
+    await postGate2(
+      { action: 'escalate', proposalId, note: String(note).trim() },
+      {
+        ok: t('requirements.gate2ProposalEscalated') || 'Đã chuyển PO',
+        fail: t('requirements.gate2ProposalFail') || 'Không escalate được.',
+      }
+    );
+  };
+
+  const onGate2ResolveEscalation = async ({ proposalId, decision } = {}) => {
+    const note = await requestNote({
+      title: t('requirements.gate2AcceptRisk') || 'Quyết định trade-off',
+      description:
+        decision === 'accept_risk'
+          ? t('requirements.gate2AcceptRiskDesc') ||
+            'Ghi nhận PO chấp nhận rủi ro. Không tính là Tech Lead đã duyệt.'
+          : t('requirements.gate2RejectTradeoffDesc') ||
+            'Không chấp nhận trade-off. PM phải giữ nguyên hoặc tìm phương án khác.',
+      placeholder: t('requirements.gate2EscalatePlaceholder') || 'Ghi nhận quyết định…',
+      submitLabel: t('common.confirm') || 'Xác nhận',
+      variant: decision === 'accept_risk' ? 'warning' : 'generic',
+      noteOptional: false,
+      maxLength: 1000,
+    });
+    if (note === null) return;
+    await postGate2(
+      { action: 'resolve_escalation', proposalId, decision, note: String(note).trim() },
+      {
+        ok: t('requirements.gate2EscalationResolved') || 'Đã ghi nhận quyết định PO.',
+        fail: t('requirements.gate2ProposalFail') || 'Không ghi nhận được.',
+      }
+    );
+  };
+
+  const onGate2PmConfirmPlan = async () => {
+    const note = await requestNote({
+      title: t('requirements.gate2PmConfirmPlan') || 'Xác nhận kế hoạch đã nhất quán',
+      description:
+        t('requirements.gate2PmConfirmPlanDesc') ||
+        'Không còn xung đột bắt buộc. Gửi bản tổng hợp cho PO xác nhận cuối.',
+      placeholder: t('requirements.gate2SubmitNotePlaceholder') || 'Ghi chú (tuỳ chọn)…',
+      submitLabel: t('requirements.gate2PmConfirmPlan') || 'Gửi PO xác nhận cuối',
+      variant: 'generic',
+      noteOptional: true,
+      maxLength: 1000,
+    });
+    if (note === null) return;
+    await postGate2(
+      {
+        action: 'pm_confirm_plan',
+        ...(String(note || '').trim() ? { note: String(note).trim().slice(0, 1000) } : {}),
+      },
+      {
+        ok: t('requirements.gate2PmConfirmPlanOk') || 'Đã gửi PO xác nhận cuối.',
+        fail: t('requirements.gate2PmSubmitFail') || 'Không gửi được bản tổng hợp.',
+      }
+    );
   };
 
   const onGate2PoApprove = async (meta = {}) => {
@@ -1463,7 +1605,15 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
             pack={pack}
             gate2Decisions={gate2Decisions}
             setGate2Decision={setGate2Decision}
-            onGate2PmSubmit={onGate2PmSubmit}
+            parallelTracks={gate2ParallelTracks}
+            gate2Proposals={gate2Proposals}
+            onGate2TrackSubmit={onGate2TrackSubmit}
+            onGate2ProposeChange={onGate2ProposeChange}
+            onGate2DecideChange={onGate2DecideChange}
+            onGate2KeepOriginal={onGate2KeepOriginal}
+            onGate2Escalate={onGate2Escalate}
+            onGate2ResolveEscalation={onGate2ResolveEscalation}
+            onGate2PmConfirmPlan={onGate2PmConfirmPlan}
             onGate2PoApprove={onGate2PoApprove}
             onGate2PoReject={onGate2PoReject}
           />

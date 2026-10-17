@@ -19,6 +19,7 @@ const {
   fetchAuthSummaryByUserId,
   fetchAuthSummaryByUserIds,
 } = require('../clients/authSummary.client');
+const { readStoredSystemAdminState } = require('../clients/storedSystemRole.client');
 
 const {
   toPublicVerifiedCapability,
@@ -948,6 +949,24 @@ class UserController {
       }
       if (mode === 'self') {
         return this.updateUserProfile(req, res);
+      }
+
+      const storedAdmin = await readStoredSystemAdminState(actorId);
+      if (storedAdmin.state === 'unavailable') {
+        return res.status(503).json({
+          success: false,
+          message: 'system role lookup failed',
+          errorCode: 'AUTH_SYSTEM_ROLE_UNAVAILABLE',
+          messageUser: 'Không thể xác minh quyền quản trị hệ thống. Vui lòng thử lại.',
+        });
+      }
+      if (storedAdmin.state !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Stored system admin required',
+          errorCode: 'AUTH_SYSTEM_ADMIN_REQUIRED',
+          messageUser: 'Chỉ quản trị hệ thống đang hiệu lực mới thực hiện được thao tác này.',
+        });
       }
 
       const body = req.body && typeof req.body === 'object' ? req.body : {};

@@ -261,24 +261,29 @@ export function parseUserPermissionsPayload(res) {
             ? body
             : [];
 
-  const masterGrantsRaw = Array.isArray(body?.masterGrants)
-    ? body.masterGrants
-    : Array.isArray(nested?.masterGrants)
-      ? nested.masterGrants
-      : Array.isArray(root?.masterGrants)
-        ? root.masterGrants
-        : [];
-  const masterGrants = masterGrantsRaw
-    .map((k) => normalizeGrantKey(k))
-    .filter(Boolean);
-  const derived = deriveGrantsFromPermissions(permissions);
-  const mergedGrants = Array.from(new Set([...masterGrants, ...derived]));
+  const rawScopes =
+    (body?.grantScopes && typeof body.grantScopes === 'object' && !Array.isArray(body.grantScopes)
+      ? body.grantScopes
+      : null) ||
+    (nested?.grantScopes && typeof nested.grantScopes === 'object' && !Array.isArray(nested.grantScopes)
+      ? nested.grantScopes
+      : null) ||
+    (root?.grantScopes && typeof root.grantScopes === 'object' && !Array.isArray(root.grantScopes)
+      ? root.grantScopes
+      : null) ||
+    {};
+  const grantScopes = {};
+  for (const [code, scope] of Object.entries(rawScopes)) {
+    const key = normalizeGrantKey(code);
+    if (!key) continue;
+    grantScopes[key] = String(scope || 'ORGANIZATION').trim().toUpperCase();
+  }
 
-  return { permissions, masterGrants: mergedGrants };
+  return { permissions, grantScopes };
 }
 
-export function canActWithGrant(isFullAccess, hasGrantFn, key) {
-  if (isFullAccess) return true;
+/** Chỉ grant từ vị trí (grantScopes). Không bypass membership / full-access. */
+export function canActWithGrant(_unusedFullAccess, hasGrantFn, key) {
   const grantKey = String(key || '').trim();
   if (!grantKey) return false;
   return typeof hasGrantFn === 'function' ? Boolean(hasGrantFn(grantKey)) : false;
@@ -290,11 +295,9 @@ export function navItemRequiredGrant(item) {
   return ADMIN_NAV_REQUIRED_GRANT[String(item?.id || '').trim()] || '';
 }
 
-export function navItemIsAllowed(item, { isFullAccess, hasGrant } = {}) {
-  if (isFullAccess) return true;
-  if (item?.adminOnly) return false;
+export function navItemIsAllowed(item, { hasGrant } = {}) {
   const key = navItemRequiredGrant(item);
-  if (!key) return true;
+  if (!key) return false;
   return typeof hasGrant === 'function' ? Boolean(hasGrant(key)) : false;
 }
 

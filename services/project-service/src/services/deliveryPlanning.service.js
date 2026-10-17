@@ -15,7 +15,7 @@ const {
   evaluatePackQualityDeployForBaseline,
 } = require('../constants/planningBaselinePolicy');
 const { normalizePlanningStructured } = require('../utils/planning/resourceStructured');
-const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
+const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
 const { assertUserProjectPermission } = require('./projectAccess.service');
 const logger = require('@enterprise/shared/utils/logger');
 
@@ -30,7 +30,7 @@ async function assertProjectMemberAccess({ userId, projectId }) {
 }
 
 async function assertPlanningPerm({ userId, projectId, permission, message }) {
-  if (!isProjectRbacV2Enabled()) return;
+  if (!isProjectRbacEnabled()) return;
   await assertUserProjectPermission({
     userId,
     projectId,
@@ -1084,7 +1084,7 @@ async function suggestWorkItemSuggestions({ projectId, project, view }) {
  */
 async function confirmWorkItemSuggestions({ userId, projectId, suggestions = [] }) {
   const project = await assertProjectMemberAccess({ userId, projectId });
-  if (isProjectRbacV2Enabled()) {
+  if (isProjectRbacEnabled()) {
     await assertUserProjectPermission({
       userId,
       projectId,

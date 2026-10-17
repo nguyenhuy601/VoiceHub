@@ -3,7 +3,7 @@ const MeetingChangeHistory = require('../models/MeetingChangeHistory');
 const MeetingRecurrenceRule = require('../models/MeetingRecurrenceRule');
 const MeetingPlan = require('../models/MeetingPlan');
 const Project = require('../models/Project');
-const { isProjectRbacV2Enabled } = require('../utils/project/projectPermissionMatrix');
+const { isProjectRbacEnabled } = require('../utils/project/projectPermissionMatrix');
 const { assertUserProjectPermission } = require('./projectAccess.service');
 const {
   participantPlannedHours,
@@ -26,7 +26,7 @@ async function assertProject(projectId) {
 }
 
 async function assertPerm(userId, projectId, permission) {
-  if (!isProjectRbacV2Enabled()) return;
+  if (!isProjectRbacEnabled()) return;
   await assertUserProjectPermission({
     userId,
     projectId,

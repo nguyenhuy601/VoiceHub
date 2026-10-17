@@ -19,62 +19,12 @@ import api from './api';
 import { setToken } from '../utils/tokenStorage';
 import { mergeAuthUserFromProfile, unwrapApiData } from '../utils/helpers';
 
-const GATEWAY_TRUST_TIMEOUT_MS = 8000;
-
-const gatewayTrustRequestConfig = {
-  timeout: GATEWAY_TRUST_TIMEOUT_MS,
-  __skipNetworkRetry: true,
-  skipGlobalErrorHandling: true,
-};
-
-function gatewayTrustErrorMessage(e) {
-  const isTimeout =
-    e?.code === 'ECONNABORTED' || String(e?.message || '').toLowerCase().includes('timeout');
-  if (isTimeout) {
-    return 'API Gateway không phản hồi (quá 8 giây). Kiểm tra Docker container enterprise-api-gateway đang chạy và https://voicehub.local/api/health/gateway-trust trả 200.';
-  }
-  if (e?.code === 'ERR_NETWORK' || e?.message === 'Network Error') {
-    return 'Không kết nối được API Gateway. Hãy chạy stack Docker + Nginx (start-lan-https-dev.bat) và kiểm tra VITE_API_URL=/api.';
-  }
-  return e?.message || 'Không kiểm tra được cấu hình gateway.';
-}
-
-/** Kiểm tra API Gateway đã đặt GATEWAY_INTERNAL_TOKEN (public GET, không cần JWT). */
-async function assertGatewayTrustConfigured() {
-  try {
-    const data = await api.get('/health/gateway-trust', gatewayTrustRequestConfig);
-    if (data?.gatewayTrustConfigured) return;
-    throw new Error(
-      data?.message ||
-        'API Gateway chưa cấu hình GATEWAY_INTERNAL_TOKEN. Thêm biến này vào api-gateway/.env và cùng giá trị với user-service, task-service, docker-compose (xem .env.example).'
-    );
-  } catch (e) {
-    throw new Error(gatewayTrustErrorMessage(e));
-  }
-}
-
 /* ========================================
    AUTHSERVICE OBJECT
    Chứa tất cả authentication methods
    Mỗi method return Promise với response data
 ======================================== */
 const authService = {
-  /** Dùng cho trang Đăng nhập/Đăng ký: hiển thị cảnh báo sớm (không chặn nếu chỉ đọc UI). */
-  checkGatewayTrust: async () => {
-    try {
-      const data = await api.get('/health/gateway-trust', gatewayTrustRequestConfig);
-      return {
-        gatewayTrustConfigured: !!data?.gatewayTrustConfigured,
-        message: data?.message || '',
-      };
-    } catch (e) {
-      return {
-        gatewayTrustConfigured: false,
-        message: gatewayTrustErrorMessage(e),
-      };
-    }
-  },
-
   /* ----- REGISTER: Đăng ký user mới -----
      
      Gọi: POST /auth/register
@@ -84,7 +34,6 @@ const authService = {
      Được gọi từ: AuthContext.register()
      Component: RegisterPage.jsx */
   register: async (userData) => {
-    await assertGatewayTrustConfigured();
     // userData: { name, email, password, ... }
     // api.post tự động thêm token vào header (nếu có)
     const response = await api.post('/auth/register', userData);
@@ -103,7 +52,6 @@ const authService = {
      Token sẽ được lưu vào localStorage bởi AuthContext
      Được gọi từ: AuthContext.login() */
   login: async (email, password) => {
-    await assertGatewayTrustConfigured();
     // Gửi email và password lên server
     const response = await api.post('/auth/login', { email, password });
     

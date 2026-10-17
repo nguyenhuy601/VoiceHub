@@ -1,6 +1,6 @@
 /**
- * Helper UI cho RBAC V2 — không duplicate catalog.
- * Catalog SoT: GET /permissions/catalog (rbacV2Catalog).
+ * Helper UI cho RBAC — không duplicate định nghĩa quyền hệ thống.
+ * SoT: GET /permissions/system (rbacPermissions / MASTER_PERMISSIONS).
  */
 
 export const RBAC_GRANTS_CHANGED_EVENT = 'voicehub:rbac-grants-changed';
@@ -39,13 +39,24 @@ export function isProjectPackTemplateKey(templateKey, catalog) {
 
 /**
  * Draft/save strip options aligned with BE stripProjectGrantsUnlessProjectPack.
- * @returns {{ stripProject: boolean, stripProjectExcept?: string[] }}
+ * @returns {{
+ *   stripProject: boolean,
+ *   stripProjectExcept?: string[],
+ *   catalogKeys?: string[] | null,
+ * }}
  */
 export function grantStripOptionsForTemplate(templateKey, catalog) {
+  const catalogKeys = Array.isArray(catalog?.masterPermissions)
+    ? catalog.masterPermissions.map((k) => String(k || '').trim()).filter(Boolean)
+    : null;
   if (isProjectPackTemplateKey(templateKey, catalog)) {
-    return { stripProject: false };
+    return { stripProject: false, catalogKeys };
   }
-  return { stripProject: true, stripProjectExcept: [...ORG_ALLOWED_PROJECT_GRANTS] };
+  return {
+    stripProject: true,
+    stripProjectExcept: [...ORG_ALLOWED_PROJECT_GRANTS],
+    catalogKeys,
+  };
 }
 
 /** Whether a master key may be toggled on the Permission Configuration tree. */
@@ -114,20 +125,37 @@ export function countMasterGrants(grants = []) {
 
 /**
  * @param {string[]} grants
- * @param {{ stripProject?: boolean, stripProjectExcept?: string[] }} [options]
+ * @param {{
+ *   stripProject?: boolean,
+ *   stripProjectExcept?: string[],
+ *   catalogKeys?: Iterable<string> | null,
+ * }} [options]
  *   Default stripProject=true (org mode). Use stripProject=false for project packs.
  *   stripProjectExcept: keys kept when stripping (e.g. project.project.create).
+ *   catalogKeys: when set, drop keys not in catalog (orphan DB leftovers).
  */
-export function grantsDraftFromList(grants = [], { stripProject = true, stripProjectExcept = [] } = {}) {
+export function grantsDraftFromList(
+  grants = [],
+  { stripProject = true, stripProjectExcept = [], catalogKeys = null } = {}
+) {
   const except = new Set(
     (Array.isArray(stripProjectExcept) ? stripProjectExcept : [])
       .map((k) => String(k || '').trim())
       .filter(Boolean)
   );
+  const allowed =
+    catalogKeys == null
+      ? null
+      : new Set(
+          [...catalogKeys]
+            .map((k) => String(k || '').trim())
+            .filter(Boolean)
+        );
   const draft = {};
   for (const raw of Array.isArray(grants) ? grants : []) {
     const key = String(raw || '').trim();
     if (!key) continue;
+    if (allowed && !allowed.has(key)) continue;
     if (stripProject && isProjectMasterPermission(key) && !except.has(key)) continue;
     draft[key] = true;
   }
@@ -136,16 +164,32 @@ export function grantsDraftFromList(grants = [], { stripProject = true, stripPro
 
 /**
  * @param {Record<string, boolean>} draft
- * @param {{ stripProject?: boolean, stripProjectExcept?: string[] }} [options]
+ * @param {{
+ *   stripProject?: boolean,
+ *   stripProjectExcept?: string[],
+ *   catalogKeys?: Iterable<string> | null,
+ * }} [options]
  */
-export function grantKeysFromDraft(draft = {}, { stripProject = true, stripProjectExcept = [] } = {}) {
+export function grantKeysFromDraft(
+  draft = {},
+  { stripProject = true, stripProjectExcept = [], catalogKeys = null } = {}
+) {
   const except = new Set(
     (Array.isArray(stripProjectExcept) ? stripProjectExcept : [])
       .map((k) => String(k || '').trim())
       .filter(Boolean)
   );
+  const allowed =
+    catalogKeys == null
+      ? null
+      : new Set(
+          [...catalogKeys]
+            .map((k) => String(k || '').trim())
+            .filter(Boolean)
+        );
   return Object.keys(draft || {}).filter((k) => {
     if (!draft[k]) return false;
+    if (allowed && !allowed.has(k)) return false;
     if (stripProject && isProjectMasterPermission(k) && !except.has(k)) return false;
     return true;
   });

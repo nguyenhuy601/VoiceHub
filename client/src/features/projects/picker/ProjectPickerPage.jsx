@@ -48,7 +48,11 @@ export default function ProjectPickerPage() {
     isError: projectsError,
     reload: reloadProjects,
   } = useOrgProjectsList(orgId, { excludeClosed: false });
-  const { canCreateProjectCapability, loading: scopeLoading } = useTaskWorkspaceScope(orgId);
+  const {
+    canCreateProjectCapability,
+    createProjectDeniedKey,
+    loading: scopeLoading,
+  } = useTaskWorkspaceScope(orgId);
   const { access: requirementAccess, loading: requirementAccessLoading } =
     useRequirementAccess(orgId);
 
@@ -119,11 +123,11 @@ export default function ProjectPickerPage() {
       return;
     }
     if (!canCreate) {
-      toast.error(t('taskBoard.createProjectDenied'));
+      toast.error(t(createProjectDeniedKey));
       return;
     }
     navigate(buildProjectsNewPath());
-  }, [canCreate, navigate, orgId, t]);
+  }, [canCreate, createProjectDeniedKey, navigate, orgId, t]);
 
   const handleCreateWithAi = useCallback(() => {
     if (!orgId) {

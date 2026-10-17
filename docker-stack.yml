@@ -749,7 +749,12 @@ services:
 
   socket-service:
     image: ${SOCKET_SERVICE_IMAGE}
-    # Không publish ports — chỉ enterprise-network; client WS qua api-gateway.
+    # Host Nginx (dev/staging edge) proxy /socket.io thẳng cổng này. Overlay vẫn dùng socket-service:3017.
+    ports:
+      - target: 3017
+        published: 3017
+        protocol: tcp
+        mode: ingress
     expose:
       - "3017"
     env_file:
@@ -772,7 +777,9 @@ services:
     networks:
       - enterprise-network
     deploy:
-      replicas: ${SOCKET_SERVICE_REPLICAS:-2}
+      # Một node + Nginx ngoài Swarm chỉ thấy ingress :3017. Hai replica làm lệch sid polling.
+      # Nhiều node: SOCKET_SERVICE_REPLICAS=2 và Nginx ip_hash tới từng task (swarm-socket-sticky.conf).
+      replicas: ${SOCKET_SERVICE_REPLICAS:-1}
       restart_policy:
         condition: on-failure
       update_config:

@@ -540,7 +540,7 @@ function assertCatalogIntegrity() {
     }
   }
   if (errors.length) {
-    const err = new Error(`RBAC V2 catalog integrity failed:\n${errors.join('\n')}`);
+    const err = new Error(`RBAC catalog integrity failed:\n${errors.join('\n')}`);
     err.errorCode = 'RBAC_CATALOG_INVALID';
     err.details = errors;
     throw err;

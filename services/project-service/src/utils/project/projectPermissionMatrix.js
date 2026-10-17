@@ -356,7 +356,7 @@ const DEFAULT_PERMISSIONS_BY_ROLE_KEY = Object.freeze({
   watcher: [...VIEW_ONLY],
 });
 
-function isProjectRbacV2Enabled() {
+function isProjectRbacEnabled() {
   const raw = String(process.env.PROJECT_RBAC_V2 ?? '1').trim().toLowerCase();
   return raw !== '0' && raw !== 'false' && raw !== 'off';
 }
@@ -595,7 +595,7 @@ module.exports = {
   PM_PERMS,
   DEV_PERMS,
   QA_PERMS,
-  isProjectRbacV2Enabled,
+  isProjectRbacEnabled,
   normalizePermissionList,
   splitPermissionList,
   assertKnownPermissionList,

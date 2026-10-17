@@ -6,7 +6,7 @@ const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
 const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
 const { createTtlCoalesceCache } = require('../utils/ttlCoalesceCache');
 const {
-  isProjectRbacV2Enabled,
+  isProjectRbacEnabled,
   unionPermissionsFromRoles,
   matrixPermissionsFromRoleKeys,
   applyInformationLevelToPermissions,
@@ -57,7 +57,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
       isOrgAdmin: false,
       isCreator: false,
       informationLevel: 'summary',
-      rbacV2: isProjectRbacV2Enabled(),
+      rbac: isProjectRbacEnabled(),
     };
   }
 
@@ -66,14 +66,14 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
   const isOrgAdmin = orgRole === 'owner' || orgRole === 'admin';
   const isCreator = String(project.createdBy || '') === uid;
 
-  if (!isProjectRbacV2Enabled()) {
+  if (!isProjectRbacEnabled()) {
     return {
       permissions: isOrgAdmin || isCreator ? [...PROJECT_PERMISSION_KEYS] : [],
       capabilities: permissionsToBoardCapabilities([], { isCreator, isOrgAdmin }),
       isOrgAdmin,
       isCreator,
       informationLevel: 'details',
-      rbacV2: false,
+      rbac: false,
       project,
       roles: [],
     };
@@ -123,7 +123,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
       isOrgAdmin,
       isCreator,
       informationLevel: 'confidential',
-      rbacV2: true,
+      rbac: true,
       project,
       roles,
     };
@@ -172,7 +172,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
     isOrgAdmin,
     isCreator,
     informationLevel,
-    rbacV2: true,
+    rbac: true,
     project,
     roles,
   };
