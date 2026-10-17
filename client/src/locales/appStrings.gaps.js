@@ -145,7 +145,7 @@ export const gapStrings = {
     },
     adminSecurity: {
       lockoutRule: 'Khóa sau {attempts} lần sai, trong {hours} giờ.',
-      notImplementedNote: 'Mục này chưa nối với máy chủ.',
+      notImplementedNote: 'Mục này chưa nối với máy chủ — chỉ xem trạng thái, chưa cấu hình được.',
       passwordPolicyHint: 'Áp dụng khi đặt hoặc đổi mật khẩu.',
       passwordPolicyTitle: 'Chính sách mật khẩu',
     },
@@ -690,7 +690,7 @@ export const gapStrings = {
     },
     adminSecurity: {
       lockoutRule: 'Lock after {attempts} failed attempts, for {hours} hours.',
-      notImplementedNote: 'This control is not wired to the server yet.',
+      notImplementedNote: 'This control is not wired to the server yet — status only, not configurable.',
       passwordPolicyHint: 'Applied when a password is set or changed.',
       passwordPolicyTitle: 'Password policy',
     },

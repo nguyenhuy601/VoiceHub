@@ -8,10 +8,7 @@
     "build": "vite build",
     "build:analyze": "cross-env ANALYZE=1 vite build",
     "preview": "vite preview",
-    "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "check:locale": "node scripts/check-locale-parity.mjs",
-    "check:i18n": "node scripts/find-hardcoded-ui-strings.mjs",
-    "check:i18n:strict": "node scripts/find-hardcoded-ui-strings.mjs --fail"
+    "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

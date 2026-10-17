@@ -12,6 +12,7 @@ import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { navItemIsAllowed } from '../../config/rbacUiGrantMap';
 import CompanyAdminSettingsPage from './CompanyAdminSettingsPage';
 import AdminModulePlaceholderPage from './AdminModulePlaceholderPage';
+import AdminFeatureDisabledPage from './AdminFeatureDisabledPage';
 import UsersListPanel from '../../features/adminUsers/UsersListPanel';
 import UserEditPanel from '../../features/adminUsers/UserEditPanel';
 import UserDeletePanel from '../../features/adminUsers/UserDeletePanel';
@@ -276,6 +277,7 @@ const TASK_PANELS = {
   'backup-ops': BackupOpsPanel,
   'security-wave-c': SecurityWaveCStubPanel,
   'audit-log': AuditLogListPanel,
+  'feature-disabled': AdminFeatureDisabledPage,
 };
 
 export default function AdminDomainPage() {

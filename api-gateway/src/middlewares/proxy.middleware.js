@@ -203,10 +203,17 @@ const proxyMiddleware = (req, res, next) => {
   
   // Proxy response handler - dùng once để chỉ listen một lần cho request này
   const proxyResHandler = (proxyRes, reqProxy, resProxy) => {
-    // Chỉ log nếu đây là request của chúng ta
+    // Chỉ log nếu đây là request của chúng ta — không dump full headers (set-cookie / auth).
     if (reqProxy === req) {
-      console.log(`[API-Gateway] ✅ Response from ${serviceName}: ${proxyRes.statusCode}`);
-      console.log(`[API-Gateway] Response headers:`, JSON.stringify(proxyRes.headers, null, 2));
+      const headers = proxyRes.headers || {};
+      const safe = {
+        'content-type': headers['content-type'] || headers['Content-Type'] || undefined,
+        'x-request-id': headers['x-request-id'] || headers['X-Request-Id'] || undefined,
+      };
+      console.log(
+        `[API-Gateway] ✅ Response from ${serviceName}: ${proxyRes.statusCode}`,
+        Object.fromEntries(Object.entries(safe).filter(([, v]) => v != null && v !== ''))
+      );
     }
   };
   

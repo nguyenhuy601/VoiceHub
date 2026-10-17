@@ -16,6 +16,9 @@ export const adminDomainStrings = {
       allDomains: 'Tất cả module',
       comingSoon: 'Sắp có',
       comingSoonHint: 'Chức năng đang được triển khai. Khung điều hướng đã sẵn sàng.',
+      featureDisabled: 'Chưa bật',
+      featureDisabledHint:
+        'Domain này chưa được bật trên môi trường hiện tại. Bookmark URL vẫn vào được nhưng không có bảng điều khiển vận hành.',
       featureScope: 'Phạm vi chức năng',
       openModule: 'Mở module',
       users: {
@@ -2072,7 +2075,8 @@ export const adminDomainStrings = {
       tabComingSoonHint: 'Tab này đang được triển khai. Khung điều hướng đã sẵn sàng.',
     },
     adminSecurity: {
-      settingsHubHint: 'Chính sách mật khẩu, MFA, hết phiên và IP whitelist trên cùng một trang.',
+      settingsHubHint:
+        'Chính sách mật khẩu (cấu hình được). Tab MFA / IP whitelist hiện chỉ xem trạng thái đọc — chưa nối cấu hình lên máy chủ.',
       sessionsHubHint: 'Chọn tài khoản, rồi xem phiên, thiết bị hoặc lịch sử đăng nhập.',
       sessionsPickerHint: 'Chọn tài khoản cần xem phiên / thiết bị.',
       tabComingSoonHint: 'Tab này đang được triển khai. Khung điều hướng đã sẵn sàng.',
@@ -2093,6 +2097,9 @@ export const adminDomainStrings = {
       allDomains: 'All modules',
       comingSoon: 'Coming soon',
       comingSoonHint: 'This feature is not implemented yet. Navigation shell is ready.',
+      featureDisabled: 'Not enabled',
+      featureDisabledHint:
+        'This admin domain is not enabled in the current environment. Deep links still resolve but there is no operations console.',
       featureScope: 'Feature scope',
       openModule: 'Open module',
       users: {
@@ -4151,7 +4158,8 @@ export const adminDomainStrings = {
       tabComingSoonHint: 'This tab is not implemented yet. Navigation is ready.',
     },
     adminSecurity: {
-      settingsHubHint: 'Password policy, MFA, session timeout, and IP whitelist on one page.',
+      settingsHubHint:
+        'Password policy is configurable. MFA / IP whitelist tabs are read-only status previews — not wired for server-side configuration yet.',
       sessionsHubHint: 'Pick an account, then view sessions, devices, or login history.',
       sessionsPickerHint: 'Select an account to view sessions / devices.',
       tabComingSoonHint: 'This tab is not implemented yet. Navigation is ready.',

@@ -154,5 +154,6 @@ test('memberDisplayName đọc profile lồng user.*', () => {
   );
   const map = new Map([['u2', { displayName: 'Lan', userId: 'u2' }]]);
   assert.equal(memberLabelById(map, 'u2'), 'Lan');
-  assert.equal(memberLabelById(map, 'abc123xyz'), '123xyz');
+  assert.equal(memberLabelById(map, 'abc123xyz'), '—');
+  assert.equal(memberLabelById(map, 'abc123xyz', 'Unknown'), 'Unknown');
 });

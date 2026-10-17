@@ -25,7 +25,8 @@ export function memberLabelById(membersById, userId, fallback = '—') {
   const id = String(userId || '').trim();
   if (!id) return fallback;
   const member = typeof membersById?.get === 'function' ? membersById.get(id) : null;
-  return memberDisplayName(member || { userId: id }, fallback);
+  if (!member) return fallback;
+  return memberDisplayName(member, fallback);
 }
 
 export function memberEmail(member) {

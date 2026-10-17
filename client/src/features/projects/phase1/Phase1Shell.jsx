@@ -6,6 +6,8 @@ import { SpaceProvider, SPACE_KIND } from '../../../context/SpaceContext';
 import { useShellLayout } from '../../../context/ShellLayoutContext';
 import { fetchProjectHubProject } from '../hub/useProjectHubQueries';
 import { queryKeys } from '../../../lib/queryKeys';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
+import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import {
   coerceDeliveryPhase,
   isAnalysisViewModule,
@@ -77,7 +79,13 @@ export default function Phase1Shell({
       ? resolvePlanningResourcesStep(planningSplat)
       : null;
 
-  const { data: projectRow, isPending: projectPending } = useQuery({
+  const {
+    data: projectRow,
+    isPending: projectPending,
+    isError: projectError,
+    error: projectQueryError,
+    refetch: refetchProject,
+  } = useQuery({
     queryKey: queryKeys.projectHub.project(projectId),
     queryFn: () => fetchProjectHubProject(projectId),
     enabled: Boolean(projectId),
@@ -133,6 +141,20 @@ export default function Phase1Shell({
       <div className="flex min-h-[8rem] items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
         <span>{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (projectError && !projectRow) {
+    return (
+      <div className="flex min-h-[8rem] items-center justify-center p-4">
+        <AdminLoadErrorState
+          message={resolveApiErrorMessage(projectQueryError, {
+            t,
+            fallback: t('workspace.projectsLoadFail'),
+          })}
+          onRetry={() => void refetchProject()}
+        />
       </div>
     );
   }
