@@ -85,7 +85,7 @@ const routeActionMap = {
   'POST /api/organizations/:orgId/departments/:deptId/channels': 'organization:write',
   'PUT /api/organizations/:orgId/departments/:deptId/channels': 'organization:write',
   'DELETE /api/organizations/:orgId/departments/:deptId/channels': 'organization:delete',
-  'GET /api/organizations/:orgId/structure': 'organization:read',
+  'GET /api/organizations/:orgId/structure': 'organization.structure.view',
   'GET /api/organizations/:orgId/accessible-channel-ids': 'organization:read',
   'GET /api/organizations/:orgId/task-workspace-scope': 'organization:read',
   'GET /api/organizations/:orgId/channels/:channelId/access': 'organization:read',
@@ -355,6 +355,11 @@ const ORG_MASTER_ROUTE_ACTIONS = [
   },
   {
     method: 'GET',
+    regex: /^\/api\/organizations\/[^/]+\/structure\/?$/,
+    action: 'organization.structure.view',
+  },
+  {
+    method: 'GET',
     regex: /^\/api\/organizations\/[^/]+\/position-assignments\/?$/,
     action: 'organization.employee.view',
   },
@@ -386,12 +391,26 @@ function isPositionGrantAction(action) {
 }
 
 /**
- * Grant vị trí không đủ, hoặc hồ sơ user gắn org (Gán vị trí gọi PATCH /users/:id).
- * Gateway hỏi kho auth; không tin claim JWT. Action khác không được hỏi kho.
+ * Bảo trì tài khoản, catalog vai trò/vị trí, và gán vị trí.
+ * organization.employee.view/update ở gateway chỉ map đúng route position-assignments;
+ * ghi gán vị trí đã khóa system admin ở organization-service.
+ * Mời nhân sự, tạo dự án, sửa policy không đi lối này.
  */
+const PLATFORM_MAINTAINER_ACTIONS = new Set([
+  'user:read',
+  'user:write',
+  'organization.organization_role.view',
+  'organization.organization_role.update',
+  'organization.position.view',
+  'organization.position.create',
+  'organization.position.update',
+  'organization.employee.view',
+  'organization.employee.update',
+  'organization.structure.view',
+]);
+
 function consultsStoredSystemAdmin(action) {
-  const key = String(action || '');
-  return isPositionGrantAction(key) || key === 'user:read' || key === 'user:write';
+  return PLATFORM_MAINTAINER_ACTIONS.has(String(action || ''));
 }
 
 function matchOrgMasterAction(method, apiPath) {

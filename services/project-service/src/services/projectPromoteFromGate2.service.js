@@ -48,7 +48,7 @@ async function assertMayPromoteGate2Pack({
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const { hasPermission } = require('../utils/project/projectPermissionMatrix');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
-    const bypass = resolved.isOrgAdmin || resolved.isCreator;
+    const bypass = false;
     if (bypass || hasPermission(resolved.permissions, 'planning:po_review')) {
       return { via: 'planning:po_review' };
     }

@@ -299,7 +299,7 @@ async function transitionArtifact({ userId, projectId, artifactId, toStatus, not
   const { priorStampsForPlanningTransition } = require('../utils/planningReviewStamp');
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   const techRequired = await projectHasPlanningTechReviewer(projectId);
 
   // DEC D9: new submits go PM gate — ba_review only for legacy/admin bypass
@@ -479,7 +479,7 @@ async function bulkTransitionArtifacts({
   const perm = permissionForPlanningTransition(from, to);
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   if (!bypass && perm) {
     await assertPlanningPerm({ userId, projectId, permission: perm });
   }

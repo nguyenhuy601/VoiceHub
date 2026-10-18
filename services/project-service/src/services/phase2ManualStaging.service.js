@@ -30,7 +30,7 @@ async function assertDeliveryPhaseChange({ userId, projectId }) {
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const { hasPermission } = require('../utils/project/projectPermissionMatrix');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   if (!bypass && !hasPermission(resolved.permissions, 'delivery_phase:change')) {
     const err = new Error('Không có quyền chuyển deliveryPhase');
     err.statusCode = 403;
@@ -43,7 +43,7 @@ async function assertPlanningPoReview({ userId, projectId }) {
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const { hasPermission } = require('../utils/project/projectPermissionMatrix');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   if (!bypass && !hasPermission(resolved.permissions, 'planning:po_review')) {
     const err = new Error('Chỉ PO được duyệt chuyển Phase 2 thủ công');
     err.statusCode = 403;

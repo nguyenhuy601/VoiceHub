@@ -42,11 +42,7 @@ async function assertCanViewProjectRoles({ userId, project }) {
     projectId: project._id,
   });
   const { hasPermission } = require('../utils/project/projectPermissionMatrix');
-  if (
-    resolved.isOrgAdmin ||
-    resolved.isCreator ||
-    hasPermission(resolved.permissions, 'project:view')
-  ) {
+  if (hasPermission(resolved.permissions, 'project:view')) {
     return resolved;
   }
   const err = Object.assign(new Error('Forbidden'), {
@@ -65,7 +61,7 @@ async function assertCanUpdateProjectRoles({ userId, project }) {
   // Catalog org (projectId=null) = Admin requireOrgAdmin.
   // Trong dự án: project:roles (matrix ∪ Admin gắn trên role) — không settings:update, không creator dump.
   const roleUnion = unionPermissionsFromRoles(resolved.roles || []);
-  if (resolved.isOrgAdmin || hasPermission(roleUnion, 'project:roles')) {
+  if (hasPermission(roleUnion, 'project:roles')) {
     return resolved;
   }
   const err = Object.assign(new Error('Không có quyền sửa quyền Project Role (project:roles)'), {

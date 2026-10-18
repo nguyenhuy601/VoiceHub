@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import BrandPageLoader from '../../components/Shared/BrandPageLoader';
 import { FIGMA_PAGE_SHELL } from '../../components/Layout/figmaPageClasses';
 import { useAppStrings } from '../../locales/appStrings';
@@ -7,7 +7,7 @@ import { useWorkspace } from '../../context/WorkspaceContext';
 import { useSpace } from '../../context/SpaceContext';
 import useRequirementAccess from '../../hooks/useRequirementAccess';
 import { shouldShowCollaborateRequirementsNavForUser } from '../../utils/collaborateRequirementsNav';
-import { orgQueryFromSearch } from '../../utils/suitePathUtils';
+import { orgQueryFromSearch, buildProjectsPickerPath } from '../../utils/suitePathUtils';
 import RequirementImportWorkspace from './RequirementImportWorkspace';
 
 export default function CollaborateRequirementsPage(_props = {}) {
@@ -45,13 +45,7 @@ export default function CollaborateRequirementsPage(_props = {}) {
   }
 
   if (!allowedByPosition) {
-    return (
-      <div
-        className={`flex h-[100dvh] flex-col items-center justify-center gap-3 p-6 text-center ${FIGMA_PAGE_SHELL}`}
-      >
-        <p className="text-muted-foreground">{t('requirements.noAccess')}</p>
-      </div>
-    );
+    return <Navigate to={buildProjectsPickerPath(orgId)} replace state={{ routeDenied: 'project' }} />;
   }
 
   if (!loaded || loading) {
@@ -64,13 +58,7 @@ export default function CollaborateRequirementsPage(_props = {}) {
 
   // Deep-link / Position OK nhưng không có quyền xem dữ liệu → empty.
   if (!access.canView) {
-    return (
-      <div
-        className={`flex h-[100dvh] flex-col items-center justify-center gap-3 p-6 text-center ${FIGMA_PAGE_SHELL}`}
-      >
-        <p className="text-muted-foreground">{t('requirements.noAccess')}</p>
-      </div>
-    );
+    return <Navigate to={buildProjectsPickerPath(orgId)} replace state={{ routeDenied: 'project' }} />;
   }
 
   return (

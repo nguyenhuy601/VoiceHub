@@ -38,11 +38,7 @@ async function requireBoardAdmin(boardId, userId, { permission = 'sprint:create'
       projectId: board.projectId,
       boardId,
     });
-    if (
-      !hasPermission(resolved.permissions, permission) &&
-      !resolved.isOrgAdmin &&
-      !resolved.isCreator
-    ) {
+    if (!hasPermission(resolved.permissions, permission)) {
       const err = new Error(`Không có quyền ${permission} trên project này`);
       err.statusCode = 403;
       throw err;

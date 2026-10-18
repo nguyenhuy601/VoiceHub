@@ -1,11 +1,16 @@
 /**
  * Quyết định authorizeOrGrant — tách khỏi mongoose để unit test.
- * Membership owner/admin bypass; member (hoặc đã vào org qua RBAC) cần grant V2.
+ * Membership owner/admin/hr không phải quyền. Chỉ grant V2, hoặc cờ đã đối chiếu
+ * system admin trong DB (requireStoredSystemAdmin) trên route bảo trì catalog.
  */
-function resolveAuthorizeOrGrant({ membership, normalizedRole, roles, grantAllowed, orgAccessOk = false }) {
-  const allowedRoles = Array.isArray(roles) ? roles : [];
-  if (membership && allowedRoles.includes(normalizedRole)) {
-    return { allow: true, via: 'membership' };
+function resolveAuthorizeOrGrant({
+  membership,
+  grantAllowed,
+  orgAccessOk = false,
+  storedAdminVerified = false,
+}) {
+  if (storedAdminVerified) {
+    return { allow: true, via: 'stored-admin' };
   }
   if (grantAllowed && (membership || orgAccessOk)) {
     return { allow: true, via: 'grant' };

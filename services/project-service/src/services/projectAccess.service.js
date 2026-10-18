@@ -14,7 +14,6 @@ const {
   hasPermission,
   assertPermission,
   normalizePermissionList,
-  PROJECT_PERMISSION_KEYS,
   VIEW_ONLY,
 } = require('../utils/project/projectPermissionMatrix');
 const { resolveProjectAccess } = require('../utils/project/projectVisibility');
@@ -68,8 +67,8 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
 
   if (!isProjectRbacEnabled()) {
     return {
-      permissions: isOrgAdmin || isCreator ? [...PROJECT_PERMISSION_KEYS] : [],
-      capabilities: permissionsToBoardCapabilities([], { isCreator, isOrgAdmin }),
+      permissions: [],
+      capabilities: permissionsToBoardCapabilities([]),
       isOrgAdmin,
       isCreator,
       informationLevel: 'details',
@@ -113,21 +112,8 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
     );
   }
 
-  // Board/hub ops: SoT = doc.permissions trên ProjectRole membership (org template hoặc project clone).
-  const roleUiCapabilities = permissionsToBoardCapabilities(unionPermissionsFromRoles(roles));
-
-  if (isOrgAdmin || isCreator) {
-    return {
-      permissions: [...PROJECT_PERMISSION_KEYS],
-      capabilities: roleUiCapabilities,
-      isOrgAdmin,
-      isCreator,
-      informationLevel: 'confidential',
-      rbac: true,
-      project,
-      roles,
-    };
-  }
+  // Board/hub ops: SoT = doc.permissions trên ProjectRole membership.
+  // Membership owner/admin và cờ người tạo không nhận full key.
 
   // Align with getProject: membership row ⇒ member even if role docs failed to resolve.
   let perms = unionPermissionsFromRoles(roles);
@@ -190,7 +176,6 @@ async function resolveUserProjectPermissions(opts = {}) {
 
 async function assertUserProjectPermission({ userId, projectId, boardId, permission, message }) {
   const resolved = await resolveUserProjectPermissions({ userId, projectId, boardId });
-  if (resolved.isOrgAdmin || resolved.isCreator) return resolved;
   assertPermission(resolved.permissions, permission, message);
   return resolved;
 }
@@ -223,7 +208,6 @@ async function assertUserAnyProjectPermission({
   message,
 } = {}) {
   const resolved = await resolveUserProjectPermissions({ userId, projectId, boardId });
-  if (resolved.isOrgAdmin || resolved.isCreator) return resolved;
   const keys = (Array.isArray(permissions) ? permissions : [permissions])
     .map((k) => String(k || '').trim())
     .filter(Boolean);

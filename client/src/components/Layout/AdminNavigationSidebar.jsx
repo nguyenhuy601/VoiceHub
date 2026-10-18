@@ -456,13 +456,14 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
             setupCompleted: orgStructureSetupCompleted === true,
           })
         : raw;
-    return filterAdminDomainByGrant(leveled, { isFullAccess, hasGrant });
+    return filterAdminDomainByGrant(leveled, { isFullAccess, hasGrant, isSystemAdmin });
   }, [
     visibleDomains,
     selectedDomainId,
     orgStructureLevels,
     orgStructureSetupCompleted,
     isFullAccess,
+    isSystemAdmin,
     hasGrant,
   ]);
 
@@ -479,10 +480,13 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
       section.items.some((item) => isActivePath(item))
     );
     if (!activeSection) return;
-    setExpandedSectionByDomain((prev) => ({
-      ...prev,
-      [selectedDomain.id]: activeSection.id,
-    }));
+    setExpandedSectionByDomain((prev) => {
+      if (prev[selectedDomain.id] === activeSection.id) return prev;
+      return {
+        ...prev,
+        [selectedDomain.id]: activeSection.id,
+      };
+    });
   }, [selectedDomain, currentPath]);
 
   const toggleCollapsed = () => {

@@ -189,7 +189,7 @@ export default function RbacOrgRoleDirectoryPanel({ orgId }) {
                 {filtered.map((row) => (
                   <tr
                     key={row.id}
-                    className="border-b border-border transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
+                    className="border-b border-border hover:bg-muted vh-motion-row vh-motion-respect"
                   >
                     <td className="px-3 py-2">
                       <span className="font-medium">

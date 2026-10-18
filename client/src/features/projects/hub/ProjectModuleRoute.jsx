@@ -36,6 +36,7 @@ import { fetchProjectHubProject } from './useProjectHubQueries';
 import { queryKeys } from '../../../lib/queryKeys';
 import { useAppStrings } from '../../../locales/appStrings';
 import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
+import { isProjectMembershipDenied } from '../../../config/routeDeniedNotice';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { isAiHitlIncomplete, resolveAiProjectEntryPath } from '../phase1/aiHitl/aiHitlNavState';
 import { loadLinkedPackForAiNav } from '../phase1/aiHitl/loadLinkedPackForAiNav';
@@ -138,6 +139,15 @@ export default function ProjectModuleRoute() {
   }
 
   if (projectError && !projectRow) {
+    if (isProjectMembershipDenied(projectQueryError)) {
+      return (
+        <Navigate
+          to={buildProjectsPickerPath(orgId)}
+          replace
+          state={{ routeDenied: 'project' }}
+        />
+      );
+    }
     return (
       <div className="flex min-h-[12rem] items-center justify-center p-6">
         <AdminLoadErrorState

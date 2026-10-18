@@ -81,9 +81,7 @@ export function memberOrgRole(member) {
 /** Nhãn vai trò tài khoản (membership) theo i18n. */
 export function accountRoleLabel(role, t) {
   const r = String(role || 'member').toLowerCase();
-  if (r === 'owner') return t('organizations.roleOwner');
   if (r === 'admin') return t('adminUsers.roleAdmin');
-  if (r === 'hr') return t('adminUsers.roleHr');
   return t('adminUsers.roleMember');
 }
 

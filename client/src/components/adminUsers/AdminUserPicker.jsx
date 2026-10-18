@@ -5,18 +5,22 @@ import { useAppStrings } from '../../locales/appStrings';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import UserAvatar from '../Shared/UserAvatar';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
+import orgRbacAPI from '../../services/api/orgRbacAPI';
 import {
-  accountRoleLabel,
   memberDisplayName,
   memberEmail,
   memberHasRbacRole,
   memberIsWithoutRbacRole,
   memberMatchesQuery,
-  memberOrgRole,
   memberStatusKey,
   memberStatusLabel,
   memberUserId,
 } from '../../utils/adminUserUtils';
+import {
+  buildOrgRoleRowsMapFromAssignments,
+  effectiveOrgRoleLabel,
+} from '../../utils/effectiveOrgRoleLabel';
 import { adminInputClass, adminPrimaryBtnClass } from './adminUserPanelUi';
 
 const RBAC_ROLE_FILTER_ALL = 'all';
@@ -59,6 +63,7 @@ function StatusDot({ member, t }) {
  *   selectedUserIds?: string[],
  *   onSelectedUserIdsChange?: (userIds: string[]) => void,
  *   rbacAssignments?: { byUser?: Record<string, unknown[]>, ready?: boolean },
+ *   orgRoleByUser?: Record<string, Array<{ label?: string, roleKey?: string }>>,
  *   showRbacRoleFilter?: boolean,
  *   fillHeight?: boolean,
  * }} props
@@ -78,6 +83,7 @@ export default function AdminUserPicker({
   selectedUserIds,
   onSelectedUserIdsChange,
   rbacAssignments,
+  orgRoleByUser: orgRoleByUserProp,
   showRbacRoleFilter = false,
   fillHeight = false,
 }) {
@@ -88,6 +94,7 @@ export default function AdminUserPicker({
   const [visibleCount, setVisibleCount] = useState(scrollPageSize);
   const [internalSelectedIds, setInternalSelectedIds] = useState([]);
   const [rbacRoleFilter, setRbacRoleFilter] = useState(RBAC_ROLE_FILTER_ALL);
+  const [loadedOrgRoleByUser, setLoadedOrgRoleByUser] = useState({});
   const scrollRef = useRef(null);
   const sentinelRef = useRef(null);
   const multiple = selectionMode === 'multiple';
@@ -103,6 +110,48 @@ export default function AdminUserPicker({
 
   const assignmentsByUser = rbacAssignments?.byUser || null;
   const assignmentsReady = Boolean(rbacAssignments?.ready);
+  const orgRoleByUser = orgRoleByUserProp || loadedOrgRoleByUser;
+
+  useEffect(() => {
+    if (orgRoleByUserProp || !orgId) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [assignRes, positionAssignRes] = await Promise.all([
+          orgRoleCatalogAPI.listAssignments(orgId).catch(() => null),
+          orgRbacAPI.listAssignments(orgId, { status: 'active' }).catch(() => null),
+        ]);
+        const assignments =
+          assignRes?.data?.assignments ||
+          assignRes?.data?.data?.assignments ||
+          [];
+        const positionAssignments =
+          positionAssignRes?.data?.assignments ||
+          positionAssignRes?.data?.data?.assignments ||
+          [];
+        const roleFromPosition = {};
+        for (const row of Array.isArray(positionAssignments) ? positionAssignments : []) {
+          const uid = String(row?.userId || '').trim();
+          const labels = Array.isArray(row?.orgRoleLabels)
+            ? row.orgRoleLabels.filter(Boolean)
+            : [];
+          if (uid && labels.length && !roleFromPosition[uid]) {
+            roleFromPosition[uid] = labels.map((label) => ({ label }));
+          }
+        }
+        if (!cancelled) {
+          setLoadedOrgRoleByUser(
+            buildOrgRoleRowsMapFromAssignments(assignments, roleFromPosition)
+          );
+        }
+      } catch {
+        if (!cancelled) setLoadedOrgRoleByUser({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, orgRoleByUserProp]);
 
   const filtered = useMemo(() => {
     let base = members;
@@ -315,7 +364,10 @@ export default function AdminUserPicker({
                       <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
                     </div>
                     <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                      {accountRoleLabel(memberOrgRole(m), t)}
+                      {effectiveOrgRoleLabel(m, {
+                        orgRoleRows: orgRoleByUser[memberUserId(m)] || [],
+                        t,
+                      })}
                     </span>
                   </>
                 );

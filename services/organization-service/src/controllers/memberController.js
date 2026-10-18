@@ -51,6 +51,10 @@ const {
   projectMembersForView,
 } = require('../services/projectAdminMemberView');
 const { hasElevatedOrgAccess } = require('../utils/orgElevatedAccess');
+const { readStoredSystemAdminState } = require('../clients/storedSystemRole.client');
+const { resolveEffectiveGrants } = require('../services/orgRbacMatrix.service');
+const { listMembersForEmployeeView } = require('../services/employeeViewDirectory.service');
+const { employeeViewScope, scopeOpensAdminTable } = require('../utils/employeeViewMemberScope');
 const {
   assertEmailDomainAllowed,
   resolveAllowedEmailDomains,
@@ -384,31 +388,32 @@ async function listMembersForDepartmentRoster(orgId, lookupOrRaw) {
   }));
 }
 
-const ADMIN_TABLE_ROLES = ['owner', 'admin', 'hr'];
-const ADMIN_TABLE_GRANT = 'organization.employee.view';
-
-/**
- * admin_table chỉ cho owner/admin/hr hoặc grant employee.view; còn lại hạ âm thầm về directory (RULE-11).
- * directory cho caller không nâng cao → restrictContact (mask email, bỏ employeeCode/isActive).
+/** Bảng quản trị khi phạm vi employee.view từ DEPARTMENT trở lên, hoặc system admin bảo trì.
+ * SELF không mở bảng. Danh bạ chat vẫn đi nhánh directory.
  */
 async function resolveMembersAccess(req, requestedView) {
-  const elevated = await hasElevatedOrgAccess({
-    userId: req.user?.id || req.user?.userId || req.user?._id,
-    orgId: req.params.orgId,
-    roles: ADMIN_TABLE_ROLES,
-    grantKey: ADMIN_TABLE_GRANT,
-  });
+  const userId = String(req.user?.id || req.user?.userId || req.user?._id || '');
+  const orgId = String(req.params.orgId || '');
+  const stored = await readStoredSystemAdminState(userId);
+  let scope = null;
+  if (stored.state !== 'admin') {
+    const resolved = await resolveEffectiveGrants(orgId, userId);
+    scope = employeeViewScope(resolved?.grantScopes);
+  }
+  const elevated = stored.state === 'admin' || scopeOpensAdminTable(scope);
   const view = requestedView === VIEW_ADMIN_TABLE && !elevated ? VIEW_DIRECTORY : requestedView;
-  return { view, restrictContact: view === VIEW_DIRECTORY && !elevated };
+  return { view, restrictContact: view === VIEW_DIRECTORY && !elevated, scope, storedAdmin: stored.state === 'admin' };
 }
 
 exports.getMembers = async (req, res, next) => {
   try {
-    const members = await listMembersForOrg(req);
-    // Additive: displayName/email/avatar — FE directory không còn fallback "Thành viên"/id.slice(-6).
-    const enriched = await enrichMembersForAdminList(members);
-    // Wave 1 (E): no-view → cùng allowlist admin_table (không trả enrich thô).
+    const userId = String(req.user?.id || req.user?.userId || req.user?._id || '');
     const { view, restrictContact } = await resolveMembersAccess(req, VIEW_ADMIN_TABLE);
+    const members =
+      view === VIEW_ADMIN_TABLE
+        ? await listMembersForEmployeeView(req.params.orgId, userId)
+        : await listMembersForOrg(req);
+    const enriched = await enrichMembersForAdminList(members);
     const projected = projectMembersForView(enriched, view, { restrictContact });
     return res.json({ status: 'success', data: projected });
   } catch (error) {
@@ -477,11 +482,14 @@ async function enrichMembersForAdminList(members, { includeRbac = false, organiz
 exports.getMembersWithRoles = async (req, res, next) => {
   try {
     const userId = String(req.user?.id || req.user?.userId || req.user?._id || '');
-    const members = await listMembersForOrg(req);
     const [{ view, restrictContact }, roles] = await Promise.all([
       resolveMembersAccess(req, normalizeView(req.query?.view) || VIEW_ADMIN_TABLE),
       fetchOrgRolesList(req.params.orgId, userId),
     ]);
+    const members =
+      view === VIEW_ADMIN_TABLE
+        ? await listMembersForEmployeeView(req.params.orgId, userId)
+        : await listMembersForOrg(req);
     const includeRbac = view === VIEW_ADMIN_TABLE;
     const enriched = await enrichMembersForAdminList(members, {
       includeRbac,

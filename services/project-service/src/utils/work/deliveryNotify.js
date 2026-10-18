@@ -99,11 +99,7 @@ async function resolveProjectMemberUserIdsByPermission({ projectId, permission }
   for (const uid of candidates) {
     try {
       const resolved = await resolveUserProjectPermissions({ userId: uid, projectId: pid });
-      if (
-        resolved.isOrgAdmin ||
-        resolved.isCreator ||
-        hasPermission(resolved.permissions, perm)
-      ) {
+      if (hasPermission(resolved.permissions, perm)) {
         out.push(uid);
       }
     } catch {

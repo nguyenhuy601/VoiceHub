@@ -5,13 +5,13 @@
 const { ORG_ROLE_LABEL_PREFIX } = require('../../utils/roleLayerNaming');
 
 const MASTER_ORGANIZATION_ROLES = Object.freeze([
-  { key: 'department_manager', label: `${ORG_ROLE_LABEL_PREFIX}Department Manager`, sortOrder: 10 },
-  { key: 'team_lead', label: `${ORG_ROLE_LABEL_PREFIX}Team Lead`, sortOrder: 20 },
-  { key: 'director', label: `${ORG_ROLE_LABEL_PREFIX}Director`, sortOrder: 30 },
-  { key: 'resource_manager', label: `${ORG_ROLE_LABEL_PREFIX}Resource Manager`, sortOrder: 40 },
-  { key: 'auditor', label: `${ORG_ROLE_LABEL_PREFIX}Auditor`, sortOrder: 50 },
+  { key: 'department_manager', label: `${ORG_ROLE_LABEL_PREFIX}Trưởng phòng`, sortOrder: 10 },
+  { key: 'team_lead', label: `${ORG_ROLE_LABEL_PREFIX}Trưởng nhóm`, sortOrder: 20 },
+  { key: 'director', label: `${ORG_ROLE_LABEL_PREFIX}Giám đốc tổ chức`, sortOrder: 30 },
+  { key: 'resource_manager', label: `${ORG_ROLE_LABEL_PREFIX}Quản lý nguồn lực`, sortOrder: 40 },
+  { key: 'auditor', label: `${ORG_ROLE_LABEL_PREFIX}Kiểm toán`, sortOrder: 50 },
   { key: 'mentor', label: `${ORG_ROLE_LABEL_PREFIX}Mentor`, sortOrder: 60 },
-  { key: 'hr_approver', label: `${ORG_ROLE_LABEL_PREFIX}HR Approver`, sortOrder: 70 },
+  { key: 'hr_approver', label: `${ORG_ROLE_LABEL_PREFIX}Nhân sự`, sortOrder: 70 },
 ]);
 
 const MASTER_ORGANIZATION_ROLE_KEYS = Object.freeze(

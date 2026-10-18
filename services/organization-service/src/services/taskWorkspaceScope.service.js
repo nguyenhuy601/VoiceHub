@@ -58,18 +58,12 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
   let visibility = 'self';
   let canCreateTask = false;
 
-  if (membershipRole === 'owner' || membershipRole === 'admin') {
-    visibility = 'org';
-    canCreateTask = true;
-  } else if (headedDepts.length) {
+  if (headedDepts.length) {
     visibility = 'department';
     canCreateTask = true;
   } else if (ledTeams.length) {
     visibility = 'team';
     canCreateTask = true;
-  } else if (membershipRole === 'hr') {
-    visibility = 'org';
-    canCreateTask = false;
   }
 
   const departmentIds = headedDepts.map((d) => String(d._id));
@@ -90,13 +84,6 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
       visibility = 'division';
       canCreateTask = true;
     }
-    if (membershipRole === 'owner' || membershipRole === 'admin') {
-      visibility = 'org';
-      canCreateTask = true;
-    } else if (membershipRole === 'hr') {
-      visibility = 'org';
-      canCreateTask = false;
-    }
     scopedDivisionIds = [...effectiveScopes.divisionIds];
     if (visibility === 'department') {
       departmentIds.splice(0, departmentIds.length, ...effectiveScopes.departmentIds);
@@ -104,7 +91,7 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
     if (visibility === 'team') {
       ledTeamIds.splice(0, ledTeamIds.length, ...effectiveScopes.teamIds);
     }
-  } else if (visibility === 'self' && membershipRole !== 'hr') {
+  } else if (visibility === 'self') {
     // Khớp org shell: suy scope từ RBAC hierarchy (dep_/team_/div_).
     const [userRoles, divisions, departments, teams] = await Promise.all([
       fetchUserRolesInOrg(uid, oid),
@@ -155,9 +142,8 @@ async function resolveTaskWorkspaceScope(userId, orgId) {
   const { resolveOrganizationRoles } = require('./organizationRoles.service');
   const organizationRoles = await resolveOrganizationRoles(uid, oid);
 
-  // Wave B: Create Project scope flag is placement-based and named separately from Create Task.
-  // Same placement rule initially; FE/API must not reuse canCreateTask for Create Project.
-  const canCreateProject = Boolean(canCreateTask);
+  // Tạo dự án chỉ theo grant project.project.create. Placement không cấp cờ này.
+  const canCreateProject = false;
 
   const scopeType = String(visibility || 'self').toUpperCase();
   const scopeIds =

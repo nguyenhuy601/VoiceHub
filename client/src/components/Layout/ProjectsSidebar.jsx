@@ -1024,7 +1024,7 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
                 {t('nav.yourRole')}
               </div>
               <p className="text-[0.625rem] text-white/35">
-                {t('nav.projectRoleUnassigned') || 'Chưa gán vai trò dự án'}
+                {t('nav.projectRoleUnassigned')}
               </p>
             </div>
           ) : !projectId ? (

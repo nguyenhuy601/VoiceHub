@@ -864,7 +864,7 @@ async function transitionImportSet({ userId, projectId, setId, toStatus, note = 
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const techRequired = await projectHasAnalysisTechReviewer(projectId);
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
 
   const { to, permission, publish, republish } = planSetTransition(setDoc, toStatus, {
     techRequired,

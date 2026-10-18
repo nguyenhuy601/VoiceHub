@@ -89,7 +89,7 @@ const NAV_ROLE_KEYS = {
   orgAdmin: 'nav.roleOrgAdmin',
   owner: 'nav.roleOwner',
   manager: 'nav.roleManager',
-  hr: 'nav.roleHr',
+  hr: 'nav.roleMember',
   deptHead: 'nav.roleDeptHead',
   teamLeader: 'nav.roleTeamLeader',
   member: 'nav.roleMember',

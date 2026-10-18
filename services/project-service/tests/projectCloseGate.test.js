@@ -158,10 +158,10 @@ describe('projectCloseGate: project complete vs archive', () => {
     assert.doesNotThrow(() => assertPatchDoesNotCloseProject('closed', 'closed'));
   });
 
-  it('canSkipCompleteGateBeforeArchive — project:delete / org elevated', () => {
-    assert.equal(canSkipCompleteGateBeforeArchive({ isOrgAdmin: true }), true);
-    assert.equal(canSkipCompleteGateBeforeArchive({ isCreator: true }), true);
-    assert.equal(canSkipCompleteGateBeforeArchive({ legacyOrgAdmin: true }), true);
+  it('canSkipCompleteGateBeforeArchive — only project:delete', () => {
+    assert.equal(canSkipCompleteGateBeforeArchive({ isOrgAdmin: true }), false);
+    assert.equal(canSkipCompleteGateBeforeArchive({ isCreator: true }), false);
+    assert.equal(canSkipCompleteGateBeforeArchive({ legacyOrgAdmin: true }), false);
     assert.equal(
       canSkipCompleteGateBeforeArchive({ permissions: ['project:delete'] }),
       true

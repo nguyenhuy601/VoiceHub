@@ -387,10 +387,7 @@ async function applyTemplateToProject({ userId, projectId, templateId, templateK
   if (isProjectRbacEnabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
-    const can =
-      hasPermission(resolved.permissions, 'settings:update') ||
-      resolved.isOrgAdmin ||
-      resolved.isCreator;
+    const can = hasPermission(resolved.permissions, 'settings:update');
     if (!can) {
       const err = new Error('Không có quyền apply workflow (settings:update)');
       err.statusCode = 403;

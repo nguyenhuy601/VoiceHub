@@ -119,9 +119,24 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
   };
 
   const visibleGroups = useMemo(() => {
+    const hidden = (key) => {
+      const code = String(key || '');
+      return code.startsWith('organization.branch.') || code.startsWith('organization.division.');
+    };
+    const withoutLegacy = groups
+      .map((cat) => ({
+        ...cat,
+        modules: cat.modules
+          .map((mod) => ({
+            ...mod,
+            permissions: mod.permissions.filter((p) => !hidden(p.key)),
+          }))
+          .filter((mod) => mod.permissions.length),
+      }))
+      .filter((cat) => cat.modules.length);
     const q = filter.trim().toLowerCase();
-    if (!q) return groups;
-    return groups
+    if (!q) return withoutLegacy;
+    return withoutLegacy
       .map((cat) => ({
         ...cat,
         modules: cat.modules
@@ -146,11 +161,19 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
 
   const roleOptions = useMemo(
     () =>
-      roles.map((r) => ({
-        id: String(r._id || r.id),
-        label: r.label || r.name || r.key || r.code,
-      })),
-    [roles]
+      roles.map((r) => {
+        const code = String(r.code || r.key || '').toLowerCase();
+        const raw = r.label || r.name || r.key || r.code;
+        const name =
+          code === 'member' || raw === 'Member'
+            ? t('adminDomains.rbac.orgRoleMemberDefault')
+            : raw;
+        return {
+          id: String(r._id || r.id),
+          label: t('adminDomains.rbac.orgRoleSelectOptionLabel', { name }),
+        };
+      }),
+    [roles, t]
   );
 
   const toggle = (code) => {
@@ -176,7 +199,7 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
         scopeType: isScopeLessGrant(permissionCode) ? 'ORGANIZATION' : scopeType,
       }));
       await orgRbacAPI.putRolePermissions(orgId, roleId, permissions);
-      toast.success(t('adminDomains.rbac.roleMatrixSaved', 'Đã lưu ma trận quyền cho vai trò'));
+      toast.success(t('adminDomains.rbac.roleMatrixSaved'));
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, { t, fallback: t('common.saveFail') }));
     } finally {
@@ -186,19 +209,16 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
 
   return (
     <AdminUserPanelShell
-      title={t('adminDomains.rbac.orgRolePermissionMatrix', 'Gán quyền vào vai trò tổ chức')}
-      hint={t(
-        'adminDomains.rbac.orgRolePermissionMatrixHint',
-        'Chọn vai trò, gắn permission hệ thống và phạm vi (SELF / DEPARTMENT / ORGANIZATION / SYSTEM).'
-      )}
+      title={t('adminDomains.rbac.orgRolePermissionMatrix')}
+      hint={t('adminDomains.rbac.orgRolePermissionMatrixHint')}
     >
       {loading ? <AdminBusySpinner /> : null}
       {!loading && error ? <AdminLoadErrorState message={error} /> : null}
       {!loading && !error ? (
-        <AdminUserFormCard title={t('adminDomains.rbac.sectionOrgRoles', 'Vai trò tổ chức')}>
+        <AdminUserFormCard title={t('adminDomains.rbac.sectionOrgRoles')}>
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1 text-sm">
-              <span>{t('adminDomains.rbac.selectOrgRole', 'Chọn vai trò')}</span>
+              <span>{t('adminDomains.rbac.selectOrgRole')}</span>
               <select
                 className="min-w-[220px] rounded-md border border-border bg-background px-2 py-1.5"
                 value={roleId}
@@ -218,10 +238,10 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
               disabled={!roleId || saving}
               onClick={save}
             >
-              {saving ? t('common.saving', 'Đang lưu…') : t('common.save', 'Lưu')}
+              {saving ? t('common.saving') : t('common.save')}
             </button>
             <button type="button" className={adminSecondaryBtnClass()} onClick={() => loadMatrix(roleId)}>
-              {t('common.reload', 'Tải lại')}
+              {t('common.reload')}
             </button>
           </div>
           {roleId ? (
@@ -284,7 +304,7 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
             </>
           ) : (
             <p className="mt-3 text-sm text-muted-foreground">
-              {t('adminDomains.rbac.selectOrgRoleFirst', 'Chọn vai trò để cấu hình quyền.')}
+              {t('adminDomains.rbac.selectOrgRoleFirst')}
             </p>
           )}
         </AdminUserFormCard>

@@ -81,9 +81,19 @@ describe('adminDomainsConfig grants', () => {
           navItemIsAllowed(item, {
             isFullAccess: false,
             hasGrant: (g) => g === key,
+            scopeOf: () => 'ORGANIZATION',
           }),
           true,
           `${id}/${item.id} allow with ${key}`
+        );
+        assert.equal(
+          navItemIsAllowed(item, {
+            isFullAccess: false,
+            hasGrant: (g) => g === key,
+            scopeOf: () => 'SELF',
+          }),
+          false,
+          `${id}/${item.id} SELF does not open admin`
         );
       }
     }

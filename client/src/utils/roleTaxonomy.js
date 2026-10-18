@@ -62,9 +62,15 @@ export const DEFAULT_HR_ROLE_LABELS = Object.freeze({
 });
 
 export const ORGANIZATION_ROLE_LABELS = Object.freeze({
-  department_manager: 'Department Manager',
-  team_manager: 'Team Manager',
-  director: 'Director',
+  department_manager: 'Trưởng phòng',
+  team_manager: 'Trưởng nhóm',
+  team_lead: 'Trưởng nhóm',
+  director: 'Giám đốc tổ chức',
+  resource_manager: 'Quản lý nguồn lực',
+  hr_approver: 'Nhân sự',
+  auditor: 'Kiểm toán',
+  mentor: 'Mentor',
+  member: 'Thành viên',
 });
 
 export const PROJECT_ROLE_LABELS = Object.freeze({

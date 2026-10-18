@@ -83,11 +83,14 @@ describe('projectPermissionMatrix', () => {
     assert.ok(gated.includes('project:view'));
   });
 
-  it('T6: org admin bypass via capabilities adapter', () => {
-    const caps = permissionsToBoardCapabilities([], { isOrgAdmin: true });
-    assert.equal(caps.canManageBoard, true);
-    assert.equal(caps.canCreateCards, true);
-    assert.ok(caps.permissions.length > 10);
+  it('T6: membership org admin and creator do not receive full board caps', () => {
+    const adminCaps = permissionsToBoardCapabilities([], { isOrgAdmin: true });
+    const creatorCaps = permissionsToBoardCapabilities([], { isCreator: true });
+    assert.equal(adminCaps.canManageBoard, false);
+    assert.equal(adminCaps.canCreateCards, false);
+    assert.equal(adminCaps.canMoveToDone, false);
+    assert.equal(creatorCaps.canManageBoard, false);
+    assert.equal(creatorCaps.permissions.length, 0);
   });
 
   it('T7: legacy developer/watcher alias to master keys', () => {
@@ -212,5 +215,20 @@ describe('projectPermissionMatrix', () => {
     assert.deepEqual(split.valid, ['sprint:delete']);
     assert.deepEqual(split.unknown, ['hack:root']);
     assert.throws(() => assertKnownPermissionList(['sprint:delete', 'hack:root']), /hack:root/);
+  });
+
+  it('T12: aliases and SoD — QA drag done, developer does not, BA reviews', () => {
+    const qa = defaultPermissionsForRoleKey('qa_engineer');
+    assert.deepEqual(defaultPermissionsForRoleKey('tester'), qa);
+    assert.deepEqual(defaultPermissionsForRoleKey('qa'), qa);
+    assert.ok(qa.includes('task:drag_to_done'));
+    const dev = defaultPermissionsForRoleKey('backend_developer');
+    assert.deepEqual(defaultPermissionsForRoleKey('developer'), dev);
+    assert.equal(dev.includes('task:drag_to_done'), false);
+    assert.deepEqual(
+      defaultPermissionsForRoleKey('tech_lead'),
+      defaultPermissionsForRoleKey('technical_lead')
+    );
+    assert.ok(defaultPermissionsForRoleKey('business_analyst').includes('analysis:ba_review'));
   });
 });

@@ -1,4 +1,4 @@
-import { createContext, createElement, useCallback, useContext, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import roleAPI from '../services/api/roleAPI';
@@ -8,14 +8,9 @@ import { STALE_TIME_RBAC_GRANTS_MS } from '../lib/queryClient';
 
 const EMPTY_SCOPES = Object.freeze({});
 
-/**
- * Chỉ bọc shell `/app/admin` khi JWT `systemRole=admin`.
- * Ngoài provider, grant vẫn chỉ đến từ vị trí tổ chức.
- */
-const AdminSystemGrantContext = createContext(false);
-
+/** Giữ export để shell cũ không vỡ import. Không bật mọi mã quyền. */
 export function AdminSystemGrantProvider({ children }) {
-  return createElement(AdminSystemGrantContext.Provider, { value: true }, children);
+  return children;
 }
 
 /**
@@ -42,7 +37,6 @@ export function useGrantScopes(orgId) {
     retry: 1,
   });
 
-  const inAdminSystem = useContext(AdminSystemGrantContext);
   const grantScopes = enabled && query.data && typeof query.data === 'object' ? query.data : EMPTY_SCOPES;
   const grants = useMemo(() => Object.keys(grantScopes), [grantScopes]);
   const loading = enabled && query.isPending;
@@ -57,19 +51,17 @@ export function useGrantScopes(orgId) {
     (key) => {
       const normalized = String(key || '').trim().toLowerCase();
       if (!normalized) return false;
-      if (inAdminSystem) return true;
       return Object.prototype.hasOwnProperty.call(grantScopes, normalized);
     },
-    [grantScopes, inAdminSystem]
+    [grantScopes]
   );
 
   const scopeOf = useCallback(
     (key) => {
       const normalized = String(key || '').trim().toLowerCase();
-      if (inAdminSystem && normalized) return 'SYSTEM';
       return grantScopes[normalized] || null;
     },
-    [grantScopes, inAdminSystem]
+    [grantScopes]
   );
 
   return { grantScopes, grants, hasGrant, scopeOf, loading, error, reload };

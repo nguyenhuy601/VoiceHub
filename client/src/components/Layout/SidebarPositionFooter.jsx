@@ -36,7 +36,7 @@ export default function SidebarPositionFooter({ collapsed = false, wrap = true }
   const body = collapsed ? (
     <div
       className="flex flex-col items-center gap-1 py-0.5"
-      title={label || t('nav.positionUnassigned') || 'Chưa gán chức danh'}
+      title={label || t('nav.positionUnassigned')}
     >
       <Briefcase size={14} className="text-white/35" aria-hidden />
       {label ? (
@@ -49,7 +49,7 @@ export default function SidebarPositionFooter({ collapsed = false, wrap = true }
     <div className="px-1.5 py-1">
       <div className="mb-1 flex items-center gap-1.5 text-[0.55rem] font-bold uppercase tracking-wider text-white/25">
         <Briefcase size={10} aria-hidden />
-        {t('nav.yourPosition') || 'Position'}
+        {t('nav.yourPosition')}
       </div>
       {label ? (
         <span
@@ -60,7 +60,7 @@ export default function SidebarPositionFooter({ collapsed = false, wrap = true }
         </span>
       ) : (
         <p className="text-[0.625rem] text-white/35">
-          {t('nav.positionUnassigned') || 'Chưa gán chức danh'}
+          {t('nav.positionUnassigned')}
         </p>
       )}
     </div>

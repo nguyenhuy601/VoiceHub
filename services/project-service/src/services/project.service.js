@@ -417,6 +417,8 @@ async function createProject({
   };
 
   try {
+    mergeRoleAssignment(userId, [DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER], 'owner');
+
     const creatorSeed = (Array.isArray(members) ? members : []).find(
       (m) => String(m?.userId || m?.id || '') === String(userId)
     );
@@ -978,7 +980,7 @@ async function attachProjectCapabilities(payload, userId, projectId) {
     return payload;
   }
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   // SoD + ops: cùng SoT doc.permissions (matrixPermissionsFromRoleKeys ≡ union).
   // Creator/orgAdmin bypass vẫn tách; PATCH giữ SOD_LOCKED.
   const roleMatrixPerms = matrixPermissionsFromRoleKeys(resolved.roles || []);
@@ -1111,6 +1113,18 @@ async function listProjectMembersForUser({ userId, projectId }) {
 
 async function userCanAdminProject(userId, project) {
   if (!userId || !project) return false;
+  const { isProjectRbacEnabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  if (isProjectRbacEnabled()) {
+    const { resolveUserProjectPermissions } = require('./projectAccess.service');
+    const resolved = await resolveUserProjectPermissions({
+      userId,
+      projectId: project._id || project.id,
+    });
+    return (
+      hasPermission(resolved.permissions, 'board:admin') ||
+      hasPermission(resolved.permissions, 'members:manage')
+    );
+  }
   if (String(project.createdBy) === String(userId)) return true;
   const boardService = require('./taskBoard.service');
   const board = await TaskBoard.findOne({ projectId: project._id, isActive: true }).lean();
@@ -1214,10 +1228,7 @@ async function patchProject({ userId, projectId, patch }) {
     if (Object.prototype.hasOwnProperty.call(patch || {}, 'releaseLabel')) {
       delete patch.releaseLabel;
     }
-    canPhaseActor =
-      hasPermission(resolved.permissions, 'delivery_phase:change') ||
-      resolved.isOrgAdmin ||
-      resolved.isCreator;
+    canPhaseActor = hasPermission(resolved.permissions, 'delivery_phase:change');
     // SoD: chỉ membership role có handover:accept (PO) — không creator/admin bypass
     const { matrixPermissionsFromRoleKeys } = require('../utils/project/projectPermissionMatrix');
     canAcceptActor = hasPermission(
@@ -1243,10 +1254,7 @@ async function patchProject({ userId, projectId, patch }) {
         throw err;
       }
     }
-    const canSettings =
-      hasPermission(resolved.permissions, 'settings:update') ||
-      resolved.isOrgAdmin ||
-      resolved.isCreator;
+    const canSettings = hasPermission(resolved.permissions, 'settings:update');
     if (!canSettings && !phaseLikePatch) {
       const err = new Error('Không có quyền sửa settings dự án (settings:update)');
       err.statusCode = 403;
@@ -1823,10 +1831,7 @@ async function getProjectActivity({ userId, projectId, limit = 50 }) {
   if (isProjectRbacEnabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
-    const canView =
-      resolved.isOrgAdmin ||
-      resolved.isCreator ||
-      hasPermission(resolved.permissions, 'activity:view');
+    const canView = hasPermission(resolved.permissions, 'activity:view');
     if (!canView) {
       const err = new Error('Không có quyền xem activity (activity:view)');
       err.statusCode = 403;
@@ -1915,11 +1920,7 @@ async function getProjectFiles({ userId, projectId }) {
   if (isProjectRbacEnabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
-    if (
-      !hasPermission(resolved.permissions, 'files:view') &&
-      !resolved.isOrgAdmin &&
-      !resolved.isCreator
-    ) {
+    if (!hasPermission(resolved.permissions, 'files:view')) {
       return [];
     }
   }

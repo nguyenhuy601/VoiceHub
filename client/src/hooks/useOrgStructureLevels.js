@@ -11,6 +11,8 @@ import { STALE_TIME_ORG_LEVELS_MS } from '../lib/queryClient';
  * @typedef {{ levels: object[], setupCompleted: boolean, templateId: string }} OrgStructureLevelsSchema
  */
 
+const EMPTY_LEVELS = Object.freeze([]);
+
 export async function fetchOrgStructureLevels(orgId) {
   const res = await organizationAPI.getStructureLevels(orgId);
   const schema = unwrapOrgApi(res);
@@ -38,7 +40,7 @@ export function useOrgStructureLevels(orgId, options = {}) {
     staleTime: STALE_TIME_ORG_LEVELS_MS,
   });
 
-  const schemaLevels = enabled && Array.isArray(query.data?.levels) ? query.data.levels : [];
+  const schemaLevels = enabled && Array.isArray(query.data?.levels) ? query.data.levels : EMPTY_LEVELS;
   const levels = useMemo(
     () => schemaLevels.filter((l) => l && l.enabled !== false && l.key),
     [schemaLevels]

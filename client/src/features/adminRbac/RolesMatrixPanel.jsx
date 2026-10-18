@@ -200,7 +200,7 @@ export default function RolesMatrixPanel({ orgId }) {
                       {group.slots.map((slot) => (
                         <tr
                           key={slot.key}
-                          className="border-t border-border transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
+                          className="border-t border-border hover:bg-muted vh-motion-row vh-motion-respect"
                         >
                           <th scope="row" className="sticky left-0 z-10 bg-background px-3 py-1.5 text-left font-normal">
                             <span title={slot.key}>

@@ -2,8 +2,20 @@ const { orgUnauthorized, orgAccessDenied, sendServiceError } = require('../utils
 const axios = require('axios');
 const { isTrustedGatewayForward } = require('@enterprise/shared/middleware/gatewayTrust');
 const { checkMasterGrant } = require('../clients/rbacPermission.client');
+const { readStoredSystemAdminState } = require('../clients/storedSystemRole.client');
 const { resolveAuthorizeOrGrant } = require('../utils/authorizeOrGrantDecision');
 const { resolveOrgAccess } = require('../utils/orgAccess');
+
+/** Khóa bảo trì catalog. Không gồm mời người, policy, structure.update, employee.update. */
+const STORED_ADMIN_MAINTAIN_KEYS = new Set([
+  'organization.organization_role.view',
+  'organization.organization_role.update',
+  'organization.position.view',
+  'organization.position.create',
+  'organization.position.update',
+  'organization.structure.view',
+  'organization.employee.view',
+]);
 
 const AUTH_SERVICE_URL = String(process.env.AUTH_SERVICE_URL || '').trim().replace(/\/+$/, '');
 if (!AUTH_SERVICE_URL) throw new Error('Thiếu biến môi trường: AUTH_SERVICE_URL');
@@ -81,28 +93,28 @@ exports.authorize = (roles) => {
   };
 };
 
-/** owner/admin (roles) hoặc đã vào org và có master grant V2 — không bypass systemRole. */
-exports.authorizeOrGrant = (roles, masterKey) => {
+/** Đã vào org và có đúng master grant, hoặc system admin đã đối chiếu DB trên khóa bảo trì. */
+exports.authorizeOrGrant = (_roles, masterKey) => {
   return async (req, res, next) => {
     const { membership, normalizedRole, orgId, userId, orgAccessOk } = await loadActiveMembership(req);
-    const membershipPass = resolveAuthorizeOrGrant({
-      membership,
-      normalizedRole,
-      roles,
-      grantAllowed: false,
-    });
-    if (membershipPass.allow) {
-      req.membership = { ...membershipPlain(membership), normalizedRole };
-      return next();
-    }
     const grantAllowed =
       orgAccessOk && masterKey ? await checkMasterGrant(userId, orgId, masterKey) : false;
+    let storedAdminVerified = req.storedSystemAdminVerified === true;
+    if (
+      !grantAllowed &&
+      !storedAdminVerified &&
+      orgAccessOk &&
+      masterKey &&
+      STORED_ADMIN_MAINTAIN_KEYS.has(masterKey)
+    ) {
+      const stored = await readStoredSystemAdminState(userId);
+      storedAdminVerified = stored.state === 'admin';
+    }
     const decision = resolveAuthorizeOrGrant({
       membership,
-      normalizedRole,
-      roles,
       grantAllowed,
       orgAccessOk,
+      storedAdminVerified,
     });
     if (!decision.allow) {
       return orgAccessDenied(res);

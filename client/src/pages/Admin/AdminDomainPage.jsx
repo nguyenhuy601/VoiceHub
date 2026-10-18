@@ -1,15 +1,18 @@
+import { useMemo } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAppStrings } from '../../locales/appStrings';
 import {
+  ADMIN_DOMAINS,
   findAdminNavItem,
   flattenAdminNavItems,
   normalizeAdminPath,
   resolveAdminDomainFromPath,
   resolveAdminLegacyRedirect,
 } from '../../config/adminDomainsConfig';
-import { useCompanyAdminContext } from './CompanyAdminLayout';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { collectAdminRouteEntries, decideAdminRoute } from '../../config/adminRouteAccess';
 import { navItemIsAllowed } from '../../config/rbacUiGrantMap';
+import { useCompanyAdminContext } from './CompanyAdminLayout';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import CompanyAdminSettingsPage from './CompanyAdminSettingsPage';
 import AdminModulePlaceholderPage from './AdminModulePlaceholderPage';
 import AdminFeatureDisabledPage from './AdminFeatureDisabledPage';
@@ -292,9 +295,10 @@ const TASK_PANELS = {
 
 export default function AdminDomainPage() {
   const location = useLocation();
-  const { t } = useAppStrings();
   const { orgId, isFullAccess } = useCompanyAdminContext();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const { isSystemAdmin } = useCompanyAdminAccess();
+  const { hasGrant, scopeOf } = useEffectiveMasterGrants(orgId);
+  const entries = useMemo(() => collectAdminRouteEntries(ADMIN_DOMAINS), []);
   const currentPath = String(location.pathname || '').replace(/\/+$/, '') || '/app/admin';
 
   const legacy = resolveAdminLegacyRedirect(location.pathname, location.search);
@@ -322,12 +326,18 @@ export default function AdminDomainPage() {
 
   const impl = match.item.implementation;
 
-  if (!navItemIsAllowed(match.item, { isFullAccess, hasGrant })) {
-    return (
-      <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground" role="alert">
-        {t('adminDomains.noPermission')}
-      </div>
-    );
+  if (!navItemIsAllowed(match.item, { isFullAccess, hasGrant, scopeOf, isSystemAdmin })) {
+    const decision = decideAdminRoute({
+      pathname: location.pathname,
+      entries,
+      hasGrant,
+      scopeOf,
+      isSystemAdmin,
+    });
+    if (decision.action === 'redirect-first-allowed' && decision.path) {
+      return <Navigate to={decision.path} replace />;
+    }
+    return <Navigate to="/app/company/home" replace state={{ routeDenied: 'admin' }} />;
   }
 
   if (impl?.startsWith('settings-')) return <CompanyAdminSettingsPage />;
