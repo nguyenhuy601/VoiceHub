@@ -5,7 +5,10 @@ const { SCOPE_TYPES } = require('../models/OrgRolePermission');
 const OrganizationalPosition = require('../models/OrganizationalPosition');
 const PositionRoleBinding = require('../models/PositionRoleBinding');
 const EmployeePositionAssignment = require('../models/EmployeePositionAssignment');
+const UserOrgRoleGrant = require('../models/UserOrgRoleGrant');
+const { invalidatePermissionCacheForUsers } = require('./grantPermissionCache');
 const { matchActivePosition } = require('../utils/positionAssignMatch');
+const { roleIsOnAllowlist, ensureOrgRoleGrantBaseline } = require('./orgRoleGrantBaseline.service');
 
 const SCOPE_RANK = Object.freeze({
   SELF: 1,
@@ -60,6 +63,12 @@ function assertScope(scopeType) {
 /* ---------- Org Roles ---------- */
 
 async function listRoles(organizationId, { includeDisabled = false } = {}) {
+  try {
+    const { ensureOrgRoleGrantBaseline } = require('./orgRoleGrantBaseline.service');
+    await ensureOrgRoleGrantBaseline(organizationId);
+  } catch (error) {
+    /* listing vẫn chạy nếu seed tick lỗi tạm thời */
+  }
   const oid = asObjectId(organizationId, 'organizationId');
   const filter = { organizationId: oid };
   if (!includeDisabled) filter.status = 'active';
@@ -208,6 +217,7 @@ async function replaceRolePermissionMatrix(organizationId, roleId, entries = [])
 
   await OrgRolePermission.deleteMany({ organizationId: oid, roleId: rid });
   if (normalized.length) await OrgRolePermission.insertMany(normalized);
+  await invalidateUsersHoldingRoles(oid, [rid]);
   return getRolePermissionMatrix(organizationId, roleId);
 }
 
@@ -350,6 +360,7 @@ async function replacePositionRoleBindings(organizationId, positionId, roleIds =
       }))
     );
   }
+  await invalidateUsersOnPositions(oid, [pid]);
   return getPositionRoleBindings(organizationId, positionId);
 }
 
@@ -395,7 +406,38 @@ async function listAssignments(organizationId, { userId = null, status = 'active
   const filter = { organizationId: oid };
   if (status) filter.status = status;
   if (userId) filter.userId = asObjectId(userId, 'userId');
-  return EmployeePositionAssignment.find(filter).sort({ updatedAt: -1 }).lean();
+  const rows = await EmployeePositionAssignment.find(filter).sort({ updatedAt: -1 }).lean();
+  if (!rows.length) return rows;
+  const positionIds = [...new Set(rows.map((row) => String(row.positionId || '')).filter(Boolean))];
+  const [positions, bindings] = await Promise.all([
+    OrganizationalPosition.find({ _id: { $in: positionIds } }).select('name').lean(),
+    PositionRoleBinding.find({ organizationId: oid, positionId: { $in: positionIds } })
+      .select('positionId roleId')
+      .lean(),
+  ]);
+  const roleIds = [...new Set(bindings.map((row) => String(row.roleId || '')).filter(Boolean))];
+  const roles = roleIds.length
+    ? await OrganizationalRole.find({ _id: { $in: roleIds } }).select('name').lean()
+    : [];
+  const positionNameById = new Map(positions.map((row) => [String(row._id), String(row.name || '').trim()]));
+  const roleNameById = new Map(roles.map((row) => [String(row._id), String(row.name || '').trim()]));
+  const roleLabelsByPosition = new Map();
+  for (const binding of bindings) {
+    const label = roleNameById.get(String(binding.roleId || ''));
+    if (!label) continue;
+    const key = String(binding.positionId || '');
+    const labels = roleLabelsByPosition.get(key) || [];
+    if (!labels.includes(label)) labels.push(label);
+    roleLabelsByPosition.set(key, labels);
+  }
+  return rows.map((row) => {
+    const positionKey = String(row.positionId || '');
+    return {
+      ...row,
+      positionName: positionNameById.get(positionKey) || '',
+      orgRoleLabels: roleLabelsByPosition.get(positionKey) || [],
+    };
+  });
 }
 
 async function assignPositionToUser(organizationId, { userId, positionId, departmentId = null } = {}) {
@@ -432,6 +474,7 @@ async function assignPositionToUser(organizationId, { userId, positionId, depart
     status: 'active',
     startAt: new Date(),
   });
+  await invalidatePermissionCacheForUsers(organizationId, [userId]);
   return row.toObject();
 }
 
@@ -444,6 +487,7 @@ async function endAssignment(organizationId, assignmentId) {
     { new: true }
   ).lean();
   if (!row) throw serviceError('Không tìm thấy assignment active', 404, 'ASSIGNMENT_NOT_FOUND');
+  await invalidatePermissionCacheForUsers(organizationId, [row.userId]);
   return row;
 }
 
@@ -452,6 +496,11 @@ async function endAssignment(organizationId, assignmentId) {
  * Path: EmployeePositionAssignment → PositionRoleBinding → OrgRolePermission
  */
 async function resolveEffectiveGrants(organizationId, userId) {
+  try {
+    await ensureOrgRoleGrantBaseline(organizationId);
+  } catch {
+    /* đọc quyền vẫn chạy nếu lần dọn tick lỗi tạm thời */
+  }
   const oid = asObjectId(organizationId, 'organizationId');
   const uid = asObjectId(userId, 'userId');
 
@@ -463,24 +512,33 @@ async function resolveEffectiveGrants(organizationId, userId) {
     .select('positionId departmentId')
     .lean();
 
-  if (!assignments.length) {
-    return { grantScopes: {}, positionIds: [], roleIds: [] };
-  }
-
-  const positionIds = [...new Set(assignments.map((a) => String(a.positionId)))].map(
-    (id) => new mongoose.Types.ObjectId(id)
-  );
-
-  const bindings = await PositionRoleBinding.find({
-    organizationId: oid,
-    positionId: { $in: positionIds },
-  })
+  const personalGrants = await UserOrgRoleGrant.find({ organizationId: oid, userId: uid })
     .select('roleId')
     .lean();
 
-  const roleIds = [...new Set(bindings.map((b) => String(b.roleId)))].map(
+  if (!assignments.length && !personalGrants.length) {
+    return { grantScopes: {}, positionIds: [], roleIds: [] };
+  }
+
+  const positionIds = [...new Set(assignments.map((a) => String(a.positionId)).filter(Boolean))].map(
     (id) => new mongoose.Types.ObjectId(id)
   );
+
+  const bindings = positionIds.length
+    ? await PositionRoleBinding.find({
+        organizationId: oid,
+        positionId: { $in: positionIds },
+      })
+        .select('roleId')
+        .lean()
+    : [];
+
+  const roleIds = [
+    ...new Set([
+      ...bindings.map((b) => String(b.roleId)),
+      ...personalGrants.map((g) => String(g.roleId)),
+    ].filter(Boolean)),
+  ].map((id) => new mongoose.Types.ObjectId(id));
 
   if (!roleIds.length) {
     return {
@@ -495,9 +553,9 @@ async function resolveEffectiveGrants(organizationId, userId) {
     _id: { $in: roleIds },
     status: 'active',
   })
-    .select('_id')
+    .select('_id code name')
     .lean();
-  const activeRoleIds = activeRoles.map((r) => r._id);
+  const activeRoleIds = activeRoles.filter((role) => roleIsOnAllowlist(role)).map((role) => role._id);
 
   const perms = await OrgRolePermission.find({
     organizationId: oid,
@@ -518,6 +576,73 @@ async function resolveEffectiveGrants(organizationId, userId) {
     positionIds: positionIds.map(String),
     roleIds: activeRoleIds.map(String),
   };
+}
+
+async function invalidateUsersOnPositions(organizationId, positionIds) {
+  const ids = (positionIds || []).filter(Boolean);
+  if (!ids.length) return;
+  const rows = await EmployeePositionAssignment.find({
+    organizationId,
+    positionId: { $in: ids },
+    status: 'active',
+  })
+    .select('userId')
+    .lean();
+  await invalidatePermissionCacheForUsers(
+    organizationId,
+    rows.map((row) => row.userId)
+  );
+}
+
+async function invalidateUsersHoldingRoles(organizationId, roleIds) {
+  const ids = (roleIds || []).filter(Boolean);
+  if (!ids.length) return;
+  const bindings = await PositionRoleBinding.find({
+    organizationId,
+    roleId: { $in: ids },
+  })
+    .select('positionId')
+    .lean();
+  const personal = await UserOrgRoleGrant.find({
+    organizationId,
+    roleId: { $in: ids },
+  })
+    .select('userId')
+    .lean();
+  await invalidateUsersOnPositions(
+    organizationId,
+    bindings.map((row) => row.positionId)
+  );
+  await invalidatePermissionCacheForUsers(
+    organizationId,
+    personal.map((row) => row.userId)
+  );
+}
+
+async function replaceUserOrgRoleGrants(organizationId, userId, roleIds = []) {
+  const oid = asObjectId(organizationId, 'organizationId');
+  const uid = asObjectId(userId, 'userId');
+  const ids = [...new Set((Array.isArray(roleIds) ? roleIds : []).map((id) => String(id).trim()).filter(Boolean))];
+  const objectIds = ids.map((id) => asObjectId(id, 'roleId'));
+  if (objectIds.length) {
+    const found = await OrganizationalRole.countDocuments({
+      organizationId: oid,
+      _id: { $in: objectIds },
+      status: 'active',
+    });
+    if (found !== objectIds.length) {
+      throw serviceError('Một hoặc nhiều roleId không thuộc tổ chức / không active', 400, 'ROLE_INVALID');
+    }
+  }
+  await UserOrgRoleGrant.deleteMany({ organizationId: oid, userId: uid });
+  if (objectIds.length) {
+    await UserOrgRoleGrant.insertMany(
+      objectIds.map((roleId) => ({ organizationId: oid, userId: uid, roleId }))
+    );
+  }
+  await invalidatePermissionCacheForUsers(organizationId, [userId]);
+  const rows = await UserOrgRoleGrant.find({ organizationId: oid, userId: uid }).select('roleId').lean();
+  return { userId: String(uid), roleIds: rows.map((row) => String(row.roleId)) };
 }
 
 module.exports = {
@@ -541,4 +666,5 @@ module.exports = {
   assignPositionToUser,
   endAssignment,
   resolveEffectiveGrants,
+  replaceUserOrgRoleGrants,
 };

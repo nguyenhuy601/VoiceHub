@@ -30,11 +30,6 @@ async function requireProjectAuthorization(req, res, next) {
     }
 
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
-    if (resolved.isOrgAdmin || resolved.isCreator) {
-      req.projectAuthz = resolved;
-      return next();
-    }
-
     const perms = resolved.permissions || [];
     // Fail-closed: only explicit view perms (not “any permission”).
     const canView = hasPermission(perms, 'project:view');

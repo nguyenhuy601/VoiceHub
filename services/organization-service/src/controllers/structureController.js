@@ -45,12 +45,6 @@ async function requireOrgAdmin(req, res) {
     orgAccessDenied(res);
     return null;
   }
-  const role = String(access.membership?.role || '').toLowerCase();
-  const systemRole = String(req.user?.systemRole || '').toLowerCase();
-  if (systemRole !== 'admin' && !['owner', 'admin'].includes(role)) {
-    orgAccessDenied(res);
-    return null;
-  }
   return { userId, orgId, access };
 }
 

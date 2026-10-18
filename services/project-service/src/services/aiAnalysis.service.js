@@ -826,7 +826,7 @@ async function assertPlanningGate2Permission({ userId, projectId, permission }) 
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const { hasPermission } = require('../utils/project/projectPermissionMatrix');
   const resolved = await resolveUserProjectPermissions({ userId, projectId: pid });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   if (!bypass && !hasPermission(resolved.permissions, perm)) {
     const err = new Error(
       perm === 'planning:pm_review'

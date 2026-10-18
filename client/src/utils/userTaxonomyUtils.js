@@ -10,6 +10,13 @@ import {
   ORGANIZATION_ROLE_LABELS,
 } from './roleTaxonomy';
 import { coalesceJobTitle } from './jobTitleProfile';
+import { createTranslator } from '../locales/buildStrings';
+import { readStoredLocale } from './localeFormat';
+
+function resolveTranslator(t) {
+  if (typeof t === 'function') return t;
+  return createTranslator(readStoredLocale());
+}
 
 export function memberJobTitle(member) {
   return coalesceJobTitle(member);
@@ -68,6 +75,7 @@ export function buildOrgRoleBadgeByUserId(structure) {
  * @returns {Map<string, Array<{ id: string, label: string, scopeName?: string }>>}
  */
 export function buildOrgRoleRowsByUserId(structure, assignments = [], t) {
+  const tr = resolveTranslator(t);
   const flat = flattenOrgStructure(structure);
   const map = new Map();
 
@@ -85,7 +93,7 @@ export function buildOrgRoleRowsByUserId(structure, assignments = [], t) {
     if (!uid) continue;
     push(uid, {
       id: `dept-${unitId(dept)}`,
-      label: typeof t === 'function' ? t('adminUsers.orgRoleBadgeDeptHead') : 'Trưởng phòng',
+      label: tr('adminUsers.orgRoleBadgeDeptHead'),
       scopeName: unitName(dept),
     });
   }
@@ -94,7 +102,7 @@ export function buildOrgRoleRowsByUserId(structure, assignments = [], t) {
     if (!uid) continue;
     push(uid, {
       id: `team-${unitId(team)}`,
-      label: typeof t === 'function' ? t('adminUsers.orgRoleBadgeTeamLead') : 'Trưởng nhóm',
+      label: tr('adminUsers.orgRoleBadgeTeamLead'),
       scopeName: unitName(team),
     });
   }
@@ -112,7 +120,10 @@ export function buildOrgRoleRowsByUserId(structure, assignments = [], t) {
     }
     push(uid, {
       id: `assign-${roleKey}-${uid}`,
-      label: String(a.roleLabel || ORGANIZATION_ROLE_LABELS[roleKey] || roleKey).trim(),
+      label: String(
+        ORGANIZATION_ROLE_LABELS[roleKey] || a.roleLabel || roleKey
+      ).trim(),
+      roleKey,
       scopeName: a.scopeName || '',
     });
   }
@@ -121,8 +132,9 @@ export function buildOrgRoleRowsByUserId(structure, assignments = [], t) {
 }
 
 export function orgRoleBadgeLabel(key, t) {
-  if (key === 'dept_head') return t('adminUsers.orgRoleBadgeDeptHead');
-  if (key === 'team_lead') return t('adminUsers.orgRoleBadgeTeamLead');
+  const tr = resolveTranslator(t);
+  if (key === 'dept_head') return tr('adminUsers.orgRoleBadgeDeptHead');
+  if (key === 'team_lead') return tr('adminUsers.orgRoleBadgeTeamLead');
   return ORGANIZATION_ROLE_LABELS[key] || key;
 }
 

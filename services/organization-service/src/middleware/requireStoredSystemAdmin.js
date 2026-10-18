@@ -35,6 +35,7 @@ async function requireStoredSystemAdmin(req, res, next) {
   }
 
   if (req.user) req.user.systemRole = 'admin';
+  req.storedSystemAdminVerified = true;
   return next();
 }
 

@@ -50,16 +50,16 @@ export default function RbacTaxonomyHubPanel() {
           </AdminUserFormCard>
         ))}
       </div>
-      <AdminUserFormCard title={t('adminDomains.rbac.posAssign', 'Gán vị trí')}>
+      <AdminUserFormCard title={t('adminDomains.rbac.posAssignQuickLinksTitle')}>
         <div className="flex flex-wrap gap-2">
           <Link to="/app/admin/rbac/org-roles" className={adminSecondaryBtnClass()}>
             {t('adminRbac.taxonomyLinkOrgRoles')}
           </Link>
           <Link to="/app/admin/rbac/positions" className={adminSecondaryBtnClass()}>
-            {t('adminRbac.listLinkPosition', 'Danh sách vị trí')}
+            {t('adminRbac.listLinkPosition')}
           </Link>
           <Link to="/app/admin/rbac/positions/assign" className={adminSecondaryBtnClass()}>
-            {t('adminDomains.rbac.posAssign', 'Gán vị trí cho nhân viên')}
+            {t('adminDomains.rbac.posAssign')}
           </Link>
         </div>
       </AdminUserFormCard>

@@ -124,14 +124,8 @@ function assertMustCompleteBeforeArchive(project) {
   }
 }
 
-/** Archive sớm: org elevated hoặc project:delete; ngược lại cần status=closed. */
-function canSkipCompleteGateBeforeArchive({
-  isOrgAdmin = false,
-  isCreator = false,
-  permissions = [],
-  legacyOrgAdmin = false,
-} = {}) {
-  if (legacyOrgAdmin || isOrgAdmin || isCreator) return true;
+/** Archive sớm chỉ khi có project:delete. Membership và người tạo không bỏ cổng. */
+function canSkipCompleteGateBeforeArchive({ permissions = [] } = {}) {
   const { hasPermission } = require('./projectPermissionMatrix');
   return hasPermission(permissions, 'project:delete');
 }

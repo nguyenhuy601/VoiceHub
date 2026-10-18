@@ -196,12 +196,16 @@ function OrganizationSettingsPanel({
   const orgId = organization?._id || organization?.id;
   const myRole = String(organization?.myRole || 'member').toLowerCase();
 
-  const { hasGrant } = useGrantScopes(orgId);
+  const { hasGrant, loading: grantsLoading } = useGrantScopes(orgId);
   /** Tab quản trị org: theo grant từ vị trí, không theo membership owner/admin. */
   const isFullAccess =
-    hasGrant('organization.structure.update') ||
-    hasGrant('organization.employee.update') ||
-    hasGrant('organization.policy.update');
+    !grantsLoading &&
+    (hasGrant('organization.structure.view') ||
+      hasGrant('organization.structure.update') ||
+      hasGrant('organization.employee.view') ||
+      hasGrant('organization.employee.update') ||
+      hasGrant('organization.department.view') ||
+      hasGrant('organization.policy.update'));
   const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -380,7 +384,7 @@ function OrganizationSettingsPanel({
   }, [orgId, isFullAccess, activeTab, loadStructure]);
 
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId || grantsLoading) return;
     const first = lockTab || (isFullAccess ? 'general' : 'profile');
     const allowed = (isFullAccess ? buildAdminTabs(t) : buildMemberTabs(t)).map((tab) => tab.id);
     const urlTab = lockTab || searchParams.get('tab') || initialTab;
@@ -406,7 +410,7 @@ function OrganizationSettingsPanel({
     } catch {
       /* ignore */
     }
-  }, [orgId, isFullAccess, initialTab, lockTab, searchParams, loadOrgFromApi, t]);
+  }, [orgId, isFullAccess, grantsLoading, initialTab, lockTab, searchParams, loadOrgFromApi, t]);
 
   useEffect(() => {
     if (!user) return;
@@ -885,13 +889,7 @@ function OrganizationSettingsPanel({
     [tabs, tabIconMap]
   );
   const roleLabel =
-    myRole === 'owner'
-      ? t('organizationSettings.roleOwner')
-      : myRole === 'admin'
-        ? t('organizationSettings.roleAdmin')
-        : myRole === 'hr'
-          ? t('organizationSettings.roleHr')
-          : t('organizationSettings.roleMember');
+    myRole === 'admin' ? t('adminUsers.roleAdmin') : t('adminUsers.roleMember');
   const roleHint = !isFullAccess ? t('organizationSettings.roleHintMember') : '';
 
   const gc = suiteLayout ? FIGMA_PAGE_CARD : 'border border-border bg-slate-900/60';

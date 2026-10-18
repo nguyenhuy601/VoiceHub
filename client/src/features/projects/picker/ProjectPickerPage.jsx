@@ -22,6 +22,7 @@ import useTaskWorkspaceScope from '../../../hooks/useTaskWorkspaceScope';
 import { resolveLandingCreateActions } from '../landing/projectsLandingCreateActions';
 import { resolveAiProjectEntryPath } from '../phase1/aiHitl/aiHitlNavState';
 import { loadLinkedPackForAiNav } from '../phase1/aiHitl/loadLinkedPackForAiNav';
+import { useRouteDeniedNotice } from '../../../config/routeDeniedNotice';
 
 function isMyProject(project) {
   const mb = project?.myMembership;
@@ -34,6 +35,7 @@ function isMyProject(project) {
 /** Project Picker gate — chọn dự án trước khi vào module. */
 export default function ProjectPickerPage() {
   const { t } = useAppStrings();
+  const deniedMessage = useRouteDeniedNotice('project');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [enteringId, setEnteringId] = useState(null);
@@ -139,7 +141,8 @@ export default function ProjectPickerPage() {
 
   if (!orgId) {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-sm text-muted-foreground">
+        {deniedMessage ? <p role="status">{deniedMessage}</p> : null}
         {t('organizations.selectOrgFirst')}
       </div>
     );
@@ -147,7 +150,8 @@ export default function ProjectPickerPage() {
 
   if (listLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+        {deniedMessage ? <p role="status">{deniedMessage}</p> : null}
         {t('common.loading')}
       </div>
     );
@@ -156,6 +160,7 @@ export default function ProjectPickerPage() {
   if (projectsError) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        {deniedMessage ? <p role="status" className="text-sm text-muted-foreground">{deniedMessage}</p> : null}
         <p className="text-sm text-muted-foreground">{t('nav.projectsLoadFail')}</p>
         <button
           type="button"
@@ -170,6 +175,11 @@ export default function ProjectPickerPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {deniedMessage ? (
+        <p className="shrink-0 border-b border-border bg-card px-4 py-3 text-sm text-muted-foreground" role="status">
+          {deniedMessage}
+        </p>
+      ) : null}
       {continueProject ? (
         <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-3">
           <button

@@ -115,7 +115,7 @@ export default function RoleRevokePanel({ orgId, embedded = false }) {
   const renderRoleRow = (item, { hierarchy = false } = {}) => (
     <li
       key={item.rid}
-      className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
+      className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted vh-motion-row vh-motion-respect"
     >
       <span>{normalizeRoleDisplayName(item.role?.name || item.rid)}</span>
       <GradientButton

@@ -282,6 +282,18 @@ async function resolveEffectiveGrants(req, res) {
   }
 }
 
+async function replaceUserOrgRoleGrants(req, res) {
+  try {
+    const orgId = String(req.params.orgId || '').trim();
+    const userId = String(req.params.userId || '').trim();
+    if (!orgId || !userId) return orgValidation(res, 'organizationId và userId bắt buộc');
+    const data = await orgRbac.replaceUserOrgRoleGrants(orgId, userId, req.body?.roleIds || []);
+    return sendData(res, data);
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
 module.exports = {
   listRoles,
   createRole,
@@ -301,4 +313,5 @@ module.exports = {
   assignPosition,
   endAssignment,
   resolveEffectiveGrants,
+  replaceUserOrgRoleGrants,
 };

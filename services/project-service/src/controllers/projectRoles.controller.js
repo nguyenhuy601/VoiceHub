@@ -1,6 +1,6 @@
 const ProjectRole = require('../models/ProjectRole');
 const ProjectMembership = require('../models/ProjectMembership');
-const { fetchTaskWorkspaceScope } = require('../services/taskWorkspaceScope');
+const { readStoredSystemAdminState } = require('../clients/storedSystemRole.client');
 const { ensureOrgProjectRoles } = require('../services/projectTeam.service');
 const { sendServiceError, sendErrorFromCatch } = require('../middleware/sendServiceError');
 const { allocateUniqueRoleKey, ensureRoleKeyNamespace } = require('@enterprise/shared/utils/roleKeySlug');
@@ -29,11 +29,6 @@ function asOrgId(req) {
   ).trim();
 }
 
-function isOrgOwnerAdmin(membershipRole) {
-  const r = String(membershipRole || '').toLowerCase();
-  return r === 'owner' || r === 'admin';
-}
-
 async function requireOrgAdmin(req) {
   const userId = asUserId(req);
   const orgId = asOrgId(req);
@@ -44,10 +39,15 @@ async function requireOrgAdmin(req) {
     throw Object.assign(new Error('organizationId bắt buộc'), { statusCode: 400, errorCode: 'VALIDATION_REQUIRED' });
   }
 
-  const scope = await fetchTaskWorkspaceScope(userId, orgId);
-  const membershipRole = scope?.membershipRole;
-  if (!scope || !isOrgOwnerAdmin(membershipRole)) {
-    throw Object.assign(new Error('Forbidden'), { statusCode: 403, errorCode: 'ORG_ACCESS_DENIED' });
+  const stored = await readStoredSystemAdminState(userId);
+  if (stored.state === 'unavailable') {
+    throw Object.assign(new Error('Không thể xác minh quyền quản trị hệ thống'), {
+      statusCode: 503,
+      errorCode: 'AUTH_SYSTEM_ROLE_UNAVAILABLE',
+    });
+  }
+  if (stored.state !== 'admin') {
+    throw Object.assign(new Error('Forbidden'), { statusCode: 403, errorCode: 'AUTH_SYSTEM_ADMIN_REQUIRED' });
   }
   return { userId, orgId };
 }

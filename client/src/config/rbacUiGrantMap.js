@@ -309,10 +309,59 @@ export function navItemRequiredGrant(item) {
   return ADMIN_NAV_REQUIRED_GRANT[String(item?.id || '').trim()] || '';
 }
 
-export function navItemIsAllowed(item, { hasGrant } = {}) {
+const ADMIN_PAGE_SCOPES = new Set(['DEPARTMENT', 'ORGANIZATION', 'SYSTEM', 'GLOBAL']);
+
+/** SELF chỉ xem hồ sơ mình — không mở trang quản trị. */
+export function adminScopeOpensPage(scope) {
+  return ADMIN_PAGE_SCOPES.has(String(scope || '').trim().toUpperCase());
+}
+
+export function hasAnyAdminNavGrant(hasGrant, scopeOf) {
+  if (typeof hasGrant !== 'function' || typeof scopeOf !== 'function') return false;
+  return Object.values(ADMIN_NAV_REQUIRED_GRANT).some((key) => {
+    if (!hasGrant(key)) return false;
+    return adminScopeOpensPage(scopeOf(key));
+  });
+}
+
+/** Khớp STORED_ADMIN_MAINTAIN_KEYS bên organization-service. Không gồm policy, audit, mời người. */
+const OPERATOR_MAINTAIN_GRANTS = new Set([
+  'organization.organization_role.view',
+  'organization.organization_role.update',
+  'organization.position.view',
+  'organization.position.create',
+  'organization.position.update',
+  'organization.structure.view',
+  'organization.employee.view',
+]);
+
+function operatorSurfacePath(item) {
+  const path = String(item?.path || '').split('?')[0].replace(/\/+$/, '');
+  if (!path) return false;
+  if (path === '/app/admin/backup' || path.startsWith('/app/admin/backup/')) return true;
+  if (path === '/app/admin/rbac/project-roles' || path.startsWith('/app/admin/rbac/project-roles/')) {
+    return true;
+  }
+  return false;
+}
+
+function scopedGrantOpens(key, hasGrant, scopeOf) {
+  if (!key || typeof hasGrant !== 'function' || typeof scopeOf !== 'function') return false;
+  if (!hasGrant(key)) return false;
+  return adminScopeOpensPage(scopeOf(key));
+}
+
+export function navItemIsAllowed(item, { hasGrant, scopeOf, isSystemAdmin = false } = {}) {
   const key = navItemRequiredGrant(item);
-  if (!key) return false;
-  return typeof hasGrant === 'function' ? Boolean(hasGrant(key)) : false;
+  if (isSystemAdmin && (operatorSurfacePath(item) || OPERATOR_MAINTAIN_GRANTS.has(key))) {
+    return true;
+  }
+  if (scopedGrantOpens(key, hasGrant, scopeOf)) return true;
+  // Hub cấu hình ghi policy.view. Director chỉ có policy.update — mã sửa mở cùng cửa.
+  if (key === RBAC_GRANT.POLICY_VIEW && scopedGrantOpens(RBAC_GRANT.POLICY_UPDATE, hasGrant, scopeOf)) {
+    return true;
+  }
+  return false;
 }
 
 export function filterAdminNavItemsByGrant(items, ctx) {

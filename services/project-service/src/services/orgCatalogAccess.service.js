@@ -38,10 +38,7 @@ async function assertCanReadOrgCatalog({ organizationId, userId, projectId }) {
   if (isProjectRbacEnabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId: pid });
-    const can =
-      hasPermission(resolved.permissions, 'settings:view') ||
-      resolved.isOrgAdmin ||
-      resolved.isCreator;
+    const can = hasPermission(resolved.permissions, 'settings:view');
     if (!can) {
       const err = new Error('Không có quyền xem catalog (cần settings:view trên dự án)');
       err.statusCode = 403;

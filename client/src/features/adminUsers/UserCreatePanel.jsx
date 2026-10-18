@@ -357,7 +357,6 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
             onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
           >
             <option value="member">{t('adminUsers.roleMember')}</option>
-            <option value="hr">{t('adminUsers.roleHr')}</option>
             <option value="admin">{t('adminUsers.roleAdmin')}</option>
           </select>
           <p className="mt-1.5 text-xs text-muted-foreground">{t('adminUsers.membershipRoleInviteHint')}</p>

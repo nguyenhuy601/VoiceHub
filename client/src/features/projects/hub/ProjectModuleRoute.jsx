@@ -35,6 +35,9 @@ import { SpaceProvider, SPACE_KIND } from '../../../context/SpaceContext';
 import { fetchProjectHubProject } from './useProjectHubQueries';
 import { queryKeys } from '../../../lib/queryKeys';
 import { useAppStrings } from '../../../locales/appStrings';
+import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
+import { isProjectMembershipDenied } from '../../../config/routeDeniedNotice';
+import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { isAiHitlIncomplete, resolveAiProjectEntryPath } from '../phase1/aiHitl/aiHitlNavState';
 import { loadLinkedPackForAiNav } from '../phase1/aiHitl/loadLinkedPackForAiNav';
 import { shouldDenyProjectEntry } from '../projectRoleEntry';
@@ -136,14 +139,27 @@ export default function ProjectModuleRoute() {
     );
   }
 
-  if (
-    shouldDenyProjectEntry({
-      projectRow,
-      isError: projectError,
-      error: projectLoadError,
-    })
-  ) {
-    return <ProjectRoleDeniedRedirect projectId={projectId} orgId={orgId} />;
+  if (projectError && !projectRow) {
+    if (isProjectMembershipDenied(projectQueryError)) {
+      return (
+        <Navigate
+          to={buildProjectsPickerPath(orgId)}
+          replace
+          state={{ routeDenied: 'project' }}
+        />
+      );
+    }
+    return (
+      <div className="flex min-h-[12rem] items-center justify-center p-6">
+        <AdminLoadErrorState
+          message={resolveApiErrorMessage(projectQueryError, {
+            t,
+            fallback: t('workspace.projectsLoadFail'),
+          })}
+          onRetry={() => void refetchProject()}
+        />
+      </div>
+    );
   }
 
   if (needsAiHitlGuard && packPending && linkedPack === undefined) {

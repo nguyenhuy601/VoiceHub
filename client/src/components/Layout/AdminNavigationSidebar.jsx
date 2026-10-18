@@ -456,13 +456,14 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
             setupCompleted: orgStructureSetupCompleted === true,
           })
         : raw;
-    return filterAdminDomainByGrant(leveled, { isFullAccess, hasGrant });
+    return filterAdminDomainByGrant(leveled, { isFullAccess, hasGrant, isSystemAdmin });
   }, [
     visibleDomains,
     selectedDomainId,
     orgStructureLevels,
     orgStructureSetupCompleted,
     isFullAccess,
+    isSystemAdmin,
     hasGrant,
   ]);
 
@@ -479,12 +480,12 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
       section.items.some((item) => isActivePath(item))
     );
     if (!activeSection) return;
-    const domainId = selectedDomain.id;
-    const sectionId = activeSection.id;
-    // Chỉ setState khi đổi section — tránh loop nếu selectedDomain reference đổi mỗi render.
     setExpandedSectionByDomain((prev) => {
-      if (prev[domainId] === sectionId) return prev;
-      return { ...prev, [domainId]: sectionId };
+      if (prev[selectedDomain.id] === activeSection.id) return prev;
+      return {
+        ...prev,
+        [selectedDomain.id]: activeSection.id,
+      };
     });
   }, [selectedDomain, currentPath]);
 

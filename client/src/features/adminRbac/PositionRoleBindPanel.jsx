@@ -123,7 +123,7 @@ export default function PositionRoleBindPanel({ orgId }) {
     setSaving(true);
     try {
       await orgRbacAPI.putPositionRoles(orgId, positionId, selectedRoleIds);
-      toast.success(t('adminDomains.rbac.positionRolesSaved', 'Đã gắn vai trò vào vị trí'));
+      toast.success(t('adminDomains.rbac.positionRolesSaved'));
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, { t, fallback: t('common.saveFail') }));
     } finally {
@@ -133,18 +133,15 @@ export default function PositionRoleBindPanel({ orgId }) {
 
   return (
     <AdminUserPanelShell
-      title={t('adminDomains.rbac.positionRoleBind', 'Gán vai trò vào vị trí')}
-      hint={t(
-        'adminDomains.rbac.positionRoleBindHint',
-        'Vị trí không có permission trực tiếp — chỉ liên kết tới một hoặc nhiều vai trò tổ chức.'
-      )}
+      title={t('adminDomains.rbac.positionRoleBind')}
+      hint={t('adminDomains.rbac.positionRoleBindHint')}
     >
       {loading ? <AdminBusySpinner /> : null}
       {!loading && error ? <AdminLoadErrorState message={error} /> : null}
       {!loading && !error ? (
-        <AdminUserFormCard title={t('adminDomains.rbac.sectionPositions', 'Vị trí tổ chức')}>
+        <AdminUserFormCard title={t('adminDomains.rbac.sectionPositions')}>
           <label className="flex flex-col gap-1 text-sm">
-            <span>{t('adminDomains.rbac.selectPosition', 'Chọn vị trí')}</span>
+            <span>{t('adminDomains.rbac.selectPosition')}</span>
             <select
               className="max-w-md rounded-md border border-border bg-background px-2 py-1.5"
               value={positionId}
@@ -180,12 +177,12 @@ export default function PositionRoleBindPanel({ orgId }) {
                 disabled={saving}
                 onClick={save}
               >
-                {saving ? t('common.saving', 'Đang lưu…') : t('common.save', 'Lưu')}
+                {saving ? t('common.saving') : t('common.save')}
               </button>
             </>
           ) : (
             <p className="mt-3 text-sm text-muted-foreground">
-              {t('adminDomains.rbac.selectPositionFirst', 'Chọn vị trí để gắn vai trò.')}
+              {t('adminDomains.rbac.selectPositionFirst')}
             </p>
           )}
         </AdminUserFormCard>

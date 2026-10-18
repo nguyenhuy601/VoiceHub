@@ -475,28 +475,8 @@ function hasPermission(permissionSet, permissionKey) {
 /**
  * Map permission set → legacy boardCapabilities shape (1 release adapter).
  */
-function permissionsToBoardCapabilities(perms = [], { isCreator = false, isOrgAdmin = false } = {}) {
+function permissionsToBoardCapabilities(perms = []) {
   const set = perms instanceof Set ? perms : new Set(normalizePermissionList(perms));
-  if (isCreator || isOrgAdmin) {
-    return {
-      canView: true,
-      canManageBoard: true,
-      canManageLists: true,
-      canCreateCards: true,
-      canEditCards: true,
-      canAssign: true,
-      canMoveCards: true,
-      canMoveToDone: true,
-      canChangeStatus: true,
-      canUseAiConfirm: true,
-      canManageMembers: true,
-      canViewMembers: true,
-      canUpdateSettings: true,
-      canViewFiles: true,
-      canViewRepository: true,
-      permissions: [...PROJECT_PERMISSION_KEYS],
-    };
-  }
   // Mỗi capability = đúng 1 permission key (không OR chéo domain).
   const canManageMembers = hasPermission(set, 'members:manage');
   return {

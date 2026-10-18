@@ -31,7 +31,7 @@ function cacheKey(userId, serverId, action) {
 }
 
 /**
- * Grant vị trí hoặc hồ sơ user (user:read/user:write) không đủ: hỏi kho auth.
+ * Hồ sơ user (user:read/user:write) không đủ: hỏi kho auth.
  * Chỉ bản ghi system admin đang hiệu lực được phép. Claim JWT không tham gia.
  * @returns {Promise<'allow'|'deny'|'unavailable'|'skip'>}
  */

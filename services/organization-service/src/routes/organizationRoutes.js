@@ -219,6 +219,12 @@ router.post(
   orgRbacMatrixController.endAssignment
 );
 
+router.put(
+  '/:orgId/members/:userId/org-role-grants',
+  authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
+  orgRbacMatrixController.replaceUserOrgRoleGrants
+);
+
 router.get(
   '/:orgId/channels/:channelId/access',
   authorizeOrGrant(['owner', 'admin'], 'communication.channel.view'),
@@ -393,7 +399,7 @@ router.patch(
 );
 
 router.get('/:id', organizationController.getOrganization);
-router.put('/:id', authorize(['owner', 'admin']), organizationController.updateOrganization);
-router.delete('/:id', authorize(['owner']), organizationController.deleteOrganization);
+router.put('/:id', requireStoredSystemAdmin, organizationController.updateOrganization);
+router.delete('/:id', requireStoredSystemAdmin, organizationController.deleteOrganization);
 
 module.exports = router;

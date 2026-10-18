@@ -7,9 +7,13 @@ import AdminUserDetailDrawer from '../../components/adminUsers/AdminUserDetailDr
 import {
   AdminDenseMobileList,
   adminDenseRowClass,
+  adminFilterSelectClass,
+  adminHoverRowClass,
+  adminListIconBtnClass,
   adminPrimaryBtnClass,
   adminSecondaryBtnClass,
 } from '../../components/adminUsers/adminUserPanelUi';
+import { VH_MOTION_BTN } from '../../motion/classes';
 import { useCompanyAdminContext } from '../../pages/Admin/CompanyAdminLayout';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { orgRbacAPI } from '../../services/api/orgRbacAPI';
@@ -52,11 +56,9 @@ const STATUS_BADGE = {
   mustChangePassword: 'bg-info-bg text-info ring-1 ring-info',
 };
 
-const FILTER_SELECT_CLASS =
-  'w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none';
+const FILTER_SELECT_CLASS = adminFilterSelectClass();
 
-const LIST_ICON_BTN_CLASS =
-  'inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none';
+const LIST_ICON_BTN_CLASS = adminListIconBtnClass();
 
 function CapabilityStatusBadge({ status, t }) {
   const key = ['pending_hr', 'verified', 'rejected'].includes(status) ? status : 'draft';
@@ -136,7 +138,7 @@ function SortableTh({ label, columnKey, activeKey, dir, onSort }) {
     >
       <button
         type="button"
-        className="inline-flex items-center gap-1 rounded uppercase tracking-wide transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+        className={`inline-flex items-center gap-1 rounded uppercase tracking-wide hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${VH_MOTION_BTN}`}
         onClick={() => onSort(columnKey)}
       >
         {label}
@@ -159,11 +161,11 @@ function fetchUsersListEnrichment(orgId) {
   const task = (async () => {
     let assignmentsFailed = false;
     const [structureRes, assignRes, positionRes, positionAssignRes] = await Promise.all([
-      organizationAPI.getStructure(key),
-      orgRoleCatalogAPI.listAssignments(key).catch(() => {
+      organizationAPI.getStructure(key).catch(() => {
         assignmentsFailed = true;
         return null;
       }),
+      orgRoleCatalogAPI.listAssignments(key).catch(() => null),
       organizationAPI.listHrPositions(key).catch(() => null),
       orgRbacAPI.listAssignments(key, { status: 'active' }).catch(() => null),
     ]);
@@ -319,17 +321,27 @@ export default function UsersListPanel({ orgId }) {
           ])
         );
         const nextPositionByUser = {};
+        const roleFromPosition = {};
         for (const row of Array.isArray(positionAssignments) ? positionAssignments : []) {
           const uid = String(row?.userId || '').trim();
-          const name = positionNameById.get(String(row?.positionId || '').trim());
-          if (!uid || !name || nextPositionByUser[uid]) continue;
-          nextPositionByUser[uid] = name;
+          const name =
+            String(row?.positionName || '').trim() ||
+            positionNameById.get(String(row?.positionId || '').trim());
+          if (uid && name && !nextPositionByUser[uid]) nextPositionByUser[uid] = name;
+          const labels = Array.isArray(row?.orgRoleLabels) ? row.orgRoleLabels.filter(Boolean) : [];
+          if (uid && labels.length && !roleFromPosition[uid]) {
+            roleFromPosition[uid] = labels.map((label) => ({ label }));
+          }
         }
         if (!cancelled) {
           setStructureMaps(collectDeptTeamMaps(body));
-          // Chỉ vai trò tổ chức đã gán. Trưởng phòng/nhóm trên cơ cấu không phải vai trò tổ chức.
+          // Vai trò theo vị trí. Gán riêng (nếu có) được giữ khi vị trí chưa có nhãn.
           const rowMap = buildOrgRoleRowsByUserId({ branches: [] }, assignments, tRef.current);
-          setOrgRoleByUser(Object.fromEntries(rowMap));
+          const mergedRoles = Object.fromEntries(rowMap);
+          for (const [uid, rows] of Object.entries(roleFromPosition)) {
+            if (!mergedRoles[uid]?.length) mergedRoles[uid] = rows;
+          }
+          setOrgRoleByUser(mergedRoles);
           setPositionByUser(nextPositionByUser);
           setStructureLoadFailed(assignmentsFailed);
         }
@@ -518,7 +530,7 @@ export default function UsersListPanel({ orgId }) {
               placeholder={t('adminUsers.searchPlaceholder')}
               aria-label={t('adminUsers.searchPlaceholder')}
               maxLength={120}
-              className="w-full rounded-xl border border-border bg-background py-2.5 pl-9 pr-3 text-sm outline-none transition-colors duration-150 focus:ring-2 focus:ring-ring focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              className={`${adminFilterSelectClass()} py-2.5 pl-9 pr-3`}
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -530,7 +542,7 @@ export default function UsersListPanel({ orgId }) {
                 aria-controls="users-list-filters"
                 aria-haspopup="dialog"
                 onClick={() => setFiltersOpen((open) => !open)}
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground transition-colors duration-150 hover:bg-muted active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                className={adminSecondaryBtnClass('px-3 py-2.5 active:bg-muted')}
               >
                 <SlidersHorizontal className="h-4 w-4" aria-hidden />
                 {t('adminUsers.filters')}
@@ -557,9 +569,7 @@ export default function UsersListPanel({ orgId }) {
                     aria-label={t('adminUsers.filterRoleAria')}
                   >
                     <option value="">{t('adminUsers.filterAllRoles')}</option>
-                    <option value="owner">{t('organizations.roleOwner')}</option>
                     <option value="admin">{t('adminUsers.roleAdmin')}</option>
-                    <option value="hr">{t('adminUsers.roleHr')}</option>
                     <option value="member">{t('adminUsers.roleMember')}</option>
                   </select>
                   <select
@@ -618,7 +628,7 @@ export default function UsersListPanel({ orgId }) {
                     <button
                       type="button"
                       onClick={clearListFilters}
-                      className="w-full rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                      className={adminHoverRowClass('w-full rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring')}
                     >
                       {t('adminUsers.filtersClear')}
                     </button>
@@ -882,6 +892,9 @@ export default function UsersListPanel({ orgId }) {
         }}
         organizationalPosition={
           detailMember ? positionByUser[memberUserId(detailMember)] || '' : ''
+        }
+        orgRoleRows={
+          detailMember ? orgRoleByUser[memberUserId(detailMember)] || [] : []
         }
       />
     </div>

@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useAuth } from '../context/AuthContext';
+import { hasAnyAdminNavGrant } from '../config/rbacUiGrantMap';
+import { useGrantScopes } from './useGrantScopes';
 import { readSingleOrgModeFlag } from '../utils/singleCompanyMode';
 
-const HUB_ROLES = new Set(['owner', 'admin', 'hr']);
 const FULL_ACCESS_ROLES = new Set(['owner', 'admin']);
 
 export function useCompanyAdminAccess() {
@@ -30,12 +31,11 @@ export function useCompanyAdminAccess() {
     [user?.systemRole]
   );
 
-  // systemRole=admin: vào app quản trị hệ thống ngay cả khi org chưa hydrate.
-  // owner|admin|hr org: hub công ty khi đã có orgId.
   const isSystemAdmin = systemRole === 'admin';
   const isOrgOwnerOrAdmin = FULL_ACCESS_ROLES.has(myOrgRole);
-  const canAccessHub = isSystemAdmin || (Boolean(orgId) && HUB_ROLES.has(myOrgRole));
-  const isFullAccess = isSystemAdmin || isOrgOwnerOrAdmin;
+  const { hasGrant, scopeOf, loading: grantsLoading, error: grantsError } = useGrantScopes(orgId);
+  const canAccessHub = isSystemAdmin || hasAnyAdminNavGrant(hasGrant, scopeOf);
+  const isFullAccess = false;
 
   return {
     isSingleCompany,
@@ -43,6 +43,8 @@ export function useCompanyAdminAccess() {
     systemRole,
     canAccessHub,
     isFullAccess,
+    grantsLoading,
+    grantsError,
     isOrgOwnerOrAdmin,
     myOrgRole,
     orgId,

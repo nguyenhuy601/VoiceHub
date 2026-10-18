@@ -405,16 +405,12 @@ async function userCanAdminBoard(userId, board) {
   if (!userId || !board) return false;
   const userOid = toOid(userId);
   if (!userOid) return false;
-  if (String(board.createdBy) === String(userId)) return true;
+  const pmCaps = await projectMembershipBoardCaps(userId, board);
+  if (pmCaps.isAdmin) return true;
   const member = await TaskBoardMember.findOne({ boardId: board._id, userId: userOid })
     .select('role')
     .lean();
-  if (member?.role === 'owner') return true;
-  const pmCaps = await projectMembershipBoardCaps(userId, board);
-  if (pmCaps.isAdmin) return true;
-  const scope = await fetchTaskWorkspaceScope(userId, board.organizationId);
-  const orgRole = String(scope?.membershipRole || '').toLowerCase();
-  return orgRole === 'owner' || orgRole === 'admin';
+  return member?.role === 'owner';
 }
 
 /**
@@ -438,8 +434,9 @@ async function resolveBoardCapabilities(userId, board) {
         return resolved.capabilities;
       }
     } catch {
-      /* fall through legacy */
+      return buildBoardCapabilities({});
     }
+    return buildBoardCapabilities({});
   }
 
   const userOid = toOid(userId);

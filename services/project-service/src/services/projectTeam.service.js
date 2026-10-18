@@ -690,11 +690,7 @@ async function setUserProjectRoles({
         projectId: pid,
         boardId: aclBoardId,
       });
-      if (
-        !hasPermission(resolved.permissions, 'members:manage') &&
-        !resolved.isOrgAdmin &&
-        !resolved.isCreator
-      ) {
+      if (!hasPermission(resolved.permissions, 'members:manage')) {
         const err = new Error('Không có quyền gán Project Roles (members:manage)');
         err.statusCode = 403;
         throw err;

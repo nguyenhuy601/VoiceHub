@@ -1,6 +1,13 @@
 import apiClient from './apiClient';
+import { notifyRbacGrantsChanged } from '../../utils/rbacUi';
 
 const withOrg = (orgId) => ({ headers: { 'x-organization-id': orgId } });
+
+async function writeThenNotify(request) {
+  const res = await request;
+  notifyRbacGrantsChanged();
+  return res;
+}
 
 /** Org RBAC 3-layer: Permission matrix, Position↔Role bind, Position assign. */
 export const orgRbacAPI = {
@@ -8,20 +15,24 @@ export const orgRbacAPI = {
     apiClient.get(`/organizations/${orgId}/org-roles/${roleId}/permissions`, withOrg(orgId)),
 
   putRolePermissions: (orgId, roleId, permissions) =>
-    apiClient.put(
-      `/organizations/${orgId}/org-roles/${roleId}/permissions`,
-      { permissions },
-      withOrg(orgId)
+    writeThenNotify(
+      apiClient.put(
+        `/organizations/${orgId}/org-roles/${roleId}/permissions`,
+        { permissions },
+        withOrg(orgId)
+      )
     ),
 
   getPositionRoles: (orgId, positionId) =>
     apiClient.get(`/organizations/${orgId}/hr-positions/${positionId}/roles`, withOrg(orgId)),
 
   putPositionRoles: (orgId, positionId, roleIds) =>
-    apiClient.put(
-      `/organizations/${orgId}/hr-positions/${positionId}/roles`,
-      { roleIds },
-      withOrg(orgId)
+    writeThenNotify(
+      apiClient.put(
+        `/organizations/${orgId}/hr-positions/${positionId}/roles`,
+        { roleIds },
+        withOrg(orgId)
+      )
     ),
 
   listAssignments: (orgId, params = {}) =>
@@ -31,13 +42,26 @@ export const orgRbacAPI = {
     }),
 
   assignPosition: (orgId, body) =>
-    apiClient.post(`/organizations/${orgId}/position-assignments`, body, withOrg(orgId)),
+    writeThenNotify(
+      apiClient.post(`/organizations/${orgId}/position-assignments`, body, withOrg(orgId))
+    ),
 
   endAssignment: (orgId, assignmentId) =>
-    apiClient.post(
-      `/organizations/${orgId}/position-assignments/${assignmentId}/end`,
-      {},
-      withOrg(orgId)
+    writeThenNotify(
+      apiClient.post(
+        `/organizations/${orgId}/position-assignments/${assignmentId}/end`,
+        {},
+        withOrg(orgId)
+      )
+    ),
+
+  putUserOrgRoleGrants: (orgId, userId, roleIds) =>
+    writeThenNotify(
+      apiClient.put(
+        `/organizations/${orgId}/members/${userId}/org-role-grants`,
+        { roleIds },
+        withOrg(orgId)
+      )
     ),
 };
 

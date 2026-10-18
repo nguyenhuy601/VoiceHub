@@ -36,7 +36,6 @@ function notFound(message) {
 
 function hasKindViewPermission(kind, access) {
   const resolved = access.resolved || {};
-  if (resolved.isOrgAdmin || resolved.isCreator) return true;
   if (!resolved.rbac) return Boolean(access.isMember);
   const perms = resolved.permissions || [];
   if (kind === 'change_request') return hasPermission(perms, 'change_request:view');
@@ -60,7 +59,7 @@ async function resolvePreviewAccess(userId, projectId) {
   }
 
   const resolved = await resolveUserProjectPermissions({ userId: uid, projectId: pid });
-  let isMember = Boolean(resolved.isOrgAdmin || resolved.isCreator);
+  let isMember = false;
   if (!isMember && Array.isArray(resolved.roles) && resolved.roles.length) isMember = true;
   if (!isMember) {
     const alloc = await ProjectMember.findOne({
@@ -163,9 +162,7 @@ async function buildTaskPreview(access, entityId) {
   const projectCode = String(access.project.projectCode || '').trim();
   const statusLabel = String(list?.title || task.status || '').trim();
   const resolved = access.resolved || {};
-  const canChangeStatus =
-    Boolean(resolved.isOrgAdmin || resolved.isCreator) ||
-    hasPermission(resolved.permissions || [], 'task:change_status');
+  const canChangeStatus = hasPermission(resolved.permissions || [], 'task:change_status');
 
   return {
     restricted: false,

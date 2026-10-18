@@ -55,7 +55,7 @@ function RoleRowMoreMenu({ roleName, deleteTo, t }) {
       <button
         ref={triggerRef}
         type="button"
-        className="rounded border border-border px-2 py-0.5 text-xs transition-colors duration-150 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+        className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring vh-motion-btn vh-motion-respect motion-reduce:transform-none"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`${t('adminRbac.moreActions')}: ${roleName}`}

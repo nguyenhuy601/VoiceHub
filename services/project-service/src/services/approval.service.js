@@ -763,7 +763,6 @@ async function listForEntity({ userId, entityType, entityId }) {
     canViewProject: async (projectId) => {
       try {
         const resolved = await resolveUserProjectPermissions({ userId, projectId });
-        if (resolved.isOrgAdmin || resolved.isCreator) return true;
         return hasPermission(resolved.permissions, 'project:view')
           || hasPermission(resolved.permissions, 'change_request:view')
           || (resolved.permissions || []).length > 0;
@@ -887,10 +886,7 @@ async function bindProjectTaskDonePolicy({ userId, projectId, policyId, changeRe
   if (isProjectRbacEnabled()) {
     const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({ userId, projectId });
-    const can =
-      hasPermission(resolved.permissions, 'approval:manage_policy') ||
-      resolved.isOrgAdmin ||
-      resolved.isCreator;
+    const can = hasPermission(resolved.permissions, 'approval:manage_policy');
     if (!can) {
       const err = new Error('Không có quyền gắn policy duyệt (approval:manage_policy)');
       err.statusCode = 403;

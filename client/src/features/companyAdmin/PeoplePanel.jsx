@@ -148,7 +148,6 @@ export default function PeoplePanel({ orgId }) {
             onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
           >
             <option value="member">member</option>
-            <option value="hr">hr</option>
             <option value="admin">admin</option>
           </select>
           <GradientButton

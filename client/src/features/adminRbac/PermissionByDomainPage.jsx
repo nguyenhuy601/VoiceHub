@@ -35,7 +35,7 @@ export default function PermissionByDomainPage() {
         if (!cancelled) {
           const msg = resolveApiErrorMessage(err, {
             t,
-            fallback: t('adminDomains.rbac.permissionsLoadFail', 'Không tải được danh sách quyền'),
+            fallback: t('adminDomains.rbac.permissionsLoadFail'),
           });
           setError(msg);
           toast.error(msg);
@@ -72,11 +72,8 @@ export default function PermissionByDomainPage() {
 
   return (
     <AdminUserPanelShell
-      title={t('adminDomains.rbac.permissionsByDomain', 'Quyền theo chức năng')}
-      hint={t(
-        'adminDomains.rbac.permissionsByDomainHint',
-        'Danh sách quyền hệ thống (chỉ xem). Gán quyền vào Vai trò tổ chức ở màn Org Role.'
-      )}
+      title={t('adminDomains.rbac.permissionsByDomain')}
+      hint={t('adminDomains.rbac.permissionsByDomainHint')}
     >
       {loading ? <AdminBusySpinner /> : null}
       {!loading && error ? (
@@ -95,7 +92,7 @@ export default function PermissionByDomainPage() {
       ) : null}
       {!loading && !error && !domains.length ? (
         <p className="text-sm text-muted-foreground">
-          {t('adminDomains.rbac.permissionsEmpty', 'Chưa có quyền hệ thống.')}
+          {t('adminDomains.rbac.permissionsEmpty')}
         </p>
       ) : null}
       <div className="grid gap-3">

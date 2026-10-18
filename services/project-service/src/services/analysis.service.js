@@ -215,7 +215,7 @@ async function createArtifact({ userId, projectId, body = {} }) {
   const project = await assertProjectMemberAccess({ userId, projectId });
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   if (!bypass) {
     await assertUserAnyProjectPermission({
       userId,
@@ -281,7 +281,7 @@ async function updateArtifactDraft({ userId, projectId, artifactId, body = {} })
   await assertProjectMemberAccess({ userId, projectId });
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   if (!bypass) {
     await assertUserAnyProjectPermission({
       userId,
@@ -411,7 +411,7 @@ async function transitionArtifactStatus({
     notifyNextGateReviewers,
   } = require('../utils/phase1GatePolicy');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   const techRequired = await projectHasAnalysisTechReviewer(projectId);
 
   if (from === 'ba_review' && to === 'tech_review' && !techRequired && !bypass) {
@@ -880,7 +880,7 @@ async function bulkTransitionArtifacts({
   const perm = permissionForArtifactTransition(from, to);
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   if (!bypass && perm) {
     await assertAnalysisPerm({ userId, projectId, permission: perm });
   }
@@ -1679,7 +1679,7 @@ async function advanceToPhase2({
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const { hasPermission } = require('../utils/project/projectPermissionMatrix');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   if (!bypass && !hasPermission(resolved.permissions, 'delivery_phase:change')) {
     const err = new Error('Không có quyền chuyển deliveryPhase');
     err.statusCode = 403;
@@ -1992,7 +1992,7 @@ async function startDeliveryPlanning({ userId, projectId }) {
   const { resolveUserProjectPermissions } = require('./projectAccess.service');
   const { hasPermission } = require('../utils/project/projectPermissionMatrix');
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
-  const bypass = resolved.isOrgAdmin || resolved.isCreator;
+  const bypass = false;
   if (!bypass && !hasPermission(resolved.permissions, 'delivery_phase:change')) {
     const err = new Error('Không có quyền Start Planning (delivery_phase:change)');
     err.statusCode = 403;

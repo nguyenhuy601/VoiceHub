@@ -1495,7 +1495,7 @@ const OrganizationMainPanel = ({
     (opts = {}) => {
       const orgId = String(opts.organizationId || orgIdForTask || organizationId || '').trim();
       if (!orgId) {
-        toast.error(t('organizations.selectOrgFirst') || 'Chọn organization trước.');
+        toast.error(t('organizations.selectOrgFirst'));
         return;
       }
       if (!canOpenCreateProjectWizard) {
