@@ -129,6 +129,7 @@ export default function ApprovalInboxPage() {
                 disabled={loading}
                 aria-busy={loading}
               >
+                {loading ? '…' : t('common.refresh')}
                 <RefreshCw size={14} aria-hidden="true" className={loading ? 'animate-spin' : ''} />
                 {t('common.refresh')}
               </button>

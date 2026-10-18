@@ -100,8 +100,7 @@ export default function AiRequirementWhatPanel({
               resolveApiErrorMessage(snapErr, {
                 t,
                 fallback:
-                  t('aiCreateWizard.snapshotCreateFail') ||
-                  'Không tạo được Analysis Snapshot.',
+                  t('aiCreateWizard.snapshotCreateFail'),
               })
             );
           }
@@ -114,19 +113,19 @@ export default function AiRequirementWhatPanel({
         setPhaseStatus('pending');
         if (!silent) {
           toast.success(
-            t('requirements.aiWhatRunStarted') || 'Đã bắt đầu AI Requirement (WHAT).'
+            t('requirements.aiWhatRunStarted')
           );
         }
         await refresh();
       } catch (error) {
         const code = error?.errorCode || error?.response?.data?.errorCode;
         if (code === 'HITL_AUTO_WHAT_DISABLED') {
-          setErrorMsg(t('requirements.aiWhatDisabled') || 'Auto WHAT đang tắt.');
+          setErrorMsg(t('requirements.aiWhatDisabled'));
         } else if (!silent) {
           toast.error(
             resolveApiErrorMessage(error, {
               t,
-              fallback: t('requirements.aiWhatRunFail') || 'Không start được AI Requirement.',
+              fallback: t('requirements.aiWhatRunFail'),
             })
           );
         }
@@ -155,15 +154,14 @@ export default function AiRequirementWhatPanel({
   return (
     <section className="mb-4 rounded-lg border border-border bg-card p-4">
       <h3 className="text-sm font-semibold text-foreground">
-        {t('requirements.aiWhatRunTitle') || 'AI Requirement (WHAT)'}
+        {t('requirements.aiWhatRunTitle')}
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        {t('requirements.aiWhatRunHint') ||
-          'Phân tích từ file intake → đổ Scope/BG/BR/FR… (draft) để chỉnh sửa và gửi duyệt.'}
+        {t('requirements.aiWhatRunHint')}
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>
-          {t('requirements.aiWhatPhaseStatus') || 'Phase WHAT'}: {phaseStatus || '—'}
+          {t('requirements.aiWhatPhaseStatus')}: {phaseStatus || '—'}
         </span>
         {docCount != null ? (
           <>
@@ -202,7 +200,7 @@ export default function AiRequirementWhatPanel({
         {phaseStatus === 'pending' || busy ? (
           <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground" aria-busy="true">
             <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-            {t('requirements.aiWhatRunning') || 'Đang phân tích…'}
+            {t('requirements.aiWhatRunning')}
           </span>
         ) : (
           <button
@@ -219,8 +217,8 @@ export default function AiRequirementWhatPanel({
           >
             <RefreshCw className="h-4 w-4" />
             {phaseStatus === 'ready'
-              ? t('requirements.aiWhatRerun') || 'Chạy lại WHAT'
-              : t('requirements.aiWhatStart') || 'Chạy AI Requirement'}
+              ? t('requirements.aiWhatRerun')
+              : t('requirements.aiWhatStart')}
           </button>
         )}
       </div>

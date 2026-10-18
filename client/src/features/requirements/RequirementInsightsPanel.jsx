@@ -10,7 +10,7 @@ export default function RequirementInsightsPanel({
   if (!insights && !proposedSrs && !preApproval) {
     return (
       <p className="text-sm text-muted-foreground">
-        {t('requirements.insightsEmpty') || 'Chưa có Requirement Insights — chạy job Insights.'}
+        {t('requirements.insightsEmpty')}
       </p>
     );
   }
@@ -31,8 +31,8 @@ export default function RequirementInsightsPanel({
         >
           <p className="font-medium text-foreground">
             {preApproval.passed
-              ? t('requirements.preApprovalPassed') || 'Pre-approval: đạt'
-              : t('requirements.preApprovalFailed') || 'Pre-approval: chưa đạt'}
+              ? t('requirements.preApprovalPassed')
+              : t('requirements.preApprovalFailed')}
           </p>
           <ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">
             {checks.slice(0, 12).map((c) => (
@@ -47,7 +47,7 @@ export default function RequirementInsightsPanel({
       {insights?.understanding?.narrative ? (
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t('requirements.insightsUnderstanding') || 'Understanding'}
+            {t('requirements.insightsUnderstanding')}
           </p>
           <p className="mt-1 text-foreground">{insights.understanding.narrative}</p>
         </div>
@@ -56,7 +56,7 @@ export default function RequirementInsightsPanel({
       {insights?.quality ? (
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t('requirements.insightsQuality') || 'Quality (from Facts)'}
+            {t('requirements.insightsQuality')}
           </p>
           <p className="mt-1 text-muted-foreground">
             {[
@@ -79,7 +79,7 @@ export default function RequirementInsightsPanel({
       {clarifications.length ? (
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t('requirements.insightsClarifications') || 'Clarifications'}
+            {t('requirements.insightsClarifications')}
           </p>
           <ul className="mt-1 space-y-1">
             {clarifications.slice(0, 20).map((c, i) => (
@@ -95,7 +95,7 @@ export default function RequirementInsightsPanel({
       {deltas.length ? (
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t('requirements.proposedSrsTitle') || 'Proposed SRS (not applied)'}
+            {t('requirements.proposedSrsTitle')}
           </p>
           <ul className="mt-1 space-y-1">
             {deltas.slice(0, 20).map((d, i) => (

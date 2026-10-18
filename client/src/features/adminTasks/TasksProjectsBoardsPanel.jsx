@@ -68,7 +68,7 @@ function BoardRowMenu({ id, board, busyId, onArchive, t, open, onToggle }) {
       </Link>
       <button
         type="button"
-        className="rounded border border-border px-2 py-0.5 text-xs transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
+        className="rounded border border-border px-2 py-0.5 text-xs hover:bg-muted vh-motion-row vh-motion-respect"
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={t('adminTasks.moreActionsAria')}

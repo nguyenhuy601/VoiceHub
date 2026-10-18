@@ -159,7 +159,7 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
     onSuccess: () => {
       invalidate();
       setSelectedIds(new Set());
-      toast.success(t('workspace.phase1SoftDeleteOk') || 'Đã xóa (soft) dòng draft');
+      toast.success(t('workspace.phase1SoftDeleteOk'));
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
@@ -429,7 +429,7 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
       {selectedIds.size > 0 && canEdit ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm">
           <span className="text-xs text-muted-foreground">
-            {(t('workspace.phase1SelectedCount') || '{count} đã chọn').replace(
+            {(t('workspace.phase1SelectedCount')).replace(
               '{count}',
               String(selectedIds.size)
             )}
@@ -444,7 +444,7 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
                 if (row) beginInline(row, 'title');
               }}
             >
-              {t('common.edit') || 'Sửa'}
+              {t('common.edit')}
             </button>
           ) : null}
           <button
@@ -454,15 +454,14 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
             onClick={() => {
               if (!selectedDeletableIds.length) {
                 toast.error(
-                  t('workspace.phase1SoftDeleteBlocked') ||
-                    'Chỉ xóa được draft / changes_requested / rejected'
+                  t('workspace.phase1SoftDeleteBlocked')
                 );
                 return;
               }
               softDeleteMut.mutate(selectedDeletableIds);
             }}
           >
-            {t('common.delete') || 'Xóa'}
+            {t('common.delete')}
           </button>
           <button
             type="button"
@@ -593,7 +592,7 @@ export default function PlanningArtifactListPage({ projectId, kind, title }) {
                       disabled={createMut.isPending}
                       onClick={addInlineRow}
                     >
-                      + {t('workspace.phase1AddInlineRow') || 'Thêm dòng'}
+                      + {t('workspace.phase1AddInlineRow')}
                     </button>
                   </td>
                 </tr>

@@ -28,7 +28,7 @@ export default function ProjectInformationSection({
     <IntakeSection
       index={2}
       sectionId="intake-section-information"
-      title={t('adminTasks.intakeSectionInformation') || 'Project information'}
+      title={t('adminTasks.intakeSectionInformation')}
       status={sectionStatus}
       t={t}
     >
@@ -75,7 +75,7 @@ export default function ProjectInformationSection({
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
             <span className={intakeUi.fieldLabel}>
-              {t('adminTasks.wizardCategory') || 'Phân loại'}
+              {t('adminTasks.wizardCategory')}
             </span>
             <select
               className={intakeUi.select}
@@ -91,7 +91,7 @@ export default function ProjectInformationSection({
           </label>
           <label className="block">
             <span className={intakeUi.fieldLabel}>
-              {t('adminTasks.wizardPriority') || 'Ưu tiên'}
+              {t('adminTasks.wizardPriority')}
             </span>
             <select
               className={intakeUi.select}
@@ -110,7 +110,7 @@ export default function ProjectInformationSection({
         {category === 'customer' ? (
           <label className="block" id="intake-field-customerName">
             <span className={intakeUi.fieldLabel}>
-              {t('adminTasks.wizardCustomerName') || 'Khách hàng'}
+              {t('adminTasks.wizardCustomerName')}
               <span className="ml-0.5 text-destructive">*</span>
             </span>
             <input
@@ -145,12 +145,12 @@ export default function ProjectInformationSection({
 
         <div id="intake-field-dateRange">
           <p className={intakeUi.fieldLabel}>
-            {t('adminTasks.intakeTimeline') || 'Project timeline'}
+            {t('adminTasks.intakeTimeline')}
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1 block text-[11px] text-muted-foreground">
-                {t('adminTasks.wizardStartDate') || 'Ngày bắt đầu'}
+                {t('adminTasks.wizardStartDate')}
               </span>
               <input
                 type="date"
@@ -163,7 +163,7 @@ export default function ProjectInformationSection({
             </label>
             <label className="block">
               <span className="mb-1 block text-[11px] text-muted-foreground">
-                {t('adminTasks.wizardDueDate') || 'Hạn'}
+                {t('adminTasks.wizardDueDate')}
               </span>
               <input
                 type="date"

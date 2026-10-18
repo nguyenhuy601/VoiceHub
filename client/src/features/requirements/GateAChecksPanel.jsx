@@ -135,13 +135,11 @@ function GateAChecksDetailBody({
         }`}
       >
         {hasWarnings
-          ? t('requirements.gateAHasWarnings') ||
-            'Gate A: có cảnh báo — không chặn duyệt'
-          : t('requirements.gateAPassed') || 'Gate A: không có cảnh báo'}
+          ? t('requirements.gateAHasWarnings')
+          : t('requirements.gateAPassed')}
       </p>
       <p className="mt-0.5 text-xs text-foreground/80">
-        {t('requirements.gateAAdvisoryHint') ||
-          'Chỉ thông báo chất lượng (trùng AI / section thiếu). PO vẫn duyệt Gate 1 bình thường.'}
+        {t('requirements.gateAAdvisoryHint')}
       </p>
       {hasWarnings && failed.length > 0 ? (
         <p className="mt-0.5 text-xs font-medium text-amber-900 dark:text-amber-200">
@@ -182,13 +180,13 @@ function GateAChecksDetailBody({
                     {threshold != null ? (
                       <span className="text-muted-foreground/80">
                         {' '}
-                        / {t('requirements.gateAThreshold') || 'ngưỡng'} {threshold}
+                        / {t('requirements.gateAThreshold')} {threshold}
                       </span>
                     ) : null}
                     <span className="ml-1.5 font-sans font-medium">
                       {ok
-                        ? t('requirements.gateACheckPass') || 'đạt'
-                        : t('requirements.gateACheckWarn') || 'cảnh báo'}
+                        ? t('requirements.gateACheckPass')
+                        : t('requirements.gateACheckWarn')}
                     </span>
                   </span>
                 </div>
@@ -211,13 +209,12 @@ function GateAChecksDetailBody({
         </ul>
       ) : (
         <p className="mt-1 text-xs text-muted-foreground">
-          {t('requirements.gateANoChecks') || 'Chưa có chi tiết từng tiêu chuẩn trong kết quả Gate A.'}
+          {t('requirements.gateANoChecks')}
         </p>
       )}
       {skippedCoverage.length > 0 ? (
         <p className="mt-2 text-[11px] text-muted-foreground">
-          {t('requirements.gateACoverageSkippedHint') ||
-            'Coverage (độ phủ FR) chỉ tham khảo — không dùng để chặn duyệt.'}
+          {t('requirements.gateACoverageSkippedHint')}
           {skippedCoverage[0]?.value != null
             ? ` · ${formatRatio(skippedCoverage[0].value)}`
             : ''}
@@ -279,7 +276,7 @@ export default function GateAChecksPanel({ gateA = null, t = (k) => k, className
         aria-live="polite"
       >
         <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        <span>{t('requirements.gateAGreenLabel') || 'Gate A xanh'}</span>
+        <span>{t('requirements.gateAGreenLabel')}</span>
       </div>
     );
   }
@@ -297,8 +294,7 @@ export default function GateAChecksPanel({ gateA = null, t = (k) => k, className
           `Cảnh báo Gate A (${failed.length}) — nhấn để xem chi tiết`
         }
         title={
-          t('requirements.gateAHasWarnings') ||
-          'Gate A: có cảnh báo — không chặn duyệt'
+          t('requirements.gateAHasWarnings')
         }
       >
         <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
@@ -313,18 +309,18 @@ export default function GateAChecksPanel({ gateA = null, t = (k) => k, className
         <div
           id={panelId}
           role="dialog"
-          aria-label={t('requirements.gateAPanelTitle') || 'Gate A — cảnh báo chất lượng (advisory)'}
+          aria-label={t('requirements.gateAPanelTitle')}
           className="absolute left-0 top-full z-40 mt-1.5 w-[min(24rem,calc(100vw-2rem))] rounded-md border border-amber-600/50 bg-amber-50 px-3 py-2 shadow-lg dark:bg-amber-950/95"
         >
           <div className="mb-1 flex items-start justify-between gap-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/80 dark:text-amber-200/80">
-              {t('requirements.gateAPanelTitle') || 'Gate A — cảnh báo chất lượng (advisory)'}
+              {t('requirements.gateAPanelTitle')}
             </p>
             <button
               type="button"
               className="shrink-0 rounded p-0.5 text-amber-800/70 hover:bg-amber-200/60 hover:text-amber-950 dark:text-amber-200/70 dark:hover:bg-amber-900/80"
               onClick={() => setDetailsOpen(false)}
-              aria-label={t('common.close') || 'Đóng'}
+              aria-label={t('common.close')}
             >
               <X className="h-3.5 w-3.5" aria-hidden />
             </button>

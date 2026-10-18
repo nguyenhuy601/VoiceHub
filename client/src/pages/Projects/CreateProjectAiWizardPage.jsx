@@ -45,10 +45,10 @@ export default function CreateProjectAiWizardPage() {
     return (
       <div className={wizardUi.emptyPage}>
         <p className="text-sm text-muted-foreground">
-          {t('organizations.selectOrgFirst') || 'Chọn organization trước khi tạo dự án.'}
+          {t('organizations.selectOrgFirst')}
         </p>
         <Link to={buildCollaborateProjectsPath()} className={wizardUi.link}>
-          {t('adminTasks.wizardBackToHub') || 'Back to projects'}
+          {t('adminTasks.wizardBackToHub')}
         </Link>
       </div>
     );
@@ -59,7 +59,7 @@ export default function CreateProjectAiWizardPage() {
   }
 
   const cancelTarget = buildProjectsModulePath(projectId, 'overview');
-  const backLabel = t('workspace.phase2AiBackToProject') || 'Back to project';
+  const backLabel = t('workspace.phase2AiBackToProject');
 
   const onCancel = () => navigate(cancelTarget);
 

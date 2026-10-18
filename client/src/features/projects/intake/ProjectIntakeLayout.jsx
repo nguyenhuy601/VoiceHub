@@ -26,7 +26,7 @@ export default function ProjectIntakeLayout({
             onClick={() => setMobileSummaryOpen((v) => !v)}
             aria-expanded={mobileSummaryOpen}
           >
-            {t('adminTasks.intakeSummaryTitle') || 'Project summary'}
+            {t('adminTasks.intakeSummaryTitle')}
             <ChevronDown
               className={`h-4 w-4 transition ${mobileSummaryOpen ? 'rotate-180' : ''}`}
             />

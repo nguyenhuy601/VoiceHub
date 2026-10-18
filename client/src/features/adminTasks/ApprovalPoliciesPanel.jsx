@@ -128,7 +128,7 @@ export default function ApprovalPoliciesPanel({ orgId }) {
                 {(selected.steps || []).map((s, i) => (
                   <li
                     key={`${s.order}-${i}`}
-                    className="rounded-lg border border-border px-3 py-2 text-sm transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
+                    className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted vh-motion-row vh-motion-respect"
                   >
                     <span className="font-semibold">{s.order}.</span>{' '}
                     <span className="font-mono text-xs">{s.approverType}</span>

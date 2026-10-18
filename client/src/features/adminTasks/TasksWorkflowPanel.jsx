@@ -289,7 +289,7 @@ export default function TasksWorkflowPanel({ orgId }) {
             const sizes = Array.isArray(tpl.companySizes) ? tpl.companySizes : [];
             return (
               <li key={String(tpl._id)}>
-                <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border px-3 py-2 text-sm transition-colors duration-150 hover:bg-muted motion-reduce:transition-none">
+                <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted vh-motion-row vh-motion-respect">
                   <input
                     type="radio"
                     name="wf-template"

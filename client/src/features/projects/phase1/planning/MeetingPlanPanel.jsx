@@ -54,11 +54,10 @@ export default function MeetingPlanPanel({ projectId }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-foreground">
-            {t('workspace.meetingPlanTitle') || 'Meeting Plan (forecast)'}
+            {t('workspace.meetingPlanTitle')}
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {t('workspace.meetingPlanHint') ||
-              'Effort họp dự kiến theo tuần — chưa cần tạo đủ lịch. Commitment % nhân sự nhập riêng.'}
+            {t('workspace.meetingPlanHint')}
           </p>
         </div>
         <div className="flex gap-2">
@@ -68,7 +67,7 @@ export default function MeetingPlanPanel({ projectId }) {
             disabled={seedM.isPending}
             onClick={() => seedM.mutate()}
           >
-            {t('workspace.meetingPlanSeed') || 'Seed from org rules'}
+            {t('workspace.meetingPlanSeed')}
           </button>
           <button
             type="button"
@@ -76,7 +75,7 @@ export default function MeetingPlanPanel({ projectId }) {
             disabled={confirmM.isPending || !plan?.id}
             onClick={() => confirmM.mutate()}
           >
-            {t('workspace.meetingPlanConfirm') || 'Confirm plan'}
+            {t('workspace.meetingPlanConfirm')}
           </button>
         </div>
       </div>
@@ -88,7 +87,7 @@ export default function MeetingPlanPanel({ projectId }) {
         </p>
       ) : !plan?.id ? (
         <p className="text-xs text-muted-foreground">
-          {t('workspace.meetingPlanEmpty') || 'Chưa có MeetingPlan — seed từ cấu hình tổ chức.'}
+          {t('workspace.meetingPlanEmpty')}
         </p>
       ) : (
         <div className="space-y-2">

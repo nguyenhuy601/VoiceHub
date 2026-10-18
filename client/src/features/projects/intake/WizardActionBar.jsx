@@ -21,7 +21,7 @@ export default function WizardActionBar({
           {ready ? (
             <p className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
               <Check className="h-4 w-4 shrink-0" />
-              {t('adminTasks.intakeReadyToCreate') || 'Sẵn sàng tạo dự án nháp'}
+              {t('adminTasks.intakeReadyToCreate')}
             </p>
           ) : issueCount > 0 ? (
             <p className="text-muted-foreground">
@@ -30,8 +30,7 @@ export default function WizardActionBar({
             </p>
           ) : (
             <p className="text-muted-foreground">
-              {t('adminTasks.intakeActionHint') ||
-                'Điền đủ thông tin bắt buộc để tạo dự án nháp Phase 1.'}
+              {t('adminTasks.intakeActionHint')}
             </p>
           )}
         </div>

@@ -118,7 +118,7 @@ export default function UserImportPanel({ orgId, embedded = false }) {
               {report.map((row) => (
                 <tr
                   key={`${row.email}-${row.ok}`}
-                  className="transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
+                  className="hover:bg-muted vh-motion-row vh-motion-respect"
                 >
                   <td className="px-4 py-2.5 font-medium text-foreground">{row.email}</td>
                   <td className="px-4 py-2.5">

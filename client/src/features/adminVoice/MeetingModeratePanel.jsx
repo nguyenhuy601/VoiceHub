@@ -95,7 +95,7 @@ export default function MeetingModeratePanel({ orgId, embedded = false }) {
                 return (
                   <li
                     key={uid || participantLabel(p)}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md px-2 py-1.5 transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-muted vh-motion-row vh-motion-respect"
                   >
                     <span className="min-w-0 text-foreground">
                       {participantLabel(p)}
@@ -136,7 +136,7 @@ export default function MeetingModeratePanel({ orgId, embedded = false }) {
             </Link>
             <Link
               to={`/app/communicate/voice?meetingId=${encodeURIComponent(meetingIdParam)}`}
-              className="rounded-lg border border-border px-3 py-2 text-sm transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
+              className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted vh-motion-row vh-motion-respect"
             >
               {t('adminVoice.openVoiceRoom')}
             </Link>

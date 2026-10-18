@@ -83,12 +83,12 @@ export default function RequirementSourceSection({
     const name = String(f.name || '').toLowerCase();
     if (!name.endsWith('.xlsx')) {
       toast.error(
-        t('adminTasks.intakeNormalizeNeedXlsx') || 'Chỉ chấp nhận file .xlsx để chuẩn hóa.'
+        t('adminTasks.intakeNormalizeNeedXlsx')
       );
       return;
     }
     if (!organizationId) {
-      toast.error(t('adminTasks.intakeNormalizeNeedOrg') || 'Thiếu organizationId.');
+      toast.error(t('adminTasks.intakeNormalizeNeedOrg'));
       return;
     }
     setNormalizeBusy(true);
@@ -98,15 +98,14 @@ export default function RequirementSourceSection({
       await downloadBlobAsFile(
         blob,
         outName,
-        t('adminTasks.intakeNormalizeFail') || 'Chuẩn hóa dữ liệu thất bại.'
+        t('adminTasks.intakeNormalizeFail')
       );
       toast.success(
-        t('adminTasks.intakeNormalizeOk') ||
-          'Đã tải Customer Requirement Raw. Tiếp theo: Import Raw bên dưới.'
+        t('adminTasks.intakeNormalizeOk')
       );
     } catch (err) {
       let msg =
-        t('adminTasks.intakeNormalizeFail') || 'Chuẩn hóa dữ liệu thất bại.';
+        t('adminTasks.intakeNormalizeFail');
       const data = err?.response?.data ?? err?.data;
       if (data instanceof Blob) {
         try {
@@ -131,11 +130,9 @@ export default function RequirementSourceSection({
 
   const statusHint =
     requirementIntakeStatus === 'autofilled'
-      ? t('adminTasks.wizardIntakeStatusAutofilled') ||
-        'Đã tự điền thông tin từ file.'
+      ? t('adminTasks.wizardIntakeStatusAutofilled')
       : requirementIntakeStatus === 'kept_manual'
-        ? t('adminTasks.wizardIntakeStatusKeptManual') ||
-          'File đã giữ — chưa tự điền; nhập tay các trường bên dưới.'
+        ? t('adminTasks.wizardIntakeStatusKeptManual')
         : null;
 
   const sectionStatus =
@@ -147,15 +144,15 @@ export default function RequirementSourceSection({
     <IntakeSection
       index={1}
       sectionId="intake-section-requirements"
-      title={t('adminTasks.intakeSectionRequirements') || 'Requirements'}
-      subtitle={t('adminTasks.wizardInputsRequirement') || 'Customer Requirement Raw'}
+      title={t('adminTasks.intakeSectionRequirements')}
+      subtitle={t('adminTasks.wizardInputsRequirement')}
       status={sectionStatus}
       t={t}
     >
       <div className="space-y-5">
         <div id="intake-field-normalize">
           <p className={intakeUi.fieldLabel}>
-            {t('adminTasks.intakeNormalizeTitle') || 'Chuẩn hóa dữ liệu'}
+            {t('adminTasks.intakeNormalizeTitle')}
           </p>
           <p className="mb-2 text-xs text-muted-foreground">
             {t('adminTasks.intakeNormalizeHint') ||
@@ -174,12 +171,11 @@ export default function RequirementSourceSection({
             )}
             <span className="font-medium text-foreground">
               {normalizeBusy
-                ? t('adminTasks.intakeNormalizeBusy') || 'Đang chuẩn hóa…'
-                : t('adminTasks.intakeNormalizePick') || 'Chọn file khách (.xlsx)'}
+                ? t('adminTasks.intakeNormalizeBusy')
+                : t('adminTasks.intakeNormalizePick')}
             </span>
             <span className="text-xs">
-              {t('adminTasks.intakeNormalizePickHint') ||
-                'Sau khi tải Raw, dùng bước Import bên dưới.'}
+              {t('adminTasks.intakeNormalizePickHint')}
             </span>
           </button>
           <input
@@ -197,12 +193,11 @@ export default function RequirementSourceSection({
 
         <div id="intake-field-requirement">
           <p className={intakeUi.fieldLabel}>
-            {t('adminTasks.wizardInputsRequirement') || 'Customer Requirement Raw'}
+            {t('adminTasks.wizardInputsRequirement')}
             <span className="ml-0.5 text-destructive">*</span>
           </p>
           <p className="mb-2 text-xs text-muted-foreground">
-            {t('adminTasks.intakeRawImportHint') ||
-              'Import file Raw đúng template để tự điền thông tin dự án.'}
+            {t('adminTasks.intakeRawImportHint')}
           </p>
           {!file ? (
             <div
@@ -233,12 +228,11 @@ export default function RequirementSourceSection({
               )}
               <span className="font-medium text-foreground">
                 {intakeBusy
-                  ? t('adminTasks.wizardIntakeParsing') || 'Đang đọc file…'
-                  : t('adminTasks.intakeUploadTitle') || 'Upload requirement'}
+                  ? t('adminTasks.wizardIntakeParsing')
+                  : t('adminTasks.intakeUploadTitle')}
               </span>
               <span className="text-xs">
-                {t('adminTasks.intakeUploadHint') ||
-                  'Thả file .xlsx vào đây hoặc Browse — Customer Requirement Raw'}
+                {t('adminTasks.intakeUploadHint')}
               </span>
             </div>
           ) : (
@@ -251,8 +245,7 @@ export default function RequirementSourceSection({
                   </p>
                   {intakeBusy ? (
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {t('adminTasks.intakeParsingDetail') ||
-                        'Đang đọc Customer Requirement Raw…'}
+                      {t('adminTasks.intakeParsingDetail')}
                     </p>
                   ) : statusHint ? (
                     <p
@@ -266,7 +259,7 @@ export default function RequirementSourceSection({
                     </p>
                   ) : (
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {t('adminTasks.intakeFileAttached') || 'File đã đính kèm.'}
+                      {t('adminTasks.intakeFileAttached')}
                     </p>
                   )}
                 </div>
@@ -275,7 +268,7 @@ export default function RequirementSourceSection({
                   className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
                   onClick={() => setFile(null)}
                   disabled={busy}
-                  aria-label={t('common.remove') || 'Remove'}
+                  aria-label={t('common.remove')}
                 >
                   <X className="h-4 w-4" />
                 </button>

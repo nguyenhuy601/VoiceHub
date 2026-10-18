@@ -263,8 +263,7 @@ export default function RequirementPhase1PipelinePanel({
           if ((tick.softHint || vm.showSoftHint) && !softHintShown) {
             softHintShown = true;
             toast(
-              t('requirements.phase1Stage2StillRunning') ||
-                'AI analysis vẫn đang chạy — bạn có thể rời màn hình và quay lại sau.'
+              t('requirements.phase1Stage2StillRunning')
             );
           }
         },
@@ -275,7 +274,7 @@ export default function RequirementPhase1PipelinePanel({
         return;
       }
       toast.success(
-        t('requirements.phase1RunOk') || 'AI Requirement đã xong — mở review Gate 1.'
+        t('requirements.phase1RunOk')
       );
       setPipeline({ step: 5, substep: null });
       onPipelineDone?.(result?.phaseWhat);
@@ -285,7 +284,7 @@ export default function RequirementPhase1PipelinePanel({
       if (error?.code === 'PHASE_WHAT_ABORTED') return;
       const msg = resolveApiErrorMessage(error, {
         t,
-        fallback: t('requirements.phase1RunFail') || 'Không chạy được AI Requirement.',
+        fallback: t('requirements.phase1RunFail'),
       });
       setErrorMsg(msg);
       toast.error(msg);
@@ -390,7 +389,7 @@ export default function RequirementPhase1PipelinePanel({
         (data?.accepted === true && data?.remote === true) ||
         data?.httpStatus === 202;
       if (!acceptedRemote) {
-        const msg = t('requirements.phase1RunFail') || 'Không chạy được AI Requirement.';
+        const msg = t('requirements.phase1RunFail');
         setErrorMsg(msg);
         toast.error(msg);
         return;
@@ -400,7 +399,7 @@ export default function RequirementPhase1PipelinePanel({
     } catch (error) {
       const msg = resolveApiErrorMessage(error, {
         t,
-        fallback: t('requirements.phase1RunFail') || 'Không chạy được AI Requirement.',
+        fallback: t('requirements.phase1RunFail'),
       });
       setErrorMsg(msg);
       toast.error(msg);
@@ -421,16 +420,15 @@ export default function RequirementPhase1PipelinePanel({
         t={t}
       />
       <h3 className="text-sm font-semibold text-foreground">
-        {t('requirements.phase1PipelineTitle') || 'AI Requirement'}
+        {t('requirements.phase1PipelineTitle')}
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        {t('requirements.phase1PipelineHintG4') ||
-          'Một nút chạy hết AI Requirement. Sau bước hiểu yêu cầu, review dữ liệu rồi mới chạy semantic. Gate 1 mở khi xong.'}
+        {t('requirements.phase1PipelineHintG4')}
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>
-          {t('requirements.understandingPackStatus') || 'Pack'}:{' '}
+          {t('requirements.understandingPackStatus')}:{' '}
           {packStatus
             ? t(`requirements.status.${packStatus}`) || packStatus
             : '—'}
@@ -499,15 +497,15 @@ export default function RequirementPhase1PipelinePanel({
                 <span>
                   Gate A:{' '}
                   {stage2Meta.gateAPassed
-                    ? t('common.ok') || 'OK'
-                    : t('common.fail') || 'Fail'}
+                    ? t('common.ok')
+                    : t('common.fail')}
                 </span>
               </>
             ) : null}
             {stage2Meta.contextPersisted ? (
               <>
                 <span>·</span>
-                <span>{t('requirements.phase1ContextOk') || 'AI Context: OK'}</span>
+                <span>{t('requirements.phase1ContextOk')}</span>
               </>
             ) : null}
           </>
@@ -516,7 +514,7 @@ export default function RequirementPhase1PipelinePanel({
 
       {Array.isArray(stage1Meta?.missing) && stage1Meta.missing.length ? (
         <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
-          {t('requirements.phase1Missing') || 'Thiếu'}:{' '}
+          {t('requirements.phase1Missing')}:{' '}
           {stage1Meta.missing
             .map((code) => {
               const key = `requirements.phase1Missing_${code}`;
@@ -534,8 +532,7 @@ export default function RequirementPhase1PipelinePanel({
           <p>
             {t(runMonitor.descriptionKey) ||
               runMonitor.descriptionFallback ||
-              t('requirements.aiHitlMonitorProcessing') ||
-              'Đang xử lý…'}
+              t('requirements.aiHitlMonitorProcessing')}
             {runMonitor.elapsedMs != null ? (
               <span className="ml-2 tabular-nums">{formatElapsed(runMonitor.elapsedMs)}</span>
             ) : null}
@@ -543,14 +540,13 @@ export default function RequirementPhase1PipelinePanel({
           {runMonitor.activity?.kind === 'call_tool' && runMonitor.activity?.toolName ? (
             <p className="font-medium text-foreground">
               {(
-                t('requirements.aiHitlMonitorCallingTool') || 'Đang gọi tool: {tool}'
+                t('requirements.aiHitlMonitorCallingTool')
               ).replace('{tool}', runMonitor.activity.toolName)}
             </p>
           ) : null}
           {runMonitor.waitingHuman ? (
             <p className="text-amber-800 dark:text-amber-200">
-              {t('requirements.aiHitlMonitorDataGateHint') ||
-                'AI đang chờ Data Gate — chuyển tab Duyệt để Pass/Reject.'}
+              {t('requirements.aiHitlMonitorDataGateHint')}
             </p>
           ) : null}
         </div>
@@ -582,7 +578,7 @@ export default function RequirementPhase1PipelinePanel({
             ) : (
               <Sparkles className="h-4 w-4" />
             )}
-            {t('requirements.phase1RunCta') || 'Chạy AI Requirement'}
+            {t('requirements.phase1RunCta')}
           </button>
           {formBlocksAi ? (
             <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
@@ -592,10 +588,9 @@ export default function RequirementPhase1PipelinePanel({
         </div>
       ) : (
         <p className="mt-3 text-xs text-emerald-700 dark:text-emerald-300">
-          {t('requirements.phase1ToPhase2') || 'Sang Phase 2'}
+          {t('requirements.phase1ToPhase2')}
           {' — '}
-          {t('requirements.understandingGate1Done') ||
-            'Gate 1 đã duyệt — có thể chạy AI Planning (HOW).'}
+          {t('requirements.understandingGate1Done')}
         </p>
       )}
 
@@ -607,7 +602,7 @@ export default function RequirementPhase1PipelinePanel({
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
         >
           <Eye className="h-4 w-4" />
-          {t('requirements.aiHitlOpenWorkspace') || 'Mở AI HITL (Monitor & Duyệt)'}
+          {t('requirements.aiHitlOpenWorkspace')}
         </button>
         <button
           type="button"
@@ -618,7 +613,7 @@ export default function RequirementPhase1PipelinePanel({
           className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-40"
         >
           <ListChecks className="h-4 w-4" />
-          {t('requirements.understandingEditArtifacts') || 'Sửa artifacts (FR)'}
+          {t('requirements.understandingEditArtifacts')}
         </button>
         <button
           type="button"
@@ -634,7 +629,7 @@ export default function RequirementPhase1PipelinePanel({
           className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-40"
         >
           <Eye className="h-4 w-4" />
-          {t('requirements.phase1PreviewCta') || 'Preview pack (làm tay)'}
+          {t('requirements.phase1PreviewCta')}
         </button>
         {!gate1Done && stage2Meta?.done ? (
           <button
@@ -642,7 +637,7 @@ export default function RequirementPhase1PipelinePanel({
             onClick={() => goAiHitl()}
             className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50"
           >
-            {t('requirements.phase1OpenGate1') || 'Mở review Gate 1'}
+            {t('requirements.phase1OpenGate1')}
           </button>
         ) : null}
       </div>

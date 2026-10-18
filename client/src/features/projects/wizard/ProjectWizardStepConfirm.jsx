@@ -8,9 +8,9 @@ export default function ProjectWizardStepConfirm({ form, t }) {
   const phaseLabel = t(deliveryPhaseLabelKey('requirement_analysis'));
   const mode =
     form.analysisMode === 'ai'
-      ? t('adminTasks.wizardModeAi') || 'AI'
+      ? t('adminTasks.wizardModeAi')
       : form.analysisMode === 'manual'
-        ? t('adminTasks.wizardModeManual') || 'Manual'
+        ? t('adminTasks.wizardModeManual')
         : '—';
   const fileCounts = countIntakeFiles(form.intakeFiles);
 
@@ -18,7 +18,7 @@ export default function ProjectWizardStepConfirm({ form, t }) {
     <div className="space-y-5">
       <div>
         <h1 className={wizardUi.title}>
-          {t('adminTasks.wizardConfirmTitle') || 'Xác nhận tạo dự án'}
+          {t('adminTasks.wizardConfirmTitle')}
         </h1>
         <p className={wizardUi.subtitle}>
           {t('adminTasks.wizardConfirmHint') ||
@@ -52,9 +52,9 @@ export default function ProjectWizardStepConfirm({ form, t }) {
           {t('adminTasks.wizardConfirmRoster')}: {members.length}
         </p>
         <p className="text-xs text-muted-foreground">
-          {t('adminTasks.wizardConfirmFiles') || 'Files'}: {fileCounts.total}
+          {t('adminTasks.wizardConfirmFiles')}: {fileCounts.total}
           {fileCounts.requirement
-            ? ` · ${t('adminTasks.wizardInputsRequirement') || 'Requirement'}: 1`
+            ? ` · ${t('adminTasks.wizardInputsRequirement')}: 1`
             : ''}
         </p>
       </div>

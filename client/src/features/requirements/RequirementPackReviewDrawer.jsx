@@ -169,8 +169,7 @@ export default function RequirementPackReviewDrawer({
             title,
             description: message,
             placeholder:
-              t('requirements.gate1ForceReasonPlaceholder') ||
-              'Nhập lý do force duyệt Gate 1…',
+              t('requirements.gate1ForceReasonPlaceholder'),
             submitLabel: t('requirements.approveForced') || t('requirements.approve'),
             variant: 'request_changes',
             maxLength: 2000,
@@ -194,10 +193,10 @@ export default function RequirementPackReviewDrawer({
   const reject = async () => {
     if (!orgId || !packId || busy) return;
     const reasonRaw = await requestNote({
-      title: t('requirements.reject') || 'Từ chối gói',
-      description: t('requirements.rejectReasonPrompt') || 'Nhập lý do từ chối',
-      placeholder: t('requirements.rejectReasonPlaceholder') || 'Lý do từ chối…',
-      submitLabel: t('requirements.reject') || 'Từ chối',
+      title: t('requirements.reject'),
+      description: t('requirements.rejectReasonPrompt'),
+      placeholder: t('requirements.rejectReasonPlaceholder'),
+      submitLabel: t('requirements.reject'),
       variant: 'reject',
       maxLength: 2000,
     });
@@ -222,8 +221,7 @@ export default function RequirementPackReviewDrawer({
     const planStatus = String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || '');
     if (planStatus !== 'confirmed') {
       toast.error(
-        t('requirements.gate2CreateBlocked') ||
-          'Gate 2: confirm phase HOW trước khi tạo Project board.'
+        t('requirements.gate2CreateBlocked')
       );
       return;
     }
@@ -238,7 +236,7 @@ export default function RequirementPackReviewDrawer({
         data?.project?._id || data?.project?.projectId || data?.projectId || ''
       ).trim();
       toast.success(
-        t('requirements.createProjectFromPackSuccess') || 'Đã tạo Project board (sau Gate 2).'
+        t('requirements.createProjectFromPackSuccess')
       );
       onChanged?.();
       onClose?.();
@@ -249,7 +247,7 @@ export default function RequirementPackReviewDrawer({
       toast.error(
         resolveApiErrorMessage(error, {
           t,
-          fallback: t('requirements.createProjectFromPackFail') || 'Không tạo được dự án từ pack.',
+          fallback: t('requirements.createProjectFromPackFail'),
         })
       );
     } finally {
@@ -274,9 +272,9 @@ export default function RequirementPackReviewDrawer({
           <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {pack?.status === 'under_review'
-                ? t('requirements.gate1ReviewTitle') || 'Human Review — Gate 1 (Canonical SRS)'
+                ? t('requirements.gate1ReviewTitle')
                 : pack?.status === 'approved'
-                  ? t('requirements.gate2PhaseTitle') || 'Pack approved — HOW / Gate 2'
+                  ? t('requirements.gate2PhaseTitle')
                   : t('requirements.reviewTitle')}
             </p>
             <h3 className="truncate text-base font-semibold text-foreground">
@@ -293,11 +291,11 @@ export default function RequirementPackReviewDrawer({
                   }`}
                 >
                   {gateA.passed
-                    ? t('requirements.gateAPassed') || 'Gate A: đạt'
+                    ? t('requirements.gateAPassed')
                     : failedCount > 0
                       ? t('requirements.gateAHeaderFailed', { count: failedCount }) ||
                         `Gate A: chưa đạt · ${failedCount} tiêu chuẩn`
-                      : t('requirements.gateANotPassed') || 'Gate A: chưa đạt (cần sửa hoặc force duyệt)'}
+                      : t('requirements.gateANotPassed')}
                 </p>
               );
             })()}
@@ -373,8 +371,7 @@ export default function RequirementPackReviewDrawer({
                 </div>
               ) : pack?.status === 'under_review' ? (
                 <p className="mb-4 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  {t('requirements.gate1HowDeferred') ||
-                    'HOW / AI Planning mở sau khi Approve Gate 1. Duyệt SRS (Gate A + nội dung pack) trước.'}
+                  {t('requirements.gate1HowDeferred')}
                 </p>
               ) : null}
               {pack?.aiAnalysis?.analyses?.requirementInsights ||
@@ -382,7 +379,7 @@ export default function RequirementPackReviewDrawer({
               pack?.aiAnalysis?.analyses?.preApproval ? (
                 <div className="mb-4 rounded-md border border-border p-3">
                   <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {t('requirements.insightsPanelTitle') || 'Requirement Insights'}
+                    {t('requirements.insightsPanelTitle')}
                   </p>
                   <RequirementInsightsPanel
                     insights={pack.aiAnalysis.analyses.requirementInsights}
@@ -453,8 +450,7 @@ export default function RequirementPackReviewDrawer({
                 title={
                   projectPlanStatus === 'confirmed'
                     ? undefined
-                    : t('requirements.gate2CreateBlocked') ||
-                      'Gate 2: confirm projectPlan trước khi tạo Project board.'
+                    : t('requirements.gate2CreateBlocked')
                 }
                 className="px-4 py-2 text-sm"
               >

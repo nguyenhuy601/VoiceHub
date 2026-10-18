@@ -71,11 +71,10 @@ export default function ProjectMeetingsPanel({ projectId }) {
     <section className="rounded-lg border border-border bg-card p-4 space-y-4">
       <div>
         <h3 className="text-sm font-semibold">
-          {t('workspace.projectMeetingsTitle') || 'Project meetings'}
+          {t('workspace.projectMeetingsTitle')}
         </h3>
         <p className="text-xs text-muted-foreground mt-0.5">
-          {t('workspace.projectMeetingsHint') ||
-            'Lịch cụ thể — tách khỏi MeetingPlan forecast và Task.'}
+          {t('workspace.projectMeetingsHint')}
         </p>
       </div>
 
@@ -113,7 +112,7 @@ export default function ProjectMeetingsPanel({ projectId }) {
         disabled={!startAt || !endAt || createM.isPending}
         onClick={() => createM.mutate()}
       >
-        {t('workspace.projectMeetingsCreate') || 'Create meeting'}
+        {t('workspace.projectMeetingsCreate')}
       </button>
       {msg ? <p className="text-xs text-destructive">{msg}</p> : null}
 
@@ -125,7 +124,7 @@ export default function ProjectMeetingsPanel({ projectId }) {
           </li>
         ) : events.length === 0 ? (
           <li className="py-2 text-muted-foreground">
-            {t('workspace.projectMeetingsEmpty') || 'No meetings yet'}
+            {t('workspace.projectMeetingsEmpty')}
           </li>
         ) : (
           events.map((ev) => (

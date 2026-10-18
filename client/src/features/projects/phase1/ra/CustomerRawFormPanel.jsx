@@ -1,5 +1,5 @@
 import React from 'react';
-import { useLocale } from '../../../../context/LocaleContext';
+import { useAppStrings } from '../../../../locales/appStrings';
 import {
   formatCustomerRawFormIssues,
   isCustomerRawFormOk,
@@ -9,7 +9,7 @@ import {
  * Customer Raw form check panel (sheets + headers only).
  */
 export default function CustomerRawFormPanel({ formValidation, className = '' }) {
-  const { t } = useLocale();
+  const { t } = useAppStrings();
   if (!formValidation) return null;
 
   const ok = isCustomerRawFormOk(formValidation);
@@ -25,9 +25,7 @@ export default function CustomerRawFormPanel({ formValidation, className = '' })
       data-testid="customer-raw-form-panel"
     >
       <p className="font-medium">
-        {ok
-          ? t('workspace.phase1RawFormOk') || 'Form template Raw: OK'
-          : t('workspace.phase1RawFormInvalid') || 'Form template Raw: chưa đúng'}
+        {ok ? t('workspace.phase1RawFormOk') : t('workspace.phase1RawFormInvalid')}
       </p>
       {ok ? (
         <p className="mt-1 text-xs text-muted-foreground">
@@ -43,7 +41,7 @@ export default function CustomerRawFormPanel({ formValidation, className = '' })
       )}
       {ok && Array.isArray(formValidation.presentSheets) && formValidation.presentSheets.length ? (
         <p className="mt-1 text-xs text-muted-foreground">
-          {(t('workspace.phase1RawFormSheets') || 'Sheets: {list}').replace(
+          {t('workspace.phase1RawFormSheets').replace(
             '{list}',
             formValidation.presentSheets.join(', ')
           )}

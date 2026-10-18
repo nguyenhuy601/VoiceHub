@@ -53,7 +53,7 @@ export default function EntityApprovalTimeline({
       <div className="mb-2 flex items-center justify-between gap-2">
         <h4 className="text-sm font-semibold">{t('approvals.historyTitle')}</h4>
         <button type="button" className={`text-[11px] font-semibold ${muted}`} onClick={load}>
-          {loading ? '…' : t('common.refresh') || 'Refresh'}
+          {loading ? '…' : t('common.refresh')}
         </button>
       </div>
       {loadError ? (

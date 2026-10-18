@@ -159,7 +159,7 @@ export default function TasksProjectVisibilityPolicyPanel({ orgId }) {
             {rows.map(({ key, locked }) => (
               <li
                 key={key}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 hover:bg-muted vh-motion-row vh-motion-respect"
               >
                 <label
                   htmlFor={`${fieldId}-discover-${key}`}

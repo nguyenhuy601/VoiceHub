@@ -176,8 +176,7 @@ export default function useCreateProjectWizard({
         setRequirementIntakeStatus('kept_manual');
         setIntakeImportSessionId('');
         toast.error(
-          t('adminTasks.wizardIntakeNeedXlsx') ||
-            'Chọn file Customer Requirement Raw (.xlsx) để tự điền.'
+          t('adminTasks.wizardIntakeNeedXlsx')
         );
         return;
       }
@@ -200,8 +199,7 @@ export default function useCreateProjectWizard({
         if (!isCustomerRaw) {
           setRequirementIntakeStatus('kept_manual');
           toast.error(
-            t('adminTasks.wizardIntakeNotCustomerRaw') ||
-              'File không phải Customer Requirement Raw — giữ file, nhập tay các trường.'
+            t('adminTasks.wizardIntakeNotCustomerRaw')
           );
           return;
         }
@@ -209,8 +207,7 @@ export default function useCreateProjectWizard({
         if (!draft || typeof draft !== 'object') {
           setRequirementIntakeStatus('kept_manual');
           toast.error(
-            t('adminTasks.wizardIntakeNoDraft') ||
-              'Không đọc được thông tin từ file — nhập tay các trường.'
+            t('adminTasks.wizardIntakeNoDraft')
           );
           return;
         }
@@ -221,7 +218,7 @@ export default function useCreateProjectWizard({
         });
         setRequirementIntakeStatus('autofilled');
         toast.success(
-          t('adminTasks.wizardIntakeAutofillOk') || 'Đã điền thông tin từ Customer Requirement Raw.'
+          t('adminTasks.wizardIntakeAutofillOk')
         );
       } catch (error) {
         setRequirementIntakeStatus('kept_manual');
@@ -230,8 +227,7 @@ export default function useCreateProjectWizard({
           resolveApiErrorMessage(error, {
             t,
             fallback:
-              t('adminTasks.wizardIntakeAutofillFail') ||
-              'Không tự điền được (thiếu quyền tạo dự án / import Customer Raw, hoặc file lỗi) — nhập tay vẫn được.',
+              t('adminTasks.wizardIntakeAutofillFail'),
           })
         );
       } finally {
@@ -529,7 +525,7 @@ export default function useCreateProjectWizard({
         project?.defaultBoardId || project?.board?._id || project?.boardId || ''
       ).trim();
       if (!projectId) {
-        toast.error(t('adminTasks.createFail') || 'Không tạo được dự án nháp.');
+        toast.error(t('adminTasks.createFail'));
         return null;
       }
 
@@ -550,7 +546,7 @@ export default function useCreateProjectWizard({
       const pack = unwrap(draftRes);
       const packId = String(pack?._id || pack?.id || '').trim();
       if (!packId) {
-        toast.error(t('adminTasks.createFail') || 'Không tạo được requirement pack.');
+        toast.error(t('adminTasks.createFail'));
         return handOffToWorkspace({
           projectId,
           defaultBoardId,
@@ -592,8 +588,7 @@ export default function useCreateProjectWizard({
       }
 
       toast.success(
-        t('adminTasks.wizardDraftProjectCreated') ||
-          'Đã tạo dự án nháp (Phase 1) — tiếp tục Gate 1 / AI Planning.'
+        t('adminTasks.wizardDraftProjectCreated')
       );
 
       const counts = countIntakeFiles(form.intakeFiles);

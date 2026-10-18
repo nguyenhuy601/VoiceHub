@@ -22,8 +22,7 @@ export default function IntakeSubmitOverlay({ phase, t }) {
   const message = (key && t(key)) || PHASE_FALLBACKS[phase] || t('common.loading');
   const subMessage =
     t('adminTasks.intakeSubmitPleaseWait') ||
-    t('common.pleaseWaitMoment') ||
-    'Vui lòng không đóng trang.';
+    t('common.pleaseWaitMoment');
 
   return (
     <div

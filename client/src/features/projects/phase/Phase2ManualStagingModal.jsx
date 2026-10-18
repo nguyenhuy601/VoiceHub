@@ -69,7 +69,7 @@ export default function Phase2ManualStagingModal({
       toast.error(
         resolveApiErrorMessage(err, {
           t,
-          fallback: t('workspace.phase2StagingLoadFail') || 'Không tải được bảng staging',
+          fallback: t('workspace.phase2StagingLoadFail'),
         })
       );
     } finally {
@@ -139,7 +139,7 @@ export default function Phase2ManualStagingModal({
     if (!projectId || busy) return;
     const active = visibleRows.filter((r) => String(r.title || '').trim());
     if (!active.length) {
-      toast.error(t('workspace.phase2StagingNeedRows') || 'Cần ít nhất một dòng có tiêu đề');
+      toast.error(t('workspace.phase2StagingNeedRows'));
       return;
     }
     setBusy(true);
@@ -151,7 +151,7 @@ export default function Phase2ManualStagingModal({
         note,
       });
       toast.success(
-        t('workspace.phase2StagingSubmitted') || 'Đã gửi PO duyệt — chưa chuyển Development'
+        t('workspace.phase2StagingSubmitted')
       );
       onSubmitted?.();
       onClose?.();
@@ -159,7 +159,7 @@ export default function Phase2ManualStagingModal({
       toast.error(
         resolveApiErrorMessage(err, {
           t,
-          fallback: t('workspace.phase2StagingSubmitFail') || 'Không gửi được staging',
+          fallback: t('workspace.phase2StagingSubmitFail'),
         })
       );
     } finally {
@@ -178,11 +178,10 @@ export default function Phase2ManualStagingModal({
       >
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-base font-semibold text-foreground">
-            {t('workspace.phase2StagingTitle') || 'Bảng preview Phase 2 (Thủ công)'}
+            {t('workspace.phase2StagingTitle')}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            {t('workspace.phase2StagingHint') ||
-              'Chỉnh Backlog/Board preview từ WBS đã duyệt. Gửi PO duyệt — chưa chuyển Development.'}
+            {t('workspace.phase2StagingHint')}
           </p>
           {status === 'changes_requested' ? (
             <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-2">
@@ -199,7 +198,7 @@ export default function Phase2ManualStagingModal({
         <div className="flex flex-wrap items-end gap-3 border-b border-border px-4 py-2">
           <label className="min-w-[12rem] flex-1 text-sm">
             <span className="text-xs font-medium text-muted-foreground">
-              {t('workspace.phase2StagingNote') || 'Ghi chú cho PO'}
+              {t('workspace.phase2StagingNote')}
             </span>
             <input
               className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
@@ -309,7 +308,7 @@ export default function Phase2ManualStagingModal({
                         onClick={() => removeRow(r.localId)}
                         disabled={busy}
                       >
-                        {t('common.delete') || 'Xóa'}
+                        {t('common.delete')}
                       </button>
                     </td>
                   </tr>
@@ -325,7 +324,7 @@ export default function Phase2ManualStagingModal({
                 onClick={addRow}
                 disabled={busy}
               >
-                + {t('workspace.phase2StagingAddRow') || 'Thêm dòng'}
+                + {t('workspace.phase2StagingAddRow')}
               </button>
               {visibleRows.length > STAGING_PAGE_SIZE ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -375,7 +374,7 @@ export default function Phase2ManualStagingModal({
           >
             {busy
               ? t('common.saving')
-              : t('workspace.phase2StagingSubmitPo') || 'Gửi PO duyệt'}
+              : t('workspace.phase2StagingSubmitPo')}
           </button>
         </div>
       </div>

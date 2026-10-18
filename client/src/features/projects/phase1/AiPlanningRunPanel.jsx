@@ -79,7 +79,7 @@ export default function AiPlanningRunPanel({
     try {
       await requirementAPI.startPhaseAiPlanning(organizationId, packId, { phase: 'how' });
       toast.success(
-        t('requirements.aiPhaseRunStarted') || 'Đã bắt đầu AI Planning (agentic HOW).'
+        t('requirements.aiPhaseRunStarted')
       );
       await refresh().catch(() => {});
     } catch (error) {
@@ -87,7 +87,7 @@ export default function AiPlanningRunPanel({
       toast.error(
         resolveApiErrorMessage(error, {
           t,
-          fallback: t('requirements.aiPhaseRunFail') || 'Không start được AI Planning.',
+          fallback: t('requirements.aiPhaseRunFail'),
         })
       );
       await refresh().catch(() => {});
@@ -115,8 +115,7 @@ export default function AiPlanningRunPanel({
       setPackStatus('project_linked');
       toast.success(
         t('requirements.gate2ConfirmAndPromoteSuccess') ||
-          t('requirements.promoteProjectSuccess') ||
-          'Đã xác nhận Gate 2 và kích hoạt dự án.'
+          t('requirements.promoteProjectSuccess')
       );
       onPromoted?.(data);
     } catch (error) {
@@ -125,8 +124,7 @@ export default function AiPlanningRunPanel({
           t,
           fallback:
             t('requirements.gate2ConfirmAndPromoteFail') ||
-            t('requirements.createProjectFromPackFail') ||
-            'Xác nhận Gate 2 / kích hoạt thất bại.',
+            t('requirements.createProjectFromPackFail'),
         })
       );
       await refresh().catch(() => {});
@@ -147,11 +145,10 @@ export default function AiPlanningRunPanel({
   return (
     <section className="mb-4 rounded-lg border border-border bg-card p-4">
       <h3 className="text-sm font-semibold text-foreground">
-        {t('requirements.aiPlanningRunTitle') || 'AI Planning (Agentic HOW)'}
+        {t('requirements.aiPlanningRunTitle')}
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        {t('requirements.aiPlanningRunHint') ||
-          'Sau Gate 1: Start một phase-run (không Run từng job). Confirm projectPlan = Gate 2, rồi kích hoạt dự án.'}
+        {t('requirements.aiPlanningRunHint')}
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>Pack: {packStatus || '—'}</span>
@@ -172,7 +169,7 @@ export default function AiPlanningRunPanel({
           ) : (
             <Play className="h-4 w-4" />
           )}
-          {t('requirements.aiPlanningStart') || 'Chạy AI Planning'}
+          {t('requirements.aiPlanningStart')}
         </button>
         {phaseReady && canPromote && packStatus !== 'project_linked' ? (
           <button
@@ -184,9 +181,8 @@ export default function AiPlanningRunPanel({
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
             {planStatus === 'confirmed'
               ? t('requirements.promoteProjectRetry') ||
-                t('requirements.gate2ConfirmAndPromote') ||
-                'Thử kích hoạt lại'
-              : t('requirements.gate2ConfirmAndPromote') || 'Xác nhận Gate 2 & kích hoạt'}
+                t('requirements.gate2ConfirmAndPromote')
+              : t('requirements.gate2ConfirmAndPromote')}
           </button>
         ) : null}
       </div>
