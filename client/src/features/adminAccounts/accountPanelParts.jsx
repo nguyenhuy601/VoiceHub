@@ -2,13 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Copy, Eye, EyeOff } from 'lucide-react';
 import { adminPrimaryBtnClass } from '../../components/adminUsers/adminUserPanelUi';
+import { VH_MOTION_BTN } from '../../motion/classes';
 import { adminUserAPI } from '../../services/api/adminUserAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unwrapApi } from '../../utils/adminUserUtils';
 
-const ICON_BTN_CLASS =
-  'inline-flex shrink-0 items-center justify-center rounded-md p-1.5 text-primary transition-colors duration-150 hover:bg-primary-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none';
+const ICON_BTN_CLASS = `inline-flex shrink-0 items-center justify-center rounded-md p-1.5 text-primary hover:bg-primary-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${VH_MOTION_BTN}`;
 
 export const accountInfoCardClass = () => 'rounded-xl border border-border bg-muted px-3 py-3';
 

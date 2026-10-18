@@ -3,6 +3,8 @@
  * Spacing/typography constants; colors via tailwind.config + index.css tokens.
  */
 
+import { VH_MOTION_BTN, VH_MOTION_ROW } from '../../motion/classes';
+
 // useAppStrings (marker for strict i18n scanner)
 
 export const FIGMA_CHAT_ROOT =
@@ -28,7 +30,7 @@ export const FIGMA_CHAT_SIDEBAR_LIST =
   'flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-0 py-2 scrollbar-overlay';
 
 export const FIGMA_CHAT_RAIL_ITEM =
-  'group relative flex w-full items-center gap-2.5 border-none px-3.5 py-2 text-left outline-none transition-[background-color,transform] duration-150 hover:translate-x-0.5 hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-primary/35';
+  `group relative flex w-full items-center gap-2.5 border-none px-3.5 py-2 text-left outline-none hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-primary/35 ${VH_MOTION_ROW}`;
 
 export const FIGMA_CHAT_RAIL_ITEM_ACTIVE = 'bg-primary/10';
 
@@ -73,7 +75,7 @@ export const FIGMA_CHAT_STATUS_DOT = 'h-1.5 w-1.5 shrink-0 rounded-full';
 export const FIGMA_CHAT_HEADER_ACTIONS = 'ml-auto flex shrink-0 items-center gap-1';
 
 export const FIGMA_CHAT_ICON_BTN =
-  'inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg border-none bg-transparent text-muted-foreground transition-[background-color,color,transform] duration-150 hover:-translate-y-0.5 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30';
+  `inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg border-none bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${VH_MOTION_BTN}`;
 
 export const FIGMA_CHAT_ICON_BTN_PHONE =
   'inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg border-none bg-transparent text-muted-foreground transition-[background-color,color,transform] duration-150 hover:-translate-y-0.5 hover:bg-success/10 hover:text-success focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-success/30';

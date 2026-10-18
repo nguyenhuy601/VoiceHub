@@ -21,6 +21,7 @@ import useAdminHubInsights from '../../hooks/useAdminHubInsights';
 import { useAdminNavLoading } from '../../hooks/useAdminShellLoading';
 import { useAppStrings } from '../../locales/appStrings';
 import { useCompanyAdminContext } from './CompanyAdminLayout';
+import { VH_MOTION_CARD } from '../../motion/classes';
 
 const DOMAIN_ICONS = {
   Users,
@@ -65,7 +66,7 @@ export default function AdminHubPage() {
               key={domain.id}
               to={domain.path}
               onClick={() => markNavigating()}
-              className="group relative rounded-xl border border-border bg-card p-4 shadow-sm transition-[transform,border-color,background-color] duration-150 hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+              className={`group relative rounded-xl border border-border bg-card p-4 shadow-sm hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${VH_MOTION_CARD}`}
             >
               <div className="flex items-start gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">

@@ -2,6 +2,8 @@
  * Voice room layout tokens — Enterprise Design System.
  */
 
+import { VH_MOTION_CARD } from '../../motion/classes';
+
 /** Phòng họp — nền tối theo Figma (#0F172A ≈ --surface dark) */
 export const FIGMA_VOICE_ROOM_ROOT =
   'relative flex min-h-0 flex-1 flex-col bg-surface text-foreground';
@@ -331,7 +333,7 @@ export const FIGMA_VOICE_LOBBY_SECTION_TITLE = 'flex items-center gap-2 text-sm 
 export const FIGMA_VOICE_LOBBY_ROOM_LIST = 'flex flex-col gap-2';
 
 export const FIGMA_VOICE_LOBBY_ROOM_CARD =
-  'flex cursor-pointer items-center gap-3.5 rounded-xl border border-border bg-surface p-4 shadow-xs transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md';
+  `flex cursor-pointer items-center gap-3.5 rounded-xl border border-border bg-surface p-4 shadow-xs hover:border-primary/20 ${VH_MOTION_CARD}`;
 
 export const FIGMA_VOICE_LOBBY_ROOM_ICON =
   'flex h-11 w-11 shrink-0 items-center justify-center rounded-[11px] border';

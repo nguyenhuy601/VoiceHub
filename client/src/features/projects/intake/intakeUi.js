@@ -1,3 +1,5 @@
+import { VH_MOTION_BTN, VH_MOTION_CARD } from '../../../motion/classes';
+
 /** Enterprise Project Intake Workspace — shared layout tokens. */
 export const intakeUi = {
   shell: 'fixed inset-0 z-[80] flex flex-col overflow-hidden bg-background text-foreground',
@@ -35,8 +37,7 @@ export const intakeUi = {
     'rounded-xl border border-border bg-card p-4 transition hover:border-border/80',
   roleCardOpen: 'ring-1 ring-primary/30 border-primary/40',
   modeGrid: 'grid gap-3 sm:grid-cols-2',
-  modeCard:
-    'rounded-xl border border-border bg-card p-4 text-left transition duration-150 hover:border-primary/35',
+  modeCard: `rounded-xl border border-border bg-card p-4 text-left hover:border-primary/35 ${VH_MOTION_CARD}`,
   modeCardSelected: 'border-primary bg-primary/10 ring-1 ring-primary/35',
   summaryPanel: 'space-y-5 rounded-xl border border-border bg-card/80 p-4 shadow-sm',
   summaryLabel: 'text-[10px] font-semibold uppercase tracking-wider text-muted-foreground',
@@ -44,10 +45,8 @@ export const intakeUi = {
   summaryChecklist: 'space-y-1.5 text-sm',
   actionBar:
     'relative z-10 shrink-0 border-t border-border bg-background px-4 py-3 sm:px-6 lg:px-8',
-  primaryBtn:
-    'rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50',
-  secondaryBtn:
-    'rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted/40 disabled:opacity-50',
+  primaryBtn: `rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 ${VH_MOTION_BTN}`,
+  secondaryBtn: `rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted/40 disabled:opacity-50 ${VH_MOTION_BTN}`,
   highlightFlash: 'animate-[intakeHighlight_150ms_ease-out]',
   submitOverlay:
     'absolute inset-0 z-[90] flex items-center justify-center bg-background/80 backdrop-blur-sm',

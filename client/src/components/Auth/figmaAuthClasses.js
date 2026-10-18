@@ -3,6 +3,8 @@
  * Chỉ w/h/p/m/gap/text/leading/max-w — màu dùng design token.
  */
 
+import { VH_MOTION_BTN } from '../../motion/classes';
+
 // useAppStrings (marker for strict i18n scanner)
 
 /** LoginPage.tsx — split layout */
@@ -92,7 +94,7 @@ export const FIGMA_TOGGLE_BTN = 'absolute right-3 top-1/2 -translate-y-1/2 p-0.5
 export const FIGMA_MATCH_ICON = 'absolute right-9 top-1/2 -translate-y-1/2';
 export const FIGMA_SELECT =
   'w-full h-9 rounded-lg border border-border bg-[var(--input-background)] px-3 text-[0.9rem] text-foreground vh-input-focus focus:outline-none';
-export const FIGMA_BTN = 'flex w-full h-10 items-center justify-center gap-2 rounded-lg text-sm font-semibold vh-transition disabled:cursor-not-allowed disabled:opacity-60';
+export const FIGMA_BTN = `flex w-full h-10 items-center justify-center gap-2 rounded-lg text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${VH_MOTION_BTN}`;
 export const FIGMA_BTN_PURPLE =
   'bg-gradient-to-br from-violet-600 to-purple-600 text-white shadow-md shadow-violet-500/40 hover:shadow-lg hover:shadow-violet-500/50 disabled:from-muted disabled:to-muted disabled:text-muted-foreground disabled:shadow-none';
 export const FIGMA_BTN_SPINNER = 'w-4 h-4 border-2 border-t-transparent rounded-full animate-spin border-primary-foreground/40';

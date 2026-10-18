@@ -46,17 +46,20 @@ function LoginPage({ landingDemo = false } = {}) {
     originRef: flashlightBtnRef,
   });
 
-  const visualNight = isNightOwl || isDarkMode;
+  // Theme tối app + night-owl easter egg phải cùng một visualNight (tránh chữ tối trên nền tối).
+  const visualNight = Boolean(isNightOwl || isDarkMode);
   const inputBase = authInputSurface(visualNight);
-  const linkCyan = visualNight ? 'text-cyan-400 hover:text-cyan-300' : 'text-cyan-700 hover:text-cyan-800';
+  const linkCyan = visualNight ? 'text-cyan-300 hover:text-cyan-200' : 'text-cyan-700 hover:text-cyan-800';
   const showPwdBtn = isFlashlight
     ? 'text-amber-300 hover:bg-slate-800/80 hover:text-amber-200'
     : visualNight
-      ? 'text-slate-300 hover:bg-slate-800/80'
+      ? 'text-slate-200 hover:bg-slate-800/80 hover:text-white'
       : 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-800';
   const btnPrimary = authPrimaryButtonClass(visualNight);
   const submitDisabled = loading;
-  const closeColor = visualNight ? 'text-slate-200' : 'text-slate-500';
+  const closeColor = visualNight ? 'text-slate-100' : 'text-slate-500';
+  // text-white (không slate) — auth-visual-night hoàn tác html.light .text-white → --text-primary
+  const titleColor = visualNight ? 'text-white' : 'text-slate-900';
 
   useEffect(() => {
     const creds = consumeOneTimeLoginCredentials();
@@ -142,9 +145,9 @@ function LoginPage({ landingDemo = false } = {}) {
 
   return (
     <AuthPageLayout
-      aside={<AuthMarketingAside nightOwl={isNightOwl} compact={!landingDemo} />}
+      aside={<AuthMarketingAside nightOwl={visualNight} compact={!landingDemo} />}
       landingDemo={landingDemo}
-      nightOwl={isNightOwl}
+      nightOwl={visualNight}
       glassCard={!landingDemo}
       showcaseAside={!landingDemo}
     >
@@ -168,9 +171,7 @@ function LoginPage({ landingDemo = false } = {}) {
         ) : null}
 
         <h2
-          className={`text-center text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${
-            visualNight ? 'text-white' : 'text-[#0f172a]'
-          }`}
+          className={`text-center text-[1.65rem] font-bold tracking-tight sm:text-[1.85rem] ${titleColor}`}
         >
           {t('login.title')}
         </h2>
@@ -259,21 +260,12 @@ function LoginPage({ landingDemo = false } = {}) {
           <button
             type="submit"
             disabled={submitDisabled}
-            className={`flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-bold text-white shadow-lg vh-transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
+            className={`flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-bold !text-white shadow-lg vh-transition disabled:cursor-not-allowed disabled:opacity-60 ${btnPrimary}`}
           >
             {loading ? t('login.submitting') : t('login.submit')}
-            {!loading && <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />}
+            {!loading && <ArrowRight className="h-5 w-5 text-white" strokeWidth={2} aria-hidden />}
           </button>
         </form>
-
-        {!landingDemo ? (
-          <p className={`mt-6 text-center text-sm ${visualNight ? 'text-slate-400' : 'text-slate-600'}`}>
-            {t('login.noAccount')}{' '}
-            <Link to="/register" className={`font-semibold underline-offset-2 hover:underline ${linkCyan}`}>
-              {t('login.goRegister')}
-            </Link>
-          </p>
-        ) : null}
       </div>
 
       <OneTimeCredentialsModal

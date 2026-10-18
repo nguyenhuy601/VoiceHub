@@ -5,6 +5,7 @@ import AdminCompanyRealtimeSync from '../../components/Admin/AdminCompanyRealtim
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import useOrganizationDetail from '../../hooks/useOrganizationDetail';
 import { useAppStrings } from '../../locales/appStrings';
+import PageMotion from '../../motion/PageMotion';
 import {
   fetchAdminMembers,
   getAdminMembersCount,
@@ -26,7 +27,7 @@ export function useCompanyAdminContext() {
 export default function CompanyAdminLayout() {
   const { t } = useAppStrings();
   const navigate = useNavigate();
-  const { canAccessHub, isFullAccess, orgId } = useCompanyAdminAccess();
+  const { canAccessHub, isFullAccess, orgId, grantsLoading, grantsError, isSystemAdmin } = useCompanyAdminAccess();
 
   const {
     organization,
@@ -70,6 +71,22 @@ export default function CompanyAdminLayout() {
     [orgId, organization, isFullAccess, memberCount, refreshOrganization, refreshStats]
   );
 
+  if (!isSystemAdmin && orgId && grantsLoading) {
+    return (
+      <div className={`flex h-full min-h-0 items-center justify-center ${FIGMA_PAGE_SHELL}`}>
+        <p className="text-muted-foreground">{t('common.loading')}</p>
+      </div>
+    );
+  }
+
+  if (!isSystemAdmin && orgId && grantsError) {
+    return (
+      <div className={`flex h-full min-h-0 items-center justify-center ${FIGMA_PAGE_SHELL}`}>
+        <p className="text-muted-foreground">{t('common.error')}</p>
+      </div>
+    );
+  }
+
   if (!canAccessHub) {
     return <Navigate to="/app/collaborate/workspaces" replace />;
   }
@@ -110,7 +127,9 @@ export default function CompanyAdminLayout() {
           <p className="text-sm text-muted-foreground">{organization.name}</p>
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-          <Outlet />
+          <PageMotion className="min-h-0 flex-1">
+            <Outlet />
+          </PageMotion>
         </main>
       </div>
     </CompanyAdminContext.Provider>
