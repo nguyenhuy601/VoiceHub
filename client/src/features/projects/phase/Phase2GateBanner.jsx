@@ -73,7 +73,7 @@ export default function Phase2GateBanner({
         publishWbs: true,
         seedBoardTasks: true,
       });
-      toast.success(t('workspace.phase2AdvanceSuccess') || 'Đã chuyển Phase 2 — Development');
+      toast.success(t('workspace.phase2AdvanceSuccess'));
       setOpen(false);
       await invalidateHub();
       navigate(
@@ -86,7 +86,7 @@ export default function Phase2GateBanner({
       toast.error(
         resolveApiErrorMessage(err, {
           t,
-          fallback: t('workspace.phase2AdvanceFail') || 'Không chuyển được Phase 2',
+          fallback: t('workspace.phase2AdvanceFail'),
         })
       );
     } finally {
@@ -115,14 +115,12 @@ export default function Phase2GateBanner({
       {stagingNeedsPm && canChangePhase ? (
         <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-3 sm:px-4">
           <p className="text-sm font-semibold text-foreground">
-            {t('workspace.phase2StagingResumeTitle') || 'Tiếp tục staging Phase 2'}
+            {t('workspace.phase2StagingResumeTitle')}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {String(stagingSummary?.status) === 'changes_requested'
-              ? t('workspace.phase2StagingChangesRequested') ||
-                'PO yêu cầu sửa — mở bảng và gửi lại.'
-              : t('workspace.phase2StagingDraftHint') ||
-                'Có bản nháp staging — mở để chỉnh và gửi PO.'}
+              ? t('workspace.phase2StagingChangesRequested')
+              : t('workspace.phase2StagingDraftHint')}
           </p>
           {String(stagingSummary?.status) === 'changes_requested' && stagingSummary?.reviewNote ? (
             <p className="mt-2 whitespace-pre-wrap text-xs text-foreground">
@@ -134,7 +132,7 @@ export default function Phase2GateBanner({
             className="mt-3 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
             onClick={() => setStagingOpen(true)}
           >
-            {t('workspace.phase2StagingOpen') || 'Mở bảng staging…'}
+            {t('workspace.phase2StagingOpen')}
           </button>
         </div>
       ) : null}
@@ -142,12 +140,10 @@ export default function Phase2GateBanner({
       {showBanner ? (
         <div className="mb-4 rounded-xl border border-primary/40 bg-primary/10 px-3 py-3 sm:px-4">
           <p className="text-sm font-semibold text-foreground">
-            {t('workspace.phase2ReadyTitle') ||
-              'Phase 1 đã đủ approve — sẵn sàng chuyển Phase 2 (Development)'}
+            {t('workspace.phase2ReadyTitle')}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {t('workspace.phase2ReadyHint') ||
-              'Thủ công: chỉnh bảng rồi gửi PO. Tự động hóa: map WBS → Board ngay.'}
+            {t('workspace.phase2ReadyHint')}
           </p>
           {canChangePhase ? (
             <button
@@ -155,11 +151,11 @@ export default function Phase2GateBanner({
               className="mt-3 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
               onClick={() => setOpen(true)}
             >
-              {t('workspace.phase2ReadyCta') || 'Chuyển Phase 2…'}
+              {t('workspace.phase2ReadyCta')}
             </button>
           ) : (
             <p className="mt-2 text-xs text-muted-foreground">
-              {t('workspace.phase2ReadyNeedPm') || 'Chỉ PM/PO có quyền xác nhận chuyển phase.'}
+              {t('workspace.phase2ReadyNeedPm')}
             </p>
           )}
         </div>
@@ -173,7 +169,7 @@ export default function Phase2GateBanner({
             className="w-full max-w-md rounded-xl border border-border bg-surface p-4 shadow-lg"
           >
             <h2 className="text-base font-semibold text-foreground">
-              {t('workspace.phase2ChooserTitle') || 'Chọn cách setup Phase 2'}
+              {t('workspace.phase2ChooserTitle')}
             </h2>
             <div className="mt-4 space-y-2">
               <label className="flex cursor-pointer gap-2 rounded-lg border border-border p-3 text-sm">
@@ -185,11 +181,10 @@ export default function Phase2GateBanner({
                 />
                 <span>
                   <span className="font-semibold">
-                    {t('workspace.phase2OptionManual') || 'Thủ công'}
+                    {t('workspace.phase2OptionManual')}
                   </span>
                   <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {t('workspace.phase2OptionManualHint') ||
-                      'Mở bảng preview Backlog/Board → PM sửa → Gửi PO duyệt (HITL) trước Development.'}
+                    {t('workspace.phase2OptionManualHint')}
                   </span>
                 </span>
               </label>
@@ -202,11 +197,10 @@ export default function Phase2GateBanner({
                 />
                 <span>
                   <span className="font-semibold">
-                    {t('workspace.phase2OptionAutomation') || 'Tự động hóa'}
+                    {t('workspace.phase2OptionAutomation')}
                   </span>
                   <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {t('workspace.phase2OptionAutomationHint') ||
-                      'Map code Phase 1 (WBS đã duyệt) → Board và chuyển Development ngay (không LLM).'}
+                    {t('workspace.phase2OptionAutomationHint')}
                   </span>
                 </span>
               </label>
@@ -230,8 +224,8 @@ export default function Phase2GateBanner({
                 {busy
                   ? t('common.saving')
                   : mode === 'manual'
-                    ? t('workspace.phase2OpenStaging') || 'Mở bảng staging…'
-                    : t('workspace.phase2Confirm') || 'Xác nhận Phase 2'}
+                    ? t('workspace.phase2OpenStaging')
+                    : t('workspace.phase2Confirm')}
               </button>
             </div>
           </div>

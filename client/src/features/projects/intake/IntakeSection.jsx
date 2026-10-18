@@ -2,15 +2,15 @@ import { intakeUi } from './intakeUi';
 
 function statusLabel(status, t) {
   if (status === 'complete') {
-    return t('adminTasks.intakeSectionComplete') || 'Hoàn tất';
+    return t('adminTasks.intakeSectionComplete');
   }
   if (status === 'error') {
-    return t('adminTasks.intakeSectionNeedsAttention') || 'Cần xử lý';
+    return t('adminTasks.intakeSectionNeedsAttention');
   }
   if (status === 'partial') {
-    return t('adminTasks.intakeSectionPartial') || 'Chưa đủ';
+    return t('adminTasks.intakeSectionPartial');
   }
-  return t('adminTasks.intakeSectionPending') || 'Chưa đủ';
+  return t('adminTasks.intakeSectionPending');
 }
 
 export default function IntakeSection({

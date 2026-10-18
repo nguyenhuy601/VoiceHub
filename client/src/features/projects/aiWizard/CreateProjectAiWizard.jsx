@@ -59,7 +59,7 @@ export default function CreateProjectAiWizard({
     wizard.stepId === 'analysis' && (!planConfirmed || wizard.busy);
   const anyBusy = wizard.busy;
   const sourceBlocksNext = wizard.stepId === 'source' && !wizard.packId;
-  const headerBackLabel = backLabel || t('adminTasks.wizardBackToHub') || 'Back';
+  const headerBackLabel = backLabel || t('adminTasks.wizardBackToHub');
   const confirmCta = wizard.isPhase2Ai
     ? t('workspace.phase2ConfirmAiCta') || t('aiCreateWizard.createCta')
     : t('aiCreateWizard.createCta');
@@ -120,7 +120,7 @@ export default function CreateProjectAiWizard({
           <header className="shrink-0 px-5 pt-5 sm:px-8 sm:pt-8">
             <button type="button" onClick={onHeaderBack} className={wizardUi.backLink}>
               <ArrowLeft className="h-4 w-4" />
-              {wizard.step > 0 ? t('common.back') || 'Back' : headerBackLabel}
+              {wizard.step > 0 ? t('common.back') : headerBackLabel}
             </button>
           </header>
 
@@ -148,8 +148,7 @@ export default function CreateProjectAiWizard({
                     onPlanStatusChange={(status) => setPlanStatus(String(status || ''))}
                   />
                   <p className="mt-3 text-xs text-muted-foreground">
-                    {t('aiCreateWizard.phaseHowHint') ||
-                      'Chạy AI Planning (HOW), xác nhận projectPlan (Gate 2), rồi Next để tạo project.'}
+                    {t('aiCreateWizard.phaseHowHint')}
                   </p>
                 </div>
               ) : null}
@@ -178,7 +177,7 @@ export default function CreateProjectAiWizard({
                   onClick={wizard.goBack}
                   disabled={anyBusy}
                 >
-                  {t('common.back') || 'Back'}
+                  {t('common.back')}
                 </button>
               ) : onCancel ? (
                 <button
@@ -200,7 +199,7 @@ export default function CreateProjectAiWizard({
                   }}
                   disabled={anyBusy || analysisBlocksNext || sourceBlocksNext}
                 >
-                  {t('common.next') || 'Next'}
+                  {t('common.next')}
                 </button>
               ) : (
                 <button

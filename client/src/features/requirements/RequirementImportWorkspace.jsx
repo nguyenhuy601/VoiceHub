@@ -328,8 +328,7 @@ export default function RequirementImportWorkspace({
             title,
             description: message,
             placeholder:
-              t('requirements.gate1ForceReasonPlaceholder') ||
-              'Nhập lý do force duyệt Gate 1…',
+              t('requirements.gate1ForceReasonPlaceholder'),
             submitLabel: t('requirements.approveForced') || t('requirements.approve'),
             variant: 'request_changes',
             maxLength: 2000,
@@ -352,10 +351,10 @@ export default function RequirementImportWorkspace({
   const rejectPack = async (packId) => {
     if (!orgId || !packId || actionPackId) return;
     const reasonRaw = await requestNote({
-      title: t('requirements.reject') || 'Từ chối gói',
-      description: t('requirements.rejectReasonPrompt') || 'Nhập lý do từ chối',
-      placeholder: t('requirements.rejectReasonPlaceholder') || 'Lý do từ chối…',
-      submitLabel: t('requirements.reject') || 'Từ chối',
+      title: t('requirements.reject'),
+      description: t('requirements.rejectReasonPrompt'),
+      placeholder: t('requirements.rejectReasonPlaceholder'),
+      submitLabel: t('requirements.reject'),
       variant: 'reject',
       maxLength: 2000,
     });
@@ -398,8 +397,7 @@ export default function RequirementImportWorkspace({
     ).trim();
     if (planStatus !== 'confirmed') {
       toast.error(
-        t('requirements.gate2CreateBlocked') ||
-          'Gate 2: confirm phase HOW trước khi tạo Project board.'
+        t('requirements.gate2CreateBlocked')
       );
       return;
     }
@@ -414,7 +412,7 @@ export default function RequirementImportWorkspace({
         data?.project?._id || data?.project?.projectId || data?.projectId || ''
       ).trim();
       toast.success(
-        t('requirements.createProjectFromPackSuccess') || 'Đã tạo Project board (sau Gate 2).'
+        t('requirements.createProjectFromPackSuccess')
       );
       await loadPacks();
       if (projectId) {
@@ -424,7 +422,7 @@ export default function RequirementImportWorkspace({
       toast.error(
         resolveApiErrorMessage(error, {
           t,
-          fallback: t('requirements.createProjectFromPackFail') || 'Không tạo được dự án từ pack.',
+          fallback: t('requirements.createProjectFromPackFail'),
         })
       );
     } finally {
@@ -765,8 +763,7 @@ export default function RequirementImportWorkspace({
             title={
               String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || '') === 'confirmed'
                 ? t('requirements.createProject')
-                : t('requirements.gate2CreateBlocked') ||
-                  'Gate 2: confirm phase HOW trước khi tạo Project board.'
+                : t('requirements.gate2CreateBlocked')
             }
           >
             <FolderPlus className="h-3 w-3 shrink-0" aria-hidden />

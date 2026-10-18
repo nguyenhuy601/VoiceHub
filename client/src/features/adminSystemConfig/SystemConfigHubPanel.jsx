@@ -56,7 +56,7 @@ export default function SystemConfigHubPanel({ orgId }) {
       { id: TAB_STRUCTURE, label: t('adminDomains.systemConfig.structure') },
       {
         id: TAB_EFFORT,
-        label: t('adminDomains.systemConfig.effortEstimation') || 'Effort estimation',
+        label: t('adminDomains.systemConfig.effortEstimation'),
       },
     ],
     [t]

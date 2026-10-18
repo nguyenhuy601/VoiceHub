@@ -133,7 +133,7 @@ export default function CreateProjectWizardPage() {
       try {
         await taskAPI.acceptProjectBrief(briefId, { boardId });
       } catch {
-        toast.error(t('taskBoard.briefAcceptFail') || 'Không liên kết được brief với board.');
+        toast.error(t('taskBoard.briefAcceptFail'));
       }
     }
   };
@@ -142,10 +142,10 @@ export default function CreateProjectWizardPage() {
     return (
       <div className={wizardUi.emptyPage}>
         <p className="text-sm text-muted-foreground">
-          {t('organizations.selectOrgFirst') || 'Chọn organization trước khi tạo dự án.'}
+          {t('organizations.selectOrgFirst')}
         </p>
         <Link to={projectsPickerPath} className={wizardUi.link}>
-          {t('adminTasks.wizardBackToHub') || 'Back to workspaces'}
+          {t('adminTasks.wizardBackToHub')}
         </Link>
       </div>
     );
@@ -170,7 +170,7 @@ export default function CreateProjectWizardPage() {
       initialValues={initialValues}
       resetKey={`${organizationId}-${briefId || 'x'}`}
       scopeLabel="ORG"
-      backLabel={t('adminTasks.wizardBackToHub') || 'Back to workspaces'}
+      backLabel={t('adminTasks.wizardBackToHub')}
       onCancel={onCancel}
       onCreated={onCreated}
     />

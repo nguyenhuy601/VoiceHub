@@ -108,8 +108,7 @@ export default function AiCustomerDocumentsPanel({
           {t('workspace.phaseNavCustomerDocuments')}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {t('workspace.phase1AiDocsHint') ||
-            'Chỉ hiển thị tên file đã dùng cho AI phân tích (mode AI).'}
+          {t('workspace.phase1AiDocsHint')}
         </p>
       </div>
 
@@ -119,7 +118,7 @@ export default function AiCustomerDocumentsPanel({
 
       {!loading && !rows.length ? (
         <p className="text-sm text-muted-foreground">
-          {t('workspace.phase1NoDocs') || 'Chưa có tài liệu khách hàng.'}
+          {t('workspace.phase1NoDocs')}
         </p>
       ) : null}
 
@@ -135,7 +134,7 @@ export default function AiCustomerDocumentsPanel({
             </span>
             {row.usedForAi ? (
               <span className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:text-emerald-200">
-                {t('workspace.phase1AiDocsUsedBadge') || 'Đã dùng AI'}
+                {t('workspace.phase1AiDocsUsedBadge')}
               </span>
             ) : null}
           </li>

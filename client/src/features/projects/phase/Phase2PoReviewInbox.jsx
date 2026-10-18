@@ -109,7 +109,7 @@ export default function Phase2PoReviewInbox({
         queryKey: ['projectAnalysisGaps', String(projectId)],
       });
       if (action === 'approve_staging' && data?.advanced !== false) {
-        toast.success(t('workspace.phase2AdvanceSuccess') || 'Đã chuyển Phase 2 — Development');
+        toast.success(t('workspace.phase2AdvanceSuccess'));
         navigate(
           buildProjectsModulePath(projectId, phaseHomeModule('development'), {
             organizationId,
@@ -117,14 +117,14 @@ export default function Phase2PoReviewInbox({
         );
       } else {
         toast.success(
-          t('workspace.phase2StagingChangesSent') || 'Đã yêu cầu PM sửa staging'
+          t('workspace.phase2StagingChangesSent')
         );
       }
     } catch (err) {
       toast.error(
         resolveApiErrorMessage(err, {
           t,
-          fallback: t('workspace.phase2StagingReviewFail') || 'Không duyệt được staging',
+          fallback: t('workspace.phase2StagingReviewFail'),
         })
       );
     } finally {

@@ -7,17 +7,15 @@ export default function ProjectWizardStepMode({ form, patchForm, t }) {
   const options = [
     {
       id: 'manual',
-      title: t('adminTasks.wizardModeManual') || 'Manual',
+      title: t('adminTasks.wizardModeManual'),
       hint:
-        t('adminTasks.wizardModeManualHint') ||
-        'BA phân tích yêu cầu thủ công từ tài liệu khách hàng.',
+        t('adminTasks.wizardModeManualHint'),
     },
     {
       id: 'ai',
-      title: t('adminTasks.wizardModeAi') || 'AI',
+      title: t('adminTasks.wizardModeAi'),
       hint:
-        t('adminTasks.wizardModeAiHint') ||
-        'AI hỗ trợ phân tích yêu cầu từ input gốc (sau khi tạo draft).',
+        t('adminTasks.wizardModeAiHint'),
     },
   ];
 
@@ -25,12 +23,11 @@ export default function ProjectWizardStepMode({ form, patchForm, t }) {
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-semibold text-foreground">
-          {t('adminTasks.wizardModeTitle') || 'Analysis Mode'}
+          {t('adminTasks.wizardModeTitle')}
           <span className="ml-0.5 text-destructive">*</span>
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {t('adminTasks.wizardModeHint') ||
-            'Chọn cách phân tích yêu cầu cho dự án này. Có thể đổi quy trình sau khi tạo draft.'}
+          {t('adminTasks.wizardModeHint')}
         </p>
       </div>
 

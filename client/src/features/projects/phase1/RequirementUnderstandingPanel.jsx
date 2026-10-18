@@ -84,7 +84,7 @@ export default function RequirementUnderstandingPanel({
       });
       if (data?.status) setPackStatus(String(data.status));
       toast.success(
-        t('requirements.understandingPrepareOk') || 'Đã chuẩn bị Understanding (prefill + corpus).'
+        t('requirements.understandingPrepareOk')
       );
       onPrepared?.(data);
       await refresh();
@@ -92,7 +92,7 @@ export default function RequirementUnderstandingPanel({
       const msg = resolveApiErrorMessage(error, {
         t,
         fallback:
-          t('requirements.understandingPrepareFail') || 'Không chuẩn bị được Understanding.',
+          t('requirements.understandingPrepareFail'),
       });
       setErrorMsg(msg);
       toast.error(msg);
@@ -108,11 +108,11 @@ export default function RequirementUnderstandingPanel({
   return (
     <section className="mb-4 rounded-lg border border-border bg-card p-4">
       <h3 className="text-sm font-semibold text-foreground">
-        {t('requirements.understandingTitle') || 'Requirement Understanding'}
+        {t('requirements.understandingTitle')}
       </h3>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>
-          {t('requirements.understandingPackStatus') || 'Pack'}: {packStatus || '—'}
+          {t('requirements.understandingPackStatus')}: {packStatus || '—'}
         </span>
         {preparedMeta ? (
           <>
@@ -131,7 +131,7 @@ export default function RequirementUnderstandingPanel({
             {preparedMeta.toolsRan ? (
               <>
                 <span>·</span>
-                <span>{t('requirements.understandingToolsOk') || 'Tools: OK'}</span>
+                <span>{t('requirements.understandingToolsOk')}</span>
               </>
             ) : null}
           </>
@@ -154,8 +154,8 @@ export default function RequirementUnderstandingPanel({
               <FileSearch className="h-4 w-4" />
             )}
             {preparedMeta
-              ? t('requirements.understandingPrepareAgain') || 'Chuẩn bị lại'
-              : t('requirements.understandingPrepare') || 'Chuẩn bị Understanding'}
+              ? t('requirements.understandingPrepareAgain')
+              : t('requirements.understandingPrepare')}
           </button>
         ) : null}
         <button
@@ -167,7 +167,7 @@ export default function RequirementUnderstandingPanel({
           className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-40"
         >
           <ListChecks className="h-4 w-4" />
-          {t('requirements.understandingEditArtifacts') || 'Sửa artifacts (FR)'}
+          {t('requirements.understandingEditArtifacts')}
         </button>
         {!gate1Done ? (
           <button
@@ -179,12 +179,11 @@ export default function RequirementUnderstandingPanel({
             className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-40"
           >
             <Send className="h-4 w-4" />
-            {t('requirements.understandingGate1Cta') || 'Gửi duyệt Gate 1'}
+            {t('requirements.understandingGate1Cta')}
           </button>
         ) : (
           <p className="self-center text-xs text-emerald-700 dark:text-emerald-300">
-            {t('requirements.understandingGate1Done') ||
-              'Gate 1 đã duyệt — có thể chạy AI Planning (HOW).'}
+            {t('requirements.understandingGate1Done')}
           </p>
         )}
       </div>

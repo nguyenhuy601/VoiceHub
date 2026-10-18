@@ -282,7 +282,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         if (!cancelled) {
           setErrorMsg(
             resolveApiErrorMessage(err, {
-              fallback: t('requirements.aiHitlLoadError') || 'Không tải được pack AI.',
+              fallback: t('requirements.aiHitlLoadError'),
             })
           );
           setLoading(false);
@@ -424,15 +424,15 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         });
         toast.success(
           useForce
-            ? t('requirements.aiHowRerunStarted') || 'Đã chạy lại AI Planning (HOW).'
-            : t('requirements.aiHowRunStarted') || 'Đã bắt đầu AI Planning (HOW).'
+            ? t('requirements.aiHowRerunStarted')
+            : t('requirements.aiHowRunStarted')
         );
         await refresh();
       } catch (err) {
         clearAwaitingFreshRun();
         toast.error(
           resolveApiErrorMessage(err, {
-            fallback: t('requirements.aiHowRunFail') || 'Không start được AI Planning (HOW).',
+            fallback: t('requirements.aiHowRunFail'),
           })
         );
         await refresh().catch(() => {});
@@ -515,7 +515,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       });
       goMonitorTab();
       toast.success(
-        t('requirements.aiWhatRunStarted') || 'Đã bắt đầu AI Requirement (WHAT).'
+        t('requirements.aiWhatRunStarted')
       );
       try {
         await runWhatPipeline({ force: true });
@@ -526,7 +526,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         clearAwaitingFreshRun();
         toast.error(
           resolveApiErrorMessage(err, {
-            fallback: t('requirements.aiWhatRunFail') || 'Không start được AI Requirement.',
+            fallback: t('requirements.aiWhatRunFail'),
           })
         );
         await refresh().catch(() => {});
@@ -656,8 +656,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         });
         if (!cancelled) {
           toast(
-            t('requirements.phase1DataGateRemovedHint') ||
-              'Data Gate đã gỡ — hãy Chạy AI WHAT / AI revise để tiếp tục.'
+            t('requirements.phase1DataGateRemovedHint')
           );
           await refresh();
         }
@@ -780,7 +779,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         decision: 'pass',
         runId: liveRun?.runId || phaseWhat?.remoteRunId,
       });
-      toast.success(t('requirements.phase1DataGatePassToast') || 'Đã Pass Data Gate — AI chạy tiếp.');
+      toast.success(t('requirements.phase1DataGatePassToast'));
       // Optimistic: next step is Semantic Fetch — avoid Monitor flash at step 1 / prepare
       // while the first post-resume poll catches up.
       setLiveRun((prev) =>
@@ -814,7 +813,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         decision: 'reject',
         runId: liveRun?.runId || phaseWhat?.remoteRunId,
       });
-      toast.success(t('requirements.phase1DataGateRejectToast') || 'Đã Reject — có thể chạy lại WHAT.');
+      toast.success(t('requirements.phase1DataGateRejectToast'));
       await refresh();
     } catch (err) {
       toast.error(resolveApiErrorMessage(err, { fallback: 'Data Gate reject failed' }));
@@ -831,12 +830,11 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   }) => {
     if (!organizationId || !packId || busy) return;
     const note = await requestNote({
-      title: t('requirements.phase1Gate1ConfirmTitle') || 'Xác nhận duyệt Gate 1',
+      title: t('requirements.phase1Gate1ConfirmTitle'),
       description:
-        t('requirements.phase1Gate1ConfirmBaDesc') ||
-        'BA xác nhận bản AI và chuyển PO duyệt. Ghi chú tuỳ chọn.',
-      placeholder: t('requirements.phase1Gate1ConfirmNotePlaceholder') || 'Ghi chú (tuỳ chọn)…',
-      submitLabel: t('requirements.phase1Gate1ConfirmCta') || 'Xác nhận duyệt',
+        t('requirements.phase1Gate1ConfirmBaDesc'),
+      placeholder: t('requirements.phase1Gate1ConfirmNotePlaceholder'),
+      submitLabel: t('requirements.phase1Gate1ConfirmCta'),
       variant: 'generic',
       noteOptional: true,
       maxLength: 1000,
@@ -855,16 +853,15 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       const submissionId = submittedPack?.aiAnalysis?.gate1?.activeSubmissionId;
       if (!submissionId) {
         toast.error(
-          t('requirements.phase1Gate1SubmitMissingSubmission') ||
-            'BA submit chưa ghi nhận GateSubmission — thử Xác nhận duyệt lại.'
+          t('requirements.phase1Gate1SubmitMissingSubmission')
         );
         await refresh();
         return;
       }
       setAckDialog({
-        title: t('requirements.phase1Gate1SubmitSuccessTitle') || 'Đã gửi duyệt Gate 1',
+        title: t('requirements.phase1Gate1SubmitSuccessTitle'),
         message:
-          t('requirements.understandingGate1Submitted') || 'Đã xác nhận duyệt — chờ PO.',
+          t('requirements.understandingGate1Submitted'),
       });
       // Allow one reseed from server after submit (new reviewVersion / persisted decisions)
       clearGate1DecisionsForReseed();
@@ -879,12 +876,11 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const onGate1Approve = async () => {
     if (!organizationId || !packId || busy) return;
     const note = await requestNote({
-      title: t('requirements.phase1Gate1PoConfirmTitle') || 'Xác nhận cuối cùng Gate 1',
+      title: t('requirements.phase1Gate1PoConfirmTitle'),
       description:
-        t('requirements.phase1Gate1ConfirmPoDesc') ||
-        'PO xác nhận duyệt Gate 1 — Monitor chuyển Phase How và chạy AI HOW. Ghi chú tuỳ chọn.',
-      placeholder: t('requirements.phase1Gate1ConfirmNotePlaceholder') || 'Ghi chú (tuỳ chọn)…',
-      submitLabel: t('requirements.phase1Gate1PoConfirmCta') || 'Xác nhận',
+        t('requirements.phase1Gate1ConfirmPoDesc'),
+      placeholder: t('requirements.phase1Gate1ConfirmNotePlaceholder'),
+      submitLabel: t('requirements.phase1Gate1PoConfirmCta'),
       variant: 'generic',
       noteOptional: true,
       maxLength: 1000,
@@ -907,17 +903,16 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
             title,
             description: message,
             placeholder:
-              t('requirements.gate1ForceReasonPlaceholder') ||
-              'Nhập lý do force duyệt Gate 1…',
-            submitLabel: t('requirements.approveForced') || t('requirements.approve') || 'Duyệt',
+              t('requirements.gate1ForceReasonPlaceholder'),
+            submitLabel: t('requirements.approveForced') || t('requirements.approve'),
             variant: 'request_changes',
             maxLength: 2000,
           }),
       });
       if (!result.ok) return;
       setAckDialog({
-        title: t('requirements.phase1Gate1ApproveSuccessTitle') || 'Gate 1 đã được duyệt',
-        message: t('requirements.phase1ApproveOk') || 'PO đã duyệt Gate 1.',
+        title: t('requirements.phase1Gate1ApproveSuccessTitle'),
+        message: t('requirements.phase1ApproveOk'),
       });
       // Monitor → Phase How + start HOW immediately after PO final confirm
       goMonitorTab();
@@ -940,14 +935,13 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
           ...(projectId ? { projectId: String(projectId) } : {}),
         });
         toast.success(
-          t('requirements.aiHowRunStarted') || 'Đã bắt đầu AI Planning (HOW).'
+          t('requirements.aiHowRunStarted')
         );
       } catch (howErr) {
         toast.error(
           resolveApiErrorMessage(howErr, {
             fallback:
-              t('requirements.aiHowRunFail') ||
-              'Gate 1 đã duyệt nhưng chưa start được Phase How.',
+              t('requirements.aiHowRunFail'),
           })
         );
       }
@@ -965,19 +959,18 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const onGate1Reject = async () => {
     if (!organizationId || !packId || busy) return;
     const reasonRaw = await requestNote({
-      title: t('requirements.phase1Gate1PoRejectTitle') || 'Từ chối bản duyệt Gate 1',
+      title: t('requirements.phase1Gate1PoRejectTitle'),
       description:
-        t('requirements.phase1Gate1PoRejectDesc') ||
-        'Bản duyệt sẽ trả về BA và BA được thông báo. Nhập lý do từ chối.',
-      placeholder: t('requirements.rejectReasonPlaceholder') || 'Lý do từ chối…',
-      submitLabel: t('requirements.phase1Gate1PoRejectCta') || 'Từ chối',
+        t('requirements.phase1Gate1PoRejectDesc'),
+      placeholder: t('requirements.rejectReasonPlaceholder'),
+      submitLabel: t('requirements.phase1Gate1PoRejectCta'),
       variant: 'reject',
       maxLength: 2000,
     });
     if (reasonRaw === null) return;
     const reason = String(reasonRaw).trim().slice(0, 2000);
     if (!reason) {
-      toast.error(t('requirements.rejectReasonRequired') || 'Cần lý do khi từ chối.');
+      toast.error(t('requirements.rejectReasonRequired'));
       return;
     }
     setBusy(true);
@@ -986,15 +979,14 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         projectId,
       });
       toast.success(
-        t('requirements.phase1Gate1PoRejectOk') ||
-          'Đã từ chối — bản duyệt trả về BA.'
+        t('requirements.phase1Gate1PoRejectOk')
       );
       clearGate1DecisionsForReseed();
       await refresh();
     } catch (err) {
       toast.error(
         resolveApiErrorMessage(err, {
-          fallback: t('requirements.rejectFail') || 'Từ chối Gate 1 thất bại',
+          fallback: t('requirements.rejectFail'),
         })
       );
     } finally {
@@ -1019,12 +1011,11 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const onGate2TrackSubmit = async (meta = {}) => {
     if (!organizationId || !packId || busy) return;
     const note = await requestNote({
-      title: t('requirements.gate2TrackSubmitTitle') || 'Xác nhận phần review',
+      title: t('requirements.gate2TrackSubmitTitle'),
       description:
-        t('requirements.gate2TrackSubmitDesc') ||
-        'Xác nhận các mục thuộc phần của bạn. Ba bên review song song.',
-      placeholder: t('requirements.gate2SubmitNotePlaceholder') || 'Ghi chú (tuỳ chọn)…',
-      submitLabel: t('requirements.gate2TrackSubmit') || 'Xác nhận phần của tôi',
+        t('requirements.gate2TrackSubmitDesc'),
+      placeholder: t('requirements.gate2SubmitNotePlaceholder'),
+      submitLabel: t('requirements.gate2TrackSubmit'),
       variant: 'generic',
       noteOptional: true,
       maxLength: 1000,
@@ -1042,8 +1033,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         ...(String(note || '').trim() ? { note: String(note).trim().slice(0, 1000) } : {}),
       },
       {
-        ok: t('requirements.gate2TrackSubmitOk') || 'Đã xác nhận phần review.',
-        fail: t('requirements.gate2PmSubmitFail') || 'Gửi duyệt Gate 2 thất bại',
+        ok: t('requirements.gate2TrackSubmitOk'),
+        fail: t('requirements.gate2PmSubmitFail'),
       }
     );
   };
@@ -1052,8 +1043,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     await postGate2(
       { action: 'propose_change', proposal: draft, note: draft.reason || '' },
       {
-        ok: t('requirements.gate2ProposalSent') || 'Đã gửi chủ phần xác nhận.',
-        fail: t('requirements.gate2ProposalFail') || 'Không gửi được đề xuất.',
+        ok: t('requirements.gate2ProposalSent'),
+        fail: t('requirements.gate2ProposalFail'),
       }
     );
   };
@@ -1062,12 +1053,11 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     let note = '';
     if (decision === 'reject') {
       const reason = await requestNote({
-        title: t('requirements.gate2ProposalReject') || 'Từ chối đề xuất',
+        title: t('requirements.gate2ProposalReject'),
         description:
-          t('requirements.gate2ProposalRejectDesc') ||
-          'Giá trị mới không được áp dụng. PM có thể giữ nguyên, đề xuất lại, hoặc chuyển PO.',
-        placeholder: t('requirements.gate2RejectReasonPlaceholder') || 'Lý do từ chối…',
-        submitLabel: t('requirements.gate2ProposalReject') || 'Từ chối',
+          t('requirements.gate2ProposalRejectDesc'),
+        placeholder: t('requirements.gate2RejectReasonPlaceholder'),
+        submitLabel: t('requirements.gate2ProposalReject'),
         variant: 'warning',
         noteOptional: false,
         maxLength: 1000,
@@ -1080,9 +1070,9 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       {
         ok:
           decision === 'accept'
-            ? t('requirements.gate2ProposalAccepted') || 'Đã chấp nhận'
-            : t('requirements.gate2ProposalRejected') || 'Đã từ chối',
-        fail: t('requirements.gate2ProposalFail') || 'Không gửi được quyết định.',
+            ? t('requirements.gate2ProposalAccepted')
+            : t('requirements.gate2ProposalRejected'),
+        fail: t('requirements.gate2ProposalFail'),
       }
     );
   };
@@ -1091,20 +1081,19 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     await postGate2(
       { action: 'keep_original', proposalId },
       {
-        ok: t('requirements.gate2ProposalReverted') || 'Giữ nguyên giá trị đã duyệt',
-        fail: t('requirements.gate2ProposalFail') || 'Không cập nhật được.',
+        ok: t('requirements.gate2ProposalReverted'),
+        fail: t('requirements.gate2ProposalFail'),
       }
     );
   };
 
   const onGate2Escalate = async ({ proposalId } = {}) => {
     const note = await requestNote({
-      title: t('requirements.gate2Escalate') || 'Chuyển PO quyết trade-off',
+      title: t('requirements.gate2Escalate'),
       description:
-        t('requirements.gate2EscalateDesc') ||
-        'Hai bên chưa thống nhất. PO quyết định trade-off — không được ghi là Tech Lead đã duyệt.',
-      placeholder: t('requirements.gate2EscalatePlaceholder') || 'Mô tả trade-off…',
-      submitLabel: t('requirements.gate2Escalate') || 'Chuyển PO',
+        t('requirements.gate2EscalateDesc'),
+      placeholder: t('requirements.gate2EscalatePlaceholder'),
+      submitLabel: t('requirements.gate2Escalate'),
       variant: 'warning',
       noteOptional: false,
       maxLength: 1000,
@@ -1113,23 +1102,21 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     await postGate2(
       { action: 'escalate', proposalId, note: String(note).trim() },
       {
-        ok: t('requirements.gate2ProposalEscalated') || 'Đã chuyển PO',
-        fail: t('requirements.gate2ProposalFail') || 'Không escalate được.',
+        ok: t('requirements.gate2ProposalEscalated'),
+        fail: t('requirements.gate2ProposalFail'),
       }
     );
   };
 
   const onGate2ResolveEscalation = async ({ proposalId, decision } = {}) => {
     const note = await requestNote({
-      title: t('requirements.gate2AcceptRisk') || 'Quyết định trade-off',
+      title: t('requirements.gate2AcceptRisk'),
       description:
         decision === 'accept_risk'
-          ? t('requirements.gate2AcceptRiskDesc') ||
-            'Ghi nhận PO chấp nhận rủi ro. Không tính là Tech Lead đã duyệt.'
-          : t('requirements.gate2RejectTradeoffDesc') ||
-            'Không chấp nhận trade-off. PM phải giữ nguyên hoặc tìm phương án khác.',
-      placeholder: t('requirements.gate2EscalatePlaceholder') || 'Ghi nhận quyết định…',
-      submitLabel: t('common.confirm') || 'Xác nhận',
+          ? t('requirements.gate2AcceptRiskDesc')
+          : t('requirements.gate2RejectTradeoffDesc'),
+      placeholder: t('requirements.gate2EscalatePlaceholder'),
+      submitLabel: t('common.confirm'),
       variant: decision === 'accept_risk' ? 'warning' : 'generic',
       noteOptional: false,
       maxLength: 1000,
@@ -1138,20 +1125,19 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     await postGate2(
       { action: 'resolve_escalation', proposalId, decision, note: String(note).trim() },
       {
-        ok: t('requirements.gate2EscalationResolved') || 'Đã ghi nhận quyết định PO.',
-        fail: t('requirements.gate2ProposalFail') || 'Không ghi nhận được.',
+        ok: t('requirements.gate2EscalationResolved'),
+        fail: t('requirements.gate2ProposalFail'),
       }
     );
   };
 
   const onGate2PmConfirmPlan = async () => {
     const note = await requestNote({
-      title: t('requirements.gate2PmConfirmPlan') || 'Xác nhận kế hoạch đã nhất quán',
+      title: t('requirements.gate2PmConfirmPlan'),
       description:
-        t('requirements.gate2PmConfirmPlanDesc') ||
-        'Không còn xung đột bắt buộc. Gửi bản tổng hợp cho PO xác nhận cuối.',
-      placeholder: t('requirements.gate2SubmitNotePlaceholder') || 'Ghi chú (tuỳ chọn)…',
-      submitLabel: t('requirements.gate2PmConfirmPlan') || 'Gửi PO xác nhận cuối',
+        t('requirements.gate2PmConfirmPlanDesc'),
+      placeholder: t('requirements.gate2SubmitNotePlaceholder'),
+      submitLabel: t('requirements.gate2PmConfirmPlan'),
       variant: 'generic',
       noteOptional: true,
       maxLength: 1000,
@@ -1163,8 +1149,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         ...(String(note || '').trim() ? { note: String(note).trim().slice(0, 1000) } : {}),
       },
       {
-        ok: t('requirements.gate2PmConfirmPlanOk') || 'Đã gửi PO xác nhận cuối.',
-        fail: t('requirements.gate2PmSubmitFail') || 'Không gửi được bản tổng hợp.',
+        ok: t('requirements.gate2PmConfirmPlanOk'),
+        fail: t('requirements.gate2PmSubmitFail'),
       }
     );
   };
@@ -1195,41 +1181,36 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     }
     if (meta.hasSoftWarnings && !forceApprove) {
       warnParts.push(
-        t('requirements.gate2WarnSoftNoForce') ||
-          'Cảnh báo UI (thiếu tab/conflict) — vẫn có thể duyệt; G13 chỉ bị ghi đè khi bạn chọn force hoặc ghi chú sau lỗi feasibility.'
+        t('requirements.gate2WarnSoftNoForce')
       );
     }
     if (forceApprove || activateOnly) {
       warnParts.push(
-        t('requirements.gate2WarnForcePromote') ||
-          'Kích hoạt delivery có thể ghi đè cổng G13 (resource/schedule/quality/deploy plan) nếu chưa đạt — cần ghi chú.'
+        t('requirements.gate2WarnForcePromote')
       );
     }
     if (meta.canPromote === false && !canReviewGate2Po) {
       warnParts.push(
-        t('requirements.gate2WarnNoPromotePerm') ||
-          'Tài khoản có thể thiếu quyền kích hoạt delivery từ pack.'
+        t('requirements.gate2WarnNoPromotePerm')
       );
     }
     const baseDesc = activateOnly
-      ? t('requirements.gate2ActivateDesc') ||
-        'Gate 2 đã confirmed — kích hoạt Phase 2 delivery (import WBS lên board).'
-      : t('requirements.gate2PoApproveDesc') ||
-        'PO chấp nhận kế hoạch và kích hoạt dự án. Ghi chú tuỳ chọn.';
+      ? t('requirements.gate2ActivateDesc')
+      : t('requirements.gate2PoApproveDesc');
     const description = warnParts.length
-      ? `${t('requirements.gate2WarnLead') || 'Cảnh báo trước khi duyệt:'}\n• ${warnParts.join('\n• ')}\n\n${baseDesc}`
+      ? `${t('requirements.gate2WarnLead')}\n• ${warnParts.join('\n• ')}\n\n${baseDesc}`
       : baseDesc;
     const note = await requestNote({
       title: activateOnly
-        ? t('requirements.promoteProjectRetry') || 'Kích hoạt / tiếp tục delivery'
-        : t('requirements.gate2PoApproveTitle') || 'PO duyệt Gate 2',
+        ? t('requirements.promoteProjectRetry')
+        : t('requirements.gate2PoApproveTitle'),
       description,
-      placeholder: t('requirements.gate2ConfirmNotePlaceholder') || 'Ghi chú (tuỳ chọn)…',
+      placeholder: t('requirements.gate2ConfirmNotePlaceholder'),
       submitLabel: activateOnly
-        ? t('requirements.promoteProjectRetry') || 'Kích hoạt delivery'
+        ? t('requirements.promoteProjectRetry')
         : warnParts.length
-          ? t('requirements.gate2PoApproveAnyway') || 'Vẫn duyệt & kích hoạt'
-          : t('requirements.gate2PoApprove') || 'Duyệt Gate 2 & kích hoạt',
+          ? t('requirements.gate2PoApproveAnyway')
+          : t('requirements.gate2PoApprove'),
       variant: warnParts.length ? 'warning' : 'generic',
       noteOptional: true,
       maxLength: 1000,
@@ -1311,8 +1292,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         promotePayload = unwrap(res);
       }
       toast.success(
-        t('requirements.gate2ConfirmAndPromoteSuccess') ||
-          'Đã xác nhận Gate 2 và kích hoạt dự án (Phase 2 delivery).'
+        t('requirements.gate2ConfirmAndPromoteSuccess')
       );
       onPromoted?.(promotePayload);
       await refresh().catch(() => {});
@@ -1320,8 +1300,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       toast.error(
         resolveApiErrorMessage(err, {
           fallback:
-            t('requirements.gate2ConfirmAndPromoteFail') ||
-            'Duyệt Gate 2 / kích hoạt thất bại',
+            t('requirements.gate2ConfirmAndPromoteFail'),
         })
       );
       await refresh().catch(() => {});
@@ -1333,19 +1312,18 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const onGate2PoReject = async () => {
     if (!organizationId || !packId || busy) return;
     const reasonRaw = await requestNote({
-      title: t('requirements.gate2PoRejectTitle') || 'Từ chối Gate 2',
+      title: t('requirements.gate2PoRejectTitle'),
       description:
-        t('requirements.gate2PoRejectDesc') ||
-        'Kế hoạch trả về PM. Nhập lý do từ chối.',
-      placeholder: t('requirements.rejectReasonPlaceholder') || 'Lý do từ chối…',
-      submitLabel: t('requirements.gate2PoReject') || 'Từ chối — trả PM',
+        t('requirements.gate2PoRejectDesc'),
+      placeholder: t('requirements.rejectReasonPlaceholder'),
+      submitLabel: t('requirements.gate2PoReject'),
       variant: 'reject',
       maxLength: 2000,
     });
     if (reasonRaw === null) return;
     const reason = String(reasonRaw).trim().slice(0, 2000);
     if (!reason) {
-      toast.error(t('requirements.rejectReasonRequired') || 'Cần lý do khi từ chối.');
+      toast.error(t('requirements.rejectReasonRequired'));
       return;
     }
     setBusy(true);
@@ -1355,13 +1333,13 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         note: reason,
       });
       toast.success(
-        t('requirements.gate2PoRejectOk') || 'Đã từ chối — trả về PM.'
+        t('requirements.gate2PoRejectOk')
       );
       await refresh();
     } catch (err) {
       toast.error(
         resolveApiErrorMessage(err, {
-          fallback: t('requirements.gate2PoRejectFail') || 'Từ chối Gate 2 thất bại',
+          fallback: t('requirements.gate2PoRejectFail'),
         })
       );
     } finally {
@@ -1437,8 +1415,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       toast.error(
         resolveApiErrorMessage(err, {
           fallback: force
-            ? t('requirements.aiWhatRunFail') || 'Revise WHAT failed'
-            : t('requirements.aiWhatRunFail') || 'Start WHAT failed',
+            ? t('requirements.aiWhatRunFail')
+            : t('requirements.aiWhatRunFail'),
         })
       );
       await refresh().catch(() => {});
@@ -1490,7 +1468,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   if (!packId) {
     return (
       <div className="p-4 text-sm text-muted-foreground">
-        {t('requirements.aiHitlNoPack') || 'Chưa có requirement pack gắn dự án AI.'}
+        {t('requirements.aiHitlNoPack')}
       </div>
     );
   }
@@ -1498,12 +1476,12 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const packStatus = String(pack?.status || '');
   const statusLabel =
     ({
-      draft: t('requirements.phase1Status_draft') || 'Nháp',
-      under_review: t('requirements.phase1Status_pending_review') || 'Chờ duyệt',
-      approved: t('requirements.phase1Status_approved') || 'Đã duyệt',
-      rejected: t('requirements.phase1Status_rejected') || 'Từ chối',
-      project_linked: t('requirements.phase1Status_active') || 'Đã gắn dự án',
-      changes_requested: t('requirements.phase1Status_changes_requested') || 'Cần chỉnh sửa',
+      draft: t('requirements.phase1Status_draft'),
+      under_review: t('requirements.phase1Status_pending_review'),
+      approved: t('requirements.phase1Status_approved'),
+      rejected: t('requirements.phase1Status_rejected'),
+      project_linked: t('requirements.phase1Status_active'),
+      changes_requested: t('requirements.phase1Status_changes_requested'),
     }[packStatus.toLowerCase()] ||
       (packStatus ? packStatus.replace(/_/g, ' ') : ''));
 
@@ -1512,7 +1490,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       <header className="shrink-0 space-y-3 border-b border-border/60 px-3 pb-3 pt-3 sm:px-4 sm:pt-4">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
-            {t('requirements.aiHitlPageTitle') || 'AI HITL — Monitor & Duyệt'}
+            {t('requirements.aiHitlPageTitle')}
           </h1>
           {statusLabel ? (
             <span className="rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
@@ -1529,8 +1507,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
 
         <div className="flex gap-1" role="tablist" aria-label="AI HITL tabs">
           {[
-            ['monitor', t('requirements.aiHitlTabMonitor') || 'Monitor'],
-            ['review', t('requirements.aiHitlTabReview') || 'Duyệt'],
+            ['monitor', t('requirements.aiHitlTabMonitor')],
+            ['review', t('requirements.aiHitlTabReview')],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -1626,7 +1604,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         onConfirm={() => setAckDialog(null)}
         title={ackDialog?.title || ''}
         message={ackDialog?.message || ''}
-        confirmText={t('common.confirm') || t('common.close') || 'Đóng'}
+        confirmText={t('common.confirm') || t('common.close')}
         cancelText=""
       />
     </div>

@@ -50,11 +50,10 @@ export default function EffortEstimationSettingsPanel({ organizationId }) {
     <section className="space-y-4 max-w-3xl">
       <div>
         <h2 className="text-base font-semibold">
-          {t('workspace.effortEstimationTitle') || 'Effort estimation'}
+          {t('workspace.effortEstimationTitle')}
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          {t('workspace.effortEstimationHint') ||
-            'Định mức họp theo vai trò (org). Publish trước khi seed MeetingPlan dự án.'}
+          {t('workspace.effortEstimationHint')}
         </p>
       </div>
 
@@ -97,7 +96,7 @@ export default function EffortEstimationSettingsPanel({ organizationId }) {
         disabled={!orgId || publishM.isPending}
         onClick={() => publishM.mutate()}
       >
-        {t('workspace.effortEstimationPublish') || 'Publish draft'}
+        {t('workspace.effortEstimationPublish')}
       </button>
       {msg ? <p className="text-xs text-muted-foreground">{msg}</p> : null}
     </section>

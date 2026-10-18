@@ -24,30 +24,27 @@ function readErrorCode(error) {
 function forcePromptMessage(code, t) {
   if (code === 'CONFLICT_AMBIGUITY_BLOCKING' || code === 'CONFLICT_AMBIGUITY_OVERRIDE_REASON_REQUIRED') {
     return (
-      t('requirements.gate1ForceConflictPrompt') ||
-      'Còn conflict/ambiguity. Nhập lý do để force duyệt Gate 1 (hoặc Cancel):'
+      t('requirements.gate1ForceConflictPrompt')
     );
   }
   if (code === 'G4_UNDERSTANDING_MISSING') {
     return (
-      t('requirements.gate1ForceG4Prompt') ||
-      'Thiếu kết quả AI Requirement. Nhập lý do để force duyệt Gate 1 (hoặc Cancel):'
+      t('requirements.gate1ForceG4Prompt')
     );
   }
   return (
-    t('requirements.gate1ForceReasonPrompt') ||
-    'Gate A chưa đạt. Nhập lý do để force duyệt (hoặc Cancel):'
+    t('requirements.gate1ForceReasonPrompt')
   );
 }
 
 function forcePromptTitle(code, t) {
   if (code === 'CONFLICT_AMBIGUITY_BLOCKING' || code === 'CONFLICT_AMBIGUITY_OVERRIDE_REASON_REQUIRED') {
-    return t('requirements.gate1ForceConflictTitle') || 'Force duyệt Gate 1 — Integrity';
+    return t('requirements.gate1ForceConflictTitle');
   }
   if (code === 'G4_UNDERSTANDING_MISSING') {
-    return t('requirements.gate1ForceG4Title') || 'Force duyệt Gate 1 — thiếu G4';
+    return t('requirements.gate1ForceG4Title');
   }
-  return t('requirements.gate1ForceReasonTitle') || 'Force duyệt Gate 1';
+  return t('requirements.gate1ForceReasonTitle');
 }
 
 /**
@@ -72,8 +69,7 @@ export async function approveRequirementPackWithGate1({
     }
     if (typeof requestForceReason !== 'function') {
       const err = new Error(
-        t('requirements.gate1ForceReasonRequired') ||
-          'Cần nhập lý do force duyệt Gate 1 (modal).'
+        t('requirements.gate1ForceReasonRequired')
       );
       err.statusCode = 400;
       err.errorCode = 'GATE1_FORCE_REASON_UI_REQUIRED';
@@ -90,7 +86,7 @@ export async function approveRequirementPackWithGate1({
     const overrideReason = String(reasonRaw).trim().slice(0, 2000);
     if (!overrideReason) {
       toast.error(
-        t('requirements.gate1ForceReasonRequired') || 'Cần lý do khi force duyệt Gate 1.'
+        t('requirements.gate1ForceReasonRequired')
       );
       return { ok: false, cancelled: false };
     }

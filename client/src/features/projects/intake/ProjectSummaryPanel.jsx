@@ -66,33 +66,33 @@ export default function ProjectSummaryPanel({
 
   const modeLabel =
     form.analysisMode === 'ai'
-      ? t('adminTasks.intakeModeAiTitle') || 'AI-assisted'
+      ? t('adminTasks.intakeModeAiTitle')
       : form.analysisMode === 'manual'
-        ? t('adminTasks.wizardModeManual') || 'Manual'
-        : t('adminTasks.intakeNotSelected') || 'Chưa chọn';
+        ? t('adminTasks.wizardModeManual')
+        : t('adminTasks.intakeNotSelected');
 
   const panel = (
     <div className={intakeUi.summaryPanel}>
       <p className={intakeUi.summaryLabel}>
-        {t('adminTasks.intakeSummaryTitle') || 'Project summary'}
+        {t('adminTasks.intakeSummaryTitle')}
       </p>
 
       <div className={compact ? 'mt-3 space-y-3' : 'mt-4 space-y-4'}>
         <div>
-          <p className="text-xs text-muted-foreground">{t('adminTasks.intakeSummaryProject') || 'Project'}</p>
+          <p className="text-xs text-muted-foreground">{t('adminTasks.intakeSummaryProject')}</p>
           <p className={intakeUi.summaryRow}>{form.title?.trim() || '—'}</p>
         </div>
         {form.customerName ? (
           <div>
             <p className="text-xs text-muted-foreground">
-              {t('adminTasks.wizardCustomerName') || 'Customer'}
+              {t('adminTasks.wizardCustomerName')}
             </p>
             <p className={intakeUi.summaryRow}>{form.customerName}</p>
           </div>
         ) : null}
         <div>
           <p className="text-xs text-muted-foreground">
-            {t('adminTasks.intakeSummaryAnalysis') || 'Analysis'}
+            {t('adminTasks.intakeSummaryAnalysis')}
           </p>
           <p className={intakeUi.summaryRow}>{modeLabel}</p>
         </div>
@@ -110,16 +110,15 @@ export default function ProjectSummaryPanel({
         </div>
         <div>
           <p className="text-xs text-muted-foreground">
-            {t('adminTasks.intakeSummaryRequirement') || 'Requirement source'}
+            {t('adminTasks.intakeSummaryRequirement')}
           </p>
           <p className={intakeUi.summaryRow}>
             {form.intakeFiles?.requirement?.name ||
-              t('adminTasks.intakeNoneYet') ||
-              'Chưa có'}
+              t('adminTasks.intakeNoneYet')}
           </p>
         </div>
         <div>
-          <p className="text-xs text-muted-foreground">{t('adminTasks.intakeSummaryPhase') || 'Phase'}</p>
+          <p className="text-xs text-muted-foreground">{t('adminTasks.intakeSummaryPhase')}</p>
           <p className={intakeUi.summaryRow}>{t(deliveryPhaseLabelKey('requirement_analysis'))}</p>
         </div>
       </div>
@@ -137,23 +136,22 @@ export default function ProjectSummaryPanel({
         ) : ready ? (
           <p className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-400">
             <Check className="h-4 w-4" />
-            {t('adminTasks.intakeReadyToCreate') || 'Sẵn sàng tạo dự án nháp'}
+            {t('adminTasks.intakeReadyToCreate')}
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            {t('adminTasks.intakeSummaryHint') ||
-              'Hoàn tất các mục bên trái — checklist cập nhật theo thời gian thực.'}
+            {t('adminTasks.intakeSummaryHint')}
           </p>
         )}
         {!compact ? (
           <ul className={`${intakeUi.summaryChecklist} mt-3`}>
             <ChecklistRow
               ok={sections.requirements.complete}
-              label={t('adminTasks.intakeCheckRequirement') || 'Requirement file'}
+              label={t('adminTasks.intakeCheckRequirement')}
             />
             <ChecklistRow
               ok={sections.information.complete}
-              label={t('adminTasks.intakeCheckIdentity') || 'Project identity'}
+              label={t('adminTasks.intakeCheckIdentity')}
             />
             <ChecklistRow
               ok={sections.analysisTeam?.complete}
@@ -165,7 +163,7 @@ export default function ProjectSummaryPanel({
             />
             <ChecklistRow
               ok={sections.analysis.complete}
-              label={t('adminTasks.intakeCheckAnalysis') || 'Analysis method'}
+              label={t('adminTasks.intakeCheckAnalysis')}
             />
           </ul>
         ) : null}

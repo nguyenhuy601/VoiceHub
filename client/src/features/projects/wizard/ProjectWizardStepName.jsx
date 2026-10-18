@@ -10,7 +10,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
     <div className="space-y-5">
       <div>
         <h1 className={wizardUi.title}>
-          {t('adminTasks.wizardIdentityTitle') || 'Thông tin dự án'}
+          {t('adminTasks.wizardIdentityTitle')}
         </h1>
       </div>
 
@@ -38,7 +38,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
           <span className={wizardUi.fieldLabel}>
-            {t('adminTasks.wizardProjectType') || 'Loại dự án'}
+            {t('adminTasks.wizardProjectType')}
           </span>
           <select
             className={wizardUi.select}
@@ -69,7 +69,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
-          <span className={wizardUi.fieldLabel}>{t('adminTasks.wizardCategory') || 'Phân loại'}</span>
+          <span className={wizardUi.fieldLabel}>{t('adminTasks.wizardCategory')}</span>
           <select
             className={wizardUi.select}
             value={category}
@@ -83,7 +83,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
           </select>
         </label>
         <label className="block">
-          <span className={wizardUi.fieldLabel}>{t('adminTasks.wizardPriority') || 'Ưu tiên'}</span>
+          <span className={wizardUi.fieldLabel}>{t('adminTasks.wizardPriority')}</span>
           <select
             className={wizardUi.select}
             value={form.priority || 'medium'}
@@ -102,7 +102,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
             <span className={wizardUi.fieldLabel}>
-              {t('adminTasks.wizardCustomerName') || 'Tên khách hàng'}
+              {t('adminTasks.wizardCustomerName')}
             </span>
             <input
               className={wizardUi.input}
@@ -112,7 +112,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
           </label>
           <label className="block">
             <span className={wizardUi.fieldLabel}>
-              {t('adminTasks.wizardCustomerCompany') || 'Công ty'}
+              {t('adminTasks.wizardCustomerCompany')}
             </span>
             <input
               className={wizardUi.input}
@@ -125,7 +125,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
-          <span className={wizardUi.fieldLabel}>{t('adminTasks.wizardStartDate') || 'Ngày bắt đầu'}</span>
+          <span className={wizardUi.fieldLabel}>{t('adminTasks.wizardStartDate')}</span>
           <input
             type="date"
             className={wizardUi.input}
@@ -134,7 +134,7 @@ export default function ProjectWizardStepName({ form, patchForm, t }) {
           />
         </label>
         <label className="block">
-          <span className={wizardUi.fieldLabel}>{t('adminTasks.wizardDueDate') || 'Hạn'}</span>
+          <span className={wizardUi.fieldLabel}>{t('adminTasks.wizardDueDate')}</span>
           <input
             type="date"
             className={wizardUi.input}

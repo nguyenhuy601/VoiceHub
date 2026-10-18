@@ -2385,7 +2385,7 @@ function OrganizationsPage({
       }
       // Luôn sync lại từ server để đảm bảo board dùng dữ liệu thật (owner/assignee/status chuẩn).
       await loadWorkspaceTasks(selectedOrganizationId);
-      notifySuccess(t('tasks.toastCreated') || 'Task created');
+      notifySuccess(t('tasks.toastCreated'));
     } catch (error) {
       setWorkspaceTasks((prev) =>
         prev.filter((item) => String(item._id || item.id) !== optimisticId)

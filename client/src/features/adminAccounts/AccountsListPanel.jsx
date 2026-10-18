@@ -163,7 +163,7 @@ export default function AccountsListPanel({ orgId }) {
             aria-expanded={filtersOpen}
             aria-controls="accounts-list-filters"
             onClick={() => setFiltersOpen((open) => !open)}
-            className={`inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:bg-muted motion-reduce:transition-none ${FOCUS_RING_CLASS}`}
+            className={`inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted vh-motion-row vh-motion-respect ${FOCUS_RING_CLASS}`}
           >
             <SlidersHorizontal className="h-4 w-4" aria-hidden />
             {t('adminUsers.filters')}
@@ -197,7 +197,7 @@ export default function AccountsListPanel({ orgId }) {
                 <button
                   type="button"
                   onClick={() => setStatusFilter('')}
-                  className={`w-full rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted motion-reduce:transition-none ${FOCUS_RING_CLASS}`}
+                  className={`w-full rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted vh-motion-row vh-motion-respect ${FOCUS_RING_CLASS}`}
                 >
                   {t('adminUsers.filtersClear')}
                 </button>
@@ -265,7 +265,7 @@ export default function AccountsListPanel({ orgId }) {
                   const inactive = isAccountInactive(member);
                   const isVerified = member.isEmailVerified !== false;
                   return (
-                    <tr key={userId} className="transition-colors duration-150 hover:bg-muted motion-reduce:transition-none">
+                    <tr key={userId} className="hover:bg-muted vh-motion-row vh-motion-respect">
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-2.5">
                           <UserAvatar

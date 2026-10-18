@@ -10,23 +10,15 @@ export function formatCustomerRawFormIssues(formValidation, t) {
   if (!formValidation || formValidation.ok) return [];
   const issues = [];
   if (!formValidation.recognizedAsCustomerRaw) {
-    issues.push(
-      t('workspace.phase1RawFormNotRecognized') ||
-        'Không nhận diện được template Customer Requirement Raw'
-    );
+    issues.push(t('workspace.phase1RawFormNotRecognized'));
   }
   for (const sheet of formValidation.missingSheets || []) {
-    issues.push(
-      (t('workspace.phase1RawFormMissingSheet') || 'Thiếu sheet: {sheet}').replace(
-        '{sheet}',
-        sheet
-      )
-    );
+    issues.push(t('workspace.phase1RawFormMissingSheet').replace('{sheet}', sheet));
   }
   const bySheet = formValidation.missingHeadersBySheet || {};
   for (const [sheet, cols] of Object.entries(bySheet)) {
     issues.push(
-      (t('workspace.phase1RawFormMissingCols') || '{sheet}: thiếu cột {cols}')
+      t('workspace.phase1RawFormMissingCols')
         .replace('{sheet}', sheet)
         .replace('{cols}', (cols || []).join(', '))
     );
@@ -36,14 +28,11 @@ export function formatCustomerRawFormIssues(formValidation, t) {
 
 export function formatCustomerRawFormTooltip(formValidation, t) {
   if (isCustomerRawFormOk(formValidation)) {
-    return t('workspace.phase1RawFormOkTooltip') || 'File Raw đúng form template';
+    return t('workspace.phase1RawFormOkTooltip');
   }
   const issues = formatCustomerRawFormIssues(formValidation, t);
   if (!issues.length) {
-    return (
-      t('workspace.phase1RawFormInvalidTooltip') ||
-      'File Raw sai form template — không thể chạy AI'
-    );
+    return t('workspace.phase1RawFormInvalidTooltip');
   }
   return issues.join('; ');
 }
@@ -59,16 +48,10 @@ export function isLlmInsufficientReason(reason) {
 export function labelLlmInsufficientReason(reason, t) {
   const r = String(reason || '').toUpperCase();
   if (r === 'SOURCE_SHEET_ABSENT') {
-    return (
-      t('requirements.phase1LlmInsufficientAbsent') ||
-      'Thiếu nguồn / không có sheet — không đủ dữ liệu để LLM phân tích'
-    );
+    return t('requirements.phase1LlmInsufficientAbsent');
   }
   if (r === 'SOURCE_SHEET_EMPTY' || r === 'SOURCE_UNAVAILABLE') {
-    return (
-      t('requirements.phase1LlmInsufficientEmpty') ||
-      'Không đủ dữ liệu để LLM phân tích (sheet trống)'
-    );
+    return t('requirements.phase1LlmInsufficientEmpty');
   }
   return reason || '';
 }

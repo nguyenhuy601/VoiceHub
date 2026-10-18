@@ -133,7 +133,7 @@ export default function ReviewNoteDialog({
               {noteOptional ? (
                 <span className="text-muted-foreground">
                   {' '}
-                  ({t('common.optional') || 'tuỳ chọn'})
+                  ({t('common.optional')})
                 </span>
               ) : (
                 <span className="text-destructive"> *</span>

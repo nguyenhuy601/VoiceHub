@@ -48,7 +48,7 @@ export default function ProjectWizardPreview({
     <div className={wizardUi.previewBoard}>
       <div className="border-b border-border px-4 py-3">
         <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          {t('adminTasks.wizardPreviewBadge') || 'Team-managed space'}
+          {t('adminTasks.wizardPreviewBadge')}
         </p>
         <p className="mt-0.5 truncate text-sm font-semibold text-foreground">{displayTitle}</p>
         <div className="mt-3 flex flex-wrap gap-1">

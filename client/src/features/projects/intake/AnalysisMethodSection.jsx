@@ -14,18 +14,17 @@ export default function AnalysisMethodSection({
   const options = [
     {
       id: 'manual',
-      title: t('adminTasks.wizardModeManual') || 'Manual',
+      title: t('adminTasks.wizardModeManual'),
       hint:
-        t('adminTasks.intakeModeManualHint') ||
-        'BA phân tích yêu cầu thủ công từ tài liệu khách hàng.',
+        t('adminTasks.intakeModeManualHint'),
     },
     {
       id: 'ai',
-      title: t('adminTasks.intakeModeAiTitle') || 'AI-assisted',
+      title: t('adminTasks.intakeModeAiTitle'),
       hint: '',
       bullets: [
-        t('adminTasks.intakeModeAiBullet1') || 'Phân tích ban đầu nhanh hơn',
-        t('adminTasks.intakeModeAiBullet2') || 'Đề xuất có thể truy vết',
+        t('adminTasks.intakeModeAiBullet1'),
+        t('adminTasks.intakeModeAiBullet2'),
       ],
     },
   ];
@@ -37,10 +36,9 @@ export default function AnalysisMethodSection({
     <IntakeSection
       index={5}
       sectionId="intake-section-analysis"
-      title={t('adminTasks.intakeSectionAnalysis') || 'Analysis method'}
+      title={t('adminTasks.intakeSectionAnalysis')}
       subtitle={
-        t('adminTasks.intakeSectionAnalysisHint') ||
-        'Chọn cách phân tích yêu cầu — AI đề xuất, con người quyết định.'
+        t('adminTasks.intakeSectionAnalysisHint')
       }
       status={sectionStatus}
       t={t}
@@ -49,7 +47,7 @@ export default function AnalysisMethodSection({
         id="intake-field-analysisMode"
         className={intakeUi.modeGrid}
         role="radiogroup"
-        aria-label={t('adminTasks.wizardModeTitle') || 'Analysis Mode'}
+        aria-label={t('adminTasks.wizardModeTitle')}
       >
         {options.map((opt) => {
           const selected = mode === opt.id;
@@ -83,8 +81,7 @@ export default function AnalysisMethodSection({
         })}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        {t('adminTasks.intakeModeGovernance') ||
-          'AI-assisted không tự động phê duyệt requirement — BA review và Gate 1 vẫn bắt buộc.'}
+        {t('adminTasks.intakeModeGovernance')}
       </p>
       {showErrors && fieldError ? <p className={intakeUi.fieldError}>{fieldError}</p> : null}
     </IntakeSection>

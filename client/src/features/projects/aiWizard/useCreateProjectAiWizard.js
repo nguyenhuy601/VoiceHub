@@ -204,8 +204,7 @@ export default function useCreateProjectAiWizard({
               title,
               description: message,
               placeholder:
-                t('requirements.gate1ForceReasonPlaceholder') ||
-                'Nhập lý do force duyệt Gate 1…',
+                t('requirements.gate1ForceReasonPlaceholder'),
               submitLabel: t('requirements.approveForced') || t('requirements.approve'),
               variant: 'request_changes',
               maxLength: 2000,
@@ -315,8 +314,7 @@ export default function useCreateProjectAiWizard({
         if (planStatus !== 'confirmed') {
           toast.error(
             t('aiCreateWizard.needConfirmProjectPlan') ||
-              t('requirements.gate2CreateBlocked') ||
-              'Gate 2: confirm phase HOW trước khi tiếp tục.'
+              t('requirements.gate2CreateBlocked')
           );
           return;
         }
@@ -326,8 +324,7 @@ export default function useCreateProjectAiWizard({
             t,
             fallback:
               t('aiCreateWizard.needConfirmProjectPlan') ||
-              t('requirements.gate2CreateBlocked') ||
-              'Gate 2: confirm projectPlan trước khi tiếp tục.',
+              t('requirements.gate2CreateBlocked'),
           })
         );
         return;

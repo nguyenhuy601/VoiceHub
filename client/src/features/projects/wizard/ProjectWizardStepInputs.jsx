@@ -83,8 +83,8 @@ function UploadZone({
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
         {busy
-          ? t('adminTasks.wizardIntakeParsing') || 'Đang đọc file…'
-          : t('adminTasks.wizardInputsPick') || 'Chọn file'}
+          ? t('adminTasks.wizardIntakeParsing')
+          : t('adminTasks.wizardInputsPick')}
       </button>
       <input
         ref={inputRef}
@@ -135,20 +135,18 @@ export default function ProjectWizardStepInputs({
       ? {
           tone: 'ok',
           text:
-            t('adminTasks.wizardIntakeStatusAutofilled') ||
-            'Đã tự điền thông tin từ file.',
+            t('adminTasks.wizardIntakeStatusAutofilled'),
         }
       : requirementIntakeStatus === 'kept_manual'
         ? {
             tone: 'warn',
             text:
-              t('adminTasks.wizardIntakeStatusKeptManual') ||
-              'File đã giữ để đính kèm — chưa tự điền; nhập tay các trường bên dưới.',
+              t('adminTasks.wizardIntakeStatusKeptManual'),
           }
         : requirementIntakeStatus === 'parsing'
           ? {
               tone: 'muted',
-              text: t('adminTasks.wizardIntakeParsing') || 'Đang đọc file…',
+              text: t('adminTasks.wizardIntakeParsing'),
             }
           : null;
 
@@ -156,12 +154,12 @@ export default function ProjectWizardStepInputs({
     <div className="space-y-6">
       <div>
         <h1 className={wizardUi.title}>
-          {t('adminTasks.wizardIntakeTitle') || 'Import & thông tin dự án'}
+          {t('adminTasks.wizardIntakeTitle')}
         </h1>
       </div>
 
       <UploadZone
-        label={t('adminTasks.wizardInputsRequirement') || 'Customer Requirement'}
+        label={t('adminTasks.wizardInputsRequirement')}
         required
         accept={accept}
         multiple={false}

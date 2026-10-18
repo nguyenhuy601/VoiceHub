@@ -102,7 +102,7 @@ export default function ApprovalInboxPage() {
                 onClick={load}
                 disabled={loading}
               >
-                {loading ? '…' : t('common.refresh') || 'Refresh'}
+                {loading ? '…' : t('common.refresh')}
               </button>
             </div>
             {loading && !items.length ? (

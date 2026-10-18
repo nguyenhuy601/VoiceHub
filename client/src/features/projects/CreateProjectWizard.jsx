@@ -51,8 +51,8 @@ export default function CreateProjectWizard({
   const headerBackLabel =
     backLabel ||
     (variant === 'admin'
-      ? t('adminTasks.wizardBackToAdmin') || 'Back to projects'
-      : t('adminTasks.wizardBackToHub') || 'Back to workspaces');
+      ? t('adminTasks.wizardBackToAdmin')
+      : t('adminTasks.wizardBackToHub'));
 
   const onHeaderBack = () => {
     if (wizard.busy || wizard.intakeBusy) return;
@@ -68,7 +68,7 @@ export default function CreateProjectWizard({
   };
 
   const createLabel =
-    t('adminTasks.intakeCreateDraft') || t('adminTasks.wizardCreate') || 'Create draft';
+    t('adminTasks.intakeCreateDraft') || t('adminTasks.wizardCreate');
 
   const submitPhaseLabels = {
     creating_project: t('adminTasks.intakeSubmitCreatingProject'),
@@ -86,10 +86,9 @@ export default function CreateProjectWizard({
       <WizardHeader
         backLabel={headerBackLabel}
         onBack={onHeaderBack}
-        title={t('adminTasks.intakePageTitle') || 'Create a new project'}
+        title={t('adminTasks.intakePageTitle')}
         subtitle={
-          t('adminTasks.intakePageSubtitle') ||
-          'Thiết lập nền tảng dự án trước khi vào Requirement Analysis.'
+          t('adminTasks.intakePageSubtitle')
         }
         t={t}
       />

@@ -14,10 +14,10 @@ export default function ProjectWizardStepInfo({ form, patchForm, variant = 'coll
     <div className="space-y-4">
       <div>
         <h3 className={`text-base font-semibold ${isAdmin ? 'text-foreground' : 'text-white'}`}>
-          {t('adminTasks.wizardStepInfo') || 'Project Info'}
+          {t('adminTasks.wizardStepInfo')}
         </h3>
         <p className={`mt-1 text-sm ${isAdmin ? 'text-muted-foreground' : 'text-white/60'}`}>
-          {t('adminTasks.wizardStepInfoHint') || 'Tên, mô tả và loại dự án.'}
+          {t('adminTasks.wizardStepInfoHint')}
         </p>
       </div>
 
@@ -45,7 +45,7 @@ export default function ProjectWizardStepInfo({ form, patchForm, variant = 'coll
       </label>
 
       <label className="block">
-        <span className={label}>{t('adminTasks.wizardProjectType') || 'Loại dự án'}</span>
+        <span className={label}>{t('adminTasks.wizardProjectType')}</span>
         <select
           className={input}
           value={form.projectType}
