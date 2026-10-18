@@ -1,5 +1,7 @@
 /** Figma SettingsPage tokens */
 
+import { VH_MOTION_BTN, VH_MOTION_CARD, VH_MOTION_ROW } from '../../motion/classes';
+
 export const FIGMA_SETTINGS_ROOT = 'flex h-full overflow-hidden';
 
 export const FIGMA_SETTINGS_SIDEBAR =
@@ -13,7 +15,7 @@ export const FIGMA_SETTINGS_SIDEBAR_TITLE =
 export const FIGMA_SETTINGS_NAV = 'space-y-0.5 px-2 py-2';
 
 export const FIGMA_SETTINGS_NAV_BTN =
-  'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-[background-color,color,transform,box-shadow] duration-150 hover:translate-x-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30';
+  `flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${VH_MOTION_ROW}`;
 
 export const FIGMA_SETTINGS_NAV_ACTIVE =
   'bg-accent text-primary font-semibold';
@@ -29,7 +31,7 @@ export const FIGMA_SETTINGS_SECTION_TITLE =
 export const FIGMA_SETTINGS_SECTION_DESC = 'mb-5 text-sm text-muted-foreground';
 
 export const FIGMA_SETTINGS_CARD =
-  'rounded-xl border border-border bg-card p-5 shadow-sm transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/15 hover:shadow-md';
+  `rounded-xl border border-border bg-card p-5 shadow-sm hover:border-primary/15 ${VH_MOTION_CARD}`;
 
 export const FIGMA_SETTINGS_INPUT =
   'h-[38px] w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition-[border-color,box-shadow,background-color] duration-150 focus:border-primary focus:shadow-[0_0_0_3px_rgba(37,99,235,0.12)]';
@@ -44,7 +46,7 @@ export const FIGMA_SETTINGS_MATRIX_GROUP =
   'border-b border-border bg-primary/[0.03] px-4 py-2.5';
 
 export const FIGMA_SETTINGS_MATRIX_ROW =
-  'grid border-b border-border/40 px-4 py-2.5 transition-[background-color,transform] duration-150 hover:translate-x-0.5 hover:bg-primary/[0.035]';
+  `grid border-b border-border/40 px-4 py-2.5 hover:bg-primary/[0.035] ${VH_MOTION_ROW}`;
 
 export const FIGMA_SETTINGS_SESSION_ROW =
   'flex items-center gap-3 rounded-lg border p-3 transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-sm';

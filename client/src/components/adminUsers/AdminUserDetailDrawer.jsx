@@ -17,6 +17,7 @@ import {
   formatRbacRoleLabels,
   unwrapApi,
 } from '../../utils/adminUserUtils';
+import { effectiveOrgRoleLabel } from '../../utils/effectiveOrgRoleLabel';
 import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
 import { adminUserHubLink } from '../../utils/adminHubLinks';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
@@ -24,11 +25,10 @@ import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
 import useModalA11y from '../Shared/useModalA11y';
 import CapabilityReviewPanel from './CapabilityReviewPanel';
-import {
-  ADMIN_DRAWER_KEYFRAMES,
-  adminPrimaryBtnClass,
-  adminSecondaryBtnClass,
-} from './adminUserPanelUi';
+import useMotionPresence from '../../motion/useMotionPresence';
+import { VH_MOTION_TAB_PANEL, VH_PRESENCE_DRAWER_RIGHT } from '../../motion/classes';
+import { VH_MOTION_OVERLAY_MS } from '../../motion/tokens';
+import { adminPrimaryBtnClass, adminSecondaryBtnClass } from './adminUserPanelUi';
 
 const TABS = [
   { id: 'info', labelKey: 'adminUsers.tabInfo' },
@@ -115,6 +115,7 @@ export default function AdminUserDetailDrawer({
   departmentName,
   teamName,
   rbacRoles = [],
+  orgRoleRows = [],
   formatWhen,
   onCapabilityStatusChange,
   organizationalPosition = '',
@@ -141,6 +142,9 @@ export default function AdminUserDetailDrawer({
   const panelId = (id) => `${baseId}-panel-${id}`;
 
   const isVisible = Boolean(open && member);
+  const { mounted, phase } = useMotionPresence(isVisible, {
+    durationMs: VH_MOTION_OVERLAY_MS,
+  });
   useModalA11y({ isOpen: isVisible, onClose, containerRef: asideRef, initialFocusRef: closeButtonRef });
 
   const userId = member ? memberUserId(member) : '';
@@ -223,19 +227,19 @@ export default function AdminUserDetailDrawer({
     event.preventDefault();
   };
 
-  if (!isVisible) return null;
+  if (!mounted || !member) return null;
 
   return (
     <div className="fixed inset-0 z-[10030] flex justify-end">
-      <style>{ADMIN_DRAWER_KEYFRAMES}</style>
       <div
-        className="absolute inset-0 bg-black/40 opacity-100 transition-opacity duration-200 motion-reduce:transition-none"
+        className="absolute inset-0 bg-black/40 vh-motion-respect motion-safe:animate-fade-in-fast motion-reduce:animate-none"
         aria-hidden="true"
         onClick={onClose}
       />
       <aside
         ref={asideRef}
-        className="relative flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl motion-safe:animate-[admin-drawer-in_280ms_ease-out] motion-reduce:animate-none"
+        className={`relative flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl ${VH_PRESENCE_DRAWER_RIGHT}`}
+        data-motion-phase={phase || 'enter'}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -301,11 +305,12 @@ export default function AdminUserDetailDrawer({
         </div>
 
         <div
+          key={tab}
           id={panelId(tab)}
           role="tabpanel"
           aria-labelledby={tabId(tab)}
           tabIndex={0}
-          className="min-h-0 flex-1 overflow-y-auto px-5 py-4 focus-visible:outline-none"
+          className={`min-h-0 flex-1 overflow-y-auto px-5 py-4 focus-visible:outline-none ${VH_MOTION_TAB_PANEL}`}
         >
           {tab === 'info' ? (
             <dl className="space-y-3 text-sm">
@@ -329,6 +334,14 @@ export default function AdminUserDetailDrawer({
               <div>
                 <dt className="text-xs text-muted-foreground">{t('adminUsers.importEmailAddressCol')}</dt>
                 <dd>{memberEmail(member)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">{t('adminUsers.colOrgRoleEffective')}</dt>
+                <dd className="mt-1">
+                  <span className="inline-flex rounded-full bg-primary-subtle px-2.5 py-0.5 text-xs font-semibold text-primary">
+                    {effectiveOrgRoleLabel(member, { orgRoleRows, t })}
+                  </span>
+                </dd>
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">{t('adminUsers.colAccountRole')}</dt>
@@ -381,6 +394,14 @@ export default function AdminUserDetailDrawer({
 
           {tab === 'access' ? (
             <div className="space-y-4 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">{t('adminUsers.colOrgRoleEffective')}</p>
+                <div className="mt-1">
+                  <span className="inline-flex rounded-full bg-primary-subtle px-2.5 py-0.5 text-xs font-semibold text-primary">
+                    {effectiveOrgRoleLabel(member, { orgRoleRows, t })}
+                  </span>
+                </div>
+              </div>
               <div>
                 <p className="text-xs text-muted-foreground">{t('adminUsers.currentRole')}</p>
                 <div className="mt-1">

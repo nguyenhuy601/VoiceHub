@@ -36,7 +36,7 @@ function AuthFigmaLoginLayout({
       <div
         className={`${FIGMA_LOGIN_ROOT} items-center justify-center px-4 py-10 ${
           showNight
-            ? 'bg-[#070712]'
+            ? 'auth-visual-night bg-[#070712]'
             : 'bg-gradient-to-br from-[#d8ecee] via-[#c5dfe3] to-[#b7d4da]'
         }`}
       >
@@ -61,7 +61,7 @@ function AuthFigmaLoginLayout({
   const asideClass = showNight ? FIGMA_LOGIN_ASIDE_NIGHT : FIGMA_LOGIN_ASIDE;
 
   return (
-    <div className={FIGMA_LOGIN_ROOT}>
+    <div className={`${FIGMA_LOGIN_ROOT}${showNight ? ' auth-visual-night' : ''}`}>
       <aside className={asideClass}>
         <div className={FIGMA_LOGIN_ASIDE_GLOW_PRIMARY} aria-hidden />
         <div className={FIGMA_LOGIN_ASIDE_GLOW_SECONDARY} aria-hidden />

@@ -34,10 +34,10 @@ function AuthMarketingAside({ nightOwl = false, compact = false }) {
               : 'linear-gradient(0deg, rgba(15, 23, 42, 0.55) 0%, rgba(15, 23, 42, 0.12) 70%, transparent 100%)',
           }}
         >
-          <h2 className="font-display mb-[0.55rem] text-center text-2xl font-bold leading-snug tracking-[-0.02em] text-white">
+          <h2 className="font-display mb-[0.55rem] text-center text-2xl font-bold leading-snug tracking-[-0.02em] !text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]">
             {t('authMarketing.loginAsideTitle')}
           </h2>
-          <p className="mx-auto max-w-[18rem] text-center text-[0.8125rem] leading-[1.65] text-white/90">
+          <p className="mx-auto max-w-[18rem] text-center text-[0.8125rem] leading-[1.65] !text-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]">
             {t('authMarketing.loginAsideBody')}
           </p>
         </div>

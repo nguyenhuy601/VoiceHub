@@ -1,5 +1,7 @@
 /** Figma CalendarPage tokens — layout/spacing/typography; màu qua design token */
 
+import { VH_MOTION_BTN } from '../../motion/classes';
+
 // useAppStrings (marker for strict i18n scanner)
 
 export const FIGMA_CAL_PAGE =
@@ -31,7 +33,7 @@ export const FIGMA_CAL_VIEW_TOGGLE_IDLE =
   'flex h-8 w-8 items-center justify-center rounded-[7px] text-muted-foreground transition-[background-color,color,transform] duration-150 hover:-translate-y-0.5 hover:bg-surface hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30';
 
 export const FIGMA_CAL_CREATE_BTN =
-  'ml-auto flex h-[34px] items-center gap-1.5 rounded-lg border-none bg-gradient-to-br from-primary to-primary-hover px-3.5 text-sm font-semibold text-primary-foreground shadow-[0_3px_10px_rgba(37,99,235,0.35)] transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-[0_4px_16px_rgba(37,99,235,0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35';
+  `ml-auto flex h-[34px] items-center gap-1.5 rounded-lg border-none bg-gradient-to-br from-primary to-primary-hover px-3.5 text-sm font-semibold text-primary-foreground shadow-[0_3px_10px_rgba(37,99,235,0.35)] hover:shadow-[0_4px_16px_rgba(37,99,235,0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 ${VH_MOTION_BTN}`;
 
 export const FIGMA_CAL_GRID_WRAP = 'min-h-0 flex-1 overflow-y-auto p-4';
 

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useAdminTabLoading } from '../../hooks/useAdminShellLoading';
 import AdminUserPicker from '../adminUsers/AdminUserPicker';
 import { AdminUserPanelShell } from '../adminUsers/adminUserPanelUi';
+import { VH_MOTION_BTN } from '../../motion/classes';
 
 /**
  * Khung trang hub: 1 picker entity + tabs thao tác (Accounts / Users people-ops).
@@ -126,7 +127,7 @@ export default function AdminEntityOpsHubShell({
                     tabIndex={active ? 0 : -1}
                     onClick={() => setTab(tab.id)}
                     className={[
-                      'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors duration-150 motion-reduce:transition-none',
+                      `rounded-lg px-3 py-1.5 text-sm font-medium ${VH_MOTION_BTN}`,
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                       active
                         ? 'bg-primary text-primary-foreground shadow-sm'

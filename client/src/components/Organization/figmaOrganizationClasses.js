@@ -1,3 +1,5 @@
+import { VH_MOTION_CARD, VH_MOTION_ROW } from '../../motion/classes';
+
 /** Figma org workspace — channel sidebar, member panel, structure tree (WorkspaceSlugPage.tsx) */
 
 export const FIGMA_ORG_CHANNEL_SIDEBAR =
@@ -12,7 +14,7 @@ export const FIGMA_ORG_CHANNEL_SECTION_LABEL =
 export const FIGMA_ORG_CHANNEL_LIST = 'flex-1 overflow-y-auto px-1.5 scrollbar-overlay';
 
 export const FIGMA_ORG_CHANNEL_ITEM =
-  'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[0.8125rem] transition hover:bg-muted';
+  `flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[0.8125rem] hover:bg-muted ${VH_MOTION_ROW}`;
 
 export const FIGMA_ORG_CHANNEL_ITEM_ACTIVE = 'bg-primary/10 font-semibold text-primary';
 
@@ -20,7 +22,7 @@ export const FIGMA_ORG_CHANNEL_FOOTER =
   'flex flex-col gap-0.5 border-t border-border p-1.5';
 
 export const FIGMA_ORG_CHANNEL_FOOTER_BTN =
-  'flex items-center gap-2 rounded-md px-2 py-1.5 text-[0.8125rem] text-muted-foreground transition hover:bg-muted hover:text-foreground';
+  `flex items-center gap-2 rounded-md px-2 py-1.5 text-[0.8125rem] text-muted-foreground hover:bg-muted hover:text-foreground ${VH_MOTION_ROW}`;
 
 export const FIGMA_ORG_MEMBER_PANEL =
   'flex h-full min-h-0 w-[min(260px,88vw)] shrink-0 animate-slide-in-right flex-col overflow-hidden border-l border-border bg-surface';
@@ -33,7 +35,7 @@ export const FIGMA_ORG_MEMBER_PANEL_TITLE = 'text-sm font-bold text-foreground';
 export const FIGMA_ORG_MEMBER_PANEL_BODY = 'min-h-0 flex-1 overflow-y-auto px-3 py-3 scrollbar-overlay';
 
 export const FIGMA_ORG_MEMBER_ROW =
-  'flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition hover:bg-muted';
+  `flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-muted ${VH_MOTION_ROW}`;
 
 export const FIGMA_ORG_MEMBER_SIDEBAR_ROOT =
   'flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface';
@@ -83,7 +85,7 @@ export const FIGMA_WS_SUBTITLE = 'mt-1 text-sm text-muted-foreground';
 export const FIGMA_WS_GRID = 'grid grid-cols-1 gap-3.5 xl:grid-cols-2';
 
 export const FIGMA_WS_CARD =
-  'flex min-h-[260px] cursor-pointer flex-col gap-3.5 rounded-2xl border border-border bg-surface p-5 shadow-xs transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30';
+  `flex min-h-[260px] cursor-pointer flex-col gap-3.5 rounded-2xl border border-border bg-surface p-5 shadow-xs hover:border-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${VH_MOTION_CARD}`;
 
 export const FIGMA_WS_CARD_AVATAR =
   'flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] text-lg font-extrabold text-white shadow-md';
@@ -91,7 +93,7 @@ export const FIGMA_WS_CARD_AVATAR =
 export const FIGMA_WS_TEAM_GRID = 'grid grid-cols-1 gap-4 lg:grid-cols-2';
 
 export const FIGMA_WS_TEAM_CARD =
-  'flex cursor-pointer flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-xs transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30';
+  `flex cursor-pointer flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-xs hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${VH_MOTION_CARD}`;
 
 export const FIGMA_WS_SHELL_ROOT =
   'flex h-[calc(100vh-3.5rem)] max-h-[calc(100vh-3.5rem)] min-h-0 w-full max-w-full flex-col overflow-hidden bg-background/75 backdrop-blur-sm dark:bg-background/65';

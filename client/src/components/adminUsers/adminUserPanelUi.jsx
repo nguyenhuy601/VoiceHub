@@ -1,3 +1,5 @@
+import { VH_MOTION_BTN, VH_MOTION_ROW } from '../../motion/classes';
+
 /**
  * Khung bảng/list admin dày — scroll trong card (sticky thead bên trong children).
  */
@@ -49,7 +51,7 @@ export function AdminDenseMobileList({
         return (
           <li
             key={key}
-            className={`rounded-lg border bg-card p-3 transition-colors duration-150 hover:bg-muted motion-reduce:transition-none ${
+            className={`rounded-lg border bg-card p-3 ${VH_MOTION_ROW} ${
               isSelected ? 'border-primary' : 'border-border'
             }`}
           >
@@ -108,11 +110,10 @@ export function AdminUserFormCard({ title, hint, children, danger = false }) {
   );
 }
 
-const ADMIN_BTN_BASE =
-  'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
+const ADMIN_BTN_BASE = `inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${VH_MOTION_BTN}`;
 
 export function adminPrimaryBtnClass(extra = '') {
-  return `${ADMIN_BTN_BASE} bg-primary font-semibold text-primary-foreground shadow-sm hover:brightness-110 active:scale-[0.98] motion-reduce:active:scale-100 ${extra}`;
+  return `${ADMIN_BTN_BASE} bg-primary font-semibold text-primary-foreground shadow-sm hover:brightness-110 ${extra}`;
 }
 
 /** Tham số thứ hai (`isDarkMode`) giữ cho caller cũ, không còn dùng. */
@@ -125,7 +126,27 @@ export function adminDangerBtnClass(extra = '') {
 }
 
 export function adminInputClass(extra = '') {
-  return `w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition-colors duration-150 motion-reduce:transition-none focus:ring-2 focus:ring-ring focus-visible:ring-2 focus-visible:ring-ring ${extra}`;
+  return `w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition-colors duration-[var(--vh-motion-base)] ease-[var(--vh-motion-ease)] motion-reduce:transition-none focus:ring-2 focus:ring-ring focus-visible:ring-2 focus-visible:ring-ring ${extra}`;
+}
+
+/** List/table row — hover bg via Enterprise Motion SoT. */
+export function adminHoverRowClass(extra = '') {
+  return `hover:bg-muted ${VH_MOTION_ROW} ${extra}`.trim();
+}
+
+/** Filter select / compact toolbar control. */
+export function adminFilterSelectClass(extra = '') {
+  return `w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition-colors duration-[var(--vh-motion-base)] ease-[var(--vh-motion-ease)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${extra}`.trim();
+}
+
+/** Pager / icon toolbar button. */
+export function adminListIconBtnClass(extra = '') {
+  return `inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${VH_MOTION_BTN} ${extra}`.trim();
+}
+
+/** xs bordered action (matrix, boards, voice admin). */
+export function adminCompactBtnClass(extra = '') {
+  return `rounded border border-border px-2 py-0.5 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${VH_MOTION_BTN} ${extra}`.trim();
 }
 
 export function adminLabelClass() {
@@ -134,22 +155,10 @@ export function adminLabelClass() {
 
 /** Wave 1 PD — primary Manage deep-link (micro-motion + reduced-motion). */
 export function adminManageLinkClass(extra = '') {
-  return `inline-flex items-center rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground shadow-sm transition duration-200 ease-out hover:translate-x-0.5 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:hover:translate-x-0 ${extra}`.trim();
+  return `inline-flex items-center rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground shadow-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${VH_MOTION_BTN} ${extra}`.trim();
 }
 
-/** Wave 1 PD — dense table row hover. */
+/** Dense table row hover — Enterprise Motion SoT. */
 export function adminDenseRowClass(extra = '') {
-  return `border-b border-border transition-colors duration-150 hover:bg-muted motion-reduce:transition-none ${extra}`.trim();
+  return `border-b border-border ${VH_MOTION_ROW} ${extra}`.trim();
 }
-
-/**
- * @deprecated Prefer SoT `vh-presence-drawer-right` + `useMotionPresence`
- * (see client/src/motion + .cursor/rules/enterprise-motion.mdc).
- * Kept for drawers chưa migrate.
- */
-export const ADMIN_DRAWER_KEYFRAMES = `
-@keyframes admin-drawer-in {
-  from { transform: translateX(100%); opacity: 0.85; }
-  to { transform: translateX(0); opacity: 1; }
-}
-`;

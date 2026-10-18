@@ -119,7 +119,6 @@ export default defineConfig(({ mode }) => {
             return 'vendor-react';
           }
           if (id.includes('node_modules/react-router')) return 'vendor-router';
-          if (id.includes('node_modules/framer-motion')) return 'motion';
           if (id.includes('node_modules/socket.io-client')) return 'socket';
           if (id.includes('node_modules/simple-peer')) return 'webrtc';
           if (id.includes('node_modules/lucide-react')) return 'icons';

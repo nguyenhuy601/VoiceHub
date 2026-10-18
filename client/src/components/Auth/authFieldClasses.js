@@ -2,11 +2,11 @@
 
 // useAppStrings (marker for strict i18n scanner)
 
-/** Nút CTA chính (đồng bộ đăng nhập / đăng ký / quên mật khẩu). */
+/** Nút CTA chính (đồng bộ đăng nhập / đăng ký / quên mật khẩu). Luôn chữ trắng trên nền cyan. */
 export function authPrimaryButtonClass(isDark) {
   return isDark
-    ? 'bg-[#0086a8] shadow-cyan-950/40 hover:bg-[#007a96]'
-    : 'bg-[#0097a7] shadow-cyan-900/25 hover:bg-[#008896]';
+    ? 'bg-[#0086a8] text-white shadow-cyan-950/40 hover:bg-[#007a96] hover:text-white'
+    : 'bg-[#0097a7] text-white shadow-cyan-900/25 hover:bg-[#008896] hover:text-white';
 }
 
 export function authInputSurface(isDark, { dense = false, className = '' } = {}) {

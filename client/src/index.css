@@ -840,101 +840,143 @@ html.light textarea::placeholder {
 }
 
 /*
- * Preview landing: khi html.light nhưng khung demo bật UI tối (theme cục bộ),
- * các rule normalize phía trên sẽ ép chữ trắng → xám đậm và ép input/nền tối → sáng.
- * Lớp .voicehub-landing-embed--dark hoàn tác trong phạm vi khung preview.
+ * Preview landing / login night UI: khi html.light nhưng khung bật UI tối
+ * (landing embed hoặc auth-visual-night), rule normalize phía trên ép chữ trắng
+ * → xám đậm và ép input/nền tối → sáng. Các lớp dưới hoàn tác trong phạm vi đó.
  */
-html.light .voicehub-landing-embed--dark .text-white {
+html.light .voicehub-landing-embed--dark .text-white,
+html.light .auth-visual-night .text-white {
   color: #ffffff !important;
 }
 
 html.light .voicehub-landing-embed--dark .text-gray-400,
-html.light .voicehub-landing-embed--dark .text-gray-300 {
+html.light .voicehub-landing-embed--dark .text-gray-300,
+html.light .auth-visual-night .text-gray-400,
+html.light .auth-visual-night .text-gray-300 {
   color: rgb(148 163 184) !important;
 }
 
-html.light .voicehub-landing-embed--dark .text-gray-500 {
+html.light .voicehub-landing-embed--dark .text-gray-500,
+html.light .auth-visual-night .text-gray-500 {
   color: rgb(100 116 139) !important;
 }
 
-html.light .voicehub-landing-embed--dark .bg-\[\#020817\] {
+html.light .voicehub-landing-embed--dark .bg-\[\#020817\],
+html.light .auth-visual-night .bg-\[\#020817\] {
   background-color: #020817 !important;
 }
-html.light .voicehub-landing-embed--dark .bg-\[\#0a0118\] {
+html.light .voicehub-landing-embed--dark .bg-\[\#0a0118\],
+html.light .auth-visual-night .bg-\[\#0a0118\] {
   background-color: #0a0118 !important;
 }
-html.light .voicehub-landing-embed--dark .bg-\[\#050810\] {
+html.light .voicehub-landing-embed--dark .bg-\[\#050810\],
+html.light .auth-visual-night .bg-\[\#050810\] {
   background-color: #050810 !important;
 }
-html.light .voicehub-landing-embed--dark .bg-\[\#0b0e14\] {
+html.light .voicehub-landing-embed--dark .bg-\[\#0b0e14\],
+html.light .auth-visual-night .bg-\[\#0b0e14\] {
   background-color: #0b0e14 !important;
 }
-html.light .voicehub-landing-embed--dark .bg-\[\#080a0f\] {
+html.light .voicehub-landing-embed--dark .bg-\[\#080a0f\],
+html.light .auth-visual-night .bg-\[\#080a0f\] {
   background-color: #080a0f !important;
 }
-html.light .voicehub-landing-embed--dark .bg-\[\#0c0f15\] {
+html.light .voicehub-landing-embed--dark .bg-\[\#0c0f15\],
+html.light .auth-visual-night .bg-\[\#0c0f15\] {
   background-color: #0c0f15 !important;
 }
 
-html.light .voicehub-landing-embed--dark .bg-\[\#040f2a\] {
+html.light .voicehub-landing-embed--dark .bg-\[\#040f2a\],
+html.light .auth-visual-night .bg-\[\#040f2a\] {
   background-color: #040f2a !important;
 }
-html.light .voicehub-landing-embed--dark .bg-\[\#030d24\] {
+html.light .voicehub-landing-embed--dark .bg-\[\#030d24\],
+html.light .auth-visual-night .bg-\[\#030d24\] {
   background-color: #030d24 !important;
 }
-html.light .voicehub-landing-embed--dark .bg-slate-900\/60 {
+html.light .voicehub-landing-embed--dark .bg-slate-900\/60,
+html.light .auth-visual-night .bg-slate-900\/60 {
   background-color: rgb(15 23 42 / 0.6) !important;
 }
-html.light .voicehub-landing-embed--dark .bg-slate-900\/70 {
+html.light .voicehub-landing-embed--dark .bg-slate-900\/70,
+html.light .auth-visual-night .bg-slate-900\/70 {
   background-color: rgb(15 23 42 / 0.7) !important;
 }
-html.light .voicehub-landing-embed--dark .bg-slate-900\/45 {
+html.light .voicehub-landing-embed--dark .bg-slate-900\/45,
+html.light .auth-visual-night .bg-slate-900\/45 {
   background-color: rgb(15 23 42 / 0.45) !important;
 }
-html.light .voicehub-landing-embed--dark .bg-slate-900\/40 {
+html.light .voicehub-landing-embed--dark .bg-slate-900\/40,
+html.light .auth-visual-night .bg-slate-900\/40 {
   background-color: rgb(15 23 42 / 0.4) !important;
 }
-html.light .voicehub-landing-embed--dark .bg-slate-900\/35 {
+html.light .voicehub-landing-embed--dark .bg-slate-900\/35,
+html.light .auth-visual-night .bg-slate-900\/35 {
   background-color: rgb(15 23 42 / 0.35) !important;
 }
 
-html.light .voicehub-landing-embed--dark .border-slate-800 {
+html.light .voicehub-landing-embed--dark .border-slate-800,
+html.light .auth-visual-night .border-slate-800 {
   border-color: rgb(30 41 59) !important;
 }
-html.light .voicehub-landing-embed--dark .border-white\/10 {
+html.light .voicehub-landing-embed--dark .border-white\/10,
+html.light .auth-visual-night .border-white\/10 {
   border-color: rgb(255 255 255 / 0.1) !important;
 }
-html.light .voicehub-landing-embed--dark .border-white\/15 {
+html.light .voicehub-landing-embed--dark .border-white\/15,
+html.light .auth-visual-night .border-white\/15 {
   border-color: rgb(255 255 255 / 0.15) !important;
 }
-html.light .voicehub-landing-embed--dark .border-white\/20 {
+html.light .voicehub-landing-embed--dark .border-white\/20,
+html.light .auth-visual-night .border-white\/20 {
   border-color: rgb(255 255 255 / 0.2) !important;
 }
 
 html.light .voicehub-landing-embed--dark input,
 html.light .voicehub-landing-embed--dark textarea,
-html.light .voicehub-landing-embed--dark select {
+html.light .voicehub-landing-embed--dark select,
+html.light .auth-visual-night input:not([type='checkbox']):not([type='radio']),
+html.light .auth-visual-night textarea,
+html.light .auth-visual-night select {
   background-color: #0c1018 !important;
   color: #f1f5f9 !important;
   border-color: rgba(71, 85, 105, 0.9) !important;
 }
 
 html.light .voicehub-landing-embed--dark input::placeholder,
-html.light .voicehub-landing-embed--dark textarea::placeholder {
+html.light .voicehub-landing-embed--dark textarea::placeholder,
+html.light .auth-visual-night input::placeholder,
+html.light .auth-visual-night textarea::placeholder {
   color: #64748b !important;
 }
 
-html.light .voicehub-landing-embed--dark .hover\:bg-slate-800\/70:hover {
+html.light .voicehub-landing-embed--dark .hover\:bg-slate-800\/70:hover,
+html.light .auth-visual-night .hover\:bg-slate-800\/70:hover {
   background-color: rgb(30 41 59 / 0.7) !important;
 }
-html.light .voicehub-landing-embed--dark .hover\:bg-slate-800\/60:hover {
+html.light .voicehub-landing-embed--dark .hover\:bg-slate-800\/60:hover,
+html.light .auth-visual-night .hover\:bg-slate-800\/60:hover {
   background-color: rgb(30 41 59 / 0.6) !important;
 }
-html.light .voicehub-landing-embed--dark .hover\:bg-white\/10:hover {
+html.light .voicehub-landing-embed--dark .hover\:bg-white\/10:hover,
+html.light .auth-visual-night .hover\:bg-white\/10:hover {
   background-color: rgb(255 255 255 / 0.1) !important;
 }
-html.light .voicehub-landing-embed--dark .hover\:bg-white\/5:hover {
+html.light .voicehub-landing-embed--dark .hover\:bg-white\/5:hover,
+html.light .auth-visual-night .hover\:bg-white\/5:hover {
   background-color: rgb(255 255 255 / 0.05) !important;
+}
+
+/* Login showcase night card surfaces — giữ nền tối khi html.light */
+html.light .auth-visual-night.bg-\[\#070712\],
+html.light .auth-visual-night .bg-\[\#070712\] {
+  background-color: #070712 !important;
+}
+html.light .auth-visual-night .bg-\[\#0c0c14\] {
+  background-color: #0c0c14 !important;
+}
+html.light .auth-visual-night .bg-\[\#070712\]\/90 {
+  background-color: rgb(7 7 18 / 0.9) !important;
 }
 
 html.light .scrollbar-overlay:hover::-webkit-scrollbar-thumb,
