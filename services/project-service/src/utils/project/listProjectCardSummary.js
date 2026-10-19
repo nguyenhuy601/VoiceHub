@@ -70,6 +70,7 @@ function profileDisplayName(profile, userId) {
  */
 function pmUserIdMapFromMemberships(memberships, roleDocs) {
   const map = new Map();
+  const meta = new Map(); // projectId → { userId, createdAtMs }
   const pmRoleIds = new Set(
     (roleDocs || [])
       .filter((r) => String(r?.key || '').trim().toLowerCase() === PM_ROLE_KEY)
@@ -82,7 +83,27 @@ function pmUserIdMapFromMemberships(memberships, roleDocs) {
     const uid = String(row?.userId || '').trim();
     const rid = String(row?.projectRoleId || '');
     if (!pid || !uid || !pmRoleIds.has(rid)) continue;
-    if (!map.has(pid)) map.set(pid, uid);
+    const createdAtMs = row?.createdAt ? new Date(row.createdAt).getTime() : Number.MAX_SAFE_INTEGER;
+    const prev = meta.get(pid);
+    if (!prev || createdAtMs < prev.createdAtMs || (createdAtMs === prev.createdAtMs && uid < prev.userId)) {
+      if (prev && prev.userId !== uid) {
+        logger.warn(
+          '[listProjectCardSummary] multiple project_manager on project=%s; using earliest user=%s (ignored=%s)',
+          pid,
+          uid,
+          prev.userId
+        );
+      }
+      meta.set(pid, { userId: uid, createdAtMs });
+      map.set(pid, uid);
+    } else if (prev && prev.userId !== uid) {
+      logger.warn(
+        '[listProjectCardSummary] multiple project_manager on project=%s; keeping user=%s (ignored=%s)',
+        pid,
+        prev.userId,
+        uid
+      );
+    }
   }
   return map;
 }
@@ -138,7 +159,7 @@ async function loadPmUserIdByProject(projectIds, deps = {}) {
   if (!memberships) {
     memberships = await findMemberships(
       { projectId: { $in: oids } },
-      'projectId userId projectRoleId'
+      'projectId userId projectRoleId createdAt'
     );
   } else {
     memberships = memberships.filter((row) => idSet.has(String(row?.projectId || '')));

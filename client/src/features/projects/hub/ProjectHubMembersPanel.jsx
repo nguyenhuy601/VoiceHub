@@ -42,6 +42,25 @@ function asId(value) {
   return String(value);
 }
 
+const PM_ROLE_KEY = 'project_manager';
+
+function roleKeysIncludePm(keys = []) {
+  return (Array.isArray(keys) ? keys : []).some(
+    (k) => String(k || '').trim().toLowerCase() === PM_ROLE_KEY
+  );
+}
+
+/** First other member who already holds project_manager (single-PM rule). */
+function findExistingPmUserId(rows = [], exceptUserId = '') {
+  const except = String(exceptUserId || '').trim();
+  for (const row of rows || []) {
+    const id = String(row?.id || '').trim();
+    if (!id || (except && id === except)) continue;
+    if (roleKeysIncludePm(row?.roles)) return id;
+  }
+  return '';
+}
+
 /** Bỏ prefix catalog «Dự án —» / «Project —» khi hiển thị chip. */
 function shortRoleLabel(label, key = '') {
   const raw = String(label || key || '').trim();
@@ -277,6 +296,11 @@ export default function ProjectHubMembersPanel({
   }, [members, orgById]);
 
   const existingUserIds = useMemo(() => new Set(rows.map((r) => r.id)), [rows]);
+
+  const existingPmUserId = useMemo(
+    () => findExistingPmUserId(rows, selectedUserId),
+    [rows, selectedUserId]
+  );
 
   const selectedMemberRow = useMemo(() => {
     if (!selectedUserId) return null;
@@ -630,8 +654,19 @@ export default function ProjectHubMembersPanel({
     if (!rk) return;
     setSelectedRoleKeys((prev) => {
       const set = new Set(prev || []);
-      if (set.has(rk)) set.delete(rk);
-      else set.add(rk);
+      if (set.has(rk)) {
+        set.delete(rk);
+        return [...set];
+      }
+      if (
+        rk.toLowerCase() === PM_ROLE_KEY &&
+        existingPmUserId &&
+        String(existingPmUserId) !== String(selectedUserId || '')
+      ) {
+        toast.error(t('workspace.projectHubMembersPmAlreadyAssigned'));
+        return prev || [];
+      }
+      set.add(rk);
       return [...set];
     });
   };
@@ -648,8 +683,15 @@ export default function ProjectHubMembersPanel({
     if (!rk) return;
     setBulkRoleKeys((prev) => {
       const set = new Set(prev || []);
-      if (set.has(rk)) set.delete(rk);
-      else set.add(rk);
+      if (set.has(rk)) {
+        set.delete(rk);
+        return [...set];
+      }
+      if (rk.toLowerCase() === PM_ROLE_KEY && findExistingPmUserId(rows)) {
+        toast.error(t('workspace.projectHubMembersPmAlreadyAssigned'));
+        return prev || [];
+      }
+      set.add(rk);
       return [...set];
     });
   };
@@ -667,6 +709,14 @@ export default function ProjectHubMembersPanel({
   const saveRoles = async () => {
     if (!canSubmit || submitting) return;
     const keys = [...new Set(selectedRoleKeys)].filter(Boolean);
+    if (
+      roleKeysIncludePm(keys) &&
+      existingPmUserId &&
+      String(existingPmUserId) !== String(selectedUserId)
+    ) {
+      toast.error(t('workspace.projectHubMembersPmAlreadyAssignedHint'));
+      return;
+    }
     const options = buildAllocOptions();
     if (!options.allocations?.length) {
       toast.error(t('workspace.projectHubAllocRequired'));
@@ -698,6 +748,14 @@ export default function ProjectHubMembersPanel({
     const keys = [...new Set(bulkRoleKeys)].filter(Boolean);
     if (!keys.length) {
       toast.error(t('workspace.projectHubMembersRoleRequired'));
+      return;
+    }
+    if (roleKeysIncludePm(keys) && findExistingPmUserId(rows)) {
+      toast.error(t('workspace.projectHubMembersPmAlreadyAssignedHint'));
+      return;
+    }
+    if (roleKeysIncludePm(keys) && (deptCandidates?.length || 0) > 1) {
+      toast.error(t('workspace.projectHubMembersPmBulkOneOnly'));
       return;
     }
     const targets = deptCandidates;

@@ -1608,6 +1608,12 @@ export const pageStrings = {
       projectHubMembersRolesSave: 'Lưu roles',
       projectHubMembersRolesSaved: 'Đã cập nhật roles.',
       projectHubMembersRoleSaveFail: 'Không thể cập nhật roles.',
+      projectHubMembersPmAlreadyAssigned:
+        'Dự án đã có Project Manager. Bỏ chọn PM hoặc gỡ PM hiện tại trước.',
+      projectHubMembersPmAlreadyAssignedHint:
+        'Chỉ một PM mỗi dự án. Gỡ vai trò project_manager của người hiện tại (tab Thành viên), rồi gán PM mới.',
+      projectHubMembersPmBulkOneOnly:
+        'Không gán project_manager hàng loạt cho nhiều người — chỉ một PM mỗi dự án.',
       projectHubMembersAddMore: 'Thêm thêm',
       projectHubMembersSetRoles: 'Sửa',
       projectHubBulkTitle: 'Thêm hàng loạt từ phòng ban',
@@ -8815,6 +8821,12 @@ export const pageStrings = {
       projectHubMembersRolesSave: 'Save roles',
       projectHubMembersRolesSaved: 'Roles updated.',
       projectHubMembersRoleSaveFail: 'Could not update roles.',
+      projectHubMembersPmAlreadyAssigned:
+        'This project already has a Project Manager. Unselect PM or remove the current PM first.',
+      projectHubMembersPmAlreadyAssignedHint:
+        'Only one PM per project. Remove project_manager from the current PM (Members tab), then assign the new PM.',
+      projectHubMembersPmBulkOneOnly:
+        'Cannot bulk-assign project_manager to multiple people — only one PM per project.',
       projectHubMembersAddMore: 'Add more',
       projectHubMembersSetRoles: 'Edit',
       projectHubBulkTitle: 'Bulk add from department',

@@ -91,8 +91,8 @@ describe('projectVisibility resolve', () => {
     assert.ok(access.audiences.includes('project_members'));
   });
 
-  it('creator gets at least project_managers confidential floor', () => {
-    const access = resolveProjectAccess({
+  it('member without lead role gets details floor; createdBy alone does not discover', () => {
+    const asMember = resolveProjectAccess({
       actor: {
         userId: 'creator1',
         isOrgMember: true,
@@ -107,10 +107,51 @@ describe('projectVisibility resolve', () => {
         visibilityMode: 'inherit',
         visibility: 'private',
       },
-      membership: { isMember: true, projectRoleKeys: [] },
+      membership: { isMember: true, projectRoleKeys: ['observer'] },
       orgPolicy,
     });
-    assert.equal(access.informationLevel, 'confidential');
+    assert.equal(asMember.discover, true);
+    assert.equal(asMember.informationLevel, 'details');
+
+    const creatorOnly = resolveProjectAccess({
+      actor: {
+        userId: 'creator1',
+        isOrgMember: true,
+        membershipRole: 'member',
+        organizationRoleKeys: ['director'],
+        headedDepartmentIds: [],
+        memberDepartmentIds: [],
+      },
+      project: {
+        createdBy: 'creator1',
+        visibilityMode: 'inherit',
+        visibility: 'private',
+      },
+      membership: { isMember: false, projectRoleKeys: [] },
+      orgPolicy: normalizeProjectVisibilityPolicy({}),
+    });
+    assert.equal(creatorOnly.discover, false);
+  });
+
+  it('default policy: director non-member does not discover', () => {
+    const access = resolveProjectAccess({
+      actor: {
+        userId: 'dir1',
+        isOrgMember: true,
+        membershipRole: 'member',
+        organizationRoleKeys: ['director'],
+        headedDepartmentIds: [],
+        memberDepartmentIds: [],
+      },
+      project: {
+        createdBy: 'other',
+        visibilityMode: 'inherit',
+        visibility: 'workspace',
+      },
+      membership: { isMember: false, projectRoleKeys: [] },
+      orgPolicy: normalizeProjectVisibilityPolicy({}),
+    });
+    assert.equal(access.discover, false);
   });
 
   it('classify: owner is system_admins + organization_admins', () => {

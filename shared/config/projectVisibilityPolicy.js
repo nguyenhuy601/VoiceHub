@@ -22,13 +22,14 @@ const INFORMATION_LEVEL_RANK = Object.freeze({
   confidential: 3,
 });
 
+/** Default: only explicit project members discover a project on list / deep-link. */
 const DEFAULT_DISCOVER_AUDIENCES = Object.freeze({
-  system_admins: true,
-  organization_admins: true,
-  directors: true,
-  project_managers: true,
+  system_admins: false,
+  organization_admins: false,
+  directors: false,
+  project_managers: false,
   project_members: true,
-  related_department_managers: true,
+  related_department_managers: false,
   related_department_members: false,
   all_employees: false,
 });
@@ -85,9 +86,7 @@ function normalizeProjectVisibilityPolicy(raw = {}) {
   const defaultInformationLevels = {};
 
   for (const audience of VISIBILITY_AUDIENCES) {
-    if (audience === 'system_admins') {
-      discoverAudiences.system_admins = true;
-    } else if (Object.prototype.hasOwnProperty.call(discoverIn, audience)) {
+    if (Object.prototype.hasOwnProperty.call(discoverIn, audience)) {
       discoverAudiences[audience] = Boolean(discoverIn[audience]);
     } else {
       discoverAudiences[audience] = Boolean(DEFAULT_DISCOVER_AUDIENCES[audience]);

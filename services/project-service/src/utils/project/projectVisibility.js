@@ -40,12 +40,11 @@ function classifyAudiences(actor = {}, project = {}, membership = {}) {
   const roleKeys = (Array.isArray(membership.projectRoleKeys) ? membership.projectRoleKeys : []).map(
     (k) => String(k || '').trim().toLowerCase()
   );
-  const isCreator = String(project.createdBy || '') === String(actor.userId || '');
-  const isMember = Boolean(membership.isMember) || roleKeys.length > 0 || isCreator;
+  const isMember = Boolean(membership.isMember) || roleKeys.length > 0;
   if (isMember) matched.add('project_members');
-  if (isCreator || roleKeys.some((k) => PM_ROLE_KEYS.has(k))) matched.add('project_managers');
+  if (roleKeys.some((k) => PM_ROLE_KEYS.has(k))) matched.add('project_managers');
 
-  // relatedDepartmentIds không còn dùng để discover (chỉ thành viên dự án / elevated org).
+  // relatedDepartmentIds không dùng để discover (member-only default).
 
   if (actor.isOrgMember) matched.add('all_employees');
 
@@ -84,24 +83,20 @@ function resolveProjectAccess({ actor, project, membership, orgPolicy }) {
 
   const discoverAudiences = audiences.filter((a) => policy.discoverAudiences[a]);
 
-  // Legacy dual-read: workspace projects visible to any org member
   let discover = discoverAudiences.length > 0;
-  if (!discover && actor.isOrgMember && String(project.visibility || '') === 'workspace') {
-    discover = true;
-    if (!audiences.includes('all_employees')) audiences.push('all_employees');
-    discoverAudiences.push('all_employees');
-  }
 
   const roleKeys = (Array.isArray(membership?.projectRoleKeys) ? membership.projectRoleKeys : []).map(
     (k) => String(k || '').trim().toLowerCase()
   );
-  const isCreator = String(project?.createdBy || '') === String(actor?.userId || '');
-  const isMember =
-    Boolean(membership?.isMember) || roleKeys.length > 0 || isCreator;
-  const isProjectManager = isCreator || roleKeys.some((k) => PM_ROLE_KEYS.has(k));
+  /** Member-only: ProjectMembership / role keys — not org elevated, not createdBy alone. */
+  const isMember = Boolean(membership?.isMember) || roleKeys.length > 0;
+  const isProjectManager = roleKeys.some((k) => PM_ROLE_KEYS.has(k));
 
-  // Creator / explicit member always discover (safety net)
-  if (!discover && isMember) {
+  // Hard SoT: non-members never discover (even if org policy still enables directors/admins).
+  if (!isMember) {
+    discover = false;
+  } else if (!discover) {
+    // Explicit member always discover (safety net when audience flags misconfigured)
     discover = true;
     if (!audiences.includes('project_members')) audiences.push('project_members');
     if (!discoverAudiences.includes('project_members')) discoverAudiences.push('project_members');
