@@ -1138,7 +1138,6 @@ const LEGACY_PATH_REDIRECTS = {
   '/app/admin/rbac/roles/manage': '/app/admin/rbac/org-roles',
   '/app/admin/rbac/create': '/app/admin/rbac/org-roles/create',
   '/app/admin/rbac/permissions': '/app/admin/rbac/org-roles/permissions',
-  '/app/admin/rbac/assign': '/app/admin/rbac/positions/assign',
   '/app/admin/rbac/matrix': '/app/admin/rbac/org-roles/permissions',
   '/app/admin/policy': '/app/admin/system-config/policy',
   '/app/admin/security': '/app/admin/security',

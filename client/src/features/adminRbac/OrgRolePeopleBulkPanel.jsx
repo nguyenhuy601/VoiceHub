@@ -84,7 +84,6 @@ export default function OrgRolePeopleBulkPanel({ orgId, selectedUserIds = [], mo
 
   useEffect(() => {
     loadCatalog();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   const roleLabel = (key) => roles.find((role) => role.key === key)?.label || key;
