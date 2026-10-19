@@ -11,9 +11,16 @@ export const ROLE_KIND = Object.freeze({
 });
 
 export const ORGANIZATION_ROLE_KEYS = Object.freeze({
-  DEPARTMENT_MANAGER: 'department_manager',
-  TEAM_MANAGER: 'team_manager',
-  DIRECTOR: 'director',
+  DEPARTMENT_MANAGER: 'DEPARTMENT_MANAGER',
+  TEAM_LEAD: 'TEAM_LEAD',
+  /** @deprecated use TEAM_LEAD */
+  TEAM_MANAGER: 'TEAM_LEAD',
+  DIRECTOR: 'DIRECTOR',
+  RESOURCE_MANAGER: 'RESOURCE_MANAGER',
+  AUDITOR: 'AUDITOR',
+  MENTOR: 'MENTOR',
+  HR_APPROVER: 'HR_APPROVER',
+  MEMBER: 'MEMBER',
 });
 
 export const DEFAULT_PROJECT_ROLE_KEYS = Object.freeze({
@@ -61,7 +68,31 @@ export const DEFAULT_HR_ROLE_LABELS = Object.freeze({
   intern: 'Intern',
 });
 
+/**
+ * VI fallback (không locale). UI admin dùng adminRbac.orgRoleLabel.* qua localizedOrgRoleLabel.
+ * UPPER SoT + lowercase aliases for legacy API/DB codes.
+ */
 export const ORGANIZATION_ROLE_LABELS = Object.freeze({
+  DEPARTMENT_MANAGER: 'Trưởng phòng',
+  TEAM_LEAD: 'Trưởng nhóm',
+  DIRECTOR: 'Giám đốc tổ chức',
+  RESOURCE_MANAGER: 'Quản lý nguồn lực',
+  HR_APPROVER: 'Nhân sự',
+  AUDITOR: 'Kiểm toán',
+  MENTOR: 'Người hướng dẫn',
+  MEMBER: 'Thành viên',
+  ORG_OWNER: 'Chủ sở hữu tổ chức',
+  ORG_ADMIN: 'Quản trị viên tổ chức',
+  ORG_MEMBER_MANAGER: 'Quản lý thành viên',
+  RECRUITMENT_COORDINATOR: 'Điều phối tuyển dụng',
+  CAPACITY_PLANNER: 'Lập kế hoạch năng lực',
+  WORK_SCHEDULE_APPROVER: 'Phê duyệt lịch làm việc',
+  EFFORT_ACTUAL_APPROVER: 'Phê duyệt effort thực tế',
+  PMO_MANAGER: 'Quản lý PMO',
+  PROJECT_APPROVER: 'Phê duyệt dự án',
+  PROJECT_PLAN_REVIEWER: 'Rà soát kế hoạch dự án',
+  PROJECT_RESOURCE_APPROVER: 'Phê duyệt nguồn lực dự án',
+  PROJECT_AUDITOR: 'Kiểm toán dự án',
   department_manager: 'Trưởng phòng',
   team_manager: 'Trưởng nhóm',
   team_lead: 'Trưởng nhóm',
@@ -69,8 +100,9 @@ export const ORGANIZATION_ROLE_LABELS = Object.freeze({
   resource_manager: 'Quản lý nguồn lực',
   hr_approver: 'Nhân sự',
   auditor: 'Kiểm toán',
-  mentor: 'Mentor',
+  mentor: 'Người hướng dẫn',
   member: 'Thành viên',
+  org_member: 'Thành viên',
 });
 
 export const PROJECT_ROLE_LABELS = Object.freeze({
