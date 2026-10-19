@@ -6,7 +6,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useSpace } from '../../context/SpaceContext';
 import useRequirementAccess from '../../hooks/useRequirementAccess';
-import { shouldShowCollaborateRequirementsNavForUser } from '../../utils/collaborateRequirementsNav';
 import { orgQueryFromSearch, buildProjectsPickerPath } from '../../utils/suitePathUtils';
 import RequirementImportWorkspace from './RequirementImportWorkspace';
 
@@ -30,9 +29,7 @@ export default function CollaborateRequirementsPage(_props = {}) {
       ''
   ).trim();
 
-  // UI entry by Position; action flags from access API (permission).
-  const allowedByPosition = shouldShowCollaborateRequirementsNavForUser(user);
-  const { access, loading, loaded } = useRequirementAccess(allowedByPosition ? orgId : '');
+  const { access, loading, loaded } = useRequirementAccess(orgId);
 
   if (!orgId) {
     return (
@@ -44,10 +41,6 @@ export default function CollaborateRequirementsPage(_props = {}) {
     );
   }
 
-  if (!allowedByPosition) {
-    return <Navigate to={buildProjectsPickerPath(orgId)} replace state={{ routeDenied: 'project' }} />;
-  }
-
   if (!loaded || loading) {
     return (
       <div className={`flex h-[100dvh] items-center justify-center ${FIGMA_PAGE_SHELL}`}>
@@ -56,7 +49,11 @@ export default function CollaborateRequirementsPage(_props = {}) {
     );
   }
 
-  // Deep-link / Position OK nhưng không có quyền xem dữ liệu → empty.
+  // SoT: access API (Position.code / org role / project role) — không pre-gate jobTitle.
+  if (!access.showCollaborateNav && !access.canView) {
+    return <Navigate to={buildProjectsPickerPath(orgId)} replace state={{ routeDenied: 'project' }} />;
+  }
+
   if (!access.canView) {
     return <Navigate to={buildProjectsPickerPath(orgId)} replace state={{ routeDenied: 'project' }} />;
   }

@@ -1,6 +1,7 @@
 const { resolvePositionKeyFromJobTitle } = require('../staffing/positionCandidateMatch');
 const { coalesceJobTitle } = require('../common/jobTitleProfile');
 const { fetchUserProfileByIdInternal } = require('../../clients/userService.client');
+const { fetchActiveOrgPositions } = require('../../clients/orgPositionAssignment.client');
 const mongoose = require('mongoose');
 const ProjectMembership = require('../../models/ProjectMembership');
 const ProjectRole = require('../../models/ProjectRole');
@@ -18,6 +19,23 @@ function normalizeJobTitleAlias(jobTitle) {
     .replace(/\s+/g, ' ');
 }
 
+function normalizePositionCode(code) {
+  return String(code || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+}
+
+function positionCodesMatchMapping(positionCodes = [], mapping = {}) {
+  const allowed = new Set(
+    (mapping.positionKeys || []).map((k) => normalizePositionCode(k)).filter(Boolean)
+  );
+  if (!allowed.size) return false;
+  return (Array.isArray(positionCodes) ? positionCodes : []).some((code) =>
+    allowed.has(normalizePositionCode(code))
+  );
+}
+
 function jobTitleMatchesMapping(jobTitle, mapping = {}) {
   const positionKeys = new Set((mapping.positionKeys || []).map((k) => String(k).toLowerCase()));
   const aliases = new Set((mapping.aliases || []).map((a) => String(a).toLowerCase()));
@@ -28,6 +46,21 @@ function jobTitleMatchesMapping(jobTitle, mapping = {}) {
   if (!alias) return false;
   if (aliases.has(alias)) return true;
   return aliases.has(alias.replace(/\s+/g, '_'));
+}
+
+async function fetchPositionCodesForUser(userId, organizationId) {
+  const uid = String(userId || '').trim();
+  const orgId = String(organizationId || '').trim();
+  if (!uid || !orgId) return [];
+  try {
+    const rows = await fetchActiveOrgPositions(orgId, uid);
+    return (Array.isArray(rows) ? rows : [])
+      .filter((row) => String(row?.userId || '').trim() === uid)
+      .map((row) => String(row?.positionCode || '').trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 async function fetchUserJobTitle(userId) {
@@ -110,6 +143,7 @@ async function hasProjectRoleKeysOnProject(userId, projectId, roleKeys = []) {
   }
 }
 
+/** @deprecated Prefer organizationRoleMatchesOperator — membership is not SoT. */
 function membershipRoleMatchesOperator(membershipRole, policy) {
   const normalized = normalizeRequirementAccessPolicy(policy);
   const roles = new Set(
@@ -118,16 +152,31 @@ function membershipRoleMatchesOperator(membershipRole, policy) {
   return roles.has(String(membershipRole || '').toLowerCase());
 }
 
-async function matchSubmitter({ userId, organizationId, jobTitle, policy }) {
+function organizationRoleMatchesOperator(organizationRoleKeys = [], policy) {
+  const normalized = normalizeRequirementAccessPolicy(policy);
+  const allowed = new Set(
+    (normalized.personaByOrgRole?.operator?.organizationRoleKeys || []).map((r) =>
+      String(r).toUpperCase()
+    )
+  );
+  if (!allowed.size) return false;
+  return (Array.isArray(organizationRoleKeys) ? organizationRoleKeys : []).some((key) =>
+    allowed.has(String(key || '').trim().toUpperCase())
+  );
+}
+
+async function matchSubmitter({ userId, organizationId, jobTitle, positionCodes, policy }) {
   const normalized = normalizeRequirementAccessPolicy(policy);
   const mapping = normalized.personaByPosition?.submitter || {};
+  if (positionCodesMatchMapping(positionCodes, mapping)) return true;
   if (jobTitleMatchesMapping(jobTitle, mapping)) return true;
   return hasProjectRoleKeys(userId, organizationId, mapping.projectRoleKeys);
 }
 
-async function matchApprover({ userId, organizationId, jobTitle, policy }) {
+async function matchApprover({ userId, organizationId, jobTitle, positionCodes, policy }) {
   const normalized = normalizeRequirementAccessPolicy(policy);
   const mapping = normalized.personaByPosition?.approver || {};
+  if (positionCodesMatchMapping(positionCodes, mapping)) return true;
   if (jobTitleMatchesMapping(jobTitle, mapping)) return true;
   return hasProjectRoleKeys(userId, organizationId, mapping.projectRoleKeys);
 }
@@ -141,13 +190,20 @@ function pickPrimaryPersona(personasMatched = []) {
 
 /**
  * Resolve org-level requirement persona + merged actions/visibility.
- * @param {{ userId: string, organizationId: string, membershipRole?: string, policy?: object, jobTitle?: string }} input
+ * @param {{
+ *   userId: string,
+ *   organizationId: string,
+ *   membershipRole?: string,
+ *   organizationRoleKeys?: string[],
+ *   positionCodes?: string[],
+ *   policy?: object,
+ *   jobTitle?: string
+ * }} input
  */
 async function resolveRequirementPersona(input = {}) {
   const userId = String(input.userId || '').trim();
   const organizationId = String(input.organizationId || '').trim();
   const policy = normalizeRequirementAccessPolicy(input.policy || {});
-  const membershipRole = String(input.membershipRole || '').toLowerCase();
 
   if (!userId || !organizationId) {
     return {
@@ -162,13 +218,34 @@ async function resolveRequirementPersona(input = {}) {
     };
   }
 
+  const organizationRoleKeys = Array.isArray(input.organizationRoleKeys)
+    ? input.organizationRoleKeys
+    : [];
+
+  const positionCodes =
+    input.positionCodes !== undefined
+      ? (Array.isArray(input.positionCodes) ? input.positionCodes : []).map(String)
+      : await fetchPositionCodesForUser(userId, organizationId);
+
   const jobTitle =
     input.jobTitle !== undefined ? String(input.jobTitle || '') : await fetchUserJobTitle(userId);
 
   const personasMatched = [];
-  const isOperator = membershipRoleMatchesOperator(membershipRole, policy);
-  const isApprover = await matchApprover({ userId, organizationId, jobTitle, policy });
-  const isSubmitter = await matchSubmitter({ userId, organizationId, jobTitle, policy });
+  const isOperator = organizationRoleMatchesOperator(organizationRoleKeys, policy);
+  const isApprover = await matchApprover({
+    userId,
+    organizationId,
+    jobTitle,
+    positionCodes,
+    policy,
+  });
+  const isSubmitter = await matchSubmitter({
+    userId,
+    organizationId,
+    jobTitle,
+    positionCodes,
+    policy,
+  });
 
   if (isOperator) personasMatched.push('operator');
   if (isApprover) personasMatched.push('approver');
@@ -265,7 +342,9 @@ async function userHasApproverRoleOnProject(
 module.exports = {
   resolveRequirementPersona,
   jobTitleMatchesMapping,
+  positionCodesMatchMapping,
   membershipRoleMatchesOperator,
+  organizationRoleMatchesOperator,
   matchSubmitter,
   matchApprover,
   hasProjectRoleKeys,

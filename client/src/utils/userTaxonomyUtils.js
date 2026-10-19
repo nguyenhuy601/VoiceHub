@@ -112,16 +112,25 @@ export function buildOrgRoleRowsByUserId(structure, assignments = [], t) {
     const roleKey = String(a.roleKey || '').trim();
     if (!uid || !roleKey) continue;
     // Skip duplicates of system structural keys already from People Graph
-    if (
-      roleKey === ORGANIZATION_ROLE_KEYS.DEPARTMENT_MANAGER ||
-      roleKey === ORGANIZATION_ROLE_KEYS.TEAM_MANAGER
-    ) {
+    const structuralKeys = new Set([
+      ORGANIZATION_ROLE_KEYS.DEPARTMENT_MANAGER,
+      ORGANIZATION_ROLE_KEYS.TEAM_LEAD,
+      ORGANIZATION_ROLE_KEYS.TEAM_MANAGER,
+      'department_manager',
+      'team_lead',
+      'team_manager',
+    ]);
+    if (structuralKeys.has(roleKey) || structuralKeys.has(roleKey.toUpperCase())) {
       continue;
     }
     push(uid, {
       id: `assign-${roleKey}-${uid}`,
       label: String(
-        ORGANIZATION_ROLE_LABELS[roleKey] || a.roleLabel || roleKey
+        ORGANIZATION_ROLE_LABELS[roleKey] ||
+          ORGANIZATION_ROLE_LABELS[roleKey.toUpperCase()] ||
+          ORGANIZATION_ROLE_LABELS[roleKey.toLowerCase()] ||
+          a.roleLabel ||
+          roleKey
       ).trim(),
       roleKey,
       scopeName: a.scopeName || '',
@@ -134,15 +143,13 @@ export function buildOrgRoleRowsByUserId(structure, assignments = [], t) {
 export function orgRoleBadgeLabel(key, t) {
   const tr = resolveTranslator(t);
   if (key === 'dept_head') return tr('adminUsers.orgRoleBadgeDeptHead');
-  if (key === 'team_lead') return tr('adminUsers.orgRoleBadgeTeamLead');
-  return ORGANIZATION_ROLE_LABELS[key] || key;
-}
-
-export function inferJobTitleForBackfill(membershipRole) {
-  const role = String(membershipRole || 'member').toLowerCase();
-  if (role === 'owner' || role === 'admin') return 'Director';
-  if (role === 'hr') return 'QA';
-  return 'Junior';
+  if (key === 'team_lead' || key === 'TEAM_LEAD') return tr('adminUsers.orgRoleBadgeTeamLead');
+  return (
+    ORGANIZATION_ROLE_LABELS[key] ||
+    ORGANIZATION_ROLE_LABELS[String(key || '').toUpperCase()] ||
+    ORGANIZATION_ROLE_LABELS[String(key || '').toLowerCase()] ||
+    key
+  );
 }
 
 export function unwrapOrgList(res) {

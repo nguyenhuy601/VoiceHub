@@ -90,6 +90,27 @@ async function resolveOrganizationRoles(userId, organizationId) {
     });
   }
 
+  // Catalog Org Role assignments (DIRECTOR, HR_APPROVER, …) — SoT cho suite / Requirements operator.
+  try {
+    const OrgRoleAssignment = require('../models/OrgRoleAssignment');
+    const assigned = await OrgRoleAssignment.find({ organizationId: oid, userId: uid })
+      .select('roleKey')
+      .lean();
+    for (const row of assigned || []) {
+      const key = String(row?.roleKey || '').trim();
+      if (!key) continue;
+      roles.push({
+        key,
+        kind: ROLE_KIND.ORGANIZATION,
+        scopeType: 'organization',
+        scopeId: oid,
+        label: key,
+      });
+    }
+  } catch {
+    /* model unavailable — keep structure-derived roles only */
+  }
+
   const seen = new Set();
   return roles.filter((r) => {
     const k = `${r.key}:${r.scopeType}:${r.scopeId}`;

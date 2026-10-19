@@ -1,6 +1,6 @@
 /**
- * Collaborate Requirements menu = account Position (jobTitle), not action grants.
- * Mirrors shared/config/requirementAccessPolicy.js defaults (SSOT tested in shared).
+ * @deprecated FE nav/page gate SoT = useRequirementAccess().showCollaborateNav (BE persona).
+ * Helpers below kept for unit tests / legacy callers only — do not use for production nav.
  */
 
 import { coalesceJobTitle } from './jobTitleProfile.js';
@@ -64,6 +64,7 @@ export function resolvePositionKeyFromJobTitle(jobTitle) {
 }
 
 /**
+ * @deprecated Use access.showCollaborateNav from useRequirementAccess.
  * @param {{ jobTitle?: string, positionKeys?: string[], aliases?: string[] }} [input]
  * @returns {boolean}
  */
@@ -97,8 +98,7 @@ export function shouldShowCollaborateRequirementsNav(input = {}) {
 }
 
 /**
- * @param {object|null|undefined} userOrProfile — Auth user / profile with jobTitle or preferences.jobTitle
- * @returns {boolean}
+ * @deprecated Use access.showCollaborateNav from useRequirementAccess.
  */
 export function shouldShowCollaborateRequirementsNavForUser(userOrProfile) {
   return shouldShowCollaborateRequirementsNav({

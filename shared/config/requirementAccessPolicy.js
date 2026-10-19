@@ -1,7 +1,7 @@
 /**
  * Org-level Requirement Access Policy — SSOT normalize + defaults.
- * Job title / org membership → persona; persona → visibility + actions.
- * Collaborate Requirements **menu** = Position only (not action grants).
+ * Position.code / project roles / org role keys → persona; persona → visibility + actions.
+ * jobTitle string = fallback only; membership owner|admin|hr is not SoT for operator.
  */
 
 const {
@@ -43,7 +43,9 @@ const DEFAULT_PERSONA_BY_POSITION = Object.freeze({
 
 const DEFAULT_PERSONA_BY_ORG_ROLE = Object.freeze({
   operator: {
-    membershipRoles: ['owner', 'admin', 'hr'],
+    organizationRoleKeys: ['DIRECTOR', 'HR_APPROVER'],
+    /** @deprecated Not used for SoT after Position/OrgRole migration — kept empty for normalize compat. */
+    membershipRoles: [],
   },
 });
 
@@ -122,16 +124,26 @@ function normalizePersonaMapping(raw, fallback = {}) {
 }
 
 function normalizeOrgRoleMapping(raw, fallback = {}) {
+  const defaults = fallback && typeof fallback === 'object' ? fallback : {};
   if (raw === undefined || raw === null) {
     return {
-      membershipRoles: uniqueStrings(fallback.membershipRoles || []).map((item) => item.toLowerCase()),
+      organizationRoleKeys: uniqueStrings(defaults.organizationRoleKeys || []).map((item) =>
+        String(item).toUpperCase()
+      ),
+      membershipRoles: uniqueStrings(defaults.membershipRoles || []).map((item) => item.toLowerCase()),
     };
   }
   const input = raw && typeof raw === 'object' ? raw : {};
+  // Stored org policy may omit organizationRoleKeys — keep DEFAULT keys (DIRECTOR/HR_APPROVER).
+  const rawKeys = Array.isArray(input.organizationRoleKeys) ? input.organizationRoleKeys : null;
+  const organizationRoleKeys = uniqueStrings(
+    rawKeys && rawKeys.length ? rawKeys : defaults.organizationRoleKeys || []
+  ).map((item) => String(item).toUpperCase());
   return {
-    membershipRoles: uniqueStrings(Array.isArray(input.membershipRoles) ? input.membershipRoles : []).map(
-      (item) => item.toLowerCase()
-    ),
+    organizationRoleKeys,
+    membershipRoles: uniqueStrings(
+      Array.isArray(input.membershipRoles) ? input.membershipRoles : defaults.membershipRoles || []
+    ).map((item) => item.toLowerCase()),
   };
 }
 
@@ -193,9 +205,10 @@ function normalizeRequirementAccessPolicy(raw = {}) {
   };
 
   const personaByOrgRole = {
+    // Always merge against DEFAULT so stored org policy missing organizationRoleKeys still gets DIRECTOR/HR_APPROVER.
     operator: normalizeOrgRoleMapping(
       personaByOrgRoleIn.operator,
-      personaByOrgRoleIn.operator === undefined ? DEFAULT_PERSONA_BY_ORG_ROLE.operator : undefined
+      DEFAULT_PERSONA_BY_ORG_ROLE.operator
     ),
   };
 
