@@ -100,6 +100,7 @@ export const ADMIN_NAV_REQUIRED_GRANT = {
   'unit-tree': RBAC_GRANT.STRUCTURE_VIEW,
   'people-ops': RBAC_GRANT.EMPLOYEE_UPDATE,
   'assign-org': RBAC_GRANT.EMPLOYEE_UPDATE,
+  import: RBAC_GRANT.EMPLOYEE_INVITE,
   'password-hub': RBAC_GRANT.EMPLOYEE_RESET_PASSWORD,
   'access-hub': RBAC_GRANT.EMPLOYEE_DISABLE,
   'verification-hub': RBAC_GRANT.EMPLOYEE_UPDATE,
@@ -296,11 +297,29 @@ export function parseUserPermissionsPayload(res) {
   return { permissions, grantScopes };
 }
 
-/** Chỉ grant từ vị trí (grantScopes). Không bypass membership / full-access. */
-export function canActWithGrant(_unusedFullAccess, hasGrantFn, key) {
-  const grantKey = String(key || '').trim();
+/**
+ * CTA / form gate — cùng SoT với sidebar/route (`navItemIsAllowed`).
+ * Nhà cung cấp (isSystemAdmin) chỉ bypass khóa OPERATOR_MAINTAIN (+ path backup/project-roles).
+ */
+export function canActAdmin(requiredGrant, { hasGrant, scopeOf, isSystemAdmin = false } = {}) {
+  const grantKey = String(requiredGrant || '').trim();
   if (!grantKey) return false;
-  return typeof hasGrantFn === 'function' ? Boolean(hasGrantFn(grantKey)) : false;
+  return navItemIsAllowed(
+    { requiredGrant: grantKey, path: '', id: '' },
+    { hasGrant, scopeOf, isSystemAdmin: Boolean(isSystemAdmin) }
+  );
+}
+
+/**
+ * @deprecated Prefer canActAdmin / useAdminActionGate — thiếu maintain bypass & scopeOf.
+ * Giữ chữ ký cũ: nếu có grant thì giả định scope ORGANIZATION (trang admin đã vào).
+ */
+export function canActWithGrant(_unusedFullAccess, hasGrantFn, key) {
+  return canActAdmin(key, {
+    hasGrant: hasGrantFn,
+    scopeOf: (k) => (typeof hasGrantFn === 'function' && hasGrantFn(k) ? 'ORGANIZATION' : null),
+    isSystemAdmin: false,
+  });
 }
 
 export function navItemRequiredGrant(item) {
@@ -316,15 +335,48 @@ export function adminScopeOpensPage(scope) {
   return ADMIN_PAGE_SCOPES.has(String(scope || '').trim().toUpperCase());
 }
 
-export function hasAnyAdminNavGrant(hasGrant, scopeOf) {
-  if (typeof hasGrant !== 'function' || typeof scopeOf !== 'function') return false;
-  return Object.values(ADMIN_NAV_REQUIRED_GRANT).some((key) => {
-    if (!hasGrant(key)) return false;
-    return adminScopeOpensPage(scopeOf(key));
-  });
+/** Gom mã quyền nav từ map tĩnh + requiredGrant trên catalog (gồm employee.invite). */
+export function collectAdminNavGrantKeysFromDomains(domains) {
+  const keys = new Set(Object.values(ADMIN_NAV_REQUIRED_GRANT).filter(Boolean));
+  for (const domain of domains || []) {
+    for (const section of domain?.sections || []) {
+      for (const item of section?.items || []) {
+        const key = navItemRequiredGrant(item);
+        if (key) keys.add(key);
+      }
+    }
+  }
+  return keys;
 }
 
-/** Khớp STORED_ADMIN_MAINTAIN_KEYS bên organization-service. Không gồm policy, audit, mời người. */
+export function hasAnyAdminNavGrant(hasGrant, scopeOf, domains) {
+  if (typeof hasGrant !== 'function' || typeof scopeOf !== 'function') return false;
+  const keys =
+    domains != null
+      ? collectAdminNavGrantKeysFromDomains(domains)
+      : new Set([
+          ...Object.values(ADMIN_NAV_REQUIRED_GRANT),
+          RBAC_GRANT.EMPLOYEE_INVITE,
+          RBAC_GRANT.EMPLOYEE_VIEW,
+          RBAC_GRANT.AUDIT_VIEW,
+          RBAC_GRANT.POLICY_VIEW,
+          RBAC_GRANT.MEETING_VIEW,
+          RBAC_GRANT.CHAT_VIEW,
+          RBAC_GRANT.FILE_DOWNLOAD,
+          RBAC_GRANT.NOTIF_VIEW,
+        ]);
+  for (const key of keys) {
+    if (!key || !hasGrant(key)) continue;
+    if (adminScopeOpensPage(scopeOf(key))) return true;
+  }
+  return false;
+}
+
+/**
+ * Khớp STORED_ADMIN_MAINTAIN_KEYS (organization-service) + master_data
+ * (cùng cửa path `/rbac/project-roles` / authorizeOrGrant admin trên catalog dự án).
+ * Không gồm policy, audit, mời người.
+ */
 const OPERATOR_MAINTAIN_GRANTS = new Set([
   'organization.organization_role.view',
   'organization.organization_role.update',
@@ -333,6 +385,8 @@ const OPERATOR_MAINTAIN_GRANTS = new Set([
   'organization.position.update',
   'organization.structure.view',
   'organization.employee.view',
+  'organization.master_data.view',
+  'organization.master_data.update',
 ]);
 
 function operatorSurfacePath(item) {
@@ -377,4 +431,57 @@ export function filterAdminDomainByGrant(domain, ctx) {
       items: filterAdminNavItemsByGrant(section.items, ctx),
     })),
   };
+}
+
+/** Domain còn ≥1 leaf hiện sidebar (không `nav:hidden`) sau khi lọc grant. */
+export function domainHasSidebarVisibleItem(domain) {
+  for (const section of domain?.sections || []) {
+    for (const item of section?.items || []) {
+      if (item?.nav === 'hidden') continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Catalog domain → chỉ domain actor mở được (≥1 leaf sidebar sau `navItemIsAllowed`).
+ * Dùng chung picker «Loại quản lý» + Admin Hub.
+ */
+export function listAdminDomainsForActor(domains, ctx) {
+  return (Array.isArray(domains) ? domains : [])
+    .filter((d) => d && d.nav !== 'hidden')
+    .map((d) => filterAdminDomainByGrant(d, ctx))
+    .filter(domainHasSidebarVisibleItem);
+}
+
+/**
+ * Path leaf sidebar-visible đầu tiên được phép trong domain (landing picker/hub).
+ * Không dùng domain.path mù — tránh HR vào /rbac taxonomy rồi bị redirect.
+ */
+export function firstAllowedAdminLeafPath(domain, ctx) {
+  if (!domain) return '';
+  const filtered = filterAdminDomainByGrant(domain, ctx);
+  for (const section of filtered?.sections || []) {
+    for (const item of section?.items || []) {
+      if (item?.nav === 'hidden') continue;
+      const path = String(item?.path || '').split('?')[0].replace(/\/+$/, '');
+      if (path) return path;
+    }
+  }
+  return '';
+}
+
+/** Leaf ids sidebar-visible còn lại sau filter grant (test / debug). */
+export function listAllowedAdminLeafIds(domain, ctx) {
+  if (!domain) return [];
+  const filtered = filterAdminDomainByGrant(domain, ctx);
+  const ids = [];
+  for (const section of filtered?.sections || []) {
+    for (const item of section?.items || []) {
+      if (item?.nav === 'hidden') continue;
+      if (item?.id) ids.push(String(item.id));
+    }
+  }
+  return ids;
 }

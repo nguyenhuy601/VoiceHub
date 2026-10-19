@@ -159,6 +159,15 @@ function AuthProvider({ children }) {
       setToken(token);
       setAccessToken(token);
 
+      // Xóa cache user trước — tránh CHỨC DANH / org role dính tài khoản cũ
+      try {
+        const { queryClient } = await import('../lib/queryClient');
+        queryClient.clear();
+      } catch {
+        /* ignore */
+      }
+      notifyWorkspaceClearedOnLogout();
+
       try {
         const merged = await restoreAuthSessionAfterLogin(userData);
         setUser(applyUiRoleOverlay(merged));

@@ -635,7 +635,6 @@ export const ADMIN_DOMAINS = [
     path: '/app/admin/chat',
     labelKey: 'adminDomains.chat.title',
     icon: 'MessageSquare',
-    nav: 'hidden',
     sections: [
       {
         id: 'main',
@@ -887,7 +886,6 @@ export const ADMIN_DOMAINS = [
     path: '/app/admin/files',
     labelKey: 'adminDomains.files.title',
     icon: 'FolderOpen',
-    nav: 'hidden',
     sections: [
       {
         id: 'main',
@@ -909,7 +907,6 @@ export const ADMIN_DOMAINS = [
     path: '/app/admin/notifications',
     labelKey: 'adminDomains.notifications.title',
     icon: 'Bell',
-    nav: 'hidden',
     sections: [
       {
         id: 'main',
@@ -951,8 +948,6 @@ export const ADMIN_DOMAINS = [
     path: '/app/admin/security',
     labelKey: 'adminDomains.security.title',
     icon: 'Lock',
-    nav: 'hidden',
-    adminOnly: true,
     sections: [
       {
         id: 'main',
@@ -1413,21 +1408,21 @@ export const ORG_LEVEL_KEY_TO_SECTION = {
 };
 
 /**
- * Sections luôn hiện sau setup (không gắn org level).
- * Không gồm `dynamic` — Levels ẩn sau setup một lần qua modal.
+ * Sections luôn hiện (không gắn org level enabled).
+ * `dynamic` = Levels/Units — cần cho Bên bán (structure.view) và setup lại.
+ * `departments` giữ trước/sau setup khi actor có grant dept (leaf vẫn lọc grant).
  */
-export const ORG_STRUCTURE_ALWAYS_SECTIONS = new Set(['backup', 'system-config']);
+export const ORG_STRUCTURE_ALWAYS_SECTIONS = new Set(['backup', 'system-config', 'dynamic', 'departments']);
 
 /**
  * Lọc sections Cơ cấu tổ chức theo trạng thái setup + levels đã lưu.
- * - Chưa setup (`setupCompleted !== true`): ẩn hierarchy (modal setup tự mở).
- * - Đã setup: section theo level + ALWAYS (backup / system-config); ẩn `dynamic`.
+ * - Chưa setup: ALWAYS (backup / system-config / dynamic / departments); ẩn branch/division/team.
+ * - Đã setup: level enabled + ALWAYS (không ẩn dynamic).
  */
 export function filterOrgStructureSections(sections, levels, { setupCompleted } = {}) {
   const list = Array.isArray(sections) ? sections : [];
 
   if (setupCompleted !== true) {
-    // Vẫn hiện backup / system-config; hierarchy chờ modal setup.
     return list.filter((section) => ORG_STRUCTURE_ALWAYS_SECTIONS.has(section.id));
   }
 
