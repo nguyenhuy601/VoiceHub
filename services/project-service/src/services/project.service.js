@@ -446,16 +446,22 @@ async function createProject({
   };
 
   try {
-    mergeRoleAssignment(userId, [DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER], 'owner');
+    const pmKey = String(DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER || 'project_manager');
+    /** Sole PM: only projectManagerId (fallback creator). Never auto-PM the creator when another PM is chosen. */
+    mergeRoleAssignment(pmUserId, [pmKey], 'owner');
 
     const creatorSeed = (Array.isArray(members) ? members : []).find(
       (m) => String(m?.userId || m?.id || '') === String(userId)
     );
-    mergeRoleAssignment(
-      userId,
-      creatorSeed && Array.isArray(creatorSeed.projectRoleKeys) ? creatorSeed.projectRoleKeys : [],
-      'editor'
-    );
+    const creatorSeedKeys = (
+      creatorSeed && Array.isArray(creatorSeed.projectRoleKeys) ? creatorSeed.projectRoleKeys : []
+    ).filter((k) => String(k || '').trim().toLowerCase() !== pmKey);
+    mergeRoleAssignment(userId, creatorSeedKeys, String(userId) === String(pmUserId) ? 'owner' : 'editor');
+
+    const creatorUid = toValidUserId(userId);
+    if (creatorUid && String(creatorUid) !== String(toValidUserId(pmUserId)) && !roleAssignments.has(creatorUid)) {
+      mergeRoleAssignment(creatorUid, [DEFAULT_PROJECT_ROLE_KEYS.OBSERVER], 'editor');
+    }
 
     const ownerUid = toValidUserId(ownerUserId);
     if (ownerUid && String(ownerUid) !== String(userId) && toValidUserId(productOwnerId) === ownerUid) {
@@ -476,9 +482,21 @@ async function createProject({
 
     if (isCreateBoardSeedEnabled()) {
       for (const row of normalizeSeedMembers(members, { creatorUserId: userId })) {
-        mergeRoleAssignment(row.userId, row.projectRoleKeys, row.boardRole);
+        const keys = (row.projectRoleKeys || []).filter(
+          (k) =>
+            String(k || '').trim().toLowerCase() !== pmKey ||
+            String(row.userId) === String(toValidUserId(pmUserId))
+        );
+        mergeRoleAssignment(row.userId, keys, row.boardRole);
       }
     }
+
+    const { stripExtraProjectManagerKeys } = require('../utils/project/assertSingleProjectManager');
+    stripExtraProjectManagerKeys(
+      roleAssignments,
+      toValidUserId(pmUserId),
+      DEFAULT_PROJECT_ROLE_KEYS.OBSERVER
+    );
 
     await Promise.all(
       [...roleAssignments.entries()].map(([memberUserId, row]) =>

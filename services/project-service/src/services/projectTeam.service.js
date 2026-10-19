@@ -731,6 +731,52 @@ async function setUserProjectRoles({
     ),
   ];
 
+  /** RULE: ≤1 project_manager per project (skip on create bootstrap assumeNewMember). */
+  if (!assumeNewMember) {
+    const {
+      roleKeysIncludePm,
+      assertSingleProjectManager,
+    } = require('../utils/project/assertSingleProjectManager');
+    if (roleKeysIncludePm(resolvedKeys)) {
+      const pmKey = String(DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER || 'project_manager');
+      const pmRoleDocs = await ProjectRole.find({
+        organizationId: orgId,
+        key: pmKey,
+        $or: [{ projectId: null }, { projectId: pid }, { projectId: new mongoose.Types.ObjectId(pid) }],
+      })
+        .select('_id')
+        .lean();
+      const pmRoleIds = new Set((pmRoleDocs || []).map((r) => String(r._id)));
+      const existingMembers = [];
+      if (pmRoleIds.size) {
+        const pmMemberships = await ProjectMembership.find({
+          projectId: pid,
+          projectRoleId: { $in: [...pmRoleIds] },
+        })
+          .select('userId')
+          .lean();
+        for (const row of pmMemberships || []) {
+          existingMembers.push({
+            userId: String(row.userId),
+            projectRoleKeys: [pmKey],
+          });
+        }
+      }
+      const gate = assertSingleProjectManager({
+        userId,
+        nextRoleKeys: resolvedKeys,
+        existingMembers,
+      });
+      if (!gate.ok) {
+        const err = new Error(gate.message);
+        err.statusCode = 400;
+        err.errorCode = gate.errorCode;
+        err.existingPmUserId = gate.existingPmUserId;
+        throw err;
+      }
+    }
+  }
+
   // ACL-only payload (e.g. leaked boardRole "editor") — do not wipe existing ProjectMembership.
   // clearAllRoles=true: intentional remove-all Project Roles for this member.
   if (!resolvedKeys.length) {
