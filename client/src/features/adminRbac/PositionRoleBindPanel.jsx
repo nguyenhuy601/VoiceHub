@@ -13,6 +13,12 @@ import { organizationAPI } from '../../services/api/organizationAPI';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 import { orgRbacAPI } from '../../services/api/orgRbacAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import {
+  isRedundantPositionAliasRow,
+  localizedPositionLabel,
+} from '../../utils/positionLocale';
+import { canonicalizeOrgRoleLabel } from '../../utils/effectiveOrgRoleLabel';
+import { filterOrgRoleCatalogRows } from '../../utils/orgRoleLocale';
 
 /**
  * Step 3 — Gán Org Role vào Position (Position không cầm grant trực tiếp).
@@ -94,22 +100,25 @@ export default function PositionRoleBindPanel({ orgId }) {
     setSearchParams(params, { replace: true });
   };
 
-  const positionOptions = useMemo(
-    () =>
-      positions.map((p) => ({
+  const positionOptions = useMemo(() => {
+    const mapped = positions.map((p) => {
+      const key = String(p.key || p.code || '').trim();
+      return {
         id: String(p._id || p.id),
-        label: p.title || p.name || p.key || p.code,
-      })),
-    [positions]
-  );
+        key,
+        label: localizedPositionLabel(key, p.title || p.name || key, t),
+      };
+    });
+    return mapped.filter((p) => !isRedundantPositionAliasRow(p, mapped));
+  }, [positions, t]);
 
   const roleOptions = useMemo(
     () =>
-      roles.map((r) => ({
+      filterOrgRoleCatalogRows(roles).map((r) => ({
         id: String(r._id || r.id),
-        label: r.label || r.name || r.key || r.code,
+        label: canonicalizeOrgRoleLabel(r.key || r.code, r.label || r.name || r.key || r.code, t),
       })),
-    [roles]
+    [roles, t]
   );
 
   const toggleRole = (id) => {

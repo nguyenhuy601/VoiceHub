@@ -22,6 +22,8 @@ import {
   YEARS_EXPERIENCE_MAX,
   HIRE_SKILLS_MAX,
 } from '../../constants/capabilityCatalog';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 
 const MAX_INVITE_PAST_PROJECTS = 5;
 
@@ -74,6 +76,8 @@ function buildJobTitleOptions(memberTitles = []) {
 export default function UserCreatePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const { refreshStats } = useCompanyAdminContext();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canInvite = can(RBAC_GRANT.EMPLOYEE_INVITE);
   const { loadMembers, members } = useAdminMembers(orgId, { view: 'directory' });
   const { departments, loading: depsLoading } = useAdminOrgStructure(orgId);
   const skillWhitelist = SKILL_WHITELIST;
@@ -130,6 +134,7 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!orgId || saving) return;
+    if (!assertOrToast(RBAC_GRANT.EMPLOYEE_INVITE)) return;
     const email = String(form.email || '').trim();
     if (!email) {
       toast.error(t('companyAdmin.emailRequired'));
@@ -231,7 +236,11 @@ export default function UserCreatePanel({ orgId, embedded = false }) {
     }
   };
 
-  const body = (
+  const body = !canInvite ? (
+    <AdminUserFormCard>
+      <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+    </AdminUserFormCard>
+  ) : (
     <AdminUserFormCard>
       <p className="mb-3 text-sm text-muted-foreground">{t('adminUsers.inviteFormHint')}</p>
       <form className="mx-auto max-w-lg space-y-4" onSubmit={handleSubmit}>

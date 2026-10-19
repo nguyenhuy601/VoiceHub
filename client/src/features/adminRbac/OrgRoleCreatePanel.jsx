@@ -17,10 +17,15 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { slugifyRoleKey, ensureRoleKeyNamespace } from '../../utils/roleKeySlug';
 import { looksLikeHrPositionForOrgRole } from '../../utils/roleLayerNaming';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { filterOrgRoleCatalogRows } from '../../utils/orgRoleLocale';
 
 export default function OrgRoleCreatePanel({ orgId }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canUpdateOrgRole = can(RBAC_GRANT.ORG_ROLE_UPDATE);
 
   const [suffix, setSuffix] = useState('');
   const [description, setDescription] = useState('');
@@ -47,7 +52,9 @@ export default function OrgRoleCreatePanel({ orgId }) {
         const list = res?.data?.roles || res?.data?.data?.roles || [];
         if (!cancelled) {
           setRoles(
-            [...list].sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0))
+            filterOrgRoleCatalogRows(
+              [...list].sort((a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0))
+            )
           );
         }
       } catch (error) {
@@ -68,6 +75,7 @@ export default function OrgRoleCreatePanel({ orgId }) {
 
   const submit = async () => {
     if (!orgId || busy) return;
+    if (!assertOrToast(RBAC_GRANT.ORG_ROLE_UPDATE)) return;
     if (!suffix.trim()) return;
     const label = suffix.trim();
     setBusy(true);
@@ -151,16 +159,18 @@ export default function OrgRoleCreatePanel({ orgId }) {
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={!suffix.trim() || busy || Boolean(rolesError)}
-              aria-busy={busy}
-              className={adminPrimaryBtnClass()}
-              onClick={submit}
-            >
-              <AdminBusySpinner busy={busy} />
-              {busy ? t('common.saving') : t('common.save')}
-            </button>
+            {canUpdateOrgRole ? (
+              <button
+                type="button"
+                disabled={!suffix.trim() || busy || Boolean(rolesError)}
+                aria-busy={busy}
+                className={adminPrimaryBtnClass()}
+                onClick={submit}
+              >
+                <AdminBusySpinner busy={busy} />
+                {busy ? t('common.saving') : t('common.save')}
+              </button>
+            ) : null}
             <button
               type="button"
               disabled={busy}

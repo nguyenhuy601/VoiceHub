@@ -17,6 +17,8 @@ import { accountRoleLabel, memberOrgRole, unwrapApi } from '../../utils/adminUse
 import { coalesceJobTitle } from '../../utils/jobTitleProfile';
 import { DEFAULT_HR_ROLE_KEYS, DEFAULT_HR_ROLE_LABELS } from '../../utils/roleTaxonomy';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 
 const MEMBERSHIP_ROLE_OPTIONS = ['member', 'hr', 'admin', 'owner'];
 /** RULE-05: `owner` không gán từ UI Users. */
@@ -52,6 +54,8 @@ function buildPositionOptionsFromHr(positions) {
 
 export default function UserEditPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
+  const { assertOrToast, can } = useAdminActionGate(orgId);
+  const canUpdate = can(RBAC_GRANT.EMPLOYEE_UPDATE);
   const [searchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const [loading, setLoading] = useState(false);
@@ -141,6 +145,7 @@ export default function UserEditPanel({ orgId, embedded = false }) {
   const save = async (e) => {
     e.preventDefault();
     if (!orgId || !userId || saving) return;
+    if (!assertOrToast(RBAC_GRANT.EMPLOYEE_UPDATE)) return;
     setSaving(true);
     try {
       const nextRole = normalizeMembershipRole(form.role);
@@ -241,7 +246,12 @@ export default function UserEditPanel({ orgId, embedded = false }) {
               </p>
             ) : null}
           </label>
-          <button type="submit" disabled={saving} aria-busy={saving} className={adminPrimaryBtnClass()}>
+          <button
+            type="submit"
+            disabled={saving || !canUpdate}
+            aria-busy={saving}
+            className={adminPrimaryBtnClass()}
+          >
             {saving ? t('common.saving') : t('common.save')}
           </button>
         </form>

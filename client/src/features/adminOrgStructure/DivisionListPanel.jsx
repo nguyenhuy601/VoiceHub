@@ -18,9 +18,8 @@ import {
   AdminLoadErrorState,
 } from '../../components/adminUsers/adminPanelStates';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
@@ -30,10 +29,9 @@ const DIVISION_MANAGE_HUB = '/app/admin/org-structure/divisions/manage';
 export default function DivisionListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { divisions, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canCreateDivision = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DIVISION_CREATE);
-  const canUpdateDivision = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DIVISION_UPDATE);
+  const { can } = useAdminActionGate(orgId);
+  const canCreateDivision = can(RBAC_GRANT.DIVISION_CREATE);
+  const canUpdateDivision = can(RBAC_GRANT.DIVISION_UPDATE);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {

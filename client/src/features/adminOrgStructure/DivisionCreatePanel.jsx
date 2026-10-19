@@ -16,9 +16,8 @@ import {
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
@@ -27,9 +26,8 @@ export default function DivisionCreatePanel({ orgId }) {
   const { t } = useAppStrings();
   const { branches, loadStructure, error: structureError } = useAdminOrgStructure(orgId);
   const { ready, createParents, error: levelsError, reload: reloadLevels } = useOrgStructureLevels(orgId);
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canCreateDivision = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DIVISION_CREATE);
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canCreateDivision = can(RBAC_GRANT.DIVISION_CREATE);
   const requireBranch = createParents.divisionParent === 'branch';
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', branchId: '' });

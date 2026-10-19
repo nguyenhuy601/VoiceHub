@@ -6,13 +6,17 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { adminInputClass } from '../adminUsers/adminUserPanelUi';
 import { AdminEmptyState, AdminListSkeleton, AdminLoadErrorState } from '../adminUsers/adminPanelStates';
 import { handlePickerListKeyDown } from '../adminUsers/pickerListKeyboard';
+import {
+  filterProjectRoleCatalogRows,
+  localizedProjectRoleLabel,
+} from '../../utils/projectRoleLocale';
 
 function roleId(row) {
   return String(row?._id || row?.id || '').trim();
 }
 
-function roleLabel(row) {
-  return String(row?.label || row?.key || roleId(row) || '—').trim();
+function roleLabel(row, t) {
+  return localizedProjectRoleLabel(row?.key, row?.label, t) || roleId(row) || '—';
 }
 
 export default function AdminProjectRolePicker({ orgId, selectedRoleId, hint, paramKey = 'roleId' }) {
@@ -38,7 +42,7 @@ export default function AdminProjectRolePicker({ orgId, selectedRoleId, hint, pa
       try {
         const res = await projectRolesAPI.listRoles(orgId);
         const list = res?.data?.roles || res?.data?.data?.roles || res?.data || [];
-        if (!cancelled) setRoles(Array.isArray(list) ? list : []);
+        if (!cancelled) setRoles(filterProjectRoleCatalogRows(Array.isArray(list) ? list : []));
       } catch (error) {
         if (!cancelled) {
           setRoles([]);
@@ -58,11 +62,11 @@ export default function AdminProjectRolePicker({ orgId, selectedRoleId, hint, pa
     if (!q) return roles;
     return roles.filter((row) => {
       const id = roleId(row).toLowerCase();
-      const label = roleLabel(row).toLowerCase();
+      const label = roleLabel(row, t).toLowerCase();
       const key = String(row?.key || '').toLowerCase();
       return label.includes(q) || key.includes(q) || id.includes(q);
     });
-  }, [roles, query]);
+  }, [roles, query, t]);
 
   const pick = (id) => {
     const nextId = String(id || '').trim();
@@ -111,7 +115,7 @@ export default function AdminProjectRolePicker({ orgId, selectedRoleId, hint, pa
                       active ? 'bg-primary-subtle' : 'hover:bg-muted'
                     }`}
                   >
-                    <span className="text-sm font-medium">{roleLabel(row)}</span>
+                    <span className="text-sm font-medium">{roleLabel(row, t)}</span>
                     <span className="text-xs text-muted-foreground">{row?.key || id}</span>
                   </button>
                 </li>

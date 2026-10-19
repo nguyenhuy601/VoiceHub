@@ -10,6 +10,24 @@ import { useAppStrings } from '../../locales/appStrings';
 import { roleAPI } from '../../services/api/roleAPI';
 import { unwrapCatalogPayload } from '../../utils/rbacUi';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import PermissionDomainCardBrowser from './PermissionDomainCardBrowser';
+import { PermissionModuleSections } from './PermissionModuleSections';
+import {
+  labelCategory,
+  labelModule,
+  labelPermission,
+} from './permissionCatalogLabels';
+import {
+  filterHiddenOrgRolePermissionGroups,
+  isHiddenOrgRolePermission,
+} from './orgRolePermissionVisibility';
+
+function countPerms(domain) {
+  return (domain.modules || []).reduce(
+    (n, mod) => n + (Array.isArray(mod.permissions) ? mod.permissions.length : 0),
+    0
+  );
+}
 
 /**
  * Step 1 — Quyền hệ thống theo nhóm chức năng (read-only). Không tạo permission.
@@ -20,6 +38,7 @@ export default function PermissionByDomainPage() {
   const [error, setError] = useState('');
   const [tree, setTree] = useState([]);
   const [filter, setFilter] = useState('');
+  const [activeKey, setActiveKey] = useState('');
   const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
@@ -51,24 +70,74 @@ export default function PermissionByDomainPage() {
 
   const domains = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return (Array.isArray(tree) ? tree : [])
-      .map((cat) => {
-        const modules = (Array.isArray(cat.modules) ? cat.modules : []).map((mod) => {
-          const perms = (Array.isArray(mod.permissions) ? mod.permissions : []).filter((p) => {
-            if (!q) return true;
-            const blob = `${p.key || ''} ${p.label || ''} ${p.action || ''}`.toLowerCase();
-            return blob.includes(q);
-          });
-          return { ...mod, permissions: perms };
-        }).filter((mod) => mod.permissions.length);
+    const base = filterHiddenOrgRolePermissionGroups(
+      (Array.isArray(tree) ? tree : []).map((cat) => {
+        const catKey = cat.key || cat.id || cat.label;
         return {
-          key: cat.key || cat.id || cat.label,
-          label: cat.label || cat.key || '—',
-          modules,
+          key: catKey,
+          label: labelCategory(catKey, t),
+          modules: (Array.isArray(cat.modules) ? cat.modules : []).map((mod) => {
+            const modKey = mod.key || mod.label;
+            return {
+              ...mod,
+              key: modKey,
+              label: labelModule(modKey, t),
+              permissions: (Array.isArray(mod.permissions) ? mod.permissions : []).map((p) => {
+                const code = String(p.key || p.code || '').trim();
+                return {
+                  ...p,
+                  key: code,
+                  label: labelPermission(code, t),
+                };
+              }),
+            };
+          }),
         };
       })
+    );
+    if (!q) return base;
+    return base
+      .map((cat) => ({
+        ...cat,
+        modules: cat.modules
+          .map((mod) => ({
+            ...mod,
+            permissions: (Array.isArray(mod.permissions) ? mod.permissions : []).filter((p) => {
+              if (isHiddenOrgRolePermission(p.key || p.code)) return false;
+              const blob =
+                `${p.key || ''} ${p.label || ''} ${p.action || ''} ${mod.label || ''} ${cat.label || ''}`.toLowerCase();
+              return blob.includes(q);
+            }),
+          }))
+          .filter((mod) => mod.permissions.length),
+      }))
       .filter((cat) => cat.modules.length);
-  }, [tree, filter]);
+  }, [tree, filter, t]);
+
+  useEffect(() => {
+    if (!domains.length) {
+      setActiveKey('');
+      return;
+    }
+    if (!domains.some((d) => d.key === activeKey)) {
+      setActiveKey(domains[0].key);
+    }
+  }, [domains, activeKey]);
+
+  const cards = useMemo(
+    () =>
+      domains.map((d) => ({
+        key: d.key,
+        label: d.label,
+        total: countPerms(d),
+      })),
+    [domains]
+  );
+
+  const activeDomain = useMemo(
+    () => domains.find((d) => d.key === activeKey) || null,
+    [domains, activeKey]
+  );
 
   return (
     <AdminUserPanelShell
@@ -80,49 +149,28 @@ export default function PermissionByDomainPage() {
         <AdminLoadErrorState message={error} onRetry={() => setReloadTick((n) => n + 1)} />
       ) : null}
       {!loading && !error ? (
-        <label className="flex max-w-md flex-col gap-1 text-sm">
-          <span>{t('adminDomains.rbac.permissionSearch')}</span>
-          <input
-            type="search"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="rounded-md border border-border bg-background px-2 py-1.5"
-          />
-        </label>
+        <AdminUserFormCard>
+          <PermissionDomainCardBrowser
+            domains={cards}
+            activeKey={activeKey}
+            onSelect={setActiveKey}
+            searchValue={filter}
+            onSearchChange={setFilter}
+            searchLabel={t('adminDomains.rbac.permissionSearch')}
+            searchPlaceholder={t('adminDomains.rbac.permissionSearchPlaceholder')}
+            navTitle={t('adminDomains.rbac.domainCardsNav')}
+            detailHeading={t('adminDomains.rbac.domainDetailHeading')}
+            pickHint={t('adminDomains.rbac.domainCardPickHint')}
+            emptyNav={t('adminDomains.rbac.domainCardsEmpty')}
+          >
+            <PermissionModuleSections
+              modules={activeDomain?.modules || []}
+              emptyLabel={t('adminDomains.rbac.domainDetailEmpty')}
+              resolveLabel={(code) => labelPermission(code, t)}
+            />
+          </PermissionDomainCardBrowser>
+        </AdminUserFormCard>
       ) : null}
-      {!loading && !error && !domains.length ? (
-        <p className="text-sm text-muted-foreground">
-          {t('adminDomains.rbac.permissionsEmpty')}
-        </p>
-      ) : null}
-      <div className="grid gap-3">
-        {domains.map((domain) => (
-          <AdminUserFormCard key={domain.key} title={domain.label}>
-            <ul className="space-y-2 text-sm">
-              {(domain.modules || []).map((mod) => {
-                const perms = Array.isArray(mod.permissions)
-                  ? mod.permissions
-                  : Array.isArray(mod.children)
-                    ? mod.children
-                    : [];
-                return (
-                  <li key={mod.key || mod.label}>
-                    <div className="font-medium text-foreground">{mod.label || mod.key}</div>
-                    <ul className="mt-1 space-y-0.5 pl-3 text-muted-foreground">
-                      {perms.map((p) => (
-                        <li key={p.key || p.code}>
-                          <code className="text-xs">{p.key || p.code}</code>
-                          {p.label ? <span className="ml-2">{p.label}</span> : null}
-                        </li>
-                      ))}
-                    </ul>
-                  </li>
-                );
-              })}
-            </ul>
-          </AdminUserFormCard>
-        ))}
-      </div>
     </AdminUserPanelShell>
   );
 }

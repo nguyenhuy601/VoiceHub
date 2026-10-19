@@ -16,19 +16,43 @@ import { roleAPI } from '../../services/api/roleAPI';
 import { isScopeLessGrant } from '../../lib/capabilities';
 import { unwrapCatalogPayload } from '../../utils/rbacUi';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { canonicalizeOrgRoleLabel } from '../../utils/effectiveOrgRoleLabel';
+import { filterOrgRoleCatalogRows } from '../../utils/orgRoleLocale';
+import PermissionDomainCardBrowser from './PermissionDomainCardBrowser';
+import { PermissionModuleGrantSections } from './PermissionModuleSections';
+import {
+  labelCategory,
+  labelModule,
+  labelPermission,
+} from './permissionCatalogLabels';
+import {
+  filterHiddenOrgRolePermissionGroups,
+  isHiddenOrgRolePermission,
+} from './orgRolePermissionVisibility';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
 
 const SCOPE_VALUES = ['SELF', 'DEPARTMENT', 'ORGANIZATION', 'SYSTEM'];
+
+function flatKeys(domain) {
+  return (domain?.modules || []).flatMap((mod) =>
+    (mod.permissions || []).map((p) => p.key).filter(Boolean)
+  );
+}
 
 /**
  * Step 2 — Gán Permission + Scope vào Organizational Role (role = gói quyền).
  */
 export default function OrgRolePermissionMatrixPanel({ orgId }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canUpdateOrgRole = can(RBAC_GRANT.ORG_ROLE_UPDATE);
   const [searchParams, setSearchParams] = useSearchParams();
   const [roles, setRoles] = useState([]);
   const [roleId, setRoleId] = useState(() => String(searchParams.get('roleId') || ''));
   const [groups, setGroups] = useState([]);
   const [filter, setFilter] = useState('');
+  const [activeKey, setActiveKey] = useState('');
   const [selected, setSelected] = useState({}); // code -> scope
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,40 +71,52 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
     const tree = Array.isArray(payload?.tree) ? payload.tree : [];
     setGroups(
       tree
-        .map((cat) => ({
-          key: cat.key || cat.label,
-          label: cat.label || cat.key,
-          modules: (Array.isArray(cat.modules) ? cat.modules : [])
-            .map((mod) => ({
-              key: mod.key || mod.label,
-              label: mod.label || mod.key,
-              permissions: (Array.isArray(mod.permissions) ? mod.permissions : [])
-                .map((p) => ({
-                  key: String(p.key || p.code || '').trim(),
-                  label: p.label || p.action || '',
-                }))
-                .filter((p) => p.key),
-            }))
-            .filter((mod) => mod.permissions.length),
-        }))
+        .map((cat) => {
+          const catKey = cat.key || cat.label;
+          return {
+            key: catKey,
+            label: labelCategory(catKey, t),
+            modules: (Array.isArray(cat.modules) ? cat.modules : [])
+              .map((mod) => {
+                const modKey = mod.key || mod.label;
+                return {
+                  key: modKey,
+                  label: labelModule(modKey, t),
+                  permissions: (Array.isArray(mod.permissions) ? mod.permissions : [])
+                    .map((p) => {
+                      const key = String(p.key || p.code || '').trim();
+                      return {
+                        key,
+                        label: labelPermission(key, t),
+                      };
+                    })
+                    .filter((p) => p.key),
+                };
+              })
+              .filter((mod) => mod.permissions.length),
+          };
+        })
         .filter((cat) => cat.modules.length)
     );
-  }, []);
+  }, [t]);
 
-  const loadMatrix = useCallback(async (rid) => {
-    if (!orgId || !rid) {
-      setSelected({});
-      return;
-    }
-    const res = await orgRbacAPI.getRolePermissions(orgId, rid);
-    const perms = res?.data?.permissions || res?.data?.data?.permissions || [];
-    const map = {};
-    for (const p of perms) {
-      const code = String(p.permissionCode || '').trim();
-      if (code) map[code] = p.scopeType || 'ORGANIZATION';
-    }
-    setSelected(map);
-  }, [orgId]);
+  const loadMatrix = useCallback(
+    async (rid) => {
+      if (!orgId || !rid) {
+        setSelected({});
+        return;
+      }
+      const res = await orgRbacAPI.getRolePermissions(orgId, rid);
+      const perms = res?.data?.permissions || res?.data?.data?.permissions || [];
+      const map = {};
+      for (const p of perms) {
+        const code = String(p.permissionCode || '').trim();
+        if (code) map[code] = p.scopeType || 'ORGANIZATION';
+      }
+      setSelected(map);
+    },
+    [orgId]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -119,21 +155,7 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
   };
 
   const visibleGroups = useMemo(() => {
-    const hidden = (key) => {
-      const code = String(key || '');
-      return code.startsWith('organization.branch.') || code.startsWith('organization.division.');
-    };
-    const withoutLegacy = groups
-      .map((cat) => ({
-        ...cat,
-        modules: cat.modules
-          .map((mod) => ({
-            ...mod,
-            permissions: mod.permissions.filter((p) => !hidden(p.key)),
-          }))
-          .filter((mod) => mod.permissions.length),
-      }))
-      .filter((cat) => cat.modules.length);
+    const withoutLegacy = filterHiddenOrgRolePermissionGroups(groups);
     const q = filter.trim().toLowerCase();
     if (!q) return withoutLegacy;
     return withoutLegacy
@@ -142,14 +164,57 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
         modules: cat.modules
           .map((mod) => ({
             ...mod,
-            permissions: mod.permissions.filter(
-              (p) => p.key.toLowerCase().includes(q) || String(p.label).toLowerCase().includes(q)
-            ),
+            permissions: mod.permissions.filter((p) => {
+              if (isHiddenOrgRolePermission(p.key)) return false;
+              const display = labelPermission(p.key, t);
+              const blob =
+                `${p.key} ${p.label || ''} ${display} ${mod.label || ''} ${cat.label || ''}`.toLowerCase();
+              return blob.includes(q);
+            }),
           }))
           .filter((mod) => mod.permissions.length),
       }))
       .filter((cat) => cat.modules.length);
-  }, [groups, filter]);
+  }, [groups, filter, t]);
+
+  useEffect(() => {
+    if (!visibleGroups.length) {
+      setActiveKey('');
+      return;
+    }
+    if (!visibleGroups.some((d) => d.key === activeKey)) {
+      setActiveKey(visibleGroups[0].key);
+    }
+  }, [visibleGroups, activeKey]);
+
+  const allKeys = useMemo(
+    () => visibleGroups.flatMap((cat) => flatKeys(cat)),
+    [visibleGroups]
+  );
+
+  const selectedTotal = useMemo(
+    () => allKeys.filter((k) => selected[k]).length,
+    [allKeys, selected]
+  );
+
+  const cards = useMemo(
+    () =>
+      visibleGroups.map((cat) => {
+        const keys = flatKeys(cat);
+        return {
+          key: cat.key,
+          label: cat.label,
+          total: keys.length,
+          selected: keys.filter((k) => selected[k]).length,
+        };
+      }),
+    [visibleGroups, selected]
+  );
+
+  const activeDomain = useMemo(
+    () => visibleGroups.find((d) => d.key === activeKey) || null,
+    [visibleGroups, activeKey]
+  );
 
   const chooseRole = (nextId) => {
     setRoleId(nextId);
@@ -161,13 +226,13 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
 
   const roleOptions = useMemo(
     () =>
-      roles.map((r) => {
+      filterOrgRoleCatalogRows(roles).map((r) => {
         const code = String(r.code || r.key || '').toLowerCase();
         const raw = r.label || r.name || r.key || r.code;
         const name =
           code === 'member' || raw === 'Member'
             ? t('adminDomains.rbac.orgRoleMemberDefault')
-            : raw;
+            : canonicalizeOrgRoleLabel(code, raw, t);
         return {
           id: String(r._id || r.id),
           label: t('adminDomains.rbac.orgRoleSelectOptionLabel', { name }),
@@ -189,8 +254,25 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
     setSelected((prev) => ({ ...prev, [code]: scope }));
   };
 
+  const setDomainMany = (on) => {
+    const keys = flatKeys(activeDomain);
+    if (!keys.length) return;
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const code of keys) {
+        if (on) {
+          if (!next[code]) next[code] = 'ORGANIZATION';
+        } else {
+          delete next[code];
+        }
+      }
+      return next;
+    });
+  };
+
   const save = async () => {
     if (!orgId || !roleId || saving) return;
+    if (!assertOrToast(RBAC_GRANT.ORG_ROLE_UPDATE)) return;
     setSaving(true);
     try {
       const permissions = Object.entries(selected).map(([permissionCode, scopeType]) => ({
@@ -206,6 +288,9 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
       setSaving(false);
     }
   };
+
+  const domainKeys = flatKeys(activeDomain);
+  const domainSelected = domainKeys.filter((k) => selected[k]).length;
 
   return (
     <AdminUserPanelShell
@@ -232,76 +317,102 @@ export default function OrgRolePermissionMatrixPanel({ orgId }) {
                 ))}
               </select>
             </label>
+            {canUpdateOrgRole ? (
+              <button
+                type="button"
+                className={adminPrimaryBtnClass()}
+                disabled={!roleId || saving}
+                onClick={save}
+              >
+                {saving ? t('common.saving') : t('common.save')}
+              </button>
+            ) : null}
             <button
               type="button"
-              className={adminPrimaryBtnClass()}
-              disabled={!roleId || saving}
-              onClick={save}
+              className={adminSecondaryBtnClass()}
+              onClick={() => loadMatrix(roleId)}
             >
-              {saving ? t('common.saving') : t('common.save')}
-            </button>
-            <button type="button" className={adminSecondaryBtnClass()} onClick={() => loadMatrix(roleId)}>
               {t('common.reload')}
             </button>
           </div>
           {roleId ? (
-            <>
-              <label className="mt-4 flex flex-col gap-1 text-sm">
-                <span>{t('adminDomains.rbac.permissionSearch')}</span>
-                <input
-                  type="search"
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  className="max-w-md rounded-md border border-border bg-background px-2 py-1.5"
-                />
-              </label>
-              <div className="mt-4 max-h-[560px] space-y-4 overflow-y-auto">
-                {visibleGroups.map((cat) => (
-                  <section key={cat.key}>
-                    <h3 className="text-sm font-semibold text-foreground">{cat.label}</h3>
-                    {cat.modules.map((mod) => (
-                      <div key={mod.key} className="mt-2">
-                        <div className="text-xs font-medium text-muted-foreground">{mod.label}</div>
-                        <ul className="mt-1 space-y-1">
-                          {mod.permissions.map((perm) => {
-                            const on = Boolean(selected[perm.key]);
-                            const scopeLess = isScopeLessGrant(perm.key);
-                            return (
-                              <li key={perm.key} className="flex flex-wrap items-center gap-2 border-b border-border/40 py-1 text-sm">
-                                <label className="flex min-w-[240px] flex-1 items-center gap-2">
-                                  <input type="checkbox" checked={on} onChange={() => toggle(perm.key)} />
-                                  <span>{perm.label}</span>
-                                  <code className="text-[11px] text-muted-foreground">{perm.key}</code>
-                                </label>
-                                {on && scopeLess ? (
-                                  <span className="text-xs text-muted-foreground">
-                                    {t('adminDomains.rbac.createProjectNoScope')}
-                                  </span>
-                                ) : null}
-                                {on && !scopeLess ? (
-                                  <select
-                                    className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-                                    value={selected[perm.key]}
-                                    onChange={(e) => setScope(perm.key, e.target.value)}
-                                    aria-label={perm.key}
-                                  >
-                                    {SCOPE_VALUES.map((scope) => (
-                                      <option key={scope} value={scope}>
-                                        {scopeLabel(scope)}
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : null}
-                              </li>
-                            );
-                          })}
-                        </ul>
+            <div className="mt-4">
+              <PermissionDomainCardBrowser
+                domains={cards}
+                activeKey={activeKey}
+                onSelect={setActiveKey}
+                searchValue={filter}
+                onSearchChange={setFilter}
+                searchLabel={t('adminDomains.rbac.permissionSearch')}
+                searchPlaceholder={t('adminDomains.rbac.permissionSearchPlaceholder')}
+                navTitle={t('adminDomains.rbac.domainCardsNav')}
+                detailHeading={t('adminDomains.rbac.domainDetailHeading')}
+                pickHint={t('adminDomains.rbac.domainCardPickHint')}
+                emptyNav={t('adminDomains.rbac.domainCardsEmpty')}
+                summary={
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/25 px-3 py-2.5 text-sm shadow-sm">
+                    <span className="font-medium text-foreground">
+                      {t('adminDomains.rbac.matrixSelectedSummary', {
+                        selected: selectedTotal,
+                        total: allKeys.length,
+                      })}
+                    </span>
+                    {activeDomain ? (
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className={adminSecondaryBtnClass('!px-2.5 !py-1 text-xs')}
+                          onClick={() => setDomainMany(true)}
+                          disabled={domainSelected >= domainKeys.length}
+                        >
+                          {t('adminDomains.rbac.selectAllInDomain')}
+                        </button>
+                        <button
+                          type="button"
+                          className={adminSecondaryBtnClass('!px-2.5 !py-1 text-xs')}
+                          onClick={() => setDomainMany(false)}
+                          disabled={!domainSelected}
+                        >
+                          {t('adminDomains.rbac.clearDomainSelection')}
+                        </button>
                       </div>
-                    ))}
-                  </section>
-                ))}
-              </div>
-            </>
+                    ) : null}
+                  </div>
+                }
+              >
+                <PermissionModuleGrantSections
+                  modules={activeDomain?.modules || []}
+                  emptyLabel={t('adminDomains.rbac.domainDetailEmpty')}
+                  resolveLabel={(code) => labelPermission(code, t)}
+                  isOn={(code) => Boolean(selected[code])}
+                  onToggle={toggle}
+                  renderTrailing={(perm, on) => {
+                    if (!on) return null;
+                    if (isScopeLessGrant(perm.key)) {
+                      return (
+                        <span className="text-xs text-muted-foreground">
+                          {t('adminDomains.rbac.createProjectNoScope')}
+                        </span>
+                      );
+                    }
+                    return (
+                      <select
+                        className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs shadow-sm"
+                        value={selected[perm.key]}
+                        onChange={(e) => setScope(perm.key, e.target.value)}
+                        aria-label={perm.key}
+                      >
+                        {SCOPE_VALUES.map((scope) => (
+                          <option key={scope} value={scope}>
+                            {scopeLabel(scope)}
+                          </option>
+                        ))}
+                      </select>
+                    );
+                  }}
+                />
+              </PermissionDomainCardBrowser>
+            </div>
           ) : (
             <p className="mt-3 text-sm text-muted-foreground">
               {t('adminDomains.rbac.selectOrgRoleFirst')}

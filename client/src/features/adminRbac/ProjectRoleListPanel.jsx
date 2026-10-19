@@ -21,8 +21,14 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { reorderItemsByIds } from '../../utils/adminSortOrder';
 import { projectRolesAPI } from '../../services/api/projectRolesAPI';
+import {
+  filterProjectRoleCatalogRows,
+  localizedProjectRoleLabel,
+} from '../../utils/projectRoleLocale';
 import { hasLayerPrefix } from '../../utils/roleLayerNaming';
 import { adminRoleHubLink } from '../../utils/adminHubLinks';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
 
 const PROJECT_ROLE_MANAGE_HUB = '/app/admin/rbac/project-roles/manage';
 
@@ -108,6 +114,8 @@ function roleStatusLabel(role, t) {
 
 export default function ProjectRoleListPanel({ orgId }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canUpdateMaster = can(RBAC_GRANT.MASTER_DATA_UPDATE);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -121,8 +129,10 @@ export default function ProjectRoleListPanel({ orgId }) {
       const res = await projectRolesAPI.listRoles(orgId);
       const list = res?.data?.data || res?.data?.roles || res?.data || [];
       setRoles(
-        [...(Array.isArray(list) ? list : [])].sort(
-          (a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0)
+        filterProjectRoleCatalogRows(
+          [...(Array.isArray(list) ? list : [])].sort(
+            (a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0)
+          )
         )
       );
     } catch (error) {
@@ -141,6 +151,7 @@ export default function ProjectRoleListPanel({ orgId }) {
 
   const onReorder = async (orderedIds) => {
     if (!orgId || reordering) return;
+    if (!assertOrToast(RBAC_GRANT.MASTER_DATA_UPDATE)) return;
     const prev = roles;
     setRoles(reorderItemsByIds(roles, orderedIds));
     setReordering(true);
@@ -182,7 +193,7 @@ export default function ProjectRoleListPanel({ orgId }) {
             items={roles}
             getKey={(role) => String(role._id || role.id || role.key)}
             ariaLabel={t('adminDomains.rbac.projectRoleCatalog')}
-            renderTitle={(role) => role.label || role.key}
+            renderTitle={(role) => localizedProjectRoleLabel(role.key, role.label, t) || role.key}
             renderMeta={(role) =>
               [role.key, roleStatusLabel(role, t), role.canAssign ? t('adminRbac.canAssignField') : null]
                 .filter(Boolean)
@@ -200,7 +211,7 @@ export default function ProjectRoleListPanel({ orgId }) {
           <div className="hidden md:block" aria-busy={loading || reordering}>
           <AdminSortableRoleList
             items={roles}
-            disabled={reordering}
+            disabled={reordering || !canUpdateMaster}
             emptyLabel={t('adminRbac.projectRoleCatalogEmpty')}
             onReorder={onReorder}
             gridClassName={PROJECT_ROLE_LIST_GRID || ADMIN_ROLE_LIST_GRID}
@@ -215,14 +226,15 @@ export default function ProjectRoleListPanel({ orgId }) {
             }
             renderCells={(role) => {
               const id = String(role._id || role.id || '').trim();
+              const displayLabel = localizedProjectRoleLabel(role.key, role.label, t) || role.key;
               return (
                 <>
                   <div className="min-w-0 self-center text-sm">
                     <span className="break-all font-medium">{role.key}</span>
                   </div>
                   <div className="min-w-0 self-center text-sm">
-                    <div className="truncate" title={role.label}>
-                      {role.label}
+                    <div className="truncate" title={displayLabel}>
+                      {displayLabel}
                     </div>
                     {role.legacyOutsideMaster ? (
                       <div className="mt-0.5 text-[10px] text-warning">
@@ -246,13 +258,13 @@ export default function ProjectRoleListPanel({ orgId }) {
                     <Link
                       to={adminRoleHubLink(PROJECT_ROLE_MANAGE_HUB, id, 'edit')}
                       className={adminManageLinkClass()}
-                      aria-label={`${t('adminDomains.rbac.projectRoleManageHub')}: ${role.label || role.key}`}
+                      aria-label={`${t('adminDomains.rbac.projectRoleManageHub')}: ${displayLabel}`}
                     >
                       {t('adminDomains.rbac.projectRoleManageHub')}
                     </Link>
-                    {!role.isSystem ? (
+                    {canUpdateMaster && !role.isSystem ? (
                       <RoleRowMoreMenu
-                        roleName={role.label || role.key}
+                        roleName={displayLabel}
                         deleteTo={adminRoleHubLink(PROJECT_ROLE_MANAGE_HUB, id, 'delete')}
                         t={t}
                       />

@@ -20,9 +20,8 @@ import {
 import { effectiveOrgRoleLabel } from '../../utils/effectiveOrgRoleLabel';
 import { normalizeRoleDisplayName } from '../../utils/adminRbacUtils';
 import { adminUserHubLink } from '../../utils/adminHubLinks';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import useModalA11y from '../Shared/useModalA11y';
 import CapabilityReviewPanel from './CapabilityReviewPanel';
 import useMotionPresence from '../../motion/useMotionPresence';
@@ -121,10 +120,12 @@ export default function AdminUserDetailDrawer({
   organizationalPosition = '',
 }) {
   const { t } = useAppStrings();
-  const { isFullAccess, canAccessHub } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canReviewCapability = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.EMPLOYEE_UPDATE);
-  const canConfirmExperience = Boolean(canAccessHub);
+  const { can } = useAdminActionGate(orgId);
+  const canReviewCapability = can(RBAC_GRANT.EMPLOYEE_UPDATE);
+  const canConfirmExperience = canReviewCapability;
+  const canAssignOrgRole = can(RBAC_GRANT.ORG_ROLE_UPDATE);
+  const canAssignPosition = can(RBAC_GRANT.EMPLOYEE_UPDATE);
+  const canUpdateEmployee = can(RBAC_GRANT.EMPLOYEE_UPDATE);
   const [tab, setTab] = useState('info');
   const [events, setEvents] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -427,18 +428,24 @@ export default function AdminUserDetailDrawer({
                 <p className="text-xs text-muted-foreground">ID: {memberTeamId(member) || '—'}</p>
               </div>
               <div className="flex flex-wrap gap-2 pt-2">
-                <Link to={`/app/admin/rbac/org-roles/assign${q}`} className={DRAWER_LINK_CLASS}>
-                  {t('adminUsers.assignRole')}
-                </Link>
-                <Link
-                  to={adminUserHubLink('/app/admin/users/people-ops', userId, 'assign-org')}
-                  className={DRAWER_LINK_CLASS}
-                >
-                  {t('adminDomains.users.assignOrg')}
-                </Link>
-                <Link to={`/app/admin/rbac/positions/assign${q}`} className={DRAWER_LINK_CLASS}>
-                  {t('adminUsers.taxonomyLinkPosition')}
-                </Link>
+                {canAssignOrgRole ? (
+                  <Link to={`/app/admin/rbac/org-roles/assign${q}`} className={DRAWER_LINK_CLASS}>
+                    {t('adminUsers.assignRole')}
+                  </Link>
+                ) : null}
+                {canUpdateEmployee ? (
+                  <Link
+                    to={adminUserHubLink('/app/admin/users/people-ops', userId, 'assign-org')}
+                    className={DRAWER_LINK_CLASS}
+                  >
+                    {t('adminDomains.users.assignOrg')}
+                  </Link>
+                ) : null}
+                {canAssignPosition ? (
+                  <Link to={`/app/admin/rbac/positions/assign${q}`} className={DRAWER_LINK_CLASS}>
+                    {t('adminUsers.taxonomyLinkPosition')}
+                  </Link>
+                ) : null}
                 <Link to={`/app/admin/rbac/organization-roles/lookup${q}`} className={DRAWER_LINK_CLASS}>
                   {t('adminUsers.taxonomyLinkOrgLookup')}
                 </Link>

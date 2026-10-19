@@ -22,16 +22,28 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { reorderItemsByIds } from '../../utils/adminSortOrder';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 import { splitLayerLabel } from '../../utils/roleLayerNaming';
+import { canonicalizeOrgRoleLabel } from '../../utils/effectiveOrgRoleLabel';
+import {
+  filterOrgRoleCatalogRows,
+  localizedOrgRoleDescription,
+} from '../../utils/orgRoleLocale';
 import { adminRoleHubLink } from '../../utils/adminHubLinks';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 
 const ORG_ROLE_MANAGE_HUB = '/app/admin/rbac/org-roles/manage';
 
-function orgRoleLabel(role) {
+function orgRoleLabel(role, t) {
+  const code = role?.code || role?.key || '';
   const raw = role?.label || role?.name || '';
+  const canonical = canonicalizeOrgRoleLabel(code, raw, t);
+  if (canonical) return canonical;
   return splitLayerLabel(raw, 'org').suffix || raw;
+}
+
+function orgRoleDescription(role, t) {
+  const code = role?.code || role?.key || '';
+  return localizedOrgRoleDescription(code, role?.description, t) || '';
 }
 
 function SystemBadge({ isSystem, label }) {
@@ -59,9 +71,8 @@ function EnabledBadge({ role, enabledLabel, legacyLabel }) {
 
 export default function OrgRoleListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canUpdateOrgRole = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.ORG_ROLE_UPDATE);
+  const { can } = useAdminActionGate(orgId);
+  const canUpdateOrgRole = can(RBAC_GRANT.ORG_ROLE_UPDATE);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -91,7 +102,8 @@ export default function OrgRoleListPanel({ orgId }) {
     load();
   }, [orgId]);
 
-  const nonSystemRoles = useMemo(() => roles.filter((r) => !r.isSystem), [roles]);
+  const visibleRoles = useMemo(() => filterOrgRoleCatalogRows(roles), [roles]);
+  const nonSystemRoles = useMemo(() => visibleRoles.filter((r) => !r.isSystem), [visibleRoles]);
 
   const onReorder = async (orderedIds) => {
     if (!orgId || reordering) return;
@@ -132,17 +144,21 @@ export default function OrgRoleListPanel({ orgId }) {
           <AdminListSkeleton />
         ) : loadError ? (
           <AdminLoadErrorState message={loadError} onRetry={() => load()} />
-        ) : !roles.length ? (
+        ) : !visibleRoles.length ? (
           <AdminEmptyState message={t('adminRbac.orgRoleDirectoryEmpty')} />
         ) : (
           <>
             <AdminDenseMobileList
-              items={roles}
+              items={visibleRoles}
               getKey={(role) => String(role._id || role.id || role.key)}
               ariaLabel={t('adminDomains.rbac.orgRoleCatalog')}
-              renderTitle={(role) => orgRoleLabel(role) || role.key}
+              renderTitle={(role) => orgRoleLabel(role, t) || role.key}
               renderMeta={(role) =>
-                [role.key, role.isSystem ? t('adminRbac.systemBadge') : null, role.description || null]
+                [
+                  role.key,
+                  role.isSystem ? t('adminRbac.systemBadge') : null,
+                  orgRoleDescription(role, t) || null,
+                ]
                   .filter(Boolean)
                   .join(' · ')
               }
@@ -171,7 +187,7 @@ export default function OrgRoleListPanel({ orgId }) {
             />
             <div className="hidden md:block" aria-busy={loading || reordering}>
             <AdminSortableRoleList
-              items={roles}
+              items={visibleRoles}
               disabled={reordering || !canUpdateOrgRole}
               emptyLabel={t('adminRbac.orgRoleDirectoryEmpty')}
               onReorder={onReorder}
@@ -184,7 +200,10 @@ export default function OrgRoleListPanel({ orgId }) {
                   <span className="text-right">{t('adminOrg.colActions')}</span>
                 </>
               }
-              renderCells={(role) => (
+              renderCells={(role) => {
+                const label = orgRoleLabel(role, t);
+                const description = orgRoleDescription(role, t);
+                return (
                 <>
                   <div className="min-w-0 self-center text-sm">
                     <span className="break-all font-medium">{role.key}</span>
@@ -196,15 +215,15 @@ export default function OrgRoleListPanel({ orgId }) {
                     />
                   </div>
                   <div className="min-w-0 self-center text-sm">
-                    <div className="truncate" title={orgRoleLabel(role)}>
-                      {orgRoleLabel(role)}
+                    <div className="truncate" title={label}>
+                      {label}
                     </div>
                   </div>
                   <div
                     className="min-w-0 self-center truncate text-sm text-muted-foreground"
-                    title={role.description || ''}
+                    title={description || ''}
                   >
-                    {role.description || '—'}
+                    {description || '—'}
                   </div>
                   <div className="flex justify-end gap-2 self-center">
                     {canUpdateOrgRole ? (
@@ -229,10 +248,11 @@ export default function OrgRoleListPanel({ orgId }) {
                     )}
                   </div>
                 </>
-              )}
+              );
+              }}
             />
             </div>
-            {!nonSystemRoles.length && roles.length ? (
+            {!nonSystemRoles.length && visibleRoles.length ? (
               <p className="mt-3 text-sm text-muted-foreground">{t('adminRbac.orgRoleCatalogResolve')}</p>
             ) : null}
           </>

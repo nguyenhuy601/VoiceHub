@@ -21,12 +21,16 @@ import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
+import { canonicalizeOrgRoleLabel } from '../../utils/effectiveOrgRoleLabel';
+import { filterOrgRoleCatalogRows } from '../../utils/orgRoleLocale';
 import {
   applyOrgRoleBulk,
   nextKeysForAssign,
   nextKeysForRemove,
   uniqueRoleKeys,
 } from './orgRoleAssignmentBulk';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 
 function assignmentRows(res) {
   return res?.data?.assignments || res?.data?.data?.assignments || [];
@@ -38,6 +42,8 @@ function assignmentRows(res) {
  */
 export default function OrgRoleAssignPanel({ orgId, embedded = false, selectedUserIds }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canAssignOrgRole = can(RBAC_GRANT.ORG_ROLE_UPDATE);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -67,7 +73,7 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false, selectedUs
     try {
       const res = await orgRoleCatalogAPI.listCatalog(orgId);
       const list = res?.data?.roles || [];
-      setRoles(list);
+      setRoles(filterOrgRoleCatalogRows(list));
 
       if (!selectedRoleKey && roleIdParam) {
         const found = list.find((r) => String(r._id || r.id) === roleIdParam);
@@ -112,6 +118,7 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false, selectedUs
   }, [roleKeyParam]);
 
   const runBulk = async (nextKeysForUser, doneKey) => {
+    if (!assertOrToast(RBAC_GRANT.ORG_ROLE_UPDATE)) return;
     if (!orgId || !targetUserIds.length || !selectedRoleKey) return;
     setAssignBusy(true);
     try {
@@ -172,7 +179,7 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false, selectedUs
               <option value="">-- {t('adminRbac.selectRole')} --</option>
               {roles.map((r) => (
                 <option key={r._id || r.id} value={r.key}>
-                  {r.label || r.key}
+                  {canonicalizeOrgRoleLabel(r.code || r.key, r.label || r.name || r.key, t)}
                 </option>
               ))}
             </select>
@@ -211,7 +218,7 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false, selectedUs
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={!targetUserIds.length || !selectedRoleKey || assignBusy}
+              disabled={!canAssignOrgRole || !targetUserIds.length || !selectedRoleKey || assignBusy}
               aria-busy={assignBusy || undefined}
               className={adminPrimaryBtnClass()}
               onClick={addRole}
@@ -221,7 +228,7 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false, selectedUs
             </button>
             <button
               type="button"
-              disabled={!canRevoke || assignBusy}
+              disabled={!canAssignOrgRole || !canRevoke || assignBusy}
               className={adminDangerBtnClass()}
               onClick={() => setConfirmRevoke(true)}
             >

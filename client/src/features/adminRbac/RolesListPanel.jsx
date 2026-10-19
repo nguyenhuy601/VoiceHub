@@ -19,9 +19,8 @@ import {
   AdminDenseTableCard,
   AdminDenseTableScroll,
 } from '../../components/adminUsers/adminUserPanelUi';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 
 const PERM_PACK_MANAGE_HUB = '/app/admin/rbac/roles/manage';
 
@@ -45,15 +44,10 @@ export default function RolesListPanel({ orgId }) {
   const { t, locale } = useAppStrings();
   const { systemRoles, loading, error, loadRoles } = useAdminRoles(orgId);
   const { grantsByRoleId } = useRoleMasterGrantsMap(orgId, systemRoles);
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canManage = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.PERM_GROUP_ASSIGN);
-  const canDelete = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.PERM_GROUP_CLONE);
-  const canOpenPermissions = canActWithGrant(
-    isFullAccess,
-    hasGrant,
-    RBAC_GRANT.PERM_GROUP_UPDATE_GRANT
-  );
+  const { can } = useAdminActionGate(orgId);
+  const canManage = can(RBAC_GRANT.PERM_GROUP_ASSIGN);
+  const canDelete = can(RBAC_GRANT.PERM_GROUP_CLONE);
+  const canOpenPermissions = can(RBAC_GRANT.PERM_GROUP_UPDATE_GRANT);
   const [query, setQuery] = useState('');
   const [menuOpenId, setMenuOpenId] = useState('');
 

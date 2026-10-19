@@ -18,11 +18,10 @@ import {
   AdminListSkeleton,
   AdminLoadErrorState,
 } from '../../components/adminUsers/adminPanelStates';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
 import { useAppStrings } from '../../locales/appStrings';
 import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 import { departmentHeadId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
@@ -34,10 +33,9 @@ export default function DeptListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const { membersByIdAll } = useAdminMembers(orgId);
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canCreateDept = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_CREATE);
-  const canUpdateDept = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_UPDATE);
+  const { can } = useAdminActionGate(orgId);
+  const canCreateDept = can(RBAC_GRANT.DEPT_CREATE);
+  const canUpdateDept = can(RBAC_GRANT.DEPT_UPDATE);
   const [query, setQuery] = useState('');
 
   useEffect(() => {

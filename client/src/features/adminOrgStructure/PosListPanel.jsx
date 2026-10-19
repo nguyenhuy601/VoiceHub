@@ -22,18 +22,20 @@ import {
 import { useAppStrings } from '../../locales/appStrings';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
+import {
+  isRedundantPositionAliasRow,
+  localizedPositionLabel,
+} from '../../utils/positionLocale';
 
 const RBAC_POS_BASE = '/app/admin/rbac/positions';
 
 export default function PosListPanel({ orgId }) {
   const { t } = useAppStrings();
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canUpdatePosition = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.POSITION_UPDATE);
-  const canCreatePosition = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.POSITION_CREATE);
+  const { can } = useAdminActionGate(orgId);
+  const canUpdatePosition = can(RBAC_GRANT.POSITION_UPDATE);
+  const canCreatePosition = can(RBAC_GRANT.POSITION_CREATE);
   const [query, setQuery] = useState('');
   const [hrPositions, setHrPositions] = useState([]);
   const [hrPositionsLoading, setHrPositionsLoading] = useState(false);
@@ -71,22 +73,30 @@ export default function PosListPanel({ orgId }) {
   }, [orgId, t, reloadTick]);
 
   const titles = useMemo(() => {
-    return (hrPositions || [])
-      .map((row) => ({
-        id: String(row?.id || row?._id || ''),
-        title: String(row?.title || row?.name || '').trim(),
-        key: String(row?.key || row?.code || '').trim(),
-      }))
-      .filter((row) => row.id && row.title)
-      .sort((a, b) => a.title.localeCompare(b.title));
-  }, [hrPositions]);
+    const mapped = (hrPositions || [])
+      .map((row) => {
+        const key = String(row?.key || row?.code || '').trim();
+        const rawTitle = String(row?.title || row?.name || '').trim();
+        return {
+          id: String(row?.id || row?._id || ''),
+          key,
+          rawTitle,
+          title: localizedPositionLabel(key, rawTitle, t),
+        };
+      })
+      .filter((row) => row.id && (row.title || row.rawTitle));
+    const deduped = mapped.filter((row) => !isRedundantPositionAliasRow(row, mapped));
+    return deduped.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+  }, [hrPositions, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return titles;
     return titles.filter(
       (row) =>
-        row.title.toLowerCase().includes(q) || String(row.key || '').toLowerCase().includes(q)
+        row.title.toLowerCase().includes(q) ||
+        String(row.key || '').toLowerCase().includes(q) ||
+        String(row.rawTitle || '').toLowerCase().includes(q)
     );
   }, [titles, query]);
 

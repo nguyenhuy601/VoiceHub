@@ -17,10 +17,15 @@ import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
+import { canonicalizeOrgRoleLabel } from '../../utils/effectiveOrgRoleLabel';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
 
 export default function OrgRoleDeletePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canUpdateOrgRole = can(RBAC_GRANT.ORG_ROLE_UPDATE);
   const [searchParams] = useSearchParams();
   const roleId = useMemo(() => String(searchParams.get('roleId') || '').trim(), [searchParams]);
 
@@ -60,6 +65,7 @@ export default function OrgRoleDeletePanel({ orgId, embedded = false }) {
 
   const del = async () => {
     if (!orgId || !roleId || busy) return;
+    if (!assertOrToast(RBAC_GRANT.ORG_ROLE_UPDATE)) return;
     setBusy(true);
     setActionError('');
     try {
@@ -105,12 +111,14 @@ export default function OrgRoleDeletePanel({ orgId, embedded = false }) {
     <AdminUserFormCard title={t('adminDomains.rbac.orgRoleDelete')}>
       <div className="rounded-lg border border-border bg-muted p-3 text-sm">
         <div>
-          <span className="text-muted-foreground">{t('adminDomains.rbac.orgRoleKey')}:</span>{' '}
+          <span className="text-muted-foreground">{t('adminRbac.roleKeyField')}:</span>{' '}
           <span className="font-medium">{role.key}</span>
         </div>
         <div className="mt-1">
-          <span className="text-muted-foreground">{t('adminDomains.rbac.orgRoleLabel')}:</span>{' '}
-          <span className="font-medium">{role.label}</span>
+          <span className="text-muted-foreground">{t('adminRbac.roleLabelField')}:</span>{' '}
+          <span className="font-medium">
+            {canonicalizeOrgRoleLabel(role.key || role.code, role.label, t)}
+          </span>
         </div>
         {role.isSystem ? (
           <div className="mt-2 text-sm text-warning">
@@ -124,16 +132,18 @@ export default function OrgRoleDeletePanel({ orgId, embedded = false }) {
         </p>
       ) : null}
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={role.isSystem || busy}
-          aria-busy={busy || undefined}
-          className={adminDangerBtnClass()}
-          onClick={() => setConfirmOpen(true)}
-        >
-          <AdminBusySpinner busy={busy} />
-          {busy ? t('common.deleting') : t('adminDomains.rbac.delete')}
-        </button>
+        {canUpdateOrgRole ? (
+          <button
+            type="button"
+            disabled={role.isSystem || busy}
+            aria-busy={busy || undefined}
+            className={adminDangerBtnClass()}
+            onClick={() => setConfirmOpen(true)}
+          >
+            <AdminBusySpinner busy={busy} />
+            {busy ? t('common.deleting') : t('adminDomains.rbac.delete')}
+          </button>
+        ) : null}
         <button type="button" disabled={busy} className={adminSecondaryBtnClass()} onClick={() => navigate('/app/admin/rbac/org-roles')}>
           {t('common.cancel')}
         </button>

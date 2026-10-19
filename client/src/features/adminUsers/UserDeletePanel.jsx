@@ -15,9 +15,13 @@ import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { clearAdminUserSelection } from '../../utils/adminSelectionParams';
 import { memberUserId } from '../../utils/adminUserUtils';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 
 export default function UserDeletePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
+  const { assertOrToast, can } = useAdminActionGate(orgId);
+  const canDelete = can(RBAC_GRANT.EMPLOYEE_DELETE);
   const [searchParams, setSearchParams] = useSearchParams();
   const userId = String(searchParams.get('userId') || '').trim();
   const { refreshStats } = useCompanyAdminContext();
@@ -31,6 +35,7 @@ export default function UserDeletePanel({ orgId, embedded = false }) {
 
   const confirm = async () => {
     if (!orgId || !userId || busy) return;
+    if (!assertOrToast(RBAC_GRANT.EMPLOYEE_DELETE)) return;
     if (isSystemAdmin) {
       toast.error(t('adminUsers.removeSystemAdminBlocked'));
       return;
@@ -94,12 +99,15 @@ export default function UserDeletePanel({ orgId, embedded = false }) {
           ) : null}
           <button
             type="button"
-            disabled={!userId || isSystemAdmin || membersLoading}
+            disabled={!userId || isSystemAdmin || membersLoading || !canDelete}
             className={adminDangerBtnClass()}
             onClick={() => setOpen(true)}
           >
             {t('adminUsers.removeMember')}
           </button>
+          {!canDelete ? (
+            <p className="mt-2 text-xs text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+          ) : null}
           {isSystemAdmin ? (
             <p className="mt-2 text-xs text-muted-foreground">{t('adminUsers.removeSystemAdminBlocked')}</p>
           ) : null}

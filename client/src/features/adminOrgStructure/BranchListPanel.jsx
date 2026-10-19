@@ -18,9 +18,8 @@ import {
   AdminLoadErrorState,
 } from '../../components/adminUsers/adminPanelStates';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
@@ -33,10 +32,9 @@ export default function BranchListPanel({ orgId }) {
     orgId,
     { includeInactive: true }
   );
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canCreateBranch = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.BRANCH_CREATE);
-  const canUpdateBranch = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.BRANCH_UPDATE);
+  const { can } = useAdminActionGate(orgId);
+  const canCreateBranch = can(RBAC_GRANT.BRANCH_CREATE);
+  const canUpdateBranch = can(RBAC_GRANT.BRANCH_UPDATE);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
