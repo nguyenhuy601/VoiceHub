@@ -10,15 +10,15 @@ import {
 
 const t = (key) =>
   ({
-    'adminUsers.roleVendor': 'Bên bán',
+    'adminUsers.roleVendor': 'Nhà cung cấp',
     'adminUsers.orgRoleNone': 'Chưa gán Vai trò tổ chức',
   })[key] || key;
 
 describe('effectiveOrgRoleLabel', () => {
-  it('vendor systemRole=admin → Bên bán', () => {
+  it('vendor systemRole=admin → Nhà cung cấp', () => {
     assert.equal(
       effectiveOrgRoleLabel({ systemRole: 'admin', role: 'admin' }, { t }),
-      'Bên bán'
+      'Nhà cung cấp'
     );
   });
 
@@ -26,13 +26,39 @@ describe('effectiveOrgRoleLabel', () => {
     assert.equal(
       effectiveOrgRoleLabel(
         { systemRole: 'employee', role: 'member' },
-        { orgRoleRows: [{ roleKey: 'director', roleLabel: 'Director' }], t }
+        { orgRoleRows: [{ roleKey: 'DIRECTOR', roleLabel: 'Director' }], t }
       ),
       'Giám đốc tổ chức'
     );
   });
 
-  it('department_manager → Trưởng phòng', () => {
+  it('ORG_OWNER EN trong DB → nhãn VI qua t', () => {
+    const tFull = (key) =>
+      ({
+        'adminUsers.roleVendor': 'Nhà cung cấp',
+        'adminUsers.orgRoleNone': 'Chưa gán Vai trò tổ chức',
+        'adminRbac.orgRoleLabel.ORG_OWNER': 'Chủ sở hữu tổ chức',
+      })[key] || key;
+    assert.equal(
+      effectiveOrgRoleLabel(
+        { systemRole: 'employee' },
+        {
+          orgRoleRows: [{ roleKey: 'ORG_OWNER', roleLabel: 'Organization Owner' }],
+          t: tFull,
+        }
+      ),
+      'Chủ sở hữu tổ chức'
+    );
+  });
+
+  it('DEPARTMENT_MANAGER / lowercase → Trưởng phòng', () => {
+    assert.equal(
+      effectiveOrgRoleLabel(
+        { role: 'member' },
+        { orgRoleRows: [{ roleKey: 'DEPARTMENT_MANAGER' }], t }
+      ),
+      'Trưởng phòng'
+    );
     assert.equal(
       effectiveOrgRoleLabel(
         { role: 'member' },
@@ -53,12 +79,13 @@ describe('effectiveOrgRoleLabel', () => {
 describe('canonicalizeOrgRoleLabel / map', () => {
   it('maps EN Director label via key', () => {
     assert.equal(canonicalizeOrgRoleLabel('director', 'Director'), 'Giám đốc tổ chức');
+    assert.equal(canonicalizeOrgRoleLabel('DIRECTOR', 'Director'), 'Giám đốc tổ chức');
   });
 
   it('buildOrgRoleRowsMapFromAssignments joins keys', () => {
     const map = buildOrgRoleRowsMapFromAssignments([
-      { userId: 'u1', roleKey: 'director', roleLabel: 'Director' },
-      { userId: 'u2', roleKey: 'team_lead', roleLabel: 'Team Lead' },
+      { userId: 'u1', roleKey: 'DIRECTOR', roleLabel: 'Director' },
+      { userId: 'u2', roleKey: 'TEAM_LEAD', roleLabel: 'Team Lead' },
     ]);
     assert.equal(formatOrgRoleRowsLabel(map.u1), 'Giám đốc tổ chức');
     assert.equal(formatOrgRoleRowsLabel(map.u2), 'Trưởng nhóm');
