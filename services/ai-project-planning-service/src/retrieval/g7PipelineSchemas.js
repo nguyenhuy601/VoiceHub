@@ -52,6 +52,11 @@ function getG7RagMode(env = process.env) {
   return 'stub';
 }
 
+/** hybrid and qdrant both require a successful Qdrant ingest and search. */
+function requiresQdrant(mode) {
+  return mode === 'qdrant' || mode === 'hybrid';
+}
+
 /**
  * Classify query intent (deterministic heuristics for Wave D keyword path).
  * Full LLM intent classification is optional later — must stay testable without model.
@@ -153,12 +158,12 @@ function validateContextPackage(pkg) {
 
 /**
  * Four pipeline steps — implemented as:
- * classifyQueryIntent → retrieve (stub|keyword|hybrid; qdrant→stub) → rerankAndFilter → assemble.
- * Mode behavior (Step 4):
+ * classifyQueryIntent → retrieve (stub|keyword|hybrid|qdrant) → rerankAndFilter → assemble.
+ * Mode behavior:
  * - stub|off — substring / empty (stub: true)
  * - keyword — BM25-lite (stub: false)
- * - hybrid — keyword ∪ stub merge (stub: false)
- * - qdrant — substring fallback until Step 5 (stub: true)
+ * - hybrid — keyword ∪ Qdrant; Qdrant errors fail the run
+ * - qdrant — Qdrant only; errors fail the run
  */
 const G7_PIPELINE_STEPS = Object.freeze([
   'query_intent',
@@ -174,6 +179,7 @@ module.exports = {
   QUERY_INTENTS,
   G7_PIPELINE_STEPS,
   getG7RagMode,
+  requiresQdrant,
   classifyQueryIntent,
   filterCitationsToCorpus,
   validateContextPackage,

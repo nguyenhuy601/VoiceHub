@@ -21,6 +21,10 @@ const {
   normalizeBulkMemberUserIds,
   aggregateBulkMemberRoleResults,
 } = require('../utils/project/memberRolesBulk');
+const {
+  isCreatorDefaultEditorAcl,
+  isCreatorDefaultEditorMembership,
+} = require('../utils/project/creatorDefaultRole');
 
 const LEGACY_TO_PROJECT_ROLE = Object.freeze({
   owner: DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER,
@@ -369,6 +373,7 @@ async function resolveProjectContext(boardId) {
  * Only for users who still have ZERO ProjectMembership rows — never invent
  * backend_developer/project_manager from board ACL (editor/owner) when intake
  * seed already assigned explicit roles (PO/PM/BA).
+ * Người tạo không gán vai trò: không đổi board ACL editor thành backend_developer.
  */
 async function migrateBoardMembersToProjectRoles(boardId, actorId) {
   const { board, projectId } = await resolveProjectContext(boardId);
@@ -377,6 +382,20 @@ async function migrateBoardMembersToProjectRoles(boardId, actorId) {
 
   const members = await TaskBoardMember.find({ boardId }).lean();
   if (!members.length) return { migrated: 0, totalMembers: 0 };
+
+  const project = await Project.findById(projectId).select('createdBy').lean();
+  const creatorId = String(project?.createdBy || '').trim();
+  if (creatorId) {
+    const existing = await ProjectMembership.find({ projectId, userId: creatorId })
+      .select('_id userId legacyBoardRole')
+      .lean();
+    const defaultIds = existing
+      .filter((row) => isCreatorDefaultEditorMembership(row, creatorId))
+      .map((row) => row._id);
+    if (defaultIds.length) {
+      await ProjectMembership.deleteMany({ _id: { $in: defaultIds } });
+    }
+  }
 
   const memberUserIds = [
     ...new Set(members.map((m) => String(m.userId || '').trim()).filter(Boolean)),
@@ -393,6 +412,7 @@ async function migrateBoardMembersToProjectRoles(boardId, actorId) {
   for (const m of members) {
     const uid = String(m.userId || '').trim();
     if (!uid || seededUserIds.has(uid)) continue;
+    if (isCreatorDefaultEditorAcl(uid, m.role, creatorId)) continue;
 
     const key = LEGACY_TO_PROJECT_ROLE[m.role] || DEFAULT_PROJECT_ROLE_KEYS.WATCHER;
     const role = roleByKey.get(key);

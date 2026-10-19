@@ -23,6 +23,7 @@ const {
   normalizeSeedMembers,
   inferBoardRoleFromProjectKeys,
 } = require('../utils/project/createBoardSeed');
+const { creatorHasExplicitProjectRole } = require('../utils/project/creatorDefaultRole');
 const {
   buildProjectCodeBase,
   allocateUniqueProjectCode,
@@ -201,6 +202,8 @@ async function createProject({
   requiredProjectRoles,
   budgetStub,
   analysisMode,
+  gateReviewPolicy,
+  gateRoleKeys,
 }) {
   // Quyền tạo dự án: mã project.project.create trên vị trí → vai trò tổ chức.
   // Không dùng placement owner/admin/trưởng phòng, không gắn gói quyền cũ.
@@ -253,14 +256,35 @@ async function createProject({
   const titleTrim = String(title || '').trim();
   if (!titleTrim) throw new Error('title là bắt buộc');
 
-  assertIntakeLeadRoster(
-    collectCreateProjectRoleKeys({
-      productOwnerId,
-      scrumMasterId,
-      techLeadId,
-      members,
-    })
-  );
+  const memberRoleKeys = collectCreateProjectRoleKeys({
+    productOwnerId,
+    scrumMasterId,
+    techLeadId,
+    members,
+  });
+  assertIntakeLeadRoster(memberRoleKeys);
+  const {
+    normalizeGateReviewPolicy,
+    gateReviewPlanErrors,
+    uniqueRoleKeys: uniqueGateRoleKeys,
+  } = require('../utils/project/gateReviewPolicy');
+  const roleKeysByGate = {
+    what: uniqueGateRoleKeys(gateRoleKeys?.what),
+    how: uniqueGateRoleKeys(gateRoleKeys?.how),
+  };
+  const normalizedGateReview = normalizeGateReviewPolicy(gateReviewPolicy, roleKeysByGate);
+  for (const gate of ['what', 'how']) {
+    const problems = gateReviewPlanErrors(normalizedGateReview[gate], roleKeysByGate[gate]);
+    if (problems.length) {
+      const err = new Error('Chưa chọn cách duyệt cho cổng có từ hai vai trò.');
+      err.statusCode = 400;
+      err.errorCode = 'GATE_REVIEW_PLAN_INVALID';
+      err.details = { gate, problems };
+      throw err;
+    }
+  }
+  const { assertGateReviewPolicy } = require('../utils/project/gateReviewPolicy');
+  assertGateReviewPolicy(normalizedGateReview, memberRoleKeys);
 
   let code = String(projectCode || '').trim();
   if (!code) {
@@ -316,6 +340,7 @@ async function createProject({
     // AI birth = Phase 0 draft; manual = Phase 1 RA (same phase/status, analysisMode differs for tab).
     status: 'draft',
     analysisMode: resolvedAnalysisMode,
+    gateReviewPolicy: normalizedGateReview,
     dueDate: init.fields.dueDate !== undefined ? init.fields.dueDate : due,
     schedulePolicy: WARN_V1,
     ...(normalizedRoles !== undefined ? { requiredProjectRoles: normalizedRoles } : {}),
@@ -353,7 +378,7 @@ async function createProject({
       addedBy: userId,
     }),
   ];
-  if (String(userId) !== String(ownerUserId)) {
+  if (String(userId) !== String(ownerUserId) && creatorHasExplicitProjectRole(members, userId)) {
     boardMemberCreates.push(
       TaskBoardMember.create({
         boardId: board._id,

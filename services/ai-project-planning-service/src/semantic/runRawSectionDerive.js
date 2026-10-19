@@ -80,7 +80,8 @@ function buildDerivePrompt(engineId, input, task) {
   if (isV2) {
     return [
       `SemanticTask=${engineId} mode=raw_derive_v2 section=${section}`,
-      'Derive CANDIDATES from Input: frFull (capability/intent on each FR) + BRQ/overview + ambiguities/evidence.',
+      'Derive CANDIDATES from Input: frFull (capability/intent on each FR) + BRQ/overview + ambiguities/evidence + retrievedContext when present.',
+      'retrievedContext is G7 snapshot evidence (keyword and/or Qdrant). Use it as support. Do not invent ids outside Input.',
       'Do not invent FR ids not present in Input. Prefer FR.capability/intent over guessing.',
       'Every item MUST include sourceRefs and/or relatedFrIds when possible.',
       input?.languageInstruction || '',
@@ -273,6 +274,7 @@ async function runRawSectionDerive(opts = {}) {
         g4Understanding: opts.g4Understanding,
         evidence: opts.evidence,
         snapshot: opts.snapshot,
+        contextPackage: opts.contextPackage || null,
       });
       const seeded = applySectionDeriveQuality(engineId, [], pack, inputPreview);
       if (seeded.rows.length >= groundedCfg.min) {
@@ -352,6 +354,7 @@ async function runRawSectionDerive(opts = {}) {
     evidence: opts.evidence,
     snapshot: opts.snapshot,
     locale: opts.locale || pack?.aiAnalysis?.deriveLocale || null,
+    contextPackage: opts.contextPackage || null,
   });
   const prompt = buildDerivePrompt(engineId, input, task);
   const isV2 = input?.mode === 'raw_derive_v2';
@@ -543,6 +546,7 @@ async function runAllRawSectionDerives(opts = {}) {
       evidence: opts.evidence,
       snapshot: opts.snapshot,
       locale: opts.locale || pack?.aiAnalysis?.deriveLocale || null,
+      contextPackage: opts.contextPackage || null,
     });
     assertCriticalDeriveOk(engineId, byId[engineId], env);
   }

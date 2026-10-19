@@ -15,28 +15,31 @@ function emptyTracks({ techRequired = true } = {}) {
   };
 }
 
-function normalizeTracks(raw, { techRequired = true } = {}) {
-  const base = emptyTracks({ techRequired });
+function normalizeTracks(raw, { techRequired = true, roleKeys = null } = {}) {
   const src = raw && typeof raw === 'object' ? raw : {};
-  for (const key of GATE2_TRACKS) {
+  const usePlanKeys = Array.isArray(roleKeys);
+  const keys = usePlanKeys ? roleKeys : GATE2_TRACKS;
+  const legacy = !usePlanKeys;
+  const base = legacy ? emptyTracks({ techRequired }) : {};
+  for (const key of keys) {
     const row = src[key] && typeof src[key] === 'object' ? src[key] : {};
-    const status = String(row.status || base[key].status).trim().toLowerCase();
+    const fallback = legacy ? base[key].status : 'pending';
+    const status = String(row.status || fallback).trim().toLowerCase();
+    const allowed = new Set(['submitted', 'skipped', 'pending', 'waiting']);
     base[key] = {
       ...row,
-      status:
-        status === 'submitted' || status === 'skipped' || status === 'pending'
-          ? status
-          : base[key].status,
+      status: allowed.has(status) ? status : fallback,
     };
   }
-  if (!techRequired && base.tech.status === 'pending') {
+  if (legacy && !techRequired && base.tech.status === 'pending') {
     base.tech = { ...base.tech, status: 'skipped' };
   }
   return base;
 }
 
-function tracksReadyForConsolidation(tracks) {
-  return GATE2_TRACKS.every((key) => {
+function tracksReadyForConsolidation(tracks, roleKeys = null) {
+  const keys = Array.isArray(roleKeys) ? roleKeys : GATE2_TRACKS;
+  return keys.every((key) => {
     const status = String(tracks?.[key]?.status || '');
     return status === 'submitted' || status === 'skipped';
   });
@@ -80,7 +83,11 @@ function applyGate2CollaborativeAction({
   const actor = String(userId || '').trim();
   const noteTrim = clip(note, 2000);
   const current = gate2 && typeof gate2 === 'object' ? { ...gate2 } : {};
-  const tracks = normalizeTracks(current.tracks, { techRequired });
+  const reviewPlan = current.reviewPlan && typeof current.reviewPlan === 'object' ? current.reviewPlan : null;
+  const planRoleKeys = reviewPlan
+    ? require('./gate2RolePlan').roleKeysOfTracks(reviewPlan, current.tracks)
+    : null;
+  const tracks = normalizeTracks(current.tracks, { techRequired, roleKeys: planRoleKeys });
   let proposals = Array.isArray(current.changeProposals)
     ? current.changeProposals.map((row) => ({ ...row }))
     : [];
@@ -118,14 +125,17 @@ function applyGate2CollaborativeAction({
     let which = String(track || '').trim().toLowerCase();
     if (!which && act === 'pm_submit') which = 'pm';
     if (!which && act === 'tech_submit') which = 'tech';
-    if (!GATE2_TRACKS.includes(which)) {
-      fail(400, 'GATE2_TRACK_INVALID', 'Thiếu track review (po, tech, pm).');
+    if (!tracks[which]) {
+      fail(400, 'GATE2_TRACK_INVALID', 'Vai trò này không nằm trong danh sách duyệt.');
     }
     if (tracks[which].status === 'skipped') {
-      fail(409, 'GATE2_TRACK_SKIPPED', 'Dự án không có Tech Lead — bỏ qua cổng này.');
+      fail(409, 'GATE2_TRACK_SKIPPED', 'Vai trò này được bỏ qua.');
+    }
+    if (tracks[which].status === 'waiting') {
+      fail(409, 'GATE2_TRACK_WAITING', 'Chưa tới lượt vai trò này.');
     }
     if (tracks[which].status === 'submitted') {
-      fail(409, 'GATE2_TRACK_ALREADY', 'Phần này đã được xác nhận.');
+      fail(409, 'GATE2_TRACK_ALREADY', 'Vai trò này đã xác nhận.');
     }
     tracks[which] = {
       status: 'submitted',
@@ -136,11 +146,30 @@ function applyGate2CollaborativeAction({
         ? { reviewDecisions }
         : {}),
     };
-    if (tracksReadyForConsolidation(tracks)) {
-      return packState(REVIEW_LANE.CONSOLIDATION, {
-        permission: 'planning:pm_review',
-        title: 'Gate 2 — đủ review song song, chờ PM tổng hợp',
-        content: 'PO, Tech Lead và PM đã xác nhận phần của mình. PM tổng hợp xung đột rồi gửi PO duyệt cuối.',
+    if (reviewPlan?.mode === 'sequential') {
+      const nextKey = (planRoleKeys || []).find((key) => tracks[key]?.status === 'waiting');
+      if (nextKey) {
+        tracks[nextKey] = { ...tracks[nextKey], status: 'pending' };
+        return packState(REVIEW_LANE.PARALLEL, {
+          permission: '',
+          roleKey: nextKey,
+          title: 'Gate 2 — đến lượt vai trò tiếp theo',
+          content: 'Review tuần tự: đến lượt bạn duyệt toàn bộ kế hoạch.',
+          kind: 'ai_hitl_gate2',
+        });
+      }
+    }
+    if (tracksReadyForConsolidation(tracks, planRoleKeys)) {
+      const nextLane = reviewPlan?.synthesisRoleKey
+        ? REVIEW_LANE.CONSOLIDATION
+        : REVIEW_LANE.PO_FINAL;
+      return packState(nextLane, {
+        permission: reviewPlan ? '' : 'planning:pm_review',
+        roleKey: reviewPlan?.synthesisRoleKey || reviewPlan?.finalRoleKey || '',
+        title: 'Gate 2 — các vai trò đã review xong',
+        content: reviewPlan?.synthesisRoleKey
+          ? 'Chờ vai trò tổng hợp xác nhận kế hoạch.'
+          : 'Chờ vai trò Tổng duyệt xác nhận cổng.',
         kind: 'ai_hitl_gate2_consolidation',
       });
     }
@@ -328,6 +357,15 @@ function applyGate2CollaborativeAction({
     current.consolidatedBy = actor;
     current.consolidatedAt = new Date().toISOString();
     if (noteTrim) current.consolidationNote = noteTrim;
+    if (reviewPlan?.finalRoleKey) {
+      return packState(REVIEW_LANE.PO_FINAL, {
+        permission: '',
+        roleKey: reviewPlan.finalRoleKey,
+        title: 'Gate 2 — đã tổng hợp, chờ Tổng duyệt',
+        content: noteTrim || 'Kế hoạch đã nhất quán. Vai trò Tổng duyệt xác nhận cổng.',
+        kind: 'ai_hitl_gate2_po',
+      });
+    }
     return packState(REVIEW_LANE.PO_FINAL, {
       permission: 'planning:po_review',
       title: 'Gate 2 — PM đã tổng hợp, chờ PO xác nhận cuối',

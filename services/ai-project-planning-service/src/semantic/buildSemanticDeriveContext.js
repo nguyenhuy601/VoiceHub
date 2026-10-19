@@ -248,6 +248,8 @@ function toDerivePromptPayload(input) {
 function buildSemanticDeriveContext(pack, opts = {}) {
   const g4 = opts.g4Understanding || opts.understanding || null;
   const locale = normalizeDeriveLocale(opts.locale || pack?.aiAnalysis?.deriveLocale || 'vi');
+  const { formatRetrievedContext } = require('../retrieval/formatRetrievedContext');
+  const retrieved = formatRetrievedContext(opts.contextPackage);
   return {
     locale,
     languageInstruction: languageInstruction(locale),
@@ -255,6 +257,7 @@ function buildSemanticDeriveContext(pack, opts = {}) {
     brqFull: takeBrqFull(pack, opts, 30),
     requirementUnderstanding: takeRequirementUnderstanding(g4, 24),
     evidenceRefs: takeEvidenceRefs(opts.evidence, g4, 24),
+    retrievedContext: retrieved.items.length ? retrieved.items : undefined,
   };
 }
 

@@ -18,6 +18,7 @@ import { attachConflictAmbiguityToGate1Bundle } from '../gate1/resolveConflictAm
 import useProjectCapabilities from '../hooks/useProjectCapabilities';
 import AiHitlMonitorPanel from './AiHitlMonitorPanel';
 import AiHitlReviewPanel from './AiHitlReviewPanel';
+import GateActionOverlay from './GateActionOverlay';
 import { resolveAiHitlReviewMode } from './aiHitlReviewMode';
 import { resolveGate1ReviewLane, resolveGate1ReviewView } from './gate1ReviewLane';
 import { useAuth } from '../../../../context/AuthContext';
@@ -122,7 +123,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const t = useCallback((key, vars) => textOr(translate, key, vars) || translate(key, vars), [translate]);
   const [searchParams, setSearchParams] = useSearchParams();
   const { access: requirementAccess, loaded: accessLoaded } = useRequirementAccess(organizationId);
-  const { capabilities: projectCaps } = useProjectCapabilities(projectId);
+  const { project, capabilities: projectCaps } = useProjectCapabilities(projectId);
   const { shouldPausePolling } = useNetworkStatus();
   const { requestNote, noteDialog } = useReviewNotePrompt();
   const [ackDialog, setAckDialog] = useState(null);
@@ -137,6 +138,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     tabFromQuery === 'review' || tabFromQuery === 'monitor' ? tabFromQuery : 'monitor'
   );
   const [busy, setBusy] = useState(false);
+  const [gateActionLabel, setGateActionLabel] = useState('');
   const [loading, setLoading] = useState(true);
   const [packId, setPackId] = useState(packIdFromQuery);
   const [pack, setPack] = useState(null);
@@ -572,6 +574,15 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const gate2Proposals = Array.isArray(pack?.aiAnalysis?.gate2?.changeProposals)
     ? pack.aiAnalysis.gate2.changeProposals
     : [];
+  const stampedReviewPlan = pack?.aiAnalysis?.gate2?.reviewPlan;
+  const projectHowPlan = project?.gateReviewPolicy?.how;
+  const legacyRoleTracks = Boolean(gate2Tracks?.po || gate2Tracks?.tech || gate2Tracks?.pm);
+  const gate2ReviewPlan = stampedReviewPlan?.finalRoleKey
+    ? stampedReviewPlan
+    : !legacyRoleTracks && projectHowPlan?.finalRoleKey
+      ? projectHowPlan
+      : null;
+  const gate2ViewerRoleKeys = projectCaps.viewerProjectRoleKeys || [];
   const gate2ReviewView = useMemo(
     () =>
       resolveGate2ReviewView({
@@ -584,6 +595,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         proposals: gate2Proposals,
         techRequired: hasPlanningTechReviewer,
         userId: actorUserId,
+        reviewPlan: gate2ReviewPlan,
+        viewerRoleKeys: gate2ViewerRoleKeys,
       }),
     [
       gate2ReviewLane,
@@ -595,6 +608,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       gate2Proposals,
       hasPlanningTechReviewer,
       actorUserId,
+      gate2ReviewPlan,
+      gate2ViewerRoleKeys,
     ]
   );
   const gate2ParallelTracks = useMemo(
@@ -605,6 +620,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         canReviewPo: canReviewGate2Po,
         tracks: gate2Tracks,
         techRequired: hasPlanningTechReviewer,
+        reviewPlan: gate2ReviewPlan,
+        viewerRoleKeys: gate2ViewerRoleKeys,
       }),
     [
       canReviewGate2Pm,
@@ -612,6 +629,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       canReviewGate2Po,
       gate2Tracks,
       hasPlanningTechReviewer,
+      gate2ReviewPlan,
+      gate2ViewerRoleKeys,
     ]
   );
   const gate2RejectReason = String(pack?.aiAnalysis?.gate2?.lastRejectReason || '').trim();
@@ -841,6 +860,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     });
     if (note === null) return;
     setBusy(true);
+    setGateActionLabel(t('requirements.gate1SubmitOverlay') || 'Đang gửi duyệt Gate 1…');
     try {
       const submitRes = await requirementAPI.submitPack(organizationId, packId, {
         reviewDecisions,
@@ -870,6 +890,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       toast.error(resolveApiErrorMessage(err, { fallback: 'Submit Gate 1 failed' }));
     } finally {
       setBusy(false);
+      setGateActionLabel('');
     }
   };
 
@@ -886,7 +907,9 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       maxLength: 1000,
     });
     if (note === null) return;
+    const approveLabel = t('requirements.gate1ApproveOverlay') || 'Đang duyệt Gate 1…';
     setBusy(true);
+    setGateActionLabel(approveLabel);
     try {
       const result = await approveRequirementPackWithGate1({
         orgId: organizationId,
@@ -898,16 +921,21 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
             : {}),
           ...(projectId ? { projectId: String(projectId) } : {}),
         },
-        requestForceReason: async ({ title, message }) =>
-          requestNote({
-            title,
-            description: message,
-            placeholder:
-              t('requirements.gate1ForceReasonPlaceholder'),
-            submitLabel: t('requirements.approveForced') || t('requirements.approve'),
-            variant: 'request_changes',
-            maxLength: 2000,
-          }),
+        requestForceReason: async ({ title, message }) => {
+          setGateActionLabel('');
+          try {
+            return await requestNote({
+              title,
+              description: message,
+              placeholder: t('requirements.gate1ForceReasonPlaceholder'),
+              submitLabel: t('requirements.approveForced') || t('requirements.approve'),
+              variant: 'request_changes',
+              maxLength: 2000,
+            });
+          } finally {
+            setGateActionLabel(approveLabel);
+          }
+        },
       });
       if (!result.ok) return;
       setAckDialog({
@@ -953,6 +981,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       );
     } finally {
       setBusy(false);
+      setGateActionLabel('');
     }
   };
 
@@ -994,9 +1023,10 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     }
   };
 
-  const postGate2 = async (body, { ok, fail }) => {
+  const postGate2 = async (body, { ok, fail, overlay }) => {
     if (!organizationId || !packId || busy) return;
     setBusy(true);
+    if (overlay) setGateActionLabel(overlay);
     try {
       await requirementAPI.confirmPhaseGate2(organizationId, packId, body);
       toast.success(ok);
@@ -1005,6 +1035,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       toast.error(resolveApiErrorMessage(err, { fallback: fail }));
     } finally {
       setBusy(false);
+      setGateActionLabel('');
     }
   };
 
@@ -1035,6 +1066,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       {
         ok: t('requirements.gate2TrackSubmitOk'),
         fail: t('requirements.gate2PmSubmitFail'),
+        overlay: t('requirements.gate2TrackOverlay'),
       }
     );
   };
@@ -1151,6 +1183,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       {
         ok: t('requirements.gate2PmConfirmPlanOk'),
         fail: t('requirements.gate2PmSubmitFail'),
+        overlay: t('requirements.gate2PmConfirmOverlay'),
       }
     );
   };
@@ -1217,6 +1250,11 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     });
     if (note === null) return;
     setBusy(true);
+    setGateActionLabel(
+      activateOnly
+        ? t('requirements.gate2ActivateOverlay') || 'Đang kích hoạt delivery…'
+        : t('requirements.gate2PoApproveOverlay') || 'Đang duyệt Gate 2 và kích hoạt dự án…'
+    );
     try {
       const howSt = String(pack?.aiAnalysis?.phaseRuns?.phase_how?.status || '');
       let promotePayload = null;
@@ -1306,6 +1344,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       await refresh().catch(() => {});
     } finally {
       setBusy(false);
+      setGateActionLabel('');
     }
   };
 
@@ -1598,6 +1637,10 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         </div>
       </div>
       {noteDialog}
+      <GateActionOverlay
+        message={gateActionLabel}
+        hint={t('requirements.gateActionPleaseWait') || 'Vui lòng không đóng trang.'}
+      />
       <ConfirmDialog
         isOpen={Boolean(ackDialog)}
         onClose={() => setAckDialog(null)}

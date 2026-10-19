@@ -90,6 +90,7 @@ async function runAnalysisEnginePipeline(opts = {}) {
     g4Understanding: opts.g4Understanding || null,
     evidence: opts.evidence || opts.g4Understanding?.evidence || null,
     snapshot: opts.snapshot || null,
+    contextPackage: opts.contextPackage || null,
   });
   proposal = derived.proposal;
   const resultsById = { ...(derived.resultsById || {}) };

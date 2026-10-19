@@ -109,8 +109,11 @@ export default function CreateProjectWizardPage() {
     const projectId = String(result?.projectId || result?._id || '').trim();
     const analysisMode = String(result?.analysisMode || '').trim().toLowerCase();
 
-    // Navigate first so overlay stays until this page unmounts (no wizard flash).
-    if (projectId && analysisMode === 'ai') {
+    // Người tạo không nằm trong danh sách Thêm — không mở giao diện dự án.
+    if (projectId && result?.creatorHasProjectRole === false) {
+      toast.error(t('nav.projectRoleRequired'));
+      navigate(projectsPickerPath, { replace: true });
+    } else if (projectId && analysisMode === 'ai') {
       goAiHitl({ projectId, boardId, packId });
     } else if (projectId) {
       goPhase1Overview({ projectId, boardId, packId });

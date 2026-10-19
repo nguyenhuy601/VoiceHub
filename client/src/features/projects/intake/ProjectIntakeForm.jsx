@@ -40,6 +40,7 @@ export default function ProjectIntakeForm({
         addGateRole={wizard.addGateRole}
         removeGateRole={wizard.removeGateRole}
         setGateAssignee={wizard.setGateAssignee}
+        setGateReview={wizard.setGateReview}
         fieldErrors={fieldErrors}
         showErrors={showErrors}
         sectionMeta={sectionMeta}

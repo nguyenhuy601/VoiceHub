@@ -365,12 +365,20 @@ async function approveRequirementPack({
   // Prefer HITL context project (FE caps) then pack link
   const linkedPid =
     resolveLinkedProjectId(contextProjectId) || resolveLinkedProjectId(pack.projectId);
-  await assertRequirementPermission({
+  const { enforceGateFinalApprover } = require('./gateReviewApproval.service');
+  const gateFinal = await enforceGateFinalApprover({
     userId,
-    organizationId,
-    permission: 'requirement:approve',
     projectId: linkedPid,
+    gate: 'what',
   });
+  if (!gateFinal.enforced) {
+    await assertRequirementPermission({
+      userId,
+      organizationId,
+      permission: 'requirement:approve',
+      projectId: linkedPid,
+    });
+  }
   // Bind unbound pack to HITL project when PO approves from project workspace
   if (!pack.projectId && linkedPid && mongoose.isValidObjectId(linkedPid)) {
     pack.projectId = linkedPid;
@@ -655,12 +663,20 @@ async function rejectRequirementPack({
   }
   const linkedPid =
     resolveLinkedProjectId(contextProjectId) || resolveLinkedProjectId(pack.projectId);
-  await assertRequirementPermission({
+  const { enforceGateFinalApprover } = require('./gateReviewApproval.service');
+  const gateFinal = await enforceGateFinalApprover({
     userId,
-    organizationId,
-    permission: 'requirement:approve',
     projectId: linkedPid,
+    gate: 'what',
   });
+  if (!gateFinal.enforced) {
+    await assertRequirementPermission({
+      userId,
+      organizationId,
+      permission: 'requirement:approve',
+      projectId: linkedPid,
+    });
+  }
 
   {
     const {

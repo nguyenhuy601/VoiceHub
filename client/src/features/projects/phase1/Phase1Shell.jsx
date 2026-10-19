@@ -48,6 +48,8 @@ import SpaceProjectChatModule from '../../spaceModules/SpaceProjectChatModule';
 import ProjectHubPage from '../../../pages/Projects/ProjectHubPage';
 import AiHitlWorkspacePage from './aiHitl/AiHitlWorkspacePage';
 import { resolvePostHitlProjectPath } from './aiHitl/aiHitlNavState';
+import { shouldDenyProjectEntry } from '../projectRoleEntry';
+import ProjectRoleDeniedRedirect from '../ProjectRoleDeniedRedirect';
 
 /**
  * Nested Phase 1 body for RA + Planning modules (and collab).
@@ -143,6 +145,16 @@ export default function Phase1Shell({
         <span>{t('common.loading')}</span>
       </div>
     );
+  }
+
+  if (
+    shouldDenyProjectEntry({
+      projectRow,
+      isError: projectError,
+      error: projectQueryError,
+    })
+  ) {
+    return <ProjectRoleDeniedRedirect projectId={projectId} orgId={orgId} />;
   }
 
   if (projectError && !projectRow) {

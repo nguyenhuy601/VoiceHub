@@ -114,6 +114,8 @@ async function createProject(req, res) {
       scrumMasterId: body.scrumMasterId,
       techLeadId: body.techLeadId,
       analysisMode: body.analysisMode,
+      gateReviewPolicy: body.gateReviewPolicy,
+      gateRoleKeys: body.gateRoleKeys,
     });
     return res.status(201).json({ success: true, data });
   } catch (err) {

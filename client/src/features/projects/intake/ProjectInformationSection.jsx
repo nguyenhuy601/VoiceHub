@@ -1,7 +1,12 @@
 import { PROJECT_CATEGORIES, PROJECT_PRIORITIES } from '../../adminTasks/createProjectSeed';
 import { buildProjectCodeBase } from '../../../utils/projectCodeGenerate';
+import { INTAKE_TEXT_LIMITS } from './projectIntakeValidation';
 import { intakeUi } from './intakeUi';
 import IntakeSection from './IntakeSection';
+
+function overLimit(value, max) {
+  return String(value || '').length > max;
+}
 
 export default function ProjectInformationSection({
   form,
@@ -12,6 +17,10 @@ export default function ProjectInformationSection({
   t,
 }) {
   const category = form.category === 'customer' ? 'customer' : 'internal';
+  const titleOver = overLimit(form.title, INTAKE_TEXT_LIMITS.title);
+  const codeOver = overLimit(form.projectCode, INTAKE_TEXT_LIMITS.projectCode);
+  const descOver = overLimit(form.description, INTAKE_TEXT_LIMITS.description);
+  const customerOver = overLimit(form.customerName, INTAKE_TEXT_LIMITS.customerName);
   const sectionStatus =
     sectionMeta?.hint === 'error' ? 'error' : sectionMeta?.complete ? 'complete' : 'pending';
 
@@ -30,20 +39,25 @@ export default function ProjectInformationSection({
             <span className="ml-0.5 text-destructive">*</span>
           </span>
           <input
-            className={`${intakeUi.input} ${showErrors && fieldErrors.title ? intakeUi.inputError : ''}`}
+            className={`${intakeUi.input} ${
+              titleOver || (showErrors && fieldErrors.title) ? intakeUi.inputError : ''
+            }`}
             value={form.title}
             onChange={(e) => patchForm({ title: e.target.value })}
             placeholder={t('adminTasks.createFieldTitle')}
+            aria-invalid={titleOver || undefined}
           />
-          {showErrors && fieldErrors.title ? (
+          {titleOver || (showErrors && fieldErrors.title) ? (
             <p className={intakeUi.fieldError}>{fieldErrors.title}</p>
           ) : null}
         </label>
 
-        <label className="block">
+        <label className="block" id="intake-field-projectCode">
           <span className={intakeUi.fieldLabel}>{t('adminTasks.createFieldCode')}</span>
           <input
-            className={intakeUi.input}
+            className={`${intakeUi.input} ${
+              codeOver || (showErrors && fieldErrors.projectCode) ? intakeUi.inputError : ''
+            }`}
             value={form.projectCode}
             onChange={(e) => patchForm({ projectCode: e.target.value })}
             placeholder={
@@ -51,7 +65,11 @@ export default function ProjectInformationSection({
                 ? buildProjectCodeBase({ title: form.title })
                 : t('adminTasks.createFieldCode')
             }
+            aria-invalid={codeOver || undefined}
           />
+          {codeOver || (showErrors && fieldErrors.projectCode) ? (
+            <p className={intakeUi.fieldError}>{fieldErrors.projectCode}</p>
+          ) : null}
         </label>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -97,25 +115,32 @@ export default function ProjectInformationSection({
             </span>
             <input
               className={`${intakeUi.input} ${
-                showErrors && fieldErrors.customerName ? intakeUi.inputError : ''
+                customerOver || (showErrors && fieldErrors.customerName) ? intakeUi.inputError : ''
               }`}
               value={form.customerName || ''}
               onChange={(e) => patchForm({ customerName: e.target.value })}
+              aria-invalid={customerOver || undefined}
             />
-            {showErrors && fieldErrors.customerName ? (
+            {customerOver || (showErrors && fieldErrors.customerName) ? (
               <p className={intakeUi.fieldError}>{fieldErrors.customerName}</p>
             ) : null}
           </label>
         ) : null}
 
-        <label className="block">
+        <label className="block" id="intake-field-description">
           <span className={intakeUi.fieldLabel}>{t('adminTasks.createFieldDesc')}</span>
           <textarea
-            className={intakeUi.textarea}
+            className={`${intakeUi.textarea} ${
+              descOver || (showErrors && fieldErrors.description) ? intakeUi.inputError : ''
+            }`}
             rows={3}
             value={form.description}
             onChange={(e) => patchForm({ description: e.target.value })}
+            aria-invalid={descOver || undefined}
           />
+          {descOver || (showErrors && fieldErrors.description) ? (
+            <p className={intakeUi.fieldError}>{fieldErrors.description}</p>
+          ) : null}
         </label>
 
         <div id="intake-field-dateRange">

@@ -184,6 +184,13 @@ export function buildCreateBoardPayload(form, ctx = {}) {
     payload.analysisMode = analysisMode;
   }
 
+  if (form.gateReviewPolicy || form.gateReview) {
+    payload.gateReviewPolicy = form.gateReviewPolicy || form.gateReview;
+  }
+  if (form.gateRoleKeys) {
+    payload.gateRoleKeys = form.gateRoleKeys;
+  }
+
   return payload;
 }
 

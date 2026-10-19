@@ -223,7 +223,13 @@ async function runOneEngineNode(engineId, state, env = process.env) {
   ) {
     const rows = packRows;
     if (rows.length) {
-      const sem = await runSemanticTask({ taskId: engineId, rows, pack, env });
+      const sem = await runSemanticTask({
+        taskId: engineId,
+        rows,
+        pack,
+        env,
+        contextPackage: state.contextPackage || null,
+      });
       semanticStatus = sem.status;
       if (sem.status === TASK_POLICIES.RUN && sem.items?.length && entry?.writesSection) {
         proposal = applyProposalFragment(
@@ -280,6 +286,7 @@ async function runDeriveRawSectionsNode(state) {
     evidence: state.g4Understanding?.evidence || null,
     snapshot: state.snapshot || null,
     locale: state.g4Opts?.locale || pack?.aiAnalysis?.deriveLocale || null,
+    contextPackage: state.contextPackage || null,
   });
   const wallMs = endDerive();
   proposal = derived.proposal;

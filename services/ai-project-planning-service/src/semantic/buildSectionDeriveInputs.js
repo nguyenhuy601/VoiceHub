@@ -71,6 +71,7 @@ function withSemantic(base, pack, opts) {
     brqFull: sem.brqFull,
     requirementUnderstanding: sem.requirementUnderstanding,
     evidenceRefs: sem.evidenceRefs,
+    retrievedContext: sem.retrievedContext,
     // Keep frSlim alias as frFull for older prompt/quality paths that still read frSlim
     frSlim: sem.frFull,
     brqSlim: sem.brqFull,
@@ -258,6 +259,7 @@ function buildDeriveInputForSection(engineId, pack, opts = {}) {
       languageInstruction: sem.languageInstruction,
       deriveInstruction: [base.deriveInstruction, sem.languageInstruction].filter(Boolean).join(' '),
       requirementUnderstanding: sem.requirementUnderstanding || undefined,
+      retrievedContext: sem.retrievedContext,
     };
   }
   if (id === 'br') return buildBrDeriveInput(pack, opts);

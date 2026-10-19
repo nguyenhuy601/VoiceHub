@@ -24,12 +24,16 @@ async function runSynthesis(opts = {}) {
     toolFacts: opts.toolFacts || {},
     openAmbiguities: (opts.ambiguities || []).slice(0, 20),
   };
+  const retrieved = String(opts.contextText || '').trim();
   const prompt = [
     'Synthesize Requirement Understanding summary as JSON only.',
     'Schema: { "understanding", "capabilities":[], "openQuestions":[], "gaps":[], "crossModule":[] }',
-    'Do not invent effort/schedule. Use only provided summaries.',
+    'Do not invent effort/schedule. Use only provided summaries and retrieved snapshot context.',
+    retrieved ? `Retrieved snapshot context (G7):\n${retrieved}` : '',
     JSON.stringify(payload),
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const t0 = Date.now();
   const result = await generate({

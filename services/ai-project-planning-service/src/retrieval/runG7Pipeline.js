@@ -73,18 +73,12 @@ async function dispatchRetrieve({
   }
   if (mode === 'hybrid') {
     const { docs: kwDocs } = retrieveKeyword({ query, corpus, intent });
-    try {
-      const qd = await retrieveQdrant({ query, snapshotId, env });
-      return {
-        docs: mergeDocsBySource(kwDocs, qd.docs),
-        modeUsed: 'hybrid',
-        isStub: false,
-      };
-    } catch (error) {
-      // Hybrid soft-degrades to keyword when Qdrant unavailable
-      console.warn('[g7_hybrid] qdrant failed, keyword only', error?.message || error);
-      return { docs: kwDocs, modeUsed: 'hybrid', isStub: false };
-    }
+    const qd = await retrieveQdrant({ query, snapshotId, env });
+    return {
+      docs: mergeDocsBySource(kwDocs, qd.docs),
+      modeUsed: 'hybrid',
+      isStub: false,
+    };
   }
   // legacy hybrid (pre-qdrant) path when explicitly requested without snapshot — keep retrieveHybrid
   if (mode === 'hybrid_legacy') {

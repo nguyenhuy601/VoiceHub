@@ -9,6 +9,7 @@ import ProjectIntakeForm from './intake/ProjectIntakeForm';
 import {
   buildIntakeSectionMeta,
   intakeErrorCount,
+  intakeLiveLengthErrorCount,
 } from './intake/projectIntakeValidation';
 import IntakeSubmitOverlay from './intake/IntakeSubmitOverlay';
 
@@ -40,7 +41,9 @@ export default function CreateProjectWizard({
     () => buildIntakeSectionMeta(wizard.form, fieldErrors, showErrors),
     [wizard.form, fieldErrors, showErrors]
   );
-  const issueCount = showErrors ? intakeErrorCount(fieldErrors) : 0;
+  const issueCount = showErrors
+    ? intakeErrorCount(fieldErrors)
+    : intakeLiveLengthErrorCount(wizard.form);
   const ready =
     issueCount === 0 &&
     sectionMeta.requirements.complete &&

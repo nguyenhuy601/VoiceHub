@@ -5,6 +5,7 @@ import {
   intakeSlotFilled,
   normalizeGateSlots,
 } from '../wizard/projectWizardIntakeRoles.js';
+import { gateReviewPlanErrors } from '../wizard/gateReviewPlan.js';
 
 /** Mirror validateCreateProjectIdentity — tránh kéo cả createProjectSeed vào node:test. */
 function resolveIdentityValidationCode(form) {
@@ -25,6 +26,24 @@ function isProjectDateRangeInvalid(startYmd, endYmd) {
   return start > end;
 }
 
+/** Khớp maxlength schema Project — hiện trên ô, không đợi xác nhận. */
+export const INTAKE_TEXT_LIMITS = Object.freeze({
+  title: 180,
+  description: 2000,
+  projectCode: 64,
+  customerName: 180,
+});
+
+function textLength(value) {
+  return String(value || '').length;
+}
+
+function tooLongMessage(t, max) {
+  const rendered = t('adminTasks.intakeFieldTooLong', { max });
+  if (rendered && rendered !== 'adminTasks.intakeFieldTooLong') return rendered;
+  return `Vượt quá ${max} ký tự.`;
+}
+
 /** @typedef {'requirements'|'information'|'team'|'analysis'} IntakeSectionId */
 
 /**
@@ -36,6 +55,19 @@ export function buildIntakeFieldErrors(form, t) {
   const errors = {};
   const tr = (key, fallback) => t(key) || fallback;
 
+  if (textLength(form?.title) > INTAKE_TEXT_LIMITS.title) {
+    errors.title = tooLongMessage(t, INTAKE_TEXT_LIMITS.title);
+  }
+  if (textLength(form?.description) > INTAKE_TEXT_LIMITS.description) {
+    errors.description = tooLongMessage(t, INTAKE_TEXT_LIMITS.description);
+  }
+  if (textLength(form?.projectCode) > INTAKE_TEXT_LIMITS.projectCode) {
+    errors.projectCode = tooLongMessage(t, INTAKE_TEXT_LIMITS.projectCode);
+  }
+  if (textLength(form?.customerName) > INTAKE_TEXT_LIMITS.customerName) {
+    errors.customerName = tooLongMessage(t, INTAKE_TEXT_LIMITS.customerName);
+  }
+
   if (!form?.intakeFiles?.requirement) {
     errors.requirement = tr(
       'adminTasks.wizardNeedRequirementFile',
@@ -44,10 +76,10 @@ export function buildIntakeFieldErrors(form, t) {
   }
 
   const identityErr = resolveIdentityValidationCode(form);
-  if (identityErr === 'title') {
+  if (identityErr === 'title' && !errors.title) {
     errors.title = tr('adminTasks.createNeedTitle', 'Nhập tên dự án.');
   }
-  if (identityErr === 'customer') {
+  if (identityErr === 'customer' && !errors.customerName) {
     errors.customerName = tr('adminTasks.wizardNeedCustomer', 'Nhập tên khách hàng.');
   }
 
@@ -82,6 +114,24 @@ export function buildIntakeFieldErrors(form, t) {
       'Chọn ít nhất một thành viên cho lập kế hoạch dự án.'
     );
   }
+  const planMessage = {
+    mode: ['adminTasks.intakeNeedReviewMode', 'Chọn duyệt tuần tự hoặc duyệt song song.'],
+    parallel: ['adminTasks.intakeNeedParallelRoles', 'Chọn vai trò duyệt song song.'],
+    synthesis: ['adminTasks.intakeNeedSynthesisRole', 'Chọn vai trò tổng hợp.'],
+    final: ['adminTasks.intakeNeedFinalRole', 'Chọn vai trò Tổng duyệt.'],
+    distinct: ['adminTasks.intakeReviewRolesDistinct', 'Vai trò tổng hợp và Tổng duyệt phải khác nhau.'],
+    coverage: ['adminTasks.intakeReviewRoleCoverage', 'Mỗi vai trò trong cổng phải được giao một việc duyệt.'],
+    order: ['adminTasks.intakeNeedReviewOrder', 'Sắp xếp thứ tự duyệt.'],
+  };
+  for (const processKey of ['what', 'how']) {
+    const problems = gateReviewPlanErrors(
+      form?.gateReview?.[processKey],
+      gateRoleKeys(gates, processKey)
+    );
+    if (!problems.length) continue;
+    const [messageKey, fallback] = planMessage[problems[0]] || planMessage.mode;
+    errors[`${processKey}:review`] = tr(messageKey, fallback);
+  }
 
   const mode = String(form?.analysisMode || '').toLowerCase();
   if (mode !== 'manual' && mode !== 'ai') {
@@ -93,6 +143,16 @@ export function buildIntakeFieldErrors(form, t) {
 
 export function intakeErrorCount(errors) {
   return Object.keys(errors || {}).length;
+}
+
+/** Số ô đang vượt maxlength — hiện trước khi bấm xác nhận. */
+export function intakeLiveLengthErrorCount(form) {
+  let count = 0;
+  if (textLength(form?.title) > INTAKE_TEXT_LIMITS.title) count += 1;
+  if (textLength(form?.description) > INTAKE_TEXT_LIMITS.description) count += 1;
+  if (textLength(form?.projectCode) > INTAKE_TEXT_LIMITS.projectCode) count += 1;
+  if (textLength(form?.customerName) > INTAKE_TEXT_LIMITS.customerName) count += 1;
+  return count;
 }
 
 /**
@@ -107,16 +167,22 @@ export function buildIntakeSectionMeta(form, errors, showErrors) {
   const analysisRoles = gateRoleKeys(gates, 'what').length;
   const planningRoles = gateRoleKeys(gates, 'how').length;
   const analysisComplete =
-    analysisAssigned > 0 && analysisAssigned === analysisRoles;
+    analysisAssigned > 0 && analysisAssigned === analysisRoles && !errors['what:review'];
   const planningComplete =
-    planningAssigned > 0 && planningAssigned === planningRoles;
+    planningAssigned > 0 && planningAssigned === planningRoles && !errors['how:review'];
   const mode = String(form?.analysisMode || '').toLowerCase();
   const hasMode = mode === 'manual' || mode === 'ai';
 
   const reqOk = Boolean(form?.intakeFiles?.requirement);
   const identityErr = resolveIdentityValidationCode(form);
+  const textTooLong =
+    textLength(form?.title) > INTAKE_TEXT_LIMITS.title ||
+    textLength(form?.description) > INTAKE_TEXT_LIMITS.description ||
+    textLength(form?.projectCode) > INTAKE_TEXT_LIMITS.projectCode ||
+    textLength(form?.customerName) > INTAKE_TEXT_LIMITS.customerName;
   const infoOk =
     !identityErr &&
+    !textTooLong &&
     !isProjectDateRangeInvalid(form?.startDate, form?.dueDate);
 
   return {
@@ -126,14 +192,20 @@ export function buildIntakeSectionMeta(form, errors, showErrors) {
     },
     information: {
       complete: infoOk,
-      hint: infoOk ? 'complete' : showErrors && (errors.title || errors.customerName || errors.dateRange) ? 'error' : 'pending',
+      hint: infoOk
+        ? 'complete'
+        : textTooLong ||
+            (showErrors &&
+              (errors.title || errors.description || errors.projectCode || errors.customerName || errors.dateRange))
+          ? 'error'
+          : 'pending',
     },
     analysisTeam: {
       complete: analysisComplete,
       assigned: analysisAssigned,
       hint: analysisComplete
         ? 'complete'
-        : showErrors && (errors.what || Object.keys(errors).some((k) => k.startsWith('what:')))
+        : showErrors && (errors.what || errors['what:review'] || Object.keys(errors).some((k) => k.startsWith('what:')))
           ? 'error'
           : 'partial',
     },
@@ -142,7 +214,7 @@ export function buildIntakeSectionMeta(form, errors, showErrors) {
       assigned: planningAssigned,
       hint: planningComplete
         ? 'complete'
-        : showErrors && (errors.how || Object.keys(errors).some((k) => k.startsWith('how:')))
+        : showErrors && (errors.how || errors['how:review'] || Object.keys(errors).some((k) => k.startsWith('how:')))
           ? 'error'
           : 'partial',
     },
@@ -163,6 +235,8 @@ export function firstIntakeFieldAnchor(errors) {
   const order = [
     'requirement',
     'title',
+    'description',
+    'projectCode',
     'customerName',
     'dateRange',
     'what',

@@ -323,23 +323,26 @@ async function confirmAiAnalysisJob({
     action || (lane === REVIEW_LANE.PO_FINAL ? 'po_approve' : '');
 
   if (!action && lane === REVIEW_LANE.PM) {
-    // No sequential action: full confirm (compat). Prefer planning:po_review, else run-ai-planning.
-    try {
-      await assertPlanningGate2Permission({
-        userId,
-        projectId,
-        permission: 'planning:po_review',
-      });
-    } catch (poErr) {
-      if (poErr?.statusCode === 403) {
-        await assertRequirementPermission({
+    const { enforceGateFinalApprover } = require('./gateReviewApproval.service');
+    const gateFinal = await enforceGateFinalApprover({ userId, projectId, gate: 'how' });
+    if (!gateFinal.enforced) {
+      try {
+        await assertPlanningGate2Permission({
           userId,
-          organizationId,
-          permission: 'requirement:run-ai-planning',
           projectId,
+          permission: 'planning:po_review',
         });
-      } else {
-        throw poErr;
+      } catch (poErr) {
+        if (poErr?.statusCode === 403) {
+          await assertRequirementPermission({
+            userId,
+            organizationId,
+            permission: 'requirement:run-ai-planning',
+            projectId,
+          });
+        } else {
+          throw poErr;
+        }
       }
     }
     container = markPhaseHowConfirmed(container);
@@ -401,11 +404,15 @@ async function confirmAiAnalysisJob({
   assertActorMayActOnLane(effectiveAction, lane);
 
   if (effectiveAction === 'po_reject') {
-    await assertPlanningGate2Permission({
-      userId,
-      projectId,
-      permission: 'planning:po_review',
-    });
+    const { enforceGateFinalApprover } = require('./gateReviewApproval.service');
+    const gateFinal = await enforceGateFinalApprover({ userId, projectId, gate: 'how' });
+    if (!gateFinal.enforced) {
+      await assertPlanningGate2Permission({
+        userId,
+        projectId,
+        permission: 'planning:po_review',
+      });
+    }
     const reason = String(note || '').trim().slice(0, 2000);
     if (!reason) {
       const err = new Error('Cần lý do khi từ chối Gate 2');
@@ -494,12 +501,18 @@ async function confirmAiAnalysisJob({
     };
   }
 
-  // po_approve
-  await assertPlanningGate2Permission({
-    userId,
-    projectId,
-    permission: 'planning:po_review',
-  });
+  // po_approve — Tổng duyệt của cổng HOW khi dự án có gateReviewPolicy
+  {
+    const { enforceGateFinalApprover } = require('./gateReviewApproval.service');
+    const gateFinal = await enforceGateFinalApprover({ userId, projectId, gate: 'how' });
+    if (!gateFinal.enforced) {
+      await assertPlanningGate2Permission({
+        userId,
+        projectId,
+        permission: 'planning:po_review',
+      });
+    }
+  }
   const prior = pack.aiAnalysis?.gate2 || container.gate2 || {};
   assertGateStampSoD({
     actorUserId: userId,
@@ -657,14 +670,24 @@ async function applyCollaborativeGate2({
     let which = String(track || '').trim().toLowerCase();
     if (!which && act === 'pm_submit') which = 'pm';
     if (!which && act === 'tech_submit') which = 'tech';
-    const perm = TRACK_PERMISSION[which];
-    if (!perm) {
-      const err = new Error('Thiếu track review (po, tech, pm).');
-      err.statusCode = 400;
-      err.errorCode = 'GATE2_TRACK_INVALID';
-      throw err;
+    const reviewPlan = container?.gate2?.reviewPlan;
+    if (reviewPlan?.finalRoleKey) {
+      await assertUserHoldsProjectRole({ userId, projectId, roleKey: which });
+    } else {
+      const perm = TRACK_PERMISSION[which];
+      if (!perm) {
+        const err = new Error('Thiếu track review (po, tech, pm).');
+        err.statusCode = 400;
+        err.errorCode = 'GATE2_TRACK_INVALID';
+        throw err;
+      }
+      await assertPlanningGate2Permission({ userId, projectId, permission: perm });
     }
-    await assertPlanningGate2Permission({ userId, projectId, permission: perm });
+  } else if (container?.gate2?.reviewPlan?.finalRoleKey && (act === 'pm_confirm_plan' || act === 'propose_change' || act === 'keep_original' || act === 'escalate')) {
+    const synthesis = String(container.gate2.reviewPlan.synthesisRoleKey || '').trim().toLowerCase();
+    if (synthesis) {
+      await assertUserHoldsProjectRole({ userId, projectId, roleKey: synthesis });
+    }
   } else {
     const perm = COLLAB_PERMISSION[act];
     if (perm) {
@@ -689,13 +712,24 @@ async function applyCollaborativeGate2({
   pack.markModified('aiAnalysis');
   await pack.save();
 
-  if (applied.notify && projectId) {
+  if (applied.notify && projectId && applied.notify.permission) {
     void notifyAiHitlGateReviewers({
       projectId: String(projectId),
       organizationId,
       actorUserId: userId,
       packId: String(packId),
       nextPermission: applied.notify.permission,
+      title: applied.notify.title,
+      content: applied.notify.content,
+      kind: applied.notify.kind,
+    });
+  } else if (applied.notify?.roleKey && projectId) {
+    void notifyProjectRole({
+      projectId: String(projectId),
+      organizationId,
+      actorUserId: userId,
+      packId: String(packId),
+      roleKey: applied.notify.roleKey,
       title: applied.notify.title,
       content: applied.notify.content,
       kind: applied.notify.kind,
@@ -714,6 +748,72 @@ async function applyCollaborativeGate2({
 /**
  * Gate2 HITL — planning:pm_review / planning:tech_review / planning:po_review.
  */
+async function assertUserHoldsProjectRole({ userId, projectId, roleKey }) {
+  const key = String(roleKey || '').trim().toLowerCase();
+  const { resolveUserProjectPermissions } = require('./projectAccess.service');
+  const resolved = await resolveUserProjectPermissions({ userId, projectId });
+  if (resolved.isOrgAdmin) return resolved;
+  const keys = (Array.isArray(resolved.roles) ? resolved.roles : [])
+    .map((role) => String(role?.key || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (!key || !keys.includes(key)) {
+    const err = new Error('Bạn không giữ vai trò được chọn để duyệt bước này.');
+    err.statusCode = 403;
+    err.errorCode = 'GATE2_ROLE_REQUIRED';
+    err.details = { roleKey: key };
+    throw err;
+  }
+  return resolved;
+}
+
+async function notifyProjectRole({
+  projectId,
+  organizationId,
+  actorUserId,
+  packId,
+  roleKey,
+  title,
+  content,
+  kind,
+}) {
+  try {
+    const ProjectMembership = require('../models/ProjectMembership');
+    const ProjectRole = require('../models/ProjectRole');
+    const members = await ProjectMembership.find({ projectId }).select('userId projectRoleId').lean();
+    const roleIds = members.map((row) => row.projectRoleId).filter(Boolean);
+    const roles = roleIds.length
+      ? await ProjectRole.find({ _id: { $in: roleIds } }).select('_id key').lean()
+      : [];
+    const matchIds = new Set(
+      roles.filter((row) => String(row.key || '').toLowerCase() === roleKey).map((row) => String(row._id))
+    );
+    const userIds = [...new Set(
+      members
+        .filter((row) => matchIds.has(String(row.projectRoleId)))
+        .map((row) => String(row.userId || ''))
+        .filter(Boolean)
+    )];
+    if (!userIds.length) return;
+    const { notifySystemKind, projectHubActionUrl } = require('../clients/notification.client');
+    const actionUrl = projectHubActionUrl({
+      projectId,
+      organizationId,
+      pathSuffix: `ai-hitl?packId=${encodeURIComponent(String(packId || ''))}&tab=review`,
+    });
+    await notifySystemKind({
+      userIds,
+      kind: kind || 'ai_hitl_gate2_role',
+      title: title || 'Có mục chờ duyệt',
+      content: content || 'Đến lượt vai trò của bạn duyệt Gate 2.',
+      data: { projectId: String(projectId), packId: String(packId || ''), roleKey },
+      actionUrl,
+      excludeUserId: actorUserId,
+    });
+  } catch {
+    /* non-blocking */
+  }
+}
+
 async function assertPlanningGate2Permission({ userId, projectId, permission }) {
   const pid = String(projectId || '').trim();
   const perm = String(permission || '').trim();
@@ -1137,15 +1237,22 @@ async function applyRemotePhaseRunResult({
         kind: 'ai_hitl_gate1_ba',
       });
     } else if (job === 'phase_how') {
+      let howPlan = null;
       try {
         const { ensureAiAnalysisContainer } = require('../utils/aiAnalysis/aiAnalysisContainer');
         const { stampGate2ReviewLane, REVIEW_LANE: GATE2_LANE } = require('../utils/aiAnalysis/gate2ReviewLane');
         const { emptyTracks } = require('../utils/aiAnalysis/gate2ChangeProposals');
+        const { readHowReviewPlan, tracksFromHowPlan } = require('../utils/aiAnalysis/gate2RolePlan');
         const { projectHasPlanningTechReviewer } = require('../utils/phase1GatePolicy');
+        const Project = require('../models/Project');
+        const project = await Project.findById(pack.projectId).select('gateReviewPolicy').lean();
+        howPlan = readHowReviewPlan(project);
         const techRequired = await projectHasPlanningTechReviewer(pack.projectId);
         let shell = ensureAiAnalysisContainer(pack.aiAnalysis);
-        shell = stampGate2ReviewLane(shell, GATE2_LANE.PARALLEL, {
-          tracks: emptyTracks({ techRequired }),
+        const initialLane = howPlan?.mode === 'single' ? GATE2_LANE.PO_FINAL : GATE2_LANE.PARALLEL;
+        shell = stampGate2ReviewLane(shell, initialLane, {
+          tracks: howPlan ? tracksFromHowPlan(howPlan) : emptyTracks({ techRequired }),
+          reviewPlan: howPlan || undefined,
           changeProposals: [],
         });
         pack.aiAnalysis = shell;
@@ -1157,22 +1264,42 @@ async function applyRemotePhaseRunResult({
           message: laneErr.message,
         });
       }
-      const parallelNotice = [
-        ['planning:po_review', 'PO review scope, priority, business value'],
-        ['planning:tech_review', 'Tech Lead review architecture, WBS, effort, risk'],
-        ['planning:pm_review', 'PM review timeline, capacity, budget, feasibility'],
-      ];
-      for (const [nextPermission, focus] of parallelNotice) {
-        void notifyAiHitlGateReviewers({
-          projectId: String(pack.projectId),
-          organizationId: pack.organizationId,
-          actorUserId: null,
-          packId: String(packId),
-          nextPermission,
-          title: 'Gate 2 — kế hoạch AI sẵn sàng, review song song',
-          content: `HOW đã xong. ${focus}.`,
-          kind: 'ai_hitl_gate2',
-        });
+      if (howPlan?.finalRoleKey) {
+        const firstRoles = howPlan.mode === 'single'
+          ? [howPlan.finalRoleKey]
+          : howPlan.mode === 'sequential'
+            ? [howPlan.order.find((key) => key !== howPlan.finalRoleKey)].filter(Boolean)
+            : howPlan.parallelRoleKeys;
+        for (const roleKey of firstRoles) {
+          void notifyProjectRole({
+            projectId: String(pack.projectId),
+            organizationId: pack.organizationId,
+            actorUserId: null,
+            packId: String(packId),
+            roleKey,
+            title: 'Gate 2 — kế hoạch AI sẵn sàng',
+            content: 'HOW đã xong. Vai trò của bạn review toàn bộ kế hoạch.',
+            kind: 'ai_hitl_gate2',
+          });
+        }
+      } else {
+        const parallelNotice = [
+          ['planning:po_review', 'PO review toàn bộ kế hoạch'],
+          ['planning:tech_review', 'Tech Lead review toàn bộ kế hoạch'],
+          ['planning:pm_review', 'PM review toàn bộ kế hoạch'],
+        ];
+        for (const [nextPermission, focus] of parallelNotice) {
+          void notifyAiHitlGateReviewers({
+            projectId: String(pack.projectId),
+            organizationId: pack.organizationId,
+            actorUserId: null,
+            packId: String(packId),
+            nextPermission,
+            title: 'Gate 2 — kế hoạch AI sẵn sàng, review song song',
+            content: `HOW đã xong. ${focus}.`,
+            kind: 'ai_hitl_gate2',
+          });
+        }
       }
     }
   }
@@ -1434,6 +1561,18 @@ async function startPhaseAiPlanningRun({
     assertPackReadyForAiAnalysis(pack.toObject());
   }
 
+  if (phaseJob === 'phase_how') {
+    const { overlayConfirmedWhatForHow } = require('../utils/aiAnalysis/overlayConfirmedWhatForHow');
+    const overlaid = overlayConfirmedWhatForHow(pack);
+    if (overlaid.changed) {
+      await pack.save();
+      console.info('[phase_how] overlay confirmed WHAT', {
+        packId: String(packId),
+        counts: overlaid.counts,
+      });
+    }
+  }
+
   let snapshotId = pack.aiAnalysisActiveSnapshotId
     ? String(pack.aiAnalysisActiveSnapshotId)
     : null;
@@ -1445,6 +1584,7 @@ async function startPhaseAiPlanningRun({
       organizationId,
       packId,
       pack,
+      refreshOnFrDrift: phaseJob === 'phase_how',
     });
     packForPhase = ensured.pack || pack;
     snapshotDoc = ensured.snapshotDoc;

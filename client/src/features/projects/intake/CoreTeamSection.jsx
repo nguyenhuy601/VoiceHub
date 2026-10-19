@@ -15,6 +15,7 @@ import { useRoleSuggestColumn } from '../wizard/useRoleSuggestColumn';
 import { wizardUi } from '../wizard/projectWizardUi';
 import { intakeUi } from './intakeUi';
 import IntakeSection from './IntakeSection';
+import GateReviewModeFields from './GateReviewModeFields';
 
 const FIT_AVAILABLE = true;
 const HIDDEN_ROLE_KEYS = new Set(['observer', 'watcher', 'intern', 'reviewer']);
@@ -203,6 +204,8 @@ function GateGroup({
   onAddRole,
   onRemoveRole,
   onPick,
+  plan,
+  onChangePlan,
   t,
 }) {
   const [openRole, setOpenRole] = useState('');
@@ -250,6 +253,16 @@ function GateGroup({
         ) : null}
       </div>
       {showErrors && processError ? <p className={intakeUi.fieldError}>{processError}</p> : null}
+      <GateReviewModeFields
+        processKey={processKey}
+        roleKeys={selectedKeys}
+        labelByKey={labelByKey}
+        plan={plan}
+        onChange={onChangePlan}
+        fieldError={fieldErrors[`${processKey}:review`]}
+        showErrors={showErrors}
+        t={t}
+      />
       <div className="flex flex-col gap-2 sm:flex-row">
         <label className="sr-only" htmlFor={`intake-add-role-${processKey}`}>
           {t('adminTasks.intakePickRole')}
@@ -291,6 +304,7 @@ export default function CoreTeamSection({
   addGateRole,
   removeGateRole,
   setGateAssignee,
+  setGateReview,
   fieldErrors,
   showErrors,
   sectionMeta,
@@ -368,6 +382,8 @@ export default function CoreTeamSection({
         onAddRole={addGateRole}
         onRemoveRole={removeGateRole}
         onPick={setGateAssignee}
+        plan={form.gateReview?.what}
+        onChangePlan={setGateReview}
         t={t}
       />
       <GateGroup
@@ -388,6 +404,8 @@ export default function CoreTeamSection({
         onAddRole={addGateRole}
         onRemoveRole={removeGateRole}
         onPick={setGateAssignee}
+        plan={form.gateReview?.how}
+        onChangePlan={setGateReview}
         t={t}
       />
     </>

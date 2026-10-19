@@ -14,7 +14,9 @@ export const GATE2_REVIEW_LANE = Object.freeze({
 
 function trackStatus(tracks, key, { techRequired = true } = {}) {
   const status = String(tracks?.[key]?.status || '').trim().toLowerCase();
-  if (status === 'submitted' || status === 'skipped' || status === 'pending') return status;
+  if (status === 'submitted' || status === 'skipped' || status === 'pending' || status === 'waiting') {
+    return status;
+  }
   if (key === 'tech' && !techRequired) return 'skipped';
   return 'pending';
 }
@@ -41,6 +43,20 @@ export function resolveGate2ReviewLane(pack) {
 /**
  * @returns {'showParallel'|'showConsolidation'|'showChangeConfirm'|'showPoPanel'|'waitingParallel'|'waitingConsolidation'|'waitingPo'|'done'|'howPending'}
  */
+function holdsRole(viewerRoleKeys, roleKey) {
+  const key = String(roleKey || '').trim().toLowerCase();
+  return Boolean(key) && (viewerRoleKeys || []).includes(key);
+}
+
+function policyReviewerKeys(reviewPlan) {
+  if (!reviewPlan) return [];
+  if (reviewPlan.mode === 'parallel') return reviewPlan.parallelRoleKeys || [];
+  if (reviewPlan.mode === 'sequential') {
+    return (reviewPlan.order || []).filter((key) => key !== reviewPlan.finalRoleKey);
+  }
+  return [];
+}
+
 export function resolveGate2ReviewView({
   lane,
   howStatus = '',
@@ -51,6 +67,8 @@ export function resolveGate2ReviewView({
   proposals = [],
   techRequired = true,
   userId = '',
+  reviewPlan = null,
+  viewerRoleKeys = [],
 }) {
   const how = String(howStatus || '').trim().toLowerCase();
   if (how === 'pending' || how === 'running' || how === 'queued') return 'howPending';
@@ -62,6 +80,28 @@ export function resolveGate2ReviewView({
 
   const actor = String(userId || '').trim();
   const list = Array.isArray(proposals) ? proposals : [];
+
+  if (reviewPlan?.finalRoleKey) {
+    const roles = (viewerRoleKeys || []).map((key) => String(key || '').trim().toLowerCase());
+    if (effective === GATE2_REVIEW_LANE.PARALLEL || effective === 'pm' || effective === 'tech') {
+      const open = policyReviewerKeys(reviewPlan).some(
+        (key) => roles.includes(key) && trackStatus(tracks, key, { techRequired: true }) === 'pending'
+      );
+      return open ? 'showParallel' : 'waitingParallel';
+    }
+    if (
+      effective === GATE2_REVIEW_LANE.CONSOLIDATION ||
+      effective === GATE2_REVIEW_LANE.RECONFIRM
+    ) {
+      if (holdsRole(roles, reviewPlan.synthesisRoleKey)) return 'showConsolidation';
+      return 'waitingConsolidation';
+    }
+    if (effective === GATE2_REVIEW_LANE.PO_FINAL || effective === 'po') {
+      if (holdsRole(roles, reviewPlan.finalRoleKey)) return 'showPoPanel';
+      return 'waitingPo';
+    }
+    return 'waitingParallel';
+  }
 
   if (effective === GATE2_REVIEW_LANE.PARALLEL || effective === 'pm' || effective === 'tech') {
     const openPo = canReviewPo && trackStatus(tracks, 'po', { techRequired }) === 'pending';
@@ -102,7 +142,17 @@ export function openParallelTracks({
   canReviewPo = false,
   tracks = null,
   techRequired = true,
+  reviewPlan = null,
+  viewerRoleKeys = [],
 }) {
+  if (reviewPlan?.finalRoleKey) {
+    const roles = new Set(
+      (viewerRoleKeys || []).map((key) => String(key || '').trim().toLowerCase())
+    );
+    return policyReviewerKeys(reviewPlan).filter(
+      (key) => roles.has(key) && trackStatus(tracks, key, { techRequired: true }) === 'pending'
+    );
+  }
   const out = [];
   if (canReviewPo && trackStatus(tracks, 'po', { techRequired }) === 'pending') out.push('po');
   if (canReviewTech && trackStatus(tracks, 'tech', { techRequired }) === 'pending') out.push('tech');

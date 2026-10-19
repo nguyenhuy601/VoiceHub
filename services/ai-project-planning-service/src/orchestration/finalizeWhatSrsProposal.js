@@ -28,6 +28,7 @@ async function finalizeWhatSrsProposal(opts = {}) {
     invokeFn: opts.invokeFn,
     g4Understanding: opts.g4Understanding || null,
     evidence: opts.evidence || null,
+    contextPackage: opts.contextPackage || null,
   });
 
   if (opts.runId && out.proposal) {

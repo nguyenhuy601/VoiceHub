@@ -229,6 +229,7 @@ async function applyRawSectionDerive(opts = {}) {
       opts.g4Opts?.locale ||
       pack?.aiAnalysis?.deriveLocale ||
       null,
+    contextPackage: opts.contextPackage || null,
   });
   const rawSectionMs = Math.max(0, Date.now() - sectionStartedAt);
   const deriveWallMs = Math.max(0, Date.now() - deriveStartedAt);
