@@ -17,11 +17,10 @@ import {
   AdminListSkeleton,
   AdminLoadErrorState,
 } from '../../components/adminUsers/adminPanelStates';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
 import { useAppStrings } from '../../locales/appStrings';
 import { adminOrgUnitHubLink } from '../../utils/adminHubLinks';
 import { teamLeaderId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
@@ -33,10 +32,9 @@ export default function TeamListPanel({ orgId }) {
   const { t } = useAppStrings();
   const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId);
   const { membersByIdAll } = useAdminMembers(orgId);
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
-  const canUpdateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_UPDATE);
+  const { can } = useAdminActionGate(orgId);
+  const canCreateTeam = can(RBAC_GRANT.TEAM_CREATE);
+  const canUpdateTeam = can(RBAC_GRANT.TEAM_UPDATE);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {

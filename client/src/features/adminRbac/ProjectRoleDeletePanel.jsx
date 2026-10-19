@@ -17,10 +17,14 @@ import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { projectRolesAPI } from '../../services/api/projectRolesAPI';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
 
 export default function ProjectRoleDeletePanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canUpdateMaster = can(RBAC_GRANT.MASTER_DATA_UPDATE);
   const [searchParams] = useSearchParams();
   const roleId = useMemo(() => String(searchParams.get('roleId') || '').trim(), [searchParams]);
 
@@ -52,6 +56,7 @@ export default function ProjectRoleDeletePanel({ orgId, embedded = false }) {
 
   const del = async () => {
     if (!orgId || !roleId || !role || role.isSystem || busy) return;
+    if (!assertOrToast(RBAC_GRANT.MASTER_DATA_UPDATE)) return;
     setBusy(true);
     try {
       await projectRolesAPI.deleteRole(orgId, roleId);
@@ -102,16 +107,18 @@ export default function ProjectRoleDeletePanel({ orgId, embedded = false }) {
         ) : null}
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={role.isSystem || busy}
-          aria-busy={busy || undefined}
-          className={adminDangerBtnClass()}
-          onClick={() => setConfirmOpen(true)}
-        >
-          <AdminBusySpinner busy={busy} />
-          {busy ? t('common.deleting') : t('adminDomains.rbac.delete')}
-        </button>
+        {canUpdateMaster ? (
+          <button
+            type="button"
+            disabled={role.isSystem || busy}
+            aria-busy={busy || undefined}
+            className={adminDangerBtnClass()}
+            onClick={() => setConfirmOpen(true)}
+          >
+            <AdminBusySpinner busy={busy} />
+            {busy ? t('common.deleting') : t('adminDomains.rbac.delete')}
+          </button>
+        ) : null}
         <button type="button" disabled={busy} className={adminSecondaryBtnClass()} onClick={() => navigate('/app/admin/rbac/project-roles')}>
           {t('common.cancel')}
         </button>

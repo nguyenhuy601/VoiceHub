@@ -27,6 +27,10 @@ import {
   partitionPositionChange,
   uniqueIds,
 } from './positionAssignmentBulk';
+import {
+  isRedundantPositionAliasRow,
+  localizedPositionLabel,
+} from '../../utils/positionLocale';
 
 const PROFILE_PATCH = {
   skipGlobalErrorHandling: true,
@@ -66,8 +70,8 @@ export default function PosAssignPanel({ orgId, embedded = false, selectedUserId
     : singleUserId;
 
   const positionLabel = (row) => {
-    const title = String(row?.title || row?.name || '').trim();
     const code = String(row?.key || row?.code || '').trim();
+    const title = localizedPositionLabel(code, row?.title || row?.name, t);
     if (title && code) return `${title} (${code})`;
     return title || code;
   };
@@ -104,17 +108,16 @@ export default function PosAssignPanel({ orgId, embedded = false, selectedUserId
     };
   }, [orgId, t, reloadTick]);
 
-  const positionOptions = useMemo(
-    () =>
-      (hrPositions || [])
-        .map((row) => ({
-          id: String(row?.id || row?._id || '').trim(),
-          label: positionLabel(row),
-        }))
-        .filter((row) => row.id && row.label)
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    [hrPositions]
-  );
+  const positionOptions = useMemo(() => {
+    const mapped = (hrPositions || []).map((row) => ({
+      id: String(row?.id || row?._id || '').trim(),
+      key: String(row?.key || row?.code || '').trim(),
+      label: positionLabel(row),
+    }));
+    return mapped
+      .filter((row) => row.id && row.label && !isRedundantPositionAliasRow(row, mapped))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+  }, [hrPositions, t]);
 
   useEffect(() => {
     if (!titleParam || !hrPositions.length || selectedPositionId) return;

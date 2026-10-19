@@ -39,6 +39,8 @@ import {
 import { buildOrgRoleRowsByUserId } from '../../utils/userTaxonomyUtils';
 import { adminUserHubLink } from '../../utils/adminHubLinks';
 import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 
 /** Số dòng mỗi trang trên danh sách admin users. */
 const USERS_LIST_PAGE_SIZE = 10;
@@ -212,6 +214,9 @@ export default function UsersListPanel({ orgId }) {
   tRef.current = t;
   const navigate = useNavigate();
   const { organization } = useCompanyAdminContext();
+  const { can } = useAdminActionGate(orgId);
+  const canInvite = can(RBAC_GRANT.EMPLOYEE_INVITE);
+  const canDeleteEmployee = can(RBAC_GRANT.EMPLOYEE_DELETE);
   const { members, loading, error: membersError, loadMembers } = useAdminMembers(orgId, {
     view: 'admin_table',
   });
@@ -508,15 +513,14 @@ export default function UsersListPanel({ orgId }) {
             {t('adminUsers.listPageSizeHint', { size: USERS_LIST_PAGE_SIZE })}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            to="/app/admin/users/import"
-            className={adminPrimaryBtnClass('px-3.5')}
-          >
-            <UserPlus className="h-4 w-4" />
-            {t('adminDomains.users.import')}
-          </Link>
-        </div>
+        {canInvite ? (
+          <div className="flex flex-wrap gap-2">
+            <Link to="/app/admin/users/import" className={adminPrimaryBtnClass('px-3.5')}>
+              <UserPlus className="h-4 w-4" />
+              {t('adminDomains.users.import')}
+            </Link>
+          </div>
+        ) : null}
       </div>
 
       <div className="shrink-0 rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -706,8 +710,8 @@ export default function UsersListPanel({ orgId }) {
                     <AdminUserActionsMenu
                       member={m}
                       onViewDetail={setDetailMember}
-                      onRequestDelete={requestDelete}
-                      disableDelete={isSystemAdminMember(m)}
+                      onRequestDelete={canDeleteEmployee ? requestDelete : undefined}
+                      disableDelete={!canDeleteEmployee || isSystemAdminMember(m)}
                     />
                   )}
                 />
@@ -811,8 +815,8 @@ export default function UsersListPanel({ orgId }) {
                           <AdminUserActionsMenu
                             member={m}
                             onViewDetail={setDetailMember}
-                            onRequestDelete={requestDelete}
-                            disableDelete={isSystemAdmin}
+                            onRequestDelete={canDeleteEmployee ? requestDelete : undefined}
+                            disableDelete={!canDeleteEmployee || isSystemAdminMember(m)}
                           />
                         </td>
                       </tr>

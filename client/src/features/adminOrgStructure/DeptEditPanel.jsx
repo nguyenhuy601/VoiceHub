@@ -13,9 +13,8 @@ import {
 import { AdminBusySpinner } from '../../components/adminUsers/adminPanelStates';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
@@ -25,9 +24,8 @@ export default function DeptEditPanel({ orgId, embedded = false }) {
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const { departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: embedded });
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canUpdateDept = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_UPDATE);
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canUpdateDept = can(RBAC_GRANT.DEPT_UPDATE);
   const [selectedId, setSelectedId] = useState(unitParam);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', description: '' });

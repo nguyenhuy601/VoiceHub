@@ -17,10 +17,14 @@ import { orgRoleCatalogAPI } from '../../services/api/orgRoleCatalogAPI';
 import {
   looksLikeHrPositionForOrgRole,  splitLayerLabel,
 } from '../../utils/roleLayerNaming';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
 
 export default function OrgRoleEditPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canUpdateOrgRole = can(RBAC_GRANT.ORG_ROLE_UPDATE);
   const [searchParams] = useSearchParams();
   const roleId = useMemo(() => String(searchParams.get('roleId') || '').trim(), [searchParams]);
 
@@ -64,6 +68,7 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
 
   const submit = async () => {
     if (!orgId || !roleId || busy) return;
+    if (!assertOrToast(RBAC_GRANT.ORG_ROLE_UPDATE)) return;
     if (!suffix.trim()) return;
     setBusy(true);
     try {
@@ -98,13 +103,13 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
       ) : (
         <>
           <div className="mb-4 rounded-lg border border-border bg-muted/40 p-3 text-sm">
-            <span className="text-muted-foreground">{t('adminDomains.rbac.orgRoleKey')}:</span>{' '}
+            <span className="text-muted-foreground">{t('adminRbac.roleKeyField')}:</span>{' '}
             <span className="font-medium">{role.key}</span>
             {role.isSystem ? <span className="ml-2 text-xs text-success">{t('adminRbac.systemBadge')}</span> : null}
             <p className="mt-1 text-xs text-muted-foreground">{t('adminRbac.roleKeyImmutableHint')}</p>
           </div>
           <label className="mb-4 block">
-            <span className={adminLabelClass()}>{t('adminDomains.rbac.orgRoleLabel')}</span>
+            <span className={adminLabelClass()}>{t('adminRbac.roleLabelField')}</span>
             <input
               className={adminInputClass()}
               maxLength={120}
@@ -127,16 +132,18 @@ export default function OrgRoleEditPanel({ orgId, embedded = false }) {
             />
           </label>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={busy || role.isSystem}
-              aria-busy={busy}
-              className={adminPrimaryBtnClass()}
-              onClick={submit}
-            >
-              <AdminBusySpinner busy={busy} />
-              {busy ? t('common.saving') : t('common.save')}
-            </button>
+            {canUpdateOrgRole ? (
+              <button
+                type="button"
+                disabled={busy || role.isSystem}
+                aria-busy={busy}
+                className={adminPrimaryBtnClass()}
+                onClick={submit}
+              >
+                <AdminBusySpinner busy={busy} />
+                {busy ? t('common.saving') : t('common.save')}
+              </button>
+            ) : null}
             <button type="button" disabled={busy} className={adminSecondaryBtnClass()} onClick={() => navigate('/app/admin/rbac/org-roles')}>
               {t('common.cancel')}
             </button>

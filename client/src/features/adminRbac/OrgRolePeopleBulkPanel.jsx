@@ -24,12 +24,14 @@ import {
   nextKeysForReplace,
   uniqueRoleKeys,
 } from './orgRoleAssignmentBulk';
+import { canonicalizeOrgRoleLabel } from '../../utils/effectiveOrgRoleLabel';
+import { filterOrgRoleCatalogRows } from '../../utils/orgRoleLocale';
 
 function assignmentRows(res) {
   return res?.data?.assignments || res?.data?.data?.assignments || [];
 }
 
-function RoleSelect({ label, value, onChange, roles, placeholder }) {
+function RoleSelect({ label, value, onChange, roles, placeholder, t }) {
   return (
     <label className="mb-3 block">
       <span className="mb-1 block text-xs font-medium text-muted-foreground">{label}</span>
@@ -37,7 +39,7 @@ function RoleSelect({ label, value, onChange, roles, placeholder }) {
         <option value="">{placeholder}</option>
         {roles.map((role) => (
           <option key={role._id || role.id || role.key} value={role.key}>
-            {role.label || role.key}
+            {canonicalizeOrgRoleLabel(role.key || role.code, role.label || role.name, t) || role.key}
           </option>
         ))}
       </select>
@@ -71,7 +73,7 @@ export default function OrgRolePeopleBulkPanel({ orgId, selectedUserIds = [], mo
     setCatalogError('');
     try {
       const res = await orgRoleCatalogAPI.listCatalog(orgId);
-      setRoles(res?.data?.roles || res?.data?.data?.roles || []);
+      setRoles(filterOrgRoleCatalogRows(res?.data?.roles || res?.data?.data?.roles || []));
     } catch (error) {
       setCatalogError(resolveApiErrorMessage(error, { t, fallback: t('common.loadFail') }));
       setRoles([]);
@@ -150,6 +152,7 @@ export default function OrgRolePeopleBulkPanel({ orgId, selectedUserIds = [], mo
               onChange={setFromKey}
               roles={roles}
               placeholder={`-- ${t('adminRbac.selectRole')} --`}
+              t={t}
             />
             {replaceMode ? (
               <RoleSelect
@@ -158,6 +161,7 @@ export default function OrgRolePeopleBulkPanel({ orgId, selectedUserIds = [], mo
                 onChange={setToKey}
                 roles={roles.filter((role) => role.key !== fromKey)}
                 placeholder={`-- ${t('adminRbac.selectRole')} --`}
+                t={t}
               />
             ) : null}
             <button

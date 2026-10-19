@@ -17,10 +17,15 @@ import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { slugifyRoleKey, ensureRoleKeyNamespace } from '../../utils/roleKeySlug';
 import { PROJECT_ROLE_LABEL_PREFIX, normalizeLayerLabel } from '../../utils/roleLayerNaming';
 import { projectRolesAPI } from '../../services/api/projectRolesAPI';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { filterProjectRoleCatalogRows } from '../../utils/projectRoleLocale';
 
 export default function ProjectRoleCreatePanel({ orgId }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canUpdateMaster = can(RBAC_GRANT.MASTER_DATA_UPDATE);
 
   const [suffix, setSuffix] = useState('');
   const [canAssign, setCanAssign] = useState(false);
@@ -47,8 +52,10 @@ export default function ProjectRoleCreatePanel({ orgId }) {
         const list = res?.data?.data || res?.data?.roles || res?.data || [];
         if (!cancelled) {
           setRoles(
-            [...(Array.isArray(list) ? list : [])].sort(
-              (a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0)
+            filterProjectRoleCatalogRows(
+              [...(Array.isArray(list) ? list : [])].sort(
+                (a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0)
+              )
             )
           );
         }
@@ -68,6 +75,7 @@ export default function ProjectRoleCreatePanel({ orgId }) {
 
   const submit = async () => {
     if (!orgId || busy) return;
+    if (!assertOrToast(RBAC_GRANT.MASTER_DATA_UPDATE)) return;
     if (!suffix.trim()) return;
     setBusy(true);
     try {
@@ -152,16 +160,18 @@ export default function ProjectRoleCreatePanel({ orgId }) {
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={!suffix.trim() || busy || Boolean(rolesError)}
-              aria-busy={busy}
-              className={adminPrimaryBtnClass()}
-              onClick={submit}
-            >
-              <AdminBusySpinner busy={busy} />
-              {busy ? t('common.saving') : t('common.save')}
-            </button>
+            {canUpdateMaster ? (
+              <button
+                type="button"
+                disabled={!suffix.trim() || busy || Boolean(rolesError)}
+                aria-busy={busy}
+                className={adminPrimaryBtnClass()}
+                onClick={submit}
+              >
+                <AdminBusySpinner busy={busy} />
+                {busy ? t('common.saving') : t('common.save')}
+              </button>
+            ) : null}
             <button type="button" disabled={busy} className={adminSecondaryBtnClass()} onClick={() => navigate('/app/admin/rbac/project-roles')}>
               {t('common.cancel')}
             </button>

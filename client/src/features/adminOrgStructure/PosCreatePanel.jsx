@@ -12,9 +12,8 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { AdminBusySpinner } from '../../components/adminUsers/adminPanelStates';
 import { organizationAPI } from '../../services/api/organizationAPI';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
@@ -23,9 +22,8 @@ const POS_LIST_PATH = '/app/admin/rbac/positions';
 export default function PosCreatePanel({ orgId }) {
   const { t } = useAppStrings();
   const navigate = useNavigate();
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canCreate = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.POSITION_CREATE);
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canCreate = can(RBAC_GRANT.POSITION_CREATE);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');

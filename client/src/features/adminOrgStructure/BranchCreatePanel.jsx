@@ -11,18 +11,16 @@ import {
 import { AdminBusySpinner } from '../../components/adminUsers/adminPanelStates';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
-import { RBAC_GRANT, canActWithGrant } from '../../config/rbacUiGrantMap';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 
 export default function BranchCreatePanel({ orgId }) {
   const { t } = useAppStrings();
   const { loadStructure } = useAdminOrgStructure(orgId);
-  const { isFullAccess } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
-  const canCreateBranch = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.BRANCH_CREATE);
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canCreateBranch = can(RBAC_GRANT.BRANCH_CREATE);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', location: '' });
 
