@@ -1,6 +1,7 @@
 /** Shared Project Role permission matrix groups (Admin + Hub Settings). */
 export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
   {
+    id: 'project',
     title: 'Project',
     keys: [
       'project:view',
@@ -12,6 +13,7 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
     ],
   },
   {
+    id: 'task',
     title: 'Task',
     keys: [
       'task:view',
@@ -30,6 +32,7 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
     ],
   },
   {
+    id: 'epic_sprint_backlog',
     title: 'Epic / Sprint / Backlog',
     keys: [
       'epic:create',
@@ -46,6 +49,7 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
     ],
   },
   {
+    id: 'approval_delivery',
     title: 'Approval / Delivery / Report / Activity',
     keys: [
       'approval:request',
@@ -60,18 +64,29 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
     ],
   },
   {
+    id: 'repository',
     title: 'Repository',
     keys: ['repository:view', 'repository:push', 'repository:merge'],
   },
   {
+    id: 'wiki_meeting_release',
     title: 'Wiki / Meeting / Release',
-    keys: ['wiki:view', 'wiki:edit', 'meeting:view', 'meeting:create', 'release:view', 'release:create'],
+    keys: [
+      'wiki:view',
+      'wiki:edit',
+      'meeting:view',
+      'meeting:create',
+      'release:view',
+      'release:create',
+    ],
   },
   {
+    id: 'board',
     title: 'Board',
     keys: ['board:manage_lists', 'board:admin'],
   },
   {
+    id: 'files_members_settings',
     title: 'Files / Members / Settings',
     keys: [
       'files:view',
@@ -83,8 +98,8 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
       'settings:update',
     ],
   },
-
   {
+    id: 'change_request',
     title: 'Change request',
     keys: [
       'change_request:view',
@@ -94,6 +109,7 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
     ],
   },
   {
+    id: 'analysis',
     title: 'Analysis',
     keys: [
       'analysis:view',
@@ -110,6 +126,7 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
     ],
   },
   {
+    id: 'planning',
     title: 'Planning',
     keys: [
       'planning:view',
@@ -124,3 +141,13 @@ export const PROJECT_ROLE_PERMISSION_GROUPS = Object.freeze([
     ],
   },
 ]);
+
+/** Stable group ids for locale + UI keys. */
+export const PROJECT_PERM_GROUP_IDS = Object.freeze(
+  PROJECT_ROLE_PERMISSION_GROUPS.map((g) => g.id)
+);
+
+/** Flat list of permission keys exposed in matrix UI. */
+export const PROJECT_PERM_KEYS_FOR_LABELS = Object.freeze(
+  PROJECT_ROLE_PERMISSION_GROUPS.flatMap((g) => g.keys)
+);

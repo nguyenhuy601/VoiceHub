@@ -6,7 +6,12 @@ import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
 import { queryKeys } from '../../../lib/queryKeys';
 import { ensureProjectHubRoleCatalog } from './useProjectHubQueries';
 import { PROJECT_ROLE_PERMISSION_GROUPS } from './projectRolePermissionGroups';
+import {
+  labelProjectPermGroup,
+  labelProjectPermission,
+} from './projectRolePermissionLabels';
 import { isSodLockedPermission, sodLockedPermissionSet } from './projectRoleSodLocks';
+import PermissionDomainCardBrowser from '../../adminRbac/PermissionDomainCardBrowser';
 
 function shortRoleLabel(label, key = '') {
   const raw = String(label || key || '').trim();
@@ -33,6 +38,8 @@ export default function ProjectHubRoleMatrixSection({
   const [busy, setBusy] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState('');
   const [selectedPerms, setSelectedPerms] = useState(() => new Set());
+  const [permGroupKey, setPermGroupKey] = useState(() => PROJECT_ROLE_PERMISSION_GROUPS[0]?.id || '');
+  const [permFilter, setPermFilter] = useState('');
 
   const load = useCallback(async () => {
     if (!pid) return;
@@ -80,6 +87,51 @@ export default function ProjectHubRoleMatrixSection({
       return next;
     });
   };
+
+  const filteredPermGroups = useMemo(() => {
+    const q = permFilter.trim().toLowerCase();
+    return PROJECT_ROLE_PERMISSION_GROUPS.map((group) => {
+      const groupLabel = labelProjectPermGroup(group.id, t);
+      const keys = group.keys.filter((key) => {
+        if (!q) return true;
+        const permLabel = labelProjectPermission(key, t);
+        return (
+          key.toLowerCase().includes(q) ||
+          permLabel.toLowerCase().includes(q) ||
+          groupLabel.toLowerCase().includes(q)
+        );
+      });
+      return { ...group, label: groupLabel, keys };
+    }).filter((group) => group.keys.length);
+  }, [permFilter, t]);
+
+  useEffect(() => {
+    if (!filteredPermGroups.length) {
+      setPermGroupKey('');
+      return;
+    }
+    if (!filteredPermGroups.some((g) => g.id === permGroupKey)) {
+      setPermGroupKey(filteredPermGroups[0].id);
+    }
+  }, [filteredPermGroups, permGroupKey]);
+
+  const permCards = useMemo(
+    () =>
+      filteredPermGroups.map((group) => ({
+        key: group.id,
+        label: group.label || labelProjectPermGroup(group.id, t),
+        total: group.keys.length,
+        selected: group.keys.filter(
+          (k) => selectedPerms.has(k) || isSodLockedPermission(role?.key, k)
+        ).length,
+      })),
+    [filteredPermGroups, selectedPerms, role?.key, t]
+  );
+
+  const activePermGroup = useMemo(
+    () => filteredPermGroups.find((g) => g.id === permGroupKey) || null,
+    [filteredPermGroups, permGroupKey]
+  );
 
   const save = async () => {
     if (!canEdit || !pid || !role || busy) return;
@@ -144,7 +196,6 @@ export default function ProjectHubRoleMatrixSection({
 
   return (
     <div className="space-y-4">
-
       <label className="block">
         <span className={fieldLabelCls}>{t('workspace.projectHubRoleMatrixPickRole')}</span>
         <select
@@ -165,45 +216,62 @@ export default function ProjectHubRoleMatrixSection({
 
       {role ? (
         <>
-          <div className="max-h-[22rem] space-y-3 overflow-auto rounded-lg border border-border/80 bg-background/40 p-2.5 pr-1">
-            {PROJECT_ROLE_PERMISSION_GROUPS.map((group) => (
-              <div key={group.title}>
-                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {group.title}
-                </p>
-                <ul className="space-y-1">
-                  {group.keys.map((key) => {
-                    const sodLocked = isSodLockedPermission(role?.key, key);
-                    return (
-                      <li key={key}>
-                        <label
-                          className={`flex items-center gap-2 rounded-md border border-border/70 px-2 py-1.5 text-sm ${
-                            sodLocked || !canEdit
-                              ? 'cursor-not-allowed opacity-80'
+          <PermissionDomainCardBrowser
+            domains={permCards}
+            activeKey={permGroupKey}
+            onSelect={setPermGroupKey}
+            searchValue={permFilter}
+            onSearchChange={setPermFilter}
+            searchLabel={t('adminDomains.rbac.permissionSearch')}
+            searchPlaceholder={t('adminDomains.rbac.permissionSearchPlaceholder')}
+            navTitle={t('adminRbac.permissionMatrixGroupNav')}
+            detailHeading={t('adminRbac.permissionMatrixDetailHeading')}
+            pickHint={t('adminRbac.permissionMatrixGroupPick')}
+            emptyNav={t('adminRbac.permissionMatrixGroupsEmpty')}
+          >
+            {activePermGroup ? (
+              <ul className="divide-y divide-border/50 overflow-hidden rounded-xl border border-border bg-background/80">
+                {activePermGroup.keys.map((key) => {
+                  const sodLocked = isSodLockedPermission(role?.key, key);
+                  const on = selectedPerms.has(key) || sodLocked;
+                  return (
+                    <li key={key}>
+                      <label
+                        className={`flex items-start gap-2.5 px-3 py-2.5 text-sm ${
+                          sodLocked || !canEdit
+                            ? 'cursor-not-allowed opacity-80'
+                            : on
+                              ? 'cursor-pointer bg-primary-subtle/40'
                               : 'cursor-pointer hover:bg-muted/40'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedPerms.has(key) || sodLocked}
-                            disabled={!canEdit || busy || sodLocked}
-                            onChange={() => togglePerm(key)}
-                            className="h-4 w-4 rounded border-border accent-primary disabled:opacity-50"
-                          />
-                          <span className="font-mono text-xs">{key}</span>
-                          {sodLocked ? (
-                            <span className="ml-auto text-[10px] text-muted-foreground">
-                              {t('workspace.projectHubRoleMatrixSodLocked')}
-                            </span>
-                          ) : null}
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
-          </div>
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          disabled={!canEdit || busy || sodLocked}
+                          onChange={() => togglePerm(key)}
+                          className="mt-0.5 h-4 w-4 rounded border-border accent-primary disabled:opacity-50"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-medium text-foreground">
+                            {labelProjectPermission(key, t)}
+                          </span>
+                          <code className="mt-0.5 inline-block rounded bg-muted/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                            {key}
+                          </code>
+                        </span>
+                        {sodLocked ? (
+                          <span className="shrink-0 text-[10px] text-muted-foreground">
+                            {t('workspace.projectHubRoleMatrixSodLocked')}
+                          </span>
+                        ) : null}
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </PermissionDomainCardBrowser>
 
           {canEdit ? (
             <div className="flex flex-wrap gap-2">
