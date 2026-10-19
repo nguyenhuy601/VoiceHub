@@ -8,7 +8,15 @@ const EmployeePositionAssignment = require('../models/EmployeePositionAssignment
 const UserOrgRoleGrant = require('../models/UserOrgRoleGrant');
 const { invalidatePermissionCacheForUsers } = require('./grantPermissionCache');
 const { matchActivePosition } = require('../utils/positionAssignMatch');
-const { roleIsOnAllowlist, ensureOrgRoleGrantBaseline } = require('./orgRoleGrantBaseline.service');
+const {
+  roleIsOnAllowlist,
+  ensureOrgRoleGrantBaseline,
+  ROLE_GRANTS,
+} = require('./orgRoleGrantBaseline.service');
+const {
+  resolveCanonicalOrganizationRoleKey,
+  organizationRoleLookupCodes,
+} = require('@enterprise/shared/config/masterData');
 
 const SCOPE_RANK = Object.freeze({
   SELF: 1,
@@ -62,6 +70,45 @@ function assertScope(scopeType) {
 
 /* ---------- Org Roles ---------- */
 
+/**
+ * Một row mỗi canonical: ưu tiên đúng code UPPER SoT; nếu thiếu thì giữ hàng đầu.
+ * Ví dụ ẩn department_manager khi đã có DEPARTMENT_MANAGER; hoặc ẩn team_manager
+ * khi đã có team_lead (cùng canonical TEAM_LEAD).
+ */
+function filterLegacyOrgRoleDuplicates(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const preferredByCanon = new Map();
+  for (const row of list) {
+    const code = String(row?.code || '').trim();
+    if (!code) continue;
+    const canonical = resolveCanonicalOrganizationRoleKey(code) || code;
+    const prev = preferredByCanon.get(canonical);
+    if (!prev) {
+      preferredByCanon.set(canonical, row);
+      continue;
+    }
+    const prevCode = String(prev.code || '').trim();
+    if (prevCode === canonical) continue;
+    if (code === canonical) {
+      preferredByCanon.set(canonical, row);
+    }
+  }
+  const keep = new Set(
+    [...preferredByCanon.values()].map((row) => String(row?.code || '').trim()).filter(Boolean)
+  );
+  return list.filter((row) => keep.has(String(row?.code || '').trim()));
+}
+
+function codesMatchingCreateInput(roleCode) {
+  const raw = String(roleCode || '').trim();
+  const canonical = resolveCanonicalOrganizationRoleKey(raw) || raw;
+  const lookup =
+    typeof organizationRoleLookupCodes === 'function'
+      ? organizationRoleLookupCodes(canonical)
+      : [canonical, raw, String(canonical).toLowerCase()];
+  return [...new Set([raw, canonical, ...lookup].filter(Boolean))];
+}
+
 async function listRoles(organizationId, { includeDisabled = false } = {}) {
   try {
     const { ensureOrgRoleGrantBaseline } = require('./orgRoleGrantBaseline.service');
@@ -72,14 +119,35 @@ async function listRoles(organizationId, { includeDisabled = false } = {}) {
   const oid = asObjectId(organizationId, 'organizationId');
   const filter = { organizationId: oid };
   if (!includeDisabled) filter.status = 'active';
-  return OrganizationalRole.find(filter).sort({ sortOrder: 1, createdAt: 1 }).lean();
+  const rows = await OrganizationalRole.find(filter).sort({ sortOrder: 1, createdAt: 1 }).lean();
+  return filterLegacyOrgRoleDuplicates(rows);
 }
 
 async function createRole(organizationId, { code, name, description, sortOrder } = {}) {
   const oid = asObjectId(organizationId, 'organizationId');
   const roleName = String(name || '').trim();
   if (!roleName) throw serviceError('name là bắt buộc', 400, 'VALIDATION_NAME');
-  const roleCode = slugCode(code || roleName, 'role');
+  const rawInput = String(code || roleName).trim();
+  const canonical = resolveCanonicalOrganizationRoleKey(rawInput);
+  const isSoT = Boolean(canonical && Object.prototype.hasOwnProperty.call(ROLE_GRANTS, canonical));
+  const storageCode = isSoT ? canonical : slugCode(rawInput, 'role');
+  const matchCodes = codesMatchingCreateInput(rawInput);
+  const existing = await OrganizationalRole.findOne({
+    organizationId: oid,
+    code: { $in: matchCodes },
+  }).lean();
+  if (existing) {
+    const patch = {
+      name: roleName,
+      description: String(description || '').trim(),
+    };
+    if (Number.isFinite(Number(sortOrder))) patch.sortOrder = Number(sortOrder);
+    if (isSoT && String(existing.code || '') !== storageCode) {
+      patch.code = storageCode;
+    }
+    const updated = await updateRole(organizationId, existing._id, patch);
+    return { ...updated, updated: true };
+  }
   const last = await OrganizationalRole.find({ organizationId: oid })
     .sort({ sortOrder: -1 })
     .select('sortOrder')
@@ -91,7 +159,7 @@ async function createRole(organizationId, { code, name, description, sortOrder }
   try {
     const row = await OrganizationalRole.create({
       organizationId: oid,
-      code: roleCode,
+      code: storageCode,
       name: roleName,
       description: String(description || '').trim(),
       sortOrder: nextSort,
@@ -120,7 +188,14 @@ async function updateRole(organizationId, roleId, patch = {}) {
     $set.status = st;
   }
   if (patch.sortOrder != null) $set.sortOrder = Number(patch.sortOrder) || 0;
-  if (patch.code != null) $set.code = slugCode(patch.code, 'role');
+  if (patch.code != null) {
+    const rawCode = String(patch.code).trim();
+    const can = resolveCanonicalOrganizationRoleKey(rawCode);
+    $set.code =
+      can && Object.prototype.hasOwnProperty.call(ROLE_GRANTS, can)
+        ? can
+        : slugCode(rawCode, 'role');
+  }
   if (!Object.keys($set).length) {
     const existing = await OrganizationalRole.findOne({ _id: rid, organizationId: oid }).lean();
     if (!existing) throw serviceError('Không tìm thấy vai trò', 404, 'ROLE_NOT_FOUND');
@@ -648,6 +723,8 @@ async function replaceUserOrgRoleGrants(organizationId, userId, roleIds = []) {
 module.exports = {
   SCOPE_TYPES,
   SCOPE_RANK,
+  filterLegacyOrgRoleDuplicates,
+  codesMatchingCreateInput,
   listRoles,
   createRole,
   updateRole,

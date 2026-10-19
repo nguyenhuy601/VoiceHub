@@ -74,17 +74,18 @@ const DEFAULT_PROJECT_ROLE_KEYS = Object.freeze({
   WATCHER: 'observer',
 });
 
-/** Expand ORGANIZATION_ROLE_KEYS from master catalog */
+/** Expand ORGANIZATION_ROLE_KEYS from master catalog (values = UPPER_SNAKE SoT) */
 const ORGANIZATION_ROLE_KEYS = Object.freeze({
-  DEPARTMENT_MANAGER: 'department_manager',
-  TEAM_LEAD: 'team_lead',
-  DIRECTOR: 'director',
-  RESOURCE_MANAGER: 'resource_manager',
-  AUDITOR: 'auditor',
-  MENTOR: 'mentor',
-  HR_APPROVER: 'hr_approver',
+  DEPARTMENT_MANAGER: 'DEPARTMENT_MANAGER',
+  TEAM_LEAD: 'TEAM_LEAD',
+  DIRECTOR: 'DIRECTOR',
+  RESOURCE_MANAGER: 'RESOURCE_MANAGER',
+  AUDITOR: 'AUDITOR',
+  MENTOR: 'MENTOR',
+  HR_APPROVER: 'HR_APPROVER',
+  MEMBER: 'MEMBER',
   /** @deprecated use TEAM_LEAD */
-  TEAM_MANAGER: 'team_manager',
+  TEAM_MANAGER: 'TEAM_LEAD',
 });
 
 /**

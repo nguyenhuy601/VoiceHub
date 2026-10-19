@@ -40,6 +40,7 @@ function mapOrganizations(raw) {
         icon: org.logo || org.icon || null,
         myRole: org.myRole,
         myStructureRole: org.myStructureRole || null,
+        myOrganizationRoles: Array.isArray(org.myOrganizationRoles) ? org.myOrganizationRoles : [],
       };
     });
 }

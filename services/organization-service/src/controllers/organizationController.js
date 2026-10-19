@@ -465,13 +465,19 @@ exports.getMyOrganizations = async (req, res, next) => {
     /** head / leader theo cấu trúc phòng-team — hiển thị chức vụ (không thay membership.role). */
     const headOrgIds = new Set();
     const leaderOrgIds = new Set();
+    /** orgId → [{ roleKey, roleLabel }] — SoT badge/footer (không phải jobTitle HR). */
+    const orgRolesByOrgId = new Map();
     if (orgIds.length) {
-      const [headDepts, leaderTeams] = await Promise.all([
+      const OrgRoleAssignment = require('../models/OrgRoleAssignment');
+      const [headDepts, leaderTeams, orgRoleAssignments] = await Promise.all([
         Department.find({ organization: { $in: orgIds }, head: userRef })
           .select('organization')
           .lean(),
         Team.find({ organization: { $in: orgIds }, leader: userRef })
           .select('organization')
+          .lean(),
+        OrgRoleAssignment.find({ userId: userRef, organizationId: { $in: orgIds } })
+          .select('organizationId roleKey')
           .lean(),
       ]);
       for (const d of headDepts) {
@@ -479,6 +485,16 @@ exports.getMyOrganizations = async (req, res, next) => {
       }
       for (const t of leaderTeams) {
         if (t?.organization) leaderOrgIds.add(String(t.organization));
+      }
+      for (const row of orgRoleAssignments || []) {
+        const oid = String(row?.organizationId || '').trim();
+        const roleKey = String(row?.roleKey || '').trim();
+        if (!oid || !roleKey) continue;
+        const list = orgRolesByOrgId.get(oid) || [];
+        if (!list.some((r) => r.roleKey === roleKey)) {
+          list.push({ roleKey, roleLabel: roleKey });
+        }
+        orgRolesByOrgId.set(oid, list);
       }
     }
 
@@ -493,6 +509,7 @@ exports.getMyOrganizations = async (req, res, next) => {
         return toPublicOrganization(org, {
           myRole: membership.role,
           myStructureRole,
+          myOrganizationRoles: orgRolesByOrgId.get(oid) || [],
           memberCount: memberCountByOrg[oid] ?? 0,
         });
       })
