@@ -4,7 +4,8 @@
 
 const { resolveCanonicalOrganizationRoleKey } = require('@enterprise/shared/config/masterData');
 
-const GOVERNANCE_VIEW_ORG_ROLES = Object.freeze(['director', 'auditor']);
+/** Canonical keys from masterData (`DIRECTOR` / `AUDITOR`) — compare after resolveCanonicalOrganizationRoleKey. */
+const GOVERNANCE_VIEW_ORG_ROLES = Object.freeze(['DIRECTOR', 'AUDITOR']);
 
 function membershipIsOrgAdmin(membershipRole) {
   const r = String(membershipRole || '').toLowerCase();
