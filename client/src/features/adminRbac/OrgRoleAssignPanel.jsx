@@ -105,12 +105,10 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false, selectedUs
 
   useEffect(() => {
     loadCatalog();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload catalog when org changes
   }, [orgId]);
 
   useEffect(() => {
     loadAssignmentsForUser(singleUserId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, singleUserId]);
 
   useEffect(() => {
