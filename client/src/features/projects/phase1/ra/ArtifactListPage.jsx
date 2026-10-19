@@ -305,7 +305,7 @@ export default function ArtifactListPage({
       queryClient.invalidateQueries({ queryKey: ['analysisArtifacts', projectId, 'ALL'] });
       queryClient.invalidateQueries({ queryKey: ['projectAnalysisGaps', String(projectId)] });
       setSelectedIds(new Set());
-      toast.success(t('workspace.phase1SoftDeleteOk'));
+      toast.success(t('workspace.phase1SoftDeleteOk') || 'Đã xóa (soft) dòng draft');
     },
     onError: (err) => toast.error(resolveApiErrorMessage(err)),
   });
@@ -574,7 +574,7 @@ export default function ArtifactListPage({
       {selectedIds.size > 0 && canEdit ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm">
           <span className="text-xs text-muted-foreground">
-            {(t('workspace.phase1SelectedCount')).replace(
+            {(t('workspace.phase1SelectedCount') || '{count} đã chọn').replace(
               '{count}',
               String(selectedIds.size)
             )}
@@ -589,7 +589,7 @@ export default function ArtifactListPage({
                 if (row) beginInlineEdit(row, 'title');
               }}
             >
-              {t('common.edit')}
+              {t('common.edit') || 'Sửa'}
             </button>
           ) : null}
           <button
@@ -599,14 +599,15 @@ export default function ArtifactListPage({
             onClick={() => {
               if (!selectedDeletableIds.length) {
                 toast.error(
-                  t('workspace.phase1SoftDeleteBlocked')
+                  t('workspace.phase1SoftDeleteBlocked') ||
+                    'Chỉ xóa được draft / changes_requested / rejected'
                 );
                 return;
               }
               softDeleteMut.mutate(selectedDeletableIds);
             }}
           >
-            {t('common.delete')}
+            {t('common.delete') || 'Xóa'}
           </button>
           <button
             type="button"
@@ -760,7 +761,7 @@ export default function ArtifactListPage({
                       disabled={createMut.isPending}
                       onClick={addInlineRow}
                     >
-                      + {t('workspace.phase1AddInlineRow')}
+                      + {t('workspace.phase1AddInlineRow') || 'Thêm dòng'}
                     </button>
                   </td>
                 </tr>
