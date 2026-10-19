@@ -16,12 +16,14 @@ import {
   Users,
 } from 'lucide-react';
 import { getVisibleAdminDomains } from '../../config/adminDomainsConfig';
-import { filterVisibleAdminDomainsByGrant } from '../../config/rbacUiGrantMap';
+import { firstAllowedAdminLeafPath, listAdminDomainsForActor } from '../../config/rbacUiGrantMap';
 import AdminInsightTicker from '../../components/Admin/AdminInsightTicker';
 import useAdminHubInsights from '../../hooks/useAdminHubInsights';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { useAdminNavLoading } from '../../hooks/useAdminShellLoading';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useGrantScopes } from '../../hooks/useGrantScopes';
 import { useAppStrings } from '../../locales/appStrings';
 import { useCompanyAdminContext } from './CompanyAdminLayout';
 import { VH_MOTION_CARD } from '../../motion/classes';
@@ -43,20 +45,19 @@ const DOMAIN_ICONS = {
 
 export default function AdminHubPage() {
   const { t } = useAppStrings();
-  const { memberCount, orgId, isFullAccess } = useCompanyAdminContext();
+  const { memberCount, orgId } = useCompanyAdminContext();
   const { isSystemAdmin } = useCompanyAdminAccess();
-  const { hasGrant, scopeOf } = useEffectiveMasterGrants(orgId);
+  const { hasGrant, scopeOf } = useGrantScopes(orgId);
   const { loading, messages, pendingCount, usersHref } = useAdminHubInsights(orgId);
   const { markNavigating } = useAdminNavLoading();
   const domains = useMemo(
     () =>
-      filterVisibleAdminDomainsByGrant(getVisibleAdminDomains(isFullAccess), {
-        isFullAccess,
+      listAdminDomainsForActor(getVisibleAdminDomains(), {
         hasGrant,
         scopeOf,
-        isSystemAdmin,
+        isSystemAdmin: Boolean(isSystemAdmin),
       }),
-    [isFullAccess, hasGrant, scopeOf, isSystemAdmin]
+    [hasGrant, scopeOf, isSystemAdmin]
   );
 
   return (
@@ -75,10 +76,16 @@ export default function AdminHubPage() {
       <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {domains.map((domain) => {
           const Icon = DOMAIN_ICONS[domain.icon] || LayoutGrid;
+          const leafPath =
+            firstAllowedAdminLeafPath(domain, {
+              hasGrant,
+              scopeOf,
+              isSystemAdmin: Boolean(isSystemAdmin),
+            }) || domain.path;
           return (
             <Link
               key={domain.id}
-              to={domain.path}
+              to={leafPath}
               onClick={() => markNavigating()}
               className={`group relative rounded-xl border border-border bg-card p-4 shadow-sm hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${VH_MOTION_CARD}`}
             >

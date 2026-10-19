@@ -66,6 +66,13 @@ export function getLastBootstrapShellPayload() {
   return lastShellBootstrapPayload;
 }
 
+/** Logout — bỏ cache bootstrap in-memory (tránh org/role user trước). */
+export function clearBootstrapShellCache() {
+  lastShellBootstrapPayload = null;
+  inflightBootstrap = null;
+  inflightBootstrapKey = '';
+}
+
 /** Gọi bootstrap và hydrate cache (sau auth/me). Auth path: không truyền suite. */
 export async function loadBootstrapShell(options = {}) {
   const data = await fetchBootstrap(options);

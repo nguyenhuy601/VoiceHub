@@ -40,8 +40,9 @@ import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { useAdminNavLoading } from '../../hooks/useAdminShellLoading';
 import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
-import { filterAdminDomainByGrant, filterVisibleAdminDomainsByGrant } from '../../config/rbacUiGrantMap';
+import { firstAllowedAdminLeafPath, listAdminDomainsForActor } from '../../config/rbacUiGrantMap';
 import OrgStructureSetupModal from '../../features/adminOrgStructure/OrgStructureSetupModal';
+import SidebarPositionFooter from './SidebarPositionFooter';
 import NavCollapse from '../../motion/NavCollapse';
 import { VH_NAV_CHEVRON } from '../../motion/classes';
 import useMotionPresence from '../../motion/useMotionPresence';
@@ -51,6 +52,7 @@ import {
   FIGMA_SIDEBAR_COLLAPSED,
   FIGMA_SIDEBAR_EXPANDED,
   FIGMA_SIDEBAR_EXPAND_BTN,
+  FIGMA_SIDEBAR_FOOTER,
   FIGMA_SIDEBAR_NAV,
   FIGMA_SIDEBAR_SECTION_LABEL,
   FIGMA_SIDEBAR_SUITE_STRIP,
@@ -433,7 +435,7 @@ function AdminNavSectionGroup({
   );
 }
 
-export default function AdminNavigationSidebar({ isFullAccess = false }) {
+export default function AdminNavigationSidebar({ isFullAccess: _isFullAccess = false }) {
   const { t } = useAppStrings();
   const location = useLocation();
   const navigate = useNavigate();
@@ -451,9 +453,14 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
   });
   const [expandedSectionByDomain, setExpandedSectionByDomain] = useState({});
 
+  const grantCtx = useMemo(
+    () => ({ hasGrant, scopeOf, isSystemAdmin: Boolean(isSystemAdmin) }),
+    [hasGrant, scopeOf, isSystemAdmin]
+  );
+
   const visibleDomains = useMemo(
-    () => getVisibleAdminDomains(isFullAccess),
-    [isFullAccess]
+    () => listAdminDomainsForActor(getVisibleAdminDomains(), grantCtx),
+    [grantCtx]
   );
 
   const currentPath = normalizeAdminPath(location.pathname);
@@ -462,9 +469,9 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
   const [selectedDomainId, setSelectedDomainId] = useState(() => {
     if (activeDomain?.id) return activeDomain.id;
     try {
-      return localStorage.getItem(ADMIN_DOMAIN_STORAGE_KEY) || visibleDomains[0]?.id || 'users';
+      return localStorage.getItem(ADMIN_DOMAIN_STORAGE_KEY) || 'users';
     } catch {
-      return visibleDomains[0]?.id || 'users';
+      return 'users';
     }
   });
 
@@ -512,27 +519,31 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
   );
 
   useEffect(() => {
-    if (activeDomain?.id) {
+    if (activeDomain?.id && visibleDomains.some((d) => d.id === activeDomain.id)) {
       setSelectedDomainId(activeDomain.id);
       localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, activeDomain.id);
     }
-  }, [activeDomain?.id]);
+  }, [activeDomain?.id, visibleDomains]);
+
+  useEffect(() => {
+    if (!visibleDomains.length) return;
+    if (visibleDomains.some((d) => d.id === selectedDomainId)) return;
+    const next = visibleDomains[0];
+    setSelectedDomainId(next.id);
+    localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, next.id);
+  }, [visibleDomains, selectedDomainId]);
 
   const selectedDomain = useMemo(() => {
     const fromSelectable =
       selectableDomains.find((d) => d.id === selectedDomainId) || selectableDomains[0] || null;
     if (fromSelectable) return fromSelectable;
     const raw = visibleDomains.find((d) => d.id === selectedDomainId) || visibleDomains[0] || null;
-    return enrichDomain(raw);
-  }, [selectableDomains, selectedDomainId, visibleDomains, enrichDomain]);
-
-  useEffect(() => {
-    if (!selectableDomains.length) return;
-    if (selectableDomains.some((d) => d.id === selectedDomainId)) return;
-    const fallbackId = selectableDomains[0].id;
-    setSelectedDomainId(fallbackId);
-    localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, fallbackId);
-  }, [selectableDomains, selectedDomainId]);
+    if (!raw) return raw;
+    if (raw.id !== 'org-structure') return raw;
+    return applyOrgLevelFilterToDomain(raw, orgStructureLevels, {
+      setupCompleted: orgStructureSetupCompleted === true,
+    });
+  }, [visibleDomains, selectedDomainId, orgStructureLevels, orgStructureSetupCompleted]);
 
   const isActivePath = (item) => {
     const base = String(item.path || '').split('?')[0].replace(/\/+$/, '');
@@ -564,16 +575,15 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
 
   const handleDomainSelect = useCallback(
     (domain) => {
-      const enriched = enrichDomain(domain) || domain;
-      const targetPath = firstVisibleNavPath(enriched);
-      setSelectedDomainId(enriched.id);
-      localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, enriched.id);
-      if (normalizeAdminPath(targetPath) !== currentPath) {
+      setSelectedDomainId(domain.id);
+      localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, domain.id);
+      const leafPath = firstAllowedAdminLeafPath(domain, grantCtx) || domain.path;
+      if (normalizeAdminPath(leafPath) !== currentPath) {
         markNavigating();
       }
-      navigate(targetPath);
+      navigate(leafPath);
     },
-    [currentPath, enrichDomain, markNavigating, navigate]
+    [currentPath, grantCtx, markNavigating, navigate]
   );
 
   const toggleNavSection = (sectionId) => {
@@ -697,6 +707,10 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
             </Link>
           ) : null}
         </nav>
+
+        <div className={FIGMA_SIDEBAR_FOOTER}>
+          <SidebarPositionFooter collapsed={collapsed} wrap={false} />
+        </div>
       </div>
 
       <OrgStructureSetupModal

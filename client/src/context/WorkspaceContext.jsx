@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
   buildCollaborateTasksPath,
   buildCommunicateChannelsPath,
@@ -6,18 +6,24 @@ import {
   writeStoredLastOrganizationId,
 } from '../utils/suitePathUtils';
 import {
+  clearCompanySnapshot,
   readCompanySnapshot,
   readSingleOrgModeFlag,
   resolveCompanyFromBootstrap,
 } from '../utils/singleCompanyMode';
+import { clearBootstrapShellCache } from '../services/bootstrapService';
 
 const LAST_WORKSPACE_SLUG_KEY = 'voicehub:last-workspace-slug';
+const WORKSPACE_CLEARED_EVENT = 'voicehub:workspace-cleared';
 
 /** Gọi từ AuthContext khi logout — không phụ thuộc React context (tránh vòng import). */
 export function notifyWorkspaceClearedOnLogout() {
   if (typeof window === 'undefined') return;
   window.localStorage.removeItem(LAST_WORKSPACE_SLUG_KEY);
   writeStoredLastOrganizationId('');
+  clearCompanySnapshot();
+  clearBootstrapShellCache();
+  window.dispatchEvent(new Event(WORKSPACE_CLEARED_EVENT));
 }
 
 function readStoredLastWorkspaceSlug() {
@@ -49,6 +55,17 @@ export function WorkspaceProvider({ children }) {
   );
   const [singleOrgMode, setSingleOrgMode] = useState(() => readSingleOrgModeFlag());
   const [company, setCompany] = useState(() => readCompanySnapshot());
+
+  useEffect(() => {
+    const onCleared = () => {
+      setCompany(null);
+      setActiveWorkspace(null);
+      setLastWorkspaceSlugState('');
+      setLastOrganizationIdState('');
+    };
+    window.addEventListener(WORKSPACE_CLEARED_EVENT, onCleared);
+    return () => window.removeEventListener(WORKSPACE_CLEARED_EVENT, onCleared);
+  }, []);
 
   const setLastWorkspaceSlug = useCallback((slug) => {
     const normalized = String(slug || '').trim();

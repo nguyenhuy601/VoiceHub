@@ -28,6 +28,16 @@ export function readCompanySnapshot() {
   }
 }
 
+/** Logout / đổi tài khoản — tránh footer/badge dính company của user trước. */
+export function clearCompanySnapshot() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(COMPANY_SNAPSHOT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function resolveCompanyFromBootstrap(bootstrap) {
   if (!bootstrap || typeof bootstrap !== 'object') return null;
   if (bootstrap.company && (bootstrap.company.id || bootstrap.company._id)) {
