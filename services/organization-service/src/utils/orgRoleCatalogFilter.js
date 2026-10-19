@@ -22,12 +22,15 @@ function filterCatalogRolesForList(roles, enabledKeys) {
     const key = String(row.key || '').trim();
     if (!key) continue;
 
-    // Ẩn legacy alias row (team_manager) — canonical team_lead là SSOT
-    if (Object.prototype.hasOwnProperty.call(LEGACY_ORGANIZATION_ROLE_KEY_ALIASES, key)) {
+    const canonical = resolveCanonicalOrganizationRoleKey(key);
+    // Ẩn alias / lowercase khi đã có canonical UPPER trong master
+    if (
+      Object.prototype.hasOwnProperty.call(LEGACY_ORGANIZATION_ROLE_KEY_ALIASES, key) ||
+      (canonical && key !== canonical && masterSet.has(canonical))
+    ) {
       continue;
     }
 
-    const canonical = resolveCanonicalOrganizationRoleKey(key);
     const isMasterRow = Boolean(row.isSystem) || masterSet.has(key) || masterSet.has(canonical);
 
     if (isMasterRow) {

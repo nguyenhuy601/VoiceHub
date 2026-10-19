@@ -88,7 +88,7 @@ const COMPANY_SIZE_TEMPLATES = Object.freeze({
     label: 'Mid-size',
     enabledDepartmentKeys: MASTER_DEPARTMENT_KEYS.filter((k) => k !== 'finance' && k !== 'marketing'),
     enabledPositionKeys: MASTER_POSITION_KEYS.filter((k) => k !== 'intern'),
-    enabledOrganizationRoleKeys: MASTER_ORGANIZATION_ROLE_KEYS.filter((k) => k !== 'auditor'),
+    enabledOrganizationRoleKeys: MASTER_ORGANIZATION_ROLE_KEYS.filter((k) => k !== 'AUDITOR'),
     enabledProjectRoleKeys: MASTER_PROJECT_ROLE_KEYS.filter(
       (k) => !['sponsor', 'stakeholder'].includes(k)
     ),

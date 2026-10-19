@@ -1,6 +1,6 @@
 /**
  * Tick quyền vai trò tổ chức và gắn 11 vị trí.
- * Chỉ thêm mã còn thiếu. Không gắn director vào vị trí dùng chung.
+ * SoT mã vai trò: UPPER_SNAKE. Chỉ thêm mã còn thiếu. Không gắn DIRECTOR vào vị trí dùng chung.
  */
 
 const OrganizationalRole = require('../models/OrganizationalRole');
@@ -9,10 +9,15 @@ const OrgRolePermission = require('../models/OrgRolePermission');
 const PositionRoleBinding = require('../models/PositionRoleBinding');
 const EmployeePositionAssignment = require('../models/EmployeePositionAssignment');
 const UserOrgRoleGrant = require('../models/UserOrgRoleGrant');
-const { MASTER_POSITIONS } = require('@enterprise/shared/config/masterData');
+const {
+  MASTER_POSITIONS,
+  LEGACY_ORGANIZATION_ROLE_KEY_ALIASES,
+  resolveCanonicalOrganizationRoleKey,
+  organizationRoleLookupCodes,
+} = require('@enterprise/shared/config/masterData');
 const { invalidatePermissionCacheForUsers } = require('./grantPermissionCache');
 
-const MEMBER_CODE = 'member';
+const MEMBER_CODE = 'MEMBER';
 const MEMBER_DISPLAY_NAME = 'Thành viên tổ chức';
 
 const CHAT = [
@@ -21,17 +26,17 @@ const CHAT = [
 ];
 
 const ROLE_GRANTS = Object.freeze({
-  member: [
+  MEMBER: [
     ['organization.employee.view', 'SELF'],
     ...CHAT,
   ],
-  team_lead: [
+  TEAM_LEAD: [
     ['organization.employee.view', 'DEPARTMENT'],
     ['organization.department.view', 'DEPARTMENT'],
     ['organization.team.view', 'DEPARTMENT'],
     ...CHAT,
   ],
-  department_manager: [
+  DEPARTMENT_MANAGER: [
     ['organization.employee.view', 'DEPARTMENT'],
     ['organization.department.view', 'DEPARTMENT'],
     ['organization.team.view', 'DEPARTMENT'],
@@ -41,7 +46,7 @@ const ROLE_GRANTS = Object.freeze({
     ['project.project.create', 'ORGANIZATION'],
     ...CHAT,
   ],
-  director: [
+  DIRECTOR: [
     ['organization.employee.view', 'ORGANIZATION'],
     ['organization.employee.update', 'ORGANIZATION'],
     ['organization.department.view', 'ORGANIZATION'],
@@ -58,21 +63,21 @@ const ROLE_GRANTS = Object.freeze({
     ['system.audit.view', 'ORGANIZATION'],
     ['project.project.create', 'ORGANIZATION'],
   ],
-  resource_manager: [
+  RESOURCE_MANAGER: [
     ['organization.employee.view', 'ORGANIZATION'],
     ['organization.department.view', 'ORGANIZATION'],
     ['organization.team.view', 'ORGANIZATION'],
     ['organization.position.view', 'ORGANIZATION'],
     ['project.project.create', 'ORGANIZATION'],
   ],
-  hr_approver: [
+  HR_APPROVER: [
     ['organization.employee.view', 'ORGANIZATION'],
     ['organization.employee.invite', 'ORGANIZATION'],
     ['organization.employee.update', 'ORGANIZATION'],
     ['organization.employee.disable', 'ORGANIZATION'],
     ['organization.department.view', 'ORGANIZATION'],
   ],
-  auditor: [
+  AUDITOR: [
     ['organization.employee.view', 'ORGANIZATION'],
     ['organization.department.view', 'ORGANIZATION'],
     ['organization.team.view', 'ORGANIZATION'],
@@ -82,28 +87,39 @@ const ROLE_GRANTS = Object.freeze({
     ['organization.policy.view', 'ORGANIZATION'],
     ['system.audit.view', 'ORGANIZATION'],
   ],
-  mentor: [
+  MENTOR: [
     ['organization.employee.view', 'DEPARTMENT'],
     ...CHAT,
   ],
 });
 
 const ROLE_NAMES = Object.freeze({
-  member: MEMBER_DISPLAY_NAME,
-  team_lead: 'Trưởng nhóm',
-  department_manager: 'Trưởng phòng',
-  director: 'Giám đốc tổ chức',
-  resource_manager: 'Quản lý nguồn lực',
-  hr_approver: 'Nhân sự',
-  auditor: 'Kiểm toán',
-  mentor: 'Mentor',
+  MEMBER: MEMBER_DISPLAY_NAME,
+  TEAM_LEAD: 'Trưởng nhóm',
+  DEPARTMENT_MANAGER: 'Trưởng phòng',
+  DIRECTOR: 'Giám đốc tổ chức',
+  RESOURCE_MANAGER: 'Quản lý nguồn lực',
+  HR_APPROVER: 'Nhân sự',
+  AUDITOR: 'Kiểm toán',
+  MENTOR: 'Người hướng dẫn',
 });
 
-/** Vị trí HR → một vai trò tổ chức. Director không nằm ở đây. */
+const ROLE_DESCRIPTIONS = Object.freeze({
+  TEAM_LEAD: 'Điều phối nhóm được giao',
+  DEPARTMENT_MANAGER: 'Quản lý phòng ban được giao',
+  DIRECTOR: 'Sở hữu và chịu trách nhiệm cấp tổ chức',
+  RESOURCE_MANAGER: 'Điều phối nhân sự giữa các dự án',
+  HR_APPROVER: 'Phê duyệt nghiệp vụ nhân sự',
+  AUDITOR: 'Kiểm tra tuân thủ và audit tổ chức',
+  MENTOR: 'Hướng dẫn chuyên môn cho nhân viên',
+  MEMBER: 'Nhân viên trong doanh nghiệp',
+});
+
+/** Vị trí HR (lowercase master) → vai trò tổ chức UPPER. DIRECTOR không nằm ở đây. */
 const POSITION_ROLE_CODE = Object.freeze({
-  engineering_manager: 'department_manager',
-  team_lead: 'team_lead',
-  product_manager: 'resource_manager',
+  engineering_manager: 'DEPARTMENT_MANAGER',
+  team_lead: 'TEAM_LEAD',
+  product_manager: 'RESOURCE_MANAGER',
   business_analyst: MEMBER_CODE,
   software_developer: MEMBER_CODE,
   qa_engineer: MEMBER_CODE,
@@ -119,11 +135,13 @@ const ensuredOrgs = new Set();
 const ALLOWLIST_MEMBER_NAME = MEMBER_DISPLAY_NAME;
 const TRIM_PREFIXES = ['organization.', 'project.', 'system.'];
 
-/** org_member và tên hiển thị thành viên vẫn là vai trò member. Mã viết hoa không được hạ chữ. */
+/** org_member / member / MEMBER và tên hiển thị thành viên → MEMBER. */
 function normalizeAllowlistRoleCode(role) {
   const code = String(role?.code || role || '').trim();
   const name = String(role?.name || '').trim();
-  if (code === 'org_member' || name === ALLOWLIST_MEMBER_NAME) return 'member';
+  if (name === ALLOWLIST_MEMBER_NAME) return MEMBER_CODE;
+  const canonical = resolveCanonicalOrganizationRoleKey(code);
+  if (canonical) return canonical;
   return code;
 }
 
@@ -141,39 +159,156 @@ function tickShouldBeRemoved(roleCode, permissionCode) {
 }
 
 function grantsOf(roleCode) {
-  return ROLE_GRANTS[roleCode] || [];
+  const canonical = normalizeAllowlistRoleCode(roleCode);
+  return ROLE_GRANTS[canonical] || [];
 }
 
 function hasCode(roleCode, permissionCode) {
   return grantsOf(roleCode).some(([code]) => code === permissionCode);
 }
 
+/** Legacy / lowercase codes that map to a canonical UPPER code. */
+function legacyCodesForCanonical(canonical) {
+  const target = String(canonical || '').trim();
+  if (!target) return [];
+  return Object.entries(LEGACY_ORGANIZATION_ROLE_KEY_ALIASES || {})
+    .filter(([, mapped]) => mapped === target)
+    .map(([legacy]) => legacy);
+}
+
+/**
+ * Codes to look up before create: canonical + lowercase + aliases.
+ * @returns {{ canonical: string, codes: string[] }}
+ */
+function lookupCodesForEnsure(code) {
+  const raw = String(code || '').trim();
+  const canonical = resolveCanonicalOrganizationRoleKey(raw) || raw;
+  const fromShared =
+    typeof organizationRoleLookupCodes === 'function'
+      ? organizationRoleLookupCodes(canonical)
+      : [];
+  const codes = [
+    ...new Set(
+      [canonical, raw, canonical.toLowerCase(), ...legacyCodesForCanonical(canonical), ...fromShared].filter(
+        Boolean
+      )
+    ),
+  ];
+  return { canonical, codes };
+}
+
+/**
+ * Prefer canonical UPPER row when both legacy/lowercase and canonical exist.
+ * @param {Array<{ code?: string }>} rows
+ * @param {string} canonical
+ */
+function pickRoleRowPreferCanonical(rows, canonical) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return null;
+  const want = String(canonical || '').trim();
+  return list.find((row) => String(row?.code || '').trim() === want) || list[0];
+}
+
+async function reassignGrantsFromAliasRoles(organizationId, keepRoleId, aliasRoleIds) {
+  const keepId = keepRoleId;
+  const dropIds = (aliasRoleIds || []).filter((id) => String(id) !== String(keepId));
+  for (const aliasId of dropIds) {
+    const grants = await UserOrgRoleGrant.find({ organizationId, roleId: aliasId })
+      .select('_id userId')
+      .lean();
+    for (const grant of grants) {
+      const exists = await UserOrgRoleGrant.findOne({
+        organizationId,
+        userId: grant.userId,
+        roleId: keepId,
+      })
+        .select('_id')
+        .lean();
+      if (exists) {
+        await UserOrgRoleGrant.deleteOne({ _id: grant._id });
+      } else {
+        await UserOrgRoleGrant.updateOne({ _id: grant._id }, { $set: { roleId: keepId } });
+      }
+    }
+    const bindings = await PositionRoleBinding.find({ organizationId, roleId: aliasId })
+      .select('_id positionId')
+      .lean();
+    for (const binding of bindings) {
+      const exists = await PositionRoleBinding.findOne({
+        organizationId,
+        positionId: binding.positionId,
+        roleId: keepId,
+      })
+        .select('_id')
+        .lean();
+      if (exists) {
+        await PositionRoleBinding.deleteOne({ _id: binding._id });
+      } else {
+        await PositionRoleBinding.updateOne({ _id: binding._id }, { $set: { roleId: keepId } });
+      }
+    }
+    await OrgRolePermission.deleteMany({ organizationId, roleId: aliasId });
+    await OrganizationalRole.deleteOne({ _id: aliasId, organizationId });
+  }
+}
+
 async function ensureRole(organizationId, code, sortOrder) {
-  const name = ROLE_NAMES[code] || code;
-  let row = await OrganizationalRole.findOne({ organizationId, code }).lean();
-  if (!row && code === MEMBER_CODE) {
+  const { canonical, codes } = lookupCodesForEnsure(code);
+  const name = ROLE_NAMES[canonical] || code;
+  const description = ROLE_DESCRIPTIONS[canonical] || '';
+  let matches = await OrganizationalRole.find({
+    organizationId,
+    code: { $in: codes },
+  }).lean();
+  let row = pickRoleRowPreferCanonical(matches, canonical);
+  if (!row && canonical === MEMBER_CODE) {
     row = await OrganizationalRole.findOne({
       organizationId,
       name: { $in: ['Member', 'member', 'Thành viên', MEMBER_DISPLAY_NAME] },
     }).lean();
+    if (row) matches = [...matches, row];
   }
   if (!row) {
     row = (
       await OrganizationalRole.create({
         organizationId,
-        code,
+        code: canonical,
         name,
+        description,
         status: 'active',
         sortOrder,
       })
     ).toObject();
     return { row, created: true };
   }
-  const expectedName = ROLE_NAMES[code] || (code === MEMBER_CODE ? MEMBER_DISPLAY_NAME : null);
-  if (expectedName && row.name !== expectedName) {
+
+  const aliasIds = matches
+    .map((m) => m._id)
+    .filter((id) => String(id) !== String(row._id));
+  if (aliasIds.length) {
+    await reassignGrantsFromAliasRoles(organizationId, row._id, aliasIds);
+  }
+
+  const expectedName = ROLE_NAMES[canonical] || (canonical === MEMBER_CODE ? MEMBER_DISPLAY_NAME : null);
+  const $set = {};
+  if (expectedName && row.name !== expectedName) $set.name = expectedName;
+  if (description && String(row.description || '').trim() !== description) {
+    $set.description = description;
+  }
+  if (String(row.code || '') !== canonical && ROLE_GRANTS[canonical]) {
+    const conflict = await OrganizationalRole.findOne({
+      organizationId,
+      code: canonical,
+      _id: { $ne: row._id },
+    })
+      .select('_id')
+      .lean();
+    if (!conflict) $set.code = canonical;
+  }
+  if (Object.keys($set).length) {
     row = await OrganizationalRole.findOneAndUpdate(
       { _id: row._id },
-      { $set: { name: expectedName } },
+      { $set },
       { new: true }
     ).lean();
   }
@@ -323,12 +458,18 @@ async function ensureOrgRoleGrantBaseline(organizationId) {
 
 module.exports = {
   ROLE_GRANTS,
+  ROLE_NAMES,
+  ROLE_DESCRIPTIONS,
   POSITION_ROLE_CODE,
+  MEMBER_CODE,
   MEMBER_DISPLAY_NAME,
   grantsOf,
   hasCode,
   normalizeAllowlistRoleCode,
   roleIsOnAllowlist,
   tickShouldBeRemoved,
+  legacyCodesForCanonical,
+  lookupCodesForEnsure,
+  pickRoleRowPreferCanonical,
   ensureOrgRoleGrantBaseline,
 };

@@ -43,8 +43,12 @@ function validateMasterDataSettings(settings = {}) {
   const md = settings?.masterData || settings;
   validateEnabledKeysSubset(md.enabledDepartmentKeys, departments.MASTER_DEPARTMENT_KEYS, 'department');
   validateEnabledKeysSubset(md.enabledPositionKeys, positions.MASTER_POSITION_KEYS, 'position');
+  const orgRoleKeys = (Array.isArray(md.enabledOrganizationRoleKeys)
+    ? md.enabledOrganizationRoleKeys
+    : []
+  ).map((k) => organizationRoles.resolveCanonicalOrganizationRoleKey(k) || k);
   validateEnabledKeysSubset(
-    md.enabledOrganizationRoleKeys,
+    orgRoleKeys,
     organizationRoles.MASTER_ORGANIZATION_ROLE_KEYS,
     'organization role'
   );
