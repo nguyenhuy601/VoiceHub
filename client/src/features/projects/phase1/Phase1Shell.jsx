@@ -46,6 +46,8 @@ import SpaceProjectChatModule from '../../spaceModules/SpaceProjectChatModule';
 import ProjectHubPage from '../../../pages/Projects/ProjectHubPage';
 import AiHitlWorkspacePage from './aiHitl/AiHitlWorkspacePage';
 import { resolvePostHitlProjectPath } from './aiHitl/aiHitlNavState';
+import { shouldDenyProjectEntry } from '../projectRoleEntry';
+import ProjectRoleDeniedRedirect from '../ProjectRoleDeniedRedirect';
 
 /**
  * Nested Phase 1 body for RA + Planning modules (and collab).
@@ -77,7 +79,12 @@ export default function Phase1Shell({
       ? resolvePlanningResourcesStep(planningSplat)
       : null;
 
-  const { data: projectRow, isPending: projectPending } = useQuery({
+  const {
+    data: projectRow,
+    isPending: projectPending,
+    isError: projectError,
+    error: projectLoadError,
+  } = useQuery({
     queryKey: queryKeys.projectHub.project(projectId),
     queryFn: () => fetchProjectHubProject(projectId),
     enabled: Boolean(projectId),
@@ -135,6 +142,16 @@ export default function Phase1Shell({
         <span>{t('common.loading')}</span>
       </div>
     );
+  }
+
+  if (
+    shouldDenyProjectEntry({
+      projectRow,
+      isError: projectError,
+      error: projectLoadError,
+    })
+  ) {
+    return <ProjectRoleDeniedRedirect projectId={projectId} orgId={orgId} />;
   }
 
   // Phase 0 AI HITL may still be RA (or empty phase before heal) — allow in-shell host.

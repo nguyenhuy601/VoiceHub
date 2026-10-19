@@ -2,8 +2,8 @@
  * G4.4 / G4.6 — LLM semantic / conflict projection with evidence requirement.
  */
 
-function buildSemanticPrompt(batch = []) {
-  return [
+function buildSemanticPrompt(batch = [], contextText = '') {
+  const lines = [
     'You are Requirement Semantic Projection (G4). Return JSON only.',
     'Do NOT invent effort, schedule, capacity, FTE, or employee assignments.',
     'For EACH input FR emit exactly one object inside items[] — do not flatten ambiguities to top-level items.',
@@ -11,6 +11,15 @@ function buildSemanticPrompt(batch = []) {
     'Schema: { "items":[{ "frId", "semanticInterpretation":{"capability","intent"}, "ambiguities":[{"field","issue"}], "relationships":[{"target","reason"}], "evidence":[{"type","id","field","value"}] }] }',
     'Example: { "items":[{ "frId":"CR-1", "semanticInterpretation":{"capability":"…","intent":"…"}, "ambiguities":[{"field":"kpi","issue":"undefined"}], "relationships":[], "evidence":[{"type":"source_fr","id":"CR-1"}] }] }',
     'Each item MUST include evidence referencing source_fr and/or signal.',
+  ];
+  const retrieved = String(contextText || '').trim();
+  if (retrieved) {
+    lines.push(
+      'Retrieved snapshot context (G7). Use only as supporting evidence. Do not invent ids that are not in Candidates or this context.',
+      retrieved
+    );
+  }
+  lines.push(
     'Candidates:',
     JSON.stringify(
       batch.map((c) => ({
@@ -32,18 +41,24 @@ function buildSemanticPrompt(batch = []) {
         flags: c.reasons || c.flags,
       }))
     ),
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
-function buildConflictPrompt(batch = []) {
-  return [
+function buildConflictPrompt(batch = [], contextText = '') {
+  const lines = [
     'You are Conflict Verification (G4). Return JSON only.',
-    'Verify each potential conflict pair using only the provided FR pair + normalized facts.',
-    'Do NOT invent workbook-wide context. No effort/schedule.',
+    'Verify each potential conflict pair using the FR pair, normalized facts, and retrieved snapshot context when provided.',
+    'No effort/schedule.',
     'Schema: { "verdicts":[{ "pairKey", "verdict":"CONFIRMED"|"REJECTED"|"UNCLEAR", "reason", "evidence":[{"type","id"}] }] }',
     'Also accept legacy: { "conflicts":[{ "frIds":[], "issue", "evidence":[] }] } mapped as CONFIRMED.',
-    JSON.stringify(batch),
-  ].join('\n');
+  ];
+  const retrieved = String(contextText || '').trim();
+  if (retrieved) {
+    lines.push('Retrieved snapshot context (G7):', retrieved);
+  }
+  lines.push(JSON.stringify(batch));
+  return lines.join('\n');
 }
 
 function ensureEvidence(item, frId) {
@@ -133,7 +148,7 @@ async function runSemanticProjection(opts = {}) {
   if (!batch.length || !policy.enabled) {
     return { ok: true, skipped: true, items: [], error: null, llmCalls: 0, evalCount: 0, durationMs: 0, promptChars: 0 };
   }
-  const prompt = buildSemanticPrompt(batch);
+  const prompt = buildSemanticPrompt(batch, opts.contextText || '');
   const t0 = Date.now();
   const result = await generate({
     prompt,
@@ -200,7 +215,7 @@ async function runConflictProjection(opts = {}) {
       skipReason: 'no_batch_or_disabled',
     };
   }
-  const prompt = buildConflictPrompt(batch);
+  const prompt = buildConflictPrompt(batch, opts.contextText || '');
   const t0 = Date.now();
   const result = await generate({
     prompt,

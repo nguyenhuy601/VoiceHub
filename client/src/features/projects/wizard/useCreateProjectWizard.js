@@ -22,9 +22,11 @@ import {
 import {
   INTAKE_LEAD_ROLE_KEYS,
   emptyGateSlots,
+  creatorHasSeedProjectRole,
   gateSlotsToSeedMembers,
   normalizeGateSlots,
 } from './projectWizardIntakeRoles';
+import { emptyGateReviewPolicy, normalizeGateReviewPlan, normalizeGateReviewPolicy } from './gateReviewPlan';
 import {
   emptyIntakeFiles,
   buildIntakeUploadQueue,
@@ -40,6 +42,13 @@ function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
+function reviewForSlots(prev, nextGates) {
+  return {
+    what: normalizeGateReviewPlan(prev.gateReview?.what, Object.keys(nextGates.what || {})),
+    how: normalizeGateReviewPlan(prev.gateReview?.how, Object.keys(nextGates.how || {})),
+  };
+}
+
 function emptyForm(initial = {}) {
   const title = String(initial.title || '');
   const explicitCode = String(initial.projectCode || '').trim();
@@ -49,6 +58,7 @@ function emptyForm(initial = {}) {
   const analysisMode = ['manual', 'ai'].includes(String(initial.analysisMode || '').toLowerCase())
     ? String(initial.analysisMode).toLowerCase()
     : '';
+  const gateSlots = normalizeGateSlots(initial.gateSlots || emptyGateSlots());
   return {
     title,
     description: String(initial.description || initial.body || ''),
@@ -62,7 +72,11 @@ function emptyForm(initial = {}) {
     projectCode: explicitCode || (title.trim() ? buildProjectCodeBase({ title }) : ''),
     projectCodeTouched: Boolean(explicitCode),
     seedMembers: Array.isArray(initial.seedMembers) ? initial.seedMembers : [],
-    gateSlots: normalizeGateSlots(initial.gateSlots || emptyGateSlots()),
+    gateSlots,
+    gateReview: normalizeGateReviewPolicy(initial.gateReview || emptyGateReviewPolicy(), {
+      what: Object.keys(gateSlots.what),
+      how: Object.keys(gateSlots.how),
+    }),
     participationScale: 'company',
     relatedDepartmentIds: [],
     visibility: initial.visibility === 'workspace' ? 'workspace' : 'private',
@@ -297,6 +311,7 @@ export default function useCreateProjectWizard({
       return {
         ...prev,
         gateSlots: nextGates,
+        gateReview: reviewForSlots(prev, nextGates),
         seedMembers: gateSlotsToSeedMembers(nextGates),
         relatedDepartmentIds: [],
       };
@@ -316,7 +331,7 @@ export default function useCreateProjectWizard({
         ...gateSlots,
         [process]: { ...gateSlots[process], [key]: null },
       };
-      return { ...prev, gateSlots: nextGates };
+      return { ...prev, gateSlots: nextGates, gateReview: reviewForSlots(prev, nextGates) };
     });
   }, []);
 
@@ -335,6 +350,7 @@ export default function useCreateProjectWizard({
       return {
         ...prev,
         gateSlots: nextGates,
+        gateReview: reviewForSlots(prev, nextGates),
         seedMembers: gateSlotsToSeedMembers(nextGates),
       };
     });
@@ -364,6 +380,7 @@ export default function useCreateProjectWizard({
       return {
         ...prev,
         gateSlots: nextGates,
+        gateReview: reviewForSlots(prev, nextGates),
         seedMembers: gateSlotsToSeedMembers(nextGates),
       };
     });
@@ -408,6 +425,7 @@ export default function useCreateProjectWizard({
       return {
         ...prev,
         gateSlots,
+        gateReview: reviewForSlots(prev, gateSlots),
         seedMembers: gateSlotsToSeedMembers(gateSlots),
       };
     });
@@ -427,7 +445,27 @@ export default function useCreateProjectWizard({
       return {
         ...prev,
         gateSlots,
+        gateReview: reviewForSlots(prev, gateSlots),
         seedMembers: gateSlotsToSeedMembers(gateSlots),
+      };
+    });
+  }, []);
+
+  const setGateReview = useCallback((processKey, partial) => {
+    const process = processKey === 'how' ? 'how' : 'what';
+    setForm((prev) => {
+      const keys = Object.keys(prev.gateSlots?.[process] || {});
+      const plan = normalizeGateReviewPlan(
+        { ...(prev.gateReview?.[process] || {}), ...(partial || {}) },
+        keys
+      );
+      return {
+        ...prev,
+        gateReview: {
+          ...emptyGateReviewPolicy(),
+          ...(prev.gateReview || {}),
+          [process]: plan,
+        },
       };
     });
   }, []);
@@ -442,6 +480,14 @@ export default function useCreateProjectWizard({
         relatedDepartmentIds: [],
         projectManagerId: pm?.userId,
         analysisMode: form.analysisMode || 'manual',
+        gateReview: normalizeGateReviewPolicy(form.gateReview, {
+          what: Object.keys(form.gateSlots?.what || {}),
+          how: Object.keys(form.gateSlots?.how || {}),
+        }),
+        gateRoleKeys: {
+          what: Object.keys(form.gateSlots?.what || {}),
+          how: Object.keys(form.gateSlots?.how || {}),
+        },
       },
       { organizationId, creatorUserId, scopeLabel }
     );
@@ -466,7 +512,11 @@ export default function useCreateProjectWizard({
     let handedOff = false;
     const handOffToWorkspace = async (result) => {
       setSubmitPhase('opening_workspace');
-      await onCreated?.(result);
+      const creatorHasProjectRole = creatorHasSeedProjectRole(
+        gateSlotsToSeedMembers(form.gateSlots),
+        creatorUserId
+      );
+      await onCreated?.({ ...result, creatorHasProjectRole });
       handedOff = true;
       return result;
     };
@@ -583,6 +633,7 @@ export default function useCreateProjectWizard({
     onCreated,
     t,
     buildPayload,
+    creatorUserId,
     form.intakeFiles,
     form.analysisMode,
     form.title,
@@ -620,6 +671,7 @@ export default function useCreateProjectWizard({
     addGateRole,
     removeGateRole,
     setGateAssignee,
+    setGateReview,
     clearIntakeSlot,
     defaultMemberRole: WIZARD_DEFAULT_MEMBER_ROLE,
     baRole: WIZARD_BA_ROLE,

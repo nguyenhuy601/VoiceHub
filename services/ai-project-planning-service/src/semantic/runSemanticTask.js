@@ -17,15 +17,22 @@ function isSourceEmpty(rows) {
 /**
  * Build a minimal prompt for non-FR tasks (Step 5 enable path).
  */
-function buildTaskPrompt(task, rows) {
-  return [
+function buildTaskPrompt(task, rows, contextText = '') {
+  const lines = [
     `SemanticTask=${task.id} section=${task.section}`,
     task.promptPolicy,
     'Return JSON only matching the task semantic schema.',
     `Schema hint: ${JSON.stringify(task.semanticSchema)}`,
-    `Input rows (${rows.length}):`,
-    JSON.stringify(rows.slice(0, 40)),
-  ].join('\n');
+  ];
+  const retrieved = String(contextText || '').trim();
+  if (retrieved) {
+    lines.push(
+      'Retrieved snapshot context (G7). Use as supporting evidence. Do not invent ids outside the rows and this context.',
+      retrieved
+    );
+  }
+  lines.push(`Input rows (${rows.length}):`, JSON.stringify(rows.slice(0, 40)));
+  return lines.join('\n');
 }
 
 function mapRuntimeDataToItems(task, data) {
@@ -176,8 +183,13 @@ async function runSemanticTask(opts = {}) {
   }
 
   // policy === RUN
+  const { formatRetrievedContext } = require('../retrieval/formatRetrievedContext');
   const runtime = await invokeSemanticRuntime({
-    prompt: buildTaskPrompt(task, rows),
+    prompt: buildTaskPrompt(
+      task,
+      rows,
+      formatRetrievedContext(opts.contextPackage).text
+    ),
     env: opts.env,
   });
 

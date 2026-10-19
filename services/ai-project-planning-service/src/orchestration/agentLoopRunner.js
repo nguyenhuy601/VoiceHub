@@ -246,9 +246,9 @@ async function runHowPhase({
           await ingestSnapshotToQdrant({ snapshot, snapshotId });
         }
       } catch (ingestErr) {
-        const { getG7RagMode } = require('../retrieval/g7PipelineSchemas');
+        const { getG7RagMode, requiresQdrant } = require('../retrieval/g7PipelineSchemas');
         const mode = getG7RagMode();
-        if (mode === 'qdrant') {
+        if (requiresQdrant(mode)) {
           console.error('[g7_ingest] fail-closed', ingestErr?.message || ingestErr);
           throw ingestErr;
         }
@@ -772,6 +772,7 @@ async function runWhatPhase({
         runId,
         onProgress,
         g4Understanding,
+        contextPackage,
       });
       srsProposal = finalized.srsProposal;
       if (srsProposal) {

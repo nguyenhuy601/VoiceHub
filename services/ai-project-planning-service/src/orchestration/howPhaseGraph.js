@@ -142,9 +142,12 @@ function buildHowPhaseGraph(hooks = {}) {
         });
       }
     } catch (ingestErr) {
-      const { getG7RagMode } = require('../retrieval/g7PipelineSchemas');
+      const { getG7RagMode, requiresQdrant } = require('../retrieval/g7PipelineSchemas');
       const mode = getG7RagMode();
-      if (mode === 'qdrant') throw ingestErr;
+      if (requiresQdrant(mode)) {
+        console.error('[g7_ingest] fail-closed', ingestErr?.message || ingestErr);
+        throw ingestErr;
+      }
       ingestWarning = String(ingestErr?.message || ingestErr);
       console.warn('[g7_ingest] soft', ingestWarning);
     }

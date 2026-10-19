@@ -159,6 +159,18 @@ export function countAssignedGateSlots(slots, processKey) {
     .length;
 }
 
+/** Người tạo có mặt trong danh sách Thêm và đã được gán ít nhất một vai trò dự án. */
+export function creatorHasSeedProjectRole(seedMembers, creatorUserId) {
+  const uid = String(creatorUserId || '').trim();
+  if (!uid) return false;
+  for (const row of Array.isArray(seedMembers) ? seedMembers : []) {
+    if (String(row?.userId || '').trim() !== uid) continue;
+    const keys = Array.isArray(row?.projectRoleKeys) ? row.projectRoleKeys : [];
+    if (keys.some((key) => String(key || '').trim())) return true;
+  }
+  return false;
+}
+
 /**
  * Gộp hai cổng → seed members. Cùng user nhiều vai trò → 1 row.
  * @param {{ what?: object, how?: object }} gateSlots

@@ -39,7 +39,10 @@ function createQdrantClient(opts = {}) {
       validateStatus: () => true,
       timeout: 10000,
     });
-    if (getRes.status === 200) return { created: false, collection };
+    if (getRes.status === 200) {
+      await ensurePayloadIndex();
+      return { created: false, collection };
+    }
     const putRes = await http.put(
       `${root}/collections/${encodeURIComponent(collection)}`,
       {
@@ -51,11 +54,32 @@ function createQdrantClient(opts = {}) {
       { validateStatus: () => true, timeout: 15000 }
     );
     if (putRes.status >= 200 && putRes.status < 300) {
+      await ensurePayloadIndex();
       return { created: true, collection };
     }
     const err = new Error(`Qdrant ensureCollection failed: ${putRes.status}`);
     err.code = 'QDRANT_ENSURE_FAILED';
     err.status = putRes.status;
+    throw err;
+  }
+
+  async function ensurePayloadIndex(field = 'snapshotId') {
+    const root = assertConfigured();
+    const res = await http.put(
+      `${root}/collections/${encodeURIComponent(collection)}/index?wait=true`,
+      { field_name: field, field_schema: 'keyword' },
+      { validateStatus: () => true, timeout: 15000 }
+    );
+    const body = JSON.stringify(res.data || '');
+    const already =
+      res.status === 409 ||
+      (res.status === 400 && /already exists|already exist/i.test(body));
+    if ((res.status >= 200 && res.status < 300) || already) {
+      return { field, created: !already };
+    }
+    const err = new Error(`Qdrant payload index failed: ${res.status} ${body.slice(0, 240)}`);
+    err.code = 'QDRANT_INDEX_FAILED';
+    err.status = res.status;
     throw err;
   }
 

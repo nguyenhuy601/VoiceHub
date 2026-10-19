@@ -141,6 +141,16 @@ async function ingestSnapshotToQdrant(opts = {}) {
     await qdrant.upsertPoints(points);
   }
 
+  if (embedFailed > 0 || (corpus.length > 0 && skipped < corpus.length && points.length === 0)) {
+    const err = new Error(
+      `Qdrant ingest failed snapshotId=${snapshotId} upserted=${points.length} embedFailed=${embedFailed} skipped=${skipped}`
+    );
+    err.code = 'QDRANT_INGEST_FAILED';
+    err.embedFailed = embedFailed;
+    err.skipped = skipped;
+    throw err;
+  }
+
   console.log(
     '[g7_ingest] after=%s corpusHash=%s snapshotId=%s points=%s skipped=%s embedFailed=%s',
     opts.afterQuality ? 'quality' : 'legacy',

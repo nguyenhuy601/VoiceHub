@@ -199,12 +199,9 @@ async function runG4Pipeline(opts = {}) {
         opts.priorCorpusHash &&
         (opts.loop1Reenter || opts.skipIngest === true)
     );
-    // PERF: PHASE1_RAG=stub|off wins over G7_RAG_MODE=hybrid (avoid DNS/embed ~10s+ soft-fail).
-    const phase1Rag = String(env.PHASE1_RAG || 'stub').trim().toLowerCase();
-    const forceStubRag = phase1Rag === 'stub' || phase1Rag === 'off' || phase1Rag === '0';
-    const mode = forceStubRag ? 'stub' : getG7RagMode(env);
+    // WHAT and HOW share G7_RAG_MODE (stub|keyword|hybrid|qdrant|off).
+    const mode = getG7RagMode(env);
     if (
-      !forceStubRag &&
       isIngestAfterQualityEnabled(env) &&
       snapshotId &&
       !loop1SkipIngest
@@ -228,13 +225,17 @@ async function runG4Pipeline(opts = {}) {
     }
 
     if (!contextPackage) {
+      const { buildWhatRetrieveQuery } = require('../../retrieval/formatRetrievedContext');
       const fallbackText = String(
         projected?.overview?.requirementName ||
           snapshot?.overview?.requirementName ||
           ''
       );
       const assembleInput = {
-        query: 'what_requirements',
+        query: buildWhatRetrieveQuery({
+          snapshot,
+          functionalRequirements: validFrs,
+        }),
         corpus: corpus.length
           ? corpus
           : fallbackText
@@ -242,15 +243,16 @@ async function runG4Pipeline(opts = {}) {
             : [],
         snapshotId,
         env,
-        mode: forceStubRag ? 'stub' : mode,
+        mode,
       };
-      contextPackage = forceStubRag
-        ? require('../../retrieval/contextAssembly').assembleContextPackage(assembleInput)
-        : await assembleContextPackageAsync(assembleInput);
+      contextPackage = await assembleContextPackageAsync(assembleInput);
     }
   } catch (ingestErr) {
-    const { getG7RagMode } = require('../../retrieval/g7PipelineSchemas');
-    if (getG7RagMode(env) === 'qdrant') throw ingestErr;
+    const { getG7RagMode, requiresQdrant } = require('../../retrieval/g7PipelineSchemas');
+    if (requiresQdrant(getG7RagMode(env))) {
+      console.error('[g7_ingest] g4 fail-closed', ingestErr?.message || ingestErr);
+      throw ingestErr;
+    }
     console.warn('[g7_ingest] g4 soft', ingestErr?.message || ingestErr);
   }
 
@@ -266,6 +268,9 @@ async function runG4Pipeline(opts = {}) {
     g4_synthesis: { ms: 0, calls: 0, evalCount: 0, promptChars: 0, skipReason: null },
   };
 
+  const { formatRetrievedContext } = require('../../retrieval/formatRetrievedContext');
+  const contextText = formatRetrievedContext(contextPackage).text;
+
   const skipLlm = Boolean(opts.forceHeuristic || opts.skipLlm || !policy.pipelineEnabled);
 
   await emitProgress(opts.onProgress, 'semantic');
@@ -278,7 +283,7 @@ async function runG4Pipeline(opts = {}) {
     });
     for (const batch of batches) {
       const { buildSemanticPrompt } = require('./semanticProjection');
-      const estChars = buildSemanticPrompt(batch).length;
+      const estChars = buildSemanticPrompt(batch, contextText).length;
       if (estChars > maxPromptChars) {
         stageTimings.g4_semantic.skipReason = 'prompt_too_large';
         stageTimings.g4_semantic.promptChars = estChars;
@@ -296,6 +301,7 @@ async function runG4Pipeline(opts = {}) {
       const sem = await runSemanticProjection({
         generateJson: generate,
         batch,
+        contextText,
         policy: policy.llm.semanticProjection,
         requireEvidence: policy.evidence.required,
         env,
@@ -334,6 +340,7 @@ async function runG4Pipeline(opts = {}) {
       : [];
     const conf = await runConflictProjection({
       generateJson: generate,
+      contextText,
       // Slim context: potential pairs only (not full FR list)
       batch: relationBatch.length
         ? relationBatch.map((rel) => ({
@@ -433,6 +440,7 @@ async function runG4Pipeline(opts = {}) {
       conflicts,
       toolFacts: toolResult.facts || {},
       ambiguities,
+      contextText,
       env,
     });
     llmCalls += syn.llmCalls || 0;

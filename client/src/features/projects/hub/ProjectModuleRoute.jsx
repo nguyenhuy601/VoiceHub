@@ -37,6 +37,8 @@ import { queryKeys } from '../../../lib/queryKeys';
 import { useAppStrings } from '../../../locales/appStrings';
 import { isAiHitlIncomplete, resolveAiProjectEntryPath } from '../phase1/aiHitl/aiHitlNavState';
 import { loadLinkedPackForAiNav } from '../phase1/aiHitl/loadLinkedPackForAiNav';
+import { shouldDenyProjectEntry } from '../projectRoleEntry';
+import ProjectRoleDeniedRedirect from '../ProjectRoleDeniedRedirect';
 
 const PHASE1_MODULES = new Set([
   'overview',
@@ -72,6 +74,8 @@ export default function ProjectModuleRoute() {
   const {
     data: projectRow,
     isPending: projectPending,
+    isError: projectError,
+    error: projectLoadError,
   } = useQuery({
     queryKey: queryKeys.projectHub.project(projectId),
     queryFn: () => fetchProjectHubProject(projectId),
@@ -130,6 +134,16 @@ export default function ProjectModuleRoute() {
         <span>{t('common.loading')}</span>
       </div>
     );
+  }
+
+  if (
+    shouldDenyProjectEntry({
+      projectRow,
+      isError: projectError,
+      error: projectLoadError,
+    })
+  ) {
+    return <ProjectRoleDeniedRedirect projectId={projectId} orgId={orgId} />;
   }
 
   if (needsAiHitlGuard && packPending && linkedPack === undefined) {

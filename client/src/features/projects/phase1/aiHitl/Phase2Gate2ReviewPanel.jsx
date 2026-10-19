@@ -17,7 +17,17 @@ import { useProjectMemberNames } from '../planning/useProjectMemberNames';
 import HowPlanSummaryChips from './HowPlanSummaryChips';
 import HitlSectionTabList from './HitlSectionTabList';
 import Gate2ConsolidationPanel from './Gate2ConsolidationPanel';
-import { GATE2_DOMAIN_FOCUS_KEY, sectionsForTrack } from './gate2ReviewOwnership.js';
+const ROLE_LABEL = {
+  po: 'PO',
+  tech: 'Tech Lead',
+  pm: 'PM',
+  product_owner: 'PO',
+  tech_lead: 'Tech Lead',
+  project_manager: 'PM',
+  business_analyst: 'BA',
+  qa: 'QA',
+  tester: 'Tester',
+};
 
 function resolvePackProjectId(pack) {
   const raw = pack?.projectId;
@@ -94,20 +104,8 @@ export default function Phase2Gate2ReviewPanel({
     setActiveTrack((prev) => (parallelTracks.includes(prev) ? prev : parallelTracks[0] || ''));
   }, [parallelTracks]);
 
-  const ownedSectionKeys = useMemo(
-    () => (reviewView === 'showParallel' && activeTrack ? sectionsForTrack(activeTrack) : null),
-    [reviewView, activeTrack]
-  );
-  const visibleTabs = useMemo(() => {
-    if (!ownedSectionKeys?.length) return sectionTabs;
-    return sectionTabs.filter((tab) => ownedSectionKeys.includes(tab.key));
-  }, [sectionTabs, ownedSectionKeys]);
-  const scopedBySection = useMemo(() => {
-    if (!ownedSectionKeys?.length) return bySection;
-    const next = {};
-    for (const key of ownedSectionKeys) next[key] = bySection[key] || [];
-    return next;
-  }, [bySection, ownedSectionKeys]);
+  const visibleTabs = sectionTabs;
+  const scopedBySection = bySection;
 
   useEffect(() => {
     setActiveSection((prev) => {
@@ -165,7 +163,7 @@ export default function Phase2Gate2ReviewPanel({
         {labelOf(
           t,
           'requirements.gate2WaitingParallel',
-          'Đang chờ các phần còn lại: PO (scope), Tech Lead (kỹ thuật), PM (tiến độ).'
+          'Đang chờ các vai trò đã chọn review toàn bộ kế hoạch.'
         )}
       </p>
     );
@@ -335,7 +333,7 @@ export default function Phase2Gate2ReviewPanel({
                   : 'border-border text-muted-foreground'
               }`}
             >
-              {track === 'po' ? 'PO' : track === 'tech' ? 'Tech Lead' : 'PM'}
+              {ROLE_LABEL[track] || track}
             </button>
           ))}
         </div>
@@ -344,18 +342,15 @@ export default function Phase2Gate2ReviewPanel({
         <p className="mb-3 text-xs text-muted-foreground">
           {labelOf(
             t,
-            GATE2_DOMAIN_FOCUS_KEY[activeTrack],
-            activeTrack === 'po'
-              ? 'Scope, priority, business value'
-              : activeTrack === 'tech'
-                ? 'Architecture, technical WBS, effort, risk'
-                : 'Timeline, capacity, budget, feasibility'
+            'requirements.gate2ReviewAllSections',
+            `${ROLE_LABEL[activeTrack] || activeTrack} review toàn bộ kế hoạch, không chia section.`
           )}
         </p>
       ) : null}
       {showConsolidation || showChangeConfirm ? (
         <Gate2ConsolidationPanel
           mode={showChangeConfirm ? 'confirm' : 'consolidate'}
+          assignSections={false}
           proposals={proposals}
           busy={busy}
           t={t}
@@ -412,7 +407,7 @@ export default function Phase2Gate2ReviewPanel({
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {labelOf(t, 'requirements.gate2TrackSubmit', 'Xác nhận phần của tôi')}
+            {labelOf(t, 'requirements.gate2TrackSubmit', 'Xác nhận review')}
           </button>
         ) : null}
         {showPo ? (

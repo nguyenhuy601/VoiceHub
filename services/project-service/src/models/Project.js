@@ -213,6 +213,14 @@ const projectSchema = new mongoose.Schema(
       default: 'manual',
       index: true,
     },
+    /**
+     * Cách duyệt Gate WHAT / HOW khi cổng có từ 2 vai trò.
+     * finalRoleKey là vai trò Tổng duyệt — người xác nhận cổng.
+     */
+    gateReviewPolicy: {
+      type: mongoose.Schema.Types.Mixed,
+      default: undefined,
+    },
     /** Plan A — project Release Ready gate (HITL). */
     releaseReadyStatus: {
       type: String,

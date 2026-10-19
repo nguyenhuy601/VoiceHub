@@ -34,6 +34,7 @@ function statusLabel(t, row) {
  */
 export default function Gate2ConsolidationPanel({
   mode = 'consolidate',
+  assignSections = true,
   proposals = [],
   busy = false,
   t,
@@ -68,11 +69,17 @@ export default function Gate2ConsolidationPanel({
           {labelOf(t, 'requirements.gate2ConsolidationTitle', 'PM tổng hợp')}
         </h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          {labelOf(
-            t,
-            'requirements.gate2ConsolidationHint',
-            'PM kiểm tra xung đột. Sửa phần của Tech Lead hoặc PO chỉ có hiệu lực khi chủ phần xác nhận.'
-          )}
+          {assignSections
+            ? labelOf(
+                t,
+                'requirements.gate2ConsolidationHint',
+                'PM kiểm tra xung đột. Sửa phần của Tech Lead hoặc PO chỉ có hiệu lực khi chủ phần xác nhận.'
+              )
+            : labelOf(
+                t,
+                'requirements.gate2ConsolidationHintAll',
+                'Vai trò tổng hợp xem toàn bộ kế hoạch rồi xác nhận. Không chia section cho từng vai trò.'
+              )}
         </p>
       </div>
 
@@ -172,7 +179,7 @@ export default function Gate2ConsolidationPanel({
         </article>
       ))}
 
-      {showForm ? (
+      {showForm && assignSections ? (
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs">
             {labelOf(t, 'requirements.gate2ProposalOwner', 'Chủ phần')}
@@ -235,6 +242,18 @@ export default function Gate2ConsolidationPanel({
               {labelOf(t, 'requirements.gate2PmConfirmPlan', 'Xác nhận kế hoạch đã nhất quán')}
             </button>
           </div>
+        </div>
+      ) : null}
+      {showForm && !assignSections ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            disabled={busy || blocking.length > 0}
+            onClick={() => onConfirmPlan?.()}
+            className="rounded-md border border-emerald-600/40 px-3 py-1.5 text-xs font-semibold text-emerald-800 disabled:opacity-40 dark:text-emerald-300"
+          >
+            {labelOf(t, 'requirements.gate2PmConfirmPlan', 'Xác nhận kế hoạch đã nhất quán')}
+          </button>
         </div>
       ) : null}
     </section>
