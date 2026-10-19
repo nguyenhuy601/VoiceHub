@@ -1495,7 +1495,7 @@ const OrganizationMainPanel = ({
     (opts = {}) => {
       const orgId = String(opts.organizationId || orgIdForTask || organizationId || '').trim();
       if (!orgId) {
-        toast.error(t('organizations.selectOrgFirst'));
+        toast.error(t('organizations.selectOrgFirst') || 'Chọn organization trước.');
         return;
       }
       if (!canOpenCreateProjectWizard) {
@@ -1530,15 +1530,8 @@ const OrganizationMainPanel = ({
     });
   }, [initialTaskBoardTeam]);
 
-  const membershipRoleNorm = String(
-    taskWorkspaceScope?.membershipRole ||
-      selectedOrganization?.myRole ||
-      selectedOrganization?.role ||
-      ''
-  ).toLowerCase();
-  /** Chỉ BGĐ (Owner/Admin org) — không hiện cho PM/TL. */
-  const canCreateProjectBrief =
-    membershipRoleNorm === 'owner' || membershipRoleNorm === 'admin';
+  /** SoT: cùng grant project.project.create — không dùng membership owner|admin. */
+  const canCreateProjectBrief = Boolean(canCreateProjectCapability);
 
   /** Hierarchy gợi ý PM: trưởng phòng → trưởng nhóm (team đang chọn trước). */
   const briefDepartmentHeadUserId = useMemo(() => {

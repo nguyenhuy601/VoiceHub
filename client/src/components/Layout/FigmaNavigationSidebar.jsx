@@ -49,8 +49,7 @@ import {
   getDefaultPathForSuite,
 } from '../../utils/suitePathUtils';
 import { COMPANY_SPACE_LEVEL } from '../../utils/companySpaceLevel';
-import { useAuth } from '../../context/AuthContext';
-import { shouldShowCollaborateRequirementsNavForUser } from '../../utils/collaborateRequirementsNav';
+import useRequirementAccess from '../../hooks/useRequirementAccess';
 import VoiceHubAIPanel from './VoiceHubAIPanel';
 import { VH_NAV_CHEVRON } from '../../motion/classes';
 import useMotionPresence from '../../motion/useMotionPresence';
@@ -325,17 +324,18 @@ export default function FigmaNavigationSidebar({
     if (next) setShowSuitePicker(false);
   };
 
-  const { user } = useAuth();
   const { role, meta } = useUiRole();
   const isSingleCompany = singleOrgMode || readSingleOrgModeFlag();
-  const { isSystemAdmin, myOrgRole } = useCompanyAdminAccess();
-  // /app/admin chỉ dành systemRole=admin và shell đó tự điều hướng. Sidebar nhân viên không mở phân hệ này.
-  const showAdminSuite = false;
+  const { isSystemAdmin, myOrgRole, canAccessHub } = useCompanyAdminAccess();
+  // Suite Quản trị: Bên bán (systemAdmin) hoặc nhân viên có mã quyền admin (vd. Giám đốc) — khớp canAccessHub / ban-giao §10.
+  const showAdminSuite = Boolean(canAccessHub);
   // Approvers include IC project roles (TL/QA) — inbox ACL is server-side (canAct / requester)
   const showApprovalInbox = suiteProp === 'collaborate' || suiteProp === 'company';
-  // Menu theo Position (jobTitle); quyền thao tác vẫn qua access API trên trang.
+  const collaborateOrgId = suiteProp === 'collaborate' ? activeOrgId : '';
+  const { access: requirementAccess } = useRequirementAccess(collaborateOrgId);
+  // SoT: access API showCollaborateNav (Position.code / org role / project role — không jobTitle FE).
   const showRequirementsNav =
-    suiteProp === 'collaborate' && shouldShowCollaborateRequirementsNavForUser(user);
+    suiteProp === 'collaborate' && Boolean(requirementAccess?.showCollaborateNav);
   const myStructureRole = String(
     company?.myStructureRole || activeWorkspace?.myStructureRole || ''
   ).toLowerCase();

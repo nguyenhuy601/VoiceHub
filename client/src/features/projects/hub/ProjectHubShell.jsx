@@ -63,7 +63,6 @@ import {
 } from './useProjectHubQueries';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../../lib/queryKeys';
-import { VH_MOTION_TAB_PANEL } from '../../../motion/classes';
 
 function OverviewMetricSkeleton({ count = 4, isDarkMode }) {
   const pulse = isDarkMode ? 'bg-white/10' : 'bg-muted';
@@ -1020,9 +1019,10 @@ export default function ProjectHubShell({
   } = useProjectHubOverview(projectId, { enabled: useOverviewAggregate });
   const { data: projectQueryData = null } = useProjectHubProject(projectId);
   const projectPayload = projectQueryData ?? overviewPayload?.project ?? null;
+  // Fail-closed: không mở CTA manage khi thiếu capabilities payload (tránh canManage fallback lệch role).
   const hubCaps = useMemo(
-    () => resolveHubCapabilities(projectPayload, { canManageFallback: canManage }),
-    [projectPayload, canManage]
+    () => resolveHubCapabilities(projectPayload, { canManageFallback: false }),
+    [projectPayload]
   );
 
   if (prevHubProjectIdRef.current !== projectId) {
@@ -1781,7 +1781,7 @@ export default function ProjectHubShell({
         </div>
       ) : null}
 
-      <div key={tab} className={`relative flex min-h-0 flex-1 flex-col overflow-hidden ${VH_MOTION_TAB_PANEL}`}>
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {tab === 'overview' ? (
           <OverviewPanel
             board={resolvedBoard}

@@ -1,11 +1,10 @@
 import { useMemo } from 'react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useAuth } from '../context/AuthContext';
+import { getVisibleAdminDomains } from '../config/adminDomainsConfig';
 import { hasAnyAdminNavGrant } from '../config/rbacUiGrantMap';
 import { useGrantScopes } from './useGrantScopes';
 import { readSingleOrgModeFlag } from '../utils/singleCompanyMode';
-
-const FULL_ACCESS_ROLES = new Set(['owner', 'admin']);
 
 export function useCompanyAdminAccess() {
   const { company, activeWorkspace, lastOrganizationId, singleOrgMode } = useWorkspace();
@@ -32,9 +31,9 @@ export function useCompanyAdminAccess() {
   );
 
   const isSystemAdmin = systemRole === 'admin';
-  const isOrgOwnerOrAdmin = FULL_ACCESS_ROLES.has(myOrgRole);
   const { hasGrant, scopeOf, loading: grantsLoading, error: grantsError } = useGrantScopes(orgId);
-  const canAccessHub = isSystemAdmin || hasAnyAdminNavGrant(hasGrant, scopeOf);
+  const canAccessHub =
+    isSystemAdmin || hasAnyAdminNavGrant(hasGrant, scopeOf, getVisibleAdminDomains());
   const isFullAccess = false;
 
   return {
@@ -45,7 +44,6 @@ export function useCompanyAdminAccess() {
     isFullAccess,
     grantsLoading,
     grantsError,
-    isOrgOwnerOrAdmin,
     myOrgRole,
     orgId,
   };

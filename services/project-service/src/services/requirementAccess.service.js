@@ -3,6 +3,7 @@ const {
   canCreateTaskInScope,
 } = require('./taskWorkspaceScope');
 const { fetchRequirementAccessPolicy } = require('../clients/requirementAccessPolicy.client');
+const { hasProjectCreateGrant } = require('../clients/rolePermission.client');
 const {
   resolveRequirementPersona,
   hasProjectRoleKeysOnProject,
@@ -70,14 +71,19 @@ async function loadPersonaContextUncached(uid, orgId) {
   if (!scope) return null;
 
   const membershipRole = String(scope.membershipRole || '').toLowerCase();
+  const organizationRoleKeys = (Array.isArray(scope.organizationRoles) ? scope.organizationRoles : [])
+    .map((row) => String(row?.key || row?.roleKey || row || '').trim())
+    .filter(Boolean);
+
   const persona = await resolveRequirementPersona({
     userId: uid,
     organizationId: orgId,
     membershipRole,
+    organizationRoleKeys,
     policy,
   });
 
-  return { scope, policy, persona, membershipRole };
+  return { scope, policy, persona, membershipRole, organizationRoleKeys };
 }
 
 async function loadPersonaContext(userId, organizationId) {
@@ -97,7 +103,9 @@ async function loadPersonaContext(userId, organizationId) {
 function buildAccessFromPersona(scope, persona) {
   const actions = persona?.actions || {};
   const visibility = persona?.visibility || {};
-  const canCreateFromPack = actions.createProject && canCreateTaskInScope(scope);
+  // Create-from-pack / promote: persona createProject only — org grant AND applied in resolveRequirementAccess.
+  // Do not require canCreateTask (placement head/leader); that blocked RM/Director with project.project.create.
+  const canCreateFromPack = Boolean(actions.createProject);
 
   return {
     canView: Boolean(actions.view),
@@ -140,7 +148,15 @@ async function resolveRequirementAccess({ userId, organizationId }) {
   const ctx = await loadPersonaContext(userId, organizationId);
   if (!ctx) return denied;
 
-  return buildAccessFromPersona(ctx.scope, ctx.persona);
+  const access = buildAccessFromPersona(ctx.scope, ctx.persona);
+  // RULE-07: create-from-pack CTA ⇔ persona createProject AND org grant project.project.create
+  if (access.canCreateFromPack) {
+    const hasCreateGrant = await hasProjectCreateGrant(userId, organizationId);
+    if (!hasCreateGrant) {
+      access.canCreateFromPack = false;
+    }
+  }
+  return access;
 }
 
 async function canUserRunAiPlanning(uid, orgId, projectId = null) {

@@ -69,6 +69,15 @@ export function canCreateProjectUi(capabilities) {
 }
 
 /**
+ * Create-from-pack / promote CTA — persona flag AND org create grant (khớp BE assert).
+ * @param {boolean} canCreateFromPack
+ * @param {boolean} canCreateProjectGrant
+ */
+export function canShowCreateFromPack(canCreateFromPack, canCreateProjectGrant) {
+  return Boolean(canCreateFromPack) && Boolean(canCreateProjectGrant);
+}
+
+/**
  * i18n key for Create Project deny toast (grant vs placement scope).
  * @param {ReturnType<typeof buildWorkspaceCapabilities> | null | undefined} capabilities
  * @returns {string}

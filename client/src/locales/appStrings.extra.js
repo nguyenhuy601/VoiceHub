@@ -332,8 +332,10 @@ export const extraStrings = {
       nameFromInvite: 'Đã lấy từ lời mời — không cần nhập lại.',
       email: 'Gmail / Email',
       phone: 'Số điện thoại',
-      jobTitle: 'Vị trí làm việc',
+      jobTitle: 'Vị trí làm việc (chức danh HR)',
       jobTitlePlaceholder: 'Ví dụ: Nhân viên kinh doanh',
+      jobTitleNotPermission:
+        'Chức danh trên hồ sơ chỉ là nhãn HR — không cấp mã quyền hay vai trò tổ chức.',
       passwordSection: 'Đổi mật khẩu mới',
       tempPassword: 'Mật khẩu tạm hiện tại',
       newPassword: 'Mật khẩu mới',
@@ -414,7 +416,8 @@ export const extraStrings = {
       pendingHint: 'Đang chờ HR xác minh.',
       rejectLabel: 'Lý do từ chối',
       position: 'Vị trí công ty (Position)',
-      jobTitleEmpty: 'Chưa gán — liên hệ HR/Admin',
+      jobTitleEmpty:
+        'Chưa gán chức danh HR — liên hệ HR/Admin. Chức danh ≠ mã quyền / ≠ vai trò tổ chức.',
       domain: 'Chuyên môn chính',
       years: 'Số năm kinh nghiệm',
       skills: 'Kỹ năng',
@@ -861,8 +864,10 @@ export const extraStrings = {
       nameFromInvite: 'Taken from your invite — no need to re-enter.',
       email: 'Email',
       phone: 'Phone number',
-      jobTitle: 'Job title',
+      jobTitle: 'Job title (HR label)',
       jobTitlePlaceholder: 'e.g. Sales associate',
+      jobTitleNotPermission:
+        'Profile job title is an HR label only — it does not grant permissions or an organization role.',
       passwordSection: 'Set a new password',
       tempPassword: 'Current temporary password',
       newPassword: 'New password',
@@ -942,7 +947,8 @@ export const extraStrings = {
       pendingHint: 'Waiting for HR verification.',
       rejectLabel: 'Rejection reason',
       position: 'Company position',
-      jobTitleEmpty: 'Not assigned — contact HR/Admin',
+      jobTitleEmpty:
+        'No HR job title yet — contact HR/Admin. Job title ≠ permission codes / ≠ organization role.',
       domain: 'Primary domain',
       years: 'Years of experience',
       skills: 'Skills',

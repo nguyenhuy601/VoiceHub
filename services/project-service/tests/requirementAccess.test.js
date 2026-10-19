@@ -35,10 +35,13 @@ describe('requirementProductUser job title helpers', () => {
 });
 
 describe('requirementAccess org role helpers', () => {
-  it('owner/admin/hr can import via org role (Admin Hub) but that is not approve', () => {
-    assert.equal(canImportViaOrgRole('owner'), true);
-    assert.equal(canImportViaOrgRole('admin'), true);
-    assert.equal(canImportViaOrgRole('hr'), true);
+  it('DIRECTOR / HR_APPROVER can import via org role — not membership owner|admin|hr', () => {
+    assert.equal(canImportViaOrgRole('DIRECTOR'), true);
+    assert.equal(canImportViaOrgRole('HR_APPROVER'), true);
+    assert.equal(canImportViaOrgRole(['DIRECTOR', 'MEMBER']), true);
+    assert.equal(canImportViaOrgRole('owner'), false);
+    assert.equal(canImportViaOrgRole('admin'), false);
+    assert.equal(canImportViaOrgRole('hr'), false);
     assert.equal(canImportViaOrgRole('member'), false);
   });
 });
