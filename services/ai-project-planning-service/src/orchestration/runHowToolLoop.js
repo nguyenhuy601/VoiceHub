@@ -33,6 +33,7 @@ const {
  * @param {object} [opts.budget]
  * @param {number} [opts.startedAt]
  * @param {number} [opts.baseIteration]
+ * @param {object|null} [opts.contextPackage] — Pattern A G7 context for Backlog/Wbs propose
  */
 async function runHowToolLoop(opts = {}) {
   registerDefaultTools();
@@ -50,6 +51,7 @@ async function runHowToolLoop(opts = {}) {
   const pack = opts.pack || {};
   const toolData = opts.toolData || {};
   const snapshotId = opts.snapshotId || null;
+  const contextPackage = opts.contextPackage || null;
   const steps = Array.isArray(opts.steps) && opts.steps.length
     ? opts.steps
     : [...HOW_PHASE_TOOL_STEPS];
@@ -113,6 +115,7 @@ async function runHowToolLoop(opts = {}) {
           container: layerBase,
           runId: opts.runId || null,
           generationId: opts.generationId || opts.runId || null,
+          contextPackage,
         });
         toolContext.container = layerBase;
         const input = buildToolInput({
@@ -120,6 +123,7 @@ async function runHowToolLoop(opts = {}) {
           pack,
           toolData,
           snapshotId,
+          contextPackage,
         });
         const toolOut = await invokeTool(toolName, input, toolContext);
         assertToolOutputHasEvidence(toolName, toolOut);

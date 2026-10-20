@@ -54,7 +54,18 @@ async function hydrateAnalysisSnapshotForPlanning({
     throw err;
   }
 
-  const pack = buildPackObjectFromSnapshot(packDoc, snapshotDoc, {});
+  // Safety net: snapshot freeze rỗng FR nhưng pack live đã có FR sau Gate1/overlay
+  // (HOW chạy trước khi recreate snapshot kịp). Không ghi đè khi snap đã có FR.
+  const snapFr = Array.isArray(snapshotDoc?.projected?.srs?.functionalRequirements)
+    ? snapshotDoc.projected.srs.functionalRequirements
+    : [];
+  const liveFr = Array.isArray(packDoc.functionalRequirements)
+    ? packDoc.functionalRequirements
+    : [];
+  const overlayFrList = !snapFr.length && liveFr.length ? liveFr : undefined;
+  const pack = buildPackObjectFromSnapshot(packDoc, snapshotDoc, {
+    ...(overlayFrList ? { overlayFrList } : {}),
+  });
   const snapshot = {
     ...snapshotDoc,
     snapshotId: String(snapshotDoc._id),
@@ -70,6 +81,9 @@ async function hydrateAnalysisSnapshotForPlanning({
     pipelineVersion: snapshotDoc.pipelineVersion ?? null,
     snapshot,
     pack,
+    meta: overlayFrList
+      ? { overlayFrFromLive: true, overlayFrCount: overlayFrList.length }
+      : { overlayFrFromLive: false },
   };
 }
 

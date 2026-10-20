@@ -1,7 +1,7 @@
 /**
  * Quyết định authorizeOrGrant — tách khỏi mongoose để unit test.
- * Membership owner/admin/hr không phải quyền. Chỉ grant V2, hoặc cờ đã đối chiếu
- * system admin trong DB (requireStoredSystemAdmin) trên route bảo trì catalog.
+ * Membership owner/admin/hr không phải quyền. Chỉ grant V2, hoặc stored systemRole=admin
+ * đã đối chiếu DB (mọi masterKey khi orgAccessOk).
  */
 function resolveAuthorizeOrGrant({
   membership,

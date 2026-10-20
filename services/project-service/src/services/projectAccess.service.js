@@ -15,9 +15,24 @@ const {
   assertPermission,
   normalizePermissionList,
   VIEW_ONLY,
+  PROJECT_PERMISSION_KEYS,
 } = require('../utils/project/projectPermissionMatrix');
 const { resolveProjectAccess } = require('../utils/project/projectVisibility');
+const { readStoredSystemAdminState } = require('../clients/storedSystemRole.client');
 const logger = require('@enterprise/shared/utils/logger');
+
+/**
+ * systemRole=admin (IT / platform) — cao hơn org membership admin / org roles.
+ * Xác minh DB rồi bypass: cấp đủ PROJECT_PERMISSION_KEYS (không gán từng grant vào profile).
+ */
+async function resolveStoredPlatformAdmin(userId) {
+  const stored = await readStoredSystemAdminState(userId);
+  if (stored.state === 'unavailable') {
+    logger.warn('[projectAccess] stored systemRole lookup unavailable user=%s', String(userId || ''));
+    return false;
+  }
+  return stored.state === 'admin';
+}
 
 const RESOLVE_CACHE_TTL_MS = 15_000;
 const resolveCache = createTtlCoalesceCache({ ttlMs: RESOLVE_CACHE_TTL_MS });
@@ -55,15 +70,35 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
       capabilities: permissionsToBoardCapabilities([]),
       isOrgAdmin: false,
       isCreator: false,
+      isSystemAdmin: false,
       informationLevel: 'summary',
       rbac: isProjectRbacEnabled(),
     };
   }
 
-  const scope = await fetchTaskWorkspaceScope(uid, project.organizationId);
+  const isSystemAdmin = await resolveStoredPlatformAdmin(uid);
+  const scope = isSystemAdmin
+    ? null
+    : await fetchTaskWorkspaceScope(uid, project.organizationId);
   const orgRole = String(scope?.membershipRole || '').toLowerCase();
   const isOrgAdmin = orgRole === 'owner' || orgRole === 'admin';
   const isCreator = String(project.createdBy || '') === uid;
+
+  // Platform admin > org admin — đủ key API (archive, settings, team, …).
+  if (isSystemAdmin) {
+    const perms = normalizePermissionList([...PROJECT_PERMISSION_KEYS]);
+    return {
+      permissions: perms,
+      capabilities: permissionsToBoardCapabilities(perms),
+      isOrgAdmin: false,
+      isCreator,
+      isSystemAdmin: true,
+      informationLevel: 'details',
+      rbac: isProjectRbacEnabled(),
+      project,
+      roles: [],
+    };
+  }
 
   if (!isProjectRbacEnabled()) {
     return {
@@ -71,6 +106,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
       capabilities: permissionsToBoardCapabilities([]),
       isOrgAdmin,
       isCreator,
+      isSystemAdmin: false,
       informationLevel: 'details',
       rbac: false,
       project,
@@ -157,6 +193,7 @@ async function resolveUserProjectPermissionsUncached({ userId, projectId, boardI
     capabilities: permissionsToBoardCapabilities(perms),
     isOrgAdmin,
     isCreator,
+    isSystemAdmin: false,
     informationLevel,
     rbac: true,
     project,
@@ -242,6 +279,7 @@ module.exports = {
   assertUserProjectRoleMatrixPermission,
   assertUserAnyProjectPermission,
   hasPermission,
+  resolveStoredPlatformAdmin,
   invalidateResolveCacheForProject,
   clearResolveUserProjectPermissionsCache,
   _clearResolveUserProjectPermissionsCacheForTests,

@@ -166,6 +166,22 @@ const METRIC_CATALOG_SEED = Object.freeze([
     ruleId: 'WBS-001',
   }),
   Object.freeze({
+    metricId: 'backlog_story_count',
+    formula: 'count(planning.backlog.stories)',
+    unit: 'count',
+    description: 'Agile backlog Story/PBI count from BacklogMap',
+    owners: ['BacklogMapTool'],
+    ruleId: 'BACKLOG-MAP-001',
+  }),
+  Object.freeze({
+    metricId: 'backlog_unmapped_fr_count',
+    formula: 'count(planning.backlog.unmappedFrIds)',
+    unit: 'count',
+    description: 'FR ids not mapped to any backlog Story',
+    owners: ['BacklogMapTool'],
+    ruleId: 'BACKLOG-MAP-002',
+  }),
+  Object.freeze({
     metricId: 'dependency_edge_count',
     formula: 'count(dependency.edges)',
     unit: 'count',

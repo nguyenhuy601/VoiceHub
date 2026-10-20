@@ -99,6 +99,7 @@ async function fetchUserAvatarBlob(userId, cacheBust) {
     responseType: 'blob',
     skipGlobalErrorHandling: true,
   });
+  // apiClient interceptor trả data (không kèm status) — 204/empty → blob không dùng được → initials.
   const blob = res instanceof Blob ? res : res?.data;
   return assertUsableAvatarBlob(blob);
 }

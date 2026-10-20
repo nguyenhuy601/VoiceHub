@@ -135,13 +135,16 @@ export function avatarImageShellClassName(size = 'md', extra = '') {
     .join(' ');
 }
 
-/** Avatar protected — ưu tiên GET /api/users/:id/avatar khi có userId (kể cả list thiếu URL). */
+/**
+ * Avatar protected — GET /api/users/:id/avatar chỉ khi đã có URL ảnh (hoặc path upload).
+ * Không gọi khi user không có avatar (vd. IT Admin thiếu profile) — tránh 404 + dùng initials.
+ */
 export function needsAuthenticatedAvatarFetch(avatar, userId = null) {
   const raw = pickAvatarValue(avatar);
-  if (raw && String(raw).startsWith('data:')) return false;
+  if (!raw || !isAvatarImageUrl(avatar)) return false;
+  if (String(raw).startsWith('data:')) return false;
   const uid = String(userId || '').trim();
   if (uid) return true;
-  if (!raw || !isAvatarImageUrl(avatar)) return false;
   if (/\/uploads\//i.test(String(raw))) return true;
   if (/^users\/[^/]+\/avatars\//i.test(String(raw).trim())) return true;
   const v = String(raw).trim();

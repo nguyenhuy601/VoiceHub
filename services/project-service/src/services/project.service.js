@@ -1023,9 +1023,9 @@ async function attachProjectCapabilities(payload, userId, projectId) {
     return payload;
   }
   const resolved = await resolveUserProjectPermissions({ userId, projectId });
+  // Legacy flag kept false: không creator/orgAdmin dump cho analysis/planning view.
+  // Settings hub: chỉ permission key (không OR bypass / vai trò).
   const bypass = false;
-  // SoD + ops: cùng SoT doc.permissions (matrixPermissionsFromRoleKeys ≡ union).
-  // Creator/orgAdmin bypass vẫn tách; PATCH giữ SOD_LOCKED.
   const roleMatrixPerms = matrixPermissionsFromRoleKeys(resolved.roles || []);
   const matrixHas = (key) => hasPermission(roleMatrixPerms, key);
   const roleUnionPerms = unionPermissionsFromRoles(resolved.roles || []);
@@ -1054,12 +1054,13 @@ async function attachProjectCapabilities(payload, userId, projectId) {
       canManagePlanning: matrixHas('planning:artifact_edit'),
       canManageMembers: unionHas('members:manage'),
       canViewMembers: bypass || unionHas('members:view'),
-      canManageSettings: bypass || unionHas('settings:update'),
-      /** Vào Settings chỉ đọc — tách khỏi settings:update / project:roles. */
-      canViewSettings: bypass || unionHas('settings:view'),
+      /** Sửa Cài đặt — chỉ settings:update (không vai trò / creator / orgAdmin). */
+      canManageSettings: unionHas('settings:update'),
+      /** Vào Settings chỉ đọc — chỉ settings:view. */
+      canViewSettings: unionHas('settings:view'),
       canManageLists: unionHas('board:manage_lists'),
       canManageBoard: unionHas('board:admin'),
-      /** Matrix Project Role trong dự án (PO/PM) — khác settings:update; catalog org = Admin. */
+      /** Matrix Project Role trong dự án — chỉ project:roles. */
       canManageProjectRoles: unionHas('project:roles'),
       /** UI chrome sprint — cùng domain sprint:* (BE action vẫn 1 key). */
       canManageSprints:
@@ -1157,8 +1158,10 @@ async function listProjectMembersForUser({ userId, projectId }) {
 async function userCanAdminProject(userId, project) {
   if (!userId || !project) return false;
   const { isProjectRbacEnabled, hasPermission } = require('../utils/project/projectPermissionMatrix');
+  const { resolveUserProjectPermissions, resolveStoredPlatformAdmin } = require('./projectAccess.service');
+  // systemRole=admin (platform) cao hơn org admin — đủ quyền quản trị dự án trên API.
+  if (await resolveStoredPlatformAdmin(userId)) return true;
   if (isProjectRbacEnabled()) {
-    const { resolveUserProjectPermissions } = require('./projectAccess.service');
     const resolved = await resolveUserProjectPermissions({
       userId,
       projectId: project._id || project.id,

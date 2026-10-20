@@ -13,7 +13,10 @@ export const DELIVERY_PHASES = Object.freeze([
 
 export const DEFAULT_DELIVERY_PHASE_EXISTING = 'development';
 
-/** Chat / calendar / documents / members / settings — always available in project suite. */
+/**
+ * Chat / calendar / documents / members — always available in project suite.
+ * settings: phase-allowed here; nav/hub chỉ hiện khi có settings:view|update|project:roles.
+ */
 export const PROJECT_COLLAB_OPS_MODULES = Object.freeze([
   'chat',
   'calendar',
@@ -277,12 +280,21 @@ export function isAnalysisViewModule(moduleKey) {
 
 /**
  * Lock (do not drop) analysis/planning nav when view caps are false.
- * Caps come from BE Project Role matrix (PO/BA/…), not org Permission packs.
+ * Caps come from BE permission keys on Project Role docs, not org Permission packs.
  * When capabilities is null/undefined, skip (caller not ready / legacy).
  * Fail-closed when capabilities object is present: items stay visible but locked.
+ * Settings: drop unless settings:view | settings:update | project:roles (capability flags).
  */
 export const PHASE1_ANALYSIS_CAP_LOCK_HINT_KEY = 'workspace.phase1AnalysisCapLockedHint';
 export const PHASE1_PLANNING_CAP_LOCK_HINT_KEY = 'workspace.phase1PlanningCapLockedHint';
+
+function canEnterProjectSettings(capabilities) {
+  return (
+    Boolean(capabilities?.canViewSettings) ||
+    Boolean(capabilities?.canManageSettings) ||
+    Boolean(capabilities?.canManageProjectRoles)
+  );
+}
 
 export function filterNavItemsByCapabilities(items, capabilities) {
   if (capabilities == null || typeof capabilities !== 'object') {
@@ -290,31 +302,40 @@ export function filterNavItemsByCapabilities(items, capabilities) {
   }
   const canViewAnalysis = Boolean(capabilities.canViewAnalysis);
   const canViewPlanning = Boolean(capabilities.canViewPlanning);
+  const enterSettings = canEnterProjectSettings(capabilities);
   const list = Array.isArray(items) ? items : [];
-  return list.map((item) => {
-    const mod = String(item.module || item.key || '')
-      .trim()
-      .toLowerCase();
-    let next = item;
-    if (isAnalysisViewModule(mod) && !canViewAnalysis) {
-      next = {
-        ...next,
-        locked: true,
-        lockHintKey: next.lockHintKey || PHASE1_ANALYSIS_CAP_LOCK_HINT_KEY,
-      };
-    }
-    if (isPlanningViewModule(mod) && !canViewPlanning) {
-      next = {
-        ...next,
-        locked: true,
-        // Prefer existing phase-lock hint when already locked by delivery phase.
-        lockHintKey: next.locked && next.lockHintKey
-          ? next.lockHintKey
-          : PHASE1_PLANNING_CAP_LOCK_HINT_KEY,
-      };
-    }
-    return next;
-  });
+  return list
+    .filter((item) => {
+      const mod = String(item.module || item.key || '')
+        .trim()
+        .toLowerCase();
+      if (mod === 'settings' && !enterSettings) return false;
+      return true;
+    })
+    .map((item) => {
+      const mod = String(item.module || item.key || '')
+        .trim()
+        .toLowerCase();
+      let next = item;
+      if (isAnalysisViewModule(mod) && !canViewAnalysis) {
+        next = {
+          ...next,
+          locked: true,
+          lockHintKey: next.lockHintKey || PHASE1_ANALYSIS_CAP_LOCK_HINT_KEY,
+        };
+      }
+      if (isPlanningViewModule(mod) && !canViewPlanning) {
+        next = {
+          ...next,
+          locked: true,
+          // Prefer existing phase-lock hint when already locked by delivery phase.
+          lockHintKey: next.locked && next.lockHintKey
+            ? next.lockHintKey
+            : PHASE1_PLANNING_CAP_LOCK_HINT_KEY,
+        };
+      }
+      return next;
+    });
 }
 
 export function isPhase1DeliveryPhase(deliveryPhase) {

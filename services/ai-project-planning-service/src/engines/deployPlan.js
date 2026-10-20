@@ -11,11 +11,6 @@ const OUT_OF_SCOPE_IN_APP = Object.freeze([
   'mutate_external_cicd',
 ]);
 
-const DEFAULT_ENVS = Object.freeze([
-  { key: 'dev', name: 'Development', purpose: 'feature integration' },
-  { key: 'staging', name: 'Staging', purpose: 'UAT / pre-prod smoke' },
-]);
-
 function asArray(v) {
   return Array.isArray(v) ? v : [];
 }
@@ -58,46 +53,21 @@ function normalizeEnvRow(raw, index = 0) {
   };
 }
 
+/**
+ * Env matrix from SNAP only — never invent TBD/dev/staging/production rows.
+ * Missing input → empty matrix + open question (UI shows empty).
+ */
 function buildEnvMatrix(technical = {}, openQuestions = []) {
-  const fromSnap = asArray(technical.environments)
+  const envMatrix = asArray(technical.environments)
     .map((e, i) => normalizeEnvRow(e, i))
-    .filter(Boolean);
+    .filter(Boolean)
+    .slice(0, 8);
 
-  let envMatrix = fromSnap.slice(0, 8);
-  if (envMatrix.length < 2) {
-    const have = new Set(envMatrix.map((e) => e.key));
-    for (const d of DEFAULT_ENVS) {
-      if (have.has(d.key)) continue;
-      envMatrix.push({
-        key: d.key,
-        name: d.name,
-        purpose: d.purpose,
-        url: null,
-        urlTbd: true,
-        tbdReason: 'Not on Project.technicalSetup — placeholder for Gate2',
-      });
-      have.add(d.key);
-      if (envMatrix.length >= 2) break;
-    }
+  if (!envMatrix.length) {
     openQuestions.push({
-      id: 'Q-ENV-TBD',
+      id: 'Q-ENV-MISSING',
       topic: 'environments',
-      message:
-        'Fewer than 2 environments on SNAP technical — filled TBD placeholders (dev/staging)',
-    });
-  }
-
-  // Ensure production row when deployment target implies prod but matrix has no prod
-  const hasProd = envMatrix.some((e) => /prod/.test(e.key) || /prod/.test(e.name));
-  const strategy = String(technical.deployment?.strategy || '').toLowerCase();
-  if (!hasProd && (strategy || technical.deployment?.target)) {
-    envMatrix.push({
-      key: 'production',
-      name: 'Production',
-      purpose: 'go-live',
-      url: null,
-      urlTbd: true,
-      tbdReason: 'Inferred from deployment target — confirm URL at Gate2',
+      message: 'No environments on SNAP technical — env matrix left empty',
     });
   }
 
@@ -114,10 +84,11 @@ function resolveReleaseMode(technical = {}) {
   if (/rolling/.test(raw)) return 'rolling';
   if (/recreat|replace/.test(raw)) return 'recreate';
   if (raw) return raw.slice(0, 64);
-  return 'checklist';
+  return null;
 }
 
 function buildRollbackSteps(mode) {
+  if (!mode) return [];
   const common = [
     'Stop promotion / freeze new deploys',
     'Restore previous known-good artifact or image tag',
@@ -141,21 +112,19 @@ function buildRollbackSteps(mode) {
 }
 
 function phase4Checklist(envMatrix, mode) {
-  return [
+  const stagingKey = envMatrix.find((e) => /stag|uat/.test(e.key))?.key || null;
+  const prodKey =
+    envMatrix.find((e) => /prod/.test(e.key))?.key || envMatrix.at(-1)?.key || null;
+  const items = [
     {
       id: 'CHK-STAGING-SMOKE',
       title: 'Staging smoke / UAT evidence attached',
-      env: envMatrix.find((e) => /stag|uat/.test(e.key))?.key || 'staging',
+      env: stagingKey,
     },
     {
       id: 'CHK-ROLLBACK-READY',
       title: 'Rollback steps reviewed with owner',
-      env: envMatrix.find((e) => /prod/.test(e.key))?.key || envMatrix.at(-1)?.key || 'production',
-    },
-    {
-      id: 'CHK-RELEASE-MODE',
-      title: `Release strategy confirmed (${mode})`,
-      env: null,
+      env: prodKey,
     },
     {
       id: 'CHK-NO-INAPP-CI',
@@ -163,6 +132,14 @@ function phase4Checklist(envMatrix, mode) {
       env: null,
     },
   ];
+  if (mode) {
+    items.splice(2, 0, {
+      id: 'CHK-RELEASE-MODE',
+      title: `Release strategy confirmed (${mode})`,
+      env: null,
+    });
+  }
+  return items;
 }
 
 /**
@@ -190,9 +167,16 @@ function runDeployPlanEngine(container = {}, toolData = {}) {
   }
 
   const mode = resolveReleaseMode(technical);
+  if (!mode) {
+    openQuestions.push({
+      id: 'Q-RELEASE-MODE-MISSING',
+      topic: 'deployment',
+      message: 'No deployment strategy on SNAP — release mode left empty',
+    });
+  }
   const rollbackPlan = {
     steps: buildRollbackSteps(mode),
-    ownerRole: 'devops_engineer',
+    ownerRole: mode ? 'devops_engineer' : null,
     notes: clip(technical.deployment?.notes || '', 400) || null,
   };
 
@@ -210,9 +194,7 @@ function runDeployPlanEngine(container = {}, toolData = {}) {
   const releaseStrategy = {
     mode,
     target: clip(technical.deployment?.target || '', 180) || null,
-    notes:
-      clip(technical.deployment?.notes || '', 400) ||
-      'Plan-only artifact — execute deploy via external CI/ops checklist (Phase 4)',
+    notes: clip(technical.deployment?.notes || '', 400) || null,
     linkedReleaseId: releases.at(-1)?.id || null,
   };
 
@@ -262,10 +244,11 @@ function applyDeployPlanToContainer(container, result) {
 
 function isDeployPlanStructurallyOk(deployPlan) {
   if (!deployPlan || typeof deployPlan !== 'object') return false;
-  const envs = asArray(deployPlan.envMatrix);
-  const envOk =
-    envs.length >= 2 ||
-    envs.some((e) => e && (e.urlTbd === true || String(e.tbdReason || '').trim()));
+  const envs = asArray(deployPlan.envMatrix).filter(
+    (e) => e && String(e.key || '').trim() && !String(e.tbdReason || '').trim()
+  );
+  // Real SNAP envs only — TBD invent rows no longer count as OK
+  const envOk = envs.length >= 1;
   const steps = asArray(deployPlan.rollbackPlan?.steps).filter((s) => String(s || '').trim());
   const mode = String(deployPlan.releaseStrategy?.mode || '').trim();
   const oos = asArray(deployPlan.outOfScopeInApp).map((x) => String(x || '').toLowerCase());

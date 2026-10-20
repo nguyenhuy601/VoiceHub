@@ -10,6 +10,7 @@
 const { isLlmEnabled } = require('../runtime/ollamaGenerate');
 
 const SEMANTIC_SECTION_KEYS = Object.freeze([
+  'backlog',
   'wbs',
   'architecture',
   'dependency',
@@ -27,6 +28,7 @@ const HEURISTIC_ONLY_TOOLS = Object.freeze([
 ]);
 
 const ENV_BY_SECTION = Object.freeze({
+  backlog: 'HOW_BACKLOG_LLM',
   wbs: 'HOW_WBS_LLM',
   architecture: 'HOW_ARCH_LLM',
   dependency: 'HOW_DEP_LLM',
@@ -50,7 +52,7 @@ function isHowSemanticMasterOn(env = process.env) {
 }
 
 /**
- * @param {'wbs'|'architecture'|'dependency'|'risk'|'quality'} section
+ * @param {'backlog'|'wbs'|'architecture'|'dependency'|'risk'|'quality'} section
  * @param {NodeJS.ProcessEnv} [env]
  */
 function isHowSemanticSectionLlmOn(section, env = process.env) {

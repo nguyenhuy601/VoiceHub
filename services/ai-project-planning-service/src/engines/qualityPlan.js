@@ -222,7 +222,7 @@ function runQualityPlanEngine(container = {}, pack = {}) {
       automate: true,
       priority: String(uc.priority || 'should').toLowerCase(),
     });
-    // Happy-path + one negative stub when AC present on UC
+    // Extra UAT row from first real AC line on UC (no invent when AC empty)
     const ucAc = splitAcLines(uc.acceptanceCriteria || uc.ac || uc.postcondition || '');
     if (ucAc.length && catalogPlan.length < CATALOG_CAP) {
       catalogPlan.push({
@@ -237,7 +237,7 @@ function runQualityPlanEngine(container = {}, pack = {}) {
     }
   }
 
-  // FR-only AC → catalog stubs when no UC
+  // FR-only AC → catalog from real AC when no UC (empty if no AC)
   if (!catalogPlan.length) {
     for (let i = 0; i < Math.min(acCoverage.length, 40); i += 1) {
       const row = acCoverage[i];

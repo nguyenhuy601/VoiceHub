@@ -8,9 +8,12 @@
  */
 
 const HOW_PHASE_TOOL_STEPS = Object.freeze([
+  // Capability ∥ BacklogMap (Pattern C); Wbs sau backlog; Arch sau Wbs (không ∥ Wbs)
+  { toolName: 'CapabilityTool', autoConfirm: true, mode: 'heuristic' },
+  { toolName: 'BacklogMapTool', autoConfirm: true, mode: 'heuristic' },
   { toolName: 'WbsTool', autoConfirm: true, mode: 'llm_hybrid' },
-  { toolName: 'DependencyTool', autoConfirm: true, mode: 'llm_hybrid' },
   { toolName: 'ArchitectureTool', autoConfirm: false, mode: 'llm_hybrid' },
+  { toolName: 'DependencyTool', autoConfirm: true, mode: 'llm_hybrid' },
   { toolName: 'RiskTool', autoConfirm: true, mode: 'llm_hybrid' },
   // Step 4: Quality/Testing plan before Effort (QA work informs estimates)
   { toolName: 'QualityPlanTool', autoConfirm: true, mode: 'llm_hybrid' },

@@ -4,7 +4,12 @@
  * Story/Task keep FR/UC/NFR as source*Ids only (traceability), not hierarchy identity.
  */
 
-const { normalizeNameKey, namesEqual, resolveFeatureDisplayName } = require('./wbsAgileNaming');
+const {
+  normalizeNameKey,
+  namesEqual,
+  resolveFeatureDisplayName,
+  looksLikeTechnicalLeafTitle,
+} = require('./wbsAgileNaming');
 
 function listFrRows(pack = {}) {
   if (Array.isArray(pack.functionalRequirements)) return pack.functionalRequirements;
@@ -62,9 +67,180 @@ function relatedIds(row, keys = []) {
   return [...new Set(out)];
 }
 
+function stripVi(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/đ/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function tokenizeForBgMatch(text) {
+  return stripVi(text)
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length >= 3);
+}
+
+/** Explicit CR-/FR- ids written into BG statement (e.g. "theo CR-009"). */
+function extractFrIdsMentionedInText(text) {
+  const out = [];
+  const re = /\b((?:CR|FR)[-_]?\d{1,4})\b/gi;
+  let m;
+  while ((m = re.exec(String(text || ''))) !== null) {
+    const raw = String(m[1] || '')
+      .toUpperCase()
+      .replace('_', '-');
+    const norm = raw.replace(/^(CR|FR)(\d)/, '$1-$2');
+    if (norm) out.push(norm);
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * Soft FR→BG when pack lacks relatedFrIds (common after import).
+ * Scoring: id mention in BG text, token overlap, domain keyword pairs.
+ */
+function inferFrToBgLinks(pack = {}, already = new Map()) {
+  const bgs = listBgRows(pack);
+  const frs = listFrRows(pack);
+  if (!bgs.length || !frs.length) return already;
+
+  const bgMeta = bgs.map((row, i) => {
+    const id = bgRowId(row, i);
+    const name = bgDisplayName(row, i);
+    const blob = `${name} ${row?.statement || ''} ${row?.description || ''}`;
+    return {
+      id,
+      name,
+      blob,
+      tokens: new Set(tokenizeForBgMatch(blob)),
+      mentionedFrIds: new Set(extractFrIdsMentionedInText(blob)),
+    };
+  });
+
+  // Domain pairs outweigh generic token overlap (avoid "danh muc" pulling org FR into CRM BG).
+  const DOMAIN_PAIRS = [
+    {
+      bg: /vai tro|phan quyen|role|permission|rbac/i,
+      fr: /vai tro|phan quyen|\brole\b|permission|rbac/i,
+      w: 48,
+    },
+    {
+      bg: /to chuc|nhan su|quan he quan ly|org chart|so do/i,
+      fr: /khu vuc|chi nhanh|\bteam\b|nhan su|so do to chuc|\borg\b/i,
+      w: 48,
+    },
+    {
+      bg: /khach hang|du an|doanh thu uoc|phong cho thue/i,
+      fr: /khach hang|thong tin du an|du an\.|phong cho thue/i,
+      w: 48,
+    },
+    {
+      bg: /giao dich|doanh thu thuc|vong doi|\bcoc\b/i,
+      fr: /giao dich|\bcoc\b|uy nhiem|tinh luong|hoa hong|\bluong\b/i,
+      w: 48,
+    },
+    {
+      bg: /bao cao|chi so|thong ke|cr-?009/i,
+      fr: /bao cao|thong ke|dashboard|chi so/i,
+      w: 48,
+    },
+    {
+      bg: /lich|thong bao|cong tac|collaboration/i,
+      fr: /(^|\s)lich(\s|$)|thong bao|calendar|notify/i,
+      w: 40,
+    },
+  ];
+
+  function stripAccents(s) {
+    return stripVi(s);
+  }
+
+  function frTitleHead(frRow) {
+    // Prefer heading before "." / newline — import packs often paste form UI after the title.
+    const raw = String(frRow?.name || frRow?.title || '').trim();
+    const head = raw.split(/[.\n|/]/)[0].trim() || raw;
+    return head.slice(0, 100);
+  }
+
+  function scoreFrToBg(frRow, bg, { includeDescription = true } = {}) {
+    const frId = frRowId(frRow);
+    const titlePart = includeDescription
+      ? `${frId} ${frRow?.name || ''} ${frRow?.title || ''}`
+      : `${frId} ${frTitleHead(frRow)}`;
+    const frBlob = includeDescription
+      ? `${titlePart} ${frRow?.description || ''}`
+      : titlePart;
+    const frNorm = stripAccents(frBlob);
+    const bgNorm = stripAccents(bg.blob);
+    let score = 0;
+    if (bg.mentionedFrIds.has(frId) || bg.mentionedFrIds.has(frId.replace('-', ''))) {
+      score += 100;
+    }
+    for (const mid of bg.mentionedFrIds) {
+      if (mid.replace(/-/g, '') === frId.replace(/-/g, '')) score += 100;
+    }
+    const frTokens = tokenizeForBgMatch(frBlob);
+    for (const t of frTokens) {
+      if (bg.tokens.has(t)) score += 2;
+    }
+    for (const pair of DOMAIN_PAIRS) {
+      if (pair.bg.test(bgNorm) && pair.fr.test(frNorm)) score += pair.w || 48;
+    }
+    if (
+      /(^|\s)lich(\s|$)|thong bao|so do to chuc/.test(frNorm) &&
+      /to chuc|nhan su/.test(bgNorm)
+    ) {
+      score += 36;
+    }
+    return score;
+  }
+
+  function pickBestBg(frRow) {
+    // Prefer title-only match so boilerplate "Thêm khách hàng" in FR body
+    // cannot pull org catalog FRs into CRM epic.
+    let best = null;
+    let bestScore = 0;
+    for (const bg of bgMeta) {
+      const s = scoreFrToBg(frRow, bg, { includeDescription: false });
+      if (s > bestScore) {
+        bestScore = s;
+        best = bg;
+      }
+    }
+    if (best && bestScore >= 40) return { best, bestScore };
+    best = null;
+    bestScore = 0;
+    for (const bg of bgMeta) {
+      const s = scoreFrToBg(frRow, bg, { includeDescription: true });
+      if (s > bestScore) {
+        bestScore = s;
+        best = bg;
+      }
+    }
+    return { best, bestScore };
+  }
+
+  const map = new Map(already);
+  frs.forEach((row, i) => {
+    const frId = frRowId(row, i);
+    if (map.has(frId)) return;
+    const { best, bestScore } = pickBestBg(row);
+    if (best && bestScore > 0) {
+      map.set(frId, { id: best.id, name: best.name, inferred: true });
+    } else if (bgMeta.length) {
+      const fallback = bgMeta[0];
+      map.set(frId, { id: fallback.id, name: fallback.name, inferred: true });
+    }
+  });
+  return map;
+}
+
 /**
  * FR id → primary Business Goal { id, name }.
  * Prefers BG.relatedFrIds; also FR.relatedBgIds / businessGoalId.
+ * When links missing but pack has BGs → infer (token / domain / id-in-text).
  */
 function buildFrToBgIndex(pack = {}) {
   const map = new Map();
@@ -98,6 +274,9 @@ function buildFrToBgIndex(pack = {}) {
     }
   });
 
+  if (bgs.length) {
+    return inferFrToBgLinks(pack, map);
+  }
   return map;
 }
 
@@ -142,6 +321,20 @@ function resolveEpicPlacement({ frId, frRow = {}, pack = {}, frToBg = null } = {
       epicKey: `bg:${linked.id}`,
       epicName: linked.name,
       sourceBgIds: [linked.id],
+      epicOrigin: 'bg',
+    };
+  }
+
+  // When pack has BGs, never collapse orphans (NFR / unlinked) into one overview mega-epic.
+  const bgs = listBgRows(pack);
+  if (bgs.length) {
+    const row = bgs[0];
+    const id = bgRowId(row, 0);
+    const name = bgDisplayName(row, 0);
+    return {
+      epicKey: `bg:${id}`,
+      epicName: name,
+      sourceBgIds: [id],
       epicOrigin: 'bg',
     };
   }
@@ -191,9 +384,18 @@ function resolveEpicPlacement({ frId, frRow = {}, pack = {}, frToBg = null } = {
   };
 }
 
+function isWeakModuleName(raw) {
+  return !raw || /^(general|misc|other|common|n\/a|na|-)$/i.test(String(raw).trim());
+}
+
 /**
- * Feature = product capability — never FR title.
- * Prefer explicit feature → distinct capability name → module → bucket.
+ * Feature candidate = product capability (not FR title, not forced "Capabilities — General").
+ *
+ * warrantSignal:
+ * - explicit_feature — pack FR.feature* distinct from FR title
+ * - capability — CapabilityTool / catalog capability distinct from FR
+ * - module — real module (not General); BacklogMap only materializes Feature if ≥2 stories share it under the same Epic
+ * - null — no Feature; Story may hang directly under Epic
  */
 function resolveFeaturePlacement({
   frId,
@@ -202,27 +404,76 @@ function resolveFeaturePlacement({
   capabilities = [],
   pack = {},
 } = {}) {
+  void pack;
   const title =
     String(frName || frRow.name || frRow.title || frId || '').trim() || String(frId || '');
   const moduleName =
-    String(frRow.module || frRow.moduleLabel || frRow.moduleName || 'General').trim() ||
-    'General';
+    String(frRow.module || frRow.moduleLabel || frRow.moduleName || '').trim() || 'General';
   const cap = capabilityForFr(capabilities, frId);
+
+  const explicitRaw = String(
+    frRow.feature || frRow.featureName || frRow.featureLabel || cap?.feature || ''
+  ).trim();
+  const hasExplicit =
+    Boolean(explicitRaw) &&
+    !namesEqual(explicitRaw, title) &&
+    !looksLikeTechnicalLeafTitle(explicitRaw);
+
+  const capName = String(cap?.name || '').trim();
+  const hasCapability =
+    Boolean(capName) &&
+    !namesEqual(capName, title) &&
+    !looksLikeTechnicalLeafTitle(capName);
+
+  const mod = String(cap?.module || moduleName).trim() || 'General';
+  const hasModule = !isWeakModuleName(mod) && !namesEqual(mod, title);
+
+  let warrantSignal = null;
+  if (hasExplicit) warrantSignal = 'explicit_feature';
+  else if (hasCapability) warrantSignal = 'capability';
+  else if (hasModule) warrantSignal = 'module';
+
+  // Only compute display name when a Feature may be warranted — avoid inventing
+  // "Capabilities — General" buckets that force a useless middle layer.
+  if (!warrantSignal) {
+    return {
+      featureKey: null,
+      featureName: null,
+      moduleName: mod,
+      sourceCapabilityIds: [],
+      capability: cap || null,
+      warrantSignal: null,
+    };
+  }
+
   const featureName = resolveFeatureDisplayName({
-    feature: frRow.feature || frRow.featureName || frRow.featureLabel || cap?.feature,
-    capabilityName: cap?.name,
+    feature: hasExplicit ? explicitRaw : '',
+    capabilityName: hasCapability ? capName : '',
     frName: title,
-    moduleName: cap?.module || moduleName,
+    moduleName: hasModule ? mod : 'General',
   });
-  const featureKey = `${moduleName}::${featureName}`;
+  // Reject weak fallback label from naming helper
+  if (/^capabilities\s*—/i.test(featureName) && isWeakModuleName(mod)) {
+    return {
+      featureKey: null,
+      featureName: null,
+      moduleName: mod,
+      sourceCapabilityIds: [],
+      capability: cap || null,
+      warrantSignal: null,
+    };
+  }
+
+  const featureKey = `${mod}::${featureName}`;
   const sourceCapabilityIds = cap?.capabilityId ? [String(cap.capabilityId)] : [];
 
   return {
     featureKey,
     featureName,
-    moduleName,
+    moduleName: mod,
     sourceCapabilityIds,
     capability: cap || null,
+    warrantSignal,
   };
 }
 
@@ -293,10 +544,12 @@ module.exports = {
   nfrRowId,
   relatedIds,
   buildFrToBgIndex,
+  inferFrToBgLinks,
   buildFrToNfrIndex,
   capabilityForFr,
   resolveEpicPlacement,
   resolveFeaturePlacement,
+  isWeakModuleName,
   resolveSoftTrace,
   buildSrsMappingContext,
   namesEqual,

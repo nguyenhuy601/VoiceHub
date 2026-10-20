@@ -121,7 +121,8 @@ function normalizePoolItemsForMatching(items = []) {
           if (Number.isFinite(rangePct)) {
             capacityRemaining = Math.max(0, Math.min(1, rangePct / 100));
           } else {
-            capacityRemaining = 1;
+            // Missing capacity → 0 (do not invent full FTE availability)
+            capacityRemaining = 0;
           }
         }
       }

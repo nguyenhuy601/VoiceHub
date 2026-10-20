@@ -18,6 +18,8 @@ const {
 const { buildCorpusFromSnapshot } = require('../retrieval/buildCorpusFromSnapshot');
 const { HOW_PHASE_TOOL_STEPS } = require('./jobToToolsMap');
 const { runHowToolLoop, resolveHowSteps } = require('./runHowToolLoop');
+const { buildHowBacklogRetrieveQuery } = require('./howContextQueries');
+const { logHowCtx, buildCtxPromptFragment } = require('./howProposalNodes');
 const { decideEvaluateAction } = require('./evaluatePolicy');
 const {
   resolveAgentBudget,
@@ -151,15 +153,18 @@ function buildHowPhaseGraph(hooks = {}) {
       ingestWarning = String(ingestErr?.message || ingestErr);
       console.warn('[g7_ingest] soft', ingestWarning);
     }
+    const query = buildHowBacklogRetrieveQuery(state.pack || {});
     let contextPackage = await assembleContextPackageAsync({
-      query: 'how_planning',
+      query,
       corpus,
       snapshotId: state.snapshotId,
     });
     if (ingestWarning && contextPackage && typeof contextPackage === 'object') {
       contextPackage = { ...contextPackage, ingestWarning };
     }
-    const history = [...(state.history || []), 'understand'];
+    const { itemCount } = buildCtxPromptFragment(contextPackage);
+    logHowCtx('understand:how_backlog', contextPackage, itemCount);
+    const history = [...(state.history || []), 'understand', 'context:how_backlog'];
     const next = { ...state, corpus, contextPackage, history };
     await persistNode(next, 'understand', onCheckpoint);
     return { corpus, contextPackage, history };
@@ -222,6 +227,7 @@ function buildHowPhaseGraph(hooks = {}) {
       snapshotId: state.snapshotId,
       runId: state.runId || null,
       generationId: state.generationId || state.runId || null,
+      contextPackage: state.contextPackage || null,
       budget,
       startedAt: state.startedAt,
       baseIteration: historyBase.length,

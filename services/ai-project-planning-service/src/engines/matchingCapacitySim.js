@@ -69,7 +69,12 @@ function simulateTaskCapacity({
     reasons.push('cumulative_overload');
   }
 
-  const start = nextWeekday(toDateKey(startDate) || toDateKey(new Date()) || '1970-01-01');
+  const startRaw = toDateKey(startDate);
+  if (!startRaw) {
+    // No invent today/1970 — missing start → not feasible for capacity packing
+    return { feasible: false, reasons: ['missing_project_start'] };
+  }
+  const start = nextWeekday(startRaw);
   const idealDays = Math.max(1, Math.ceil(hours / Math.max(1, dailyCap)));
   // Bound search window — fully booked calendar within window ⇒ day_overload
   const maxWorkingDays = Math.max(idealDays * 4 + 5, 12);

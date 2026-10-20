@@ -1,4 +1,7 @@
 /**
+ * @deprecated Product HOW path uses in-process `proposeWbsTasksWithLlm` (story contract).
+ * Do not call from WbsTool / runWbsEngineAsync — FR-chunk queue is legacy only.
+ *
  * Wave M — enqueue WBS LLM job and wait for worker result (M1).
  */
 

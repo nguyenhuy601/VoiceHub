@@ -23,10 +23,11 @@ function isQualityPlanStructurallyOk(qualityPlan) {
 
 function isDeployPlanStructurallyOk(deployPlan) {
   if (!deployPlan || typeof deployPlan !== 'object') return false;
-  const envs = asArray(deployPlan.envMatrix);
-  const envOk =
-    envs.length >= 2 ||
-    envs.some((e) => e && (e.urlTbd === true || String(e.tbdReason || '').trim()));
+  // Real SNAP envs only — do not treat TBD invent rows as OK
+  const envs = asArray(deployPlan.envMatrix).filter(
+    (e) => e && String(e.key || '').trim() && !String(e.tbdReason || '').trim()
+  );
+  const envOk = envs.length >= 1;
   const steps = asArray(deployPlan.rollbackPlan?.steps).filter((s) => String(s || '').trim());
   const mode = String(deployPlan.releaseStrategy?.mode || '').trim();
   const oos = asArray(deployPlan.outOfScopeInApp).map((x) => String(x || '').toLowerCase());
@@ -111,7 +112,7 @@ function evaluateQualityDeployGate(packOrContainer, opts = {}) {
     failures.push({
       code: 'FEAS_DEPLOY_PLAN',
       message:
-        'Deploy plan incomplete (need envMatrix ≥2 or TBD, rollback steps, release mode, outOfScopeInApp)',
+        'Deploy plan incomplete (need envMatrix from SNAP, rollback steps, release mode, outOfScopeInApp)',
     });
   }
 

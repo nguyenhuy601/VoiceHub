@@ -1,4 +1,7 @@
-/** Mirror BE gate2ReviewOwnership — section mỗi role được review. */
+/**
+ * Legacy po/tech/pm section hints (change-proposal owner fallback only).
+ * Gate2 với gateReviewPolicy: mỗi vai trò đã chọn duyệt toàn bộ section — không filter UI theo map này.
+ */
 
 export const GATE2_TRACKS = Object.freeze(['po', 'tech', 'pm']);
 
@@ -21,6 +24,7 @@ export const GATE2_DOMAIN_FOCUS_KEY = Object.freeze({
   pm: 'requirements.gate2DomainPm',
 });
 
+/** @deprecated Không dùng để ẩn section Gate2 khi có reviewPlan theo role. */
 export function sectionsForTrack(track) {
   const key = String(track || '').trim().toLowerCase();
   return GATE2_DOMAIN_SECTIONS[key] ? [...GATE2_DOMAIN_SECTIONS[key]] : [];

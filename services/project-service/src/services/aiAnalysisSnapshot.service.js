@@ -540,11 +540,28 @@ async function ensureActiveAiAnalysisSnapshot({
       })
     : { ok: false, reason: 'missing_snapshot' };
   const projectionIncompatible = Boolean(snapshotDoc) && !compat.ok;
+  const liveFrCount = Array.isArray(pack?.functionalRequirements)
+    ? pack.functionalRequirements.length
+    : 0;
+  const snapFrCount = Array.isArray(snapLean?.projected?.srs?.functionalRequirements)
+    ? snapLean.projected.srs.functionalRequirements.length
+    : 0;
+  // HOW: pack đã có FR (sau overlay Gate1) nhưng snapshot vẫn 0 FR → recreate bắt buộc
+  const emptySnapWithLiveFr =
+    Boolean(refreshOnFrDrift) && Boolean(snapshotDoc) && liveFrCount > 0 && snapFrCount === 0;
   const shouldRefresh =
     projectionIncompatible ||
+    emptySnapWithLiveFr ||
     (Boolean(refreshOnFrDrift) &&
       snapshotDoc &&
       (!packSnapshotFrAligned(pack, snapshotDoc) || contentDrift));
+  if (emptySnapWithLiveFr) {
+    console.info(
+      '[snapshot] HOW refresh: live FR=%s but snapshot projected FR=0 packId=%s',
+      liveFrCount,
+      String(packId)
+    );
+  }
   if (snapshotDoc && !shouldRefresh) {
     return {
       pack,

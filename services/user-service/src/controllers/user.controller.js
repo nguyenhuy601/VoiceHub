@@ -750,7 +750,8 @@ class UserController {
       if (!isObjectIdString(userId)) return sendInvalidUserId(res);
       const profile = await userService.getUserProfileById(userId);
       if (!profile?.avatar) {
-        return res.status(404).json({ success: false, message: 'Avatar not found' });
+        // Không có ảnh — 204 (không phải lỗi tài nguyên); FE dùng initials.
+        return res.status(204).end();
       }
 
       const avatarRef = String(profile.avatar).trim();

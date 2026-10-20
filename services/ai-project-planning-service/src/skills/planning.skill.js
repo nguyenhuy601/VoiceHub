@@ -22,6 +22,7 @@ const planningSkill = {
     'ScheduleTool',
     'ArchitectureTool',
     'RiskTool',
+    'BacklogMapTool',
     'WbsTool',
     'DependencyTool',
     'ProjectPlanTool',

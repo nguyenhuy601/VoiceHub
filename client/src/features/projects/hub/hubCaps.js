@@ -127,15 +127,9 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
         canCreateChangeRequest,
         canUpdateChangeRequest,
         canDeleteChangeRequest,
-        canManageSettings: Boolean(caps.canManageSettings),
-        canViewSettings:
-          caps.canViewSettings != null
-            ? Boolean(caps.canViewSettings)
-            : permissions.includes('settings:view'),
-        canManageProjectRoles:
-          caps.canManageProjectRoles != null
-            ? Boolean(caps.canManageProjectRoles)
-            : permissions.includes('project:roles'),
+        canManageSettings: flagOrPerm(caps, 'canManageSettings', ['settings:update']),
+        canViewSettings: flagOrPerm(caps, 'canViewSettings', ['settings:view']),
+        canManageProjectRoles: flagOrPerm(caps, 'canManageProjectRoles', ['project:roles']),
         canManageSprints,
         canStartSprint: flagOrPerm(caps, 'canStartSprint', ['sprint:start']),
         canCloseSprint: flagOrPerm(caps, 'canCloseSprint', ['sprint:close']),
@@ -181,9 +175,10 @@ export function resolveHubCapabilities(projectPayload, { canManageFallback = fal
       canCreateChangeRequest: fallback,
       canUpdateChangeRequest: fallback,
       canDeleteChangeRequest: fallback,
-      canManageSettings: fallback,
-      canViewSettings: fallback,
-      canManageProjectRoles: fallback,
+      // Fail-closed: Settings chỉ qua permission flags từ BE — không suy từ canManageFallback.
+      canManageSettings: false,
+      canViewSettings: false,
+      canManageProjectRoles: false,
       canManageSprints: fallback,
       canStartSprint: fallback,
       canCloseSprint: fallback,

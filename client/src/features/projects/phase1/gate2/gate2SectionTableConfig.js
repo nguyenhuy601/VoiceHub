@@ -139,12 +139,10 @@ const WBS_LEVEL_LABELS = Object.freeze({
 });
 
 function wbsTitleIndent(row, _t, ctx = {}) {
-  const depth = Math.max(0, Math.min(8, Number(row?.depth) || 0));
+  // Hierarchy via Level column only — flat title (no indent / tree glyphs).
   const title = clip(row?.title || row?.name || '—', 140);
   const expandable = Boolean(row?.hasChildren && row?.isWbsContainer);
   const expanded = expandable ? ctx.wbsExpanded !== false : true;
-  const twisty = expandable ? (expanded ? '▼ ' : '▶ ') : depth > 0 ? '└ ' : '';
-  const label = `${twisty}${title}`;
   const onToggle = typeof ctx.onToggleWbs === 'function' ? ctx.onToggleWbs : null;
   return createElement(
     expandable ? 'button' : 'span',
@@ -153,7 +151,6 @@ function wbsTitleIndent(row, _t, ctx = {}) {
       className: `inline-block max-w-full whitespace-pre-wrap break-words text-left ${
         expandable ? 'hover:underline' : ''
       }`,
-      style: { paddingLeft: depth ? `${depth * 12}px` : undefined },
       onClick: expandable
         ? (e) => {
             e.preventDefault();
@@ -167,7 +164,7 @@ function wbsTitleIndent(row, _t, ctx = {}) {
           : 'Mở các task / dòng con'
         : undefined,
     },
-    label
+    title
   );
 }
 
@@ -184,7 +181,7 @@ const GATE2_SECTION_COLUMNS = {
       ...COL_TITLE,
       defaultPx: 280,
       minPx: 140,
-      render: (r) => wbsTitleIndent(r),
+      render: (r, t, ctx) => wbsTitleIndent(r, t, ctx),
     },
     {
       key: 'level',
@@ -215,10 +212,31 @@ const GATE2_SECTION_COLUMNS = {
       defaultPx: 90,
       minPx: 64,
       render: (r) => {
+        if (r.duplicateOf) return '0';
         if (r.effortHours == null) return '—';
         const base = String(r.effortHours);
         return r.effortRolledUp ? `${base} Σ` : base;
       },
+    },
+    {
+      key: 'deliverable',
+      headerKey: 'requirements.gate2ColDeliverable',
+      headerFallback: 'Deliverable',
+      field: 'deliverable',
+      editable: true,
+      defaultPx: 180,
+      minPx: 100,
+      render: (r) => r.deliverable || (r.wbsUnresolved ? '—' : '—'),
+    },
+    {
+      key: 'doneWhen',
+      headerKey: 'requirements.gate2ColDoneWhen',
+      headerFallback: 'Done when',
+      field: 'doneWhen',
+      editable: true,
+      defaultPx: 180,
+      minPx: 100,
+      render: (r) => r.doneWhen || '—',
     },
     COL_STATUS,
     COL_AUDIT_SOURCE,
