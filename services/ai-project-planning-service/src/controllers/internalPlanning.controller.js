@@ -334,7 +334,7 @@ async function deliverRunCallback(
       },
       $inc: { callbackAttempts: 1 },
     },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   if (!run) return getRunById(runId);
   const attempt = Number(run.callbackAttempts || 0);
@@ -365,7 +365,7 @@ async function deliverRunCallback(
         },
         $unset: { activeKey: 1 },
       },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     // S5: TERMINAL → delete; RESUMABLE failed keeps CP (classifier).
     await clearCheckpointIfTerminal(
@@ -407,7 +407,7 @@ async function deliverRunCallback(
           },
           $unset: { activeKey: 1 },
         },
-        { new: true }
+        { returnDocument: 'after' }
       ).lean();
     }
     const delayMs = callbackDelayMs(attempt);
@@ -428,7 +428,7 @@ async function deliverRunCallback(
           callbackLeaseExpiresAt: null,
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     if (pending && scheduleRetry) scheduleCallbackDelivery(runId, nextRetryAt);
     return getRunById(runId);
@@ -457,7 +457,7 @@ async function stageCallback(run, executionLeaseOwner, payload, patch = {}) {
         ...mongoPatch,
       },
     },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   if (!staged) return getRunById(String(run._id));
   return deliverRunCallback(String(run._id));
@@ -493,7 +493,7 @@ async function claimRunExecution(
       },
       $inc: { attempt: 1 },
     },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   if (freshClaim) return { run: freshClaim, executionLeaseOwner };
 
@@ -515,7 +515,7 @@ async function claimRunExecution(
       },
       $inc: { attempt: 1 },
     },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   return run ? { run, executionLeaseOwner } : null;
 }

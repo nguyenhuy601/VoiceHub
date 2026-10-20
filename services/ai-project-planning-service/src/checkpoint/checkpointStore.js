@@ -46,7 +46,7 @@ async function saveCheckpoint(runId, agentState) {
   await PlanningRun.findByIdAndUpdate(
     id,
     { $set: { lastCheckpointAt: new Date(savedAt) } },
-    { new: false }
+    { returnDocument: 'before' }
   ).catch((error) => {
     console.warn('[g15_save] lastCheckpointAt', id, error?.message || error);
   });

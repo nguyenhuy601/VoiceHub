@@ -123,7 +123,7 @@ function packScheduleCapacity({
   criticalWorkIds = [],
   theoreticalCpm = null,
 } = {}) {
-  const start = nextWorkingDay(toDateKey(projectStart) || toDateKey(new Date()), calendar);
+  const startKey = toDateKey(projectStart);
   const deadlineKey = toDateKey(projectDeadline);
   const assignmentByTask = new Map(assignments.map((item) => [String(item.taskId), item]));
   const schedulableTasks = (tasks || []).filter((task) => {
@@ -134,6 +134,54 @@ function packScheduleCapacity({
   const taskById = new Map(
     schedulableTasks.map((task) => [String(task.id || task.taskId), task])
   );
+
+  // No invent: missing project start → empty schedule (UI shows empty)
+  if (!startKey) {
+    const milestones = [];
+    for (const task of tasks) {
+      if (!isMilestoneTask(task)) continue;
+      const tid = String(task.id || task.taskId || '');
+      milestones.push({
+        taskId: tid,
+        name: task.name || task.title || tid,
+        dateKey: toDateKey(task.dueDate) || null,
+      });
+    }
+    return {
+      schedule: [],
+      taskDates: {},
+      capacityConflicts: [
+        {
+          type: 'missing_project_start',
+          message: 'No project startDate — schedule left empty',
+        },
+      ],
+      milestones,
+      completion: {
+        projectStart: null,
+        estimatedEnd: null,
+        totalEffortHours:
+          Math.round(
+            tasks.reduce((sum, task) => sum + (Number(task.effortHours) || 0), 0) * 100
+          ) / 100,
+        criticalPath: [],
+        unassignedTaskIds: [...taskById.keys()].filter((id) => !assignmentByTask.has(id)),
+        unresolvedPending: [...taskById.keys()],
+        dailyCapHours: DAILY_CAP_HOURS,
+        deadline: deadlineKey,
+      },
+      meta: {
+        source: 'empty',
+        reason: 'missing_project_start',
+        scheduleRowCount: 0,
+        capacityConflictCount: 1,
+        milestoneCount: milestones.length,
+        criticalTaskCount: 0,
+      },
+    };
+  }
+
+  const start = nextWorkingDay(startKey, calendar);
   const criticalIds = resolveCriticalTaskIds({
     criticalWorkIds,
     theoreticalCpm,

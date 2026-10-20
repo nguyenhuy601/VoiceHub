@@ -165,7 +165,7 @@ async function claimJob(jobId, env = process.env) {
       $set: { status: 'running', startedAt: new Date() },
       $inc: { attempts: 1 },
     },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   if (fresh) return toPublic(fresh);
 
@@ -176,7 +176,7 @@ async function claimJob(jobId, env = process.env) {
       $set: { status: 'running', startedAt: new Date() },
       $inc: { attempts: 1 },
     },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   return toPublic(reclaimed);
 }
@@ -203,7 +203,7 @@ async function completeJob(jobId, result, env = process.env) {
         finishedAt: new Date(),
       },
     },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   return toPublic(doc);
 }
@@ -231,7 +231,7 @@ async function failJob(jobId, error, env = process.env, result = null) {
         finishedAt: new Date(),
       },
     },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   return toPublic(doc);
 }

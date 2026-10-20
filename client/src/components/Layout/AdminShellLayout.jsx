@@ -12,7 +12,8 @@ import { getDefaultPathForSuite, SUITE, writeStoredSuite } from '../../utils/sui
 
 function AdminShellLayoutInner() {
   // canAccessHub = systemAdmin || hasAnyAdminNavGrant(hasGrant, scopeOf) — một nguồn với useCompanyAdminAccess
-  const { isSystemAdmin, orgId, canAccessHub, grantsLoading, grantsError } = useCompanyAdminAccess();
+  const { isSystemAdmin, isFullAccess, orgId, canAccessHub, grantsLoading, grantsError } =
+    useCompanyAdminAccess();
 
   if (!isSystemAdmin && orgId && (grantsLoading || grantsError)) {
     return <div className={FIGMA_SHELL_ROOT} />;
@@ -31,7 +32,7 @@ function AdminShellLayoutInner() {
       <NetworkOfflineBanner />
       <JoinOrganizationModal />
       <div className={FIGMA_SHELL_BODY}>
-        <AdminNavigationSidebar isFullAccess={false} />
+        <AdminNavigationSidebar isFullAccess={isFullAccess} />
         <div className={FIGMA_SHELL_MAIN}>
           <PageMotion className="flex min-h-0 min-w-0 flex-1 flex-col">
             <Outlet />

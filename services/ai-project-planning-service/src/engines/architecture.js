@@ -81,6 +81,7 @@ function buildHeuristicChains(items = []) {
 
 function runArchitectureEngine(container = {}, packOrSnapshot = {}) {
   const capabilities = container?.analyses?.capability?.items || [];
+  // No invent: empty capability → empty arch items (unless real catalog/gaps)
   const gaps = container?.analyses?.gap?.items || [];
   const catalog = Array.isArray(packOrSnapshot.architectureCatalog)
     ? packOrSnapshot.architectureCatalog
@@ -92,12 +93,15 @@ function runArchitectureEngine(container = {}, packOrSnapshot = {}) {
     const tech = catalog[i];
     const name = String(tech?.name || tech || '').trim();
     if (!name) continue;
+    const layerRaw = String(tech.layer || tech.category || '')
+      .trim()
+      .toLowerCase();
     items.push({
       impactId: `IMP-H-TECH-${slugPart(name) || i + 1}`,
       sourceFrIds: [],
       capabilityIds: [],
       component: name,
-      layer: String(tech.layer || tech.category || 'backend').toLowerCase(),
+      layer: layerRaw || null,
       apis: [],
       databases: [],
       externalSystems: [],
@@ -122,32 +126,36 @@ function runArchitectureEngine(container = {}, packOrSnapshot = {}) {
     ),
     constraints: [],
     meta: {
-      source: 'heuristic',
+      source: capabilities.length || gaps.length || catalog.length ? 'heuristic' : 'empty',
       llmCalls: 0,
       itemCount: items.length,
       stub: false,
+      capabilityFallbackFromFr: false,
     },
   };
 }
 
+/**
+ * Emit analyses only — never echo planning.* (avoids parallel/sequential merge wiping WBS leaves).
+ */
 function applyArchitectureToContainer(container, archResult) {
-  const next = {
-    ...container,
-    analyses: { ...(container?.analyses || {}) },
+  void container;
+  return {
+    analyses: {
+      architectureImpact: {
+        status: archResult.status || 'ready',
+        model: archResult.model || null,
+        generatedAt: archResult.generatedAt || new Date().toISOString(),
+        items: archResult.items || [],
+        entities: [],
+        edges: archResult.dependencies || [],
+        dataFlows: [],
+        orderHint: [],
+        chains: archResult.chains || [],
+        meta: archResult.meta || {},
+      },
+    },
   };
-  next.analyses.architectureImpact = {
-    status: archResult.status || 'ready',
-    model: archResult.model || null,
-    generatedAt: archResult.generatedAt || new Date().toISOString(),
-    items: archResult.items || [],
-    entities: [],
-    edges: archResult.dependencies || [],
-    dataFlows: [],
-    orderHint: [],
-    chains: archResult.chains || [],
-    meta: archResult.meta || {},
-  };
-  return next;
 }
 
 module.exports = {

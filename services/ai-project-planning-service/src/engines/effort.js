@@ -175,29 +175,43 @@ function runEffortEngine(container, opts = {}) {
 
   for (const task of tasks) {
     const complexity = complexityForTask(task, capabilityById);
-    const hasSeed = Number(task.effortSeedHours) > 0;
-    let hours = hasSeed
-      ? Number(task.effortSeedHours)
-      : COMPLEXITY_HOURS[complexity] ?? COMPLEXITY_HOURS.medium;
+    const seedHint = Number(task.effortSeedHours);
+    if (Number.isFinite(seedHint) && seedHint > 0) {
+      task.effortSeedHintHours = seedHint;
+    }
 
     const level = String(task.level || '').toLowerCase();
+    const phase = phaseForTask(task);
+    const requiredLevel =
+      clampRequiredLevel(LEVEL_FROM_COMPLEXITY[complexity] ?? 3) || 3;
+
+    // P1: WBS duplicate leaves stay for trace/coverage but do not double-count hours.
+    if (task.duplicateOf) {
+      task.effortHours = 0;
+      task.requiredLevel = requiredLevel;
+      task.storyPoints = 0;
+      task.confidence = 0;
+      task.complexity = complexity;
+      task.effortPhase = phase;
+      continue;
+    }
+
+    // P1: official estimate from complexity — never use effortSeedHours as base.
+    let hours = COMPLEXITY_HOURS[complexity] ?? COMPLEXITY_HOURS.medium;
+
     if (level === 'epic' || level === 'feature' || level === 'story') {
       hours = Math.max(MIN_EFFORT_HOURS, Math.round(hours * 0.25));
     } else if (!task.parentId && /delivery|epic|root/i.test(task.name || '')) {
       hours = Math.max(MIN_EFFORT_HOURS, Math.round(hours * 0.5));
     } else {
-      // Leaf: apply area + scope (also when seed present — seed is WBS guess, not final)
       hours = hours * areaFactor(task) * scopeFactor(task);
     }
 
     const blended = blendHoursWithHistory(hours, complexity, historyMetrics);
     if (blended.usedHistory) usedHistoryAny = true;
     hours = clampEffortHours(Math.min(blended.hours, maxHours));
-    const requiredLevel =
-      clampRequiredLevel(LEVEL_FROM_COMPLEXITY[complexity] ?? 3) || 3;
     const storyPoints = COMPLEXITY_STORY_POINTS[complexity] ?? COMPLEXITY_STORY_POINTS.medium;
     const confidence = clamp01(blended.confidence);
-    const phase = phaseForTask(task);
 
     task.effortHours = hours;
     task.requiredLevel = requiredLevel;

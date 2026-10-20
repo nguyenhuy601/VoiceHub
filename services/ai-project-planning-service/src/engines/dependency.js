@@ -174,23 +174,24 @@ function runDependencyEngine(container = {}, opts = {}) {
   };
 }
 
+/** Analyses-only — never echo planning.tasks (safe when ∥ ArchitectureTool). */
 function applyDependencyToContainer(container, depResult) {
-  const next = {
-    ...container,
-    analyses: { ...(container?.analyses || {}) },
+  void container;
+  return {
+    analyses: {
+      dependency: {
+        status: depResult.status || 'ready',
+        model: depResult.model || null,
+        generatedAt: depResult.generatedAt || new Date().toISOString(),
+        items: [],
+        entities: [],
+        edges: depResult.edges || [],
+        dataFlows: [],
+        orderHint: depResult.orderHint || [],
+        meta: depResult.meta || {},
+      },
+    },
   };
-  next.analyses.dependency = {
-    status: depResult.status || 'ready',
-    model: depResult.model || null,
-    generatedAt: depResult.generatedAt || new Date().toISOString(),
-    items: [],
-    entities: [],
-    edges: depResult.edges || [],
-    dataFlows: [],
-    orderHint: depResult.orderHint || [],
-    meta: depResult.meta || {},
-  };
-  return next;
 }
 
 module.exports = {

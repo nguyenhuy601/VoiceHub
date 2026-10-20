@@ -296,8 +296,13 @@ export function parseUserPermissionsPayload(res) {
   return { permissions, grantScopes };
 }
 
-/** Chỉ grant từ vị trí (grantScopes). Không bypass membership / full-access. */
-export function canActWithGrant(_unusedFullAccess, hasGrantFn, key) {
+/**
+ * Hành động trong panel admin (nút tạo/sửa/xóa…).
+ * `isFullAccess` = true chỉ khi systemRole=admin (useCompanyAdminAccess).
+ * Quản trị khác: bắt buộc có đúng grant — không bypass membership owner/admin.
+ */
+export function canActWithGrant(isFullAccess, hasGrantFn, key) {
+  if (isFullAccess) return true;
   const grantKey = String(key || '').trim();
   if (!grantKey) return false;
   return typeof hasGrantFn === 'function' ? Boolean(hasGrantFn(grantKey)) : false;
@@ -324,38 +329,21 @@ export function hasAnyAdminNavGrant(hasGrant, scopeOf) {
   });
 }
 
-/** Khớp STORED_ADMIN_MAINTAIN_KEYS bên organization-service. Không gồm policy, audit, mời người. */
-const OPERATOR_MAINTAIN_GRANTS = new Set([
-  'organization.organization_role.view',
-  'organization.organization_role.update',
-  'organization.position.view',
-  'organization.position.create',
-  'organization.position.update',
-  'organization.structure.view',
-  'organization.employee.view',
-]);
-
-function operatorSurfacePath(item) {
-  const path = String(item?.path || '').split('?')[0].replace(/\/+$/, '');
-  if (!path) return false;
-  if (path === '/app/admin/backup' || path.startsWith('/app/admin/backup/')) return true;
-  if (path === '/app/admin/rbac/project-roles' || path.startsWith('/app/admin/rbac/project-roles/')) {
-    return true;
-  }
-  return false;
-}
-
 function scopedGrantOpens(key, hasGrant, scopeOf) {
   if (!key || typeof hasGrant !== 'function' || typeof scopeOf !== 'function') return false;
   if (!hasGrant(key)) return false;
   return adminScopeOpensPage(scopeOf(key));
 }
 
+/**
+ * Mục sidebar/route admin được phép mở.
+ * systemRole=admin = toàn bộ catalog (khớp hub + chức năng phân hệ).
+ * Quản trị khác: theo grantScopes (scope mở trang) — siết chặt, không mở vì chỉ là owner/HR.
+ */
 export function navItemIsAllowed(item, { hasGrant, scopeOf, isSystemAdmin = false } = {}) {
+  if (!item) return false;
+  if (isSystemAdmin) return true;
   const key = navItemRequiredGrant(item);
-  if (isSystemAdmin && (operatorSurfacePath(item) || OPERATOR_MAINTAIN_GRANTS.has(key))) {
-    return true;
-  }
   if (scopedGrantOpens(key, hasGrant, scopeOf)) return true;
   // Hub cấu hình ghi policy.view. Director chỉ có policy.update — mã sửa mở cùng cửa.
   if (key === RBAC_GRANT.POLICY_VIEW && scopedGrantOpens(RBAC_GRANT.POLICY_UPDATE, hasGrant, scopeOf)) {
@@ -377,4 +365,23 @@ export function filterAdminDomainByGrant(domain, ctx) {
       items: filterAdminNavItemsByGrant(section.items, ctx),
     })),
   };
+}
+
+/** Domain còn ít nhất một mục nav (không hidden) sau lọc grant — dùng chung hub + sidebar. */
+export function adminDomainHasVisibleNav(domain) {
+  const sections = Array.isArray(domain?.sections) ? domain.sections : [];
+  for (const section of sections) {
+    for (const item of section?.items || []) {
+      if (item?.nav === 'hidden') continue;
+      if (item?.path) return true;
+    }
+  }
+  return false;
+}
+
+/** Lọc danh sách domain hub/picker theo grant — tránh card/menu trống lệch nhau. */
+export function filterVisibleAdminDomainsByGrant(domains, ctx) {
+  return (Array.isArray(domains) ? domains : [])
+    .map((domain) => filterAdminDomainByGrant(domain, ctx))
+    .filter(adminDomainHasVisibleNav);
 }

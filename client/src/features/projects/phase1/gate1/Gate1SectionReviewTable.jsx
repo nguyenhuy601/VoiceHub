@@ -151,18 +151,11 @@ export default function Gate1SectionReviewTable({
     setVisibleCount(scrollPageSize);
   }, [section, scrollPageSize]);
 
-  // Default: collapse work_package (or story if no WP) so tasks stay tucked until click.
+  // Default: fully expanded so Gate2 reviewers see Task leaves (not only Epic→WP).
+  // User can still collapse any container by clicking the title.
   useEffect(() => {
     if (!wbsTreeCollapse) return;
-    const hasWp = rows.some((r) => String(r?.level || '') === 'work_package');
-    const next = new Set();
-    for (const r of rows) {
-      const level = String(r?.level || '');
-      if (!r?.id || !r?.hasChildren) continue;
-      if (hasWp && level === 'work_package') next.add(String(r.id));
-      if (!hasWp && level === 'story') next.add(String(r.id));
-    }
-    setWbsCollapsedIds(next);
+    setWbsCollapsedIds(new Set());
   }, [wbsTreeCollapse, section, rows]);
 
   const toggleWbsCollapse = useCallback((rowId) => {

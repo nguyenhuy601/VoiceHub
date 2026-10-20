@@ -35,7 +35,8 @@ export function useCompanyAdminAccess() {
   const isOrgOwnerOrAdmin = FULL_ACCESS_ROLES.has(myOrgRole);
   const { hasGrant, scopeOf, loading: grantsLoading, error: grantsError } = useGrantScopes(orgId);
   const canAccessHub = isSystemAdmin || hasAnyAdminNavGrant(hasGrant, scopeOf);
-  const isFullAccess = false;
+  // Chỉ systemRole=admin mở đủ UI admin. Quản trị khác (owner/HR/…) siết theo grantScopes.
+  const isFullAccess = isSystemAdmin;
 
   return {
     isSingleCompany,

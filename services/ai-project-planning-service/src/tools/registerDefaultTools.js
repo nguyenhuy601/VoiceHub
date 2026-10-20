@@ -10,6 +10,7 @@ const { hierarchy } = require('./hierarchy');
 const { capability } = require('./capability');
 const { insights } = require('./insights');
 const { wbs } = require('./wbs');
+const { backlogMap } = require('./backlogMap');
 const { dependency } = require('./dependency');
 const { projectPlan } = require('./projectPlan');
 const { qualityPlan } = require('./qualityPlan');
@@ -25,6 +26,7 @@ const {
   HierarchyTool,
   CapabilityTool,
   InsightsTool,
+  BacklogMapTool,
   WbsTool,
   DependencyTool,
   ProjectPlanTool,
@@ -197,9 +199,22 @@ function registerDefaultTools() {
   });
 
   registerTool({
-    toolName: 'WbsTool',
+    toolName: 'BacklogMapTool',
     version: '1.0.0',
-    description: 'WBS generation from analyses',
+    description: 'Map approved SRS to Agile backlog (Epic/Feature/Story-PBI)',
+    allowedContexts: ['planning'],
+    requires: PLANNING_REQUIRES,
+    timeout: 30_000,
+    inputSchema: BacklogMapTool.inputSchema,
+    outputSchema: BacklogMapTool.outputSchema,
+    evidenceSchema: BacklogMapTool.evidenceSchema,
+    execute: (input, ctx) => backlogMap(input || {}, ctx),
+  });
+
+  registerTool({
+    toolName: 'WbsTool',
+    version: '2.0.0',
+    description: 'LLM-only WBS task leaves under planning.backlog stories',
     allowedContexts: ['planning'],
     requires: PLANNING_REQUIRES,
     // Wave M: LLM/queue WBS often 60–180s on CPU 3B — default 30s caused TOOL_TIMEOUT

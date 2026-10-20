@@ -79,7 +79,36 @@ function seedSheetsFromSrsProposal(packSheets, container) {
     businessProcesses,
     useCases,
     nonFunctionalRequirements,
+    functionalRequirements,
   } = packSheets;
+  if (!Array.isArray(functionalRequirements)) functionalRequirements = [];
+
+  // FR must land on pack sheets — HOW WBS reads pack.functionalRequirements, not srsProposal.
+  if (!functionalRequirements.length && Array.isArray(generated.functionalRequirements?.items)) {
+    functionalRequirements = generated.functionalRequirements.items
+      .filter((item) => item && String(item.status || '').toUpperCase() !== 'REJECTED')
+      .slice(0, 200)
+      .map((item, idx) => {
+        const id = String(item.id || item.logicalId || `FR-${String(idx + 1).padStart(3, '0')}`);
+        const title = normProse(item.title || item.name || item.statement || id).slice(0, 500);
+        const ac = Array.isArray(item.acceptanceCriteria)
+          ? item.acceptanceCriteria.map((row) => normProse(row)).filter(Boolean).join('\n')
+          : normProse(item.acceptanceCriteria || item.ac || '');
+        return {
+          externalId: id,
+          level: 'Requirement',
+          name: title || id,
+          description: normProse(item.description || item.statement || ''),
+          moduleLabel: normProse(item.module || item.moduleName || item.moduleLabel || ''),
+          featureLabel: normProse(item.feature || item.featureName || item.featureLabel || ''),
+          acceptanceCriteria: ac,
+          priority: normProse(item.priority || 'Medium') || 'Medium',
+          status: 'Draft',
+          baNote: 'seeded:srs_proposal',
+        };
+      })
+      .filter((row) => row.name);
+  }
 
   if (!businessGoals.length && Array.isArray(generated.businessGoals?.items)) {
     businessGoals = generated.businessGoals.items.slice(0, 40).map((item, idx) => ({
@@ -214,6 +243,7 @@ function seedSheetsFromSrsProposal(packSheets, container) {
 
   return {
     ...packSheets,
+    functionalRequirements,
     businessGoals,
     scope,
     businessRules,
@@ -244,8 +274,10 @@ function enrichSheetsFromAnalyses(pack, container) {
   let nonFunctionalRequirements = ensureArray(
     pack.nonFunctionalRequirements || pack.nfrs
   );
+  let functionalRequirements = ensureArray(pack.functionalRequirements);
 
   ({
+    functionalRequirements,
     businessGoals,
     scope,
     businessRules,
@@ -254,6 +286,7 @@ function enrichSheetsFromAnalyses(pack, container) {
     nonFunctionalRequirements,
   } = seedSheetsFromSrsProposal(
     {
+      functionalRequirements,
       businessGoals,
       scope,
       businessRules,
@@ -400,7 +433,7 @@ function enrichSheetsFromAnalyses(pack, container) {
   }
 
   // FR leaves → UC links for Gate A coverage. Prefer proposal UCs; fill uncovered leaves.
-  const frList = ensureArray(pack.functionalRequirements);
+  const frList = ensureArray(functionalRequirements);
   const leaves = frList.filter((r) => {
     const level = String(r.level || '').toLowerCase();
     return level === 'requirement' || level === '';
@@ -501,6 +534,7 @@ function enrichSheetsFromAnalyses(pack, container) {
 
   return {
     overview,
+    functionalRequirements,
     businessGoals,
     scope,
     businessRules,
@@ -643,6 +677,13 @@ function applyProposedSrsToPack(packInput, containerInput) {
 
   const sheets = enrichSheetsFromAnalyses(pack, container);
   pack.overview = { ...(pack.overview || {}), ...sheets.overview };
+  if (
+    Array.isArray(sheets.functionalRequirements) &&
+    sheets.functionalRequirements.length &&
+    !(Array.isArray(pack.functionalRequirements) && pack.functionalRequirements.length)
+  ) {
+    pack.functionalRequirements = sheets.functionalRequirements;
+  }
   if (sheets.businessGoals.length) pack.businessGoals = sheets.businessGoals;
   if (sheets.scope.length) pack.scope = sheets.scope;
   if (sheets.businessRules.length) pack.businessRules = sheets.businessRules;

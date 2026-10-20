@@ -62,7 +62,7 @@ function checkFeasibility(planState = {}) {
     failures.push({
       code: 'FEAS_DEPLOY_PLAN',
       message:
-        'Deploy plan incomplete (need envMatrix ≥2 or TBD, rollback steps, release mode, outOfScopeInApp)',
+        'Deploy plan incomplete (need envMatrix from SNAP, rollback steps, release mode, outOfScopeInApp)',
     });
   }
 

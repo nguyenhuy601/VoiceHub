@@ -525,14 +525,27 @@ async function approveRequirementPack({
       const analyses = pack.aiAnalysis?.analyses || {};
       const proposal = analyses.srsProposal || null;
       const legacyG4 = analyses.g4Understanding || null;
-      const seedSource = proposal || legacyG4;
-      const { pack: seeded, meta } = materializeG4IntoPack(
-        pack.toObject ? pack.toObject() : pack,
-        seedSource
-      );
-      if (!meta.skipped && Array.isArray(seeded.functionalRequirements)) {
-        pack.functionalRequirements = seeded.functionalRequirements;
-        pack.markModified('functionalRequirements');
+      let meta = { seededFr: 0, skipped: true };
+      // Prefer full overlay from confirmed proposal (replace intake) over merge-only materialize
+      if (proposal?.generated) {
+        const { overlayConfirmedWhatForHow } = require('../utils/aiAnalysis/overlayConfirmedWhatForHow');
+        const overlaid = overlayConfirmedWhatForHow(pack);
+        meta = {
+          seededFr: overlaid.counts?.functionalRequirements || 0,
+          skipped: !overlaid.changed,
+          source: 'overlay_confirmed_what',
+        };
+      } else {
+        const seedSource = legacyG4;
+        const { pack: seeded, meta: matMeta } = materializeG4IntoPack(
+          pack.toObject ? pack.toObject() : pack,
+          seedSource
+        );
+        meta = matMeta;
+        if (!meta.skipped && Array.isArray(seeded.functionalRequirements)) {
+          pack.functionalRequirements = seeded.functionalRequirements;
+          pack.markModified('functionalRequirements');
+        }
       }
       let container = ensureAiAnalysisContainer(pack.aiAnalysis);
       // PO approve: create ApprovedSrsVersionManifest only after draft (not at materialize)

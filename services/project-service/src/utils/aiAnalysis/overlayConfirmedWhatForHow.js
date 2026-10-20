@@ -25,12 +25,14 @@ function mapFr(item, index) {
   const ac = Array.isArray(item.acceptanceCriteria)
     ? item.acceptanceCriteria.map((row) => textOf(row, 500)).filter(Boolean).join('\n')
     : textOf(item.acceptanceCriteria || item.ac, 2000);
+  // level phải đúng casing 'Requirement' — listRequirementRows / packContentHash lọc exact.
   return {
     externalId: id,
-    level: 'requirement',
-    name: title,
+    level: 'Requirement',
+    name: title || id,
     description: textOf(item.description || item.statement || '', 4000),
-    module: textOf(item.module || item.moduleName, 120),
+    moduleLabel: textOf(item.module || item.moduleName || item.moduleLabel, 120),
+    featureLabel: textOf(item.feature || item.featureName || item.featureLabel, 120),
     acceptanceCriteria: ac,
     priority: textOf(item.priority || 'Medium', 32) || 'Medium',
     status: 'Draft',

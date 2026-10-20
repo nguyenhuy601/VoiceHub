@@ -7,10 +7,13 @@ const { HOW_PHASE_TOOL_STEPS } = require('./jobToToolsMap');
 
 /** @type {Readonly<Record<string, readonly string[]>>} */
 const HOW_TOOL_DEPENDENCIES = Object.freeze({
-  WbsTool: Object.freeze([]),
-  ArchitectureTool: Object.freeze([]),
+  CapabilityTool: Object.freeze([]),
+  // Pattern C: Capability ∥ BacklogMap; Wbs depends on backlog (Pattern A)
+  BacklogMapTool: Object.freeze([]),
+  WbsTool: Object.freeze(['BacklogMapTool']),
+  // Arch after Wbs — never ∥ Wbs (Arch used to echo planning.tasks and wipe leaves)
+  ArchitectureTool: Object.freeze(['CapabilityTool', 'WbsTool']),
   DependencyTool: Object.freeze(['WbsTool']),
-  // Soft Arch for richer Effort skills — treat as hard so L0 = Wbs∥Arch
   RiskTool: Object.freeze(['ArchitectureTool', 'DependencyTool']),
   // After Risk, before Effort (QA informs estimates)
   QualityPlanTool: Object.freeze(['RiskTool', 'ArchitectureTool']),

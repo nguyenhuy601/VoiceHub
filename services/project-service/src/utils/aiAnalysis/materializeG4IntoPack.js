@@ -6,39 +6,53 @@
 function proposalFrToList(proposal) {
   const items = proposal?.generated?.functionalRequirements?.items;
   if (!Array.isArray(items)) return [];
-  return items.map((r, i) => ({
-    externalId: String(r.id || r.logicalId || r.externalId || `FR-${i + 1}`).trim(),
-    name: r.title || r.name || `Requirement ${i + 1}`,
-    title: r.title || r.name || null,
-    description: r.description || '',
-    ac: r.ac || r.acceptanceCriteria || '',
-    priority: r.priority || '',
-    module: r.module || '',
-    feature: r.feature || '',
-    level: r.level || 'Requirement',
-    parentExternalId: r.parentId || r.parentExternalId || null,
-    source: 'srs_proposal',
-    status: r.status || null,
-  }));
+  return items
+    .filter((r) => r && String(r.status || '').toUpperCase() !== 'REJECTED')
+    .map((r, i) => {
+      const name = String(r.title || r.name || `Requirement ${i + 1}`).trim();
+      const rawAc = r.ac || r.acceptanceCriteria;
+      const ac = Array.isArray(rawAc)
+        ? rawAc.map((row) => String(row || '').trim()).filter(Boolean).join('\n')
+        : String(rawAc || '').trim();
+      return {
+        externalId: String(r.id || r.logicalId || r.externalId || `FR-${i + 1}`).trim(),
+        name: name || `Requirement ${i + 1}`,
+        description: String(r.description || '').trim(),
+        // projectFrNode / RequirementPack schema đọc acceptanceCriteria (không phải ac)
+        acceptanceCriteria: ac,
+        priority: r.priority || 'Medium',
+        moduleLabel: String(r.module || r.moduleLabel || '').trim(),
+        featureLabel: String(r.feature || r.featureLabel || '').trim(),
+        level: 'Requirement',
+        parentExternalId: r.parentId || r.parentExternalId || null,
+        source: 'srs_proposal',
+        status: 'Draft',
+        baNote: 'seeded:srs_proposal',
+      };
+    });
 }
 
 function g4RequirementsToFrList(g4Understanding) {
   const reqs = Array.isArray(g4Understanding?.requirements)
     ? g4Understanding.requirements
     : [];
-  return reqs.map((r, i) => ({
-    externalId: String(r.id || r.externalId || `FR-G4-${i + 1}`).trim(),
-    name: r.title || r.name || `Requirement ${i + 1}`,
-    title: r.title || r.name || null,
-    description: r.description || '',
-    ac: r.ac || r.acceptanceCriteria || '',
-    priority: r.priority || '',
-    module: r.module || '',
-    feature: r.feature || '',
-    level: r.level || 'Requirement',
-    parentExternalId: r.parentId || r.parentExternalId || null,
-    source: 'g4_understanding_legacy',
-  }));
+  return reqs.map((r, i) => {
+    const name = String(r.title || r.name || `Requirement ${i + 1}`).trim();
+    const ac = String(r.ac || r.acceptanceCriteria || '').trim();
+    return {
+      externalId: String(r.id || r.externalId || `FR-G4-${i + 1}`).trim(),
+      name: name || `Requirement ${i + 1}`,
+      description: String(r.description || '').trim(),
+      acceptanceCriteria: ac,
+      priority: r.priority || 'Medium',
+      moduleLabel: String(r.module || r.moduleLabel || '').trim(),
+      featureLabel: String(r.feature || r.featureLabel || '').trim(),
+      level: 'Requirement',
+      parentExternalId: r.parentId || r.parentExternalId || null,
+      source: 'g4_understanding_legacy',
+      status: 'Draft',
+    };
+  });
 }
 
 function resolveFrSeedList(source) {
@@ -76,12 +90,21 @@ function materializeG4IntoPack(pack, g4OrProposal) {
       continue;
     }
     const cur = byId.get(id);
+    if (String(cur.level || '').toLowerCase() === 'requirement') {
+      cur.level = 'Requirement';
+    }
+    if (!String(cur.name || '').trim() && row.name) {
+      cur.name = row.name;
+      filled += 1;
+    }
     if (!String(cur.description || '').trim() && row.description) {
       cur.description = row.description;
       filled += 1;
     }
-    if (!String(cur.ac || '').trim() && row.ac) {
-      cur.ac = row.ac;
+    const curAc = String(cur.acceptanceCriteria || cur.ac || '').trim();
+    const rowAc = String(row.acceptanceCriteria || row.ac || '').trim();
+    if (!curAc && rowAc) {
+      cur.acceptanceCriteria = rowAc;
       filled += 1;
     }
     byId.set(id, cur);

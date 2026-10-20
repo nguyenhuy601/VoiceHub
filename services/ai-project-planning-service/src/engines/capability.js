@@ -45,7 +45,7 @@ function buildFrSlices(packOrSnapshot = {}) {
       description: normProse(row.description || row.desc || ''),
       ac: normProse(row.ac || row.acceptanceCriteria || ''),
       actor: normProse(row.actor || ''),
-      module: normProse(row.module || row.moduleLabel || row.moduleName || 'General') || 'General',
+      module: normProse(row.module || row.moduleLabel || row.moduleName || ''),
       feature: normProse(row.feature || row.featureLabel || ''),
       priority: row.priority || null,
     });
@@ -61,7 +61,7 @@ function buildFrSlices(packOrSnapshot = {}) {
         description: normProse(row.description || ''),
         ac: normProse(row.ac || row.acceptanceCriteria || ''),
         actor: normProse(row.actor || ''),
-        module: normProse(row.module || row.moduleLabel || 'General') || 'General',
+        module: normProse(row.module || row.moduleLabel || ''),
         feature: normProse(row.feature || row.featureLabel || ''),
         priority: row.priority || null,
       });
@@ -78,7 +78,7 @@ function inferSkills(slice) {
   if (/db|sql|mongo|data/.test(text)) skills.push({ name: 'Database', level: 2 });
   if (/auth|oauth|jwt|login/.test(text)) skills.push({ name: 'Security', level: 3 });
   if (/test|qa|selenium/.test(text)) skills.push({ name: 'QA', level: 2 });
-  if (!skills.length) skills.push({ name: 'General Development', level: 2 });
+  // No keyword match → empty skills (do not invent "General Development")
   return skills.slice(0, 8);
 }
 
@@ -104,7 +104,7 @@ function buildHeuristicCapabilityItems(frSlices = []) {
   for (let i = 0; i < frSlices.length; i += 1) {
     const slice = frSlices[i];
     const name = slice.title || slice.id;
-    const moduleName = slice.module || 'General';
+    const moduleName = slice.module || '';
     const key = `${moduleName.toLowerCase()}::${name.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);

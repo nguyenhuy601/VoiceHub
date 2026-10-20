@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Activity,
   BarChart3,
@@ -27,6 +28,7 @@ import {
   ADMIN_DOMAIN_STORAGE_KEY,
   ADMIN_SUITE_COLOR,
   applyOrgLevelFilterToDomain,
+  flattenAdminNavItems,
   getVisibleAdminDomains,
   normalizeAdminPath,
   resolveAdminDomainFromPath,
@@ -38,7 +40,7 @@ import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { useAdminNavLoading } from '../../hooks/useAdminShellLoading';
 import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
-import { filterAdminDomainByGrant } from '../../config/rbacUiGrantMap';
+import { filterAdminDomainByGrant, filterVisibleAdminDomainsByGrant } from '../../config/rbacUiGrantMap';
 import OrgStructureSetupModal from '../../features/adminOrgStructure/OrgStructureSetupModal';
 import NavCollapse from '../../motion/NavCollapse';
 import { VH_NAV_CHEVRON } from '../../motion/classes';
@@ -55,6 +57,11 @@ import {
   figmaNavItemBg,
   figmaNavItemClass,
 } from './figmaShellClasses';
+
+function firstVisibleNavPath(domain) {
+  const item = flattenAdminNavItems(domain || {}).find((entry) => entry?.nav !== 'hidden' && entry?.path);
+  return item?.path || domain?.path || '/app/admin';
+}
 
 const COLLAPSE_KEY = 'vh_admin_sidebar_collapsed';
 const ADMIN_COLOR = ADMIN_SUITE_COLOR;
@@ -84,15 +91,7 @@ function AdminDomainPicker({ domains, selectedDomain, onSelect }) {
   const { t } = useAppStrings();
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDocClick = (event) => {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [open]);
+  const triggerRef = useRef(null);
 
   useEffect(() => {
     setOpen(false);
@@ -106,6 +105,7 @@ function AdminDomainPicker({ domains, selectedDomain, onSelect }) {
         {t('adminDomains.selectDomain')}
       </label>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
@@ -123,26 +123,61 @@ function AdminDomainPicker({ domains, selectedDomain, onSelect }) {
         />
       </button>
 
-      <AdminDomainPickerMenu open={open} domains={domains} selectedDomain={selectedDomain} onSelect={onSelect} onClose={() => setOpen(false)} t={t} />
+      <AdminDomainPickerMenu
+        open={open}
+        domains={domains}
+        selectedDomain={selectedDomain}
+        onSelect={onSelect}
+        onClose={() => setOpen(false)}
+        t={t}
+        anchorRef={triggerRef}
+      />
     </div>
   );
 }
 
-function AdminDomainPickerMenu({ open, domains, selectedDomain, onSelect, onClose, t }) {
+function AdminDomainPickerMenu({ open, domains, selectedDomain, onSelect, onClose, t, anchorRef }) {
   const { mounted, phase } = useMotionPresence(open, { durationMs: VH_MOTION_BASE_MS });
-  if (!mounted) return null;
-  return (
+  const [menuBox, setMenuBox] = useState(null);
+
+  useEffect(() => {
+    if (!open || !anchorRef?.current) {
+      setMenuBox(null);
+      return undefined;
+    }
+    const update = () => {
+      const rect = anchorRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setMenuBox({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open, anchorRef]);
+
+  if (!mounted || typeof document === 'undefined' || !menuBox) return null;
+
+  return createPortal(
     <>
       <button
         type="button"
         aria-label={t('common.close')}
-        className="fixed inset-0 z-30 cursor-default bg-black/40"
+        className="fixed inset-0 z-[260] cursor-default bg-black/40"
         onClick={onClose}
       />
       <div
         role="listbox"
         data-motion-phase={phase || 'enter'}
-        className="absolute left-1 right-1 z-40 mt-1 max-h-[min(16rem,42vh)] overflow-y-auto rounded-lg border border-red-500/30 bg-[#12080A] py-1 shadow-[0_12px_32px_rgba(0,0,0,0.65)] vh-presence-overlay vh-motion-respect"
+        style={{ top: menuBox.top, left: menuBox.left, width: menuBox.width }}
+        className="fixed z-[270] max-h-[min(16rem,42vh)] overflow-y-auto rounded-lg border border-red-500/30 bg-[#12080A] py-1 shadow-[0_12px_32px_rgba(0,0,0,0.65)] vh-presence-overlay vh-motion-respect"
       >
         <div className="vh-presence-panel px-0 py-0 shadow-none border-0 bg-transparent rounded-none max-h-none">
           {domains.map((domain) => {
@@ -175,7 +210,8 @@ function AdminDomainPickerMenu({ open, domains, selectedDomain, onSelect, onClos
           })}
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }
 
@@ -404,7 +440,7 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
   const { mobileNavOpen, closeMobileNav } = useShellLayout();
   const { markNavigating } = useAdminNavLoading();
   const { isSystemAdmin, orgId } = useCompanyAdminAccess();
-  const { hasGrant } = useEffectiveMasterGrants(orgId);
+  const { hasGrant, scopeOf } = useEffectiveMasterGrants(orgId);
 
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -440,6 +476,41 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
     enabled: Boolean(orgId) && selectedDomainId === 'org-structure',
   });
 
+  const grantCtx = useMemo(
+    () => ({ isFullAccess, hasGrant, scopeOf, isSystemAdmin }),
+    [isFullAccess, hasGrant, scopeOf, isSystemAdmin]
+  );
+
+  const enrichDomain = useCallback(
+    (raw) => {
+      if (!raw) return null;
+      const leveled =
+        raw.id === 'org-structure'
+          ? applyOrgLevelFilterToDomain(raw, orgStructureLevels, {
+              setupCompleted: orgStructureSetupCompleted === true,
+            })
+          : raw;
+      return filterAdminDomainByGrant(leveled, grantCtx);
+    },
+    [orgStructureLevels, orgStructureSetupCompleted, grantCtx]
+  );
+
+  /** Cùng nguồn với Trung tâm quản trị — domain còn mục sau lọc grant. */
+  const selectableDomains = useMemo(
+    () =>
+      filterVisibleAdminDomainsByGrant(
+        visibleDomains.map((raw) =>
+          raw.id === 'org-structure'
+            ? applyOrgLevelFilterToDomain(raw, orgStructureLevels, {
+                setupCompleted: orgStructureSetupCompleted === true,
+              })
+            : raw
+        ),
+        grantCtx
+      ),
+    [visibleDomains, orgStructureLevels, orgStructureSetupCompleted, grantCtx]
+  );
+
   useEffect(() => {
     if (activeDomain?.id) {
       setSelectedDomainId(activeDomain.id);
@@ -448,24 +519,20 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
   }, [activeDomain?.id]);
 
   const selectedDomain = useMemo(() => {
+    const fromSelectable =
+      selectableDomains.find((d) => d.id === selectedDomainId) || selectableDomains[0] || null;
+    if (fromSelectable) return fromSelectable;
     const raw = visibleDomains.find((d) => d.id === selectedDomainId) || visibleDomains[0] || null;
-    if (!raw) return raw;
-    const leveled =
-      raw.id === 'org-structure'
-        ? applyOrgLevelFilterToDomain(raw, orgStructureLevels, {
-            setupCompleted: orgStructureSetupCompleted === true,
-          })
-        : raw;
-    return filterAdminDomainByGrant(leveled, { isFullAccess, hasGrant, isSystemAdmin });
-  }, [
-    visibleDomains,
-    selectedDomainId,
-    orgStructureLevels,
-    orgStructureSetupCompleted,
-    isFullAccess,
-    isSystemAdmin,
-    hasGrant,
-  ]);
+    return enrichDomain(raw);
+  }, [selectableDomains, selectedDomainId, visibleDomains, enrichDomain]);
+
+  useEffect(() => {
+    if (!selectableDomains.length) return;
+    if (selectableDomains.some((d) => d.id === selectedDomainId)) return;
+    const fallbackId = selectableDomains[0].id;
+    setSelectedDomainId(fallbackId);
+    localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, fallbackId);
+  }, [selectableDomains, selectedDomainId]);
 
   const isActivePath = (item) => {
     const base = String(item.path || '').split('?')[0].replace(/\/+$/, '');
@@ -497,14 +564,16 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
 
   const handleDomainSelect = useCallback(
     (domain) => {
-      setSelectedDomainId(domain.id);
-      localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, domain.id);
-      if (normalizeAdminPath(domain.path) !== currentPath) {
+      const enriched = enrichDomain(domain) || domain;
+      const targetPath = firstVisibleNavPath(enriched);
+      setSelectedDomainId(enriched.id);
+      localStorage.setItem(ADMIN_DOMAIN_STORAGE_KEY, enriched.id);
+      if (normalizeAdminPath(targetPath) !== currentPath) {
         markNavigating();
       }
-      navigate(domain.path);
+      navigate(targetPath);
     },
-    [currentPath, markNavigating, navigate]
+    [currentPath, enrichDomain, markNavigating, navigate]
   );
 
   const toggleNavSection = (sectionId) => {
@@ -596,7 +665,7 @@ export default function AdminNavigationSidebar({ isFullAccess = false }) {
         <nav className={`${FIGMA_SIDEBAR_NAV} relative`}>
           {!collapsed ? (
             <AdminDomainPicker
-              domains={visibleDomains}
+              domains={selectableDomains.length ? selectableDomains : visibleDomains}
               selectedDomain={selectedDomain}
               onSelect={handleDomainSelect}
             />

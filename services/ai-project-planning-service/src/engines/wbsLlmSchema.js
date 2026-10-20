@@ -47,6 +47,55 @@ function listFrIds(pack = {}) {
   );
 }
 
+/** Case-insensitive + ignore punctuation so FR-LOGIN-01 ≈ fr_login_01. */
+function normalizeFrKey(raw) {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function buildFrLookup(frWhitelist) {
+  const byNorm = new Map();
+  for (const id of frWhitelist) {
+    const key = normalizeFrKey(id);
+    if (key && !byNorm.has(key)) byNorm.set(key, id);
+  }
+  return byNorm;
+}
+
+function resolveFrId(candidate, frWhitelist, frLookup) {
+  const s = String(candidate || '').trim();
+  if (!s) return null;
+  if (frWhitelist.has(s)) return s;
+  return frLookup.get(normalizeFrKey(s)) || null;
+}
+
+/**
+ * Recover FR when LLM omits/mangles sourceFrIds but encodes it in task id
+ * (T-FR-LOGIN-01-1, c0-T-FR-1-2, TASK-SYNTH-FR-…).
+ */
+function recoverFrIdFromTaskId(taskId, frWhitelist, frLookup) {
+  const id = String(taskId || '').trim();
+  if (!id) return null;
+  const stripped = id.replace(/^(c\d+-)+/i, '');
+  const candidates = [];
+  const m = stripped.match(/^(?:T|TASK|TASK-SYNTH)[-_]?(.+?)(?:[-_]\d+)?$/i);
+  if (m && m[1]) candidates.push(m[1]);
+  // Longest whitelist match contained in id (prefer specific FR keys)
+  const ranked = [...frWhitelist].sort((a, b) => b.length - a.length);
+  for (const fr of ranked) {
+    if (id.includes(fr) || normalizeFrKey(id).includes(normalizeFrKey(fr))) {
+      candidates.push(fr);
+    }
+  }
+  for (const c of candidates) {
+    const hit = resolveFrId(c, frWhitelist, frLookup);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 function listCapabilityIds(capabilities = []) {
   return new Set(
     (capabilities || [])
@@ -121,6 +170,7 @@ function normalizeWbsLlmOutput(raw, ctx = {}) {
   }
 
   const frWhitelist = listFrIds(ctx.pack || {});
+  const frLookup = buildFrLookup(frWhitelist);
   const capWhitelist = listCapabilityIds(ctx.capabilities || []);
   // HARD-03: empty FR pack must not accept invented ids
   if (frWhitelist.size === 0) {
@@ -156,24 +206,30 @@ function normalizeWbsLlmOutput(raw, ctx = {}) {
         : String(row.parentId).trim();
     if (parentId === id) parentId = null;
 
-    const sourceFrIds = [
-      ...new Set(
-        (Array.isArray(row.sourceFrIds) ? row.sourceFrIds : [])
-          .map((x) => String(x || '').trim())
-          .filter((fid) => {
-            if (!fid) return false;
-            return frWhitelist.has(fid);
-          })
-      ),
-    ];
-    const droppedFr = (Array.isArray(row.sourceFrIds) ? row.sourceFrIds : []).filter(
-      (fid) => {
-        const s = String(fid || '').trim();
-        return s && !frWhitelist.has(s);
+    // RULE-L2: lệch id = lỗi toàn batch — không fuzzy recover / không vá
+    const rawFr = Array.isArray(row.sourceFrIds) ? row.sourceFrIds : [];
+    const sourceFrIds = [];
+    for (const fid of rawFr) {
+      const resolved = resolveFrId(fid, frWhitelist, frLookup);
+      if (!resolved) {
+        const received = String(fid || '').trim();
+        if (!received) continue;
+        return {
+          ok: false,
+          errors: [
+            `invalid_sourceFrId_${id}`,
+            `received=${received}`,
+            `whitelist=${[...frWhitelist].slice(0, 12).join('|')}`,
+          ],
+        };
       }
-    );
-    if (droppedFr.length) {
-      errors.push(`dropped_fr_${id}`);
+      sourceFrIds.push(resolved);
+    }
+    if (level === 'task' && !sourceFrIds.length) {
+      return {
+        ok: false,
+        errors: [`missing_sourceFrIds_${id}`],
+      };
     }
 
     const sourceCapabilityIds = [

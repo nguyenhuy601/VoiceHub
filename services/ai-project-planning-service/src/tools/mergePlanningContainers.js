@@ -2,9 +2,15 @@
  * Deep-merge planning containers after parallel HOW tools.
  * Sibling namespaces (planning / analyses / resource) merge; arrays last-write
  * in caller-defined patch order (canonical tool order).
+ *
+ * planning.tasks / planning.wbs / planning.backlog are atomic (replace, never
+ * deep-merge meta keys) so stale hierarchy_chunked keys cannot linger.
  */
 
 const NAMESPACE_KEYS = Object.freeze(['planning', 'analyses', 'resource', 'phaseRuns']);
+
+/** Owned by BacklogMap / Wbs — replace wholesale when present in a patch. */
+const PLANNING_ATOMIC_KEYS = Object.freeze(['tasks', 'wbs', 'backlog']);
 
 function isPlainObject(value) {
   return value != null && typeof value === 'object' && !Array.isArray(value);
@@ -13,8 +19,9 @@ function isPlainObject(value) {
 /**
  * @param {*} base
  * @param {*} patch
+ * @param {string} [parentKey]
  */
-function deepMergeValue(base, patch) {
+function deepMergeValue(base, patch, parentKey = '') {
   if (patch === undefined) return base;
   if (patch === null) return null;
   if (Array.isArray(patch)) return patch;
@@ -23,7 +30,11 @@ function deepMergeValue(base, patch) {
 
   const out = { ...base };
   for (const key of Object.keys(patch)) {
-    out[key] = deepMergeValue(base[key], patch[key]);
+    if (parentKey === 'planning' && PLANNING_ATOMIC_KEYS.includes(key)) {
+      out[key] = patch[key];
+      continue;
+    }
+    out[key] = deepMergeValue(base[key], patch[key], key);
   }
   return out;
 }
@@ -46,10 +57,11 @@ function deepMergePlanningContainers(base, patch) {
     if (NAMESPACE_KEYS.includes(key) && isPlainObject(right[key])) {
       out[key] = deepMergeValue(
         isPlainObject(left[key]) ? left[key] : {},
-        right[key]
+        right[key],
+        key
       );
     } else {
-      out[key] = deepMergeValue(left[key], right[key]);
+      out[key] = deepMergeValue(left[key], right[key], key);
     }
   }
   if (out.jobs != null) delete out.jobs;
@@ -78,6 +90,7 @@ function mergeParallelToolContainers(baseContainer, patchContainers) {
 
 module.exports = {
   NAMESPACE_KEYS,
+  PLANNING_ATOMIC_KEYS,
   deepMergeValue,
   deepMergePlanningContainers,
   mergeParallelToolContainers,

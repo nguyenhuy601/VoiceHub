@@ -123,7 +123,7 @@ async function writeMongo(hash, payload, ttlSec, env = process.env) {
           expiresAt: new Date(expiresAt),
         },
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
     return true;
   } catch {

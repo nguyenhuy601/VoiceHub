@@ -15,6 +15,8 @@ const {
 const { buildCorpusFromSnapshot } = require('../retrieval/buildCorpusFromSnapshot');
 const { HOW_PHASE_TOOL_STEPS } = require('./jobToToolsMap');
 const { runHowToolLoop, resolveHowSteps } = require('./runHowToolLoop');
+const { buildHowBacklogRetrieveQuery } = require('./howContextQueries');
+const { buildCtxPromptFragment, logHowCtx } = require('./howProposalNodes');
 const { decideEvaluateAction } = require('./evaluatePolicy');
 const {
   resolveAgentBudget,
@@ -256,14 +258,18 @@ async function runHowPhase({
         console.warn('[g7_ingest] soft', ingestWarning);
       }
       contextPackage = await assembleContextPackageAsync({
-        query: 'how_planning',
+        query: buildHowBacklogRetrieveQuery(pinnedPack || {}),
         corpus,
         snapshotId,
       });
       if (ingestWarning && contextPackage && typeof contextPackage === 'object') {
         contextPackage.ingestWarning = ingestWarning;
       }
-      history.push('understand');
+      {
+        const { itemCount } = buildCtxPromptFragment(contextPackage);
+        logHowCtx('understand:how_backlog', contextPackage, itemCount);
+      }
+      history.push('understand', 'context:how_backlog');
       await persist('understand');
 
       onProgress?.({
@@ -312,6 +318,7 @@ async function runHowPhase({
       snapshotId,
       runId,
       generationId: runId,
+      contextPackage: contextPackage || null,
       budget,
       startedAt,
       baseIteration: history.length,

@@ -13,7 +13,7 @@ import { fetchProtectedAvatarBlob, isProtectedUploadPath } from '../../utils/pro
 
 /**
  * Avatar thống nhất: ảnh (URL/upload) hoặc initials trên nền màu — bo góc rounded-xl.
- * Có userId → luôn thử GET /users/:id/avatar (đồng bộ ảnh dù list thiếu field avatar).
+ * Có URL ảnh + userId → GET /users/:id/avatar (JWT). Không URL → initials, không gọi API.
  */
 export default function UserAvatar({
   avatar,

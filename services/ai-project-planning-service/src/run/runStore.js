@@ -173,7 +173,7 @@ async function transitionStatus(runId, nextStatus, patch = {}) {
     mutation.$set.callbackLeaseOwner = null;
     mutation.$set.callbackLeaseExpiresAt = null;
   }
-  return PlanningRun.findByIdAndUpdate(runId, mutation, { new: true }).lean();
+  return PlanningRun.findByIdAndUpdate(runId, mutation, { returnDocument: 'after' }).lean();
 }
 
 async function cancelRun(runId) {
@@ -194,7 +194,7 @@ async function cancelRun(runId) {
       },
       $unset: { activeKey: 1 },
     },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   if (cancelled) return cancelled;
   return PlanningRun.findById(runId).lean();

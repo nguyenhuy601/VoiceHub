@@ -287,8 +287,128 @@ function sortWbsTreeForGate2(nodes = []) {
   return out;
 }
 
+/**
+ * Merge planning.backlog containers with planning.tasks leaves (Gate2 WBS tree).
+ * Backlog is SoT for Epic/Feature/Story; tasks hold LLM leaves (+ optional materialize).
+ */
+function mergeBacklogAndTasks(container) {
+  const backlog = container?.planning?.backlog || null;
+  const tasks = Array.isArray(container?.planning?.tasks)
+    ? container.planning.tasks
+    : [];
+  if (!backlog || typeof backlog !== 'object') return tasks;
+
+  const byId = new Map();
+  const pushNode = (n, level) => {
+    if (!n || !(n.id || n.taskId)) return;
+    const id = String(n.id || n.taskId);
+    if (byId.has(id)) return;
+    byId.set(id, {
+      ...n,
+      id,
+      level: String(n.level || level || 'task').toLowerCase(),
+      name: n.name || n.title || id,
+      parentId:
+        n.parentId != null && n.parentId !== '' ? String(n.parentId) : null,
+    });
+  };
+
+  for (const e of backlog.epics || []) pushNode(e, 'epic');
+  for (const f of backlog.features || []) pushNode(f, 'feature');
+  for (const s of backlog.stories || []) pushNode(s, 'story');
+  for (const t of tasks) {
+    const id = String(t?.id || t?.taskId || '');
+    if (!id) continue;
+    // Prefer task row when already materialize (same id); keep leaf fields
+    byId.set(id, {
+      ...byId.get(id),
+      ...t,
+      id,
+      level: String(t.level || byId.get(id)?.level || 'task').toLowerCase(),
+      name: t.name || t.title || byId.get(id)?.name || id,
+      parentId:
+        t.parentId != null && t.parentId !== ''
+          ? String(t.parentId)
+          : byId.get(id)?.parentId || null,
+    });
+  }
+  return [...byId.values()];
+}
+
+function readWbsMeta(container) {
+  const meta =
+    container?.planning?.wbs?.meta && typeof container.planning.wbs.meta === 'object'
+      ? container.planning.wbs.meta
+      : {};
+  const unresolvedStoryIds = Array.isArray(meta.unresolvedStoryIds)
+    ? meta.unresolvedStoryIds.map((x) => String(x)).filter(Boolean)
+    : [];
+  const uncoveredFrIds = Array.isArray(meta.uncoveredFrIds)
+    ? meta.uncoveredFrIds.map((x) => String(x)).filter(Boolean)
+    : [];
+  const uncoveredAcKeys = Array.isArray(meta.uncoveredAcKeys)
+    ? meta.uncoveredAcKeys.map((x) => String(x)).filter(Boolean)
+    : [];
+  const duplicateLeafIds = Array.isArray(meta.duplicateLeafIds)
+    ? meta.duplicateLeafIds.map((x) => String(x)).filter(Boolean)
+    : [];
+  return {
+    decompositionOutcome: String(meta.decompositionOutcome || '').toLowerCase() || null,
+    unresolvedStoryIds,
+    uncoveredFrIds,
+    uncoveredAcKeys,
+    duplicateLeafIds,
+    uniqueLeafCount:
+      meta.uniqueLeafCount != null ? Number(meta.uniqueLeafCount) : null,
+    leafCount: meta.leafCount != null ? Number(meta.leafCount) : null,
+  };
+}
+
+function unresolvedStoryStubRows(container, wbsMeta) {
+  const ids = wbsMeta?.unresolvedStoryIds || [];
+  if (!ids.length) return [];
+  const stories = Array.isArray(container?.planning?.backlog?.stories)
+    ? container.planning.backlog.stories
+    : [];
+  const byId = new Map(
+    stories.filter((s) => s?.id).map((s) => [String(s.id), s])
+  );
+  return ids.map((sid, i) => {
+    const story = byId.get(String(sid)) || {};
+    const title =
+      story.name || story.title || String(sid);
+    return withAiProvenance({
+      logicalId: `task:unresolved:${sid}`,
+      id: `unresolved:${sid}`,
+      section: 'tasks',
+      sectionLabel: SECTION_LABELS.tasks,
+      title,
+      level: 'story',
+      parentId: story.parentId != null ? String(story.parentId) : null,
+      depth: 0,
+      sortOrder: 10_000 + i,
+      childIds: [],
+      hasChildren: false,
+      isWbsContainer: true,
+      effortRolledUp: false,
+      suggestedRoleKey: '',
+      effortHours: null,
+      startDate: null,
+      dueDate: null,
+      area: '',
+      deliverable: '',
+      doneWhen: '',
+      duplicateOf: null,
+      wbsUnresolved: true,
+      status: 'UNRESOLVED',
+      summary: clip(['unresolved', sid].filter(Boolean).join(' · ')),
+    });
+  });
+}
+
 function taskRows(container) {
-  const tasks = Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [];
+  const wbsMeta = readWbsMeta(container);
+  const tasks = mergeBacklogAndTasks(container);
   const mapped = tasks
     .filter((t) => t && (t.id || t.taskId))
     .map((t, i) => {
@@ -306,6 +426,9 @@ function taskRows(container) {
         startDate: t.startDate || null,
         dueDate: t.dueDate || null,
         area: t.area || '',
+        deliverable: t.deliverable || '',
+        doneWhen: t.doneWhen || t.completionCriteria || '',
+        duplicateOf: t.duplicateOf ? String(t.duplicateOf) : null,
         leveled: Boolean(t.leveled),
         provenance: t.provenance || undefined,
         origin: t.origin || undefined,
@@ -313,7 +436,7 @@ function taskRows(container) {
       };
     });
 
-  return sortWbsTreeForGate2(mapped).map((t) =>
+  const treeRows = sortWbsTreeForGate2(mapped).map((t) =>
     withAiProvenance({
       logicalId: `task:${t.id}`,
       id: t.id,
@@ -333,13 +456,22 @@ function taskRows(container) {
       startDate: t.startDate || null,
       dueDate: t.dueDate || null,
       area: t.area || '',
-      status: t.leveled ? 'LEVELED' : 'READY',
+      deliverable: t.deliverable || '',
+      doneWhen: t.doneWhen || '',
+      duplicateOf: t.duplicateOf || null,
+      status: t.duplicateOf
+        ? 'DUPLICATE'
+        : t.leveled
+          ? 'LEVELED'
+          : 'READY',
       summary: clip(
         [
           t.level,
           t.area || '',
           t.suggestedRoleKey,
           t.effortHours != null ? `${t.effortHours}h` : '',
+          t.deliverable || '',
+          t.duplicateOf ? `dup→${t.duplicateOf}` : '',
           t.startDate || '',
           t.dueDate || '',
         ]
@@ -351,6 +483,8 @@ function taskRows(container) {
       source: t.source || undefined,
     })
   );
+
+  return [...treeRows, ...unresolvedStoryStubRows(container, wbsMeta)];
 }
 
 function dependencyRows(container) {
@@ -701,12 +835,12 @@ function scheduleRows(container) {
 
   return [...byTask.values()].map((r) =>
     withAiProvenance({
-      ...r,
-      summary: clip(
-        [r.startDate, r.dueDate, r.effortHours != null ? `${r.effortHours}h` : '', r.status]
-          .filter(Boolean)
-          .join(' · ')
-      ),
+    ...r,
+    summary: clip(
+      [r.startDate, r.dueDate, r.effortHours != null ? `${r.effortHours}h` : '', r.status]
+        .filter(Boolean)
+        .join(' · ')
+    ),
     })
   );
 }
@@ -1598,13 +1732,29 @@ export function buildGate2ProposalItems({
     bySection[key] = rows;
     items.push(...rows);
   }
+  const wbsMeta = readWbsMeta(container);
   const proposalSections = SECTION_ORDER.map((key) => {
     const rows = bySection[key] || [];
-    const conflictCount = rows.filter((r) =>
-      ['BLOCKING', 'OVERLOAD', 'CRITICAL', 'UNASSIGNED', 'HIGH'].includes(
+    let conflictCount = rows.filter((r) =>
+      ['BLOCKING', 'OVERLOAD', 'CRITICAL', 'UNASSIGNED', 'HIGH', 'UNRESOLVED'].includes(
         String(r.status || '').toUpperCase()
       )
     ).length;
+    if (key === 'tasks') {
+      const outcome = wbsMeta.decompositionOutcome;
+      if (
+        outcome === 'partial' ||
+        outcome === 'failure' ||
+        (wbsMeta.unresolvedStoryIds || []).length > 0 ||
+        (wbsMeta.uncoveredFrIds || []).length > 0
+      ) {
+        conflictCount = Math.max(
+          conflictCount,
+          (wbsMeta.unresolvedStoryIds || []).length +
+            (wbsMeta.uncoveredFrIds || []).length
+        );
+      }
+    }
     return {
       key,
       label: localizeGate2SectionLabel(t, key),
@@ -1622,6 +1772,7 @@ export function buildGate2ProposalItems({
     items,
     proposalBySection: bySection,
     proposalSections,
+    wbsMeta,
     reviewDecisions:
       gate2.reviewDecisions && typeof gate2.reviewDecisions === 'object'
         ? gate2.reviewDecisions
@@ -1633,6 +1784,12 @@ export function buildGate2ProposalItems({
   };
 }
 
-export { SECTION_ORDER, SECTION_LABELS, sortWbsTreeForGate2, WBS_LEVEL_ORDER };
+export {
+  SECTION_ORDER,
+  SECTION_LABELS,
+  sortWbsTreeForGate2,
+  WBS_LEVEL_ORDER,
+  mergeBacklogAndTasks,
+};
 
 export default buildGate2ProposalItems;

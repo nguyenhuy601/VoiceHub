@@ -316,8 +316,11 @@ export default function AdminDomainPage() {
   if (!match) {
     const domain = resolveAdminDomainFromPath(location.pathname);
     if (domain) {
-      const first = flattenAdminNavItems(domain)[0];
-      if (first) return <Navigate to={first.path} replace />;
+      const grantCtx = { isFullAccess, hasGrant, scopeOf, isSystemAdmin };
+      const firstAllowed = flattenAdminNavItems(domain).find((item) =>
+        navItemIsAllowed(item, grantCtx)
+      );
+      if (firstAllowed?.path) return <Navigate to={firstAllowed.path} replace />;
     }
     return <Navigate to="/app/admin" replace />;
   }

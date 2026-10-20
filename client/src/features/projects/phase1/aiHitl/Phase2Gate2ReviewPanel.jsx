@@ -53,7 +53,7 @@ const GATE2_TABLE_CONFIG = {
   patchEditedPayload: patchGate2EditedPayload,
   scrollPageSize: GATE2_SCROLL_PAGE_SIZE,
   storageKeyPrefix: 'gate2-review-cols-v2',
-  /** WBS / Tasks: collapse work packages (or stories) — click to expand tasks. */
+  /** WBS / Tasks: tree collapse enabled; default expanded so Task level is visible. */
   wbsTreeCollapse: true,
 };
 
@@ -91,6 +91,7 @@ export default function Phase2Gate2ReviewPanel({
   );
   const bySection = bundle.proposalBySection || {};
   const sectionTabs = bundle.proposalSections || [];
+  const wbsMeta = bundle.wbsMeta || null;
 
   const [activeSection, setActiveSection] = useState('');
   const [activeTrack, setActiveTrack] = useState('');
@@ -372,6 +373,60 @@ export default function Phase2Gate2ReviewPanel({
         t={t}
         ariaLabel={labelOf(t, 'requirements.aiHitlMonitorHowSectionTabsAria', 'Các section HOW')}
       />
+
+      {activeSection === 'tasks' && wbsMeta?.decompositionOutcome ? (
+        <div
+          className={`mb-3 rounded-md border px-3 py-2 text-xs ${
+            wbsMeta.decompositionOutcome === 'success'
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100'
+              : wbsMeta.decompositionOutcome === 'failure'
+                ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                : 'border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200'
+          }`}
+        >
+          <p className="font-medium">
+            {labelOf(
+              t,
+              `requirements.gate2WbsOutcome_${wbsMeta.decompositionOutcome}`,
+              wbsMeta.decompositionOutcome === 'success'
+                ? 'WBS phân rã đủ (success)'
+                : wbsMeta.decompositionOutcome === 'failure'
+                  ? 'WBS phân rã thất bại (failure)'
+                  : 'WBS phân rã một phần (partial) — cần review HITL'
+            )}
+          </p>
+          {(wbsMeta.unresolvedStoryIds || []).length > 0 ? (
+            <p className="mt-1">
+              {labelOf(
+                t,
+                'requirements.gate2WbsUnresolved',
+                'Story chưa có task (unresolved): {ids}',
+                { ids: wbsMeta.unresolvedStoryIds.slice(0, 8).join(', ') }
+              )}
+            </p>
+          ) : null}
+          {(wbsMeta.uncoveredFrIds || []).length > 0 ? (
+            <p className="mt-1">
+              {labelOf(
+                t,
+                'requirements.gate2WbsUncoveredFr',
+                'FR chưa được cite đủ: {ids}',
+                { ids: wbsMeta.uncoveredFrIds.slice(0, 8).join(', ') }
+              )}
+            </p>
+          ) : null}
+          {(wbsMeta.duplicateLeafIds || []).length > 0 ? (
+            <p className="mt-1 text-muted-foreground">
+              {labelOf(
+                t,
+                'requirements.gate2WbsDuplicates',
+                '{count} task trùng (duplicate) — effort không đếm đôi',
+                { count: wbsMeta.duplicateLeafIds.length }
+              )}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {activeSection && !activeMissing && activeRows.length ? (
         <Gate1SectionReviewTable

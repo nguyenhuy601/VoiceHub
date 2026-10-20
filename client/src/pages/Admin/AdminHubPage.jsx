@@ -16,8 +16,11 @@ import {
   Users,
 } from 'lucide-react';
 import { getVisibleAdminDomains } from '../../config/adminDomainsConfig';
+import { filterVisibleAdminDomainsByGrant } from '../../config/rbacUiGrantMap';
 import AdminInsightTicker from '../../components/Admin/AdminInsightTicker';
 import useAdminHubInsights from '../../hooks/useAdminHubInsights';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
+import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { useAdminNavLoading } from '../../hooks/useAdminShellLoading';
 import { useAppStrings } from '../../locales/appStrings';
 import { useCompanyAdminContext } from './CompanyAdminLayout';
@@ -41,9 +44,20 @@ const DOMAIN_ICONS = {
 export default function AdminHubPage() {
   const { t } = useAppStrings();
   const { memberCount, orgId, isFullAccess } = useCompanyAdminContext();
+  const { isSystemAdmin } = useCompanyAdminAccess();
+  const { hasGrant, scopeOf } = useEffectiveMasterGrants(orgId);
   const { loading, messages, pendingCount, usersHref } = useAdminHubInsights(orgId);
   const { markNavigating } = useAdminNavLoading();
-  const domains = useMemo(() => getVisibleAdminDomains(isFullAccess), [isFullAccess]);
+  const domains = useMemo(
+    () =>
+      filterVisibleAdminDomainsByGrant(getVisibleAdminDomains(isFullAccess), {
+        isFullAccess,
+        hasGrant,
+        scopeOf,
+        isSystemAdmin,
+      }),
+    [isFullAccess, hasGrant, scopeOf, isSystemAdmin]
+  );
 
   return (
     <div className="mx-auto max-w-6xl space-y-7 px-1 sm:px-0">

@@ -191,6 +191,7 @@ const SequencingTool = {
 const HierarchyTool = { ...genericIo };
 const CapabilityTool = { ...genericIo };
 const InsightsTool = { ...genericIo };
+const BacklogMapTool = { ...genericIo };
 const WbsTool = { ...genericIo };
 const DependencyTool = { ...genericIo };
 const ProjectPlanTool = { ...genericIo };
@@ -242,6 +243,7 @@ module.exports = {
   HierarchyTool,
   CapabilityTool,
   InsightsTool,
+  BacklogMapTool,
   WbsTool,
   DependencyTool,
   ProjectPlanTool,

@@ -18,7 +18,14 @@ function emptyContainer() {
   };
 }
 
-function buildToolContext({ pack, toolData, container, runId, generationId }) {
+function buildToolContext({
+  pack,
+  toolData,
+  container,
+  runId,
+  generationId,
+  contextPackage = null,
+}) {
   const hasEmployees =
     Array.isArray(toolData?.employees) ||
     Array.isArray(container?.resource?.employees);
@@ -32,6 +39,7 @@ function buildToolContext({ pack, toolData, container, runId, generationId }) {
     container,
     runId: runId || null,
     generationId: generationId || runId || null,
+    contextPackage: contextPackage || null,
     approvedSrs: true,
     employeeSnapshot: hasEmployees ? toolData?.employees || container?.resource?.employees || {} : undefined,
     calendarSnapshot: hasCalendar ? toolData?.calendar || true : undefined,
@@ -43,7 +51,14 @@ function buildToolContext({ pack, toolData, container, runId, generationId }) {
   };
 }
 
-function buildToolInput({ container, pack, toolData, snapshotId, planningHints }) {
+function buildToolInput({
+  container,
+  pack,
+  toolData,
+  snapshotId,
+  planningHints,
+  contextPackage = null,
+}) {
   const hints =
     planningHints ||
     buildPlanningHints(pack || {}, {
@@ -57,6 +72,7 @@ function buildToolInput({ container, pack, toolData, snapshotId, planningHints }
     pack: pack || {},
     toolData: toolData || {},
     snapshotId: snapshotId || null,
+    contextPackage: contextPackage || null,
     employees: toolData?.employees || [],
     overview: toolData?.overview || pack?.overview || {},
     calendar: toolData?.calendar,
