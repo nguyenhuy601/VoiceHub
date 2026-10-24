@@ -223,11 +223,11 @@ export default function ProjectHubDelegationSection({ boardId = '', t, muted = '
           >
             <span className="min-w-0 text-foreground">
               <span className="font-medium text-foreground">
-                {shortRoleDisplay(edge.fromRole?.label, edge.fromRole?.key || edge.fromRoleId)}
+                {localizedProjectRoleShortLabel(edge.fromRole?.key || edge.fromRoleId, edge.fromRole?.label, t)}
               </span>
               <span className={`px-1 ${muted}`}>→</span>
               <span className="font-medium text-foreground">
-                {shortRoleDisplay(edge.toRole?.label, edge.toRole?.key || edge.toRoleId)}
+                {localizedProjectRoleShortLabel(edge.toRole?.key || edge.toRoleId, edge.toRole?.label, t)}
               </span>
               <span className={`ml-2 text-xs ${muted}`}>
                 [{(edge.taskTypes || []).join(',')}]

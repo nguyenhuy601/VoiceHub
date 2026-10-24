@@ -107,6 +107,10 @@ jobs:
       # v0.36.0 pins setup-trivy by SHA.
       - name: Trivy filesystem
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          # GHCR thường trả TOOMANYREQUESTS ngay sau "Need to update DB".
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db
+          TRIVY_JAVA_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-java-db
         with:
           scan-type: fs
           scan-ref: .
@@ -405,6 +409,9 @@ jobs:
           echo "digest=${DIGEST}"
       - name: Trivy image
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db
+          TRIVY_JAVA_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-java-db
         with:
           scan-type: image
           image-ref: ghcr.io/${{ github.repository_owner }}/voicehub/${{ matrix.image }}:${{ github.sha }}
