@@ -4,6 +4,7 @@ const organizationController = require('../controllers/organizationController');
 const memberController = require('../controllers/memberController');
 const { protect, authorize, authorizeOrGrant } = require('../middleware/auth');
 const requireStoredSystemAdmin = require('../middleware/requireStoredSystemAdmin');
+const { markStoredSystemAdmin } = requireStoredSystemAdmin;
 const { registerObjectIdParams } = require('../middleware/objectIdParam');
 
 router.use(protect); // All routes require authentication
@@ -90,25 +91,21 @@ router.get(
 );
 router.post(
   '/:orgId/org-roles',
-  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRbacMatrixController.createRole
 );
 router.put(
   '/:orgId/org-roles/reorder',
-  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRbacMatrixController.reorderRoles
 );
 router.patch(
   '/:orgId/org-roles/:roleId',
-  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRbacMatrixController.updateRole
 );
 router.delete(
   '/:orgId/org-roles/:roleId',
-  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRbacMatrixController.deleteRole
 );
@@ -119,7 +116,6 @@ router.get(
 );
 router.put(
   '/:orgId/org-roles/:roleId/permissions',
-  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRbacMatrixController.putRoleMatrix
 );
@@ -132,7 +128,7 @@ router.get(
 );
 router.put(
   '/:orgId/org-role-assignments',
-  requireStoredSystemAdmin,
+  markStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRoleAdminController.setAssignments
 );
@@ -208,19 +204,18 @@ router.get(
 );
 router.post(
   '/:orgId/position-assignments',
-  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.employee.update'),
   orgRbacMatrixController.assignPosition
 );
 router.post(
   '/:orgId/position-assignments/:assignmentId/end',
-  requireStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.employee.update'),
   orgRbacMatrixController.endAssignment
 );
 
 router.put(
   '/:orgId/members/:userId/org-role-grants',
+  markStoredSystemAdmin,
   authorizeOrGrant(['owner', 'admin'], 'organization.organization_role.update'),
   orgRbacMatrixController.replaceUserOrgRoleGrants
 );

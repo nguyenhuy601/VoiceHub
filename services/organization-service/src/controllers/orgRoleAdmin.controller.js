@@ -331,6 +331,27 @@ async function listAssignments(req, res) {
   }
 }
 
+async function syncPersonalGrants(organizationId, userId, roleKeys) {
+  const { replaceUserOrgRoleGrants } = require('../services/orgRbacMatrix.service');
+  const keys = Array.isArray(roleKeys) ? roleKeys : [];
+  if (!keys.length) {
+    await replaceUserOrgRoleGrants(organizationId, userId, []);
+    return;
+  }
+  const rows = await OrganizationalRole.find({
+    organizationId: toObjectId(organizationId),
+    status: 'active',
+    code: { $in: keys },
+  })
+    .select('_id')
+    .lean();
+  await replaceUserOrgRoleGrants(
+    organizationId,
+    userId,
+    rows.map((row) => String(row._id))
+  );
+}
+
 async function setAssignments(req, res) {
   try {
     const organizationId = String(req.params.orgId || '').trim();
@@ -341,12 +362,15 @@ async function setAssignments(req, res) {
     if (!userId) return orgValidation(res, 'userId bắt buộc');
 
     const oid = toObjectId(organizationId);
+    const { ensureOrgRoleGrantBaseline } = require('../services/orgRoleGrantBaseline.service');
+    await ensureOrgRoleGrantBaseline(organizationId);
 
     const uid = toObjectId(userId);
     const keys = normalizeRoleKeys(roleKeys);
 
     if (!keys.length) {
       await OrgRoleAssignment.deleteMany({ organizationId: oid, userId: uid });
+      await syncPersonalGrants(organizationId, userId, []);
       return res.json({ success: true, data: { assigned: [] } });
     }
 
@@ -387,6 +411,7 @@ async function setAssignments(req, res) {
       updatedAt: new Date(now),
     }));
     await OrgRoleAssignment.insertMany(docs);
+    await syncPersonalGrants(organizationId, userId, assignKeys);
 
     return res.json({ success: true, data: { assigned: assignKeys } });
   } catch (error) {

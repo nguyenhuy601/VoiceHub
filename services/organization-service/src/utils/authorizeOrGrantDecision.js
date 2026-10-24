@@ -1,8 +1,13 @@
 /**
  * Quyết định authorizeOrGrant — tách khỏi mongoose để unit test.
- * Membership owner/admin/hr không phải quyền. Chỉ grant V2, hoặc stored systemRole=admin
- * đã đối chiếu DB (mọi masterKey khi orgAccessOk).
+ * Membership owner/admin/hr không phải quyền. Grant V2, hoặc cờ system admin
+ * do route đặt sẵn. Middleware chỉ tự đối chiếu system admin trên mã .view.
  */
+/** Bên bán chỉ tự qua mã xem. Mã sửa phải có grant, trừ khi route đã đặt cờ. */
+function isVendorViewGrant(masterKey) {
+  return String(masterKey || '').trim().toLowerCase().endsWith('.view');
+}
+
 function resolveAuthorizeOrGrant({
   membership,
   grantAllowed,
@@ -18,4 +23,4 @@ function resolveAuthorizeOrGrant({
   return { allow: false, via: null };
 }
 
-module.exports = { resolveAuthorizeOrGrant };
+module.exports = { resolveAuthorizeOrGrant, isVendorViewGrant };

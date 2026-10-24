@@ -3,7 +3,7 @@ const axios = require('axios');
 const { isTrustedGatewayForward } = require('@enterprise/shared/middleware/gatewayTrust');
 const { checkMasterGrant } = require('../clients/rbacPermission.client');
 const { readStoredSystemAdminState } = require('../clients/storedSystemRole.client');
-const { resolveAuthorizeOrGrant } = require('../utils/authorizeOrGrantDecision');
+const { resolveAuthorizeOrGrant, isVendorViewGrant } = require('../utils/authorizeOrGrantDecision');
 const { resolveOrgAccess } = require('../utils/orgAccess');
 
 const AUTH_SERVICE_URL = String(process.env.AUTH_SERVICE_URL || '').trim().replace(/\/+$/, '');
@@ -83,8 +83,9 @@ exports.authorize = (roles) => {
 };
 
 /**
- * Đã vào org + đúng master grant, hoặc systemRole=admin đã đối chiếu DB.
- * Quản trị khác (không phải stored system admin) bắt buộc grant — không bypass membership owner/admin.
+ * Đã vào org + đúng master grant.
+ * System admin chỉ tự đối chiếu DB trên mã xem. Route ghi có thể đặt sẵn cờ (bàn giao / catalog).
+ * Membership owner/admin không phải quyền.
  */
 exports.authorizeOrGrant = (_roles, masterKey) => {
   return async (req, res, next) => {
@@ -92,7 +93,12 @@ exports.authorizeOrGrant = (_roles, masterKey) => {
     const grantAllowed =
       orgAccessOk && masterKey ? await checkMasterGrant(userId, orgId, masterKey) : false;
     let storedAdminVerified = req.storedSystemAdminVerified === true;
-    if (!grantAllowed && !storedAdminVerified && orgAccessOk && masterKey) {
+    if (
+      !grantAllowed &&
+      !storedAdminVerified &&
+      orgAccessOk &&
+      isVendorViewGrant(masterKey)
+    ) {
       const stored = await readStoredSystemAdminState(userId);
       storedAdminVerified = stored.state === 'admin';
     }

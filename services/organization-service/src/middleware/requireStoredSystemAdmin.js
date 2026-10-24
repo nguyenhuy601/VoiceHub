@@ -39,4 +39,19 @@ async function requireStoredSystemAdmin(req, res, next) {
   return next();
 }
 
+/**
+ * Không chặn. Nếu đúng system admin thì đặt cờ để authorizeOrGrant cho qua (cửa bàn giao).
+ */
+async function markStoredSystemAdmin(req, res, next) {
+  const userId = actorId(req);
+  if (!userId) return next();
+  const result = await readStoredSystemAdminState(userId);
+  if (result.state === 'admin') {
+    if (req.user) req.user.systemRole = 'admin';
+    req.storedSystemAdminVerified = true;
+  }
+  return next();
+}
+
 module.exports = requireStoredSystemAdmin;
+module.exports.markStoredSystemAdmin = markStoredSystemAdmin;
