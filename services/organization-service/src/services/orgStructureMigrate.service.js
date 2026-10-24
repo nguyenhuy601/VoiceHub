@@ -170,7 +170,7 @@ async function applyStructureTemplate(organizationId, templateId, { mode = 'merg
         setupCompletedAt: new Date(),
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   if (mode === 'merge' && existingCount > 0 && !tpl.seedUnits?.length) {

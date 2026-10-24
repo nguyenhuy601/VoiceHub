@@ -768,7 +768,7 @@ exports.acceptCompanyInvite = async (req, res, next) => {
         },
         $setOnInsert: { user: resolvedUserId, organization: invite.organization },
       },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
+      { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true }
     );
 
     await syncUserOrgRole(resolvedUserId, invite.organization, normalizedRole);
@@ -1162,7 +1162,7 @@ exports.joinViaLink = async (req, res, next) => {
         $set: { status: 'active', role: 'member', joinedAt: new Date() },
         $setOnInsert: { user: userId, organization: req.params.orgId },
       },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
+      { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true }
     );
 
     await ensureDefaultOrgRoles(req.params.orgId);
@@ -1242,7 +1242,7 @@ exports.updateMemberRole = async (req, res, next) => {
     const membership = await Membership.findOneAndUpdate(
       { user: req.params.userId, organization: req.params.orgId, status: 'active' },
       { role: normalizedRole },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (membership) {

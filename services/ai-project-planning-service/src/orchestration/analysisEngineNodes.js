@@ -17,7 +17,12 @@ const { runMetaGate } = require('../srsProposal/metaGate');
 const { runSemanticTask } = require('../semantic/runSemanticTask');
 const { resolveTaskPolicy, TASK_POLICIES } = require('../semantic/semanticTaskRegistry');
 const { packRowsForEngine } = require('./buildAnalysisEngineGraph');
-const { applyRawSectionDerive } = require('../semantic/applyRawSectionDerive');
+const { applyRawSectionDerive, mergeSectionDeriveResult } = require('../semantic/applyRawSectionDerive');
+const { WHAT_SECTION_TOOLS } = require('../whatSecs/sectionCatalog');
+const { invokeTool } = require('../registry/toolRegistry');
+const { registerDefaultTools } = require('../tools/registerDefaultTools');
+const { assertToolOutputHasEvidence } = require('../evidence/evidence');
+const { assertCriticalDeriveOk } = require('../semantic/runRawSectionDerive');
 const {
   isCustomerRawIntakePack,
   shouldRawDeriveSection,
@@ -28,6 +33,8 @@ const { shouldApplyEngineSectionWrite } = require('../srsProposal/preserveDerive
 const ENGINE_NODE_IDS = ANALYSIS_ENGINE_REGISTRY.map((e) => e.id);
 /** PRODUCE candidates (LLM derive) — must run before metaGate; never inside metaGate. */
 const DERIVE_NODE_ID = 'deriveRawSections';
+/** Barrier after the parallel LLM secs. Applies each section patch in catalog order. */
+const JOIN_WHAT_SECTIONS_ID = 'joinWhatSections';
 /** CHECK readiness only — RULE-META-01: no LLM / no derive. */
 const META_GATE_NODE_ID = 'metaGate';
 
@@ -37,10 +44,24 @@ function engineGraphNodeName(engineId) {
 
 function listAnalysisGraphNodeIds() {
   return [
+    ...WHAT_SECTION_TOOLS.map((row) => row.toolName),
+    JOIN_WHAT_SECTIONS_ID,
     ...ENGINE_NODE_IDS.map(engineGraphNodeName),
-    DERIVE_NODE_ID,
     META_GATE_NODE_ID,
   ];
+}
+
+/**
+ * LLM secs share FR + G4 + retrieved context and do not read each other.
+ * Fan-out from entry, barrier into join, then engines.
+ */
+function planWhatSectionEdges(entryNode, afterDerive) {
+  const sectionNodes = WHAT_SECTION_TOOLS.map((row) => row.toolName);
+  const edges = [];
+  for (const name of sectionNodes) edges.push([entryNode, name]);
+  if (sectionNodes.length) edges.push([sectionNodes, JOIN_WHAT_SECTIONS_ID]);
+  edges.push([JOIN_WHAT_SECTIONS_ID, afterDerive]);
+  return { sectionNodes, edges };
 }
 
 function flattenLayerOrder() {
@@ -401,16 +422,10 @@ function attachAnalysisEngineNodes(graph, hooks = {}) {
     });
   }
 
-  graph.addNode(DERIVE_NODE_ID, async (state) => {
-    if (state.stopReason || state.paused) return {};
-    onProgress?.({
-      node: DERIVE_NODE_ID,
-      phase: 'what',
-      step: 4,
-      substep: 'derive',
-    });
-    return runDeriveRawSectionsNode(state);
-  });
+  for (const sec of WHAT_SECTION_TOOLS) {
+    graph.addNode(sec.toolName, createWhatSectionToolNode(sec, { onProgress }));
+  }
+  graph.addNode(JOIN_WHAT_SECTIONS_ID, async (state) => joinWhatSectionPatches(state));
 
   graph.addNode(META_GATE_NODE_ID, async (state) => {
     if (state.stopReason || state.paused) return {};
@@ -433,15 +448,16 @@ function attachAnalysisEngineNodes(graph, hooks = {}) {
 }
 
 /**
- * Wire Step 2+: entry → deriveRawSections → engine_* → evaluateNode → metaGate → exit
+ * Wire Step 2+: entry → parallel What*Tool → join → engine_* → evaluateNode → metaGate → exit
  * @param {object} graph
  * @param {{ entryNode: string, evaluateNode: string, exitNode: string }} opts
  */
 function wireAnalysisEngineEdges(graph, { entryNode, evaluateNode, exitNode }) {
   const order = flattenLayerOrder().map(engineGraphNodeName);
   const afterDerive = order.length ? order[0] : evaluateNode;
-  graph.addEdge(entryNode, DERIVE_NODE_ID);
-  graph.addEdge(DERIVE_NODE_ID, afterDerive);
+  for (const [from, to] of planWhatSectionEdges(entryNode, afterDerive).edges) {
+    graph.addEdge(from, to);
+  }
   if (order.length) {
     for (let i = 0; i < order.length - 1; i += 1) {
       graph.addEdge(order[i], order[i + 1]);
@@ -450,6 +466,115 @@ function wireAnalysisEngineEdges(graph, { entryNode, evaluateNode, exitNode }) {
   }
   graph.addEdge(evaluateNode, META_GATE_NODE_ID);
   graph.addEdge(META_GATE_NODE_ID, exitNode);
+}
+
+/**
+ * One graph node per WHAT sec. The node only invokes the registered tool.
+ */
+function createWhatSectionToolNode(sec, hooks = {}) {
+  const onProgress = hooks.onProgress || null;
+  return async function whatSectionToolNode(state) {
+    if (state.stopReason || state.paused) return {};
+    registerDefaultTools();
+    const proposal = ensureProposal(state);
+    const env = state.env || process.env;
+    onProgress?.({
+      node: sec.toolName,
+      phase: 'what',
+      step: 4,
+      substep: 'derive',
+      engineId: sec.engineId,
+      tool: sec.toolName,
+    });
+    const { startSpan } = require('./whatTiming');
+    const end = startSpan();
+    const toolContext = {
+      contextName: 'understanding',
+      pack: state.pack || {},
+      proposal,
+      snapshot: state.snapshot || null,
+      g4Understanding: state.g4Understanding || null,
+      contextPackage: state.contextPackage || null,
+      snapshotId: state.snapshotId || null,
+      env,
+      locale: state.g4Opts?.locale || null,
+    };
+    const toolOut = await invokeTool(
+      sec.toolName,
+      {
+        ...toolContext,
+        evidence: state.g4Understanding?.evidence || null,
+      },
+      toolContext
+    );
+    assertToolOutputHasEvidence(sec.toolName, toolOut);
+    const result = toolOut.result || {};
+    if (shouldRawDeriveSection(sec.engineId, state.pack || {}, env)) {
+      assertCriticalDeriveOk(sec.engineId, result, env);
+    }
+    const durationMs = end();
+    return {
+      sectionPatches: {
+        [sec.engineId]: {
+          engineId: sec.engineId,
+          toolName: sec.toolName,
+          result,
+          durationMs,
+        },
+      },
+    };
+  };
+}
+
+/**
+ * Apply parallel section patches in catalog order so proposal writes do not race.
+ */
+function joinWhatSectionPatches(state) {
+  const { markStage } = require('./whatTiming');
+  let proposal = ensureProposal(state);
+  const resultsById = { ...(state.engineResultsById || {}) };
+  const semanticStatuses = { ...(state.semanticStatuses || {}) };
+  const patches = state.sectionPatches && typeof state.sectionPatches === 'object' ? state.sectionPatches : {};
+  const toolRows = [];
+  const historyDelta = [];
+  let llmCalls = 0;
+  let items = 0;
+  let wallMs = 0;
+  for (const sec of WHAT_SECTION_TOOLS) {
+    const patch = patches[sec.engineId];
+    if (!patch) continue;
+    const merged = mergeSectionDeriveResult(proposal, resultsById, sec.engineId, patch.result || {});
+    proposal = merged.proposal;
+    if (merged.status != null) semanticStatuses[sec.engineId] = merged.status;
+    const durationMs = Number(patch.durationMs) || 0;
+    wallMs = Math.max(wallMs, durationMs);
+    llmCalls += Number(patch.result?.llmCalls) || 0;
+    items += Array.isArray(patch.result?.items) ? patch.result.items.length : 0;
+    toolRows.push({
+      toolName: patch.toolName || sec.toolName,
+      durationMs,
+      engineId: sec.engineId,
+    });
+    historyDelta.push(`execute:${patch.toolName || sec.toolName}`);
+  }
+  let whatTiming = state.whatTiming || null;
+  if (whatTiming) {
+    whatTiming = markStage(whatTiming, 'raw_section_derive', {
+      ms: wallMs,
+      wallMs,
+      llmCalls,
+      items,
+      parallel: true,
+    });
+  }
+  return {
+    srsProposal: proposal,
+    engineResultsById: resultsById,
+    semanticStatuses,
+    toolResults: [...(state.toolResults || []), ...toolRows],
+    history: [...(state.history || []), ...historyDelta],
+    whatTiming,
+  };
 }
 
 module.exports = {
@@ -464,4 +589,7 @@ module.exports = {
   runMetaGateNode,
   attachAnalysisEngineNodes,
   wireAnalysisEngineEdges,
+  planWhatSectionEdges,
+  JOIN_WHAT_SECTIONS_ID,
+  joinWhatSectionPatches,
 };

@@ -12,6 +12,31 @@ let cachedRedis = null;
 let cachedRedisUrl = null;
 let cachedProbe = null;
 
+/** Minutes. RedisSaver stores seconds as defaultTTL * 60. Drops abandoned checkpoints. */
+const CHECKPOINT_TTL_MINUTES = 60 * 24 * 7;
+
+/**
+ * node-redis crashes the process when 'error' has no listener.
+ * A dropped socket (ECONNRESET) during checkpoint then leaves HOW stuck on plan/select.
+ * @param {{ client?: { on?: Function } }} saver
+ */
+function bindRedisSaverErrorHandler(saver) {
+  const client = saver?.client;
+  if (!client || typeof client.on !== 'function' || client.__vhErrorBound) return;
+  client.__vhErrorBound = true;
+  client.on('error', (error) => {
+    console.error(
+      '[agent_core] redis checkpointer socket',
+      error?.code || '',
+      error?.message || error
+    );
+    if (cachedRedis === saver) {
+      cachedRedis = null;
+      cachedRedisUrl = null;
+    }
+  });
+}
+
 /**
  * Prefer dedicated LangGraph Redis Stack (RedisJSON) over app Redis alpine.
  * LG_REDIS_URL / AGENT_CORE_LG_REDIS_URL — ví dụ redis://redis-lg:6379
@@ -97,7 +122,11 @@ async function getLangGraphCheckpointer(opts = {}) {
     if (cachedRedis && cachedRedisUrl === url) {
       return { checkpointer: cachedRedis, kind: 'redis' };
     }
-    const saver = await RedisSaver.fromUrl(url);
+    const saver = await RedisSaver.fromUrl(url, {
+      defaultTTL: CHECKPOINT_TTL_MINUTES,
+      refreshOnRead: true,
+    });
+    bindRedisSaverErrorHandler(saver);
     cachedRedis = saver;
     cachedRedisUrl = url;
     console.info('[agent_core] checkpointer=redis');
@@ -123,5 +152,7 @@ module.exports = {
   redisUrlFromEnv,
   probeRedisJsonSupport,
   preferMemory,
+  bindRedisSaverErrorHandler,
+  CHECKPOINT_TTL_MINUTES,
   _resetLangGraphCheckpointerCacheForTests,
 };

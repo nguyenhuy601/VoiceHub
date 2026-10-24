@@ -206,7 +206,7 @@ async function dualWriteSyncOuActive(organizationId, legacyCollection, legacyId,
         'legacyRef.id': legacyId,
       },
       { $set: { 'attributes.isActive': Boolean(isActive) } },
-      { new: true }
+      { returnDocument: 'after' }
     );
   } catch (e) {
     console.warn('[orgOuDualWrite] sync active failed:', e.message);
@@ -236,7 +236,7 @@ async function dualWriteSyncOuLeadership(organizationId, legacyCollection, legac
         'legacyRef.id': legacyId,
       },
       { $set: set },
-      { new: true }
+      { returnDocument: 'after' }
     );
   } catch (e) {
     console.warn('[orgOuDualWrite] sync leadership failed:', e.message);

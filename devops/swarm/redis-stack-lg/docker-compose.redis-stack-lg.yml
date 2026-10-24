@@ -10,7 +10,10 @@ services:
     hostname: redis-lg
     environment:
       # Overlay nội bộ — không publish port; không auth (chỉ mạng Swarm).
-      REDIS_ARGS: "--save 60 1 --loglevel notice"
+      # Không snapshot mỗi phút: entrypoint nối ${REDIS_ARGS} không quote được `--save ""`.
+      # Ngưỡng 1e9 key/giờ = tắt BGSAVE thực tế. Fork lúc RSS sát limit bị OOM ("Killed")
+      # và client LangGraph nhận read ECONNRESET. maxmemory + allkeys-lru chặn phình vô hạn.
+      REDIS_ARGS: "--save 3600 1000000000 --maxmemory 512mb --maxmemory-policy allkeys-lru --loglevel notice"
     volumes:
       - redis_lg_data:/data
     networks:
@@ -22,7 +25,7 @@ services:
       resources:
         limits:
           cpus: "0.50"
-          memory: 384M
+          memory: 768M
         reservations:
           cpus: "0.10"
           memory: 128M

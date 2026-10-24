@@ -3,10 +3,20 @@
  * No live org fetch — reuse buildJobInputFromSnapshot + splitContext SoT.
  */
 
+const { MASTER_PROJECT_ROLE_KEYS } = require('@enterprise/shared/config/roleTaxonomy');
 const { buildJobInputFromSnapshot } = require('./buildPipeline');
 const { fingerprint } = require('./splitContext');
 const { pickBookedHoursByUserDay } = require('./pickBookedHoursByUserDay');
 const { buildHistoryMetricsFromEmployees } = require('./buildHistoryMetrics');
+
+function resolveEnabledProjectRoleKeys(snapshot) {
+  const fromSnap = snapshot?.enabledProjectRoleKeys;
+  if (Array.isArray(fromSnap) && fromSnap.length) {
+    return fromSnap.map(String).filter(Boolean);
+  }
+  // Legacy snapshots: fall back to master catalog (not inventing free-text roles).
+  return [...MASTER_PROJECT_ROLE_KEYS];
+}
 
 /**
  * @param {object|null} snapshot — AiAnalysisSnapshot lean/toObject
@@ -29,6 +39,7 @@ function buildPhaseToolData(snapshot, phaseJob) {
       employees: [],
       calendar: { workingCalendar: {}, holidays: [] },
       overview: {},
+      enabledProjectRoleKeys: [...MASTER_PROJECT_ROLE_KEYS],
       filterMeta: { hydrate: 'no_snapshot' },
     };
   }
@@ -72,6 +83,8 @@ function buildPhaseToolData(snapshot, phaseJob) {
       undefined,
   };
 
+  const enabledProjectRoleKeys = resolveEnabledProjectRoleKeys(snapshot);
+
   const toolData = {
     snapshotId,
     employees,
@@ -81,6 +94,8 @@ function buildPhaseToolData(snapshot, phaseJob) {
     calendar,
     overview,
     skillCatalog: matchingTool.skillCatalog || {},
+    // Org ProjectRole catalog (frozen on snapshot) — HOW WBS/Effort allow-list
+    enabledProjectRoleKeys,
     // HARD-03: real aggregate only — empty history → sampleSize 0
     historyMetrics: buildHistoryMetricsFromEmployees(employees),
     filterMeta: {
@@ -88,6 +103,7 @@ function buildPhaseToolData(snapshot, phaseJob) {
       hydrate: 'phase_how',
       matchingEmployeeKept: employees.length,
       scheduleCalendar: Boolean(calendar && (calendar.holidays || calendar.workingCalendar)),
+      enabledProjectRoleCount: enabledProjectRoleKeys.length,
     },
   };
 

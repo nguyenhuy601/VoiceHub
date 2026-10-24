@@ -3,7 +3,7 @@
  * Normalize → Signals → Candidates → [data gate] → Semantic LLM → Validate → Conflict → Evidence → Synthesis
  *
  * Persistence: NONE — callers must reduce into analyses.srsProposal (never write g4Understanding).
- * Preferred entry for FR analysis: requirementAnalysis/functionalRequirements/analyzeFunctionalRequirements.
+ * WHAT FR entry is runFrSemanticTask (propose FR-* from CR, then this pipeline).
  */
 
 const { resolveAiG4Policy } = require('../../config/aiG4Policy');
@@ -24,7 +24,6 @@ const {
 } = require('./candidateSelector');
 const { emitConstraintFactsFromSignals } = require('./normalizedConstraintFact');
 const { buildPotentialConflictRelations } = require('./conflictRelations');
-const { packByTokenBudget } = require('./tokenPack');
 const {
   runSemanticProjection,
   runConflictProjection,
@@ -274,30 +273,40 @@ async function runG4Pipeline(opts = {}) {
   const skipLlm = Boolean(opts.forceHeuristic || opts.skipLlm || !policy.pipelineEnabled);
 
   await emitProgress(opts.onProgress, 'semantic');
-  // PERF: skip semantic LLM when candidate pack is too large for 3B (baseline: 18k chars → 60s timeout, evalCount=0).
-  const maxPromptChars = Number(env.AI_G4_SEMANTIC_MAX_PROMPT_CHARS) || 10000;
   if (!skipLlm && needsSemanticLlm(selection) && policy.llm.semanticProjection.enabled) {
-    const batches = packByTokenBudget(selection.candidates, {
-      maxInputTokens: policy.llm.semanticProjection.maxInputTokens,
-      maxCalls: policy.llm.semanticProjection.maxCalls,
+    const { compileContext } = require('../dataPlane/compileContext');
+    const candidateIds = new Set(selection.candidates.map((row) => String(row.frId)));
+    const compiled = compileContext({
+      phase: 'WHAT',
+      profile: 'WHAT_REQUIREMENT_UNDERSTANDING',
+      pack: {
+        functionalRequirements: (prefix.functionalRequirements || []).filter((row) =>
+          candidateIds.has(String(row.id))
+        ),
+        organizationId: snapshot.organizationId,
+        projectId: snapshot.projectId || snapshot.packId,
+      },
+      snapshot,
+      snapshotId,
+      budget: { maxInputTokens: policy.llm.semanticProjection.maxInputTokens },
     });
-    for (const batch of batches) {
-      const { buildSemanticPrompt } = require('./semanticProjection');
-      const estChars = buildSemanticPrompt(batch, contextText).length;
-      if (estChars > maxPromptChars) {
-        stageTimings.g4_semantic.skipReason = 'prompt_too_large';
-        stageTimings.g4_semantic.promptChars = estChars;
-        partial = true;
-        lastError = 'semantic_prompt_too_large';
-        // eslint-disable-next-line no-console
-        console.info(
-          '[g4] skip semantic promptChars=%d max=%d candidates=%d',
-          estChars,
-          maxPromptChars,
-          batch.length
-        );
-        break;
+    const batches = [];
+    const candidateById = new Map(selection.candidates.map((row) => [String(row.frId), row]));
+    for (const unit of compiled.workUnits || []) {
+      const batch = [];
+      for (const row of unit.entities?.functionalRequirements || []) {
+        const candidate = candidateById.get(String(row.entityId));
+        if (candidate) batch.push(candidate);
       }
+      if (batch.length) batches.push(batch);
+    }
+    if (compiled.status === 'insufficient_context') {
+      partial = true;
+      lastError = lastError || 'insufficient_context';
+    }
+    stageTimings.g4_semantic.contextStatus = compiled.status;
+    stageTimings.g4_semantic.missingRefs = compiled.coverage?.missingRefs || [];
+    for (const batch of batches) {
       const sem = await runSemanticProjection({
         generateJson: generate,
         batch,

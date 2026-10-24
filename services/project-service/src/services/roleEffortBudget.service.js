@@ -121,7 +121,7 @@ async function upsertTemplate({
       },
       $setOnInsert: { createdBy: actorUserId || null },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   ).lean();
 
   return doc;

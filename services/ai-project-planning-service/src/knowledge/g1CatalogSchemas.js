@@ -298,6 +298,11 @@ const METRIC_CATALOG_SEED = Object.freeze([
 const VECTOR_DOC_TYPES = Object.freeze([
   'evidence_span',
   'srs_canonical',
+  // HOW corpus emits these slices for Quality/Arch retrieval. They belong in the vector index.
+  'srs_nfr',
+  'srs_uc',
+  'srs_ac',
+  'srs_technology',
   'skill_def',
   'metric_def',
   'employee_history',

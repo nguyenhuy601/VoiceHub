@@ -54,7 +54,58 @@ function computeCorpusContentHash(opts = {}) {
   return createHash('sha256').update(raw).digest('hex').slice(0, 32);
 }
 
+/** One corpus row is one vector. Bump when the splitter changes so old vectors are not reused. */
+const CHUNKING_VERSION = 'doc-v1';
+
+/**
+ * Identity of one document's text. Independent of snapshotId so the same SRS row
+ * can reuse a vector after the snapshot id changes.
+ * @param {object} doc
+ */
+function computeDocumentContentHash(doc = {}) {
+  const raw = [
+    String(doc.docType || ''),
+    String(doc.sourceId || doc.id || '').trim(),
+    String(doc.text || '').trim(),
+  ].join('\n');
+  return createHash('sha256').update(raw).digest('hex').slice(0, 32);
+}
+
+/**
+ * Cache key for the embedding of this exact text under one model version.
+ * @param {string} text
+ * @param {string} embeddingVersion
+ */
+function computeEmbeddingInputHash(text, embeddingVersion) {
+  const raw = [String(embeddingVersion || '').trim(), String(text || '').trim()].join('\n');
+  return createHash('sha256').update(raw).digest('hex').slice(0, 32);
+}
+
+/**
+ * Corpus version for the index manifest. Does not include snapshotId.
+ * @param {{ embeddingVersion?: string, chunkingVersion?: string, docs?: object[] }} opts
+ */
+function computeIndexCorpusHash(opts = {}) {
+  const embeddingVersion = String(opts.embeddingVersion || '').trim();
+  const chunkingVersion = String(opts.chunkingVersion || CHUNKING_VERSION).trim();
+  const docs = Array.isArray(opts.docs) ? opts.docs : [];
+  const lines = docs
+    .map((doc) => {
+      const id = String(doc?.sourceId || doc?.id || '').trim();
+      if (!id) return '';
+      return `${String(doc.docType || '')}\t${id}\t${computeDocumentContentHash(doc)}`;
+    })
+    .filter(Boolean)
+    .sort();
+  const raw = [embeddingVersion, chunkingVersion, ...lines].join('\n');
+  return createHash('sha256').update(raw).digest('hex').slice(0, 32);
+}
+
 module.exports = {
   computeCorpusContentHash,
+  computeDocumentContentHash,
+  computeEmbeddingInputHash,
+  computeIndexCorpusHash,
   HASH_DOC_TYPES,
+  CHUNKING_VERSION,
 };

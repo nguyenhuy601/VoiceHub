@@ -142,8 +142,28 @@ function buildDependencyEdgesFromSrs({ tasks = [], pack = {}, planningHints = nu
   return edges;
 }
 
+/**
+ * Map legacy SRS edges → weak candidates (for tooling / tests).
+ * Prefer dependencyCandidateEngine.buildSrsOrderCandidates in HOW pipeline.
+ */
+function srsEdgesToCandidates(edges = []) {
+  return (edges || []).map((e) => ({
+    predecessorTaskId: String(e.to || e.predecessorTaskId || ''),
+    successorTaskId: String(e.from || e.successorTaskId || ''),
+    candidateRule:
+      e.evidence === 'ac_order_same_fr'
+        ? 'SRS_AC_ORDER'
+        : e.evidence === 'same_uc_precedes'
+          ? 'SRS_SAME_UC'
+          : 'SRS_FR_ORDER',
+    evidenceRefs: [String(e.evidence || 'srs')],
+    strength: 'weak',
+  }));
+}
+
 module.exports = {
   buildDependencyEdgesFromSrs,
+  srsEdgesToCandidates,
   leafTasks,
   isLeafTask,
 };

@@ -19,6 +19,8 @@ const {
   nextPageTokenFromDocs,
 } = require('@enterprise/shared/pagination/pageToken');
 const { mergeMongoFilter } = require('../utils/contextCallVisibility');
+const { createChatError, toChatError } = require('../utils/chatErrorMap');
+const { assertVoteSelection } = require('../utils/pollPolicy');
 const { visibilityMongoClauseForViewer } = require('./projectMembershipReadModel');
 const { rankMessagesByKeyword } = require('../utils/messageKeywordScore');
 
@@ -69,6 +71,12 @@ function normalizeMongoError(error) {
     return new Error(MONGO_UNAVAILABLE_MSG);
   }
   return error;
+}
+
+function toServiceError(op, error) {
+  const err = normalizeMongoError(error);
+  console.error(`[ChatService] ${op} failed:`, err?.message || err);
+  return toChatError(err);
 }
 
 function encryptContentIfEnabled(plain) {
@@ -463,7 +471,7 @@ class MessageService {
           isRead: true,
           readAt,
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -583,7 +591,7 @@ class MessageService {
       const updated = await Message.findByIdAndUpdate(
         messageId,
         { reactions },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -593,6 +601,79 @@ class MessageService {
     } catch (error) {
       const err = normalizeMongoError(error);
       throw new Error(`Error adding reaction: ${err.message}`);
+    }
+  }
+
+  /**
+   * Bỏ phiếu khảo sát kênh. userId chỉ từ caller đã auth; không nhận counts từ client.
+   * Cập nhật một document (pipeline) để không mất phiếu đồng thời.
+   */
+  async votePoll(messageId, userId, optionIds) {
+    try {
+      await ensureMongoReady();
+      const msg = await Message.findById(messageId);
+      if (!msg || msg.isDeleted || msg.isRecalled) return null;
+      if (msg.messageType !== 'poll' || !msg.poll) {
+        throw createChatError(400, 'CHAT_VALIDATION_ERROR', 'Tin nhắn không phải khảo sát.');
+      }
+      if (!msg.roomId) {
+        throw createChatError(400, 'CHAT_INVALID_MESSAGE_TYPE', 'Khảo sát chỉ dùng trên kênh.');
+      }
+      const ids = assertVoteSelection(msg.poll, optionIds, userId);
+      const uid = mongoose.Types.ObjectId.isValid(userId)
+        ? new mongoose.Types.ObjectId(String(userId))
+        : userId;
+      const now = new Date();
+      const filter = {
+        _id: messageId,
+        messageType: 'poll',
+        isDeleted: { $ne: true },
+        isRecalled: { $ne: true },
+        'poll.closed': { $ne: true },
+        $or: [
+          { 'poll.closesAt': { $exists: false } },
+          { 'poll.closesAt': null },
+          { 'poll.closesAt': { $gt: now } },
+        ],
+      };
+      if (!msg.poll.allowMulti) {
+        // $ne trên field mảng khớp nếu còn phần tử khác — phải loại đúng user đã vote.
+        filter['poll.votes'] = { $not: { $elemMatch: { userId: uid } } };
+      }
+      const updated = await Message.findOneAndUpdate(
+        filter,
+        [
+          {
+            $set: {
+              'poll.votes': {
+                $concatArrays: [
+                  {
+                    $filter: {
+                      input: { $ifNull: ['$poll.votes', []] },
+                      as: 'v',
+                      cond: { $ne: ['$$v.userId', uid] },
+                    },
+                  },
+                  [{ userId: uid, optionIds: ids, at: now }],
+                ],
+              },
+            },
+          },
+        ],
+        { returnDocument: 'after' }
+      );
+      if (!updated) {
+        const fresh = await Message.findById(messageId);
+        assertVoteSelection(fresh?.poll, optionIds, userId);
+        throw createChatError(400, 'CHAT_POLL_ALREADY_VOTED', 'Bạn đã bỏ phiếu.');
+      }
+
+      const redis = getRedisClient();
+      if (redis) await redis.del(`message:${messageId}`);
+
+      return toClientMessage(updated, { viewerId: String(uid) });
+    } catch (error) {
+      throw toServiceError('votePoll', error);
     }
   }
 
@@ -626,7 +707,7 @@ class MessageService {
       const updated = await Message.findByIdAndUpdate(
         messageId,
         { reactions },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -651,7 +732,7 @@ class MessageService {
           isDeleted: true,
           deletedAt: new Date(),
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -693,7 +774,7 @@ class MessageService {
           recalledAt: new Date(),
           originalContent: encPrev,
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -765,7 +846,7 @@ class MessageService {
           editedAt: new Date(),
           ...(isEncryptionEnabled() ? { encV: 1 } : {}),
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -801,7 +882,7 @@ class MessageService {
             'fileMeta.taskId': taskId,
           },
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
       const redis = getRedisClient();
       if (redis && message) {

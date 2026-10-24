@@ -43,7 +43,7 @@ async function ensureCounterBootstrapped(organizationId, prefix = DEFAULT_PREFIX
   const doc = await EmployeeCodeCounter.findOneAndUpdate(
     { organization: organizationId },
     { $setOnInsert: { nextSeq: floor } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   if (doc && Number(doc.nextSeq) < floor) {
@@ -105,7 +105,7 @@ async function allocateNextEmployeeCode(organizationId, options = {}) {
     const updated = await EmployeeCodeCounter.findOneAndUpdate(
       { organization: organizationId },
       { $inc: { nextSeq: 1 } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     const seq = Number(updated?.nextSeq);
     const code = formatEmployeeCode(seq, prefix);
@@ -140,7 +140,7 @@ async function allocateEmployeeCodesBatch(organizationId, count, options = {}) {
     const updated = await EmployeeCodeCounter.findOneAndUpdate(
       { organization: organizationId },
       { $inc: { nextSeq: 1 } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     const seq = Number(updated?.nextSeq);
     const code = formatEmployeeCode(seq, prefix);

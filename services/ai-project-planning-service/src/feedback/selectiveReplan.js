@@ -10,29 +10,18 @@ const {
 } = require('../orchestration/jobToToolsMap');
 
 const SCOPE_TO_TOOLS = Object.freeze({
-  resource: ['EmployeeMatchingTool'],
-  // Capacity HITL → rematch + reschedule (Who×When)
-  capacity: ['EmployeeMatchingTool', 'SequencingTool', 'ScheduleTool'],
-  // Rematch then reschedule (Loop2 Who×When)
-  schedule: ['EmployeeMatchingTool', 'SequencingTool', 'ScheduleTool'],
-  // Sprint / release buckets rebuild with ScheduleTool
+  resource: ['ScheduleTool'],
+  capacity: ['ScheduleTool'],
+  schedule: ['ScheduleTool'],
   releases: ['ScheduleTool'],
   sprint: ['ScheduleTool'],
-  effort: ['EffortTool'],
+  effort: ['ScheduleTool'],
   WBS: ['BacklogMapTool', 'WbsTool', 'DependencyTool'],
   wbs: ['BacklogMapTool', 'WbsTool', 'DependencyTool'],
   structure: ['BacklogMapTool', 'WbsTool', 'DependencyTool'],
   backlog: ['BacklogMapTool', 'WbsTool', 'DependencyTool'],
-  architecture: [
-    'CapabilityTool',
-    'ArchitectureTool',
-    'RiskTool',
-    'QualityPlanTool',
-    'DeployPlanTool',
-  ],
   risk: ['RiskTool'],
-  quality: ['QualityPlanTool', 'EffortTool'],
-  deploy: ['DeployPlanTool'],
+  quality: ['QualityPlanTool'],
   requirement: ['BacklogMapTool', 'WbsTool', 'DependencyTool'],
 });
 

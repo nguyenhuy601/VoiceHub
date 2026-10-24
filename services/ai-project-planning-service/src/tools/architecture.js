@@ -1,39 +1,40 @@
 const { createEvidence } = require('../evidence/evidence');
-const {
-  runArchitectureEngine,
-  applyArchitectureToContainer,
-} = require('../engines/architecture');
-const { enrichArchitectureWithLlm } = require('../engines/architectureLlm');
+const { runArchitectureSecGraph } = require('../howSecs/architecture/architectureGraph');
 
-/** G11 Architecture — heuristic base + optional LLM enrich (HOW_ARCH_LLM / HOW_SEMANTIC_LLM) */
+/**
+ * Architecture — Semantic→Fact→LLM→Accept only.
+ * Legacy heuristic invent (layer APIs / "X Store") is not a fallback.
+ */
 async function architecture(input = {}, context = {}) {
   const snapshotId = input.snapshotId || input.id || null;
   const pack = context.pack || input.pack || input;
   const container = context.container || input.container || {};
   const env = input.env || context.env || process.env;
-  let result = runArchitectureEngine(container, pack);
-  result = await enrichArchitectureWithLlm(result, {
+  const toolData = input.toolData || context.toolData || {};
+  const snapshot = input.snapshot || context.snapshot || null;
+  const generateJsonFn = input.generateJsonFn || context.generateJsonFn || null;
+
+  const { result, containerPatch } = await runArchitectureSecGraph({
     pack,
     container,
+    toolData,
+    snapshot,
     env,
-    generateJsonFn: input.generateJsonFn || context.generateJsonFn || null,
+    generateJsonFn,
   });
-  const updated = applyArchitectureToContainer(container, result);
   const components = result.components || result.items || [];
-
   const evidence = [
     createEvidence({
       sourceType: 'architecture_catalog',
-      sourceId: result.meta?.source || 'heuristic',
+      sourceId: result.meta?.source || 'fact_llm',
       snapshotId,
       metric: 'component_count',
       value: components.length,
       unit: 'count',
       calculatedBy: 'ArchitectureTool',
-      ruleId: result.meta?.llmCalls ? 'ARCH-LLM-001' : 'ARCH-HEUR-001',
+      ruleId: 'ARCH-SEC-TOOL-LLM-001',
     }),
   ];
-
   return {
     result: {
       components,
@@ -41,8 +42,10 @@ async function architecture(input = {}, context = {}) {
       constraints: result.constraints || [],
       items: result.items || components,
       chains: result.chains || [],
+      openQuestions: result.openQuestions || [],
       stub: false,
-      container: updated,
+      container: containerPatch,
+      meta: { ...(result.meta || {}), inventForbidden: true, path: 'how_sec_tool_llm' },
     },
     evidence,
   };

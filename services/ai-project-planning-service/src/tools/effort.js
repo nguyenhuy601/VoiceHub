@@ -1,58 +1,42 @@
 const { createEvidence } = require('../evidence/evidence');
-const { runEffortEngine, applyEffortToContainer } = require('../engines/effort');
-const {
-  runRoleSkillPlanning,
-  applyRoleSkillToContainer,
-} = require('../engines/roleSkill');
+const { runEffortRolesSecGraph } = require('../howSecs/effortRoles/effortRolesGraph');
 
-/**
- * G9 Effort + role/skill planning — parity with legacy effortRoleAnalysis job.
- */
+/** Effort & roles — sec graph (deterministic hours inside graph, LLM overlay). No second heuristic tool path. */
 async function effort(input = {}, context = {}) {
   const snapshotId = input.snapshotId || input.id || null;
   const pack = context.pack || input.pack || {};
-  let container = context.container || input.container || input;
-  const toolData = input.toolData || {};
+  const container = context.container || input.container || input;
+  const toolData = input.toolData || context.toolData || {};
+  const env = input.env || context.env || process.env;
+  const generateJsonFn = input.generateJsonFn || context.generateJsonFn || null;
 
-  const roleSkill = runRoleSkillPlanning(pack, container);
-  container = applyRoleSkillToContainer(container, roleSkill);
-
-  const historyMetrics = toolData.historyMetrics || null;
-  const engineResult = runEffortEngine(container, {
-    historyMetrics,
-    maxEffortHours: toolData.maxEffortHours,
+  const { result, containerPatch } = await runEffortRolesSecGraph({
+    pack,
+    container,
+    toolData,
+    env,
+    generateJsonFn,
   });
-  const updatedContainer = applyEffortToContainer(container, engineResult);
-
-  const evidence = [
-    createEvidence({
-      sourceType: 'effort_model',
-      sourceId: 'deterministic-v1',
-      snapshotId,
-      metric: 'total_effort_hours',
-      value: engineResult.effort?.estimatedHoursTotal ?? 0,
-      unit: 'hours',
-      calculatedBy: 'EffortTool',
-      ruleId: 'EFF-001',
-    }),
-  ];
-  if (engineResult.effort?.totalStoryPoints != null) {
-    evidence.push(
+  const engineResult = result.engineResult || {};
+  return {
+    result: {
+      engineResult,
+      roleSkill: result.roleSkill,
+      container: containerPatch || result.container,
+      meta: result.meta,
+    },
+    evidence: [
       createEvidence({
         sourceType: 'effort_model',
-        sourceId: 'deterministic-v1',
+        sourceId: result.meta?.source || 'fact_llm',
         snapshotId,
-        metric: 'total_story_points',
-        value: engineResult.effort.totalStoryPoints,
-        unit: 'points',
+        metric: 'total_effort_hours',
+        value: engineResult.effort?.estimatedHoursTotal ?? 0,
+        unit: 'hours',
         calculatedBy: 'EffortTool',
-        ruleId: 'EFF-ENGINE-002',
-      })
-    );
-  }
-  return {
-    result: { engineResult, roleSkill, container: updatedContainer },
-    evidence,
+        ruleId: 'EFF-SEC-TOOL-LLM-001',
+      }),
+    ],
   };
 }
 

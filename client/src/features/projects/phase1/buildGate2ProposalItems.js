@@ -3,34 +3,29 @@
  * Synthetic / empty-state copy (no AI proposal yet) follows account UI locale via optional `t`.
  */
 
+import { listDependencyDisplayItems } from './gate2/dependencyDisplay.js';
+import { pickHighestReadyCandidate } from './gate2/assignmentCatalogEdit.js';
+
 const SECTION_ORDER = [
   'scope',
   'tasks',
   'dependencies',
-  'architecture',
-  'effort_roles',
   'assignments',
-  'capacity',
   'schedule',
   'releases',
   'risks',
   'quality',
-  'deploy',
 ];
 
 const SECTION_LABELS = {
   scope: 'Scope & Objectives',
   tasks: 'WBS / Tasks',
   dependencies: 'Dependencies',
-  architecture: 'Architecture',
-  effort_roles: 'Effort & Roles',
   assignments: 'Assignments',
-  capacity: 'Capacity',
   schedule: 'Schedule',
   releases: 'Sprint / Release',
   risks: 'Risks / Assumptions',
   quality: 'Quality / Testing',
-  deploy: 'Deploy Plan',
 };
 
 function tr(t, key, fallback) {
@@ -52,9 +47,9 @@ function clip(value, max = 160) {
   return `${text.slice(0, max)}…`;
 }
 
-/** Default HOW engine output — column "Nguồn" = AI đề xuất unless overridden. */
+/** generateJson text — column "Nguồn" = AI đề xuất. */
 const PROVENANCE_AI = Object.freeze({ type: 'AI_SYNTHESIS', producer: 'how_engine' });
-/** Deterministic HOW heuristic engines (deps same-area, arch/risk/quality/deploy, …). */
+/** Deterministic HOW calculation — column "Nguồn" = Heuristic. */
 const PROVENANCE_HEURISTIC = Object.freeze({ type: 'HEURISTIC', producer: 'how_heuristic' });
 /** Gate1-approved pack sheets rolled into Gate2 (Scope / Assumptions / Constraints). */
 const PROVENANCE_GATE1 = Object.freeze({
@@ -62,37 +57,66 @@ const PROVENANCE_GATE1 = Object.freeze({
   producer: 'requirement_pack',
 });
 
-function isHeuristicHowSource(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase() === 'heuristic';
+const PRESERVED_PROVENANCE_TYPES = new Set([
+  'GATE1_APPROVED',
+  'EMPLOYEE',
+  'HUMAN',
+  'MANUAL',
+  'PM',
+  'PM_ADDED',
+  'STAFF',
+]);
+
+/** True when the displayed text was produced by generateJson, not a numeric/rule engine. */
+function isLlmGeneratedTextSource(value) {
+  const source = String(value || '').trim().toLowerCase();
+  if (!source) return false;
+  if (
+    source.includes('failed') ||
+    source.includes('invalid') ||
+    source.includes('error') ||
+    source.includes('skipped')
+  ) {
+    return false;
+  }
+  if (source === 'llm' || source === 'fact_llm') return true;
+  return source.startsWith('llm') || source.endsWith('_llm') || source.includes('_llm_');
 }
 
 /**
- * Stamp HOW row provenance for Gate2 "Nguồn".
- * Preserves existing type; heuristic when row/source/meta says so; else AI.
+ * Stamp Gate2 "Nguồn".
+ * AI đề xuất only when generateJson wrote the text. Heuristic otherwise.
+ * Gate1 / nhân viên stamps are left as-is.
  */
 function withAiProvenance(row, extra = null) {
   const merged = extra ? { ...row, ...extra } : { ...row };
   const existing = merged?.provenance || merged?.origin;
-  if (existing && typeof existing === 'object' && existing.type) {
-    return merged;
-  }
-  if (
-    isHeuristicHowSource(merged.source) ||
-    isHeuristicHowSource(merged.dataSource)
-  ) {
+  const existingType = String(existing?.type || '').trim().toUpperCase();
+  if (PRESERVED_PROVENANCE_TYPES.has(existingType)) return merged;
+
+  const textSource = String(merged.textSource || '').trim().toLowerCase();
+  const explicit = String(merged.source || merged.dataSource || '').trim();
+  const llm = textSource === 'llm'
+    ? true
+    : textSource === 'cpm'
+      ? false
+      : explicit
+        ? isLlmGeneratedTextSource(explicit)
+        : isLlmGeneratedTextSource(existing?.source) ||
+          isLlmGeneratedTextSource(existing?.producer);
+
+  if (llm) {
     return {
       ...merged,
-      source: merged.source || 'heuristic',
-      provenance: { ...PROVENANCE_HEURISTIC },
-      origin: { type: 'HEURISTIC' },
+      provenance: { ...PROVENANCE_AI },
+      origin: { type: 'AI_SYNTHESIS' },
     };
   }
   return {
     ...merged,
-    provenance: { ...PROVENANCE_AI },
-    origin: { type: 'AI_SYNTHESIS' },
+    source: merged.source || 'heuristic',
+    provenance: { ...PROVENANCE_HEURISTIC },
+    origin: { type: 'HEURISTIC' },
   };
 }
 
@@ -361,6 +385,7 @@ function readWbsMeta(container) {
     uniqueLeafCount:
       meta.uniqueLeafCount != null ? Number(meta.uniqueLeafCount) : null,
     leafCount: meta.leafCount != null ? Number(meta.leafCount) : null,
+    source: String(meta.source || '').trim(),
   };
 }
 
@@ -397,7 +422,6 @@ function unresolvedStoryStubRows(container, wbsMeta) {
       dueDate: null,
       area: '',
       deliverable: '',
-      doneWhen: '',
       duplicateOf: null,
       wbsUnresolved: true,
       status: 'UNRESOLVED',
@@ -427,7 +451,6 @@ function taskRows(container) {
         dueDate: t.dueDate || null,
         area: t.area || '',
         deliverable: t.deliverable || '',
-        doneWhen: t.doneWhen || t.completionCriteria || '',
         duplicateOf: t.duplicateOf ? String(t.duplicateOf) : null,
         leveled: Boolean(t.leveled),
         provenance: t.provenance || undefined,
@@ -436,8 +459,10 @@ function taskRows(container) {
       };
     });
 
-  const treeRows = sortWbsTreeForGate2(mapped).map((t) =>
-    withAiProvenance({
+  const treeRows = sortWbsTreeForGate2(mapped).map((t) => {
+    const ownSource = String(t.source || '').trim();
+    const leaf = isLeafTaskRow(t);
+    const base = {
       logicalId: `task:${t.id}`,
       id: t.id,
       section: 'tasks',
@@ -457,7 +482,6 @@ function taskRows(container) {
       dueDate: t.dueDate || null,
       area: t.area || '',
       deliverable: t.deliverable || '',
-      doneWhen: t.doneWhen || '',
       duplicateOf: t.duplicateOf || null,
       status: t.duplicateOf
         ? 'DUPLICATE'
@@ -480,38 +504,46 @@ function taskRows(container) {
       ),
       provenance: t.provenance || undefined,
       origin: t.origin || undefined,
-      source: t.source || undefined,
-    })
-  );
+      source: ownSource || (leaf ? wbsMeta.source || '' : ''),
+    };
+    if (!leaf && !isLlmGeneratedTextSource(ownSource)) return withGate1Provenance(base);
+    return withAiProvenance(base);
+  });
 
   return [...treeRows, ...unresolvedStoryStubRows(container, wbsMeta)];
 }
 
 function dependencyRows(container) {
-  const edges = Array.isArray(container?.analyses?.dependency?.edges)
-    ? container.analyses.dependency.edges
-    : Array.isArray(container?.planning?.dependencies)
-      ? container.planning.dependencies
-      : [];
-  return edges.map((e, i) => {
-    const from = e.from || e.predecessorId || e.source || '';
-    const to = e.to || e.successorId || e.target || '';
-    const id = String(e.id || `${from}->${to}` || `dep-${i}`);
-    return withAiProvenance({
-      logicalId: `dep:${id}`,
-      id,
+  const { items } = listDependencyDisplayItems(container);
+  return items.map((d) =>
+    withAiProvenance({
+      logicalId: `dep:${d.id}`,
+      id: d.id,
       section: 'dependencies',
       sectionLabel: SECTION_LABELS.dependencies,
-      title: `${from || '?'} → ${to || '?'}`,
-      depType: e.type || e.kind || 'FS',
-      critical: Boolean(e.critical || e.blocking),
-      source: e.source || '',
-      status: e.critical || e.blocking ? 'CRITICAL' : 'READY',
-      summary: clip([e.type || e.kind, e.source, e.critical ? 'critical' : ''].filter(Boolean).join(' · ')),
-      provenance: e.provenance || undefined,
-      origin: e.origin || undefined,
-    });
-  });
+      title: d.title,
+      summary: d.reason || d.summary,
+      reason: d.reason,
+      relationLabel: d.relationLabel,
+      predecessorTaskId: d.predecessorTaskId,
+      successorTaskId: d.successorTaskId,
+      predecessorName: d.predecessorName,
+      successorName: d.successorName,
+      depType: d.depType || d.relationship || 'FS',
+      relationship: d.relationship,
+      blockingScope: d.blockingScope,
+      canWorkInParallel: d.canWorkInParallel,
+      parallelCondition: d.parallelCondition,
+      parallelLabel: d.parallelLabel,
+      requiredInputLabel: d.requiredInputLabel,
+      decisionStatus: d.decisionStatus,
+      critical: Boolean(d.critical),
+      source: d.source || '',
+      status: d.decisionStatus || 'PROPOSED',
+      provenance: undefined,
+      origin: undefined,
+    })
+  );
 }
 
 function buildTaskById(container) {
@@ -551,17 +583,41 @@ function isLeafTaskRow(task) {
   );
 }
 
+function candidateOptionsFromShortlist(shortlist, nameByUserId) {
+  const out = [];
+  const seen = new Set();
+  for (const candidate of shortlist || []) {
+    if (!candidate?.userId || candidate.feasible === false) continue;
+    const userId = String(candidate.userId).trim();
+    if (!userId || seen.has(userId)) continue;
+    seen.add(userId);
+    const label = resolveAssigneeLabel(userId, null, candidate, nameByUserId);
+    const available = candidate.availableHours ?? candidate.available_capacity;
+    out.push({
+      userId,
+      displayName: label === '—' ? '' : label,
+      score: candidate.score != null && Number.isFinite(Number(candidate.score)) ? Number(candidate.score) : null,
+      availableHours: available != null && Number.isFinite(Number(available)) ? Number(available) : null,
+    });
+  }
+  return out;
+}
+
 function makeAssignmentRow({
   logicalId,
   id,
   title,
   assignee,
   assigneeUserId,
+  suggestedRoleKey,
+  effortHours,
   score,
   availableHours,
   overload,
   status,
   summary,
+  taskIds,
+  candidateOptions,
   provenance,
   origin,
   source,
@@ -574,6 +630,10 @@ function makeAssignmentRow({
     title,
     assignee,
     assigneeUserId: assigneeUserId || '',
+    suggestedRoleKey: suggestedRoleKey || '',
+    taskIds: Array.isArray(taskIds) ? taskIds.map(String) : [],
+    candidateOptions: Array.isArray(candidateOptions) ? candidateOptions : [],
+    effortHours: effortHours != null ? effortHours : null,
     score,
     availableHours,
     overload,
@@ -585,17 +645,25 @@ function makeAssignmentRow({
   });
 }
 
+function isRawUserIdLabel(label, userId) {
+  const text = String(label || '').trim();
+  if (!text) return false;
+  const id = String(userId || '').trim();
+  if (id && text === id) return true;
+  return /^[a-f0-9]{24}$/i.test(text);
+}
+
 function resolveAssigneeLabel(userId, picked, top, nameByUserId = {}) {
   const id = String(userId || '').trim();
   const fromMap = id ? String(nameByUserId[id] || '').trim() : '';
-  if (fromMap) return fromMap;
+  if (fromMap && !isRawUserIdLabel(fromMap, id)) return fromMap;
   const fromPayload = String(picked?.displayName || top?.displayName || '').trim();
-  if (fromPayload) return fromPayload;
-  return id || '—';
+  if (fromPayload && !isRawUserIdLabel(fromPayload, id)) return fromPayload;
+  return '—';
 }
 
-/** Prefer assigned user; else first eligible (!overload && feasible); else shortlist[0]. */
-function resolveSuggestedCandidate(shortlist = [], assignment = null) {
+/** Prefer the person already assigned. Otherwise the highest score who can take the effort. */
+function resolveSuggestedCandidate(shortlist = [], assignment = null, effortHours = null) {
   const list = Array.isArray(shortlist) ? shortlist : [];
   const assignedId = String(assignment?.userId || '').trim();
   if (assignedId) {
@@ -609,10 +677,7 @@ function resolveSuggestedCandidate(shortlist = [], assignment = null) {
       available_capacity: assignment?.available_capacity,
     };
   }
-  const eligible = list.find(
-    (c) => c?.feasible !== false && !c?.overload && String(c?.userId || '').trim()
-  );
-  return eligible || list[0] || null;
+  return pickHighestReadyCandidate(list, effortHours);
 }
 
 function assignmentRows(container, { nameByUserId = {}, t } = {}) {
@@ -633,24 +698,43 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
     if (!taskId) continue;
     const shortlist = Array.isArray(rec.shortlist) ? rec.shortlist : [];
     const picked = finalAssign.get(taskId) || null;
-    const suggested = resolveSuggestedCandidate(shortlist, picked);
+    const task = taskById.get(taskId);
+    const effortValue =
+      task?.effortHours != null && Number.isFinite(Number(task.effortHours))
+        ? Number(task.effortHours)
+        : null;
+    const suggested = resolveSuggestedCandidate(shortlist, picked, effortValue);
     const userId = String(suggested?.userId || '').trim();
     const displayName = resolveAssigneeLabel(userId, picked, suggested, nameByUserId);
+    const availableRaw =
+      picked?.available_capacity ?? suggested?.available_capacity ?? suggested?.availableHours;
+    const availableValue =
+      availableRaw != null && Number.isFinite(Number(availableRaw)) ? Number(availableRaw) : null;
+    const overload =
+      availableValue != null && effortValue != null && effortValue > 0
+        ? effortValue > availableValue
+        : Boolean(suggested?.overload);
     const branchId = branchAnchorId(taskId, taskById);
-    const task = taskById.get(taskId);
     members.push({
       taskId,
       branchId,
       branchTitle: taskById.get(branchId)?.name || branchId,
       taskTitle: task?.name || task?.title || taskId,
+      suggestedRoleKey: task?.suggestedRoleKey || '',
+      effortHours: effortValue,
       shortlistLen: shortlist.length,
       multiAssignee: shortlist.length >= 2,
       userId,
       displayName,
-      score: suggested?.score != null ? Number(suggested.score) : null,
-      availableHours:
-        suggested?.available_capacity != null ? Number(suggested.available_capacity) : null,
-      overload: Boolean(suggested?.overload),
+      candidateOptions: candidateOptionsFromShortlist(shortlist, nameByUserId),
+      score:
+        suggested?.score != null && Number.isFinite(Number(suggested.score))
+          ? Number(suggested.score)
+          : picked?.score != null && Number.isFinite(Number(picked.score))
+            ? Number(picked.score)
+            : null,
+      availableHours: availableValue,
+      overload,
     });
   }
 
@@ -677,6 +761,10 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
           title: g0.branchTitle,
           assignee: g0.displayName,
           assigneeUserId: g0.userId || '',
+          suggestedRoleKey: g0.suggestedRoleKey || '',
+          taskIds: group.map((g) => g.taskId),
+          candidateOptions: group.flatMap((g) => g.candidateOptions || []),
+          effortHours: group.reduce((n, g) => n + (Number(g.effortHours) || 0), 0) || null,
           score: g0.score,
           availableHours: g0.availableHours,
           overload: g0.overload,
@@ -699,6 +787,10 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
           title: g.taskTitle,
           assignee: g.displayName,
           assigneeUserId: g.userId || '',
+          suggestedRoleKey: g.suggestedRoleKey || '',
+          taskIds: [g.taskId],
+          candidateOptions: g.candidateOptions || [],
+          effortHours: g.effortHours,
           score: g.score,
           availableHours: g.availableHours,
           overload: g.overload,
@@ -716,6 +808,13 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
     }
   }
 
+  for (const g of members) {
+    if (g.userId) continue;
+    const row = rows.find((item) => item.id === g.taskId || item.logicalId === `asg:${g.taskId}`);
+    if (!row || row.assigneeUserId) continue;
+    row.summary = tr(t, 'requirements.gate2SynthUnassigned', 'unassigned');
+  }
+
   const unassigned = Array.isArray(container?.resource?.matching?.unassigned)
     ? container.resource.matching.unassigned
     : Array.isArray(container?.resource?.unassigned)
@@ -725,12 +824,42 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
     const taskId = String(u?.taskId || u?.id || u || '');
     if (!taskId || coveredTaskIds.has(taskId)) continue;
     const task = taskById.get(taskId);
+    const picked = finalAssign.get(taskId) || null;
+    const pickedId = String(picked?.userId || '').trim();
+    if (pickedId) {
+      const effort = Number(task?.effortHours);
+      const available =
+        picked.available_capacity != null ? Number(picked.available_capacity) : null;
+      const overload =
+        picked.overload === true ||
+        (Number.isFinite(available) && Number.isFinite(effort) && effort > 0 && effort > available);
+      rows.push(
+        makeAssignmentRow({
+          logicalId: `asg:${taskId}`,
+          id: taskId,
+          title: task?.name || taskId,
+          assignee: resolveAssigneeLabel(pickedId, picked, null, nameByUserId),
+          assigneeUserId: pickedId,
+          suggestedRoleKey: task?.suggestedRoleKey || '',
+          taskIds: [taskId],
+          effortHours: Number.isFinite(effort) ? effort : null,
+          score: picked.score != null && Number.isFinite(Number(picked.score)) ? Number(picked.score) : null,
+          availableHours: Number.isFinite(available) ? available : null,
+          overload,
+          status: overload ? 'OVERLOAD' : 'READY',
+          summary: resolveAssigneeLabel(pickedId, picked, null, nameByUserId),
+        })
+      );
+      continue;
+    }
     rows.push(
       makeAssignmentRow({
         logicalId: `asg:${taskId}`,
         id: taskId,
         title: task?.name || taskId,
         assignee: '—',
+        taskIds: [taskId],
+        suggestedRoleKey: task?.suggestedRoleKey || '',
         score: null,
         availableHours: null,
         overload: false,
@@ -742,107 +871,59 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
   return rows;
 }
 
-function mergeScheduleEntry(byTask, tid, patch, titleById) {
-  const title = titleById.get(tid) || tid;
-  if (!byTask.has(tid)) {
-    byTask.set(tid, {
-      logicalId: `sch:${tid}`,
-      id: tid,
-      section: 'schedule',
-      sectionLabel: SECTION_LABELS.schedule,
-      title,
-      startDate: patch.startDate || null,
-      dueDate: patch.dueDate || null,
-      effortHours: patch.effortHours != null ? Number(patch.effortHours) : null,
-      status: patch.status || 'SCHEDULED',
-      summary: '',
-    });
-    return;
+function isoDay(value) {
+  const match = String(value || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : '';
+}
+
+function dateSpanByTask(schedule) {
+  const map = new Map();
+  for (const row of Array.isArray(schedule) ? schedule : []) {
+    const id = String(row?.taskId || '').trim();
+    const day = isoDay(row?.dateKey);
+    if (!id || !day) continue;
+    const current = map.get(id);
+    if (!current) {
+      map.set(id, { startDate: day, dueDate: day });
+      continue;
+    }
+    if (day < current.startDate) current.startDate = day;
+    if (day > current.dueDate) current.dueDate = day;
   }
-  const cur = byTask.get(tid);
-  if (patch.startDate && (!cur.startDate || patch.startDate < cur.startDate)) {
-    cur.startDate = patch.startDate;
-  }
-  if (patch.dueDate && (!cur.dueDate || patch.dueDate > cur.dueDate)) {
-    cur.dueDate = patch.dueDate;
-  }
-  if (patch.effortHours != null) {
-    cur.effortHours = (Number(cur.effortHours) || 0) + Number(patch.effortHours);
-  }
-  if (patch.status) cur.status = patch.status;
-  cur.title = title;
+  return map;
 }
 
 function scheduleRows(container) {
   const tasks = Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [];
-  const titleById = new Map();
-  for (const t of tasks) {
-    const id = String(t.id || t.taskId || '');
-    if (id) titleById.set(id, t.name || t.title || id);
-  }
-
-  const byTask = new Map();
-  const schedule = Array.isArray(container?.resource?.schedule)
-    ? container.resource.schedule
-    : [];
-  for (const row of schedule) {
-    const tid = String(row.taskId || '');
-    if (!tid) continue;
-    mergeScheduleEntry(
-      byTask,
-      tid,
-      {
-        startDate: row.dateKey || null,
-        dueDate: row.dateKey || null,
-        effortHours: Number(row.hours) || 0,
-        status: 'SCHEDULED',
-      },
-      titleById
+  const spans = dateSpanByTask(container?.resource?.schedule);
+  const rows = [];
+  for (const task of tasks) {
+    const id = String(task?.id || task?.taskId || '').trim();
+    if (!id || !isLeafTaskRow(task)) continue;
+    const span = spans.get(id);
+    const startDate = isoDay(task.startDate) || span?.startDate || '';
+    const dueDate = isoDay(task.dueDate) || span?.dueDate || '';
+    if (!startDate && !dueDate) continue;
+    const effortHours =
+      task.effortHours != null && Number.isFinite(Number(task.effortHours))
+        ? Number(task.effortHours)
+        : null;
+    rows.push(
+      withAiProvenance({
+        logicalId: `sch:${id}`,
+        id,
+        section: 'schedule',
+        sectionLabel: SECTION_LABELS.schedule,
+        title: task.name || task.title || id,
+        startDate: startDate || null,
+        dueDate: dueDate || null,
+        effortHours,
+        status: task.leveled ? 'LEVELED' : 'SCHEDULED',
+        summary: [startDate, dueDate].filter(Boolean).join(' – '),
+      })
     );
   }
-
-  for (const t of tasks) {
-    const id = String(t.id || t.taskId || '');
-    if (!id || (!t.startDate && !t.dueDate)) continue;
-    mergeScheduleEntry(
-      byTask,
-      id,
-      {
-        startDate: t.startDate || null,
-        dueDate: t.dueDate || null,
-        effortHours: t.effortHours != null ? Number(t.effortHours) : null,
-        status: t.leveled ? 'LEVELED' : 'SCHEDULED',
-      },
-      titleById
-    );
-  }
-
-  const recs = Array.isArray(container?.resource?.recommendations)
-    ? container.resource.recommendations
-    : [];
-  for (const rec of recs) {
-    const tid = String(rec.taskId || '');
-    if (!tid || byTask.has(tid)) continue;
-    const task = tasks.find((x) => String(x.id || x.taskId) === tid);
-    if (task && !isLeafTaskRow(task)) continue;
-    mergeScheduleEntry(
-      byTask,
-      tid,
-      { status: 'UNSCHEDULED', startDate: null, dueDate: null, effortHours: null },
-      titleById
-    );
-  }
-
-  return [...byTask.values()].map((r) =>
-    withAiProvenance({
-    ...r,
-    summary: clip(
-      [r.startDate, r.dueDate, r.effortHours != null ? `${r.effortHours}h` : '', r.status]
-        .filter(Boolean)
-        .join(' · ')
-    ),
-    })
-  );
+  return rows;
 }
 
 /**
@@ -864,16 +945,22 @@ function riskRows(container, pack) {
       : [];
   const rows = items.map((r, i) => {
     const id = String(r.id || r.riskId || `risk-${i}`);
+    const summary = clip(
+      r.summary || r.mitigation || [r.probability != null ? `P${r.probability}` : '', r.impact != null ? `I${r.impact}` : '']
+        .filter(Boolean)
+        .join(' · '),
+      200
+    );
     return withAiProvenance({
       logicalId: `risk:${id}`,
       id,
       section: 'risks',
       sectionLabel: SECTION_LABELS.risks,
       title: r.name || r.title || id,
+      summary: summary || undefined,
       level: 'risk',
       band: r.band || r.severity || '',
-      status: String(r.band || r.severity || 'READY').toUpperCase(),
-      summary: clip(r.description || r.mitigation || r.band || ''),
+      status: 'READY',
       provenance: r.provenance || undefined,
       origin: r.origin || undefined,
       source: r.source || sectionSource || undefined,
@@ -894,12 +981,10 @@ function riskRows(container, pack) {
         section: 'risks',
         sectionLabel: SECTION_LABELS.risks,
         title,
+        summary: impact || undefined,
         level: 'assumption',
-        band: impact ? 'assumption' : '',
-        status: impact ? 'CRITICAL' : String(a.status || 'READY').toUpperCase() || 'READY',
-        summary: clip(
-          [impact ? `if invalid: ${impact}` : '', a.baNote || ''].filter(Boolean).join(' · ')
-        ),
+        band: '',
+        status: 'READY',
       })
     );
   }
@@ -920,7 +1005,6 @@ function riskRows(container, pack) {
         level: 'constraint',
         band: pickText(c.type, 'constraint'),
         status: 'READY',
-        summary: clip([c.type || 'constraint', c.baNote || ''].filter(Boolean).join(' · ')),
       })
     );
   }
@@ -928,379 +1012,16 @@ function riskRows(container, pack) {
   return rows;
 }
 
-/** Architecture impact items from ArchitectureTool (already in HOW loop). */
-function architectureRows(container) {
-  const analysis =
-    container?.analyses?.architectureImpact &&
-    typeof container.analyses.architectureImpact === 'object'
-      ? container.analyses.architectureImpact
-      : {};
-  const sectionSource = analysis.meta?.source || '';
-  const items = Array.isArray(analysis.items)
-    ? analysis.items
-    : Array.isArray(analysis.components)
-      ? analysis.components
-      : [];
-  return items
-    .filter((it) => it && (it.impactId || it.id || it.component || it.name))
-    .map((it, i) => {
-      const id = String(it.impactId || it.id || `arch-${i}`);
-      const layer = String(it.layer || '').trim();
-      const impactLevel = String(it.impactLevel || it.level || '').trim();
-      const title = it.component || it.name || id;
-      const status = String(impactLevel || 'READY').toUpperCase();
-      return withAiProvenance({
-        logicalId: `arch:${id}`,
-        id,
-        section: 'architecture',
-        sectionLabel: SECTION_LABELS.architecture,
-        title,
-        layer,
-        impactLevel,
-        status: ['HIGH', 'CRITICAL', 'BLOCKING'].includes(status) ? status : status || 'READY',
-        summary: clip(
-          [layer, impactLevel, ...(Array.isArray(it.apis) ? it.apis.slice(0, 2) : [])]
-            .filter(Boolean)
-            .join(' · ')
-        ),
-        provenance: it.provenance || undefined,
-        origin: it.origin || undefined,
-        source: it.source || sectionSource || undefined,
-      });
-    });
-}
-
-/**
- * Capacity — conflicts from Schedule + unassigned/overload signals from Matching.
- * Deterministic surface for Gate2 HITL (no new HOW tool in Step 2).
- */
-function capacityRows(container, { t } = {}) {
-  const resource =
-    container?.resource && typeof container.resource === 'object' ? container.resource : {};
-  const matching =
-    resource.matching && typeof resource.matching === 'object' ? resource.matching : {};
-  const taskById = new Map(
-    (Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [])
-      .filter((t) => t && (t.id || t.taskId))
-      .map((t) => [String(t.id || t.taskId), t])
-  );
-
-  const rows = [];
-  const seen = new Set();
-
-  const pushRow = (row) => {
-    const key = String(row.logicalId || row.id || '');
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    rows.push(withAiProvenance(row));
-  };
-
-  const conflicts = Array.isArray(resource.capacityConflicts) ? resource.capacityConflicts : [];
-  for (let i = 0; i < conflicts.length; i += 1) {
-    const c = conflicts[i];
-    if (!c || typeof c !== 'object') continue;
-    const type = String(c.type || 'capacity_conflict').trim();
-    const taskId = String(c.taskId || '').trim();
-    const userId = String(c.userId || '').trim();
-    const id = `${type}:${taskId || c.dateKey || c.estimatedEnd || i}`;
-    const taskTitle = taskId
-      ? taskById.get(taskId)?.name || taskById.get(taskId)?.title || taskId
-      : '';
-    const status =
-      type === 'past_deadline' || c.critical === true
-        ? 'CRITICAL'
-        : type === 'zero_capacity_day' || type === 'unresolved_effort'
-          ? 'OVERLOAD'
-          : 'READY';
-    pushRow({
-      logicalId: `cap:${id}`,
-      id,
-      section: 'capacity',
-      sectionLabel: SECTION_LABELS.capacity,
-      title: taskTitle || type.replace(/_/g, ' '),
-      conflictType: type,
-      taskId: taskId || '',
-      userId,
-      dateKey: c.dateKey || c.deadline || c.estimatedEnd || '',
-      remainingHours:
-        c.remainingHours != null && Number.isFinite(Number(c.remainingHours))
-          ? Number(c.remainingHours)
-          : null,
-      status,
-      summary: clip(
-        [
-          type,
-          userId ? `user=${userId}` : '',
-          c.dateKey || '',
-          c.remainingHours != null ? `${c.remainingHours}h left` : '',
-          c.deadline ? `deadline ${c.deadline}` : '',
-          c.estimatedEnd ? `end ${c.estimatedEnd}` : '',
-          c.critical ? 'critical' : '',
-        ]
-          .filter(Boolean)
-          .join(' · ')
-      ),
-    });
+/** Release start is the first sprint window already stored. Do not invent a date. */
+function releaseWindowStart(release, sprintById) {
+  const stored = release?.startDate;
+  if (stored) return stored;
+  const ids = Array.isArray(release?.sprintIds) ? release.sprintIds : [];
+  for (const id of ids) {
+    const start = sprintById.get(String(id))?.startDate;
+    if (start) return start;
   }
-
-  const unassigned = Array.isArray(matching.unassigned)
-    ? matching.unassigned
-    : Array.isArray(resource.unassigned)
-      ? resource.unassigned
-      : [];
-  for (const u of unassigned) {
-    const taskId = String(u?.taskId || u?.id || u || '').trim();
-    if (!taskId) continue;
-    const task = taskById.get(taskId);
-    pushRow({
-      logicalId: `cap:unassigned:${taskId}`,
-      id: `unassigned:${taskId}`,
-      section: 'capacity',
-      sectionLabel: SECTION_LABELS.capacity,
-      title: task?.name || task?.title || taskId,
-      conflictType: 'unassigned',
-      taskId,
-      userId: '',
-      status: 'UNASSIGNED',
-      summary: tr(
-        t,
-        'requirements.gate2SynthUnassignedNoCandidate',
-        'unassigned — no feasible candidate'
-      ),
-    });
-  }
-
-  const overloadList = Array.isArray(matching.overload) ? matching.overload : [];
-  for (let i = 0; i < overloadList.length; i += 1) {
-    const o = overloadList[i];
-    const taskId = String(o?.taskId || '').trim();
-    const userId = String(o?.userId || '').trim();
-    if (!taskId && !userId) continue;
-    const task = taskId ? taskById.get(taskId) : null;
-    pushRow({
-      logicalId: `cap:overload:${taskId || i}:${userId || 'x'}`,
-      id: `overload:${taskId || i}:${userId || 'x'}`,
-      section: 'capacity',
-      sectionLabel: SECTION_LABELS.capacity,
-      title: task?.name || task?.title || taskId || `Overload ${userId}`,
-      conflictType: 'overload',
-      taskId,
-      userId,
-      status: 'OVERLOAD',
-      summary: clip(
-        ['overload', userId ? `user=${userId}` : '', ...(Array.isArray(o?.reasons) ? o.reasons : [])]
-          .filter(Boolean)
-          .join(' · ')
-      ),
-    });
-  }
-
-  // Shortlist signals not yet folded into matching.overload
-  const recommendations = Array.isArray(resource.recommendations) ? resource.recommendations : [];
-  for (const rec of recommendations) {
-    const taskId = String(rec?.taskId || '').trim();
-    if (!taskId) continue;
-    const cands = Array.isArray(rec.candidates) && rec.candidates.length
-      ? rec.candidates
-      : Array.isArray(rec.shortlist)
-        ? rec.shortlist
-        : [];
-    for (const c of cands) {
-      if (!c?.overload && c?.feasible !== false) continue;
-      if (!c?.overload) continue;
-      const userId = String(c.userId || '').trim();
-      const task = taskById.get(taskId);
-      pushRow({
-        logicalId: `cap:overload:${taskId}:${userId || 'x'}`,
-        id: `overload:${taskId}:${userId || 'x'}`,
-        section: 'capacity',
-        sectionLabel: SECTION_LABELS.capacity,
-        title: task?.name || task?.title || taskId,
-        conflictType: 'overload',
-        taskId,
-        userId,
-        status: 'OVERLOAD',
-        summary: clip(
-          [
-            'shortlist overload',
-            userId ? `user=${userId}` : '',
-            c.available_capacity != null ? `avail=${c.available_capacity}h` : '',
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        ),
-      });
-    }
-  }
-
-  // Demand vs supply gaps from Matching capacityPlan (Step 5)
-  const capacityPlan =
-    resource.capacityPlan && typeof resource.capacityPlan === 'object'
-      ? resource.capacityPlan
-      : null;
-  const roleGaps = Array.isArray(capacityPlan?.byRole) ? capacityPlan.byRole : [];
-  for (const g of roleGaps) {
-    const gap = Number(g?.gapHours) || 0;
-    if (gap <= 0) continue;
-    const roleKey = String(g.roleKey || '').trim() || 'role';
-    pushRow({
-      logicalId: `cap:gap:${roleKey}`,
-      id: `gap:${roleKey}`,
-      section: 'capacity',
-      sectionLabel: SECTION_LABELS.capacity,
-      title: roleKey,
-      conflictType: 'demand_gap',
-      taskId: '',
-      userId: '',
-      remainingHours: gap,
-      status: 'OVERLOAD',
-      summary: clip(
-        [
-          `gap ${gap}h`,
-          g.demandHours != null ? `demand ${g.demandHours}h` : '',
-          g.supplyHours != null ? `supply ${g.supplyHours}h` : '',
-        ]
-          .filter(Boolean)
-          .join(' · ')
-      ),
-    });
-  }
-
-  const hasCapacitySignal =
-    conflicts.length > 0 ||
-    unassigned.length > 0 ||
-    overloadList.length > 0 ||
-    recommendations.length > 0 ||
-    roleGaps.some((g) => Number(g?.gapHours) > 0) ||
-    Boolean(resource.schedule) ||
-    Boolean(matching && Object.keys(matching).length);
-
-  if (!rows.length && hasCapacitySignal) {
-    pushRow({
-      logicalId: 'cap:ok',
-      id: 'capacity-ok',
-      section: 'capacity',
-      sectionLabel: SECTION_LABELS.capacity,
-      title: tr(t, 'requirements.gate2SynthNoCapacityConflicts', 'No capacity conflicts'),
-      conflictType: 'ok',
-      status: 'READY',
-      summary: tr(
-        t,
-        'requirements.gate2SynthNoCapacityConflictsSummary',
-        'No unassigned / overload / schedule capacity conflicts'
-      ),
-    });
-  }
-
-  return rows;
-}
-
-/**
- * Effort & Roles — from EffortTool / RoleSkill (planning.roles + effort.byRole).
- * Prefer role rows; if only byRole hours exist, synthesize role rows.
- */
-function effortRolesRows(container, { t } = {}) {
-  const roles = Array.isArray(container?.planning?.roles) ? container.planning.roles : [];
-  const byRole =
-    container?.planning?.effort?.byRole && typeof container.planning.effort.byRole === 'object'
-      ? container.planning.effort.byRole
-      : {};
-  const byPhase =
-    container?.planning?.effort?.byPhase && typeof container.planning.effort.byPhase === 'object'
-      ? container.planning.effort.byPhase
-      : null;
-  const totalHours = container?.planning?.effort?.estimatedHoursTotal;
-  const confidence = container?.planning?.effort?.confidence;
-  const qualityDerived = container?.planning?.effort?.qualityPlanDerivedHours;
-
-  const rows = [];
-  const roleKeys = new Set();
-  for (const r of roles) {
-    const key = String(r?.roleKey || r?.role || '').trim();
-    if (key) roleKeys.add(key);
-  }
-  for (const key of Object.keys(byRole)) {
-    if (key) roleKeys.add(String(key).trim());
-  }
-
-  if (byPhase && typeof byPhase === 'object') {
-    for (const phase of ['dev', 'qa', 'deploy', 'mgmt']) {
-      const hours = Number(byPhase[phase]);
-      if (!Number.isFinite(hours) || hours <= 0) continue;
-      rows.push(
-        withAiProvenance({
-          logicalId: `effort_phase:${phase}`,
-          id: `phase:${phase}`,
-          section: 'effort_roles',
-          sectionLabel: SECTION_LABELS.effort_roles,
-          title: `Phase: ${phase}`,
-          suggestedRoleKey: phase,
-          effortHours: hours,
-          roleSource: 'byPhase',
-          status: 'READY',
-          summary: clip(
-            [
-              `${hours}h`,
-              phase === 'qa' && qualityDerived > 0 ? `incl. qualityPlan +${qualityDerived}h` : '',
-            ]
-              .filter(Boolean)
-              .join(' · ')
-          ),
-        })
-      );
-    }
-  }
-
-  for (const [i, roleKey] of [...roleKeys].sort().entries()) {
-    const meta = roles.find((r) => String(r?.roleKey || r?.role || '').trim() === roleKey) || {};
-    const hours = byRole[roleKey] != null ? Number(byRole[roleKey]) : null;
-    rows.push(
-      withAiProvenance({
-        logicalId: `effort_role:${roleKey}`,
-        id: roleKey || `role-${i}`,
-        section: 'effort_roles',
-        sectionLabel: SECTION_LABELS.effort_roles,
-        title: roleKey,
-        suggestedRoleKey: roleKey,
-        effortHours: Number.isFinite(hours) ? hours : null,
-        roleSource: meta.source || '',
-        status: 'READY',
-        summary: clip(
-          [
-            meta.source ? `src=${meta.source}` : '',
-            hours != null && Number.isFinite(hours) ? `${hours}h` : '',
-            confidence != null ? `conf=${Number(confidence).toFixed(2)}` : '',
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        ),
-      })
-    );
-  }
-
-  if (!rows.length && totalHours != null && Number.isFinite(Number(totalHours))) {
-    rows.push(
-      withAiProvenance({
-        logicalId: 'effort_role:total',
-        id: 'total',
-        section: 'effort_roles',
-        sectionLabel: SECTION_LABELS.effort_roles,
-        title: tr(t, 'requirements.gate2SynthTotalEffort', 'Total effort'),
-        effortHours: Number(totalHours),
-        status: 'READY',
-        summary: clip(
-          [
-            `${Number(totalHours)}h`,
-            confidence != null ? `conf=${Number(confidence).toFixed(2)}` : '',
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        ),
-      })
-    );
-  }
-
-  return rows;
+  return null;
 }
 
 /**
@@ -1317,6 +1038,11 @@ function releaseRows(container, { t } = {}) {
   const deadlineConflict = Boolean(plan.meta?.deadlineConflict);
   const sprints = Array.isArray(plan.sprints) ? plan.sprints : [];
   const releases = Array.isArray(plan.releases) ? plan.releases : [];
+  const sprintById = new Map(
+    sprints
+      .filter((sprint) => sprint && sprint.id)
+      .map((sprint) => [String(sprint.id), sprint])
+  );
   const milestones = Array.isArray(plan.milestones)
     ? plan.milestones
     : Array.isArray(container?.planning?.milestones)
@@ -1335,14 +1061,6 @@ function releaseRows(container, { t } = {}) {
         startDate: plan.meta?.projectStart || null,
         estimatedEnd: plan.meta?.estimatedEnd || null,
         status: 'BLOCKING',
-        summary: clip(
-          [
-            plan.meta?.deadline ? `deadline ${plan.meta.deadline}` : '',
-            plan.meta?.estimatedEnd ? `est. end ${plan.meta.estimatedEnd}` : '',
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        ),
       })
     );
   }
@@ -1351,7 +1069,6 @@ function releaseRows(container, { t } = {}) {
     if (!r || typeof r !== 'object') continue;
     const id = String(r.id || '').trim();
     if (!id) continue;
-    const sprintIds = Array.isArray(r.sprintIds) ? r.sprintIds : [];
     rows.push(
       withAiProvenance({
         logicalId: `rel:release:${id}`,
@@ -1359,24 +1076,27 @@ function releaseRows(container, { t } = {}) {
         section: 'releases',
         sectionLabel: SECTION_LABELS.releases,
         title: r.name || id,
+        summary: clip(r.summary || '', 200) || undefined,
         kind: 'release',
-        startDate: null,
+        startDate: releaseWindowStart(r, sprintById),
         estimatedEnd: r.estimatedEnd || null,
         effortHours: r.effortHours != null ? Number(r.effortHours) : null,
         taskCount: r.taskCount != null ? Number(r.taskCount) : null,
         status: r.estimatedEnd ? 'READY' : 'DRAFT',
-        summary: clip(
-          [
-            r.estimatedEnd ? `end ${r.estimatedEnd}` : '',
-            sprintIds.length ? `${sprintIds.length} sprints` : '',
-            r.taskCount != null ? `${r.taskCount} tasks` : '',
-            r.effortHours != null ? `${r.effortHours}h` : '',
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        ),
       })
     );
+  }
+
+  const taskById = new Map();
+  for (const task of Array.isArray(container?.planning?.tasks) ? container.planning.tasks : []) {
+    const tid = String(task?.id || task?.taskId || '').trim();
+    if (tid) taskById.set(tid, task);
+  }
+  for (const story of Array.isArray(container?.planning?.backlog?.stories)
+    ? container.planning.backlog.stories
+    : []) {
+    const sid = String(story?.id || '').trim();
+    if (sid && !taskById.has(sid)) taskById.set(sid, story);
   }
 
   for (const s of sprints) {
@@ -1384,6 +1104,33 @@ function releaseRows(container, { t } = {}) {
     const id = String(s.id || '').trim();
     if (!id) continue;
     const taskIds = Array.isArray(s.taskIds) ? s.taskIds : [];
+    const taskBits = [];
+    let summedHours = 0;
+    for (const tid of taskIds) {
+      const task = taskById.get(String(tid));
+      const name = task?.name || task?.title || tid;
+      const hours = Number(task?.effortHours ?? task?.effortSeedHours);
+      if (Number.isFinite(hours) && hours > 0) {
+        summedHours += hours;
+        taskBits.push(`${name} (${hours}h)`);
+      } else {
+        taskBits.push(String(name));
+      }
+    }
+    const pbiNames = (Array.isArray(s.pbiIds) ? s.pbiIds : [])
+      .map((pbiId) => {
+        const story = taskById.get(String(pbiId));
+        return story?.name || story?.title || pbiId;
+      })
+      .filter(Boolean);
+    const goal = clip(s.goal || '', 200);
+    const storedHours = s.effortHours != null ? Number(s.effortHours) : null;
+    const effortHours =
+      Number.isFinite(storedHours) && storedHours > 0
+        ? storedHours
+        : summedHours > 0
+          ? Math.round(summedHours * 100) / 100
+          : storedHours;
     rows.push(
       withAiProvenance({
         logicalId: `rel:sprint:${id}`,
@@ -1391,21 +1138,16 @@ function releaseRows(container, { t } = {}) {
         section: 'releases',
         sectionLabel: SECTION_LABELS.releases,
         title: s.name || id,
+        summary:
+          clip([goal, pbiNames.join(' · '), taskBits.join(' · '), s.summary || ''].filter(Boolean).join(' — '), 400) ||
+          undefined,
         kind: 'sprint',
         startDate: s.startDate || null,
         estimatedEnd: s.endDate || null,
-        effortHours: s.effortHours != null ? Number(s.effortHours) : null,
+        effortHours: Number.isFinite(effortHours) ? effortHours : null,
         taskCount: taskIds.length,
-        status: 'READY',
-        summary: clip(
-          [
-            s.startDate && s.endDate ? `${s.startDate} → ${s.endDate}` : '',
-            `${taskIds.length} tasks`,
-            s.effortHours != null ? `${s.effortHours}h` : '',
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        ),
+        taskIds,
+        status: taskIds.length ? 'READY' : 'DRAFT',
       })
     );
   }
@@ -1426,11 +1168,6 @@ function releaseRows(container, { t } = {}) {
         startDate: null,
         estimatedEnd: end,
         status: end ? 'READY' : 'DRAFT',
-        summary: clip(
-          [end ? `date ${end}` : '', m.taskId ? `task ${m.taskId}` : '']
-            .filter(Boolean)
-            .join(' · ')
-        ),
       })
     );
   }
@@ -1439,145 +1176,17 @@ function releaseRows(container, { t } = {}) {
 }
 
 /**
- * Deploy Plan — rows from planning.deployPlan (DeployPlanTool Step 7).
+ * Quality / Testing — one row per authored Test Case.
+ * Heuristic catalog stubs (title only, no steps) are not review rows.
  */
-function deployRows(container, { t } = {}) {
-  const dp =
-    container?.planning?.deployPlan && typeof container.planning.deployPlan === 'object'
-      ? container.planning.deployPlan
-      : null;
-  if (!dp) return [];
-
-  const rows = [];
-  const sectionSource = dp.meta?.source || '';
-  const stamp = (row) =>
-    withAiProvenance({
-      ...row,
-      source: row.source || sectionSource || undefined,
-    });
-  const mode = dp.releaseStrategy?.mode || '';
-  const goLive = dp.goLive?.estimatedEnd || null;
-
-  rows.push(
-    stamp({
-      logicalId: 'deploy:strategy',
-      id: 'strategy',
-      section: 'deploy',
-      sectionLabel: SECTION_LABELS.deploy,
-      title: tr(t, 'requirements.gate2SynthReleaseStrategy', 'Release strategy'),
-      kind: 'strategy',
-      level: mode || '—',
-      status: mode ? 'READY' : 'DRAFT',
-      summary: clip(
-        [
-          mode ? `mode ${mode}` : '',
-          goLive ? `go-live ${goLive}` : '',
-          dp.releaseStrategy?.target ? `target ${dp.releaseStrategy.target}` : '',
-          tr(t, 'requirements.gate2SynthPlanOnlyNoCi', 'plan-only (no in-app CI)'),
-        ]
-          .filter(Boolean)
-          .join(' · ')
-      ),
-    })
+function isAuthoredTestCase(tc, steps) {
+  if (tc?.provenance && typeof tc.provenance === 'object' && tc.provenance.type) return true;
+  return steps.some(
+    (step) => step && String(step.action || '').trim() && String(step.expectedResult || '').trim()
   );
-
-  for (const env of Array.isArray(dp.envMatrix) ? dp.envMatrix : []) {
-    if (!env || typeof env !== 'object') continue;
-    const id = String(env.key || env.name || '').trim();
-    if (!id) continue;
-    rows.push(
-      stamp({
-        logicalId: `deploy:env:${id}`,
-        id,
-        section: 'deploy',
-        sectionLabel: SECTION_LABELS.deploy,
-        title: env.name || id,
-        kind: 'env',
-        level: id,
-        status: env.urlTbd ? 'TBD' : 'READY',
-        summary: clip(
-          [
-            env.purpose || '',
-            env.url || (env.tbdReason ? `TBD: ${env.tbdReason}` : 'URL TBD'),
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        ),
-      })
-    );
-  }
-
-  const rollbackSteps = Array.isArray(dp.rollbackPlan?.steps) ? dp.rollbackPlan.steps : [];
-  if (rollbackSteps.length) {
-    rows.push(
-      stamp({
-        logicalId: 'deploy:rollback',
-        id: 'rollback',
-        section: 'deploy',
-        sectionLabel: SECTION_LABELS.deploy,
-        title: tr(t, 'requirements.gate2SynthRollbackPlan', 'Rollback plan'),
-        kind: 'rollback',
-        level: dp.rollbackPlan?.ownerRole || 'devops_engineer',
-        status: 'READY',
-        summary: clip(
-          `${rollbackSteps.length} steps · ${rollbackSteps.slice(0, 2).join('; ')}`,
-          200
-        ),
-      })
-    );
-  }
-
-  const oos = Array.isArray(dp.outOfScopeInApp) ? dp.outOfScopeInApp : [];
-  if (oos.length) {
-    rows.push(
-      stamp({
-        logicalId: 'deploy:oos',
-        id: 'out_of_scope',
-        section: 'deploy',
-        sectionLabel: SECTION_LABELS.deploy,
-        title: tr(t, 'requirements.gate2SynthOutOfScopeInApp', 'Out of scope in-app'),
-        kind: 'constraint',
-        level: 'oos',
-        status: 'READY',
-        summary: clip(oos.join(', '), 200),
-      })
-    );
-  }
-
-  for (const chk of Array.isArray(dp.phase4Checklist) ? dp.phase4Checklist : []) {
-    if (!chk || typeof chk !== 'object') continue;
-    const id = String(chk.id || '').trim();
-    if (!id) continue;
-    rows.push(
-      stamp({
-        logicalId: `deploy:chk:${id}`,
-        id,
-        section: 'deploy',
-        sectionLabel: SECTION_LABELS.deploy,
-        title: chk.title || id,
-        kind: 'checklist',
-        level: chk.env || '—',
-        status: 'READY',
-        summary: clip(
-          [
-            chk.env ? `env ${chk.env}` : '',
-            tr(t, 'requirements.gate2SynthPhase4Checklist', 'Phase 4 checklist'),
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        ),
-      })
-    );
-  }
-
-  return rows;
 }
 
-/**
- * Quality / Testing — rows from planning.qualityPlan (QualityPlanTool).
- * Prefer catalogPlan + nfrCoverage; strategy/levels as summary rows when present.
- */
-function qualityRows(container, { t } = {}) {
+function qualityRows(container) {
   const qp =
     container?.planning?.qualityPlan && typeof container.planning.qualityPlan === 'object'
       ? container.planning.qualityPlan
@@ -1591,109 +1200,72 @@ function qualityRows(container, { t } = {}) {
       ...row,
       source: row.source || sectionSource || undefined,
     });
-  const levels = Array.isArray(qp.levels) ? qp.levels : [];
-  if (levels.length) {
-    const levelNames = levels.map((l) => l.level).filter(Boolean).join(', ');
-    const pyramid = qp.strategy?.pyramid || {};
-    rows.push(
-      stamp({
-        logicalId: 'quality:strategy',
-        id: 'strategy',
-        section: 'quality',
-        sectionLabel: SECTION_LABELS.quality,
-        title: tr(t, 'requirements.gate2SynthTestStrategy', 'Test strategy'),
-        level: 'strategy',
-        sourceUcKey: '',
-        status: 'READY',
-        summary: clip(
-          [
-            levelNames,
-            pyramid.unitPct != null ? `unit ${Math.round(Number(pyramid.unitPct) * 100)}%` : '',
-            qp.strategy?.automationTargetPct != null
-              ? `auto ${Math.round(Number(qp.strategy.automationTargetPct) * 100)}%`
-              : '',
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        ),
-      })
-    );
-  }
-
   const catalog = Array.isArray(qp.catalogPlan) ? qp.catalogPlan : [];
   for (let i = 0; i < catalog.length; i += 1) {
     const tc = catalog[i];
-    if (!tc || typeof tc !== 'object') continue;
-    const id = String(tc.tcKey || `tc-${i}`);
+    if (!tc || typeof tc !== 'object' || !tc.title) continue;
+    const id = String(tc.tcKey || tc.id || `tc-${i}`);
+    const sourceRefs = qualitySourceRefs(tc);
+    const steps = Array.isArray(tc.steps) ? tc.steps : [];
+    if (!isAuthoredTestCase(tc, steps)) continue;
+    const preconditions = Array.isArray(tc.preconditions) ? tc.preconditions : [];
+    const testData = Array.isArray(tc.testData) ? tc.testData : [];
+    const incomplete =
+      tc.completeness === 'incomplete' ||
+      tc.reviewStatus === 'needs_confirmation' ||
+      !steps.length;
     rows.push(
       stamp({
         logicalId: `quality:tc:${id}`,
         id,
         section: 'quality',
         sectionLabel: SECTION_LABELS.quality,
+        recordKind: 'test_case',
         title: tc.title || id,
-        level: tc.level || '',
-        sourceUcKey: tc.sourceUcKey || '',
+        objective: tc.objective || '',
+        summary: clip(tc.objective || tc.summary || '', 200) || undefined,
+        level: tc.testLevel || tc.level || '',
+        testLevel: tc.testLevel || tc.level || '',
+        testType: tc.testType || '',
+        scenarioType: tc.scenarioType || tc.type || '',
+        priority: tc.priority || '',
+        sourceUcKey: tc.sourceUcKey || sourceRefs.find((ref) => ref.type === 'UC')?.id || '',
+        sourceFrIds: Array.isArray(tc.sourceFrIds) ? tc.sourceFrIds : [],
+        sourceRefs,
+        preconditions,
+        testData,
+        steps,
+        reviewStatus: tc.reviewStatus || (incomplete ? 'needs_confirmation' : 'proposed'),
+        executionStatus: tc.executionStatus || 'not_run',
+        completeness: incomplete ? 'incomplete' : 'executable',
+        missingInformation: tc.missingInformation || '',
+        confirmationGaps: Array.isArray(tc.confirmationGaps) ? tc.confirmationGaps : [],
         linkedWbsTaskId: tc.linkedWbsTaskId || '',
-        status: tc.sourceUcKey ? 'READY' : 'CRITICAL',
-        summary: clip(
-          [
-            tc.level,
-            tc.sourceUcKey ? `UC ${tc.sourceUcKey}` : 'no sourceUcKey',
-            tc.linkedWbsTaskId ? `task ${tc.linkedWbsTaskId}` : '',
-            tc.automate === false ? 'manual' : 'automate',
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        ),
-      })
-    );
-  }
-
-  const nfrCov = Array.isArray(qp.nfrCoverage) ? qp.nfrCoverage : [];
-  for (let i = 0; i < nfrCov.length; i += 1) {
-    const n = nfrCov[i];
-    if (!n || typeof n !== 'object') continue;
-    const id = String(n.nfrId || `nfr-${i}`);
-    rows.push(
-      stamp({
-        logicalId: `quality:nfr:${id}`,
-        id,
-        section: 'quality',
-        sectionLabel: SECTION_LABELS.quality,
-        title: n.requirement || id,
-        level: n.testLevel || 'nfr',
-        sourceUcKey: '',
-        status: String(n.priority || '').toLowerCase() === 'high' ? 'HIGH' : 'READY',
-        summary: clip(
-          [n.category, n.technique, n.passCriteria ? `pass: ${n.passCriteria}` : '']
-            .filter(Boolean)
-            .join(' · ')
-        ),
-      })
-    );
-  }
-
-  const openQs = Array.isArray(qp.openQuestions) ? qp.openQuestions : [];
-  for (let i = 0; i < openQs.length; i += 1) {
-    const q = openQs[i];
-    if (!q) continue;
-    const id = String(q.id || `oq-${i}`);
-    rows.push(
-      stamp({
-        logicalId: `quality:oq:${id}`,
-        id,
-        section: 'quality',
-        sectionLabel: SECTION_LABELS.quality,
-        title: q.topic || id,
-        level: 'open_question',
-        status: 'CRITICAL',
-        summary: clip(q.message || ''),
+        provenance: tc.provenance,
+        status: incomplete ? 'NEEDS_SUPPLEMENT' : 'PROPOSED',
       })
     );
   }
 
   return rows;
+}
+
+function qualitySourceRefs(tc) {
+  if (Array.isArray(tc?.sourceRefs) && tc.sourceRefs.length) {
+    return tc.sourceRefs
+      .map((ref) => ({
+        type: String(ref?.type || '').trim().toUpperCase(),
+        id: String(ref?.id || '').trim(),
+      }))
+      .filter((ref) => ref.type && ref.id);
+  }
+  const refs = [];
+  if (tc?.sourceUcKey) refs.push({ type: 'UC', id: String(tc.sourceUcKey) });
+  const frIds = Array.isArray(tc?.sourceFrIds) ? tc.sourceFrIds : tc?.sourceFrId ? [tc.sourceFrId] : [];
+  for (const id of frIds) {
+    if (id) refs.push({ type: 'FR', id: String(id) });
+  }
+  return refs;
 }
 
 /**
@@ -1713,15 +1285,11 @@ export function buildGate2ProposalItems({
     scope: (_c, p) => scopeRows(p),
     tasks: taskRows,
     dependencies: dependencyRows,
-    architecture: architectureRows,
-    effort_roles: (c) => effortRolesRows(c, loc),
     assignments: (c) => assignmentRows(c, { nameByUserId, t }),
-    capacity: (c) => capacityRows(c, loc),
     schedule: scheduleRows,
     releases: (c) => releaseRows(c, loc),
     risks: (c, p) => riskRows(c, p),
-    quality: (c) => qualityRows(c, loc),
-    deploy: (c) => deployRows(c, loc),
+    quality: (c) => qualityRows(c),
   };
   for (const key of SECTION_ORDER) {
     const rows = builders[key](container, pack);
@@ -1736,7 +1304,7 @@ export function buildGate2ProposalItems({
   const proposalSections = SECTION_ORDER.map((key) => {
     const rows = bySection[key] || [];
     let conflictCount = rows.filter((r) =>
-      ['BLOCKING', 'OVERLOAD', 'CRITICAL', 'UNASSIGNED', 'HIGH', 'UNRESOLVED'].includes(
+      ['BLOCKING', 'OVERLOAD', 'CRITICAL', 'UNASSIGNED', 'HIGH', 'UNRESOLVED', 'NEEDS_SUPPLEMENT'].includes(
         String(r.status || '').toUpperCase()
       )
     ).length;

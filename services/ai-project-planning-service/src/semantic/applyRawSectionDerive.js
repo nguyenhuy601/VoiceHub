@@ -8,7 +8,6 @@ const { applyProposalFragment } = require('../srsProposal/srsProposalReducer');
 const { getRegistryEntry } = require('../srsProposal/contracts/analysisEngineRegistry');
 const { runAllRawSectionDerives } = require('./runRawSectionDerive');
 const { buildActorsFromRaw, buildScopeFromRaw } = require('../srsProposal/engines/actorsFromRaw');
-const { decomposeFrCandidates } = require('../engines/frCandidateDecompose');
 const {
   shouldRawDeriveSection,
   isCustomerRawIntakePack,
@@ -20,6 +19,74 @@ const {
   isDeterministicRawSectionLocked,
 } = require('./rawSectionDerivePolicy');
 const { TASK_POLICIES } = require('./semanticTaskRegistry');
+
+/**
+ * Write one section derive result onto the proposal. Skips SHEET_PRESENT.
+ * @returns {{ proposal: object, status: string|null }}
+ */
+function mergeSectionDeriveResult(proposal, resultsById, engineId, result) {
+  const status = result?.reason || result?.status || null;
+  if (status === 'RAW_DERIVE_NOT_APPLICABLE') return { proposal, status };
+  const entry = getRegistryEntry(engineId);
+  const section = result?.section || SECTION_BY_ENGINE[engineId] || entry?.writesSection;
+  if (!section) return { proposal, status };
+
+  if (result.status === TASK_POLICIES.RUN && result.items?.length) {
+    if (!sectionEmpty(proposal, section)) return { proposal, status };
+    proposal = applyProposalFragment(
+      proposal,
+      {
+        section,
+        items: result.items,
+        meta: {
+          engineId,
+          coverage: result.coverage,
+          validation: { errors: [], warnings: [] },
+          kind: 'raw_section_derive',
+        },
+      },
+      {
+        bumpProposalVersion: false,
+        allowLegacyWrite: engineId === 'actors',
+      }
+    );
+    resultsById[engineId] = {
+      execution: { status: 'SUCCESS', diagnostics: [] },
+      items: result.items,
+      coverage: result.coverage,
+      validation: { errors: [], warnings: [] },
+      meta: { engineId, section, rawDerive: true },
+    };
+    return { proposal, status };
+  }
+
+  if (sectionEmpty(proposal, section) && result.coverage?.reason) {
+    const reason = result.coverage.reason;
+    if (reason === 'SHEET_PRESENT') return { proposal, status };
+    proposal = applyProposalFragment(
+      proposal,
+      {
+        section,
+        items: [],
+        meta: {
+          engineId,
+          coverage: { status: 'NO_DATA', reason },
+          validation: { errors: [], warnings: [] },
+          kind: 'raw_section_derive',
+        },
+      },
+      { bumpProposalVersion: false }
+    );
+    resultsById[engineId] = {
+      execution: { status: 'SUCCESS', diagnostics: [] },
+      items: [],
+      coverage: { status: 'NO_DATA', reason },
+      validation: { errors: [], warnings: [] },
+      meta: { engineId, section, rawDerive: true },
+    };
+  }
+  return { proposal, status };
+}
 
 function sectionEmpty(proposal, section) {
   const items = proposal?.generated?.[section]?.items;
@@ -165,55 +232,15 @@ async function applyRawSectionDerive(opts = {}) {
   }
 
   const deriveStartedAt = Date.now();
-  let frDecomposeSpan = { ms: 0, llmCalls: 0, heuristic: 0, skipped: 0, concurrency: null, reason: 'off' };
-  const frCount = Array.isArray(pack.functionalRequirements) ? pack.functionalRequirements.length : 0;
-  const decomposeOn =
-    String(env.PHASE1_FR_DECOMPOSE ?? '1').trim().toLowerCase() !== '0' &&
-    String(env.PHASE1_FR_DECOMPOSE ?? '1').trim().toLowerCase() !== 'false';
-  if (decomposeOn && frCount > 0) {
-    const frStartedAt = Date.now();
-    try {
-      const dec = await decomposeFrCandidates({
-        pack,
-        env,
-        generateJsonFn: opts.generateJsonFn,
-      });
-      frDecomposeMeta = dec.meta || null;
-      const frMs = Math.max(0, Date.now() - frStartedAt);
-      frDecomposeSpan = {
-        ms: frMs,
-        wallMs: frMs,
-        llmCalls: Number(dec.meta?.llmCalls) || 0,
-        heuristic: Number(dec.meta?.heuristic) || 0,
-        skipped: Number(dec.meta?.skipped) || 0,
-        concurrency: dec.meta?.concurrency ?? null,
-        sourceFrCount: frCount,
-        candidateCount: Array.isArray(dec.candidates) ? dec.candidates.length : 0,
-        reason: 'run',
-      };
-      if (dec.ok && Array.isArray(dec.candidates) && dec.candidates.length > frCount) {
-        pack = dec.pack;
-      }
-      // eslint-disable-next-line no-console
-      console.info(
-        '[fr_decompose_timing] wallMs=%d sourceFr=%d candidates=%d llmCalls=%d heuristic=%d concurrency=%d',
-        frMs,
-        frCount,
-        Array.isArray(dec.candidates) ? dec.candidates.length : 0,
-        dec.meta?.llmCalls || 0,
-        dec.meta?.heuristic || 0,
-        dec.meta?.concurrency ?? 0
-      );
-    } catch (err) {
-      frDecomposeSpan = {
-        ...frDecomposeSpan,
-        ms: Math.max(0, Date.now() - frStartedAt),
-        wallMs: Math.max(0, Date.now() - frStartedAt),
-        reason: 'error',
-      };
-      console.warn('[fr_decompose] soft-fail', err?.message || err);
-    }
-  }
+  // Epic→Story is proposeFrDecomposeWithLlm inside runFrSemanticTask.
+  const frDecomposeSpan = {
+    ms: 0,
+    llmCalls: 0,
+    heuristic: 0,
+    skipped: 0,
+    concurrency: null,
+    reason: 'fr_decompose_llm',
+  };
 
   const sectionStartedAt = Date.now();
   const derived = await runAllRawSectionDerives({
@@ -236,65 +263,9 @@ async function applyRawSectionDerive(opts = {}) {
   const bgResult = derived.bg || null;
 
   for (const [engineId, result] of Object.entries(derived)) {
-    deriveStatuses[engineId] = result.reason || result.status;
-    const entry = getRegistryEntry(engineId);
-    const section = result.section || SECTION_BY_ENGINE[engineId] || entry?.writesSection;
-    if (!section) continue;
-
-    if (result.status === TASK_POLICIES.RUN && result.items?.length) {
-      if (!sectionEmpty(proposal, section)) continue;
-      proposal = applyProposalFragment(
-        proposal,
-        {
-          section,
-          items: result.items,
-          meta: {
-            engineId,
-            coverage: result.coverage,
-            validation: { errors: [], warnings: [] },
-            kind: 'raw_section_derive',
-          },
-        },
-        {
-          bumpProposalVersion: false,
-          allowLegacyWrite: engineId === 'actors',
-        }
-      );
-      resultsById[engineId] = {
-        execution: { status: 'SUCCESS', diagnostics: [] },
-        items: result.items,
-        coverage: result.coverage,
-        validation: { errors: [], warnings: [] },
-        meta: { engineId, section, rawDerive: true },
-      };
-      continue;
-    }
-
-    if (sectionEmpty(proposal, section) && result.coverage?.reason) {
-      const reason = result.coverage.reason;
-      if (reason === 'SHEET_PRESENT') continue;
-      proposal = applyProposalFragment(
-        proposal,
-        {
-          section,
-          items: [],
-          meta: {
-            engineId,
-            coverage: { status: 'NO_DATA', reason },
-            validation: { errors: [], warnings: [] },
-            kind: 'raw_section_derive',
-          },
-        },
-        { bumpProposalVersion: false }
-      );
-      resultsById[engineId] = {
-        execution: { status: 'SUCCESS', diagnostics: [] },
-        items: [],
-        coverage: { status: 'NO_DATA', reason },
-        validation: { errors: [], warnings: [] },
-        meta: { engineId, section, rawDerive: true },
-      };
-    }
+    const merged = mergeSectionDeriveResult(proposal, resultsById, engineId, result);
+    proposal = merged.proposal;
+    if (merged.status != null) deriveStatuses[engineId] = merged.status;
   }
 
   for (const engineId of LLM_DERIVE_SECTIONS) {
@@ -370,4 +341,5 @@ async function applyRawSectionDerive(opts = {}) {
 
 module.exports = {
   applyRawSectionDerive,
+  mergeSectionDeriveResult,
 };

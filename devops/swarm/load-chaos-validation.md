@@ -21,7 +21,7 @@ curl -sf http://127.0.0.1:3000/health
 ## Chaos scenarios
 1. Kill one worker replica (`docker service update --force voicehub_<worker>`).
 2. Restart Redis: `docker service update --force voicehub_redis-master` (hoặc stack sentinel).
-3. Restart RabbitMQ: `docker service update --force voicehub_rabbitmq-1`.
+3. Restart RabbitMQ: `docker service update --force voicehub-rabbit_rabbitmq`.
 4. Drain node labeled `ai=true`.
 
 Sau mỗi chaos: `# (removed) check Rabbit depth via management UI / rabbitmqctl` — depth về ~0.

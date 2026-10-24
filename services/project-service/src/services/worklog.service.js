@@ -127,7 +127,7 @@ async function createWorklog({ taskId, actorUserId, workDate, hours, note } = {}
         createdBy: actorOid,
       },
     },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
   );
 
   const created = !prev;

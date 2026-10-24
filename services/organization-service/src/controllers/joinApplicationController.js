@@ -558,7 +558,7 @@ exports.reviewJoinApplication = async (req, res, next) => {
           status: 'active',
           joinedAt: new Date(),
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
       );
 
       appDoc.status = 'approved';

@@ -247,7 +247,7 @@ async function upsertWorkflow({ userId, boardId, name, states, transitions, temp
         templateKey: String(templateKey || '').trim(),
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   ).lean();
 
   await TaskBoard.updateOne({ _id: boardId }, { $set: { workflowId: doc._id } });

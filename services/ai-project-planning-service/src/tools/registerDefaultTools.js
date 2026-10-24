@@ -3,40 +3,50 @@ const { employeeMatching } = require('./employeeMatching');
 const { effort } = require('./effort');
 const { requirementAnalysis } = require('./requirementAnalysis');
 const { schedule } = require('./schedule');
-const { architecture } = require('./architecture');
 const { risk } = require('./risk');
 const { sequencing } = require('./sequencing');
 const { hierarchy } = require('./hierarchy');
-const { capability } = require('./capability');
 const { insights } = require('./insights');
 const { wbs } = require('./wbs');
 const { backlogMap } = require('./backlogMap');
 const { dependency } = require('./dependency');
+const { architecture } = require('./architecture');
 const { projectPlan } = require('./projectPlan');
 const { qualityPlan } = require('./qualityPlan');
+const { resolveQualityToolTimeoutMs } = require('../howSecs/quality/qualityGraph');
 const { deployPlan } = require('./deployPlan');
+const { runWhatSectionTool } = require('./whatSection');
+const { whatFr } = require('./whatFr');
+const { WHAT_SECTION_TOOLS, WHAT_FR_TOOL } = require('../whatSecs/sectionCatalog');
 const {
   EmployeeMatchingTool,
   EffortTool,
   RequirementAnalysisTool,
   ScheduleTool,
-  ArchitectureTool,
   RiskTool,
   SequencingTool,
   HierarchyTool,
-  CapabilityTool,
   InsightsTool,
   BacklogMapTool,
   WbsTool,
   DependencyTool,
+  ArchitectureTool,
   ProjectPlanTool,
   QualityPlanTool,
   DeployPlanTool,
+  WhatSectionTool,
+  WhatFrTool,
 } = require('./schemas/toolSchemas');
 
 let registered = false;
 
 const PLANNING_REQUIRES = ['approvedSrs'];
+
+/**
+ * howSecs LLM graphs call invokeHowSemanticLlm at 90s.
+ * A 30s tool wrapper rejects with TOOL_TIMEOUT before Accept writes the section.
+ */
+const HOW_SEC_LLM_TOOL_TIMEOUT_MS = 120_000;
 
 function registerDefaultTools() {
   if (registered) return;
@@ -61,7 +71,7 @@ function registerDefaultTools() {
     description: 'Role/skill planning + effort hours for WBS tasks',
     allowedContexts: ['planning'],
     requires: PLANNING_REQUIRES,
-    timeout: 30_000,
+    timeout: HOW_SEC_LLM_TOOL_TIMEOUT_MS,
     inputSchema: EffortTool.inputSchema,
     outputSchema: EffortTool.outputSchema,
     evidenceSchema: EffortTool.evidenceSchema,
@@ -100,24 +110,11 @@ function registerDefaultTools() {
     description: 'Build schedule / capacity timeline',
     allowedContexts: ['planning'],
     requires: ['approvedSrs', 'calendarSnapshot'],
-    timeout: 60_000,
+    timeout: HOW_SEC_LLM_TOOL_TIMEOUT_MS,
     inputSchema: ScheduleTool.inputSchema,
     outputSchema: ScheduleTool.outputSchema,
     evidenceSchema: ScheduleTool.evidenceSchema,
     execute: (input, ctx) => schedule(input || {}, ctx),
-  });
-
-  registerTool({
-    toolName: 'ArchitectureTool',
-    version: '1.0.0',
-    description: 'Architecture component/dependency analysis',
-    allowedContexts: ['planning'],
-    requires: PLANNING_REQUIRES,
-    timeout: 30_000,
-    inputSchema: ArchitectureTool.inputSchema,
-    outputSchema: ArchitectureTool.outputSchema,
-    evidenceSchema: ArchitectureTool.evidenceSchema,
-    execute: (input, ctx) => architecture(input || {}, ctx),
   });
 
   registerTool({
@@ -126,7 +123,7 @@ function registerDefaultTools() {
     description: 'Risk identification',
     allowedContexts: ['planning'],
     requires: PLANNING_REQUIRES,
-    timeout: 30_000,
+    timeout: HOW_SEC_LLM_TOOL_TIMEOUT_MS,
     inputSchema: RiskTool.inputSchema,
     outputSchema: RiskTool.outputSchema,
     evidenceSchema: RiskTool.evidenceSchema,
@@ -139,7 +136,8 @@ function registerDefaultTools() {
     description: 'Quality & testing plan from UC/AC/NFR + WBS (deterministic)',
     allowedContexts: ['planning'],
     requires: PLANNING_REQUIRES,
-    timeout: 30_000,
+    // Same wait as WbsTool: qwen-max slices outlive the 120s section wrapper.
+    timeout: resolveQualityToolTimeoutMs(),
     inputSchema: QualityPlanTool.inputSchema,
     outputSchema: QualityPlanTool.outputSchema,
     evidenceSchema: QualityPlanTool.evidenceSchema,
@@ -152,7 +150,7 @@ function registerDefaultTools() {
     description: 'Deploy/release plan from SNAP technical + schedule (plan-only, no CI execute)',
     allowedContexts: ['planning'],
     requires: PLANNING_REQUIRES,
-    timeout: 30_000,
+    timeout: HOW_SEC_LLM_TOOL_TIMEOUT_MS,
     inputSchema: DeployPlanTool.inputSchema,
     outputSchema: DeployPlanTool.outputSchema,
     evidenceSchema: DeployPlanTool.evidenceSchema,
@@ -170,19 +168,6 @@ function registerDefaultTools() {
     outputSchema: HierarchyTool.outputSchema,
     evidenceSchema: HierarchyTool.evidenceSchema,
     execute: (input, ctx) => hierarchy(input || {}, ctx),
-  });
-
-  registerTool({
-    toolName: 'CapabilityTool',
-    version: '1.0.0',
-    description: 'Capability analysis from SRS / hierarchy',
-    allowedContexts: ['planning', 'understanding'],
-    requires: [],
-    timeout: 30_000,
-    inputSchema: CapabilityTool.inputSchema,
-    outputSchema: CapabilityTool.outputSchema,
-    evidenceSchema: CapabilityTool.evidenceSchema,
-    execute: (input, ctx) => capability(input || {}, ctx),
   });
 
   registerTool({
@@ -213,11 +198,12 @@ function registerDefaultTools() {
 
   registerTool({
     toolName: 'WbsTool',
-    version: '2.0.0',
-    description: 'LLM-only WBS task leaves under planning.backlog stories',
+    version: '3.0.0',
+    description:
+      'LLM-only WBS: Story SoT + semantic → Task leaves (parentStoryId); materialize epic+story+task',
     allowedContexts: ['planning'],
     requires: PLANNING_REQUIRES,
-    // Wave M: LLM/queue WBS often 60–180s on CPU 3B — default 30s caused TOOL_TIMEOUT
+    // WBS may wait on a queued LLM job. Default tool timeout is too short.
     timeout: Number(process.env.HOW_WBS_TOOL_TIMEOUT_MS) || 300_000,
     inputSchema: WbsTool.inputSchema,
     outputSchema: WbsTool.outputSchema,
@@ -231,11 +217,52 @@ function registerDefaultTools() {
     description: 'Task / requirement dependency graph',
     allowedContexts: ['planning'],
     requires: PLANNING_REQUIRES,
-    timeout: 30_000,
+    timeout: HOW_SEC_LLM_TOOL_TIMEOUT_MS,
     inputSchema: DependencyTool.inputSchema,
     outputSchema: DependencyTool.outputSchema,
     evidenceSchema: DependencyTool.evidenceSchema,
     execute: (input, ctx) => dependency(input || {}, ctx),
+  });
+
+  registerTool({
+    toolName: 'ArchitectureTool',
+    version: '1.0.0',
+    description: 'Architecture impact from approved SRS and WBS leaves',
+    allowedContexts: ['planning'],
+    requires: PLANNING_REQUIRES,
+    timeout: HOW_SEC_LLM_TOOL_TIMEOUT_MS,
+    inputSchema: ArchitectureTool.inputSchema,
+    outputSchema: ArchitectureTool.outputSchema,
+    evidenceSchema: ArchitectureTool.evidenceSchema,
+    execute: (input, ctx) => architecture(input || {}, ctx),
+  });
+
+  for (const sec of WHAT_SECTION_TOOLS) {
+    registerTool({
+      toolName: sec.toolName,
+      version: '1.0.0',
+      description: `WHAT ${sec.engineId}: facts and accept are deterministic; LLM returns JSON only`,
+      allowedContexts: ['understanding', 'planning'],
+      requires: [],
+      timeout: 300_000,
+      inputSchema: WhatSectionTool.inputSchema,
+      outputSchema: WhatSectionTool.outputSchema,
+      evidenceSchema: WhatSectionTool.evidenceSchema,
+      execute: (input, ctx) => runWhatSectionTool(sec.engineId, input || {}, ctx),
+    });
+  }
+
+  registerTool({
+    toolName: WHAT_FR_TOOL,
+    version: '1.0.0',
+    description: 'WHAT FR: CR propose, G4 semantic, and decompose. Graph node only invokes this tool.',
+    allowedContexts: ['understanding', 'planning'],
+    requires: [],
+    timeout: 300_000,
+    inputSchema: WhatFrTool.inputSchema,
+    outputSchema: WhatFrTool.outputSchema,
+    evidenceSchema: WhatFrTool.evidenceSchema,
+    execute: (input, ctx) => whatFr(input || {}, ctx),
   });
 
   registerTool({
@@ -256,4 +283,8 @@ function _resetRegisteredForTests() {
   registered = false;
 }
 
-module.exports = { registerDefaultTools, _resetRegisteredForTests };
+module.exports = {
+  registerDefaultTools,
+  _resetRegisteredForTests,
+  HOW_SEC_LLM_TOOL_TIMEOUT_MS,
+};

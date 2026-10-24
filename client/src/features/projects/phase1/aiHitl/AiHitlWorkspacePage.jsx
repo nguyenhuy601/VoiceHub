@@ -346,7 +346,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
 
   /** HOW start → Monitor handoff (same pattern as WHAT start). */
   const onHowStarted = useCallback(
-    ({ clearResults = false } = {}) => {
+    ({ clearResults = false, packStatus = '' } = {}) => {
       goMonitorTab();
       markAwaitingFreshRun('how');
       // Optimistic pending so auto-open Review cannot yank back before start API returns.
@@ -375,7 +375,12 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
             remoteRunId: null,
           },
         };
-        const next = { ...prev, aiAnalysis: ai };
+        const nextStatus = String(packStatus || '').trim();
+        const next = {
+          ...prev,
+          ...(nextStatus ? { status: nextStatus } : {}),
+          aiAnalysis: ai,
+        };
         packRef.current = next;
         return next;
       });
@@ -938,25 +943,11 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         },
       });
       if (!result.ok) return;
-      setAckDialog({
-        title: t('requirements.phase1Gate1ApproveSuccessTitle'),
-        message: t('requirements.phase1ApproveOk'),
-      });
-      // Monitor → Phase How + start HOW immediately after PO final confirm
-      goMonitorTab();
-      setPack((prev) => {
-        if (!prev) return prev;
-        const ai = { ...(prev.aiAnalysis || {}) };
-        ai.phaseRuns = {
-          ...(ai.phaseRuns || {}),
-          phase_how: {
-            ...(ai.phaseRuns?.phase_how || {}),
-            status: 'pending',
-            error: null,
-          },
-        };
-        return { ...prev, status: 'approved', aiAnalysis: ai };
-      });
+      // Approve returned — overlay must not keep saying Gate 1 while HOW starts.
+      setGateActionLabel(
+        t('requirements.aiHowRunStarting') || 'Đang khởi chạy Phase HOW…'
+      );
+      onHowStarted({ packStatus: 'approved' });
       try {
         await requirementAPI.startPhaseAiPlanning(organizationId, packId, {
           phase: 'how',
@@ -966,6 +957,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
           t('requirements.aiHowRunStarted')
         );
       } catch (howErr) {
+        clearAwaitingFreshRun();
         toast.error(
           resolveApiErrorMessage(howErr, {
             fallback:
@@ -974,6 +966,10 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         );
       }
       await refresh();
+      setAckDialog({
+        title: t('requirements.phase1Gate1ApproveSuccessTitle'),
+        message: t('requirements.phase1ApproveOk'),
+      });
     } catch (err) {
       toast.error(
         formatGate1ApproveError(err, { t, fallback: 'Approve Gate 1 failed' }) ||

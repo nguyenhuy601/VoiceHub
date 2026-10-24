@@ -1,6 +1,6 @@
 # Override cho local compose test (không cần Swarm external network)
 services:
-  rabbitmq-1:
+  rabbitmq:
     deploy: null
   rabbitmq-2:
     deploy: null

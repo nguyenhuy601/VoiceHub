@@ -43,6 +43,10 @@ const TOOL_ACTIVITY = Object.freeze({
     key: 'requirements.aiHitlMonitorActivity_DeployPlanTool',
     fallback: 'Đang lập kế hoạch deploy…',
   },
+  BacklogMapTool: {
+    key: 'requirements.aiHitlMonitorActivity_BacklogMapTool',
+    fallback: 'Đang lập backlog…',
+  },
   ProjectPlanTool: {
     key: 'requirements.aiHitlMonitorActivity_ProjectPlanTool',
     fallback: 'Đang tổng hợp project plan…',
@@ -50,6 +54,42 @@ const TOOL_ACTIVITY = Object.freeze({
   RequirementAnalysisTool: {
     key: 'requirements.aiHitlMonitorActivity_RequirementAnalysisTool',
     fallback: 'Đang phân tích yêu cầu…',
+  },
+  WhatFrTool: {
+    key: 'requirements.aiHitlMonitorActivity_RequirementAnalysisTool',
+    fallback: 'Đang phân tích yêu cầu…',
+  },
+  WhatBGTool: {
+    key: 'requirements.aiHitlMonitorActivity_WhatBGTool',
+    fallback: 'Đang derive mục tiêu nghiệp vụ…',
+  },
+  WhatBRTool: {
+    key: 'requirements.aiHitlMonitorActivity_WhatBRTool',
+    fallback: 'Đang derive quy tắc nghiệp vụ…',
+  },
+  WhatUCTool: {
+    key: 'requirements.aiHitlMonitorActivity_WhatUCTool',
+    fallback: 'Đang derive use case…',
+  },
+  WhatBPMTool: {
+    key: 'requirements.aiHitlMonitorActivity_WhatBPMTool',
+    fallback: 'Đang derive quy trình…',
+  },
+  WhatDataTool: {
+    key: 'requirements.aiHitlMonitorActivity_WhatDataTool',
+    fallback: 'Đang derive thực thể…',
+  },
+  WhatNFRTool: {
+    key: 'requirements.aiHitlMonitorActivity_WhatNFRTool',
+    fallback: 'Đang derive NFR…',
+  },
+  WhatScopeTool: {
+    key: 'requirements.aiHitlMonitorActivity_WhatScopeTool',
+    fallback: 'Đang derive phạm vi…',
+  },
+  WhatActorsTool: {
+    key: 'requirements.aiHitlMonitorActivity_WhatActorsTool',
+    fallback: 'Đang derive tác nhân…',
   },
 });
 
@@ -63,6 +103,33 @@ function labelOf(t, key, fallback) {
  * @param {function} t
  * @returns {string}
  */
+function toolShortLabel(toolName, t) {
+  const tool = String(toolName || '').trim();
+  const howStepKey = `requirements.aiHitlHowStep_${tool}`;
+  const howLabel = typeof t === 'function' ? t(howStepKey) : '';
+  if (howLabel && howLabel !== howStepKey) return howLabel;
+  return tool;
+}
+
+/**
+ * Activity line for one tool, or every tool started in the current HOW layer.
+ * @param {string[]|string|null|undefined} toolNames
+ * @param {function} t
+ */
+export function formatMonitorLayerActivity(toolNames, t) {
+  const names = (Array.isArray(toolNames) ? toolNames : [toolNames])
+    .map((name) => String(name || '').trim())
+    .filter(Boolean);
+  if (names.length <= 1) return formatMonitorToolActivity(names[0], t);
+  const labels = names.map((name) => toolShortLabel(name, t)).join(', ');
+  return (
+    labelOf(t, 'requirements.aiHitlMonitorActivityLayer', 'Đang chạy cùng lúc: {labels}').replace(
+      '{labels}',
+      labels
+    ) || `Đang chạy cùng lúc: ${labels}`
+  );
+}
+
 export function formatMonitorToolActivity(toolName, t) {
   const tool = String(toolName || '').trim();
   if (!tool) {

@@ -28,7 +28,7 @@ import HowMonitorResultsPanel from './HowMonitorResultsPanel';
 import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
 import WhatMonitorResultsPanel from './WhatMonitorResultsPanel';
 import { shouldShowWhatMonitorResults } from './whatMonitorResultsVisibility';
-import { formatMonitorToolActivity } from './monitorActivityLabels';
+import { formatMonitorLayerActivity } from './monitorActivityLabels';
 
 /**
  * Prefer last known mid-run macro/substep for same run (fills brief gaps after resume).
@@ -193,6 +193,47 @@ function SubstepChecklist({
   );
 }
 
+function HowLayerChecklist({ layers, t }) {
+  if (!layers?.length) return null;
+  return (
+    <ol className="mt-2 space-y-1.5" aria-live="polite">
+      {layers.map((layer) => (
+        <li
+          key={layer.index}
+          className={`rounded-md px-2 py-1 ${
+            layer.state === 'current' ? 'bg-primary/10' : ''
+          }`}
+        >
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {labelOf(t, 'requirements.aiHitlHowLayer', 'Lớp {n}').replace(
+              '{n}',
+              String(layer.index)
+            )}
+          </p>
+          <ul className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+            {layer.toolIds.map((id) => {
+              const running = layer.state === 'current' && layer.activeToolIds.includes(id);
+              const done = layer.state === 'done';
+              const className = running
+                ? 'font-medium text-foreground'
+                : done
+                  ? 'text-emerald-700 dark:text-emerald-300'
+                  : 'text-muted-foreground';
+              const mark = running ? '● ' : done ? '✓ ' : '○ ';
+              return (
+                <li key={id} className={className}>
+                  {mark}
+                  {labelOf(t, `requirements.aiHitlHowStep_${id}`, id)}
+                </li>
+              );
+            })}
+          </ul>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function ActivityLine({ vm, t }) {
   if (!vm.showSpinner && !vm.waitingHuman) return null;
   if (vm.waitingHuman) return null;
@@ -200,7 +241,8 @@ function ActivityLine({ vm, t }) {
   const { activity } = vm;
   let text = labelOf(t, 'requirements.aiHitlMonitorProcessing', 'Đang xử lý…');
   if (activity?.kind === 'call_tool') {
-    text = formatMonitorToolActivity(activity.toolName, t);
+    const names = activity.toolNames?.length ? activity.toolNames : [activity.toolName];
+    text = formatMonitorLayerActivity(names, t);
   } else if (activity?.labelKey) {
     const fallbacks = {
       understand: 'Đang hiểu ngữ cảnh…',
@@ -433,19 +475,20 @@ function HowMonitorBody({
   t,
 }) {
   const [now, setNow] = useState(() => Date.now());
-  const howStatus = String(phaseHow?.status || liveRun?.status || '').trim().toLowerCase();
+  const vm = resolveHowProgressViewModel(liveRun, phaseHow, now);
   const inFlight =
     !phaseDone &&
     !howNotStarted &&
-    ['pending', 'running', 'waiting_human', 'queued'].includes(howStatus);
+    (vm.state === 'running' ||
+      vm.state === 'queued' ||
+      vm.state === 'finalizing' ||
+      vm.state === 'waiting_human');
 
   useEffect(() => {
     if (!inFlight) return undefined;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [inFlight]);
-
-  const vm = resolveHowProgressViewModel(liveRun, phaseHow, now);
   const activeMacro = phaseDone ? 3 : howNotStarted ? 0 : vm.macroStep || 1;
 
   return (
@@ -496,25 +539,32 @@ function HowMonitorBody({
           <p className="text-[11px] font-medium text-foreground/80">
             {labelOf(t, vm.titleKey, vm.titleFallback)}
           </p>
-          <SubstepChecklist
-            substeps={vm.activeMacroSubsteps}
-            activeSubstep={vm.activeStepId}
-            activeSubsteps={vm.activeStepIds}
-            phaseDone={false}
-            t={t}
-            labelKeyPrefix="requirements.aiHitlHowStep_"
-          />
+          {vm.showPlanningLayers ? (
+            <HowLayerChecklist layers={vm.planningLayers} t={t} />
+          ) : (
+            <SubstepChecklist
+              substeps={vm.activeMacroSubsteps}
+              activeSubstep={vm.activeStepId}
+              activeSubsteps={vm.activeStepIds}
+              phaseDone={false}
+              t={t}
+              labelKeyPrefix="requirements.aiHitlHowStep_"
+            />
+          )}
           <ActivityLine vm={vm} t={t} />
         </div>
       ) : null}
       {phaseDone ? (
-        <SubstepChecklist
-          substeps={HOW_MACRO_STEPS.find((m) => m.step === 3)?.substeps || []}
-          activeSubstep="ProjectPlanTool"
-          phaseDone
-          t={t}
-          labelKeyPrefix="requirements.aiHitlHowStep_"
-        />
+        <>
+          <HowLayerChecklist layers={vm.planningLayers} t={t} />
+          <SubstepChecklist
+            substeps={HOW_MACRO_STEPS.find((m) => m.step === 3)?.substeps || []}
+            activeSubstep="feasibility"
+            phaseDone
+            t={t}
+            labelKeyPrefix="requirements.aiHitlHowStep_"
+          />
+        </>
       ) : null}
       {howNotStarted ? startHowButton : null}
       {phaseDone ||

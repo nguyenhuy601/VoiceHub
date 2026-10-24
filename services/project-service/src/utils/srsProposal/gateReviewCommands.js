@@ -5,6 +5,7 @@
 
 const {
   listProposalItems,
+  projectGeneratedEdit,
   computeReviewSummary,
   assertNeedsConfirmationAccept,
   DECISION_ACCEPT,
@@ -388,16 +389,9 @@ function applyOneDecisionPure({
   next.review = next.review || { decisions: {}, locks: {}, summary: {} };
   next.review.decisions = { ...(next.review.decisions || {}) };
 
-  // Apply content edit onto generated items (projection of tip content)
+  // Apply content edit onto generated items or Epic/Story rows (projection of tip content)
   if (action === DECISION_EDIT && decision.editedPayload && row.section) {
-    const block = next.generated[row.section];
-    if (block?.items) {
-      block.items = block.items.map((it) =>
-        String(it.logicalId || it.id) === String(logicalId)
-          ? { ...it, ...decision.editedPayload }
-          : it
-      );
-    }
+    projectGeneratedEdit(next.generated, row.section, logicalId, decision.editedPayload);
   }
 
   next.review.decisions[logicalId] = {

@@ -189,11 +189,33 @@ const SequencingTool = {
 };
 
 const HierarchyTool = { ...genericIo };
-const CapabilityTool = { ...genericIo };
 const InsightsTool = { ...genericIo };
 const BacklogMapTool = { ...genericIo };
 const WbsTool = { ...genericIo };
-const DependencyTool = { ...genericIo };
+const DependencyTool = {
+  inputSchema: {
+    type: 'object',
+    properties: {
+      container: { type: 'object' },
+      pack: { type: 'object' },
+      planningHints: { type: 'object' },
+    },
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      schemaVersion: { type: 'string' },
+      analysisStatus: { type: 'string' },
+      dependencies: { type: 'array' },
+      unresolvedQuestions: { type: 'array' },
+      validation: { type: 'object' },
+      edges: { type: 'array' },
+      orderHint: { type: 'array' },
+      tool: { type: 'object' },
+    },
+  },
+  evidenceSchema: genericIo.evidenceSchema,
+};
 const ProjectPlanTool = { ...genericIo };
 
 const QualityPlanTool = {
@@ -209,6 +231,44 @@ const QualityPlanTool = {
     properties: {
       qualityPlan: { type: 'object' },
       structurallyOk: { type: 'boolean' },
+    },
+  },
+  evidenceSchema: genericIo.evidenceSchema,
+};
+
+const WhatSectionTool = {
+  inputSchema: {
+    type: 'object',
+    properties: {
+      pack: { type: 'object' },
+      proposal: { type: 'object' },
+      snapshot: { type: 'object' },
+    },
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      engineId: { type: 'string' },
+      section: { type: 'string' },
+      items: { type: 'array' },
+    },
+  },
+  evidenceSchema: genericIo.evidenceSchema,
+};
+
+const WhatFrTool = {
+  inputSchema: {
+    type: 'object',
+    properties: {
+      pack: { type: 'object' },
+      snapshot: { type: 'object' },
+    },
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      proposalFragment: { type: 'object' },
+      g4Understanding: { type: 'object' },
     },
   },
   evidenceSchema: genericIo.evidenceSchema,
@@ -241,7 +301,6 @@ module.exports = {
   RiskTool,
   SequencingTool,
   HierarchyTool,
-  CapabilityTool,
   InsightsTool,
   BacklogMapTool,
   WbsTool,
@@ -249,4 +308,6 @@ module.exports = {
   ProjectPlanTool,
   QualityPlanTool,
   DeployPlanTool,
+  WhatSectionTool,
+  WhatFrTool,
 };

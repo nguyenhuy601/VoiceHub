@@ -5,6 +5,9 @@
  * Wave-1: interface removed; nfr + scope added to LLM catalog.
  */
 
+const { QWEN_PLUS_MAX_OUTPUT_TOKENS } = require('@enterprise/shared/llm/openaiCompatibleClient');
+const { modelOutputCeiling } = require('../runtime/modelOutputBudget');
+
 const LLM_DERIVE_ORDER = Object.freeze([
   'bg',
   'br',
@@ -60,16 +63,16 @@ const PREFIX_BY_ENGINE = Object.freeze({
   actors: 'ACT',
 });
 
-/** Default num_predict per section (3B-friendly). Override via PHASE1_<SEC>_DERIVE_MAX_TOKENS. */
+/** Per-section completion cap. Default is the qwen-plus output window. */
 const DEFAULT_MAX_TOKENS = Object.freeze({
-  bg: 448,
-  br: 512,
-  uc: 640,
-  bpm: 320,
-  data: 320,
-  nfr: 384,
-  scope: 320,
-  actors: 320,
+  bg: QWEN_PLUS_MAX_OUTPUT_TOKENS,
+  br: QWEN_PLUS_MAX_OUTPUT_TOKENS,
+  uc: QWEN_PLUS_MAX_OUTPUT_TOKENS,
+  bpm: QWEN_PLUS_MAX_OUTPUT_TOKENS,
+  data: QWEN_PLUS_MAX_OUTPUT_TOKENS,
+  nfr: QWEN_PLUS_MAX_OUTPUT_TOKENS,
+  scope: QWEN_PLUS_MAX_OUTPUT_TOKENS,
+  actors: QWEN_PLUS_MAX_OUTPUT_TOKENS,
 });
 
 const SECTION_LABEL = Object.freeze({
@@ -84,15 +87,20 @@ const SECTION_LABEL = Object.freeze({
 });
 
 function resolveSectionMaxTokens(engineId, env = process.env) {
+  const ceiling = modelOutputCeiling(env);
   const id = String(engineId || '').toLowerCase();
   const envKey = `PHASE1_${id.toUpperCase()}_DERIVE_MAX_TOKENS`;
   const n = Number(env[envKey]);
-  if (Number.isFinite(n) && n >= 128) return Math.min(2048, Math.floor(n));
+  if (Number.isFinite(n) && n >= 128) {
+    return Math.min(ceiling, Math.floor(n));
+  }
   if (id === 'bg') {
     const legacy = Number(env.PHASE1_BG_DERIVE_MAX_TOKENS);
-    if (Number.isFinite(legacy) && legacy >= 128) return Math.min(2048, Math.floor(legacy));
+    if (Number.isFinite(legacy) && legacy >= 128) {
+      return Math.min(ceiling, Math.floor(legacy));
+    }
   }
-  return DEFAULT_MAX_TOKENS[id] || 384;
+  return Math.min(ceiling, DEFAULT_MAX_TOKENS[id] || QWEN_PLUS_MAX_OUTPUT_TOKENS);
 }
 
 function resolveSectionTimeoutMs(engineId, env = process.env) {
@@ -105,11 +113,11 @@ function resolveSectionTimeoutMs(engineId, env = process.env) {
   return 180000;
 }
 
-/** Smaller ctx for slim V2 prompts — speeds 3B vs global OLLAMA_NUM_CTX=4096. */
+/** Ollama-only. Unset means the chat model window (DashScope ignores num_ctx). */
 function resolveDeriveNumCtx(env = process.env) {
   const n = Number(env.PHASE1_DERIVE_NUM_CTX);
-  if (Number.isFinite(n) && n >= 1024) return Math.min(8192, Math.floor(n));
-  return 2048;
+  if (Number.isFinite(n) && n >= 1024) return Math.min(131072, Math.floor(n));
+  return undefined;
 }
 
 module.exports = {

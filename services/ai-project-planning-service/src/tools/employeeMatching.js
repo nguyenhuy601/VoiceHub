@@ -3,6 +3,7 @@ const {
   runEmployeeMatching,
   applyMatchingToContainer,
 } = require('../engines/employeeMatching');
+const { assembleHowToolContext, contextAllowsWork } = require('../semanticLayer/howToolContext');
 
 /** G9 Employee Matching — Fit → Feasible → featureOwner. */
 async function employeeMatching(input = {}, context = {}) {
@@ -12,7 +13,42 @@ async function employeeMatching(input = {}, context = {}) {
   const toolData = input.toolData || {};
   const planningHints = input.planningHints || context.planningHints || null;
   const employees = toolData.employees || input.employees || [];
-  const engineResult = await runEmployeeMatching(pack, container, {
+  const layer = await assembleHowToolContext({
+    purpose: 'MATCHING',
+    pack,
+    container,
+    toolData,
+    snapshot: input.snapshot || context.snapshot || null,
+    snapshotId,
+    contextPackage: input.contextPackage || context.contextPackage || null,
+  });
+  const allowedTaskIds = new Set((layer.requiredData?.tasks || []).map((task) => task.id));
+  const sourceTasks = Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [];
+  const scoped = contextAllowsWork(layer)
+    ? {
+        ...container,
+        planning: {
+          ...(container.planning || {}),
+          tasks: sourceTasks.filter((task) => allowedTaskIds.has(String(task.id || task.taskId || ''))),
+        },
+      }
+    : container;
+  if (!contextAllowsWork(layer)) {
+    return {
+      result: { status: layer.status || layer.code, container, assignments: [] },
+      evidence: [
+        createEvidence({
+          sourceType: 'matching',
+          sourceId: layer.status || 'context_blocked',
+          snapshotId,
+          value: layer.status || layer.code,
+          calculatedBy: 'EmployeeMatchingTool',
+          ruleId: 'MATCH-CONTEXT',
+        }),
+      ],
+    };
+  }
+  const engineResult = await runEmployeeMatching(pack, scoped, {
     poolItems: employees,
     constraints: toolData.constraints || null,
     bookedHoursByUserDay: toolData.bookedHoursByUserDay || null,
@@ -22,6 +58,11 @@ async function employeeMatching(input = {}, context = {}) {
       toolData.merged?.requiredSkillIds ||
       toolData.filterMeta?.requiredSkillIds ||
       null,
+    frLinks: Array.isArray(toolData.merged?.frLinks)
+      ? toolData.merged.frLinks
+      : Array.isArray(input.merged?.frLinks)
+        ? input.merged.frLinks
+        : [],
     planningHints,
     project: context.project || input.project || null,
     org: context.org || input.org || null,
@@ -32,7 +73,7 @@ async function employeeMatching(input = {}, context = {}) {
       pack.overview?.startDate ||
       null,
   });
-  const updatedContainer = applyMatchingToContainer(container, engineResult);
+  const updatedContainer = applyMatchingToContainer(scoped, engineResult);
   const capacityValues = engineResult.recommendations.flatMap((rec) =>
     (rec.candidates || rec.shortlist || []).map((entry) => Number(entry.available_capacity) || 0)
   );

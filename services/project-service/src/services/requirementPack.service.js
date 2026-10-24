@@ -585,6 +585,20 @@ async function approveRequirementPack({
           },
         };
       }
+      // Epic→Story SoT for HOW. Stamp on PO approve even when other sections
+      // still have blocking items — WBS reads this tree, not the review summary.
+      if (proposal) {
+        const {
+          materializeApprovedBacklogStructure,
+        } = require('../utils/srsProposal/materializeApprovedBacklogStructure');
+        const approvedBacklogStructure = materializeApprovedBacklogStructure(proposal);
+        if (approvedBacklogStructure) {
+          container.analyses = {
+            ...(container.analyses || {}),
+            approvedBacklogStructure,
+          };
+        }
+      }
       container = markPhaseWhatGate1Approved(container, {
         source: 'srs_proposal_gate1',
         at: new Date().toISOString(),
@@ -910,7 +924,7 @@ async function createProjectFromRequirementPack({
         projectId,
       },
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!linked) {

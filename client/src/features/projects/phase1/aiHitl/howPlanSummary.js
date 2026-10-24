@@ -32,6 +32,20 @@ function resolveDeadlineConflictFromConflicts(conflicts) {
   };
 }
 
+function readSequencingBlock(container) {
+  const sequence = container?.planning?.sequence;
+  const status = String(sequence?.status || '');
+  if (!status.startsWith('BLOCKED')) return null;
+  const cycles = Array.isArray(sequence?.graphValidation?.cycles)
+    ? sequence.graphValidation.cycles
+    : [];
+  const reviewCount = cycles.reduce(
+    (sum, cycle) => sum + (Array.isArray(cycle?.dependencyIds) ? cycle.dependencyIds.length : 0),
+    0
+  );
+  return { status, cycleCount: cycles.length, reviewCount };
+}
+
 function mapQualityDeploySummary(summary) {
   const qp = summary?.qualityPlan && typeof summary.qualityPlan === 'object' ? summary.qualityPlan : null;
   const dp = summary?.deployPlan && typeof summary.deployPlan === 'object' ? summary.deployPlan : null;
@@ -88,6 +102,7 @@ export function resolveHowPlanSummary(packOrContainer) {
         ? packOrContainer
         : {};
   const packCounts = countPackScopeObjectives(pack || packOrContainer);
+  const sequencingBlocked = readSequencingBlock(container);
 
   const summary =
     container.planning?.planSummary && typeof container.planning.planSummary === 'object'
@@ -120,6 +135,7 @@ export function resolveHowPlanSummary(packOrContainer) {
       deadlineConflict,
       ...qd,
       ...packCounts,
+      sequencingBlocked,
       hasSummary: true,
     };
   }
@@ -178,7 +194,8 @@ export function resolveHowPlanSummary(packOrContainer) {
     qualityGateNote:
       'Quality Gate = approve/baseline; Testing/Deploy Plans are artifacts',
     ...packCounts,
-    hasSummary: hasAny || hasPackContext,
+    sequencingBlocked,
+    hasSummary: hasAny || hasPackContext || Boolean(sequencingBlocked),
   };
 }
 

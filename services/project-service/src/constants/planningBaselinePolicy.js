@@ -83,7 +83,8 @@ function evaluatePlanningBaselineReadiness(artifacts = [], opts = {}) {
 }
 
 /**
- * Step 8 — when HOW pack is present, require qualityPlan + deployPlan structural OK
+ * Step 8 — when HOW pack is present, require qualityPlan structural OK.
+ * Deploy plan is not required (section is outside the HOW tool → LLM flow).
  * (embed in aiAnalysis — not workbook kinds). Override via forceApprove + notes at cut.
  *
  * @param {object|null|undefined} packAiAnalysis

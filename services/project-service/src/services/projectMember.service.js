@@ -117,7 +117,7 @@ async function upsertProjectMemberAllocation({
   const saved = await ProjectMember.findOneAndUpdate(
     { projectId: pid, userId: uid },
     { $set: nextDoc },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   ).lean();
 
   // Refresh allocationStatus on other active projects for this user (same sweep).

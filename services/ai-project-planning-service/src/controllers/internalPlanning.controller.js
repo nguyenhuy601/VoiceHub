@@ -25,6 +25,7 @@ const {
   normalizeGenerationId,
 } = require('../contracts/runLineageContract');
 const { PlanningRun } = require('../run/PlanningRun.model');
+const { buildExecutionInterruptedError } = require('../run/executionInterrupted');
 const { publishGatePreview } = require('../engines/g4/pipelineProgress');
 const { reduceProgressState } = require('../run/progressStateReducer');
 const {
@@ -46,6 +47,9 @@ const EXECUTION_LEASE_MS = 30 * 60 * 1000;
 const CALLBACK_MAX_ATTEMPTS = 5;
 const CALLBACK_BASE_DELAY_MS = 1000;
 const CALLBACK_LEASE_MS = 60 * 1000;
+
+/** Run ids this process has claimed. Used to stop them when the process is dying. */
+const activeRunIds = new Set();
 
 function assertPlainObject(value, field) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -490,6 +494,7 @@ async function claimRunExecution(
         gate: null,
         gatePreview: null,
         currentTool: null,
+        currentToolNames: [],
       },
       $inc: { attempt: 1 },
     },
@@ -526,6 +531,7 @@ async function processRunAsync(runId) {
   if (!claimed) return;
   let run = claimed;
   const { executionLeaseOwner } = claim;
+  activeRunIds.add(String(runId));
 
   // G1 Step 2 — attach catalogs on AI service before tools (RULE-11)
   try {
@@ -790,6 +796,7 @@ async function processRunAsync(runId) {
         { error: callbackError }
       );
     }
+    activeRunIds.delete(String(runId));
     return;
   }
 
@@ -822,6 +829,7 @@ async function processRunAsync(runId) {
       { error: callbackError }
     );
   }
+  activeRunIds.delete(String(runId));
 }
 
 async function recoverExpiredCallbackLeases(now = new Date()) {
@@ -869,30 +877,62 @@ async function recoverExpiredCallbackLeases(now = new Date()) {
   };
 }
 
+async function failInterruptedRuns(message) {
+  const error = buildExecutionInterruptedError(message);
+  const runs = await PlanningRun.find({ status: 'running' })
+    .select({ _id: 1, job: 1, projectId: 1, packId: 1, organizationId: 1, snapshotId: 1 })
+    .lean();
+  let stopped = 0;
+  for (const run of runs) {
+    const updated = await PlanningRun.findOneAndUpdate(
+      { _id: run._id, status: 'running' },
+      {
+        $set: {
+          status: 'failed',
+          currentNode: 'failed',
+          completedAt: new Date(),
+          error,
+          executionLeaseOwner: null,
+          executionLeaseExpiresAt: null,
+        },
+        $unset: { activeKey: 1 },
+      },
+      { returnDocument: 'after' }
+    ).lean();
+    if (!updated) continue;
+    stopped += 1;
+    activeRunIds.delete(String(run._id));
+    try {
+      await notifyJobResult({
+        runId: String(run._id),
+        status: 'failed',
+        job: run.job,
+        projectId: run.projectId,
+        packId: run.packId,
+        organizationId: run.organizationId,
+        snapshotId: run.snapshotId,
+        error,
+      });
+    } catch (notifyError) {
+      console.error(
+        '[planning] interrupt notify',
+        String(run._id),
+        notifyError?.message || notifyError
+      );
+    }
+  }
+  return stopped;
+}
+
 async function recoverRunsOnStartup() {
   const now = new Date();
   await recoverExpiredCallbackLeases(now);
-  await PlanningRun.updateMany(
-    {
-      status: 'running',
-      executionLeaseExpiresAt: { $lte: now },
-      attempt: { $gte: EXECUTION_MAX_ATTEMPTS },
-    },
-    {
-      $set: {
-        status: 'failed',
-        currentNode: 'execution_failed',
-        completedAt: now,
-        executionLeaseOwner: null,
-        executionLeaseExpiresAt: null,
-        error: {
-          code: 'EXECUTION_RETRY_EXHAUSTED',
-          message: 'Execution lease expired too many times',
-        },
-      },
-      $unset: { activeKey: 1 },
-    }
+  const interrupted = await failInterruptedRuns(
+    'Tiến trình planning đã dừng giữa chừng. Lượt được kết thúc để không còn hiện đang xử lý.'
   );
+  if (interrupted) {
+    console.error('[planning] stopped interrupted runs', interrupted);
+  }
 
   const callbackRuns = await PlanningRun.find({
     status: 'callback_pending',
@@ -906,13 +946,7 @@ async function recoverRunsOnStartup() {
 
   const executionRuns = await PlanningRun.find({
     attempt: { $lt: EXECUTION_MAX_ATTEMPTS },
-    $or: [
-      { status: 'queued' },
-      {
-        status: 'running',
-        executionLeaseExpiresAt: { $lte: now },
-      },
-    ],
+    status: 'queued',
   })
     .select({ _id: 1 })
     .lean();
@@ -1010,7 +1044,7 @@ async function reportPipelineProgress(runId, evt) {
   try {
     const doc = await PlanningRun.findById(runId)
       .select(
-        'pipelineStep pipelineSubstep currentNode currentTool progressVersion status'
+        'pipelineStep pipelineSubstep currentNode currentTool currentToolNames progressVersion status'
       )
       .lean();
     if (!doc) return;
@@ -1048,6 +1082,9 @@ async function reportPipelineProgress(runId, evt) {
     if (next.currentNode != null) $set.currentNode = next.currentNode;
     if (Object.prototype.hasOwnProperty.call(next, 'currentTool')) {
       $set.currentTool = next.currentTool;
+    }
+    if (Array.isArray(next.currentToolNames)) {
+      $set.currentToolNames = next.currentToolNames;
     }
 
     await PlanningRun.updateOne({ _id: runId }, { $set });
@@ -1304,6 +1341,7 @@ module.exports = {
   deliverRunCallback,
   callbackDelayMs,
   recoverRunsOnStartup,
+  failInterruptedRuns,
   scheduleCallbackDelivery,
   claimRunExecution,
   recoverExpiredCallbackLeases,

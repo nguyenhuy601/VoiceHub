@@ -102,7 +102,7 @@ class MeetingService {
             startTime: new Date(),
           },
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       if (!meeting) {
@@ -129,7 +129,7 @@ class MeetingService {
             endTime: new Date(),
           },
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       if (!meeting) {

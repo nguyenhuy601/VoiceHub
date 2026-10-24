@@ -85,12 +85,14 @@ function assertIntakeLeadRoster(roleKeys = []) {
 }
 
 function collectCreateProjectRoleKeys({
+  projectManagerId,
   productOwnerId,
   scrumMasterId,
   techLeadId,
   members,
 } = {}) {
   const keys = [];
+  if (projectManagerId) keys.push('project_manager');
   if (productOwnerId) keys.push('product_owner');
   if (scrumMasterId) keys.push('scrum_master');
   if (techLeadId) keys.push('technical_lead');

@@ -396,11 +396,16 @@ function longestCalendarPath(ids, preds, finishByTask) {
 
 function runScheduleCapacity(container, options = {}) {
   let theoreticalCpm = container?.planning?.theoreticalCpm || options.theoreticalCpm || null;
-  if (!theoreticalCpm || !Array.isArray(theoreticalCpm.nodes || theoreticalCpm.tasks)) {
+  const sequencingStatus = String(container?.planning?.sequence?.status || '');
+  const sequencingBlocked = sequencingStatus.startsWith('BLOCKED');
+  if (
+    !sequencingBlocked &&
+    (!theoreticalCpm || !Array.isArray(theoreticalCpm.nodes || theoreticalCpm.tasks))
+  ) {
     try {
       const { runSequencingCpm } = require('./sequencingCpm');
       const seq = runSequencingCpm(container);
-      theoreticalCpm = seq.theoreticalCpm;
+      theoreticalCpm = seq.status === 'READY' ? seq.theoreticalCpm : null;
     } catch {
       theoreticalCpm = theoreticalCpm || null;
     }

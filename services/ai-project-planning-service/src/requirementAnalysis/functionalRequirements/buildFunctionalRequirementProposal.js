@@ -27,6 +27,10 @@ function buildFunctionalRequirementProposal(opts = {}) {
   const items = requirements.map((r, idx) => {
     const id = String(r.id || r.frId || `FR-${idx + 1}`);
     const derived = Boolean(r.derivedFromBr || r.sourceKind === 'business_rule');
+    const sourceCrIds = Array.isArray(r.sourceCrIds)
+      ? r.sourceCrIds.map((x) => String(x || '').trim()).filter(Boolean)
+      : [];
+    const proposedFromCr = sourceCrIds.length > 0 && !derived;
     const acText = String(r.ac || r.acceptanceCriteria || '').trim();
     const base = {
       logicalId: id,
@@ -39,23 +43,34 @@ function buildFunctionalRequirementProposal(opts = {}) {
       status: mapRequirementStatus(r),
       priority: r.priority || null,
       actors: Array.isArray(r.actors) ? r.actors : [],
+      sourceCrIds,
       sourceRefs: Array.isArray(r.sourceRefs)
         ? r.sourceRefs
-        : Array.isArray(r.evidence)
-          ? r.evidence
-          : [],
+        : sourceCrIds.length
+          ? sourceCrIds.map((cr) => ({ type: 'customer_raw', id: cr }))
+          : Array.isArray(r.evidence)
+            ? r.evidence
+            : [],
       derivedFromBr: r.derivedFromBr || null,
       sourceKind: r.sourceKind || null,
       origin: derived
         ? { type: 'DERIVED', engine: 'fr', section: 'functionalRequirements' }
-        : { type: 'EXTRACTED', engine: 'fr', section: 'functionalRequirements' },
+        : proposedFromCr
+          ? { type: 'AI_SYNTHESIS', engine: 'fr_from_cr', section: 'functionalRequirements' }
+          : { type: 'EXTRACTED', engine: 'fr', section: 'functionalRequirements' },
       provenance: derived
         ? {
             type: 'DERIVED',
             derivedFrom: [String(r.derivedFromBr || '')].filter(Boolean),
             rule: 'BR_TO_FR',
           }
-        : { type: 'EXTRACTED', derivedFrom: [], rule: null },
+        : proposedFromCr
+          ? {
+              type: 'AI_SYNTHESIS',
+              derivedFrom: sourceCrIds,
+              rule: 'CR_TO_FR',
+            }
+          : { type: 'EXTRACTED', derivedFrom: [], rule: null },
     };
     return assertBrDerivedFrInvariant(
       normalizeProposalItem(base, {
@@ -89,7 +104,7 @@ function buildFunctionalRequirementProposal(opts = {}) {
     status: 'NEEDS_CONFIRMATION',
   }));
 
-  return {
+  const out = {
     section: 'functionalRequirements',
     items,
     relations,
@@ -103,6 +118,11 @@ function buildFunctionalRequirementProposal(opts = {}) {
       hasSynthesis: false,
     },
   };
+  // Optional: attached later by runFrSemanticTask after FrDecompose LLM.
+  if (opts.backlogStructure && typeof opts.backlogStructure === 'object') {
+    out.backlogStructure = opts.backlogStructure;
+  }
+  return out;
 }
 
 module.exports = { buildFunctionalRequirementProposal, mapRequirementStatus };

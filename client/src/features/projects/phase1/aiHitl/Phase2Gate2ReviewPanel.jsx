@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { Loader2, Send, CheckCircle2, XCircle } from 'lucide-react';
+import { projectAPI } from '../../../../services/api/projectAPI';
+import { localizedProjectRoleLabel } from '../../../../utils/projectRoleLocale';
 import Gate1SectionReviewTable from '../gate1/Gate1SectionReviewTable';
 import Gate1MissingSectionPanel from '../gate1/Gate1MissingSectionPanel';
 import {
@@ -17,6 +20,17 @@ import { useProjectMemberNames } from '../planning/useProjectMemberNames';
 import HowPlanSummaryChips from './HowPlanSummaryChips';
 import HitlSectionTabList from './HitlSectionTabList';
 import Gate2ConsolidationPanel from './Gate2ConsolidationPanel';
+import DependencyFlowPanel from '../gate2/DependencyFlowPanel';
+import QualityReviewPanel from '../gate2/QualityReviewPanel';
+import {
+  assignmentSelectOptions,
+  fillUnassignedWithReadyPeople,
+  patchAssignmentCatalogValue,
+} from '../gate2/assignmentCatalogEdit';
+
+function unwrapPool(res) {
+  return res?.data?.data ?? res?.data ?? res;
+}
 const ROLE_LABEL = {
   po: 'PO',
   tech: 'Tech Lead',
@@ -29,10 +43,17 @@ const ROLE_LABEL = {
   tester: 'Tester',
 };
 
-function resolvePackProjectId(pack) {
-  const raw = pack?.projectId;
+function resolvePackRefId(raw) {
   if (raw && typeof raw === 'object') return String(raw._id || raw.id || '').trim();
   return String(raw || '').trim();
+}
+
+function resolvePackProjectId(pack) {
+  return resolvePackRefId(pack?.projectId);
+}
+
+function resolvePackOrgId(pack) {
+  return resolvePackRefId(pack?.organizationId || pack?.orgId);
 }
 
 function labelOf(t, key, fallback, vars) {
@@ -84,14 +105,13 @@ export default function Phase2Gate2ReviewPanel({
   onPoReject,
 }) {
   const projectId = resolvePackProjectId(pack);
-  const nameByUserId = useProjectMemberNames(projectId);
+  const nameByUserId = useProjectMemberNames(projectId, resolvePackOrgId(pack));
   const bundle = useMemo(
     () => buildGate2ProposalItems({ pack, nameByUserId, t }),
     [pack, nameByUserId, t]
   );
   const bySection = bundle.proposalBySection || {};
   const sectionTabs = bundle.proposalSections || [];
-  const wbsMeta = bundle.wbsMeta || null;
 
   const [activeSection, setActiveSection] = useState('');
   const [activeTrack, setActiveTrack] = useState('');
@@ -134,6 +154,105 @@ export default function Phase2Gate2ReviewPanel({
     () => countGate2PendingDecisions(scopedBySection, decisions),
     [scopedBySection, decisions]
   );
+  const orgId = resolvePackOrgId(pack);
+  const catalogEnabled = reviewView === 'showParallel' && Boolean(orgId);
+  const roleCatalogQ = useQuery({
+    queryKey: ['roleCatalog', orgId, 'gate2Assignment'],
+    queryFn: async () => {
+      const raw = unwrapPool(await projectAPI.listRoleCatalog(orgId));
+      if (Array.isArray(raw)) return raw;
+      return Array.isArray(raw?.roles) ? raw.roles : [];
+    },
+    enabled: catalogEnabled,
+    staleTime: 60_000,
+  });
+  const assignmentRoleKeys = useMemo(() => {
+    if (!catalogEnabled) return [];
+    const keys = new Set();
+    for (const row of bySection.assignments || []) {
+      const key = String(row?.suggestedRoleKey || '').trim().toLowerCase();
+      if (key) keys.add(key);
+    }
+    for (const decision of Object.values(decisions || {})) {
+      const key = String(decision?.editedPayload?.suggestedRoleKey || '').trim().toLowerCase();
+      if (key) keys.add(key);
+    }
+    return [...keys];
+  }, [catalogEnabled, bySection, decisions]);
+  const peopleQueries = useQueries({
+    queries: assignmentRoleKeys.map((roleKey) => ({
+      queryKey: ['staffingMatch', orgId, projectId, roleKey, 'gate2Assignment'],
+      queryFn: async () => {
+        const raw = unwrapPool(
+          await projectAPI.listOrgResourcePool(
+            orgId,
+            {
+              view: 'staffingMatch',
+              projectId,
+              projectRoleKeys: roleKey,
+              limit: 50,
+              offset: 0,
+            },
+            { skipPermissionDeniedToast: true }
+          )
+        );
+        const rows = Array.isArray(raw?.byRole?.[roleKey]) ? raw.byRole[roleKey] : [];
+        return rows
+          .map((row) => {
+            const score = Number(row?.score);
+            const available = Number(row?.availableHours);
+            return {
+              userId: String(row?.userId || row?.id || '').trim(),
+              displayName: String(row?.displayName || row?.fullName || row?.email || '').trim(),
+              score: Number.isFinite(score) ? score : null,
+              availableHours: Number.isFinite(available) ? available : null,
+            };
+          })
+          .filter((row) => row.userId && row.displayName);
+      },
+      enabled: catalogEnabled && Boolean(projectId && roleKey),
+      staleTime: 60_000,
+    })),
+  });
+  const peopleByRole = useMemo(() => {
+    const map = {};
+    assignmentRoleKeys.forEach((roleKey, index) => {
+      const rows = peopleQueries[index]?.data;
+      if (Array.isArray(rows)) map[roleKey] = rows;
+    });
+    return map;
+  }, [assignmentRoleKeys, peopleQueries]);
+  const roleOptions = useMemo(() => {
+    const roles = Array.isArray(roleCatalogQ.data) ? roleCatalogQ.data : [];
+    return roles
+      .map((role) => {
+        const key = String(role?.key || '').trim();
+        if (!key) return null;
+        const label = localizedProjectRoleLabel(key, role.label || role.name || key, t);
+        const text = String(label || key)
+          .replace(/^(Dự án|Project)\s*[—–\-:]\s*/i, '')
+          .trim();
+        return { value: key.toLowerCase(), label: text || key };
+      })
+      .filter(Boolean);
+  }, [roleCatalogQ.data, t]);
+  const assignmentTableConfig = useMemo(
+    () => ({
+      ...GATE2_TABLE_CONFIG,
+      getSelectOptions: (row, col, payload) =>
+        assignmentSelectOptions({
+          row,
+          field: col?.field,
+          payload,
+          roleOptions,
+          peopleByRole,
+        }),
+      patchCatalogValue: (row, col, prev, value) =>
+        patchAssignmentCatalogValue(row, col?.field, prev, value, { peopleByRole }),
+    }),
+    [roleOptions, peopleByRole]
+  );
+  const assignmentPoolFailed = peopleQueries.some((query) => query.isError);
 
   const setDecision = (logicalId, patch) => {
     if (isControlled) {
@@ -251,7 +370,11 @@ export default function Phase2Gate2ReviewPanel({
   const allowDecide = showParallel;
   const decisionsOk = decisionsComplete;
   const activeTab = visibleTabs.find((tab) => tab.key === activeSection) || null;
-  const activeRows = bySection[activeSection] || [];
+  const sourceRows = bySection[activeSection] || [];
+  const activeRows =
+    activeSection === 'assignments'
+      ? fillUnassignedWithReadyPeople(sourceRows, peopleByRole)
+      : sourceRows;
   const activeLabel = activeTab?.label || activeSection || '—';
   const activeMissing = Boolean(activeTab?.missing) || activeRows.length === 0;
   const sectionHasIssue = (tab) => {
@@ -383,72 +506,54 @@ export default function Phase2Gate2ReviewPanel({
         ariaLabel={labelOf(t, 'requirements.aiHitlMonitorHowSectionTabsAria', 'Các section HOW')}
       />
 
-      {activeSection === 'tasks' && wbsMeta?.decompositionOutcome ? (
-        <div
-          className={`mb-3 rounded-md border px-3 py-2 text-xs ${
-            wbsMeta.decompositionOutcome === 'success'
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100'
-              : wbsMeta.decompositionOutcome === 'failure'
-                ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                : 'border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200'
-          }`}
-        >
-          <p className="font-medium">
-            {labelOf(
-              t,
-              `requirements.gate2WbsOutcome_${wbsMeta.decompositionOutcome}`,
-              wbsMeta.decompositionOutcome === 'success'
-                ? 'WBS phân rã đủ (success)'
-                : wbsMeta.decompositionOutcome === 'failure'
-                  ? 'WBS phân rã thất bại (failure)'
-                  : 'WBS phân rã một phần (partial) — cần review HITL'
-            )}
-          </p>
-          {(wbsMeta.unresolvedStoryIds || []).length > 0 ? (
-            <p className="mt-1">
-              {labelOf(
-                t,
-                'requirements.gate2WbsUnresolved',
-                'Story chưa có task (unresolved): {ids}',
-                { ids: wbsMeta.unresolvedStoryIds.slice(0, 8).join(', ') }
-              )}
-            </p>
-          ) : null}
-          {(wbsMeta.uncoveredFrIds || []).length > 0 ? (
-            <p className="mt-1">
-              {labelOf(
-                t,
-                'requirements.gate2WbsUncoveredFr',
-                'FR chưa được cite đủ: {ids}',
-                { ids: wbsMeta.uncoveredFrIds.slice(0, 8).join(', ') }
-              )}
-            </p>
-          ) : null}
-          {(wbsMeta.duplicateLeafIds || []).length > 0 ? (
-            <p className="mt-1 text-muted-foreground">
-              {labelOf(
-                t,
-                'requirements.gate2WbsDuplicates',
-                '{count} task trùng (duplicate) — effort không đếm đôi',
-                { count: wbsMeta.duplicateLeafIds.length }
-              )}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {activeSection && !activeMissing && activeRows.length ? (
-        <Gate1SectionReviewTable
-          section={activeSection}
+      {activeSection === 'quality' ? (
+        <QualityReviewPanel
+          pack={pack}
           rows={activeRows}
           decisions={decisions}
           setDecision={setDecision}
           showSubmit={allowDecide}
-          busy={busy}
           t={t}
-          headerTone={activeHasIssue ? 'warn' : 'ok'}
-          tableConfig={GATE2_TABLE_CONFIG}
         />
+      ) : activeSection && !activeMissing && activeRows.length ? (
+        <>
+          {activeSection === 'dependencies' ? (
+            <DependencyFlowPanel pack={pack} rows={activeRows} t={t} />
+          ) : null}
+          {activeSection === 'assignments' && allowDecide ? (
+            <p className="mb-2 text-xs text-muted-foreground">
+              {roleCatalogQ.isError
+                ? labelOf(
+                    t,
+                    'requirements.gate2AssignCatalogError',
+                    'Không tải được danh mục vai trò. Chọn lại khi danh mục sẵn sàng.'
+                  )
+                : labelOf(
+                    t,
+                    'requirements.gate2AssignPickHint',
+                    'Đổi vai trò và nhân sự bằng danh sách của hệ thống. Giá trị gõ tay không được ghi.'
+                  )}
+              {assignmentPoolFailed
+                ? ` ${labelOf(
+                    t,
+                    'requirements.gate2AssignPoolError',
+                    'Một phần danh sách nhân sự chưa tải được — vẫn chọn được người đã có trong gợi ý của đúng vai trò.'
+                  )}`
+                : ''}
+            </p>
+          ) : null}
+          <Gate1SectionReviewTable
+            section={activeSection}
+            rows={activeRows}
+            decisions={decisions}
+            setDecision={setDecision}
+            showSubmit={allowDecide}
+            busy={busy}
+            t={t}
+            headerTone={activeHasIssue ? 'warn' : 'ok'}
+            tableConfig={assignmentTableConfig}
+          />
+        </>
       ) : activeSection ? (
         <Gate1MissingSectionPanel
           sectionLabel={activeLabel}

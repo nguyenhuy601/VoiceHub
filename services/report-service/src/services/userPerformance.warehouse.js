@@ -37,7 +37,7 @@ async function upsertRollup(doc) {
         asOf: doc.asOf ? new Date(doc.asOf) : new Date(),
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   ).lean();
 }
 

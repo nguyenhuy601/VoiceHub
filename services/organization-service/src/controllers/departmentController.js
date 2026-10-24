@@ -181,7 +181,7 @@ exports.updateDepartment = async (req, res, next) => {
       department = await Department.findOneAndUpdate(
         { _id: deptId, organization: orgId },
         patch,
-        { new: true }
+        { returnDocument: 'after' }
       );
     } else {
       department = await Department.findOne({ _id: deptId, organization: orgId });
@@ -220,7 +220,7 @@ exports.deleteDepartment = async (req, res, next) => {
     const department = await Department.findOneAndUpdate(
       { _id: req.params.id, organization: req.params.orgId },
       { $set: { isActive: false } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!department) {
       return res.status(404).json({ status: 'error', message: 'Department not found' });

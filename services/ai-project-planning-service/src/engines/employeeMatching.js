@@ -1,7 +1,7 @@
 /**
  * Ported from project-service matching — Fit → Feasible → featureOwner (HARD-02 one path).
  */
-const { normalizeRoleKey } = require('./roleKey');
+const { canonicalizeProjectRoleKey, normalizeRoleKey } = require('./roleKey');
 const { computeFitScore, computePolicyRankScore } = require('./matchingFit');
 const {
   simulateTaskCapacity,
@@ -9,11 +9,17 @@ const {
 } = require('./matchingCapacitySim');
 const { assignFeatureOwners } = require('./featureOwnerAssign');
 const { resolveAssignmentPolicy } = require('./assignmentPolicyResolve');
-const { evaluateHard } = require('./assignmentCriteria');
+const {
+  evaluateHard,
+  getCapacityIneligibleReasons,
+  isAssignableCandidate,
+} = require('./assignmentCriteria');
 
 const SHORTLIST_K = 5;
 const HOURS_PER_FTE = 40;
 const OVERLOAD_CAPACITY_THRESHOLD = 0.15;
+/** Project cap stays exclusive. Role mismatch still ranks lower but keeps a named suggestion. */
+const SUGGESTION_BLOCKING_REASONS = new Set(['project_cap']);
 
 function skillsFromPoolItem(item) {
   if (Array.isArray(item?.skills) && item.skills.length) return item.skills;
@@ -105,6 +111,56 @@ function skillCoverageContribution(item, needNames, requiredSkillIds = []) {
   return 0.3 * (weighted / needNames.size);
 }
 
+function collectProjectRoleKeys(item) {
+  const raw = [];
+  if (Array.isArray(item?.projectRoleKeys)) raw.push(...item.projectRoleKeys);
+  if (item?.projectRoleKey) raw.push(item.projectRoleKey);
+  const keys = [];
+  for (const value of raw) {
+    const key = canonicalizeProjectRoleKey(value);
+    if (key && !keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
+function frIdsForTask(task, taskById) {
+  const seen = new Set();
+  const ids = [];
+  let current = task;
+  while (current) {
+    const id = String(current.id || current.taskId || '');
+    if (id) {
+      if (seen.has(id)) break;
+      seen.add(id);
+    }
+    const own = Array.isArray(current.sourceFrIds) ? current.sourceFrIds : [];
+    for (const frId of own) {
+      const key = String(frId || '').trim();
+      if (key && !ids.includes(key)) ids.push(key);
+    }
+    if (ids.length) break;
+    const parentId = String(current.parentStoryId || current.parentId || '').trim();
+    current = parentId && taskById ? taskById.get(parentId) : null;
+  }
+  return ids;
+}
+
+function skillIdsForTask(task, frLinks, taskById) {
+  const frIds = new Set(frIdsForTask(task, taskById));
+  if (!frIds.size) return [];
+  const out = [];
+  for (const link of frLinks || []) {
+    const frId = String(link?.frId || '').trim();
+    if (!frId || !frIds.has(frId)) continue;
+    for (const skillId of link.skillCanonicalIds || []) {
+      const key = String(skillId || '').trim().toUpperCase();
+      if (!key || key === 'SK-UNMAPPED' || out.includes(key)) continue;
+      out.push(key);
+    }
+  }
+  return out;
+}
+
 function normalizePoolItemsForMatching(items = []) {
   return items
     .filter((item) => item && item.isActive !== false && (item.userId || item.id))
@@ -145,7 +201,13 @@ function normalizePoolItemsForMatching(items = []) {
         userId: String(item.userId || item.id),
         displayName: String(item.displayName || item.fullName || item.name || item.email || ''),
         jobTitle: item.jobTitle || '',
-        projectRoleKey: item.projectRoleKey || '',
+        projectRoleKeys: collectProjectRoleKeys(item),
+        orgRoleKeys: Array.isArray(item.orgRoleKeys)
+          ? item.orgRoleKeys.map((key) => String(key || '').trim()).filter(Boolean)
+          : [],
+        orgPositionRoleKeys: Array.isArray(item.orgPositionRoleKeys)
+          ? item.orgPositionRoleKeys.map((key) => String(key || '').trim()).filter(Boolean)
+          : [],
         inferredRoleKeys: Array.isArray(item.inferredRoleKeys) ? item.inferredRoleKeys : [],
         skills: Array.isArray(item.skills) ? item.skills : item.capability?.skills || [],
         skillCanonicalIds: canonicalSkillIds(
@@ -397,8 +459,7 @@ function isOverloaded({ capacityRemaining, availableHours, taskHours }) {
 
 function isLeafTask(task) {
   const level = String(task?.level || '').toLowerCase();
-  if (level === 'epic' || level === 'feature' || level === 'story') return false;
-  return true;
+  return level === 'task' || level === 'subtask';
 }
 
 async function runEmployeeMatching(
@@ -411,6 +472,7 @@ async function runEmployeeMatching(
     meetingHoursByUserDay = null,
     bookedHoursByUserDay = null,
     requiredSkillIds = null,
+    frLinks = [],
     planningHints = null,
     projectStart = null,
     project = null,
@@ -476,10 +538,15 @@ async function runEmployeeMatching(
       if (bH !== aH) return bH - aH;
       return String(a.id).localeCompare(String(b.id));
     });
+  const taskById = new Map(
+    (container?.planning?.tasks || []).map((task) => [String(task.id || task.taskId), task])
+  );
 
   let recommendations = matchTasks.map((task) => {
     const taskHours = Number(task.effortHours ?? task.effortSeedHours) || 0;
     const startDate = resolveTaskStartDate(task, projectStartDate, policyEnabled ? policy : null);
+    const taskSkillIds = skillIdsForTask(task, frLinks, taskById);
+    const skillIdsForRank = taskSkillIds.length ? taskSkillIds : reqSkillIds || [];
     const scored = [];
     const ineligible = [];
 
@@ -507,7 +574,7 @@ async function runEmployeeMatching(
             item,
             task,
             container,
-            requiredSkillIds: reqSkillIds || [],
+            requiredSkillIds: skillIdsForRank,
             domainTokens: planningHints?.domainTokens || [],
             taskHours,
             availableHours: availAfterReserve,
@@ -523,16 +590,25 @@ async function runEmployeeMatching(
           }
         );
 
+        let suggestDespiteGate = false;
+        const gateReasons = hard.pass ? [] : hard.reasons;
         if (!hard.pass) {
           if (hard.reasons.includes('soft_overload')) overloadCount += 1;
           bumpHardGateSummary(hardGateSummary, hard.reasons);
-          ineligible.push({
-            userId: item.userId,
-            reasons: hard.reasons,
-            skillCoverage: hard.skillCoverage,
-            ...(displayName ? { displayName } : {}),
-          });
-          continue;
+          const capacityReasons = getCapacityIneligibleReasons(hard);
+          const blocking =
+            capacityReasons.length > 0 ||
+            hard.reasons.some((reason) => SUGGESTION_BLOCKING_REASONS.has(reason));
+          if (blocking) {
+            ineligible.push({
+              userId: item.userId,
+              reasons: capacityReasons.length ? capacityReasons : hard.reasons,
+              skillCoverage: hard.skillCoverage,
+              ...(displayName ? { displayName } : {}),
+            });
+            continue;
+          }
+          suggestDespiteGate = true;
         }
 
         const ranked = computePolicyRankScore({
@@ -540,7 +616,7 @@ async function runEmployeeMatching(
           task,
           container,
           policy,
-          criticalSkillIds: reqSkillIds,
+          criticalSkillIds: skillIdsForRank,
           domainTokens: planningHints?.domainTokens || [],
           taskHours,
           availableHours: availAfterReserve,
@@ -560,7 +636,12 @@ async function runEmployeeMatching(
 
         const reasons = [];
         if (criticalIds.has(String(task.id))) reasons.push('critical_work');
-
+        for (const reason of gateReasons) {
+          if (!reasons.includes(reason)) reasons.push(reason);
+        }
+        if (suggestDespiteGate && reasons.includes('skill_below_min')) {
+          fitScore = Math.max(0, Math.round((fitScore - 0.15) * 1000) / 1000);
+        }
         scored.push({
           userId: item.userId,
           fitScore,
@@ -597,7 +678,7 @@ async function runEmployeeMatching(
         blockers,
         criticalIds,
         bookedHoursByUserDay: bookedMap,
-        requiredSkillIds: reqSkillIds,
+        requiredSkillIds: skillIdsForRank,
         planningHints,
       });
 
@@ -666,7 +747,7 @@ async function runEmployeeMatching(
       );
     }
 
-    const shortlist = scored.slice(0, effectiveShortlistK);
+    const shortlist = scored.filter(isAssignableCandidate).slice(0, effectiveShortlistK);
     const topFeasible = shortlist.find((c) => c.feasible !== false);
     if (topFeasible && taskHours > 0) {
       reserveHours(reservedHoursByUser, topFeasible.userId, taskHours);

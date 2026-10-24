@@ -4,6 +4,8 @@
  */
 
 import { createElement } from 'react';
+import { localizedProjectRoleLabel } from '../../../../utils/projectRoleLocale';
+import { resolveDependencyDecisionStatus } from './dependencyDisplay';
 
 function tr(t, key, fallback) {
   const value = typeof t === 'function' ? t(key) : '';
@@ -24,11 +26,51 @@ export const GATE2_AUDIT_SOURCE = Object.freeze({
   EMPLOYEE: 'EMPLOYEE',
 });
 
+/** Soft display fallback when older HOW runs omitted suggestedRoleKey (mirrors BE AREA_ROLE_HINT). */
+const AREA_ROLE_HINT = Object.freeze({
+  frontend: 'frontend_developer',
+  backend: 'backend_developer',
+  database: 'backend_developer',
+  api: 'backend_developer',
+  auth: 'backend_developer',
+  infrastructure: 'devops_engineer',
+  infra: 'devops_engineer',
+  external: 'backend_developer',
+  security: 'backend_developer',
+  deployment: 'devops_engineer',
+  qa: 'qa_engineer',
+  design: 'ui_ux_designer',
+  management: 'project_manager',
+  analysis: 'business_analyst',
+});
+
+function wbsRoleDisplay(row, t) {
+  const level = String(row?.level || '').toLowerCase();
+  let key = String(row?.suggestedRoleKey || '').trim();
+  if (!key) {
+    if (level === 'epic') key = 'project_manager';
+    else if (level === 'feature') key = 'technical_lead';
+    else if (level === 'story') key = 'business_analyst';
+    else {
+      const area = String(row?.area || '').toLowerCase();
+      key = AREA_ROLE_HINT[area] || (level === 'task' ? 'backend_developer' : '');
+    }
+  }
+  if (!key) return '—';
+  // Phase rollup rows (effort_roles) keep phase ids as-is.
+  if (['dev', 'qa', 'deploy', 'mgmt'].includes(key)) return key;
+  const labeled = localizedProjectRoleLabel(key, key, t);
+  // Gate2 table: drop «Dự án —» prefix for density; keep catalog suffix.
+  return String(labeled || key)
+    .replace(/^(Dự án|Project)\s*[—–\-:]\s*/i, '')
+    .trim() || key;
+}
+
 /**
  * Resolve row origin for HOW / Gate2 tables.
- * Nhân viên when PM edits or provenance is manual;
- * Heuristic when engine stamped HEURISTIC / source=heuristic;
- * else AI đề xuất.
+ * Nhân viên when PM edits or provenance is manual / Gate1;
+ * AI đề xuất when generateJson wrote the text;
+ * Heuristic when a rule engine calculated the row.
  * @param {object} row
  * @param {{ action?: string }|null|undefined} decision
  * @returns {'AI'|'HEURISTIC'|'EMPLOYEE'}
@@ -175,6 +217,13 @@ function wbsLevelLabel(row, t) {
   return tr(t, `requirements.gate2WbsLevel_${level}`, fallback);
 }
 
+/** ISO date → ngày/tháng/năm. Non-dates stay blank so the cell shows an em dash. */
+export function formatGate2CalendarDay(value) {
+  const match = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return '';
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
 const GATE2_SECTION_COLUMNS = {
   tasks: [
     {
@@ -201,7 +250,7 @@ const GATE2_SECTION_COLUMNS = {
       editable: true,
       defaultPx: 130,
       minPx: 80,
-      render: (r) => r.suggestedRoleKey || '—',
+      render: (r, t) => wbsRoleDisplay(r, t),
     },
     {
       key: 'effort',
@@ -226,44 +275,122 @@ const GATE2_SECTION_COLUMNS = {
       editable: true,
       defaultPx: 180,
       minPx: 100,
-      render: (r) => r.deliverable || (r.wbsUnresolved ? '—' : '—'),
-    },
-    {
-      key: 'doneWhen',
-      headerKey: 'requirements.gate2ColDoneWhen',
-      headerFallback: 'Done when',
-      field: 'doneWhen',
-      editable: true,
-      defaultPx: 180,
-      minPx: 100,
-      render: (r) => r.doneWhen || '—',
+      render: (r) => r.deliverable || '—',
     },
     COL_STATUS,
     COL_AUDIT_SOURCE,
   ],
   dependencies: [
-    COL_TITLE,
+    {
+      key: 'relation',
+      headerKey: 'requirements.gate2ColDepRelation',
+      headerFallback: 'Quan hệ',
+      field: 'relationLabel',
+      editable: false,
+      defaultPx: 220,
+      minPx: 140,
+      render: (r) =>
+        clip(
+          r.relationLabel ||
+            `${r.predecessorName || r.predecessorTaskId || '?'} → ${r.successorName || r.successorTaskId || '?'}`,
+          140
+        ),
+    },
+    {
+      key: 'title',
+      headerKey: 'requirements.gate2ColDepReason',
+      headerFallback: 'Lý do',
+      field: 'title',
+      editable: true,
+      defaultPx: 200,
+      minPx: 120,
+      render: (r) => clip(r.reason || r.title || r.summary || '—', 140),
+    },
+    {
+      key: 'blockingScope',
+      headerKey: 'requirements.gate2ColDepScope',
+      headerFallback: 'Phạm vi chặn',
+      field: 'blockingScope',
+      editable: true,
+      defaultPx: 120,
+      minPx: 80,
+      render: (r, t) => {
+        const scope = String(r.blockingScope || 'FULL').toUpperCase();
+        return tr(t, `requirements.gate2DepScope_${scope}`, scope);
+      },
+    },
+    {
+      key: 'parallel',
+      headerKey: 'requirements.gate2ColDepParallel',
+      headerFallback: 'Song song',
+      field: 'parallelLabel',
+      editable: false,
+      defaultPx: 140,
+      minPx: 90,
+      render: (r) => {
+        if (r.canWorkInParallel) {
+          return clip(r.parallelCondition || r.parallelLabel || 'Có thể song song', 100);
+        }
+        return r.parallelLabel || 'Tuần tự';
+      },
+    },
     {
       key: 'depType',
       headerKey: 'requirements.gate2ColDepType',
       headerFallback: 'Type',
       field: 'depType',
       editable: true,
-      defaultPx: 80,
-      minPx: 56,
-      render: (r) => r.depType || '—',
+      defaultPx: 72,
+      minPx: 48,
+      render: (r) => r.relationship || r.depType || 'FS',
     },
-    COL_SUMMARY,
-    COL_STATUS,
+    {
+      key: 'status',
+      headerKey: 'requirements.phase1ColStatus',
+      headerFallback: 'Trạng thái',
+      editable: false,
+      defaultPx: 110,
+      minPx: 80,
+      render: (r, t, ctx) => {
+        const status = resolveDependencyDecisionStatus(r, ctx?.decision);
+        return tr(t, `requirements.gate2ItemStatus_${status}`, status);
+      },
+    },
     COL_AUDIT_SOURCE,
   ],
   assignments: [
     COL_TITLE,
     {
+      key: 'role',
+      headerKey: 'requirements.gate2ColRole',
+      headerFallback: 'Role',
+      field: 'suggestedRoleKey',
+      editor: 'select',
+      placeholderKey: 'requirements.gate2AssignPickRole',
+      placeholderFallback: 'Chọn vai trò',
+      editable: true,
+      defaultPx: 140,
+      minPx: 80,
+      render: (r, t) => wbsRoleDisplay(r, t),
+    },
+    {
+      key: 'effort',
+      headerKey: 'requirements.gate2ColEffort',
+      headerFallback: 'Effort (h)',
+      field: 'effortHours',
+      editable: false,
+      defaultPx: 90,
+      minPx: 64,
+      render: (r) => (r.effortHours != null ? String(r.effortHours) : '—'),
+    },
+    {
       key: 'assignee',
       headerKey: 'requirements.gate2ColAssignee',
       headerFallback: 'Assignee',
-      field: 'assignee',
+      field: 'assigneeUserId',
+      editor: 'select',
+      placeholderKey: 'requirements.gate2AssignPickPerson',
+      placeholderFallback: 'Chọn nhân sự',
       editable: true,
       defaultPx: 140,
       minPx: 80,
@@ -276,55 +403,26 @@ const GATE2_SECTION_COLUMNS = {
       editable: false,
       defaultPx: 80,
       minPx: 56,
-      render: (r) => (r.score != null ? String(r.score) : '—'),
-    },
-    COL_STATUS,
-    COL_AUDIT_SOURCE,
-  ],
-  capacity: [
-    COL_TITLE,
-    {
-      key: 'conflictType',
-      headerKey: 'requirements.gate2ColConflictType',
-      headerFallback: 'Type',
-      field: 'conflictType',
-      editable: false,
-      defaultPx: 130,
-      minPx: 80,
-      render: (r) => r.conflictType || '—',
+      render: (r, _t, ctx) => {
+        const edited = ctx?.decision?.editedPayload;
+        const score =
+          edited && Object.prototype.hasOwnProperty.call(edited, 'score') ? edited.score : r.score;
+        return score != null && score !== '' ? String(score) : '—';
+      },
     },
     {
-      key: 'userId',
-      headerKey: 'requirements.gate2ColUser',
-      headerFallback: 'User',
-      field: 'userId',
-      editable: false,
-      defaultPx: 120,
-      minPx: 72,
-      render: (r) => r.userId || '—',
+      ...COL_STATUS,
+      render: (r, t, ctx) => {
+        const edited = ctx?.decision?.editedPayload;
+        const raw =
+          edited && Object.prototype.hasOwnProperty.call(edited, 'status')
+            ? edited.status
+            : r?.status;
+        const text = String(raw || '').trim();
+        if (!text) return '—';
+        return tr(t, `requirements.gate2ItemStatus_${text.toUpperCase()}`, text);
+      },
     },
-    {
-      key: 'dateKey',
-      headerKey: 'requirements.gate2ColDate',
-      headerFallback: 'Date',
-      field: 'dateKey',
-      editable: false,
-      defaultPx: 110,
-      minPx: 80,
-      render: (r) => r.dateKey || '—',
-    },
-    {
-      key: 'remainingHours',
-      headerKey: 'requirements.gate2ColRemainingH',
-      headerFallback: 'Left (h)',
-      field: 'remainingHours',
-      editable: false,
-      defaultPx: 80,
-      minPx: 56,
-      render: (r) => (r.remainingHours != null ? String(r.remainingHours) : '—'),
-    },
-    COL_SUMMARY,
-    COL_STATUS,
     COL_AUDIT_SOURCE,
   ],
   schedule: [
@@ -332,29 +430,29 @@ const GATE2_SECTION_COLUMNS = {
     {
       key: 'startDate',
       headerKey: 'requirements.gate2ColStart',
-      headerFallback: 'Start',
+      headerFallback: 'Bắt đầu',
       field: 'startDate',
       editable: true,
-      defaultPx: 110,
-      minPx: 80,
-      render: (r) => r.startDate || '—',
+      defaultPx: 120,
+      minPx: 96,
+      render: (r) => formatGate2CalendarDay(r.startDate) || '—',
     },
     {
       key: 'dueDate',
       headerKey: 'requirements.gate2ColDue',
-      headerFallback: 'Due',
+      headerFallback: 'Kết thúc',
       field: 'dueDate',
       editable: true,
-      defaultPx: 110,
-      minPx: 80,
-      render: (r) => r.dueDate || '—',
+      defaultPx: 120,
+      minPx: 96,
+      render: (r) => formatGate2CalendarDay(r.dueDate) || '—',
     },
     {
       key: 'effort',
       headerKey: 'requirements.gate2ColEffort',
       headerFallback: 'Effort (h)',
       field: 'effortHours',
-      editable: true,
+      editable: false,
       defaultPx: 90,
       minPx: 64,
       render: (r) => (r.effortHours != null ? String(r.effortHours) : '—'),
@@ -388,7 +486,12 @@ const GATE2_SECTION_COLUMNS = {
       editable: true,
       defaultPx: 110,
       minPx: 72,
-      render: (r) => r.level || r.band || '—',
+      render: (r) => {
+        const kind = String(r.level || '').trim();
+        const band = String(r.band || '').trim();
+        if (kind && band && band.toLowerCase() !== kind.toLowerCase()) return `${kind} · ${band}`;
+        return kind || band || '—';
+      },
     },
     COL_SUMMARY,
     COL_STATUS,
@@ -414,7 +517,7 @@ const GATE2_SECTION_COLUMNS = {
       editable: true,
       defaultPx: 110,
       minPx: 80,
-      render: (r) => r.startDate || '—',
+      render: (r) => formatGate2CalendarDay(r.startDate) || '—',
     },
     {
       key: 'estimatedEnd',
@@ -424,7 +527,7 @@ const GATE2_SECTION_COLUMNS = {
       editable: true,
       defaultPx: 110,
       minPx: 80,
-      render: (r) => r.estimatedEnd || '—',
+      render: (r) => formatGate2CalendarDay(r.estimatedEnd) || '—',
     },
     {
       key: 'effort',
@@ -435,6 +538,16 @@ const GATE2_SECTION_COLUMNS = {
       defaultPx: 90,
       minPx: 64,
       render: (r) => (r.effortHours != null ? String(r.effortHours) : '—'),
+    },
+    {
+      key: 'taskCount',
+      headerKey: 'requirements.gate2ColTaskCount',
+      headerFallback: 'Tasks',
+      field: 'taskCount',
+      editable: false,
+      defaultPx: 72,
+      minPx: 56,
+      render: (r) => (r.taskCount != null ? String(r.taskCount) : '—'),
     },
     COL_SUMMARY,
     COL_STATUS,
@@ -466,58 +579,6 @@ const GATE2_SECTION_COLUMNS = {
     COL_STATUS,
     COL_AUDIT_SOURCE,
   ],
-  deploy: [
-    COL_TITLE,
-    {
-      key: 'kind',
-      headerKey: 'requirements.gate2ColKind',
-      headerFallback: 'Kind',
-      field: 'kind',
-      editable: true,
-      defaultPx: 100,
-      minPx: 64,
-      render: (r) => r.kind || '—',
-    },
-    {
-      key: 'level',
-      headerKey: 'requirements.gate2ColLevel',
-      headerFallback: 'Detail',
-      field: 'level',
-      editable: true,
-      defaultPx: 120,
-      minPx: 72,
-      render: (r) => r.level || '—',
-    },
-    COL_SUMMARY,
-    COL_STATUS,
-    COL_AUDIT_SOURCE,
-  ],
-  architecture: [
-    COL_TITLE,
-    {
-      key: 'layer',
-      headerKey: 'requirements.gate2ColLayer',
-      headerFallback: 'Layer',
-      field: 'layer',
-      editable: true,
-      defaultPx: 110,
-      minPx: 72,
-      render: (r) => r.layer || '—',
-    },
-    {
-      key: 'impactLevel',
-      headerKey: 'requirements.gate2ColImpact',
-      headerFallback: 'Impact',
-      field: 'impactLevel',
-      editable: true,
-      defaultPx: 90,
-      minPx: 64,
-      render: (r) => r.impactLevel || '—',
-    },
-    COL_SUMMARY,
-    COL_STATUS,
-    COL_AUDIT_SOURCE,
-  ],
   effort_roles: [
     COL_TITLE,
     {
@@ -528,7 +589,7 @@ const GATE2_SECTION_COLUMNS = {
       editable: true,
       defaultPx: 140,
       minPx: 80,
-      render: (r) => r.suggestedRoleKey || r.title || '—',
+      render: (r, t) => wbsRoleDisplay(r, t),
     },
     {
       key: 'effort',
@@ -567,6 +628,16 @@ export function seedGate2EditedPayload(row, columns) {
     if (!col?.editable || !col.field) continue;
     payload[col.field] = getGate2FieldValue(row, col, null);
   }
+  if (Array.isArray(row?.taskIds) && row.taskIds.length) {
+    payload.taskIds = row.taskIds.map(String);
+  }
+  if (row?.assignee && row.assignee !== '—') payload.assignee = String(row.assignee);
+  if (row?.score != null && Number.isFinite(Number(row.score))) payload.score = Number(row.score);
+  if (row?.availableHours != null && Number.isFinite(Number(row.availableHours))) {
+    payload.availableHours = Number(row.availableHours);
+  }
+  if (row?.status) payload.status = String(row.status);
+  payload.overload = Boolean(row?.overload);
   return payload;
 }
 

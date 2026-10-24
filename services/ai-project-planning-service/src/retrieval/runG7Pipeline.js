@@ -64,20 +64,30 @@ async function dispatchRetrieve({
     return { docs: [], modeUsed: 'off', isStub: true };
   }
   if (mode === 'keyword') {
+    const started = process.hrtime.bigint();
     const { docs, modeUsed } = retrieveKeyword({ query, corpus, intent });
-    return { docs, modeUsed, isStub: false };
+    const bm25Ms = Math.max(0, Math.round(Number(process.hrtime.bigint() - started) / 1e6));
+    return { docs, modeUsed, isStub: false, timing: { bm25Ms, queryEmbedMs: 0, searchMs: 0 } };
   }
   if (mode === 'qdrant') {
     const out = await retrieveQdrant({ query, snapshotId, env });
-    return { docs: out.docs, modeUsed: 'qdrant', isStub: false };
+    return {
+      docs: out.docs,
+      modeUsed: 'qdrant',
+      isStub: false,
+      timing: { bm25Ms: 0, ...(out.timing || {}) },
+    };
   }
   if (mode === 'hybrid') {
+    const kwStarted = process.hrtime.bigint();
     const { docs: kwDocs } = retrieveKeyword({ query, corpus, intent });
+    const bm25Ms = Math.max(0, Math.round(Number(process.hrtime.bigint() - kwStarted) / 1e6));
     const qd = await retrieveQdrant({ query, snapshotId, env });
     return {
       docs: mergeDocsBySource(kwDocs, qd.docs),
       modeUsed: 'hybrid',
       isStub: false,
+      timing: { bm25Ms, ...(qd.timing || {}) },
     };
   }
   // legacy hybrid (pre-qdrant) path when explicitly requested without snapshot — keep retrieveHybrid
@@ -128,7 +138,7 @@ async function runG7Pipeline(input = {}) {
     }
   }
 
-  const { docs, modeUsed, isStub } = await dispatchRetrieve({
+  const { docs, modeUsed, isStub, timing = {} } = await dispatchRetrieve({
     query,
     corpus,
     mode,
@@ -137,9 +147,15 @@ async function runG7Pipeline(input = {}) {
     env: input.env,
   });
 
+  const rerankStarted = process.hrtime.bigint();
   const citations =
     mode === 'off' ? [] : rerankAndFilter({ docs, corpus, topK: input.topK });
+  const rerankMs = Math.max(
+    0,
+    Math.round(Number(process.hrtime.bigint() - rerankStarted) / 1e6)
+  );
 
+  const assembleStarted = process.hrtime.bigint();
   const pkg = assembleCitations({
     query,
     citations,
@@ -147,6 +163,28 @@ async function runG7Pipeline(input = {}) {
     intent,
     stub: isStub,
   });
+  const contextBuildMs = Math.max(
+    0,
+    Math.round(Number(process.hrtime.bigint() - assembleStarted) / 1e6)
+  );
+
+  if (mode === 'qdrant' || mode === 'hybrid') {
+    console.info(
+      '[g7_retrieve_timing] %s',
+      JSON.stringify({
+        event: 'g7_retrieve',
+        snapshotId,
+        mode: modeUsed || mode,
+        bm25Ms: timing.bm25Ms ?? 0,
+        queryEmbedMs: timing.queryEmbedMs ?? 0,
+        searchMs: timing.searchMs ?? 0,
+        rerankMs,
+        contextBuildMs,
+        hits: docs.length,
+        citations: citations.length,
+      })
+    );
+  }
 
   const validated = validateContextPackage(pkg);
   if (!validated.ok) {

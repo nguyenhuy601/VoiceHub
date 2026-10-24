@@ -1,6 +1,6 @@
 /**
  * Wave L — LLM WBS decompose (compact prompt + generateJson).
- * Large packs: chunk by HOW_WBS_LLM_MAX_FR_FOR_CALL (no skip → hierarchy).
+ * Large packs: chunk by resolveWbsLlmMaxFrForCall (qwen-plus output fit).
  * Does not write container. HARD-03: real pack/capability/hints only.
  */
 
@@ -82,7 +82,7 @@ function acTexts(row, planningHints, frId) {
 
 /**
  * Ultra-compact prompt — flat task leaves only (normalize accepts parentId:null roots).
- * Decode size ≪ full Epic→Feature→Story→Task trees (latency-critical on CPU 3B).
+ * Flat task leaves only. Hierarchy wrap adds epic/feature/story after the model returns.
  */
 function buildWbsLlmPrompt({ pack, capabilities, planningHints, env = process.env }) {
   const maxFr = resolveWbsLlmMaxFr(env);
@@ -174,7 +174,7 @@ function sliceCapsForChunk(capabilities, frChunk) {
     return frs.length > 0 && frs.some((id) => ids.has(String(id)));
   });
   // Prefer related only; empty → no CAPS line (faster) rather than full roster
-  return related.slice(0, 12);
+  return related;
 }
 
 function prefixTreeIds(nodes, prefix) {
@@ -543,7 +543,7 @@ async function decomposeWbsWithLlm(opts = {}) {
       cacheLayer: out.meta?.cacheLayer || null,
     });
     if (!out.ok) {
-      // Soft-continue: one slow/timeout chunk must not kill the whole pack (CPU 3B).
+      // One failed slice stays out of the merge; the other slices still apply.
       console.warn(
         `[how-wbs-llm] chunk ${i}/${chunks.length} failed reason=${out.meta?.fallbackReason || 'failed'} — continue`
       );
@@ -609,6 +609,13 @@ async function decomposeWbsWithLlm(opts = {}) {
       leafCount: applied.wbs?.taskCount ?? 0,
       hierarchyWrap: applied.wrapMeta || null,
       warnings,
+      contextStatus: truncatedFr ? 'insufficient_context' : packSlim.contextStatus || 'ready',
+      contextCoverage: {
+        ...(packSlim.contextCoverage || {}),
+        omittedRefs: truncatedFr
+          ? allChunks.slice(chunks.length).flat().map((row) => row.externalId || row.id).filter(Boolean)
+          : [],
+      },
     },
   };
 }

@@ -177,6 +177,7 @@ function sectionToArtifactType(section) {
     assumptions: 'ASSUMPTION',
     interfaces: 'INTERFACE',
     traceability: 'TRACE',
+    backlogStructure: 'BACKLOG',
   };
   return map[String(section || '')] || String(section || 'ITEM').toUpperCase();
 }

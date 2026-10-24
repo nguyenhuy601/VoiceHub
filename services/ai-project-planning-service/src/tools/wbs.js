@@ -1,32 +1,62 @@
 const { createEvidence } = require('../evidence/evidence');
-const { runWbsEngineAsync, applyWbsToContainer } = require('../engines/wbs');
+const { runWbsEngineAsync, applyWbsToContainer, wbsDecompositionError } = require('../engines/wbs');
+const { resolveWbsStoriesFromSot } = require('../engines/wbsStorySot');
+const { buildWbsSemanticFromStories } = require('../engines/wbsSemantic');
 
+/**
+ * WbsTool — Story SoT (Gate1 approvedBacklogStructure / planning.backlog) + semantic.
+ * LLM decomposes Story → Task only. No extractApprovedSrsForWbs / FR-unit invent.
+ */
 async function wbs(input = {}, context = {}) {
   const snapshotId = input.snapshotId || null;
-  const container = context.container || input.container || {};
+  const container = context.container || {};
   const pack = context.pack || input.pack || {};
-  const planningHints = input.planningHints || context.planningHints || null;
-  const runId = context.runId || input.runId || null;
-  const generationId = context.generationId || input.generationId || runId || null;
-  const contextPackage =
-    input.contextPackage || context.contextPackage || null;
+  const toolData = input.toolData || context.toolData || {};
 
-  const backlog = container?.planning?.backlog || null;
-  const storyCount = Array.isArray(backlog?.stories) ? backlog.stories.length : 0;
+  const sot = resolveWbsStoriesFromSot({
+    pack,
+    container,
+    toolData,
+    approvedBacklogStructure: input.approvedBacklogStructure || null,
+  });
+
+  const semanticBundle =
+    input.semantic && typeof input.semantic === 'object'
+      ? { ok: true, semantic: input.semantic }
+      : await buildWbsSemanticFromStories({
+          stories: sot.stories,
+          pack,
+          env: input.env,
+          contextPackage: input.contextPackage || context.contextPackage || null,
+          snapshot: input.snapshot || context.snapshot || null,
+          snapshotId,
+        });
+
+  const storyCount = sot.stories.length;
   if (!storyCount) {
     console.warn(
-      '[WbsTool] empty planning.backlog.stories — run BacklogMapTool first; fail-closed (no hierarchy)'
+      '[WbsTool] missing approved backlog stories — fail-closed (no WBS leaves)'
     );
   }
 
+  const roleAllowList = Array.isArray(toolData.enabledProjectRoleKeys)
+    ? toolData.enabledProjectRoleKeys
+    : Array.isArray(pack.enabledProjectRoleKeys)
+      ? pack.enabledProjectRoleKeys
+      : null;
+
   const result = await runWbsEngineAsync(container, {
     pack,
-    planningHints,
+    toolData,
+    approvedBacklogStructure: input.approvedBacklogStructure || null,
+    semantic: semanticBundle.semantic || null,
+    semanticBundle,
+    roleAllowList,
     generateJsonFn: input.generateJsonFn,
     env: input.env,
-    runId,
-    generationId,
-    contextPackage,
+    runId: context.runId || null,
+    generationId: context.generationId || null,
+    inputSnapshotId: snapshotId,
   });
   const updated = applyWbsToContainer(container, result);
   const leafCount =
@@ -38,10 +68,15 @@ async function wbs(input = {}, context = {}) {
   const outcome = result.meta?.decompositionOutcome || 'failure';
   const unresolvedN = Array.isArray(result.meta?.unresolvedStoryIds)
     ? result.meta.unresolvedStoryIds.length
-    : 0;
+    : Array.isArray(result.meta?.unresolvedUnitIds)
+      ? result.meta.unresolvedUnitIds.length
+      : 0;
   console.info(
     `[WbsTool] storiesIn=${storyCount} leaves=${leafCount} source=${source} outcome=${outcome} unresolved=${unresolvedN} reason=${result.meta?.fallbackReason || '-'}`
   );
+
+  const decompositionError = wbsDecompositionError(result);
+  if (decompositionError) throw decompositionError;
 
   const evidence = [
     createEvidence({

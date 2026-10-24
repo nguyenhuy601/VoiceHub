@@ -1,45 +1,45 @@
 const { createEvidence } = require('../evidence/evidence');
-const { runRiskEngine, applyRiskToContainer } = require('../engines/risk');
-const { enrichRiskWithLlm } = require('../engines/riskLlm');
+const { runRiskSecGraph } = require('../howSecs/risks/riskGraph');
 
-/** G12 Risk — heuristic base + optional LLM enrich */
+/** Risks — Semantic→Fact→LLM→Accept. No heuristic risk catalog fallback. */
 async function risk(input = {}, context = {}) {
   const snapshotId = input.snapshotId || input.id || null;
   const container = context.container || input.container || {};
   const pack = context.pack || input.pack || {};
   const env = input.env || context.env || process.env;
-  let result = runRiskEngine(container);
-  result = await enrichRiskWithLlm(result, {
+  const generateJsonFn = input.generateJsonFn || context.generateJsonFn || null;
+
+  const { result, containerPatch } = await runRiskSecGraph({
     pack,
     container,
     env,
-    generateJsonFn: input.generateJsonFn || context.generateJsonFn || null,
+    generateJsonFn,
+    contextPackage: input.contextPackage || context.contextPackage || null,
+    snapshot: input.snapshot || context.snapshot || null,
+    snapshotId,
   });
-  const updated = applyRiskToContainer(container, result);
   const risks = result.risks || result.items || [];
-
-  const evidence = [
-    createEvidence({
-      sourceType: 'risk_catalog',
-      sourceId: result.meta?.source || 'heuristic',
-      snapshotId,
-      metric: 'risk_count',
-      value: risks.length,
-      unit: 'count',
-      calculatedBy: 'RiskTool',
-      ruleId: result.meta?.llmRisksAdded ? 'RISK-LLM-001' : 'RISK-HEUR-001',
-    }),
-  ];
-
   return {
     result: {
       risks,
       items: result.items || risks,
       maxSeverity: result.maxSeverity,
+      openQuestions: result.openQuestions || [],
       stub: false,
-      container: updated,
+      container: containerPatch,
     },
-    evidence,
+    evidence: [
+      createEvidence({
+        sourceType: 'risk_catalog',
+        sourceId: result.meta?.source || 'fact_llm',
+        snapshotId,
+        metric: 'risk_count',
+        value: risks.length,
+        unit: 'count',
+        calculatedBy: 'RiskTool',
+        ruleId: 'RISK-SEC-TOOL-LLM-001',
+      }),
+    ],
   };
 }
 

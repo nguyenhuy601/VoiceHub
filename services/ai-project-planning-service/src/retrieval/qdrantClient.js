@@ -99,6 +99,81 @@ function createQdrantClient(opts = {}) {
     return res.data;
   }
 
+  async function retrievePoints(ids) {
+    const root = assertConfigured();
+    const list = (Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean);
+    if (!list.length) return [];
+    const res = await http.post(
+      `${root}/collections/${encodeURIComponent(collection)}/points`,
+      { ids: list, with_payload: false, with_vector: false },
+      { validateStatus: () => true, timeout: 30000 }
+    );
+    if (res.status < 200 || res.status >= 300) {
+      const err = new Error(`Qdrant retrieve failed: ${res.status}`);
+      err.code = 'QDRANT_RETRIEVE_FAILED';
+      err.status = res.status;
+      throw err;
+    }
+    const points = res.data?.result;
+    return Array.isArray(points) ? points : [];
+  }
+
+  async function deletePoints(ids) {
+    const root = assertConfigured();
+    const list = (Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean);
+    if (!list.length) return { deleted: 0 };
+    const res = await http.post(
+      `${root}/collections/${encodeURIComponent(collection)}/points/delete?wait=true`,
+      { points: list },
+      { validateStatus: () => true, timeout: 60000 }
+    );
+    if (res.status < 200 || res.status >= 300) {
+      const err = new Error(`Qdrant delete failed: ${res.status}`);
+      err.code = 'QDRANT_DELETE_FAILED';
+      err.status = res.status;
+      throw err;
+    }
+    return { deleted: list.length };
+  }
+
+  async function scrollSnapshotPoints(snapshotId) {
+    const root = assertConfigured();
+    const sid = String(snapshotId || '').trim();
+    if (!sid) return [];
+    const found = [];
+    let offset;
+    for (let page = 0; page < 40; page += 1) {
+      const body = {
+        filter: { must: [{ key: 'snapshotId', match: { value: sid } }] },
+        limit: 256,
+        with_payload: ['sourceId'],
+        with_vector: false,
+      };
+      if (offset != null) body.offset = offset;
+      const res = await http.post(
+        `${root}/collections/${encodeURIComponent(collection)}/points/scroll`,
+        body,
+        { validateStatus: () => true, timeout: 30000 }
+      );
+      if (res.status < 200 || res.status >= 300) {
+        const err = new Error(`Qdrant scroll failed: ${res.status}`);
+        err.code = 'QDRANT_SCROLL_FAILED';
+        err.status = res.status;
+        throw err;
+      }
+      const points = Array.isArray(res.data?.result?.points) ? res.data.result.points : [];
+      for (const point of points) {
+        found.push({
+          id: point.id,
+          sourceId: String(point.payload?.sourceId || ''),
+        });
+      }
+      offset = res.data?.result?.next_page_offset;
+      if (offset == null || offset === '') break;
+    }
+    return found;
+  }
+
   async function search({ vector, snapshotId, limit = 8 }) {
     const root = assertConfigured();
     const sid = String(snapshotId || '').trim();
@@ -133,6 +208,9 @@ function createQdrantClient(opts = {}) {
     collection,
     ensureCollection,
     upsertPoints,
+    retrievePoints,
+    deletePoints,
+    scrollSnapshotPoints,
     search,
   };
 }

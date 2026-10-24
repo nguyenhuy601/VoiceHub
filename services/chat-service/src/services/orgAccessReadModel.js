@@ -72,7 +72,7 @@ async function upsertLocal(orgId, userId, payload) {
       scope: normalized.scope,
       updatedAt: new Date(),
     },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
   );
   return normalized;
 }

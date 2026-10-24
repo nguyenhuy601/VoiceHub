@@ -1,9 +1,12 @@
 /**
  * Deterministic subset ported from
  * project-service/src/utils/aiAnalysis/aiAnalysisAssignment.js.
- * Skips feasible===false; respects cumulative; prefers feature owner.
+ * Skips infeasible and overloaded candidates, then rechecks remaining hours
+ * against assignments already accepted in this pass. Prefers feature owner.
  * Load-balances by hours then task count; assigns critical-path work first.
  */
+const { evaluateCapacityForAssignment, isAssignableCandidate } = require('./assignmentCriteria');
+
 const RATIONALE_MAX = 160;
 const HOURS_PER_FTE = 40;
 
@@ -176,9 +179,7 @@ function greedyAssignFromShortlists(
     const preferredFromRec = recommendation.preferredOwnerUserId || preferredOwner;
     const taskHours = taskHoursFromContainer(tasks, recommendation.taskId);
 
-    const eligible = [...candidatesOf(recommendation)].filter(
-      (candidate) => candidate?.userId && candidate.feasible !== false
-    );
+    const eligible = [...candidatesOf(recommendation)].filter(isAssignableCandidate);
 
     const sortOpts = { preferredFromRec, hoursUsed, usage, fitEpsilon };
     const candidates =
@@ -190,6 +191,8 @@ function greedyAssignFromShortlists(
       if ((usage.get(item.userId) || 0) >= maxTasksPerUser) return false;
       const usedH = hoursUsed.get(item.userId) || 0;
       if (taskHours > 0 && usedH + taskHours > effectiveMaxHours) return false;
+      const capacity = evaluateCapacityForAssignment(item, taskHours, usedH);
+      if (!capacity.feasible) return false;
       return true;
     });
     if (!candidate) continue;

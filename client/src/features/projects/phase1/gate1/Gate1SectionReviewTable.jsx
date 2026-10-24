@@ -59,11 +59,52 @@ function rowDecisionClass(action) {
   return 'bg-card';
 }
 
+function acceptPayloadForRow(section, row, columns, cfg) {
+  if (section !== 'assignments' || !String(row?.assigneeUserId || '').trim()) return null;
+  if (typeof cfg?.seedEditedPayload !== 'function') return null;
+  return cfg.seedEditedPayload(row, columns);
+}
+
 function decisionActionLabel(t, act) {
   return labelOf(
     t,
     `requirements.phase1Decision_${act}`,
     act === 'accept' ? 'Chấp nhận' : act === 'edit' ? 'Sửa' : 'Từ chối'
+  );
+}
+
+const INLINE_FIELD_CLASS =
+  'h-7 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground shadow-none outline-none ring-offset-background focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring';
+
+function AssignmentSelectCell({ row, col, editedPayload, cfg, t, onChange }) {
+  const options =
+    typeof cfg.getSelectOptions === 'function'
+      ? cfg.getSelectOptions(row, col, editedPayload) || []
+      : [];
+  const raw = String(cfg.getFieldValue(row, col, editedPayload) ?? '');
+  const known = options.some((option) => option.value === raw);
+  return (
+    <select
+      className={INLINE_FIELD_CLASS}
+      value={known ? raw : ''}
+      onChange={(e) => {
+        const next =
+          typeof cfg.patchCatalogValue === 'function'
+            ? cfg.patchCatalogValue(row, col, editedPayload, e.target.value)
+            : cfg.patchEditedPayload(editedPayload, col.field, e.target.value);
+        onChange(next);
+      }}
+      aria-label={labelOf(t, col.headerKey, col.headerFallback)}
+    >
+      <option value="">
+        {labelOf(t, col.placeholderKey, col.placeholderFallback || '—')}
+      </option>
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -280,13 +321,16 @@ export default function Gate1SectionReviewTable({
             editedPayload: cfg.seedEditedPayload(row || {}, columns),
           });
         } else if (action === 'accept') {
-          setDecision(id, { action: 'accept', editedPayload: null });
+          setDecision(id, {
+            action: 'accept',
+            editedPayload: acceptPayloadForRow(section, row, columns, cfg),
+          });
         } else if (action === 'reject') {
           setDecision(id, { action: 'reject', editedPayload: null });
         }
       }
     },
-    [showSubmit, setDecision, rows, columns]
+    [showSubmit, setDecision, rows, columns, section]
   );
 
   const applyBulk = useCallback(
@@ -310,12 +354,15 @@ export default function Gate1SectionReviewTable({
         return;
       }
       if (action === 'accept') {
-        setDecision(id, { action: 'accept', editedPayload: null });
+        setDecision(id, {
+          action: 'accept',
+          editedPayload: acceptPayloadForRow(section, row, columns, cfg),
+        });
         return;
       }
       setDecision(id, { action: 'reject', editedPayload: null });
     },
-    [columns, decisions, setDecision]
+    [columns, decisions, setDecision, section]
   );
 
   const allowAdd = Boolean(canAddRow && showSubmit && typeof onAddRow === 'function');
@@ -503,10 +550,24 @@ export default function Gate1SectionReviewTable({
                         isRejected ? 'line-through text-muted-foreground' : ''
                       }`}
                     >
-                      {canInline ? (
+                      {canInline && col.editor === 'select' ? (
+                        <AssignmentSelectCell
+                          row={row}
+                          col={col}
+                          editedPayload={d.editedPayload}
+                          cfg={cfg}
+                          t={t}
+                          onChange={(editedPayload) =>
+                            setDecision(id, {
+                              ...(action === 'create' ? { action: 'create', section } : {}),
+                              editedPayload,
+                            })
+                          }
+                        />
+                      ) : canInline ? (
                         <input
                           type="text"
-                          className="h-7 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground shadow-none outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring"
+                          className={`${INLINE_FIELD_CLASS} placeholder:text-muted-foreground`}
                           value={cfg.getFieldValue(row, col, d.editedPayload)}
                           onChange={(e) =>
                             setDecision(id, {

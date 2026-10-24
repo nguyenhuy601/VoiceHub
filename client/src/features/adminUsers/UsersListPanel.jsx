@@ -306,18 +306,19 @@ export default function UsersListPanel({ orgId }) {
           positionAssignRes,
           assignmentsFailed,
         } = await fetchUsersListEnrichment(orgId);
-        const body = structureRes?.data?.data ?? structureRes?.data ?? structureRes;
+        // apiClient interceptor trả body ({ success, data }) — không còn axios.response.
+        const body = structureRes?.data ?? structureRes;
         const assignments =
           assignRes?.data?.assignments ||
-          assignRes?.data?.data?.assignments ||
+          assignRes?.assignments ||
           [];
         const positions =
           positionRes?.data?.positions ||
-          positionRes?.data?.data?.positions ||
+          positionRes?.positions ||
           [];
         const positionAssignments =
           positionAssignRes?.data?.assignments ||
-          positionAssignRes?.data?.data?.assignments ||
+          positionAssignRes?.assignments ||
           [];
         const positionNameById = new Map(
           (Array.isArray(positions) ? positions : []).map((row) => [
@@ -334,17 +335,37 @@ export default function UsersListPanel({ orgId }) {
             positionNameById.get(String(row?.positionId || '').trim());
           if (uid && name && !nextPositionByUser[uid]) nextPositionByUser[uid] = name;
           const labels = Array.isArray(row?.orgRoleLabels) ? row.orgRoleLabels.filter(Boolean) : [];
-          if (uid && labels.length && !roleFromPosition[uid]) {
-            roleFromPosition[uid] = labels.map((label) => ({ label }));
+          const keys = Array.isArray(row?.orgRoleKeys) ? row.orgRoleKeys.filter(Boolean) : [];
+          if (!uid || (!labels.length && !keys.length)) continue;
+          const rows = (keys.length ? keys : labels).map((keyOrLabel, i) => ({
+            roleKey: keys[i] || undefined,
+            label: labels[i] || labels[0] || keyOrLabel,
+          }));
+          const prev = roleFromPosition[uid] || [];
+          for (const r of rows) {
+            if (!prev.some((p) => (p.roleKey && r.roleKey ? p.roleKey === r.roleKey : p.label === r.label))) {
+              prev.push(r);
+            }
           }
+          roleFromPosition[uid] = prev;
         }
         if (!cancelled) {
           setStructureMaps(collectDeptTeamMaps(body));
-          // Vai trò theo vị trí. Gán riêng (nếu có) được giữ khi vị trí chưa có nhãn.
+          // Gộp gán catalog + vai từ vị trí (không ghi đè lẫn nhau).
           const rowMap = buildOrgRoleRowsByUserId({ branches: [] }, assignments, tRef.current);
           const mergedRoles = Object.fromEntries(rowMap);
           for (const [uid, rows] of Object.entries(roleFromPosition)) {
-            if (!mergedRoles[uid]?.length) mergedRoles[uid] = rows;
+            const prev = mergedRoles[uid] || [];
+            for (const r of rows) {
+              if (
+                !prev.some((p) =>
+                  p.roleKey && r.roleKey ? p.roleKey === r.roleKey : p.label === r.label
+                )
+              ) {
+                prev.push(r);
+              }
+            }
+            mergedRoles[uid] = prev;
           }
           setOrgRoleByUser(mergedRoles);
           setPositionByUser(nextPositionByUser);

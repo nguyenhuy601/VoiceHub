@@ -10,6 +10,7 @@ x-rabbit-node: &rabbit-node
     RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:?set RABBITMQ_ERLANG_COOKIE in .env}
     RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?}
     RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?}
+    # Erlang nodename của seed vẫn là rabbit@rabbitmq-1 (hostname). Không đổi được khi đã có quorum.
     RABBITMQ_SEED_HOST: rabbitmq-1
   volumes:
     - type: bind
@@ -38,9 +39,15 @@ x-rabbit-node: &rabbit-node
         - spread: node.id
 
 services:
-  rabbitmq-1:
+  # DNS overlay = rabbitmq. Task Swarm: voicehub-rabbit_rabbitmq.1 (.1 là slot, không nằm trong tên service).
+  # hostname giữ rabbitmq-1: nodename Erlang gắn volume quorum; rename_cluster_node là no-op.
+  rabbitmq:
     <<: *rabbit-node
     hostname: rabbitmq-1
+    networks:
+      enterprise-network:
+        aliases:
+          - rabbitmq-1
     environment:
       <<: *rabbit-env
       RABBITMQ_CLUSTER_ROLE: seed

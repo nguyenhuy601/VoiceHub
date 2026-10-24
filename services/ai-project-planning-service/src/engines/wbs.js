@@ -1,70 +1,38 @@
 /**
- * WBS generation — LLM-only task leaves under planning.backlog (no hierarchy heuristic).
+ * WBS generation — LLM task leaves per approved FR.
+ * An FR with 2+ tasks is promoted to a Feature under its Gate1 Story or Epic.
  */
 
 const { proposeWbsTasksWithLlm, isHowWbsLlmEnabled } = require('./wbsProposeLlm');
-const { backlogNodesAsTasks } = require('./backlogMap');
+const { resolveWbsStoriesFromSot } = require('./wbsStorySot');
+const { buildWbsSemanticFromStories } = require('./wbsSemantic');
 
-const AREA_ROLE_HINT = Object.freeze({
-  frontend: 'frontend_developer',
-  backend: 'backend_developer',
-  database: 'backend_developer',
-  api: 'backend_developer',
-  auth: 'backend_developer',
-  infrastructure: 'devops_engineer',
-  external: 'backend_developer',
-  security: 'backend_developer',
-  deployment: 'devops_engineer',
-  qa: 'qa_engineer',
-  design: 'ui_ux_designer',
-  management: 'project_manager',
-  analysis: 'business_analyst',
-});
-
-/** Whitelist only — never persist legacy hierarchy_chunked / queue meta keys. */
+/** Whitelist only — never persist legacy hierarchy_chunked / void meta keys. */
 const WBS_META_KEYS = Object.freeze([
   'source',
   'decompositionOutcome',
   'fallbackReason',
   'reasonCodes',
+  'unresolvedUnitIds',
   'unresolvedStoryIds',
   'uncoveredFrIds',
+  'isolatedFrIds',
   'uncoveredAcKeys',
   'llmCalls',
   'llmMs',
   'model',
   'promptChars',
   'storyCount',
+  'epicCount',
+  'featureCount',
+  'unitCount',
   'leafCount',
   'taskCount',
   'chunks',
-  'ctxItems',
+  'chunkOrchestrator',
+  'deadLetterIds',
+  'rejectedSnapshotIds',
 ]);
-
-function slugPart(raw) {
-  return String(raw || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-}
-
-function inferAreaFromCapability(cap) {
-  const blob = `${cap?.name || ''} ${cap?.module || ''} ${(cap?.requiredSkills || [])
-    .map((s) => (typeof s === 'string' ? s : s.name || ''))
-    .join(' ')}`.toLowerCase();
-  if (/front|react|ui|css|html|ux/.test(blob)) return 'frontend';
-  if (/qa|test|selenium/.test(blob)) return 'qa';
-  if (/devops|deploy|infra|k8s|docker/.test(blob)) return 'infrastructure';
-  if (/design|figma|wireframe/.test(blob)) return 'design';
-  if (/auth|oauth|jwt|security/.test(blob)) return 'auth';
-  if (/db|sql|mongo|data model/.test(blob)) return 'database';
-  if (/api|rest|graphql|endpoint/.test(blob)) return 'api';
-  if (/manage|plan|scrum|pm/.test(blob)) return 'management';
-  if (/analy|ba |business/.test(blob)) return 'analysis';
-  return 'backend';
-}
 
 function sanitizeWbsMeta(meta = {}) {
   const src = meta && typeof meta === 'object' ? meta : {};
@@ -76,11 +44,23 @@ function sanitizeWbsMeta(meta = {}) {
   if (out.llmCalls == null) out.llmCalls = 0;
   if (!out.decompositionOutcome) {
     out.decompositionOutcome =
-      out.source === 'llm_story_tasks' || out.source === 'llm_story_tasks_chunked'
+      out.source === 'llm_story_tasks' ||
+      out.source === 'llm_story_tasks_chunked' ||
+      out.source === 'llm_fr_tasks' ||
+      out.source === 'llm_fr_tasks_chunked'
         ? 'success'
         : 'failure';
   }
   return out;
+}
+
+function wbsDecompositionError(result) {
+  const outcome = String(result?.meta?.decompositionOutcome || '').toLowerCase();
+  if (result?.status !== 'error' && outcome !== 'failure') return null;
+  const reason = result?.meta?.fallbackReason || outcome || 'wbs_decomposition_failed';
+  const err = new Error(`Phân rã WBS thất bại (${reason}).`);
+  err.code = 'WBS_DECOMPOSITION_FAILED';
+  return err;
 }
 
 function failClosedResult(meta = {}) {
@@ -109,104 +89,103 @@ function llmSuccessResult(llmOut) {
     meta: sanitizeWbsMeta({
       ...llmOut.meta,
       source: llmOut.meta?.source || 'llm_story_tasks',
-      decompositionOutcome:
-        llmOut.meta?.decompositionOutcome || 'success',
+      decompositionOutcome: llmOut.meta?.decompositionOutcome || 'success',
       taskCount: llmOut.tasks?.length || 0,
       leafCount: llmOut.wbs?.taskCount ?? 0,
     }),
   };
 }
 
-/**
- * Sync path — LLM-only product path; sync without LLM returns fail-closed (no hierarchy).
- */
-function runWbsEngine(container = {}, opts = {}) {
-  const backlog = container?.planning?.backlog || opts.backlog || null;
-  if (!backlog?.stories?.length) {
+function runWbsEngine(_container = {}, opts = {}) {
+  const sot = resolveWbsStoriesFromSot({
+    pack: opts.pack,
+    container: _container,
+    toolData: opts.toolData,
+    approvedBacklogStructure: opts.approvedBacklogStructure,
+  });
+  if (!sot.ok) {
     return failClosedResult({
-      fallbackReason: 'empty_backlog_stories',
-      reasonCodes: ['empty_backlog_stories'],
+      fallbackReason: 'missing_approved_backlog_stories',
+      reasonCodes: sot.reasonCodes,
     });
   }
-  const tasks = backlogNodesAsTasks(backlog);
-  return {
-    status: 'error',
-    model: null,
-    generatedAt: new Date().toISOString(),
-    tasks,
-    wbs: {
-      roots: tasks.filter((t) => !t.parentId).map((t) => t.id),
-      nodes: tasks,
-      taskCount: 0,
-    },
-    meta: sanitizeWbsMeta({
-      source: 'llm_failed',
-      decompositionOutcome: 'failure',
-      fallbackReason: 'sync_path_requires_async_llm',
-      reasonCodes: ['sync_path_requires_async_llm'],
-      llmCalls: 0,
-    }),
-  };
+  return failClosedResult({
+    fallbackReason: 'sync_path_requires_async_llm',
+    reasonCodes: ['sync_path_requires_async_llm'],
+    storyCount: sot.stories.length,
+  });
 }
 
 /**
- * LLM-only async. No hierarchy / queue fallback (product path = in-process story propose).
- *
  * @param {object} container
- * @param {{ pack?: object, planningHints?: object, env?: object, generateJsonFn?: Function, runId?: string, generationId?: string, contextPackage?: object|null }} opts
+ * @param {{
+ *   pack?: object,
+ *   toolData?: object,
+ *   approvedBacklogStructure?: object,
+ *   semantic?: object|null,
+ *   env?: object,
+ *   generateJsonFn?: Function,
+ * }} opts
  */
 async function runWbsEngineAsync(container = {}, opts = {}) {
-  const pack = opts.pack || container?.pack || {};
+  const pack = opts.pack || {};
   const env = opts.env || process.env;
-  const backlog = container?.planning?.backlog || opts.backlog || null;
-  const contextPackage =
-    opts.contextPackage || container?.contextPackage || null;
 
-  if (!backlog || !Array.isArray(backlog.stories) || !backlog.stories.length) {
-    console.error('[how-wbs] fail-closed empty_backlog_stories');
+  const sot = resolveWbsStoriesFromSot({
+    pack,
+    container,
+    toolData: opts.toolData,
+    approvedBacklogStructure: opts.approvedBacklogStructure,
+  });
+
+  if (!sot.ok || !sot.stories.length) {
+    console.error('[how-wbs] fail-closed missing_approved_backlog_stories');
     return failClosedResult({
-      fallbackReason: 'empty_backlog_stories',
-      reasonCodes: ['empty_backlog_stories'],
+      fallbackReason: 'missing_approved_backlog_stories',
+      reasonCodes: sot.reasonCodes || ['missing_approved_backlog_stories'],
     });
   }
 
-  function backlogContainersOnly(extraMeta = {}) {
-    const containers = backlogNodesAsTasks(backlog);
-    return {
-      status: 'error',
-      model: null,
-      generatedAt: new Date().toISOString(),
-      tasks: containers,
-      wbs: {
-        roots: containers.filter((t) => !t.parentId).map((t) => t.id),
-        nodes: containers,
-        taskCount: 0,
-      },
-      meta: sanitizeWbsMeta({
-        source: 'llm_failed',
-        llmCalls: 0,
-        taskCount: containers.length,
-        leafCount: 0,
-        ...extraMeta,
-        decompositionOutcome: extraMeta.decompositionOutcome || 'failure',
-      }),
-    };
+  const semanticBundle = opts.semanticBundle
+    ? opts.semanticBundle
+    : opts.semantic && typeof opts.semantic === 'object'
+      ? { ok: true, semantic: opts.semantic }
+      : await buildWbsSemanticFromStories({
+          stories: sot.stories,
+          pack,
+          env,
+        });
+
+  if (!semanticBundle.ok) {
+    console.error('[how-wbs] fail-closed', semanticBundle.contextStatus || 'semantic_incomplete');
+    return failClosedResult({
+      fallbackReason: semanticBundle.contextStatus || 'semantic_incomplete',
+      reasonCodes: semanticBundle.missingSlots || ['semantic_incomplete'],
+      storyCount: sot.stories.length,
+      epicCount: sot.epics.length,
+    });
   }
 
   if (!isHowWbsLlmEnabled(env)) {
     console.error('[how-wbs] fail-closed LLM_disabled');
-    return backlogContainersOnly({
+    return failClosedResult({
       fallbackReason: 'HOW_WBS_LLM_or_runtime_off',
       reasonCodes: ['HOW_WBS_LLM_or_runtime_off'],
+      storyCount: sot.stories.length,
+      epicCount: sot.epics.length,
     });
   }
 
   const llmOut = await proposeWbsTasksWithLlm({
-    backlog,
-    pack,
-    contextPackage,
+    stories: sot.stories,
+    epics: sot.epics,
+    semantic: semanticBundle.semantic || null,
+    roleAllowList: Array.isArray(opts.roleAllowList) ? opts.roleAllowList : null,
     env,
     generateJsonFn: opts.generateJsonFn,
+    runId: opts.runId || null,
+    generationId: opts.generationId || null,
+    inputSnapshotId: opts.inputSnapshotId || null,
   });
 
   if (llmOut.ok && Array.isArray(llmOut.tasks) && llmOut.wbs) {
@@ -218,12 +197,13 @@ async function runWbsEngineAsync(container = {}, opts = {}) {
     llmOut.meta?.fallbackReason || 'llm_failed',
     (llmOut.meta?.reasonCodes || []).join(';')
   );
-  const failed = backlogContainersOnly({
+  return failClosedResult({
     ...llmOut.meta,
     llmCalls: llmOut.meta?.llmCalls || 0,
+    model: llmOut.meta?.model || null,
+    storyCount: sot.stories.length,
+    epicCount: sot.epics.length,
   });
-  failed.model = llmOut.meta?.model || null;
-  return failed;
 }
 
 function applyWbsToContainer(container, wbsResult) {
@@ -237,7 +217,6 @@ function applyWbsToContainer(container, wbsResult) {
     nodes: [],
     taskCount: 0,
   };
-  // Replace wbs wholesale — no deep-merge with prior hierarchy_chunked meta
   next.planning.wbs = {
     roots: Array.isArray(baseWbs.roots) ? baseWbs.roots : [],
     nodes: Array.isArray(baseWbs.nodes) ? baseWbs.nodes : [],
@@ -251,18 +230,10 @@ function applyWbsToContainer(container, wbsResult) {
   return next;
 }
 
-/** @deprecated hierarchy removed — export stub for older imports */
-function buildHeuristicWbsTasks() {
-  return [];
-}
-
 module.exports = {
-  AREA_ROLE_HINT,
-  inferAreaFromCapability,
-  slugPart,
   sanitizeWbsMeta,
+  wbsDecompositionError,
   WBS_META_KEYS,
-  buildHeuristicWbsTasks,
   runWbsEngine,
   runWbsEngineAsync,
   applyWbsToContainer,

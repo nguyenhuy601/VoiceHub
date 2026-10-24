@@ -30,7 +30,12 @@ async function retrieveQdrant(args = {}) {
   }
 
   const embedFn = args.embedFn || embedText;
+  const embedStarted = process.hrtime.bigint();
   const emb = await embedFn({ text: query || 'planning', env });
+  const queryEmbedMs = Math.max(
+    0,
+    Math.round(Number(process.hrtime.bigint() - embedStarted) / 1e6)
+  );
   if (!emb.ok) {
     const err = new Error(emb.error || 'embed_failed');
     err.code = 'G7_EMBED_FAILED';
@@ -38,11 +43,16 @@ async function retrieveQdrant(args = {}) {
   }
 
   const qdrant = args.qdrant || createQdrantClient({ env });
+  const searchStarted = process.hrtime.bigint();
   const hits = await qdrant.search({
     vector: emb.embedding,
     snapshotId,
     limit: topK,
   });
+  const searchMs = Math.max(
+    0,
+    Math.round(Number(process.hrtime.bigint() - searchStarted) / 1e6)
+  );
 
   const docs = hits.map((hit, i) => {
     const payload = hit.payload || {};
@@ -62,7 +72,7 @@ async function retrieveQdrant(args = {}) {
   });
 
   console.log('[g7_retrieve]', snapshotId, 'hits=', docs.length);
-  return { docs, modeUsed: 'qdrant', isStub: false };
+  return { docs, modeUsed: 'qdrant', isStub: false, timing: { queryEmbedMs, searchMs } };
 }
 
 module.exports = { retrieveQdrant };

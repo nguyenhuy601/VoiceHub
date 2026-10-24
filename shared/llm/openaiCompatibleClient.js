@@ -15,6 +15,10 @@ const REMOTE_PROVIDERS = new Set([
 
 const MAX_TRANSIENT_RETRIES = 2;
 const RETRY_DELAY_MS = 800;
+/** qwen-plus / qwen-flash completion ceiling on DashScope. */
+const QWEN_PLUS_MAX_OUTPUT_TOKENS = 32768;
+/** qwen-max rejects max_tokens above this (HTTP 400 invalid_parameter_error). */
+const QWEN_MAX_OUTPUT_TOKENS = 8192;
 
 function llmProvider(env = process.env) {
   return String(env.LLM_PROVIDER || 'ollama').trim().toLowerCase();
@@ -32,6 +36,18 @@ function openAiBaseUrl(env = process.env) {
 
 function openAiApiKey(env = process.env) {
   return String(env.DASHSCOPE_API_KEY || env.OPENAI_API_KEY || '').trim();
+}
+
+/**
+ * Completion ceiling for the configured chat model.
+ * qwen-max is 8192. qwen-plus and qwen-flash accept the 32768 window.
+ */
+function resolveChatMaxOutputTokens(env = process.env, modelName) {
+  const model = String(modelName || chatModel(env) || '')
+    .trim()
+    .toLowerCase();
+  if (model.startsWith('qwen-max')) return QWEN_MAX_OUTPUT_TOKENS;
+  return QWEN_PLUS_MAX_OUTPUT_TOKENS;
 }
 
 function chatModel(env = process.env, fallback = 'qwen3.8-max') {
@@ -114,10 +130,11 @@ async function chatCompletionsText(opts = {}) {
     opts.timeoutMs != null && Number.isFinite(Number(opts.timeoutMs))
       ? Math.max(5000, Math.min(600000, Number(opts.timeoutMs)))
       : 180000;
+  const outputCeiling = resolveChatMaxOutputTokens(env, model);
   const maxTokens =
     opts.maxTokens != null && Number.isFinite(Number(opts.maxTokens))
-      ? Math.max(32, Math.min(8192, Math.round(Number(opts.maxTokens))))
-      : 512;
+      ? Math.max(32, Math.min(outputCeiling, Math.round(Number(opts.maxTokens))))
+      : outputCeiling;
   const temperature =
     opts.temperature != null && Number.isFinite(Number(opts.temperature))
       ? Number(opts.temperature)
@@ -147,7 +164,11 @@ async function chatCompletionsText(opts = {}) {
 
       if (!res || res.status < 200 || res.status >= 300) {
         const status = res?.status || 0;
-        lastError = `openai_http_${status}`;
+        const detail = String(res?.data?.error?.message || res?.data?.message || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 160);
+        lastError = detail ? `openai_http_${status}: ${detail}` : `openai_http_${status}`;
         if (isRetryableHttpStatus(status) && attempt < MAX_TRANSIENT_RETRIES) {
           await wait(RETRY_DELAY_MS);
           continue;
@@ -244,58 +265,168 @@ async function embeddingsCreate(opts = {}) {
       ? Math.round(Number(opts.dimensions))
       : remoteEmbedDimensions(env);
 
-  const body = {
+  const many = await embeddingsCreateBatch({
+    texts: [text],
     model,
-    input: text,
-    encoding_format: 'float',
+    dimensions,
+    timeoutMs: timeout,
+    env,
+    axiosImpl: http,
+    sleepImpl: wait,
+  });
+  return {
+    ok: Boolean(many.ok),
+    embedding: Array.isArray(many.embeddings) ? many.embeddings[0] || [] : [],
+    model: many.model || model,
+    error: many.error,
+    retries: Number(many.retries) || 0,
   };
-  if (dimensions) {
-    body.dimensions = dimensions;
+}
+
+/** DashScope text-embedding-v4 accepts at most 10 inputs per request. */
+const EMBED_BATCH_LIMIT = 10;
+
+function vectorsFromEmbedResponse(rows, expected) {
+  const list = Array.isArray(rows) ? rows : [];
+  const embeddings = new Array(expected).fill(null);
+  const indexed = list.some((row) => Number.isInteger(row?.index));
+  if (!indexed && list.length === expected) {
+    for (let i = 0; i < list.length; i += 1) {
+      const vector = list[i]?.embedding;
+      if (Array.isArray(vector) && vector.length) embeddings[i] = vector;
+    }
+  } else {
+    for (const row of list) {
+      const index = Number.isInteger(row?.index) ? row.index : -1;
+      const vector = row?.embedding;
+      if (index < 0 || index >= expected) continue;
+      if (Array.isArray(vector) && vector.length) embeddings[index] = vector;
+    }
+  }
+  if (embeddings.some((vector) => !Array.isArray(vector) || !vector.length)) return null;
+  return embeddings;
+}
+
+/**
+ * Batch embeddings. `texts` may exceed 10; this function splits them.
+ * A failed chunk stops the call. `retries` counts extra attempts after the first post.
+ * @param {{
+ *   texts?: string[],
+ *   model?: string,
+ *   dimensions?: number,
+ *   timeoutMs?: number,
+ *   env?: NodeJS.ProcessEnv,
+ *   axiosImpl?: object,
+ *   sleepImpl?: (ms: number) => Promise<void>,
+ * }} opts
+ */
+async function embeddingsCreateBatch(opts = {}) {
+  const env = opts.env || process.env;
+  const model = String(opts.model || remoteEmbedModel(env)).trim() || DEFAULT_REMOTE_EMBED_MODEL;
+  const http = opts.axiosImpl || axios;
+  const wait = opts.sleepImpl || sleep;
+  const baseUrl = openAiBaseUrl(env);
+  const apiKey = openAiApiKey(env);
+  const texts = (Array.isArray(opts.texts) ? opts.texts : [])
+    .map((item) => String(item || '').trim());
+
+  if (!texts.length) {
+    return { ok: true, embeddings: [], model, retries: 0, requestCount: 0 };
+  }
+  if (texts.some((item) => !item)) {
+    return { ok: false, embeddings: [], model, error: 'empty_text', retries: 0, requestCount: 0 };
+  }
+  if (!baseUrl) {
+    return { ok: false, embeddings: [], model, error: 'OPENAI_BASE_URL_missing', retries: 0, requestCount: 0 };
+  }
+  if (!apiKey) {
+    return { ok: false, embeddings: [], model, error: 'DASHSCOPE_API_KEY_missing', retries: 0, requestCount: 0 };
   }
 
-  let lastError = 'openai_embed_error';
-  for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
-    try {
-      const res = await http.post(`${baseUrl}/embeddings`, body, {
-        timeout,
-        validateStatus: () => true,
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-      });
+  const timeout =
+    opts.timeoutMs != null && Number.isFinite(Number(opts.timeoutMs))
+      ? Math.max(5000, Math.min(120000, Number(opts.timeoutMs)))
+      : Number(env.G7_EMBED_TIMEOUT_MS) > 0
+        ? Math.max(5000, Math.min(120000, Number(env.G7_EMBED_TIMEOUT_MS)))
+        : 60000;
+  const dimensions =
+    opts.dimensions != null && Number.isFinite(Number(opts.dimensions))
+      ? Math.round(Number(opts.dimensions))
+      : remoteEmbedDimensions(env);
 
-      if (!res || res.status < 200 || res.status >= 300) {
-        const status = res?.status || 0;
-        lastError = `openai_embed_http_${status}`;
-        if (isRetryableHttpStatus(status) && attempt < MAX_TRANSIENT_RETRIES) {
+  const embeddings = [];
+  let retries = 0;
+  let requestCount = 0;
+
+  for (let offset = 0; offset < texts.length; offset += EMBED_BATCH_LIMIT) {
+    const chunk = texts.slice(offset, offset + EMBED_BATCH_LIMIT);
+    const body = {
+      model,
+      input: chunk.length === 1 ? chunk[0] : chunk,
+      encoding_format: 'float',
+    };
+    if (dimensions) body.dimensions = dimensions;
+
+    let lastError = 'openai_embed_error';
+    let chunkVectors = null;
+    requestCount += 1;
+    for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
+      try {
+        const res = await http.post(`${baseUrl}/embeddings`, body, {
+          timeout,
+          validateStatus: () => true,
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!res || res.status < 200 || res.status >= 300) {
+          const status = res?.status || 0;
+          lastError = `openai_embed_http_${status}`;
+          if (isRetryableHttpStatus(status) && attempt < MAX_TRANSIENT_RETRIES) {
+            retries += 1;
+            await wait(RETRY_DELAY_MS);
+            continue;
+          }
+          return { ok: false, embeddings: [], model, error: lastError, retries, requestCount };
+        }
+        chunkVectors = vectorsFromEmbedResponse(res.data?.data, chunk.length);
+        if (!chunkVectors) {
+          return {
+            ok: false,
+            embeddings: [],
+            model,
+            error: 'openai_embed_incomplete',
+            retries,
+            requestCount,
+          };
+        }
+        break;
+      } catch (err) {
+        const code = err.code === 'ECONNABORTED' ? 'openai_embed_timeout' : 'openai_embed_error';
+        lastError = code;
+        if (code === 'openai_embed_timeout' && attempt < MAX_TRANSIENT_RETRIES) {
+          retries += 1;
           await wait(RETRY_DELAY_MS);
           continue;
         }
-        return { ok: false, embedding: [], model, error: lastError };
+        return { ok: false, embeddings: [], model, error: lastError, retries, requestCount };
       }
-
-      const vector = res.data?.data?.[0]?.embedding;
-      if (!Array.isArray(vector) || !vector.length) {
-        return { ok: false, embedding: [], model, error: 'openai_embed_empty' };
-      }
-      return { ok: true, embedding: vector, model };
-    } catch (err) {
-      const code = err.code === 'ECONNABORTED' ? 'openai_embed_timeout' : 'openai_embed_error';
-      lastError = code;
-      if (code === 'openai_embed_timeout' && attempt < MAX_TRANSIENT_RETRIES) {
-        await wait(RETRY_DELAY_MS);
-        continue;
-      }
-      return { ok: false, embedding: [], model, error: lastError };
     }
+    if (!chunkVectors) {
+      return { ok: false, embeddings: [], model, error: lastError, retries, requestCount };
+    }
+    embeddings.push(...chunkVectors);
   }
 
-  return { ok: false, embedding: [], model, error: lastError };
+  return { ok: true, embeddings, model, retries, requestCount };
 }
 
 module.exports = {
   REMOTE_PROVIDERS,
+  QWEN_PLUS_MAX_OUTPUT_TOKENS,
+  QWEN_MAX_OUTPUT_TOKENS,
+  resolveChatMaxOutputTokens,
   DEFAULT_REMOTE_EMBED_MODEL,
   llmProvider,
   isOpenAiCompatibleProvider,
@@ -306,4 +437,6 @@ module.exports = {
   remoteEmbedDimensions,
   chatCompletionsText,
   embeddingsCreate,
+  embeddingsCreateBatch,
+  EMBED_BATCH_LIMIT,
 };

@@ -75,7 +75,7 @@ function skillsFromPoolItem(item) {
 }
 
 /**
- * Clean employee projection — no email/avatar/displayName.
+ * Clean employee projection — no email/avatar. displayName stays so Phân công can name a suggestion.
  * Domain on history: PE.domain only, else capability.primaryDomain (real profile field — not invented).
  */
 function projectEmployee(item) {
@@ -118,6 +118,36 @@ function projectEmployee(item) {
     : [];
 
   const role = String(item.jobTitle || item.membershipRole || '').trim() || undefined;
+  const projectRoleKeys = [
+    ...new Set(
+      (Array.isArray(item.projectRoleKeys) ? item.projectRoleKeys : [])
+        .map((key) =>
+          String(key || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, '_')
+        )
+        .filter(Boolean)
+    ),
+  ];
+  const orgPositionRoleKeys = [
+    ...new Set(
+      (Array.isArray(item.orgPositionRoleKeys) ? item.orgPositionRoleKeys : [])
+        .map((key) =>
+          String(key || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, '_')
+        )
+        .filter(Boolean)
+    ),
+  ];
+  const displayName = String(item.displayName || item.fullName || item.name || '')
+    .trim()
+    .slice(0, 120);
+  const positionCode = String(item.orgPosition?.positionCode || '').trim().slice(0, 64);
+  const positionName = String(item.orgPosition?.positionName || '').trim().slice(0, 120);
+  const orgPosition = positionCode || positionName ? { positionCode, positionName } : null;
   const skills = skillsFromPoolItem(item);
   const maxConcurrentProjects =
     item.maxConcurrentProjects ?? item.resourceConfig?.maxConcurrentProjects ?? null;
@@ -127,10 +157,14 @@ function projectEmployee(item) {
   return {
     employeeId: userId,
     userId,
+    ...(displayName ? { displayName } : {}),
     role,
     // Matching compat
     jobTitle: role,
     membershipRole: String(item.membershipRole || '').trim() || undefined,
+    ...(projectRoleKeys.length ? { projectRoleKeys } : {}),
+    ...(orgPosition ? { orgPosition } : {}),
+    ...(orgPositionRoleKeys.length ? { orgPositionRoleKeys } : {}),
     skills,
     availability: item.availability,
     workload: {

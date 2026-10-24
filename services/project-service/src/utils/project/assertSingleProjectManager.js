@@ -50,6 +50,7 @@ function assertSingleProjectManager({ userId, nextRoleKeys, existingMembers = []
 function stripExtraProjectManagerKeys(roleAssignments, solePmUserId, fallbackRoleKey = 'observer') {
   const sole = String(solePmUserId || '').trim();
   const pm = PM_KEY;
+  if (!sole) return;
   if (!roleAssignments || typeof roleAssignments.entries !== 'function') return;
   for (const [memberUserId, row] of roleAssignments.entries()) {
     if (!row?.keys || typeof row.keys.delete !== 'function') continue;

@@ -7,11 +7,31 @@ const DECISION_EDIT = 'edit';
 const DECISION_REJECT = 'reject';
 const DECISION_CREATE = 'create';
 
+function pushBacklogStructureItem(items, row, kind) {
+  const logicalId = String(row?.logicalId || row?.id || '').trim();
+  if (!logicalId) return;
+  items.push({
+    section: 'backlogStructure',
+    logicalId,
+    status: row.status || 'PROPOSED',
+    // BA must decide Epic/Story the same way as FR before Gate 1 is complete.
+    blocking: true,
+    item: row,
+    kind,
+  });
+}
+
 function listProposalItems(proposal) {
   const generated = proposal?.generated || {};
   const items = [];
   for (const [section, block] of Object.entries(generated)) {
-    if (section === 'synthesis' || section === '_legacySynthesisDisplay') continue;
+    if (
+      section === 'synthesis' ||
+      section === '_legacySynthesisDisplay' ||
+      section === 'backlogStructure'
+    ) {
+      continue;
+    }
     if (!block || typeof block !== 'object') continue;
     for (const it of block.items || []) {
       items.push({
@@ -33,7 +53,45 @@ function listProposalItems(proposal) {
       });
     }
   }
+
+  const tree = generated.backlogStructure;
+  if (tree && typeof tree === 'object') {
+    for (const epic of Array.isArray(tree.epics) ? tree.epics : []) {
+      pushBacklogStructureItem(items, epic, 'epic');
+    }
+    for (const story of Array.isArray(tree.stories) ? tree.stories : []) {
+      pushBacklogStructureItem(items, story, 'story');
+    }
+  }
   return items;
+}
+
+function mergeEditedRow(row, logicalId, editedPayload) {
+  if (String(row?.logicalId || row?.id) !== String(logicalId)) return row;
+  const next = { ...row, ...editedPayload };
+  if (editedPayload.title != null && editedPayload.name == null) {
+    next.name = editedPayload.title;
+  }
+  return next;
+}
+
+/**
+ * Project a BA edit onto generated.items, or Epic/Story rows (no .items array).
+ */
+function projectGeneratedEdit(generated, section, logicalId, editedPayload) {
+  if (!generated || !editedPayload || typeof editedPayload !== 'object') return;
+  const block = generated[section];
+  if (!block || typeof block !== 'object') return;
+  if (Array.isArray(block.items)) {
+    block.items = block.items.map((it) => mergeEditedRow(it, logicalId, editedPayload));
+  }
+  if (section !== 'backlogStructure') return;
+  if (Array.isArray(block.epics)) {
+    block.epics = block.epics.map((it) => mergeEditedRow(it, logicalId, editedPayload));
+  }
+  if (Array.isArray(block.stories)) {
+    block.stories = block.stories.map((it) => mergeEditedRow(it, logicalId, editedPayload));
+  }
 }
 
 /**
@@ -138,12 +196,7 @@ function applyReviewDecision(proposal, logicalId, decision, opts = {}) {
     by: opts.userId || null,
   };
   if (decision.action === 'edit' && decision.editedPayload && row.section) {
-    const block = next.generated[row.section];
-    if (block?.items) {
-      block.items = block.items.map((it) =>
-        (it.logicalId || it.id) === logicalId ? { ...it, ...decision.editedPayload } : it
-      );
-    }
+    projectGeneratedEdit(next.generated, row.section, logicalId, decision.editedPayload);
   }
   next.reviewVersion = Number(next.reviewVersion || 0) + 1;
   next.review.summary = computeReviewSummary(next);
@@ -160,6 +213,7 @@ module.exports = {
   DECISION_REJECT,
   DECISION_CREATE,
   listProposalItems,
+  projectGeneratedEdit,
   computeReviewSummary,
   assertNeedsConfirmationAccept,
   applyReviewDecision,

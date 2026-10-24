@@ -125,6 +125,10 @@ function emptyPlanningShell() {
     milestones: [],
     schedulePlan: null,
     planSummary: null,
+    /** ScheduleTool LLM time sentences — Gate2 section Lịch */
+    taskTimings: [],
+    /** BacklogMapTool — Gate2 WBS tree merge */
+    backlog: null,
   };
 }
 
@@ -322,6 +326,12 @@ function ensureAiAnalysisContainer(raw) {
   if (working.analyses?.approvedSrs && typeof working.analyses.approvedSrs === 'object') {
     analyses.approvedSrs = working.analyses.approvedSrs;
   }
+  if (
+    working.analyses?.approvedBacklogStructure &&
+    typeof working.analyses.approvedBacklogStructure === 'object'
+  ) {
+    analyses.approvedBacklogStructure = working.analyses.approvedBacklogStructure;
+  }
   if (working.analyses?.customerRawRecord && typeof working.analyses.customerRawRecord === 'object') {
     analyses.customerRawRecord = working.analyses.customerRawRecord;
   }
@@ -357,6 +367,11 @@ function ensureAiAnalysisContainer(raw) {
       milestones: Array.isArray(planningSrc.milestones) ? planningSrc.milestones : [],
       schedulePlan: planningSrc.schedulePlan ?? null,
       planSummary: planningSrc.planSummary ?? null,
+      taskTimings: Array.isArray(planningSrc.taskTimings) ? planningSrc.taskTimings : [],
+      backlog:
+        planningSrc.backlog && typeof planningSrc.backlog === 'object'
+          ? planningSrc.backlog
+          : null,
     },
     resource: {
       fte: Array.isArray(resourceSrc.fte) ? resourceSrc.fte : [],

@@ -5,13 +5,17 @@
 
 const { sourcesForJob, SOURCE_FIELD_MANIFEST } = require('./sourceManifest');
 
-/** Employee fields allowed in cleaned projection — no email/avatar/displayName. */
+/** Employee fields allowed in cleaned projection — no email/avatar. displayName is the assignee label. */
 const EMPLOYEE_PROJECTION_FIELDS = Object.freeze([
   'employeeId',
   'userId',
+  'displayName',
   'role',
   'jobTitle',
   'membershipRole',
+  'projectRoleKeys',
+  'orgPosition',
+  'orgPositionRoleKeys',
   'skills',
   'availability',
   'workload',

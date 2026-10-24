@@ -1,8 +1,8 @@
 /**
- * Agent Core F2 — invoke HOW LangGraph and map to phaseOut (parity with JS runHowPhase).
+ * HOW phase entry — invoke howPhaseGraph and map the final state to phaseOut.
  */
 
-const { buildHowPhaseGraph } = require('./howPhaseGraph');
+const { runPhaseOrchestrator } = require('./phaseOrchestratorGraph');
 const {
   resolveAgentBudget,
   STOP_REASONS,
@@ -11,7 +11,7 @@ const { buildInitialAgentFields } = require('../checkpoint/agentStateSchema');
 const { getLangGraphCheckpointer } = require('./langGraphCheckpointer');
 
 /**
- * @param {object} opts — same shape as runHowPhase in agentLoopRunner
+ * @param {object} opts — HOW phase inputs from runAgentPhase
  */
 async function runHowPhaseLangGraph({
   container,
@@ -74,15 +74,17 @@ async function runHowPhaseLangGraph({
   const { checkpointer, kind: checkpointerKind } = await getLangGraphCheckpointer();
   const { assertDurableCheckpointerForInRunHitl } = require('./hitlCheckpointerPolicy');
   assertDurableCheckpointerForInRunHitl({ kind: checkpointerKind });
-  const graph = buildHowPhaseGraph({ onProgress, onCheckpoint, checkpointer });
   const threadId = String(runId || snapshotId || `how-${startedAt}`);
 
   console.info(
-    `[agent_core] mode=langgraph runId=${runId || ''} selective=${isSelective} checkpointer=${checkpointerKind}`
+    `[agent_core] mode=langgraph phase=how runId=${runId || ''} selective=${isSelective} checkpointer=${checkpointerKind} orchestrator=shared`
   );
 
-  const finalState = await graph.invoke(
-    {
+  const finalState = await runPhaseOrchestrator({
+    phase: 'how',
+    threadId,
+    hooks: { onProgress, onCheckpoint, checkpointer },
+    input: {
       runId,
       snapshotId,
       snapshot,
@@ -112,8 +114,7 @@ async function runHowPhaseLangGraph({
       hitl: 'gate2',
       skipUnderstand: isSelective,
     },
-    { configurable: { thread_id: threadId } }
-  );
+  });
 
   const durationMs = Math.max(0, Date.now() - startedAt);
   return {

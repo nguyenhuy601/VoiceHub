@@ -2,7 +2,11 @@
  * Ported from project-service/src/utils/aiAnalysis/aiAnalysisRoleSkill.js.
  * Only local text/role helpers replace legacy relative imports.
  */
-const { normalizeRoleKey, isKnownProjectRole } = require('./roleKey');
+const {
+  canonicalizeProjectRoleKey,
+  isKnownProjectRole,
+  resolveAllowedProjectRoleKey,
+} = require('./roleKey');
 
 const ALWAYS_ROLES = Object.freeze(['project_manager', 'business_analyst']);
 
@@ -103,12 +107,18 @@ function rolesFromArea(area) {
   return [];
 }
 
-function buildPlanningRoles(container, { unknownWarnings = [] } = {}) {
+function buildPlanningRoles(container, { unknownWarnings = [], allowList } = {}) {
   const roles = new Map();
   const add = (roleKey, source) => {
-    const key = normalizeRoleKey(roleKey);
+    const raw = canonicalizeProjectRoleKey(roleKey);
+    if (!raw) return;
+    if (!isKnownProjectRole(raw, allowList)) {
+      unknownWarnings.push(raw);
+      // Drop free-text / disabled-org roles — do not invent into planning.roles.
+      return;
+    }
+    const key = resolveAllowedProjectRoleKey(raw, { allowList, fallback: raw });
     if (!key) return;
-    if (!isKnownProjectRole(key)) unknownWarnings.push(key);
     const existing = roles.get(key);
     if (!existing) {
       roles.set(key, { roleKey: key, source });
@@ -118,9 +128,17 @@ function buildPlanningRoles(container, { unknownWarnings = [] } = {}) {
   };
 
   for (const role of ALWAYS_ROLES) add(role, 'matrix');
+  // Prefer WBS leaf suggestedRoleKey (system catalog) over area matrix invent.
   for (const task of container?.planning?.tasks || []) {
-    for (const role of rolesFromArea(task.area)) add(role, 'matrix');
-    if (task.suggestedRoleKey) add(task.suggestedRoleKey, 'wbs');
+    const level = String(task?.level || '').toLowerCase();
+    const isLeaf = level === 'task' || level === 'subtask';
+    if (isLeaf && task.suggestedRoleKey) {
+      add(task.suggestedRoleKey, 'wbs');
+      continue;
+    }
+    if (isLeaf) {
+      for (const role of rolesFromArea(task.area)) add(role, 'matrix');
+    }
   }
   for (const cap of container?.analyses?.capability?.items || []) {
     const area = String(cap.module || '').toLowerCase();
@@ -143,9 +161,9 @@ function buildPlanningRoles(container, { unknownWarnings = [] } = {}) {
   };
 }
 
-function runRoleSkillPlanning(_pack, container) {
+function runRoleSkillPlanning(_pack, container, { allowList } = {}) {
   const skills = buildPlanningSkills(container);
-  const { roles, unknownRoleKeys } = buildPlanningRoles(container);
+  const { roles, unknownRoleKeys } = buildPlanningRoles(container, { allowList });
   return {
     status: 'ready',
     model: null,
@@ -159,6 +177,7 @@ function runRoleSkillPlanning(_pack, container) {
       skillCount: skills.length,
       roleCount: roles.length,
       hasProjectManager: roles.some((role) => role.roleKey === 'project_manager'),
+      enabledProjectRoleKeys: Array.isArray(allowList) ? allowList : undefined,
     },
   };
 }

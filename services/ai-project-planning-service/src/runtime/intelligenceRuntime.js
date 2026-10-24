@@ -1,5 +1,6 @@
 const { getTool, listTools } = require('../registry/toolRegistry');
 const { generateJson, ollamaModel } = require('./ollamaGenerate');
+const { resolveChatMaxOutputTokens } = require('@enterprise/shared/llm/openaiCompatibleClient');
 
 /**
  * G17 Intelligence Runtime — model/skill/prompt/tool-call parse.
@@ -19,9 +20,13 @@ function selectModel(env = process.env, opts = {}) {
     5000,
     Math.min(600000, Number(env.G17_LLM_TIMEOUT_MS || 120000) || 120000)
   );
+  const outputCeiling = resolveChatMaxOutputTokens(env);
   const maxTokens = Math.max(
     64,
-    Math.min(8192, Number(env.G17_LLM_NUM_PREDICT || 512) || 512)
+    Math.min(
+      outputCeiling,
+      Number(env.G17_LLM_NUM_PREDICT || outputCeiling) || outputCeiling
+    )
   );
 
   let model = primary;

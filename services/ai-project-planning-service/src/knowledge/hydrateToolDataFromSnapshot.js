@@ -120,6 +120,19 @@ function hydrateToolDataFromSnapshot(toolData, snapshot) {
     out.technical = technical;
   }
 
+  // Org project-role catalog frozen on SNAP — HOW WBS / Effort / Assignment allow-list.
+  const roleKeysFromSnap = Array.isArray(snap?.enabledProjectRoleKeys)
+    ? snap.enabledProjectRoleKeys.map(String).filter(Boolean)
+    : [];
+  const roleKeysFromBase = Array.isArray(base.enabledProjectRoleKeys)
+    ? base.enabledProjectRoleKeys.map(String).filter(Boolean)
+    : [];
+  if (roleKeysFromBase.length) {
+    out.enabledProjectRoleKeys = roleKeysFromBase;
+  } else if (roleKeysFromSnap.length) {
+    out.enabledProjectRoleKeys = roleKeysFromSnap;
+  }
+
   const didEmployeeBackfill = employeeSource !== 'toolData';
   const hadBookedOnBase = Boolean(base.bookedHoursByUserDay || base.meetingHoursByUserDay);
   const didBookedMerge = Boolean(booked) && !hadBookedOnBase;

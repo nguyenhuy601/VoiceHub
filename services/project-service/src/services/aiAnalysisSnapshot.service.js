@@ -170,6 +170,39 @@ async function loadLivePoolAndCalendar({
 }
 
 /**
+ * Membership stores projectRoleId. The key already lives on ProjectRole.
+ * Only userId + key are returned for attachProjectRoleKeys.
+ */
+async function loadProjectRoleKeysForPool(organizationId, poolItems = []) {
+  const userIds = [
+    ...new Set(
+      (poolItems || []).map((row) => String(row?.userId || '').trim()).filter(Boolean)
+    ),
+  ];
+  if (!organizationId || !userIds.length) return [];
+
+  const ProjectMembership = require('../models/ProjectMembership');
+  const ProjectRole = require('../models/ProjectRole');
+  const memberships = await ProjectMembership.find({
+    organizationId,
+    userId: { $in: userIds },
+  })
+    .select('userId projectRoleId')
+    .lean();
+  const roleIds = [...new Set(memberships.map((row) => row.projectRoleId).filter(Boolean))];
+  const roles = roleIds.length
+    ? await ProjectRole.find({ _id: { $in: roleIds } })
+        .select('key')
+        .lean()
+    : [];
+  const keyById = new Map(roles.map((role) => [String(role._id), role.key]));
+  return memberships.map((row) => ({
+    userId: String(row.userId),
+    projectRoleKey: keyById.get(String(row.projectRoleId)) || '',
+  }));
+}
+
+/**
  * Default skill catalog pin (registry off) — names from projected staffing + whitelist stub.
  */
 function buildSkillCatalogStub(pack) {
@@ -258,6 +291,18 @@ async function createOrReuseAiAnalysisSnapshot({
     userId,
     packId,
   });
+  const membershipRoleRows = await loadProjectRoleKeysForPool(organizationId, poolItems);
+  const { attachProjectRoleKeys } = require('../utils/aiAnalysis/pipeline/attachProjectRoleKeys');
+  const poolWithProjectRoles = attachProjectRoleKeys(poolItems, membershipRoleRows);
+  let orgPositions = [];
+  try {
+    const { fetchActiveOrgPositions } = require('../clients/orgPositionAssignment.client');
+    orgPositions = await fetchActiveOrgPositions(organizationId, userId);
+  } catch (positionErr) {
+    console.warn('[snapshot] org positions unavailable', positionErr?.message || positionErr);
+  }
+  const { attachOrgPositionRoleKeys } = require('../utils/aiAnalysis/pipeline/attachOrgPositionRoleKeys');
+  const poolWithPositions = attachOrgPositionRoleKeys(poolWithProjectRoles, orgPositions);
   const skillCatalog = buildSkillCatalogStub(packObj);
 
   let technicalSetup = null;
@@ -275,13 +320,23 @@ async function createOrReuseAiAnalysisSnapshot({
 
   const payload = buildSnapshotPayload({
     pack: packObj,
-    poolItems,
+    poolItems: poolWithPositions,
     calendar,
     skillCatalog,
     technicalSetup,
     packContentHash,
     packStatus: pack.status,
   });
+
+  // Freeze org project-role catalog for HOW (no live fetch at run time — RULE-HT-01).
+  let enabledProjectRoleKeys;
+  try {
+    const { fetchEnabledProjectRoleKeys } = require('../clients/orgMasterData.client');
+    const keys = await fetchEnabledProjectRoleKeys(organizationId);
+    enabledProjectRoleKeys = Array.isArray(keys) && keys.length ? keys.map(String) : undefined;
+  } catch {
+    enabledProjectRoleKeys = undefined;
+  }
 
   // Supersede other active snapshots for this pack
   await AiAnalysisSnapshot.updateMany(
@@ -384,6 +439,7 @@ async function createOrReuseAiAnalysisSnapshot({
     meetingPlan,
     meetingDemandHoursByUserDay,
     effortEstimationConfigVersionId,
+    enabledProjectRoleKeys,
     pipelineVersion: payload.pipelineVersion,
     status: 'active',
     createdBy: userId,

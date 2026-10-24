@@ -3,12 +3,35 @@ const {
   runProjectPlanEngine,
   applyProjectPlanToContainer,
 } = require('../engines/projectPlan');
+const { assembleHowToolContext, contextAllowsWork } = require('../semanticLayer/howToolContext');
 
 async function projectPlan(input = {}, context = {}) {
   const snapshotId = input.snapshotId || null;
   const container = context.container || input.container || {};
-  const result = runProjectPlanEngine(container);
-  const updated = applyProjectPlanToContainer(container, result);
+  const pack = context.pack || input.pack || {};
+  const layer = await assembleHowToolContext({
+    purpose: 'PROJECT_PLAN',
+    pack,
+    container,
+    snapshot: input.snapshot || context.snapshot || null,
+    snapshotId,
+    contextPackage: input.contextPackage || context.contextPackage || null,
+  });
+  const allowed = new Set((layer.requiredData?.tasks || []).map((task) => task.id));
+  const sourceTasks = Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [];
+  const scoped = contextAllowsWork(layer)
+    ? {
+        ...container,
+        planning: {
+          ...(container.planning || {}),
+          tasks: sourceTasks.filter((task) => allowed.has(String(task.id || task.taskId || ''))),
+        },
+      }
+    : container;
+  const result = contextAllowsWork(layer)
+    ? runProjectPlanEngine(scoped)
+    : { status: layer.status || layer.code, executionPlan: { taskCount: 0 } };
+  const updated = applyProjectPlanToContainer(scoped, result);
   const evidence = [
     createEvidence({
       sourceType: 'project_plan',

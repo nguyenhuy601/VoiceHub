@@ -1,128 +1,43 @@
 /**
- * Dependency analysis — SRS FS first, then explicit dependsOn, then same-area heuristic.
+ * Dependency analysis — tool candidates → optional LLM synthesize → schema 2.0.
+ * Legacy edges projected for Sequencing / Risk / Schedule (RULE-05).
  */
 
+const { runDependencyCandidateTool } = require('./dependencyCandidateEngine');
+const { buildDependencyContextPack } = require('./dependencyContextPack');
+const {
+  dependenciesFromCandidates,
+  normalizeDependencyAnalysisV2,
+  SCHEMA_VERSION,
+} = require('./dependencySchemaV2');
+const { synthesizeDependencyWithLlm } = require('./dependencyLlm');
 const { buildDependencyEdgesFromSrs } = require('./dependencyFromSrs');
-
-function slugPart(raw) {
-  return String(raw || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
-}
 
 function taskId(task, index = 0) {
   return String(task?.id || task?.taskId || `TASK-${index + 1}`).trim();
-}
-
-function parseDependsOn(task) {
-  const raw = task.dependsOn || task.dependencies || task.dependency;
-  if (Array.isArray(raw)) {
-    return raw.map((t) => String(t?.id || t || '').trim()).filter(Boolean);
-  }
-  if (typeof raw === 'string' && raw.trim()) {
-    return raw
-      .split(/[,;|]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-  return [];
 }
 
 function edgeKey(e) {
   return `${e.from}->${e.to}`;
 }
 
-function buildExplicitDependsOnEdges(tasks = [], startIdx = 0) {
-  const edges = [];
-  const known = new Set(tasks.map((t, i) => taskId(t, i)).filter(Boolean));
-  let idx = startIdx;
-
-  for (let i = 0; i < tasks.length; i += 1) {
-    const task = tasks[i];
-    const from = taskId(task, i);
-    for (const to of parseDependsOn(task)) {
-      if (!to || to === from) continue;
-      if (!known.has(to)) continue;
-      idx += 1;
-      edges.push({
-        edgeId: `DEP-X-${slugPart(from)}-${slugPart(to)}-${idx}`,
-        from,
-        to,
-        kind: 'depends_on',
-        type: 'internal',
-        critical: false,
-        blocking: true,
-        evidence: 'explicit_dependsOn',
-        source: 'explicit',
-      });
-    }
-  }
-  return { edges, nextIdx: idx };
-}
-
-function buildSameAreaHeuristicEdges(tasks = [], existingKeys = new Set(), startIdx = 0) {
-  const edges = [];
-  let idx = startIdx;
-  const byArea = new Map();
-  for (let i = 0; i < tasks.length; i += 1) {
-    const task = tasks[i];
-    const level = String(task.level || '').toLowerCase();
-    if (level === 'epic' || level === 'feature' || level === 'story') continue;
-    const id = taskId(task, i);
-    const area = String(task.area || 'general').toLowerCase();
-    if (!byArea.has(area)) byArea.set(area, []);
-    byArea.get(area).push({ id, sortOrder: Number(task.sortOrder) || i });
-  }
-  for (const [, list] of byArea) {
-    list.sort((a, b) => a.sortOrder - b.sortOrder);
-    for (let i = 1; i < list.length; i += 1) {
-      const prev = list[i - 1];
-      const cur = list[i];
-      const key = `${cur.id}->${prev.id}`;
-      if (existingKeys.has(key)) continue;
-      idx += 1;
-      edges.push({
-        edgeId: `DEP-H-${slugPart(cur.id)}-${slugPart(prev.id)}-${idx}`,
-        from: cur.id,
-        to: prev.id,
-        kind: 'precedes',
-        type: 'technical',
-        critical: false,
-        blocking: false,
-        evidence: 'same_area_task_order',
-        source: 'heuristic',
-      });
-      existingKeys.add(key);
-    }
-  }
-  return edges;
-}
-
 /**
- * Single edge list: SRS → explicit → same-area (lower priority).
+ * @deprecated Prefer runDependencyCandidateTool — kept for callers/tests.
+ * Builds legacy-style edges from SRS + explicit only (no same-area auto-block).
  */
 function buildHeuristicDependencyEdges(tasks = [], opts = {}) {
   const pack = opts.pack || {};
   const planningHints = opts.planningHints || null;
-
-  const srsEdges = buildDependencyEdgesFromSrs({ tasks, pack, planningHints });
-  const keys = new Set(srsEdges.map(edgeKey));
-
-  const { edges: explicitEdges, nextIdx } = buildExplicitDependsOnEdges(tasks, srsEdges.length);
-  const merged = [...srsEdges];
-  for (const e of explicitEdges) {
-    const key = edgeKey(e);
-    if (keys.has(key)) continue;
-    keys.add(key);
-    merged.push(e);
-  }
-
-  const heuristicEdges = buildSameAreaHeuristicEdges(tasks, keys, nextIdx);
-  merged.push(...heuristicEdges);
-  return merged;
+  const container = { planning: { tasks } };
+  const tool = runDependencyCandidateTool({ container, pack, planningHints });
+  const known = new Set(tasks.map((t, i) => taskId(t, i)).filter(Boolean));
+  const analysis = dependenciesFromCandidates(tool.data.candidates, {
+    knownTaskIds: known,
+    unresolvedTaskIds: tool.data.unresolvedTaskIds,
+    // include weak only if caller opts in (default false per plan)
+    includeWeakAsDeps: Boolean(opts.includeWeakAsDeps),
+  });
+  return analysis.edges;
 }
 
 function buildOrderHint(tasks = [], edges = []) {
@@ -152,40 +67,237 @@ function buildOrderHint(tasks = [], edges = []) {
   return order;
 }
 
+/**
+ * Full HOW dependency run: candidates → context → LLM (optional) → schema 2.0.
+ */
+async function runDependencyEngineAsync(container = {}, opts = {}) {
+  const tasks = Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [];
+  const pack = opts.pack || container?.pack || {};
+  const planningHints = opts.planningHints || null;
+  const env = opts.env || process.env;
+  const knownTaskIds = new Set(tasks.map((t, i) => taskId(t, i)).filter(Boolean));
+
+  const candidateTool = runDependencyCandidateTool({ container, pack, planningHints });
+  const contextPack = buildDependencyContextPack(container, pack);
+
+  let analysis = dependenciesFromCandidates(candidateTool.data.candidates, {
+    knownTaskIds,
+    unresolvedTaskIds: candidateTool.data.unresolvedTaskIds,
+  });
+  let model = null;
+  let llmCalls = 0;
+  let llmMeta = {};
+  let source = 'candidates_only';
+
+  const synth = await synthesizeDependencyWithLlm({
+    candidateToolResult: candidateTool,
+    contextPack,
+    knownTaskIds,
+    env,
+    generateJsonFn: opts.generateJsonFn || null,
+  });
+
+  if (synth.ok && synth.analysis) {
+    // Merge: LLM deps primary; keep unresolved from LLM or fallback tool
+    const llmAnalysis = synth.analysis;
+    const unresolved =
+      llmAnalysis.unresolvedQuestions?.length > 0
+        ? llmAnalysis.unresolvedQuestions
+        : analysis.unresolvedQuestions;
+    analysis = normalizeDependencyAnalysisV2(
+      {
+        analysisStatus: llmAnalysis.analysisStatus || 'COMPLETED',
+        dependencies: llmAnalysis.dependencies,
+        unresolvedQuestions: unresolved,
+      },
+      {
+        knownTaskIds,
+        candidateKeys: new Set(
+          (candidateTool.data.candidates || []).map(
+            (c) => `${c.predecessorTaskId}->${c.successorTaskId}`
+          )
+        ),
+      }
+    );
+    // If LLM returned empty but we had strong explicit candidates, keep those
+    if (
+      analysis.dependencies.length === 0 &&
+      (candidateTool.data.candidates || []).some(
+        (c) =>
+          c.candidateRule === 'EXPLICIT_DEPENDS_ON' ||
+          (c.candidateRule === 'CONSUMES_PRODUCER_OUTPUT' && c.strength === 'strong')
+      )
+    ) {
+      const fallback = dependenciesFromCandidates(
+        (candidateTool.data.candidates || []).filter(
+          (c) =>
+            c.candidateRule === 'EXPLICIT_DEPENDS_ON' ||
+            c.candidateRule === 'CONSUMES_PRODUCER_OUTPUT'
+        ),
+        {
+          knownTaskIds,
+          unresolvedTaskIds: candidateTool.data.unresolvedTaskIds,
+        }
+      );
+      if (fallback.dependencies.length) {
+        analysis = {
+          ...fallback,
+          unresolvedQuestions:
+            unresolved.length > 0 ? unresolved : fallback.unresolvedQuestions,
+        };
+        source = 'candidates_strong_after_empty_llm';
+      } else {
+        source = 'srs_heuristic_llm';
+      }
+    } else {
+      source = 'srs_heuristic_llm';
+    }
+    model = synth.meta?.model || null;
+    llmCalls = synth.meta?.llmCalls || 1;
+    llmMeta = {
+      llmDepsProposed: synth.meta?.llmDepsProposed,
+      llmFallback: null,
+    };
+  } else {
+    llmMeta = {
+      llmAttempted: Boolean(synth.meta?.fallbackReason),
+      llmFallback: synth.meta?.fallbackReason || 'llm_skipped',
+    };
+  }
+
+  const edges = analysis.edges || [];
+  const orderHint = buildOrderHint(tasks, edges);
+
+  return {
+    status: 'ready',
+    schemaVersion: SCHEMA_VERSION,
+    analysisStatus: analysis.analysisStatus || 'COMPLETED',
+    model,
+    generatedAt: new Date().toISOString(),
+    dependencies: analysis.dependencies || [],
+    unresolvedQuestions: analysis.unresolvedQuestions || [],
+    validation: analysis.validation || {
+      missingTaskReferences: [],
+      duplicateDependencies: [],
+      circularDependencies: [],
+      unsupportedRelationships: [],
+    },
+    edges,
+    orderHint,
+    candidateTool,
+    contextMeta: contextPack.meta,
+    meta: {
+      source,
+      llmCalls,
+      edgeCount: edges.length,
+      taskCount: tasks.length,
+      candidateCount: candidateTool.meta?.candidateCount || 0,
+      dependencyCount: (analysis.dependencies || []).length,
+      unresolvedCount: (analysis.unresolvedQuestions || []).length,
+      srsEdgeCount: (candidateTool.data?.candidates || []).filter((c) =>
+        String(c.candidateRule || '').startsWith('SRS_')
+      ).length,
+      ...llmMeta,
+    },
+  };
+}
+
+/** Sync wrapper — candidates only (no LLM). Used by tests / sync callers. */
 function runDependencyEngine(container = {}, opts = {}) {
   const tasks = Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [];
   const pack = opts.pack || container?.pack || {};
   const planningHints = opts.planningHints || null;
-  const edges = buildHeuristicDependencyEdges(tasks, { pack, planningHints });
+  const knownTaskIds = new Set(tasks.map((t, i) => taskId(t, i)).filter(Boolean));
+
+  const candidateTool = runDependencyCandidateTool({ container, pack, planningHints });
+  const analysis = dependenciesFromCandidates(candidateTool.data.candidates, {
+    knownTaskIds,
+    unresolvedTaskIds: candidateTool.data.unresolvedTaskIds,
+  });
+  const edges = analysis.edges || [];
   const orderHint = buildOrderHint(tasks, edges);
+
   return {
     status: 'ready',
+    schemaVersion: SCHEMA_VERSION,
+    analysisStatus: analysis.analysisStatus || 'COMPLETED',
     model: null,
     generatedAt: new Date().toISOString(),
+    dependencies: analysis.dependencies || [],
+    unresolvedQuestions: analysis.unresolvedQuestions || [],
+    validation: analysis.validation || {},
     edges,
     orderHint,
+    candidateTool,
     meta: {
-      source: 'srs_then_explicit_then_heuristic',
+      source: 'candidates_only',
       llmCalls: 0,
       edgeCount: edges.length,
       taskCount: tasks.length,
-      srsEdgeCount: edges.filter((e) => e.source === 'srs').length,
+      candidateCount: candidateTool.meta?.candidateCount || 0,
+      dependencyCount: (analysis.dependencies || []).length,
+      unresolvedCount: (analysis.unresolvedQuestions || []).length,
+      srsEdgeCount: (candidateTool.data?.candidates || []).filter((c) =>
+        String(c.candidateRule || '').startsWith('SRS_')
+      ).length,
     },
   };
+}
+
+/**
+ * Legacy edges store successor on `from` and predecessor on `to`.
+ * Gate2 reads schema-v2 `dependencies` and ignores a present-but-empty array.
+ */
+function legacyEdgesToDependencies(edges = []) {
+  return (Array.isArray(edges) ? edges : [])
+    .map((edge, index) => {
+      const predecessorTaskId = String(edge?.to || edge?.predecessorTaskId || '').trim();
+      const successorTaskId = String(edge?.from || edge?.successorTaskId || '').trim();
+      if (!predecessorTaskId || !successorTaskId) return null;
+      return {
+        id: edge.id || `${predecessorTaskId}->${successorTaskId}` || `dep-${index}`,
+        predecessorTaskId,
+        successorTaskId,
+        relationship: edge.depType || edge.relationship || 'FS',
+        depType: edge.depType || 'FS',
+        blockingScope: edge.blockingScope || 'FULL',
+        reason: edge.reason || edge.summary || edge.title || '',
+        title: edge.title || edge.reason || '',
+        evidenceRefs: Array.isArray(edge.evidenceRefs) ? edge.evidenceRefs.map(String) : [],
+        status: 'PROPOSED',
+        source: edge.source || '',
+      };
+    })
+    .filter(Boolean);
 }
 
 /** Analyses-only — never echo planning.tasks (safe when ∥ ArchitectureTool). */
 function applyDependencyToContainer(container, depResult) {
   void container;
+  const edges = Array.isArray(depResult.edges) ? depResult.edges : [];
+  const dependencies =
+    Array.isArray(depResult.dependencies) && depResult.dependencies.length
+      ? depResult.dependencies
+      : legacyEdgesToDependencies(edges);
   return {
     analyses: {
       dependency: {
         status: depResult.status || 'ready',
+        schemaVersion: depResult.schemaVersion || SCHEMA_VERSION,
+        analysisStatus: depResult.analysisStatus || 'COMPLETED',
         model: depResult.model || null,
         generatedAt: depResult.generatedAt || new Date().toISOString(),
         items: [],
         entities: [],
-        edges: depResult.edges || [],
+        dependencies,
+        unresolvedQuestions: depResult.unresolvedQuestions || [],
+        validation: depResult.validation || {
+          missingTaskReferences: [],
+          duplicateDependencies: [],
+          circularDependencies: [],
+          unsupportedRelationships: [],
+        },
+        edges,
         dataFlows: [],
         orderHint: depResult.orderHint || [],
         meta: depResult.meta || {},
@@ -198,5 +310,9 @@ module.exports = {
   buildHeuristicDependencyEdges,
   buildOrderHint,
   runDependencyEngine,
+  runDependencyEngineAsync,
   applyDependencyToContainer,
+  // re-export for tests / legacy
+  buildDependencyEdgesFromSrs,
+  edgeKey,
 };

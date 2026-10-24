@@ -63,6 +63,13 @@ function applyProposalFragment(current, fragment, opts = {}) {
       evidence: fragment.evidence != null ? fragment.evidence : null,
       meta: { ...(fragment.meta || {}) },
     };
+    if (
+      section === 'functionalRequirements' &&
+      fragment.backlogStructure &&
+      typeof fragment.backlogStructure === 'object'
+    ) {
+      base.generated.backlogStructure = fragment.backlogStructure;
+    }
   }
 
   if (opts.generationId) base.generationId = String(opts.generationId);

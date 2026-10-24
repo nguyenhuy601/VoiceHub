@@ -195,7 +195,7 @@ async function persistScopeRoleAccess(orgId, scopeType, scopeId, entries, actorI
         permissions,
         updatedBy: actorId || null,
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
     );
   }
 
@@ -465,20 +465,18 @@ exports.getMyOrganizations = async (req, res, next) => {
     /** head / leader theo cấu trúc phòng-team — hiển thị chức vụ (không thay membership.role). */
     const headOrgIds = new Set();
     const leaderOrgIds = new Set();
-    /** orgId → [{ roleKey, roleLabel }] — SoT badge/footer (không phải jobTitle HR). */
-    const orgRolesByOrgId = new Map();
+    /** orgId → [{ roleKey, roleLabel }] — gán catalog + vai từ vị trí / grant cá nhân. */
+    let orgRolesByOrgId = new Map();
     if (orgIds.length) {
-      const OrgRoleAssignment = require('../models/OrgRoleAssignment');
-      const [headDepts, leaderTeams, orgRoleAssignments] = await Promise.all([
+      const { mapOrganizationRolesByOrgId } = require('../services/effectiveOrgRoles.service');
+      const [headDepts, leaderTeams, rolesByOrg] = await Promise.all([
         Department.find({ organization: { $in: orgIds }, head: userRef })
           .select('organization')
           .lean(),
         Team.find({ organization: { $in: orgIds }, leader: userRef })
           .select('organization')
           .lean(),
-        OrgRoleAssignment.find({ userId: userRef, organizationId: { $in: orgIds } })
-          .select('organizationId roleKey')
-          .lean(),
+        mapOrganizationRolesByOrgId(userId, orgIds.map(String)),
       ]);
       for (const d of headDepts) {
         if (d?.organization) headOrgIds.add(String(d.organization));
@@ -486,16 +484,7 @@ exports.getMyOrganizations = async (req, res, next) => {
       for (const t of leaderTeams) {
         if (t?.organization) leaderOrgIds.add(String(t.organization));
       }
-      for (const row of orgRoleAssignments || []) {
-        const oid = String(row?.organizationId || '').trim();
-        const roleKey = String(row?.roleKey || '').trim();
-        if (!oid || !roleKey) continue;
-        const list = orgRolesByOrgId.get(oid) || [];
-        if (!list.some((r) => r.roleKey === roleKey)) {
-          list.push({ roleKey, roleLabel: roleKey });
-        }
-        orgRolesByOrgId.set(oid, list);
-      }
+      orgRolesByOrgId = rolesByOrg;
     }
 
     const organizations = memberships
@@ -705,7 +694,7 @@ exports.updateOrganization = async (req, res, next) => {
     if (logo !== undefined) patch.logo = logo;
 
     const organization = await Organization.findByIdAndUpdate(orgId, patch, {
-      new: true,
+      returnDocument: 'after',
       runValidators: true,
     });
     if (!organization) {
@@ -845,26 +834,9 @@ exports.getOrgShell = async (req, res, next) => {
       await syncUserOrgRole(userId, orgId, access.membership.role || 'member');
     }
 
-    const OrgRoleAssignment = require('../models/OrgRoleAssignment');
-    const OrgRoleCatalog = require('../models/OrgRoleCatalog');
-    const orgOid = toObjectId(orgId);
-    const userOid = toObjectId(userId);
-    const [orgRoleAssignments, orgRoleCatalog] = await Promise.all([
-      orgOid && userOid
-        ? OrgRoleAssignment.find({ organizationId: orgOid, userId: userOid }).select('roleKey').lean()
-        : Promise.resolve([]),
-      orgOid
-        ? OrgRoleCatalog.find({ organizationId: orgOid }).select('key label').lean()
-        : Promise.resolve([]),
-    ]);
-    const orgRoleLabelByKey = new Map(
-      (orgRoleCatalog || []).map((r) => [String(r.key || '').trim(), String(r.label || r.key || '').trim()])
-    );
-    const myOrganizationRoles = [...new Set((orgRoleAssignments || []).map((a) => String(a.roleKey || '').trim()).filter(Boolean))]
-      .map((roleKey) => ({
-        roleKey,
-        roleLabel: orgRoleLabelByKey.get(roleKey) || roleKey,
-      }));
+    const { listOrganizationRolesForUser } = require('../services/effectiveOrgRoles.service');
+    const myOrganizationRoles =
+      orgId && userId ? await listOrganizationRolesForUser(orgId, userId) : [];
 
     const orgDoc = await Organization.findById(orgId).select('name slug logo').lean();
     const [structureSummary, accessData, taskWorkspaceScope, notificationsUnreadOrg, shellVersion] =
@@ -1018,7 +990,7 @@ exports.grantChannelAccess = async (req, res, next) => {
         grantedBy: actorId || null,
         grantedAt: new Date(),
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
     );
     await invalidateOrgAcl(orgId, String(userId));
     return res.json({ status: 'success', data: row });
@@ -1112,7 +1084,7 @@ exports.saveChannelRoleAccess = async (req, res, next) => {
           permissions,
           updatedBy: actorId || null,
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
       );
     }
 

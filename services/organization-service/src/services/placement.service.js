@@ -41,7 +41,7 @@ async function setDepartmentMembers(orgId, deptId, members) {
   const doc = await Department.findOneAndUpdate(
     { _id: deptId, organization: orgId },
     { $set: { members: ids } },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!doc) {
     return { ok: false, code: 'ORG_NOT_FOUND', message: 'Department not found' };
@@ -70,7 +70,7 @@ async function setTeamMembers(orgId, teamId, members) {
   const doc = await Team.findOneAndUpdate(
     { _id: teamId, organization: orgId, isActive: true },
     { $set: { members: ids } },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!doc) {
     return { ok: false, code: 'ORG_NOT_FOUND', message: 'Team not found' };

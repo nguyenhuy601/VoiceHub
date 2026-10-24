@@ -205,7 +205,7 @@ async function updateRole(organizationId, roleId, patch = {}) {
     const row = await OrganizationalRole.findOneAndUpdate(
       { _id: rid, organizationId: oid },
       { $set },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
     if (!row) throw serviceError('Không tìm thấy vai trò', 404, 'ROLE_NOT_FOUND');
     return row;
@@ -354,7 +354,7 @@ async function updatePosition(organizationId, positionId, patch = {}) {
   const row = await OrganizationalPosition.findOneAndUpdate(
     { _id: pid, organizationId: oid },
     { $set },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   if (!row) throw serviceError('Không tìm thấy vị trí', 404, 'POSITION_NOT_FOUND');
   return row;
@@ -492,25 +492,38 @@ async function listAssignments(organizationId, { userId = null, status = 'active
   ]);
   const roleIds = [...new Set(bindings.map((row) => String(row.roleId || '')).filter(Boolean))];
   const roles = roleIds.length
-    ? await OrganizationalRole.find({ _id: { $in: roleIds } }).select('name').lean()
+    ? await OrganizationalRole.find({ _id: { $in: roleIds } }).select('code name').lean()
     : [];
   const positionNameById = new Map(positions.map((row) => [String(row._id), String(row.name || '').trim()]));
-  const roleNameById = new Map(roles.map((row) => [String(row._id), String(row.name || '').trim()]));
-  const roleLabelsByPosition = new Map();
+  const roleById = new Map(
+    roles.map((row) => [
+      String(row._id),
+      {
+        code: String(row.code || '').trim(),
+        name: String(row.name || '').trim(),
+      },
+    ])
+  );
+  const roleMetaByPosition = new Map();
   for (const binding of bindings) {
-    const label = roleNameById.get(String(binding.roleId || ''));
-    if (!label) continue;
+    const role = roleById.get(String(binding.roleId || ''));
+    if (!role?.name && !role?.code) continue;
     const key = String(binding.positionId || '');
-    const labels = roleLabelsByPosition.get(key) || [];
-    if (!labels.includes(label)) labels.push(label);
-    roleLabelsByPosition.set(key, labels);
+    const meta = roleMetaByPosition.get(key) || { labels: [], keys: [] };
+    const label = role.name || role.code;
+    if (label && !meta.labels.includes(label)) meta.labels.push(label);
+    if (role.code && !meta.keys.includes(role.code)) meta.keys.push(role.code);
+    roleMetaByPosition.set(key, meta);
   }
   return rows.map((row) => {
     const positionKey = String(row.positionId || '');
+    const meta = roleMetaByPosition.get(positionKey) || { labels: [], keys: [] };
     return {
       ...row,
+      userId: String(row.userId || ''),
       positionName: positionNameById.get(positionKey) || '',
-      orgRoleLabels: roleLabelsByPosition.get(positionKey) || [],
+      orgRoleLabels: meta.labels,
+      orgRoleKeys: meta.keys,
     };
   });
 }
@@ -559,7 +572,7 @@ async function endAssignment(organizationId, assignmentId) {
   const row = await EmployeePositionAssignment.findOneAndUpdate(
     { _id: aid, organizationId: oid, status: 'active' },
     { $set: { status: 'ended', endAt: new Date() } },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
   if (!row) throw serviceError('Không tìm thấy assignment active', 404, 'ASSIGNMENT_NOT_FOUND');
   await invalidatePermissionCacheForUsers(organizationId, [row.userId]);

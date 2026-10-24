@@ -1,7 +1,8 @@
 /**
- * Step 8 — local structural checks for Quality/Testing Plan vs Deploy Plan (Gate DoD).
- * Exception fix #1: legacy HOW (no Quality/Deploy tool evidence) does not hard-enforce.
+ * Step 8 — local structural checks for Quality/Testing Plan (Gate DoD).
+ * Exception fix #1: legacy HOW (no Quality tool evidence) does not hard-enforce.
  * Quality Gate ≠ Testing Plan artifact.
+ * Deploy plan is outside the HOW tool → LLM text flow, so a missing plan does not fail the gate.
  */
 
 function asArray(v) {
@@ -98,7 +99,7 @@ function evaluateQualityDeployGate(packOrContainer, opts = {}) {
   const qp = planning.qualityPlan;
   const dp = planning.deployPlan;
   const qualityPlanOk = !enforce || isQualityPlanStructurallyOk(qp);
-  const deployPlanOk = !enforce || isDeployPlanStructurallyOk(dp);
+  const deployPlanOk = true;
 
   const failures = [];
   if (enforce && !qualityPlanOk) {
@@ -106,13 +107,6 @@ function evaluateQualityDeployGate(packOrContainer, opts = {}) {
       code: 'FEAS_QUALITY_PLAN',
       message:
         'Quality/testing plan incomplete (need levels + AC/catalog coverage) — Quality Gate ≠ Testing Plan artifact',
-    });
-  }
-  if (enforce && !deployPlanOk) {
-    failures.push({
-      code: 'FEAS_DEPLOY_PLAN',
-      message:
-        'Deploy plan incomplete (need envMatrix from SNAP, rollback steps, release mode, outOfScopeInApp)',
     });
   }
 
@@ -151,7 +145,9 @@ function mergeQualityDeployIntoFeasibility(feasibility, packOrContainer) {
     };
   }
 
-  const baseFailures = Array.isArray(feasibility?.failures) ? [...feasibility.failures] : [];
+  const baseFailures = (Array.isArray(feasibility?.failures) ? feasibility.failures : []).filter(
+    (row) => String(row?.code || '') !== 'FEAS_DEPLOY_PLAN'
+  );
   for (const f of gate.failures) {
     if (!baseFailures.some((x) => x?.code === f.code)) baseFailures.push(f);
   }
