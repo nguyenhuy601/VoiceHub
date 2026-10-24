@@ -1,6 +1,6 @@
 /**
  * Shared semantic context for Phase WHAT section derive.
- * FR full once; G4 capability/intent merged onto FR — no duplicate JSON dumps in prompt.
+ * Source FR text stays intact. Capability and intent travel as annotations.
  */
 
 function asArray(value) {
@@ -13,94 +13,75 @@ function clip(value, max) {
   return `${t.slice(0, max)}…`;
 }
 
-function frId(row) {
-  return String(row?.externalId || row?.logicalId || row?.id || row?.frId || '').trim();
+function projectCompiledFr(row) {
+  const out = {
+    id: row.entityId,
+    name: row.content?.title || '',
+    description: row.content?.description || '',
+  };
+  if (row.content?.moduleId) out.module = row.content.moduleId;
+  const actor = (row.content?.actorIds || [])[0];
+  if (actor) out.actor = actor;
+  const acceptance = (row.content?.acceptanceCriteria || [])
+    .map((item) => item.text)
+    .filter(Boolean)
+    .join('\n');
+  if (acceptance) out.acceptanceCriteria = acceptance;
+  if (row.content?.priority) out.priority = row.content.priority;
+  return out;
 }
 
-/** Index G4 requirements + semanticItems by FR id for enrich (not for prompt dump). */
-function g4ByFrId(g4) {
-  const map = new Map();
-  if (!g4 || typeof g4 !== 'object') return map;
-  for (const r of asArray(g4.requirements)) {
-    const id = String(r.id || r.frId || r.logicalId || '').trim();
-    if (!id) continue;
-    map.set(id, {
-      capability: clip(r.semanticInterpretation?.capability || r.capability || '', 200),
-      intent: clip(r.semanticInterpretation?.intent || r.intent || '', 200),
-      actors: asArray(r.actors || r.actor)
-        .map((a) => clip(a, 80))
-        .filter(Boolean)
-        .slice(0, 8),
-    });
+function compiledFrRows(compiled) {
+  const rows = [];
+  const seen = new Set();
+  for (const unit of compiled?.workUnits || []) {
+    for (const row of unit.entities?.functionalRequirements || []) {
+      if (!row?.entityId || seen.has(row.entityId)) continue;
+      seen.add(row.entityId);
+      rows.push(projectCompiledFr(row));
+    }
   }
-  for (const item of asArray(g4.semanticItems)) {
-    const id = String(item.frId || '').trim();
-    if (!id) continue;
-    const prev = map.get(id) || {};
-    map.set(id, {
-      capability: prev.capability || clip(item.semanticInterpretation?.capability || '', 200),
-      intent: prev.intent || clip(item.semanticInterpretation?.intent || '', 200),
-      actors: prev.actors || [],
-    });
-  }
-  return map;
+  return rows;
 }
 
 /**
- * Full FR rows for derive (description + AC + actor + module + G4 cap/intent). Caps count, not meaning.
+ * Full FR rows for derive. Count and character caps are not applied here.
+ * The context compiler decides work units and records anything left out.
  * @param {object} pack
- * @param {{ proposal?: object, g4Understanding?: object }} [opts]
- * @param {number} [max]
+ * @param {{ proposal?: object, g4Understanding?: object, profile?: string, compiledContext?: object }} [opts]
  */
-function takeFrFull(pack, opts = {}, max = 48) {
-  const g4Map = g4ByFrId(opts.g4Understanding || opts.understanding || null);
-  const fromProposal = asArray(opts.proposal?.generated?.functionalRequirements?.items).map((row) => ({
-    id: String(row.logicalId || row.id || '').trim(),
-    name: clip(row.title || row.name, 200),
-    module: clip(row.module || row.moduleLabel, 120),
-    actor: clip(row.actor || row.primaryActor, 120),
-    description: clip(row.description || row.detail || '', 800),
-    acceptanceCriteria: clip(row.acceptanceCriteria || row.ac || '', 600),
-    priority: clip(row.priority || '', 40),
-    capability: clip(row.semanticInterpretation?.capability || row.capability || '', 200),
-    intent: clip(row.semanticInterpretation?.intent || row.intent || '', 200),
-  }));
-  const fromPack = asArray(pack?.functionalRequirements).map((row) => ({
-    id: frId(row),
-    name: clip(row.name || row.title, 200),
-    module: clip(
-      row.module || row.moduleLabel || row.feature || row.functional_scope || row.functionalScope || row.area,
-      120
-    ),
-    actor: clip(row.actor || row.primaryActor || row.userActor, 120),
-    description: clip(row.description || '', 800),
-    acceptanceCriteria: clip(row.acceptanceCriteria || row.acceptance || row.ac || '', 600),
-    priority: clip(row.priority || '', 40),
-  }));
-  const out = [];
-  const seen = new Set();
-  for (const row of [...fromProposal, ...fromPack]) {
-    if (!row.id && !row.name) continue;
-    const key = row.id || row.name;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const g4 = row.id ? g4Map.get(row.id) : null;
-    if (g4) {
-      if (!row.capability && g4.capability) row.capability = g4.capability;
-      if (!row.intent && g4.intent) row.intent = g4.intent;
-      if (!row.actor && g4.actors?.length) row.actor = g4.actors[0];
-    }
-    // Drop empty optional fields so JSON.stringify stays compact
-    if (!row.capability) delete row.capability;
-    if (!row.intent) delete row.intent;
-    if (!row.priority) delete row.priority;
-    if (!row.module) delete row.module;
-    if (!row.actor) delete row.actor;
-    if (!row.acceptanceCriteria) delete row.acceptanceCriteria;
-    out.push(row);
-    if (out.length >= max) break;
-  }
-  return out;
+function takeFrFull(pack, opts = {}) {
+  if (opts.compiledContext) return compiledFrRows(opts.compiledContext);
+  const { compileContext } = require('../dataPlane/compileContext');
+  return compiledFrRows(
+    compileContext({
+      phase: 'WHAT',
+      profile: opts.profile || 'WHAT_DERIVE_UC',
+      pack: packForCompile(pack, opts),
+      snapshot: opts.snapshot,
+      container: opts.container,
+      understanding: opts.g4Understanding || opts.understanding,
+      focusRefs: opts.focusRefs,
+      budget: opts.budget,
+    })
+  );
+}
+
+function packForCompile(pack, opts = {}) {
+  const proposed = asArray(opts.proposal?.generated?.functionalRequirements?.items).map((row) => ({
+    externalId: String(row.logicalId || row.id || '').trim(),
+    title: row.title || row.name || '',
+    description: row.description || row.detail || '',
+    module: row.module || row.moduleLabel || '',
+    actor: row.actor || row.primaryActor || '',
+    acceptanceCriteria: row.acceptanceCriteria || row.ac || '',
+    priority: row.priority || '',
+  })).filter((row) => row.externalId || row.title);
+  if (!proposed.length) return pack;
+  return {
+    ...(pack || {}),
+    functionalRequirements: [...proposed, ...asArray(pack?.functionalRequirements)],
+  };
 }
 
 function takeBrqFull(pack, opts = {}, max = 30) {
@@ -221,6 +202,8 @@ const PROMPT_OMIT_KEYS = new Set([
   'focus',
   'task',
   'engineId',
+  'workUnits',
+  'contextCoverage',
 ]);
 
 /**
@@ -249,11 +232,35 @@ function buildSemanticDeriveContext(pack, opts = {}) {
   const g4 = opts.g4Understanding || opts.understanding || null;
   const locale = normalizeDeriveLocale(opts.locale || pack?.aiAnalysis?.deriveLocale || 'vi');
   const { formatRetrievedContext } = require('../retrieval/formatRetrievedContext');
+  const { compileContext } = require('../dataPlane/compileContext');
   const retrieved = formatRetrievedContext(opts.contextPackage);
+  const compiled = compileContext({
+    phase: 'WHAT',
+    profile: opts.profile || 'WHAT_DERIVE_UC',
+    pack: packForCompile(pack, opts),
+    snapshot: opts.snapshot,
+    container: opts.container,
+    understanding: g4,
+    focusRefs: opts.focusRefs,
+    budget: opts.budget,
+    snapshotId: opts.snapshotId,
+  });
+  const frRows = compiledFrRows(compiled);
+  const splitUnits = compiled.status === 'needs_split'
+    ? (compiled.workUnits || []).map((unit) => ({
+        unitId: unit.unitId,
+        refs: unit.refs,
+        frRows: (unit.entities?.functionalRequirements || []).map(projectCompiledFr),
+      }))
+    : null;
   return {
     locale,
     languageInstruction: languageInstruction(locale),
-    frFull: takeFrFull(pack, opts, 48),
+    frFull: splitUnits ? splitUnits[0]?.frRows || [] : frRows,
+    workUnits: splitUnits || undefined,
+    contextStatus: compiled.status,
+    contextCoverage: compiled.coverage,
+    annotations: compiled.annotations,
     brqFull: takeBrqFull(pack, opts, 30),
     requirementUnderstanding: takeRequirementUnderstanding(g4, 24),
     evidenceRefs: takeEvidenceRefs(opts.evidence, g4, 24),

@@ -86,7 +86,7 @@ exports.updateBranch = async (req, res, next) => {
     const doc = await Branch.findOneAndUpdate(
       { _id: req.params.branchId, organization: req.params.orgId },
       { $set: patch },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!doc) {
       return orgFail(res, 404, 'Branch not found', 'ORG_NOT_FOUND');
@@ -167,7 +167,7 @@ exports.updateDivision = async (req, res, next) => {
     const doc = await Division.findOneAndUpdate(
       { _id: req.params.divisionId, organization: req.params.orgId },
       { $set: patch },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!doc) {
       return orgFail(res, 404, 'Division not found', 'ORG_NOT_FOUND');
@@ -503,7 +503,7 @@ exports.updateTeamByHierarchy = async (req, res, next) => {
             },
           },
         ],
-        { new: false, projection: { members: 1 }, updatePipeline: true }
+        { returnDocument: 'before', projection: { members: 1 }, updatePipeline: true }
       ).lean();
       if (!beforeDelta) {
         return orgFail(res, 404, 'Team not found', 'ORG_NOT_FOUND');
@@ -512,7 +512,7 @@ exports.updateTeamByHierarchy = async (req, res, next) => {
     }
 
     const doc = Object.keys(patch).length
-      ? await Team.findOneAndUpdate(teamFilter, { $set: patch }, { new: true })
+      ? await Team.findOneAndUpdate(teamFilter, { $set: patch }, { returnDocument: 'after' })
       : await Team.findOne(teamFilter);
     if (!doc) {
       return orgFail(res, 404, 'Team not found', 'ORG_NOT_FOUND');
@@ -720,7 +720,7 @@ exports.updateChannelByScope = async (req, res, next) => {
           name: unwrapName(req.body?.name, 'kênh-mới'),
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!doc) {
       return orgFail(res, 404, 'Channel not found', 'ORG_NOT_FOUND');
@@ -747,7 +747,7 @@ exports.updateChannelByTeam = async (req, res, next) => {
           name: unwrapName(req.body?.name, 'kênh-mới'),
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!doc) {
       return orgFail(res, 404, 'Channel not found', 'ORG_NOT_FOUND');
@@ -780,7 +780,7 @@ exports.deleteChannelByScope = async (req, res, next) => {
     if (isProtectedDefaultChannel(channel)) {
       return orgValidation(res, 'Cannot delete default channel');
     }
-    await Channel.findOneAndUpdate({ _id: channel._id }, { isActive: false }, { new: true });
+    await Channel.findOneAndUpdate({ _id: channel._id }, { isActive: false }, { returnDocument: 'after' });
     await bumpOrgReadCache(req.params.orgId);
     return res.json({ status: 'success', message: 'Channel deleted' });
   } catch (error) {

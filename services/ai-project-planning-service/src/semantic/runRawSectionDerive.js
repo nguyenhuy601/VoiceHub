@@ -80,9 +80,9 @@ function buildDerivePrompt(engineId, input, task) {
   if (isV2) {
     return [
       `SemanticTask=${engineId} mode=raw_derive_v2 section=${section}`,
-      'Derive CANDIDATES from Input: frFull (capability/intent on each FR) + BRQ/overview + ambiguities/evidence + retrievedContext when present.',
-      'retrievedContext is G7 snapshot evidence (keyword and/or Qdrant). Use it as support. Do not invent ids outside Input.',
-      'Do not invent FR ids not present in Input. Prefer FR.capability/intent over guessing.',
+      'Derive CANDIDATES from Input: frFull (source requirement text) + annotations (llm_proposal, not source facts) + BRQ/overview + ambiguities/evidence + retrievedContext when present.',
+      'retrievedContext is snapshot evidence (keyword and/or vector). Use it as support. Do not invent ids outside Input.',
+      'Do not invent FR ids not present in Input. Treat annotations as proposals until a person accepts them.',
       'Every item MUST include sourceRefs and/or relatedFrIds when possible.',
       input?.languageInstruction || '',
       `Put the array under key "${resultKey}". JSON object only — no markdown.`,
@@ -225,34 +225,41 @@ function sourceRowCount(input) {
 }
 
 /**
- * Derive one LLM section from Raw pack.
+ * Fact step — applicability, grounded seed, prompt bundle.
+ * Does not call the model. LLM sees only the returned bundle.
+ * @returns {{ mode: 'result', result: object } | { mode: 'llm', bundle: object }}
  */
-async function runRawSectionDerive(opts = {}) {
+function prepareSectionDerive(opts = {}) {
   const engineId = String(opts.engineId || '');
   const pack = opts.pack || {};
   const env = opts.env || process.env;
-  const invokeFn = opts.invokeFn || invokeSemanticRuntime;
   const section = SECTION_BY_ENGINE[engineId];
 
   if (!isLlmDeriveSection(engineId) || !shouldRawDeriveSection(engineId, pack, env)) {
     return {
-      status: TASK_POLICIES.SKIP,
-      reason: 'RAW_DERIVE_NOT_APPLICABLE',
-      items: [],
-      llmCalls: 0,
-      coverage: { status: 'NO_DATA', reason: 'RAW_DERIVE_NOT_APPLICABLE' },
-      section,
+      mode: 'result',
+      result: {
+        status: TASK_POLICIES.SKIP,
+        reason: 'RAW_DERIVE_NOT_APPLICABLE',
+        items: [],
+        llmCalls: 0,
+        coverage: { status: 'NO_DATA', reason: 'RAW_DERIVE_NOT_APPLICABLE' },
+        section,
+      },
     };
   }
 
   if (!isLlmEnabled(env)) {
     return {
-      status: TASK_POLICIES.SKIP,
-      reason: 'LLM_DISABLED',
-      items: [],
-      llmCalls: 0,
-      coverage: { status: 'NO_DATA', reason: 'LLM_DISABLED' },
-      section,
+      mode: 'result',
+      result: {
+        status: TASK_POLICIES.SKIP,
+        reason: 'LLM_DISABLED',
+        items: [],
+        llmCalls: 0,
+        coverage: { status: 'NO_DATA', reason: 'LLM_DISABLED' },
+        section,
+      },
     };
   }
 
@@ -286,25 +293,28 @@ async function runRawSectionDerive(opts = {}) {
           items.length
         );
         return {
-          status: TASK_POLICIES.RUN,
-          reason: 'GROUNDED_FIRST',
-          items,
-          llmCalls: 0,
-          generationMs: 0,
-          evalCount: 0,
-          promptChars: 0,
-          maxTokens: 0,
-          quality: { ...seeded.quality, seeded: true, reason: 'GROUNDED_FIRST' },
-          coverage: {
-            status: 'AVAILABLE',
+          mode: 'result',
+          result: {
+            status: TASK_POLICIES.RUN,
             reason: 'GROUNDED_FIRST',
-            sourceStats: {
-              sourceRows: sourceRowCount(inputPreview),
-              mappedRows: items.length,
-              orphanRows: 0,
+            items,
+            llmCalls: 0,
+            generationMs: 0,
+            evalCount: 0,
+            promptChars: 0,
+            maxTokens: 0,
+            quality: { ...seeded.quality, seeded: true, reason: 'GROUNDED_FIRST' },
+            coverage: {
+              status: 'AVAILABLE',
+              reason: 'GROUNDED_FIRST',
+              sourceStats: {
+                sourceRows: sourceRowCount(inputPreview),
+                mappedRows: items.length,
+                orphanRows: 0,
+              },
             },
+            section,
           },
-          section,
         };
       }
     }
@@ -325,24 +335,27 @@ async function runRawSectionDerive(opts = {}) {
         seeded.brqWithGoal
       );
       return {
-        status: TASK_POLICIES.RUN,
-        reason: 'BRQ_SEED',
-        items,
-        llmCalls: 0,
-        generationMs: 0,
-        evalCount: 0,
-        promptChars: 0,
-        maxTokens: 0,
-        coverage: {
-          status: 'AVAILABLE',
+        mode: 'result',
+        result: {
+          status: TASK_POLICIES.RUN,
           reason: 'BRQ_SEED',
-          sourceStats: {
-            sourceRows: seeded.brqWithGoal,
-            mappedRows: items.length,
-            orphanRows: 0,
+          items,
+          llmCalls: 0,
+          generationMs: 0,
+          evalCount: 0,
+          promptChars: 0,
+          maxTokens: 0,
+          coverage: {
+            status: 'AVAILABLE',
+            reason: 'BRQ_SEED',
+            sourceStats: {
+              sourceRows: seeded.brqWithGoal,
+              mappedRows: items.length,
+              orphanRows: 0,
+            },
           },
+          section,
         },
-        section,
       };
     }
   }
@@ -379,20 +392,118 @@ async function runRawSectionDerive(opts = {}) {
     );
   }
 
-  const startedAt = Date.now();
-  const runtime = await invokeFn({ prompt, env, maxTokens, timeoutMs, numCtx });
-  const generationMs = Date.now() - startedAt;
+  return {
+    mode: 'llm',
+    bundle: {
+      engineId,
+      pack,
+      env,
+      section,
+      input,
+      prompt,
+      maxTokens,
+      timeoutMs,
+      numCtx,
+    },
+  };
+}
 
+function mergeProposedParts(engineId, parts) {
+  const key = RESULT_KEY_BY_ENGINE[engineId] || 'items';
+  const items = [];
+  let generationMs = 0;
+  let evalCount = 0;
+  let ok = false;
+  for (const part of parts) {
+    generationMs += part.generationMs || 0;
+    evalCount += Number(part.runtime?.usage?.evalCount) || 0;
+    if (!part.runtime?.ok) continue;
+    ok = true;
+    items.push(...extractArray(engineId, part.runtime.data));
+  }
+  return {
+    runtime: {
+      ok,
+      data: { [key]: items },
+      reason: ok ? null : 'DERIVE_EMPTY',
+      usage: { evalCount },
+    },
+    generationMs,
+    llmCalls: parts.length,
+  };
+}
+
+/**
+ * Propose step — JSON generation only. No ids, filters, or counts.
+ * @param {object} bundle
+ * @param {Function} [invokeFn]
+ */
+async function proposeSectionJson(bundle, invokeFn) {
+  const units = bundle?.input?.workUnits;
+  if (Array.isArray(units) && units.length > 1 && bundle.input?.contextStatus === 'needs_split') {
+    const task = getSemanticTask(bundle.engineId);
+    const parts = [];
+    for (const unit of units) {
+      const input = {
+        ...bundle.input,
+        frFull: unit.frRows || [],
+        workUnits: undefined,
+        contextStatus: 'ready',
+      };
+      const prompt = buildDerivePrompt(bundle.engineId, input, task);
+      parts.push(await proposeOne({ ...bundle, input, prompt }, invokeFn));
+    }
+    return mergeProposedParts(bundle.engineId, parts);
+  }
+  return proposeOne(bundle, invokeFn);
+}
+
+async function proposeOne(bundle, invokeFn) {
+  const invoke = invokeFn || invokeSemanticRuntime;
+  const startedAt = Date.now();
+  const runtime = await invoke({
+    prompt: bundle.prompt,
+    env: bundle.env,
+    maxTokens: bundle.maxTokens,
+    timeoutMs: bundle.timeoutMs,
+    numCtx: bundle.numCtx,
+  });
+  const generationMs = Date.now() - startedAt;
   // eslint-disable-next-line no-console
   console.info(
     '[raw_derive_timing] section=%s generationMs=%d ok=%s reason=%s promptChars=%d maxTokens=%d evalCount=%d',
-    engineId,
+    bundle.engineId,
     generationMs,
     Boolean(runtime?.ok),
     runtime?.reason || null,
-    prompt.length,
-    maxTokens,
+    bundle.prompt.length,
+    bundle.maxTokens,
     Number(runtime?.usage?.evalCount) || 0
+  );
+  return { runtime, generationMs };
+}
+
+/**
+ * Accept step — ids, quality filter, grounded fallback. No model call.
+ * @param {object} bundle
+ * @param {{ runtime: object, generationMs: number }} proposed
+ */
+function acceptSectionDerive(bundle, proposed) {
+  const engineId = bundle.engineId;
+  const pack = bundle.pack;
+  const section = bundle.section;
+  const input = bundle.input;
+  const prompt = bundle.prompt;
+  const maxTokens = bundle.maxTokens;
+  const runtime = proposed?.runtime;
+  const generationMs = proposed?.generationMs || 0;
+
+  // eslint-disable-next-line no-console
+  console.info(
+    '[raw_derive_accept] section=%s generationMs=%d ok=%s',
+    engineId,
+    generationMs,
+    Boolean(runtime?.ok)
   );
 
   if (!runtime?.ok || runtime.skipped) {
@@ -415,7 +526,7 @@ async function runRawSectionDerive(opts = {}) {
           status: TASK_POLICIES.RUN,
           reason: qualityPass.quality?.reason || reason,
           items,
-          llmCalls: runtime?.skipped ? 0 : 1,
+          llmCalls: proposed?.llmCalls || (runtime?.skipped ? 0 : 1),
           generationMs,
           quality: qualityPass.quality,
           coverage: {
@@ -474,7 +585,7 @@ async function runRawSectionDerive(opts = {}) {
     status: items.length ? TASK_POLICIES.RUN : TASK_POLICIES.SKIP,
     reason: items.length ? qualityReason : 'DERIVE_EMPTY',
     items,
-    llmCalls: 1,
+    llmCalls: proposed?.llmCalls || 1,
     generationMs,
     evalCount: Number(runtime?.usage?.evalCount) || 0,
     promptEvalCount: Number(runtime?.usage?.promptEvalCount) || 0,
@@ -493,6 +604,14 @@ async function runRawSectionDerive(opts = {}) {
     section,
     semanticOutput: runtime.data,
   };
+}
+
+/**
+ * One section: LangGraph fact → propose (JSON only) → accept (ids/quality).
+ */
+async function runRawSectionDerive(opts = {}) {
+  const { runWhatSectionGraph } = require('../whatSecs/sectionGraph');
+  return runWhatSectionGraph(opts);
 }
 
 /**
@@ -555,12 +674,16 @@ async function runAllRawSectionDerives(opts = {}) {
 
 module.exports = {
   SECTION_BY_ENGINE,
+  prepareSectionDerive,
+  proposeSectionJson,
+  acceptSectionDerive,
   runRawSectionDerive,
   runAllRawSectionDerives,
   buildDerivePrompt,
   mapRowToItem,
   resolveDeriveLogicalId,
   extractArray,
+  existingSheetRows,
   assertCriticalDeriveOk,
   resolveBgDeriveTimeoutMs,
   resolveBgDeriveMaxTokens,

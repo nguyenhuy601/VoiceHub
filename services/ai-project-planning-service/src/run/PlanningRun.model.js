@@ -36,6 +36,8 @@ const planningRunSchema = new mongoose.Schema(
     currentNode: { type: String, default: null },
     /** Active tool name while call_tool activity (presentation; not business progress). */
     currentTool: { type: String, default: null, maxlength: 128 },
+    /** HOW tools started together in the current DAG layer. */
+    currentToolNames: { type: [String], default: [] },
     pipelineStep: { type: Number, default: null },
     pipelineSubstep: { type: String, default: null, maxlength: 64 },
     /** Monotonic progress event version for stale-event protection. */

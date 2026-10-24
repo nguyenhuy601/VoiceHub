@@ -28,13 +28,25 @@ export default function HowPlanSummaryChips({ pack = null, t }) {
   const conflictCount = Number(summary.conflictCount) || 0;
   const unassignedCount = Number(summary.unassignedCount) || 0;
   const qualityWarn = summary.qualityPlanOk === false;
-  const deployWarn = summary.deployPlanOk === false;
+  const sequencingBlocked = summary.sequencingBlocked;
   const hasAlerts =
-    conflictCount > 0 || unassignedCount > 0 || Boolean(dc) || qualityWarn || deployWarn;
+    conflictCount > 0 ||
+    unassignedCount > 0 ||
+    Boolean(dc) ||
+    qualityWarn ||
+    Boolean(sequencingBlocked);
   if (!hasAlerts) return null;
 
   return (
     <div className="mt-3 flex flex-wrap gap-3 text-xs font-medium text-amber-800 dark:text-amber-200">
+      {sequencingBlocked ? (
+        <span>
+          {labelOf(t, 'requirements.gate2SeqBlockedChip', 'Đường găng chưa tính: chu trình phụ thuộc')}
+          {sequencingBlocked.reviewCount > 0
+            ? ` (${sequencingBlocked.reviewCount})`
+            : ''}
+        </span>
+      ) : null}
       {conflictCount > 0 ? (
         <span>
           {labelOf(t, 'requirements.gate2ConflictCount', 'Conflicts')}: {conflictCount}
@@ -48,12 +60,6 @@ export default function HowPlanSummaryChips({ pack = null, t }) {
       {qualityWarn ? (
         <span>
           {labelOf(t, 'requirements.gate2QualityPlanCount', 'Testing plan')}:{' '}
-          {labelOf(t, 'requirements.gate2PlanIncomplete', 'incomplete')}
-        </span>
-      ) : null}
-      {deployWarn ? (
-        <span>
-          {labelOf(t, 'requirements.gate2DeployPlanCount', 'Deploy plan')}:{' '}
           {labelOf(t, 'requirements.gate2PlanIncomplete', 'incomplete')}
         </span>
       ) : null}

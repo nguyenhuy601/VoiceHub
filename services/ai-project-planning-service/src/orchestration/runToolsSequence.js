@@ -25,7 +25,22 @@ function buildToolContext({
   runId,
   generationId,
   contextPackage = null,
+  toolName = null,
 }) {
+  // WbsTool: only approved SRS (via pack) + container write-back — no G7 / employees / calendar.
+  if (toolName === 'WbsTool') {
+    return {
+      contextName: 'planning',
+      pack: pack || {},
+      container,
+      runId: runId || null,
+      generationId: generationId || runId || null,
+      contextPackage: contextPackage || null,
+      approvedSrs: true,
+      requiresSatisfied: { approvedSrs: true },
+    };
+  }
+
   const hasEmployees =
     Array.isArray(toolData?.employees) ||
     Array.isArray(container?.resource?.employees);
@@ -58,7 +73,22 @@ function buildToolInput({
   snapshotId,
   planningHints,
   contextPackage = null,
+  toolName = null,
 }) {
+  // WbsTool: pack + container (SoT stories) only — semantic derived inside tool.
+  if (toolName === 'WbsTool') {
+    return {
+      pack: pack || {},
+      snapshotId: snapshotId || null,
+      contextPackage: contextPackage || null,
+      toolData: {
+        enabledProjectRoleKeys: Array.isArray(toolData?.enabledProjectRoleKeys)
+          ? toolData.enabledProjectRoleKeys
+          : [],
+      },
+    };
+  }
+
   const hints =
     planningHints ||
     buildPlanningHints(pack || {}, {
@@ -112,15 +142,18 @@ async function runToolsSequence(steps, ctx = {}) {
   for (const step of steps) {
     const toolName = step.toolName;
     const stepStarted = Date.now();
-    const toolContext = buildToolContext({ pack, toolData, container });
+    const toolContext = buildToolContext({ pack, toolData, container, toolName });
     toolContext.container = container;
-    toolContext.planningHints = planningHints;
+    if (toolName !== 'WbsTool') {
+      toolContext.planningHints = planningHints;
+    }
     const input = buildToolInput({
       container,
       pack,
       toolData,
       snapshotId,
       planningHints,
+      toolName,
     });
     const toolOut = await invokeTool(toolName, input, toolContext);
     assertToolOutputHasEvidence(toolName, toolOut);

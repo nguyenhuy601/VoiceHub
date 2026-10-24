@@ -1,18 +1,24 @@
 /**
- * WBS LLM propose — task leaves under backlog stories only.
- * RULE-L1/L2: no post-mutate; invalid parentStoryId/sourceFrIds/acRefs → fail + reason (no retry).
- * P0: no forced ≥1 task/story; FR/AC coverage is reported (success|partial), not invent-filled.
+ * WBS LLM propose — task leaves under Gate1-approved Stories (SoT) + semantic.
+ * Input: stories (+ epics for materialize) + semantic. No FR-unit invent / G7 CTX.
  */
 
 const { generateJson, isLlmEnabled } = require('../runtime/ollamaGenerate');
+const { cachedGenerateJson } = require('../artifacts/cachedGenerateJson');
 const {
   isHowWbsLlmFlagOn,
   resolveWbsLlmNumPredict,
   resolveWbsLlmNumCtx,
   resolveWbsLlmTimeoutMs,
+  planWbsCallSlices,
 } = require('../contracts/howWbsLlmContract');
-const { buildCtxPromptFragment, logHowCtx } = require('../orchestration/howProposalNodes');
-const { backlogNodesAsTasks } = require('./backlogMap');
+const { roleKeyForArea } = require('./wbsAgileNaming');
+const {
+  isKnownProjectRole,
+  resolveAllowedProjectRoleKey,
+  canonicalizeProjectRoleKey,
+  roleEnumHintFromAllowList,
+} = require('./roleKey');
 
 const AREA_ENUM = Object.freeze([
   'frontend',
@@ -23,20 +29,17 @@ const AREA_ENUM = Object.freeze([
   'infrastructure',
 ]);
 
-/** Required story fields for propose — full enough to decompose, capped for pathological dumps. */
-const STORY_NAME_MAX = 240;
-const STORY_DESC_MAX = 1200;
-const STORY_AC_MAX = 24;
-const STORY_AC_CHARS = 240;
-const STORY_FR_MAX = 16;
+const UNIT_NAME_MAX = 240;
+const UNIT_DESC_MAX = 2400;
+const UNIT_AC_MAX = 24;
+const UNIT_AC_CHARS = 360;
+const UNIT_FR_MAX = 16;
+const UNIT_SCOPE_MAX = 80;
 
-/** P1: richer CTX for WBS propose (vs default HOW fragment). */
-const WBS_CTX_MAX_ITEMS = 10;
-const WBS_CTX_MAX_CHARS = 1400;
-
-/** P2: quality fields — concrete deliverable + completion condition. */
 const DELIVERABLE_MIN_LEN = 8;
-const DONE_WHEN_MIN_LEN = 8;
+
+const ROLE_ENUM_HINT =
+  'frontend_developer|backend_developer|qa_engineer|ui_ux_designer|devops_engineer|business_analyst|technical_lead|project_manager';
 
 function truncate(text, max) {
   const s = String(text || '').trim();
@@ -48,36 +51,39 @@ function normalizeRef(raw) {
   return String(raw || '').trim();
 }
 
-function storyWhitelist(backlog = {}) {
+function unitWhitelist(units = []) {
   return new Set(
-    (Array.isArray(backlog.stories) ? backlog.stories : [])
-      .map((s) => String(s?.id || '').trim())
+    (Array.isArray(units) ? units : [])
+      .map((u) => String(u?.id || '').trim())
       .filter(Boolean)
   );
 }
 
-function storyMapById(backlog = {}) {
+function unitMapById(units = []) {
   const map = new Map();
-  for (const s of backlog.stories || []) {
-    const id = normalizeRef(s?.id);
-    if (id) map.set(id, s);
+  for (const u of units || []) {
+    const id = normalizeRef(u?.id);
+    if (id) map.set(id, u);
   }
   return map;
 }
 
-/** Prompt + accept share the same AC list so whitelist matches STORIES.ac. */
-function storyAcList(story) {
-  return (Array.isArray(story?.acRefs) ? story.acRefs : [])
-    .slice(0, STORY_AC_MAX)
-    .map((a) => truncate(a, STORY_AC_CHARS))
+function unitAcList(unit) {
+  const raw = Array.isArray(unit?.ac)
+    ? unit.ac
+    : Array.isArray(unit?.acRefs)
+      ? unit.acRefs
+      : [];
+  return raw
+    .slice(0, UNIT_AC_MAX)
+    .map((a) => truncate(a, UNIT_AC_CHARS))
     .filter(Boolean);
 }
 
-function storyAcWhitelist(story) {
-  return new Set(storyAcList(story));
+function unitAcWhitelist(unit) {
+  return new Set(unitAcList(unit));
 }
 
-/** Normalize AC for soft cite match (LLM often truncates / drops trailing punctuation). */
 function normalizeAcKey(raw) {
   return String(raw || '')
     .toLowerCase()
@@ -86,10 +92,6 @@ function normalizeAcKey(raw) {
     .trim();
 }
 
-/**
- * Accept AC cite when exact or safe prefix/containment vs story whitelist.
- * Rejects invent: requires overlap with a real whitelist AC (min length guard).
- */
 function acRefAllowed(received, whitelist) {
   const r = normalizeAcKey(received);
   if (!r || r.length < 4) return false;
@@ -111,53 +113,211 @@ function acCitationCoversWhitelist(whitelistAc, citedRawList) {
   return cited.some((c) => acRefAllowed(c, [whitelistAc]));
 }
 
-function storyFrWhitelist(story) {
+function unitFrWhitelist(unit) {
+  const frs = Array.isArray(unit?.fr)
+    ? unit.fr
+    : Array.isArray(unit?.sourceFrIds)
+      ? unit.sourceFrIds
+      : [];
   return new Set(
-    (Array.isArray(story?.sourceFrIds) ? story.sourceFrIds : [])
-      .slice(0, STORY_FR_MAX)
+    frs
+      .slice(0, UNIT_FR_MAX)
       .map((x) => normalizeRef(x))
       .filter(Boolean)
   );
 }
 
-/** Attach FR description from pack when story.description missing (required for decompose). */
-function enrichStoriesWithPack(stories = [], pack = {}) {
-  const frRows = Array.isArray(pack?.functionalRequirements)
-    ? pack.functionalRequirements
-    : Array.isArray(pack?.frList)
-      ? pack.frList
-      : [];
-  const byFr = new Map();
-  for (let i = 0; i < frRows.length; i += 1) {
-    const row = frRows[i] || {};
-    const id = normalizeRef(
-      row.externalId || row.id || row.frId || row.key || `FR-${i + 1}`
-    );
-    if (!id) continue;
-    const desc = [row.description, row.detail, row.summary]
-      .map((p) => String(p || '').trim())
-      .filter(Boolean)
-      .join('\n');
-    if (desc) byFr.set(id, desc);
+function isCustomerRequirementId(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return false;
+  if (/^(CR)[-_.\s]?\d+/i.test(s)) return true;
+  const compact = s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return /^cr\d+$/i.test(compact);
+}
+
+/** Normalize story rows for accept/prompt (id, fr, ac, uc). */
+function normalizeStoriesForWbs(stories = []) {
+  return (Array.isArray(stories) ? stories : [])
+    .map((s) => ({
+      id: normalizeRef(s?.id),
+      name: s?.name || s?.id,
+      description: s?.description || '',
+      fr: Array.isArray(s?.fr)
+        ? s.fr.map(normalizeRef).filter(Boolean)
+        : Array.isArray(s?.sourceFrIds)
+          ? s.sourceFrIds.map(normalizeRef).filter(Boolean)
+          : [],
+      ac: Array.isArray(s?.ac)
+        ? s.ac
+        : Array.isArray(s?.acRefs)
+          ? s.acRefs
+          : [],
+      uc: Array.isArray(s?.uc)
+        ? s.uc.map(normalizeRef).filter(Boolean)
+        : Array.isArray(s?.sourceUcIds)
+          ? s.sourceUcIds.map(normalizeRef).filter(Boolean)
+          : [],
+      module: truncate(s?.module || s?.moduleName || '', UNIT_SCOPE_MAX) || undefined,
+      feature: truncate(s?.feature || s?.featureName || '', UNIT_SCOPE_MAX) || undefined,
+      parentId: s?.parentId ?? s?.parentEpicId ?? null,
+    }))
+    .filter((s) => s.id);
+}
+
+const AREA_DELIVERABLE_HINT = Object.freeze({
+  frontend: 'UI screen/component + interaction test evidence',
+  backend: 'Service/API endpoint + unit test evidence',
+  api: 'API contract + integration test evidence',
+  qa: 'Test cases executed + evidence log',
+  design: 'UX spec/wireframe artifact',
+  infra: 'Infra config/runbook artifact',
+  infrastructure: 'Infra config/runbook artifact',
+  database: 'Schema/migration + verification',
+});
+
+function resolveLeafDeliverable(row, { taskName, unitTitle, acRefs = [], area = '' } = {}) {
+  const fromLlm = String(row?.deliverable || row?.output || row?.doneWhen || '').trim();
+  if (fromLlm.length >= DELIVERABLE_MIN_LEN) return fromLlm;
+  for (const ac of acRefs) {
+    const text = String(ac || '').trim();
+    if (text.length < DELIVERABLE_MIN_LEN) continue;
+    if (normalizeAcKey(text) === normalizeAcKey(taskName)) continue;
+    if (unitTitle && normalizeAcKey(text) === normalizeAcKey(unitTitle)) continue;
+    return text.slice(0, 240);
   }
-  return (Array.isArray(stories) ? stories : []).map((s) => {
-    if (!s || s.description) return s;
-    const frIds = Array.isArray(s.sourceFrIds) ? s.sourceFrIds : [];
-    const desc = frIds
-      .map((fid) => byFr.get(normalizeRef(fid)))
-      .filter(Boolean)
-      .join('\n---\n');
-    if (!desc) return s;
-    return { ...s, description: truncate(desc, STORY_DESC_MAX) };
+  const areaKey = String(area || row?.area || 'backend').toLowerCase();
+  const hint = AREA_DELIVERABLE_HINT[areaKey] || 'Implementation artifact + verification evidence';
+  const candidate = `${hint} (${String(taskName || '').slice(0, 80)})`.trim();
+  if (candidate.length >= DELIVERABLE_MIN_LEN) return candidate.slice(0, 240);
+  return hint;
+}
+
+function resolveLeafSuggestedRole(row, area, allowList) {
+  const raw = canonicalizeProjectRoleKey(
+    row?.suggestedRoleKey || row?.roleKey || row?.role
+  );
+  const areaFallback = roleKeyForArea(area || 'backend');
+  const opts = { allowList, fallback: areaFallback };
+  if (raw && isKnownProjectRole(raw, allowList)) {
+    return resolveAllowedProjectRoleKey(raw, opts);
+  }
+  return resolveAllowedProjectRoleKey(areaFallback, {
+    allowList,
+    fallback: 'backend_developer',
   });
 }
 
 /**
- * Strict accept/reject — no rewrite of LLM fields.
- * Empty nodes[] is allowed (all stories may be unresolved).
+ * FR work units for WBS. Story that cites the FR wins; otherwise the Epic that lists it.
+ * AC stays on the unit only when the story cites that single FR.
+ * @param {object[]} stories
+ * @param {object[]} epics
+ * @param {object|null} semantic
+ */
+function collectFrUnits(stories = [], epics = [], semantic = null) {
+  const storyList = normalizeStoriesForWbs(stories);
+  const frMeta = new Map();
+  const approved = Array.isArray(semantic?.approved?.fr) ? semantic.approved.fr : [];
+  for (const row of approved) {
+    const id = normalizeRef(row?.id);
+    if (id) frMeta.set(id, row);
+  }
+
+  /** @type {Map<string, object>} */
+  const byId = new Map();
+  const order = [];
+
+  function touch(frId, anchor) {
+    const id = normalizeRef(frId);
+    if (!id || isCustomerRequirementId(id)) return;
+    const prev = byId.get(id);
+    if (prev) {
+      if (!prev.storyId && anchor.storyId) {
+        prev.storyId = anchor.storyId;
+        prev.epicId = anchor.epicId || prev.epicId;
+        prev.parentId = anchor.storyId;
+        if (anchor.ac?.length) prev.ac = anchor.ac;
+        if (anchor.description) prev.description = anchor.description;
+        if (anchor.module) prev.module = anchor.module;
+        if (anchor.feature) prev.feature = anchor.feature;
+      }
+      return;
+    }
+    const meta = frMeta.get(id) || {};
+    const name =
+      truncate(meta.statement || meta.name || anchor.name || id, UNIT_NAME_MAX) || id;
+    byId.set(id, {
+      id,
+      name,
+      description: anchor.description || '',
+      statement: meta.statement || anchor.description || '',
+      ac: Array.isArray(anchor.ac) ? anchor.ac : [],
+      module: anchor.module || meta.module || undefined,
+      feature: anchor.feature || meta.feature || undefined,
+      storyId: anchor.storyId || null,
+      epicId: anchor.epicId || null,
+      parentId: anchor.storyId || anchor.epicId || null,
+    });
+    order.push(id);
+  }
+
+  for (const story of storyList) {
+    const single = story.fr.length === 1;
+    for (const frId of story.fr) {
+      touch(frId, {
+        storyId: story.id,
+        epicId: normalizeRef(story.parentId) || null,
+        name: story.name,
+        description: story.description || '',
+        ac: single ? story.ac : [],
+        module: story.module,
+        feature: story.feature,
+      });
+    }
+  }
+  for (const epic of Array.isArray(epics) ? epics : []) {
+    const epicId = normalizeRef(epic?.id);
+    if (!epicId) continue;
+    const frs = Array.isArray(epic.sourceFrIds)
+      ? epic.sourceFrIds
+      : Array.isArray(epic.fr)
+        ? epic.fr
+        : [];
+    for (const frId of frs) {
+      touch(frId, {
+        storyId: null,
+        epicId,
+        name: epic.name || epicId,
+        description: epic.description || '',
+        ac: [],
+        module: epic.module,
+        feature: epic.feature,
+      });
+    }
+  }
+
+  return order.map((id) => byId.get(id));
+}
+
+/**
+ * Strict accept — each task cites exactly one approved FR.
+ * Parent Epic/Story is assigned later from that FR's Gate1 anchor.
  * @returns {{ ok: true, tasks: object[] } | { ok: false, errors: string[] }}
  */
-function acceptWbsStoryTasks(raw, backlog = {}) {
+function acceptWbsStoryTasks(raw, storiesIn = [], opts = {}) {
+  const stories = normalizeStoriesForWbs(
+    Array.isArray(storiesIn)
+      ? storiesIn
+      : Array.isArray(storiesIn?.stories)
+        ? storiesIn.stories
+        : Array.isArray(storiesIn?.units)
+          ? storiesIn.units
+          : []
+  );
+  const frUnits =
+    Array.isArray(opts.frUnits) && opts.frUnits.length
+      ? opts.frUnits
+      : collectFrUnits(stories, opts.epics || [], opts.semantic || null);
   if (!raw || typeof raw !== 'object') {
     return { ok: false, errors: ['not_object'] };
   }
@@ -168,9 +328,25 @@ function acceptWbsStoryTasks(raw, backlog = {}) {
       : null;
   if (!list) return { ok: false, errors: ['missing_nodes'] };
 
-  const stories = storyWhitelist(backlog);
-  const byId = storyMapById(backlog);
-  if (!stories.size) return { ok: false, errors: ['empty_story_whitelist'] };
+  const frById = new Map(frUnits.filter((unit) => unit?.id).map((unit) => [unit.id, unit]));
+  if (!frById.size) return { ok: false, errors: ['empty_fr_whitelist'] };
+
+  if (opts.requireChunkEnvelope) {
+    const echoed = Array.isArray(raw.chunkFrIds) ? raw.chunkFrIds : null;
+    if (!echoed) return { ok: false, errors: ['missing_chunkFrIds'] };
+    const got = [...new Set(echoed.map((id) => normalizeRef(id)).filter(Boolean))].sort();
+    const expected = [...frById.keys()].sort();
+    if (got.length !== expected.length || got.some((id, index) => id !== expected[index])) {
+      return {
+        ok: false,
+        errors: [
+          'chunk_fr_ids_mismatch',
+          `expected=${expected.join('|')}`,
+          `received=${got.join('|')}`,
+        ],
+      };
+    }
+  }
 
   if (!list.length) return { ok: true, tasks: [] };
 
@@ -197,48 +373,38 @@ function acceptWbsStoryTasks(raw, backlog = {}) {
       };
     }
 
-    const parentStoryId = String(
-      row.parentStoryId || row.parentId || ''
-    ).trim();
-    if (!parentStoryId) {
-      return { ok: false, errors: [`missing_parentStoryId_${id}`] };
-    }
-    if (!stories.has(parentStoryId)) {
-      return {
-        ok: false,
-        errors: [
-          `invalid_parentStoryId_${id}`,
-          `received=${parentStoryId}`,
-          `whitelist=${[...stories].slice(0, 12).join('|')}`,
-        ],
-      };
-    }
-
-    const parentStory = byId.get(parentStoryId) || {};
-    const frOk = storyFrWhitelist(parentStory);
-    const acOk = storyAcWhitelist(parentStory);
-
     const sourceFrIds = Array.isArray(row.sourceFrIds)
       ? row.sourceFrIds.map((x) => normalizeRef(x)).filter(Boolean)
       : [];
-    for (const fr of sourceFrIds) {
-      if (!frOk.has(fr)) {
-        return {
-          ok: false,
-          errors: [
-            `invalid_sourceFrId_${id}`,
-            `received=${fr}`,
-            `whitelist=${[...frOk].slice(0, 12).join('|')}`,
-          ],
-        };
-      }
-    }
-    if (frOk.size > 0 && sourceFrIds.length === 0) {
+    if (sourceFrIds.length !== 1) {
       return {
         ok: false,
-        errors: [`missing_sourceFrIds_${id}`, 'story_has_fr_requires_cite'],
+        errors: [
+          sourceFrIds.length ? `expected_one_fr_${id}` : `missing_sourceFrIds_${id}`,
+        ],
       };
     }
+    const frId = sourceFrIds[0];
+    if (isCustomerRequirementId(frId)) {
+      return { ok: false, errors: [`story_cr_fr_${id}`, `received=${frId}`] };
+    }
+    const frUnit = frById.get(frId);
+    if (!frUnit) {
+      return {
+        ok: false,
+        errors: [
+          `invalid_sourceFrId_${id}`,
+          `received=${frId}`,
+          `whitelist=${[...frById.keys()].slice(0, 12).join('|')}`,
+        ],
+      };
+    }
+    const acOk = new Set(
+      (Array.isArray(frUnit.ac) ? frUnit.ac : [])
+        .map((x) => normalizeRef(x))
+        .filter(Boolean)
+    );
+    const parentStoryId = frUnit.storyId || null;
 
     const acRefs = Array.isArray(row.acRefs)
       ? row.acRefs.map((x) => normalizeRef(x)).filter(Boolean)
@@ -267,64 +433,51 @@ function acceptWbsStoryTasks(raw, backlog = {}) {
       .toLowerCase();
 
     const taskName = String(row.name || id).trim() || id;
-    const storyTitle = String(parentStory.name || parentStory.title || '').trim();
-    const deliverable = String(row.deliverable || '').trim();
-    if (deliverable.length < DELIVERABLE_MIN_LEN) {
-      return {
-        ok: false,
-        errors: [`missing_deliverable_${id}`, 'deliverable_min_len'],
-      };
-    }
+    const storyTitle = String(frUnit.name || '').trim();
+    let deliverable = resolveLeafDeliverable(row, {
+      taskName,
+      unitTitle: storyTitle,
+      acRefs,
+      area,
+    });
     if (
-      normalizeAcKey(deliverable) === normalizeAcKey(taskName) ||
-      (storyTitle && normalizeAcKey(deliverable) === normalizeAcKey(storyTitle))
+      deliverable &&
+      (normalizeAcKey(deliverable) === normalizeAcKey(taskName) ||
+        (storyTitle && normalizeAcKey(deliverable) === normalizeAcKey(storyTitle)))
     ) {
-      return {
-        ok: false,
-        errors: [`weak_deliverable_${id}`, 'deliverable_not_title_copy'],
-      };
+      deliverable = resolveLeafDeliverable(
+        { area, deliverable: '' },
+        { taskName: `${taskName} · out`, unitTitle: storyTitle, acRefs: [], area }
+      );
+    }
+    if (!deliverable || deliverable.length < DELIVERABLE_MIN_LEN) {
+      continue;
     }
 
-    const doneWhen = String(
-      row.doneWhen || row.completionCriteria || row.doneCriteria || ''
-    ).trim();
-    if (doneWhen.length < DONE_WHEN_MIN_LEN) {
-      return {
-        ok: false,
-        errors: [`missing_doneWhen_${id}`, 'doneWhen_min_len'],
-      };
-    }
-    if (normalizeAcKey(doneWhen) === normalizeAcKey(taskName)) {
-      return {
-        ok: false,
-        errors: [`weak_doneWhen_${id}`, 'doneWhen_not_title_copy'],
-      };
-    }
-
-    // P1: effortSeedHours optional soft hint only — never copy to effortHours.
     const rawSeed = row.effortSeedHours ?? row.effortHours;
     let effortSeedHours;
     if (rawSeed !== undefined && rawSeed !== null && String(rawSeed).trim() !== '') {
       const effort = Number(rawSeed);
       if (!Number.isFinite(effort) || effort <= 0) {
-        return { ok: false, errors: [`invalid_effort_${id}`] };
+        continue;
       }
       effortSeedHours = effort;
     }
 
-    // Persist as-is (only coerce parentId alias for tree consumers — same value)
+    const suggestedRoleKey = resolveLeafSuggestedRole(row, area, opts.roleAllowList);
+
     const task = {
       id,
       name: taskName,
-      parentId: parentStoryId,
+      parentId: parentStoryId || frUnit.epicId || null,
       parentStoryId,
+      parentEpicId: frUnit.epicId || null,
       level: 'task',
       area: area || 'backend',
-      sourceFrIds,
+      sourceFrIds: [frId],
       acRefs,
       deliverable,
-      doneWhen,
-      suggestedRoleKey: row.suggestedRoleKey || undefined,
+      suggestedRoleKey,
       sortOrder: Number.isFinite(Number(row.sortOrder)) ? Number(row.sortOrder) : i,
     };
     if (effortSeedHours != null) task.effortSeedHours = effortSeedHours;
@@ -334,53 +487,43 @@ function acceptWbsStoryTasks(raw, backlog = {}) {
   return { ok: true, tasks };
 }
 
-/**
- * Soft presence — stories without leaves are unresolved (no invent, no hard-fail).
- * @returns {{ ok: true, unresolvedStoryIds: string[] }}
- */
-function reportStoryTaskPresence(tasks, stories = []) {
-  const need = (Array.isArray(stories) ? stories : []).filter(
-    (s) => s && s.needsDecomposition !== false && s.id
-  );
+function reportUnitTaskPresence(tasks, units = []) {
+  const need = (Array.isArray(units) ? units : []).filter((u) => u && u.id);
   const covered = new Set();
   for (const t of tasks || []) {
-    const pid = normalizeRef(t.parentStoryId || t.parentId);
+    const pid = normalizeRef(t.parentStoryId || t.parentId || t.parentUnitId);
     if (pid) covered.add(pid);
   }
-  const unresolvedStoryIds = need
-    .filter((s) => !covered.has(String(s.id)))
-    .map((s) => String(s.id));
-  return { ok: true, unresolvedStoryIds };
+  const unresolvedUnitIds = need
+    .filter((u) => !covered.has(String(u.id)))
+    .map((u) => String(u.id));
+  return { ok: true, unresolvedUnitIds, unresolvedStoryIds: unresolvedUnitIds };
 }
 
-/**
- * @deprecated P0 soft semantics — use reportStoryTaskPresence.
- * Kept for callers; never hard-fails on missing story tasks.
- */
+function reportStoryTaskPresence(tasks, stories = []) {
+  return reportUnitTaskPresence(tasks, stories);
+}
+
 function assertStoryTaskCoverage(tasks, stories = []) {
-  return reportStoryTaskPresence(tasks, stories);
+  return reportUnitTaskPresence(tasks, stories);
 }
 
-/**
- * For stories that have ≥1 leaf: every story FR/AC must be cited by ≥1 leaf.
- * @returns {{ uncoveredFrIds: string[], uncoveredAcKeys: string[] }}
- */
-function assertFrAcCoverage(tasks, stories = []) {
+function assertFrAcCoverage(tasks, units = []) {
   const uncoveredFrIds = [];
   const uncoveredAcKeys = [];
-  const leavesByStory = new Map();
+  const leavesByUnit = new Map();
   for (const t of tasks || []) {
-    const pid = normalizeRef(t.parentStoryId || t.parentId);
+    const pid = normalizeRef(t.parentStoryId || t.parentId || t.parentUnitId);
     if (!pid) continue;
-    if (!leavesByStory.has(pid)) leavesByStory.set(pid, []);
-    leavesByStory.get(pid).push(t);
+    if (!leavesByUnit.has(pid)) leavesByUnit.set(pid, []);
+    leavesByUnit.get(pid).push(t);
   }
 
-  for (const story of Array.isArray(stories) ? stories : []) {
-    if (!story || story.needsDecomposition === false || !story.id) continue;
-    const sid = String(story.id);
-    const leaves = leavesByStory.get(sid);
-    if (!leaves || !leaves.length) continue; // unresolved handled by presence report
+  for (const unit of Array.isArray(units) ? units : []) {
+    if (!unit || !unit.id) continue;
+    const uid = String(unit.id);
+    const leaves = leavesByUnit.get(uid);
+    if (!leaves || !leaves.length) continue;
 
     const citedFr = new Set();
     const citedAc = new Set();
@@ -389,16 +532,16 @@ function assertFrAcCoverage(tasks, stories = []) {
       for (const ac of leaf.acRefs || []) citedAc.add(normalizeRef(ac));
     }
 
-    for (const fr of storyFrWhitelist(story)) {
-      if (!citedFr.has(fr)) uncoveredFrIds.push(`${sid}:${fr}`);
+    for (const fr of unitFrWhitelist(unit)) {
+      if (!citedFr.has(fr)) uncoveredFrIds.push(`${uid}:${fr}`);
     }
     const citedAcList = [];
     for (const leaf of leaves) {
       for (const ac of leaf.acRefs || []) citedAcList.push(ac);
     }
-    for (const ac of storyAcWhitelist(story)) {
+    for (const ac of unitAcWhitelist(unit)) {
       if (!acCitationCoversWhitelist(ac, citedAcList)) {
-        uncoveredAcKeys.push(`${sid}:${ac}`);
+        uncoveredAcKeys.push(`${uid}:${ac}`);
       }
     }
   }
@@ -406,75 +549,252 @@ function assertFrAcCoverage(tasks, stories = []) {
   return { uncoveredFrIds, uncoveredAcKeys };
 }
 
-/**
- * @returns {'success'|'partial'}
- */
 function resolveDecompositionOutcome({
   leafCount = 0,
+  unresolvedUnitIds = [],
   unresolvedStoryIds = [],
   uncoveredFrIds = [],
   uncoveredAcKeys = [],
 }) {
+  const unresolved = unresolvedUnitIds.length
+    ? unresolvedUnitIds
+    : unresolvedStoryIds;
   if (leafCount <= 0) return 'partial';
-  if (
-    unresolvedStoryIds.length > 0 ||
-    uncoveredFrIds.length > 0 ||
-    uncoveredAcKeys.length > 0
-  ) {
+  if (unresolved.length > 0 || uncoveredFrIds.length > 0 || uncoveredAcKeys.length > 0) {
     return 'partial';
   }
   return 'success';
 }
 
+/**
+ * Production prompt — one call decomposes approved FR rows into task leaves.
+ * Feature nodes are not requested from the model; ≥2 tasks on one FR are promoted later.
+ */
 function buildWbsStoryLlmPrompt({
   stories = [],
-  contextPackage = null,
-  env = process.env,
+  units = [],
+  frUnits = null,
+  epics = [],
+  semantic = null,
   localeInstruction = '',
-}) {
-  void env;
-  const storyPayload = stories.map((s) => ({
-    id: s.id,
-    name: truncate(s.name || s.id, STORY_NAME_MAX),
-    description: truncate(s.description || '', STORY_DESC_MAX),
-    fr: (Array.isArray(s.sourceFrIds) ? s.sourceFrIds : [])
-      .slice(0, STORY_FR_MAX)
-      .map((x) => normalizeRef(x))
-      .filter(Boolean),
-    ac: storyAcList(s),
-    nfr: (Array.isArray(s.sourceNfrIds) ? s.sourceNfrIds : [])
-      .slice(0, 8)
-      .map((x) => normalizeRef(x))
-      .filter(Boolean),
-  }));
-  const { ctxLine, itemCount, mode } = buildCtxPromptFragment(contextPackage, {
-    maxItems: WBS_CTX_MAX_ITEMS,
-    maxChars: WBS_CTX_MAX_CHARS,
-  });
-  logHowCtx('propose-wbs', contextPackage, itemCount);
+  roleAllowList = null,
+} = {}) {
+  const list = normalizeStoriesForWbs(
+    Array.isArray(stories) && stories.length ? stories : units
+  );
+  const frList =
+    Array.isArray(frUnits) && frUnits.length
+      ? frUnits
+      : collectFrUnits(list, epics, semantic);
+  const chunkFrIds = frList.map((unit) => unit.id).filter(Boolean);
+  const factsByFr = new Map();
+  for (const row of Array.isArray(semantic?.approved?.fr) ? semantic.approved.fr : []) {
+    const id = normalizeRef(row?.id);
+    if (!id || !chunkFrIds.includes(id)) continue;
+    factsByFr.set(id, row);
+  }
 
+  const frPayload = frList.map((unit) => {
+    const facts = factsByFr.get(unit.id) || {};
+    const row = {
+      id: unit.id,
+      name: truncate(unit.name || unit.id, UNIT_NAME_MAX),
+      description: truncate(unit.description || unit.statement || '', UNIT_DESC_MAX) || undefined,
+      ac: unitAcList({ ac: unit.ac }),
+      epicId: unit.epicId || undefined,
+      storyId: unit.storyId || undefined,
+      module: unit.module || undefined,
+      feature: unit.feature || undefined,
+      capability: facts.capability ? truncate(facts.capability, 200) : undefined,
+      intent: facts.intent ? truncate(facts.intent, 200) : undefined,
+    };
+    for (const key of Object.keys(row)) {
+      if (row[key] == null || row[key] === '' || (Array.isArray(row[key]) && !row[key].length)) {
+        delete row[key];
+      }
+    }
+    return row;
+  });
+
+  const roleHint = roleEnumHintFromAllowList(roleAllowList) || ROLE_ENUM_HINT;
   const lines = [
-    localeInstruction || 'Respond in the same language as story titles.',
-    'WBS task leaves JSON only. No prose. No epic/feature/story/work_package nodes.',
-    'Shape:{"nodes":[{"id","name","level":"task","parentStoryId","sourceFrIds","acRefs","deliverable","doneWhen","area","effortSeedHours?"}]}',
-    'Rules: Use story name+description+fr+ac (required fields) to decompose; stories MAY have zero tasks (system marks unresolved — do not invent filler). parentStoryId MUST be exact STORY id from list; sourceFrIds ⊆ that story.fr and non-empty when story.fr non-empty; acRefs ⊆ that story.ac and non-empty when story.ac non-empty; deliverable = concrete output (not story/task title copy); doneWhen = measurable completion condition; NEVER invent ids; NEVER copy story title as task name; effortSeedHours is optional soft hint only (not the official estimate); area∈frontend|backend|qa|design|infra. Prefer justified leaves over count; do not invent BE+FE+QA to fill a quota.',
-    `STORIES=${JSON.stringify(storyPayload)}`,
-  ];
-  if (ctxLine) lines.push(ctxLine);
-  if (mode) lines.push(`CTX_MODE=${mode}`);
+    localeInstruction || 'Respond in the same language as FR titles.',
+    'Decompose each input Story into the minimum sufficient set of developer-actionable tasks.',
+    'Return JSON only. No prose.',
+    `Shape:{"chunkFrIds":[${chunkFrIds.map((id) => JSON.stringify(id)).join(',')}],"nodes":[{"id","name","level":"task","sourceFrIds","acRefs","deliverable","suggestedRoleKey","area","effortSeedHours?"}]}`,
+    'chunkFrIds must equal the FR ids in this call, any order. This call is one chunk; the chunk count changes every run. Return tasks only for these ids.',
+    [
+      'Rules:',
+      '1. Every source FR in this chunk must map to at least one task. One task is sufficient for a small FR.',
+      '2. Split only for distinct, independently meaningful implementation deliverables. Do not split automatically by frontend/backend/API/database or create arbitrary tasks per layer.',
+      '3. Each task must describe a concrete engineering action, the specific behavior or component, and its expected outcome. Avoid vague titles such as "Implement frontend", "Develop backend", or "Implement feature X".',
+      '4. Derive tasks only from the provided Story, FR, acceptance criteria, and context. Do not invent business rules, APIs, schemas, technologies, or implementation details.',
+      '5. Minimize task count without omitting required work. Avoid duplicates, redundant subtasks, and unrelated testing/documentation tasks.',
+      '6. Preserve source Story, FR, and acceptance-criteria traceability. Follow the exact output JSON schema.',
+      `Schema: level is "task" only. sourceFrIds is exactly one id from FR. acRefs ⊆ that FR.ac and non-empty when FR.ac is non-empty. deliverable is required on every node and is the concrete output artifact; name must not copy the FR title. suggestedRoleKey∈${roleHint}. area∈${AREA_ENUM.join('|')}. effortSeedHours is optional. Do not invent FR ids. Do not analyze NFR or Customer-Raw CR-*.`,
+    ].join('\n'),
+    `FR=${JSON.stringify(frPayload)}`,
+    semantic ? `SEMANTIC=${JSON.stringify(semantic)}` : null,
+  ].filter(Boolean);
   return lines.join('\n');
 }
 
-function materializeWbsFromBacklogAndLeaves(backlog, leaves) {
-  const containers = backlogNodesAsTasks(backlog);
-  const tasks = [...containers, ...(Array.isArray(leaves) ? leaves : [])];
+/**
+ * Hang task leaves on the Gate1 anchor of their FR.
+ * An FR with 2+ tasks becomes a Feature under that Story, or under the Epic when no Story cites it.
+ */
+function placeLeavesOnFrAnchors({ epics = [], stories = [], leaves = [], frUnits = null } = {}) {
+  const units =
+    Array.isArray(frUnits) && frUnits.length
+      ? frUnits
+      : collectFrUnits(stories, epics, null);
+  const byFr = new Map(units.filter((unit) => unit?.id).map((unit) => [unit.id, unit]));
+  const groups = new Map();
+  for (const leaf of leaves) {
+    const frId = normalizeRef(leaf?.sourceFrIds?.[0]);
+    const key = frId || `__orphan__${leaf?.id || groups.size}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(leaf);
+  }
+
+  const features = [];
+  const placed = [];
+  for (const [key, group] of groups) {
+    const unit = byFr.get(key) || null;
+    const storyId = unit?.storyId || null;
+    const epicId = unit?.epicId || null;
+    const anchor = storyId || epicId || normalizeRef(group[0]?.parentStoryId) || null;
+    if (unit && group.length >= 2) {
+      features.push({
+        id: unit.id,
+        name: unit.name || unit.id,
+        description: unit.statement || unit.description || '',
+        parentId: anchor,
+        level: 'feature',
+        sourceFrIds: [unit.id],
+        sourceUcIds: [],
+        sourceNfrIds: [],
+        acRefs: Array.isArray(unit.ac) ? [...unit.ac] : [],
+        suggestedRoleKey: 'technical_lead',
+        effortSeedHours: 0,
+        effortHours: 0,
+        needsDecomposition: false,
+      });
+      for (const leaf of group) {
+        placed.push({
+          ...leaf,
+          parentId: unit.id,
+          parentFeatureId: unit.id,
+          parentStoryId: storyId,
+          parentEpicId: epicId,
+          level: 'task',
+        });
+      }
+      continue;
+    }
+    for (const leaf of group) {
+      placed.push({
+        ...leaf,
+        parentId: anchor || leaf.parentId || null,
+        parentStoryId: storyId || leaf.parentStoryId || null,
+        parentEpicId: epicId || leaf.parentEpicId || null,
+        level: 'task',
+      });
+    }
+  }
+  return { features, leaves: placed };
+}
+
+/**
+ * Materialize epic + story from SoT, then Feature when one FR has 2+ tasks.
+ */
+function materializeWbsFromSotAndLeaves({
+  epics = [],
+  stories = [],
+  leaves = [],
+  frUnits = null,
+} = {}) {
+  const storyList = normalizeStoriesForWbs(stories);
+  const epicContainers = (Array.isArray(epics) ? epics : [])
+    .map((e) => {
+      const id = normalizeRef(e?.id);
+      if (!id) return null;
+      return {
+        id,
+        name: e.name || id,
+        description: e.description || '',
+        parentId: null,
+        level: 'epic',
+        sourceFrIds: Array.isArray(e.sourceFrIds)
+          ? e.sourceFrIds.map(normalizeRef).filter(Boolean)
+          : Array.isArray(e.fr)
+            ? e.fr.map(normalizeRef).filter(Boolean)
+            : [],
+        sourceUcIds: [],
+        sourceNfrIds: [],
+        acRefs: [],
+        suggestedRoleKey: 'business_analyst',
+        effortSeedHours: 0,
+        effortHours: 0,
+        needsDecomposition: false,
+      };
+    })
+    .filter(Boolean);
+
+  const epicIds = new Set(epicContainers.map((e) => e.id));
+  const storyContainers = storyList.map((s) => {
+    const parentRaw = normalizeRef(s.parentId);
+    const parentId = parentRaw && epicIds.has(parentRaw) ? parentRaw : null;
+    return {
+      id: s.id,
+      name: s.name || s.id,
+      description: s.description || '',
+      parentId,
+      level: 'story',
+      sourceFrIds: [...(s.fr || [])],
+      sourceUcIds: [...(s.uc || [])],
+      sourceNfrIds: [],
+      acRefs: Array.isArray(s.ac) ? [...s.ac] : [],
+      suggestedRoleKey: 'business_analyst',
+      effortSeedHours: 0,
+      effortHours: 0,
+      needsDecomposition: true,
+    };
+  });
+
+  const enrichedLeaves = (Array.isArray(leaves) ? leaves : []).map((leaf) => {
+    const area = String(leaf?.area || 'backend').toLowerCase() || 'backend';
+    const parentStoryId = normalizeRef(leaf.parentStoryId || '');
+    return {
+      ...leaf,
+      parentStoryId,
+      level: 'task',
+      area,
+      suggestedRoleKey: resolveLeafSuggestedRole(leaf, area),
+      deliverable: String(leaf?.deliverable || '').trim(),
+    };
+  });
+
+  const placed = placeLeavesOnFrAnchors({
+    epics,
+    stories: storyList,
+    leaves: enrichedLeaves,
+    frUnits,
+  });
+  const tasks = [
+    ...epicContainers,
+    ...storyContainers,
+    ...placed.features,
+    ...placed.leaves,
+  ];
   const roots = tasks.filter((t) => !t.parentId).map((t) => t.id);
   return {
     tasks,
     wbs: {
       roots,
       nodes: tasks,
-      taskCount: leaves.length,
+      taskCount: placed.leaves.length,
+      featureCount: placed.features.length,
     },
   };
 }
@@ -488,11 +808,6 @@ function slugDedupeName(raw) {
     .slice(0, 80);
 }
 
-/**
- * Cross-story/chunk leaf dedupe — first wins; later get duplicateOf.
- * Coverage still uses all leaves (including duplicates).
- * @returns {{ leaves: object[], duplicateLeafIds: string[], uniqueLeafCount: number }}
- */
 function dedupeWbsLeaves(leaves = []) {
   const seen = new Map();
   const duplicateLeafIds = [];
@@ -525,23 +840,20 @@ function dedupeWbsLeaves(leaves = []) {
 
 /**
  * @param {{
- *   backlog: object,
- *   contextPackage?: object|null,
+ *   stories?: object[],
+ *   epics?: object[],
+ *   semantic?: object|null,
+ *   roleAllowList?: string[]|null,
  *   env?: object,
  *   generateJsonFn?: Function,
- *   pack?: object,
  * }} opts
  */
 async function proposeWbsTasksWithLlm(opts = {}) {
   const env = opts.env || process.env;
-  const backlog = opts.backlog || {};
-  const pack = opts.pack || {};
-  const stories = enrichStoriesWithPack(
-    (Array.isArray(backlog.stories) ? backlog.stories : []).filter(
-      (s) => s && s.needsDecomposition !== false
-    ),
-    pack
-  );
+  const stories = normalizeStoriesForWbs(opts.stories);
+  const epics = Array.isArray(opts.epics) ? opts.epics : [];
+  const semantic = opts.semantic && typeof opts.semantic === 'object' ? opts.semantic : null;
+  const roleAllowList = Array.isArray(opts.roleAllowList) ? opts.roleAllowList : null;
 
   if (!isHowWbsLlmFlagOn(env)) {
     return {
@@ -573,175 +885,256 @@ async function proposeWbsTasksWithLlm(opts = {}) {
       meta: {
         source: 'llm_failed',
         decompositionOutcome: 'failure',
-        fallbackReason: 'empty_backlog_stories',
-        reasonCodes: ['empty_backlog_stories'],
+        fallbackReason: 'missing_approved_backlog_stories',
+        reasonCodes: ['missing_approved_backlog_stories'],
         llmCalls: 0,
       },
     };
   }
 
-  let languageInstruction = '';
-  try {
-    const {
-      normalizeDeriveLocale,
-      languageInstruction: langFn,
-    } = require('../semantic/buildSemanticDeriveContext');
-    const locale = normalizeDeriveLocale(
-      opts.pack?.aiAnalysis?.deriveLocale || opts.pack?.locale || env.PHASE1_DERIVE_LOCALE
-    );
-    languageInstruction = langFn(locale);
-  } catch {
-    languageInstruction = '';
+  const localeInstruction =
+    semantic?.business?.languageInstruction ||
+    (() => {
+      try {
+        const {
+          normalizeDeriveLocale,
+          languageInstruction: langFn,
+        } = require('../semantic/buildSemanticDeriveContext');
+        const locale = normalizeDeriveLocale(
+          semantic?.business?.locale || env.PHASE1_DERIVE_LOCALE
+        );
+        return langFn(locale);
+      } catch {
+        return '';
+      }
+    })();
+
+  const frUnits = collectFrUnits(stories, epics, semantic);
+  if (!frUnits.length) {
+    return {
+      ok: false,
+      meta: {
+        source: 'llm_failed',
+        decompositionOutcome: 'failure',
+        fallbackReason: 'missing_approved_fr',
+        reasonCodes: ['missing_approved_fr'],
+        llmCalls: 0,
+        storyCount: stories.length,
+        epicCount: epics.length,
+      },
+    };
   }
 
-  const chunkSize = Math.max(
-    1,
-    Math.min(4, Number(env.HOW_WBS_STORY_CHUNK) || 4)
-  );
-  const chunks = [];
-  for (let i = 0; i < stories.length; i += chunkSize) {
-    chunks.push(stories.slice(i, i + chunkSize));
-  }
+  const chunks = planWbsCallSlices(frUnits, env);
 
   const gen = typeof opts.generateJsonFn === 'function' ? opts.generateJsonFn : generateJson;
+  const { isWbsChunkOrchestratorEnabled } = require('../wbsChunk/wbsChunkContract');
+  if (isWbsChunkOrchestratorEnabled(env)) {
+    const { runWbsChunkOrchestrator } = require('../wbsChunk/runWbsChunkOrchestrator');
+    return runWbsChunkOrchestrator({
+      stories,
+      epics,
+      semantic,
+      roleAllowList,
+      localeInstruction,
+      frUnits,
+      env,
+      generateJsonFn: gen,
+      runId: opts.runId || null,
+      generationId: opts.generationId || opts.runId || null,
+      inputSnapshotId: opts.inputSnapshotId || null,
+    });
+  }
+
   const numCtx = resolveWbsLlmNumCtx(env);
   const timeoutMs = resolveWbsLlmTimeoutMs(env);
   const t0 = Date.now();
   const allLeaves = [];
+  const isolatedFrIds = [];
   let llmCalls = 0;
   let lastModel = null;
   let promptChars = 0;
 
-  for (let ci = 0; ci < chunks.length; ci += 1) {
-    const chunkStories = chunks[ci];
-    const chunkBacklog = { ...backlog, stories: chunkStories };
+  function coveredFrIds(leaves) {
+    const ids = new Set();
+    for (const leaf of leaves || []) {
+      const frId = normalizeRef(leaf?.sourceFrIds?.[0]);
+      if (frId) ids.add(frId);
+    }
+    return ids;
+  }
+
+  async function runFrSlice(slice, idPrefix) {
     const prompt = buildWbsStoryLlmPrompt({
-      stories: chunkStories,
-      contextPackage: opts.contextPackage || null,
-      env,
-      localeInstruction: languageInstruction,
+      frUnits: slice,
+      semantic,
+      localeInstruction,
+      roleAllowList,
     });
     promptChars += prompt.length;
-    const numPredict = resolveWbsLlmNumPredict(
-      Math.max(chunkStories.length * 3, 8),
-      env
-    );
-
+    const numPredict = resolveWbsLlmNumPredict(slice.length, env);
     let llmResult;
     try {
-      llmResult = await gen({
+      llmResult = await cachedGenerateJson({
         prompt,
         numPredict,
         numCtx,
         timeoutMs,
         temperature: 0.1,
         env,
+        jobType: 'wbs',
+        generateJsonFn: gen,
       });
     } catch (err) {
-      return {
-        ok: false,
-        meta: {
-          source: 'llm_failed',
-          decompositionOutcome: 'failure',
-          fallbackReason: String(err?.message || err || 'llm_throw'),
-          reasonCodes: ['llm_throw', `chunk_${ci}`],
-          llmCalls: llmCalls + 1,
-          llmMs: Date.now() - t0,
-          promptChars,
-        },
-      };
+      llmCalls += 1;
+      return { ok: false, reason: String(err?.message || err || 'llm_throw') };
     }
-    llmCalls += 1;
+    if (!llmResult?.cacheHit) llmCalls += 1;
     lastModel = llmResult?.model || lastModel;
-
     if (!llmResult?.ok || llmResult.data == null) {
-      return {
-        ok: false,
-        meta: {
-          source: 'llm_failed',
-          decompositionOutcome: 'failure',
-          fallbackReason: llmResult?.error || 'llm_failed',
-          reasonCodes: [llmResult?.error || 'llm_failed', `chunk_${ci}`],
-          llmCalls,
-          llmMs: Date.now() - t0,
-          model: lastModel,
-          promptChars,
-        },
-      };
+      return { ok: false, reason: llmResult?.error || 'llm_failed' };
     }
-
-    const accepted = acceptWbsStoryTasks(llmResult.data, chunkBacklog);
+    const accepted = acceptWbsStoryTasks(llmResult.data, stories, {
+      frUnits: slice,
+      epics,
+      semantic,
+      roleAllowList,
+      requireChunkEnvelope: true,
+    });
     if (!accepted.ok) {
-      console.error(
-        '[how-propose-wbs] contract_fail',
-        `chunk=${ci}`,
-        (accepted.errors || []).join(';')
-      );
-      return {
-        ok: false,
-        meta: {
-          source: 'llm_invalid',
-          decompositionOutcome: 'failure',
-          fallbackReason: (accepted.errors || ['contract_fail']).join(','),
-          reasonCodes: [...(accepted.errors || ['contract_fail']), `chunk_${ci}`],
-          llmCalls,
-          llmMs: Date.now() - t0,
-          model: lastModel,
-          promptChars,
-        },
-      };
+      return { ok: false, reason: (accepted.errors || ['contract_fail']).join(';') };
     }
+    return {
+      ok: true,
+      tasks: accepted.tasks.map((leaf) => ({ ...leaf, id: `${idPrefix}-${leaf.id}` })),
+    };
+  }
 
-    // Prefix ids per chunk to avoid collisions across calls
-    for (const leaf of accepted.tasks) {
-      allLeaves.push({
-        ...leaf,
-        id: `c${ci}-${leaf.id}`,
-      });
+  async function fillUncovered(slice, idPrefix, leaves) {
+    const covered = coveredFrIds(leaves);
+    const missing = (slice || []).filter((unit) => unit?.id && !covered.has(unit.id));
+    if (!missing.length) return;
+    const one = await runFrSlice(missing, `${idPrefix}f`);
+    if (one.ok) leaves.push(...one.tasks);
+    const now = coveredFrIds(leaves);
+    for (const unit of missing) {
+      if (now.has(unit.id)) continue;
+      console.error('[how-propose-wbs] slice_fail', unit.id, one.reason || 'uncovered');
+      isolatedFrIds.push(unit.id);
     }
+  }
+
+  for (let ci = 0; ci < chunks.length; ci += 1) {
+    const chunkFr = chunks[ci];
+    const first = await runFrSlice(chunkFr, `c${ci}`);
+    const bucket = [];
+    if (first.ok) {
+      bucket.push(...first.tasks);
+    } else {
+      console.error('[how-propose-wbs] contract_fail', `chunk=${ci}`, first.reason);
+    }
+    if (chunkFr.length < 2 && !first.ok) {
+      await fillUncovered(chunkFr, `c${ci}`, bucket);
+    } else if (coveredFrIds(bucket).size < chunkFr.length) {
+      await fillUncovered(chunkFr, `c${ci}`, bucket);
+    }
+    allLeaves.push(...bucket);
+  }
+
+  if (!allLeaves.length) {
+    return {
+      ok: false,
+      meta: {
+        source: 'llm_invalid',
+        decompositionOutcome: 'failure',
+        fallbackReason: 'all_fr_slices_failed',
+        reasonCodes: isolatedFrIds.length ? isolatedFrIds : ['all_fr_slices_failed'],
+        isolatedFrIds,
+        llmCalls,
+        llmMs: Date.now() - t0,
+        model: lastModel,
+        promptChars,
+      },
+    };
   }
 
   const deduped = dedupeWbsLeaves(allLeaves);
   const leaves = deduped.leaves;
 
-  // Coverage uses every leaf (including duplicates) so second story stays traced.
-  const presence = reportStoryTaskPresence(leaves, stories);
-  const frAc = assertFrAcCoverage(leaves, stories);
+  const coveredFr = new Set();
+  for (const leaf of leaves) {
+    const frId = normalizeRef(leaf?.sourceFrIds?.[0]);
+    if (frId) coveredFr.add(frId);
+  }
+  const uncoveredFrIds = frUnits
+    .filter((unit) => !coveredFr.has(unit.id))
+    .map((unit) => unit.id);
+  const uncoveredAcKeys = [];
+  const leavesByFr = new Map();
+  for (const leaf of leaves) {
+    const frId = normalizeRef(leaf?.sourceFrIds?.[0]);
+    if (!frId) continue;
+    if (!leavesByFr.has(frId)) leavesByFr.set(frId, []);
+    leavesByFr.get(frId).push(leaf);
+  }
+  for (const unit of frUnits) {
+    const group = leavesByFr.get(unit.id);
+    if (!group?.length) continue;
+    const cited = [];
+    for (const leaf of group) {
+      for (const ac of leaf.acRefs || []) cited.push(ac);
+    }
+    for (const ac of unit.ac || []) {
+      if (!acCitationCoversWhitelist(ac, cited)) uncoveredAcKeys.push(`${unit.id}:${ac}`);
+    }
+  }
+  const unresolvedStoryIds = stories
+    .filter((story) => {
+      const frs = story.fr || [];
+      return frs.length > 0 && frs.every((id) => !coveredFr.has(id));
+    })
+    .map((story) => story.id);
   const decompositionOutcome = resolveDecompositionOutcome({
     leafCount: leaves.length,
-    unresolvedStoryIds: presence.unresolvedStoryIds,
-    uncoveredFrIds: frAc.uncoveredFrIds,
-    uncoveredAcKeys: frAc.uncoveredAcKeys,
+    unresolvedUnitIds: unresolvedStoryIds,
+    uncoveredFrIds,
+    uncoveredAcKeys,
   });
 
   console.info(
-    `[how-propose-wbs] outcome=${decompositionOutcome} leaves=${leaves.length} unique=${deduped.uniqueLeafCount} dup=${deduped.duplicateLeafIds.length} unresolved=${presence.unresolvedStoryIds.length} uncoveredFr=${frAc.uncoveredFrIds.length} uncoveredAc=${frAc.uncoveredAcKeys.length}`
+    `[how-propose-wbs] outcome=${decompositionOutcome} leaves=${leaves.length} unique=${deduped.uniqueLeafCount} dup=${deduped.duplicateLeafIds.length} unresolvedStories=${unresolvedStoryIds.length} uncoveredFr=${uncoveredFrIds.length} uncoveredAc=${uncoveredAcKeys.length}`
   );
 
-  const materialized = materializeWbsFromBacklogAndLeaves(backlog, leaves);
+  const materialized = materializeWbsFromSotAndLeaves({
+    epics,
+    stories,
+    leaves,
+    frUnits,
+  });
   return {
     ok: true,
     tasks: materialized.tasks,
     wbs: materialized.wbs,
     meta: {
-      source: chunks.length > 1 ? 'llm_story_tasks_chunked' : 'llm_story_tasks',
+      source: chunks.length > 1 ? 'llm_fr_tasks_chunked' : 'llm_fr_tasks',
       decompositionOutcome,
-      unresolvedStoryIds: presence.unresolvedStoryIds,
-      uncoveredFrIds: frAc.uncoveredFrIds,
-      uncoveredAcKeys: frAc.uncoveredAcKeys,
+      unresolvedUnitIds: unresolvedStoryIds,
+      unresolvedStoryIds,
+      storyCount: stories.length,
+      epicCount: epics.length,
+      featureCount: materialized.wbs?.featureCount || 0,
+      uncoveredFrIds,
+      isolatedFrIds,
+      uncoveredAcKeys,
       duplicateLeafIds: deduped.duplicateLeafIds,
       uniqueLeafCount: deduped.uniqueLeafCount,
       llmCalls,
       llmMs: Date.now() - t0,
       model: lastModel,
       promptChars,
-      storyCount: stories.length,
+      unitCount: frUnits.length,
       leafCount: leaves.length,
       chunks: chunks.length,
-      ctxItems: buildCtxPromptFragment(opts.contextPackage, {
-        maxItems: WBS_CTX_MAX_ITEMS,
-        maxChars: WBS_CTX_MAX_CHARS,
-      }).itemCount,
     },
   };
 }
@@ -753,17 +1146,21 @@ function isHowWbsLlmEnabled(env = process.env) {
 module.exports = {
   proposeWbsTasksWithLlm,
   acceptWbsStoryTasks,
+  collectFrUnits,
+  placeLeavesOnFrAnchors,
   assertStoryTaskCoverage,
+  reportUnitTaskPresence,
   reportStoryTaskPresence,
   assertFrAcCoverage,
   resolveDecompositionOutcome,
   buildWbsStoryLlmPrompt,
-  materializeWbsFromBacklogAndLeaves,
+  materializeWbsFromSotAndLeaves,
+  resolveLeafSuggestedRole,
+  resolveLeafDeliverable,
   dedupeWbsLeaves,
   isHowWbsLlmEnabled,
+  normalizeStoriesForWbs,
   acRefAllowed,
   normalizeAcKey,
   acCitationCoversWhitelist,
-  WBS_CTX_MAX_ITEMS,
-  WBS_CTX_MAX_CHARS,
 };

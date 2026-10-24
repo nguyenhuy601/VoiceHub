@@ -4,7 +4,12 @@
  */
 
 const DEFAULT_MAX_ITERATIONS = 50;
-const DEFAULT_WALL_MS = 300_000;
+/**
+ * HOW critical path: WBS ≤5min, then serial LLM secs (dep, risk, quality,
+ * schedule+releases) at ~2min each. Deploy is not on this path. 5min wall stopped after WBS
+ * and left later sections empty.
+ */
+const DEFAULT_WALL_MS = 1_200_000;
 const DEFAULT_MAX_TOOL_CALLS = 40;
 
 const STOP_REASONS = Object.freeze({

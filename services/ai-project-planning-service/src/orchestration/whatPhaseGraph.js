@@ -23,6 +23,11 @@ function field() {
   return Annotation();
 }
 
+/** Parallel WHAT secs each return their own patch. Keys merge; siblings are kept. */
+function mergeSectionPatches(left, right) {
+  return { ...(left && typeof left === 'object' ? left : {}), ...(right && typeof right === 'object' ? right : {}) };
+}
+
 const WhatPhaseState = Annotation.Root({
   runId: field(),
   snapshotId: field(),
@@ -57,6 +62,10 @@ const WhatPhaseState = Annotation.Root({
   engineResultsById: field(),
   semanticStatuses: field(),
   whatTiming: field(),
+  sectionPatches: Annotation({
+    reducer: mergeSectionPatches,
+    default: () => ({}),
+  }),
 });
 
 async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
@@ -203,29 +212,45 @@ function buildWhatPhaseGraph(hooks = {}) {
     onProgress?.({
       node: 'execute',
       phase: 'what',
-      tool: 'RequirementAnalysisTool',
+      tool: 'WhatFrTool',
     });
-    const { runFrSemanticTask } = require('../semantic/runFrSemanticTask');
-    const frSem = await runFrSemanticTask({
-      snapshot: state.snapshot,
-      pack: state.pack,
-      g4Opts: {
-        ...(state.g4Opts || {}),
-        pauseAtDataGate: false,
-        priorPartial: state.understandingPartial || null,
-        priorCorpusHash: state.corpusContentHash || null,
+    const { registerDefaultTools } = require('../tools/registerDefaultTools');
+    const { invokeTool } = require('../registry/toolRegistry');
+    const { assertToolOutputHasEvidence } = require('../evidence/evidence');
+    const { WHAT_FR_TOOL } = require('../whatSecs/sectionCatalog');
+    registerDefaultTools();
+    const frToolOut = await invokeTool(
+      WHAT_FR_TOOL,
+      {
+        snapshot: state.snapshot,
+        pack: state.pack,
         snapshotId: state.snapshotId,
+        runId: state.runId,
+        g4Opts: {
+          ...(state.g4Opts || {}),
+          pauseAtDataGate: false,
+          priorCorpusHash: state.corpusContentHash || null,
+          snapshotId: state.snapshotId,
+        },
+        onProgress: async (evt) => {
+          if (!onProgress) return;
+          await onProgress({
+            ...evt,
+            phase: 'what',
+            node: evt.substep || evt.node,
+          });
+        },
       },
-      runId: state.runId,
-      onProgress: async (evt) => {
-        if (!onProgress) return;
-        await onProgress({
-          ...evt,
-          phase: 'what',
-          node: evt.substep || evt.node,
-        });
-      },
-    });
+      {
+        contextName: 'understanding',
+        pack: state.pack || {},
+        snapshot: state.snapshot,
+        snapshotId: state.snapshotId,
+        runId: state.runId,
+      }
+    );
+    assertToolOutputHasEvidence(WHAT_FR_TOOL, frToolOut);
+    const frSem = frToolOut.result || {};
     const g4Out = frSem.g4Out || frSem.meta?.g4Out || {};
     const g4Understanding = frSem.g4Understanding;
     const conflictAmbiguityGate = frSem.conflictAmbiguityGate;
@@ -236,12 +261,12 @@ function buildWhatPhaseGraph(hooks = {}) {
     const corpusContentHash = g4Out.corpusContentHash || state.corpusContentHash || null;
     const toolResults = [
       ...(state.toolResults || []),
-      { toolName: 'RequirementAnalysisTool', facts: g4Understanding?.facts || {} },
+      { toolName: 'WhatFrTool', facts: g4Understanding?.facts || {} },
     ];
     const history = [
       ...(state.history || []),
       'step3:semantic_fetch',
-      'execute:g4',
+      'execute:WhatFrTool',
       'semantic_task:fr',
     ];
 

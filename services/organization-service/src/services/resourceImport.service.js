@@ -162,7 +162,7 @@ async function provisionRow({ row, organizationId, uploadedBy }) {
       source: 'excel_import',
       invitedBy: uploadedBy || null,
     },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
+    { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true }
   );
 
   const membershipMs = nowMs() - tMember;
@@ -455,7 +455,7 @@ async function processImportBatch({ organizationId, batchId }) {
         errorMessage: '',
       },
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!claimed) {
@@ -844,7 +844,7 @@ async function confirmMembersExcel({
         completedAt: null,
       },
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!claimed) {

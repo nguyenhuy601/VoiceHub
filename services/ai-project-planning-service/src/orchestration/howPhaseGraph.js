@@ -3,6 +3,10 @@
  * Thin nodes wrap Track A/B/C helpers; no biz metrics in LLM nodes (RULE-F2-01).
  * Governance Gate HITL stays on project-service HTTP (RULE-F2-03 / RULE-H1).
  * Optional awaitHuman = in-run edit_draft only (RULE-H2) — not Gate 2 stamp.
+ *
+ * Tool order is edges on this graph (see howPhaseToolNodes). A tool may run its own
+ * Semantic→Fact→Propose→Accept pipeline; that pipeline is the tool body, not a
+ * second phase orchestrator.
  */
 
 const {
@@ -17,7 +21,13 @@ const {
 } = require('../retrieval/contextAssembly');
 const { buildCorpusFromSnapshot } = require('../retrieval/buildCorpusFromSnapshot');
 const { HOW_PHASE_TOOL_STEPS } = require('./jobToToolsMap');
-const { runHowToolLoop, resolveHowSteps } = require('./runHowToolLoop');
+const {
+  appendList,
+  deepMergePlanningContainers,
+  mergeCurrentToolName,
+  mergeStopReason,
+  wireHowToolNodes,
+} = require('./howPhaseToolNodes');
 const { buildHowBacklogRetrieveQuery } = require('./howContextQueries');
 const { logHowCtx, buildCtxPromptFragment } = require('./howProposalNodes');
 const { decideEvaluateAction } = require('./evaluatePolicy');
@@ -44,11 +54,23 @@ const HowPhaseState = Annotation.Root({
   snapshot: field(),
   pack: field(),
   toolData: field(),
-  container: field(),
+  // Parallel tool nodes return sparse patches. The reducer merges them.
+  container: Annotation({
+    reducer: (left, right) => {
+      if (right == null) return left;
+      return deepMergePlanningContainers(left, right);
+    },
+  }),
   corpus: field(),
   contextPackage: field(),
-  history: field(),
-  toolResults: field(),
+  history: Annotation({
+    reducer: appendList,
+    default: () => [],
+  }),
+  toolResults: Annotation({
+    reducer: appendList,
+    default: () => [],
+  }),
   evaluate: field(),
   evaluateAction: field(),
   evaluateLoop: field(),
@@ -58,12 +80,19 @@ const HowPhaseState = Annotation.Root({
   currentGoal: field(),
   constraints: field(),
   budget: field(),
-  stopReason: field(),
+  stopReason: Annotation({
+    reducer: mergeStopReason,
+  }),
   selective: field(),
   selectiveToolNames: field(),
   startIndex: field(),
-  currentToolIndex: field(),
-  currentToolName: field(),
+  currentToolIndex: Annotation({
+    reducer: (left, right) => Math.max(Number(left) || 0, Number(right) || 0),
+    default: () => 0,
+  }),
+  currentToolName: Annotation({
+    reducer: mergeCurrentToolName,
+  }),
   startedAt: field(),
   hitl: field(),
   skipUnderstand: field(),
@@ -127,20 +156,28 @@ function buildHowPhaseGraph(hooks = {}) {
       const history = [...(state.history || []), `stop:${preStop.reason}`];
       onProgress?.({ node: 'understand', phase: 'how', stopped: true });
       await persistNode({ ...state, history, stopReason: preStop.reason }, 'understand', onCheckpoint);
-      return { history, stopReason: preStop.reason };
+      return { history: [`stop:${preStop.reason}`], stopReason: preStop.reason };
     }
 
     onProgress?.({ node: 'understand', phase: 'how' });
+    const corpusStarted = process.hrtime.bigint();
     const corpus = buildCorpusFromSnapshot(state.snapshot);
+    const buildCorpusMs = Math.max(
+      0,
+      Math.round(Number(process.hrtime.bigint() - corpusStarted) / 1e6)
+    );
     let ingestWarning = null;
+    let ingestOut = null;
+    const ingestStarted = process.hrtime.bigint();
     try {
       const { ingestSnapshotToQdrant } = require('../retrieval/ingestSnapshotToQdrant');
       const { getG7RagMode } = require('../retrieval/g7PipelineSchemas');
       const mode = getG7RagMode();
       if ((mode === 'qdrant' || mode === 'hybrid') && state.snapshotId) {
-        await ingestSnapshotToQdrant({
+        ingestOut = await ingestSnapshotToQdrant({
           snapshot: state.snapshot,
           snapshotId: state.snapshotId,
+          corpus,
         });
       }
     } catch (ingestErr) {
@@ -153,21 +190,49 @@ function buildHowPhaseGraph(hooks = {}) {
       ingestWarning = String(ingestErr?.message || ingestErr);
       console.warn('[g7_ingest] soft', ingestWarning);
     }
+    const ingestMs = Math.max(
+      0,
+      Math.round(Number(process.hrtime.bigint() - ingestStarted) / 1e6)
+    );
     const query = buildHowBacklogRetrieveQuery(state.pack || {});
+    const assembleStarted = process.hrtime.bigint();
     let contextPackage = await assembleContextPackageAsync({
       query,
       corpus,
       snapshotId: state.snapshotId,
     });
+    const assembleMs = Math.max(
+      0,
+      Math.round(Number(process.hrtime.bigint() - assembleStarted) / 1e6)
+    );
     if (ingestWarning && contextPackage && typeof contextPackage === 'object') {
       contextPackage = { ...contextPackage, ingestWarning };
     }
+    const contextStarted = process.hrtime.bigint();
     const { itemCount } = buildCtxPromptFragment(contextPackage);
+    const contextBuildMs = Math.max(
+      0,
+      Math.round(Number(process.hrtime.bigint() - contextStarted) / 1e6)
+    );
     logHowCtx('understand:how_backlog', contextPackage, itemCount);
+    console.info(
+      '[g7_understand] %s',
+      JSON.stringify({
+        event: 'g7_understand',
+        snapshotId: state.snapshotId || null,
+        buildCorpusMs,
+        ingestMs,
+        assembleMs,
+        contextBuildMs,
+        ingestStatus: ingestOut?.status || null,
+        corpusDocs: corpus.length,
+        contextItems: itemCount,
+      })
+    );
     const history = [...(state.history || []), 'understand', 'context:how_backlog'];
     const next = { ...state, corpus, contextPackage, history };
     await persistNode(next, 'understand', onCheckpoint);
-    return { corpus, contextPackage, history };
+    return { corpus, contextPackage, history: ['understand', 'context:how_backlog'] };
   });
 
   graph.addNode('plan', async (state) => {
@@ -179,7 +244,7 @@ function buildHowPhaseGraph(hooks = {}) {
     });
     const history = [...(state.history || []), 'plan'];
     await persistNode({ ...state, history }, 'plan', onCheckpoint);
-    return { history };
+    return { history: ['plan'] };
   });
 
   graph.addNode('select', async (state) => {
@@ -187,110 +252,18 @@ function buildHowPhaseGraph(hooks = {}) {
     onProgress?.({ node: 'select', phase: 'how' });
     const history = [...(state.history || []), 'select'];
     await persistNode({ ...state, history }, 'select', onCheckpoint);
-    return { history };
+    return { history: ['select'] };
   });
 
-  graph.addNode('execute', async (state) => {
-    if (state.stopReason && String(state.stopReason).startsWith('BUDGET_')) {
-      return {};
-    }
-    const steps = resolveHowSteps(state.selective ? state.selectiveToolNames : null);
-    let startIndex = Number(state.startIndex) || 0;
-    if (state.selective) startIndex = 0;
-    // NEED_TOOL re-entry: continue from currentToolIndex if set
-    if (
-      state.evaluateAction === 'NEED_TOOL' &&
-      typeof state.currentToolIndex === 'number' &&
-      state.currentToolIndex > 0
-    ) {
-      startIndex = state.currentToolIndex;
-    }
-
-    onProgress?.({
-      node: 'execute',
-      phase: 'how',
-      selective: Boolean(state.selective),
-      startIndex,
-    });
-
-    const budget = state.budget || resolveAgentBudget();
-    const historyBase = (state.history || []).filter(
-      (x) => !String(x).startsWith('execute:') && !String(x).startsWith('stop:')
-    );
-
-    const seq = await runHowToolLoop({
-      steps,
-      startIndex,
-      container: state.container,
-      pack: state.pack,
-      toolData: state.toolData,
-      snapshotId: state.snapshotId,
-      runId: state.runId || null,
-      generationId: state.generationId || state.runId || null,
-      contextPackage: state.contextPackage || null,
-      budget,
-      startedAt: state.startedAt,
-      baseIteration: historyBase.length,
-      onToolStart: async ({ toolName, layerToolNames }) => {
-        await onProgress?.({
-          node: 'call_tool',
-          phase: 'how',
-          tool: toolName,
-          tools: Array.isArray(layerToolNames) ? layerToolNames : [toolName],
-        });
-      },
-      onToolDone: async ({
-        nextIndex,
-        toolName,
-        toolNames,
-        container,
-        toolResults,
-        history: h,
-      }) => {
-        await persistNode(
-          {
-            ...state,
-            container,
-            toolResults,
-            history: [...historyBase, ...h],
-          },
-          'execute',
-          onCheckpoint,
-          {
-            currentToolIndex: nextIndex,
-            currentToolName: toolName,
-            currentToolNames: Array.isArray(toolNames) ? toolNames : [toolName],
-          }
-        );
-      },
-    });
-
-    const history = [...historyBase, ...seq.history];
-    const toolResults = seq.toolResults;
-    const stopReason = seq.stopReason || state.stopReason || null;
-    await persistNode(
-      { ...state, container: seq.container, toolResults, history, stopReason },
-      'execute',
-      onCheckpoint,
-      {
-        currentToolIndex: steps.length,
-        currentToolName: null,
-      }
-    );
-    return {
-      container: seq.container,
-      toolResults,
-      history,
-      stopReason,
-      currentToolIndex: steps.length,
-      currentToolName: null,
-    };
+  wireHowToolNodes(graph, {
+    onProgress,
+    persist: (state, currentNode, extra) =>
+      persistNode(state, currentNode, onCheckpoint, extra),
   });
 
   graph.addNode('observe', async (state) => {
     onProgress?.({ node: 'observe', phase: 'how' });
-    const history = [...(state.history || []), 'observe'];
-    return { history };
+    return { history: ['observe'] };
   });
 
   graph.addNode('evaluateLocal', async (state) => {
@@ -326,18 +299,17 @@ function buildHowPhaseGraph(hooks = {}) {
       }
     }
     evaluate.action = evaluateAction;
-    const history = [...(state.history || []), 'evaluateLocal'];
     return {
       evaluate,
       evaluateAction,
       evaluateLoop: loop + 1,
-      history,
+      history: ['evaluateLocal'],
     };
   });
 
   graph.addNode('retrieve', async (state) => {
     if (state.selective) {
-      return { history: [...(state.history || []), 'retrieve:skipped_selective'] };
+      return { history: ['retrieve:skipped_selective'] };
     }
     const contextPackage = await assembleContextPackageAsync({
       query: 'how_planning_gap',
@@ -346,7 +318,7 @@ function buildHowPhaseGraph(hooks = {}) {
     });
     const history = [...(state.history || []), 'retrieve:evaluate'];
     await persistNode({ ...state, contextPackage, history }, 'retrieve', onCheckpoint);
-    return { contextPackage, history };
+    return { contextPackage, history: ['retrieve:evaluate'] };
   });
 
   graph.addNode('emitFeasibility', async (state) => {
@@ -412,7 +384,7 @@ function buildHowPhaseGraph(hooks = {}) {
       feasibilitySignal,
       feasibility,
       stopReason,
-      history,
+      history: ['feasibilitySignal'],
       hitl: 'gate2',
     };
   });
@@ -430,12 +402,11 @@ function buildHowPhaseGraph(hooks = {}) {
       },
       prompt: 'In-run review of HOW draft before emit (not Gate 2 Pack stamp)',
     });
-    const history = [...(state.history || []), 'awaitHuman:in_run:edit_draft'];
-    return { history, humanResume: resumed };
+    return { history: ['awaitHuman:in_run:edit_draft'], humanResume: resumed };
   });
 
   function routeAfterStart(state) {
-    if (state.selective || state.skipUnderstand) return 'execute';
+    if (state.selective || state.skipUnderstand) return 'enterTools';
     return 'understand';
   }
 
@@ -449,7 +420,7 @@ function buildHowPhaseGraph(hooks = {}) {
       return 'retrieve';
     }
     if (action === 'NEED_TOOL' && loop < MAX_EVALUATE_LOOPS) {
-      return 'execute';
+      return 'enterTools';
     }
     const { isHitlInterruptEnabled } = require('./hitlInterrupt');
     if (isHitlInterruptEnabled()) return 'awaitHuman';
@@ -458,16 +429,16 @@ function buildHowPhaseGraph(hooks = {}) {
 
   graph.addConditionalEdges(START, routeAfterStart, {
     understand: 'understand',
-    execute: 'execute',
+    enterTools: 'enterTools',
   });
   graph.addEdge('understand', 'plan');
   graph.addEdge('plan', 'select');
-  graph.addEdge('select', 'execute');
-  graph.addEdge('execute', 'observe');
+  graph.addEdge('select', 'enterTools');
+  graph.addEdge('gateTools', 'observe');
   graph.addEdge('observe', 'evaluateLocal');
   graph.addConditionalEdges('evaluateLocal', routeAfterEvaluate, {
     retrieve: 'retrieve',
-    execute: 'execute',
+    enterTools: 'enterTools',
     awaitHuman: 'awaitHuman',
     emitFeasibility: 'emitFeasibility',
   });

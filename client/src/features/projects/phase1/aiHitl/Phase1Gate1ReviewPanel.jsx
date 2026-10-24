@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import Gate1SectionReviewTable from '../gate1/Gate1SectionReviewTable';
+import Gate1FrBacklogSubpanel from '../gate1/Gate1FrBacklogSubpanel';
 import Gate1MissingSectionPanel from '../gate1/Gate1MissingSectionPanel';
 import HitlSectionTabList from './HitlSectionTabList';
 import {
@@ -410,6 +411,17 @@ export default function Phase1Gate1ReviewPanel({
           status={activeTab?.status || 'NO_DATA'}
           coverageReason={activeTab?.coverageReason || null}
           isCustomerRawIntake={Boolean(summary?.isCustomerRawIntake)}
+          t={t}
+        />
+      ) : null}
+
+      {activeSection === 'functionalRequirements' ? (
+        <Gate1FrBacklogSubpanel
+          rows={bySection.backlogStructure || []}
+          decisions={decisions}
+          setDecision={setDecision}
+          showSubmit={allowDecide}
+          busy={busy}
           t={t}
         />
       ) : null}

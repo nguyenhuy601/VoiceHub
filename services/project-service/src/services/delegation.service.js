@@ -90,7 +90,7 @@ async function upsertEdge({ boardId, fromRoleId, toRoleId, taskTypes, organizati
         taskTypes: types,
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   ).lean();
 }
 

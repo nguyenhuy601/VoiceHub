@@ -1,8 +1,8 @@
 /**
- * Agent Core F2 — invoke WHAT LangGraph → phaseOut parity with JS runWhatPhase.
+ * WHAT phase entry — invoke whatPhaseGraph and map the final state to phaseOut.
  */
 
-const { buildWhatPhaseGraph } = require('./whatPhaseGraph');
+const { runPhaseOrchestrator } = require('./phaseOrchestratorGraph');
 const {
   resolveAgentBudget,
   STOP_REASONS,
@@ -60,15 +60,17 @@ async function runWhatPhaseLangGraph({
   const { checkpointer, kind: checkpointerKind } = await getLangGraphCheckpointer();
   const { assertDurableCheckpointerForInRunHitl } = require('./hitlCheckpointerPolicy');
   assertDurableCheckpointerForInRunHitl({ kind: checkpointerKind });
-  const graph = buildWhatPhaseGraph({ onProgress, onCheckpoint, checkpointer });
   const threadId = String(runId || snapshotId || `what-${startedAt}`);
 
   console.info(
-    `[agent_core] mode=langgraph phase=what runId=${runId || ''} checkpointer=${checkpointerKind}`
+    `[agent_core] mode=langgraph phase=what runId=${runId || ''} checkpointer=${checkpointerKind} orchestrator=shared`
   );
 
-  const finalState = await graph.invoke(
-    {
+  const finalState = await runPhaseOrchestrator({
+    phase: 'what',
+    threadId,
+    hooks: { onProgress, onCheckpoint, checkpointer },
+    input: {
       runId,
       snapshotId,
       snapshot,
@@ -94,8 +96,7 @@ async function runWhatPhaseLangGraph({
       g4Opts,
       whatTiming,
     },
-    { configurable: { thread_id: threadId } }
-  );
+  });
 
   const durationMs = Math.max(0, Date.now() - startedAt);
   const timing = logWhatTiming(finalState.whatTiming || whatTiming, { totalMs: durationMs });

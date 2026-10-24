@@ -38,7 +38,7 @@ Không nhầm với các pipeline AI chat/task đã **gỡ** (`ai-task-service` 
 6. Then `ecosystem-primer` if writing LangChain/LangGraph/Deep Agents code.
 7. HITL → `langgraph-human-in-the-loop`.
 8. RAG/Qdrant → `langchain-rag` only when G7 in-scope.
-9. Deep Agents / LangGraph **F2 Agent Core** — HOW graph available behind `AGENT_CORE_F2` (default off); full HITL interrupt / JEV vẫn sau gate riêng.
+9. Deep Agents / LangGraph **F2 Agent Core** — WHAT và HOW chỉ điều phối bằng `whatPhaseGraph` / `howPhaseGraph`. Không còn vòng JS phase. Full HITL interrupt / JEV vẫn sau gate riêng.
 
 ## Mode → pattern map
 
@@ -52,7 +52,7 @@ Không nhầm với các pipeline AI chat/task đã **gỡ** (`ai-task-service` 
 | Early AI + calendar/history | **Do not** inject into WHAT LLM unless plan/whitelist says so |
 | 3-layer read | Workflow A / Agent B / Governance C — cùng backbone |
 | 3-track vá | C→A→B trước F2 (RULE-14) — **đã đóng** |
-| Agent Core F2 | HOW LangGraph: `AGENT_CORE_F2=1` (`howPhaseGraph`); default `0` = JS `agentLoopRunner` |
+| Agent Core F2 | LangGraph là điều phối phase duy nhất (`whatPhaseGraph` / `howPhaseGraph`) |
 | JEV 1/2/3 | Docs SoT only until sau Agent Core ổn + Step 5 score (RULE-12 / RULE-14) |
 
 ## SoT files (as-is → migrate)
@@ -73,4 +73,4 @@ Không nhầm với các pipeline AI chat/task đã **gỡ** (`ai-task-service` 
 - Ollama / Qdrant: Swarm (`docker-stack.yml`) — không nhét vào image project
 - Snapshot ingest ≠ LLM input; Run bind `snapshotId`
 - **JEV deferred:** không implement `jevClient` / env vendor trong remediation Step 5 / holes A–H; không pin TypeSafe/OpenRouter làm SoT runtime
-- **Agent Core F2:** HOW graph available (`AGENT_CORE_F2`); default off — JS SoT; không interrupt Gate trong F2.0
+- **Agent Core F2:** LangGraph là SoT điều phối phase; không còn runner JS / cờ `AGENT_CORE_F2`; không interrupt Gate trong F2.0

@@ -132,7 +132,7 @@ class DocumentService {
       const updated = await Document.findByIdAndUpdate(
         documentId,
         { $set: updateFields },
-        { new: true, runValidators: true }
+        { returnDocument: 'after', runValidators: true }
       );
 
       logger.info(`Document updated: ${documentId}`);

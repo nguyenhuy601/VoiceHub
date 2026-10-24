@@ -309,7 +309,7 @@ async function ensureRole(organizationId, code, sortOrder) {
     row = await OrganizationalRole.findOneAndUpdate(
       { _id: row._id },
       { $set },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
   }
   return { row, created: false };

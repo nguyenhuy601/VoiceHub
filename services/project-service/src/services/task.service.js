@@ -393,7 +393,7 @@ class TaskService {
       const updated = await Task.findByIdAndUpdate(
         taskId,
         { $set: encryptedUpdate },
-        { new: true, runValidators: true }
+        { returnDocument: 'after', runValidators: true }
       );
 
       if (becameDone || leftDone) {

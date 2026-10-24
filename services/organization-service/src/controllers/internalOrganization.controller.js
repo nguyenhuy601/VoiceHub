@@ -260,7 +260,7 @@ async function ensureMembership(req, res) {
         role,
         status: 'active',
       },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
+      { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true }
     );
     await ensureDefaultOrgRoles(organizationId);
     await syncUserOrgRole(userId, organizationId, role);
@@ -313,7 +313,7 @@ async function transferOwner(req, res) {
         role: 'owner',
         status: 'active',
       },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
+      { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true }
     );
     await ensureDefaultOrgRoles(organizationId);
     await syncUserOrgRole(newOwnerUserId, organizationId, 'owner');
@@ -553,7 +553,7 @@ async function updateProjectWorkgroupMembers(req, res) {
     const updated = await Channel.findByIdAndUpdate(
       channelId,
       { $set: { members: uniqueIds } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Channel not found' });

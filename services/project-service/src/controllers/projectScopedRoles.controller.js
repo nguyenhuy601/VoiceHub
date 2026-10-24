@@ -165,7 +165,7 @@ async function updateProjectScopedRole(req, res) {
     const updated = await ProjectRole.findOneAndUpdate(
       { _id: role._id, projectId: project._id },
       { $set: patch },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
 
     invalidateProjectRoleCaches(project._id);
@@ -256,7 +256,7 @@ async function resetProjectScopedRoleDefault(req, res) {
           sortOrder: Number(orgDefault.sortOrder) || role.sortOrder,
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
 
     invalidateProjectRoleCaches(project._id);

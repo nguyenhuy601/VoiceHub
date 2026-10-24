@@ -2455,7 +2455,7 @@ async function updateCard({
   const updated = await Task.findByIdAndUpdate(
     cardId,
     { $set: next },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   );
   const out = updated?.toObject ? updated.toObject() : updated;
 
@@ -2729,7 +2729,7 @@ async function addCardComment({ userId, cardId, content }) {
         },
       },
     },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   );
   const out = updated?.toObject ? updated.toObject() : updated;
   if (card.listId) {
@@ -3052,7 +3052,7 @@ async function setListWatch({ userId, listId, watching }) {
     await TaskBoardListWatcher.findOneAndUpdate(
       { listId: listOid, userId: userOid },
       { listId: listOid, boardId: board._id, userId: userOid },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
     return { watching: true, watcherCount: await TaskBoardListWatcher.countDocuments({ listId: listOid }) };
   }

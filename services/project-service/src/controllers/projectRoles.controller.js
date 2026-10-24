@@ -192,7 +192,7 @@ async function updateProjectRole(req, res) {
       });
     }
 
-    const updated = await ProjectRole.findOneAndUpdate({ _id: role._id }, { $set: patch }, { new: true }).lean();
+    const updated = await ProjectRole.findOneAndUpdate({ _id: role._id }, { $set: patch }, { returnDocument: 'after' }).lean();
     try {
       const { clearResolveUserProjectPermissionsCache } = require('../services/projectAccess.service');
       clearResolveUserProjectPermissionsCache();

@@ -2,29 +2,21 @@
  * HOW phase G18 tool sequence — phase-only SoT (no job-id execute map).
  * RULE-PO-05: Selective filters this list by toolName.
  *
- * Mode (see config/howSemanticLlmFlags.js):
- * - LLM hybrid (HOW_SEMANTIC_LLM / HOW_*_LLM): Wbs, Dependency, Architecture, Risk, Quality
- * - Heuristic/deterministic only: Effort, Sequencing, EmployeeMatching, Schedule, Deploy, ProjectPlan
+ * Heuristic còn lại chỉ trong ScheduleTool: lịch (capacity) và sprint (timebox).
+ * WBS, Dependency, Risk, Quality: LLM, không fallback engine.
+ * BacklogMap: map cấu trúc Gate 1 đã duyệt. ProjectPlan: ghép kết quả đã có.
+ * Sequencing, Matching, Architecture, Effort, Deploy không còn trong phase.
  */
 
 const HOW_PHASE_TOOL_STEPS = Object.freeze([
-  // Capability ∥ BacklogMap (Pattern C); Wbs sau backlog; Arch sau Wbs (không ∥ Wbs)
-  { toolName: 'CapabilityTool', autoConfirm: true, mode: 'heuristic' },
-  { toolName: 'BacklogMapTool', autoConfirm: true, mode: 'heuristic' },
-  { toolName: 'WbsTool', autoConfirm: true, mode: 'llm_hybrid' },
-  { toolName: 'ArchitectureTool', autoConfirm: false, mode: 'llm_hybrid' },
-  { toolName: 'DependencyTool', autoConfirm: true, mode: 'llm_hybrid' },
-  { toolName: 'RiskTool', autoConfirm: true, mode: 'llm_hybrid' },
-  // Step 4: Quality/Testing plan before Effort (QA work informs estimates)
-  { toolName: 'QualityPlanTool', autoConfirm: true, mode: 'llm_hybrid' },
-  { toolName: 'EffortTool', autoConfirm: true, mode: 'heuristic' },
-  { toolName: 'SequencingTool', autoConfirm: true, mode: 'heuristic' },
-  { toolName: 'EmployeeMatchingTool', autoConfirm: true, mode: 'heuristic' },
-  { toolName: 'ScheduleTool', autoConfirm: true, mode: 'heuristic' },
-  // Step 7: Deploy plan after Schedule (needs go-live / release dates)
-  { toolName: 'DeployPlanTool', autoConfirm: true, mode: 'heuristic' },
+  { toolName: 'BacklogMapTool', autoConfirm: true, mode: 'sot' },
+  { toolName: 'WbsTool', autoConfirm: true, mode: 'llm' },
+  { toolName: 'DependencyTool', autoConfirm: true, mode: 'llm' },
+  { toolName: 'RiskTool', autoConfirm: true, mode: 'llm' },
+  { toolName: 'QualityPlanTool', autoConfirm: true, mode: 'llm' },
+  { toolName: 'ScheduleTool', autoConfirm: true, mode: 'schedule_sprint' },
   // Gate2 HITL: ProjectPlanTool never auto-confirms (RULE-PO-05)
-  { toolName: 'ProjectPlanTool', autoConfirm: false, mode: 'heuristic' },
+  { toolName: 'ProjectPlanTool', autoConfirm: false, mode: 'assemble' },
 ]);
 
 

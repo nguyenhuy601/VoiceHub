@@ -1,8 +1,9 @@
 /**
  * HOW Phase — which tools use LLM vs stay heuristic (policy flags, not magic in engines).
  *
- * Semantic (LLM hybrid, fallback heuristic): WBS, Architecture, Dependency, Risk, Quality
- * Hard/numeric (always heuristic): Effort hours, Sequencing/CPM, Matching, Schedule, Deploy, ProjectPlan
+ * Semantic secs are LLM-only on the phase (no engine fallback).
+ * Heuristic kept on the phase: ScheduleTool (lịch + sprint timebox).
+ * Deploy is not a phase node.
  *
  * Master: HOW_SEMANTIC_LLM (default on). Per-section HOW_*_LLM overrides when set.
  */
@@ -18,14 +19,7 @@ const SEMANTIC_SECTION_KEYS = Object.freeze([
   'quality',
 ]);
 
-const HEURISTIC_ONLY_TOOLS = Object.freeze([
-  'EffortTool',
-  'SequencingTool',
-  'EmployeeMatchingTool',
-  'ScheduleTool',
-  'DeployPlanTool',
-  'ProjectPlanTool',
-]);
+const HEURISTIC_ONLY_TOOLS = Object.freeze(['ScheduleTool']);
 
 const ENV_BY_SECTION = Object.freeze({
   backlog: 'HOW_BACKLOG_LLM',

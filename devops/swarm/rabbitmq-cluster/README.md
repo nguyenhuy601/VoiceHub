@@ -6,12 +6,13 @@
 ## Kiến trúc
 
 ```text
-rabbitmq-1 (seed) ← rabbitmq-2, rabbitmq-3 join_cluster  (HA, RABBITMQ_CLUSTER_SIZE=3)
+rabbitmq (seed, hostname rabbitmq-1) ← rabbitmq-2, rabbitmq-3 join_cluster  (HA, RABBITMQ_CLUSTER_SIZE=3)
 RABBITMQ_ERLANG_COOKIE đồng bộ (root .env)
-hostname cố định: rabbitmq-1 | rabbitmq-2 | rabbitmq-3
+service DNS: rabbitmq | rabbitmq-2 | rabbitmq-3
+hostname Erlang seed: rabbitmq-1 (không đổi — quorum/Khepri không rename node)
 ```
 
-**Tạm thời single-node (tiết kiệm RAM):** `RABBITMQ_CLUSTER_SIZE=1` (mặc định deploy) — chỉ `rabbitmq-1`, override `docker-compose.cluster.single.yml` scale `rabbitmq-2/3` về 0. Khôi phục HA: đặt `RABBITMQ_CLUSTER_SIZE=3` rồi `bash devops/swarm/rabbitmq-cluster/deploy-cluster-stack.sh`.
+**Tạm thời single-node (tiết kiệm RAM):** `RABBITMQ_CLUSTER_SIZE=1` (mặc định deploy) — chỉ service `rabbitmq`, override `docker-compose.cluster.single.yml` scale `rabbitmq-2/3` về 0. Khôi phục HA: đặt `RABBITMQ_CLUSTER_SIZE=3` rồi `bash devops/swarm/rabbitmq-cluster/deploy-cluster-stack.sh`.
 
 Overlay: `enterprise-network` — **không publish** `5672` / `15672` ra host public.
 
@@ -21,12 +22,12 @@ Overlay: `enterprise-network` — **không publish** `5672` / `15672` ra host pu
 RABBITMQ_USER=voicehub
 RABBITMQ_PASS=<secret>
 RABBITMQ_ERLANG_COOKIE=<secret-cookie>
-RABBITMQ_URL=amqp://voicehub:<pass>@rabbitmq-1:5672
+RABBITMQ_URL=amqp://voicehub:<pass>@rabbitmq:5672
 ```
 
 | Biến | Mô tả |
 |------|--------|
-| `RABBITMQ_URL` | AMQP entry — **khuyến nghị** `rabbitmq-1:5672` (seed) |
+| `RABBITMQ_URL` | AMQP entry — service DNS `rabbitmq:5672` (seed). Alias `rabbitmq-1` chỉ cho Erlang join |
 | `RABBITMQ_ERLANG_COOKIE` | Bắt buộc giống nhau trên 3 node |
 | `RABBITMQ_USER` / `RABBITMQ_PASS` | Auth AMQP + Management |
 
@@ -43,20 +44,20 @@ RABBITMQ_URL=amqp://voicehub:<pass>@rabbitmq-1:5672
 
 Workers liên quan: `friendDmConsumer`, `notificationDispatch.worker`, `taskFromFileWorker`, `report-etl-worker` (và worker trong từng service khi bật).
 
-**Sau kill 1 node:** cluster còn quorum disk nodes; client trỏ `rabbitmq-1` vẫn publish được. Nếu connection hang → `docker service update --force <worker>` hoặc chờ reconnect.
+**Sau kill 1 node:** cluster còn quorum disk nodes; client trỏ `rabbitmq` vẫn publish được. Nếu connection hang → `docker service update --force <worker>` hoặc chờ reconnect.
 
-**Không** dùng round-robin DNS tùy ý trên Swarm — dùng hostname seed `rabbitmq-1` hoặc internal LB (out-of-scope).
+**Không** dùng round-robin DNS tùy ý trên Swarm — dùng service seed `rabbitmq` hoặc internal LB (out-of-scope).
 
 ## Management UI (nội bộ)
 
-- URL: `http://rabbitmq-1:15672` (chỉ từ container/máy trong overlay/VPN)
+- URL: `http://rabbitmq:15672` (chỉ từ container/máy trong overlay/VPN)
 - Auth: `RABBITMQ_USER` / `RABBITMQ_PASS`
 - **Không** map port `15672` trong stack file
 
 Truy cập debug:
 
 ```bash
-docker exec -it <rabbitmq-1-container> rabbitmqctl cluster_status
+docker exec -it <voicehub-rabbit_rabbitmq container> rabbitmqctl cluster_status
 ```
 
 ## Deploy Swarm

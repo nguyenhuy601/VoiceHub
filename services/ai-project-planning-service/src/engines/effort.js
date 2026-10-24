@@ -2,7 +2,7 @@
  * Ported from project-service/src/utils/aiAnalysis/aiAnalysisEffort.js.
  * Heuristic refinements: area multipliers, name/AC scope, capability complexity.
  */
-const { normalizeRoleKey } = require('./roleKey');
+const { resolveAllowedProjectRoleKey } = require('./roleKey');
 
 const MAX_EFFORT_HOURS = 80;
 const MIN_EFFORT_HOURS = 1;
@@ -131,7 +131,7 @@ function phaseForTask(task) {
   if (/deploy|devops|infra|infrastructure|sre|release|cicd/.test(blob)) return 'deploy';
   if (
     /management|analysis|design|pm\b|ba\b|po\b/.test(blob) ||
-    /project_manager|business_analyst|product_owner|tech_lead/.test(role)
+    /project_manager|business_analyst|product_owner|tech_lead|technical_lead/.test(role)
   ) {
     return 'mgmt';
   }
@@ -196,16 +196,36 @@ function runEffortEngine(container, opts = {}) {
       continue;
     }
 
-    // P1: official estimate from complexity — never use effortSeedHours as base.
-    let hours = COMPLEXITY_HOURS[complexity] ?? COMPLEXITY_HOURS.medium;
+    const isLeaf =
+      level === 'task' || level === 'subtask' || (!level && Boolean(task.parentId));
+    const isContainer =
+      level === 'epic' ||
+      level === 'feature' ||
+      level === 'story' ||
+      level === 'work_package';
 
-    if (level === 'epic' || level === 'feature' || level === 'story') {
-      hours = Math.max(MIN_EFFORT_HOURS, Math.round(hours * 0.25));
-    } else if (!task.parentId && /delivery|epic|root/i.test(task.name || '')) {
-      hours = Math.max(MIN_EFFORT_HOURS, Math.round(hours * 0.5));
-    } else {
-      hours = hours * areaFactor(task) * scopeFactor(task);
+    // Effort & Roles follow WBS leaf allocation only — containers get 0 (FE rollup Σ).
+    if (isContainer || (!isLeaf && !task.parentId)) {
+      task.effortHours = 0;
+      task.requiredLevel = requiredLevel;
+      task.storyPoints = 0;
+      task.confidence = 0;
+      task.complexity = complexity;
+      task.effortPhase = phase;
+      if (task.suggestedRoleKey) {
+        task.suggestedRoleKey = resolveAllowedProjectRoleKey(task.suggestedRoleKey, {
+          allowList: opts.allowList,
+          fallback: task.suggestedRoleKey,
+        });
+      }
+      continue;
     }
+
+    // P1: official estimate from complexity — never use effortSeedHours as base.
+    let hours =
+      (COMPLEXITY_HOURS[complexity] ?? COMPLEXITY_HOURS.medium) *
+      areaFactor(task) *
+      scopeFactor(task);
 
     const blended = blendHoursWithHistory(hours, complexity, historyMetrics);
     if (blended.usedHistory) usedHistoryAny = true;
@@ -223,7 +243,12 @@ function runEffortEngine(container, opts = {}) {
     totalStoryPoints += storyPoints;
     confidenceSum += confidence;
     byPhase[phase] = (byPhase[phase] || 0) + hours;
-    const roleKey = normalizeRoleKey(task.suggestedRoleKey) || 'backend_developer';
+    const roleKey = resolveAllowedProjectRoleKey(task.suggestedRoleKey, {
+      allowList: opts.allowList,
+      fallback: 'backend_developer',
+    });
+    // Persist leaf role from WBS (system allow-list) — Effort/Roles + Assignment SoT.
+    task.suggestedRoleKey = roleKey;
     byRole[roleKey] = (byRole[roleKey] || 0) + hours;
   }
 
@@ -234,7 +259,10 @@ function runEffortEngine(container, opts = {}) {
   if (qualityPlanDerivedHours > 0) {
     byPhase.qa = qaFromTasks + qualityPlanDerivedHours;
     estimatedHoursTotal += qualityPlanDerivedHours;
-    const qaRole = 'qa_engineer';
+    const qaRole = resolveAllowedProjectRoleKey('qa_engineer', {
+      allowList: opts.allowList,
+      fallback: 'qa_engineer',
+    });
     byRole[qaRole] = (byRole[qaRole] || 0) + qualityPlanDerivedHours;
   }
 

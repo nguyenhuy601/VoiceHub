@@ -8,6 +8,8 @@ const axios = require('axios');
 const {
   isOpenAiCompatibleProvider,
   embeddingsCreate,
+  embeddingsCreateBatch,
+  EMBED_BATCH_LIMIT,
   remoteEmbedModel,
   DEFAULT_REMOTE_EMBED_MODEL,
 } = require('@enterprise/shared/llm/openaiCompatibleClient');
@@ -147,11 +149,82 @@ async function embedText(opts = {}) {
   }
 }
 
+/**
+ * Embed many documents. Remote provider sends at most 10 texts per HTTP call.
+ * Ollama stays one text per call inside this function.
+ * @param {{ texts?: string[], env?: NodeJS.ProcessEnv, axiosImpl?: object }} opts
+ */
+async function embedTexts(opts = {}) {
+  const env = opts.env || process.env;
+  const texts = Array.isArray(opts.texts) ? opts.texts : [];
+  const model = embedModel(env);
+  const version = embedVersion(env);
+  if (!texts.length) {
+    return {
+      ok: true,
+      embeddings: [],
+      model,
+      embeddingVersion: version,
+      retries: 0,
+      requestCount: 0,
+      batchSize: EMBED_BATCH_LIMIT,
+    };
+  }
+
+  if (isOpenAiCompatibleProvider(env)) {
+    const remote = await embeddingsCreateBatch({
+      texts,
+      model,
+      env,
+      axiosImpl: opts.axiosImpl,
+    });
+    return {
+      ok: Boolean(remote.ok),
+      embeddings: Array.isArray(remote.embeddings) ? remote.embeddings : [],
+      model: remote.model || model,
+      embeddingVersion: version,
+      error: remote.error,
+      retries: Number(remote.retries) || 0,
+      requestCount: Number(remote.requestCount) || 0,
+      batchSize: EMBED_BATCH_LIMIT,
+    };
+  }
+
+  const embeddings = [];
+  for (const text of texts) {
+    const one = await embedText({ text, env, axiosImpl: opts.axiosImpl });
+    if (!one.ok || !one.embedding?.length) {
+      return {
+        ok: false,
+        embeddings: [],
+        model,
+        embeddingVersion: version,
+        error: one.error || 'embed_failed',
+        retries: 0,
+        requestCount: embeddings.length + 1,
+        batchSize: 1,
+      };
+    }
+    embeddings.push(one.embedding);
+  }
+  return {
+    ok: true,
+    embeddings,
+    model,
+    embeddingVersion: version,
+    retries: 0,
+    requestCount: texts.length,
+    batchSize: 1,
+  };
+}
+
 module.exports = {
   embedText,
+  embedTexts,
   embedModel,
   embedVersion,
   DEFAULT_EMBED_MODEL,
   DEFAULT_EMBED_VERSION,
   DEFAULT_REMOTE_EMBED_VERSION,
+  EMBED_BATCH_LIMIT,
 };

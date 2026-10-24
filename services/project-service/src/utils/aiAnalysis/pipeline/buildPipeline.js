@@ -276,6 +276,25 @@ function buildPackObjectFromSnapshot(
       ? liveAi.canonicalRaw
       : null);
 
+  // HOW BacklogMap / WbsTool read analyses.approvedBacklogStructure.
+  // Freeze used to drop analyses entirely, so an approved tree never reached WBS.
+  let approvedBacklogStructure =
+    liveAi.analyses?.approvedBacklogStructure &&
+    typeof liveAi.analyses.approvedBacklogStructure === 'object'
+      ? liveAi.analyses.approvedBacklogStructure
+      : null;
+  if (
+    !approvedBacklogStructure &&
+    String(packObj.status || '').toLowerCase() === 'approved'
+  ) {
+    const {
+      materializeApprovedBacklogStructure,
+    } = require('../../srsProposal/materializeApprovedBacklogStructure');
+    approvedBacklogStructure = materializeApprovedBacklogStructure(
+      liveAi.analyses?.srsProposal
+    );
+  }
+
   const freeze = {
     _id: packObj._id,
     packId: packObj._id != null ? String(packObj._id) : packObj.packId,
@@ -332,6 +351,9 @@ function buildPackObjectFromSnapshot(
       customerRawRows: liveAi.customerRawRows || null,
       canonicalRaw: canonicalRaw || null,
       loop1Reuse: liveAi.loop1Reuse || null,
+      ...(approvedBacklogStructure
+        ? { analyses: { approvedBacklogStructure } }
+        : {}),
     },
   };
 

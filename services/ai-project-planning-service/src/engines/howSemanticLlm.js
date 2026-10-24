@@ -5,10 +5,12 @@
  */
 
 const { generateJson, isLlmEnabled, ollamaModel } = require('../runtime/ollamaGenerate');
+const { cachedGenerateJson } = require('../artifacts/cachedGenerateJson');
+const { QWEN_PLUS_MAX_OUTPUT_TOKENS } = require('@enterprise/shared/llm/openaiCompatibleClient');
+const { clampOutputTokens } = require('../runtime/modelOutputBudget');
 
-const DEFAULT_TIMEOUT_MS = 90_000;
-const DEFAULT_NUM_PREDICT = 480;
-const DEFAULT_NUM_CTX = 2048;
+const DEFAULT_TIMEOUT_MS = 180_000;
+const DEFAULT_NUM_PREDICT = QWEN_PLUS_MAX_OUTPUT_TOKENS;
 
 function clip(s, max = 120) {
   const t = String(s || '').trim().replace(/\s+/g, ' ');
@@ -16,29 +18,95 @@ function clip(s, max = 120) {
   return `${t.slice(0, max)}…`;
 }
 
-function packBrief(pack = {}, { maxFr = 12, maxUc = 8 } = {}) {
-  const frs = (pack.functionalRequirements || []).slice(0, maxFr).map((fr, i) => ({
-    id: String(fr.externalId || fr.id || `FR-${i + 1}`),
-    title: clip(fr.title || fr.name || fr.statement, 80),
-  }));
-  const ucs = (pack.useCases || []).slice(0, maxUc).map((uc, i) => ({
-    id: String(uc.externalId || uc.ucKey || uc.id || `UC-${i + 1}`),
-    title: clip(uc.title || uc.name, 80),
-  }));
+function acceptanceLines(row, maxItems = 2, maxChars = 80) {
+  const raw =
+    row?.acceptanceCriteriaList ||
+    row?.acceptanceCriteria ||
+    row?.ac ||
+    row?.acs ||
+    row?.acceptance;
+  const lines = [];
+  const push = (text) => {
+    const c = clip(text, maxChars);
+    if (c) lines.push(c);
+  };
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (lines.length >= maxItems) break;
+      if (typeof item === 'string') push(item);
+      else push(item?.text || item?.statement || item?.description || '');
+    }
+  } else if (typeof raw === 'string' && raw.trim()) {
+    for (const part of raw.split(/\n|;/)) {
+      if (lines.length >= maxItems) break;
+      push(part);
+    }
+  }
+  return lines;
+}
+
+/**
+ * Serialize one canonical or source row. Does not decide which rows or fields to drop.
+ * @param {'fr'|'uc'} kind
+ */
+function requirementBriefRow(row = {}, index = 0, kind = 'fr') {
+  const id =
+    kind === 'uc'
+      ? String(row.externalId || row.ucKey || row.id || row.entityId || `UC-${index + 1}`).trim()
+      : String(row.externalId || row.id || row.entityId || `FR-${index + 1}`).trim();
+  const content = row.content && typeof row.content === 'object' ? row.content : null;
+  const title = String(content?.title || row.title || row.name || row.statement || '').trim();
+  const statement = String(
+    content?.description || row.statement || row.description || row.detail || row.summary || ''
+  ).trim();
+  const moduleName = String(content?.moduleId || row.module || row.moduleName || row.moduleLabel || '').trim();
+  const feature = String(content?.feature || row.feature || row.featureName || row.featureLabel || '').trim();
+  const ac = kind === 'fr'
+    ? (content?.acceptanceCriteria || []).map((item) => item.text).filter(Boolean).length
+      ? content.acceptanceCriteria.map((item) => item.text)
+      : acceptanceLines(row, 100, 20000)
+    : [];
+  const out = { id };
+  if (title) out.title = title;
+  if (statement && statement !== title) out.statement = statement;
+  if (moduleName) out.module = moduleName;
+  if (feature && feature !== moduleName) out.feature = feature;
+  if (ac.length) out.ac = ac;
+  return out;
+}
+
+function packBrief(pack = {}) {
+  const { compileContext } = require('../dataPlane/compileContext');
+  const compiled = compileContext({
+    phase: 'HOW',
+    profile: 'HOW_BACKLOG_MAP',
+    pack,
+  });
+  const frs = [];
+  const ucs = [];
+  for (const unit of compiled.workUnits || []) {
+    for (const row of unit.entities?.functionalRequirements || []) {
+      frs.push(requirementBriefRow(row, frs.length, 'fr'));
+    }
+    for (const row of unit.entities?.useCases || []) {
+      ucs.push(requirementBriefRow(row, ucs.length, 'uc'));
+    }
+  }
   return {
     project: clip(pack.overview?.name || pack.name, 80),
     frs,
     ucs,
+    status: compiled.status,
+    coverage: compiled.coverage,
   };
 }
 
-function leafTaskBrief(container = {}, max = 40) {
+function leafTaskBrief(container = {}) {
   return (container?.planning?.tasks || [])
     .filter((t) => {
       const level = String(t?.level || 'task').toLowerCase();
       return level === 'task' || level === 'subtask' || !t.level;
     })
-    .slice(0, max)
     .map((t) => ({
       id: String(t.id || t.taskId || ''),
       title: clip(t.name || t.title, 80),
@@ -58,24 +126,27 @@ async function invokeHowSemanticLlm({
   generateJsonFn = null,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   numPredict = DEFAULT_NUM_PREDICT,
-  numCtx = DEFAULT_NUM_CTX,
+  numCtx,
 } = {}) {
   if (!isLlmEnabled(env)) {
     return { ok: false, data: null, meta: { fallbackReason: 'llm_disabled' } };
   }
-  const gen = generateJsonFn || generateJson;
   const prompt = [String(system || '').trim(), String(user || '').trim()]
     .filter(Boolean)
     .join('\n\n');
+  const predict = clampOutputTokens(numPredict, env);
   try {
-    const out = await gen({
+    const llmOpts = {
       prompt,
       env,
       timeoutMs,
-      numPredict,
-      numCtx,
+      numPredict: predict,
       temperature: 0.2,
-    });
+      jobType: 'how-sec',
+      generateJsonFn: generateJsonFn || generateJson,
+    };
+    if (numCtx != null && Number.isFinite(Number(numCtx))) llmOpts.numCtx = Number(numCtx);
+    const out = await cachedGenerateJson(llmOpts);
     if (!out?.ok || !out.data || typeof out.data !== 'object') {
       return {
         ok: false,
@@ -92,7 +163,7 @@ async function invokeHowSemanticLlm({
       data: out.data,
       meta: {
         model: out.model || ollamaModel(env),
-        llmCalls: 1,
+        llmCalls: out.cacheHit ? 0 : 1,
         usage: out.usage || null,
       },
     };
@@ -112,6 +183,8 @@ async function invokeHowSemanticLlm({
 module.exports = {
   invokeHowSemanticLlm,
   packBrief,
+  requirementBriefRow,
+  acceptanceLines,
   leafTaskBrief,
   clip,
   DEFAULT_TIMEOUT_MS,

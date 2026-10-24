@@ -219,6 +219,7 @@ function wrapFlatTasksWithFrHierarchy(input = {}) {
       area: 'backend',
       featureId,
       sourceCapabilityIds: feature.sourceCapabilityIds,
+      suggestedRoleKey: 'technical_lead',
       effortSeedHours: 0,
       effortHours: 0,
     }));
@@ -232,6 +233,7 @@ function wrapFlatTasksWithFrHierarchy(input = {}) {
       area: 'backend',
       featureId,
       ...soft,
+      suggestedRoleKey: 'business_analyst',
       effortSeedHours: 0,
       effortHours: 0,
     }));
@@ -319,7 +321,12 @@ function wrapFlatTasksWithFrHierarchy(input = {}) {
         ? n.suggestedRoleKey || roleKeyForArea(n.area)
         : n.level === 'epic'
           ? 'project_manager'
-          : undefined,
+          : n.level === 'feature'
+            ? n.suggestedRoleKey || 'technical_lead'
+            : n.level === 'story'
+              ? n.suggestedRoleKey || 'business_analyst'
+              : n.suggestedRoleKey || undefined,
+    deliverable: n.level === 'task' ? String(n.deliverable || '').trim() || undefined : undefined,
     effortSeedHours: n.effortSeedHours != null ? n.effortSeedHours : 0,
     effortHours: n.effortHours != null ? n.effortHours : 0,
     sortOrder: idx,

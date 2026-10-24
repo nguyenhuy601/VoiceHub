@@ -514,7 +514,7 @@ class RoleService {
       const role = await Role.findOneAndUpdate(
         orgFilter,
         { $set: updateFields },
-        { new: true, runValidators: true }
+        { returnDocument: 'after', runValidators: true }
       );
 
       if (!role) {
@@ -565,7 +565,7 @@ class RoleService {
       const role = await Role.findOneAndUpdate(
         orgFilter,
         { $set: { isActive: false } },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       if (!role) {

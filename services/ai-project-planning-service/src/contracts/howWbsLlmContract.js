@@ -14,21 +14,22 @@ const WBS_LLM_LEVELS = Object.freeze([
   'task',
 ]);
 const WBS_LLM_MAX_NODES = 200;
-/** Compact prompt defaults (latency) — override via env HOW_WBS_LLM_* */
-const WBS_LLM_MAX_AC_PER_FR = 2;
-const WBS_LLM_AC_TRUNCATE = 40;
+/** Prompt defaults — override via env HOW_WBS_LLM_*. AC kept long enough to cite. */
+const WBS_LLM_MAX_AC_PER_FR = 6;
+const WBS_LLM_AC_TRUNCATE = 160;
 /** Max work leaves per FR (multi-task decompose). Override: HOW_WBS_LLM_MAX_LEAVES_PER_FR */
 const WBS_LLM_MAX_LEAVES_PER_FR = 4;
-/** Soft target in prompt — keep ≤2 for CPU 3B decode budget */
+/** Soft target in the legacy decompose prompt. Output budget uses max leaves, not this hint. */
 const WBS_LLM_TARGET_LEAVES_PER_FR = 2;
 const WBS_LLM_MAX_FR = 48;
 const WBS_LLM_MAX_CAPS = 12;
-const WBS_LLM_DEFAULT_NUM_CTX = 1536;
-/** Align with OLLAMA_PLANNING_TIMEOUT_MS — multi-leaf needs >120s on CPU 3B */
 const WBS_LLM_DEFAULT_TIMEOUT_MS = 240000;
-/** Small chunks: multi-leaf JSON decode is the bottleneck */
-const WBS_LLM_MAX_FR_FOR_CALL = 3;
-/** Cap chunk count (45 FR / 3 ≈ 15) */
+/** qwen-plus max output on DashScope. One WBS call may use this whole budget. */
+const WBS_LLM_MAX_OUTPUT_TOKENS = 32768;
+/** One task JSON in Vietnamese is ~90–150 tokens. 40 truncates a full leaf. */
+const WBS_LLM_TOKENS_PER_LEAF = 160;
+const WBS_LLM_PREDICT_ENVELOPE = 80;
+/** Cap chunk count so a huge pack still fans out. */
 const WBS_LLM_MAX_CHUNKS = 16;
 
 /**
@@ -54,30 +55,48 @@ function resolveWbsLlmMaxLeavesPerFr(env = process.env) {
   });
 }
 
+function resolveWbsLlmMaxOutputTokens(env = process.env) {
+  const { resolveChatMaxOutputTokens } = require('@enterprise/shared/llm/openaiCompatibleClient');
+  const ceiling = Math.min(WBS_LLM_MAX_OUTPUT_TOKENS, resolveChatMaxOutputTokens(env));
+  return clampInt(env.HOW_WBS_LLM_MAX_OUTPUT_TOKENS, ceiling, {
+    min: 256,
+    max: ceiling,
+  });
+}
+
+/** FR rows whose task JSON fits in one qwen-plus completion. */
+function resolveWbsFrPerCall(env = process.env) {
+  const maxOut = resolveWbsLlmMaxOutputTokens(env);
+  const leaves = resolveWbsLlmMaxLeavesPerFr(env);
+  const perFr = Math.max(1, leaves * WBS_LLM_TOKENS_PER_LEAF);
+  const fit = Math.max(1, Math.floor((maxOut - WBS_LLM_PREDICT_ENVELOPE) / perFr));
+  const explicit = Number(env.HOW_WBS_UNIT_CHUNK);
+  if (Number.isFinite(explicit) && explicit >= 1) {
+    return Math.max(1, Math.min(fit, Math.round(explicit)));
+  }
+  return fit;
+}
+
 /**
- * Decode budget is the wall-clock killer on CPU 3B (~7–8 tok/s).
- * Multi-leaf/FR: size predict to chunk FR count × target leaves.
+ * Completion budget for one WBS slice. Scales with FR × max leaves.
+ * HOW_WBS_LLM_NUM_PREDICT, when set, replaces the formula up to qwen-plus max output.
  */
 function resolveWbsLlmNumPredict(frCount, env = process.env) {
+  const maxOut = resolveWbsLlmMaxOutputTokens(env);
   const override = Number(env.HOW_WBS_LLM_NUM_PREDICT);
   if (Number.isFinite(override) && override >= 64) {
-    return clampInt(override, 320, { min: 64, max: 1024 });
+    return clampInt(override, override, { min: 64, max: maxOut });
   }
   const fr = Math.max(1, Number(frCount) || 1);
-  const leaves = Math.min(
-    resolveWbsLlmMaxLeavesPerFr(env),
-    WBS_LLM_TARGET_LEAVES_PER_FR
-  );
-  // ~40 tok/leaf + envelope; stay under ~55s decode @ 7 tok/s when possible
-  const estimated = 80 + fr * leaves * 40;
-  return clampInt(estimated, 280, { min: 160, max: 512 });
+  const leaves = resolveWbsLlmMaxLeavesPerFr(env);
+  const estimated = WBS_LLM_PREDICT_ENVELOPE + fr * leaves * WBS_LLM_TOKENS_PER_LEAF;
+  return clampInt(estimated, estimated, { min: 160, max: maxOut });
 }
 
 function resolveWbsLlmNumCtx(env = process.env) {
-  return clampInt(env.HOW_WBS_LLM_NUM_CTX, WBS_LLM_DEFAULT_NUM_CTX, {
-    min: 1024,
-    max: 8192,
-  });
+  const n = Number(env.HOW_WBS_LLM_NUM_CTX);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(1024, Math.min(131072, Math.round(n)));
 }
 
 function resolveWbsLlmTimeoutMs(env = process.env) {
@@ -88,19 +107,84 @@ function resolveWbsLlmTimeoutMs(env = process.env) {
 }
 
 function resolveWbsLlmMaxFr(env = process.env) {
-  return clampInt(env.HOW_WBS_LLM_MAX_FR, WBS_LLM_MAX_FR, { min: 1, max: 80 });
+  const fit = resolveWbsFrPerCall({ ...env, HOW_WBS_UNIT_CHUNK: undefined });
+  const explicit = Number(env.HOW_WBS_LLM_MAX_FR);
+  if (Number.isFinite(explicit) && explicit >= 1) {
+    return Math.max(1, Math.min(fit, Math.round(explicit)));
+  }
+  return fit;
 }
 
 function resolveWbsLlmMaxCaps(env = process.env) {
   return clampInt(env.HOW_WBS_LLM_MAX_CAPS, WBS_LLM_MAX_CAPS, { min: 1, max: 80 });
 }
 
-/** Max FR per single LLM call (chunk size for large packs). */
+/** Max FR per single LLM call. Default is the qwen-plus output fit. */
 function resolveWbsLlmMaxFrForCall(env = process.env) {
-  return clampInt(env.HOW_WBS_LLM_MAX_FR_FOR_CALL, WBS_LLM_MAX_FR_FOR_CALL, {
-    min: 1,
-    max: 40,
-  });
+  const fit = resolveWbsFrPerCall({ ...env, HOW_WBS_UNIT_CHUNK: undefined });
+  const explicit = Number(env.HOW_WBS_LLM_MAX_FR_FOR_CALL);
+  if (Number.isFinite(explicit) && explicit >= 1) {
+    return Math.max(1, Math.min(fit, Math.round(explicit)));
+  }
+  return fit;
+}
+
+function storyGroupKey(unit) {
+  const storyId = String(unit?.storyId || '').trim();
+  if (storyId) return `story:${storyId}`;
+  return `fr:${String(unit?.id || '').trim()}`;
+}
+
+/**
+ * One LLM call is a run of whole stories that fit the output window.
+ * HOW_WBS_UNIT_CHUNK still forces a fixed FR count for tests and operators.
+ * A story is never split across calls. A story that alone exceeds the window
+ * stays one call; numPredict clamps to the model max.
+ * @param {object[]} frUnits
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {object[][]}
+ */
+function planWbsCallSlices(frUnits, env = process.env) {
+  const units = Array.isArray(frUnits) ? frUnits.filter((unit) => unit?.id) : [];
+  const explicit = Number(env.HOW_WBS_UNIT_CHUNK);
+  if (Number.isFinite(explicit) && explicit >= 1) {
+    const size = Math.max(1, Math.round(explicit));
+    const slices = [];
+    for (let i = 0; i < units.length; i += size) slices.push(units.slice(i, i + size));
+    return slices;
+  }
+
+  const maxOut = resolveWbsLlmMaxOutputTokens(env);
+  const perFr = Math.max(1, resolveWbsLlmMaxLeavesPerFr(env) * WBS_LLM_TOKENS_PER_LEAF);
+  /** @type {object[][]} */
+  const groups = [];
+  const index = new Map();
+  for (const unit of units) {
+    const key = storyGroupKey(unit);
+    if (!index.has(key)) {
+      const group = [];
+      index.set(key, group);
+      groups.push(group);
+    }
+    index.get(key).push(unit);
+  }
+
+  /** @type {object[][]} */
+  const slices = [];
+  let current = [];
+  let used = WBS_LLM_PREDICT_ENVELOPE;
+  for (const group of groups) {
+    const cost = group.length * perFr;
+    if (current.length && used + cost > maxOut) {
+      slices.push(current);
+      current = [];
+      used = WBS_LLM_PREDICT_ENVELOPE;
+    }
+    current = current.concat(group);
+    used += cost;
+  }
+  if (current.length) slices.push(current);
+  return slices;
 }
 
 function resolveWbsLlmMaxChunks(env = process.env) {
@@ -137,18 +221,22 @@ module.exports = {
   WBS_LLM_TARGET_LEAVES_PER_FR,
   WBS_LLM_MAX_FR,
   WBS_LLM_MAX_CAPS,
-  WBS_LLM_DEFAULT_NUM_CTX,
   WBS_LLM_DEFAULT_TIMEOUT_MS,
-  WBS_LLM_MAX_FR_FOR_CALL,
+  WBS_LLM_MAX_OUTPUT_TOKENS,
+  WBS_LLM_TOKENS_PER_LEAF,
+  WBS_LLM_PREDICT_ENVELOPE,
   WBS_LLM_MAX_CHUNKS,
   isHowWbsLlmFlagOn,
   resolveWbsLlmMaxLeavesPerFr,
+  resolveWbsLlmMaxOutputTokens,
+  resolveWbsFrPerCall,
   resolveWbsLlmNumPredict,
   resolveWbsLlmNumCtx,
   resolveWbsLlmTimeoutMs,
   resolveWbsLlmMaxFr,
   resolveWbsLlmMaxCaps,
   resolveWbsLlmMaxFrForCall,
+  planWbsCallSlices,
   resolveWbsLlmMaxChunks,
   shouldAttemptWbsLlm,
 };

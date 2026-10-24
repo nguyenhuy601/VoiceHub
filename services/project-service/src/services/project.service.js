@@ -261,6 +261,7 @@ async function createProject({
   if (!titleTrim) throw new Error('title là bắt buộc');
 
   const memberRoleKeys = collectCreateProjectRoleKeys({
+    projectManagerId,
     productOwnerId,
     scrumMasterId,
     techLeadId,
@@ -368,21 +369,30 @@ async function createProject({
     isActive: true,
   });
 
-  const pmUserId = toValidUserId(projectManagerId) || String(userId);
+  /** Chỉ gán PM khi payload có projectManagerId — không fallback người tạo. */
+  const pmUserId = toValidUserId(projectManagerId) || null;
   const ownerUserId = pmUserId;
   const templateId = normalizeDelegationTemplateId(delegationTemplateId);
+  const creatorInRoster = creatorHasExplicitProjectRole(members, userId);
 
-  const boardMemberCreates = [
-    TaskBoardMember.create({
-      boardId: board._id,
-      userId: ownerUserId,
-      role: 'owner',
-      canView: true,
-      canEdit: true,
-      addedBy: userId,
-    }),
-  ];
-  if (String(userId) !== String(ownerUserId) && creatorHasExplicitProjectRole(members, userId)) {
+  const boardMemberCreates = [];
+  if (ownerUserId) {
+    boardMemberCreates.push(
+      TaskBoardMember.create({
+        boardId: board._id,
+        userId: ownerUserId,
+        role: 'owner',
+        canView: true,
+        canEdit: true,
+        addedBy: userId,
+      })
+    );
+  }
+  if (
+    creatorInRoster &&
+    String(userId) !== String(ownerUserId || '') &&
+    toValidUserId(userId)
+  ) {
     boardMemberCreates.push(
       TaskBoardMember.create({
         boardId: board._id,
@@ -447,20 +457,26 @@ async function createProject({
 
   try {
     const pmKey = String(DEFAULT_PROJECT_ROLE_KEYS.PROJECT_MANAGER || 'project_manager');
-    /** Sole PM: only projectManagerId (fallback creator). Never auto-PM the creator when another PM is chosen. */
-    mergeRoleAssignment(pmUserId, [pmKey], 'owner');
+    /** Sole PM chỉ khi có projectManagerId — không tự gán người tạo. */
+    if (pmUserId) {
+      mergeRoleAssignment(pmUserId, [pmKey], 'owner');
+    }
 
-    const creatorSeed = (Array.isArray(members) ? members : []).find(
-      (m) => String(m?.userId || m?.id || '') === String(userId)
-    );
-    const creatorSeedKeys = (
-      creatorSeed && Array.isArray(creatorSeed.projectRoleKeys) ? creatorSeed.projectRoleKeys : []
-    ).filter((k) => String(k || '').trim().toLowerCase() !== pmKey);
-    mergeRoleAssignment(userId, creatorSeedKeys, String(userId) === String(pmUserId) ? 'owner' : 'editor');
-
-    const creatorUid = toValidUserId(userId);
-    if (creatorUid && String(creatorUid) !== String(toValidUserId(pmUserId)) && !roleAssignments.has(creatorUid)) {
-      mergeRoleAssignment(creatorUid, [DEFAULT_PROJECT_ROLE_KEYS.OBSERVER], 'editor');
+    /** Creator chỉ vào dự án khi có trong roster (projectRoleKeys). Không auto observer. */
+    if (creatorInRoster) {
+      const creatorSeed = (Array.isArray(members) ? members : []).find(
+        (m) => String(m?.userId || m?.id || '') === String(userId)
+      );
+      const creatorSeedKeys = (
+        creatorSeed && Array.isArray(creatorSeed.projectRoleKeys)
+          ? creatorSeed.projectRoleKeys
+          : []
+      ).filter((k) => String(k || '').trim().toLowerCase() !== pmKey || String(userId) === String(pmUserId));
+      mergeRoleAssignment(
+        userId,
+        creatorSeedKeys,
+        String(userId) === String(pmUserId || '') ? 'owner' : 'editor'
+      );
     }
 
     const ownerUid = toValidUserId(ownerUserId);
@@ -492,11 +508,14 @@ async function createProject({
     }
 
     const { stripExtraProjectManagerKeys } = require('../utils/project/assertSingleProjectManager');
-    stripExtraProjectManagerKeys(
-      roleAssignments,
-      toValidUserId(pmUserId),
-      DEFAULT_PROJECT_ROLE_KEYS.OBSERVER
-    );
+    /** Không sole PM → không strip (tránh xóa PM đã gán trong roster). */
+    if (pmUserId) {
+      stripExtraProjectManagerKeys(
+        roleAssignments,
+        pmUserId,
+        DEFAULT_PROJECT_ROLE_KEYS.OBSERVER
+      );
+    }
 
     await Promise.all(
       [...roleAssignments.entries()].map(([memberUserId, row]) =>

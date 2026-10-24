@@ -121,13 +121,14 @@ export default function AdminUserPicker({
           orgRoleCatalogAPI.listAssignments(orgId).catch(() => null),
           orgRbacAPI.listAssignments(orgId, { status: 'active' }).catch(() => null),
         ]);
+        // apiClient đã unwrap → { success, data }.
         const assignments =
           assignRes?.data?.assignments ||
-          assignRes?.data?.data?.assignments ||
+          assignRes?.assignments ||
           [];
         const positionAssignments =
           positionAssignRes?.data?.assignments ||
-          positionAssignRes?.data?.data?.assignments ||
+          positionAssignRes?.assignments ||
           [];
         const roleFromPosition = {};
         for (const row of Array.isArray(positionAssignments) ? positionAssignments : []) {
@@ -135,9 +136,12 @@ export default function AdminUserPicker({
           const labels = Array.isArray(row?.orgRoleLabels)
             ? row.orgRoleLabels.filter(Boolean)
             : [];
-          if (uid && labels.length && !roleFromPosition[uid]) {
-            roleFromPosition[uid] = labels.map((label) => ({ label }));
-          }
+          const keys = Array.isArray(row?.orgRoleKeys) ? row.orgRoleKeys.filter(Boolean) : [];
+          if (!uid || (!labels.length && !keys.length)) continue;
+          roleFromPosition[uid] = (keys.length ? keys : labels).map((keyOrLabel, i) => ({
+            roleKey: keys[i] || undefined,
+            label: labels[i] || labels[0] || keyOrLabel,
+          }));
         }
         if (!cancelled) {
           setLoadedOrgRoleByUser(

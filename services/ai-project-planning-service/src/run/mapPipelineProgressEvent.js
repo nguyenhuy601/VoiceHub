@@ -18,6 +18,14 @@ function mapPipelineProgressEvent(raw, opts = {}) {
   const runId = String(opts.runId || raw.runId || '').trim() || null;
   const node = raw.node != null ? String(raw.node).trim() : '';
   const tool = raw.tool != null ? String(raw.tool).trim() : '';
+  const tools = [];
+  if (Array.isArray(raw.tools)) {
+    for (const item of raw.tools) {
+      const name = String(item || '').trim();
+      if (!name || tools.includes(name)) continue;
+      tools.push(name);
+    }
+  }
 
   let step = raw.step != null && raw.step !== '' ? Number(raw.step) : null;
   if (step != null && !Number.isFinite(step)) step = null;
@@ -38,7 +46,7 @@ function mapPipelineProgressEvent(raw, opts = {}) {
   let seq = raw.seq != null && raw.seq !== '' ? Number(raw.seq) : null;
   if (seq != null && !Number.isFinite(seq)) seq = null;
 
-  if (!hasBusiness && !node && !tool && !status) return null;
+  if (!hasBusiness && !node && !tool && !tools.length && !status) return null;
 
   return {
     runId,
@@ -47,6 +55,7 @@ function mapPipelineProgressEvent(raw, opts = {}) {
     substep: hasBusiness ? substep : null,
     node: node || null,
     tool: tool || null,
+    tools,
     status: status || null,
     emittedAt: raw.emittedAt ? String(raw.emittedAt) : null,
   };

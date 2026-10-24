@@ -260,7 +260,6 @@ services:
       - G7_EMBEDDING_MODEL=${G7_EMBEDDING_MODEL:-text-embedding-v4}
       - G7_EMBEDDING_VERSION=${G7_EMBEDDING_VERSION:-dashscope-text-embedding-v4}
       - G7_EMBED_DIMENSIONS=${G7_EMBED_DIMENSIONS:-1024}
-      - AGENT_CORE_F2=${AGENT_CORE_F2:-1}
       - G7_RAG_MODE=${G7_RAG_MODE:-hybrid}
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - QDRANT_COLLECTION=${QDRANT_COLLECTION:-vh_ai_plan_g7}
@@ -276,13 +275,17 @@ services:
       - HOW_DEP_LLM=${HOW_DEP_LLM:-1}
       - HOW_RISK_LLM=${HOW_RISK_LLM:-1}
       - HOW_QUALITY_LLM=${HOW_QUALITY_LLM:-1}
+      - HOW_SEC_TOOL_LLM_SPRINT=${HOW_SEC_TOOL_LLM_SPRINT:-1}
       - HOW_WBS_LLM=${HOW_WBS_LLM:-1}
       - HOW_WBS_LLM_QUEUE=${HOW_WBS_LLM_QUEUE:-0}
-      - HOW_WBS_LLM_NUM_CTX=${HOW_WBS_LLM_NUM_CTX:-1536}
+      - HOW_WBS_CHUNK_ORCHESTRATOR=${HOW_WBS_CHUNK_ORCHESTRATOR:-1}
+      - ARTIFACT_STORE=${ARTIFACT_STORE:-0}
+      - HOW_WBS_CHUNK_TRANSPORT=${HOW_WBS_CHUNK_TRANSPORT:-memory}
+      - HOW_WBS_CHUNK_CONCURRENCY=${HOW_WBS_CHUNK_CONCURRENCY:-2}
+      - HOW_WBS_CHUNK_MEMORY=${HOW_WBS_CHUNK_MEMORY:-0}
+      - HOW_WBS_CHUNK_MAX_ATTEMPTS=${HOW_WBS_CHUNK_MAX_ATTEMPTS:-3}
       - HOW_WBS_LLM_TIMEOUT_MS=${HOW_WBS_LLM_TIMEOUT_MS:-240000}
       - HOW_WBS_LLM_MAX_LEAVES_PER_FR=${HOW_WBS_LLM_MAX_LEAVES_PER_FR:-4}
-      - HOW_WBS_LLM_MAX_FR=${HOW_WBS_LLM_MAX_FR:-48}
-      - HOW_WBS_LLM_MAX_FR_FOR_CALL=${HOW_WBS_LLM_MAX_FR_FOR_CALL:-3}
       - HOW_WBS_LLM_MAX_CHUNKS=${HOW_WBS_LLM_MAX_CHUNKS:-16}
       - HOW_WBS_LLM_CACHE=${HOW_WBS_LLM_CACHE:-1}
       - HOW_WBS_LLM_CACHE_TTL_SEC=${HOW_WBS_LLM_CACHE_TTL_SEC:-604800}
@@ -316,12 +319,19 @@ services:
 
   ai-project-planning-wbs-worker:
     image: ${AI_PROJECT_PLANNING_SERVICE_IMAGE}
-    command: ["node", "src/workers/wbsLlm.worker.js"]
+    command: ["node", "src/workers/wbsChunk.worker.js"]
     env_file:
       - .env
       - ./services/ai-project-planning-service/.env
     environment:
-      - WORKER_ROLE=wbs_llm
+      - WORKER_ROLE=wbs_chunk
+      - HOW_WBS_CHUNK_ORCHESTRATOR=1
+      - ARTIFACT_STORE=${ARTIFACT_STORE:-0}
+      - HOW_WBS_CHUNK_TRANSPORT=rabbit
+      - HOW_WBS_CHUNK_MEMORY=0
+      - HOW_WBS_CHUNK_PREFETCH=${HOW_WBS_CHUNK_PREFETCH:-1}
+      - RABBITMQ_WBS_CHUNK_QUEUE=${RABBITMQ_WBS_CHUNK_QUEUE:-ai.planning.wbs_chunk}
+      - RABBITMQ_WBS_CHUNK_DLQ=${RABBITMQ_WBS_CHUNK_DLQ:-ai.planning.wbs_chunk.dlq}
       - HOW_WBS_LLM=1
       - HOW_WBS_LLM_QUEUE=1
       - HOW_WBS_LLM_JOB_MEMORY=0
@@ -335,11 +345,8 @@ services:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - RABBITMQ_WBS_LLM_QUEUE=${RABBITMQ_WBS_LLM_QUEUE:-ai.planning.wbs_llm}
       - RABBITMQ_QUORUM_QUEUES=${RABBITMQ_QUORUM_QUEUES:-true}
-      - HOW_WBS_LLM_NUM_CTX=${HOW_WBS_LLM_NUM_CTX:-1536}
       - HOW_WBS_LLM_TIMEOUT_MS=${HOW_WBS_LLM_TIMEOUT_MS:-240000}
       - HOW_WBS_LLM_MAX_LEAVES_PER_FR=${HOW_WBS_LLM_MAX_LEAVES_PER_FR:-4}
-      - HOW_WBS_LLM_MAX_FR=${HOW_WBS_LLM_MAX_FR:-48}
-      - HOW_WBS_LLM_MAX_FR_FOR_CALL=${HOW_WBS_LLM_MAX_FR_FOR_CALL:-3}
       - HOW_WBS_LLM_MAX_CHUNKS=${HOW_WBS_LLM_MAX_CHUNKS:-16}
       - HOW_WBS_LLM_CACHE=${HOW_WBS_LLM_CACHE:-1}
       - HOW_WBS_LLM_CACHE_TTL_SEC=${HOW_WBS_LLM_CACHE_TTL_SEC:-604800}
@@ -638,9 +645,10 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: ${PORT:-3005}
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required — set in services/voice-service/.env then bash devops/swarm/deploy-stack.sh}
-      # Huy: bắt buộc từ services/voice-service/.env (deploy-stack.sh source trước). Rỗng → Mongo fail + CORS block.
-      MONGODB_URI: ${MONGODB_URI:?MONGODB_URI required — set in services/voice-service/.env then bash devops/swarm/deploy-stack.sh}
+      # docker stack deploy hiểu nhầm "voice-" trong message :? thành toán tử :-, rồi ghi đè URI/secret bằng đuôi câu lỗi.
+      # Bắt buộc có giá trị: deploy-stack.sh kiểm tra sau khi source services/voice-service/.env.
+      JWT_SECRET: ${JWT_SECRET}
+      MONGODB_URI: ${MONGODB_URI}
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}

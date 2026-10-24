@@ -187,8 +187,30 @@ async function runAnalysisEngines(opts = {}) {
           },
           { bumpProposalVersion: false }
         );
+        // Persist FrDecompose tree for Gate1 / HOW (not a catalog section).
+        const structure =
+          result.backlogStructure ||
+          (id === 'fr' ? opts.proposalFragment?.backlogStructure : null);
+        if (structure && typeof structure === 'object') {
+          proposal.generated = {
+            ...(proposal.generated || {}),
+            backlogStructure: structure,
+          };
+        }
       }
     }
+  }
+
+  // FR skipped (already on proposal) — still attach FrDecompose tree from fragment.
+  if (
+    !proposal.generated?.backlogStructure &&
+    opts.proposalFragment?.backlogStructure &&
+    typeof opts.proposalFragment.backlogStructure === 'object'
+  ) {
+    proposal.generated = {
+      ...(proposal.generated || {}),
+      backlogStructure: opts.proposalFragment.backlogStructure,
+    };
   }
 
   // Boundary: never attach srsDraft

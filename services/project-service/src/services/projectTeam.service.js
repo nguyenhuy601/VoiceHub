@@ -91,7 +91,7 @@ async function ensureOrgProjectRoles(organizationId) {
             permissions: def.permissions || [],
           },
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       ).lean();
 
       if (!Array.isArray(row?.permissions) || row.permissions.length === 0) {
@@ -99,7 +99,7 @@ async function ensureOrgProjectRoles(organizationId) {
         row = await ProjectRole.findOneAndUpdate(
           { _id: row._id },
           { $set: { permissions: seeded } },
-          { new: true }
+          { returnDocument: 'after' }
         ).lean();
       }
       byKey.set(def.key, row);
@@ -340,7 +340,7 @@ async function ensureProjectRoleKey(projectId, organizationId, roleKey) {
         sortOrder: Number(orgRole.sortOrder) || 100,
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   ).lean();
   invalidateProjectRolesListCache(pid);
   return row;
@@ -480,7 +480,7 @@ async function ensureProjectMembership({
       },
       ...(bid ? { $set: { boardId: bid } } : {}),
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   ).lean();
   try {
     const { invalidateResolveCacheForProject } = require('./projectAccess.service');
@@ -595,7 +595,7 @@ async function ensureBoardMemberAcl({ boardId, userId, boardRole = 'editor', add
           canEdit: nextCanEdit,
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
   }
 
@@ -613,7 +613,7 @@ async function ensureBoardMemberAcl({ boardId, userId, boardRole = 'editor', add
         addedBy: addedBy || uid,
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   ).lean();
 }
 

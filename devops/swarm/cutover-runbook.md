@@ -31,7 +31,7 @@ docker stack services voicehub-rabbit
 3. All required images exist in registry.
 4. Node labels exist: `voice=true`, `ai=true`.
 5. `.env` has image tags and required tokens.
-6. `REDIS_SENTINELS`, `RABBITMQ_URL=@rabbitmq-1:5672`, `mongodb+srv://` trong service `.env`.
+6. `REDIS_SENTINELS`, `RABBITMQ_URL=@rabbitmq:5672`, `mongodb+srv://` trong service `.env`.
 
 ## 2) Deploy order
 1. Deploy app stack (`docker-stack.yml` — không single-node stateful).

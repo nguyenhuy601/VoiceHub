@@ -67,6 +67,24 @@ function slimGatePreview(raw, page) {
   return { ...summary, rows: pageRows.map(slimRow) };
 }
 
+/**
+ * When the push callback never lands, the next pack read can apply the run.
+ * @returns {'failed'|'cancelled'|'completed'|null}
+ */
+function phaseResultPullAction(phaseMeta, publicRun) {
+  const phaseStatus = String(phaseMeta?.status || '').trim();
+  if (phaseStatus !== 'pending' && phaseStatus !== 'running') return null;
+  const runStatus = String(publicRun?.status || '').trim();
+  if (runStatus === 'failed') return 'failed';
+  if (runStatus === 'cancelled') return 'cancelled';
+  const computeDone =
+    runStatus === 'callback_pending' ||
+    runStatus === 'callback_delivering' ||
+    runStatus === 'completed';
+  if (computeDone && publicRun?.result?.container) return 'completed';
+  return null;
+}
+
 function phaseNeedsLiveRun(phaseMeta) {
   if (!phaseMeta || typeof phaseMeta !== 'object') return false;
   const status = String(phaseMeta.status || '').trim();
@@ -100,6 +118,9 @@ function whitelistLiveRun(publicRun, page) {
     status: publicRun.status || null,
     currentNode: publicRun.currentNode || null,
     currentTool: publicRun.currentTool || null,
+    currentToolNames: Array.isArray(publicRun.currentToolNames)
+      ? publicRun.currentToolNames.map((name) => String(name || '').trim()).filter(Boolean)
+      : [],
     stage: publicRun.stage || publicRun.currentNode || null,
     computeStatus: publicRun.computeStatus || null,
     callbackStatus: publicRun.callbackStatus || null,
@@ -139,6 +160,18 @@ async function attachLiveRunToPackAiAnalysis(pack, page) {
     const { status, data } = await getRun(runId, query);
     const publicRun = data?.data || data?.run || data;
     if (status >= 200 && status < 300 && publicRun && typeof publicRun === 'object') {
+      const pulled = await pullPhaseResultOntoPack(pack, phaseKey, phaseMeta, publicRun);
+      if (pulled?.aiAnalysis) {
+        return {
+          ...pack,
+          aiAnalysis: pulled.aiAnalysis,
+          aiAnalysisStatus: pulled.aiAnalysisStatus ?? pack.aiAnalysisStatus,
+          liveRun: whitelistLiveRun(
+            { ...publicRun, runId: publicRun.runId || runId },
+            wantsPage ? page : null
+          ),
+        };
+      }
       const liveRun = whitelistLiveRun(
         {
           ...publicRun,
@@ -197,8 +230,67 @@ async function maybeNotifyDataGateWaiting(pack) {
   });
 }
 
+async function pullPhaseResultOntoPack(pack, phaseKey, phaseMeta, publicRun) {
+  const action = phaseResultPullAction(phaseMeta, publicRun);
+  const packId = String(pack?._id || '').trim();
+  const organizationId = String(pack?.organizationId || '').trim();
+  if (!action || !packId || !organizationId) return null;
+  const runId = String(publicRun.runId || phaseMeta.remoteRunId || '').trim();
+  const snapshotId = String(publicRun.snapshotId || phaseMeta.snapshotId || '').trim();
+  const projectId = String(publicRun.projectId || pack.projectId || '').trim();
+  const job = String(publicRun.job || phaseKey || '').trim();
+  if (!runId || !snapshotId || !job) return null;
+
+  try {
+    if (action === 'cancelled') {
+      await RequirementPack.updateOne(
+        {
+          _id: packId,
+          [`aiAnalysis.phaseRuns.${phaseKey}.remoteRunId`]: runId,
+          [`aiAnalysis.phaseRuns.${phaseKey}.status`]: { $in: ['pending', 'running'] },
+        },
+        {
+          $set: {
+            [`aiAnalysis.phaseRuns.${phaseKey}.status`]: 'cancelled',
+            [`aiAnalysis.phaseRuns.${phaseKey}.error`]: {
+              code: 'RUN_CANCELLED',
+              message: 'Planning run cancelled',
+            },
+          },
+        }
+      );
+    } else {
+      const { applyRemoteHowJobResult } = require('../../services/aiAnalysis.service');
+      await applyRemoteHowJobResult({
+        runId,
+        status: action,
+        job,
+        projectId,
+        packId,
+        organizationId,
+        snapshotId,
+        result: action === 'completed' ? publicRun.result : null,
+        error: action === 'failed' ? publicRun.error || { code: 'AGENT_PHASE_FAILED' } : null,
+      });
+    }
+  } catch (error) {
+    console.warn(
+      '[phase_pull]',
+      phaseKey,
+      runId,
+      action,
+      error?.errorCode || error?.code || '',
+      error?.message || error
+    );
+    return null;
+  }
+
+  return RequirementPack.findById(packId).select('aiAnalysis aiAnalysisStatus').lean();
+}
+
 module.exports = {
   phaseNeedsLiveRun,
+  phaseResultPullAction,
   resolveInFlightPhaseRun,
   whitelistLiveRun,
   attachLiveRunToPackAiAnalysis,

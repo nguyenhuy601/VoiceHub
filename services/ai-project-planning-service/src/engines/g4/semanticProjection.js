@@ -152,7 +152,7 @@ async function runSemanticProjection(opts = {}) {
   const t0 = Date.now();
   const result = await generate({
     prompt,
-    numPredict: policy.maxOutputTokens || 512,
+    numPredict: policy.maxOutputTokens,
     numCtx: policy.numCtx || 4096,
     timeoutMs: policy.timeoutMs || 60_000,
     env: opts.env,
@@ -219,7 +219,7 @@ async function runConflictProjection(opts = {}) {
   const t0 = Date.now();
   const result = await generate({
     prompt,
-    numPredict: policy.maxOutputTokens || 384,
+    numPredict: policy.maxOutputTokens,
     numCtx: policy.numCtx || 4096,
     timeoutMs: policy.timeoutMs || 45_000,
     env: opts.env,

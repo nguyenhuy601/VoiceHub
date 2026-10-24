@@ -71,7 +71,7 @@ async function ensureDefaultCatalog(organizationId) {
           sortOrder: def.sortOrder,
         },
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
   }
 
@@ -204,7 +204,7 @@ async function updateCatalog(req, res) {
     const updated = await OrgRoleCatalog.findOneAndUpdate(
       { _id: role._id },
       { $set: patch },
-      { new: true }
+      { returnDocument: 'after' }
     ).lean();
 
     return res.json({ success: true, data: { role: updated } });
@@ -289,22 +289,41 @@ async function listAssignments(req, res) {
     if (userId) filter.userId = toObjectId(userId);
     if (roleKey) filter.roleKey = roleKey;
 
-    const [assignments, orgRoles] = await Promise.all([
+    const { canonRoleKey } = require('../services/effectiveOrgRoles.service');
+    const [assignments, orgRoles, catalogRoles] = await Promise.all([
       OrgRoleAssignment.find(filter).lean(),
       OrganizationalRole.find({ organizationId: oid }).select('code name status').lean(),
+      OrgRoleCatalog.find({ organizationId: oid }).select('key label').lean(),
     ]);
-    const roleMap = new Map((orgRoles || []).map((r) => [r.code, r.name]));
+    /** code/key (raw + canonical) → nhãn — không bỏ gán vì lệch hoa/thường legacy. */
+    const roleMap = new Map();
+    const putLabel = (raw, label) => {
+      const key = String(raw || '').trim();
+      if (!key) return;
+      const name = String(label || key).trim() || key;
+      roleMap.set(key, name);
+      const canon = canonRoleKey(key);
+      if (canon && !roleMap.has(canon)) roleMap.set(canon, name);
+      const lower = key.toLowerCase();
+      if (lower && !roleMap.has(lower)) roleMap.set(lower, name);
+    };
+    for (const r of orgRoles || []) putLabel(r.code, r.name);
+    for (const r of catalogRoles || []) putLabel(r.key, r.label);
 
-    const items = (assignments || [])
-      .filter((a) => roleMap.has(a.roleKey))
-      .map((a) => ({
+    const items = (assignments || []).map((a) => {
+      const roleKey = String(a.roleKey || '').trim();
+      const canon = canonRoleKey(roleKey) || roleKey;
+      const roleLabel =
+        roleMap.get(roleKey) || roleMap.get(canon) || roleMap.get(roleKey.toLowerCase()) || roleKey;
+      return {
         userId: String(a.userId),
-        roleKey: a.roleKey,
-        roleLabel: roleMap.get(a.roleKey) || a.roleKey,
+        roleKey: canon || roleKey,
+        roleLabel,
         scopeType: 'org',
         scopeName: 'Company',
         assignedAt: a.createdAt,
-      }));
+      };
+    });
 
     return res.json({ success: true, data: { assignments: items } });
   } catch (error) {

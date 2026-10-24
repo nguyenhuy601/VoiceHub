@@ -1,7 +1,11 @@
 /**
- * AI_G4 policy — timeouts, token budgets, max calls (Wave 4).
+ * AI_G4 policy — timeouts and batch size.
  * Env prefix AI_G4_* overrides defaults.
+ * Output ceiling is the qwen-plus window, not a local decode budget.
  */
+
+const { QWEN_PLUS_MAX_OUTPUT_TOKENS } = require('@enterprise/shared/llm/openaiCompatibleClient');
+const { modelOutputCeiling } = require('../runtime/modelOutputBudget');
 
 function envFlag(raw, defaultOn = true) {
   if (raw == null || String(raw).trim() === '') return defaultOn;
@@ -24,19 +28,19 @@ function readTask(env, prefix, defaults) {
     }),
     maxInputTokens: clampInt(env[`${prefix}_MAX_INPUT_TOKENS`], defaults.maxInputTokens, {
       min: 256,
-      max: 32000,
+      max: 131072,
     }),
     maxOutputTokens: clampInt(env[`${prefix}_MAX_OUTPUT_TOKENS`], defaults.maxOutputTokens, {
       min: 64,
-      max: 4096,
+      max: defaults.maxOutputTokens,
     }),
     numCtx: clampInt(env[`${prefix}_NUM_CTX`], defaults.numCtx, {
       min: 512,
-      max: 32768,
+      max: 131072,
     }),
     maxCalls: clampInt(env[`${prefix}_MAX_CALLS`], defaults.maxCalls, {
       min: 0,
-      max: 20,
+      max: 64,
     }),
   };
 }
@@ -46,6 +50,7 @@ function readTask(env, prefix, defaults) {
  */
 function resolveAiG4Policy(env = process.env) {
   const pipelineEnabled = envFlag(env.AI_G4_PIPELINE, true);
+  const outputCeiling = Math.min(QWEN_PLUS_MAX_OUTPUT_TOKENS, modelOutputCeiling(env));
   return {
     pipelineEnabled,
     input: {
@@ -60,27 +65,27 @@ function resolveAiG4Policy(env = process.env) {
     llm: {
       semanticProjection: readTask(env, 'AI_G4_SEMANTIC', {
         enabled: true,
-        timeoutMs: 45_000,
-        maxInputTokens: 1400,
-        maxOutputTokens: 256,
-        numCtx: 4096,
-        maxCalls: 1,
+        timeoutMs: 180_000,
+        maxInputTokens: 32768,
+        maxOutputTokens: outputCeiling,
+        numCtx: 32768,
+        maxCalls: 16,
       }),
       conflictAnalysis: readTask(env, 'AI_G4_CONFLICT', {
         enabled: true,
-        timeoutMs: 45_000,
-        maxInputTokens: 2800,
-        maxOutputTokens: 384,
-        numCtx: 4096,
-        maxCalls: 2,
+        timeoutMs: 180_000,
+        maxInputTokens: 32768,
+        maxOutputTokens: outputCeiling,
+        numCtx: 32768,
+        maxCalls: 8,
       }),
       synthesis: readTask(env, 'AI_G4_SYNTHESIS', {
         enabled: true,
-        timeoutMs: 45_000,
-        maxInputTokens: 2000,
-        maxOutputTokens: 384,
-        numCtx: 4096,
-        maxCalls: 1,
+        timeoutMs: 180_000,
+        maxInputTokens: 32768,
+        maxOutputTokens: outputCeiling,
+        numCtx: 32768,
+        maxCalls: 4,
       }),
     },
     failure: {

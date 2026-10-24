@@ -103,7 +103,7 @@ Socket HA staging: `SOCKET_SERVICE_REPLICAS>=2`, `SOCKET_IO_REDIS_ADAPTER=true` 
 |------------|------------|---------|
 | **MongoDB** | Atlas M10+ RS (`mongodb+srv://`) | Không service `mongodb` trong `docker-stack.yml` cutover |
 | **Redis** | Stack `voicehub-redis` — Sentinel + master/replica | Client: `REDIS_SENTINELS`, `REDIS_SENTINEL_NAME=mymaster` |
-| **RabbitMQ** | Stack `voicehub-rabbit` — 3 node cluster | `RABBITMQ_URL=@rabbitmq-1:5672`, `RABBITMQ_QUORUM_QUEUES=true` |
+| **RabbitMQ** | Stack `voicehub-rabbit` — service `rabbitmq` (+ `rabbitmq-2/3` khi HA) | `RABBITMQ_URL=@rabbitmq:5672`, `RABBITMQ_QUORUM_QUEUES=true` |
 | **Overlay** | `voicehub_enterprise-network` | Shared bởi app + HA stacks |
 
 Baseline & failover sign-off: [`ha-baseline-staging-2026-06.md`](ha-baseline-staging-2026-06.md).  

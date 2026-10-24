@@ -35,7 +35,7 @@ function AdminShellLayoutInner() {
       <NetworkOfflineBanner />
       <JoinOrganizationModal />
       <div className={FIGMA_SHELL_BODY}>
-        <AdminNavigationSidebar isFullAccess={isFullAccess} />
+        <AdminNavigationSidebar />
         <div className={FIGMA_SHELL_MAIN}>
           <Outlet />
         </div>

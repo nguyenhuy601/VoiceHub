@@ -65,12 +65,21 @@ export function buildOrgRoleRowsMapFromAssignments(assignments = [], roleFromPos
     }
     map[uid] = prev;
   }
+  // Gộp vai từ vị trí — không bỏ qua khi đã có gán catalog.
   for (const [uid, rows] of Object.entries(roleFromPosition || {})) {
-    if (map[uid]?.length) continue;
-    map[uid] = (rows || []).map((row) => ({
-      label: canonicalizeOrgRoleLabel(row.roleKey, row.label || row.roleLabel, t),
-      roleKey: row.roleKey,
-    }));
+    const prev = map[uid] || [];
+    for (const row of rows || []) {
+      const label = canonicalizeOrgRoleLabel(row.roleKey, row.label || row.roleLabel, t);
+      if (!label) continue;
+      if (
+        !prev.some((r) =>
+          r.roleKey && row.roleKey ? String(r.roleKey) === String(row.roleKey) : r.label === label
+        )
+      ) {
+        prev.push({ label, roleKey: row.roleKey });
+      }
+    }
+    map[uid] = prev;
   }
   return map;
 }

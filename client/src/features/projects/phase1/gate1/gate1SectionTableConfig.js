@@ -132,6 +132,39 @@ const COL_TITLE = {
   render: (r) => r.title || '—',
 };
 
+const COL_DESCRIPTION = {
+  key: 'description',
+  headerKey: 'requirements.phase1ColDescription',
+  headerFallback: 'Mô tả',
+  field: 'description',
+  editable: true,
+  defaultPx: 280,
+  minPx: 160,
+  render: (r) => r.description || '—',
+};
+
+const COL_PRIORITY = {
+  key: 'priority',
+  headerKey: 'requirements.phase1ColPriority',
+  headerFallback: 'Ưu tiên',
+  field: 'priority',
+  editable: true,
+  defaultPx: 96,
+  minPx: 72,
+  render: (r) => r.priority || '—',
+};
+
+const COL_ACTORS = {
+  key: 'actorsLabel',
+  headerKey: 'requirements.phase1ColActors',
+  headerFallback: 'Tác nhân',
+  field: 'actorsLabel',
+  editable: false,
+  defaultPx: 140,
+  minPx: 90,
+  render: (r) => r.actorsLabel || '—',
+};
+
 const COL_AUDIT_SOURCE = {
   key: 'auditSource',
   headerKey: 'requirements.phase1ColAuditSource',
@@ -148,6 +181,18 @@ export const GATE1_SECTION_COLUMNS = {
   functionalRequirements: [
     COL_ID,
     COL_TITLE,
+    COL_DESCRIPTION,
+    COL_PRIORITY,
+    COL_ACTORS,
+    {
+      key: 'sourceCrLabel',
+      headerKey: 'requirements.phase1ColSourceCr',
+      headerFallback: 'CR nguồn',
+      editable: false,
+      defaultPx: 120,
+      minPx: 80,
+      render: (r) => clip(r.sourceCrLabel || (Array.isArray(r.sourceCrIds) ? r.sourceCrIds.join(', ') : ''), 80) || '—',
+    },
     {
       key: 'ac',
       headerKey: 'requirements.phase1ColAc',
@@ -156,13 +201,60 @@ export const GATE1_SECTION_COLUMNS = {
       editable: true,
       defaultPx: 260,
       minPx: 140,
-      render: (r) => clip(r.ac || r.acceptanceCriteria, 100) || '—',
+      render: (r) => r.ac || r.acceptanceCriteria || '—',
+    },
+    COL_AUDIT_SOURCE,
+  ],
+  backlogStructure: [
+    COL_ID,
+    {
+      key: 'level',
+      headerKey: 'requirements.phase1ColLevel',
+      headerFallback: 'Mức',
+      field: 'level',
+      editable: false,
+      defaultPx: 80,
+      minPx: 64,
+      render: (r) => String(r.level || '—').toUpperCase(),
+    },
+    COL_TITLE,
+    {
+      key: 'parentLabel',
+      headerKey: 'requirements.phase1ColParentEpic',
+      headerFallback: 'Epic cha',
+      field: 'parentLabel',
+      editable: false,
+      defaultPx: 120,
+      minPx: 80,
+      render: (r) => r.parentLabel || r.parentEpicId || '—',
+    },
+    {
+      key: 'frIdsLabel',
+      headerKey: 'requirements.phase1ColFrIds',
+      headerFallback: 'FR',
+      field: 'frIdsLabel',
+      editable: false,
+      defaultPx: 140,
+      minPx: 90,
+      render: (r) => clip(r.frIdsLabel, 80) || '—',
+    },
+    {
+      key: 'ac',
+      headerKey: 'requirements.phase1ColAc',
+      headerFallback: 'Tiêu chí chấp nhận',
+      field: 'ac',
+      editable: true,
+      defaultPx: 200,
+      minPx: 120,
+      render: (r) => clip(r.ac, 100) || '—',
     },
     COL_AUDIT_SOURCE,
   ],
   nonFunctionalRequirements: [
     COL_ID,
     COL_TITLE,
+    COL_DESCRIPTION,
+    COL_PRIORITY,
     {
       key: 'category',
       headerKey: 'requirements.phase1ColCategory',
@@ -175,7 +267,7 @@ export const GATE1_SECTION_COLUMNS = {
     },
     COL_AUDIT_SOURCE,
   ],
-  businessRules: [COL_ID, COL_TITLE, COL_AUDIT_SOURCE],
+  businessRules: [COL_ID, COL_TITLE, COL_DESCRIPTION, COL_PRIORITY, COL_AUDIT_SOURCE],
   actors: [
     COL_ID,
     {
@@ -190,7 +282,7 @@ export const GATE1_SECTION_COLUMNS = {
     },
     COL_AUDIT_SOURCE,
   ],
-  businessGoals: [COL_ID, COL_TITLE, COL_AUDIT_SOURCE],
+  businessGoals: [COL_ID, COL_TITLE, COL_DESCRIPTION, COL_PRIORITY, COL_AUDIT_SOURCE],
   processes: [
     COL_ID,
     {
@@ -212,9 +304,10 @@ export const GATE1_SECTION_COLUMNS = {
       minPx: 72,
       render: stepsLabel,
     },
+    COL_DESCRIPTION,
     COL_AUDIT_SOURCE,
   ],
-  useCases: [COL_ID, COL_TITLE, COL_AUDIT_SOURCE],
+  useCases: [COL_ID, COL_TITLE, COL_DESCRIPTION, COL_ACTORS, COL_AUDIT_SOURCE],
   entities: [
     COL_ID,
     {
@@ -241,6 +334,7 @@ export const GATE1_SECTION_COLUMNS = {
   scope: [
     COL_ID,
     COL_TITLE,
+    COL_DESCRIPTION,
     {
       key: 'inOut',
       headerKey: 'requirements.phase1ColScopeType',

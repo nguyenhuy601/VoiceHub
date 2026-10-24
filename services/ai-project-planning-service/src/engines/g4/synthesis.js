@@ -38,7 +38,7 @@ async function runSynthesis(opts = {}) {
   const t0 = Date.now();
   const result = await generate({
     prompt,
-    numPredict: policy.maxOutputTokens || 768,
+    numPredict: policy.maxOutputTokens,
     numCtx: policy.numCtx || 4096,
     timeoutMs: policy.timeoutMs || 60_000,
     env: opts.env,

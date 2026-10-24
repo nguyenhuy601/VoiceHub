@@ -7,38 +7,16 @@ const { HOW_PHASE_TOOL_STEPS } = require('./jobToToolsMap');
 
 /** @type {Readonly<Record<string, readonly string[]>>} */
 const HOW_TOOL_DEPENDENCIES = Object.freeze({
-  CapabilityTool: Object.freeze([]),
-  // Pattern C: Capability ∥ BacklogMap; Wbs depends on backlog (Pattern A)
+  // BacklogMap ∥ Wbs — Wbs input = approved SRS FR/UC/AC + semantic (not backlog)
   BacklogMapTool: Object.freeze([]),
-  WbsTool: Object.freeze(['BacklogMapTool']),
-  // Arch after Wbs — never ∥ Wbs (Arch used to echo planning.tasks and wipe leaves)
-  ArchitectureTool: Object.freeze(['CapabilityTool', 'WbsTool']),
+  WbsTool: Object.freeze([]),
   DependencyTool: Object.freeze(['WbsTool']),
-  RiskTool: Object.freeze(['ArchitectureTool', 'DependencyTool']),
-  // After Risk, before Effort (QA informs estimates)
-  QualityPlanTool: Object.freeze(['RiskTool', 'ArchitectureTool']),
-  EffortTool: Object.freeze([
-    'WbsTool',
-    'DependencyTool',
-    'ArchitectureTool',
-    'QualityPlanTool',
-  ]),
-  SequencingTool: Object.freeze(['DependencyTool', 'EffortTool']),
-  EmployeeMatchingTool: Object.freeze(['EffortTool', 'SequencingTool']),
-  ScheduleTool: Object.freeze([
-    'DependencyTool',
-    'SequencingTool',
-    'EmployeeMatchingTool',
-  ]),
-  DeployPlanTool: Object.freeze(['ScheduleTool']),
-  ProjectPlanTool: Object.freeze([
-    'ScheduleTool',
-    'DeployPlanTool',
-    'EffortTool',
-    'EmployeeMatchingTool',
-    'SequencingTool',
-    'QualityPlanTool',
-  ]),
+  // Architecture, Effort, Deploy, Sequencing, and Matching are not phase nodes.
+  // Lịch và sprint sống trong ScheduleTool (CPM gọi nội bộ khi đóng gói lịch).
+  RiskTool: Object.freeze(['DependencyTool']),
+  QualityPlanTool: Object.freeze(['RiskTool']),
+  ScheduleTool: Object.freeze(['DependencyTool']),
+  ProjectPlanTool: Object.freeze(['ScheduleTool', 'QualityPlanTool']),
 });
 
 const CANONICAL_ORDER = Object.freeze(

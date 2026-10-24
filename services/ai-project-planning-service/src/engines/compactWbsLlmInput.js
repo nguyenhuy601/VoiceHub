@@ -46,22 +46,41 @@ function compactAc(row, maxLen = 120) {
  * @param {object} pack
  * @returns {object} compact pack with functionalRequirements only
  */
-function compactPackForWbsLlm(pack = {}) {
-  const frs = listFrRows(pack).map((row, i) => {
-    const id = rowId(row, i);
-    const out = {
-      externalId: id,
-      name: truncate(row.name || row.title || id, 80),
-    };
-    const mod = truncate(row.module || row.moduleName || '', 40);
-    const feat = truncate(row.feature || row.featureName || '', 40);
-    if (mod) out.module = mod;
-    if (feat) out.feature = feat;
-    const ac = compactAc(row);
-    if (ac) out.acceptanceCriteria = ac;
-    return out;
+function compactPackForWbsLlm(pack = {}, opts = {}) {
+  const { compileContext } = require('../dataPlane/compileContext');
+  const compiled = compileContext({
+    phase: 'HOW',
+    profile: 'WBS_STORY',
+    pack,
+    container: opts.container,
+    stories: opts.stories,
+    snapshot: opts.snapshot,
+    snapshotId: opts.snapshotId,
+    budget: opts.budget,
   });
-  return { functionalRequirements: frs };
+  const seen = new Set();
+  const frs = [];
+  for (const unit of compiled.workUnits || []) {
+    for (const row of unit.entities?.functionalRequirements || []) {
+      if (seen.has(row.entityId)) continue;
+      seen.add(row.entityId);
+      const out = {
+        externalId: row.content?.code || row.entityId,
+        name: row.content?.title || row.entityId,
+        description: row.content?.description || '',
+      };
+      if (row.content?.moduleId) out.module = row.content.moduleId;
+      if (row.content?.feature) out.feature = row.content.feature;
+      const ac = (row.content?.acceptanceCriteria || []).map((item) => item.text).filter(Boolean);
+      if (ac.length) out.acceptanceCriteria = ac.join('\n');
+      frs.push(out);
+    }
+  }
+  return {
+    functionalRequirements: frs,
+    contextStatus: compiled.status,
+    contextCoverage: compiled.coverage,
+  };
 }
 
 /**

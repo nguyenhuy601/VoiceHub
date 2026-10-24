@@ -496,7 +496,7 @@ class AuthController {
             isEmailVerified: false,
           },
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       if (!updated) {

@@ -40,7 +40,11 @@ import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { useAdminNavLoading } from '../../hooks/useAdminShellLoading';
 import useOrgStructureLevels from '../../hooks/useOrgStructureLevels';
-import { firstAllowedAdminLeafPath, listAdminDomainsForActor } from '../../config/rbacUiGrantMap';
+import {
+  filterAdminDomainByGrant,
+  firstAllowedAdminLeafPath,
+  listAdminDomainsForActor,
+} from '../../config/rbacUiGrantMap';
 import OrgStructureSetupModal from '../../features/adminOrgStructure/OrgStructureSetupModal';
 import SidebarPositionFooter from './SidebarPositionFooter';
 import NavCollapse from '../../motion/NavCollapse';
@@ -435,7 +439,7 @@ function AdminNavSectionGroup({
   );
 }
 
-export default function AdminNavigationSidebar({ isFullAccess: _isFullAccess = false }) {
+export default function AdminNavigationSidebar() {
   const { t } = useAppStrings();
   const location = useLocation();
   const navigate = useNavigate();
@@ -483,11 +487,6 @@ export default function AdminNavigationSidebar({ isFullAccess: _isFullAccess = f
     enabled: Boolean(orgId) && selectedDomainId === 'org-structure',
   });
 
-  const grantCtx = useMemo(
-    () => ({ isFullAccess, hasGrant, scopeOf, isSystemAdmin }),
-    [isFullAccess, hasGrant, scopeOf, isSystemAdmin]
-  );
-
   const enrichDomain = useCallback(
     (raw) => {
       if (!raw) return null;
@@ -505,7 +504,7 @@ export default function AdminNavigationSidebar({ isFullAccess: _isFullAccess = f
   /** Cùng nguồn với Trung tâm quản trị — domain còn mục sau lọc grant. */
   const selectableDomains = useMemo(
     () =>
-      filterVisibleAdminDomainsByGrant(
+      listAdminDomainsForActor(
         visibleDomains.map((raw) =>
           raw.id === 'org-structure'
             ? applyOrgLevelFilterToDomain(raw, orgStructureLevels, {

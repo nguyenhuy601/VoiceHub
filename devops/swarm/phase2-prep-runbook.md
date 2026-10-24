@@ -60,7 +60,7 @@ for i in $(seq 1 20); do curl -sf -o /dev/null -w '%{time_total}\n' http://127.0
 Queue depth (critical queues — xem [`observability-baseline.md`](./observability-baseline.md)):
 
 ```bash
-RAB=$(docker ps -q -f name=voicehub-rabbit_rabbitmq-1 | head -1)
+RAB=$(docker ps -q -f name=voicehub-rabbit_rabbitmq. | head -1)
 docker exec "$RAB" rabbitmqctl list_queues name type messages consumers \
   | grep -E 'voicehub\.|task-ai'
 ```

@@ -181,7 +181,7 @@ function buildNfrDeriveInput(pack, opts = {}) {
       nfrSlim: takeNfrRows(pack, 12),
     },
     pack,
-    opts
+    { ...opts, profile: 'WHAT_DERIVE_NFR' }
   );
 }
 

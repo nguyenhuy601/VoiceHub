@@ -29,8 +29,12 @@ const SOURCE_FIELD_MANIFEST = Object.freeze({
   employee_pool: Object.freeze([
     'userId',
     'employeeId',
+    'displayName',
     'jobTitle',
     'membershipRole',
+    'projectRoleKeys',
+    'orgPosition',
+    'orgPositionRoleKeys',
     'availability',
     'allocatedPct',
     'availablePct',

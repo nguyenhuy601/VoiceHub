@@ -106,7 +106,6 @@ function collectUnassigned(resource = {}, matching = null) {
  */
 function deriveFeasibilityFlags(input = {}) {
   const { isQualityPlanStructurallyOk } = require('../engines/qualityPlan');
-  const { isDeployPlanStructurallyOk } = require('../engines/deployPlan');
   const toolResults = Array.isArray(input.toolResults) ? input.toolResults : [];
   const container =
     input.container && typeof input.container === 'object' ? input.container : {};
@@ -135,7 +134,8 @@ function deriveFeasibilityFlags(input = {}) {
   const coverageOk =
     tasks.length > 0 ||
     toolRan(toolResults, 'WbsTool') ||
-    toolRan(toolResults, 'RequirementAnalysisTool');
+    toolRan(toolResults, 'RequirementAnalysisTool') ||
+    toolRan(toolResults, 'WhatFrTool');
 
   const capacityPlan =
     resource.capacityPlan && typeof resource.capacityPlan === 'object'
@@ -166,9 +166,8 @@ function deriveFeasibilityFlags(input = {}) {
     !toolRan(toolResults, 'QualityPlanTool') ||
     isQualityPlanStructurallyOk(planning.qualityPlan);
 
-  const deployPlanOk =
-    !toolRan(toolResults, 'DeployPlanTool') ||
-    isDeployPlanStructurallyOk(planning.deployPlan);
+  // Sec Kế hoạch deploy không còn trong phase HOW — không chặn feasibility.
+  const deployPlanOk = true;
 
   return {
     coverageOk: Boolean(coverageOk),

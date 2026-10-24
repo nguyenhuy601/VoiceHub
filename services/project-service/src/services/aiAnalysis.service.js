@@ -708,6 +708,42 @@ async function applyCollaborativeGate2({
     techRequired,
   });
   container.gate2 = applied.gate2;
+  if (act === 'track_submit' || act === 'pm_submit' || act === 'tech_submit') {
+    const {
+      listAssignmentEdits,
+      loadUsersByRoleForEdits,
+      applyAssignmentReviewEdits,
+    } = require('../utils/aiAnalysis/applyAssignmentReviewEdits');
+    const assignmentEdits = listAssignmentEdits(reviewDecisions, container);
+    if (assignmentEdits.length) {
+      const { fetchEnabledProjectRoleKeys } = require('../clients/orgMasterData.client');
+      const { listOrgRoleSuggestCandidates } = require('./projectMemberCandidate.service');
+      const roleKeys = await fetchEnabledProjectRoleKeys(organizationId);
+      const usersByRole = await loadUsersByRoleForEdits({
+        edits: assignmentEdits,
+        container,
+        lookupUser: async (roleKey, wantedUserId) => {
+          const page = await listOrgRoleSuggestCandidates({
+            organizationId,
+            actorUserId: userId,
+            projectId,
+            projectRoleKeys: roleKey,
+            assigneeUserId: wantedUserId,
+            allowDeliveryRole: true,
+            limit: 5,
+          });
+          const rows = page?.byRole?.[roleKey] || [];
+          return rows.some((row) => String(row?.userId || '') === String(wantedUserId));
+        },
+      });
+      const nextContainer = applyAssignmentReviewEdits(container, assignmentEdits, {
+        roleKeys,
+        usersByRole,
+      });
+      container.planning = nextContainer.planning;
+      container.resource = nextContainer.resource;
+    }
+  }
   pack.aiAnalysis = container;
   pack.markModified('aiAnalysis');
   await pack.save();
@@ -1174,6 +1210,20 @@ async function applyRemotePhaseRunResult({
       },
     };
     pack.aiAnalysisStatus = 'failed';
+    if (pack.projectId) {
+      const { notifyAiHitlGateReviewers } = require('../utils/phase1GatePolicy');
+      const how = job === 'phase_how';
+      void notifyAiHitlGateReviewers({
+        projectId: String(pack.projectId),
+        organizationId: pack.organizationId,
+        actorUserId: null,
+        packId: String(packId),
+        nextPermission: how ? 'planning:pm_review' : 'analysis:submit_ba_review',
+        title: how ? 'Phase HOW đã dừng vì lỗi' : 'Phase WHAT đã dừng vì lỗi',
+        content: String(error?.message || 'Lượt AI đã dừng. Mở Monitor để xem lỗi và chạy lại.').slice(0, 500),
+        kind: 'ai_hitl_run_failed',
+      });
+    }
   } else {
     const invalid = new Error(`Invalid remote result status: ${status}`);
     invalid.statusCode = 400;

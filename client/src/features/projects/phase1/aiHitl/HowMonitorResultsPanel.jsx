@@ -15,11 +15,20 @@ import { useProjectMemberNames } from '../planning/useProjectMemberNames';
 import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
 import HowPlanSummaryChips from './HowPlanSummaryChips';
 import HitlSectionTabList from './HitlSectionTabList';
+import DependencyFlowPanel from '../gate2/DependencyFlowPanel';
+import QualityReviewPanel from '../gate2/QualityReviewPanel';
 
-function resolvePackProjectId(pack) {
-  const raw = pack?.projectId;
+function resolvePackRefId(raw) {
   if (raw && typeof raw === 'object') return String(raw._id || raw.id || '').trim();
   return String(raw || '').trim();
+}
+
+function resolvePackProjectId(pack) {
+  return resolvePackRefId(pack?.projectId);
+}
+
+function resolvePackOrgId(pack) {
+  return resolvePackRefId(pack?.organizationId || pack?.orgId);
 }
 
 function labelOf(t, key, fallback, vars) {
@@ -172,7 +181,7 @@ function EmptySectionPanel({ t }) {
  */
 export default function HowMonitorResultsPanel({ pack = null, t }) {
   const projectId = resolvePackProjectId(pack);
-  const nameByUserId = useProjectMemberNames(projectId);
+  const nameByUserId = useProjectMemberNames(projectId, resolvePackOrgId(pack));
   const bundle = useMemo(
     () => buildGate2ProposalItems({ pack, nameByUserId, t }),
     [pack, nameByUserId, t]
@@ -212,7 +221,7 @@ export default function HowMonitorResultsPanel({ pack = null, t }) {
         {labelOf(
           t,
           'requirements.aiHitlMonitorResultsHint',
-          'Bảng kết quả kế hoạch (scope, WBS, phụ thuộc, kiến trúc, effort/roles, phân công, capacity, lịch, sprint/release, rủi ro/assumptions, quality, deploy) — gồm rollup Gate1 + HOW. BA / PO / PM đều xem được. Duyệt quyết định ở tab Duyệt.'
+          'Bảng kết quả kế hoạch (scope, WBS, phụ thuộc, phân công, lịch, sprint/release, rủi ro/assumptions, quality) — gồm rollup Gate1 + HOW. BA / PO / PM đều xem được. Duyệt quyết định ở tab Duyệt.'
         )}
       </p>
 
@@ -231,13 +240,20 @@ export default function HowMonitorResultsPanel({ pack = null, t }) {
         )}
       />
 
-      {!activeMissing && activeRows.length ? (
-        <ReadOnlyResultsTable
-          section={activeSection}
-          rows={activeRows}
-          t={t}
-          headerTone={activeHasIssue ? 'warn' : 'ok'}
-        />
+      {activeSection === 'quality' ? (
+        <QualityReviewPanel pack={pack} rows={activeRows} t={t} />
+      ) : !activeMissing && activeRows.length ? (
+        <>
+          {activeSection === 'dependencies' ? (
+            <DependencyFlowPanel pack={pack} rows={activeRows} t={t} />
+          ) : null}
+          <ReadOnlyResultsTable
+            section={activeSection}
+            rows={activeRows}
+            t={t}
+            headerTone={activeHasIssue ? 'warn' : 'ok'}
+          />
+        </>
       ) : activeSection ? (
         <EmptySectionPanel t={t} />
       ) : null}

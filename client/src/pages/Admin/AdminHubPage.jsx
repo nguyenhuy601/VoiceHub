@@ -20,9 +20,7 @@ import { firstAllowedAdminLeafPath, listAdminDomainsForActor } from '../../confi
 import AdminInsightTicker from '../../components/Admin/AdminInsightTicker';
 import useAdminHubInsights from '../../hooks/useAdminHubInsights';
 import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
-import { useEffectiveMasterGrants } from '../../hooks/useEffectiveMasterGrants';
 import { useAdminNavLoading } from '../../hooks/useAdminShellLoading';
-import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { useGrantScopes } from '../../hooks/useGrantScopes';
 import { useAppStrings } from '../../locales/appStrings';
 import { useCompanyAdminContext } from './CompanyAdminLayout';

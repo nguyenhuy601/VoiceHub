@@ -10,6 +10,7 @@ const {
   isOpenAiCompatibleProvider,
   chatCompletionsText,
   chatModel: sharedChatModel,
+  resolveChatMaxOutputTokens,
 } = require('@enterprise/shared/llm/openaiCompatibleClient');
 
 const DEFAULT_MODEL = 'qwen2.5:3b-instruct';
@@ -138,10 +139,11 @@ async function generateJsonViaOpenAi(opts, env, model, http) {
     opts.timeoutMs != null && Number.isFinite(Number(opts.timeoutMs))
       ? Math.max(5000, Math.min(600000, Number(opts.timeoutMs)))
       : DEFAULT_TIMEOUT_MS;
+  const outputCeiling = resolveChatMaxOutputTokens(env, model);
   const predict =
     opts.numPredict != null && Number.isFinite(Number(opts.numPredict))
-      ? Math.max(32, Math.min(2048, Math.round(Number(opts.numPredict))))
-      : DEFAULT_NUM_PREDICT;
+      ? Math.max(32, Math.min(outputCeiling, Math.round(Number(opts.numPredict))))
+      : outputCeiling;
 
   const chat = await chatCompletionsText({
     prompt: String(opts.prompt || ''),

@@ -4,7 +4,7 @@
  * Self-contained (no require of employeeMatching — avoid circular deps).
  */
 
-const { normalizeRoleKey } = require('./roleKey');
+const { canonicalizeProjectRoleKey, normalizeRoleKey } = require('./roleKey');
 
 function clamp01(n) {
   if (!Number.isFinite(n)) return 0;
@@ -96,12 +96,15 @@ function requiredSkills(container, task) {
 }
 
 function roleFitContribution(item, task) {
-  const roleKey = normalizeRoleKey(task?.suggestedRoleKey);
+  const roleKey = canonicalizeProjectRoleKey(task?.suggestedRoleKey);
   if (!roleKey) return 0.1;
-  const itemRoles = [item.projectRoleKey, item.jobTitle, ...(item.inferredRoleKeys || [])]
-    .map(normalizeRoleKey)
-    .filter(Boolean);
-  if (itemRoles.some((role) => role.includes(roleKey) || roleKey.includes(role))) return 0.35;
+  const raw = [];
+  if (Array.isArray(item?.projectRoleKeys)) raw.push(...item.projectRoleKeys);
+  if (item?.projectRoleKey) raw.push(item.projectRoleKey);
+  if (Array.isArray(item?.orgPositionRoleKeys)) raw.push(...item.orgPositionRoleKeys);
+  if (Array.isArray(item?.orgRoleKeys)) raw.push(...item.orgRoleKeys);
+  const keys = raw.map((value) => canonicalizeProjectRoleKey(value)).filter(Boolean);
+  if (keys.some((role) => role === roleKey)) return 0.35;
   return 0;
 }
 
@@ -161,6 +164,7 @@ function areaAffinityContribution(item, task) {
     item.jobTitle,
     item.primaryDomain,
     item.projectRoleKey,
+    ...(item.projectRoleKeys || []),
     ...(item.inferredRoleKeys || []),
   ]
     .map((x) => String(x || '').toLowerCase())

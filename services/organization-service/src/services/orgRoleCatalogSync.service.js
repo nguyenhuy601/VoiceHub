@@ -49,7 +49,7 @@ async function syncOrgRoleCatalogFromMaster(organizationId) {
           sortOrder: def.sortOrder,
         },
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
     upsertedKeys.push(def.key);
   }

@@ -97,6 +97,17 @@ function runAnalysisEnginesSync(opts = {}) {
     }
   }
 
+  if (
+    !proposal.generated?.backlogStructure &&
+    opts.proposalFragment?.backlogStructure &&
+    typeof opts.proposalFragment.backlogStructure === 'object'
+  ) {
+    proposal.generated = {
+      ...(proposal.generated || {}),
+      backlogStructure: opts.proposalFragment.backlogStructure,
+    };
+  }
+
   return {
     proposal,
     resultsById,

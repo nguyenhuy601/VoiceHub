@@ -23,7 +23,7 @@ function resetStaleProgressEventTotalForTests() {
 
 /**
  * @param {object} current PlanningRun-like slice
- * @returns {{ pipelineStep: number|null, pipelineSubstep: string|null, currentNode: string|null, currentTool: string|null, progressVersion: number, status: string|null }}
+ * @returns {{ pipelineStep: number|null, pipelineSubstep: string|null, currentNode: string|null, currentTool: string|null, currentToolNames: string[], progressVersion: number, status: string|null }}
  */
 function snapshotProgress(current = {}) {
   return {
@@ -31,9 +31,26 @@ function snapshotProgress(current = {}) {
     pipelineSubstep: current.pipelineSubstep || null,
     currentNode: current.currentNode || null,
     currentTool: current.currentTool || null,
+    currentToolNames: toolNameList(current.currentToolNames),
     progressVersion: Number(current.progressVersion) || 0,
     status: current.status || null,
   };
+}
+
+function toolNameList(value) {
+  if (!Array.isArray(value)) return [];
+  const names = [];
+  for (const item of value) {
+    const name = String(item || '').trim();
+    if (!name || names.includes(name)) continue;
+    names.push(name);
+  }
+  return names;
+}
+
+function sameToolNames(left, right) {
+  if (left.length !== right.length) return false;
+  return left.every((name, index) => name === right[index]);
 }
 
 function substepRank(substep) {
@@ -108,6 +125,20 @@ function reduceProgressState(current, rawEvt, opts = {}) {
     const toolVal = event.tool || null;
     if (next.currentTool !== toolVal) {
       next.currentTool = toolVal;
+      metaChanged = true;
+    }
+  }
+
+  // HOW DAG: one progress row is the whole parallel layer, not the last tool name.
+  const layerNames = toolNameList(event.tools);
+  if (layerNames.length) {
+    if (!sameToolNames(next.currentToolNames, layerNames)) {
+      next.currentToolNames = layerNames;
+      metaChanged = true;
+    }
+  } else if (event.node && event.node !== 'call_tool' && event.node !== 'execute') {
+    if (next.currentToolNames.length) {
+      next.currentToolNames = [];
       metaChanged = true;
     }
   }

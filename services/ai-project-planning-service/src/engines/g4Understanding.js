@@ -99,7 +99,6 @@ async function runG4UnderstandingLegacy(opts = {}) {
       }
       const result = await generate({
         prompt: buildExtractPrompt(projected, chunk),
-        numPredict: 512,
         numCtx: 4096,
         timeoutMs: Math.min(120000, wallMs - (Date.now() - startedAt)),
         env,

@@ -485,7 +485,7 @@ class MessageService {
           isRead: true,
           readAt,
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -609,7 +609,7 @@ class MessageService {
       const updated = await Message.findByIdAndUpdate(
         messageId,
         { reactions },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -677,7 +677,7 @@ class MessageService {
             },
           },
         ],
-        { new: true }
+        { returnDocument: 'after' }
       );
       if (!updated) {
         const fresh = await Message.findById(messageId);
@@ -723,7 +723,7 @@ class MessageService {
       const updated = await Message.findByIdAndUpdate(
         messageId,
         { reactions },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -744,7 +744,7 @@ class MessageService {
           isDeleted: true,
           deletedAt: new Date(),
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -786,7 +786,7 @@ class MessageService {
           recalledAt: new Date(),
           originalContent: encPrev,
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -859,7 +859,7 @@ class MessageService {
           editedAt: new Date(),
           ...(isEncryptionEnabled() ? { encV: 1 } : {}),
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const redis = getRedisClient();
@@ -894,7 +894,7 @@ class MessageService {
             'fileMeta.taskId': taskId,
           },
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
       const redis = getRedisClient();
       if (redis && message) {

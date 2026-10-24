@@ -281,7 +281,7 @@ async function softDeleteUnit(organizationId, unitId) {
   const doc = await OrganizationalUnit.findOneAndUpdate(
     { _id: unitId, organization: organizationId },
     { $set: { 'attributes.isActive': false } },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!doc) {
     const err = new Error('Unit not found');
@@ -448,7 +448,7 @@ async function replaceLevels(organizationId, levels, templateId) {
         setupCompletedAt: now,
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
   return doc;
 }

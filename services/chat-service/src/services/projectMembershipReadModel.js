@@ -38,7 +38,7 @@ async function applyMemberChanged({ organizationId, projectId, userId, status })
   return UserProjectMembership.findOneAndUpdate(
     { userId: uid, organizationId: oid },
     { ...op, $setOnInsert: { userId: uid, organizationId: oid } },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   ).lean();
 }
 

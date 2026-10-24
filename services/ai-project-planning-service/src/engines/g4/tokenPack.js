@@ -30,8 +30,12 @@ function candidatePayloadSize(candidate) {
  * @returns {object[][]} batches
  */
 function packByTokenBudget(candidates = [], opts = {}) {
-  const maxInput = opts.maxInputTokens != null ? Number(opts.maxInputTokens) : 2800;
-  const maxCalls = opts.maxCalls != null ? Number(opts.maxCalls) : 3;
+  const maxInput = opts.maxInputTokens != null ? Number(opts.maxInputTokens) : 32768;
+  const maxCalls = opts.maxCalls != null ? Number(opts.maxCalls) : 16;
+  const maxItems =
+    opts.maxItems != null && Number.isFinite(Number(opts.maxItems))
+      ? Math.max(1, Math.floor(Number(opts.maxItems)))
+      : Number.POSITIVE_INFINITY;
   const overhead = 200;
   const budget = Math.max(400, maxInput - overhead);
   const batches = [];
@@ -41,7 +45,7 @@ function packByTokenBudget(candidates = [], opts = {}) {
   for (const c of candidates) {
     if (batches.length >= maxCalls) break;
     const cost = candidatePayloadSize(c);
-    if (current.length && used + cost > budget) {
+    if (current.length && (used + cost > budget || current.length >= maxItems)) {
       batches.push(current);
       if (batches.length >= maxCalls) break;
       current = [];

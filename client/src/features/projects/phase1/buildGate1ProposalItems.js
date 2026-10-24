@@ -1,7 +1,9 @@
 /**
  * Build Gate1 Analysis Review rows from Analysis Proposal (persist: srsProposal).
- * Active Analysis tabs (8 + actors); Interface/Glossary/Assumption/Traceability trimmed.
+ * Active Analysis tabs (FR + Epic/Story + …); Interface/Glossary/Assumption/Traceability trimmed.
  */
+
+import { buildGate1BacklogStructureRows } from './gate1/buildGate1BacklogStructureRows.js';
 
 const SECTION_ORDER = [
   'functionalRequirements',
@@ -20,6 +22,7 @@ const LEGACY_EXCLUDED = new Set(['domain', 'context']);
 
 const SECTION_LABELS = {
   functionalRequirements: 'FR',
+  backlogStructure: 'Epic/Story',
   nonFunctionalRequirements: 'NFR',
   businessRules: 'BR',
   businessGoals: 'BG',
@@ -32,7 +35,7 @@ const SECTION_LABELS = {
 
 
 
-function clipReviewText(value) {
+function clipReviewText(value, max = 240) {
   const raw = Array.isArray(value)
     ? value
         .map((item) =>
@@ -44,37 +47,78 @@ function clipReviewText(value) {
         .join('; ')
     : value;
   const text = String(raw || '').trim();
-  if (text.length <= 240) return text;
-  return `${text.slice(0, 240)}…`;
+  const limit = Number.isFinite(max) && max > 0 ? max : 240;
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}…`;
 }
 
 
 
-function packFrAcById(pack) {
+function packFieldById(pack, pick) {
   const map = new Map();
   const frs = Array.isArray(pack?.functionalRequirements) ? pack.functionalRequirements : [];
   for (const row of frs) {
     const id = String(row?.externalId || row?.id || row?.frId || '').trim();
-    if (!id) continue;
-    const ac = clipReviewText(row?.ac || row?.acceptanceCriteria);
-    if (ac && ac !== '—') map.set(id, ac);
+    if (!id || map.has(id)) continue;
+    const value = pick(row);
+    if (value) map.set(id, value);
   }
   return map;
 }
 
-/** Fill Gate1 FR.ac from pack intake when proposal omitted acceptanceCriteria. */
+function packFrAcById(pack) {
+  return packFieldById(pack, (row) => {
+    const ac = clipReviewText(row?.ac || row?.acceptanceCriteria);
+    return ac && ac !== '—' ? ac : '';
+  });
+}
+
+function packFrPriorityById(pack) {
+  return packFieldById(pack, (row) => String(row?.priority || '').trim());
+}
+
+function firstPackValue(map, ids) {
+  for (const id of ids) {
+    const value = map.get(id);
+    if (value) return value;
+  }
+  return '';
+}
+
+/** Fill Gate1 FR.ac / priority from pack intake when the proposal omitted them. */
 function enrichFrAcFromPack(bySection, pack) {
   const rows = bySection?.functionalRequirements;
   if (!Array.isArray(rows) || !rows.length || !pack) return;
   const acById = packFrAcById(pack);
-  if (!acById.size) return;
+  const priorityById = packFrPriorityById(pack);
+  if (!acById.size && !priorityById.size) return;
   bySection.functionalRequirements = rows.map((row) => {
-    if (row?.ac && String(row.ac).trim() && row.ac !== '—') return row;
-    const id = String(row?.logicalId || row?.id || '').trim();
-    const fromPack = acById.get(id);
-    if (!fromPack) return row;
-    return { ...row, ac: fromPack };
+    const ids = [row?.logicalId, row?.id, ...(row?.sourceCrIds || [])]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    let next = row;
+    if (!(row?.ac && String(row.ac).trim() && row.ac !== '—')) {
+      const fromPack = firstPackValue(acById, ids);
+      if (fromPack) next = { ...next, ac: fromPack };
+    }
+    if (!String(row?.priority || '').trim()) {
+      const fromPack = firstPackValue(priorityById, ids);
+      if (fromPack) next = { ...next, priority: fromPack };
+    }
+    return next;
   });
+}
+
+function actorsLabel(row) {
+  const fromList = Array.isArray(row?.actors)
+    ? row.actors
+        .map((actor) =>
+          typeof actor === 'string' ? actor : actor?.name || actor?.id || actor?.title || ''
+        )
+        .filter(Boolean)
+    : [];
+  if (fromList.length) return clipReviewText(fromList.join(', '));
+  return clipReviewText(row?.actor || row?.primaryActor || '');
 }
 
 function mapItem(row, section, index) {
@@ -88,8 +132,13 @@ function mapItem(row, section, index) {
     sectionLabel: SECTION_LABELS[section] || section,
     title: String(row?.title || row?.name || '').trim(),
     name: row?.name != null ? String(row.name) : undefined,
-    description: clipReviewText(row?.description || row?.text || row?.definition || ''),
+    description: clipReviewText(
+      row?.description || row?.text || row?.definition || row?.statement || row?.rationale || '',
+      600
+    ),
     ac: clipReviewText(row?.ac || row?.acceptanceCriteria),
+    priority: String(row?.priority || '').trim(),
+    actorsLabel: actorsLabel(row),
     status: String(row?.status || 'EXTRACTED'),
     origin: row?.origin || null,
     provenance: row?.provenance || null,
@@ -107,6 +156,11 @@ function mapItem(row, section, index) {
     linkSection: null,
     itemSection: row?.section || null,
     sourceRefs: Array.isArray(row?.sourceRefs) ? row.sourceRefs : [],
+    sourceCrIds: Array.isArray(row?.sourceCrIds) ? row.sourceCrIds.map(String) : [],
+    sourceCrLabel: (Array.isArray(row?.sourceCrIds) ? row.sourceCrIds : [])
+      .map(String)
+      .filter(Boolean)
+      .join(', '),
   };
 }
 
@@ -145,23 +199,23 @@ export function buildGate1ProposalItems(opts = {}) {
   const reviewBySection = Object.fromEntries(
     reviews.filter((r) => r?.section).map((r) => [r.section, r])
   );
-  const reviewableSet = new Set(reviews.filter((r) => r.reviewable).map((r) => r.section));
-  const hasReviewMeta = reviews.length > 0;
-
-
 
   if (generated) {
     for (const key of SECTION_ORDER) {
       if (LEGACY_EXCLUDED.has(key)) continue;
       const items = Array.isArray(generated[key]?.items) ? generated[key].items : [];
       if (!items.length) continue;
-      // Gate1-sensitive actors are legacy (not in ANALYSIS_SECTION_KEYS / sectionReviews).
-      // Still show items when present — do not hide solely because reviewableSet omits the key.
-      const explicitReview = reviewBySection[key];
-      if (hasReviewMeta && explicitReview && !reviewableSet.has(key)) continue;
       bySection[key] = items.map((row, i) => mapItem(row, key, i));
     }
     enrichFrAcFromPack(bySection, pack);
+
+    // FrDecompose Epic→Story — not a catalog section with .items
+    if (!LEGACY_EXCLUDED.has('backlogStructure')) {
+      const structureRows = buildGate1BacklogStructureRows(generated.backlogStructure);
+      if (structureRows.length) {
+        bySection.backlogStructure = structureRows;
+      }
+    }
   }
 
   if (!Object.keys(bySection).length) {

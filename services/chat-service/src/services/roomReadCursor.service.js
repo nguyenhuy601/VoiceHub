@@ -91,7 +91,7 @@ async function markRoomReadUpTo({ roomId, userId, lastReadMessageId = null } = {
         lastReadAt: readAt,
       },
     },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
   ).lean();
 
   return {

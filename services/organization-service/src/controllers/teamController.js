@@ -82,7 +82,7 @@ exports.updateTeam = async (req, res, next) => {
     const team = await Team.findOneAndUpdate(
       { _id: req.params.id, organization: req.params.orgId, department: req.params.deptId, isActive: true },
       { name, description, leader },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     await bumpOrgReadCache(req.params.orgId);
@@ -97,7 +97,7 @@ exports.deleteTeam = async (req, res, next) => {
     await Team.findOneAndUpdate(
       { _id: req.params.id, organization: req.params.orgId, department: req.params.deptId, isActive: true },
       { isActive: false },
-      { new: true }
+      { returnDocument: 'after' }
     );
     await Channel.updateMany(
       { organization: req.params.orgId, department: req.params.deptId, team: req.params.id, isActive: true },
@@ -152,7 +152,7 @@ exports.updateChannel = async (req, res, next) => {
     const channel = await Channel.findOneAndUpdate(
       { _id: req.params.id, ...buildScope(req) },
       { name, description, leader, type },
-      { new: true }
+      { returnDocument: 'after' }
     );
     await bumpOrgReadCache(req.params.orgId);
     res.json({ status: 'success', data: channel });
@@ -166,7 +166,7 @@ exports.deleteChannel = async (req, res, next) => {
     await Channel.findOneAndUpdate(
       { _id: req.params.id, ...buildScope(req) },
       { isActive: false },
-      { new: true }
+      { returnDocument: 'after' }
     );
     await bumpOrgReadCache(req.params.orgId);
     res.json({ status: 'success', message: 'Channel deleted' });

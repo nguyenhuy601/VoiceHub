@@ -71,7 +71,7 @@ const autoConfirmWhatJobShells = markPhaseWhatGate1Approved;
  * ZERO writes to analyses.g4Understanding on new runs (T-G4-NOWRITE).
  *
  * Accepts either:
- * - proposalFragment from analyzeFunctionalRequirements
+ * - proposalFragment from runFrSemanticTask
  * - legacy g4Understanding shape (migrated, synthesis not into FR)
  *
  * @param {object} container

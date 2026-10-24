@@ -33,8 +33,18 @@ function run(input = {}) {
       rawItems = input.ownedSectionProjection.rows;
     }
 
+    const { isCustomerRequirementId } = require('../../engines/frProposeFromCrLlm');
+    const beforeFilter = rawItems.length;
+    rawItems = rawItems.filter((row) => {
+      const id = String(row?.logicalId || row?.id || row?.frId || row?.externalId || '').trim();
+      return id && !isCustomerRequirementId(id);
+    });
+
     if (!rawItems.length) {
-      const gap = noDataResult(meta, 'SOURCE_UNAVAILABLE');
+      const gap = noDataResult(
+        meta,
+        beforeFilter > 0 ? 'missing_proposed_fr' : 'SOURCE_UNAVAILABLE'
+      );
       assertNoSrsDraftInEngineResult(gap);
       return gap;
     }
@@ -60,8 +70,16 @@ function run(input = {}) {
         sourceStats: { sourceRows: rawItems.length, mappedRows: items.length, orphanRows: 0 },
       },
       validation: { errors: [], warnings: [] },
-      meta,
+      meta: {
+        ...meta,
+        frDecomposeSkipped: Boolean(fragment?.meta?.frDecomposeSkipped),
+        frDecomposeReason: fragment?.meta?.frDecomposeReason || null,
+      },
     });
+    // Epic→Story SoT from FrDecompose (attached on proposalFragment after G4).
+    if (fragment?.backlogStructure && typeof fragment.backlogStructure === 'object') {
+      result.backlogStructure = fragment.backlogStructure;
+    }
     assertNoSrsDraftInEngineResult(result);
     return result;
   } catch (err) {

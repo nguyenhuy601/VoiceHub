@@ -242,6 +242,7 @@ function toPublicRun(doc, page) {
     status: doc.status,
     currentNode: doc.currentNode,
     currentTool: doc.currentTool || null,
+    currentToolNames: Array.isArray(doc.currentToolNames) ? doc.currentToolNames : [],
     pipelineStep: doc.pipelineStep ?? null,
     pipelineSubstep: doc.pipelineSubstep || null,
     progressUpdatedAt: doc.progressUpdatedAt || null,

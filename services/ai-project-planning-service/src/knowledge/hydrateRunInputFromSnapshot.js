@@ -35,12 +35,18 @@ async function hydrateRunInputFromSnapshot(run, opts = {}) {
   // RULE-DL-01/07: when run meta is present, always S2S hydrate (ignore poisoned embedded stubs)
   if (hasHydrateMeta(run)) {
     const fetchFn = opts.fetchFn || projectClient.fetchAnalysisSnapshotHydrate;
+    const hydrateStarted = process.hrtime.bigint();
     const data = await fetchFn({ snapshotId, packId, organizationId });
+    const hydrateMs = Math.max(
+      0,
+      Math.round(Number(process.hrtime.bigint() - hydrateStarted) / 1e6)
+    );
     console.info(
-      '[hydrate_snapshot] mode=hydrate snapshotId=%s packId=%s embeddedIgnored=%s',
+      '[hydrate_snapshot] mode=hydrate snapshotId=%s packId=%s embeddedIgnored=%s hydrateMs=%s',
       snapshotId,
       packId,
-      Boolean(embeddedSnapshot)
+      Boolean(embeddedSnapshot),
+      hydrateMs
     );
     return {
       mode: 'hydrate',

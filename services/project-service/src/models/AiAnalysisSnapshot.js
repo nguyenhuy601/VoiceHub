@@ -45,6 +45,8 @@ const aiAnalysisSnapshotSchema = new mongoose.Schema(
     meetingPlan: { type: mongoose.Schema.Types.Mixed, default: null },
     meetingDemandHoursByUserDay: { type: mongoose.Schema.Types.Mixed, default: null },
     effortEstimationConfigVersionId: { type: String, default: null, trim: true },
+    /** Org master enabled project role keys frozen at snapshot create (HOW role allow-list). */
+    enabledProjectRoleKeys: { type: [String], default: undefined },
     pipelineVersion: { type: Number, default: 1 },
     status: {
       type: String,

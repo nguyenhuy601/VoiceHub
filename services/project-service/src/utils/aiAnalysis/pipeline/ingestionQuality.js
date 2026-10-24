@@ -74,7 +74,7 @@ function validateProjected(projected = {}) {
   }
   const employees = projected.employees || [];
   for (const emp of employees) {
-    if (emp.email != null || emp.avatar != null || emp.displayName != null) {
+    if (emp.email != null || emp.avatar != null) {
       issues.push({ code: 'EMPLOYEE_PII_LEAK', severity: 'error' });
       break;
     }
@@ -135,7 +135,7 @@ function applyIngestionQuality(projected = {}) {
       skills: dedupeSkillNames(projected.skillCatalog?.skills || []),
     },
     employees: (projected.employees || []).map((emp) => {
-      const { email, avatar, displayName, ...rest } = emp || {};
+      const { email, avatar, ...rest } = emp || {};
       return rest;
     }),
   };

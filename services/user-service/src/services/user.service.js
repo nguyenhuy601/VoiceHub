@@ -64,7 +64,7 @@ class UserService {
     const reclaimed = await UserProfile.findOneAndUpdate(
       { _id: byEmail._id },
       { $set: patch },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     const redis = getRedisClient();
@@ -366,7 +366,7 @@ class UserService {
       const userProfile = await UserProfile.findOneAndUpdate(
         { userId },
         updateOp,
-        { new: true, runValidators: true }
+        { returnDocument: 'after', runValidators: true }
       );
 
       if (!userProfile) {
@@ -397,7 +397,7 @@ class UserService {
     const userProfile = await UserProfile.findOneAndUpdate(
       { userId: uid },
       { $set: { avatar: key } },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
     if (!userProfile) {
       throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
@@ -727,7 +727,7 @@ class UserService {
     let updated = await UserProfile.findOneAndUpdate(
       { userId: uid },
       updateOps,
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
 
     // Excel/HR import: auth có thể tồn tại trong khi profile chưa bootstrap (hoặc đã deactivate).
@@ -755,7 +755,7 @@ class UserService {
       updated = await UserProfile.findOneAndUpdate(
         { userId: uid },
         updateOps,
-        { new: true, runValidators: true }
+        { returnDocument: 'after', runValidators: true }
       );
     }
 
@@ -775,7 +775,7 @@ class UserService {
       const userProfile = await UserProfile.findOneAndUpdate(
         { userId },
         { $set: patch },
-        { new: true, runValidators: false }
+        { returnDocument: 'after', runValidators: false }
       );
       if (!userProfile) {
         throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
@@ -873,7 +873,7 @@ class UserService {
     const userProfile = await UserProfile.findOneAndUpdate(
       { userId: uid },
       { $set: emailFields },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
     if (!userProfile) {
       throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');
@@ -891,7 +891,7 @@ class UserService {
       const userProfile = await UserProfile.findOneAndUpdate(
         { userId },
         { $set: { isActive: false } },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       if (!userProfile) {
@@ -959,7 +959,7 @@ class UserService {
     const userProfile = await UserProfile.findOneAndUpdate(
       { userId },
       { $set: { capability: applied.capability } },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
     if (!userProfile) {
       throw serviceError('Không tìm thấy hồ sơ người dùng', 404, 'USER_PROFILE_NOT_FOUND');

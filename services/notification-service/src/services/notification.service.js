@@ -266,7 +266,7 @@ class NotificationService {
             readAt: new Date(),
           },
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       if (!notification) {

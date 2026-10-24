@@ -1,7 +1,7 @@
 /**
- * Single FE selector: liveRun → HOW progress view-model (3 layers).
- * RULE: when node=call_tool|execute, currentTool drives checklist; node = activity otherwise.
- * Mirrors agentLoopRunner HOW sequence (understand → select → tools → wrap-up).
+ * Single FE selector: liveRun → HOW progress view-model.
+ * Agent nodes (understand / select / observe) stay sequential.
+ * Planning tools follow the HOW DAG: a whole layer is in flight together.
  */
 
 import { formatElapsed } from './whatProgressViewModel.js';
@@ -38,18 +38,17 @@ export const HOW_MACRO_STEPS = Object.freeze([
     labelKey: 'requirements.aiHitlHowMacro2',
     fallback: 'Engines',
     descriptionKey: 'requirements.aiHitlHowMacroDesc2',
-    descriptionFallback: 'Running planning engines (WBS → Quality → Schedule → Deploy).',
+    descriptionFallback: 'Running one planning layer at a time. Tools in the same layer run together.',
     substeps: [
+      'BacklogMapTool',
       'WbsTool',
       'DependencyTool',
-      'ArchitectureTool',
       'RiskTool',
       'QualityPlanTool',
-      'EffortTool',
       'SequencingTool',
       'EmployeeMatchingTool',
       'ScheduleTool',
-      'DeployPlanTool',
+      'ProjectPlanTool',
     ],
   },
   {
@@ -57,8 +56,8 @@ export const HOW_MACRO_STEPS = Object.freeze([
     labelKey: 'requirements.aiHitlHowMacro3',
     fallback: 'Wrap-up & Gate 2',
     descriptionKey: 'requirements.aiHitlHowMacroDesc3',
-    descriptionFallback: 'Observe, feasibility signal, and project plan for Gate 2.',
-    substeps: ['observe', 'evaluateLocal', 'feasibility', 'ProjectPlanTool'],
+    descriptionFallback: 'Observing results and checking feasibility before Gate 2.',
+    substeps: ['observe', 'evaluateLocal', 'feasibility'],
   },
 ]);
 
@@ -73,6 +72,22 @@ export const HOW_MONITOR_STEPS = Object.freeze(
     }))
   )
 );
+
+/**
+ * Canonical HOW tool layers (same edges as howToolDag).
+ * Tools inside one layer start together; the next layer waits for this one.
+ */
+export const HOW_PLANNING_LAYERS = Object.freeze([
+  Object.freeze(['BacklogMapTool', 'WbsTool']),
+  Object.freeze(['DependencyTool']),
+  Object.freeze(['RiskTool', 'SequencingTool']),
+  Object.freeze(['QualityPlanTool', 'EmployeeMatchingTool']),
+  Object.freeze(['ScheduleTool']),
+  Object.freeze(['ProjectPlanTool']),
+]);
+
+const PLANNING_TOOL_IDS = new Set(HOW_PLANNING_LAYERS.flat());
+const TOOL_ACTIVITY_NODES = new Set(['call_tool', 'execute', 'execute_how']);
 
 const SUBSTEP_TO_MACRO = (() => {
   const map = Object.create(null);
@@ -101,6 +116,17 @@ function isInFlightStatus(status) {
   return ['pending', 'running', 'queued', 'waiting_human', 'stopped'].includes(norm(status));
 }
 
+function isCallbackHandoff(liveRun) {
+  const live = norm(liveRun?.status);
+  const callback = norm(liveRun?.callbackStatus);
+  return (
+    live === 'callback_pending' ||
+    live === 'callback_delivering' ||
+    callback === 'pending' ||
+    callback === 'delivering'
+  );
+}
+
 /**
  * Fuzzy match catalog id (Wbs ↔ WbsTool).
  * @returns {number} index in HOW_MONITOR_STEPS or -1
@@ -120,87 +146,120 @@ export function matchHowStepIndex(nodeRaw) {
   return idx;
 }
 
+function catalogId(raw) {
+  const idx = matchHowStepIndex(raw);
+  if (idx < 0) return null;
+  return HOW_MONITOR_STEPS[idx].id;
+}
+
+function layerContaining(toolId) {
+  return HOW_PLANNING_LAYERS.find((layer) => layer.includes(toolId)) || null;
+}
+
+function earliestCatalogId(ids) {
+  let best = null;
+  let bestIdx = -1;
+  for (const id of ids) {
+    const idx = matchHowStepIndex(id);
+    if (idx < 0) continue;
+    if (bestIdx < 0 || idx < bestIdx) {
+      best = HOW_MONITOR_STEPS[idx].id;
+      bestIdx = idx;
+    }
+  }
+  return best;
+}
+
 /**
- * Resolve which HOW catalog step is active from live progress.
- * Prefer currentTool only when agent is in call_tool/execute (activity node ≠ checklist step).
+ * Tools actually in flight.
+ * An explicit currentToolNames list is the layer the runner started.
+ * A lone currentTool expands to its canonical layer — siblings run together.
+ * Agent nodes (understand, observe, …) are not tool layers.
  */
-/** Parallel HOW tools in-flight (DAG layer), if reporter sends currentToolNames. */
-export function resolveHowActiveStepIds(liveRun = null, phaseMeta = null) {
+export function resolveHowRunningToolIds(liveRun = null, phaseMeta = null) {
+  const node = norm(liveRun?.currentNode || liveRun?.stage || phaseMeta?.stage || '');
+  if (node && !TOOL_ACTIVITY_NODES.has(node)) return [];
+
   const raw =
     liveRun?.currentToolNames ||
     liveRun?.currentTools ||
     phaseMeta?.currentToolNames ||
     null;
-  if (!Array.isArray(raw) || !raw.length) return null;
-  const ids = [];
-  const seen = new Set();
-  for (const name of raw) {
-    const idx = matchHowStepIndex(name);
-    if (idx < 0) continue;
-    const id = HOW_MONITOR_STEPS[idx].id;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    ids.push(id);
+  if (Array.isArray(raw) && raw.length) {
+    const ids = [];
+    const seen = new Set();
+    for (const name of raw) {
+      const id = catalogId(name);
+      if (!id || !PLANNING_TOOL_IDS.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+    if (ids.length) return ids;
   }
+
+  const single = catalogId(liveRun?.currentTool || liveRun?.currentToolName || '');
+  if (single && PLANNING_TOOL_IDS.has(single)) {
+    const layer = layerContaining(single);
+    return layer ? [...layer] : [single];
+  }
+
+  if (node === 'call_tool' || node === 'execute') {
+    return [...HOW_PLANNING_LAYERS[0]];
+  }
+  return [];
+}
+
+/** @deprecated use resolveHowRunningToolIds — kept for callers that expect null when unset */
+export function resolveHowActiveStepIds(liveRun = null, phaseMeta = null) {
+  const ids = resolveHowRunningToolIds(liveRun, phaseMeta);
   return ids.length ? ids : null;
 }
 
 export function resolveHowActiveStepId(liveRun = null, phaseMeta = null) {
-  const multi = resolveHowActiveStepIds(liveRun, phaseMeta);
-  if (multi?.length) {
-    // Primary = earliest catalog index among parallel set
-    let best = multi[0];
-    let bestIdx = matchHowStepIndex(best);
-    for (const id of multi) {
-      const idx = matchHowStepIndex(id);
-      if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) {
-        best = id;
-        bestIdx = idx;
-      }
-    }
-    return best;
-  }
-
-  const tool = String(liveRun?.currentTool || liveRun?.currentToolName || '').trim();
   const nodeRaw = String(
     liveRun?.currentNode || liveRun?.stage || liveRun?.pipelineSubstep || phaseMeta?.stage || ''
   ).trim();
   const nodeLower = norm(nodeRaw);
 
-  // Tool activity: checklist follows the tool being called
-  if (nodeLower === 'call_tool' || nodeLower === 'execute') {
-    if (tool) {
-      const toolIdx = matchHowStepIndex(tool);
-      if (toolIdx >= 0) return HOW_MONITOR_STEPS[toolIdx].id;
+  if (!TOOL_ACTIVITY_NODES.has(nodeLower)) {
+    if (!nodeRaw) {
+      const running = resolveHowRunningToolIds(liveRun, phaseMeta);
+      return earliestCatalogId(running);
     }
-    return 'WbsTool';
+    const aliased = NODE_ALIASES[nodeLower];
+    if (aliased != null && nodeLower !== 'execute') return aliased;
+    const idx = matchHowStepIndex(nodeRaw);
+    if (idx >= 0) return HOW_MONITOR_STEPS[idx].id;
   }
 
-  if (!nodeRaw) {
-    if (tool) {
-      const toolIdx = matchHowStepIndex(tool);
-      if (toolIdx >= 0) return HOW_MONITOR_STEPS[toolIdx].id;
-    }
-    return null;
-  }
+  const running = resolveHowRunningToolIds(liveRun, phaseMeta);
+  const fromLayer = earliestCatalogId(running);
+  if (fromLayer) return fromLayer;
 
-  const aliased = NODE_ALIASES[nodeLower];
-  if (aliased != null) {
-    return aliased;
-  }
-
-  const idx = matchHowStepIndex(nodeRaw);
-  if (idx >= 0) return HOW_MONITOR_STEPS[idx].id;
-
-  // Unknown node but tool present (e.g. mid-flight race)
-  if (tool) {
-    const toolIdx = matchHowStepIndex(tool);
-    if (toolIdx >= 0) return HOW_MONITOR_STEPS[toolIdx].id;
-  }
+  if (nodeLower === 'call_tool' || nodeLower === 'execute') return 'WbsTool';
   return null;
 }
 
-function resolveHowActivity(liveRun, state) {
+function buildPlanningLayerView(runningToolIds, phaseDone) {
+  const active = new Set(runningToolIds || []);
+  let currentLayerIndex = -1;
+  HOW_PLANNING_LAYERS.forEach((layer, index) => {
+    if (layer.some((id) => active.has(id))) currentLayerIndex = index;
+  });
+  return HOW_PLANNING_LAYERS.map((toolIds, index) => {
+    let state = 'pending';
+    if (phaseDone || (currentLayerIndex >= 0 && index < currentLayerIndex)) state = 'done';
+    else if (index === currentLayerIndex) state = 'current';
+    return {
+      index: index + 1,
+      toolIds: [...toolIds],
+      state,
+      activeToolIds: toolIds.filter((id) => active.has(id)),
+    };
+  });
+}
+
+function resolveHowActivity(liveRun, state, runningToolIds = []) {
   if (
     state === 'waiting_human' ||
     state === 'succeeded' ||
@@ -208,15 +267,18 @@ function resolveHowActivity(liveRun, state) {
     state === 'cancelled' ||
     state === 'idle'
   ) {
-    return { kind: null, toolName: null, labelKey: null };
+    return { kind: null, toolName: null, toolNames: [], labelKey: null };
   }
   const tool = String(liveRun?.currentTool || liveRun?.currentToolName || '').trim() || null;
   const node = norm(liveRun?.currentNode || liveRun?.stage || '');
+  const inToolNode = !node || TOOL_ACTIVITY_NODES.has(node);
+  const toolNames = runningToolIds.length ? [...runningToolIds] : inToolNode && tool ? [tool] : [];
 
-  if (tool || node === 'call_tool' || node === 'execute') {
+  if (inToolNode && (toolNames.length || node === 'call_tool' || node === 'execute')) {
     return {
       kind: 'call_tool',
-      toolName: tool,
+      toolName: toolNames[0] || tool,
+      toolNames,
       labelKey: 'requirements.aiHitlMonitorCallingTool',
     };
   }
@@ -268,6 +330,9 @@ function normalizeHowRunStatus(liveRun, phaseHow) {
   }
   if (live === 'failed' || phase === 'failed') return 'failed';
   if (live === 'cancelled' || phase === 'cancelled') return 'cancelled';
+  if (isCallbackHandoff(liveRun) && !['ready', 'completed', 'confirmed'].includes(phase)) {
+    return 'finalizing';
+  }
   if (isInFlightStatus(live) || isInFlightStatus(phase)) {
     return live === 'queued' || phase === 'queued' ? 'queued' : 'running';
   }
@@ -282,15 +347,16 @@ function normalizeHowRunStatus(liveRun, phaseHow) {
 export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date.now()) {
   const state = normalizeHowRunStatus(liveRun, phaseHow);
   const phaseDone = state === 'succeeded';
+  const runningToolIds = phaseDone ? [] : resolveHowRunningToolIds(liveRun, phaseHow);
   const stepId = phaseDone
     ? HOW_MONITOR_STEPS[HOW_MONITOR_STEPS.length - 1].id
     : resolveHowActiveStepId(liveRun, phaseHow);
-  const activeStepIds = phaseDone
-    ? null
-    : resolveHowActiveStepIds(liveRun, phaseHow);
+  const activeStepIds = phaseDone ? null : runningToolIds.length ? runningToolIds : null;
 
   let activeIndex = stepId ? HOW_MONITOR_STEPS.findIndex((s) => s.id === stepId) : -1;
-  if (activeIndex < 0 && (state === 'running' || state === 'queued')) {
+  if (state === 'finalizing') {
+    activeIndex = HOW_MONITOR_STEPS.length - 1;
+  } else if (activeIndex < 0 && (state === 'running' || state === 'queued')) {
     activeIndex = 0;
   }
 
@@ -335,8 +401,9 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
       ? Math.max(0, now - progressUpdatedAt)
       : elapsedMs;
 
-  const activity = resolveHowActivity(liveRun, state);
-  const showSpinner = state === 'running' || state === 'queued';
+  const activity = resolveHowActivity(liveRun, state, runningToolIds);
+  const planningLayers = buildPlanningLayerView(runningToolIds, phaseDone || state === 'finalizing');
+  const showSpinner = state === 'running' || state === 'queued' || state === 'finalizing';
   const waitingHuman = state === 'waiting_human';
   const staleThresholdMs = WHAT_MONITOR_CONFIG.progressStaleMs;
   const showProgressStale =
@@ -354,6 +421,8 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
     activeStepIds: activeStepIds || (activeStepId ? [activeStepId] : []),
     activeIndex,
     activeIndices,
+    planningLayers,
+    showPlanningLayers: !phaseDone && macroStep === 2 && state !== 'finalizing',
     activeMacroSubsteps: macroDef ? [...macroDef.substeps] : [],
     activity,
     elapsedMs,
@@ -362,11 +431,19 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
     errorMessage,
     showSpinner,
     waitingHuman,
-    titleKey: macroDef?.labelKey || 'requirements.aiHitlMonitorHowTitle',
-    titleFallback: macroDef?.fallback || 'Phase HOW',
-    descriptionKey: macroDef?.descriptionKey || 'requirements.aiHitlMonitorHowHint',
+    titleKey:
+      state === 'finalizing'
+        ? 'requirements.aiHitlHowFinalizing'
+        : macroDef?.labelKey || 'requirements.aiHitlMonitorHowTitle',
+    titleFallback: state === 'finalizing' ? 'Saving results' : macroDef?.fallback || 'Phase HOW',
+    descriptionKey:
+      state === 'finalizing'
+        ? 'requirements.aiHitlHowFinalizingDesc'
+        : macroDef?.descriptionKey || 'requirements.aiHitlMonitorHowHint',
     descriptionFallback:
-      macroDef?.descriptionFallback || 'Đang chạy agent + tools. Chỉ hiện phase HOW.',
+      state === 'finalizing'
+        ? 'Analysis finished. Writing each section onto the pack.'
+        : macroDef?.descriptionFallback || 'Đang chạy agent + tools. Chỉ hiện phase HOW.',
     runId: liveRun?.runId || phaseHow?.remoteRunId || null,
     progressUpdatedAt: liveRun?.progressUpdatedAt || null,
     startedAt: startedAt != null && Number.isFinite(startedAt) ? startedAt : null,

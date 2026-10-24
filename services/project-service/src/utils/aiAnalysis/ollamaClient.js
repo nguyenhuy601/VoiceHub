@@ -9,6 +9,7 @@ const {
   isOpenAiCompatibleProvider,
   chatCompletionsText,
   chatModel: sharedChatModel,
+  QWEN_PLUS_MAX_OUTPUT_TOKENS,
 } = require('@enterprise/shared/llm/openaiCompatibleClient');
 
 const DEFAULT_MODEL = 'qwen2.5:3b-instruct';
@@ -127,8 +128,8 @@ async function generateJson({ prompt, temperature = 0.1, timeoutMs, numPredict, 
     const timeout = timeoutMs != null ? clampTimeoutMs(timeoutMs, DEFAULT_TIMEOUT_MS) : planningTimeoutMs();
     const predict =
       numPredict != null && Number.isFinite(Number(numPredict))
-        ? Math.max(32, Math.min(2048, Math.round(Number(numPredict))))
-        : DEFAULT_NUM_PREDICT;
+        ? Math.max(32, Math.min(QWEN_PLUS_MAX_OUTPUT_TOKENS, Math.round(Number(numPredict))))
+        : QWEN_PLUS_MAX_OUTPUT_TOKENS;
     const chat = await chatCompletionsText({
       prompt: String(prompt || ''),
       temperature,

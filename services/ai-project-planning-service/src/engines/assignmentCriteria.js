@@ -3,7 +3,7 @@
  * Does NOT know policy weights; callers pass weights from resolved policy.
  */
 
-const { normalizeRoleKey } = require('./roleKey');
+const { canonicalizeProjectRoleKey, normalizeRoleKey } = require('./roleKey');
 const { simulateTaskCapacity } = require('./matchingCapacitySim');
 
 const SOFT_KEYS = Object.freeze([
@@ -14,6 +14,57 @@ const SOFT_KEYS = Object.freeze([
   'domainArchFit',
   'resourceEfficiency',
 ]);
+
+/** Hard capacity failures. Role mismatch and low skill stay scorable. */
+const CAPACITY_INELIGIBLE_REASONS = new Set([
+  'soft_overload',
+  'forecast_overload',
+  'capacity_infeasible',
+  'day_overload',
+  'cumulative_overload',
+]);
+
+function getCapacityIneligibleReasons(hard) {
+  const reasons = Array.isArray(hard?.reasons) ? hard.reasons : [];
+  return [...new Set(reasons)].filter((reason) => CAPACITY_INELIGIBLE_REASONS.has(reason));
+}
+
+function isAssignableCandidate(candidate) {
+  return Boolean(candidate?.userId) && candidate.feasible !== false && candidate.overload !== true;
+}
+
+/**
+ * Hours the person still has before this planning run's speculative reserve.
+ * `available_capacity` is already net of that reserve; add it back so assignment
+ * subtracts only hours this pass has actually accepted.
+ */
+function baselineAvailableHours(candidate) {
+  const net = Number(candidate?.available_capacity);
+  if (!Number.isFinite(net)) return null;
+  const reserved = Number(candidate?.reservedHours);
+  const speculative = Number.isFinite(reserved) && reserved > 0 ? reserved : 0;
+  return net + speculative;
+}
+
+function evaluateCapacityForAssignment(candidate, taskHours, hoursAlreadyAssigned = 0) {
+  if (!isAssignableCandidate(candidate)) {
+    return { feasible: false, remainingHours: null };
+  }
+  const need = Math.max(0, Number(taskHours) || 0);
+  const baseline = baselineAvailableHours(candidate);
+  if (need <= 0) {
+    return { feasible: true, remainingHours: baseline };
+  }
+  if (baseline == null) {
+    return { feasible: false, remainingHours: null };
+  }
+  const used = Math.max(0, Number(hoursAlreadyAssigned) || 0);
+  const remainingHours = baseline - used;
+  return {
+    feasible: need <= remainingHours + 1e-6,
+    remainingHours,
+  };
+}
 
 function clamp01(n) {
   if (!Number.isFinite(n)) return 0;
@@ -88,14 +139,61 @@ function skillCoverageRatio(item, needNames, requiredSkillIds = []) {
   return hits / needNames.size;
 }
 
+function projectRoleKeysOf(item) {
+  const raw = [];
+  if (Array.isArray(item?.projectRoleKeys)) raw.push(...item.projectRoleKeys);
+  if (item?.projectRoleKey) raw.push(item.projectRoleKey);
+  const keys = [];
+  for (const value of raw) {
+    const key = canonicalizeProjectRoleKey(value);
+    if (key && !keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
+function orgPositionRoleKeysOf(item) {
+  const raw = Array.isArray(item?.orgPositionRoleKeys) ? item.orgPositionRoleKeys : [];
+  const keys = [];
+  for (const value of raw) {
+    const key = canonicalizeProjectRoleKey(value);
+    if (key && !keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
+function orgRoleKeysOf(item) {
+  const raw = Array.isArray(item?.orgRoleKeys) ? item.orgRoleKeys : [];
+  const keys = [];
+  for (const value of raw) {
+    const key = canonicalizeProjectRoleKey(value);
+    if (key && !keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
+/**
+ * Vị trí tổ chức và vai trò tổ chức / vai trò dự án đều là tín hiệu role.
+ * Người trong pool (được xem qua organization.employee.view) nhưng chưa gắn key
+ * vẫn được gợi ý — thiếu stamp không được hiểu là sai role.
+ */
+function roleKeysForMatch(item) {
+  const keys = [];
+  for (const key of [
+    ...orgPositionRoleKeysOf(item),
+    ...projectRoleKeysOf(item),
+    ...orgRoleKeysOf(item),
+  ]) {
+    if (key && !keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
 function roleMatches(item, task) {
-  const roleKey = normalizeRoleKey(task?.suggestedRoleKey);
+  const roleKey = canonicalizeProjectRoleKey(task?.suggestedRoleKey);
   if (!roleKey) return { matched: true, required: false };
-  const itemRoles = [item.projectRoleKey, item.jobTitle, ...(item.inferredRoleKeys || [])]
-    .map(normalizeRoleKey)
-    .filter(Boolean);
-  const matched = itemRoles.some((role) => role.includes(roleKey) || roleKey.includes(role));
-  return { matched, required: true };
+  const keys = roleKeysForMatch(item);
+  if (!keys.length) return { matched: true, required: false };
+  return { matched: keys.some((role) => role === roleKey), required: true };
 }
 
 function isAtProjectCap(item) {
@@ -165,9 +263,22 @@ const SOFT_SCORERS = {
     const score = clamp01((roleHit ? 0.5 : 0) + (domainHit ? 0.3 : 0) + (workHit ? 0.2 : 0));
     return { score, available: true };
   },
-  pastQuality() {
-    // No SoT yet — signal missing → caller redistributes weights
-    return { score: null, available: false };
+  pastQuality(ctx) {
+    const history = ctx.item?.history;
+    if (!Array.isArray(history)) return { score: null, available: false };
+    if (!history.length) return { score: 0, available: true };
+    const roleKey = canonicalizeProjectRoleKey(ctx.task?.suggestedRoleKey);
+    let roleHit = false;
+    let monthsHit = false;
+    for (const row of history) {
+      const historyRole = canonicalizeProjectRoleKey(row?.role || row?.projectRole);
+      if (roleKey && historyRole && historyRole === roleKey) {
+        roleHit = true;
+        if (Number(row?.months) > 0) monthsHit = true;
+      }
+    }
+    if (!roleHit) return { score: 0, available: true };
+    return { score: clamp01((roleHit ? 0.6 : 0) + (monthsHit ? 0.4 : 0)), available: true };
   },
   scheduleConvenience(ctx) {
     const available = Math.max(0, Number(ctx.availableHours) || 0);
@@ -188,6 +299,7 @@ const SOFT_SCORERS = {
       item.primaryDomain,
       item.jobTitle,
       item.projectRoleKey,
+      ...(item.projectRoleKeys || []),
       ...(item.capability?.businessDomains || []),
       ...(item.history || []).map((h) => h.domain || h.businessDomain),
       ...(item.inferredRoleKeys || []),
@@ -335,9 +447,9 @@ function evaluateHard(ctxInput, hardGates = {}) {
   const coverage = skillCoverageRatio(item, ctx.needNames, ctx.requiredSkillIds);
   if (hardGates.minSkillCoverage != null && Number(hardGates.minSkillCoverage) > 0) {
     const min = Number(hardGates.minSkillCoverage);
-    if (ctx.needNames.size || (ctx.requiredSkillIds || []).length) {
-      if (coverage == null || coverage < min) reasons.push('skill_below_min');
-    }
+    const hasSkillSignal = ctx.needNames.size || (ctx.requiredSkillIds || []).length;
+    // null = no comparable skill signal (catalog ids missing). That is not a failed match.
+    if (hasSkillSignal && coverage != null && coverage < min) reasons.push('skill_below_min');
   }
 
   if (hardGates.excludeSoftOverload) {
@@ -377,6 +489,11 @@ function evaluateHard(ctxInput, hardGates = {}) {
 
 module.exports = {
   SOFT_KEYS,
+  CAPACITY_INELIGIBLE_REASONS,
+  getCapacityIneligibleReasons,
+  isAssignableCandidate,
+  baselineAvailableHours,
+  evaluateCapacityForAssignment,
   SOFT_SCORERS,
   buildSoftContext,
   scoreSoft,
