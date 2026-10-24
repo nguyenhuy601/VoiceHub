@@ -96,13 +96,15 @@ function escapeRegex(s) {
   return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-async function ensureUniqueProjectCode(organizationId, preferred) {
+async function ensureUniqueProjectCode(organizationId, preferred, excludeProjectId = null) {
   const base = String(preferred || '').trim().slice(0, 64);
   if (!base) return base;
-  const rows = await Project.find({
+  const query = {
     organizationId,
     projectCode: { $regex: `^${escapeRegex(base)}(-[0-9]+)?$` },
-  })
+  };
+  if (excludeProjectId) query._id = { $ne: excludeProjectId };
+  const rows = await Project.find(query)
     .select('projectCode')
     .lean();
   const existing = rows.map((r) => String(r.projectCode || '').trim()).filter(Boolean);
@@ -1580,7 +1582,11 @@ async function patchProject({ userId, projectId, patch }) {
   }
 
   if ($set.projectCode !== undefined && $set.projectCode) {
-    $set.projectCode = await ensureUniqueProjectCode(project.organizationId, $set.projectCode);
+    $set.projectCode = await ensureUniqueProjectCode(
+      project.organizationId,
+      $set.projectCode,
+      project._id
+    );
   }
 
   // Plan B C4 — set releaseLabel once on first successful advance to handover
