@@ -35,6 +35,7 @@ export const DEVELOPMENT_MODULES = Object.freeze([
   'chat',
   'timeline',
   'change-requests',
+  'test-cases',
   'requirements',
   'members',
   'files',
