@@ -2,15 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import projectDeliveryAPI from '../../../services/api/projectDeliveryAPI';
 import { resolveApiErrorMessage } from '../../../utils/resolveApiErrorMessage';
+import { localizedProjectRoleShortLabel } from '../../../utils/projectRoleLocale';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
-}
-
-function shortRoleDisplay(label, key = '') {
-  const raw = String(label || key || '').trim();
-  if (!raw) return key || '—';
-  return raw.replace(/^(Dự án|Project)\s*[—–\-:]\s*/i, '').trim() || raw;
 }
 
 /**
@@ -178,7 +173,7 @@ export default function ProjectHubDelegationSection({ boardId = '', t, muted = '
               {!roles.length ? <option value="">—</option> : null}
               {roles.map((r) => (
                 <option key={r.key} value={r.key}>
-                  {shortRoleDisplay(r.label, r.key)}
+                  {localizedProjectRoleShortLabel(r.key, r.label, t)}
                 </option>
               ))}
             </select>
@@ -194,7 +189,7 @@ export default function ProjectHubDelegationSection({ boardId = '', t, muted = '
               {!roles.length ? <option value="">—</option> : null}
               {roles.map((r) => (
                 <option key={r.key} value={r.key}>
-                  {shortRoleDisplay(r.label, r.key)}
+                  {localizedProjectRoleShortLabel(r.key, r.label, t)}
                 </option>
               ))}
             </select>

@@ -27,11 +27,7 @@ import { isSodLockedPermission, sodLockedPermissionSet } from '../projects/hub/p
 import PermissionDomainCardBrowser from './PermissionDomainCardBrowser';
 import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAdminActionGate } from '../../hooks/useAdminActionGate';
-
-function shortRoleLabel(label, key = '') {
-  const raw = String(label || key || '').trim();
-  return raw.replace(/^(Dự án|Project)\s*[—–\-:]\s*/i, '').trim() || key || '—';
-}
+import { localizedProjectRoleShortLabel } from '../../utils/projectRoleLocale';
 
 function unwrapRoles(res) {
   const data = res?.data?.data || res?.data?.roles || res?.data || [];
@@ -349,7 +345,7 @@ export default function ProjectRoleEditPanel({ orgId, embedded = false }) {
                     : 'border-border hover:bg-muted'
                 }`}
               >
-                <span className="block truncate">{shortRoleLabel(r.label, r.key)}</span>
+                <span className="block truncate">{localizedProjectRoleShortLabel(r.key, r.label, t)}</span>
                 <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
                   {r.key}
                   {r.isSystem ? ` · ${t('adminRbac.systemBadge')}` : ''}

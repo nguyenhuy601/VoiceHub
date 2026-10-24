@@ -1,4 +1,4 @@
-import { PROJECT_ROLE_LABELS } from '../../../utils/roleTaxonomy';
+import { localizedProjectRoleShortLabel } from '../../../utils/projectRoleLocale';
 import { wizardUi } from './projectWizardUi';
 import {
   INTAKE_LEAD_ROLE_KEYS,
@@ -10,9 +10,8 @@ function roleLabel(key, catalogRoles = [], t) {
   const k = String(key || '').trim();
   if (!k) return '—';
   const row = (catalogRoles || []).find((r) => String(r.key || r.id || '') === k);
-  if (row?.label) return String(row.label);
   if (INTAKE_LEAD_LABEL_KEYS[k] && t) return t(INTAKE_LEAD_LABEL_KEYS[k]);
-  return PROJECT_ROLE_LABELS[k] || k;
+  return localizedProjectRoleShortLabel(k, row?.label, t);
 }
 
 /**

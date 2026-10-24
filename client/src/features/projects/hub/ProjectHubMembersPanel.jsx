@@ -13,6 +13,7 @@ import {
   memberUserId,
 } from '../../../utils/adminUserUtils';
 import { enrichMembershipsWithProfiles } from '../../../features/search/enrichOrgMembers';
+import { localizedProjectRoleShortLabel } from '../../../utils/projectRoleLocale';
 import UserAvatar from '../../../components/Shared/UserAvatar';
 import { AdminLoadErrorState } from '../../../components/adminUsers/adminPanelStates';
 import AllocationSegmentsEditor, {
@@ -62,12 +63,6 @@ function findExistingPmUserId(rows = [], exceptUserId = '') {
 }
 
 /** Bỏ prefix catalog «Dự án —» / «Project —» khi hiển thị chip. */
-function shortRoleLabel(label, key = '') {
-  const raw = String(label || key || '').trim();
-  if (!raw) return key || '—';
-  return raw.replace(/^(Dự án|Project)\s*[—–\-:]\s*/i, '').trim() || raw;
-}
-
 /** Tên hiển thị — ưu tiên profile đã enrich, không dùng 6 ký tự ID nếu còn nguồn khác. */
 function resolveDisplayName(row, orgById) {
   const id = asUserId(row);
@@ -791,10 +786,10 @@ export default function ProjectHubMembersPanel({
     const map = new Map();
     for (const r of roleCatalog || []) {
       const k = String(r.key || '').trim();
-      if (k) map.set(k, shortRoleLabel(r.label, k));
+      if (k) map.set(k, localizedProjectRoleShortLabel(k, r.label, t));
     }
     return map;
-  }, [roleCatalog]);
+  }, [roleCatalog, t]);
 
   const assignableRoles = useMemo(
     () => (roleCatalog || []).filter((r) => r.canAssign),
@@ -802,7 +797,7 @@ export default function ProjectHubMembersPanel({
   );
 
   const formatRoleKeys = (keys = []) =>
-    keys.map((k) => roleLabelByKey.get(k) || shortRoleLabel('', k)).filter(Boolean).join(' · ') ||
+    keys.map((k) => roleLabelByKey.get(k) || localizedProjectRoleShortLabel(k, '', t)).filter(Boolean).join(' · ') ||
     '—';
 
   const formatAllocSummary = (allocations = []) => {
@@ -842,13 +837,13 @@ export default function ProjectHubMembersPanel({
           const rk = String(r.key || '').trim();
           const canAssign = Boolean(r.canAssign);
           const selected = selectedKeys.includes(rk);
-          const label = shortRoleLabel(r.label, rk);
+          const label = localizedProjectRoleShortLabel(rk, r.label, t);
           return (
             <button
               key={r._id || rk}
               type="button"
               disabled={!canAssign}
-              title={r.label || rk}
+              title={label || rk}
               onClick={() => onToggle(rk, canAssign)}
               className={[
                 'flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition-colors',
@@ -1003,7 +998,7 @@ export default function ProjectHubMembersPanel({
                           ) : null}
                           {row.billable ? (
                             <span className={`rounded bg-muted px-1.5 py-0.5 text-[10px] ${muted}`}>
-                              Billable
+                              {t('workspace.projectHubAllocBillableBadge')}
                             </span>
                           ) : null}
                         </div>
@@ -1014,7 +1009,7 @@ export default function ProjectHubMembersPanel({
                                 key={rk}
                                 className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground/80"
                               >
-                                {roleLabelByKey.get(rk) || shortRoleLabel('', rk)}
+                                {roleLabelByKey.get(rk) || localizedProjectRoleShortLabel(rk, '', t)}
                               </span>
                             ))
                           ) : (

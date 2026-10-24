@@ -1996,6 +1996,17 @@ export default function ProjectHubShell({
             />
           </div>
         ) : null}
+        {tab === 'changeRequests' && hideTabBar && capsReady && !hubCaps.canViewChangeRequests ? (
+          <div className="flex min-h-[8rem] items-center justify-center p-4 text-sm text-muted-foreground">
+            {t('workspace.projectHubCrDenied')}
+          </div>
+        ) : null}
+        {tab === 'changeRequests' && hideTabBar && !capsReady ? (
+          <div className="flex min-h-[8rem] items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            <span>{t('common.loading')}</span>
+          </div>
+        ) : null}
         {showChangeRequestsPanel ? (
         <div
           className={

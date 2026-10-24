@@ -10,6 +10,7 @@ import {
   memberIsSystemAdmin,
 } from '../../utils/effectiveOrgRoleLabel';
 import { FIGMA_SIDEBAR_FOOTER } from './figmaShellClasses';
+import { localizedPositionLabel } from '../../utils/positionLocale';
 
 function humanizeKey(key) {
   return String(key || '')
@@ -47,10 +48,10 @@ export default function SidebarPositionFooter({ collapsed = false, wrap = true }
     return formatOrgRoleRowsLabel(rows, t);
   }, [isSystemAdmin, user, company?.myOrganizationRoles, activeWorkspace?.myOrganizationRoles, t]);
 
-  const positionLabel = useMemo(
-    () => formatSidebarPositionLabel(coalesceJobTitle(user)),
-    [user]
-  );
+  const positionLabel = useMemo(() => {
+    const raw = coalesceJobTitle(user);
+    return localizedPositionLabel(raw, formatSidebarPositionLabel(raw), t);
+  }, [user, t]);
 
   const primary = orgRoleLabel || '';
   const showPosition =
@@ -81,7 +82,7 @@ export default function SidebarPositionFooter({ collapsed = false, wrap = true }
         {primary ? (
           <span
             title={primary}
-            className="inline-flex max-w-full items-center truncate rounded border border-sky-300/35 bg-sky-400/25 px-1.5 py-0.5 text-[0.625rem] font-bold tracking-wide !text-sky-50"
+            className="inline-block max-w-full whitespace-normal break-words rounded border border-sky-300/35 bg-sky-400/25 px-1.5 py-0.5 text-left text-[0.625rem] font-bold leading-snug tracking-wide !text-sky-50"
           >
             {primary}
           </span>
@@ -97,7 +98,7 @@ export default function SidebarPositionFooter({ collapsed = false, wrap = true }
           </div>
           <span
             title={`${positionLabel} — ${t('nav.positionNotPermission')}`}
-            className="inline-flex max-w-full items-center truncate rounded border border-white/15 bg-white/10 px-1.5 py-0.5 text-[0.625rem] font-semibold tracking-wide text-white/85"
+            className="inline-block max-w-full whitespace-normal break-words rounded border border-white/15 bg-white/10 px-1.5 py-0.5 text-left text-[0.625rem] font-semibold leading-snug tracking-wide text-white/85"
           >
             {positionLabel}
           </span>

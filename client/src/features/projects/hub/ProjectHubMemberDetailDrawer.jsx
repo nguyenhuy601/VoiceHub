@@ -12,6 +12,7 @@ import {
   resolveOverallocExplainKind,
 } from './projectHubUtils';
 import { isLocallyOverallocated, toDateInput } from './AllocationSegmentsEditor';
+import { localizedProjectRoleShortLabel } from '../../../utils/projectRoleLocale';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -50,12 +51,6 @@ function formatAllocDateLabel(value) {
   const m = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!m) return raw;
   return `${m[3]}/${m[2]}/${m[1]}`;
-}
-
-function shortRoleLabel(label, key = '') {
-  const raw = String(label || key || '').trim();
-  if (!raw) return key || '—';
-  return raw.replace(/^(Dự án|Project)\s*[—–\-:]\s*/i, '').trim() || raw;
 }
 
 function toFinitePct(value) {
@@ -811,7 +806,7 @@ export default function ProjectHubMemberDetailDrawer({
   if (!open || !member) return null;
 
   const roleLabels = (member.roles || []).map(
-    (rk) => roleLabelByKey?.get?.(rk) || shortRoleLabel('', rk)
+    (rk) => roleLabelByKey?.get?.(rk) || localizedProjectRoleShortLabel(rk, '', t)
   );
 
   const openEdit = () => {

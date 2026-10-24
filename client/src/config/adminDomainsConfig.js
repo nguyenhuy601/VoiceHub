@@ -855,6 +855,7 @@ export const ADMIN_DOMAINS = [
             path: '/app/admin/projects/role-effort-budget-template',
             labelKey: 'adminDomains.projects.roleEffortBudgetTemplate',
             implementation: 'tasks-role-effort-budget-template',
+            requiredGrant: 'project.report.view',
           },
           {
             id: 'utilization',

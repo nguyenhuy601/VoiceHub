@@ -74,15 +74,9 @@ import { loadLinkedPackForAiNav } from '../../features/projects/phase1/aiHitl/lo
 import { resolveDeliveryRoleBadges } from './profileDeliveryRoleBadge';
 import useGrantScopes from '../../hooks/useGrantScopes';
 import { PROJECT_CREATE_GRANT } from '../../lib/capabilities';
+import { localizedProjectRoleShortLabel } from '../../utils/projectRoleLocale';
 
 const COLLAPSE_KEY = 'voicehub:sidebar-collapsed';
-
-/** Strip catalog prefix «Dự án —» when showing role chips. */
-function shortProjectRoleLabel(label, key = '') {
-  const raw = String(label || key || '').trim();
-  if (!raw) return key || '—';
-  return raw.replace(/^(Dự án|Project)\s*[—–\-:]\s*/i, '').trim() || raw;
-}
 
 function humanizeRoleKey(key) {
   return String(key || '')
@@ -95,7 +89,7 @@ function humanizeRoleKey(key) {
  * Build display chips for the viewer's project roles (footer).
  * Prefers delivery badges (BA/PO/PM/Tech), then catalog label, then humanized key.
  */
-function buildViewerRoleChips(roleKeys, catalog = []) {
+function buildViewerRoleChips(roleKeys, catalog = [], t) {
   const keys = [
     ...new Set(
       (Array.isArray(roleKeys) ? roleKeys : [])
@@ -109,7 +103,7 @@ function buildViewerRoleChips(roleKeys, catalog = []) {
   for (const row of catalog || []) {
     const k = String(row?.key || '').trim().toLowerCase();
     if (!k) continue;
-    labelByKey.set(k, shortProjectRoleLabel(row.label || row.name || row.key, k));
+    labelByKey.set(k, localizedProjectRoleShortLabel(k, row.label || row.name || row.key, t));
   }
 
   const delivery = resolveDeliveryRoleBadges(keys);
@@ -122,14 +116,12 @@ function buildViewerRoleChips(roleKeys, catalog = []) {
       return {
         key,
         label: badge.short,
-        title: labelByKey.get(key) || humanizeRoleKey(key),
+        title: labelByKey.get(key) || localizedProjectRoleShortLabel(key, '', t) || humanizeRoleKey(key),
         className: badge.className,
       };
     }
-    const label = labelByKey.get(key) || humanizeRoleKey(key);
-    const short =
-      label.length <= 12 ? label : label.split(/\s+/)[0] || label.slice(0, 10);
-    if (usedShort.has(short)) {
+    const label = labelByKey.get(key) || localizedProjectRoleShortLabel(key, '', t) || humanizeRoleKey(key);
+    if (usedShort.has(label)) {
       return {
         key,
         label,
@@ -137,10 +129,10 @@ function buildViewerRoleChips(roleKeys, catalog = []) {
         className: 'bg-white/10 text-white/75 border border-white/15',
       };
     }
-    usedShort.add(short);
+    usedShort.add(label);
     return {
       key,
-      label: short,
+      label,
       title: label,
       className: 'bg-white/10 text-white/75 border border-white/15',
     };
@@ -517,8 +509,8 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   });
 
   const viewerRoleChips = useMemo(
-    () => buildViewerRoleChips(viewerRoleKeys, roleCatalog),
-    [viewerRoleKeys, roleCatalog]
+    () => buildViewerRoleChips(viewerRoleKeys, roleCatalog, t),
+    [viewerRoleKeys, roleCatalog, t]
   );
 
   const workspaceOrgId = String(
@@ -1011,7 +1003,7 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
                     <span
                       key={chip.key}
                       title={chip.title}
-                      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[0.625rem] font-bold tracking-wide ${chip.className}`}
+                      className={`inline-flex max-w-full whitespace-normal break-words rounded px-1.5 py-0.5 text-left text-[0.625rem] font-bold leading-snug tracking-wide ${chip.className}`}
                     >
                       {chip.label}
                     </span>

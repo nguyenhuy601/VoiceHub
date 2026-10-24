@@ -12,6 +12,7 @@ import projectDeliveryAPI from '../../services/api/projectDeliveryAPI';
 import projectAPI from '../../services/api/projectAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { localizedProjectRoleShortLabel } from '../../utils/projectRoleLocale';
 import { memberUserId } from '../../utils/adminUserUtils';
 import { isOtSoftWarning, readOtSoftWarningMeta } from '../../utils/otSoftWarning';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
@@ -19,11 +20,6 @@ import OtOverrideConfirmModal from './OtOverrideConfirmModal';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
-}
-
-function shortRoleLabel(label, key) {
-  const raw = String(label || key || '').trim();
-  return raw.replace(/^(Dự án —|Project —)\s*/i, '').trim() || key || '';
 }
 
 function memberDisplayLabel(m) {
@@ -236,7 +232,7 @@ export default function TasksProjectTeamPanel({
     const roleKey = String(memberRow?.projectRole?.key || '').trim();
     if (!uid || !roleKey) return;
 
-    const roleLabel = shortRoleLabel(memberRow.projectRole?.label, roleKey);
+    const roleLabel = localizedProjectRoleShortLabel(roleKey, memberRow.projectRole?.label, t);
     const ok = window.confirm(
       t('adminTasks.teamRemoveRoleConfirm', { role: roleLabel || roleKey })
     );
@@ -359,7 +355,7 @@ export default function TasksProjectTeamPanel({
                     <ul className="max-h-52 space-y-1 overflow-auto">
                       {assignableRoles.map((r) => {
                         const rk = String(r.key || '').trim();
-                        const label = shortRoleLabel(r.label, rk);
+                        const label = localizedProjectRoleShortLabel(rk, r.label, t);
                         const checked = selectedRoleKeys.includes(rk);
                         return (
                           <li key={rk}>
@@ -390,7 +386,7 @@ export default function TasksProjectTeamPanel({
               <ul className="max-h-56 space-y-1 overflow-auto text-sm">
                 {(Array.isArray(members) ? members : []).map((m) => {
                   const roleKey = String(m.projectRole?.key || '').trim();
-                  const roleLabel = shortRoleLabel(m.projectRole?.label, roleKey);
+                  const roleLabel = localizedProjectRoleShortLabel(roleKey, m.projectRole?.label, t);
                   const rowBusy = removingKey === `${m.userId}:${roleKey}`;
                   return (
                     <li

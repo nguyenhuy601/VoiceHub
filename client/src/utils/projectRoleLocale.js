@@ -26,8 +26,8 @@ export const PROJECT_ROLE_LABEL_VI_FALLBACK = Object.freeze({
   SPONSOR: 'Nhà tài trợ',
   STAKEHOLDER: 'Bên liên quan',
   PROJECT_MANAGER: 'Quản lý dự án',
-  PRODUCT_OWNER: 'Product Owner',
-  SCRUM_MASTER: 'Scrum Master',
+  PRODUCT_OWNER: 'Chủ sản phẩm',
+  SCRUM_MASTER: 'Điều phối Scrum',
   SOLUTION_ARCHITECT: 'Kiến trúc sư giải pháp',
   TECHNICAL_LEAD: 'Trưởng kỹ thuật',
   BUSINESS_ANALYST: 'Phân tích nghiệp vụ',
@@ -109,4 +109,10 @@ export function localizedProjectRoleLabel(roleKey, rawLabel, t) {
   if (prefix && !/\s$/.test(prefix)) prefix = `${prefix} `;
   if (!suffix) return prefix.trim() || String(roleKey || '').trim();
   return `${prefix}${suffix}`;
+}
+
+/** Chip / danh sách: cùng từ điển locale, không gắn prefix «Dự án —». */
+export function localizedProjectRoleShortLabel(roleKey, rawLabel, t) {
+  const full = localizedProjectRoleLabel(roleKey, rawLabel, t);
+  return stripProjectPrefix(full) || full;
 }

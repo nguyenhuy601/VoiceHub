@@ -12,12 +12,7 @@ import {
 } from './projectRolePermissionLabels';
 import { isSodLockedPermission, sodLockedPermissionSet } from './projectRoleSodLocks';
 import PermissionDomainCardBrowser from '../../adminRbac/PermissionDomainCardBrowser';
-
-function shortRoleLabel(label, key = '') {
-  const raw = String(label || key || '').trim();
-  if (!raw) return key || '—';
-  return raw.replace(/^(Dự án|Project)\s*[—–\-:]\s*/i, '').trim() || raw;
-}
+import { localizedProjectRoleShortLabel } from '../../../utils/projectRoleLocale';
 
 /**
  * Matrix quyền Project Role theo dự án (share cache với Members/staffing).
@@ -207,7 +202,7 @@ export default function ProjectHubRoleMatrixSection({
             const id = String(r._id || r.id || '');
             return (
               <option key={id} value={id}>
-                {shortRoleLabel(r.label, r.key)} ({r.key})
+                {localizedProjectRoleShortLabel(r.key, r.label, t)} ({r.key})
               </option>
             );
           })}
