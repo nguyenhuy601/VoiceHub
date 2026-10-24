@@ -105,12 +105,32 @@ jobs:
 
       # v0.28.0 pulls setup-trivy@v0.2.1 (tag yanked after supply-chain incident).
       # v0.36.0 pins setup-trivy by SHA.
+      # 429/5xx thì Trivy thử registry kế tiếp. Không dùng một registry: ECR Public
+      # đang TOOMANYREQUESTS (Data limit exceeded), GHCR cũng vậy. mirror.gcr.io
+      # không đứng đầu vì HTTP 404 không được tính là lỗi tạm và cắt chuỗi fallback.
       - name: Trivy filesystem
+        id: trivy_fs
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         env:
-          # GHCR thường trả TOOMANYREQUESTS ngay sau "Need to update DB".
-          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db
-          TRIVY_JAVA_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-java-db
+          TRIVY_DB_REPOSITORY: aquasec/trivy-db,ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db
+          TRIVY_JAVA_DB_REPOSITORY: aquasec/trivy-java-db,ghcr.io/aquasecurity/trivy-java-db,public.ecr.aws/aquasecurity/trivy-java-db
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          skip-dirs: node_modules,.git,client/dist,devops/nginx/logs,.grapuco
+      # Cache của action đã restore DB. Khi mọi registry từ chối tải bản mới,
+      # quét bằng DB đó. exit-code 1 vẫn đỏ nếu có lỗ hổng HIGH/CRITICAL.
+      - name: Trivy filesystem (cached DB)
+        if: steps.trivy_fs.outcome == 'failure'
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_SKIP_DB_UPDATE: "true"
+          TRIVY_SKIP_JAVA_DB_UPDATE: "true"
         with:
           scan-type: fs
           scan-ref: .
@@ -408,10 +428,24 @@ jobs:
           printf '%s' "${DIGEST}" > "digests/${IMAGE}.txt"
           echo "digest=${DIGEST}"
       - name: Trivy image
+        id: trivy_image
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         env:
-          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db
-          TRIVY_JAVA_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-java-db
+          TRIVY_DB_REPOSITORY: aquasec/trivy-db,ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db
+          TRIVY_JAVA_DB_REPOSITORY: aquasec/trivy-java-db,ghcr.io/aquasecurity/trivy-java-db,public.ecr.aws/aquasecurity/trivy-java-db
+        with:
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository_owner }}/voicehub/${{ matrix.image }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+      - name: Trivy image (cached DB)
+        if: steps.trivy_image.outcome == 'failure'
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_SKIP_DB_UPDATE: "true"
+          TRIVY_SKIP_JAVA_DB_UPDATE: "true"
         with:
           scan-type: image
           image-ref: ghcr.io/${{ github.repository_owner }}/voicehub/${{ matrix.image }}:${{ github.sha }}
