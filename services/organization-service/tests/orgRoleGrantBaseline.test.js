@@ -41,4 +41,10 @@ test('engineering manager maps to department manager; director is not a shared p
     ROLE_GRANTS.DIRECTOR.some(([code]) => code.startsWith('system.permission_group.')),
     false
   );
+  assert.equal(hasCode('DIRECTOR', 'organization.organization_role.update'), false);
+  assert.equal(hasCode('DIRECTOR', 'organization.policy.update'), true);
+  assert.equal(hasCode('IT_ADMIN', 'organization.organization_role.update'), true);
+  assert.equal(hasCode('IT_ADMIN', 'organization.employee.invite'), true);
+  assert.equal(hasCode('IT_ADMIN', 'organization.employee.disable'), true);
+  assert.equal(hasCode('IT_ADMIN', 'organization.policy.update'), false);
 });

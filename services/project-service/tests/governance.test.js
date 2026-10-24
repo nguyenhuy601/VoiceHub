@@ -160,7 +160,7 @@ describe('Phase 6 governance T1–T6', () => {
     assert.equal(membershipIsOrgAdmin('member'), false);
     assert.equal(hasDirectorOrAuditorRole(['auditor']), true);
     assert.equal(hasDirectorOrAuditorRole(['director']), true);
-    assert.equal(hasDirectorOrAuditorRole(['organization_administrator']), true);
+    assert.equal(hasDirectorOrAuditorRole(['organization_administrator']), false);
     assert.equal(hasDirectorOrAuditorRole(['collaborator']), false);
     assert.equal(hasDirectorOrAuditorRole([]), false);
   });

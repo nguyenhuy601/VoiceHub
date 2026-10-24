@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { resolveAuthorizeOrGrant } = require('../src/utils/authorizeOrGrantDecision');
+const { resolveAuthorizeOrGrant, isVendorViewGrant } = require('../src/utils/authorizeOrGrantDecision');
 
 test('membership admin không được qua khi không có grant', () => {
   const decision = resolveAuthorizeOrGrant({
@@ -39,4 +39,13 @@ test('không có membership và không có grant thì từ chối', () => {
     storedAdminVerified: false,
   });
   assert.equal(decision.allow, false);
+});
+
+test('bên bán chỉ tự xét mã xem', () => {
+  assert.equal(isVendorViewGrant('organization.organization_role.view'), true);
+  assert.equal(isVendorViewGrant('organization.policy.view'), true);
+  assert.equal(isVendorViewGrant('organization.organization_role.update'), false);
+  assert.equal(isVendorViewGrant('organization.employee.invite'), false);
+  assert.equal(isVendorViewGrant('organization.policy.update'), false);
+  assert.equal(isVendorViewGrant(''), false);
 });

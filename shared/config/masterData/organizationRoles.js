@@ -9,6 +9,7 @@ const MASTER_ORGANIZATION_ROLES = Object.freeze([
   { key: 'DEPARTMENT_MANAGER', label: `${ORG_ROLE_LABEL_PREFIX}Trưởng phòng`, sortOrder: 10 },
   { key: 'TEAM_LEAD', label: `${ORG_ROLE_LABEL_PREFIX}Trưởng nhóm`, sortOrder: 20 },
   { key: 'DIRECTOR', label: `${ORG_ROLE_LABEL_PREFIX}Giám đốc tổ chức`, sortOrder: 30 },
+  { key: 'IT_ADMIN', label: `${ORG_ROLE_LABEL_PREFIX}Quản trị hệ thống`, sortOrder: 35 },
   { key: 'RESOURCE_MANAGER', label: `${ORG_ROLE_LABEL_PREFIX}Quản lý nguồn lực`, sortOrder: 40 },
   { key: 'AUDITOR', label: `${ORG_ROLE_LABEL_PREFIX}Kiểm toán`, sortOrder: 50 },
   { key: 'MENTOR', label: `${ORG_ROLE_LABEL_PREFIX}Người hướng dẫn`, sortOrder: 60 },
@@ -37,7 +38,8 @@ const LEGACY_ORGANIZATION_ROLE_KEY_ALIASES = Object.freeze({
   hr_approver: 'HR_APPROVER',
   member: 'MEMBER',
   org_member: 'MEMBER',
-  organization_administrator: 'DIRECTOR',
+  organization_administrator: 'IT_ADMIN',
+  it_admin: 'IT_ADMIN',
 });
 
 function normalizeOrgRoleKeyLookup(rawKey) {
