@@ -145,6 +145,7 @@ export default function ProjectHubPlanningPanel({
     hubCaps?.canUpdateEpic || hubCaps?.canUpdateStory || hubCaps?.canUpdateBacklog
   );
   const canManageSprints = Boolean(hubCaps?.canManageSprints);
+  const canStartSprint = Boolean(hubCaps?.canStartSprint);
   const hubPerms = Array.isArray(hubCaps?.permissions) ? hubCaps.permissions : [];
   const canDeleteSprint = Boolean(hubCaps?.canDeleteSprint || hubPerms.includes('sprint:delete'));
   const canChangeStatus = Boolean(
@@ -491,7 +492,7 @@ export default function ProjectHubPlanningPanel({
   };
 
   const openStartSprint = (sprintId) => {
-    if (!canManageSprints || busy) return;
+    if (!canStartSprint || busy) return;
     const sprint = sprints.find((row) => String(row._id || row.id) === String(sprintId));
     if (!sprint) {
       toast.error(t('workspace.projectHubPlanSprintFail'));
@@ -502,7 +503,7 @@ export default function ProjectHubPlanningPanel({
       sprint,
       sprints,
       issueCount,
-      canManage: canManageSprints,
+      canManage: canStartSprint,
       memberIdsBySprintId,
     });
     if (!check.ok) {
@@ -515,7 +516,7 @@ export default function ProjectHubPlanningPanel({
   };
 
   const startSprint = async (form) => {
-    if (!canManageSprints || busy || !projectId || !startSprintId) return;
+    if (!canStartSprint || busy || !projectId || !startSprintId) return;
     const sprintId = startSprintId;
     const sprint = sprints.find((row) => String(row._id || row.id) === String(sprintId));
     if (!sprint) {
@@ -527,7 +528,7 @@ export default function ProjectHubPlanningPanel({
       sprint,
       sprints,
       issueCount,
-      canManage: canManageSprints,
+      canManage: canStartSprint,
       memberIdsBySprintId,
     });
     if (!check.ok) {
@@ -1034,6 +1035,7 @@ export default function ProjectHubPlanningPanel({
                       issues={sprintIssues}
                       lists={lists}
                       canManageSprints={canManageSprints}
+                      canStartSprint={canStartSprint}
                       canDeleteSprint={canDeleteSprint}
                       sprints={sprints}
                       memberIdsBySprintId={memberIdsBySprintId}

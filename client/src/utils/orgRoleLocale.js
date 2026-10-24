@@ -17,7 +17,8 @@ const LEGACY_ORG_ROLE_ALIASES = Object.freeze({
   hr_approver: 'HR_APPROVER',
   member: 'MEMBER',
   org_member: 'MEMBER',
-  organization_administrator: 'DIRECTOR',
+  organization_administrator: 'IT_ADMIN',
+  it_admin: 'IT_ADMIN',
 });
 
 /** VI fallback khi không có t() (unit test / non-React). */
@@ -25,6 +26,7 @@ export const ORG_ROLE_LABEL_VI_FALLBACK = Object.freeze({
   DEPARTMENT_MANAGER: 'Trưởng phòng',
   TEAM_LEAD: 'Trưởng nhóm',
   DIRECTOR: 'Giám đốc tổ chức',
+  IT_ADMIN: 'Quản trị hệ thống',
   RESOURCE_MANAGER: 'Quản lý nguồn lực',
   HR_APPROVER: 'Nhân sự',
   AUDITOR: 'Kiểm toán',

@@ -42,8 +42,8 @@ function assignmentRows(res) {
  */
 export default function OrgRoleAssignPanel({ orgId, embedded = false, selectedUserIds }) {
   const { t } = useAppStrings();
-  const { can, assertOrToast } = useAdminActionGate(orgId);
-  const canAssignOrgRole = can(RBAC_GRANT.ORG_ROLE_UPDATE);
+  const { can, isSystemAdmin } = useAdminActionGate(orgId);
+  const canAssignOrgRole = can(RBAC_GRANT.ORG_ROLE_UPDATE) || Boolean(isSystemAdmin);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -116,7 +116,10 @@ export default function OrgRoleAssignPanel({ orgId, embedded = false, selectedUs
   }, [roleKeyParam]);
 
   const runBulk = async (nextKeysForUser, doneKey) => {
-    if (!assertOrToast(RBAC_GRANT.ORG_ROLE_UPDATE)) return;
+    if (!canAssignOrgRole) {
+      toast.error(t('adminOrg.grantDenied'));
+      return;
+    }
     if (!orgId || !targetUserIds.length || !selectedRoleKey) return;
     setAssignBusy(true);
     try {

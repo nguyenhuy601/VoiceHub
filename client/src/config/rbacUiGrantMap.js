@@ -373,13 +373,11 @@ export function hasAnyAdminNavGrant(hasGrant, scopeOf, domains) {
 }
 
 /**
- * Khớp STORED_ADMIN_MAINTAIN_KEYS (organization-service) + master_data
- * (cùng cửa path `/rbac/project-roles` / authorizeOrGrant admin trên catalog dự án).
- * Không gồm policy, audit, mời người.
+ * Bên bán chỉ tự mở mã xem, catalog vị trí và catalog vai trò dự án.
+ * Sửa ma trận vai trò tổ chức cần grant. Gán vai trên màn bàn giao xét riêng isSystemAdmin.
  */
 const OPERATOR_MAINTAIN_GRANTS = new Set([
   'organization.organization_role.view',
-  'organization.organization_role.update',
   'organization.position.view',
   'organization.position.create',
   'organization.position.update',

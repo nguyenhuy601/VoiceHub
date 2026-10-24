@@ -303,7 +303,7 @@ export default function PersonalOverviewView({ onNavigate }) {
                             {project.projectCode ? <span>{project.projectCode}</span> : null}
                             {project.projectRoleKeys.length ? (
                               <span className="truncate">
-                                {project.projectRoleKeys.map(labelForProjectRoleKey).join(', ')}
+                                {project.projectRoleKeys.map((key) => labelForProjectRoleKey(key, t)).join(', ')}
                               </span>
                             ) : (
                               <span>{t('dashboard.personalProjectMember')}</span>

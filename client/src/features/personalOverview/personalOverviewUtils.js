@@ -1,5 +1,6 @@
 import { flattenOrgStructure, unitId, unitName } from '../../utils/adminOrgStructureUtils';
-import { ORGANIZATION_ROLE_LABELS, PROJECT_ROLE_LABELS } from '../../utils/roleTaxonomy';
+import { ORGANIZATION_ROLE_LABELS } from '../../utils/roleTaxonomy';
+import { localizedProjectRoleShortLabel } from '../../utils/projectRoleLocale';
 import { resolveOrgRolesForUser } from '../../utils/userTaxonomyUtils';
 
 /**
@@ -44,10 +45,10 @@ export function labelForOrgRoleKey(roleKey, t) {
   return key.replace(/_/g, ' ');
 }
 
-export function labelForProjectRoleKey(roleKey) {
-  const key = String(roleKey || '').trim().toLowerCase();
+export function labelForProjectRoleKey(roleKey, t) {
+  const key = String(roleKey || '').trim();
   if (!key) return '';
-  return PROJECT_ROLE_LABELS[key] || key.replace(/_/g, ' ');
+  return localizedProjectRoleShortLabel(key, '', t);
 }
 
 export function labelForMembershipRole(role, t) {

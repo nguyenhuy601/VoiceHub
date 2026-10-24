@@ -10,6 +10,7 @@ export const MANAGER_ORG_ROLE_KEYS = new Set([
   'resource_manager',
   'auditor',
   'organization_administrator',
+  'it_admin',
 ]);
 
 export const HR_ORG_ROLE_KEYS = new Set(['hr_approver']);

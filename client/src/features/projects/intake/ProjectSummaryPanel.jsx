@@ -1,6 +1,6 @@
 import { Check, Circle } from 'lucide-react';
 import { deliveryPhaseLabelKey } from '../../../utils/projectPhaseNav';
-import { PROJECT_ROLE_LABELS } from '../../../utils/roleTaxonomy';
+import { localizedProjectRoleShortLabel } from '../../../utils/projectRoleLocale';
 import {
   gateRoleKeys,
   intakeSlotFilled,
@@ -32,7 +32,7 @@ function GateSummaryList({ processKey, gates, t }) {
       {keys.map((key) => {
         const slot = gates[processKey]?.[key];
         const ok = intakeSlotFilled(gates[processKey], key);
-        const label = PROJECT_ROLE_LABELS[key] || key;
+        const label = localizedProjectRoleShortLabel(key, '', t);
         return (
           <li key={key} className="flex items-center gap-2 text-sm">
             {ok ? (

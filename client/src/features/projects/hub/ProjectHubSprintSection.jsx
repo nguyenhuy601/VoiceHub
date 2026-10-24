@@ -12,6 +12,7 @@ export default function ProjectHubSprintSection({
   issues = [],
   lists = [],
   canManageSprints = false,
+  canStartSprint = false,
   canDeleteSprint = false,
   sprints = [],
   memberIdsBySprintId = null,
@@ -59,7 +60,7 @@ export default function ProjectHubSprintSection({
     sprint,
     sprints,
     issueCount: n,
-    canManage: canManageSprints,
+    canManage: canStartSprint,
     memberIdsBySprintId,
   });
   const dates = defaultSprintDateRange(sprint);
@@ -113,7 +114,7 @@ export default function ProjectHubSprintSection({
               {t('workspace.projectHubPlanViewBoard')}
             </button>
           ) : null}
-          {canManageSprints && !isActiveSprint && !isClosedSprint ? (
+          {canStartSprint && !isActiveSprint && !isClosedSprint ? (
             <button
               type="button"
               disabled={!canStart || busy}

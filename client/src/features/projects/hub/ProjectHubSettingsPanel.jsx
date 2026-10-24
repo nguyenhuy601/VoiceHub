@@ -17,6 +17,7 @@ import ProjectHubDelegationSection from './ProjectHubDelegationSection';
 import ProjectHubRoleMatrixSection from './ProjectHubRoleMatrixSection';
 import CatalogKeyLabelEditor from './CatalogKeyLabelEditor';
 import { normalizePriorityConfig } from './projectPriorityConfig';
+import { localizedProjectRoleShortLabel } from '../../../utils/projectRoleLocale';
 import {
   ensureAdjacentTransitions,
   ensureReopenFromDone,
@@ -56,12 +57,6 @@ const SPRINT_WEEKDAYS = Object.freeze([
   'saturday',
   'sunday',
 ]);
-
-function shortRoleLabel(label, key = '') {
-  const raw = String(label || key || '').trim();
-  if (!raw) return key || '—';
-  return raw.replace(/^(Dự án|Project)\s*[—–\-:]\s*/i, '').trim() || raw;
-}
 
 function tagsToInputValue(tags) {
   if (Array.isArray(tags)) {
@@ -1156,7 +1151,7 @@ export default function ProjectHubSettingsPanel({
             const count = staffingCountByKey.get(roleKey) || 0;
             return (
               <label key={role._id || roleKey} className="rounded-lg border border-border/80 bg-background/40 px-3 py-2.5">
-                <span className={`block truncate text-xs font-semibold ${titleCls}`}>{shortRoleLabel(role.label, roleKey)}</span>
+                <span className={`block truncate text-xs font-semibold ${titleCls}`}>{localizedProjectRoleShortLabel(roleKey, role.label, t)}</span>
                 <span className={`mt-0.5 block truncate font-mono text-[10px] ${muted}`}>{roleKey}</span>
                 <input type="number" min="0" step="1" className={`${inputCls} mt-2`} value={count} onChange={(e) => setRequiredRoleCount(roleKey, e.target.value)} />
               </label>

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Check, Circle } from 'lucide-react';
 import { queryKeys } from '../../../lib/queryKeys';
 import { projectAPI } from '../../../services/api/projectAPI';
-import { PROJECT_ROLE_LABELS } from '../../../utils/roleTaxonomy';
+import { localizedProjectRoleShortLabel } from '../../../utils/projectRoleLocale';
 import { isWorkloadFull, isWorkloadPartial } from '../../../utils/wizardRelatedDeptMembers';
 import {
   ROLE_SUGGEST_PAGE_SIZE,
@@ -24,10 +24,8 @@ function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
 }
 
-function roleLabel(role) {
-  const key = String(role?.key || '').trim().toLowerCase();
-  const raw = String(role?.label || PROJECT_ROLE_LABELS[key] || key).trim();
-  return raw.replace(/^Dự án —\s*/i, '').replace(/^Project Role —\s*/i, '');
+function roleLabel(role, t) {
+  return localizedProjectRoleShortLabel(role?.key, role?.label, t);
 }
 
 function CandidateLoad({ item, t }) {
@@ -234,7 +232,7 @@ function GateGroup({
             key={`${processKey}-${roleKey}`}
             processKey={processKey}
             roleKey={roleKey}
-            label={labelByKey.get(roleKey) || PROJECT_ROLE_LABELS[roleKey] || roleKey}
+            label={labelByKey.get(roleKey) || localizedProjectRoleShortLabel(roleKey, '', t)}
             slot={slots[roleKey]}
             fieldError={fieldErrors[`${processKey}:${roleKey}`]}
             showErrors={showErrors}
