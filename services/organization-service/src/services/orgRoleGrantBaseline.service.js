@@ -82,7 +82,7 @@ const ROLE_GRANTS = Object.freeze({
     ['organization.employee.invite', 'ORGANIZATION'],
     ['organization.employee.update', 'ORGANIZATION'],
     ['organization.employee.disable', 'ORGANIZATION'],
-    ['organization.department.view', 'ORGANIZATION'],
+    // Không department.view — HR chỉ Suite người dùng, không org-structure.
   ],
   AUDITOR: [
     ['organization.employee.view', 'ORGANIZATION'],
