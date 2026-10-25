@@ -106,14 +106,13 @@ describe('listAdminDomainsForActor (§10 ban-giao)', () => {
     assert.equal(rbacLeaves.some((id) => String(id).startsWith('project-role-')), false);
   });
 
-  it('Nhân sự (HR): users (import) / accounts / org dept / rbac pos-assign; không audit/policy/projects', () => {
+  it('Nhân sự (HR): users (+ accounts); không sessions / pos-assign / org-structure / audit', () => {
     const ctx = {
       ...grantsOf({
         [RBAC_GRANT.EMPLOYEE_VIEW]: 'ORGANIZATION',
         [RBAC_GRANT.EMPLOYEE_INVITE]: 'ORGANIZATION',
         [RBAC_GRANT.EMPLOYEE_UPDATE]: 'ORGANIZATION',
         [RBAC_GRANT.EMPLOYEE_DISABLE]: 'ORGANIZATION',
-        [RBAC_GRANT.DEPT_VIEW]: 'ORGANIZATION',
       }),
       isSystemAdmin: false,
     };
@@ -121,15 +120,11 @@ describe('listAdminDomainsForActor (§10 ban-giao)', () => {
     const ids = domainIds(domains);
     assert.ok(ids.includes('users'));
     assert.ok(ids.includes('accounts'));
-    assert.ok(ids.includes('org-structure'));
-    assert.ok(ids.includes('rbac'));
+    assert.equal(ids.includes('org-structure'), false);
+    assert.equal(ids.includes('rbac'), false);
     assert.equal(ids.includes('audit'), false);
     assert.equal(ids.includes('projects'), false);
-    // employee.view → sessions-hub (không policy settings)
-    assert.ok(ids.includes('security'));
-    const securityLeavesHr = listAllowedAdminLeafIds(domainById(domains, 'security'), ctx);
-    assert.ok(securityLeavesHr.includes('sessions-hub'));
-    assert.equal(securityLeavesHr.includes('settings-hub'), false);
+    assert.equal(ids.includes('security'), false);
 
     const usersLeaves = listAllowedAdminLeafIds(domainById(domains, 'users'), ctx);
     assert.ok(usersLeaves.includes('import'));
@@ -138,14 +133,33 @@ describe('listAdminDomainsForActor (§10 ban-giao)', () => {
     const accountsLeaves = listAllowedAdminLeafIds(domainById(domains, 'accounts'), ctx);
     assert.ok(accountsLeaves.includes('access-hub') || accountsLeaves.includes('verification-hub'));
 
-    const rbacLeaves = listAllowedAdminLeafIds(domainById(domains, 'rbac'), ctx);
-    assert.deepEqual(rbacLeaves, ['pos-assign']);
-
-    const orgLeaves = listAllowedAdminLeafIds(domainById(domains, 'org-structure'), ctx);
-    assert.ok(orgLeaves.some((id) => String(id).startsWith('dept-')));
-
     assert.equal(firstAllowedAdminLeafPath(domainById(domains, 'users'), ctx), '/app/admin/users');
     assert.ok(hasAnyAdminNavGrant(ctx.hasGrant, ctx.scopeOf, CATALOG));
+  });
+
+  it('MEMBER chỉ chat ORGANIZATION: không mở cửa Suite (hasAnyAdminNavGrant)', () => {
+    const ctx = {
+      ...grantsOf({
+        [RBAC_GRANT.CHAT_VIEW]: 'ORGANIZATION',
+        [RBAC_GRANT.EMPLOYEE_VIEW]: 'SELF',
+      }),
+      isSystemAdmin: false,
+    };
+    assert.equal(hasAnyAdminNavGrant(ctx.hasGrant, ctx.scopeOf, CATALOG), false);
+  });
+
+  it('MEMBER baseline chat+họp+file DEPARTMENT: không mở cửa Suite', () => {
+    const ctx = {
+      ...grantsOf({
+        [RBAC_GRANT.CHAT_VIEW]: 'DEPARTMENT',
+        [RBAC_GRANT.MEETING_VIEW]: 'DEPARTMENT',
+        [RBAC_GRANT.FILE_DOWNLOAD]: 'DEPARTMENT',
+        [RBAC_GRANT.NOTIF_VIEW]: 'ORGANIZATION',
+        [RBAC_GRANT.EMPLOYEE_VIEW]: 'SELF',
+      }),
+      isSystemAdmin: false,
+    };
+    assert.equal(hasAnyAdminNavGrant(ctx.hasGrant, ctx.scopeOf, CATALOG), false);
   });
 
   it('Kiểm toán: view audit + structure; không mutate invite', () => {
@@ -169,7 +183,7 @@ describe('listAdminDomainsForActor (§10 ban-giao)', () => {
     assert.equal(ids.includes('voice'), false);
   });
 
-  it('Thành viên có họp: voice (+ chat/files/notif nếu grant); không users company', () => {
+  it('Thành viên có họp: voice (+ chat/files/notif nếu grant); không users company; không mở Suite', () => {
     const ctx = {
       ...grantsOf({
         [RBAC_GRANT.MEETING_VIEW]: 'DEPARTMENT',
@@ -179,6 +193,7 @@ describe('listAdminDomainsForActor (§10 ban-giao)', () => {
       }),
       isSystemAdmin: false,
     };
+    assert.equal(hasAnyAdminNavGrant(ctx.hasGrant, ctx.scopeOf, CATALOG), false);
     const ids = domainIds(listAdminDomainsForActor(CATALOG, ctx));
     assert.ok(ids.includes('voice'));
     assert.ok(ids.includes('chat'));
@@ -202,14 +217,17 @@ describe('listAdminDomainsForActor (§10 ban-giao)', () => {
   it('firstAllowedAdminLeafPath không dùng domain.path mù khi leaf đầu khác', () => {
     const ctx = {
       ...grantsOf({
-        [RBAC_GRANT.EMPLOYEE_UPDATE]: 'ORGANIZATION',
+        [RBAC_GRANT.POSITION_UPDATE]: 'ORGANIZATION',
       }),
       isSystemAdmin: false,
     };
     const rbac = CATALOG.find((d) => d.id === 'rbac');
     assert.ok(rbac);
     const leaf = firstAllowedAdminLeafPath(rbac, ctx);
-    assert.equal(leaf, '/app/admin/rbac/positions/assign');
+    assert.ok(
+      leaf === '/app/admin/rbac/positions/roles' || leaf === '/app/admin/rbac/positions/assign',
+      `unexpected leaf ${leaf}`
+    );
     assert.notEqual(leaf, rbac.path);
   });
 });

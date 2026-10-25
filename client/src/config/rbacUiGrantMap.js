@@ -117,7 +117,7 @@ export const ADMIN_NAV_REQUIRED_GRANT = {
   'pos-list': RBAC_GRANT.POSITION_VIEW,
   'pos-create': RBAC_GRANT.POSITION_CREATE,
   'pos-manage': RBAC_GRANT.POSITION_VIEW,
-  'pos-assign': RBAC_GRANT.EMPLOYEE_UPDATE,
+  'pos-assign': RBAC_GRANT.POSITION_UPDATE,
   'pos-edit': RBAC_GRANT.POSITION_UPDATE,
   'pos-disable': RBAC_GRANT.POSITION_UPDATE,
   'org-role-list': RBAC_GRANT.ORG_ROLE_VIEW,
@@ -161,7 +161,7 @@ export const ADMIN_NAV_REQUIRED_GRANT = {
   moderate: RBAC_GRANT.MEETING_END,
   'end-meeting': RBAC_GRANT.MEETING_END,
   'settings-hub': RBAC_GRANT.POLICY_VIEW,
-  'sessions-hub': RBAC_GRANT.EMPLOYEE_VIEW,
+  'sessions-hub': RBAC_GRANT.ORG_ROLE_VIEW,
   'password-policy': RBAC_GRANT.POLICY_UPDATE,
   mfa: RBAC_GRANT.POLICY_UPDATE,
   'ip-whitelist': RBAC_GRANT.POLICY_UPDATE,
@@ -349,6 +349,21 @@ export function collectAdminNavGrantKeysFromDomains(domains) {
   return keys;
 }
 
+/**
+ * Chat / notification / meeting / file không mở cửa Suite Quản trị
+ * (MEMBER baseline thường có chat + họp phòng + file kho).
+ * Domain tương ứng trong suite chỉ hiện khi user đã vào hub bằng grant quản trị khác.
+ */
+export function isAdminSuiteOpenerGrant(masterKey) {
+  const key = String(masterKey || '').trim().toLowerCase();
+  if (!key) return false;
+  if (key.startsWith('communication.')) return false;
+  if (key.startsWith('notification.')) return false;
+  if (key.startsWith('meeting.')) return false;
+  if (key.startsWith('file.')) return false;
+  return true;
+}
+
 export function hasAnyAdminNavGrant(hasGrant, scopeOf, domains) {
   if (typeof hasGrant !== 'function' || typeof scopeOf !== 'function') return false;
   const keys =
@@ -361,12 +376,10 @@ export function hasAnyAdminNavGrant(hasGrant, scopeOf, domains) {
           RBAC_GRANT.AUDIT_VIEW,
           RBAC_GRANT.POLICY_VIEW,
           RBAC_GRANT.MEETING_VIEW,
-          RBAC_GRANT.CHAT_VIEW,
           RBAC_GRANT.FILE_DOWNLOAD,
-          RBAC_GRANT.NOTIF_VIEW,
         ]);
   for (const key of keys) {
-    if (!key || !hasGrant(key)) continue;
+    if (!key || !isAdminSuiteOpenerGrant(key) || !hasGrant(key)) continue;
     if (adminScopeOpensPage(scopeOf(key))) return true;
   }
   return false;

@@ -19,6 +19,8 @@ import {
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { departmentHeadId, unitId, unitName } from '../../utils/adminOrgStructureUtils';
@@ -34,6 +36,8 @@ import { diffMemberSets, hasMemberChanges } from './memberSetDiff';
 
 export default function DeptMembersPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canMutate = can(RBAC_GRANT.DEPT_UPDATE);
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const { departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: embedded });
@@ -93,6 +97,7 @@ export default function DeptMembersPanel({ orgId, embedded = false }) {
 
   const save = () => {
     if (!orgId || !selectedId || saving || !dirty) return;
+    if (!assertOrToast(RBAC_GRANT.DEPT_UPDATE)) return;
     if (diff.removed.length) {
       setConfirmOpen(true);
       return;
@@ -102,6 +107,7 @@ export default function DeptMembersPanel({ orgId, embedded = false }) {
 
   const persist = async () => {
     if (!orgId || !selectedId) return;
+    if (!assertOrToast(RBAC_GRANT.DEPT_UPDATE)) return;
     setSaving(true);
     try {
       await organizationAPI.updateDepartment(orgId, selectedId, {
@@ -192,16 +198,20 @@ export default function DeptMembersPanel({ orgId, embedded = false }) {
             {!visibleMembers.length ? <AdminEmptyState message={t('adminUsers.noUsers')} /> : null}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={adminPrimaryBtnClass()}
-              disabled={saving || !dirty}
-              aria-busy={saving || undefined}
-              onClick={save}
-            >
-              <AdminBusySpinner busy={saving} />
-              {saving ? t('common.saving') : t('common.save')}
-            </button>
+            {canMutate ? (
+              <button
+                type="button"
+                className={adminPrimaryBtnClass()}
+                disabled={saving || !dirty}
+                aria-busy={saving || undefined}
+                onClick={save}
+              >
+                <AdminBusySpinner busy={saving} />
+                {saving ? t('common.saving') : t('common.save')}
+              </button>
+            ) : (
+              <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+            )}
             <Link
               to={`/app/admin/org-structure/departments/org-roles?unitId=${encodeURIComponent(selectedId)}`}
               className={adminSecondaryBtnClass()}
