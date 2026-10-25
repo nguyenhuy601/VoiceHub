@@ -3,6 +3,7 @@ import { useWorkspace } from '../context/WorkspaceContext';
 import { useAuth } from '../context/AuthContext';
 import { getVisibleAdminDomains } from '../config/adminDomainsConfig';
 import { hasAnyAdminNavGrant } from '../config/rbacUiGrantMap';
+import { resolveAdminSuiteNavPersona } from '../config/adminSuiteNavPersona';
 import { useGrantScopes } from './useGrantScopes';
 import { readSingleOrgModeFlag } from '../utils/singleCompanyMode';
 
@@ -35,6 +36,10 @@ export function useCompanyAdminAccess() {
   const canAccessHub =
     isSystemAdmin || hasAnyAdminNavGrant(hasGrant, scopeOf, getVisibleAdminDomains());
   const isFullAccess = false;
+  const adminSuiteNav = useMemo(
+    () => resolveAdminSuiteNavPersona({ isSystemAdmin, hasGrant, scopeOf }),
+    [isSystemAdmin, hasGrant, scopeOf]
+  );
 
   return {
     isSingleCompany,
@@ -46,6 +51,7 @@ export function useCompanyAdminAccess() {
     grantsError,
     myOrgRole,
     orgId,
+    adminSuiteNav,
   };
 }
 

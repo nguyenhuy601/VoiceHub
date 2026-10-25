@@ -23,6 +23,7 @@ import UserAvatar from '../Shared/UserAvatar';
 import { FIGMA_TOP_HEADER } from './figmaShellClasses';
 import ShellCommandPalette from './ShellCommandPalette';
 import { useShellLayout } from '../../context/ShellLayoutContext';
+import useCompanyAdminAccess from '../../hooks/useCompanyAdminAccess';
 import { fetchProjectHubProject } from '../../features/projects/hub/useProjectHubQueries';
 import { queryKeys } from '../../lib/queryKeys';
 import {
@@ -30,7 +31,10 @@ import {
   resolveDeliveryRoleBadges,
 } from './profileDeliveryRoleBadge';
 
-function getSuiteMeta(t) {
+function getSuiteMeta(t, adminSuiteNav) {
+  const adminLabel = adminSuiteNav?.labelKey
+    ? t(adminSuiteNav.labelKey)
+    : t('nav.suite.admin.label');
   return {
     [SUITE.COMMUNICATE]: {
       label: t('header.suiteCommunicateLabel'),
@@ -83,8 +87,8 @@ function getSuiteMeta(t) {
       bgGlow: 'rgba(245,158,11,0.12)',
     },
     [SUITE.ADMIN]: {
-      label: t('nav.suite.admin.label'),
-      shortLabel: t('nav.suite.admin.label'),
+      label: adminLabel,
+      shortLabel: adminLabel,
       sublabel: t('nav.suite.admin.sublabel'),
       Icon: Shield,
       color: '#DC2626',
@@ -106,6 +110,7 @@ export default function TopHeader() {
   const { t } = useAppStrings();
   const { openMobileNav, mobileNavOpen, headerLoadingLabel, hideHeaderLoading } = useShellLayout();
   const { currentSuite } = useWorkspaceSuite();
+  const { adminSuiteNav } = useCompanyAdminAccess();
   const headerLoading = headerLoadingLabel != null;
 
   const projectId = useMemo(
@@ -130,7 +135,7 @@ export default function TopHeader() {
     [hubProject]
   );
 
-  const SUITE_META = getSuiteMeta(t);
+  const SUITE_META = useMemo(() => getSuiteMeta(t, adminSuiteNav), [t, adminSuiteNav]);
   const activeMeta = SUITE_META[currentSuite] || SUITE_META[SUITE.COMMUNICATE];
   const displayName = getUserDisplayName(user);
   const profileUserId = user?.userId || user?.id || user?._id || null;

@@ -460,9 +460,11 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
   const { t } = useAppStrings();
   const { navigateToSuite } = useWorkspaceSuite();
   const { mobileNavOpen, closeMobileNav, showHeaderLoading, hideHeaderLoading } = useShellLayout();
-  // Suite Quản trị khi có cửa admin (systemAdmin hoặc grantScopes) — khớp useCompanyAdminAccess.canAccessHub.
-  const { canAccessHub } = useCompanyAdminAccess();
+  // Cửa admin khi systemAdmin hoặc grantScopes — nhãn/path theo persona.
+  const { canAccessHub, adminSuiteNav } = useCompanyAdminAccess();
   const showAdminSuite = Boolean(canAccessHub);
+  const adminNavLabel = t(adminSuiteNav.labelKey);
+  const adminNavPath = adminSuiteNav.path || '/app/admin';
   const { projectId: projectIdParam, module: moduleParam, planningModule } = useParams();
   const [searchParams] = useSearchParams();
   const { company, activeWorkspace } = useWorkspace();
@@ -861,7 +863,7 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
               {allowedSuites.map((sId) => {
                 const isCurrent = sId === 'projects';
                 const labels = {
-                  label: t(`nav.suite.${sId}.label`),
+                  label: sId === 'admin' ? adminNavLabel : t(`nav.suite.${sId}.label`),
                   sublabel: t(`nav.suite.${sId}.sublabel`),
                 };
                 const sc = SUITE_COLORS[sId] || suiteColor;
@@ -877,7 +879,10 @@ export default function ProjectsSidebar({ landingDemo = false } = {}) {
                     key={sId}
                     type="button"
                     onClick={() => {
-                      navigateToSuite(suiteMap[sId], { path: getDefaultPathForSuite(suiteMap[sId]) });
+                      const targetSuite = suiteMap[sId];
+                      const path =
+                        sId === 'admin' ? adminNavPath : getDefaultPathForSuite(targetSuite);
+                      navigateToSuite(targetSuite, { path });
                       setShowSuitePicker(false);
                     }}
                     className="flex w-full items-center gap-2.5 border-none px-3 py-2 text-left transition"
