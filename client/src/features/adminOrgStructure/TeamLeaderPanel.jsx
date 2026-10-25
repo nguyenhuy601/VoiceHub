@@ -11,12 +11,16 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
 
 export default function TeamLeaderPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canMutate = can(RBAC_GRANT.TEAM_UPDATE);
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const userId = String(searchParams.get('userId') || '').trim();
@@ -35,6 +39,7 @@ export default function TeamLeaderPanel({ orgId, embedded = false }) {
 
   const save = async () => {
     if (!orgId || !selectedId || !userId || saving) return;
+    if (!assertOrToast(RBAC_GRANT.TEAM_UPDATE)) return;
     setSaving(true);
     try {
       await organizationAPI.updateTeamByHierarchy(orgId, selectedId, { leader: userId });
@@ -60,10 +65,12 @@ export default function TeamLeaderPanel({ orgId, embedded = false }) {
         </div>
       ) : !selected || !userId ? (
         <p className="text-sm text-muted-foreground">{t('adminOrg.teamLeaderSelectBoth')}</p>
-      ) : (
+      ) : canMutate ? (
         <button type="button" disabled={saving} className={adminPrimaryBtnClass()} onClick={save}>
           {saving ? t('common.saving') : t('common.save')}
         </button>
+      ) : (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
       )}
     </AdminUserFormCard>
   );

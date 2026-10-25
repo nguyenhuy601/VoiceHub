@@ -17,7 +17,9 @@ describe('canActAdmin', () => {
   it('systemAdmin: maintain keys true; invite/delete/lock false', () => {
     const ctx = { ...grantsOf({}), isSystemAdmin: true };
     assert.equal(canActAdmin(RBAC_GRANT.EMPLOYEE_VIEW, ctx), true);
-    assert.equal(canActAdmin(RBAC_GRANT.ORG_ROLE_UPDATE, ctx), true);
+    // Provider không bypass sửa ma trận org role — cần grant Enterprise IT.
+    assert.equal(canActAdmin(RBAC_GRANT.ORG_ROLE_UPDATE, ctx), false);
+    assert.equal(canActAdmin(RBAC_GRANT.ORG_ROLE_VIEW, ctx), true);
     assert.equal(canActAdmin(RBAC_GRANT.POSITION_CREATE, ctx), true);
     assert.equal(canActAdmin(RBAC_GRANT.STRUCTURE_VIEW, ctx), true);
     assert.equal(canActAdmin(RBAC_GRANT.MASTER_DATA_VIEW, ctx), true);

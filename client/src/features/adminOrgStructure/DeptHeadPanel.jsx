@@ -13,6 +13,8 @@ import {
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminMembers from '../../hooks/useAdminMembers';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import {
@@ -29,6 +31,8 @@ import {
 
 export default function DeptHeadPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canMutate = can(RBAC_GRANT.DEPT_UPDATE);
   const [searchParams, setSearchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const userId = String(searchParams.get('userId') || '').trim();
@@ -91,12 +95,12 @@ export default function DeptHeadPanel({ orgId, embedded = false }) {
   }, [userId, members, membersByIdAll, headUserIds, selectedId, searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (!selectionKey) {
+    if (!selectionKey || !canMutate) {
       setConfirmOpen(false);
       return;
     }
     setConfirmOpen(true);
-  }, [selectionKey]);
+  }, [selectionKey, canMutate]);
 
   const clearSelections = () => {
     setSelectedId('');
@@ -114,6 +118,7 @@ export default function DeptHeadPanel({ orgId, embedded = false }) {
 
   const save = async () => {
     if (!orgId || !selectedId || !userId || saving) return;
+    if (!assertOrToast(RBAC_GRANT.DEPT_UPDATE)) return;
     setSaving(true);
     try {
       const res = await organizationAPI.updateDepartment(orgId, selectedId, { head: userId });
@@ -149,6 +154,8 @@ export default function DeptHeadPanel({ orgId, embedded = false }) {
         </div>
       ) : !selected || !userId ? (
         <p className="text-sm text-muted-foreground">{t('adminOrg.deptHeadSelectBoth')}</p>
+      ) : !canMutate ? (
+        <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
       ) : (
         <p className="text-sm text-foreground">
           {t('adminOrg.deptHeadReady', {

@@ -17,6 +17,8 @@ import {
 import { useAppStrings } from '../../locales/appStrings';
 import { projectAPI } from '../../services/api/projectAPI';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 
 /** Khớp bound của project-service governance.service (updateRetentionPolicy). */
 const ARCHIVE_AFTER_RANGE = { min: 0, max: 3650 };
@@ -68,6 +70,8 @@ function DaysField({ id, label, value, onChange, range, error }) {
  */
 export default function RetentionPolicyPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canMutate = can(RBAC_GRANT.POLICY_UPDATE);
   const fieldId = useId();
   const [settings, setSettings] = useState(null);
   const [archivedCount, setArchivedCount] = useState(0);
@@ -114,6 +118,7 @@ export default function RetentionPolicyPanel({ orgId, embedded = false }) {
 
   const save = async () => {
     if (hasFieldError) return;
+    if (!assertOrToast(RBAC_GRANT.POLICY_UPDATE)) return;
     setSaving(true);
     try {
       await projectAPI.updateRetentionPolicy(orgId, {
@@ -131,6 +136,7 @@ export default function RetentionPolicyPanel({ orgId, embedded = false }) {
   };
 
   const runStub = async () => {
+    if (!assertOrToast(RBAC_GRANT.POLICY_UPDATE)) return;
     setRunningStub(true);
     try {
       const res = await projectAPI.runRetentionStub(orgId, { dryRun: true });
@@ -191,16 +197,20 @@ export default function RetentionPolicyPanel({ orgId, embedded = false }) {
           <p className="mb-3 text-xs text-muted-foreground">
             {t('adminTasks.retentionArchivedCount', { n: archivedCount })}
           </p>
-          <button
-            type="button"
-            className={adminPrimaryBtnClass()}
-            disabled={saving || hasFieldError}
-            aria-busy={saving}
-            onClick={save}
-          >
-            <AdminBusySpinner busy={saving} />
-            {t('common.save')}
-          </button>
+          {canMutate ? (
+            <button
+              type="button"
+              className={adminPrimaryBtnClass()}
+              disabled={saving || hasFieldError}
+              aria-busy={saving}
+              onClick={save}
+            >
+              <AdminBusySpinner busy={saving} />
+              {t('common.save')}
+            </button>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+          )}
         </AdminUserFormCard>
 
         <AdminUserFormCard title={t('adminTasks.retentionStubTitle')}>
@@ -208,7 +218,7 @@ export default function RetentionPolicyPanel({ orgId, embedded = false }) {
           <button
             type="button"
             className={adminSecondaryBtnClass()}
-            disabled={runningStub}
+            disabled={runningStub || !canMutate}
             aria-busy={runningStub}
             onClick={runStub}
           >

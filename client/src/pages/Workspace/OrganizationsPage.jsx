@@ -1569,6 +1569,7 @@ function OrganizationsPage({
 
   const canCreateTeam = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.TEAM_CREATE);
   const canCreateDepartment = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DEPT_CREATE);
+  const canCreateDivision = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.DIVISION_CREATE);
   const canCreateChannel = canActWithGrant(isFullAccess, hasGrant, RBAC_GRANT.CHANNEL_CREATE);
   const canUpdateTeam = !grantsLoading && canActWithGrant(false, hasGrant, RBAC_GRANT.TEAM_UPDATE);
 
@@ -4682,8 +4683,12 @@ function OrganizationsPage({
       onSelectDepartment={handleSelectDepartment}
       onSelectTeam={handleSelectTeam}
       onOpenNotificationsPage={openWorkspaceNotifications}
-      onCreateDivision={canManageWorkspaceStructure ? handleCreateDivision : undefined}
-      onCreateDepartment={canCreateDepartment ? handleCreateDepartment : undefined}
+      onCreateDivision={
+        canManageWorkspaceStructure && canCreateDivision ? handleCreateDivision : undefined
+      }
+      onCreateDepartment={
+        canManageWorkspaceStructure && canCreateDepartment ? handleCreateDepartment : undefined
+      }
       onCreateChannel={canCreateChannel ? handleCreateChannel : undefined}
       onOpenChannelSettings={handleOpenChannelSettings}
       onOpenDivisionSettings={handleOpenDivisionSettings}

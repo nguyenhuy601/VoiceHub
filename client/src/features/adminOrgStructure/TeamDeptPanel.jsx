@@ -12,12 +12,16 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 
 export default function TeamDeptPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canMutate = can(RBAC_GRANT.TEAM_UPDATE);
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const { teams, departments, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: embedded });
@@ -41,6 +45,7 @@ export default function TeamDeptPanel({ orgId, embedded = false }) {
   const save = async (e) => {
     e.preventDefault();
     if (!orgId || !selectedId || !departmentId || saving) return;
+    if (!assertOrToast(RBAC_GRANT.TEAM_UPDATE)) return;
     setSaving(true);
     try {
       await organizationAPI.updateTeamByHierarchy(orgId, selectedId, {
@@ -86,9 +91,13 @@ export default function TeamDeptPanel({ orgId, embedded = false }) {
               ))}
             </select>
           </label>
-          <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
-            {saving ? t('common.saving') : t('common.save')}
-          </button>
+          {canMutate ? (
+            <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
+              {saving ? t('common.saving') : t('common.save')}
+            </button>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+          )}
         </form>
       )}
     </AdminUserFormCard>

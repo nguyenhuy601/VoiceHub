@@ -18,6 +18,8 @@ import {
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
 import useAdminMembers from '../../hooks/useAdminMembers';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId } from '../../utils/adminOrgStructureUtils';
@@ -27,6 +29,8 @@ import { diffMemberSets, hasMemberChanges } from './memberSetDiff';
 
 export default function TeamMembersPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canMutate = can(RBAC_GRANT.TEAM_UPDATE);
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const { teams, loading, error: structureError, loadStructure } = useAdminOrgStructure(orgId, { includeInactive: embedded });
@@ -73,6 +77,7 @@ export default function TeamMembersPanel({ orgId, embedded = false }) {
 
   const persist = async () => {
     if (!orgId || !selectedId) return;
+    if (!assertOrToast(RBAC_GRANT.TEAM_UPDATE)) return;
     setSaving(true);
     try {
       await organizationAPI.updateTeamByHierarchy(orgId, selectedId, {
@@ -90,6 +95,7 @@ export default function TeamMembersPanel({ orgId, embedded = false }) {
 
   const save = () => {
     if (saving || !dirty) return;
+    if (!assertOrToast(RBAC_GRANT.TEAM_UPDATE)) return;
     if (diff.removed.length) {
       setConfirmOpen(true);
       return;
@@ -149,16 +155,20 @@ export default function TeamMembersPanel({ orgId, embedded = false }) {
             {!visibleMembers.length ? <AdminEmptyState message={t('adminUsers.noUsers')} /> : null}
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              disabled={saving || !dirty}
-              aria-busy={saving || undefined}
-              className={adminPrimaryBtnClass()}
-              onClick={save}
-            >
-              <AdminBusySpinner busy={saving} />
-              {saving ? t('common.saving') : t('common.save')}
-            </button>
+            {canMutate ? (
+              <button
+                type="button"
+                disabled={saving || !dirty}
+                aria-busy={saving || undefined}
+                className={adminPrimaryBtnClass()}
+                onClick={save}
+              >
+                <AdminBusySpinner busy={saving} />
+                {saving ? t('common.saving') : t('common.save')}
+              </button>
+            ) : (
+              <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+            )}
             {dirty ? (
               <span className="text-xs text-muted-foreground" aria-live="polite">
                 {t('adminOrg.memberChangesSummary', {

@@ -71,6 +71,7 @@ export default function SystemConfigHubPanel({ orgId }) {
     >
       {({ activeTab }) => {
         if (activeTab === TAB_RETENTION) {
+          if (!canConfigure) return <NoAccessState />;
           return <RetentionPolicyPanel orgId={orgId} embedded />;
         }
         if (activeTab === TAB_EFFORT) {

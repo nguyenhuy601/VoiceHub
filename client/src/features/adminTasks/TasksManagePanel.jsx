@@ -25,6 +25,8 @@ import { taskAPI, unwrapTaskApiPayload } from '../../services/api/taskAPI';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import AdminTaskBoardPicker from './AdminTaskBoardPicker';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 
 const STATUSES = ['todo', 'in_progress', 'review', 'done', 'cancelled'];
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
@@ -51,6 +53,9 @@ function priorityLabel(priority, t) {
 
 export default function TasksManagePanel({ orgId }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  // Leaf mở bằng task.view — mutate admin đòi policy.update (fail-closed view-only).
+  const canMutate = can(RBAC_GRANT.POLICY_UPDATE);
   const [params, setParams] = useSearchParams();
   const boardId = String(params.get('boardId') || '').trim();
   const [cards, setCards] = useState([]);
@@ -281,6 +286,7 @@ export default function TasksManagePanel({ orgId }) {
 
   const archiveCard = async (card) => {
     if (archiving) return;
+    if (!assertOrToast(RBAC_GRANT.POLICY_UPDATE)) return;
     setArchiving(true);
     try {
       await taskAPI.archiveBoardCard(String(card._id), { organizationId: orgId });
@@ -296,6 +302,7 @@ export default function TasksManagePanel({ orgId }) {
   const createCard = async (e) => {
     e.preventDefault();
     if (!boardId || !createTitle.trim() || creating) return;
+    if (!assertOrToast(RBAC_GRANT.POLICY_UPDATE)) return;
     const listId = lists[0]?._id;
     if (!listId) {
       toast.error(t('adminTasks.manageNoList'));
@@ -327,7 +334,7 @@ export default function TasksManagePanel({ orgId }) {
     <AdminUserPanelShell title={t('adminDomains.tasks.manageTasks')} hint={t('adminTasks.manageHint')}>
       <AdminTaskBoardPicker orgId={orgId} boardId={boardId} onBoardIdChange={setBoardId} />
 
-      {boardId ? (
+      {boardId && canMutate ? (
         <AdminUserFormCard title={t('adminTasks.manageCreate')}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={createCard}>
             <label className={`${adminLabelClass()} sm:col-span-2`}>

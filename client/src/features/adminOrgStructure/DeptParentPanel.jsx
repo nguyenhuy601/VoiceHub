@@ -12,12 +12,16 @@ import {
 } from '../../components/adminUsers/adminUserPanelUi';
 import { organizationAPI } from '../../services/api/organizationAPI';
 import useAdminOrgStructure from '../../hooks/useAdminOrgStructure';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId, unitName } from '../../utils/adminOrgStructureUtils';
 
 export default function DeptParentPanel({ orgId, embedded = false }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canMutate = can(RBAC_GRANT.DEPT_UPDATE);
   const [searchParams] = useSearchParams();
   const unitParam = String(searchParams.get('unitId') || '').trim();
   const { departments, divisions, loading, error: structureError, loadStructure } =
@@ -42,6 +46,7 @@ export default function DeptParentPanel({ orgId, embedded = false }) {
   const save = async (e) => {
     e.preventDefault();
     if (!orgId || !selectedId || !divisionId || saving) return;
+    if (!assertOrToast(RBAC_GRANT.DEPT_UPDATE)) return;
     setSaving(true);
     try {
       await organizationAPI.updateDepartment(orgId, selectedId, { division: divisionId });
@@ -86,9 +91,13 @@ export default function DeptParentPanel({ orgId, embedded = false }) {
               ))}
             </select>
           </label>
-          <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
-            {saving ? t('common.saving') : t('common.save')}
-          </button>
+          {canMutate ? (
+            <button type="submit" disabled={saving} className={adminPrimaryBtnClass()}>
+              {saving ? t('common.saving') : t('common.save')}
+            </button>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+          )}
         </form>
       )}
     </AdminUserFormCard>

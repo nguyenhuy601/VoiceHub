@@ -18,6 +18,8 @@ import {
 } from '../../components/adminUsers/adminPanelStates';
 import ConfirmDialog from '../../components/Shared/ConfirmDialog';
 import { organizationAPI } from '../../services/api/organizationAPI';
+import { useAdminActionGate } from '../../hooks/useAdminActionGate';
+import { RBAC_GRANT } from '../../config/rbacUiGrantMap';
 import { useAppStrings } from '../../locales/appStrings';
 import { resolveApiErrorMessage } from '../../utils/resolveApiErrorMessage';
 import { unitId, unitName, unwrapOrgApi } from '../../utils/adminOrgStructureUtils';
@@ -33,6 +35,8 @@ function flattenTree(nodes, depth = 0, acc = []) {
 
 export default function OrgUnitTreePanel({ orgId }) {
   const { t } = useAppStrings();
+  const { can, assertOrToast } = useAdminActionGate(orgId);
+  const canMutate = can(RBAC_GRANT.STRUCTURE_UPDATE);
   const [tree, setTree] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [createMode, setCreateMode] = useState(false);
@@ -117,13 +121,14 @@ export default function OrgUnitTreePanel({ orgId }) {
   };
 
   const startCreateChild = () => {
-    if (!selectedId) return;
+    if (!selectedId || !canMutate) return;
     setCreateMode(true);
   };
 
   const createUnit = async (e) => {
     e.preventDefault();
     if (!orgId || saving) return;
+    if (!assertOrToast(RBAC_GRANT.STRUCTURE_UPDATE)) return;
     const name = String(form.name || '').trim();
     if (!name || !form.levelKey) {
       toast.error(t('adminOrg.unitCreateValidation'));
@@ -150,6 +155,7 @@ export default function OrgUnitTreePanel({ orgId }) {
 
   const saveSelected = async () => {
     if (!orgId || !selectedId || saving || createMode) return;
+    if (!assertOrToast(RBAC_GRANT.STRUCTURE_UPDATE)) return;
     setSaving(true);
     try {
       await organizationAPI.updateStructureUnit(orgId, selectedId, {
@@ -170,6 +176,7 @@ export default function OrgUnitTreePanel({ orgId }) {
 
   const archiveSelected = async () => {
     if (!orgId || !selectedId || saving || createMode) return;
+    if (!assertOrToast(RBAC_GRANT.STRUCTURE_UPDATE)) return;
     setSaving(true);
     try {
       await organizationAPI.deleteStructureUnit(orgId, selectedId);
@@ -224,7 +231,7 @@ export default function OrgUnitTreePanel({ orgId }) {
                   })}
                 </ul>
                 {!flat.length ? <AdminEmptyState message={t('adminOrg.emptyList')} /> : null}
-                {!flat.length && !createMode ? (
+                {!flat.length && !createMode && canMutate ? (
                   <div className="mt-3">
                     <button
                       type="button"
@@ -300,45 +307,49 @@ export default function OrgUnitTreePanel({ orgId }) {
                       onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                     />
                   </label>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="submit"
-                      disabled={saving}
-                      aria-busy={saving || undefined}
-                      className={adminPrimaryBtnClass()}
-                    >
-                      <AdminBusySpinner busy={saving} />
-                      {saving
-                        ? t('common.saving')
-                        : createMode
-                          ? t('adminOrg.createUnit')
-                          : t('common.save')}
-                    </button>
-                    {!createMode && selected ? (
-                      <>
-                        <button type="button" className={adminSecondaryBtnClass()} onClick={startCreateChild}>
-                          {t('adminOrg.newUnit')}
-                        </button>
+                  {canMutate ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="submit"
+                        disabled={saving}
+                        aria-busy={saving || undefined}
+                        className={adminPrimaryBtnClass()}
+                      >
+                        <AdminBusySpinner busy={saving} />
+                        {saving
+                          ? t('common.saving')
+                          : createMode
+                            ? t('adminOrg.createUnit')
+                            : t('common.save')}
+                      </button>
+                      {!createMode && selected ? (
+                        <>
+                          <button type="button" className={adminSecondaryBtnClass()} onClick={startCreateChild}>
+                            {t('adminOrg.newUnit')}
+                          </button>
+                          <button
+                            type="button"
+                            className={adminDangerBtnClass()}
+                            disabled={saving}
+                            onClick={() => setConfirmArchive(true)}
+                          >
+                            {t('adminOrg.archiveUnit')}
+                          </button>
+                        </>
+                      ) : null}
+                      {createMode ? (
                         <button
                           type="button"
-                          className={adminDangerBtnClass()}
-                          disabled={saving}
-                          onClick={() => setConfirmArchive(true)}
+                          className={adminSecondaryBtnClass()}
+                          onClick={() => setCreateMode(false)}
                         >
-                          {t('adminOrg.archiveUnit')}
+                          {t('common.cancel')}
                         </button>
-                      </>
-                    ) : null}
-                    {createMode ? (
-                      <button
-                        type="button"
-                        className={adminSecondaryBtnClass()}
-                        onClick={() => setCreateMode(false)}
-                      >
-                        {t('common.cancel')}
-                      </button>
-                    ) : null}
-                  </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">{t('adminOrg.grantDenied')}</p>
+                  )}
                 </form>
               </AdminUserFormCard>
             </div>

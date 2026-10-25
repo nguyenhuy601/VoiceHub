@@ -520,7 +520,7 @@ export const ADMIN_DOMAINS = [
             implementation: 'rbac-pos-role-bind',
             requiredGrant: 'organization.position.update',
           },
-          { id: 'pos-assign', path: '/app/admin/rbac/positions/assign', labelKey: 'adminDomains.rbac.posAssign', implementation: 'rbac-pos-assign', requiredGrant: 'organization.employee.update' },
+          { id: 'pos-assign', path: '/app/admin/rbac/positions/assign', labelKey: 'adminDomains.rbac.posAssign', implementation: 'rbac-pos-assign', requiredGrant: 'organization.position.update' },
           { id: 'pos-edit', path: '/app/admin/rbac/positions/edit', labelKey: 'adminDomains.rbac.posEdit', implementation: 'rbac-pos-edit', nav: 'hidden', requiredGrant: 'organization.position.update' },
           { id: 'pos-disable', path: '/app/admin/rbac/positions/disable', labelKey: 'adminDomains.rbac.posDisable', implementation: 'rbac-pos-disable', nav: 'hidden', requiredGrant: 'organization.position.update' },
         ],
@@ -966,7 +966,8 @@ export const ADMIN_DOMAINS = [
             path: '/app/admin/security/sessions',
             labelKey: 'adminDomains.security.loginHistory',
             implementation: 'security-sessions-hub',
-            requiredGrant: 'organization.employee.view',
+            // Không dùng employee.view — HR/mọi người có view nhân sự sẽ lọt security.
+            requiredGrant: 'organization.organization_role.view',
           },
           {
             id: 'password-policy',
