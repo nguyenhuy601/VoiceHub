@@ -405,7 +405,9 @@ export default function AdminNavigationSidebar({ isFullAccess: _isFullAccess = f
   const navigate = useNavigate();
   const { mobileNavOpen, closeMobileNav } = useShellLayout();
   const { markNavigating } = useAdminNavLoading();
-  const { isSystemAdmin, orgId } = useCompanyAdminAccess();
+  const { isSystemAdmin, orgId, adminSuiteNav } = useCompanyAdminAccess();
+  const adminSuiteLabel = t(adminSuiteNav.labelKey);
+  const adminSuitePath = adminSuiteNav.path || '/app/admin';
   const { hasGrant, scopeOf } = useEffectiveMasterGrants(orgId);
 
   const [collapsed, setCollapsed] = useState(() => {
@@ -551,9 +553,9 @@ export default function AdminNavigationSidebar({ isFullAccess: _isFullAccess = f
             {!collapsed ? (
               <>
                 <Link
-                  to="/app/admin"
+                  to={adminSuitePath}
                   onClick={() => {
-                    if (currentPath !== '/app/admin') markNavigating();
+                    if (currentPath !== adminSuitePath) markNavigating();
                   }}
                   className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2 py-1 transition hover:opacity-90"
                   style={{
@@ -566,7 +568,7 @@ export default function AdminNavigationSidebar({ isFullAccess: _isFullAccess = f
                     className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[0.6875rem] font-bold uppercase tracking-wider"
                     style={{ color: ADMIN_COLOR }}
                   >
-                    {t('nav.suite.admin.label')}
+                    {adminSuiteLabel}
                   </span>
                 </Link>
                 <button

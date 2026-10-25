@@ -282,10 +282,6 @@ export default function FigmaNavigationSidebar({
 
   const suiteSegment = segmentFromProp(suiteProp);
   const suiteColor = SUITE_COLORS[suiteSegment] || SUITE_COLORS.communicate;
-  const suiteLabels = {
-    label: t(`nav.suite.${suiteSegment}.label`),
-    sublabel: t(`nav.suite.${suiteSegment}.sublabel`),
-  };
 
   const { unreadCount } = useNotificationBadge({
     scope: suiteProp === 'collaborate' || suiteProp === 'company' ? 'organization' : 'personal',
@@ -326,9 +322,16 @@ export default function FigmaNavigationSidebar({
 
   const { role, meta } = useUiRole();
   const isSingleCompany = singleOrgMode || readSingleOrgModeFlag();
-  const { isSystemAdmin, myOrgRole, canAccessHub } = useCompanyAdminAccess();
-  // Suite Quản trị: Bên bán (systemAdmin) hoặc nhân viên có mã quyền admin (vd. Giám đốc) — khớp canAccessHub / ban-giao §10.
+  const { isSystemAdmin, myOrgRole, canAccessHub, adminSuiteNav } = useCompanyAdminAccess();
+  // Cửa admin: systemAdmin hoặc grant opener — nhãn/path theo persona (Enterprise / Provider / HR / Audit).
   const showAdminSuite = Boolean(canAccessHub);
+  const adminNavLabel = t(adminSuiteNav.labelKey);
+  const adminNavPath = adminSuiteNav.path || '/app/admin';
+  const suiteLabels = {
+    label:
+      suiteSegment === 'admin' ? adminNavLabel : t(`nav.suite.${suiteSegment}.label`),
+    sublabel: t(`nav.suite.${suiteSegment}.sublabel`),
+  };
   // Approvers include IC project roles (TL/QA) — inbox ACL is server-side (canAct / requester)
   const showApprovalInbox = suiteProp === 'collaborate' || suiteProp === 'company';
   const collaborateOrgId = suiteProp === 'collaborate' ? activeOrgId : '';
@@ -393,10 +396,10 @@ export default function FigmaNavigationSidebar({
         items.push({
           key: 'company-admin',
           icon: Shield,
-          label: t('nav.companyAdmin'),
+          label: adminNavLabel,
           externalNavigate: true,
-          onClick: () => navigate('/app/admin'),
-          path: '/app/admin',
+          onClick: () => navigate(adminNavPath),
+          path: adminNavPath,
           badge: 0,
         });
       }
@@ -444,10 +447,10 @@ export default function FigmaNavigationSidebar({
           items.push({
             key: 'company-admin',
             icon: Shield,
-            label: t('nav.companyAdmin'),
+            label: adminNavLabel,
             externalNavigate: true,
-            onClick: () => navigate('/app/admin'),
-            path: '/app/admin',
+            onClick: () => navigate(adminNavPath),
+            path: adminNavPath,
             badge: 0,
           });
         }
@@ -525,10 +528,10 @@ export default function FigmaNavigationSidebar({
         items.push({
           key: 'company-admin',
           icon: Shield,
-          label: t('nav.companyAdmin'),
+          label: adminNavLabel,
           externalNavigate: true,
-          onClick: () => navigate('/app/admin'),
-          path: '/app/admin',
+          onClick: () => navigate(adminNavPath),
+          path: adminNavPath,
           badge: 0,
         });
       }
@@ -549,6 +552,8 @@ export default function FigmaNavigationSidebar({
     showApprovalInbox,
     showRequirementsNav,
     showAdminSuite,
+    adminNavLabel,
+    adminNavPath,
     navigate,
   ]);
 
@@ -731,7 +736,7 @@ export default function FigmaNavigationSidebar({
               {allowedSuites.map((sId) => {
                 const isCurrent = sId === suiteSegment;
                 const labels = {
-                  label: t(`nav.suite.${sId}.label`),
+                  label: sId === 'admin' ? adminNavLabel : t(`nav.suite.${sId}.label`),
                   sublabel: t(`nav.suite.${sId}.sublabel`),
                 };
                 const sc = SUITE_COLORS[sId];
@@ -748,7 +753,10 @@ export default function FigmaNavigationSidebar({
                         me: SUITE.ME,
                         admin: SUITE.ADMIN,
                       };
-                      navigateToSuite(suiteMap[sId], { path: getDefaultPathForSuite(suiteMap[sId]) });
+                      const targetSuite = suiteMap[sId];
+                      const path =
+                        sId === 'admin' ? adminNavPath : getDefaultPathForSuite(targetSuite);
+                      navigateToSuite(targetSuite, { path });
                       setShowSuitePicker(false);
                     }}
                     className="flex w-full items-center gap-2.5 border-none px-3 py-2 text-left transition duration-fast ease-enterprise motion-reduce:transition-none"
