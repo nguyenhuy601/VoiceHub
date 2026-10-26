@@ -97,7 +97,8 @@ function validateStructuredOutput(payload, schema = {}) {
 }
 
 /**
- * Parse LLM tool-call requests against G18 registry (validate names only).
+ * Parse LLM tool-call requests. When allowedToolNames is set (phase manifest),
+ * accept those names without requiring catalog execute (Pattern B sec/section).
  */
 function parseToolCalls(rawCalls, { allowedToolNames } = {}) {
   const list = Array.isArray(rawCalls) ? rawCalls : [];
@@ -111,12 +112,19 @@ function parseToolCalls(rawCalls, { allowedToolNames } = {}) {
       rejected.push({ call, reason: 'missing_name' });
       continue;
     }
-    if (allow && !allow.has(name)) {
-      rejected.push({ call, reason: 'not_in_skill_policy', toolName: name });
+    if (allow) {
+      if (!allow.has(name)) {
+        rejected.push({ call, reason: 'not_in_phase_manifest', toolName: name });
+        continue;
+      }
+      accepted.push({
+        toolName: name,
+        arguments: call.arguments || call.input || {},
+      });
       continue;
     }
     if (!getTool(name)) {
-      rejected.push({ call, reason: 'not_in_registry', toolName: name });
+      rejected.push({ call, reason: 'not_in_catalog', toolName: name });
       continue;
     }
     accepted.push({
@@ -125,7 +133,11 @@ function parseToolCalls(rawCalls, { allowedToolNames } = {}) {
     });
   }
 
-  return { accepted, rejected, registeredTools: listTools().map((t) => t.toolName) };
+  return {
+    accepted,
+    rejected,
+    catalogTools: listTools().map((t) => t.toolName),
+  };
 }
 
 /**

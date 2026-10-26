@@ -52,9 +52,15 @@ const ALLOWED_KEYS = new Set([
   'history',
   'phaseOut',
   'output',
+  'frUnderstanding',
+  // Legacy AgentState key — normalizeAgentState maps into frUnderstanding
   'g4Understanding',
   'hitl',
   'understand',
+  'prepareWhat',
+  'prepareHowContext',
+  'selectTools',
+  'finalizeMeta',
   'plan',
   'select',
   'observe',
@@ -233,6 +239,14 @@ function normalizeAgentState(raw = {}) {
   }
   if (isPlainObject(src.feasibilitySignal)) {
     out.feasibilitySignal = { ...src.feasibilitySignal, notG13: true };
+  }
+
+  // STEP 3: prefer frUnderstanding; accept legacy g4Understanding
+  if (out.frUnderstanding == null && isPlainObject(src.g4Understanding)) {
+    out.frUnderstanding = src.g4Understanding;
+  }
+  if (Object.prototype.hasOwnProperty.call(out, 'g4Understanding')) {
+    delete out.g4Understanding;
   }
 
   if (src.parentRunId != null && String(src.parentRunId).trim()) {

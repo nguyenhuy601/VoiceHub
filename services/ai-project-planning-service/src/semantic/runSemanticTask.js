@@ -124,7 +124,7 @@ async function runSemanticTask(opts = {}) {
         ...(frOut?.meta || {}),
         paused: Boolean(frOut?.paused),
         blocked: Boolean(frOut?.blocked),
-        g4Understanding: frOut?.g4Understanding,
+        frUnderstanding: frOut?.frUnderstanding,
         conflictAmbiguityGate: frOut?.conflictAmbiguityGate,
         g4Out: frOut?.g4Out || frOut?.meta?.g4Out,
         proposalFragment: frOut?.proposalFragment,
@@ -132,7 +132,7 @@ async function runSemanticTask(opts = {}) {
       coverage: frOut?.coverage || { status: 'AVAILABLE' },
       paused: Boolean(frOut?.paused),
       blocked: Boolean(frOut?.blocked),
-      g4Understanding: frOut?.g4Understanding || frOut?.semanticOutput,
+      frUnderstanding: frOut?.frUnderstanding || frOut?.semanticOutput,
       conflictAmbiguityGate: frOut?.conflictAmbiguityGate,
       g4Out: frOut?.g4Out || frOut?.meta?.g4Out,
     };

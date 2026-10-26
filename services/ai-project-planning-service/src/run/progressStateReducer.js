@@ -5,7 +5,7 @@
  * RULE-P05: stale seq ignored; duplicate seq idempotent.
  */
 
-const { SUBSTEPS } = require('../engines/g4/pipelineProgress');
+const { SUBSTEPS } = require('../engines/frUnderstanding/pipelineProgress');
 const { mapPipelineProgressEvent } = require('./mapPipelineProgressEvent');
 
 /** Catalog order for forward-only substep checks */
@@ -129,7 +129,7 @@ function reduceProgressState(current, rawEvt, opts = {}) {
     }
   }
 
-  // HOW DAG: one progress row is the whole parallel layer, not the last tool name.
+  // HOW ReAct: event.tools = tools actually started this tick (may be 1+ parallel Sends).
   const layerNames = toolNameList(event.tools);
   if (layerNames.length) {
     if (!sameToolNames(next.currentToolNames, layerNames)) {

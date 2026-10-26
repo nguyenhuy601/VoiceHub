@@ -60,6 +60,9 @@ async function buildWbsSemanticFromStories(opts = {}) {
     .filter((row) => !cited.size || cited.has(row.id))
     .map((row) => {
       const inferred = notes.get(row.id) || {};
+      const ac = Array.isArray(row.ac)
+        ? row.ac.map((line) => clip(line, 360)).filter(Boolean).slice(0, 24)
+        : [];
       const out = {
         id: row.id,
         capability: inferred.capability || undefined,
@@ -67,6 +70,7 @@ async function buildWbsSemanticFromStories(opts = {}) {
         module: row.module || undefined,
         feature: row.feature || undefined,
         statement: row.statement || undefined,
+        ac: ac.length ? ac : undefined,
       };
       for (const key of Object.keys(out)) {
         if (out[key] == null || out[key] === '') delete out[key];

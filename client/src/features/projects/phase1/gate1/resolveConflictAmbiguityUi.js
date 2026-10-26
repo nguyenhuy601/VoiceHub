@@ -37,7 +37,11 @@ function isHardBlockingItem(item) {
  */
 export function resolveConflictAmbiguityFromPack(pack, g4 = null) {
   const analyses = pack?.aiAnalysis?.analyses || pack?.analyses || {};
-  const g4Understanding = g4 || analyses.g4Understanding || null;
+  const g4Understanding =
+    g4 || analyses.frUnderstanding || analyses.g4Understanding || null;
+  const frPath = analyses.frUnderstanding
+    ? 'analyses.frUnderstanding'
+    : 'analyses.g4Understanding';
 
   const fromG4 =
     g4Understanding?.requirementIntegrityGate ||
@@ -48,8 +52,8 @@ export function resolveConflictAmbiguityFromPack(pack, g4 = null) {
     return normalizeGate(
       fromG4,
       g4Understanding?.requirementIntegrityGate
-        ? 'analyses.g4Understanding.requirementIntegrityGate'
-        : 'analyses.g4Understanding.conflictAmbiguityGate'
+        ? `${frPath}.requirementIntegrityGate`
+        : `${frPath}.conflictAmbiguityGate`
     );
   }
 

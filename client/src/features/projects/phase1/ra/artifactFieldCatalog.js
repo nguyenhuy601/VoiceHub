@@ -423,9 +423,9 @@ export function buildArtifactFormState(artifact, kind) {
       if ((value == null || value === '') && k === 'NFR' && field.key === 'requirement') {
         value = String(artifact?.title || '');
       }
-      if ((value == null || value === '') && k === 'FR' && field.key === 'description') {
-        value = String(artifact?.title || summary || '');
-      }
+      // FR: do not mirror title→description (Customer Raw often has one field;
+      // copying made Gate1/list show identical Tiêu đề & Mô tả).
+
       if (field.control === 'tags') structured[field.key] = tagsToInput(value);
       else structured[field.key] = value == null ? '' : String(value);
     }

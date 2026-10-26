@@ -129,7 +129,7 @@ function isUsableLoop1Reuse(artifact, snapshotId) {
 }
 
 /**
- * Build g4Opts fragment for Loop1 start from durable pack artifact.
+ * Build frOpts fragment for Loop1 start from durable pack artifact.
  * @param {object|null|undefined} artifact
  * @param {string} snapshotId
  */

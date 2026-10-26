@@ -30,9 +30,9 @@
 
 ## Socket sticky
 
-[`swarm-socket-sticky.conf`](../nginx/swarm-socket-sticky.conf) — chỉ khi Nginx proxy **trực tiếp** `socket-service:3017`.
+Host Nginx → `127.0.0.1:3017` đi vào **`socket-edge`** (HAProxy sticky trong stack), không publish thẳng `socket-service` khi `SOCKET_SERVICE_REPLICAS>=2`.
 
-**S2 canonical:** WS qua gateway + `SOCKET_IO_REDIS_ADAPTER=true` → sticky **không bắt buộc**.
+[`swarm-socket-sticky.conf`](../nginx/swarm-socket-sticky.conf) — chỉ khi Nginx **trong overlay** liệt kê nhiều IP task (`ip_hash`). DNS VIP một địa chỉ không sticky được.
 
 ## P3 prod-edge (static SPA)
 

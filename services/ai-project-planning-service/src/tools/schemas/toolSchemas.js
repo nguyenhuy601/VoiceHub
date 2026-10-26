@@ -268,7 +268,7 @@ const WhatFrTool = {
     type: 'object',
     properties: {
       proposalFragment: { type: 'object' },
-      g4Understanding: { type: 'object' },
+      frUnderstanding: { type: 'object' },
     },
   },
   evidenceSchema: genericIo.evidenceSchema,

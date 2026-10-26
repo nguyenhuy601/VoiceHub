@@ -90,17 +90,23 @@ async function wbs(input = {}, context = {}) {
       ruleId: 'WBS-ENGINE-001',
     }),
   ];
-  if (outcome === 'partial') {
+  if (outcome === 'partial' || outcome === 'needs_review') {
+    const qualityN = Array.isArray(result.meta?.qualityIssues)
+      ? result.meta.qualityIssues.length
+      : 0;
+    const clarifyN = Array.isArray(result.meta?.clarifications)
+      ? result.meta.clarifications.length
+      : 0;
     evidence.push(
       createEvidence({
         sourceType: 'wbs_model',
-        sourceId: `partial|unresolved=${unresolvedN}`,
+        sourceId: `${outcome}|unresolved=${unresolvedN}|quality=${qualityN}|clarify=${clarifyN}`,
         snapshotId,
         metric: 'wbs_task_count',
         value: leafCount,
         unit: 'count',
         calculatedBy: 'WbsTool',
-        ruleId: 'WBS-ENGINE-PARTIAL',
+        ruleId: outcome === 'needs_review' ? 'WBS-ENGINE-REVIEW' : 'WBS-ENGINE-PARTIAL',
       })
     );
   }

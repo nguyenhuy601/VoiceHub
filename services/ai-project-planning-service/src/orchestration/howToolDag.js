@@ -1,6 +1,7 @@
 /**
- * HOW tool dependency DAG — max parallel among independent tools.
- * Edges: prerequisite → dependent (hard unless noted soft).
+ * HOW tool dependency DAG — soft guide for ReAct selectTools + FE layers.
+ * Graph does not force waves; selectTools filters calls whose deps are unmet.
+ * Edges: prerequisite → dependent.
  */
 
 const { HOW_PHASE_TOOL_STEPS } = require('./jobToToolsMap');
@@ -11,7 +12,7 @@ const HOW_TOOL_DEPENDENCIES = Object.freeze({
   BacklogMapTool: Object.freeze([]),
   WbsTool: Object.freeze([]),
   DependencyTool: Object.freeze(['WbsTool']),
-  // Architecture, Effort, Deploy, Sequencing, and Matching are not phase nodes.
+  // Architecture, Effort, Deploy, Sequencing, Matching are not phase catalog nodes.
   // Lịch và sprint sống trong ScheduleTool (CPM gọi nội bộ khi đóng gói lịch).
   RiskTool: Object.freeze(['DependencyTool']),
   QualityPlanTool: Object.freeze(['RiskTool']),
@@ -22,6 +23,65 @@ const HOW_TOOL_DEPENDENCIES = Object.freeze({
 const CANONICAL_ORDER = Object.freeze(
   HOW_PHASE_TOOL_STEPS.map((s) => s.toolName)
 );
+
+/**
+ * Successful HOW tool names from toolResults (error rows ignored).
+ * @param {object} state
+ * @returns {Set<string>}
+ */
+function successfulHowTools(state) {
+  const done = new Set();
+  for (const row of Array.isArray(state?.toolResults) ? state.toolResults : []) {
+    if (!row || row.error) continue;
+    const name = String(row.toolName || '').trim();
+    if (name) done.add(name);
+  }
+  return done;
+}
+
+/**
+ * Soft deps: tools not listed in HOW_TOOL_DEPENDENCIES (optional secs) are always ready.
+ * @param {string} toolName
+ * @param {Set<string>} done
+ */
+function howToolDepsSatisfied(toolName, done) {
+  const name = String(toolName || '').trim();
+  if (!name) return false;
+  if (!(name in HOW_TOOL_DEPENDENCIES)) return true;
+  const deps = HOW_TOOL_DEPENDENCIES[name] || [];
+  return deps.every((dep) => done.has(dep));
+}
+
+/** Phase catalog tools that must succeed before HOW emitReady (Gate 2). */
+function requiredHowPhaseTools() {
+  return [...CANONICAL_ORDER];
+}
+
+/**
+ * If LLM picks Schedule before Dependency, rewrite to the unmet prerequisite
+ * instead of dropping the turn (which spun selectTools with remain=0).
+ * @param {Set<string>} done
+ * @param {string} toolName
+ * @returns {string|null} ready tool to run now
+ */
+function resolveHowToolOrUnmetDep(done, toolName) {
+  const name = String(toolName || '').trim();
+  if (!name || done.has(name)) return null;
+  if (howToolDepsSatisfied(name, done)) return name;
+  if (!(name in HOW_TOOL_DEPENDENCIES)) return name;
+
+  let cursor = name;
+  const seen = new Set();
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    if (done.has(cursor)) return null;
+    if (howToolDepsSatisfied(cursor, done)) return cursor;
+    const unmet = (HOW_TOOL_DEPENDENCIES[cursor] || []).find((dep) => !done.has(dep));
+    if (!unmet) return null;
+    cursor = unmet;
+  }
+  return null;
+}
 
 /**
  * Topological layers for a subset of tools (Kahn).
@@ -114,6 +174,10 @@ function buildHowToolStepLayers(steps) {
 module.exports = {
   HOW_TOOL_DEPENDENCIES,
   CANONICAL_ORDER,
+  successfulHowTools,
+  howToolDepsSatisfied,
+  requiredHowPhaseTools,
+  resolveHowToolOrUnmetDep,
   buildHowToolLayers,
   buildHowToolStepLayers,
 };

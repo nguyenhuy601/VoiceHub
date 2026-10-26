@@ -26,7 +26,7 @@ const {
 } = require('../contracts/runLineageContract');
 const { PlanningRun } = require('../run/PlanningRun.model');
 const { buildExecutionInterruptedError } = require('../run/executionInterrupted');
-const { publishGatePreview } = require('../engines/g4/pipelineProgress');
+const { publishGatePreview } = require('../engines/frUnderstanding/pipelineProgress');
 const { reduceProgressState } = require('../run/progressStateReducer');
 const {
   assertCallbackConfigured,
@@ -581,12 +581,6 @@ async function processRunAsync(runId) {
 
       const loadedCp = await loadCheckpoint(runId);
       const cpState = loadedCp?.checkpoint?.state || null;
-      const selectiveNames = cpState?.selectiveReplanSteps;
-      const isSelectiveHow =
-        run.job === 'phase_how' &&
-        Array.isArray(selectiveNames) &&
-        selectiveNames.length > 0;
-
       let humanFeedback = null;
       const rawFb = run.input?.humanFeedback || run.input?.feedback || null;
       const generationId =
@@ -629,7 +623,11 @@ async function processRunAsync(runId) {
 
       const { normalizeDeriveLocale } = require('../semantic/buildSemanticDeriveContext');
       const deriveLocale = normalizeDeriveLocale(
-        run.input?.locale || run.input?.g4Opts?.locale || process.env.PHASE1_DERIVE_LOCALE || 'vi'
+        run.input?.locale ||
+          run.input?.frOpts?.locale ||
+          run.input?.g4Opts?.locale ||
+          process.env.PHASE1_DERIVE_LOCALE ||
+          'vi'
       );
       const packWithLocale = {
         ...(cpState?.pack || runtimePack || {}),
@@ -641,47 +639,67 @@ async function processRunAsync(runId) {
       }
       packWithLocale.aiAnalysis.deriveLocale = deriveLocale;
 
-      const { runAgentPhase } = require('../orchestration/agentLoopRunner');
-      const phaseOut = await runAgentPhase({
-        phase: run.job === 'phase_what' ? 'what' : 'how',
+      // RULE-LG-CP-01: LG checkpointer is phase resume SoT.
+      // G15 saveCheckpoint mid-run only when AGENT_CORE_G15_TELEMETRY=1 (projection).
+      const g15Telemetry =
+        String(process.env.AGENT_CORE_G15_TELEMETRY || '').trim() === '1';
+      const commonPhaseOpts = {
         container: cpState?.container || run.input?.container,
         pack: packWithLocale,
-        toolData: cpState?.toolData || toolData,
         snapshot: runtimeSnapshot,
         snapshotId: run.snapshotId,
         runId,
-        parentRunId,
-        generationId,
-        g4Opts: {
-          ...whatG4Opts(run, cpState),
-          ...(run.input?.g4Opts || {}),
-          locale: deriveLocale,
-          loop1Reenter: Boolean(humanFeedback?.kind === 'requirement_feedback'),
-          priorPartial:
-            run.input?.g4Opts?.priorPartial ||
-            cpState?.understandingPartial ||
-            cpState?.g4Partial ||
-            null,
-          reuseContextPackage:
-            run.input?.g4Opts?.reuseContextPackage || cpState?.contextPackage || null,
-        },
-        resumeState: run.job === 'phase_how' ? cpState : null,
-        selectiveToolNames: isSelectiveHow ? selectiveNames : null,
-        humanFeedback,
         onProgress: (evt) => reportPipelineProgress(runId, evt),
-        onCheckpoint: (agentState) =>
-          saveCheckpoint(runId, {
-            ...agentState,
-            projectId: run.projectId,
-            packId: run.packId,
-            organizationId: run.organizationId,
-            approvedSrsVersion: run.approvedSrsVersion,
-            job: run.job,
-            parentRunId: agentState.parentRunId || parentRunId,
-            generationId: agentState.generationId || generationId,
-            humanFeedback: agentState.humanFeedback || humanFeedback,
-          }),
-      });
+        onCheckpoint: g15Telemetry
+          ? (agentState) =>
+              saveCheckpoint(runId, {
+                ...agentState,
+                projectId: run.projectId,
+                packId: run.packId,
+                organizationId: run.organizationId,
+                approvedSrsVersion: run.approvedSrsVersion,
+                job: run.job,
+                parentRunId: agentState.parentRunId || parentRunId,
+                generationId: agentState.generationId || generationId,
+                humanFeedback: agentState.humanFeedback || humanFeedback,
+              })
+          : null,
+      };
+      let phaseOut;
+      if (run.job === 'phase_what') {
+        const { runWhatPhaseLangGraph } = require('../orchestration/runWhatPhaseLangGraph');
+        phaseOut = await runWhatPhaseLangGraph({
+          ...commonPhaseOpts,
+          parentRunId,
+          generationId,
+          humanFeedback,
+          frOpts: {
+            ...whatG4Opts(run, cpState),
+            ...(run.input?.g4Opts || {}),
+            ...(run.input?.frOpts || {}),
+            locale: deriveLocale,
+            loop1Reenter: Boolean(humanFeedback?.kind === 'requirement_feedback'),
+            priorPartial:
+              run.input?.frOpts?.priorPartial ||
+              run.input?.g4Opts?.priorPartial ||
+              cpState?.understandingPartial ||
+              cpState?.g4Partial ||
+              null,
+            reuseContextPackage:
+              run.input?.frOpts?.reuseContextPackage ||
+              run.input?.g4Opts?.reuseContextPackage ||
+              cpState?.contextPackage ||
+              null,
+          },
+        });
+      } else {
+        const { runHowPhaseLangGraph } = require('../orchestration/runHowPhaseLangGraph');
+        phaseOut = await runHowPhaseLangGraph({
+          ...commonPhaseOpts,
+          toolData: cpState?.toolData || toolData,
+          resumeState: cpState,
+        });
+      }
       if (phaseOut?.paused) {
         await pauseRunForDataGate(run, phaseOut);
         return;
@@ -694,7 +712,7 @@ async function processRunAsync(runId) {
         job: run.job,
         currentJob: run.job,
         container: phaseOut.container,
-        g4Understanding: phaseOut.g4Understanding || null,
+        frUnderstanding: phaseOut.frUnderstanding || null,
         proposalFragment: phaseOut.proposalFragment || null,
         loop1Reuse,
         result: {
@@ -703,19 +721,19 @@ async function processRunAsync(runId) {
           hitl: phaseOut.hitl,
           durationMs: phaseOut.durationMs,
           feasibility: phaseOut.feasibility,
-          g4Understanding: phaseOut.g4Understanding || null,
+          frUnderstanding: phaseOut.frUnderstanding || null,
           proposalFragment: phaseOut.proposalFragment || null,
           selective: Boolean(phaseOut.selective),
           loop1Reuse,
           corpusContentHash: phaseOut.corpusContentHash || null,
         },
         meta: {
-          llmCalls: phaseOut.g4Understanding?.meta?.llmCalls || 0,
+          llmCalls: phaseOut.frUnderstanding?.meta?.llmCalls || 0,
           durationMs: phaseOut.durationMs,
           agentic: true,
           selective: Boolean(phaseOut.selective),
-          skillId: phaseOut.g4Understanding?.meta?.skillId || null,
-          promptVersion: phaseOut.g4Understanding?.meta?.promptVersion || null,
+          skillId: phaseOut.frUnderstanding?.meta?.skillId || null,
+          promptVersion: phaseOut.frUnderstanding?.meta?.promptVersion || null,
         },
       };
       const callbackPayload = {
@@ -727,7 +745,7 @@ async function processRunAsync(runId) {
         organizationId: run.organizationId,
         snapshotId: run.snapshotId,
         result: output,
-        g4Understanding: phaseOut.g4Understanding || null,
+        frUnderstanding: phaseOut.frUnderstanding || null,
         proposalFragment: phaseOut.proposalFragment || null,
         loop1Reuse,
       };
@@ -741,7 +759,7 @@ async function processRunAsync(runId) {
         phaseOut,
         history: phaseOut.history,
         toolResults: phaseOut.toolResults,
-        evidence: phaseOut.g4Understanding?.evidence || [],
+        evidence: phaseOut.frUnderstanding?.evidence || [],
         evaluationResult: phaseOut.evaluate,
         feasibility: phaseOut.feasibility,
         currentNode: 'callback_pending',
@@ -752,7 +770,7 @@ async function processRunAsync(runId) {
       });
       await stageCallback(run, executionLeaseOwner, callbackPayload, {
         result: output,
-        evidence: phaseOut.g4Understanding?.evidence || [],
+        evidence: phaseOut.frUnderstanding?.evidence || [],
         error: null,
       });
     } catch (error) {
@@ -998,9 +1016,12 @@ async function cancelRun(req, res) {
 }
 
 function whatG4Opts(run, cpState) {
-  if (run.job !== 'phase_what') return run.input?.g4Opts || {};
-  const inputOpts =
+  const legacy =
     run.input?.g4Opts && typeof run.input.g4Opts === 'object' ? run.input.g4Opts : {};
+  const modern =
+    run.input?.frOpts && typeof run.input.frOpts === 'object' ? run.input.frOpts : {};
+  if (run.job !== 'phase_what') return { ...legacy, ...modern };
+  const inputOpts = { ...legacy, ...modern };
   const isLoop1 = Boolean(
     inputOpts.loop1Reenter ||
       run.input?.humanFeedback ||

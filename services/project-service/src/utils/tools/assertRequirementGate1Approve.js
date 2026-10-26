@@ -54,7 +54,7 @@ function isAiWhatG4Pack(pack) {
     return true;
   const analyses = pack?.aiAnalysis?.analyses || pack?.analyses || {};
   if (analyses.srsProposal?.generated?.functionalRequirements?.items?.length) return true;
-  const g4 = analyses.g4Understanding;
+  const g4 = analyses.frUnderstanding || analyses.g4Understanding;
   if (g4 && typeof g4 === 'object') return true;
   const mode = String(pack?.analysisMode || pack?.aiAnalysisMode || '').toLowerCase();
   return mode === 'ai';

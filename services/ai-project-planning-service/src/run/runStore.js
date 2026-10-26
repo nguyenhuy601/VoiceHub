@@ -1,5 +1,5 @@
 const { PlanningRun, RUN_STATUSES } = require('./PlanningRun.model');
-const { publishGatePreview } = require('../engines/g4/pipelineProgress');
+const { publishGatePreview } = require('../engines/frUnderstanding/pipelineProgress');
 const {
   deriveComputeStatus,
   deriveCallbackStatus,

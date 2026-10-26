@@ -194,6 +194,16 @@ function resolveWbsLlmMaxChunks(env = process.env) {
   });
 }
 
+/** Max repair rounds after quality fail (0 = accept/reject once, no repair). */
+const WBS_LLM_MAX_REPAIR = 2;
+
+function resolveWbsLlmMaxRepair(env = process.env) {
+  return clampInt(env.HOW_WBS_LLM_MAX_REPAIR, WBS_LLM_MAX_REPAIR, {
+    min: 0,
+    max: 4,
+  });
+}
+
 /**
  * True when LLM WBS flag on and pack has ≥1 FR (large packs use chunked LLM).
  * @param {object} pack
@@ -238,5 +248,7 @@ module.exports = {
   resolveWbsLlmMaxFrForCall,
   planWbsCallSlices,
   resolveWbsLlmMaxChunks,
+  WBS_LLM_MAX_REPAIR,
+  resolveWbsLlmMaxRepair,
   shouldAttemptWbsLlm,
 };

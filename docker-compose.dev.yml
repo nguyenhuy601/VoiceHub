@@ -1,8 +1,3 @@
-# Dev: bind mount (./services/…:/app, ./shared:/shared trong core) + nodemon + CHOKIDAR polling (Windows/WSL).
-# docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-#
-# Mọi service Node trong core đều có entry tương ứng ở đây (npm run dev).
-
 services:
   api-gateway:
     # npm ci theo lockfile (commit trong git); fallback npm install nếu chưa có lock.

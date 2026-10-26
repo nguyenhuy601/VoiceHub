@@ -18,8 +18,9 @@ curl -sf http://127.0.0.1:3000/health
 
 ## Load balancer / Nginx (optional edge)
 
-- WS qua gateway + Redis adapter: sticky **không bắt buộc** (xem `staging-nginx-edge.md`).
-- Nếu LB riêng socket: `devops/nginx/swarm-socket-sticky.conf` — `ip_hash`, giữ `Upgrade` / `Connection`, `X-Forwarded-*`.
+- Host Nginx → `:3017`: **`socket-edge`** (HAProxy sticky sid + `X-Real-IP`) trong `docker-stack.yml` — bắt buộc khi `SOCKET_SERVICE_REPLICAS>=2`.
+- WS qua gateway + Redis adapter: fan-out OK; polling Engine.IO vẫn cần affinity (gateway VIP cũng lệch sid nếu nhiều socket task không qua edge).
+- Nginx overlay thẳng task IPs: `devops/nginx/swarm-socket-sticky.conf` — `ip_hash` chỉ khi liệt kê nhiều địa chỉ task (không phải DNS VIP).
 
 ## Validation (manual sign-off)
 

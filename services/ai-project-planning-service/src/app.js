@@ -3,9 +3,6 @@ const { createCorsMiddleware } = require('@enterprise/shared/middleware/corsPoli
 const internalGatewayAuth = require('@enterprise/shared/middleware/internalGatewayAuth');
 
 const planningRoutes = require('./routes/internal/planning.routes');
-const { registerDefaultTools } = require('./tools/registerDefaultTools');
-
-registerDefaultTools();
 
 const app = express();
 app.use(createCorsMiddleware());

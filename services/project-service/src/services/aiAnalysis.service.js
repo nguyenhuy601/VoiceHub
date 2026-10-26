@@ -1010,10 +1010,19 @@ async function applyRemoteHowJobResult({
   result,
   error,
   g4Understanding = null,
+  frUnderstanding = null,
   proposalFragment = null,
 }) {
   const jobKey = String(jobRaw || '').trim();
   if (jobKey === 'phase_how' || jobKey === 'phase_what') {
+    const understanding =
+      frUnderstanding ||
+      g4Understanding ||
+      result?.frUnderstanding ||
+      result?.g4Understanding ||
+      result?.result?.frUnderstanding ||
+      result?.result?.g4Understanding ||
+      null;
     return applyRemotePhaseRunResult({
       runId,
       status,
@@ -1024,11 +1033,7 @@ async function applyRemoteHowJobResult({
       snapshotId,
       result: {
         ...(result || {}),
-        g4Understanding:
-          g4Understanding ||
-          result?.g4Understanding ||
-          result?.result?.g4Understanding ||
-          null,
+        frUnderstanding: understanding,
         proposalFragment:
           proposalFragment ||
           result?.proposalFragment ||
@@ -1108,19 +1113,34 @@ async function applyRemotePhaseRunResult({
     if (incoming.planning) container.planning = incoming.planning;
     if (incoming.resource) container.resource = incoming.resource;
     if (incoming.analyses) {
-      const { g4Understanding: _dropG4, ...restAnalyses } = incoming.analyses;
-      const prevG4 = container.analyses?.g4Understanding;
+      const {
+        g4Understanding: _dropG4,
+        frUnderstanding: _dropFr,
+        ...restAnalyses
+      } = incoming.analyses;
+      const prevG4 =
+        container.analyses?.frUnderstanding || container.analyses?.g4Understanding;
       container.analyses = { ...(container.analyses || {}), ...restAnalyses };
-      // Never accept new g4Understanding writes; keep prior legacy only
-      if (prevG4) container.analyses.g4Understanding = prevG4;
-      else delete container.analyses.g4Understanding;
+      // Never accept new frUnderstanding/g4Understanding writes; keep prior legacy only
+      if (prevG4) {
+        container.analyses.frUnderstanding = prevG4;
+        delete container.analyses.g4Understanding;
+      } else {
+        delete container.analyses.frUnderstanding;
+        delete container.analyses.g4Understanding;
+      }
     }
     if (incoming.phaseRuns) {
       container.phaseRuns = { ...(container.phaseRuns || {}), ...incoming.phaseRuns };
     }
     const proposalFragment =
       result.proposalFragment || result.result?.proposalFragment || null;
-    const g4 = result.g4Understanding || result.result?.g4Understanding || null;
+    const g4 =
+      result.frUnderstanding ||
+      result.g4Understanding ||
+      result.result?.frUnderstanding ||
+      result.result?.g4Understanding ||
+      null;
     const fullSrsProposal =
       result.srsProposal ||
       result.result?.srsProposal ||
@@ -1802,6 +1822,7 @@ async function startPhaseAiPlanningRun({
   // WHAT re-run: drop prior Gate1 proposal so Review UI cannot show stale Duyệt data
   if (phaseJob === 'phase_what') {
     const analyses = { ...(container.analyses || {}) };
+    delete analyses.frUnderstanding;
     delete analyses.g4Understanding;
     delete analyses.srsProposal;
     container.analyses = analyses;
@@ -1955,14 +1976,14 @@ async function startPhaseAiPlanningRun({
               source: 'gate1',
               text: loop1Text,
             },
-            g4Opts: {
+            frOpts: {
               loop1Reenter: true,
               locale: deriveLocale,
               ...reuseSeed,
             },
           };
         })()
-      : { g4Opts: { locale: deriveLocale } }),
+      : { frOpts: { locale: deriveLocale } }),
   };
   if (slimInput.snapshot != null || slimInput.pack != null) {
     delete slimInput.snapshot;

@@ -1,60 +1,44 @@
 /**
- * G18 Tool Registry — SoT for tool descriptors + policy enforcement.
+ * Tool lookup + invoke — backed by static planningToolCatalog (no boot register).
  */
 
-const registry = new Map();
-
-function registerTool(descriptor) {
-  if (!descriptor || !descriptor.toolName) {
-    throw new Error('toolName is required');
-  }
-  const name = String(descriptor.toolName);
-  registry.set(name, {
-    toolName: name,
-    version: descriptor.version || '1.0.0',
-    description: descriptor.description || '',
-    inputSchema: descriptor.inputSchema || {},
-    outputSchema: descriptor.outputSchema || {},
-    evidenceSchema: descriptor.evidenceSchema || {},
-    permissions: descriptor.permissions || [],
-    allowedContexts: Array.isArray(descriptor.allowedContexts)
-      ? descriptor.allowedContexts
-      : ['planning'],
-    requires: Array.isArray(descriptor.requires) ? descriptor.requires : [],
-    timeout: Number(descriptor.timeout) || 30_000,
-    retryPolicy: descriptor.retryPolicy || { maxRetries: 0 },
-    execute: typeof descriptor.execute === 'function' ? descriptor.execute : null,
-  });
-  return registry.get(name);
-}
+const {
+  getPlanningTool,
+  listPlanningTools,
+} = require('../tools/planningToolCatalog');
+const {
+  isHowSecPhaseOnly,
+  isWhatSectionPhaseOnly,
+  assertPhaseGraphOnly,
+} = require('../orchestration/phaseGraphOnly');
 
 function getTool(toolName) {
-  return registry.get(String(toolName)) || null;
+  return getPlanningTool(toolName);
 }
 
 function listTools() {
-  return Array.from(registry.values()).map(({ execute, ...rest }) => rest);
-}
-
-function clearRegistry() {
-  registry.clear();
+  return listPlanningTools();
 }
 
 /**
  * Resolve + policy-check before execute.
- * @throws Error with code TOOL_NOT_REGISTERED | TOOL_CONTEXT_DENIED | TOOL_REQUIRES_MISSING
+ * @throws Error with code TOOL_NOT_REGISTERED | TOOL_CONTEXT_DENIED | TOOL_REQUIRES_MISSING | PHASE_GRAPH_ONLY
  */
 function resolveTool(toolName, context = {}) {
-  const tool = getTool(toolName);
+  const name = String(toolName || '');
+  if (isHowSecPhaseOnly(name)) assertPhaseGraphOnly(name, 'how');
+  if (isWhatSectionPhaseOnly(name)) assertPhaseGraphOnly(name, 'what');
+
+  const tool = getTool(name);
   if (!tool) {
-    const err = new Error(`Unknown tool: ${toolName}`);
+    const err = new Error(`Unknown tool: ${name}`);
     err.code = 'TOOL_NOT_REGISTERED';
     throw err;
   }
 
   const ctx = context.contextName || context.allowedContext || 'planning';
   if (tool.allowedContexts.length && !tool.allowedContexts.includes(ctx)) {
-    const err = new Error(`Tool ${toolName} not allowed in context ${ctx}`);
+    const err = new Error(`Tool ${name} not allowed in context ${ctx}`);
     err.code = 'TOOL_CONTEXT_DENIED';
     throw err;
   }
@@ -65,7 +49,7 @@ function resolveTool(toolName, context = {}) {
       context[key] != null ||
       (context.requiresSatisfied && context.requiresSatisfied[key]);
     if (!present) {
-      const err = new Error(`Tool ${toolName} requires: ${key}`);
+      const err = new Error(`Tool ${name} requires: ${key}`);
       err.code = 'TOOL_REQUIRES_MISSING';
       err.missing = key;
       throw err;
@@ -119,10 +103,8 @@ async function invokeTool(toolName, input, context = {}) {
 }
 
 module.exports = {
-  registerTool,
   getTool,
   listTools,
-  clearRegistry,
   resolveTool,
   invokeTool,
 };

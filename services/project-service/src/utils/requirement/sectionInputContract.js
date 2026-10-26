@@ -220,18 +220,39 @@ function buildSectionInput(sectionId, canonicalRaw) {
 /**
  * Map FR section input → pack-shaped functionalRequirements (dual-read bridge).
  */
+/**
+ * Customer Raw SoT is a single `functional_behavior` field.
+ * Do not copy the same string into both name and description (Gate1 Title≈Mô tả).
+ */
+function shortTitleFromBehavior(text, max = 120) {
+  const t = String(text || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (!t) return '';
+  if (t.length <= max) return t;
+  const slice = t.slice(0, max);
+  const br = slice.search(/[.!?…。；;]/);
+  if (br >= 40) return slice.slice(0, br + 1).trim();
+  const sp = slice.lastIndexOf(' ');
+  return `${(sp > 40 ? slice.slice(0, sp) : slice).trim()}…`;
+}
+
 function frSectionToPackRows(sectionInput) {
   return asArray(sectionInput?.items).map((row) => {
     const behavior = String(row.functional_behavior || '').trim();
     const priority = String(row.priority || 'Medium').trim().slice(0, 32) || 'Medium';
+    const title = shortTitleFromBehavior(behavior, 80);
+    const description =
+      behavior.length > title.length ? behavior.slice(0, 4000) : '';
     return {
       externalId: String(row.requirement_identity || '').trim().slice(0, 64),
       id: String(row.requirement_identity || '').trim().slice(0, 64),
       // Customer Raw FR rows are leaf requirements (align workbookFrExtract)
       level: 'Requirement',
       parentExternalId: '',
-      name: behavior.slice(0, 500),
-      description: behavior.slice(0, 4000),
+      name: title.slice(0, 500),
+      title: title.slice(0, 500),
+      description,
       moduleLabel: String(row.functional_scope || '').trim().slice(0, 240),
       actor: String(row.actor || '').trim().slice(0, 240),
       priority,

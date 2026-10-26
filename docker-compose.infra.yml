@@ -1,11 +1,3 @@
-# Hạ tầng: MongoDB + Redis + volumes + network dùng chung
-
-# Thường không cần chạy riêng — đã gộp trong `docker-compose.yml` (include).
-
-# Credential / key: file `.env` ở root — không hardcode trong compose.
-
-
-
 services:
 
   mongodb:

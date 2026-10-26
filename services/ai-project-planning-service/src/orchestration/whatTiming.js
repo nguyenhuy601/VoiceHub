@@ -6,7 +6,10 @@
 function emptyStages() {
   return {
     hydrate: null,
+    prepareWhat: null,
+    /** @deprecated alias — legacy timing payloads */
     understand: null,
+    // Stage timing keys kept for progress mappers (FR pipeline meta.stageTimings)
     g4_semantic: null,
     g4_conflict: null,
     g4_synthesis: null,
@@ -24,7 +27,7 @@ function emptyStages() {
 /** Stages that are exclusive wall slices (avoid double-count nested / G4 sub-stages). */
 const SUM_STAGE_KEYS = Object.freeze([
   'hydrate',
-  'understand',
+  'prepareWhat',
   'g4_total',
   'bg_derive',
   'engines',

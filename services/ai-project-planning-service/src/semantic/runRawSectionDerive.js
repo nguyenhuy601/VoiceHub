@@ -263,6 +263,38 @@ function prepareSectionDerive(opts = {}) {
     };
   }
 
+  // Same skip as runAllRawSectionDerives — Pattern B subgraph must not re-LLM when section exists.
+  const proposalItems = section ? opts.proposal?.generated?.[section]?.items : null;
+  if (Array.isArray(proposalItems) && proposalItems.length) {
+    return {
+      mode: 'result',
+      result: {
+        status: TASK_POLICIES.SKIP,
+        reason: 'SHEET_PRESENT',
+        items: [],
+        llmCalls: 0,
+        coverage: { status: 'AVAILABLE', reason: null },
+        section,
+      },
+    };
+  }
+  // Customer Raw: pack.* sheets after materialize are leftover AI rows — do not skip LLM on pack.
+  const customerRaw = isCustomerRawIntakePack(pack);
+  const existing = existingSheetRows(engineId, pack);
+  if (!customerRaw && Array.isArray(existing) && existing.length) {
+    return {
+      mode: 'result',
+      result: {
+        status: TASK_POLICIES.SKIP,
+        reason: 'SHEET_PRESENT',
+        items: [],
+        llmCalls: 0,
+        coverage: { status: 'AVAILABLE', reason: null },
+        section,
+      },
+    };
+  }
+
   /**
    * PERF: grounded-first for secs with strong FR signals (not invent).
    * Default ON for data/uc/bpm — keeps LLM for bg+br. Disable via PHASE1_<SEC>_GROUNDED_FIRST=0.
@@ -278,7 +310,7 @@ function prepareSectionDerive(opts = {}) {
     if (groundedOn) {
       const inputPreview = buildRawDeriveInput(engineId, pack, {
         proposal: opts.proposal,
-        g4Understanding: opts.g4Understanding,
+        frUnderstanding: opts.frUnderstanding,
         evidence: opts.evidence,
         snapshot: opts.snapshot,
         contextPackage: opts.contextPackage || null,
@@ -363,7 +395,7 @@ function prepareSectionDerive(opts = {}) {
   const task = getSemanticTask(engineId);
   const input = buildRawDeriveInput(engineId, pack, {
     proposal: opts.proposal,
-    g4Understanding: opts.g4Understanding,
+    frUnderstanding: opts.frUnderstanding,
     evidence: opts.evidence,
     snapshot: opts.snapshot,
     locale: opts.locale || pack?.aiAnalysis?.deriveLocale || null,
@@ -661,7 +693,7 @@ async function runAllRawSectionDerives(opts = {}) {
       env,
       invokeFn: opts.invokeFn,
       proposal: opts.proposal,
-      g4Understanding: opts.g4Understanding,
+      frUnderstanding: opts.frUnderstanding,
       evidence: opts.evidence,
       snapshot: opts.snapshot,
       locale: opts.locale || pack?.aiAnalysis?.deriveLocale || null,

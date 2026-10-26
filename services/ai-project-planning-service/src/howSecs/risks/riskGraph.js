@@ -286,4 +286,11 @@ async function runRiskSecGraph(input = {}) {
   return { result: out.result, containerPatch: out.containerPatch };
 }
 
-module.exports = { runRiskSecGraph, buildRiskSemantic, acceptRisk };
+module.exports = {
+  buildRiskSecGraph,
+  runRiskSecGraph,
+  buildRiskSemantic,
+  buildRiskFacts,
+  proposeRisk,
+  acceptRisk,
+};

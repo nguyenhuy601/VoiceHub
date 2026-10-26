@@ -91,6 +91,67 @@ const TOOL_ACTIVITY = Object.freeze({
     key: 'requirements.aiHitlMonitorActivity_WhatActorsTool',
     fallback: 'Đang derive tác nhân…',
   },
+  // ReAct phase nodes (WHAT/HOW) — keep legacy keys for older runs
+  plan: {
+    key: 'requirements.aiHitlMonitorActivity_plan',
+    fallback: 'Đang lập kế hoạch tool…',
+  },
+  select: {
+    key: 'requirements.aiHitlMonitorActivity_select',
+    fallback: 'Đang chọn tool…',
+  },
+  selectTools: {
+    key: 'requirements.aiHitlMonitorActivity_select',
+    fallback: 'Đang chọn tool…',
+  },
+  prepareWhat: {
+    key: 'requirements.aiHitlMonitorActivity_understand',
+    fallback: 'Đang chuẩn bị ngữ cảnh WHAT…',
+  },
+  prepareHowContext: {
+    key: 'requirements.aiHitlMonitorActivity_understand',
+    fallback: 'Đang chuẩn bị ngữ cảnh HOW…',
+  },
+  runFrUnderstanding: {
+    key: 'requirements.aiHitlMonitorActivity_RequirementAnalysisTool',
+    fallback: 'Đang phân tích yêu cầu…',
+  },
+  enterTools: {
+    key: 'requirements.aiHitlMonitorActivity_enterTools',
+    fallback: 'Đang chạy tool…',
+  },
+  call_tool: {
+    key: 'requirements.aiHitlMonitorActivity_call_tool',
+    fallback: 'Đang gọi tool…',
+  },
+  observe: {
+    key: 'requirements.aiHitlMonitorActivity_observe',
+    fallback: 'Đang quan sát kết quả tool…',
+  },
+  assemble: {
+    key: 'requirements.aiHitlMonitorActivity_observe',
+    fallback: 'Đang tổng hợp kết quả…',
+  },
+  evaluateLocal: {
+    key: 'requirements.aiHitlMonitorActivity_evaluateLocal',
+    fallback: 'Đang đánh giá đủ thông tin…',
+  },
+  finalizeMeta: {
+    key: 'requirements.aiHitlMonitorActivity_metaGate',
+    fallback: 'Đang kiểm tra sẵn sàng Gate 1…',
+  },
+  scoreCompleteness: {
+    key: 'requirements.aiHitlMonitorActivity_evaluateLocal',
+    fallback: 'Đang đánh giá đủ artifact…',
+  },
+  metaGate: {
+    key: 'requirements.aiHitlMonitorActivity_metaGate',
+    fallback: 'Đang kiểm tra sẵn sàng Gate 1…',
+  },
+  gateTools: {
+    key: 'requirements.aiHitlMonitorActivity_gateTools',
+    fallback: 'Đang tổng hợp engine…',
+  },
 });
 
 function labelOf(t, key, fallback) {

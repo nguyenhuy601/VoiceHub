@@ -109,8 +109,9 @@ async function mapPool(items, limit, fn) {
 
 async function awaitWorkers(state, config) {
   const env = envOf(config);
-  // Memory transport runs inside this node. interrupt() would be thrown out
-  // of WbsTool because HOW already owns the parent LangGraph run.
+  // Memory: drain in this node. Rabbit: interrupt fan-in — runWbsChunkOrchestrator
+  // isolates ALS from howPhaseGraph so this graph is not isNested, then
+  // waitUntilChunkWaveSettled + Command({ resume }) continues here.
   if (resolveWbsChunkTransport(env) === 'memory') {
     const units = await listWorkUnitsByRun(state.runId, env);
     const todo = units.filter((unit) => unit.status === 'PENDING' || unit.status === 'QUEUED');

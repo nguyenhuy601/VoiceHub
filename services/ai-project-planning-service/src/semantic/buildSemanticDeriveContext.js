@@ -48,7 +48,7 @@ function compiledFrRows(compiled) {
  * Full FR rows for derive. Count and character caps are not applied here.
  * The context compiler decides work units and records anything left out.
  * @param {object} pack
- * @param {{ proposal?: object, g4Understanding?: object, profile?: string, compiledContext?: object }} [opts]
+ * @param {{ proposal?: object, frUnderstanding?: object, profile?: string, compiledContext?: object }} [opts]
  */
 function takeFrFull(pack, opts = {}) {
   if (opts.compiledContext) return compiledFrRows(opts.compiledContext);
@@ -60,7 +60,7 @@ function takeFrFull(pack, opts = {}) {
       pack: packForCompile(pack, opts),
       snapshot: opts.snapshot,
       container: opts.container,
-      understanding: opts.g4Understanding || opts.understanding,
+      understanding: opts.frUnderstanding || opts.g4Understanding || opts.understanding,
       focusRefs: opts.focusRefs,
       budget: opts.budget,
     })
@@ -226,10 +226,10 @@ function toDerivePromptPayload(input) {
 /**
  * Shared semantic block attached to every section derive input.
  * @param {object} pack
- * @param {{ proposal?: object, g4Understanding?: object, evidence?: object[], snapshot?: object, locale?: string }} [opts]
+ * @param {{ proposal?: object, frUnderstanding?: object, evidence?: object[], snapshot?: object, locale?: string }} [opts]
  */
 function buildSemanticDeriveContext(pack, opts = {}) {
-  const g4 = opts.g4Understanding || opts.understanding || null;
+  const g4 = opts.frUnderstanding || opts.g4Understanding || opts.understanding || null;
   const locale = normalizeDeriveLocale(opts.locale || pack?.aiAnalysis?.deriveLocale || 'vi');
   const { formatRetrievedContext } = require('../retrieval/formatRetrievedContext');
   const { compileContext } = require('../dataPlane/compileContext');

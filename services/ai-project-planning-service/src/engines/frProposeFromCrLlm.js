@@ -49,13 +49,33 @@ function rowId(row) {
   );
 }
 
+function shortTitleFromBehavior(text, max = 120) {
+  const t = String(text || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (!t) return '';
+  if (t.length <= max) return t;
+  const slice = t.slice(0, max);
+  const br = slice.search(/[.!?…。；;]/);
+  if (br >= 40) return slice.slice(0, br + 1).trim();
+  const sp = slice.lastIndexOf(' ');
+  return `${(sp > 40 ? slice.slice(0, sp) : slice).trim()}…`;
+}
+
 function pushCr(out, seen, row, index) {
   const id = rowId(row) || `CR-${index + 1}`;
   if (!isCustomerRequirementId(id) || seen.has(id)) return;
   seen.add(id);
-  const name = truncate(row?.name || row?.title || row?.functional_behavior || id, NAME_MAX);
+  const behavior = String(row?.functional_behavior || '').trim();
+  // Prefer explicit name/title; else short headline from behavior (not full copy into both fields).
+  const name = truncate(
+    row?.name || row?.title || shortTitleFromBehavior(behavior, 80) || id,
+    NAME_MAX
+  );
+  const explicitDesc = String(row?.description || row?.text || '').trim();
   const description = truncate(
-    row?.description || row?.text || row?.functional_behavior || '',
+    explicitDesc ||
+      (behavior && behavior.length > String(name).length ? behavior : ''),
     DESC_MAX
   );
   const ac = truncate(row?.acceptanceCriteria || row?.ac || row?.acceptance_condition || '', AC_CHARS);
@@ -128,7 +148,7 @@ function buildFrFromCrPrompt({ crRows = [], localeInstruction = '' } = {}) {
     localeInstruction || 'Respond in the same language as CR titles.',
     'Propose FR JSON only. No CR ids as FR id.',
     'Shape:{"nodes":[{"id","name","description?","ac","priority","sourceCrIds"}]}',
-    'Rules: id = FR-n unique within this chunk; sourceCrIds exact CR ids from CR_INTAKE and non-empty; split independent behaviors (do NOT copy 1 CR = 1 FR when one CR states several behaviors); never copy CR id as FR id; no NFR-only items.',
+    'Rules: id = FR-n unique within this chunk; sourceCrIds exact CR ids from CR_INTAKE and non-empty; split independent behaviors (do NOT copy 1 CR = 1 FR when one CR states several behaviors); never copy CR id as FR id; no NFR-only items; name = short title; description = fuller behavior (do not set description identical to name).',
     `CR_INTAKE=${JSON.stringify(payload)}`,
   ].join('\n');
 }

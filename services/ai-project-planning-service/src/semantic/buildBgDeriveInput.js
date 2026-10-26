@@ -217,7 +217,7 @@ function brqFromCanonicalRaw(canonicalRaw) {
 
 /**
  * @param {object} pack
- * @param {{ proposal?: object, g4Understanding?: object, evidence?: object[], snapshot?: object }} [opts]
+ * @param {{ proposal?: object, frUnderstanding?: object, evidence?: object[], snapshot?: object }} [opts]
  */
 function buildBgDeriveInput(pack, opts = {}) {
   const overview = {
@@ -280,7 +280,7 @@ function buildBgDeriveInput(pack, opts = {}) {
   }
 
   const requirements = selectFrForBg(merged, brqAll).map(({ _requestId, ...rest }) => rest);
-  const g4 = opts.g4Understanding || opts.understanding || null;
+  const g4 = opts.frUnderstanding || opts.g4Understanding || opts.understanding || null;
   const businessThemes = buildBusinessThemes(requirements, g4);
   const evidenceRefs = asArray(opts.evidence || g4?.evidence)
     .slice(0, BG_EVIDENCE_REF_CAP)

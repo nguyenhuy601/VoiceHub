@@ -1,6 +1,6 @@
 /**
  * WHAT / G4 progress catalog and the slim data-gate preview.
- * Substep ids match execution order inside runG4Pipeline.
+ * Substep ids match execution order inside frUnderstandingGraph.
  */
 
 const FLAGGED_CAP = 30;

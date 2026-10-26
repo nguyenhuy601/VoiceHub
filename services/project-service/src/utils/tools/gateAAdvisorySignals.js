@@ -96,7 +96,7 @@ function listFrItems(pack, aiAnalysis) {
  */
 function collectDuplicateSignals({ pack, aiAnalysis } = {}) {
   const analyses = aiAnalysis?.analyses || pack?.aiAnalysis?.analyses || {};
-  const g4Dupes = analyses.g4Understanding?.duplicates;
+  const g4Dupes = (analyses.frUnderstanding || analyses.g4Understanding)?.duplicates;
   const fromG4 = Array.isArray(g4Dupes) ? g4Dupes.map((id) => String(id)) : [];
 
   const items = listFrItems(pack, aiAnalysis);

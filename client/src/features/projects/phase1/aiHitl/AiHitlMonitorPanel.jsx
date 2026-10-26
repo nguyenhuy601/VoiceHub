@@ -316,6 +316,7 @@ function WhatMonitorBody({
   packStatus,
   pipeline,
   phaseDone,
+  hasProposeOutput = false,
   rerunWhatButton = null,
   t,
 }) {
@@ -331,27 +332,32 @@ function WhatMonitorBody({
       ? { pipelineSubstep: pipeline.substep, pipelineStep: pipeline.step }
       : null);
 
-  const inFlight =
-    !phaseDone &&
-    (['pending', 'running', 'waiting_human', 'queued'].includes(
-      String(liveForWhat?.status || phaseWhat?.status || '').toLowerCase()
-    ) ||
-      Boolean(liveForWhat?.pipelineSubstep));
-
-  useEffect(() => {
-    if (!inFlight || phaseDone) return undefined;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [inFlight, phaseDone]);
-
   const rawVm = resolveWhatProgressViewModel(
     liveForWhat,
     phaseWhat,
     now,
     undefined,
-    packStatus
+    packStatus,
+    hasProposeOutput
   );
   const vm = phaseDone ? rawVm : applyStickyWhatProgress(rawVm, stickyRef);
+  // Live badge + 1s tick only while agent is computing — stop when propose results exist.
+  const clockLive =
+    !phaseDone &&
+    !hasProposeOutput &&
+    (vm.state === 'running' || vm.state === 'queued');
+  const runBusy =
+    !phaseDone &&
+    (clockLive ||
+      hasProposeOutput ||
+      vm.state === 'finalizing' ||
+      vm.state === 'waiting_human');
+
+  useEffect(() => {
+    if (!clockLive) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [clockLive]);
   // WHAT AI done → step 5 (Gate 1). Step 6 only after pack approved.
   const activeMacro = srsApproved
     ? 6
@@ -442,7 +448,7 @@ function WhatMonitorBody({
       {/* Same placement as HOW: action above timing footer — PO revise only */}
       {phaseDone &&
       !srsApproved &&
-      !inFlight &&
+      !runBusy &&
       vm.state !== 'failed' &&
       vm.state !== 'cancelled' &&
       vm.state !== 'error'
@@ -452,7 +458,7 @@ function WhatMonitorBody({
         elapsedMs={vm.elapsedMs}
         startedAt={vm.startedAt}
         completedAt={vm.completedAt}
-        inFlight={inFlight}
+        inFlight={clockLive}
         t={t}
       />
     </section>
@@ -469,25 +475,32 @@ function HowMonitorBody({
   phaseHow,
   phaseDone,
   howNotStarted,
+  hasProposeOutput = false,
   startHowButton,
   rerunHowButton,
   t,
 }) {
   const [now, setNow] = useState(() => Date.now());
-  const vm = resolveHowProgressViewModel(liveRun, phaseHow, now);
-  const inFlight =
+  const vm = resolveHowProgressViewModel(liveRun, phaseHow, now, hasProposeOutput);
+  // Live badge + 1s tick only while agent/tools compute — stop when propose results exist.
+  const clockLive =
     !phaseDone &&
     !howNotStarted &&
-    (vm.state === 'running' ||
-      vm.state === 'queued' ||
+    !hasProposeOutput &&
+    (vm.state === 'running' || vm.state === 'queued');
+  const runBusy =
+    !phaseDone &&
+    !howNotStarted &&
+    (clockLive ||
+      hasProposeOutput ||
       vm.state === 'finalizing' ||
       vm.state === 'waiting_human');
 
   useEffect(() => {
-    if (!inFlight) return undefined;
+    if (!clockLive) return undefined;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [inFlight]);
+  }, [clockLive]);
   const activeMacro = phaseDone ? 3 : howNotStarted ? 0 : vm.macroStep || 1;
 
   return (
@@ -568,7 +581,7 @@ function HowMonitorBody({
       {howNotStarted ? startHowButton : null}
       {phaseDone ||
       (!howNotStarted &&
-        !inFlight &&
+        !runBusy &&
         vm.state !== 'failed' &&
         vm.state !== 'cancelled' &&
         vm.state !== 'error')
@@ -578,7 +591,7 @@ function HowMonitorBody({
         elapsedMs={vm.elapsedMs}
         startedAt={vm.startedAt}
         completedAt={vm.completedAt}
-        inFlight={inFlight}
+        inFlight={clockLive}
         t={t}
       />
     </section>
@@ -764,6 +777,7 @@ export default function AiHitlMonitorPanel({
         packStatus={packStatus}
         pipeline={pipeline}
         phaseDone={false}
+        hasProposeOutput={!awaitingFreshRun && shouldShowWhatMonitorResults(pack)}
         rerunWhatButton={rerunWhatButton}
         t={t}
       />
@@ -775,6 +789,7 @@ export default function AiHitlMonitorPanel({
         phaseHow={phaseHow}
         phaseDone={false}
         howNotStarted
+        hasProposeOutput={false}
         startHowButton={startHowButton}
         rerunHowButton={rerunHowButton}
         t={t}
@@ -788,6 +803,7 @@ export default function AiHitlMonitorPanel({
         packStatus={packStatus}
         pipeline={pipeline}
         phaseDone
+        hasProposeOutput={!awaitingFreshRun && shouldShowWhatMonitorResults(pack)}
         rerunWhatButton={rerunWhatButton}
         t={t}
       />
@@ -799,6 +815,11 @@ export default function AiHitlMonitorPanel({
         phaseHow={phaseHow}
         phaseDone={phase === 'how_done'}
         howNotStarted={phase === 'how' && howNotStarted}
+        hasProposeOutput={
+          !awaitingFreshRun && phase === 'how'
+            ? shouldShowHowMonitorResults(pack)
+            : phase === 'how_done'
+        }
         startHowButton={startHowButton}
         rerunHowButton={rerunHowButton}
         t={t}

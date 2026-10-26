@@ -1,6 +1,6 @@
 /**
- * Agent Core F2 — WHAT Phase StateGraph (Layer B mirror).
- * G4 + Conflict/Ambiguity (Track A); no Gate interrupt (RULE-F2-03 default).
+ * Agent Core — WHAT Phase ReAct StateGraph (no tool DAG / catalog / whitelist).
+ * Gate 1 HITL stays on project-service HTTP (RULE-F2-03 / RULE-LG-03).
  */
 
 const {
@@ -9,8 +9,8 @@ const {
   START,
   END,
   MemorySaver,
+  Send,
 } = require('@langchain/langgraph');
-const { decideEvaluateAction } = require('./evaluatePolicy');
 const {
   resolveAgentBudget,
   evaluateStopCondition,
@@ -18,14 +18,56 @@ const {
 } = require('./agentBudget');
 const { buildFeasibilitySignal } = require('../validation/buildFeasibilitySignal');
 const { checkFeasibility } = require('../validation/feasibility');
+const { buildCorpusFromSnapshot } = require('../retrieval/buildCorpusFromSnapshot');
+const {
+  appendList,
+  appendMessages,
+  createSelectToolsNode,
+  routeAfterSelectTools,
+  lastAiMessage,
+  stateForToolSend,
+} = require('./toolSelectNodes');
+const { deepMergePlanningContainers } = require('../tools/mergePlanningContainers');
+const {
+  mergeSrsProposalPatches,
+  mergeEngineResultsById,
+  mergeSemanticStatuses,
+  mergeCurrentToolName,
+  mergeStopReason,
+} = require('./whatPhaseToolNodes');
+const { runMetaGateNode } = require('./analysisEngineNodes');
+const { WHAT_SECTION_TOOLS, WHAT_FR_TOOL } = require('../whatSecs/sectionCatalog');
+const { CANONICAL_ORDER: WHAT_CANONICAL_ORDER } = require('./whatToolDag');
+const {
+  buildWhatSectionToolSubgraph,
+  buildWhatFrToolSubgraph,
+} = require('./toolSubgraphAdapter');
+const {
+  PLAIN_TOOLS_NODE,
+  listPlainToolNames,
+  buildPlainToolsNode,
+  toolCallsFromMessage,
+} = require('./phasePlainToolNode');
+const {
+  scoreArtifactCompleteness,
+  buildGapReport,
+  gapReportToMessage,
+  routeAfterCompleteness,
+  STOP_INCOMPLETE,
+  envMaxEnrich,
+} = require('./artifactCompleteness');
 
+/**
+ * Phase node for FR understanding StateGraph (RULE-LG-FR).
+ * Must not equal channel `frUnderstanding` (LangGraph forbids node/channel name clash).
+ */
+const FR_UNDERSTANDING_NODE = 'runFrUnderstanding';
+
+const { preferRight } = require('./sharedPhaseChannels');
+
+/** Bare LastValue breaks when parallel Send tool nodes echo the same channel. */
 function field() {
-  return Annotation();
-}
-
-/** Parallel WHAT secs each return their own patch. Keys merge; siblings are kept. */
-function mergeSectionPatches(left, right) {
-  return { ...(left && typeof left === 'object' ? left : {}), ...(right && typeof right === 'object' ? right : {}) };
+  return Annotation({ reducer: preferRight });
 }
 
 const WhatPhaseState = Annotation.Root({
@@ -33,12 +75,27 @@ const WhatPhaseState = Annotation.Root({
   snapshotId: field(),
   snapshot: field(),
   pack: field(),
-  container: field(),
+  container: Annotation({
+    reducer: (left, right) => {
+      if (right == null) return left;
+      return deepMergePlanningContainers(left, right);
+    },
+  }),
   corpus: field(),
   contextPackage: field(),
-  history: field(),
-  toolResults: field(),
-  g4Understanding: field(),
+  history: Annotation({
+    reducer: appendList,
+    default: () => [],
+  }),
+  toolResults: Annotation({
+    reducer: appendList,
+    default: () => [],
+  }),
+  messages: Annotation({
+    reducer: appendMessages,
+    default: () => [],
+  }),
+  frUnderstanding: field(),
   proposalFragment: field(),
   conflictAmbiguityGate: field(),
   requirementIntegrityGate: field(),
@@ -49,23 +106,42 @@ const WhatPhaseState = Annotation.Root({
   currentGoal: field(),
   constraints: field(),
   budget: field(),
-  stopReason: field(),
+  stopReason: Annotation({
+    reducer: (left, right) => mergeStopReason(left, right),
+  }),
   startedAt: field(),
   hitl: field(),
-  g4Opts: field(),
+  frOpts: field(),
+  env: field(),
   understandingPartial: field(),
   corpusContentHash: field(),
   paused: field(),
-  gatePreview: field(),
-  g4Partial: field(),
-  srsProposal: field(),
-  engineResultsById: field(),
-  semanticStatuses: field(),
-  whatTiming: field(),
-  sectionPatches: Annotation({
-    reducer: mergeSectionPatches,
+  srsProposal: Annotation({
+    reducer: mergeSrsProposalPatches,
+  }),
+  engineResultsById: Annotation({
+    reducer: mergeEngineResultsById,
     default: () => ({}),
   }),
+  semanticStatuses: Annotation({
+    reducer: mergeSemanticStatuses,
+    default: () => ({}),
+  }),
+  whatTiming: field(),
+  agentIteration: Annotation({
+    reducer: (left, right) => Math.max(Number(left) || 0, Number(right) || 0),
+    default: () => 0,
+  }),
+  currentToolName: Annotation({
+    reducer: mergeCurrentToolName,
+  }),
+  gapReport: field(),
+  enrichLoop: Annotation({
+    reducer: (left, right) => Math.max(Number(left) || 0, Number(right) || 0),
+    default: () => 0,
+  }),
+  completeness: field(),
+  skipUnderstand: field(),
 });
 
 async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
@@ -89,21 +165,133 @@ async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
     budget: state.budget,
     stopReason: state.stopReason,
     feasibilitySignal: state.feasibilitySignal,
-    g4Understanding: state.g4Understanding,
+    frUnderstanding: state.frUnderstanding,
+    srsProposal: state.srsProposal,
     ...extra,
   });
 }
 
+function buildEmitPayload(state, { ready }) {
+  const feasibilitySignal = buildFeasibilitySignal({
+    toolResults: state.toolResults,
+    container: state.container,
+    runId: state.runId,
+    snapshotId: state.snapshotId,
+  });
+  const evaluate = state.evaluate || {
+    kind: 'evaluate_local',
+    enoughInfoToContinue: ready,
+    reason: ready ? 'artifact_ready' : 'incomplete_artifact',
+  };
+  const feasibility = checkFeasibility({
+    runId: state.runId,
+    snapshotId: state.snapshotId,
+    coverageOk: ready,
+  });
+  const stopReason = ready
+    ? state.stopReason || STOP_REASONS.COMPLETE
+    : state.stopReason && String(state.stopReason).startsWith('BUDGET_')
+      ? state.stopReason
+      : STOP_INCOMPLETE;
+  const durationMs = Math.max(0, Date.now() - (state.startedAt || Date.now()));
+
+  const container =
+    state.container && typeof state.container === 'object'
+      ? { ...state.container }
+      : { analyses: {}, phaseRuns: {} };
+  if (container.jobs != null) delete container.jobs;
+
+  let srsProposal = state.srsProposal || null;
+  if (srsProposal) {
+    container.analyses = { ...(container.analyses || {}), srsProposal };
+  }
+
+  container.phaseRuns = {
+    ...(container.phaseRuns || {}),
+    phase_what: {
+      ...(container.phaseRuns?.phase_what || {}),
+      status: ready ? 'ready' : 'stopped',
+      mode: 'requirement',
+      remoteRunId: state.runId || null,
+      snapshotId: state.snapshotId || null,
+      generatedAt: new Date().toISOString(),
+      durationMs: state.frUnderstanding?.meta?.durationMs ?? durationMs,
+      error: ready ? null : stopReason,
+      partial: !ready,
+      conflictAmbiguityGate: state.conflictAmbiguityGate,
+      requirementIntegrityGate:
+        state.requirementIntegrityGate || state.conflictAmbiguityGate || null,
+      agentCore: 'langgraph_react',
+      stopReason,
+      computeStatus: 'completed',
+      callbackStatus: 'pending',
+      stage: 'finalizing',
+      llm: state.frUnderstanding?.meta?.llm || null,
+      candidateCount: state.frUnderstanding?.meta?.candidateCount ?? null,
+      readyForGate1: Boolean(srsProposal?.completeness?.readyForGate1),
+      analysisEngineGraph: true,
+    },
+  };
+  if (container.analyses?.frUnderstanding) {
+    delete container.analyses.frUnderstanding;
+  }
+  if (container.analyses?.g4Understanding) {
+    delete container.analyses.g4Understanding;
+  }
+
+  let proposalFragment = state.proposalFragment || null;
+  if (!proposalFragment && state.frUnderstanding) {
+    const {
+      buildFunctionalRequirementProposal,
+    } = require('../requirementAnalysis/functionalRequirements/buildFunctionalRequirementProposal');
+    const {
+      validateFunctionalRequirements,
+    } = require('../requirementAnalysis/functionalRequirements/validateFunctionalRequirements');
+    const { synthesis: _s, ...sem } = state.frUnderstanding;
+    const validated = validateFunctionalRequirements({ frUnderstanding: sem });
+    proposalFragment = buildFunctionalRequirementProposal({
+      validated,
+      generationId: state.runId || null,
+    });
+  }
+
+  return {
+    container,
+    proposalFragment,
+    srsProposal,
+    feasibilitySignal,
+    feasibility,
+    evaluate,
+    stopReason,
+    hitl: 'gate1',
+    frUnderstanding: state.frUnderstanding,
+    history: [ready ? 'emitReady' : 'emitIncomplete'],
+  };
+}
+
 /**
- * @param {{ onProgress?: Function, onCheckpoint?: Function, checkpointer?: object }} hooks
+ * @param {{ onProgress?: Function, onCheckpoint?: Function, checkpointer?: object, decideToolCalls?: Function }} hooks
  */
 function buildWhatPhaseGraph(hooks = {}) {
   const onProgress = hooks.onProgress || null;
-  const onCheckpoint = hooks.onCheckpoint || null;
-  const checkpointer = hooks.checkpointer || new MemorySaver();
+  // G15 projection only when explicitly enabled — LG checkpointer is resume SoT
+  const onCheckpoint =
+    hooks.asSubgraph || hooks.checkpointer == null
+      ? hooks.onCheckpoint || null
+      : hooks.onCheckpoint || null;
+  const asSubgraph = Boolean(hooks.asSubgraph);
+  const checkpointer = asSubgraph ? null : hooks.checkpointer || new MemorySaver();
   const graph = new StateGraph(WhatPhaseState);
 
-  graph.addNode('understand', async (state) => {
+  graph.addNode('prepareWhat', async (state) => {
+    if (state.skipUnderstand) {
+      let corpus = Array.isArray(state.corpus) ? state.corpus : [];
+      if (!corpus.length && state.snapshot) {
+        corpus = buildCorpusFromSnapshot(state.snapshot);
+      }
+      return { corpus };
+    }
+
     const {
       createWhatTiming,
       markStage,
@@ -127,8 +315,11 @@ function buildWhatPhaseGraph(hooks = {}) {
       toolCallCount: 0,
     });
     if (preStop.stop) {
-      const history = [...(state.history || []), `stop:${preStop.reason}`];
-      return { history, stopReason: preStop.reason, whatTiming };
+      return {
+        history: [`stop:${preStop.reason}`],
+        stopReason: preStop.reason,
+        whatTiming,
+      };
     }
 
     await onProgress?.({
@@ -145,393 +336,242 @@ function buildWhatPhaseGraph(hooks = {}) {
     }
     const endUnderstand = startSpan();
 
-    // Step 2 — Requirement Understanding (normalize…quality). Step 3 ingest owned by G4 (RULE-DL-09).
-    const { resolveAiG4Policy } = require('../config/aiG4Policy');
-    const { runUnderstandPrefix } = require('../engines/g4/runG4Pipeline');
-    const policy = resolveAiG4Policy(process.env);
-    const understandingPartial = await runUnderstandPrefix(
-      {
-        onProgress: async (evt) => {
-          if (!onProgress) return;
-          await onProgress({
-            ...evt,
-            phase: 'what',
-            node: evt.substep || evt.node,
-          });
-        },
-      },
-      policy,
-      snapshotPayload
-    );
-
-    const history = [...(state.history || []), 'step2:understanding'];
-    whatTiming = markStage(whatTiming, 'understand', {
+    // RULE-LG-FR: prefix runs only inside frUnderstanding subgraph — prepare = snapshot/corpus.
+    // SoT FR list is often canonicalRaw (Customer Raw), not top-level functionalRequirements[].
+    const { listFrs } = require('../tools/requirementAnalysis');
+    let snapshot = snapshotPayload;
+    let frRows = [];
+    try {
+      frRows = listFrs(snapshotPayload);
+    } catch (err) {
+      console.warn('[prepareWhat] listFrs failed:', err?.message || err);
+      frRows = Array.isArray(snapshotPayload.functionalRequirements)
+        ? snapshotPayload.functionalRequirements
+        : [];
+    }
+    const topLen = Array.isArray(snapshotPayload.functionalRequirements)
+      ? snapshotPayload.functionalRequirements.length
+      : 0;
+    if ((!topLen || topLen === 0) && Array.isArray(frRows) && frRows.length) {
+      snapshot = { ...snapshotPayload, functionalRequirements: frRows };
+      console.info(
+        '[prepareWhat] projected listFrs→functionalRequirements count=%s (was top-level empty)',
+        frRows.length
+      );
+    }
+    const corpus = buildCorpusFromSnapshot(snapshot);
+    const frCount = Array.isArray(frRows) ? frRows.length : 0;
+    whatTiming = markStage(whatTiming, 'prepareWhat', {
       ms: endUnderstand(),
-      frCount: Array.isArray(understandingPartial?.functionalRequirements)
-        ? understandingPartial.functionalRequirements.length
-        : 0,
-      candidateCount: understandingPartial?.selection?.counts?.candidates ?? null,
+      frCount,
+      candidateCount: null,
+      topLevelFrCount: topLen,
     });
-    const next = {
-      ...state,
-      understandingPartial,
-      history,
-      whatTiming,
-    };
-    await persistNode(next, 'step2:understanding', onCheckpoint, {
-      understandingPartial,
-    });
-    return {
-      understandingPartial,
-      history,
-      whatTiming,
-    };
-  });
-
-  graph.addNode('plan', async (state) => {
-    if (state.stopReason) return {};
-    // Node-only: Step 4 business progress starts inside G4 after Step 3 (semantic/conflict).
-    await onProgress?.({
-      node: 'agent_understand',
-      phase: 'what',
-    });
-    await onProgress?.({
-      node: 'plan',
-      phase: 'what',
-    });
-    const history = [...(state.history || []), 'agent_understand', 'plan'];
-    await persistNode({ ...state, history }, 'plan', onCheckpoint);
-    return { history };
-  });
-
-  graph.addNode('executeG4', async (state) => {
-    if (state.stopReason) return {};
-    const { markStage, startSpan } = require('./whatTiming');
-    let whatTiming = state.whatTiming || null;
-    const endG4 = startSpan();
-    onProgress?.({
-      node: 'execute',
-      phase: 'what',
-      tool: 'WhatFrTool',
-    });
-    const { registerDefaultTools } = require('../tools/registerDefaultTools');
-    const { invokeTool } = require('../registry/toolRegistry');
-    const { assertToolOutputHasEvidence } = require('../evidence/evidence');
-    const { WHAT_FR_TOOL } = require('../whatSecs/sectionCatalog');
-    registerDefaultTools();
-    const frToolOut = await invokeTool(
-      WHAT_FR_TOOL,
-      {
-        snapshot: state.snapshot,
-        pack: state.pack,
-        snapshotId: state.snapshotId,
-        runId: state.runId,
-        g4Opts: {
-          ...(state.g4Opts || {}),
-          pauseAtDataGate: false,
-          priorCorpusHash: state.corpusContentHash || null,
-          snapshotId: state.snapshotId,
-        },
-        onProgress: async (evt) => {
-          if (!onProgress) return;
-          await onProgress({
-            ...evt,
-            phase: 'what',
-            node: evt.substep || evt.node,
-          });
-        },
-      },
-      {
-        contextName: 'understanding',
-        pack: state.pack || {},
-        snapshot: state.snapshot,
-        snapshotId: state.snapshotId,
-        runId: state.runId,
-      }
-    );
-    assertToolOutputHasEvidence(WHAT_FR_TOOL, frToolOut);
-    const frSem = frToolOut.result || {};
-    const g4Out = frSem.g4Out || frSem.meta?.g4Out || {};
-    const g4Understanding = frSem.g4Understanding;
-    const conflictAmbiguityGate = frSem.conflictAmbiguityGate;
-    const requirementIntegrityGate =
-      frSem.requirementIntegrityGate || conflictAmbiguityGate;
-    const proposalFragment = frSem.proposalFragment || null;
-    const contextPackage = g4Out.contextPackage || state.contextPackage || null;
-    const corpusContentHash = g4Out.corpusContentHash || state.corpusContentHash || null;
-    const toolResults = [
-      ...(state.toolResults || []),
-      { toolName: 'WhatFrTool', facts: g4Understanding?.facts || {} },
-    ];
-    const history = [
-      ...(state.history || []),
-      'step3:semantic_fetch',
-      'execute:WhatFrTool',
-      'semantic_task:fr',
-    ];
-
-    const container =
-      state.container && typeof state.container === 'object'
-        ? { ...state.container }
-        : { analyses: {}, phaseRuns: {} };
-    container.analyses = { ...(container.analyses || {}) };
-    if (container.analyses.g4Understanding) {
-      delete container.analyses.g4Understanding;
-    }
-
-    const g4Ms = endG4();
-    const st = g4Understanding?.meta?.stageTimings || {};
-    if (whatTiming) {
-      whatTiming = markStage(whatTiming, 'g4_semantic', {
-        ms: st.g4_semantic?.ms ?? null,
-        calls: st.g4_semantic?.calls ?? 0,
-        evalCount: st.g4_semantic?.evalCount ?? 0,
-        promptChars: st.g4_semantic?.promptChars ?? 0,
-        skipReason: st.g4_semantic?.skipReason || null,
-      });
-      whatTiming = markStage(whatTiming, 'g4_conflict', {
-        ms: st.g4_conflict?.ms ?? null,
-        calls: st.g4_conflict?.calls ?? 0,
-        evalCount: st.g4_conflict?.evalCount ?? 0,
-        promptChars: st.g4_conflict?.promptChars ?? 0,
-        skipReason: st.g4_conflict?.skipReason || null,
-      });
-      whatTiming = markStage(whatTiming, 'g4_synthesis', {
-        ms: st.g4_synthesis?.ms ?? null,
-        calls: st.g4_synthesis?.calls ?? 0,
-        evalCount: st.g4_synthesis?.evalCount ?? 0,
-        promptChars: st.g4_synthesis?.promptChars ?? 0,
-        skipReason: st.g4_synthesis?.skipReason || null,
-      });
-      whatTiming = markStage(whatTiming, 'g4_total', {
-        ms: g4Understanding?.meta?.durationMs ?? g4Ms,
-        llmCalls: g4Understanding?.meta?.llmCalls ?? 0,
-        wallMs: g4Ms,
-      });
-    }
-
+    const history = ['step2:prepare', 'prepareWhat'];
     await persistNode(
-      {
-        ...state,
-        container,
-        toolResults,
-        history,
-        g4Understanding,
-        conflictAmbiguityGate,
-        requirementIntegrityGate,
-        proposalFragment,
-        contextPackage,
-        corpusContentHash,
-        whatTiming,
-      },
-      'execute:g4',
-      onCheckpoint,
-      {
-        g4Understanding,
-        conflictAmbiguityGate,
-        requirementIntegrityGate,
-        proposalFragment,
-        contextPackage,
-        corpusContentHash,
-      }
+      { ...state, snapshot, history, whatTiming, corpus },
+      'prepareWhat',
+      onCheckpoint
     );
     return {
-      container,
-      toolResults,
+      snapshot,
       history,
-      g4Understanding,
-      conflictAmbiguityGate,
-      requirementIntegrityGate,
-      proposalFragment,
-      contextPackage,
-      corpusContentHash,
       whatTiming,
+      corpus,
     };
   });
 
-  graph.addNode('observe', async (state) => {
-    onProgress?.({
-      node: 'observe',
+  graph.addNode('selectTools',
+    createSelectToolsNode({
       phase: 'what',
-      step: 4,
-      substep: 'observe',
-    });
-    return { history: [...(state.history || []), 'observe'] };
-  });
+      onProgress,
+      decideToolCalls: hooks.decideToolCalls,
+    })
+  );
 
-  graph.addNode('evaluateLocal', async (state) => {
-    onProgress?.({
-      node: 'evaluateLocal',
-      phase: 'what',
-      step: 4,
-      substep: 'evaluate_local',
-    });
-    const g4 = state.g4Understanding || {};
-    const proposalFr = state.srsProposal?.generated?.functionalRequirements?.items || [];
-    const evaluate = {
-      kind: 'evaluate_local',
-      enoughInfoToContinue:
-        proposalFr.length > 0 ||
-        (Array.isArray(g4.requirements) ? g4.requirements.length > 0 : false),
-      reason: proposalFr.length ? 'proposal_fr' : 'g4_understanding',
-      frCount: proposalFr.length || (Array.isArray(g4.requirements) ? g4.requirements.length : 0),
-    };
-    const decision = decideEvaluateAction({
-      evaluate,
-      contextPackage: state.contextPackage,
-      toolResults: state.toolResults,
-    });
-    evaluate.action = decision.action;
-    let history = [...(state.history || [])];
-    if (decision.action === 'NEED_TOOL') history.push('need_tool:evaluate');
-    if (decision.action === 'RETRIEVE') history.push('retrieve:evaluate');
-    history.push('evaluateLocal');
-    return { evaluate, history };
-  });
+  const sectionByTool = Object.fromEntries(
+    WHAT_SECTION_TOOLS.map((s) => [s.toolName, s.engineId])
+  );
+  const whatSectionNames = new Set(WHAT_SECTION_TOOLS.map((s) => s.toolName));
+  const whatPlainNames = new Set(listPlainToolNames('what'));
+  const whatKnownNames = new Set([
+    ...WHAT_CANONICAL_ORDER,
+    ...WHAT_SECTION_TOOLS.map((s) => s.toolName),
+    WHAT_FR_TOOL,
+  ]);
 
-  graph.addNode('emitFeasibility', async (state) => {
+  // RULE-LG-FR: FR SoT = frUnderstanding subgraph (not WhatFrTool invokeTool).
+  const frNode =
+    typeof hooks.frUnderstandingNode === 'function' || hooks.frUnderstandingNode
+      ? hooks.frUnderstandingNode
+      : buildWhatFrToolSubgraph({
+          onProgress: onProgress
+            ? async (evt) => {
+                await onProgress({
+                  ...evt,
+                  phase: 'what',
+                  node: evt.substep || evt.node || FR_UNDERSTANDING_NODE,
+                });
+              }
+            : null,
+        });
+  graph.addNode(FR_UNDERSTANDING_NODE, frNode);
+
+  // Pattern B section subgraphs only — plain tools use Hybrid A plainTools (ToolNode).
+  for (const toolName of whatSectionNames) {
+    const engineId = sectionByTool[toolName];
+    if (!engineId) continue;
+    graph.addNode(toolName, buildWhatSectionToolSubgraph(engineId));
+  }
+
+  graph.addNode(PLAIN_TOOLS_NODE, buildPlainToolsNode({ phase: 'what', onProgress }));
+
+  function routeAfterSelectToolsWhat(state) {
+    if (routeAfterSelectTools(state) === 'assemble') return 'finalizeMeta';
+    const ai = lastAiMessage(state.messages);
+    const calls = toolCallsFromMessage(ai);
+    if (!calls.length) return 'finalizeMeta';
+    const sends = [];
+    let plainQueued = false;
+    for (const call of calls) {
+      const toolName = call.name || call.toolName;
+      if (!toolName || !whatKnownNames.has(toolName)) continue;
+      if (toolName === WHAT_FR_TOOL) {
+        // FR subgraph — clear append-list channels (RULE: no history echo).
+        sends.push(
+          new Send(FR_UNDERSTANDING_NODE, stateForToolSend(state, { clearMessages: true }))
+        );
+        continue;
+      }
+      if (whatSectionNames.has(toolName)) {
+        sends.push(
+          new Send(toolName, stateForToolSend(state, { clearMessages: true }))
+        );
+        continue;
+      }
+      if (whatPlainNames.has(toolName) && !plainQueued) {
+        plainQueued = true;
+        sends.push(
+          new Send(PLAIN_TOOLS_NODE, stateForToolSend(state, { clearMessages: false }))
+        );
+      }
+    }
+    return sends.length ? sends : 'finalizeMeta';
+  }
+
+  graph.addNode('finalizeMeta', async (state) => {
     onProgress?.({
-      node: 'feasibility',
+      node: 'finalizeMeta',
       phase: 'what',
       step: 4,
-      // Step 4 UI ends at meta_gate; feasibility is internal finalize (no FE substep)
       substep: 'meta_gate',
     });
-    const feasibilitySignal = buildFeasibilitySignal({
-      toolResults: state.toolResults,
-      container: state.container,
-      runId: state.runId,
-      snapshotId: state.snapshotId,
-    });
-    const evaluate = state.evaluate || {};
-    const feasibility = checkFeasibility({
-      runId: state.runId,
-      snapshotId: state.snapshotId,
-      coverageOk: evaluate.enoughInfoToContinue,
-    });
-    const stopReason = state.stopReason || STOP_REASONS.COMPLETE;
-    const history = [...(state.history || []), 'feasibilitySignal'];
-    const durationMs = Math.max(0, Date.now() - (state.startedAt || Date.now()));
-
-    const container =
-      state.container && typeof state.container === 'object'
-        ? { ...state.container }
-        : { analyses: {}, phaseRuns: {} };
-    if (container.jobs != null) delete container.jobs;
-    container.phaseRuns = {
-      ...(container.phaseRuns || {}),
-      phase_what: {
-        ...(container.phaseRuns?.phase_what || {}),
-        status: state.stopReason ? 'stopped' : 'ready',
-        mode: 'requirement',
-        remoteRunId: state.runId || null,
-        snapshotId: state.snapshotId || null,
-        generatedAt: new Date().toISOString(),
-        durationMs: state.g4Understanding?.meta?.durationMs ?? durationMs,
-        error: state.g4Understanding?.meta?.lastError || state.stopReason || null,
-        partial: Boolean(state.g4Understanding?.meta?.partial),
-        conflictAmbiguityGate: state.conflictAmbiguityGate,
-        requirementIntegrityGate:
-          state.requirementIntegrityGate || state.conflictAmbiguityGate || null,
-        agentCore: 'langgraph',
-        stopReason,
-        computeStatus: 'completed',
-        callbackStatus: 'pending',
-        stage: 'finalizing',
-        llm: state.g4Understanding?.meta?.llm || null,
-        candidateCount: state.g4Understanding?.meta?.candidateCount ?? null,
-      },
-    };
-    if (container.analyses?.g4Understanding) {
-      delete container.analyses.g4Understanding;
-    }
-
-    let proposalFragment = state.proposalFragment || null;
-    if (!proposalFragment && state.g4Understanding) {
-      const {
-        buildFunctionalRequirementProposal,
-      } = require('../requirementAnalysis/functionalRequirements/buildFunctionalRequirementProposal');
-      const {
-        validateFunctionalRequirements,
-      } = require('../requirementAnalysis/functionalRequirements/validateFunctionalRequirements');
-      const { synthesis: _s, ...sem } = state.g4Understanding;
-      const validated = validateFunctionalRequirements({ g4Understanding: sem });
-      proposalFragment = buildFunctionalRequirementProposal({
-        validated,
-        generationId: state.runId || null,
-      });
-    }
-
-    // srsProposal already produced by engine_* + metaGate nodes
-    let srsProposal = state.srsProposal || null;
-    if (srsProposal) {
-      container.analyses = { ...(container.analyses || {}), srsProposal };
-      container.phaseRuns = {
-        ...(container.phaseRuns || {}),
-        phase_what: {
-          ...(container.phaseRuns?.phase_what || {}),
-          readyForGate1: Boolean(srsProposal.completeness?.readyForGate1),
-          analysisEngineGraph: true,
-        },
+    if (state.stopReason || state.paused) {
+      const score = scoreArtifactCompleteness(state, 'what');
+      return {
+        completeness: score,
+        history: ['finalizeMeta:skipped_stop'],
       };
     }
-
-    const next = {
+    const out = await runMetaGateNode(state);
+    const merged = {
       ...state,
-      container,
-      proposalFragment,
-      srsProposal,
-      feasibilitySignal,
-      feasibility,
-      stopReason,
-      history,
-      hitl: 'gate1',
+      srsProposal: out.srsProposal,
+      engineResultsById: out.engineResultsById,
+      container: out.container,
     };
-    await persistNode(next, 'feasibility', onCheckpoint, {
-      evaluationResult: evaluate,
-      feasibilitySignal,
-      feasibility,
-      g4Understanding: state.g4Understanding,
-      proposalFragment,
-      srsProposal,
-      status: 'callback_pending',
-      stopReason,
-    });
+    const score = scoreArtifactCompleteness(merged, 'what');
     return {
-      container,
-      proposalFragment,
-      srsProposal,
-      feasibilitySignal,
-      feasibility,
-      stopReason,
-      history,
-      hitl: 'gate1',
-      g4Understanding: state.g4Understanding,
+      srsProposal: out.srsProposal,
+      engineResultsById: out.engineResultsById,
+      container: out.container,
+      completeness: score,
+      history: ['finalizeMeta'],
+      whatTiming: out.whatTiming,
     };
   });
 
-  const {
-    attachAnalysisEngineNodes,
-    wireAnalysisEngineEdges,
-  } = require('./analysisEngineNodes');
-  attachAnalysisEngineNodes(graph, { onProgress });
-
-  graph.addEdge(START, 'understand');
-  graph.addEdge('understand', 'plan');
-  graph.addEdge('plan', 'executeG4');
-  graph.addEdge('executeG4', 'observe');
-  // Step 2+: observe → derive → engines → evaluateLocal → metaGate → feasibility
-  wireAnalysisEngineEdges(graph, {
-    entryNode: 'observe',
-    evaluateNode: 'evaluateLocal',
-    exitNode: 'emitFeasibility',
+  graph.addNode('scoreCompleteness', async (state) => {
+    const score =
+      state.completeness || scoreArtifactCompleteness(state, 'what');
+    onProgress?.({
+      node: 'scoreCompleteness',
+      phase: 'what',
+      ready: score.ready,
+    });
+    return { completeness: score, history: ['scoreCompleteness'] };
   });
-  graph.addEdge('emitFeasibility', END);
 
-  return graph.compile({ checkpointer });
+  graph.addNode('injectGap', async (state) => {
+    const score = state.completeness || scoreArtifactCompleteness(state, 'what');
+    const gapReport = buildGapReport(score, state);
+    const msg = gapReportToMessage(gapReport);
+    const enrichLoop = (Number(state.enrichLoop) || 0) + 1;
+    onProgress?.({ node: 'injectGap', phase: 'what', enrichLoop });
+    return {
+      gapReport,
+      enrichLoop,
+      messages: [msg],
+      history: [`injectGap:${enrichLoop}`],
+    };
+  });
+
+  graph.addNode('emitReady', async (state) => {
+    onProgress?.({ node: 'feasibility', phase: 'what', ready: true });
+    const payload = buildEmitPayload(state, { ready: true });
+    await persistNode({ ...state, ...payload }, 'emitReady', onCheckpoint, {
+      status: 'callback_pending',
+      stopReason: payload.stopReason,
+    });
+    return payload;
+  });
+
+  graph.addNode('emitIncomplete', async (state) => {
+    onProgress?.({ node: 'feasibility', phase: 'what', ready: false });
+    const payload = buildEmitPayload(state, { ready: false });
+    await persistNode({ ...state, ...payload }, 'emitIncomplete', onCheckpoint, {
+      status: 'callback_pending',
+      stopReason: payload.stopReason,
+    });
+    return payload;
+  });
+
+  graph.addEdge(START, 'prepareWhat');
+  graph.addEdge('prepareWhat', 'selectTools');
+  graph.addConditionalEdges('selectTools', routeAfterSelectToolsWhat);
+  graph.addEdge(FR_UNDERSTANDING_NODE, 'selectTools');
+  for (const toolName of whatSectionNames) {
+    graph.addEdge(toolName, 'selectTools');
+  }
+  graph.addEdge(PLAIN_TOOLS_NODE, 'selectTools');
+  graph.addEdge('finalizeMeta', 'scoreCompleteness');
+  graph.addConditionalEdges(
+    'scoreCompleteness',
+    (state) =>
+      routeAfterCompleteness(state, {
+        maxEnrich: envMaxEnrich(state.env || process.env),
+        env: state.env || process.env,
+      }),
+    {
+      injectGap: 'injectGap',
+      emitReady: 'emitReady',
+      emitIncomplete: 'emitIncomplete',
+    }
+  );
+  graph.addEdge('injectGap', 'selectTools');
+  graph.addEdge('emitReady', END);
+  graph.addEdge('emitIncomplete', END);
+
+  return asSubgraph || !checkpointer
+    ? graph.compile()
+    : graph.compile({ checkpointer });
 }
 
 module.exports = {
   WhatPhaseState,
   buildWhatPhaseGraph,
+  FR_UNDERSTANDING_NODE,
+  STOP_REASONS,
+  routeAfterSelectTools,
+  routeAfterCompleteness,
 };

@@ -9,10 +9,8 @@ const {
 } = require('./agentBudget');
 const { buildInitialAgentFields } = require('../checkpoint/agentStateSchema');
 const { getLangGraphCheckpointer } = require('./langGraphCheckpointer');
+const { preparePhaseSnapshot } = require('./preparePhaseSnapshot');
 
-/**
- * @param {object} opts — HOW phase inputs from runAgentPhase
- */
 async function runHowPhaseLangGraph({
   container,
   pack,
@@ -23,14 +21,21 @@ async function runHowPhaseLangGraph({
   onProgress,
   onCheckpoint,
   resumeState = null,
-  selectiveToolNames = null,
   budget: budgetOverride = null,
   goal: goalOverride = null,
   constraints: constraintsOverride = null,
+  decideToolCalls = null,
 } = {}) {
   const startedAt = Date.now();
-  const isSelective =
-    Array.isArray(selectiveToolNames) && selectiveToolNames.length > 0;
+  const prepared = preparePhaseSnapshot({
+    snapshotId,
+    snapshot,
+    runId,
+    phase: 'how',
+    pack: pack || {},
+  });
+  const boundSnapshot = prepared.snapshot;
+  const boundSnapshotId = prepared.snapshotId;
 
   const budget = resolveAgentBudget({
     budget: budgetOverride || resumeState?.budget || undefined,
@@ -38,7 +43,7 @@ async function runHowPhaseLangGraph({
   const initialFields = buildInitialAgentFields({
     phase: 'how',
     runId,
-    snapshotId,
+    snapshotId: boundSnapshotId,
     goal: goalOverride || resumeState?.goal || resumeState?.currentGoal,
     constraints: constraintsOverride || resumeState?.constraints,
     budget,
@@ -61,33 +66,23 @@ async function runHowPhaseLangGraph({
     ? [...resumeState.toolResults]
     : [];
 
-  let startIndex = 0;
-  if (
-    !isSelective &&
-    resumeState &&
-    typeof resumeState.currentToolIndex === 'number' &&
-    resumeState.currentToolIndex > 0
-  ) {
-    startIndex = resumeState.currentToolIndex;
-  }
-
   const { checkpointer, kind: checkpointerKind } = await getLangGraphCheckpointer();
   const { assertDurableCheckpointerForInRunHitl } = require('./hitlCheckpointerPolicy');
   assertDurableCheckpointerForInRunHitl({ kind: checkpointerKind });
-  const threadId = String(runId || snapshotId || `how-${startedAt}`);
+  const threadId = String(runId || boundSnapshotId || `how-${startedAt}`);
 
   console.info(
-    `[agent_core] mode=langgraph phase=how runId=${runId || ''} selective=${isSelective} checkpointer=${checkpointerKind} orchestrator=shared`
+    `[agent_core] mode=langgraph_react phase=how runId=${runId || ''} checkpointer=${checkpointerKind}`
   );
 
   const finalState = await runPhaseOrchestrator({
     phase: 'how',
     threadId,
-    hooks: { onProgress, onCheckpoint, checkpointer },
+    hooks: { onProgress, onCheckpoint, checkpointer, decideToolCalls },
     input: {
       runId,
-      snapshotId,
-      snapshot,
+      snapshotId: boundSnapshotId,
+      snapshot: boundSnapshot,
       pack: pinnedPack,
       toolData: pinnedToolData,
       container: next,
@@ -95,9 +90,8 @@ async function runHowPhaseLangGraph({
       contextPackage: resumeState?.contextPackage || null,
       history,
       toolResults,
+      messages: [],
       evaluate: null,
-      evaluateAction: null,
-      evaluateLoop: 0,
       feasibilitySignal: resumeState?.feasibilitySignal || null,
       feasibility: null,
       goal: initialFields.goal,
@@ -105,14 +99,14 @@ async function runHowPhaseLangGraph({
       constraints: initialFields.constraints,
       budget,
       stopReason: resumeState?.stopReason || null,
-      selective: isSelective,
-      selectiveToolNames: isSelective ? selectiveToolNames : null,
-      startIndex,
-      currentToolIndex: startIndex,
-      currentToolName: null,
       startedAt,
       hitl: 'gate2',
-      skipUnderstand: isSelective,
+      skipUnderstand: Boolean(resumeState?.skipUnderstand),
+      agentIteration: 0,
+      enrichLoop: 0,
+      gapReport: null,
+      completeness: null,
+      generationId: runId || null,
     },
   });
 
@@ -137,8 +131,7 @@ async function runHowPhaseLangGraph({
     stopReason: finalState.stopReason || STOP_REASONS.COMPLETE,
     hitl: 'gate2',
     durationMs,
-    selective: isSelective,
-    agentCore: 'langgraph',
+    agentCore: 'langgraph_react',
     checkpointer: checkpointerKind,
   };
 }

@@ -1,10 +1,11 @@
 /**
  * Single FE selector: liveRun → HOW progress view-model.
  * Agent nodes (understand / select / observe) stay sequential.
- * Planning tools follow the HOW DAG: a whole layer is in flight together.
+ * Planning layers mirror howToolDag soft deps (ReAct selectTools); only tools
+ * actually in flight are marked current — siblings in a layer may not co-run.
  */
 
-import { formatElapsed } from './whatProgressViewModel.js';
+import { formatElapsed, resolveFrozenElapsedMs } from './whatProgressViewModel.js';
 import { WHAT_MONITOR_CONFIG } from './WHAT_MONITOR_CONFIG.js';
 
 function resolveHowRunErrorMessage(liveRun, phaseMeta) {
@@ -38,15 +39,14 @@ export const HOW_MACRO_STEPS = Object.freeze([
     labelKey: 'requirements.aiHitlHowMacro2',
     fallback: 'Engines',
     descriptionKey: 'requirements.aiHitlHowMacroDesc2',
-    descriptionFallback: 'Running one planning layer at a time. Tools in the same layer run together.',
+    descriptionFallback:
+      'Running planning tools by soft dependency order. Schedule owns timeline (no separate Sequencing/Matching tools).',
     substeps: [
       'BacklogMapTool',
       'WbsTool',
       'DependencyTool',
       'RiskTool',
       'QualityPlanTool',
-      'SequencingTool',
-      'EmployeeMatchingTool',
       'ScheduleTool',
       'ProjectPlanTool',
     ],
@@ -61,7 +61,7 @@ export const HOW_MACRO_STEPS = Object.freeze([
   },
 ]);
 
-/** Flat HOW steps (same order as macros) — keep in sync with agentLoopRunner / tools */
+/** Flat HOW steps (same order as macros) — keep in sync with HOW tool registry / progress macros */
 export const HOW_MONITOR_STEPS = Object.freeze(
   HOW_MACRO_STEPS.flatMap((m) =>
     m.substeps.map((id) => ({
@@ -74,15 +74,15 @@ export const HOW_MONITOR_STEPS = Object.freeze(
 );
 
 /**
- * Canonical HOW tool layers (same edges as howToolDag).
- * Tools inside one layer start together; the next layer waits for this one.
+ * Soft HOW tool layers — same Kahn layers as howToolDag.HOW_TOOL_DEPENDENCIES
+ * (Sequencing / EmployeeMatching removed; schedule+sprint live in ScheduleTool).
+ * UX checklist only: ReAct may pick a subset; graph does not force whole-layer Send.
  */
 export const HOW_PLANNING_LAYERS = Object.freeze([
   Object.freeze(['BacklogMapTool', 'WbsTool']),
   Object.freeze(['DependencyTool']),
-  Object.freeze(['RiskTool', 'SequencingTool']),
-  Object.freeze(['QualityPlanTool', 'EmployeeMatchingTool']),
-  Object.freeze(['ScheduleTool']),
+  Object.freeze(['RiskTool', 'ScheduleTool']),
+  Object.freeze(['QualityPlanTool']),
   Object.freeze(['ProjectPlanTool']),
 ]);
 
@@ -116,14 +116,18 @@ function isInFlightStatus(status) {
   return ['pending', 'running', 'queued', 'waiting_human', 'stopped'].includes(norm(status));
 }
 
-function isCallbackHandoff(liveRun) {
+function isCallbackHandoff(liveRun, phaseMeta = null) {
   const live = norm(liveRun?.status);
-  const callback = norm(liveRun?.callbackStatus);
+  const callback = norm(liveRun?.callbackStatus || phaseMeta?.callbackStatus);
+  const compute = norm(liveRun?.computeStatus || phaseMeta?.computeStatus);
+  const stage = norm(liveRun?.stage || phaseMeta?.stage);
   return (
     live === 'callback_pending' ||
     live === 'callback_delivering' ||
     callback === 'pending' ||
-    callback === 'delivering'
+    callback === 'delivering' ||
+    compute === 'completed' ||
+    stage === 'finalizing'
   );
 }
 
@@ -152,10 +156,6 @@ function catalogId(raw) {
   return HOW_MONITOR_STEPS[idx].id;
 }
 
-function layerContaining(toolId) {
-  return HOW_PLANNING_LAYERS.find((layer) => layer.includes(toolId)) || null;
-}
-
 function earliestCatalogId(ids) {
   let best = null;
   let bestIdx = -1;
@@ -171,10 +171,9 @@ function earliestCatalogId(ids) {
 }
 
 /**
- * Tools actually in flight.
- * An explicit currentToolNames list is the layer the runner started.
- * A lone currentTool expands to its canonical layer — siblings run together.
- * Agent nodes (understand, observe, …) are not tool layers.
+ * Tools actually in flight (ReAct / progress reducer).
+ * Prefer explicit currentToolNames from BE; otherwise the single currentTool.
+ * Do not invent sibling layer tools — ReAct ≠ forced DAG wave.
  */
 export function resolveHowRunningToolIds(liveRun = null, phaseMeta = null) {
   const node = norm(liveRun?.currentNode || liveRun?.stage || phaseMeta?.stage || '');
@@ -199,12 +198,7 @@ export function resolveHowRunningToolIds(liveRun = null, phaseMeta = null) {
 
   const single = catalogId(liveRun?.currentTool || liveRun?.currentToolName || '');
   if (single && PLANNING_TOOL_IDS.has(single)) {
-    const layer = layerContaining(single);
-    return layer ? [...layer] : [single];
-  }
-
-  if (node === 'call_tool' || node === 'execute') {
-    return [...HOW_PLANNING_LAYERS[0]];
+    return [single];
   }
   return [];
 }
@@ -282,35 +276,41 @@ function resolveHowActivity(liveRun, state, runningToolIds = []) {
       labelKey: 'requirements.aiHitlMonitorCallingTool',
     };
   }
-  if (node === 'understand') {
+  if (node === 'understand' || node === 'preparehowcontext') {
     return {
       kind: 'understand',
       toolName: null,
       labelKey: 'requirements.aiHitlMonitorActivity_understand',
     };
   }
-  if (node === 'plan' || node === 'select') {
+  if (
+    node === 'plan' ||
+    node === 'select' ||
+    node === 'selecttools' ||
+    node === 'injectgap'
+  ) {
     return {
       kind: 'plan',
       toolName: null,
       labelKey: 'requirements.aiHitlMonitorActivity_plan',
     };
   }
-  if (node === 'observe') {
+  if (node === 'observe' || node === 'assemble') {
     return {
       kind: 'observe',
       toolName: null,
       labelKey: 'requirements.aiHitlMonitorActivity_observe',
     };
   }
-  if (node === 'evaluatelocal' || node === 'evaluate_local' || node === 'evaluate') {
-    return {
-      kind: 'evaluate',
-      toolName: null,
-      labelKey: 'requirements.aiHitlMonitorActivity_evaluate',
-    };
-  }
-  if (node === 'feasibility') {
+  if (
+    node === 'evaluatelocal' ||
+    node === 'evaluate_local' ||
+    node === 'evaluate' ||
+    node === 'scorecompleteness' ||
+    node === 'feasibility' ||
+    node === 'emitready' ||
+    node === 'emitincomplete'
+  ) {
     return {
       kind: 'evaluate',
       toolName: null,
@@ -330,7 +330,10 @@ function normalizeHowRunStatus(liveRun, phaseHow) {
   }
   if (live === 'failed' || phase === 'failed') return 'failed';
   if (live === 'cancelled' || phase === 'cancelled') return 'cancelled';
-  if (isCallbackHandoff(liveRun) && !['ready', 'completed', 'confirmed'].includes(phase)) {
+  if (
+    isCallbackHandoff(liveRun, phaseHow) &&
+    !['ready', 'completed', 'confirmed'].includes(phase)
+  ) {
     return 'finalizing';
   }
   if (isInFlightStatus(live) || isInFlightStatus(phase)) {
@@ -343,8 +346,14 @@ function normalizeHowRunStatus(liveRun, phaseHow) {
  * @param {object|null} liveRun
  * @param {object|null} phaseHow
  * @param {number} [now]
+ * @param {boolean} [hasProposeOutput] — pack already has HOW propose/results → stop elapsed
  */
-export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date.now()) {
+export function resolveHowProgressViewModel(
+  liveRun,
+  phaseHow = null,
+  now = Date.now(),
+  hasProposeOutput = false
+) {
   const state = normalizeHowRunStatus(liveRun, phaseHow);
   const phaseDone = state === 'succeeded';
   const runningToolIds = phaseDone ? [] : resolveHowRunningToolIds(liveRun, phaseHow);
@@ -385,17 +394,19 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
     state === 'failed' ||
     state === 'cancelled' ||
     state === 'waiting_human';
-  let elapsedMs = 0;
-  if (Number.isFinite(durationFromMeta) && durationFromMeta > 0 && terminal) {
-    elapsedMs = Math.max(0, durationFromMeta);
-  } else if (startedAt != null && Number.isFinite(startedAt)) {
-    const end = terminal && completedAt != null && Number.isFinite(completedAt) ? completedAt : now;
-    elapsedMs = Math.max(0, end - startedAt);
-  }
-
+  const freezeClock = terminal || state === 'finalizing' || Boolean(hasProposeOutput);
   const progressUpdatedAt = liveRun?.progressUpdatedAt
     ? new Date(liveRun.progressUpdatedAt).getTime()
     : null;
+  const elapsedMs = resolveFrozenElapsedMs({
+    startedAt: startedAt != null && Number.isFinite(startedAt) ? startedAt : null,
+    completedAt: completedAt != null && Number.isFinite(completedAt) ? completedAt : null,
+    progressUpdatedAt:
+      progressUpdatedAt != null && Number.isFinite(progressUpdatedAt) ? progressUpdatedAt : null,
+    durationFromMeta,
+    freezeClock,
+    now,
+  });
   const progressStaleMs =
     progressUpdatedAt != null && Number.isFinite(progressUpdatedAt)
       ? Math.max(0, now - progressUpdatedAt)
@@ -447,7 +458,13 @@ export function resolveHowProgressViewModel(liveRun, phaseHow = null, now = Date
     runId: liveRun?.runId || phaseHow?.remoteRunId || null,
     progressUpdatedAt: liveRun?.progressUpdatedAt || null,
     startedAt: startedAt != null && Number.isFinite(startedAt) ? startedAt : null,
-    completedAt: completedAt != null && Number.isFinite(completedAt) ? completedAt : null,
+    completedAt: (() => {
+      if (completedAt != null && Number.isFinite(completedAt)) return completedAt;
+      if (!freezeClock) return null;
+      if (progressUpdatedAt != null && Number.isFinite(progressUpdatedAt)) return progressUpdatedAt;
+      if (startedAt != null && Number.isFinite(startedAt)) return startedAt + elapsedMs;
+      return null;
+    })(),
   };
 }
 

@@ -3486,7 +3486,7 @@ export const pageStrings = {
       phase1Gate1SubmitMissingSubmission:
         'BA submit chưa ghi nhận GateSubmission — thử «Xác nhận duyệt» lại trước khi PO duyệt.',
       phase1Gate1SubmitSuccessTitle: 'Đã gửi duyệt Gate 1',
-      phase1ApproveOk: 'PO đã duyệt Gate 1.',
+      phase1ApproveOk: 'PO đã duyệt Gate 1. Nhấn xác nhận để bắt đầu Phase HOW.',
       phase1Gate1ApproveSuccessTitle: 'Gate 1 đã được duyệt',
       phase1Gate1PendingDecisions: 'Còn {count} dòng chưa quyết định (mọi section)',
       phase1Gate1ConfirmBlockedHint:
@@ -3535,7 +3535,8 @@ export const pageStrings = {
       aiHitlHowMacroDesc1: 'Đang hiểu phạm vi và chọn tools planning.',
       aiHitlHowFinalizing: 'Đang ghi kết quả',
       aiHitlHowFinalizingDesc: 'Phân tích đã xong. Đang ghi từng section lên pack.',
-      aiHitlHowMacroDesc2: 'Đang chạy từng lớp planning. Các mục cùng một lớp chạy song song.',
+      aiHitlHowMacroDesc2:
+        'Đang chạy tools planning theo phụ thuộc mềm. Lịch nằm trong Schedule (không còn Sequencing/Matching riêng).',
       aiHitlHowMacroDesc3: 'Đang quan sát kết quả và đánh giá feasibility trước Gate 2.',
       aiHitlMonitorMacroDesc1: 'Đang nạp SRS pack và chuẩn bị dữ liệu đầu vào.',
       aiHitlMonitorMacroDesc2: 'Đang phân tích và kiểm tra chất lượng yêu cầu.',
@@ -10790,7 +10791,7 @@ export const pageStrings = {
       phase1Gate1SubmitMissingSubmission:
         'BA submit did not record a GateSubmission — confirm review again before PO approval.',
       phase1Gate1SubmitSuccessTitle: 'Gate 1 review submitted',
-      phase1ApproveOk: 'PO approved Gate 1.',
+      phase1ApproveOk: 'PO approved Gate 1. Confirm to start Phase HOW.',
       phase1Gate1ApproveSuccessTitle: 'Gate 1 approved',
       phase1Gate1PendingDecisions: '{count} rows still need a decision (all sections)',
       phase1Gate1ConfirmBlockedHint:
@@ -10838,7 +10839,8 @@ export const pageStrings = {
       aiHitlHowMacroDesc1: 'Understanding scope and selecting planning tools.',
       aiHitlHowFinalizing: 'Saving results',
       aiHitlHowFinalizingDesc: 'Analysis finished. Writing each section onto the pack.',
-      aiHitlHowMacroDesc2: 'Running one planning layer at a time. Tools in the same layer run together.',
+      aiHitlHowMacroDesc2:
+        'Running planning tools by soft dependency order. Schedule owns timeline (no separate Sequencing/Matching tools).',
       aiHitlHowMacroDesc3: 'Observing results and checking feasibility before Gate 2.',
       aiHitlMonitorMacroDesc1: 'Loading the SRS pack and preparing input data.',
       aiHitlMonitorMacroDesc2: 'Analyzing requirements and checking data quality.',

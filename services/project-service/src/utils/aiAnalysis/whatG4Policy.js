@@ -201,7 +201,7 @@ function hasReadyG4Understanding(containerOrPack) {
     containerOrPack?.analyses ||
     containerOrPack?.aiAnalysis?.analyses ||
     {};
-  const g4 = analyses.g4Understanding;
+  const g4 = analyses.frUnderstanding || analyses.g4Understanding;
   if (!g4 || typeof g4 !== 'object') return false;
   return Array.isArray(g4.requirements);
 }

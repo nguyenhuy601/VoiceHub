@@ -40,7 +40,9 @@ function textOr(t, key, vars) {
 }
 
 function buildGate1Summary(pack) {
-  const g4 = pack?.aiAnalysis?.analyses?.g4Understanding;
+  const g4 =
+    pack?.aiAnalysis?.analyses?.frUnderstanding ||
+    pack?.aiAnalysis?.analyses?.g4Understanding;
   const proposal = pack?.aiAnalysis?.analyses?.srsProposal;
   const phaseWhat = pack?.aiAnalysis?.phaseRuns?.phase_what;
   const bundle = attachConflictAmbiguityToGate1Bundle(
@@ -127,6 +129,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const { shouldPausePolling } = useNetworkStatus();
   const { requestNote, noteDialog } = useReviewNotePrompt();
   const [ackDialog, setAckDialog] = useState(null);
+  /** So ConfirmDialog onConfirm→onClose does not double-kick HOW. */
+  const ackDialogRef = useRef(null);
 
   const packIdFromQuery = String(searchParams.get('packId') || '').trim();
   const wantStartWhat = ['1', 'true'].includes(String(searchParams.get('startWhat') || '').toLowerCase());
@@ -452,6 +456,21 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
 
   const startHowFirst = useCallback(() => startHowManual({ force: false }), [startHowManual]);
   const rerunHow = useCallback(() => startHowManual({ force: true }), [startHowManual]);
+
+  const openAckDialog = useCallback((payload) => {
+    ackDialogRef.current = payload;
+    setAckDialog(payload);
+  }, []);
+
+  /** Dismiss success ack; start HOW only after Gate1 approve success was acknowledged. */
+  const dismissAckDialog = useCallback(() => {
+    const pending = ackDialogRef.current;
+    ackDialogRef.current = null;
+    setAckDialog(null);
+    if (pending?.startHowAfterConfirm) {
+      void startHowFirst();
+    }
+  }, [startHowFirst]);
 
   /**
    * Birth / manual start: prepare_only → G4 (same sequence as Overview pipeline).
@@ -883,7 +902,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
         await refresh();
         return;
       }
-      setAckDialog({
+      openAckDialog({
         title: t('requirements.phase1Gate1SubmitSuccessTitle'),
         message:
           t('requirements.understandingGate1Submitted'),
@@ -938,32 +957,19 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
           }),
       });
       if (!result.ok) return;
-      // Approve returned — overlay must not keep saying Gate 1 while HOW starts.
-      setGateActionLabel(
-        t('requirements.aiHowRunStarting') || 'Đang khởi chạy Phase HOW…'
-      );
-      onHowStarted({ packStatus: 'approved' });
-      try {
-        await requirementAPI.startPhaseAiPlanning(organizationId, packId, {
-          phase: 'how',
-          ...(projectId ? { projectId: String(projectId) } : {}),
-        });
-        toast.success(
-          t('requirements.aiHowRunStarted')
-        );
-      } catch (howErr) {
-        clearAwaitingFreshRun();
-        toast.error(
-          resolveApiErrorMessage(howErr, {
-            fallback:
-              t('requirements.aiHowRunFail'),
-          })
-        );
-      }
+      // Optimistic approved so Review/Monitor flip without waiting for HOW.
+      setPack((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, status: 'approved' };
+        packRef.current = next;
+        return next;
+      });
       await refresh();
-      setAckDialog({
+      // Show success first; Phase HOW starts only after PO acknowledges.
+      openAckDialog({
         title: t('requirements.phase1Gate1ApproveSuccessTitle'),
         message: t('requirements.phase1ApproveOk'),
+        startHowAfterConfirm: true,
       });
     } catch (err) {
       toast.error(
@@ -1396,6 +1402,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       if (!prev?.aiAnalysis) return prev;
       const ai = { ...prev.aiAnalysis };
       const analyses = { ...(ai.analyses || {}) };
+      delete analyses.frUnderstanding;
       delete analyses.g4Understanding;
       delete analyses.srsProposal;
       const gate1 = { ...(ai.gate1 || {}) };
@@ -1632,8 +1639,8 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
       />
       <ConfirmDialog
         isOpen={Boolean(ackDialog)}
-        onClose={() => setAckDialog(null)}
-        onConfirm={() => setAckDialog(null)}
+        onClose={dismissAckDialog}
+        onConfirm={() => {}}
         title={ackDialog?.title || ''}
         message={ackDialog?.message || ''}
         confirmText={t('common.confirm') || t('common.close')}

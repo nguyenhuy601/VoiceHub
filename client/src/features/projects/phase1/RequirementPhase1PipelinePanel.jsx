@@ -108,7 +108,9 @@ export default function RequirementPhase1PipelinePanel({
       }));
     }
     const phaseWhat = pack?.aiAnalysis?.phaseRuns?.phase_what;
-    const g4 = pack?.aiAnalysis?.analyses?.g4Understanding;
+    const g4 =
+      pack?.aiAnalysis?.analyses?.frUnderstanding ||
+      pack?.aiAnalysis?.analyses?.g4Understanding;
     const proposal = pack?.aiAnalysis?.analyses?.srsProposal;
     const aiCtx = pack?.aiAnalysis?.analyses?.requirementAiContext;
     const knowledgeMeta = pack?.aiAnalysis?.analyses?.phase1Knowledge;

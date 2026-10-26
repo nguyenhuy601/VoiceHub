@@ -67,8 +67,12 @@ const SUBSTEP_TO_MACRO = (() => {
 /** Legacy: node → business substep only when pipelineSubstep missing */
 const LEGACY_NODE_TO_SUBSTEP = Object.freeze({
   prepare: 'prepare',
+  prepareWhat: 'prepare',
+  preparewhat: 'prepare',
   gate_preview: 'quality',
   gate: 'quality',
+  finalizeMeta: 'meta_gate',
+  finalizemeta: 'meta_gate',
 });
 
 let progressFallbackTotal = 0;
@@ -88,6 +92,56 @@ function norm(value) {
 }
 
 /**
+ * Compute finished; pack callback / pull may still be in flight.
+ * Also reads phase meta — liveRun can be null while phase_what still pending.
+ */
+export function isCallbackHandoff(liveRun, phaseMeta = null) {
+  const live = norm(liveRun?.status);
+  const callback = norm(liveRun?.callbackStatus || phaseMeta?.callbackStatus);
+  const compute = norm(liveRun?.computeStatus || phaseMeta?.computeStatus);
+  const stage = norm(liveRun?.stage || phaseMeta?.stage);
+  return (
+    live === 'callback_pending' ||
+    live === 'callback_delivering' ||
+    live === 'completed' ||
+    callback === 'pending' ||
+    callback === 'delivering' ||
+    compute === 'completed' ||
+    stage === 'finalizing'
+  );
+}
+
+/**
+ * Freeze wall-clock when run is no longer actively computing.
+ * Prefer durationMs → completedAt → progressUpdatedAt; never keep using live `now`.
+ */
+export function resolveFrozenElapsedMs({
+  startedAt,
+  completedAt,
+  progressUpdatedAt,
+  durationFromMeta,
+  freezeClock,
+  now,
+}) {
+  const duration = Number(durationFromMeta);
+  if (freezeClock && Number.isFinite(duration) && duration > 0) {
+    return Math.max(0, duration);
+  }
+  if (startedAt == null || !Number.isFinite(startedAt)) return 0;
+  let end = now;
+  if (freezeClock) {
+    const candidates = [completedAt, progressUpdatedAt];
+    if (Number.isFinite(duration) && duration > 0) {
+      candidates.push(startedAt + duration);
+    }
+    const frozen = candidates.find((ms) => ms != null && Number.isFinite(ms) && ms > 0);
+    // Clamp to `now` so a stale progressUpdatedAt cannot jump past wall clock mid-handoff.
+    end = frozen != null ? Math.min(frozen, now) : now;
+  }
+  return Math.max(0, end - startedAt);
+}
+
+/**
  * Normalize pack status / liveRun.status → VM run state.
  */
 export function normalizeWhatRunStatus(liveRun, phaseWhat, packStatus) {
@@ -95,16 +149,19 @@ export function normalizeWhatRunStatus(liveRun, phaseWhat, packStatus) {
   const what = norm(phaseWhat?.status);
   const pack = norm(packStatus);
   const gate = norm(liveRun?.gate);
+  const phaseReady = what === 'ready' || what === 'completed' || what === 'confirmed';
 
   if (live === 'waiting_human' || (gate === 'data_review' && what === 'pending')) {
     return 'waiting_human';
   }
   if (live === 'failed' || what === 'failed') return 'failed';
   if (live === 'cancelled') return 'cancelled';
+  // Agent compute done — freeze timer while callback writes pack (do not keep "running").
+  if (isCallbackHandoff(liveRun, phaseWhat) && !phaseReady) {
+    return 'finalizing';
+  }
   if (
-    what === 'ready' ||
-    what === 'completed' ||
-    what === 'confirmed' ||
+    phaseReady ||
     pack === 'approved' ||
     pack === 'project_linked' ||
     pack === 'under_review'
@@ -113,13 +170,13 @@ export function normalizeWhatRunStatus(liveRun, phaseWhat, packStatus) {
       /* still in flight */
     } else if (pack === 'under_review' || pack === 'approved' || pack === 'project_linked') {
       return pack === 'approved' || pack === 'project_linked' ? 'succeeded' : 'waiting_human';
-    } else if (what === 'ready' || what === 'completed' || what === 'confirmed') {
+    } else if (phaseReady) {
       return 'succeeded';
     }
   }
   if (live === 'queued' || what === 'queued') return 'queued';
   if (live === 'running' || what === 'pending' || live === 'replanning') return 'running';
-  if (what === 'ready') return 'succeeded';
+  if (phaseReady) return 'succeeded';
   return 'idle';
 }
 
@@ -210,14 +267,24 @@ function resolveActivity(liveRun, state) {
     }
     return activity;
   }
-  if (node === 'understand' || node === 'prepare') {
+  if (
+    node === 'understand' ||
+    node === 'prepare' ||
+    node === 'preparewhat' ||
+    node === 'runfrunderstanding'
+  ) {
     return {
       kind: 'understand',
       toolName: null,
       labelKey: resolveActivityLabelKey({ kind: 'understand' }),
     };
   }
-  if (node === 'plan' || node === 'select') {
+  if (
+    node === 'plan' ||
+    node === 'select' ||
+    node === 'selecttools' ||
+    node === 'injectgap'
+  ) {
     return {
       kind: 'plan',
       toolName: null,
@@ -231,7 +298,17 @@ function resolveActivity(liveRun, state) {
       labelKey: resolveActivityLabelKey({ kind: 'observe' }),
     };
   }
-  if (node === 'evaluatelocal' || node === 'evaluate_local' || node === 'evaluate') {
+  if (
+    node === 'evaluatelocal' ||
+    node === 'evaluate_local' ||
+    node === 'evaluate' ||
+    node === 'finalizemeta' ||
+    node === 'scorecompleteness' ||
+    node === 'metagate' ||
+    node === 'feasibility' ||
+    node === 'emitready' ||
+    node === 'emitincomplete'
+  ) {
     return {
       kind: 'evaluate',
       toolName: null,
@@ -247,13 +324,15 @@ function resolveActivity(liveRun, state) {
  * @param {number} [now]
  * @param {object} [config]
  * @param {string} [packStatus]
+ * @param {boolean} [hasProposeOutput] — pack already has propose/results table → stop elapsed
  */
 export function resolveWhatProgressViewModel(
   liveRun,
   phaseWhat = null,
   now = Date.now(),
   config = WHAT_MONITOR_CONFIG,
-  packStatus = ''
+  packStatus = '',
+  hasProposeOutput = false
 ) {
   const state = normalizeWhatRunStatus(liveRun, phaseWhat, packStatus);
   const { substep, usedLegacyFallback } = resolveSubstep(liveRun, phaseWhat);
@@ -280,17 +359,17 @@ export function resolveWhatProgressViewModel(
     state === 'failed' ||
     state === 'cancelled' ||
     state === 'waiting_human';
-  let elapsedMs = 0;
-  if (Number.isFinite(durationFromMeta) && durationFromMeta > 0 && terminal) {
-    elapsedMs = Math.max(0, durationFromMeta);
-  } else if (startedAt != null) {
-    const end = terminal && completedAt != null ? completedAt : now;
-    elapsedMs = Math.max(0, end - startedAt);
-  }
-
-  const progressUpdatedAt = liveRun?.progressUpdatedAt
-    ? new Date(liveRun.progressUpdatedAt).getTime()
-    : null;
+  // Stop wall-clock when compute ends OR propose results are already on the pack.
+  const freezeClock = terminal || state === 'finalizing' || Boolean(hasProposeOutput);
+  const progressUpdatedAt = resolveTimestampMs(liveRun?.progressUpdatedAt, phaseWhat?.progressUpdatedAt);
+  const elapsedMs = resolveFrozenElapsedMs({
+    startedAt,
+    completedAt,
+    progressUpdatedAt,
+    durationFromMeta,
+    freezeClock,
+    now,
+  });
   const progressStaleMs =
     progressUpdatedAt != null && Number.isFinite(progressUpdatedAt)
       ? Math.max(0, now - progressUpdatedAt)
@@ -313,15 +392,23 @@ export function resolveWhatProgressViewModel(
     progressStaleMs >= staleThresholdMs;
 
   const activity = resolveActivity(liveRun, state);
-  const showSpinner = state === 'running' || state === 'queued';
+  const showSpinner = state === 'running' || state === 'queued' || state === 'finalizing';
   const errorMessage = resolveRunErrorMessage(liveRun, phaseWhat);
 
-  const copy = getWhatStatusCopy({
-    macroStep: macroStep || 1,
-    waitingHuman,
-    showSoftHint,
-    softHintLong,
-  });
+  const copy =
+    state === 'finalizing'
+      ? {
+          titleKey: 'requirements.aiHitlHowFinalizing',
+          descriptionKey: 'requirements.aiHitlHowFinalizingDesc',
+          titleFallback: 'Saving results',
+          descriptionFallback: 'Analysis finished. Writing each section onto the pack.',
+        }
+      : getWhatStatusCopy({
+          macroStep: macroStep || 1,
+          waitingHuman,
+          showSoftHint,
+          softHintLong,
+        });
 
   return {
     phase: 'what',
@@ -332,7 +419,13 @@ export function resolveWhatProgressViewModel(
     activity,
     elapsedMs,
     startedAt,
-    completedAt,
+    completedAt: (() => {
+      if (completedAt != null) return completedAt;
+      if (!freezeClock) return null;
+      if (progressUpdatedAt != null) return progressUpdatedAt;
+      if (startedAt != null) return startedAt + elapsedMs;
+      return null;
+    })(),
     progressStaleMs,
     showProgressStale,
     showSoftHint,

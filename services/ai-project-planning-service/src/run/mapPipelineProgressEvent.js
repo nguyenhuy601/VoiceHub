@@ -3,7 +3,7 @@
  * RULE-P01/P02: never infer business step/substep from node.
  */
 
-const { SUBSTEPS } = require('../engines/g4/pipelineProgress');
+const { SUBSTEPS } = require('../engines/frUnderstanding/pipelineProgress');
 
 const STATUS_SET = new Set(['running', 'waiting_human', 'succeeded', 'failed']);
 

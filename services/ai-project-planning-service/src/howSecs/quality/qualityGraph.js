@@ -578,6 +578,7 @@ async function runQualitySecGraph(input = {}) {
 }
 
 module.exports = {
+  buildQualitySecGraph,
   runQualitySecGraph,
   buildQualitySemantic,
   acceptQuality,

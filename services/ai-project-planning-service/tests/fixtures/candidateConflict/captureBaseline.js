@@ -7,10 +7,10 @@ const path = require('path');
 const {
   selectCandidates,
   selectCandidatesLegacyStatusObjectConflict,
-} = require('../../../src/engines/g4/candidateSelector');
-const { buildPotentialConflictRelations } = require('../../../src/engines/g4/conflictRelations');
-const { emitConstraintFactsFromSignals } = require('../../../src/engines/g4/normalizedConstraintFact');
-const { buildGatePreview } = require('../../../src/engines/g4/pipelineProgress');
+} = require('../../../src/engines/frUnderstanding/candidateSelector');
+const { buildPotentialConflictRelations } = require('../../../src/engines/frUnderstanding/conflictRelations');
+const { emitConstraintFactsFromSignals } = require('../../../src/engines/frUnderstanding/normalizedConstraintFact');
+const { buildGatePreview } = require('../../../src/engines/frUnderstanding/pipelineProgress');
 
 const signals = require('./signals-status-shared.json');
 

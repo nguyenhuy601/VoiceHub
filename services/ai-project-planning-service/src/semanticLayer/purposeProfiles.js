@@ -112,11 +112,12 @@ const PURPOSE_PROFILES = Object.freeze({
     maxTokenBudget: 4000,
     defaultHistoricalPolicy: 'NONE',
     forbidSimilarityFill: true,
+    // Dependencies optional: empty DAG still schedules; DependencyTool may yield no edges.
     required: {
-      relations: ['task_to_dependency'],
-      sections: ['tasks', 'durations', 'dependencies'],
+      relations: [],
+      sections: ['tasks', 'durations'],
     },
-    optional: { sections: [] },
+    optional: { sections: ['dependencies'] },
   },
   SCHEDULE_TEXT: {
     retrievalMode: 'none',

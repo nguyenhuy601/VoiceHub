@@ -96,6 +96,7 @@ function understandingOf(pack, understanding) {
   return (
     understanding ||
     pack?.aiAnalysis?.requirementUnderstanding ||
+    pack?.aiAnalysis?.frUnderstanding ||
     pack?.aiAnalysis?.g4Understanding ||
     null
   );

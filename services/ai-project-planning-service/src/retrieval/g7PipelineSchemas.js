@@ -66,7 +66,7 @@ function requiresQdrant(mode) {
 function classifyQueryIntent(query = '') {
   const q = String(query).toLowerCase();
   if (!q.trim()) return 'general';
-  // HOW assemble queries (howPhaseGraph / agentLoopRunner) — how_planning / how_planning_gap
+  // HOW assemble queries (howPhaseGraph) — how_planning / how_planning_gap
   if (
     /how_planning/.test(q) ||
     /\bhow planning\b/.test(q) ||

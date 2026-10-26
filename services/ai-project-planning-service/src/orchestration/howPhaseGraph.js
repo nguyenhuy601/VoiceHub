@@ -1,12 +1,7 @@
 /**
- * Agent Core F2 — HOW Phase StateGraph (Layer B).
- * Thin nodes wrap Track A/B/C helpers; no biz metrics in LLM nodes (RULE-F2-01).
- * Governance Gate HITL stays on project-service HTTP (RULE-F2-03 / RULE-H1).
- * Optional awaitHuman = in-run edit_draft only (RULE-H2) — not Gate 2 stamp.
- *
- * Tool order is edges on this graph (see howPhaseToolNodes). A tool may run its own
- * Semantic→Fact→Propose→Accept pipeline; that pipeline is the tool body, not a
- * second phase orchestrator.
+ * Agent Core — HOW Phase ReAct StateGraph.
+ * Soft tool deps live in howToolDag (selectTools filters); not hard wave edges.
+ * Governance Gate HITL stays on project-service HTTP (RULE-F2-03 / RULE-LG-03).
  */
 
 const {
@@ -15,22 +10,36 @@ const {
   START,
   END,
   MemorySaver,
+  Send,
 } = require('@langchain/langgraph');
-const {
-  assembleContextPackageAsync,
-} = require('../retrieval/contextAssembly');
+const { assembleContextPackageAsync } = require('../retrieval/contextAssembly');
 const { buildCorpusFromSnapshot } = require('../retrieval/buildCorpusFromSnapshot');
-const { HOW_PHASE_TOOL_STEPS } = require('./jobToToolsMap');
 const {
   appendList,
-  deepMergePlanningContainers,
+  appendMessages,
+  createSelectToolsNode,
+  routeAfterSelectTools,
+  lastAiMessage,
+  stateForToolSend,
+} = require('./toolSelectNodes');
+const { deepMergePlanningContainers } = require('../tools/mergePlanningContainers');
+const {
   mergeCurrentToolName,
   mergeStopReason,
-  wireHowToolNodes,
 } = require('./howPhaseToolNodes');
+const { CANONICAL_ORDER } = require('./howToolDag');
+const {
+  HOW_SEC_TOOL_NAMES,
+  getHowSecToolSubgraph,
+} = require('./toolSubgraphAdapter');
+const {
+  PLAIN_TOOLS_NODE,
+  listPlainToolNames,
+  buildPlainToolsNode,
+  toolCallsFromMessage,
+} = require('./phasePlainToolNode');
 const { buildHowBacklogRetrieveQuery } = require('./howContextQueries');
 const { logHowCtx, buildCtxPromptFragment } = require('./howProposalNodes');
-const { decideEvaluateAction } = require('./evaluatePolicy');
 const {
   resolveAgentBudget,
   evaluateStopCondition,
@@ -40,12 +49,20 @@ const {
   buildFeasibilitySignal,
   signalToG13Candidate,
 } = require('../validation/buildFeasibilitySignal');
+const {
+  scoreArtifactCompleteness,
+  buildGapReport,
+  gapReportToMessage,
+  routeAfterCompleteness,
+  STOP_INCOMPLETE,
+  envMaxEnrich,
+} = require('./artifactCompleteness');
 
-const MAX_EVALUATE_LOOPS = 2;
+const { preferRight } = require('./sharedPhaseChannels');
 
-/** Last-write-wins field helper */
+/** Bare LastValue breaks when parallel Send tool nodes echo the same channel. */
 function field() {
-  return Annotation();
+  return Annotation({ reducer: preferRight });
 }
 
 const HowPhaseState = Annotation.Root({
@@ -54,7 +71,6 @@ const HowPhaseState = Annotation.Root({
   snapshot: field(),
   pack: field(),
   toolData: field(),
-  // Parallel tool nodes return sparse patches. The reducer merges them.
   container: Annotation({
     reducer: (left, right) => {
       if (right == null) return left;
@@ -71,9 +87,11 @@ const HowPhaseState = Annotation.Root({
     reducer: appendList,
     default: () => [],
   }),
+  messages: Annotation({
+    reducer: appendMessages,
+    default: () => [],
+  }),
   evaluate: field(),
-  evaluateAction: field(),
-  evaluateLoop: field(),
   feasibilitySignal: field(),
   feasibility: field(),
   goal: field(),
@@ -83,20 +101,25 @@ const HowPhaseState = Annotation.Root({
   stopReason: Annotation({
     reducer: mergeStopReason,
   }),
-  selective: field(),
-  selectiveToolNames: field(),
-  startIndex: field(),
-  currentToolIndex: Annotation({
+  startedAt: field(),
+  hitl: field(),
+  skipUnderstand: field(),
+  humanResume: field(),
+  agentIteration: Annotation({
     reducer: (left, right) => Math.max(Number(left) || 0, Number(right) || 0),
     default: () => 0,
   }),
   currentToolName: Annotation({
     reducer: mergeCurrentToolName,
   }),
-  startedAt: field(),
-  hitl: field(),
-  skipUnderstand: field(),
-  humanResume: field(),
+  gapReport: field(),
+  enrichLoop: Annotation({
+    reducer: (left, right) => Math.max(Number(left) || 0, Number(right) || 0),
+    default: () => 0,
+  }),
+  completeness: field(),
+  generationId: field(),
+  env: field(),
 });
 
 async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
@@ -112,7 +135,6 @@ async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
     contextPackage: state.contextPackage,
     status: 'running',
     hitl: 'gate2',
-    selectiveReplanSteps: state.selective ? state.selectiveToolNames : null,
     toolData: state.toolData,
     pack: state.pack,
     container: state.container,
@@ -127,18 +149,77 @@ async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
   });
 }
 
+function buildHowEmit(state, { ready }) {
+  const feasibilitySignal = buildFeasibilitySignal({
+    toolResults: state.toolResults,
+    container: state.container,
+    runId: state.runId,
+    snapshotId: state.snapshotId,
+  });
+  const feasibility = signalToG13Candidate(feasibilitySignal, {
+    runId: state.runId,
+    snapshotId: state.snapshotId,
+  });
+  const stopReason = ready
+    ? state.stopReason || STOP_REASONS.COMPLETE
+    : state.stopReason && String(state.stopReason).startsWith('BUDGET_')
+      ? state.stopReason
+      : STOP_INCOMPLETE;
+  const durationMs = Math.max(0, Date.now() - (state.startedAt || Date.now()));
+  const container =
+    state.container && typeof state.container === 'object'
+      ? { ...state.container }
+      : { planning: {}, resource: {}, analyses: {}, phaseRuns: {} };
+  if (container.jobs != null) delete container.jobs;
+  container.phaseRuns = {
+    ...(container.phaseRuns || {}),
+    phase_how: {
+      ...(container.phaseRuns?.phase_how || {}),
+      status: ready ? 'ready' : 'stopped',
+      remoteRunId: state.runId || null,
+      snapshotId: state.snapshotId || null,
+      hitl: 'gate2',
+      generatedAt: new Date().toISOString(),
+      durationMs,
+      error: ready ? null : stopReason,
+      stopReason,
+      feasibilitySignal,
+      feasibility,
+      agentCore: 'langgraph_react',
+      readyForGate2: Boolean(ready),
+      partial: !ready,
+    },
+  };
+
+  return {
+    container,
+    feasibilitySignal,
+    feasibility,
+    evaluate: {
+      kind: 'evaluate_local',
+      enoughInfoToContinue: ready,
+      reason: ready ? 'artifact_ready' : 'incomplete_artifact',
+      action: 'CONTINUE',
+    },
+    stopReason,
+    history: [ready ? 'emitReady' : 'emitIncomplete'],
+    hitl: 'gate2',
+  };
+}
+
 /**
- * @param {{ onProgress?: Function, onCheckpoint?: Function, checkpointer?: object }} hooks
+ * @param {{ onProgress?: Function, onCheckpoint?: Function, checkpointer?: object, decideToolCalls?: Function }} hooks
  */
 function buildHowPhaseGraph(hooks = {}) {
   const onProgress = hooks.onProgress || null;
   const onCheckpoint = hooks.onCheckpoint || null;
-  const checkpointer = hooks.checkpointer || new MemorySaver();
+  const asSubgraph = Boolean(hooks.asSubgraph);
+  const checkpointer = asSubgraph ? null : hooks.checkpointer || new MemorySaver();
 
   const graph = new StateGraph(HowPhaseState);
 
-  graph.addNode('understand', async (state) => {
-    if (state.skipUnderstand || state.selective) {
+  graph.addNode('prepareHowContext', async (state) => {
+    if (state.skipUnderstand) {
       let corpus = Array.isArray(state.corpus) ? state.corpus : [];
       if (!corpus.length) {
         corpus = buildCorpusFromSnapshot(state.snapshot);
@@ -153,28 +234,24 @@ function buildHowPhaseGraph(hooks = {}) {
       toolCallCount: Array.isArray(state.toolResults) ? state.toolResults.length : 0,
     });
     if (preStop.stop) {
-      const history = [...(state.history || []), `stop:${preStop.reason}`];
-      onProgress?.({ node: 'understand', phase: 'how', stopped: true });
-      await persistNode({ ...state, history, stopReason: preStop.reason }, 'understand', onCheckpoint);
+      onProgress?.({ node: 'prepareHowContext', phase: 'how', stopped: true });
+      await persistNode(
+        { ...state, stopReason: preStop.reason },
+        'prepareHowContext',
+        onCheckpoint
+      );
       return { history: [`stop:${preStop.reason}`], stopReason: preStop.reason };
     }
 
-    onProgress?.({ node: 'understand', phase: 'how' });
-    const corpusStarted = process.hrtime.bigint();
+    onProgress?.({ node: 'prepareHowContext', phase: 'how' });
     const corpus = buildCorpusFromSnapshot(state.snapshot);
-    const buildCorpusMs = Math.max(
-      0,
-      Math.round(Number(process.hrtime.bigint() - corpusStarted) / 1e6)
-    );
     let ingestWarning = null;
-    let ingestOut = null;
-    const ingestStarted = process.hrtime.bigint();
     try {
       const { ingestSnapshotToQdrant } = require('../retrieval/ingestSnapshotToQdrant');
       const { getG7RagMode } = require('../retrieval/g7PipelineSchemas');
       const mode = getG7RagMode();
       if ((mode === 'qdrant' || mode === 'hybrid') && state.snapshotId) {
-        ingestOut = await ingestSnapshotToQdrant({
+        await ingestSnapshotToQdrant({
           snapshot: state.snapshot,
           snapshotId: state.snapshotId,
           corpus,
@@ -190,268 +267,162 @@ function buildHowPhaseGraph(hooks = {}) {
       ingestWarning = String(ingestErr?.message || ingestErr);
       console.warn('[g7_ingest] soft', ingestWarning);
     }
-    const ingestMs = Math.max(
-      0,
-      Math.round(Number(process.hrtime.bigint() - ingestStarted) / 1e6)
-    );
     const query = buildHowBacklogRetrieveQuery(state.pack || {});
-    const assembleStarted = process.hrtime.bigint();
     let contextPackage = await assembleContextPackageAsync({
       query,
       corpus,
       snapshotId: state.snapshotId,
     });
-    const assembleMs = Math.max(
-      0,
-      Math.round(Number(process.hrtime.bigint() - assembleStarted) / 1e6)
-    );
     if (ingestWarning && contextPackage && typeof contextPackage === 'object') {
       contextPackage = { ...contextPackage, ingestWarning };
     }
-    const contextStarted = process.hrtime.bigint();
     const { itemCount } = buildCtxPromptFragment(contextPackage);
-    const contextBuildMs = Math.max(
-      0,
-      Math.round(Number(process.hrtime.bigint() - contextStarted) / 1e6)
+    logHowCtx('prepareHowContext:how_backlog', contextPackage, itemCount);
+    await persistNode(
+      { ...state, corpus, contextPackage },
+      'prepareHowContext',
+        onCheckpoint
     );
-    logHowCtx('understand:how_backlog', contextPackage, itemCount);
-    console.info(
-      '[g7_understand] %s',
-      JSON.stringify({
-        event: 'g7_understand',
-        snapshotId: state.snapshotId || null,
-        buildCorpusMs,
-        ingestMs,
-        assembleMs,
-        contextBuildMs,
-        ingestStatus: ingestOut?.status || null,
-        corpusDocs: corpus.length,
-        contextItems: itemCount,
-      })
-    );
-    const history = [...(state.history || []), 'understand', 'context:how_backlog'];
-    const next = { ...state, corpus, contextPackage, history };
-    await persistNode(next, 'understand', onCheckpoint);
-    return { corpus, contextPackage, history: ['understand', 'context:how_backlog'] };
-  });
-
-  graph.addNode('plan', async (state) => {
-    if (state.selective || state.stopReason) return {};
-    onProgress?.({
-      node: 'plan',
-      phase: 'how',
-      tools: HOW_PHASE_TOOL_STEPS.map((s) => s.toolName),
-    });
-    const history = [...(state.history || []), 'plan'];
-    await persistNode({ ...state, history }, 'plan', onCheckpoint);
-    return { history: ['plan'] };
-  });
-
-  graph.addNode('select', async (state) => {
-    if (state.selective || state.stopReason) return {};
-    onProgress?.({ node: 'select', phase: 'how' });
-    const history = [...(state.history || []), 'select'];
-    await persistNode({ ...state, history }, 'select', onCheckpoint);
-    return { history: ['select'] };
-  });
-
-  wireHowToolNodes(graph, {
-    onProgress,
-    persist: (state, currentNode, extra) =>
-      persistNode(state, currentNode, onCheckpoint, extra),
-  });
-
-  graph.addNode('observe', async (state) => {
-    onProgress?.({ node: 'observe', phase: 'how' });
-    return { history: ['observe'] };
-  });
-
-  graph.addNode('evaluateLocal', async (state) => {
-    onProgress?.({ node: 'evaluateLocal', phase: 'how' });
-    const tasks = Array.isArray(state.container?.planning?.tasks)
-      ? state.container.planning.tasks
-      : [];
-    const toolResults = Array.isArray(state.toolResults) ? state.toolResults : [];
-    const evaluate = {
-      kind: 'evaluate_local',
-      enoughInfoToContinue: tasks.length > 0 || toolResults.length > 0,
-      reason: tasks.length > 0 ? 'tasks_present' : 'engines_completed',
+    return {
+      corpus,
+      contextPackage,
+      history: ['prepareHowContext', 'context:how_backlog'],
     };
-    let evaluateAction = 'CONTINUE';
-    const loop = Number(state.evaluateLoop) || 0;
-    if (state.stopReason && String(state.stopReason).startsWith('BUDGET_')) {
-      evaluateAction = 'CONTINUE';
-      evaluate.reason = 'budget_stop';
-    } else if (loop >= MAX_EVALUATE_LOOPS) {
-      evaluateAction = 'CONTINUE';
-      evaluate.reason = 'evaluate_loop_cap';
-    } else {
-      const decision = decideEvaluateAction({
-        evaluate,
-        contextPackage: state.contextPackage,
-        toolResults,
+  });
+
+  graph.addNode('selectTools',
+    createSelectToolsNode({
+      phase: 'how',
+      onProgress,
+      decideToolCalls: hooks.decideToolCalls,
+    })
+  );
+
+  /** Pattern B sec subgraphs (Send) + Hybrid A plainTools (ToolNode). */
+  const howSecNames = new Set(HOW_SEC_TOOL_NAMES);
+  const howPlainNames = new Set(listPlainToolNames('how'));
+  const howKnownNames = new Set([...CANONICAL_ORDER, ...HOW_SEC_TOOL_NAMES]);
+
+  for (const toolName of HOW_SEC_TOOL_NAMES) {
+    const secCompiled = getHowSecToolSubgraph(toolName);
+    // Sec subgraphs do not call onProgress internally — emit call_tool so Monitor stays live.
+    graph.addNode(toolName, async (state, config) => {
+      await onProgress?.({
+        node: 'call_tool',
+        phase: 'how',
+        tool: toolName,
+        tools: [toolName],
       });
-      evaluateAction = decision.action;
-      evaluate.action = decision.action;
-      evaluate.decisionReason = decision.reason;
-      if (decision.action === 'NEED_TOOL') {
-        evaluate.deferredToExit = loop + 1 >= MAX_EVALUATE_LOOPS;
+      return secCompiled.invoke(state, config);
+    });
+  }
+
+  graph.addNode(PLAIN_TOOLS_NODE, buildPlainToolsNode({ phase: 'how', onProgress }));
+
+  function routeAfterSelectToolsHow(state) {
+    if (routeAfterSelectTools(state) === 'assemble') return 'assemble';
+    const ai = lastAiMessage(state.messages);
+    const calls = toolCallsFromMessage(ai);
+    if (!calls.length) return 'assemble';
+    const sends = [];
+    let plainQueued = false;
+    for (const call of calls) {
+      const toolName = call.name || call.toolName;
+      if (!toolName || !howKnownNames.has(toolName)) continue;
+      if (howSecNames.has(toolName)) {
+        sends.push(
+          new Send(toolName, stateForToolSend(state, { clearMessages: true }))
+        );
+        continue;
+      }
+      if (howPlainNames.has(toolName) && !plainQueued) {
+        plainQueued = true;
+        // Keep messages — ToolNode reads AIMessage.tool_calls
+        sends.push(
+          new Send(PLAIN_TOOLS_NODE, stateForToolSend(state, { clearMessages: false }))
+        );
       }
     }
-    evaluate.action = evaluateAction;
+    return sends.length ? sends : 'assemble';
+  }
+
+  graph.addNode('assemble', async (state) => {
+    onProgress?.({ node: 'assemble', phase: 'how' });
+    const score = scoreArtifactCompleteness(state, 'how');
+    return { completeness: score, history: ['assemble'] };
+  });
+
+  graph.addNode('scoreCompleteness', async (state) => {
+    const score = state.completeness || scoreArtifactCompleteness(state, 'how');
+    return { completeness: score, history: ['scoreCompleteness'] };
+  });
+
+  graph.addNode('injectGap', async (state) => {
+    const score = state.completeness || scoreArtifactCompleteness(state, 'how');
+    const gapReport = buildGapReport(score, state);
+    const enrichLoop = (Number(state.enrichLoop) || 0) + 1;
     return {
-      evaluate,
-      evaluateAction,
-      evaluateLoop: loop + 1,
-      history: ['evaluateLocal'],
+      gapReport,
+      enrichLoop,
+      messages: [gapReportToMessage(gapReport)],
+      history: [`injectGap:${enrichLoop}`],
     };
   });
 
-  graph.addNode('retrieve', async (state) => {
-    if (state.selective) {
-      return { history: ['retrieve:skipped_selective'] };
-    }
-    const contextPackage = await assembleContextPackageAsync({
-      query: 'how_planning_gap',
-      corpus: buildCorpusFromSnapshot(state.snapshot),
-      snapshotId: state.snapshotId,
-    });
-    const history = [...(state.history || []), 'retrieve:evaluate'];
-    await persistNode({ ...state, contextPackage, history }, 'retrieve', onCheckpoint);
-    return { contextPackage, history: ['retrieve:evaluate'] };
-  });
-
-  graph.addNode('emitFeasibility', async (state) => {
-    onProgress?.({ node: 'feasibility', phase: 'how' });
-    const feasibilitySignal = buildFeasibilitySignal({
-      toolResults: state.toolResults,
-      container: state.container,
-      runId: state.runId,
-      snapshotId: state.snapshotId,
-    });
-    const feasibility = signalToG13Candidate(feasibilitySignal, {
-      runId: state.runId,
-      snapshotId: state.snapshotId,
-    });
-    const stopReason = state.stopReason || STOP_REASONS.COMPLETE;
-    const history = [...(state.history || []), 'feasibilitySignal'];
-
-    const durationMs = Math.max(0, Date.now() - (state.startedAt || Date.now()));
-    const container = state.container && typeof state.container === 'object'
-      ? { ...state.container }
-      : { planning: {}, resource: {}, analyses: {}, phaseRuns: {} };
-    if (container.jobs != null) delete container.jobs;
-    container.phaseRuns = {
-      ...(container.phaseRuns || {}),
-      phase_how: {
-        ...(container.phaseRuns?.phase_how || {}),
-        status: 'ready',
-        remoteRunId: state.runId || null,
-        snapshotId: state.snapshotId || null,
-        hitl: 'gate2',
-        selective: state.selective || undefined,
-        generatedAt: new Date().toISOString(),
-        durationMs,
-        error: null,
-        stopReason,
-        feasibilitySignal,
-        feasibility,
-        agentCore: 'langgraph',
-      },
-    };
-
-    const next = {
-      ...state,
-      container,
-      feasibilitySignal,
-      feasibility,
-      stopReason,
-      history,
-      hitl: 'gate2',
-    };
-    await persistNode(next, 'feasibility', onCheckpoint, {
-      evaluationResult: state.evaluate,
-      feasibilitySignal,
-      feasibility,
+  graph.addNode('emitReady', async (state) => {
+    onProgress?.({ node: 'feasibility', phase: 'how', ready: true });
+    const payload = buildHowEmit(state, { ready: true });
+    await persistNode({ ...state, ...payload }, 'emitReady', onCheckpoint, {
       status: 'callback_pending',
-      currentToolIndex: Array.isArray(state.toolResults) ? state.toolResults.length : 0,
-      currentToolName: null,
-      selectiveReplanSteps: null,
-      stopReason,
+      stopReason: payload.stopReason,
     });
-    return {
-      container,
-      feasibilitySignal,
-      feasibility,
-      stopReason,
-      history: ['feasibilitySignal'],
-      hitl: 'gate2',
-    };
+    return payload;
   });
 
-  graph.addNode('awaitHuman', async (state) => {
-    const { awaitInRunHitl } = require('./hitlInterrupt');
-    const resumed = awaitInRunHitl({
-      kind: 'edit_draft',
-      runId: state.runId,
-      snapshotId: state.snapshotId,
-      summary: {
-        evaluate: state.evaluate,
-        toolCount: Array.isArray(state.toolResults) ? state.toolResults.length : 0,
-        phase: 'how',
-      },
-      prompt: 'In-run review of HOW draft before emit (not Gate 2 Pack stamp)',
+  graph.addNode('emitIncomplete', async (state) => {
+    onProgress?.({ node: 'feasibility', phase: 'how', ready: false });
+    const payload = buildHowEmit(state, { ready: false });
+    await persistNode({ ...state, ...payload }, 'emitIncomplete', onCheckpoint, {
+      status: 'callback_pending',
+      stopReason: payload.stopReason,
     });
-    return { history: ['awaitHuman:in_run:edit_draft'], humanResume: resumed };
+    return payload;
   });
 
-  function routeAfterStart(state) {
-    if (state.selective || state.skipUnderstand) return 'enterTools';
-    return 'understand';
+  graph.addEdge(START, 'prepareHowContext');
+  graph.addEdge('prepareHowContext', 'selectTools');
+  graph.addConditionalEdges('selectTools', routeAfterSelectToolsHow);
+  for (const toolName of HOW_SEC_TOOL_NAMES) {
+    graph.addEdge(toolName, 'selectTools');
   }
-
-  function routeAfterEvaluate(state) {
-    if (state.stopReason && String(state.stopReason).startsWith('BUDGET_')) {
-      return 'emitFeasibility';
+  graph.addEdge(PLAIN_TOOLS_NODE, 'selectTools');
+  graph.addEdge('assemble', 'scoreCompleteness');
+  graph.addConditionalEdges(
+    'scoreCompleteness',
+    (state) =>
+      routeAfterCompleteness(state, {
+        maxEnrich: envMaxEnrich(state.env || process.env),
+        env: state.env || process.env,
+      }),
+    {
+      injectGap: 'injectGap',
+      emitReady: 'emitReady',
+      emitIncomplete: 'emitIncomplete',
     }
-    const action = state.evaluateAction || 'CONTINUE';
-    const loop = Number(state.evaluateLoop) || 0;
-    if (action === 'RETRIEVE' && loop <= MAX_EVALUATE_LOOPS && !state.selective) {
-      return 'retrieve';
-    }
-    if (action === 'NEED_TOOL' && loop < MAX_EVALUATE_LOOPS) {
-      return 'enterTools';
-    }
-    const { isHitlInterruptEnabled } = require('./hitlInterrupt');
-    if (isHitlInterruptEnabled()) return 'awaitHuman';
-    return 'emitFeasibility';
-  }
+  );
+  graph.addEdge('injectGap', 'selectTools');
+  graph.addEdge('emitReady', END);
+  graph.addEdge('emitIncomplete', END);
 
-  graph.addConditionalEdges(START, routeAfterStart, {
-    understand: 'understand',
-    enterTools: 'enterTools',
-  });
-  graph.addEdge('understand', 'plan');
-  graph.addEdge('plan', 'select');
-  graph.addEdge('select', 'enterTools');
-  graph.addEdge('gateTools', 'observe');
-  graph.addEdge('observe', 'evaluateLocal');
-  graph.addConditionalEdges('evaluateLocal', routeAfterEvaluate, {
-    retrieve: 'retrieve',
-    enterTools: 'enterTools',
-    awaitHuman: 'awaitHuman',
-    emitFeasibility: 'emitFeasibility',
-  });
-  graph.addEdge('retrieve', 'evaluateLocal');
-  graph.addEdge('awaitHuman', 'emitFeasibility');
-  graph.addEdge('emitFeasibility', END);
-
-  return graph.compile({ checkpointer });
+  return asSubgraph || !checkpointer
+    ? graph.compile()
+    : graph.compile({ checkpointer });
 }
 
 module.exports = {
   HowPhaseState,
   buildHowPhaseGraph,
-  MAX_EVALUATE_LOOPS,
   STOP_REASONS,
+  routeAfterSelectTools,
+  routeAfterCompleteness,
 };

@@ -1,6 +1,7 @@
 /**
- * One WHAT section — LangGraph fact → propose → accept.
- * Propose calls generateJson only. Ids, filters, and seeds stay in fact/accept.
+ * One WHAT section — LangGraph fact → propose → accept (registry / standalone).
+ * Phase Pattern B path: orchestration/toolSubgraphAdapter.buildWhatSectionToolSubgraph
+ * (shared∪private + applyShared on whatPhaseGraph).
  */
 
 const { Annotation, StateGraph, START, END } = require('@langchain/langgraph');

@@ -8,7 +8,9 @@ const {
   materializeWbsFromSotAndLeaves,
   resolveDecompositionOutcome,
   acCitationCoversWhitelist,
+  resolveAcRefToWhitelist,
 } = require('../engines/wbsProposeLlm');
+const { assessDecompositionQuality } = require('../engines/wbsDecompositionQuality');
 
 function frIdOf(leaf) {
   return String(leaf?.sourceFrIds?.[0] || '').trim();
@@ -41,6 +43,10 @@ function reconcileWbsChunks(units, context = {}) {
 
   const leaves = [];
   const isolatedFrIds = [];
+  const clarifications = [];
+  const qualityIssues = [];
+  let needsReview = false;
+  let repairAttempts = 0;
   let llmCalls = 0;
   let promptChars = 0;
   let model = null;
@@ -48,6 +54,10 @@ function reconcileWbsChunks(units, context = {}) {
     const tasks = Array.isArray(unit.result.tasks) ? unit.result.tasks : [];
     leaves.push(...tasks);
     if (Array.isArray(unit.result.isolatedFrIds)) isolatedFrIds.push(...unit.result.isolatedFrIds);
+    if (Array.isArray(unit.result.clarifications)) clarifications.push(...unit.result.clarifications);
+    if (Array.isArray(unit.result.qualityIssues)) qualityIssues.push(...unit.result.qualityIssues);
+    if (unit.result.needsReview) needsReview = true;
+    repairAttempts += Number(unit.result.repairAttempts) || 0;
     llmCalls += Number(unit.result.llmCalls) || 0;
     promptChars += Number(unit.result.promptChars) || 0;
     model = unit.result.model || model;
@@ -78,8 +88,11 @@ function reconcileWbsChunks(units, context = {}) {
     for (const leaf of group) {
       for (const ac of leaf.acRefs || []) cited.push(ac);
     }
-    for (const ac of unit.ac || []) {
-      if (!acCitationCoversWhitelist(ac, cited)) uncoveredAcKeys.push(`${unit.id}:${ac}`);
+    const acList = Array.isArray(unit.ac) ? unit.ac : [];
+    for (const ac of acList) {
+      if (!acCitationCoversWhitelist(ac, cited, { acList, frId: unit.id })) {
+        uncoveredAcKeys.push(`${unit.id}:${ac}`);
+      }
     }
   }
 
@@ -123,11 +136,28 @@ function reconcileWbsChunks(units, context = {}) {
     };
   }
 
+  const finalQuality = assessDecompositionQuality({
+    frUnits,
+    tasks: safeLeaves,
+    clarifications,
+    resolveAcRef: (raw, acList, frId) => resolveAcRefToWhitelist(raw, acList, { frId }),
+  });
+  if (!finalQuality.ok) {
+    qualityIssues.push(...finalQuality.issues);
+    needsReview = true;
+  }
+  if (clarifications.length || uncoveredFrIds.length || uncoveredAcKeys.length || isolatedFrIds.length) {
+    needsReview = true;
+  }
+
   const decompositionOutcome = resolveDecompositionOutcome({
     leafCount: safeLeaves.length,
     unresolvedUnitIds: unresolvedStoryIds,
     uncoveredFrIds,
     uncoveredAcKeys,
+    qualityIssues,
+    clarifications,
+    needsReview,
   });
   const materialized = materializeWbsFromSotAndLeaves({
     epics,
@@ -151,6 +181,10 @@ function reconcileWbsChunks(units, context = {}) {
       uncoveredFrIds,
       isolatedFrIds,
       uncoveredAcKeys,
+      qualityIssues,
+      clarifications,
+      needsReview,
+      repairAttempts,
       duplicateLeafIds: deduped.duplicateLeafIds,
       uniqueLeafCount: deduped.uniqueLeafCount,
       deadLetterIds,

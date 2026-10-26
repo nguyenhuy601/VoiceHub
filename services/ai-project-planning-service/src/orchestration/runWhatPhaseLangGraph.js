@@ -14,6 +14,7 @@ const {
   markStage,
   logWhatTiming,
 } = require('./whatTiming');
+const { preparePhaseSnapshot } = require('./preparePhaseSnapshot');
 
 async function runWhatPhaseLangGraph({
   container,
@@ -23,19 +24,39 @@ async function runWhatPhaseLangGraph({
   runId = null,
   onProgress = null,
   onCheckpoint = null,
-  g4Opts = {},
+  frOpts = {},
+  g4Opts = null,
   budget: budgetOverride = null,
   goal: goalOverride = null,
   constraints: constraintsOverride = null,
   hydrateMs = null,
   timingRound = null,
+  skipUnderstand = false,
+  humanFeedback = null,
+  parentRunId = null,
+  generationId = null,
+  decideToolCalls = null,
 } = {}) {
+  const resolvedFrOpts = {
+    ...(g4Opts && typeof g4Opts === 'object' ? g4Opts : {}),
+    ...(frOpts && typeof frOpts === 'object' ? frOpts : {}),
+  };
   const startedAt = Date.now();
+  const prepared = preparePhaseSnapshot({
+    snapshotId,
+    snapshot,
+    runId,
+    phase: 'what',
+    pack,
+  });
+  const boundSnapshot = prepared.snapshot;
+  const boundSnapshotId = prepared.snapshotId;
+
   const budget = resolveAgentBudget({ budget: budgetOverride || undefined });
   const initialFields = buildInitialAgentFields({
     phase: 'what',
     runId,
-    snapshotId,
+    snapshotId: boundSnapshotId,
     goal: goalOverride,
     constraints: constraintsOverride,
     budget,
@@ -50,7 +71,7 @@ async function runWhatPhaseLangGraph({
   let whatTiming = createWhatTiming({
     round: timingRound != null ? timingRound : process.env.WHAT_TIMING_ROUND || 0,
     packId: pack?._id || pack?.id || null,
-    snapshotId,
+    snapshotId: boundSnapshotId,
     runId,
   });
   if (hydrateMs != null && Number.isFinite(Number(hydrateMs))) {
@@ -60,27 +81,30 @@ async function runWhatPhaseLangGraph({
   const { checkpointer, kind: checkpointerKind } = await getLangGraphCheckpointer();
   const { assertDurableCheckpointerForInRunHitl } = require('./hitlCheckpointerPolicy');
   assertDurableCheckpointerForInRunHitl({ kind: checkpointerKind });
-  const threadId = String(runId || snapshotId || `what-${startedAt}`);
+  const threadId = String(runId || boundSnapshotId || `what-${startedAt}`);
 
   console.info(
-    `[agent_core] mode=langgraph phase=what runId=${runId || ''} checkpointer=${checkpointerKind} orchestrator=shared`
+    `[agent_core] mode=langgraph_react phase=what runId=${runId || ''} checkpointer=${checkpointerKind}`
   );
 
   const finalState = await runPhaseOrchestrator({
     phase: 'what',
     threadId,
-    hooks: { onProgress, onCheckpoint, checkpointer },
+    hooks: { onProgress, onCheckpoint, checkpointer, decideToolCalls },
     input: {
       runId,
-      snapshotId,
-      snapshot,
+      snapshotId: boundSnapshotId,
+      snapshot: boundSnapshot,
       pack,
       container: next,
       corpus: [],
       contextPackage: null,
       history: [],
       toolResults: [],
-      g4Understanding: null,
+      messages: humanFeedback
+        ? [{ role: 'user', content: JSON.stringify(humanFeedback).slice(0, 2000) }]
+        : [],
+      frUnderstanding: null,
       proposalFragment: null,
       conflictAmbiguityGate: null,
       evaluate: null,
@@ -93,8 +117,17 @@ async function runWhatPhaseLangGraph({
       stopReason: null,
       startedAt,
       hitl: 'gate1',
-      g4Opts,
+      frOpts: resolvedFrOpts,
+      env: process.env,
       whatTiming,
+      skipUnderstand: Boolean(skipUnderstand),
+      srsProposal: next?.analyses?.srsProposal || null,
+      engineResultsById: {},
+      semanticStatuses: {},
+      agentIteration: 0,
+      enrichLoop: 0,
+      gapReport: null,
+      completeness: null,
     },
   });
 
@@ -107,7 +140,7 @@ async function runWhatPhaseLangGraph({
     history: Array.isArray(finalState.history) ? finalState.history : [],
     toolResults: Array.isArray(finalState.toolResults) ? finalState.toolResults : [],
     contextPackage: finalState.contextPackage || null,
-    g4Understanding: finalState.g4Understanding,
+    frUnderstanding: finalState.frUnderstanding,
     proposalFragment: finalState.proposalFragment || null,
     srsProposal: finalState.srsProposal || null,
     evaluate: finalState.evaluate,
@@ -125,8 +158,10 @@ async function runWhatPhaseLangGraph({
     durationMs,
     whatTiming: timing,
     stub: false,
-    agentCore: 'langgraph',
+    agentCore: 'langgraph_react',
     checkpointer: checkpointerKind,
+    parentRunId,
+    generationId,
   };
 }
 

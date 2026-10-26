@@ -62,18 +62,21 @@ function normalizeGateShape(raw, source) {
  */
 function resolveConflictAmbiguityFromPack(pack) {
   const analyses = pack?.aiAnalysis?.analyses || pack?.analyses || {};
-  const g4 = analyses.g4Understanding;
+  const g4 = analyses.frUnderstanding || analyses.g4Understanding;
 
   const fromG4 =
     g4?.requirementIntegrityGate ||
     g4?.conflictAmbiguityGate ||
     g4?.meta?.requirementIntegrityGate ||
     g4?.meta?.conflictAmbiguityGate;
+  const frPath = analyses.frUnderstanding
+    ? 'analyses.frUnderstanding'
+    : 'analyses.g4Understanding';
   const normalizedG4 = normalizeGateShape(
     fromG4,
     g4?.requirementIntegrityGate
-      ? 'analyses.g4Understanding.requirementIntegrityGate'
-      : 'analyses.g4Understanding.conflictAmbiguityGate'
+      ? `${frPath}.requirementIntegrityGate`
+      : `${frPath}.conflictAmbiguityGate`
   );
   if (normalizedG4) return normalizedG4;
 

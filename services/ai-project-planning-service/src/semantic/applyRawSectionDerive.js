@@ -6,6 +6,7 @@
 
 const { applyProposalFragment } = require('../srsProposal/srsProposalReducer');
 const { getRegistryEntry } = require('../srsProposal/contracts/analysisEngineRegistry');
+const { isLegacySection } = require('../srsProposal/contracts/analysisSections');
 const { runAllRawSectionDerives } = require('./runRawSectionDerive');
 const { buildActorsFromRaw, buildScopeFromRaw } = require('../srsProposal/engines/actorsFromRaw');
 const {
@@ -22,6 +23,7 @@ const { TASK_POLICIES } = require('./semanticTaskRegistry');
 
 /**
  * Write one section derive result onto the proposal. Skips SHEET_PRESENT.
+ * Legacy sections (actors…): only write when there are items — no empty NO_DATA stamp.
  * @returns {{ proposal: object, status: string|null }}
  */
 function mergeSectionDeriveResult(proposal, resultsById, engineId, result) {
@@ -47,7 +49,7 @@ function mergeSectionDeriveResult(proposal, resultsById, engineId, result) {
       },
       {
         bumpProposalVersion: false,
-        allowLegacyWrite: engineId === 'actors',
+        allowLegacyWrite: isLegacySection(section),
       }
     );
     resultsById[engineId] = {
@@ -63,6 +65,17 @@ function mergeSectionDeriveResult(proposal, resultsById, engineId, result) {
   if (sectionEmpty(proposal, section) && result.coverage?.reason) {
     const reason = result.coverage.reason;
     if (reason === 'SHEET_PRESENT') return { proposal, status };
+    // No empty fragment write for legacy (actors) — telemetry only.
+    if (isLegacySection(section)) {
+      resultsById[engineId] = {
+        execution: { status: 'SKIPPED', diagnostics: [] },
+        items: [],
+        coverage: { status: 'NO_DATA', reason },
+        validation: { errors: [], warnings: [] },
+        meta: { engineId, section, rawDerive: true, skippedEmptyLegacyWrite: true },
+      };
+      return { proposal, status };
+    }
     proposal = applyProposalFragment(
       proposal,
       {
@@ -114,6 +127,17 @@ function stampLockedSection(proposal, resultsById, deriveStatuses, engineId) {
 
   const coverage = { status: 'NO_DATA', reason: 'DERIVE_LOCKED' };
   deriveStatuses[engineId] = 'DERIVE_LOCKED';
+  // Legacy (actors…): do not stamp empty locked fragment onto proposal.
+  if (isLegacySection(section)) {
+    resultsById[engineId] = {
+      execution: { status: 'SKIPPED', diagnostics: [] },
+      items: [],
+      coverage,
+      validation: { errors: [], warnings: [] },
+      meta: { engineId, section, rawDerive: true, locked: true, skippedEmptyLegacyWrite: true },
+    };
+    return proposal;
+  }
   const next = applyProposalFragment(
     proposal,
     {
@@ -126,7 +150,7 @@ function stampLockedSection(proposal, resultsById, deriveStatuses, engineId) {
         kind: 'raw_section_derive_locked',
       },
     },
-    { bumpProposalVersion: false, allowLegacyWrite: engineId === 'actors' }
+    { bumpProposalVersion: false }
   );
   resultsById[engineId] = {
     execution: { status: 'SKIPPED', diagnostics: [] },
@@ -248,12 +272,12 @@ async function applyRawSectionDerive(opts = {}) {
     env,
     invokeFn: opts.invokeFn,
     proposal,
-    g4Understanding: opts.g4Understanding,
+    frUnderstanding: opts.frUnderstanding,
     evidence: opts.evidence,
     snapshot: opts.snapshot,
     locale:
       opts.locale ||
-      opts.g4Opts?.locale ||
+      opts.frOpts?.locale ||
       pack?.aiAnalysis?.deriveLocale ||
       null,
     contextPackage: opts.contextPackage || null,

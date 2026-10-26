@@ -272,4 +272,8 @@ async function runEffortRolesSecGraph(input = {}) {
   return { result: out.result, containerPatch: out.containerPatch };
 }
 
-module.exports = { runEffortRolesSecGraph, buildEffortRolesSemantic };
+module.exports = {
+  buildEffortRolesSecGraph,
+  runEffortRolesSecGraph,
+  buildEffortRolesSemantic,
+};

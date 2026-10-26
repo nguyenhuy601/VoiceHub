@@ -51,6 +51,10 @@ async function processWbsChunk(workUnitId, opts = {}) {
         {
           tasks: executed.tasks,
           isolatedFrIds: executed.isolatedFrIds || [],
+          clarifications: executed.clarifications || [],
+          qualityIssues: executed.qualityIssues || [],
+          needsReview: Boolean(executed.needsReview),
+          repairAttempts: executed.repairAttempts || 0,
           llmCalls: executed.llmCalls || 0,
           promptChars: executed.promptChars || 0,
           model: executed.model || null,
@@ -60,11 +64,13 @@ async function processWbsChunk(workUnitId, opts = {}) {
       );
       return { ok: true, unit };
     }
+    // Exhausted repair with clarifications/needsReview and no usable tasks → dead-letter (not infinite retry).
+    const retryable = executed.needsReview ? false : executed.retryable !== false;
     const unit = await markAttemptFailed(
       workUnitId,
       executed.reason || 'llm_failed',
       env,
-      executed.retryable !== false
+      retryable
     );
     return { ok: false, unit, error: executed.reason || 'llm_failed' };
   } catch (err) {

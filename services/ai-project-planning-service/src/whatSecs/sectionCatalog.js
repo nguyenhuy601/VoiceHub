@@ -1,6 +1,7 @@
 /**
  * WHAT phase LLM sections — one registered tool per sec.
- * Order matches LLM_DERIVE_ORDER. FR runs before these (executeG4).
+ * Peer DAG (whatToolDag): FR∥BG/BR; UC/Data depend on WhatFrTool.
+ * Graph invokes tools via enterTools — no executeG4 special node.
  */
 
 const { LLM_DERIVE_ORDER, SECTION_BY_ENGINE, SECTION_LABEL } = require('../semantic/sectionDeriveRegistry');

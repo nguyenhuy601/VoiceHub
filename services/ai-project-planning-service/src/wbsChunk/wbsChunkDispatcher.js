@@ -46,9 +46,37 @@ async function dispatchWbsChunk(spec, env = process.env) {
   }
 
   try {
-    const published = await publishWbsChunk(unit, env);
+    const { isLlmJobsWbsEnabled, isJobTypeEnabled, JOB_TYPES } = require('../llmJobs/llmJobContract');
+    let published;
+    let llmJob = null;
+    if (isLlmJobsWbsEnabled(env) && isJobTypeEnabled(JOB_TYPES.WBS_CHUNK, env)) {
+      const { enqueueLlmJob } = require('../llmJobs/enqueueLlmJob');
+      llmJob = await enqueueLlmJob(
+        {
+          jobType: JOB_TYPES.WBS_CHUNK,
+          phase: 'HOW',
+          runId,
+          snapshotId: inputSnapshotId,
+          idempotencyKey: `llm:${idempotencyKey}`,
+          payload: {
+            workUnitId: unit.workUnitId,
+            inputSnapshotId,
+            chunkIndex,
+          },
+        },
+        env
+      );
+      published = { ok: true, transport: 'llm_jobs', message: { jobId: llmJob.jobId } };
+    } else {
+      published = await publishWbsChunk(unit, env);
+    }
     const queued = await markQueued(unit.workUnitId, env);
-    return { unit: queued || unit, published: true, message: published.message };
+    return {
+      unit: queued || unit,
+      published: true,
+      message: published.message,
+      llmJobId: llmJob?.jobId || null,
+    };
   } catch (err) {
     const current = await getWorkUnit(unit.workUnitId, env);
     return {

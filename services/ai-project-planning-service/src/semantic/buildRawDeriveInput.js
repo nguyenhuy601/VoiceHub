@@ -166,7 +166,7 @@ function mergeFrSources(pack, opts) {
 /**
  * @param {string} engineId
  * @param {object} pack
- * @param {{ proposal?: object, g4Understanding?: object, evidence?: object[] }} [opts]
+ * @param {{ proposal?: object, frUnderstanding?: object, evidence?: object[] }} [opts]
  */
 function buildRawDeriveInput(engineId, pack, opts = {}) {
   const id = String(engineId || '');
@@ -186,7 +186,7 @@ function buildRawDeriveInput(engineId, pack, opts = {}) {
 
   const overview = overviewSlice(pack);
   const scope = scopeSlice(pack);
-  const g4 = opts.g4Understanding || opts.understanding || null;
+  const g4 = opts.frUnderstanding || opts.g4Understanding || opts.understanding || null;
   const requirementUnderstanding = slimRequirementUnderstanding(g4);
   const evidenceRefs = slimEvidenceRefs(opts.evidence || g4?.evidence || null);
 

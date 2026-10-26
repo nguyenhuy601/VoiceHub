@@ -214,6 +214,7 @@ async function runDeploySecGraph(input = {}) {
 }
 
 module.exports = {
+  buildDeploySecGraph,
   runDeploySecGraph,
   buildDeploySemantic,
   isDeployPlanStructurallyOk,

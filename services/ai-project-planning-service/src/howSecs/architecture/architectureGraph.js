@@ -1,6 +1,7 @@
 /**
  * Architecture LangGraph subgraph — Semantic → Fact → Propose → Accept.
- * Business logic lives in sibling files; this file only wires nodes.
+ * Phase SoT: toolSubgraphAdapter Pattern B on howPhaseGraph (Send→addNode).
+ * runArchitectureSecGraph remains for isolated unit/harness only — not tool catalog.
  */
 
 const { Annotation, StateGraph, START, END } = require('@langchain/langgraph');

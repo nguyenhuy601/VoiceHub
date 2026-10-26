@@ -1,8 +1,8 @@
 /**
- * Agent Core F2 — LangGraph checkpointer factory.
- * Prefer RedisSaver only when Redis has RedisJSON (JSON.SET).
- * Plain redis:7-alpine → MemorySaver (G15 onCheckpoint remains SoT).
- * No Postgres — Hybrid HITL durable path is Redis+RedisJSON only.
+ * Agent Core — LangGraph checkpointer factory (RULE-LG-CP-01 SoT).
+ * Prefer RedisSaver when Redis has RedisJSON (JSON.SET).
+ * Plain redis:7-alpine → MemorySaver (explicit AGENT_CORE_LG_MEMORY=1 to silence warn).
+ * G15 saveCheckpoint is telemetry/projection only — not phase resume SoT.
  * When AGENT_CORE_HITL_INTERRUPT=1, callers must assertDurableCheckpointerForInRunHitl.
  */
 

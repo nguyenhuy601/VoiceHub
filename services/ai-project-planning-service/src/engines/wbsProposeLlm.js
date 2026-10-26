@@ -10,6 +10,7 @@ const {
   resolveWbsLlmNumPredict,
   resolveWbsLlmNumCtx,
   resolveWbsLlmTimeoutMs,
+  resolveWbsLlmMaxRepair,
   planWbsCallSlices,
 } = require('../contracts/howWbsLlmContract');
 const { roleKeyForArea } = require('./wbsAgileNaming');
@@ -19,6 +20,11 @@ const {
   canonicalizeProjectRoleKey,
   roleEnumHintFromAllowList,
 } = require('./roleKey');
+const {
+  assessInputReadiness,
+  assessDecompositionQuality,
+  formatRepairFeedback,
+} = require('./wbsDecompositionQuality');
 
 const AREA_ENUM = Object.freeze([
   'frontend',
@@ -92,6 +98,87 @@ function normalizeAcKey(raw) {
     .trim();
 }
 
+/** Normalize AC lines from FR/story/meta shapes (array, list, or newline/; string). */
+function extractAcLines(row, max = UNIT_AC_MAX) {
+  if (!row || typeof row !== 'object') {
+    if (typeof row === 'string' && row.trim()) {
+      return row
+        .split(/\n|;/)
+        .map((s) => truncate(s.replace(/^[-*•\d.)\s]+/, '').trim(), UNIT_AC_CHARS))
+        .filter((s) => s.length >= 3)
+        .slice(0, max);
+    }
+    return [];
+  }
+  if (Array.isArray(row.ac) || Array.isArray(row.acRefs) || Array.isArray(row.acs)) {
+    const raw = row.ac || row.acRefs || row.acs;
+    return raw
+      .map((item) => {
+        if (typeof item === 'string') return truncate(item.trim(), UNIT_AC_CHARS);
+        return truncate(
+          String(item?.text || item?.statement || item?.description || '').trim(),
+          UNIT_AC_CHARS
+        );
+      })
+      .filter((s) => s.length >= 3)
+      .slice(0, max);
+  }
+  if (Array.isArray(row.acceptanceCriteriaList)) {
+    return row.acceptanceCriteriaList
+      .map((item) => {
+        if (typeof item === 'string') return truncate(item.trim(), UNIT_AC_CHARS);
+        return truncate(String(item?.text || '').trim(), UNIT_AC_CHARS);
+      })
+      .filter((s) => s.length >= 3)
+      .slice(0, max);
+  }
+  const raw = row.acceptanceCriteria || '';
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  return raw
+    .split(/\n|;/)
+    .map((s) => truncate(s.replace(/^[-*•\d.)\s]+/, '').trim(), UNIT_AC_CHARS))
+    .filter((s) => s.length >= 3)
+    .slice(0, max);
+}
+
+/**
+ * Parse LLM index-style AC cites (FR-1:ac:1, ac:FR-1:1, ac:1, AC-1).
+ * @returns {number|null} 1-based index
+ */
+function parseAcIndexCitation(raw, frId = null) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const frOk = frId ? normalizeRef(frId) : null;
+
+  let m = s.match(/^([A-Za-z][\w.-]*):ac:(\d+)$/i);
+  if (m) {
+    if (frOk && normalizeRef(m[1]) !== frOk) return null;
+    const n = Number(m[2]);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  }
+
+  m = s.match(/^ac:([A-Za-z][\w.-]*):(\d+)$/i);
+  if (m) {
+    if (frOk && normalizeRef(m[1]) !== frOk) return null;
+    const n = Number(m[2]);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  }
+
+  m = s.match(/^ac:(\d+)$/i);
+  if (m) {
+    const n = Number(m[1]);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  }
+
+  m = s.match(/^ac[-_]?(\d+)$/i);
+  if (m) {
+    const n = Number(m[1]);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  }
+
+  return null;
+}
+
 function acRefAllowed(received, whitelist) {
   const r = normalizeAcKey(received);
   if (!r || r.length < 4) return false;
@@ -107,10 +194,39 @@ function acRefAllowed(received, whitelist) {
   return false;
 }
 
-function acCitationCoversWhitelist(whitelistAc, citedRawList) {
+/**
+ * Map a received acRef to a canonical whitelist AC string (text or index cite).
+ * @returns {string|null}
+ */
+function resolveAcRefToWhitelist(received, whitelist, opts = {}) {
+  const list = whitelist instanceof Set ? [...whitelist] : Array.isArray(whitelist) ? whitelist : [];
+  if (!list.length) return null;
+  const raw = normalizeRef(received);
+  if (!raw) return null;
+
+  for (const w of list) {
+    if (normalizeRef(w) === raw) return w;
+  }
+  for (const w of list) {
+    if (acRefAllowed(raw, [w])) return w;
+  }
+
+  const idx = parseAcIndexCitation(raw, opts.frId || null);
+  if (idx != null && idx >= 1 && idx <= list.length) {
+    return list[idx - 1];
+  }
+  return null;
+}
+
+function acCitationCoversWhitelist(whitelistAc, citedRawList, opts = {}) {
   const cited = Array.isArray(citedRawList) ? citedRawList : [];
   if (cited.some((c) => normalizeRef(c) === whitelistAc)) return true;
-  return cited.some((c) => acRefAllowed(c, [whitelistAc]));
+  if (cited.some((c) => acRefAllowed(c, [whitelistAc]))) return true;
+  const list = Array.isArray(opts.acList) && opts.acList.length ? opts.acList : [whitelistAc];
+  return cited.some((c) => {
+    const resolved = resolveAcRefToWhitelist(c, list, opts);
+    return resolved != null && normalizeRef(resolved) === normalizeRef(whitelistAc);
+  });
 }
 
 function unitFrWhitelist(unit) {
@@ -207,51 +323,79 @@ function resolveLeafSuggestedRole(row, area, allowList) {
   });
 }
 
+function indexFrRowsIntoMeta(frMeta, rows = []) {
+  for (const row of rows || []) {
+    const id = normalizeRef(row?.id || row?.externalId || row?._id);
+    if (!id || isCustomerRequirementId(id)) continue;
+    if (!frMeta.has(id)) frMeta.set(id, row);
+  }
+}
+
 /**
  * FR work units for WBS. Story that cites the FR wins; otherwise the Epic that lists it.
- * AC stays on the unit only when the story cites that single FR.
+ * AC prefers per-FR meta (semantic.approved.fr / pack FR); single-FR story.ac is fallback.
  * @param {object[]} stories
  * @param {object[]} epics
  * @param {object|null} semantic
+ * @param {object|null} pack
  */
-function collectFrUnits(stories = [], epics = [], semantic = null) {
+function collectFrUnits(stories = [], epics = [], semantic = null, pack = null) {
   const storyList = normalizeStoriesForWbs(stories);
   const frMeta = new Map();
   const approved = Array.isArray(semantic?.approved?.fr) ? semantic.approved.fr : [];
-  for (const row of approved) {
-    const id = normalizeRef(row?.id);
-    if (id) frMeta.set(id, row);
+  indexFrRowsIntoMeta(frMeta, approved);
+  const layerFrs = semantic?.layer?.requiredData?.functionalRequirements;
+  if (Array.isArray(layerFrs)) indexFrRowsIntoMeta(frMeta, layerFrs);
+  if (pack && typeof pack === 'object') {
+    const packFrs = Array.isArray(pack.functionalRequirements)
+      ? pack.functionalRequirements
+      : Array.isArray(pack.frList)
+        ? pack.frList
+        : Array.isArray(pack.requirements)
+          ? pack.requirements
+          : [];
+    indexFrRowsIntoMeta(frMeta, packFrs);
   }
 
   /** @type {Map<string, object>} */
   const byId = new Map();
   const order = [];
 
+  function resolveUnitAc(meta, anchorAc) {
+    const fromMeta = extractAcLines(meta);
+    if (fromMeta.length) return fromMeta;
+    const fromAnchor = Array.isArray(anchorAc)
+      ? anchorAc.map((a) => truncate(String(a || '').trim(), UNIT_AC_CHARS)).filter((s) => s.length >= 3)
+      : [];
+    return fromAnchor.slice(0, UNIT_AC_MAX);
+  }
+
   function touch(frId, anchor) {
     const id = normalizeRef(frId);
     if (!id || isCustomerRequirementId(id)) return;
+    const meta = frMeta.get(id) || {};
     const prev = byId.get(id);
     if (prev) {
       if (!prev.storyId && anchor.storyId) {
         prev.storyId = anchor.storyId;
         prev.epicId = anchor.epicId || prev.epicId;
         prev.parentId = anchor.storyId;
-        if (anchor.ac?.length) prev.ac = anchor.ac;
+        if (!prev.ac?.length) prev.ac = resolveUnitAc(meta, anchor.ac);
+        else if (anchor.ac?.length && !extractAcLines(meta).length) prev.ac = resolveUnitAc({}, anchor.ac);
         if (anchor.description) prev.description = anchor.description;
         if (anchor.module) prev.module = anchor.module;
         if (anchor.feature) prev.feature = anchor.feature;
       }
       return;
     }
-    const meta = frMeta.get(id) || {};
     const name =
-      truncate(meta.statement || meta.name || anchor.name || id, UNIT_NAME_MAX) || id;
+      truncate(meta.statement || meta.name || meta.title || anchor.name || id, UNIT_NAME_MAX) || id;
     byId.set(id, {
       id,
       name,
       description: anchor.description || '',
-      statement: meta.statement || anchor.description || '',
-      ac: Array.isArray(anchor.ac) ? anchor.ac : [],
+      statement: meta.statement || meta.text || anchor.description || '',
+      ac: resolveUnitAc(meta, anchor.ac),
       module: anchor.module || meta.module || undefined,
       feature: anchor.feature || meta.feature || undefined,
       storyId: anchor.storyId || null,
@@ -269,6 +413,7 @@ function collectFrUnits(stories = [], epics = [], semantic = null) {
         epicId: normalizeRef(story.parentId) || null,
         name: story.name,
         description: story.description || '',
+        // Multi-FR: do not broadcast story.ac onto every FR; per-FR meta supplies AC (D).
         ac: single ? story.ac : [],
         module: story.module,
         feature: story.feature,
@@ -317,7 +462,7 @@ function acceptWbsStoryTasks(raw, storiesIn = [], opts = {}) {
   const frUnits =
     Array.isArray(opts.frUnits) && opts.frUnits.length
       ? opts.frUnits
-      : collectFrUnits(stories, opts.epics || [], opts.semantic || null);
+      : collectFrUnits(stories, opts.epics || [], opts.semantic || null, opts.pack || null);
   if (!raw || typeof raw !== 'object') {
     return { ok: false, errors: ['not_object'] };
   }
@@ -399,27 +544,33 @@ function acceptWbsStoryTasks(raw, storiesIn = [], opts = {}) {
         ],
       };
     }
-    const acOk = new Set(
-      (Array.isArray(frUnit.ac) ? frUnit.ac : [])
-        .map((x) => normalizeRef(x))
-        .filter(Boolean)
-    );
+    const acList = (Array.isArray(frUnit.ac) ? frUnit.ac : [])
+      .map((x) => normalizeRef(x))
+      .filter(Boolean);
+    const acOk = new Set(acList);
     const parentStoryId = frUnit.storyId || null;
 
-    const acRefs = Array.isArray(row.acRefs)
-      ? row.acRefs.map((x) => normalizeRef(x)).filter(Boolean)
-      : [];
-    for (const ac of acRefs) {
-      if (!acOk.has(ac) && !acRefAllowed(ac, acOk)) {
+    const rawAcRefs = Array.isArray(row.acRefs)
+      ? row.acRefs
+      : Array.isArray(row.sourceAcIds)
+        ? row.sourceAcIds
+        : [];
+    const acRefs = [];
+    for (const item of rawAcRefs) {
+      const ac = normalizeRef(item);
+      if (!ac) continue;
+      const canon = resolveAcRefToWhitelist(ac, acList, { frId });
+      if (!canon) {
         return {
           ok: false,
           errors: [
             `invalid_acRef_${id}`,
             `received=${ac}`,
-            `whitelist=${[...acOk].slice(0, 12).join('|')}`,
+            `whitelist=${acList.slice(0, 12).join('|')}`,
           ],
         };
       }
+      if (!acRefs.includes(canon)) acRefs.push(canon);
     }
     if (acOk.size > 0 && acRefs.length === 0) {
       return {
@@ -451,7 +602,7 @@ function acceptWbsStoryTasks(raw, storiesIn = [], opts = {}) {
       );
     }
     if (!deliverable || deliverable.length < DELIVERABLE_MIN_LEN) {
-      continue;
+      return { ok: false, errors: [`missing_deliverable_${id}`] };
     }
 
     const rawSeed = row.effortSeedHours ?? row.effortHours;
@@ -459,7 +610,7 @@ function acceptWbsStoryTasks(raw, storiesIn = [], opts = {}) {
     if (rawSeed !== undefined && rawSeed !== null && String(rawSeed).trim() !== '') {
       const effort = Number(rawSeed);
       if (!Number.isFinite(effort) || effort <= 0) {
-        continue;
+        return { ok: false, errors: [`invalid_effort_${id}`] };
       }
       effortSeedHours = effort;
     }
@@ -484,7 +635,23 @@ function acceptWbsStoryTasks(raw, storiesIn = [], opts = {}) {
     tasks.push(task);
   }
 
-  return { ok: true, tasks };
+  const clarifications = normalizeClarifications(raw.clarifications);
+  return { ok: true, tasks, clarifications };
+}
+
+function normalizeClarifications(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((row) => row && typeof row === 'object')
+    .map((row) => ({
+      frId: normalizeRef(row.frId || row.fr || ''),
+      code: String(row.code || 'needs_clarification').trim() || 'needs_clarification',
+      question: truncate(row.question || row.message || '', 500),
+      missing: Array.isArray(row.missing)
+        ? row.missing.map((x) => String(x).trim()).filter(Boolean).slice(0, 8)
+        : [],
+    }))
+    .filter((row) => row.question);
 }
 
 function reportUnitTaskPresence(tasks, units = []) {
@@ -539,8 +706,9 @@ function assertFrAcCoverage(tasks, units = []) {
     for (const leaf of leaves) {
       for (const ac of leaf.acRefs || []) citedAcList.push(ac);
     }
-    for (const ac of unitAcWhitelist(unit)) {
-      if (!acCitationCoversWhitelist(ac, citedAcList)) {
+    const unitAcList = [...unitAcWhitelist(unit)];
+    for (const ac of unitAcList) {
+      if (!acCitationCoversWhitelist(ac, citedAcList, { acList: unitAcList, frId: uid })) {
         uncoveredAcKeys.push(`${uid}:${ac}`);
       }
     }
@@ -555,7 +723,16 @@ function resolveDecompositionOutcome({
   unresolvedStoryIds = [],
   uncoveredFrIds = [],
   uncoveredAcKeys = [],
+  qualityIssues = [],
+  clarifications = [],
+  needsReview = false,
 }) {
+  if (needsReview || (Array.isArray(clarifications) && clarifications.length > 0)) {
+    return 'needs_review';
+  }
+  if (Array.isArray(qualityIssues) && qualityIssues.length > 0) {
+    return 'needs_review';
+  }
   const unresolved = unresolvedUnitIds.length
     ? unresolvedUnitIds
     : unresolvedStoryIds;
@@ -567,8 +744,8 @@ function resolveDecompositionOutcome({
 }
 
 /**
- * Production prompt — one call decomposes approved FR rows into task leaves.
- * Feature nodes are not requested from the model; ≥2 tasks on one FR are promoted later.
+ * Production prompt — decompose FR into independently completable tasks with separate outputs.
+ * Feature nodes are not requested; ≥2 tasks on one FR are promoted later.
  */
 function buildWbsStoryLlmPrompt({
   stories = [],
@@ -578,6 +755,7 @@ function buildWbsStoryLlmPrompt({
   semantic = null,
   localeInstruction = '',
   roleAllowList = null,
+  repairFeedback = null,
 } = {}) {
   const list = normalizeStoriesForWbs(
     Array.isArray(stories) && stories.length ? stories : units
@@ -585,7 +763,7 @@ function buildWbsStoryLlmPrompt({
   const frList =
     Array.isArray(frUnits) && frUnits.length
       ? frUnits
-      : collectFrUnits(list, epics, semantic);
+      : collectFrUnits(list, epics, semantic, null);
   const chunkFrIds = frList.map((unit) => unit.id).filter(Boolean);
   const factsByFr = new Map();
   for (const row of Array.isArray(semantic?.approved?.fr) ? semantic.approved.fr : []) {
@@ -596,11 +774,34 @@ function buildWbsStoryLlmPrompt({
 
   const frPayload = frList.map((unit) => {
     const facts = factsByFr.get(unit.id) || {};
+    const businessRules = [];
+    if (Array.isArray(unit.businessRules)) {
+      for (const rule of unit.businessRules) {
+        const text = truncate(rule, 240);
+        if (text) businessRules.push(text);
+      }
+    }
+    if (facts.businessRule) businessRules.push(truncate(facts.businessRule, 240));
+    if (Array.isArray(facts.rules)) {
+      for (const rule of facts.rules) {
+        const text = truncate(rule?.text || rule, 240);
+        if (text) businessRules.push(text);
+      }
+    }
     const row = {
       id: unit.id,
       name: truncate(unit.name || unit.id, UNIT_NAME_MAX),
       description: truncate(unit.description || unit.statement || '', UNIT_DESC_MAX) || undefined,
       ac: unitAcList({ ac: unit.ac }),
+      businessRules: businessRules.length ? businessRules.slice(0, 8) : undefined,
+      relatedData: facts.relatedData
+        ? truncate(
+            typeof facts.relatedData === 'string'
+              ? facts.relatedData
+              : JSON.stringify(facts.relatedData),
+            400
+          )
+        : undefined,
       epicId: unit.epicId || undefined,
       storyId: unit.storyId || undefined,
       module: unit.module || undefined,
@@ -619,22 +820,26 @@ function buildWbsStoryLlmPrompt({
   const roleHint = roleEnumHintFromAllowList(roleAllowList) || ROLE_ENUM_HINT;
   const lines = [
     localeInstruction || 'Respond in the same language as FR titles.',
-    'Decompose each input Story into the minimum sufficient set of developer-actionable tasks.',
+    'Decompose each Story/FR into concrete, assignable work items with separate completable outputs.',
     'Return JSON only. No prose.',
-    `Shape:{"chunkFrIds":[${chunkFrIds.map((id) => JSON.stringify(id)).join(',')}],"nodes":[{"id","name","level":"task","sourceFrIds","acRefs","deliverable","suggestedRoleKey","area","effortSeedHours?"}]}`,
-    'chunkFrIds must equal the FR ids in this call, any order. This call is one chunk; the chunk count changes every run. Return tasks only for these ids.',
+    `Shape:{"chunkFrIds":[${chunkFrIds.map((id) => JSON.stringify(id)).join(',')}],"nodes":[{"id","name","level":"task","sourceFrIds","acRefs","deliverable","suggestedRoleKey","area","effortSeedHours?"}],"clarifications":[{"frId","code","question","missing"}]?}`,
+    'chunkFrIds must equal the FR ids in this call, any order. Return tasks only for these ids.',
     [
       'Rules:',
-      '1. Every source FR in this chunk must map to at least one task. One task is sufficient for a small FR.',
-      '2. Split only for distinct, independently meaningful implementation deliverables. Do not split automatically by frontend/backend/API/database or create arbitrary tasks per layer.',
-      '3. Each task must describe a concrete engineering action, the specific behavior or component, and its expected outcome. Avoid vague titles such as "Implement frontend", "Develop backend", or "Implement feature X".',
-      '4. Derive tasks only from the provided Story, FR, acceptance criteria, and context. Do not invent business rules, APIs, schemas, technologies, or implementation details.',
-      '5. Minimize task count without omitting required work. Avoid duplicates, redundant subtasks, and unrelated testing/documentation tasks.',
-      '6. Preserve source Story, FR, and acceptance-criteria traceability. Follow the exact output JSON schema.',
-      `Schema: level is "task" only. sourceFrIds is exactly one id from FR. acRefs ⊆ that FR.ac and non-empty when FR.ac is non-empty. deliverable is required on every node and is the concrete output artifact; name must not copy the FR title. suggestedRoleKey∈${roleHint}. area∈${AREA_ENUM.join('|')}. effortSeedHours is optional. Do not invent FR ids. Do not analyze NFR or Customer-Raw CR-*.`,
+      '1. Decompose into specific implementation work that can be assigned and verified independently. Having at least one task per FR is necessary but not sufficient.',
+      '2. Each task must state the action, the object being handled, and the completion output (deliverable). Do not use one task to restate the entire Story.',
+      '3. Consider UI, business processing, persistence, integration, and testing when the source (Story/FR/AC/businessRules) provides a basis. Do not invent a full set of groups when the source does not require them.',
+      '4. Every task must link sourceFrIds + acRefs to the source FR/AC. Do not add behaviors absent from those sources (including map display, notifications, exports).',
+      '5. Client-side / UI validation does not replace server-side validity or uniqueness checks when the source requires storing or uniquely identifying data.',
+      '6. If information is insufficient to decompose safely, return clarifications with what must be clarified and omit invented rules/tasks for that FR.',
+      '7. acRefs must be exact strings from that FR.ac (or sourceAcIds with the same texts). Cite only AC lines the task actually implements. Every AC in the FR should be covered by at least one task.',
+      `Schema: level is "task" only. sourceFrIds is exactly one id from FR. acRefs ⊆ FR.ac and non-empty when FR.ac is non-empty. deliverable is required. name must not copy the FR/Story title. suggestedRoleKey∈${roleHint}. area∈${AREA_ENUM.join('|')}. effortSeedHours optional. Do not invent FR ids. Do not analyze NFR or Customer-Raw CR-*.`,
     ].join('\n'),
     `FR=${JSON.stringify(frPayload)}`,
     semantic ? `SEMANTIC=${JSON.stringify(semantic)}` : null,
+    repairFeedback
+      ? `REPAIR=${JSON.stringify(repairFeedback)}`
+      : null,
   ].filter(Boolean);
   return lines.join('\n');
 }
@@ -843,6 +1048,7 @@ function dedupeWbsLeaves(leaves = []) {
  *   stories?: object[],
  *   epics?: object[],
  *   semantic?: object|null,
+ *   pack?: object|null,
  *   roleAllowList?: string[]|null,
  *   env?: object,
  *   generateJsonFn?: Function,
@@ -853,6 +1059,7 @@ async function proposeWbsTasksWithLlm(opts = {}) {
   const stories = normalizeStoriesForWbs(opts.stories);
   const epics = Array.isArray(opts.epics) ? opts.epics : [];
   const semantic = opts.semantic && typeof opts.semantic === 'object' ? opts.semantic : null;
+  const pack = opts.pack && typeof opts.pack === 'object' ? opts.pack : null;
   const roleAllowList = Array.isArray(opts.roleAllowList) ? opts.roleAllowList : null;
 
   if (!isHowWbsLlmFlagOn(env)) {
@@ -909,7 +1116,7 @@ async function proposeWbsTasksWithLlm(opts = {}) {
       }
     })();
 
-  const frUnits = collectFrUnits(stories, epics, semantic);
+  const frUnits = collectFrUnits(stories, epics, semantic, pack);
   if (!frUnits.length) {
     return {
       ok: false,
@@ -948,12 +1155,33 @@ async function proposeWbsTasksWithLlm(opts = {}) {
 
   const numCtx = resolveWbsLlmNumCtx(env);
   const timeoutMs = resolveWbsLlmTimeoutMs(env);
+  const maxRepair = resolveWbsLlmMaxRepair(env);
   const t0 = Date.now();
   const allLeaves = [];
   const isolatedFrIds = [];
+  const allClarifications = [];
+  const allQualityIssues = [];
+  let needsReview = false;
   let llmCalls = 0;
   let lastModel = null;
   let promptChars = 0;
+  let repairAttempts = 0;
+
+  const readiness = assessInputReadiness(frUnits);
+  if (!readiness.ok) {
+    allClarifications.push(...readiness.clarifications);
+    needsReview = true;
+  }
+  const readyFrIds = new Set(
+    frUnits
+      .filter((unit) =>
+        !readiness.clarifications.some((c) => normalizeRef(c.frId) === normalizeRef(unit.id))
+      )
+      .map((unit) => unit.id)
+  );
+  const readyChunks = chunks
+    .map((chunk) => chunk.filter((unit) => readyFrIds.has(unit.id)))
+    .filter((chunk) => chunk.length > 0);
 
   function coveredFrIds(leaves) {
     const ids = new Set();
@@ -964,12 +1192,23 @@ async function proposeWbsTasksWithLlm(opts = {}) {
     return ids;
   }
 
-  async function runFrSlice(slice, idPrefix) {
+  function qualityForSlice(slice, tasks, clarifications) {
+    return assessDecompositionQuality({
+      frUnits: slice,
+      tasks,
+      clarifications,
+      resolveAcRef: (raw, acList, frId) =>
+        resolveAcRefToWhitelist(raw, acList, { frId }),
+    });
+  }
+
+  async function runFrSliceOnce(slice, idPrefix, repairFeedback) {
     const prompt = buildWbsStoryLlmPrompt({
       frUnits: slice,
       semantic,
       localeInstruction,
       roleAllowList,
+      repairFeedback,
     });
     promptChars += prompt.length;
     const numPredict = resolveWbsLlmNumPredict(slice.length, env);
@@ -1002,11 +1241,59 @@ async function proposeWbsTasksWithLlm(opts = {}) {
       requireChunkEnvelope: true,
     });
     if (!accepted.ok) {
-      return { ok: false, reason: (accepted.errors || ['contract_fail']).join(';') };
+      return {
+        ok: false,
+        reason: (accepted.errors || ['contract_fail']).join(';'),
+        contractErrors: accepted.errors || [],
+      };
+    }
+    const tasks = accepted.tasks.map((leaf) => ({ ...leaf, id: `${idPrefix}-${leaf.id}` }));
+    const quality = qualityForSlice(slice, tasks, accepted.clarifications || []);
+    if (accepted.clarifications?.length && (!tasks.length || !quality.ok)) {
+      return {
+        ok: false,
+        needsReview: true,
+        clarifications: accepted.clarifications,
+        issues: quality.issues,
+        tasks,
+        reason: 'clarifications_returned',
+      };
+    }
+    if (!quality.ok) {
+      return {
+        ok: false,
+        reason: quality.issues.map((i) => i.code).join('|') || 'quality_fail',
+        issues: quality.issues,
+        clarifications: quality.clarifications,
+        tasks,
+        repairFeedback: formatRepairFeedback(quality),
+      };
+    }
+    return { ok: true, tasks, clarifications: accepted.clarifications || [] };
+  }
+
+  async function runFrSlice(slice, idPrefix) {
+    let feedback = null;
+    let last = null;
+    for (let attempt = 0; attempt <= maxRepair; attempt += 1) {
+      if (attempt > 0) repairAttempts += 1;
+      last = await runFrSliceOnce(slice, `${idPrefix}${attempt > 0 ? `r${attempt}` : ''}`, feedback);
+      if (last.ok) return last;
+      if (last.needsReview) return last;
+      if (attempt >= maxRepair) break;
+      feedback = last.repairFeedback || {
+        instruction: 'Fix contract/quality errors.',
+        issues: last.contractErrors || [{ code: 'contract_fail', message: last.reason }],
+        clarifications: last.clarifications || [],
+      };
     }
     return {
-      ok: true,
-      tasks: accepted.tasks.map((leaf) => ({ ...leaf, id: `${idPrefix}-${leaf.id}` })),
+      ok: false,
+      needsReview: true,
+      reason: last?.reason || 'quality_repair_exhausted',
+      issues: last?.issues || [],
+      clarifications: last?.clarifications || [],
+      tasks: last?.tasks || [],
     };
   }
 
@@ -1015,23 +1302,37 @@ async function proposeWbsTasksWithLlm(opts = {}) {
     const missing = (slice || []).filter((unit) => unit?.id && !covered.has(unit.id));
     if (!missing.length) return;
     const one = await runFrSlice(missing, `${idPrefix}f`);
-    if (one.ok) leaves.push(...one.tasks);
+    if (one.ok) {
+      leaves.push(...one.tasks);
+      if (one.clarifications?.length) allClarifications.push(...one.clarifications);
+    } else {
+      if (one.tasks?.length) leaves.push(...one.tasks);
+      if (one.issues?.length) allQualityIssues.push(...one.issues);
+      if (one.clarifications?.length) allClarifications.push(...one.clarifications);
+      if (one.needsReview) needsReview = true;
+    }
     const now = coveredFrIds(leaves);
     for (const unit of missing) {
       if (now.has(unit.id)) continue;
       console.error('[how-propose-wbs] slice_fail', unit.id, one.reason || 'uncovered');
       isolatedFrIds.push(unit.id);
+      needsReview = true;
     }
   }
 
-  for (let ci = 0; ci < chunks.length; ci += 1) {
-    const chunkFr = chunks[ci];
+  for (let ci = 0; ci < readyChunks.length; ci += 1) {
+    const chunkFr = readyChunks[ci];
     const first = await runFrSlice(chunkFr, `c${ci}`);
     const bucket = [];
     if (first.ok) {
       bucket.push(...first.tasks);
+      if (first.clarifications?.length) allClarifications.push(...first.clarifications);
     } else {
-      console.error('[how-propose-wbs] contract_fail', `chunk=${ci}`, first.reason);
+      console.error('[how-propose-wbs] quality_or_contract_fail', `chunk=${ci}`, first.reason);
+      if (first.tasks?.length) bucket.push(...first.tasks);
+      if (first.issues?.length) allQualityIssues.push(...first.issues);
+      if (first.clarifications?.length) allClarifications.push(...first.clarifications);
+      if (first.needsReview) needsReview = true;
     }
     if (chunkFr.length < 2 && !first.ok) {
       await fillUncovered(chunkFr, `c${ci}`, bucket);
@@ -1041,7 +1342,7 @@ async function proposeWbsTasksWithLlm(opts = {}) {
     allLeaves.push(...bucket);
   }
 
-  if (!allLeaves.length) {
+  if (!allLeaves.length && !allClarifications.length) {
     return {
       ok: false,
       meta: {
@@ -1050,6 +1351,10 @@ async function proposeWbsTasksWithLlm(opts = {}) {
         fallbackReason: 'all_fr_slices_failed',
         reasonCodes: isolatedFrIds.length ? isolatedFrIds : ['all_fr_slices_failed'],
         isolatedFrIds,
+        qualityIssues: allQualityIssues,
+        clarifications: allClarifications,
+        needsReview: true,
+        repairAttempts,
         llmCalls,
         llmMs: Date.now() - t0,
         model: lastModel,
@@ -1078,16 +1383,34 @@ async function proposeWbsTasksWithLlm(opts = {}) {
     leavesByFr.get(frId).push(leaf);
   }
   for (const unit of frUnits) {
+    if (!readyFrIds.has(unit.id)) continue;
     const group = leavesByFr.get(unit.id);
     if (!group?.length) continue;
     const cited = [];
     for (const leaf of group) {
       for (const ac of leaf.acRefs || []) cited.push(ac);
     }
-    for (const ac of unit.ac || []) {
-      if (!acCitationCoversWhitelist(ac, cited)) uncoveredAcKeys.push(`${unit.id}:${ac}`);
+    const acList = Array.isArray(unit.ac) ? unit.ac : [];
+    for (const ac of acList) {
+      if (!acCitationCoversWhitelist(ac, cited, { acList, frId: unit.id })) {
+        uncoveredAcKeys.push(`${unit.id}:${ac}`);
+      }
     }
   }
+  const finalQuality = assessDecompositionQuality({
+    frUnits: frUnits.filter((unit) => readyFrIds.has(unit.id) && coveredFr.has(unit.id)),
+    tasks: leaves,
+    clarifications: allClarifications,
+    resolveAcRef: (raw, acList, frId) => resolveAcRefToWhitelist(raw, acList, { frId }),
+  });
+  if (!finalQuality.ok) {
+    allQualityIssues.push(...finalQuality.issues);
+    needsReview = true;
+  }
+  if (uncoveredFrIds.length || uncoveredAcKeys.length || allClarifications.length) {
+    needsReview = true;
+  }
+
   const unresolvedStoryIds = stories
     .filter((story) => {
       const frs = story.fr || [];
@@ -1099,10 +1422,13 @@ async function proposeWbsTasksWithLlm(opts = {}) {
     unresolvedUnitIds: unresolvedStoryIds,
     uncoveredFrIds,
     uncoveredAcKeys,
+    qualityIssues: allQualityIssues,
+    clarifications: allClarifications,
+    needsReview,
   });
 
   console.info(
-    `[how-propose-wbs] outcome=${decompositionOutcome} leaves=${leaves.length} unique=${deduped.uniqueLeafCount} dup=${deduped.duplicateLeafIds.length} unresolvedStories=${unresolvedStoryIds.length} uncoveredFr=${uncoveredFrIds.length} uncoveredAc=${uncoveredAcKeys.length}`
+    `[how-propose-wbs] outcome=${decompositionOutcome} leaves=${leaves.length} unique=${deduped.uniqueLeafCount} dup=${deduped.duplicateLeafIds.length} unresolvedStories=${unresolvedStoryIds.length} uncoveredFr=${uncoveredFrIds.length} uncoveredAc=${uncoveredAcKeys.length} qualityIssues=${allQualityIssues.length} repair=${repairAttempts}`
   );
 
   const materialized = materializeWbsFromSotAndLeaves({
@@ -1126,6 +1452,10 @@ async function proposeWbsTasksWithLlm(opts = {}) {
       uncoveredFrIds,
       isolatedFrIds,
       uncoveredAcKeys,
+      qualityIssues: allQualityIssues,
+      clarifications: allClarifications,
+      needsReview,
+      repairAttempts,
       duplicateLeafIds: deduped.duplicateLeafIds,
       uniqueLeafCount: deduped.uniqueLeafCount,
       llmCalls,
@@ -1160,7 +1490,14 @@ module.exports = {
   dedupeWbsLeaves,
   isHowWbsLlmEnabled,
   normalizeStoriesForWbs,
+  normalizeClarifications,
   acRefAllowed,
   normalizeAcKey,
   acCitationCoversWhitelist,
+  extractAcLines,
+  parseAcIndexCitation,
+  resolveAcRefToWhitelist,
+  assessInputReadiness,
+  assessDecompositionQuality,
+  formatRepairFeedback,
 };

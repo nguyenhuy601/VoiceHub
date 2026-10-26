@@ -524,7 +524,7 @@ async function approveRequirementPack({
     if (isWhatG4Enabled() && hasReadyG4Understanding(pack)) {
       const analyses = pack.aiAnalysis?.analyses || {};
       const proposal = analyses.srsProposal || null;
-      const legacyG4 = analyses.g4Understanding || null;
+      const legacyG4 = analyses.frUnderstanding || analyses.g4Understanding || null;
       let meta = { seededFr: 0, skipped: true };
       // Prefer full overlay from confirmed proposal (replace intake) over merge-only materialize
       if (proposal?.generated) {
