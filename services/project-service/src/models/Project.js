@@ -429,6 +429,14 @@ const projectSchema = new mongoose.Schema(
       type: Object,
       default: null,
     },
+    /**
+     * Operational events before close (Wave 5) — reassignment / failed_short_horizon.
+     * Folded into closureSnapshot.process at complete.
+     */
+    operationalLog: {
+      type: [mongoose.Schema.Types.Mixed],
+      default: [],
+    },
     /** Phase 6 — soft-archive timestamp */
     archivedAt: {
       type: Date,

@@ -12,6 +12,8 @@ const {
   resolveDueSoonDays,
   startOfUtcDay,
 } = require('../utils/task/taskDueReminder');
+const { buildFallbackNotifyPayload } = require('../services/staffingFallback.service');
+const { classifyStaffingFallback } = require('../utils/task/staffingFallback');
 
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
 
@@ -43,10 +45,19 @@ async function notifyTaskDue({ userIds, task, kind, now }) {
   const titleText = String(task?.title || 'Work').trim() || 'Work';
   const dueIso = task?.dueDate ? new Date(task.dueDate).toISOString().slice(0, 10) : '';
   const isOverdue = kind === 'overdue';
-  const title = isOverdue ? 'Work đã quá hạn' : 'Work sắp đến hạn';
-  const content = isOverdue
+  const fallback = buildFallbackNotifyPayload(task, now);
+  const fallbackKind = fallback?.kind || classifyStaffingFallback(task, { now });
+  let title = isOverdue ? 'Work đã quá hạn' : 'Work sắp đến hạn';
+  let content = isOverdue
     ? `“${titleText}” đã quá hạn${dueIso ? ` (${dueIso})` : ''}. Hãy cập nhật tiến độ hoặc due date.`
     : `“${titleText}” còn không quá ${resolveDueSoonDays()} ngày tới hạn${dueIso ? ` (${dueIso})` : ''}.`;
+  if (fallbackKind === 'fail_short_horizon') {
+    title = 'Work nguy cơ fail (< 1 ngày)';
+    content = `“${titleText}” còn dưới 1 ngày (hoặc đã quá hạn). Cân nhắc huỷ nhánh hoặc PM override người thay.`;
+  } else if (fallbackKind === 'suggest_replace') {
+    title = isOverdue ? 'Work quá hạn — gợi ý thay người' : 'Work sắp hạn — gợi ý thay người';
+    content = `“${titleText}”${dueIso ? ` (hạn ${dueIso})` : ''}. PM có thể xem gợi ý thay người (không tự gán).`;
+  }
 
   const res = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications/bulk`,
@@ -61,6 +72,7 @@ async function notifyTaskDue({ userIds, task, kind, now }) {
         taskId: task?._id ? String(task._id) : '',
         dueDate: dueIso,
         kind: isOverdue ? 'task_overdue' : 'task_due_soon',
+        staffingFallbackKind: fallbackKind || null,
       },
       actionUrl: buildActionUrl(task?.projectId, task?._id),
     },

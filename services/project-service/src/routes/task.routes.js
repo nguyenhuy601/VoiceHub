@@ -35,9 +35,14 @@ router.use('/project-briefs', projectBriefRoutes);
 
 const worklog = require('../controllers/worklog.controller');
 const workHistory = require('../controllers/workHistory.controller');
+const staffingFallback = require('../controllers/staffingFallback.controller');
 router.get('/:taskId/worklogs', worklog.listTaskWorklogs);
 router.post('/:taskId/worklogs', worklog.createTaskWorklog);
 router.get('/:taskId/history', workHistory.listTask);
+/** Wave 5 staffing fallback MVP — suggest / PM override / short-horizon fail */
+router.get('/:taskId/staffing-fallback/suggestions', staffingFallback.suggestReplace);
+router.post('/:taskId/staffing-fallback/override', staffingFallback.pmOverride);
+router.post('/:taskId/staffing-fallback/fail-short-horizon', staffingFallback.failShortHorizon);
 
 // Lấy task theo ID
 router.get('/:taskId', taskController.getTaskById.bind(taskController));

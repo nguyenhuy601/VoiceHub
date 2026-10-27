@@ -2572,7 +2572,38 @@ async function updateCard({
           title: `Estimate ${next.estimateHours ?? '—'}h`,
           payload: { before: beforeEst, after: next.estimateHours },
         });
+        void require('./audit.service')
+          .recordSelectiveMutationAudit({
+            organizationId: board.organizationId,
+            actorUserId: userId,
+            action: 're_estimate_hours',
+            resourceType: 'task',
+            resourceId: String(cardId),
+            beforeDoc: { estimateHours: beforeEst },
+            afterDoc: { estimateHours: next.estimateHours },
+            keys: ['estimateHours'],
+            meta: { projectId: String(board.projectId), boardId: String(board._id) },
+          })
+          .catch((err) => logger.warn('[task-board] re_estimate audit failed: %s', err.message));
       }
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(next, 'assigneeId') &&
+      String(next.assigneeId || '') !== String(card.assigneeId || '')
+    ) {
+      void require('./audit.service')
+        .recordSelectiveMutationAudit({
+          organizationId: board.organizationId,
+          actorUserId: userId,
+          action: 'task_reassign',
+          resourceType: 'task',
+          resourceId: String(cardId),
+          beforeDoc: { assigneeId: card.assigneeId ? String(card.assigneeId) : null },
+          afterDoc: { assigneeId: next.assigneeId ? String(next.assigneeId) : null },
+          keys: ['assigneeId'],
+          meta: { projectId: String(board.projectId), boardId: String(board._id) },
+        })
+        .catch((err) => logger.warn('[task-board] task_reassign audit failed: %s', err.message));
     }
     const keys = Object.keys(next);
     const beforeDoc = card.toObject ? card.toObject() : card;

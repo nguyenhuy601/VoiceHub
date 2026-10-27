@@ -450,6 +450,46 @@ class TaskService {
             after: updateFields.estimateHours,
           },
         });
+        try {
+          const { recordSelectiveMutationAudit } = require('./audit.service');
+          await recordSelectiveMutationAudit({
+            organizationId: task.organizationId,
+            actorUserId: userId,
+            action: 're_estimate_hours',
+            resourceType: 'task',
+            resourceId: taskId,
+            beforeDoc: { estimateHours: prevEstimateHours },
+            afterDoc: { estimateHours: updateFields.estimateHours },
+            keys: ['estimateHours'],
+            meta: { projectId: String(task.projectId) },
+          });
+        } catch {
+          /* best-effort */
+        }
+      }
+
+      if (
+        updateFields.assigneeId !== undefined &&
+        String(updateFields.assigneeId || '') !== String(task.assigneeId || '')
+      ) {
+        try {
+          const { recordSelectiveMutationAudit } = require('./audit.service');
+          await recordSelectiveMutationAudit({
+            organizationId: task.organizationId,
+            actorUserId: userId,
+            action: 'task_reassign',
+            resourceType: 'task',
+            resourceId: taskId,
+            beforeDoc: { assigneeId: task.assigneeId ? String(task.assigneeId) : null },
+            afterDoc: {
+              assigneeId: updateFields.assigneeId ? String(updateFields.assigneeId) : null,
+            },
+            keys: ['assigneeId'],
+            meta: { projectId: task.projectId ? String(task.projectId) : null },
+          });
+        } catch {
+          /* best-effort */
+        }
       }
 
       logger.info(`Task updated: ${taskId}`);

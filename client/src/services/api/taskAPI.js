@@ -167,6 +167,25 @@ export const taskAPI = {
       body
     ),
 
+  /** Wave 5 staffing fallback MVP */
+  getStaffingFallbackSuggestions: (taskId, opts = {}) =>
+    apiClient.get(
+      `/tasks/${encodeURIComponent(taskId)}/staffing-fallback/suggestions${orgQuery(opts.organizationId)}`,
+      { params: opts.limit != null ? { limit: opts.limit } : undefined }
+    ),
+
+  applyStaffingFallbackOverride: (taskId, body = {}, opts = {}) =>
+    apiClient.post(
+      `/tasks/${encodeURIComponent(taskId)}/staffing-fallback/override${orgQuery(opts.organizationId)}`,
+      body
+    ),
+
+  failStaffingShortHorizon: (taskId, body = {}, opts = {}) =>
+    apiClient.post(
+      `/tasks/${encodeURIComponent(taskId)}/staffing-fallback/fail-short-horizon${orgQuery(opts.organizationId)}`,
+      body
+    ),
+
   getSprintTimeSummary: (projectId, sprintId) =>
     apiClient.get(
       `/projects/${encodeURIComponent(projectId)}/sprints/${encodeURIComponent(sprintId)}/time-summary`

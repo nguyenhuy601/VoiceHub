@@ -111,6 +111,7 @@ async function updateSprint({
   await requireBoardAdmin(boardId, userId, { permission: 'sprint:create' });
   const sprint = await Sprint.findOne({ _id: sprintId, boardId });
   if (!sprint) throw new Error('Sprint không tồn tại');
+  const prevEndDate = sprint.endDate ? new Date(sprint.endDate) : null;
   if (name !== undefined) {
     const title = String(name || '').trim();
     if (!title) throw new Error('name không hợp lệ');
@@ -144,6 +145,33 @@ async function updateSprint({
     sprint.reviewNotes = String(reviewNotes || '').trim().slice(0, 4000);
   }
   await sprint.save();
+
+  const nextEndDate = sprint.endDate ? new Date(sprint.endDate) : null;
+  const endExtended =
+    nextEndDate &&
+    (!prevEndDate || nextEndDate.getTime() > prevEndDate.getTime());
+  if (endExtended) {
+    try {
+      const { recordSelectiveMutationAudit } = require('./audit.service');
+      await recordSelectiveMutationAudit({
+        organizationId: sprint.organizationId,
+        actorUserId: userId,
+        action: 'sprint_extend',
+        resourceType: 'sprint',
+        resourceId: String(sprintId),
+        beforeDoc: { endDate: prevEndDate ? prevEndDate.toISOString() : null },
+        afterDoc: { endDate: nextEndDate.toISOString() },
+        keys: ['endDate'],
+        meta: {
+          projectId: sprint.projectId ? String(sprint.projectId) : null,
+          boardId: String(boardId),
+        },
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
+
   return withBoardSprintWarnings(sprint.projectId, sprint.toObject());
 }
 

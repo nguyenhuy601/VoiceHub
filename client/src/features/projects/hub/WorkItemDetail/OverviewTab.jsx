@@ -16,6 +16,7 @@ import { normalizePriorityConfig } from '../projectPriorityConfig';
 import { isReadyForQaList } from '../qaTestCaseCardScope';
 import { useWorkItemDetail } from './WorkItemDetailContext';
 import FixSuggestionPanel from './FixSuggestionPanel';
+import StaffingFallbackPanel from './StaffingFallbackPanel';
 import { formatReworkNoteDisplay } from './formatReworkNoteDisplay';
 import {
   buildWorkItemDatePatch,
@@ -259,6 +260,7 @@ export default function OverviewTab() {
       ) : null}
 
       <FixSuggestionPanel />
+      <StaffingFallbackPanel />
 
       {showReworkBanner ? (
         <div

@@ -5,6 +5,10 @@ const {
   pickAuditFields,
   createAppendOnlyDeleteError,
 } = require('../utils/common/auditSnapshot');
+const {
+  SELECTIVE_AUDIT_ACTIONS,
+  isSelectiveAuditAction,
+} = require('../utils/task/staffingFallback');
 const { assertCanViewGovernanceReports } = require('./governanceAccess.service');
 const { logger } = require('@enterprise/shared');
 
@@ -69,6 +73,18 @@ async function recordMutationAudit({
     requestId,
     meta,
   });
+}
+
+/**
+ * Selective ops audit — only whitelist actions (Wave 5b). Unknown action → no-op + warn.
+ */
+async function recordSelectiveMutationAudit(args = {}) {
+  const action = String(args.action || '').trim();
+  if (!isSelectiveAuditAction(action)) {
+    logger.warn('[audit] skip non-selective action=%s', action);
+    return null;
+  }
+  return recordMutationAudit(args);
 }
 
 /**
@@ -162,9 +178,12 @@ async function denyDeleteAudit() {
 module.exports = {
   recordAudit,
   recordMutationAudit,
+  recordSelectiveMutationAudit,
   recordGate1Audit,
   listAuditEvents,
   denyDeleteAudit,
+  SELECTIVE_AUDIT_ACTIONS,
+  isSelectiveAuditAction,
   isProjectAuditV1Enabled,
   pickAuditFields,
   buildBeforeAfter,
