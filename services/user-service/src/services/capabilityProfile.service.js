@@ -184,6 +184,38 @@ function cloneProjectExperience(item) {
     out.technologiesHandled = technologies;
   }
   if (summary) out.summary = summary;
+  if (Array.isArray(item.taskHighlights) && item.taskHighlights.length) {
+    const highlights = [];
+    for (const h of item.taskHighlights.slice(0, 5)) {
+      if (!h || typeof h !== 'object') continue;
+      const taskId = String(h.taskId || '').trim().slice(0, 64);
+      const title = String(h.title || '').trim().slice(0, 200);
+      if (!taskId && !title) continue;
+      const tags = [];
+      const seen = new Set();
+      for (const raw of Array.isArray(h.tags) ? h.tags : []) {
+        const s = String(raw || '').trim().slice(0, 64);
+        if (!s) continue;
+        const key = s.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        tags.push(s);
+        if (tags.length >= 20) break;
+      }
+      const row = {};
+      if (taskId) row.taskId = taskId;
+      if (title) row.title = title;
+      if (tags.length) row.tags = tags;
+      if (h.submittedEarlyHours != null && Number.isFinite(Number(h.submittedEarlyHours))) {
+        row.submittedEarlyHours = Math.max(0, Math.round(Number(h.submittedEarlyHours) * 100) / 100);
+      }
+      if (h.reopenCount != null && Number.isFinite(Number(h.reopenCount))) {
+        row.reopenCount = Math.max(0, Math.floor(Number(h.reopenCount)));
+      }
+      highlights.push(row);
+    }
+    if (highlights.length) out.taskHighlights = highlights;
+  }
   if (item.evidenceBoardId) out.evidenceBoardId = item.evidenceBoardId;
   return out;
 }

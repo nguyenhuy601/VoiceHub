@@ -358,6 +358,84 @@ function countReopenByUser(activities, tasks) {
   return reopenByUser;
 }
 
+const BY_TASK_CAP = 500;
+const DESCRIPTION_SNIPPET_MAX = 180;
+
+function descriptionSnippetFromTask(task) {
+  const raw = String(task?.description || '').trim();
+  if (!raw) return undefined;
+  // Skip obvious ciphertext / non-plaintext payloads
+  if (raw.length > 4000 || /[\u0000-\u0008]/.test(raw)) return undefined;
+  return raw.slice(0, DESCRIPTION_SNIPPET_MAX);
+}
+
+function countReopenByTaskId(activities) {
+  const reopenByTask = {};
+  if (!Array.isArray(activities)) return reopenByTask;
+  for (const ev of activities) {
+    const tr = statusTransitionFromActivity(ev);
+    if (!tr || !isDoneLikeStatus(tr.from) || isDoneLikeStatus(tr.to)) continue;
+    const payload = ev?.payload && typeof ev.payload === 'object' ? ev.payload : {};
+    const tid = asStringOid(ev?.taskId || payload.taskId);
+    if (!tid) continue;
+    reopenByTask[tid] = (reopenByTask[tid] || 0) + 1;
+  }
+  return reopenByTask;
+}
+
+function hoursByTaskId(worklogs) {
+  const map = {};
+  for (const log of worklogs || []) {
+    const tid = asStringOid(log?.taskId);
+    if (!tid) continue;
+    map[tid] = (map[tid] || 0) + normalizeEstimateHours(log?.hours);
+  }
+  return map;
+}
+
+/**
+ * Task-level operational rows for closureSnapshot.resources.byTask (additive).
+ * Cap BY_TASK_CAP — prefer assignee / hours / done.
+ */
+function buildByTask({ tasks, worklogs, activities, listsById }) {
+  const actualByTask = hoursByTaskId(worklogs);
+  const reopenByTask = countReopenByTaskId(activities);
+  const rows = [];
+  for (const task of tasks || []) {
+    const taskId = asStringOid(task?._id || task?.id);
+    if (!taskId) continue;
+    const planned = normalizeEstimateHours(task?.estimateHours);
+    const actual = Math.round((actualByTask[taskId] || 0) * 100) / 100;
+    const assignedUserId = asStringOid(task?.assigneeId) || null;
+    const tags = Array.isArray(task?.tags)
+      ? [...new Set(task.tags.map((t) => String(t || '').trim()).filter(Boolean))].slice(0, 40)
+      : [];
+    const title = String(task?.title || '').trim().slice(0, 300);
+    const snippet = descriptionSnippetFromTask(task);
+    const done = isTaskDone(task, listsById);
+    const row = {
+      taskId,
+      title: title || '(untitled)',
+      tags,
+      assignedUserId,
+      plannedHours: planned,
+      actualHours: actual,
+      submittedEarlyHours: Math.round(Math.max(0, planned - actual) * 100) / 100,
+      overdueHours: Math.round(Math.max(0, actual - planned) * 100) / 100,
+      reopenCount: reopenByTask[taskId] || 0,
+      completedAt: toIso(task?.completedAt),
+      _priority: (assignedUserId ? 4 : 0) + (actual > 0 ? 2 : 0) + (done || task?.completedAt ? 1 : 0),
+    };
+    if (snippet) row.descriptionSnippet = snippet;
+    rows.push(row);
+  }
+  rows.sort((a, b) => b._priority - a._priority);
+  return rows.slice(0, BY_TASK_CAP).map((r) => {
+    const { _priority, ...rest } = r;
+    return rest;
+  });
+}
+
 function countReEstimateByUser(activities, tasks) {
   const byTaskAssignee = new Map();
   for (const task of tasks || []) {
@@ -403,7 +481,7 @@ function deriveReassignmentHistory(activities) {
   return out.slice(0, 200);
 }
 
-function buildResources({ tasks, worklogs, project, activities }) {
+function buildResources({ tasks, worklogs, project, activities, listsById } = {}) {
   const plannedHours = (tasks || []).reduce((sum, t) => sum + normalizeEstimateHours(t?.estimateHours), 0);
   const actualHours = (worklogs || []).reduce((sum, w) => sum + normalizeEstimateHours(w?.hours), 0);
   const estimateByUser = {};
@@ -444,11 +522,13 @@ function buildResources({ tasks, worklogs, project, activities }) {
     };
   });
   const budgetStub = project?.budgetStub && typeof project.budgetStub === 'object' ? project.budgetStub : null;
+  const byTask = buildByTask({ tasks, worklogs, activities, listsById });
   return {
     plannedHours: Math.round(plannedHours * 100) / 100,
     actualHours: Math.round(actualHours * 100) / 100,
     varianceHours: Math.round((actualHours - plannedHours) * 100) / 100,
     byUser,
+    byTask,
     budgetStub,
     actualCost: unavailable('erp_out_of_scope'),
   };
@@ -594,7 +674,7 @@ function buildProjectCloseSnapshot({
     }),
     performance: buildPerformance({ tasks, listsById, sprints }),
     quality: buildQuality({ tasks, listsById, activities }),
-    resources: buildResources({ tasks, worklogs, project, activities }),
+    resources: buildResources({ tasks, worklogs, project, activities, listsById }),
     personnel: buildPersonnel({ tasks, listsById, worklogs, members }),
     process: buildProcess({ approvals, sprints, project, activities }),
     experience: buildExperience({ sprints, closeNotes }),
@@ -603,6 +683,7 @@ function buildProjectCloseSnapshot({
 
 module.exports = {
   SNAPSHOT_SCHEMA_VERSION,
+  BY_TASK_CAP,
   toIso,
   daysBetween,
   hoursBetween,
@@ -611,5 +692,6 @@ module.exports = {
   unavailable,
   fieldChangesFromActivity,
   countReopenFromActivities,
+  buildByTask,
   buildProjectCloseSnapshot,
 };

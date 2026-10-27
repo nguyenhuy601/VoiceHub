@@ -91,8 +91,44 @@ function techListFromProjectStack(projectOrTech) {
   ]);
 }
 
+const TASK_HIGHLIGHTS_MAX = 5;
+
 /**
- * @param {{ board: object, memberships: object[], roles: object[], tasks: object[], technologies?: string[], byUserSummary?: object }} input
+ * Top-N completed tasks for a user: score = earlyHours - 2*reopen; tie-break actualHours.
+ * @param {object[]} byTaskRows — closureSnapshot.resources.byTask
+ * @param {string} userId
+ */
+function pickTaskHighlights(byTaskRows, userId, limit = TASK_HIGHLIGHTS_MAX) {
+  const uid = sid(userId);
+  if (!uid || !Array.isArray(byTaskRows)) return [];
+  const candidates = [];
+  for (const row of byTaskRows) {
+    if (sid(row?.assignedUserId) !== uid) continue;
+    // Only completed tasks (completedAt set at close for done work)
+    if (!row?.completedAt) continue;
+    const early = Math.max(0, Number(row.submittedEarlyHours) || 0);
+    const reopen = Math.max(0, Number(row.reopenCount) || 0);
+    const actual = Math.max(0, Number(row.actualHours) || 0);
+    const score = early - 2 * reopen;
+    candidates.push({
+      taskId: sid(row.taskId),
+      title: String(row.title || '').trim().slice(0, 200) || '(untitled)',
+      tags: normalizeTechnologies(row.tags),
+      submittedEarlyHours: Math.round(early * 100) / 100,
+      reopenCount: reopen,
+      _score: score,
+      _actual: actual,
+    });
+  }
+  candidates.sort((a, b) => b._score - a._score || b._actual - a._actual);
+  return candidates.slice(0, Math.max(1, Math.min(10, Number(limit) || TASK_HIGHLIGHTS_MAX))).map((c) => {
+    const { _score, _actual, ...rest } = c;
+    return rest;
+  });
+}
+
+/**
+ * @param {{ board: object, memberships: object[], roles: object[], tasks: object[], technologies?: string[], byUserSummary?: object, byTaskRows?: object[] }} input
  * @returns {Array<object>}
  */
 function buildClosedBoardExperiences({
@@ -102,6 +138,7 @@ function buildClosedBoardExperiences({
   tasks,
   technologies,
   byUserSummary,
+  byTaskRows,
 } = {}) {
   const boardId = sid(board?._id || board?.id);
   const boardTitle = String(board?.title || '').trim() || 'Dự án';
@@ -204,6 +241,8 @@ function buildClosedBoardExperiences({
       }
       if (Object.keys(summary).length) item.summary = summary;
     }
+    const highlights = pickTaskHighlights(byTaskRows, userId, TASK_HIGHLIGHTS_MAX);
+    if (highlights.length) item.taskHighlights = highlights;
     out.push(item);
   }
 
@@ -219,4 +258,6 @@ module.exports = {
   assignedUserIds,
   normalizeTechnologies,
   techListFromProjectStack,
+  pickTaskHighlights,
+  TASK_HIGHLIGHTS_MAX,
 };

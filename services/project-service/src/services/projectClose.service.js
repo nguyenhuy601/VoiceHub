@@ -107,7 +107,7 @@ async function loadCloseInputs({ deps, projectId }) {
     leanFind(
       deps.Task,
       { projectId, isActive: { $ne: false } },
-      '_id status listId sprintId issueType type estimateHours assigneeId dueDate createdAt completedAt tags'
+      '_id status listId sprintId issueType type estimateHours assigneeId dueDate createdAt completedAt tags title description'
     ),
     deps.Worklog
       ? leanFind(deps.Worklog, { projectId }, 'userId hours taskId')

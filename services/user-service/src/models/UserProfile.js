@@ -220,6 +220,19 @@ const userProfileSchema = new mongoose.Schema(
             submittedEarlyHours: { type: Number, min: 0, default: undefined },
             reEstimateCount: { type: Number, min: 0, default: undefined },
           },
+          /** Top completed tasks (evidence) — max enforced in clone (≤5). */
+          taskHighlights: {
+            type: [
+              {
+                taskId: { type: String, trim: true, maxlength: 64 },
+                title: { type: String, trim: true, maxlength: 200 },
+                tags: { type: [{ type: String, trim: true, maxlength: 64 }], default: undefined },
+                submittedEarlyHours: { type: Number, min: 0, default: undefined },
+                reopenCount: { type: Number, min: 0, default: undefined },
+              },
+            ],
+            default: undefined,
+          },
           source: {
             type: String,
             enum: ['excel_import', 'closed_board', 'cv_parse', 'manual'],

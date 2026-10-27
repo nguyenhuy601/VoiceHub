@@ -254,7 +254,14 @@ function historyOverlapBonus(item, task, needSkills = new Set()) {
         (skill) => domain.includes(skill) || skill.includes(domain)
       );
     }
-    const workBlob = String(row?.work || row?.projectName || '')
+    const highlightParts = [];
+    for (const h of Array.isArray(row?.taskHighlights) ? row.taskHighlights : []) {
+      if (h?.title) highlightParts.push(String(h.title));
+      for (const t of Array.isArray(h?.tags) ? h.tags : []) {
+        if (t) highlightParts.push(String(t));
+      }
+    }
+    const workBlob = String([row?.work, row?.projectName, ...highlightParts].filter(Boolean).join(' '))
       .toLowerCase()
       .trim();
     if (workBlob && needSkills.size) {
@@ -264,11 +271,11 @@ function historyOverlapBonus(item, task, needSkills = new Set()) {
         return workBlob.includes(s);
       });
     }
-    const techList = Array.isArray(row?.technologies)
-      ? row.technologies
-      : Array.isArray(row?.technologiesHandled)
-        ? row.technologiesHandled
-        : [];
+    const techList = [
+      ...(Array.isArray(row?.technologies) ? row.technologies : []),
+      ...(Array.isArray(row?.technologiesHandled) ? row.technologiesHandled : []),
+      ...highlightParts,
+    ];
     if (techList.length && needSkills.size) {
       techHit ||= techList.some((tech) => {
         const t = String(tech || '').toLowerCase().trim();

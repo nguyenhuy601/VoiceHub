@@ -74,11 +74,18 @@ function historyOverlapBonus(item, task, needSkills = new Set()) {
     if (domain && needSkills.size) {
       domainHit ||= [...needSkills].some((skill) => domain.includes(skill) || skill.includes(domain));
     }
-    const techList = Array.isArray(row?.technologies)
-      ? row.technologies
-      : Array.isArray(row?.technologiesHandled)
-        ? row.technologiesHandled
-        : [];
+    const highlightTags = [];
+    for (const h of Array.isArray(row?.taskHighlights) ? row.taskHighlights : []) {
+      if (h?.title) highlightTags.push(String(h.title));
+      for (const t of Array.isArray(h?.tags) ? h.tags : []) {
+        if (t) highlightTags.push(String(t));
+      }
+    }
+    const techList = [
+      ...(Array.isArray(row?.technologies) ? row.technologies : []),
+      ...(Array.isArray(row?.technologiesHandled) ? row.technologiesHandled : []),
+      ...highlightTags,
+    ];
     if (techList.length && needSkills.size) {
       techHit ||= techList.some((tech) => {
         const t = String(tech || '')

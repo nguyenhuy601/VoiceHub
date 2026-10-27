@@ -135,6 +135,34 @@ function projectEmployee(item) {
                   : {}),
               }
             : undefined;
+        const taskHighlights = Array.isArray(e.taskHighlights)
+          ? e.taskHighlights
+              .slice(0, 5)
+              .map((h) => {
+                if (!h || typeof h !== 'object') return null;
+                const title = String(h.title || '').trim().slice(0, 120);
+                const tags = [
+                  ...new Set(
+                    (Array.isArray(h.tags) ? h.tags : [])
+                      .map((t) => String(t || '').trim())
+                      .filter(Boolean)
+                      .slice(0, 20)
+                  ),
+                ];
+                if (!title && !tags.length) return null;
+                const row = {};
+                if (h.taskId) row.taskId = String(h.taskId).trim().slice(0, 64);
+                if (title) row.title = title;
+                if (tags.length) row.tags = tags;
+                if (h.submittedEarlyHours != null) {
+                  row.submittedEarlyHours =
+                    Math.round(Number(h.submittedEarlyHours) * 100) / 100 || 0;
+                }
+                if (h.reopenCount != null) row.reopenCount = Number(h.reopenCount) || 0;
+                return row;
+              })
+              .filter(Boolean)
+          : [];
         return {
           role: String(e.role || e.projectRole || '').trim() || undefined,
           domain: domain || undefined,
@@ -144,6 +172,7 @@ function projectEmployee(item) {
           year: e.year != null ? e.year : undefined,
           ...(technologies.length ? { technologies } : {}),
           ...(summary && Object.keys(summary).length ? { summary } : {}),
+          ...(taskHighlights.length ? { taskHighlights } : {}),
           ...(source ? { source } : {}),
         };
       })

@@ -248,7 +248,14 @@ const SOFT_SCORERS = {
       if (domain && needNames?.size) {
         domainHit ||= [...needNames].some((s) => domain.includes(s) || s.includes(domain));
       }
-      const workBlob = String(row?.work || row?.projectName || '')
+      const highlightParts = [];
+      for (const h of Array.isArray(row?.taskHighlights) ? row.taskHighlights : []) {
+        if (h?.title) highlightParts.push(String(h.title));
+        for (const t of Array.isArray(h?.tags) ? h.tags : []) {
+          if (t) highlightParts.push(String(t));
+        }
+      }
+      const workBlob = String([row?.work, row?.projectName, ...highlightParts].filter(Boolean).join(' '))
         .toLowerCase()
         .trim();
       if (workBlob && needNames?.size) {
@@ -257,11 +264,11 @@ const SOFT_SCORERS = {
           return s.length >= 2 && workBlob.includes(s);
         });
       }
-      const techList = Array.isArray(row?.technologies)
-        ? row.technologies
-        : Array.isArray(row?.technologiesHandled)
-          ? row.technologiesHandled
-          : [];
+      const techList = [
+        ...(Array.isArray(row?.technologies) ? row.technologies : []),
+        ...(Array.isArray(row?.technologiesHandled) ? row.technologiesHandled : []),
+        ...highlightParts,
+      ];
       if (techList.length && needNames?.size) {
         techHit ||= techList.some((tech) => {
           const t = String(tech || '')

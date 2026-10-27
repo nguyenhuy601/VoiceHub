@@ -111,6 +111,7 @@ async function persistClosedProjectExperiences({ project, closedAt, snapshot, de
   };
 
   const technologies = techListFromProjectStack(snap?.techStack || project);
+  const byTaskRows = Array.isArray(snap?.resources?.byTask) ? snap.resources.byTask : [];
   const rows = buildClosedBoardExperiences({
     board: boardLike,
     memberships,
@@ -118,6 +119,7 @@ async function persistClosedProjectExperiences({ project, closedAt, snapshot, de
     tasks,
     technologies,
     byUserSummary: byUserSummaryFromSnapshot(snap),
+    byTaskRows,
   });
 
   let appended = 0;

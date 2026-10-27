@@ -42,6 +42,7 @@ async function appendClosedBoardExperience(userId, experience) {
           ? exp.technologiesHandled
           : undefined,
         summary: exp.summary && typeof exp.summary === 'object' ? exp.summary : undefined,
+        taskHighlights: Array.isArray(exp.taskHighlights) ? exp.taskHighlights : undefined,
         source: 'closed_board',
         status: 'suggested',
         evidenceBoardId: exp.evidenceBoardId,
