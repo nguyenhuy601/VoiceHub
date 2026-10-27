@@ -9,8 +9,22 @@ const TaskBoardMember = require('../models/TaskBoardMember');
 const ProjectMembership = require('../models/ProjectMembership');
 const ProjectRole = require('../models/ProjectRole');
 const Project = require('../models/Project');
-const { buildClosedBoardExperiences } = require('../utils/project/boardCloseExperience');
+const {
+  buildClosedBoardExperiences,
+  techListFromProjectStack,
+} = require('../utils/project/boardCloseExperience');
 const { appendClosedBoardExperience } = require('../clients/userService.client');
+
+function byUserSummaryFromSnapshot(snapshot) {
+  const rows = Array.isArray(snapshot?.resources?.byUser) ? snapshot.resources.byUser : [];
+  const out = {};
+  for (const row of rows) {
+    const uid = String(row?.userId || '').trim();
+    if (!uid) continue;
+    out[uid] = row;
+  }
+  return out;
+}
 
 const LEGACY_BOARD_ROLES = Object.freeze([
   { _id: 'legacy_owner', key: 'project_manager', label: 'project_manager' },
@@ -47,7 +61,7 @@ async function appendExperiencesBestEffort(rows) {
  * After project complete — DA suggested experiences for each member.
  * @param {{ project: object, closedAt?: Date, deps?: object }} input
  */
-async function persistClosedProjectExperiences({ project, closedAt, deps = {} } = {}) {
+async function persistClosedProjectExperiences({ project, closedAt, snapshot, deps = {} } = {}) {
   const projectId = String(project?._id || project?.id || '').trim();
   if (!projectId) return { appended: 0, skipped: true, reason: 'no_project' };
 
@@ -56,6 +70,7 @@ async function persistClosedProjectExperiences({ project, closedAt, deps = {} } 
   const TaskModel = deps.Task || Task;
   const Board = deps.TaskBoard || TaskBoard;
   const appendFn = deps.appendClosedBoardExperience || appendClosedBoardExperience;
+  const snap = snapshot || project?.closureSnapshot || null;
 
   const [memberships, board] = await Promise.all([
     Membership.find({ projectId }).select('userId projectRoleId').lean(),
@@ -77,7 +92,7 @@ async function persistClosedProjectExperiences({ project, closedAt, deps = {} } 
     projectId,
     isActive: { $ne: false },
   })
-    .select('assigneeId assignments status completedAt')
+    .select('assigneeId assignments status completedAt tags')
     .lean();
 
   const evidenceId = String(board?._id || projectId);
@@ -95,11 +110,14 @@ async function persistClosedProjectExperiences({ project, closedAt, deps = {} } 
     closedAt: closedAt || project.closedAt || null,
   };
 
+  const technologies = techListFromProjectStack(snap?.techStack || project);
   const rows = buildClosedBoardExperiences({
     board: boardLike,
     memberships,
     roles,
     tasks,
+    technologies,
+    byUserSummary: byUserSummaryFromSnapshot(snap),
   });
 
   let appended = 0;

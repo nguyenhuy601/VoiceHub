@@ -105,6 +105,36 @@ function projectEmployee(item) {
         const source = ['cv_parse', 'closed_board', 'excel_import', 'manual'].includes(sourceRaw)
           ? sourceRaw
           : undefined;
+        const techSrc = Array.isArray(e.technologies)
+          ? e.technologies
+          : Array.isArray(e.technologiesHandled)
+            ? e.technologiesHandled
+            : [];
+        const technologies = [
+          ...new Set(
+            techSrc
+              .map((t) => String(t || '').trim())
+              .filter(Boolean)
+              .slice(0, 40)
+          ),
+        ];
+        const summary =
+          e.summary && typeof e.summary === 'object'
+            ? {
+                ...(e.summary.reopenCount != null
+                  ? { reopenCount: Number(e.summary.reopenCount) || 0 }
+                  : {}),
+                ...(e.summary.submittedEarlyHours != null
+                  ? {
+                      submittedEarlyHours:
+                        Math.round(Number(e.summary.submittedEarlyHours) * 100) / 100 || 0,
+                    }
+                  : {}),
+                ...(e.summary.reEstimateCount != null
+                  ? { reEstimateCount: Math.max(0, Math.floor(Number(e.summary.reEstimateCount)) || 0) }
+                  : {}),
+              }
+            : undefined;
         return {
           role: String(e.role || e.projectRole || '').trim() || undefined,
           domain: domain || undefined,
@@ -112,6 +142,8 @@ function projectEmployee(item) {
           projectName,
           work,
           year: e.year != null ? e.year : undefined,
+          ...(technologies.length ? { technologies } : {}),
+          ...(summary && Object.keys(summary).length ? { summary } : {}),
           ...(source ? { source } : {}),
         };
       })

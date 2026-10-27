@@ -141,6 +141,21 @@ describe('projectCloseSnapshot: T1 seven groups from fixture', () => {
     assert.equal(snapshot.resources.actualCost.value, null);
   });
 
+  it('resources.byUser early/overdue + techStack', () => {
+    assert.ok(snapshot.techStack);
+    const u1 = snapshot.resources.byUser.find((r) => r.userId === 'u1');
+    assert.ok(u1);
+    assert.equal(u1.plannedHours, 8);
+    assert.equal(u1.actualHours, 10);
+    assert.equal(u1.submittedEarlyHours, 0);
+    assert.equal(u1.overdueHours, 2);
+    assert.equal(u1.reopenCount, 0);
+    assert.ok(Array.isArray(u1.technologiesHandled));
+    const u2 = snapshot.resources.byUser.find((r) => r.userId === 'u2');
+    assert.equal(u2.submittedEarlyHours, 0);
+    assert.equal(u2.overdueHours, 1);
+  });
+
   it('personnel per member + unassigned done', () => {
     assert.equal(snapshot.personnel.unassignedDoneCount, 1);
     const u1 = snapshot.personnel.members.find((m) => m.userId === 'u1');
@@ -155,6 +170,55 @@ describe('projectCloseSnapshot: T1 seven groups from fixture', () => {
     assert.equal(snapshot.process.blockers.value, null);
     assert.equal(snapshot.process.dependency.value, null);
     assert.equal(snapshot.process.bottleneck.value, null);
+    assert.equal(snapshot.process.reassignmentHistory.value, null);
+    assert.equal(snapshot.process.failedShortHorizon.value, null);
+    assert.equal(snapshot.process.risksAndIssuesHandled.value, null);
+  });
+
+  it('byUser reopen/reEstimate from activity + techStack from project', () => {
+    const snap = buildProjectCloseSnapshot({
+      project: {
+        technicalSetup: {
+          stack: { languages: ['TypeScript'], frameworks: ['React'], databases: ['MongoDB'] },
+        },
+      },
+      closedAt,
+      tasks: [
+        {
+          _id: 't10',
+          status: 'done',
+          listId: 'l1',
+          estimateHours: 10,
+          assigneeId: 'u1',
+          tags: ['Node.js'],
+        },
+      ],
+      listsById,
+      worklogs: [{ userId: 'u1', hours: 6 }],
+      activities: [
+        {
+          taskId: 't10',
+          payload: {
+            changes: [
+              { field: 'status', from: 'done', to: 'todo' },
+              { field: 'estimateHours', from: 8, to: 10 },
+              { field: 'assigneeId', from: 'u0', to: 'u1' },
+            ],
+          },
+          createdAt: '2026-08-01T00:00:00.000Z',
+        },
+      ],
+    });
+    assert.deepEqual(snap.techStack.languages, ['TypeScript']);
+    const u1 = snap.resources.byUser.find((r) => r.userId === 'u1');
+    assert.equal(u1.submittedEarlyHours, 4);
+    assert.equal(u1.overdueHours, 0);
+    assert.equal(u1.reopenCount, 1);
+    assert.equal(u1.reEstimateCount, 1);
+    assert.ok(u1.technologiesHandled.includes('Node.js'));
+    assert.ok(Array.isArray(snap.process.reassignmentHistory.value));
+    assert.equal(snap.process.reassignmentHistory.value[0].fromUserId, 'u0');
+    assert.equal(snap.process.reassignmentHistory.value[0].toUserId, 'u1');
   });
 
   it('experience closeNotes + sprint review notes', () => {
@@ -175,5 +239,79 @@ describe('projectCloseSnapshot: reopen from activities', () => {
     const res = countReopenFromActivities([{ payload: { fields: ['title'] } }]);
     assert.equal(res.value, null);
     assert.equal(res.unavailableReason, 'activity_payload_lacks_status_transition');
+  });
+
+  it('counts reopen from work.field_changed status payload', () => {
+    const res = countReopenFromActivities([
+      {
+        type: 'work.field_changed',
+        taskId: 't1',
+        payload: { field: 'status', from: 'done', to: 'todo' },
+      },
+    ]);
+    assert.equal(res.value, 1);
+    assert.equal(res.unavailableReason, null);
+  });
+});
+
+describe('projectCloseSnapshot: board-runtime activity shapes', () => {
+  it('derives reopen/reEstimate/reassign from work.field_changed + estimate_updated', () => {
+    const snap = buildProjectCloseSnapshot({
+      project: {
+        technicalSetup: {
+          stack: { languages: ['TypeScript'], frameworks: [], databases: [] },
+        },
+      },
+      closedAt,
+      tasks: [
+        {
+          _id: 't20',
+          status: 'done',
+          listId: 'l1',
+          estimateHours: 12,
+          assigneeId: 'u1',
+          tags: ['NestJS'],
+        },
+      ],
+      listsById,
+      worklogs: [{ userId: 'u1', hours: 8 }],
+      activities: [
+        {
+          type: 'work.field_changed',
+          taskId: 't20',
+          createdAt: '2026-08-01T10:00:00.000Z',
+          payload: { field: 'status', from: 'done', to: 'in_progress' },
+        },
+        {
+          type: 'work.field_changed',
+          taskId: 't20',
+          createdAt: '2026-08-01T11:00:00.000Z',
+          payload: { field: 'assigneeId', from: 'u0', to: 'u1' },
+        },
+        {
+          type: 'estimate_updated',
+          taskId: 't20',
+          createdAt: '2026-08-01T12:00:00.000Z',
+          payload: { before: 8, after: 12 },
+        },
+        {
+          type: 'work.field_changed',
+          taskId: 't20',
+          createdAt: '2026-08-01T13:00:00.000Z',
+          payload: { field: 'estimateHours', from: 12, to: 14 },
+        },
+      ],
+    });
+    const u1 = snap.resources.byUser.find((r) => r.userId === 'u1');
+    assert.ok(u1);
+    assert.equal(u1.reopenCount, 1);
+    assert.equal(u1.reEstimateCount, 2);
+    assert.ok(u1.technologiesHandled.includes('NestJS'));
+    assert.ok(Array.isArray(snap.process.reassignmentHistory.value));
+    assert.equal(snap.process.reassignmentHistory.value.length, 1);
+    assert.equal(snap.process.reassignmentHistory.value[0].taskId, 't20');
+    assert.equal(snap.process.reassignmentHistory.value[0].fromUserId, 'u0');
+    assert.equal(snap.process.reassignmentHistory.value[0].toUserId, 'u1');
+    assert.equal(snap.quality.reopenCount, 1);
   });
 });

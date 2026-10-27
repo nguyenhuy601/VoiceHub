@@ -65,11 +65,44 @@ function monthsBetweenDates(startRaw, endRaw) {
   return Math.min(600, Math.floor(months));
 }
 
+function normalizeTechnologies(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of list) {
+    const s = String(raw || '').trim().slice(0, 64);
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
+function techListFromProjectStack(projectOrTech) {
+  if (Array.isArray(projectOrTech)) return normalizeTechnologies(projectOrTech);
+  const stack = projectOrTech?.technicalSetup?.stack || projectOrTech?.techStack || projectOrTech || {};
+  return normalizeTechnologies([
+    ...(Array.isArray(stack.languages) ? stack.languages : []),
+    ...(Array.isArray(stack.frameworks) ? stack.frameworks : []),
+    ...(Array.isArray(stack.databases) ? stack.databases : []),
+  ]);
+}
+
 /**
- * @param {{ board: object, memberships: object[], roles: object[], tasks: object[] }} input
- * @returns {Array<{ userId: string, name: string, role: string, work: string, year?: number, months?: number, source: string, status: string, evidenceBoardId: string, isProjectManager: boolean }>}
+ * @param {{ board: object, memberships: object[], roles: object[], tasks: object[], technologies?: string[], byUserSummary?: object }} input
+ * @returns {Array<object>}
  */
-function buildClosedBoardExperiences({ board, memberships, roles, tasks } = {}) {
+function buildClosedBoardExperiences({
+  board,
+  memberships,
+  roles,
+  tasks,
+  technologies,
+  byUserSummary,
+} = {}) {
   const boardId = sid(board?._id || board?.id);
   const boardTitle = String(board?.title || '').trim() || 'Dự án';
   const dueLabel = formatDueDate(board?.dueDate);
@@ -112,6 +145,7 @@ function buildClosedBoardExperiences({ board, memberships, roles, tasks } = {}) 
     }
   }
 
+  const projectTechs = normalizeTechnologies(technologies);
   const out = [];
   for (const [userId, rec] of byUser.entries()) {
     const c = counts.get(userId) || { done: 0, total: 0 };
@@ -136,6 +170,13 @@ function buildClosedBoardExperiences({ board, memberships, roles, tasks } = {}) 
     });
     if (!work) continue;
 
+    const userSummary =
+      byUserSummary && typeof byUserSummary === 'object' ? byUserSummary[userId] : null;
+    const userTechs = normalizeTechnologies(
+      userSummary?.technologiesHandled?.length
+        ? userSummary.technologiesHandled
+        : projectTechs
+    );
     const item = {
       userId,
       name: boardTitle,
@@ -148,6 +189,21 @@ function buildClosedBoardExperiences({ board, memberships, roles, tasks } = {}) 
     };
     if (year >= 1970 && year <= 2100) item.year = year;
     if (months != null) item.months = months;
+    if (userTechs.length) {
+      item.technologies = userTechs;
+      item.technologiesHandled = userTechs;
+    }
+    if (userSummary && typeof userSummary === 'object') {
+      const summary = {};
+      if (userSummary.reopenCount != null) summary.reopenCount = Number(userSummary.reopenCount) || 0;
+      if (userSummary.submittedEarlyHours != null) {
+        summary.submittedEarlyHours = Math.round(Number(userSummary.submittedEarlyHours) * 100) / 100;
+      }
+      if (userSummary.reEstimateCount != null) {
+        summary.reEstimateCount = Number(userSummary.reEstimateCount) || 0;
+      }
+      if (Object.keys(summary).length) item.summary = summary;
+    }
     out.push(item);
   }
 
@@ -161,4 +217,6 @@ module.exports = {
   monthsBetweenDates,
   isTaskDone,
   assignedUserIds,
+  normalizeTechnologies,
+  techListFromProjectStack,
 };

@@ -235,6 +235,7 @@ const SOFT_SCORERS = {
     let roleHit = false;
     let domainHit = false;
     let workHit = false;
+    let techHit = false;
     const roleKey = normalizeRoleKey(task?.suggestedRoleKey);
     for (const row of item.history) {
       const historyRole = normalizeRoleKey(row?.role || row?.projectRole);
@@ -256,11 +257,32 @@ const SOFT_SCORERS = {
           return s.length >= 2 && workBlob.includes(s);
         });
       }
+      const techList = Array.isArray(row?.technologies)
+        ? row.technologies
+        : Array.isArray(row?.technologiesHandled)
+          ? row.technologiesHandled
+          : [];
+      if (techList.length && needNames?.size) {
+        techHit ||= techList.some((tech) => {
+          const t = String(tech || '')
+            .toLowerCase()
+            .trim();
+          if (!t || t.length < 2) return false;
+          return [...needNames].some((skill) => {
+            const s = String(skill || '')
+              .toLowerCase()
+              .trim();
+            return s && (t.includes(s) || s.includes(t));
+          });
+        });
+      }
     }
-    if (!roleHit && !domainHit && !workHit) {
+    if (!roleHit && !domainHit && !workHit && !techHit) {
       return { score: 0, available: true };
     }
-    const score = clamp01((roleHit ? 0.5 : 0) + (domainHit ? 0.3 : 0) + (workHit ? 0.2 : 0));
+    const score = clamp01(
+      (roleHit ? 0.45 : 0) + (domainHit ? 0.25 : 0) + (workHit ? 0.15 : 0) + (techHit ? 0.15 : 0)
+    );
     return { score, available: true };
   },
   pastQuality(ctx) {

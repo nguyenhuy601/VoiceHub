@@ -219,6 +219,57 @@ function buildPerformance({ tasks, listsById, sprints }) {
   };
 }
 
+/**
+ * Chuẩn hoá activity → [{ field, from, to }].
+ * Hỗ trợ: payload.changes[], work.field_changed {field,from,to},
+ * estimate_updated {before,after}, legacy fromStatus/toStatus.
+ */
+function fieldChangesFromActivity(ev) {
+  const payload = ev?.payload && typeof ev.payload === 'object' ? ev.payload : {};
+  const type = String(ev?.type || '');
+  const out = [];
+  const push = (field, from, to) => {
+    const f = String(field || '').trim();
+    if (!f) return;
+    if (out.some((c) => c.field === f && c.from === from && c.to === to)) return;
+    out.push({ field: f, from, to });
+  };
+
+  if (Array.isArray(payload.changes)) {
+    for (const c of payload.changes) {
+      if (c && c.field) push(c.field, c.from, c.to);
+    }
+  }
+
+  if (payload.field != null && String(payload.field).trim()) {
+    push(payload.field, payload.from, payload.to);
+  }
+
+  if (
+    type === 'estimate_updated' ||
+    (payload.before !== undefined && payload.after !== undefined && !payload.field)
+  ) {
+    push('estimateHours', payload.before, payload.after);
+  }
+
+  if (out.length === 0 && (payload.fromStatus != null || payload.toStatus != null)) {
+    push('status', payload.fromStatus ?? payload.from, payload.toStatus ?? payload.to);
+  }
+
+  return out;
+}
+
+function statusTransitionFromActivity(ev) {
+  const changes = fieldChangesFromActivity(ev);
+  const statusChange = changes.find((c) => c.field === 'status');
+  if (statusChange) return { from: statusChange.from, to: statusChange.to };
+  const payload = ev?.payload && typeof ev.payload === 'object' ? ev.payload : {};
+  const from = payload.fromStatus ?? payload.from ?? ev?.from;
+  const to = payload.toStatus ?? payload.to ?? ev?.to;
+  if (from == null && to == null) return null;
+  return { from, to };
+}
+
 function countReopenFromActivities(activities) {
   if (!Array.isArray(activities)) {
     return unavailable('activity_not_loaded');
@@ -226,14 +277,10 @@ function countReopenFromActivities(activities) {
   let scannedTransitions = 0;
   let reopenCount = 0;
   for (const ev of activities) {
-    const payload = ev?.payload && typeof ev.payload === 'object' ? ev.payload : {};
-    const changes = Array.isArray(payload.changes) ? payload.changes : [];
-    const statusChange = changes.find((c) => String(c?.field || '') === 'status');
-    const from = statusChange?.from ?? payload.fromStatus ?? payload.from ?? ev?.from;
-    const to = statusChange?.to ?? payload.toStatus ?? payload.to ?? ev?.to;
-    if (from == null && to == null) continue;
+    const tr = statusTransitionFromActivity(ev);
+    if (!tr) continue;
     scannedTransitions += 1;
-    if (isDoneLikeStatus(from) && !isDoneLikeStatus(to)) reopenCount += 1;
+    if (isDoneLikeStatus(tr.from) && !isDoneLikeStatus(tr.to)) reopenCount += 1;
   }
   if (scannedTransitions === 0) {
     return unavailable('activity_payload_lacks_status_transition');
@@ -257,7 +304,106 @@ function buildQuality({ tasks, listsById, activities }) {
   };
 }
 
-function buildResources({ tasks, worklogs, project }) {
+function flattenTechStack(project) {
+  const stack = project?.technicalSetup?.stack || {};
+  const languages = Array.isArray(stack.languages) ? stack.languages : [];
+  const frameworks = Array.isArray(stack.frameworks) ? stack.frameworks : [];
+  const databases = Array.isArray(stack.databases) ? stack.databases : [];
+  return {
+    languages: languages.map((s) => String(s || '').trim()).filter(Boolean),
+    frameworks: frameworks.map((s) => String(s || '').trim()).filter(Boolean),
+    databases: databases.map((s) => String(s || '').trim()).filter(Boolean),
+  };
+}
+
+function techListFromStack(techStack) {
+  return [
+    ...(techStack.languages || []),
+    ...(techStack.frameworks || []),
+    ...(techStack.databases || []),
+  ];
+}
+
+function tagsForUser(tasks, userId) {
+  const tags = new Set();
+  for (const task of tasks || []) {
+    const uid = asStringOid(task?.assigneeId);
+    if (uid !== userId) continue;
+    for (const t of task?.tags || []) {
+      const s = String(t || '').trim();
+      if (s) tags.add(s);
+    }
+  }
+  return [...tags];
+}
+
+function countReopenByUser(activities, tasks) {
+  const byTaskAssignee = new Map();
+  for (const task of tasks || []) {
+    const tid = asStringOid(task?._id || task?.id);
+    const uid = asStringOid(task?.assigneeId);
+    if (tid && uid) byTaskAssignee.set(tid, uid);
+  }
+  const reopenByUser = {};
+  if (!Array.isArray(activities)) return reopenByUser;
+  for (const ev of activities) {
+    const tr = statusTransitionFromActivity(ev);
+    if (!tr || !isDoneLikeStatus(tr.from) || isDoneLikeStatus(tr.to)) continue;
+    const payload = ev?.payload && typeof ev.payload === 'object' ? ev.payload : {};
+    const tid = asStringOid(ev?.taskId || payload.taskId);
+    const uid = byTaskAssignee.get(tid) || asStringOid(payload.assigneeId);
+    if (!uid) continue;
+    reopenByUser[uid] = (reopenByUser[uid] || 0) + 1;
+  }
+  return reopenByUser;
+}
+
+function countReEstimateByUser(activities, tasks) {
+  const byTaskAssignee = new Map();
+  for (const task of tasks || []) {
+    const tid = asStringOid(task?._id || task?.id);
+    const uid = asStringOid(task?.assigneeId);
+    if (tid && uid) byTaskAssignee.set(tid, uid);
+  }
+  const byUser = {};
+  if (!Array.isArray(activities)) return byUser;
+  for (const ev of activities) {
+    const changes = fieldChangesFromActivity(ev);
+    const estChange = changes.find((c) => c.field === 'estimateHours');
+    if (!estChange) continue;
+    const payload = ev?.payload && typeof ev.payload === 'object' ? ev.payload : {};
+    const tid = asStringOid(ev?.taskId || payload.taskId);
+    const uid = byTaskAssignee.get(tid) || asStringOid(payload.assigneeId);
+    if (!uid) continue;
+    byUser[uid] = (byUser[uid] || 0) + 1;
+  }
+  return byUser;
+}
+
+function deriveReassignmentHistory(activities) {
+  if (!Array.isArray(activities)) return [];
+  const out = [];
+  for (const ev of activities) {
+    const payload = ev?.payload && typeof ev.payload === 'object' ? ev.payload : {};
+    const changes = fieldChangesFromActivity(ev);
+    const assigneeChange = changes.find((c) => c.field === 'assigneeId');
+    if (!assigneeChange) continue;
+    const fromUserId = asStringOid(assigneeChange.from);
+    const toUserId = asStringOid(assigneeChange.to);
+    if (!fromUserId && !toUserId) continue;
+    out.push({
+      taskId: asStringOid(ev?.taskId || payload.taskId),
+      fromUserId: fromUserId || null,
+      toUserId: toUserId || null,
+      at: toIso(ev?.createdAt),
+      reason: String(payload.reason || '').trim() || null,
+      source: 'task_activity',
+    });
+  }
+  return out.slice(0, 200);
+}
+
+function buildResources({ tasks, worklogs, project, activities }) {
   const plannedHours = (tasks || []).reduce((sum, t) => sum + normalizeEstimateHours(t?.estimateHours), 0);
   const actualHours = (worklogs || []).reduce((sum, w) => sum + normalizeEstimateHours(w?.hours), 0);
   const estimateByUser = {};
@@ -272,13 +418,31 @@ function buildResources({ tasks, worklogs, project }) {
     if (!uid) continue;
     actualByUser[uid] = (actualByUser[uid] || 0) + normalizeEstimateHours(log?.hours);
   }
+  const reopenByUser = countReopenByUser(activities, tasks);
+  const reEstimateByUser = countReEstimateByUser(activities, tasks);
+  const techStack = flattenTechStack(project);
+  const projectTechs = techListFromStack(techStack);
   const userIds = new Set([...Object.keys(estimateByUser), ...Object.keys(actualByUser)]);
-  const byUser = [...userIds].map((userId) => ({
-    userId,
-    plannedHours: estimateByUser[userId] || 0,
-    actualHours: actualByUser[userId] || 0,
-    varianceHours: Math.round(((actualByUser[userId] || 0) - (estimateByUser[userId] || 0)) * 100) / 100,
-  }));
+  const byUser = [...userIds].map((userId) => {
+    const planned = estimateByUser[userId] || 0;
+    const actual = actualByUser[userId] || 0;
+    const tagTechs = tagsForUser(tasks, userId);
+    const technologiesHandled = [...new Set([...tagTechs, ...(tagTechs.length ? [] : projectTechs)])].slice(
+      0,
+      40
+    );
+    return {
+      userId,
+      plannedHours: planned,
+      actualHours: actual,
+      varianceHours: Math.round((actual - planned) * 100) / 100,
+      submittedEarlyHours: Math.round(Math.max(0, planned - actual) * 100) / 100,
+      overdueHours: Math.round(Math.max(0, actual - planned) * 100) / 100,
+      reopenCount: reopenByUser[userId] || 0,
+      reEstimateCount: reEstimateByUser[userId] || 0,
+      technologiesHandled,
+    };
+  });
   const budgetStub = project?.budgetStub && typeof project.budgetStub === 'object' ? project.budgetStub : null;
   return {
     plannedHours: Math.round(plannedHours * 100) / 100,
@@ -326,7 +490,7 @@ function buildPersonnel({ tasks, listsById, worklogs, members }) {
   };
 }
 
-function buildProcess({ approvals, sprints, project }) {
+function buildProcess({ approvals, sprints, project, activities }) {
   const waitHours = [];
   for (const a of approvals || []) {
     const st = String(a?.status || '').toLowerCase();
@@ -339,6 +503,31 @@ function buildProcess({ approvals, sprints, project }) {
     return sum + (Number.isFinite(n) ? n : 0);
   }, 0);
   const wipLimit = project?.methodologySettings?.wipLimit;
+  const derivedReassignment = deriveReassignmentHistory(activities);
+  const opLog = Array.isArray(project?.operationalLog) ? project.operationalLog : [];
+  const opReassign = opLog
+    .filter((e) => e && (e.type === 'reassignment' || e.source === 'fallback_override'))
+    .map((e) => ({
+      taskId: asStringOid(e.taskId),
+      fromUserId: asStringOid(e.fromUserId) || null,
+      toUserId: asStringOid(e.toUserId) || null,
+      at: toIso(e.at) || (typeof e.at === 'string' ? e.at : null),
+      reason: e.reason || null,
+      source: e.source || e.type || 'operational_log',
+    }));
+  const mergedReassign = [...derivedReassignment, ...opReassign].slice(0, 200);
+  const failedRows = opLog
+    .filter((e) => e && e.type === 'failed_short_horizon')
+    .map((e) => ({
+      taskId: asStringOid(e.taskId),
+      at: toIso(e.at) || (typeof e.at === 'string' ? e.at : null),
+      fromStatus: e.fromStatus || null,
+      toStatus: e.toStatus || null,
+      reason: e.reason || null,
+      remainingCalendarDays:
+        e.remainingCalendarDays != null ? Number(e.remainingCalendarDays) : null,
+      source: 'operational_log',
+    }));
   return {
     approvalWaitHoursAverage: average(waitHours),
     approvalSampleSize: waitHours.length,
@@ -347,6 +536,15 @@ function buildProcess({ approvals, sprints, project }) {
     blockers: unavailable('missing_blocked_field'),
     dependency: unavailable('missing_issue_links'),
     bottleneck: unavailable('missing_time_in_status'),
+    reassignmentHistory:
+      mergedReassign.length > 0
+        ? { value: mergedReassign, unavailableReason: null }
+        : unavailable('not_tracked_on_close'),
+    failedShortHorizon:
+      failedRows.length > 0
+        ? { value: failedRows, unavailableReason: null }
+        : unavailable('runtime_fallback_not_wired'),
+    risksAndIssuesHandled: unavailable('risk_capture_not_wired'),
   };
 }
 
@@ -380,9 +578,11 @@ function buildProjectCloseSnapshot({
   activities,
 } = {}) {
   const at = toDate(closedAt) || new Date();
+  const techStack = flattenTechStack(project);
   return {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     at: toIso(at),
+    techStack,
     progress: buildProgress({
       project,
       closedAt: at,
@@ -394,9 +594,9 @@ function buildProjectCloseSnapshot({
     }),
     performance: buildPerformance({ tasks, listsById, sprints }),
     quality: buildQuality({ tasks, listsById, activities }),
-    resources: buildResources({ tasks, worklogs, project }),
+    resources: buildResources({ tasks, worklogs, project, activities }),
     personnel: buildPersonnel({ tasks, listsById, worklogs, members }),
-    process: buildProcess({ approvals, sprints, project }),
+    process: buildProcess({ approvals, sprints, project, activities }),
     experience: buildExperience({ sprints, closeNotes }),
   };
 }
@@ -409,6 +609,7 @@ module.exports = {
   average,
   median,
   unavailable,
+  fieldChangesFromActivity,
   countReopenFromActivities,
   buildProjectCloseSnapshot,
 };

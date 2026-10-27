@@ -31,6 +31,17 @@ async function appendClosedBoardExperience(userId, experience) {
         role: exp.role,
         work: exp.work,
         year: exp.year,
+        months: exp.months,
+        domain: exp.domain,
+        technologies: Array.isArray(exp.technologies)
+          ? exp.technologies
+          : Array.isArray(exp.technologiesHandled)
+            ? exp.technologiesHandled
+            : undefined,
+        technologiesHandled: Array.isArray(exp.technologiesHandled)
+          ? exp.technologiesHandled
+          : undefined,
+        summary: exp.summary && typeof exp.summary === 'object' ? exp.summary : undefined,
         source: 'closed_board',
         status: 'suggested',
         evidenceBoardId: exp.evidenceBoardId,

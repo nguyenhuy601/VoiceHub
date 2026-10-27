@@ -238,6 +238,7 @@ function historyOverlapBonus(item, task, needSkills = new Set()) {
   let roleHit = false;
   let domainHit = false;
   let workHit = false;
+  let techHit = false;
   const roleKey = normalizeRoleKey(task?.suggestedRoleKey);
   const primaryDomain = String(item?.primaryDomain || item?.capability?.primaryDomain || '')
     .toLowerCase()
@@ -263,9 +264,25 @@ function historyOverlapBonus(item, task, needSkills = new Set()) {
         return workBlob.includes(s);
       });
     }
+    const techList = Array.isArray(row?.technologies)
+      ? row.technologies
+      : Array.isArray(row?.technologiesHandled)
+        ? row.technologiesHandled
+        : [];
+    if (techList.length && needSkills.size) {
+      techHit ||= techList.some((tech) => {
+        const t = String(tech || '').toLowerCase().trim();
+        if (!t || t.length < 2) return false;
+        return [...needSkills].some((skill) => {
+          const s = String(skill || '').toLowerCase().trim();
+          return s && (t.includes(s) || s.includes(t));
+        });
+      });
+    }
   }
   let bonus = (roleHit ? 0.06 : 0) + (domainHit ? 0.04 : 0);
   if (workHit && bonus < 0.1) bonus = Math.min(0.1, bonus + 0.02);
+  if (techHit && bonus < 0.1) bonus = Math.min(0.1, bonus + 0.03);
   return Math.min(0.1, bonus);
 }
 

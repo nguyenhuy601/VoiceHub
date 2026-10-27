@@ -137,10 +137,53 @@ function cloneProjectExperience(item) {
     const m = Number(item.months);
     if (Number.isFinite(m) && m >= 0 && m <= 600) months = Math.floor(m);
   }
+  const techSrc = Array.isArray(item.technologies)
+    ? item.technologies
+    : Array.isArray(item.technologiesHandled)
+      ? item.technologiesHandled
+      : [];
+  const technologies = [];
+  const techSeen = new Set();
+  for (const raw of techSrc) {
+    const s = String(raw || '').trim().slice(0, 64);
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (techSeen.has(key)) continue;
+    techSeen.add(key);
+    technologies.push(s);
+    if (technologies.length >= 40) break;
+  }
+  let summary;
+  if (item.summary && typeof item.summary === 'object') {
+    const reopenCount =
+      item.summary.reopenCount != null && Number.isFinite(Number(item.summary.reopenCount))
+        ? Math.max(0, Math.floor(Number(item.summary.reopenCount)))
+        : undefined;
+    const submittedEarlyHours =
+      item.summary.submittedEarlyHours != null &&
+      Number.isFinite(Number(item.summary.submittedEarlyHours))
+        ? Math.max(0, Math.round(Number(item.summary.submittedEarlyHours) * 100) / 100)
+        : undefined;
+    const reEstimateCount =
+      item.summary.reEstimateCount != null && Number.isFinite(Number(item.summary.reEstimateCount))
+        ? Math.max(0, Math.floor(Number(item.summary.reEstimateCount)))
+        : undefined;
+    if (reopenCount != null || submittedEarlyHours != null || reEstimateCount != null) {
+      summary = {};
+      if (reopenCount != null) summary.reopenCount = reopenCount;
+      if (submittedEarlyHours != null) summary.submittedEarlyHours = submittedEarlyHours;
+      if (reEstimateCount != null) summary.reEstimateCount = reEstimateCount;
+    }
+  }
   const out = { name, role, work, source, status };
   if (year != null) out.year = year;
   if (domain) out.domain = domain;
   if (months != null) out.months = months;
+  if (technologies.length) {
+    out.technologies = technologies;
+    out.technologiesHandled = technologies;
+  }
+  if (summary) out.summary = summary;
   if (item.evidenceBoardId) out.evidenceBoardId = item.evidenceBoardId;
   return out;
 }

@@ -107,7 +107,7 @@ async function loadCloseInputs({ deps, projectId }) {
     leanFind(
       deps.Task,
       { projectId, isActive: { $ne: false } },
-      '_id status listId sprintId issueType type estimateHours assigneeId dueDate createdAt completedAt'
+      '_id status listId sprintId issueType type estimateHours assigneeId dueDate createdAt completedAt tags'
     ),
     deps.Worklog
       ? leanFind(deps.Worklog, { projectId }, 'userId hours taskId')
@@ -125,7 +125,14 @@ async function loadCloseInputs({ deps, projectId }) {
       ? leanFind(deps.ApprovalRequest, { projectId }, 'status createdAt completedAt')
       : Promise.resolve([]),
     deps.TaskActivityLog
-      ? leanFind(deps.TaskActivityLog, { projectId, type: 'task.updated' }, 'payload type')
+      ? leanFind(
+          deps.TaskActivityLog,
+          {
+            projectId,
+            type: { $in: ['work.field_changed', 'task.updated', 'estimate_updated'] },
+          },
+          'taskId createdAt payload type'
+        )
       : Promise.resolve(undefined),
   ]);
 
@@ -252,6 +259,7 @@ async function completeProject({ userId, projectId, closeNotes, deps: depsOverri
     await persistFn({
       project: typeof project.toObject === 'function' ? project.toObject() : project,
       closedAt: now,
+      snapshot,
       deps,
     });
   } catch (err) {

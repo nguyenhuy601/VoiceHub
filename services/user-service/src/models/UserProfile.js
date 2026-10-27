@@ -208,6 +208,18 @@ const userProfileSchema = new mongoose.Schema(
           domain: { type: String, trim: true, maxlength: 80, default: '' },
           /** Optional duration in months (additive; never invented at match time). */
           months: { type: Number, min: 0, max: 600, default: undefined },
+          /** Tech stack / tags handled on closed project (additive reuse). */
+          technologies: { type: [{ type: String, trim: true, maxlength: 64 }], default: undefined },
+          technologiesHandled: {
+            type: [{ type: String, trim: true, maxlength: 64 }],
+            default: undefined,
+          },
+          /** Compact operational summary for matching — not full risks KB. */
+          summary: {
+            reopenCount: { type: Number, min: 0, default: undefined },
+            submittedEarlyHours: { type: Number, min: 0, default: undefined },
+            reEstimateCount: { type: Number, min: 0, default: undefined },
+          },
           source: {
             type: String,
             enum: ['excel_import', 'closed_board', 'cv_parse', 'manual'],
