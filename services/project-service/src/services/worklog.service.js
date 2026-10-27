@@ -8,6 +8,8 @@ const {
   normalizeWorkDate,
   varianceHours,
   sumWorklogHours,
+  submittedEarlyHours,
+  buildHierarchyActualRollup,
 } = require('../utils/task/timeTracking');
 const { isTaskAssignee } = require('../utils/task/taskAssignee');
 const { assertUserProjectPermission } = require('./projectAccess.service');
@@ -178,9 +180,33 @@ async function listWorklogsForTask({ taskId, actorUserId } = {}) {
     .sort({ workDate: -1, createdAt: -1 })
     .lean();
   const actualHours = sumWorklogHours(items);
+
+  const scopeFilter = task.projectId
+    ? { projectId: task.projectId, isActive: { $ne: false } }
+    : { boardId: task.boardId, isActive: { $ne: false } };
+  const relatedTasks = await Task.find(scopeFilter)
+    .select('_id parentTaskId epicId estimateHours issueType')
+    .lean();
+  const relatedIds = relatedTasks.map((t) => t._id);
+  const relatedLogs = relatedIds.length
+    ? await Worklog.find({ taskId: { $in: relatedIds } }).select('taskId hours').lean()
+    : [];
+  const rollup = buildHierarchyActualRollup(relatedTasks, relatedLogs);
+  const parentRow = rollup.byParent[String(task._id)] || null;
+  const epicId = task.epicId ? String(task.epicId) : '';
+  const epicRow = epicId && rollup.byEpic[epicId] ? rollup.byEpic[epicId] : null;
+
   return {
     taskId: String(task._id),
+    issueType: task.issueType || 'task',
     ...varianceHours(task.estimateHours, actualHours),
+    submittedEarlyHours: submittedEarlyHours(task.estimateHours, actualHours),
+    rolledActualHours: parentRow ? parentRow.rolledActualHours : actualHours,
+    rolledSubmittedEarlyHours: parentRow
+      ? parentRow.submittedEarlyHours
+      : submittedEarlyHours(task.estimateHours, actualHours),
+    descendantCount: parentRow ? parentRow.descendantCount : 0,
+    epicRollup: epicRow,
     items,
   };
 }
@@ -214,7 +240,7 @@ async function getSprintTimeSummary({ projectId, sprintId, actorUserId } = {}) {
     sprintId: sid,
     isActive: { $ne: false },
   })
-    .select('_id title estimateHours status')
+    .select('_id title estimateHours status parentTaskId epicId issueType')
     .lean();
 
   const taskIds = tasks.map((t) => t._id);
@@ -228,14 +254,23 @@ async function getSprintTimeSummary({ projectId, sprintId, actorUserId } = {}) {
     actualByTask.set(tid, (actualByTask.get(tid) || 0) + (Number(row.hours) || 0));
   }
 
+  const hierarchy = buildHierarchyActualRollup(tasks, logs);
+
   const byTask = tasks.map((t) => {
     const tid = String(t._id);
     const actual = Math.round((actualByTask.get(tid) || 0) * 100) / 100;
+    const parentRow = hierarchy.byParent[tid];
     return {
       taskId: tid,
       title: t.title || '',
       status: t.status || '',
+      issueType: t.issueType || 'task',
+      parentTaskId: t.parentTaskId ? String(t.parentTaskId) : null,
+      epicId: t.epicId ? String(t.epicId) : null,
       ...varianceHours(t.estimateHours, actual),
+      submittedEarlyHours: submittedEarlyHours(t.estimateHours, actual),
+      rolledActualHours: parentRow ? parentRow.rolledActualHours : actual,
+      descendantCount: parentRow ? parentRow.descendantCount : 0,
     };
   });
 
@@ -246,6 +281,8 @@ async function getSprintTimeSummary({ projectId, sprintId, actorUserId } = {}) {
   const actualSum =
     Math.round(byTask.reduce((s, r) => s + (Number(r.actualHours) || 0), 0) * 100) / 100;
 
+  const byEpic = Object.values(hierarchy.byEpic || {});
+
   return {
     projectId: pid,
     sprintId: sid,
@@ -254,6 +291,7 @@ async function getSprintTimeSummary({ projectId, sprintId, actorUserId } = {}) {
     actualSum,
     varianceHours: Math.round((actualSum - estimateSum) * 100) / 100,
     byTask,
+    byEpic,
   };
 }
 
@@ -263,5 +301,7 @@ module.exports = {
   getSprintTimeSummary,
   sumWorklogHours,
   varianceHours,
+  submittedEarlyHours,
+  buildHierarchyActualRollup,
   isTaskAssignee,
 };

@@ -80,6 +80,86 @@ function sumWorklogHours(rows = []) {
   );
 }
 
+/** Spec: submittedEarlyHours = max(0, estimate - actual) — derive, không ghi Mongo. */
+function submittedEarlyHours(estimateHours, actualHours) {
+  const est = estimateHours == null ? null : Number(estimateHours);
+  const act = Number(actualHours) || 0;
+  if (est == null || !Number.isFinite(est)) return null;
+  return Math.round(Math.max(0, est - act) * 100) / 100;
+}
+
+/**
+ * Aggregate-on-read: map parentTaskId → sum actual of self + descendants.
+ * Pure — tasks: [{_id, parentTaskId?, epicId?, estimateHours?}], logs: [{taskId, hours}].
+ */
+function buildHierarchyActualRollup(tasks = [], logs = []) {
+  const byTaskHours = new Map();
+  for (const row of logs || []) {
+    const tid = String(row?.taskId || '').trim();
+    if (!tid) continue;
+    byTaskHours.set(tid, (byTaskHours.get(tid) || 0) + (Number(row.hours) || 0));
+  }
+
+  const childrenOf = new Map();
+  const byEpic = new Map();
+  for (const t of tasks || []) {
+    const id = String(t?._id || t?.id || '').trim();
+    if (!id) continue;
+    const parentId = String(t?.parentTaskId || '').trim();
+    if (parentId) {
+      if (!childrenOf.has(parentId)) childrenOf.set(parentId, []);
+      childrenOf.get(parentId).push(id);
+    }
+    const epicId = String(t?.epicId || '').trim();
+    if (epicId) {
+      if (!byEpic.has(epicId)) byEpic.set(epicId, []);
+      byEpic.get(epicId).push(id);
+    }
+  }
+
+  function collectDescendants(rootId, depth = 0, seen = new Set()) {
+    if (!rootId || seen.has(rootId) || depth > 8) return [];
+    seen.add(rootId);
+    const kids = childrenOf.get(rootId) || [];
+    const out = [...kids];
+    for (const kid of kids) {
+      out.push(...collectDescendants(kid, depth + 1, seen));
+    }
+    return out;
+  }
+
+  const byParent = {};
+  for (const t of tasks || []) {
+    const id = String(t?._id || t?.id || '').trim();
+    if (!id) continue;
+    const descendantIds = collectDescendants(id);
+    const ids = [id, ...descendantIds];
+    const own = byTaskHours.get(id) || 0;
+    const rolled = ids.reduce((s, tid) => s + (byTaskHours.get(tid) || 0), 0);
+    const estimate = t?.estimateHours;
+    byParent[id] = {
+      taskId: id,
+      ownActualHours: Math.round(own * 100) / 100,
+      rolledActualHours: Math.round(rolled * 100) / 100,
+      descendantCount: descendantIds.length,
+      ...varianceHours(estimate, rolled),
+      submittedEarlyHours: submittedEarlyHours(estimate, rolled),
+    };
+  }
+
+  const byEpicRollup = {};
+  for (const [epicId, taskIds] of byEpic.entries()) {
+    const rolled = taskIds.reduce((s, tid) => s + (byTaskHours.get(tid) || 0), 0);
+    byEpicRollup[epicId] = {
+      epicId,
+      taskCount: taskIds.length,
+      rolledActualHours: Math.round(rolled * 100) / 100,
+    };
+  }
+
+  return { byParent, byEpic: byEpicRollup };
+}
+
 module.exports = {
   isTimeTrackingV1Enabled,
   assertTimeTrackingEnabled,
@@ -88,6 +168,8 @@ module.exports = {
   normalizeWorkDate,
   varianceHours,
   sumWorklogHours,
+  submittedEarlyHours,
+  buildHierarchyActualRollup,
   MIN_WORKLOG_HOURS,
   MAX_WORKLOG_HOURS,
   DEFAULT_HOURS_PER_DAY: 8,

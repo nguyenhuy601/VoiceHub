@@ -6,6 +6,7 @@ const { invokeTool } = require('../registry/toolRegistry');
 const { registerDefaultTools } = require('../tools/registerDefaultTools');
 const { applyToolResultToContainer } = require('../tools/applyToolResultToContainer');
 const { HOW_PHASE_TOOL_STEPS } = require('./jobToToolsMap');
+const { buildHowToolStepLayers } = require('./howToolDag');
 const { assertToolOutputHasEvidence } = require('../evidence/evidence');
 const { buildPlanningHints } = require('./buildPlanningHints');
 
@@ -139,16 +140,22 @@ async function runToolsSequence(steps, ctx = {}) {
   const toolResults = [];
   const allEvidence = [];
 
-  for (const step of steps) {
+  const layers = buildHowToolStepLayers(steps);
+  const runOne = async (step, containerSnapshot) => {
     const toolName = step.toolName;
     const stepStarted = Date.now();
-    const toolContext = buildToolContext({ pack, toolData, container, toolName });
-    toolContext.container = container;
+    const toolContext = buildToolContext({
+      pack,
+      toolData,
+      container: containerSnapshot,
+      toolName,
+    });
+    toolContext.container = containerSnapshot;
     if (toolName !== 'WbsTool') {
       toolContext.planningHints = planningHints;
     }
     const input = buildToolInput({
-      container,
+      container: containerSnapshot,
       pack,
       toolData,
       snapshotId,
@@ -158,12 +165,25 @@ async function runToolsSequence(steps, ctx = {}) {
     const toolOut = await invokeTool(toolName, input, toolContext);
     assertToolOutputHasEvidence(toolName, toolOut);
     const durationMs = Math.max(0, Date.now() - stepStarted);
-    container = applyToolResultToContainer(container, toolOut);
-    if (Array.isArray(toolOut?.evidence)) {
-      allEvidence.push(...toolOut.evidence);
+    return { toolName, toolOut, durationMs };
+  };
+
+  for (const layer of layers) {
+    if (!layer?.length) continue;
+    const layerStarted = structuredClone(container);
+    const layerOut =
+      layer.length === 1
+        ? [await runOne(layer[0], layerStarted)]
+        : await Promise.all(layer.map((step) => runOne(step, layerStarted)));
+    // Apply in canonical layer order so merge is deterministic after parallel invoke.
+    for (const { toolName, toolOut, durationMs } of layerOut) {
+      container = applyToolResultToContainer(container, toolOut);
+      if (Array.isArray(toolOut?.evidence)) {
+        allEvidence.push(...toolOut.evidence);
+      }
+      toolResults.push({ toolName, durationMs });
+      history.push(`execute:${toolName}`);
     }
-    toolResults.push({ toolName, durationMs });
-    history.push(`execute:${toolName}`);
   }
 
   const durationMs = Math.max(0, Date.now() - startedAt);

@@ -16,7 +16,11 @@ const {
 const { isDoneLikeStatus } = require('../utils/task/taskCycleTime');
 const { fetchTaskWorkspaceScope } = require('./taskWorkspaceScope');
 const { fetchProjectVisibilityContext } = require('../clients/orgVisibility.client');
+const { fetchDepartmentRoster } = require('../clients/orgStructure.client');
 const { resolveCanonicalOrganizationRoleKey } = require('@enterprise/shared/config/masterData');
+
+const ORG_WIDE_PERFORMANCE_KEYS = new Set(['DIRECTOR', 'RESOURCE_MANAGER']);
+const DEPT_SCOPED_PERFORMANCE_KEYS = new Set(['DEPARTMENT_MANAGER']);
 
 function asOid(id) {
   const s = String(id || '').trim();
@@ -28,8 +32,41 @@ function isOrgAdminScope(scope) {
   return role === 'owner' || role === 'admin';
 }
 
+function canonicalOrgRoleKeys(rawKeys) {
+  return (rawKeys || [])
+    .map((k) => resolveCanonicalOrganizationRoleKey(String(k || '').trim()))
+    .filter(Boolean);
+}
+
 /**
- * Admin / resource_manager / director xem org; user được xem chính mình.
+ * Collect member userIds for headed departments (roster S2S).
+ */
+async function loadHeadedDepartmentMemberIds({
+  organizationId,
+  actorUserId,
+  headedDepartmentIds,
+} = {}) {
+  const deptIds = (headedDepartmentIds || []).map(String).filter(Boolean);
+  if (!deptIds.length) return new Set();
+  const roster = await fetchDepartmentRoster(organizationId, {
+    departmentIds: deptIds,
+    actorUserId,
+  });
+  const memberIds = new Set();
+  for (const dept of roster || []) {
+    const headId = String(dept?.headUserId || dept?.head || '').trim();
+    if (headId) memberIds.add(headId);
+    for (const mid of dept?.memberIds || dept?.members || []) {
+      const id = String(mid || '').trim();
+      if (id) memberIds.add(id);
+    }
+  }
+  return memberIds;
+}
+
+/**
+ * Admin / Director / RM = org-wide; Department Manager = scoped to headedDepartmentIds;
+ * user được xem chính mình.
  * @param {{ requireElevated?: boolean }} options — list org bắt buộc elevated
  */
 async function assertPerformanceAccess({
@@ -52,19 +89,46 @@ async function assertPerformanceAccess({
     return { scope, self: true };
   }
   if (isOrgAdminScope(scope)) {
-    return { scope, isOrgAdmin: true };
+    return { scope, isOrgAdmin: true, elevated: true, orgWide: true };
   }
   const vis = await fetchProjectVisibilityContext(organizationId, actorUserId);
-  const keys = (vis.organizationRoleKeys || []).map((k) =>
-    resolveCanonicalOrganizationRoleKey(String(k || '').toLowerCase())
-  );
-  if (keys.includes('resource_manager') || keys.includes('director')) {
-    return { scope, elevated: true };
+  const keys = canonicalOrgRoleKeys(vis.organizationRoleKeys);
+  if (keys.some((k) => ORG_WIDE_PERFORMANCE_KEYS.has(k))) {
+    return { scope, elevated: true, orgWide: true };
+  }
+  if (keys.some((k) => DEPT_SCOPED_PERFORMANCE_KEYS.has(k))) {
+    const headedDepartmentIds = (vis.headedDepartmentIds || []).map(String).filter(Boolean);
+    if (!headedDepartmentIds.length) {
+      const err = new Error('Trưởng phòng chưa được gán phòng — không xem được performance');
+      err.statusCode = 403;
+      err.errorCode = 'PERFORMANCE_NO_HEADED_DEPARTMENT';
+      throw err;
+    }
+    const access = {
+      scope,
+      elevated: true,
+      departmentScoped: true,
+      headedDepartmentIds,
+    };
+    if (targetUserId && String(actorUserId) !== String(targetUserId)) {
+      const allowed = await loadHeadedDepartmentMemberIds({
+        organizationId,
+        actorUserId,
+        headedDepartmentIds,
+      });
+      if (!allowed.has(String(targetUserId))) {
+        const err = new Error('Chỉ xem được performance nhân viên thuộc phòng mình quản lý');
+        err.statusCode = 403;
+        err.errorCode = 'PERFORMANCE_OUTSIDE_DEPARTMENT';
+        throw err;
+      }
+    }
+    return access;
   }
   const err = new Error(
     requireElevated
-      ? 'Chỉ Org Admin, Director hoặc Resource Manager được xem danh sách performance'
-      : 'Chỉ Org Admin, Director hoặc Resource Manager được xem performance của người khác'
+      ? 'Chỉ Org Admin, Director, Resource Manager hoặc Trưởng phòng được xem danh sách performance'
+      : 'Chỉ Org Admin, Director, Resource Manager hoặc Trưởng phòng được xem performance của người khác'
   );
   err.statusCode = 403;
   err.errorCode = 'PERFORMANCE_FORBIDDEN';
@@ -347,7 +411,7 @@ async function listUserPerformance({
     err.statusCode = 400;
     throw err;
   }
-  await assertPerformanceAccess({
+  const access = await assertPerformanceAccess({
     organizationId: orgId,
     actorUserId,
     requireElevated: true,
@@ -356,15 +420,41 @@ async function listUserPerformance({
   const { start, end, windowDays: days } = windowBounds(windowDays, asOf);
   const lim = Math.min(100, Math.max(1, Number(limit) || 50));
 
+  let allowedUserIds = null;
+  if (access.departmentScoped) {
+    allowedUserIds = await loadHeadedDepartmentMemberIds({
+      organizationId: orgId,
+      actorUserId,
+      headedDepartmentIds: access.headedDepartmentIds,
+    });
+    if (!allowedUserIds.size) {
+      return {
+        organizationId: orgId,
+        windowDays: days,
+        asOf: end.toISOString(),
+        scope: 'department',
+        headedDepartmentIds: access.headedDepartmentIds,
+        items: [],
+      };
+    }
+  }
+
+  const match = {
+    organizationId: new mongoose.Types.ObjectId(orgId),
+    assigneeId: { $ne: null },
+    isActive: { $ne: false },
+    completedAt: { $gte: start, $lte: end },
+  };
+  if (allowedUserIds) {
+    match.assigneeId = {
+      $in: [...allowedUserIds]
+        .filter((id) => mongoose.isValidObjectId(id))
+        .map((id) => new mongoose.Types.ObjectId(id)),
+    };
+  }
+
   const grouped = await Task.aggregate([
-    {
-      $match: {
-        organizationId: new mongoose.Types.ObjectId(orgId),
-        assigneeId: { $ne: null },
-        isActive: { $ne: false },
-        completedAt: { $gte: start, $lte: end },
-      },
-    },
+    { $match: match },
     { $group: { _id: '$assigneeId', tasksCompleted: { $sum: 1 } } },
     { $sort: { tasksCompleted: -1 } },
     { $limit: lim },
@@ -386,7 +476,16 @@ async function listUserPerformance({
       /* skip user on error */
     }
   }
-  return { organizationId: orgId, windowDays: days, asOf: end.toISOString(), items };
+  return {
+    organizationId: orgId,
+    windowDays: days,
+    asOf: end.toISOString(),
+    scope: access.departmentScoped ? 'department' : 'organization',
+    ...(access.departmentScoped
+      ? { headedDepartmentIds: access.headedDepartmentIds }
+      : {}),
+    items,
+  };
 }
 
 async function getEstimateHints({
@@ -437,5 +536,9 @@ module.exports = {
   loadPerformanceByUserIds,
   listUserPerformance,
   getEstimateHints,
+  assertPerformanceAccess,
+  loadHeadedDepartmentMemberIds,
+  ORG_WIDE_PERFORMANCE_KEYS,
+  DEPT_SCOPED_PERFORMANCE_KEYS,
   windowBounds,
 };

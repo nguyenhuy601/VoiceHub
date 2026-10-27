@@ -28,6 +28,12 @@ function mergeSectionPatches(left, right) {
   return { ...(left && typeof left === 'object' ? left : {}), ...(right && typeof right === 'object' ? right : {}) };
 }
 
+function appendHistory(left, right) {
+  const a = Array.isArray(left) ? left : [];
+  const b = Array.isArray(right) ? right : right != null ? [right] : [];
+  return a.concat(b);
+}
+
 const WhatPhaseState = Annotation.Root({
   runId: field(),
   snapshotId: field(),
@@ -36,7 +42,10 @@ const WhatPhaseState = Annotation.Root({
   container: field(),
   corpus: field(),
   contextPackage: field(),
-  history: field(),
+  history: Annotation({
+    reducer: appendHistory,
+    default: () => [],
+  }),
   toolResults: field(),
   g4Understanding: field(),
   proposalFragment: field(),
@@ -59,8 +68,14 @@ const WhatPhaseState = Annotation.Root({
   gatePreview: field(),
   g4Partial: field(),
   srsProposal: field(),
-  engineResultsById: field(),
-  semanticStatuses: field(),
+  engineResultsById: Annotation({
+    reducer: mergeSectionPatches,
+    default: () => ({}),
+  }),
+  semanticStatuses: Annotation({
+    reducer: mergeSectionPatches,
+    default: () => ({}),
+  }),
   whatTiming: field(),
   sectionPatches: Annotation({
     reducer: mergeSectionPatches,
