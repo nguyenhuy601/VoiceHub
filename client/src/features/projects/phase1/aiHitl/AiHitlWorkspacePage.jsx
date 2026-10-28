@@ -28,6 +28,7 @@ import {
   isPhaseInFlightStatus,
   protectPackDuringFreshRunAwait,
 } from './freshRunUiGuard';
+import { isHowRunWallTimedOut } from './WHAT_MONITOR_CONFIG';
 
 function unwrap(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -310,9 +311,13 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
   const whatInFlight =
     ['pending', 'running', 'waiting_human'].includes(liveStatus) ||
     String(phaseWhat?.status || '') === 'pending';
-  const howInFlight = ['pending', 'running', 'queued', 'waiting_human'].includes(
+  const howStatusInFlight = ['pending', 'running', 'queued', 'waiting_human'].includes(
     howStatusNorm
   );
+  const howWallStaleEarly =
+    howStatusInFlight && isHowRunWallTimedOut(liveRun, phaseHow);
+  /** Exclude zombie wall-timeout so poll / canRerunHow unlock. */
+  const howInFlight = howStatusInFlight && !howWallStaleEarly;
   // HITL pause: do not poll while waiting_human — refresh() replaces gatePreview every 2s
   // and Phase1DataGateReviewPanel resets the table (visible flicker).
   const shouldPollWhat =
@@ -392,14 +397,24 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
     [goMonitorTab, markAwaitingFreshRun]
   );
 
-  const howHasResult = ['ready', 'completed', 'confirmed', 'failed', 'error'].includes(
-    howStatusNorm
-  );
+  const howHasResult = [
+    'ready',
+    'completed',
+    'confirmed',
+    'failed',
+    'error',
+    'stopped',
+    'incomplete',
+    'cancelled',
+  ].includes(howStatusNorm);
   const packHowEligible =
     packStatusEarly === 'approved' || packStatusEarly === 'project_linked';
-  /** Every PO sees re-run HOW when Gate1 done and HOW not currently running. */
+  /** Every PO sees re-run HOW when Gate1 done and HOW not currently running (or wall-stale). */
   const canRerunHow =
-    canReviewGate2Po && packHowEligible && !howInFlight && howHasResult;
+    canReviewGate2Po &&
+    packHowEligible &&
+    !howInFlight &&
+    (howHasResult || howWallStaleEarly);
 
   const whatStatusNorm = String(phaseWhat?.status || '').trim().toLowerCase();
   const whatHasPriorRun =
@@ -421,22 +436,30 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
 
   /** Start / re-run HOW from Monitor card (PO re-run). Review tab stays decide-only. */
   const startHowManual = useCallback(
-    async ({ force = false } = {}) => {
+    async ({ force = false, feedback = '', impactScope = null } = {}) => {
       if (!organizationId || !packId || busy) return;
       const useForce = force === true;
+      const scopes = Array.isArray(impactScope)
+        ? impactScope.map((s) => String(s || '').trim()).filter(Boolean)
+        : [];
       setBusy(true);
-      onHowStarted({ clearResults: useForce });
-      if (useForce) setGate2Decisions({});
+      onHowStarted({ clearResults: useForce && !scopes.length });
+      if (useForce && !scopes.length) setGate2Decisions({});
       try {
         await requirementAPI.startPhaseAiPlanning(organizationId, packId, {
           phase: 'how',
           ...(useForce ? { force: true } : {}),
           ...(projectId ? { projectId: String(projectId) } : {}),
+          ...(feedback ? { feedback: String(feedback) } : {}),
+          ...(scopes.length ? { impactScope: scopes } : {}),
         });
         toast.success(
-          useForce
-            ? t('requirements.aiHowRerunStarted')
-            : t('requirements.aiHowRunStarted')
+          scopes.length
+            ? t('requirements.gate2ScheduleRefreshStarted') ||
+                t('requirements.aiHowRerunStarted')
+            : useForce
+              ? t('requirements.aiHowRerunStarted')
+              : t('requirements.aiHowRunStarted')
         );
         await refresh();
       } catch (err) {
@@ -456,6 +479,15 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
 
   const startHowFirst = useCallback(() => startHowManual({ force: false }), [startHowManual]);
   const rerunHow = useCallback(() => startHowManual({ force: true }), [startHowManual]);
+  const refreshScheduleHow = useCallback(
+    () =>
+      startHowManual({
+        force: true,
+        feedback: 'Refresh schedule after Gate2 assignment edits',
+        impactScope: ['resource', 'schedule'],
+      }),
+    [startHowManual]
+  );
 
   const openAckDialog = useCallback((payload) => {
     ackDialogRef.current = payload;
@@ -1621,6 +1653,7 @@ export default function AiHitlWorkspacePage({ projectId, organizationId, onPromo
             parallelTracks={gate2ParallelTracks}
             gate2Proposals={gate2Proposals}
             onGate2TrackSubmit={onGate2TrackSubmit}
+            onGate2RefreshSchedule={refreshScheduleHow}
             onGate2ProposeChange={onGate2ProposeChange}
             onGate2DecideChange={onGate2DecideChange}
             onGate2KeepOriginal={onGate2KeepOriginal}

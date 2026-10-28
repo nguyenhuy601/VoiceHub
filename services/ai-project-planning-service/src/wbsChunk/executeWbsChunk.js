@@ -46,12 +46,26 @@ async function executeWbsChunk(input = {}, opts = {}) {
   const numCtx = resolveWbsLlmNumCtx(env);
   const timeoutMs = resolveWbsLlmTimeoutMs(env);
   const maxRepair = resolveWbsLlmMaxRepair(env);
+  const startedAt = Date.now();
+  // Hard wall so repair × per-call timeout cannot pin WbsTool for 12m+ on one chunk.
+  const chunkWallMs = Math.min(
+    Number(env.HOW_WBS_CHUNK_WALL_MS) > 0
+      ? Math.round(Number(env.HOW_WBS_CHUNK_WALL_MS))
+      : timeoutMs * (1 + maxRepair + 1),
+    Number(env.HOW_WBS_TOOL_TIMEOUT_MS) > 0
+      ? Math.round(Number(env.HOW_WBS_TOOL_TIMEOUT_MS))
+      : 900_000
+  );
   let llmCalls = 0;
   let promptChars = 0;
   let model = null;
   let repairAttempts = 0;
   const clarifications = [];
   const qualityIssues = [];
+
+  function wallExceeded() {
+    return Date.now() - startedAt >= chunkWallMs;
+  }
 
   const readiness = assessInputReadiness(frUnits);
   if (!readiness.ok) {
@@ -119,7 +133,20 @@ async function executeWbsChunk(input = {}, opts = {}) {
         contractErrors: accepted.errors || [],
       };
     }
-    const tasks = accepted.tasks.map((leaf) => ({ ...leaf, id: `${prefix}-${leaf.id}` }));
+    // Idempotent prefix — LLM may already echo chunk prefix (avoid c0r2-c0r2-TASK-…).
+    const prefixToken = String(prefix || '').trim();
+    const tasks = accepted.tasks.map((leaf) => {
+      const leafId = String(leaf?.id || '').trim();
+      if (!leafId) return { ...leaf, id: leafId };
+      if (!prefixToken) return { ...leaf, id: leafId };
+      const id =
+        leafId === prefixToken ||
+        leafId.startsWith(`${prefixToken}-`) ||
+        leafId.startsWith(prefixToken)
+          ? leafId
+          : `${prefixToken}-${leafId}`;
+      return { ...leaf, id };
+    });
     const quality = assessDecompositionQuality({
       frUnits: slice,
       tasks,
@@ -155,6 +182,17 @@ async function executeWbsChunk(input = {}, opts = {}) {
     let feedback = null;
     let last = null;
     for (let attempt = 0; attempt <= maxRepair; attempt += 1) {
+      if (wallExceeded()) {
+        return {
+          ok: false,
+          retryable: false,
+          needsReview: true,
+          reason: 'chunk_wall_timeout',
+          issues: last?.issues || [],
+          clarifications: last?.clarifications || [],
+          tasks: last?.tasks || [],
+        };
+      }
       if (attempt > 0) repairAttempts += 1;
       last = await runSliceOnce(
         slice,
@@ -206,7 +244,7 @@ async function executeWbsChunk(input = {}, opts = {}) {
   const isolatedFrIds = [];
   const covered = coveredFrIds(tasks);
   const missing = frUnits.filter((unit) => unit?.id && !covered.has(unit.id));
-  if (missing.length) {
+  if (missing.length && !wallExceeded()) {
     const one = await runSlice(missing, `${idPrefix}f`);
     if (one.ok) tasks.push(...one.tasks);
     else if (one.tasks?.length) tasks.push(...one.tasks);

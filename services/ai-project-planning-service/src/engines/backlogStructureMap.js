@@ -6,6 +6,19 @@ function normalizeRef(raw) {
   return String(raw || '').trim();
 }
 
+/** Drop temporary fr-from-cr chunk prefix from epic titles (`c0-EPIC-IOT` → `EPIC-IOT`). */
+function stripChunkIdPrefix(raw) {
+  return String(raw || '').replace(/^c\d+-/i, '');
+}
+
+function cleanEpicTitle(name, id) {
+  const raw = String(name || '').trim();
+  const cleanId = stripChunkIdPrefix(id) || id;
+  if (!raw || raw === id || raw === cleanId) return cleanId;
+  if (/^c\d+-/i.test(raw)) return stripChunkIdPrefix(raw) || raw;
+  return raw;
+}
+
 /**
  * Resolve approvedBacklogStructure from pack / container / toolData.
  * @param {{ pack?: object, container?: object, toolData?: object, approvedBacklogStructure?: object }} opts
@@ -42,12 +55,14 @@ function mapApprovedStructureToBacklog(structure) {
   const epics = [];
   const epicIds = new Set();
   for (const e of epicsIn) {
-    const id = normalizeRef(e?.id);
-    if (!id || epicIds.has(id)) continue;
+    const rawId = normalizeRef(e?.id);
+    if (!rawId) continue;
+    const id = stripChunkIdPrefix(rawId) || rawId;
+    if (epicIds.has(id)) continue;
     epicIds.add(id);
     epics.push({
       id,
-      name: String(e.name || id).trim(),
+      name: cleanEpicTitle(e.name || e.title, rawId),
       parentId: null,
       level: 'epic',
       sourceBgIds: Array.isArray(e.sourceBgIds) ? e.sourceBgIds.map(String) : [],
@@ -68,10 +83,13 @@ function mapApprovedStructureToBacklog(structure) {
     for (const fr of sourceFrIds) coveredFr.add(fr);
 
     let parentId = null;
-    const parentEpicId =
+    const parentRaw =
       s.parentEpicId === undefined || s.parentEpicId === null || s.parentEpicId === ''
         ? null
         : normalizeRef(s.parentEpicId);
+    const parentEpicId = parentRaw
+      ? stripChunkIdPrefix(parentRaw) || parentRaw
+      : null;
     if (parentEpicId && epicIds.has(parentEpicId)) {
       parentId = parentEpicId;
     } else if (parentEpicId && !epicIds.has(parentEpicId)) {

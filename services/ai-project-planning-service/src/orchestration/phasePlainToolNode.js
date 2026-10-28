@@ -4,7 +4,7 @@
  */
 
 const { ToolNode } = require('@langchain/langgraph/prebuilt');
-const { Command } = require('@langchain/langgraph');
+const { Command, isCommand } = require('@langchain/langgraph');
 const { tool } = require('@langchain/core/tools');
 const { AIMessage, ToolMessage, isBaseMessage } = require('@langchain/core/messages');
 const { z } = require('zod');
@@ -17,12 +17,48 @@ const {
   executeHowToolCall,
   executeWhatToolCall,
 } = require('./toolSelectNodes');
+const { reduceToolExecutions } = require('./toolExecutionContract');
+const { appendList } = require('./howPhaseToolNodes');
 
 const PLAIN_TOOLS_NODE = 'plainTools';
 
 const WHAT_SECTION_NAMES = new Set(WHAT_SECTION_TOOLS.map((s) => s.toolName));
 
 const PASS_THROUGH_ARGS = z.object({}).passthrough();
+
+/**
+ * ToolNode may return Command | Command[] | { messages }.
+ * Send→plainTools must apply a plain channel patch — raw Command[] has been observed
+ * to drop toolExecutions, leaving WbsTool eligible forever (ReAct loop).
+ * @param {unknown} result
+ * @returns {object}
+ */
+function unwrapToolNodeResult(result) {
+  const items = Array.isArray(result) ? result : result == null ? [] : [result];
+  const merged = {};
+  for (const item of items) {
+    if (item == null) continue;
+    const patch =
+      isCommand(item) && item.update && typeof item.update === 'object'
+        ? item.update
+        : item && typeof item === 'object' && !isCommand(item)
+          ? item
+          : null;
+    if (!patch) continue;
+    for (const [key, value] of Object.entries(patch)) {
+      if (key === 'toolExecutions') {
+        merged.toolExecutions = reduceToolExecutions(merged.toolExecutions, value);
+        continue;
+      }
+      if (key === 'toolResults' || key === 'history' || key === 'messages') {
+        merged[key] = appendList(merged[key], value);
+        continue;
+      }
+      if (value !== undefined) merged[key] = value;
+    }
+  }
+  return merged;
+}
 
 /**
  * Plain tool names for a phase (not Pattern B sec/FR/section).
@@ -161,7 +197,11 @@ function buildLcPlainTools(phase, onProgress) {
         const update = {
           messages: toToolMessages(out, toolName, toolCallId),
         };
+        // Must forward toolExecutions — succeededValidatedTools prefers that channel;
+        // dropping it leaves WbsTool/ScheduleTool eligible forever (ReAct loop).
+        if (out.toolExecutions != null) update.toolExecutions = out.toolExecutions;
         if (out.toolResults != null) update.toolResults = out.toolResults;
+        if (out.stopReason != null) update.stopReason = out.stopReason;
         if (out.history != null) update.history = out.history;
         if (out.container != null) update.container = out.container;
         // WHAT section/FR fields if ever routed as plain
@@ -207,7 +247,8 @@ function buildPlainToolsNode(hooks = {}) {
       messages: [plainAi],
     };
 
-    return toolNode.invoke(input);
+    const raw = await toolNode.invoke(input);
+    return unwrapToolNodeResult(raw);
   };
 }
 
@@ -219,4 +260,5 @@ module.exports = {
   toolCallsFromMessage,
   buildPlainToolsNode,
   buildLcPlainTools,
+  unwrapToolNodeResult,
 };

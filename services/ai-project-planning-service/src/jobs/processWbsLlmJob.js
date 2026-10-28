@@ -1,5 +1,6 @@
 /**
  * Wave M — execute one WBS LLM job (worker or test harness).
+ * Legacy FR→hierarchy heuristic removed; jobs fail-closed unless migrated to Story SoT.
  */
 
 const { decomposeWbsWithLlm } = require('../engines/wbsLlmDecompose');

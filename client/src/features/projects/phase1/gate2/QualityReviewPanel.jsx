@@ -1,9 +1,14 @@
 /**
  * Gate 2 / HOW Monitor — danh sách Test Case để rà soát.
+ * Client-side scroll-load (page size = GATE2_SCROLL_PAGE_SIZE).
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
+import {
+  GATE2_SCROLL_PAGE_SIZE,
+  GATE2_TABLE_BODY_HEIGHT_CLASS,
+} from './gate2SectionTableConfig';
 
 function labelOf(t, key, fallback, vars) {
   const value = typeof t === 'function' ? t(key, vars) : '';
@@ -19,6 +24,10 @@ function decisionAction(decisions, row) {
   return String(decisions?.[row.logicalId || row.id]?.action || '').toLowerCase();
 }
 
+function caseKey(row) {
+  return String(row?.logicalId || row?.id || '');
+}
+
 export default function QualityReviewPanel({
   rows = [],
   decisions = null,
@@ -27,8 +36,44 @@ export default function QualityReviewPanel({
   t,
 }) {
   const [openId, setOpenId] = useState('');
-  const cases = Array.isArray(rows) ? rows.filter((row) => row?.recordKind !== 'test_strategy') : [];
+  const [visibleCount, setVisibleCount] = useState(GATE2_SCROLL_PAGE_SIZE);
+  const scrollRootRef = useRef(null);
+  const sentinelRef = useRef(null);
+
+  const cases = useMemo(
+    () => (Array.isArray(rows) ? rows.filter((row) => row?.recordKind !== 'test_strategy') : []),
+    [rows]
+  );
+  const casesSignature = useMemo(() => cases.map(caseKey).join('|'), [cases]);
   const canDecide = showSubmit && typeof setDecision === 'function';
+
+  useEffect(() => {
+    setVisibleCount(GATE2_SCROLL_PAGE_SIZE);
+    setOpenId('');
+  }, [casesSignature]);
+
+  const visibleCases = useMemo(
+    () => cases.slice(0, visibleCount),
+    [cases, visibleCount]
+  );
+  const hasMore = visibleCount < cases.length;
+
+  useEffect(() => {
+    if (!hasMore) return undefined;
+    const root = scrollRootRef.current;
+    const target = sentinelRef.current;
+    if (!root || !target) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisibleCount((n) => Math.min(n + GATE2_SCROLL_PAGE_SIZE, cases.length));
+        }
+      },
+      { root, rootMargin: '80px', threshold: 0 }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMore, cases.length, visibleCount]);
 
   return (
     <section className="mb-3 rounded-md border border-border bg-card px-3 py-3" aria-label={labelOf(t, 'requirements.qualityReviewList', 'Danh sách Test Case')}>
@@ -43,23 +88,49 @@ export default function QualityReviewPanel({
         )}
       </p>
       {cases.length ? (
-        <ul className="mt-2 space-y-2">
-          {cases.map((row) => (
-            <CaseCard
-              key={row.logicalId || row.id}
-              row={row}
-              open={openId === (row.logicalId || row.id)}
-              onToggle={() =>
-                setOpenId((prev) => (prev === (row.logicalId || row.id) ? '' : row.logicalId || row.id))
-              }
-              decision={decisionAction(decisions, row)}
-              note={decisions?.[row.logicalId || row.id]?.note || ''}
-              canDecide={canDecide}
-              onDecide={(action, extra) => setDecision(row.logicalId || row.id, { action, ...extra })}
-              t={t}
-            />
-          ))}
-        </ul>
+        <div className="mt-2 space-y-2">
+          <div
+            ref={scrollRootRef}
+            className={`${GATE2_TABLE_BODY_HEIGHT_CLASS} space-y-2 overflow-auto overscroll-contain pr-0.5`}
+          >
+            <ul className="space-y-2">
+              {visibleCases.map((row) => {
+                const id = caseKey(row);
+                return (
+                  <CaseCard
+                    key={id}
+                    row={row}
+                    open={openId === id}
+                    onToggle={() => setOpenId((prev) => (prev === id ? '' : id))}
+                    decision={decisionAction(decisions, row)}
+                    note={decisions?.[id]?.note || ''}
+                    canDecide={canDecide}
+                    onDecide={(action, extra) => setDecision(id, { action, ...extra })}
+                    t={t}
+                  />
+                );
+              })}
+            </ul>
+            {hasMore ? <div ref={sentinelRef} className="h-4 w-full" aria-hidden /> : null}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>
+              {labelOf(t, 'requirements.phase1Gate1Showing', 'Đang hiện')} {visibleCases.length}/
+              {cases.length}
+            </span>
+            {hasMore ? (
+              <button
+                type="button"
+                className="rounded border border-border px-2 py-1 hover:bg-muted/50"
+                onClick={() =>
+                  setVisibleCount((n) => Math.min(n + GATE2_SCROLL_PAGE_SIZE, cases.length))
+                }
+              >
+                {labelOf(t, 'common.loadMore', 'Tải thêm')}
+              </button>
+            ) : null}
+          </div>
+        </div>
       ) : (
         <p className="mt-2 text-xs text-muted-foreground">
           {labelOf(t, 'requirements.qualityReviewEmpty', 'Không có Test Case.')}

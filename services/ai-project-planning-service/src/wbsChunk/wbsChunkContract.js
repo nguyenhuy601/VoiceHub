@@ -33,7 +33,7 @@ function isWbsChunkOrchestratorEnabled(env = process.env) {
   return flagOn(env.HOW_WBS_CHUNK_ORCHESTRATOR, true);
 }
 
-/** In-process drain when transport is memory. Rabbit hands work to wbsChunk.worker. */
+/** In-process drain when transport is memory. Rabbit + LLM_JOBS_WBS → llm-jobs-worker. */
 function resolveWbsChunkTransport(env = process.env) {
   const raw = String(env.HOW_WBS_CHUNK_TRANSPORT || 'memory').trim().toLowerCase();
   return raw === 'rabbit' ? 'rabbit' : 'memory';

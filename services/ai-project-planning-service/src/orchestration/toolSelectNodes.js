@@ -100,6 +100,12 @@ function lastAiMessage(messages) {
 function routeAfterSelectTools(state) {
   const stop = String(state?.stopReason || '');
   if (stop.startsWith('BUDGET_')) return 'assemble';
+  try {
+    const { hasPhaseHardToolStop } = require('./howPhaseToolNodes');
+    if (hasPhaseHardToolStop(state)) return 'assemble';
+  } catch {
+    /* optional at boot */
+  }
   const ai = lastAiMessage(state?.messages);
   const calls = ai?.tool_calls || ai?.toolCalls || [];
   if (Array.isArray(calls) && calls.length > 0) return 'tools';
@@ -204,60 +210,43 @@ function filterAlreadySuccessfulHowToolCalls(state, toolCalls) {
 }
 
 /**
- * Soft HOW DAG: rewrite blocked picks to unmet prerequisite (Schedule→Dependency→Wbs).
- * Drops only when nothing runnable remains.
+ * Keep only tool_calls that are currently eligible (no soft-deps rewrite).
  * @param {object} state
  * @param {Array<{ name?: string, toolName?: string }>} toolCalls
  */
-function filterHowToolCallsBySoftDeps(state, toolCalls) {
+function filterHowToolCallsByEligible(state, toolCalls) {
   const list = Array.isArray(toolCalls) ? toolCalls : [];
   if (!list.length) return list;
-  const { successfulHowTools, resolveHowToolOrUnmetDep } = require('./howToolDag');
-  const done = successfulHowTools(state);
-  const out = [];
-  const seen = new Set();
-  for (const call of list) {
-    const raw = String(call?.name || call?.toolName || '').trim();
-    const resolved = resolveHowToolOrUnmetDep(done, raw);
-    if (!resolved || seen.has(resolved)) continue;
-    seen.add(resolved);
-    if (resolved === raw) {
-      out.push(call);
-    } else {
-      out.push({
-        ...call,
-        name: resolved,
-        toolName: resolved,
-        id: call.id || `dep_${resolved}`,
-        args: call.args || call.arguments || {},
-      });
-      console.info(
-        '[agent_core] how.selectTools rewrite_soft_dep from=%s to=%s',
-        raw,
-        resolved
-      );
-    }
-  }
-  return out;
+  const { computeEligibleHowTools } = require('./computeEligibleHowTools');
+  const { eligible } = computeEligibleHowTools(state);
+  const allow = new Set(eligible);
+  return list.filter((c) => {
+    const name = String(c?.name || c?.toolName || '').trim();
+    return Boolean(name) && allow.has(name);
+  });
 }
 
 /**
- * HOW: dedupe already-done + soft-deps rewrite (LLM / stub / custom decide).
- * @param {object} state
- * @param {Array<{ name?: string, toolName?: string }>} toolCalls
+ * HOW: dedupe + eligible gate (LLM / stub). No rewrite_soft_dep.
  */
 function filterHowToolCallsForSelect(state, toolCalls) {
-  return filterHowToolCallsBySoftDeps(
+  return filterHowToolCallsByEligible(
     state,
     filterAlreadySuccessfulHowToolCalls(state, toolCalls)
   );
 }
 
+/** @deprecated use filterHowToolCallsByEligible — kept for test aliases */
+function filterHowToolCallsBySoftDeps(state, toolCalls) {
+  return filterHowToolCallsByEligible(state, toolCalls);
+}
+
 function howRequiredToolsStillMissing(state) {
   try {
-    const { requiredHowPhaseTools, successfulHowTools } = require('./howToolDag');
+    const { howReactCatalogTools } = require('./computeEligibleHowTools');
+    const { successfulHowTools } = require('./howToolDag');
     const done = successfulHowTools(state);
-    return requiredHowPhaseTools().filter((name) => !done.has(name));
+    return howReactCatalogTools().filter((name) => !done.has(name));
   } catch {
     return [];
   }
@@ -426,7 +415,7 @@ function stubDecideToolCalls(state, tools, phase) {
   if (!nextName) {
     const hints =
       phase === 'how'
-        ? ['BacklogMapTool', 'WbsTool', 'DependencyTool', 'ScheduleTool', 'ProjectPlanTool']
+        ? ['WbsTool', 'DependencyTool', 'ScheduleTool', 'RiskTool', 'QualityPlanTool']
         : ['WhatFrTool', 'WhatUCTool', 'WhatBGTool'];
     nextName = hints.find(
       (n) => tools.some((t) => t.toolName === n) && !done.has(n) && howReady(n)
@@ -471,7 +460,11 @@ function createSelectToolsNode(hooks = {}) {
     }
 
     // RULE-P02: node-only — do not invent business substeps outside FR catalog.
-    await onProgress?.({ node: 'selectTools', phase });
+    await onProgress?.({
+      node: 'selectTools',
+      phase,
+      toolExecutions: Array.isArray(state.toolExecutions) ? state.toolExecutions : [],
+    });
 
     let decision = await decideToolCalls(state, {
       phase,
@@ -479,107 +472,151 @@ function createSelectToolsNode(hooks = {}) {
       env: state.env || process.env,
     });
 
+    /** @type {string|null} */
+    let hardStopReason = null;
+    /** @type {object|null} */
+    let stuckIncompleteError = null;
+    const {
+      STOP_TOOL_FAILED,
+      hasPhaseHardToolStop,
+      findStuckIncompleteTool,
+    } = require('./howPhaseToolNodes');
+
     // Hard gate (incl. custom decideToolCalls): never re-Send tools already successful.
     if (phase === 'what') {
-      const rawCalls = Array.isArray(decision.tool_calls) ? decision.tool_calls : [];
-      const filtered = filterAlreadySuccessfulWhatToolCalls(state, rawCalls);
-      if (filtered.length < rawCalls.length) {
-        console.info(
-          '[agent_core] what.selectTools drop_already_done dropped=%s remain=%s',
-          rawCalls.length - filtered.length,
-          filtered.length
+      if (hasPhaseHardToolStop(state)) {
+        const hardFail = (Array.isArray(state?.toolResults) ? state.toolResults : []).find(
+          (row) => row?.error
         );
-      }
-      if (!filtered.length) {
-        const missing = whatRequiredToolsStillMissing(state);
-        if (missing.length) {
-          const tools = describeToolsForPrompt(phase);
-          decision = stubDecideToolCalls(
-            {
-              ...state,
-              gapReport: {
-                ...(state.gapReport || {}),
-                missing,
-                hint: `Missing required WHAT tools: ${missing.join(', ')}`,
-              },
-            },
-            tools,
-            phase
-          );
-        } else {
-          decision = { ...decision, tool_calls: [], done: true };
-        }
+        console.info(
+          '[agent_core] what.selectTools stop_on_tool_error tool=%s code=%s',
+          hardFail?.toolName || '(unknown)',
+          hardFail?.error?.code || state.stopReason || '-'
+        );
+        decision = { tool_calls: [], done: true, stub: false };
+        hardStopReason = STOP_TOOL_FAILED;
       } else {
-        decision = { ...decision, tool_calls: filtered, done: false };
-      }
-    }
-
-    // HOW: dedupe + soft-deps rewrite; never done while catalog tools still missing.
-    if (phase === 'how') {
-      const rawCalls = Array.isArray(decision.tool_calls) ? decision.tool_calls : [];
-      let filtered = filterHowToolCallsForSelect(state, rawCalls);
-      if (filtered.length < rawCalls.length) {
-        console.info(
-          '[agent_core] how.selectTools soft_dep filtered=%s remain=%s',
-          rawCalls.length - filtered.length,
-          filtered.length
-        );
-      }
-      const missing = howRequiredToolsStillMissing(state);
-      if (!filtered.length) {
-        const tools = describeToolsForPrompt(phase);
-        const stub = stubDecideToolCalls(
-          {
-            ...state,
-            gapReport: {
-              ...(state.gapReport || {}),
-              missing: missing.length ? missing : state.gapReport?.missing || [],
-              hint: missing.length
-                ? `Missing required HOW tools: ${missing.join(', ')}`
-                : state.gapReport?.hint,
-            },
-          },
-          tools,
-          phase
-        );
-        if (stub.tool_calls?.length) {
+        const rawCalls = Array.isArray(decision.tool_calls) ? decision.tool_calls : [];
+        const filtered = filterAlreadySuccessfulWhatToolCalls(state, rawCalls);
+        if (filtered.length < rawCalls.length) {
           console.info(
-            '[agent_core] how.selectTools stub_next tool=%s missing=%s',
-            stub.tool_calls[0]?.name || '(none)',
-            missing.length
+            '[agent_core] what.selectTools drop_already_done dropped=%s remain=%s',
+            rawCalls.length - filtered.length,
+            filtered.length
           );
-          decision = stub;
-        } else if (missing.length) {
-          // Force first missing that is soft-deps ready (or its unmet dep).
-          const { resolveHowToolOrUnmetDep, successfulHowTools } = require('./howToolDag');
-          const done = successfulHowTools(state);
-          const forced =
-            missing.map((n) => resolveHowToolOrUnmetDep(done, n)).find(Boolean) || null;
-          if (forced) {
-            console.info(
-              '[agent_core] how.selectTools force_missing tool=%s remaining=%s',
-              forced,
-              missing.length
+        }
+        if (!filtered.length) {
+          const missing = whatRequiredToolsStillMissing(state);
+          if (missing.length) {
+            const tools = describeToolsForPrompt(phase);
+            decision = stubDecideToolCalls(
+              {
+                ...state,
+                gapReport: {
+                  ...(state.gapReport || {}),
+                  missing,
+                  hint: `Missing required WHAT tools: ${missing.join(', ')}`,
+                },
+              },
+              tools,
+              phase
             );
-            decision = {
-              tool_calls: [{ id: `force_${forced}`, name: forced, args: {} }],
-              done: false,
-              stub: true,
-            };
           } else {
             decision = { ...decision, tool_calls: [], done: true };
           }
         } else {
-          decision = { ...decision, tool_calls: [], done: true };
+          decision = { ...decision, tool_calls: filtered, done: false };
         }
+      }
+    }
+
+    // HOW: eligible-only (no rewrite); hard fail / stuck / deadlock → stop.
+    if (phase === 'how') {
+      const {
+        computeEligibleHowTools,
+        isHowReadyForFinalize,
+        detectHowSelectDeadlock,
+      } = require('./computeEligibleHowTools');
+      if (hasPhaseHardToolStop(state)) {
+        const hardFail = (Array.isArray(state?.toolResults) ? state.toolResults : []).find(
+          (row) => row?.error
+        );
+        console.info(
+          '[agent_core] how.selectTools stop_on_tool_error tool=%s code=%s',
+          hardFail?.toolName || '(unknown)',
+          hardFail?.error?.code || state.stopReason || '-'
+        );
+        decision = { tool_calls: [], done: true, stub: false };
+        hardStopReason = STOP_TOOL_FAILED;
+      } else if (isHowReadyForFinalize(state)) {
+        decision = { tool_calls: [], done: true, stub: false, readyForFinalize: true };
       } else {
-        decision = { ...decision, tool_calls: filtered, done: false };
+        const stuck = findStuckIncompleteTool(state, 2);
+        if (stuck) {
+          console.info(
+            '[agent_core] how.selectTools stop_incomplete_stuck tool=%s attempts=%s',
+            stuck.toolName,
+            stuck.attempts
+          );
+          decision = { tool_calls: [], done: true, stub: false };
+          hardStopReason = STOP_TOOL_FAILED;
+          stuckIncompleteError = {
+            toolName: stuck.toolName,
+            error: {
+              code: 'TOOL_STUCK_INCOMPLETE',
+              message: `${stuck.toolName} thất bại sau ${stuck.attempts} lần (incomplete: ${stuck.reason}). Dừng phase — không chạy tiếp.`,
+            },
+          };
+        } else {
+          const { eligible } = computeEligibleHowTools(state);
+          const rawCalls = Array.isArray(decision.tool_calls) ? decision.tool_calls : [];
+          let filtered = filterHowToolCallsForSelect(state, rawCalls);
+          if (filtered.length < rawCalls.length) {
+            console.info(
+              '[agent_core] how.selectTools drop_ineligible dropped=%s remain=%s eligible=%s',
+              rawCalls.length - filtered.length,
+              filtered.length,
+              eligible.length
+            );
+          }
+          if (!filtered.length) {
+            if (eligible.length) {
+              const next = eligible[0];
+              console.info(
+                '[agent_core] how.selectTools pick_eligible tool=%s eligible=%s',
+                next,
+                eligible.length
+              );
+              decision = {
+                tool_calls: [{ id: `elig_${next}`, name: next, args: {} }],
+                done: false,
+                stub: true,
+              };
+            } else {
+              const deadlock = detectHowSelectDeadlock(state);
+              if (deadlock.deadlocked) {
+                console.info(
+                  '[agent_core] how.selectTools deadlock reason=%s blocked=%s',
+                  deadlock.reason,
+                  (deadlock.blocked || [])
+                    .map((b) => `${b.toolName}:${(b.blockedBy || []).join('|')}`)
+                    .join(',')
+                );
+                decision = { tool_calls: [], done: true, stub: false };
+                hardStopReason = deadlock.reason;
+              } else {
+                decision = { tool_calls: [], done: true };
+              }
+            }
+          } else {
+            decision = { ...decision, tool_calls: filtered, done: false };
+          }
+        }
       }
     }
 
     const tool_calls = Array.isArray(decision.tool_calls) ? decision.tool_calls : [];
     const content = decision.done ? 'done' : `calling ${tool_calls.length} tool(s)`;
-    // Prefer AIMessage when any plain tool is selected — ToolNode requires BaseMessage.
     let aiMessage;
     try {
       const { listPlainToolNames, normalizeAssistantAiMessage } = require('./phasePlainToolNode');
@@ -598,11 +635,14 @@ function createSelectToolsNode(hooks = {}) {
       aiMessage = { role: 'assistant', content, tool_calls };
     }
 
-    return {
+    const update = {
       messages: [aiMessage],
-      history: ['selectTools'],
+      history: hardStopReason ? [`selectTools:stop:${hardStopReason}`] : ['selectTools'],
       agentIteration: (Number(state.agentIteration) || 0) + 1,
     };
+    if (hardStopReason) update.stopReason = hardStopReason;
+    if (stuckIncompleteError) update.toolResults = [stuckIncompleteError];
+    return update;
   };
 }
 
@@ -635,17 +675,139 @@ async function executeHowToolCall(state, toolName, args, hooks = {}) {
       }),
       ...(args && typeof args === 'object' ? args : {}),
     };
+    const {
+      createToolExecution,
+      executionToLegacyToolResult,
+      attemptCountForTool,
+      hashToolInput,
+      ERROR_CODES,
+    } = require('./toolExecutionContract');
+    const attempt = attemptCountForTool(state, toolName) + 1;
+    const inputHash = hashToolInput(toolName, {
+      snapshotId: state.snapshotId,
+      taskCount: Array.isArray(layerBase?.planning?.tasks)
+        ? layerBase.planning.tasks.length
+        : 0,
+    });
     const toolOut = await invokeTool(toolName, input, toolContext);
-    assertToolOutputHasEvidence(toolName, toolOut);
+    if (
+      toolOut?.result?.waitingExternal ||
+      toolOut?.waitingExternal ||
+      toolOut?.result?.meta?.waitingExternal ||
+      toolOut?.meta?.waitingExternal
+    ) {
+      const meta = toolOut?.result?.meta || toolOut?.meta || {};
+      const execution = createToolExecution({
+        toolName,
+        status: 'waiting_external',
+        attempt,
+        inputHash,
+        outputValidated: false,
+        jobId: meta.jobId || meta.threadId || null,
+        deadlineAt: meta.deadlineAt || null,
+        progress: meta.progress || null,
+        startedAt: new Date(stepStarted).toISOString(),
+        reason: 'wbs_chunk_fan_in',
+      });
+      return {
+        toolExecutions: [execution],
+        toolResults: [executionToLegacyToolResult(execution)],
+        history: [`waiting_external:${toolName}`],
+        messages: [
+          {
+            role: 'tool',
+            name: toolName,
+            content: JSON.stringify({
+              ok: false,
+              status: 'waiting_external',
+              jobId: execution.jobId,
+            }),
+          },
+        ],
+      };
+    }
+    if (toolOut == null) {
+      const execution = createToolExecution({
+        toolName,
+        status: 'failed',
+        attempt,
+        inputHash,
+        outputValidated: false,
+        error: {
+          code: ERROR_CODES.TOOL_RESULT_MISSING,
+          retryable: true,
+          message: `Tool "${toolName}" returned undefined`,
+        },
+        startedAt: new Date(stepStarted).toISOString(),
+      });
+      const { STOP_TOOL_FAILED } = require('./howPhaseToolNodes');
+      return {
+        toolExecutions: [execution],
+        toolResults: [executionToLegacyToolResult(execution)],
+        stopReason: STOP_TOOL_FAILED,
+        history: [`error:${toolName}:missing`],
+        messages: [
+          {
+            role: 'tool',
+            name: toolName,
+            content: JSON.stringify({ ok: false, code: ERROR_CODES.TOOL_RESULT_MISSING }),
+          },
+        ],
+      };
+    }
+    try {
+      assertToolOutputHasEvidence(toolName, toolOut);
+    } catch (evErr) {
+      const execution = createToolExecution({
+        toolName,
+        status: 'failed',
+        attempt,
+        inputHash,
+        outputValidated: false,
+        error: {
+          code: evErr?.code || ERROR_CODES.TOOL_OUTPUT_INVALID,
+          retryable: false,
+          message: String(evErr?.message || evErr).slice(0, 240),
+        },
+        startedAt: new Date(stepStarted).toISOString(),
+      });
+      const { STOP_TOOL_FAILED } = require('./howPhaseToolNodes');
+      return {
+        toolExecutions: [execution],
+        toolResults: [executionToLegacyToolResult(execution)],
+        stopReason: STOP_TOOL_FAILED,
+        history: [`error:${toolName}:invalid`],
+        messages: [
+          {
+            role: 'tool',
+            name: toolName,
+            content: JSON.stringify({
+              ok: false,
+              code: execution.error.code,
+              error: execution.error.message,
+            }),
+          },
+        ],
+      };
+    }
     const durationMs = Math.max(0, Date.now() - stepStarted);
     const rawPatch =
       toolOut?.result?.container && typeof toolOut.result.container === 'object'
         ? toolOut.result.container
         : null;
     const containerPatch = sparseContainerPatch(layerBase, rawPatch);
-    const resultRow = { toolName, durationMs };
+    const execution = createToolExecution({
+      toolName,
+      status: 'succeeded',
+      attempt,
+      inputHash,
+      outputValidated: true,
+      outputRef: `${toolName}:${inputHash}`,
+      startedAt: new Date(stepStarted).toISOString(),
+    });
     return {
-      toolResults: [resultRow],
+      toolExecutions: [execution],
+      toolResults: [{ ...executionToLegacyToolResult(execution), durationMs }],
       history: [`execute:${toolName}`],
       container: containerPatch || undefined,
       messages: [
@@ -653,26 +815,46 @@ async function executeHowToolCall(state, toolName, args, hooks = {}) {
           role: 'tool',
           tool_call_id: `how_${toolName}`,
           name: toolName,
-          content: JSON.stringify({ ok: true, durationMs }),
+          content: JSON.stringify({ ok: true, durationMs, status: 'succeeded' }),
         },
       ],
     };
   } catch (err) {
     const durationMs = Math.max(0, Date.now() - stepStarted);
+    const code = err?.code || 'TOOL_FAILED';
+    const message = String(err?.message || err).slice(0, 240);
+    console.warn(
+      '[agent_core] how.execute tool=%s code=%s msg=%s',
+      toolName,
+      code,
+      message
+    );
+    const {
+      createToolExecution,
+      executionToLegacyToolResult,
+      attemptCountForTool,
+      hashToolInput,
+    } = require('./toolExecutionContract');
+    const { STOP_TOOL_FAILED } = require('./howPhaseToolNodes');
+    const execution = createToolExecution({
+      toolName,
+      status: 'failed',
+      attempt: attemptCountForTool(state, toolName) + 1,
+      inputHash: hashToolInput(toolName, { snapshotId: state.snapshotId }),
+      outputValidated: false,
+      error: { code, retryable: Boolean(err?.retryable), message },
+      startedAt: new Date(stepStarted).toISOString(),
+    });
     return {
-      toolResults: [
-        {
-          toolName,
-          durationMs,
-          error: { code: err?.code || 'TOOL_FAILED', message: String(err?.message || err).slice(0, 240) },
-        },
-      ],
+      toolExecutions: [execution],
+      toolResults: [{ ...executionToLegacyToolResult(execution), durationMs }],
+      stopReason: STOP_TOOL_FAILED,
       history: [`error:${toolName}`],
       messages: [
         {
           role: 'tool',
           name: toolName,
-          content: JSON.stringify({ ok: false, error: String(err?.message || err).slice(0, 240) }),
+          content: JSON.stringify({ ok: false, error: message, code }),
         },
       ],
     };
@@ -719,6 +901,10 @@ async function executeWhatToolCall(state, toolName, args, hooks = {}) {
         env,
         proposal,
         snapshot: state.snapshot || null,
+        frUnderstanding: state.frUnderstanding || null,
+        evidence: state.frUnderstanding?.evidence || null,
+        contextPackage: state.contextPackage || null,
+        locale: state.frOpts?.locale || state.pack?.aiAnalysis?.deriveLocale || null,
       });
       if (prepared.mode === 'result') {
         const applied = applySectionToolToState(state, engineId, prepared.result);
@@ -834,6 +1020,7 @@ async function executeWhatToolCall(state, toolName, args, hooks = {}) {
     };
   } catch (err) {
     const durationMs = Math.max(0, Date.now() - stepStarted);
+    const { STOP_TOOL_FAILED } = require('./howPhaseToolNodes');
     return {
       toolResults: [
         {
@@ -845,6 +1032,7 @@ async function executeWhatToolCall(state, toolName, args, hooks = {}) {
           },
         },
       ],
+      stopReason: STOP_TOOL_FAILED,
       history: [`error:${toolName}`],
       messages: [
         {

@@ -5,13 +5,18 @@
 
 import { listDependencyDisplayItems } from './gate2/dependencyDisplay.js';
 import { pickHighestReadyCandidate } from './gate2/assignmentCatalogEdit.js';
+import { enrichAssignmentRowsWithSchedule } from './gate2/assignmentScheduleTrust.js';
+import {
+  readSprintPlanningMeta,
+  gate2StatusFromSprintExecution,
+} from './gate2/gate2SprintPlanningStatus.js';
 
+/** Gate2 / Monitor tabs — Lịch folded into assignments (RULE-01). */
 const SECTION_ORDER = [
   'scope',
   'tasks',
   'dependencies',
   'assignments',
-  'schedule',
   'releases',
   'risks',
   'quality',
@@ -79,13 +84,16 @@ function isLlmGeneratedTextSource(value) {
   ) {
     return false;
   }
-  if (source === 'llm' || source === 'fact_llm') return true;
+  if (source === 'llm' || source === 'fact_llm' || source === 'sprint_how') return true;
   return source.startsWith('llm') || source.endsWith('_llm') || source.includes('_llm_');
 }
+
+const SPRINT_HOW_KINDS = new Set(['sprint', 'release', 'sprint_planning_status']);
 
 /**
  * Stamp Gate2 "Nguồn".
  * AI đề xuất only when generateJson wrote the text. Heuristic otherwise.
+ * Sprint/Release rows never Heuristic — Sprint HOW (LLM) owns allocation.
  * Gate1 / nhân viên stamps are left as-is.
  */
 function withAiProvenance(row, extra = null) {
@@ -94,9 +102,12 @@ function withAiProvenance(row, extra = null) {
   const existingType = String(existing?.type || '').trim().toUpperCase();
   if (PRESERVED_PROVENANCE_TYPES.has(existingType)) return merged;
 
+  const kind = String(merged.kind || '').trim();
   const textSource = String(merged.textSource || '').trim().toLowerCase();
   const explicit = String(merged.source || merged.dataSource || '').trim();
-  const llm = textSource === 'llm'
+  const sprintHow =
+    SPRINT_HOW_KINDS.has(kind) || textSource === 'sprint_how' || textSource === 'llm';
+  const llm = sprintHow
     ? true
     : textSource === 'cpm'
       ? false
@@ -108,7 +119,10 @@ function withAiProvenance(row, extra = null) {
   if (llm) {
     return {
       ...merged,
-      provenance: { ...PROVENANCE_AI },
+      provenance: {
+        ...PROVENANCE_AI,
+        ...(sprintHow && textSource !== 'llm' ? { producer: 'sprint_how' } : {}),
+      },
       origin: { type: 'AI_SYNTHESIS' },
     };
   }
@@ -376,56 +390,74 @@ function readWbsMeta(container) {
   const duplicateLeafIds = Array.isArray(meta.duplicateLeafIds)
     ? meta.duplicateLeafIds.map((x) => String(x)).filter(Boolean)
     : [];
+  const epicsWithoutStories = Array.isArray(meta.epicsWithoutStories)
+    ? meta.epicsWithoutStories.map((x) => String(x)).filter(Boolean)
+    : [];
   return {
     decompositionOutcome: String(meta.decompositionOutcome || '').toLowerCase() || null,
     unresolvedStoryIds,
     uncoveredFrIds,
     uncoveredAcKeys,
     duplicateLeafIds,
+    epicsWithoutStories,
     uniqueLeafCount:
       meta.uniqueLeafCount != null ? Number(meta.uniqueLeafCount) : null,
     leafCount: meta.leafCount != null ? Number(meta.leafCount) : null,
     source: String(meta.source || '').trim(),
+    fallbackReason: String(meta.fallbackReason || '').trim(),
   };
 }
 
-function unresolvedStoryStubRows(container, wbsMeta) {
-  const ids = wbsMeta?.unresolvedStoryIds || [];
-  if (!ids.length) return [];
-  const stories = Array.isArray(container?.planning?.backlog?.stories)
-    ? container.planning.backlog.stories
-    : [];
-  const byId = new Map(
-    stories.filter((s) => s?.id).map((s) => [String(s.id), s])
-  );
-  return ids.map((sid, i) => {
-    const story = byId.get(String(sid)) || {};
-    const title =
-      story.name || story.title || String(sid);
-    return withAiProvenance({
-      logicalId: `task:unresolved:${sid}`,
-      id: `unresolved:${sid}`,
+/** Epic có trong SoT nhưng chưa có Story — không phân rã được; phải bổ sung ở WHAT. */
+function epicMissingStoriesStubRows(container, wbsMeta) {
+  const ids = wbsMeta?.epicsWithoutStories || [];
+  const epicOnly =
+    String(wbsMeta?.fallbackReason || '') === 'epic_only_backlog_needs_what';
+  const epics = Array.isArray(container?.planning?.backlog?.epics)
+    ? container.planning.backlog.epics
+    : Array.isArray(container?.analyses?.approvedBacklogStructure?.epics)
+      ? container.analyses.approvedBacklogStructure.epics
+      : [];
+  const byId = new Map(epics.filter((e) => e?.id).map((e) => [String(e.id), e]));
+  const list = ids.length
+    ? ids
+    : epicOnly
+      ? epics.map((e) => String(e.id)).filter(Boolean)
+      : [];
+  return list.map((eid, i) => {
+    const epic = byId.get(String(eid)) || {};
+    return withGate1Provenance({
+      logicalId: `task:epic-needs-stories:${eid}`,
+      id: `epic-needs-stories:${eid}`,
       section: 'tasks',
       sectionLabel: SECTION_LABELS.tasks,
-      title,
-      level: 'story',
-      parentId: story.parentId != null ? String(story.parentId) : null,
+      title: (() => {
+        const id = String(eid || '');
+        const raw = String(epic.name || epic.title || '').trim();
+        const cleanId = id.replace(/^c\d+-/i, '') || id;
+        if (!raw || raw === id || raw === cleanId) return cleanId;
+        if (/^c\d+-/i.test(raw)) return raw.replace(/^c\d+-/i, '') || raw;
+        return raw;
+      })(),
+      level: 'epic',
+      parentId: null,
       depth: 0,
-      sortOrder: 10_000 + i,
+      sortOrder: 9_000 + i,
       childIds: [],
       hasChildren: false,
       isWbsContainer: true,
       effortRolledUp: false,
-      suggestedRoleKey: '',
-      effortHours: null,
+      suggestedRoleKey: 'business_analyst',
+      effortHours: 0,
       startDate: null,
       dueDate: null,
       area: '',
       deliverable: '',
       duplicateOf: null,
+      missingStories: true,
       wbsUnresolved: true,
-      status: 'UNRESOLVED',
-      summary: clip(['unresolved', sid].filter(Boolean).join(' · ')),
+      status: 'NEEDS_STORIES',
+      summary: clip(['epic_missing_stories', 'fix_at_WHAT', eid].join(' · ')),
     });
   });
 }
@@ -510,7 +542,9 @@ function taskRows(container) {
     return withAiProvenance(base);
   });
 
-  return [...treeRows, ...unresolvedStoryStubRows(container, wbsMeta)];
+  // Do not invent Heuristic/UNRESOLVED stub rows for unresolvedStoryIds —
+  // that was a FE fallback fake WBS. Gaps stay in wbs.meta (informational only).
+  return [...treeRows, ...epicMissingStoriesStubRows(container, wbsMeta)];
 }
 
 function dependencyRows(container) {
@@ -536,6 +570,13 @@ function dependencyRows(container) {
       parallelCondition: d.parallelCondition,
       parallelLabel: d.parallelLabel,
       requiredInputLabel: d.requiredInputLabel,
+      requiredOutput: d.requiredOutput,
+      requiredOutputLabel: d.requiredOutputLabel,
+      requiredAt: d.requiredAt,
+      basis: d.basis,
+      assumptions: d.assumptions,
+      schedulable: Boolean(d.schedulable),
+      scheduleLabel: d.scheduleLabel,
       decisionStatus: d.decisionStatus,
       critical: Boolean(d.critical),
       source: d.source || '',
@@ -680,7 +721,7 @@ function resolveSuggestedCandidate(shortlist = [], assignment = null, effortHour
   return pickHighestReadyCandidate(list, effortHours);
 }
 
-function assignmentRows(container, { nameByUserId = {}, t } = {}) {
+function assignmentRows(container, { nameByUserId = {}, t, pack = null } = {}) {
   const taskById = buildTaskById(container);
   const finalAssign = new Map();
   for (const a of container?.resource?.assignments || []) {
@@ -696,9 +737,11 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
   for (const rec of recs) {
     const taskId = String(rec.taskId || rec.id || '');
     if (!taskId) continue;
+    const task = taskById.get(taskId);
+    // Skip stale matching rows (old WBS ids) — otherwise Gate2 shows bare taskId as title.
+    if (!task) continue;
     const shortlist = Array.isArray(rec.shortlist) ? rec.shortlist : [];
     const picked = finalAssign.get(taskId) || null;
-    const task = taskById.get(taskId);
     const effortValue =
       task?.effortHours != null && Number.isFinite(Number(task.effortHours))
         ? Number(task.effortHours)
@@ -719,7 +762,7 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
       taskId,
       branchId,
       branchTitle: taskById.get(branchId)?.name || branchId,
-      taskTitle: task?.name || task?.title || taskId,
+      taskTitle: task.name || task.title || taskId,
       suggestedRoleKey: task?.suggestedRoleKey || '',
       effortHours: effortValue,
       shortlistLen: shortlist.length,
@@ -824,6 +867,7 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
     const taskId = String(u?.taskId || u?.id || u || '');
     if (!taskId || coveredTaskIds.has(taskId)) continue;
     const task = taskById.get(taskId);
+    if (!task) continue; // skip stale matching ids
     const picked = finalAssign.get(taskId) || null;
     const pickedId = String(picked?.userId || '').trim();
     if (pickedId) {
@@ -837,7 +881,7 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
         makeAssignmentRow({
           logicalId: `asg:${taskId}`,
           id: taskId,
-          title: task?.name || taskId,
+          title: task.name || task.title || taskId,
           assignee: resolveAssigneeLabel(pickedId, picked, null, nameByUserId),
           assigneeUserId: pickedId,
           suggestedRoleKey: task?.suggestedRoleKey || '',
@@ -850,13 +894,14 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
           summary: resolveAssigneeLabel(pickedId, picked, null, nameByUserId),
         })
       );
+      coveredTaskIds.add(taskId);
       continue;
     }
     rows.push(
       makeAssignmentRow({
         logicalId: `asg:${taskId}`,
         id: taskId,
-        title: task?.name || taskId,
+        title: task.name || task.title || taskId,
         assignee: '—',
         taskIds: [taskId],
         suggestedRoleKey: task?.suggestedRoleKey || '',
@@ -867,8 +912,54 @@ function assignmentRows(container, { nameByUserId = {}, t } = {}) {
         summary: tr(t, 'requirements.gate2SynthUnassigned', 'unassigned'),
       })
     );
+    coveredTaskIds.add(taskId);
   }
-  return rows;
+
+  // Current WBS leaves with no matching row (stale recs filtered) → show UNASSIGNED, not silent.
+  for (const [taskId, task] of taskById) {
+    if (!isLeafTaskRow(task) || coveredTaskIds.has(taskId)) continue;
+    const picked = finalAssign.get(taskId) || null;
+    const pickedId = String(picked?.userId || '').trim();
+    // Only accept assignment if it maps to a real current leaf (already in taskById).
+    if (pickedId && taskById.has(taskId)) {
+      rows.push(
+        makeAssignmentRow({
+          logicalId: `asg:${taskId}`,
+          id: taskId,
+          title: task.name || task.title || taskId,
+          assignee: resolveAssigneeLabel(pickedId, picked, null, nameByUserId),
+          assigneeUserId: pickedId,
+          suggestedRoleKey: task.suggestedRoleKey || '',
+          taskIds: [taskId],
+          effortHours: task.effortHours != null ? Number(task.effortHours) : null,
+          score: picked.score != null && Number.isFinite(Number(picked.score)) ? Number(picked.score) : null,
+          status: 'READY',
+          summary: resolveAssigneeLabel(pickedId, picked, null, nameByUserId),
+        })
+      );
+      continue;
+    }
+    rows.push(
+      makeAssignmentRow({
+        logicalId: `asg:${taskId}`,
+        id: taskId,
+        title: task.name || task.title || taskId,
+        assignee: '—',
+        taskIds: [taskId],
+        suggestedRoleKey: task.suggestedRoleKey || '',
+        effortHours: task.effortHours != null ? Number(task.effortHours) : null,
+        score: null,
+        status: 'UNASSIGNED',
+        summary: tr(t, 'requirements.gate2SynthUnassigned', 'unassigned'),
+      })
+    );
+  }
+  const projectStart =
+    pack?.overview?.startDate ||
+    pack?.calendar?.startDate ||
+    container?.planning?.completion?.projectStart ||
+    null;
+  return enrichAssignmentRowsWithSchedule(rows, container, { projectStart });
 }
 
 function isoDay(value) {
@@ -895,7 +986,16 @@ function dateSpanByTask(schedule) {
 
 function scheduleRows(container) {
   const tasks = Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [];
-  const spans = dateSpanByTask(container?.resource?.schedule);
+  const scheduleList = Array.isArray(container?.resource?.schedule)
+    ? container.resource.schedule
+    : [];
+  const spans = dateSpanByTask(scheduleList);
+  const scheduleUserByTask = new Map();
+  for (const row of scheduleList) {
+    const tid = String(row?.taskId || '').trim();
+    if (!tid || scheduleUserByTask.has(tid)) continue;
+    scheduleUserByTask.set(tid, String(row?.userId || '').trim());
+  }
   const rows = [];
   for (const task of tasks) {
     const id = String(task?.id || task?.taskId || '').trim();
@@ -908,6 +1008,7 @@ function scheduleRows(container) {
       task.effortHours != null && Number.isFinite(Number(task.effortHours))
         ? Number(task.effortHours)
         : null;
+    const unassignedSlot = scheduleUserByTask.get(id) === 'UNASSIGNED';
     rows.push(
       withAiProvenance({
         logicalId: `sch:${id}`,
@@ -918,12 +1019,46 @@ function scheduleRows(container) {
         startDate: startDate || null,
         dueDate: dueDate || null,
         effortHours,
-        status: task.leveled ? 'LEVELED' : 'SCHEDULED',
+        status: unassignedSlot ? 'UNASSIGNED' : task.leveled ? 'LEVELED' : 'SCHEDULED',
         summary: [startDate, dueDate].filter(Boolean).join(' – '),
       })
     );
   }
   return rows;
+}
+
+/**
+ * Diagnose why Gate2 Lịch is empty — drives coverageReason (not generic NO_DATA).
+ * @param {object} container
+ * @returns {string|null}
+ */
+function diagnoseScheduleEmptyReason(container) {
+  const meta =
+    container?.resource?.assignmentsMeta && typeof container.resource.assignmentsMeta === 'object'
+      ? container.resource.assignmentsMeta
+      : {};
+  const conflicts = Array.isArray(container?.resource?.capacityConflicts)
+    ? container.resource.capacityConflicts
+    : [];
+  if (conflicts.some((c) => String(c?.type || '') === 'missing_project_start')) {
+    return 'MISSING_PROJECT_START';
+  }
+  const reason = String(meta.reason || '').toLowerCase();
+  if (reason === 'missing_project_start') return 'MISSING_PROJECT_START';
+  if (reason === 'no_leaf_tasks') return 'NO_LEAF_TASKS';
+  const tasks = Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [];
+  const leaves = tasks.filter((t) => isLeafTaskRow(t));
+  if (!leaves.length) return 'NO_LEAF_TASKS';
+  const assignments = Array.isArray(container?.resource?.assignments)
+    ? container.resource.assignments
+    : [];
+  const realAssign = assignments.filter(
+    (a) => String(a?.userId || '').trim() && String(a.userId).trim() !== 'UNASSIGNED'
+  );
+  if (!realAssign.length) return 'NO_ASSIGNMENTS';
+  const schedule = Array.isArray(container?.resource?.schedule) ? container.resource.schedule : [];
+  if (!schedule.length) return 'SCHEDULE_EMPTY';
+  return 'SCHEDULE_EMPTY';
 }
 
 /**
@@ -1024,6 +1159,234 @@ function releaseWindowStart(release, sprintById) {
   return null;
 }
 
+function indexTasksByParent(taskById) {
+  const byParent = new Map();
+  for (const task of taskById.values()) {
+    const parentId =
+      task?.parentId != null && task.parentId !== '' ? String(task.parentId) : '';
+    if (!byParent.has(parentId)) byParent.set(parentId, []);
+    byParent.get(parentId).push(task);
+  }
+  return byParent;
+}
+
+/**
+ * Collapse chunk prefix doubled by LLM echo + `${prefix}-${id}`
+ * e.g. c0r2-c0r2-TASK-FR-1-01 → c0r2-TASK-FR-1-01
+ */
+function collapseDuplicateIdPrefix(rawId) {
+  let id = String(rawId || '').trim();
+  if (!id) return '';
+  let prev = '';
+  while (id !== prev) {
+    prev = id;
+    id = id.replace(/^([^-]+)-\1(?=-|$)/, '$1');
+  }
+  return id;
+}
+
+function wbsIdLookupKeys(rawId) {
+  const id = String(rawId || '').trim();
+  if (!id) return [];
+  const collapsed = collapseDuplicateIdPrefix(id);
+  const keys = [id];
+  if (collapsed && collapsed !== id) keys.push(collapsed);
+  return keys;
+}
+
+/**
+ * Human WBS title only (same fields as Phân công). Empty if missing — never use id.
+ */
+function wbsHumanTitle(task, rawId = '') {
+  if (!task) return '';
+  const id = String(rawId || task.id || task.taskId || '').trim();
+  const collapsed = collapseDuplicateIdPrefix(id);
+  const name = String(task.name || '').trim();
+  const title = String(task.title || '').trim();
+  for (const label of [name, title]) {
+    if (!label) continue;
+    if (label === id || label === collapsed) continue;
+    return label;
+  }
+  return '';
+}
+
+function lookupWbsTask(taskById, tid) {
+  for (const key of wbsIdLookupKeys(tid)) {
+    if (taskById.has(key)) return taskById.get(key);
+    const lower = key.toLowerCase();
+    for (const [mapKey, row] of taskById.entries()) {
+      if (String(mapKey).toLowerCase() === lower) return row;
+      if (String(row?.taskId || '').toLowerCase() === lower) return row;
+    }
+  }
+  return null;
+}
+
+/**
+ * Same SoT as Phân công: planning.tasks via buildTaskById.
+ * Alias collapsed ids so schedulePlan taskIds with doubled chunk prefix still resolve.
+ * Overlay assignee/effort only — never touch name/title.
+ */
+function buildScheduleTaskById(container) {
+  const taskById = buildTaskById(container);
+  for (const story of Array.isArray(container?.planning?.backlog?.stories)
+    ? container.planning.backlog.stories
+    : []) {
+    const sid = String(story?.id || '').trim();
+    if (sid && !taskById.has(sid)) taskById.set(sid, story);
+  }
+  // Register collapsed-prefix aliases → same WBS row (fix schedule vs tasks id skew)
+  for (const [id, task] of [...taskById.entries()]) {
+    for (const key of wbsIdLookupKeys(id)) {
+      if (!taskById.has(key)) taskById.set(key, task);
+    }
+  }
+  const overlayMeta = (tid, meta) => {
+    if (!tid || !meta) return;
+    const prev = lookupWbsTask(taskById, tid);
+    if (!prev) return;
+    const key = String(prev.id || prev.taskId || tid);
+    taskById.set(key, {
+      ...prev,
+      effortHours:
+        prev.effortHours != null
+          ? prev.effortHours
+          : meta.effortHours != null
+            ? meta.effortHours
+            : prev.effortSeedHours,
+      suggestedRoleKey: prev.suggestedRoleKey || meta.suggestedRoleKey || '',
+      assigneeName:
+        prev.assigneeName ||
+        prev.displayName ||
+        meta.assigneeName ||
+        meta.displayName ||
+        '',
+    });
+  };
+  for (const row of Array.isArray(container?.resource?.assignments)
+    ? container.resource.assignments
+    : []) {
+    overlayMeta(String(row?.taskId || '').trim(), {
+      effortHours: row.effortHours,
+      suggestedRoleKey: row.suggestedRoleKey,
+      assigneeName: row.displayName || row.assigneeName,
+    });
+  }
+  for (const row of Array.isArray(container?.resource?.recommendations)
+    ? container.resource.recommendations
+    : []) {
+    const picked = Array.isArray(row?.shortlist)
+      ? row.shortlist.find((c) => c && c.feasible !== false)
+      : null;
+    overlayMeta(String(row?.taskId || row?.id || '').trim(), {
+      effortHours: row.effortHours || row.hours,
+      suggestedRoleKey: row.suggestedRoleKey || row.roleKey,
+      assigneeName: picked?.displayName || row.displayName || row.assigneeName,
+    });
+  }
+  return taskById;
+}
+
+function leafTasksUnderStory(storyId, byParent, taskById) {
+  const leaves = [];
+  const stack = [String(storyId)];
+  const seen = new Set();
+  while (stack.length) {
+    const parentId = stack.pop();
+    for (const child of byParent.get(parentId) || []) {
+      const childId = String(child?.id || child?.taskId || '').trim();
+      if (!childId || seen.has(childId)) continue;
+      seen.add(childId);
+      const level = String(child?.level || taskById.get(childId)?.level || 'task').toLowerCase();
+      if (level === 'task' || level === 'subtask') leaves.push(taskById.get(childId) || child);
+      else stack.push(childId);
+    }
+  }
+  return leaves;
+}
+
+function mapScopeTaskRow(task, tid) {
+  const id = String(task?.id || task?.taskId || tid || '').trim();
+  const title = wbsHumanTitle(task, tid);
+  if (!title) return null;
+  const hours = Number(task?.effortHours ?? task?.effortSeedHours);
+  return {
+    id,
+    title,
+    effortHours: Number.isFinite(hours) && hours > 0 ? hours : null,
+    suggestedRoleKey: task?.suggestedRoleKey || '',
+    assignee: task?.assigneeName || task?.assignee || task?.displayName || '',
+    dueDate: task?.dueDate || null,
+  };
+}
+
+function claimTaskId(claimed, tid) {
+  const id = String(tid || '').trim();
+  if (!id) return;
+  claimed.add(id);
+  claimed.add(id.toLowerCase());
+  for (const key of wbsIdLookupKeys(id)) {
+    claimed.add(key);
+    claimed.add(key.toLowerCase());
+  }
+}
+
+function isClaimed(claimed, tid) {
+  const id = String(tid || '').trim();
+  if (!id) return true;
+  if (claimed.has(id) || claimed.has(id.toLowerCase())) return true;
+  return wbsIdLookupKeys(id).some((key) => claimed.has(key) || claimed.has(key.toLowerCase()));
+}
+
+function buildStoryGroups({ pbiIds, taskIds, taskById, byParent }) {
+  const groups = [];
+  const claimed = new Set();
+  const pbis = Array.isArray(pbiIds) ? pbiIds.map(String).filter(Boolean) : [];
+  for (const pbiId of pbis) {
+    const story = lookupWbsTask(taskById, pbiId);
+    const leaves = leafTasksUnderStory(pbiId, byParent, taskById);
+    const tasks = (leaves.length
+      ? leaves
+      : (Array.isArray(taskIds) ? taskIds : [])
+          .map((tid) => lookupWbsTask(taskById, tid))
+          .filter((task) => task && String(task.parentId || '') === String(story?.id || pbiId))
+    )
+      .map((task) => {
+        const tid = String(task.id || task.taskId || '');
+        const row = mapScopeTaskRow(task, tid);
+        if (row) claimTaskId(claimed, tid);
+        return row;
+      })
+      .filter(Boolean);
+    const storyTitle = wbsHumanTitle(story, pbiId);
+    if (!storyTitle && !tasks.length) continue;
+    groups.push({
+      id: pbiId,
+      title: storyTitle || 'Story',
+      tasks,
+    });
+  }
+  // Strict like Phân công: only leaves that resolve to a real WBS human title — never id fallback.
+  const orphanTasks = (Array.isArray(taskIds) ? taskIds : [])
+    .map(String)
+    .filter((tid) => tid && !isClaimed(claimed, tid))
+    .map((tid) => {
+      const row = mapScopeTaskRow(lookupWbsTask(taskById, tid), tid);
+      if (row) claimTaskId(claimed, tid);
+      return row;
+    })
+    .filter(Boolean);
+  if (orphanTasks.length) {
+    groups.push({
+      id: '_ungrouped',
+      title: 'Tasks',
+      tasks: orphanTasks,
+    });
+  }
+  return groups;
+}
+
 /**
  * Sprint / Release — rows from planning.schedulePlan (ScheduleTool Step 6).
  */
@@ -1036,6 +1399,7 @@ function releaseRows(container, { t } = {}) {
 
   const rows = [];
   const deadlineConflict = Boolean(plan.meta?.deadlineConflict);
+  const planningMeta = readSprintPlanningMeta(plan.meta || {});
   const sprints = Array.isArray(plan.sprints) ? plan.sprints : [];
   const releases = Array.isArray(plan.releases) ? plan.releases : [];
   const sprintById = new Map(
@@ -1048,6 +1412,115 @@ function releaseRows(container, { t } = {}) {
     : Array.isArray(container?.planning?.milestones)
       ? container.planning.milestones
       : [];
+
+  const taskById = buildScheduleTaskById(container);
+  const byParent = indexTasksByParent(taskById);
+
+  // Sprint HOW owns allocation — never stamp Heuristic for sprint/release rows.
+  const sprintTextSource = planningMeta.fromLlm ? 'llm' : 'sprint_how';
+
+  const sprintAgg = (() => {
+    let startDate = null;
+    let estimatedEnd = null;
+    let effortHours = 0;
+    let capacityHours = 0;
+    let taskCount = 0;
+    const goals = [];
+    for (const sprint of sprints) {
+      if (!sprint || typeof sprint !== 'object') continue;
+      const sd = sprint.startDate || null;
+      const ed = sprint.endDate || null;
+      if (sd && (!startDate || String(sd) < String(startDate))) startDate = sd;
+      if (ed && (!estimatedEnd || String(ed) > String(estimatedEnd))) estimatedEnd = ed;
+      const eh = Number(sprint.effortHours);
+      if (Number.isFinite(eh) && eh > 0) effortHours += eh;
+      const ch =
+        sprint.capacityHours != null
+          ? Number(sprint.capacityHours)
+          : plan.meta?.teamCapacityHoursPerSprint != null
+            ? Number(plan.meta.teamCapacityHoursPerSprint)
+            : null;
+      if (Number.isFinite(ch) && ch > 0) capacityHours += ch;
+      taskCount += Array.isArray(sprint.taskIds) ? sprint.taskIds.length : 0;
+      const g = String(sprint.goal || '').trim();
+      if (g) goals.push(g);
+    }
+    const utilizationPct =
+      capacityHours > 0 && effortHours > 0
+        ? Math.round((effortHours / capacityHours) * 10000) / 100
+        : null;
+    return {
+      startDate,
+      estimatedEnd,
+      effortHours: effortHours > 0 ? Math.round(effortHours * 100) / 100 : null,
+      capacityHours: capacityHours > 0 ? Math.round(capacityHours * 100) / 100 : null,
+      utilizationPct,
+      taskCount: taskCount || null,
+      goal: clip(goals.join(' · '), 200) || undefined,
+    };
+  })();
+
+  if (planningMeta.executionStatus) {
+    const issuePreview = planningMeta.validationIssues
+      .slice(0, 4)
+      .map((issue) => String(issue.message || issue.code || '').trim())
+      .filter(Boolean)
+      .join(' · ');
+    const gateStatus =
+      gate2StatusFromSprintExecution(planningMeta.executionStatus) || 'DRAFT';
+    rows.push(
+      withAiProvenance({
+        logicalId: 'rel:sprint_planning_status',
+        id: 'sprint_planning_status',
+        section: 'releases',
+        sectionLabel: SECTION_LABELS.releases,
+        title: tr(
+          t,
+          'requirements.gate2SprintPlanningStatusTitle',
+          'Trạng thái phân bổ Sprint (AI)'
+        ),
+        summary:
+          clip(
+            [
+              planningMeta.executionStatus,
+              planningMeta.validationStatus
+                ? `validate:${planningMeta.validationStatus}`
+                : '',
+              planningMeta.goalSource ? `goal:${planningMeta.goalSource}` : '',
+              planningMeta.sprintPlanningReady ? 'ready' : 'not-ready',
+              issuePreview,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+            400
+          ) || undefined,
+        kind: 'sprint_planning_status',
+        goal: sprintAgg.goal,
+        startDate: sprintAgg.startDate,
+        estimatedEnd: sprintAgg.estimatedEnd,
+        effortHours: sprintAgg.effortHours,
+        capacityHours: sprintAgg.capacityHours,
+        utilizationPct: sprintAgg.utilizationPct,
+        textSource: sprintTextSource || 'llm',
+        source: sprintTextSource || 'llm',
+        executionStatus: planningMeta.executionStatus,
+        validationStatus: planningMeta.validationStatus,
+        goalSource: planningMeta.goalSource,
+        sprintPlanningReady: planningMeta.sprintPlanningReady,
+        validationIssues: planningMeta.validationIssues,
+        allocationValidation: {
+          status: planningMeta.validationStatus,
+          checks: planningMeta.validationChecks,
+          issues: planningMeta.validationIssues,
+        },
+        status: gateStatus,
+        taskCount:
+          sprintAgg.taskCount != null
+            ? sprintAgg.taskCount
+            : planningMeta.validationIssues.length || null,
+      })
+    );
+  }
 
   if (deadlineConflict) {
     rows.push(
@@ -1069,6 +1542,56 @@ function releaseRows(container, { t } = {}) {
     if (!r || typeof r !== 'object') continue;
     const id = String(r.id || '').trim();
     if (!id) continue;
+    const sprintIds = Array.isArray(r.sprintIds) ? r.sprintIds.map(String) : [];
+    const nestedSprints = sprintIds
+      .map((sid) => sprintById.get(sid))
+      .filter(Boolean)
+      .map((sprint) => {
+        const taskIds = Array.isArray(sprint.taskIds) ? sprint.taskIds.map(String) : [];
+        const pbiIds = Array.isArray(sprint.pbiIds) ? sprint.pbiIds.map(String) : [];
+        return {
+          id: String(sprint.id),
+          title: sprint.name || sprint.id,
+          goal: sprint.goal || '',
+          startDate: sprint.startDate || null,
+          endDate: sprint.endDate || null,
+          effortHours: sprint.effortHours != null ? Number(sprint.effortHours) : null,
+          taskCount: taskIds.length,
+          storyGroups: buildStoryGroups({ pbiIds, taskIds, taskById, byParent }),
+        };
+      });
+    const dedupedTaskIds = Array.isArray(r.taskIds)
+      ? r.taskIds.map(String)
+      : [...new Set(nestedSprints.flatMap((s) => s.storyGroups.flatMap((g) => g.tasks.map((x) => x.id))))];
+    const nestedGoals = nestedSprints
+      .map((s) => String(s.goal || '').trim())
+      .filter(Boolean);
+    const nestedEffort = nestedSprints.reduce((sum, s) => {
+      const n = Number(s.effortHours);
+      return Number.isFinite(n) && n > 0 ? sum + n : sum;
+    }, 0);
+    const nestedCapacity = sprintIds.reduce((sum, sid) => {
+      const sprint = sprintById.get(sid);
+      if (!sprint) return sum;
+      const ch =
+        sprint.capacityHours != null
+          ? Number(sprint.capacityHours)
+          : plan.meta?.teamCapacityHoursPerSprint != null
+            ? Number(plan.meta.teamCapacityHoursPerSprint)
+            : null;
+      return Number.isFinite(ch) && ch > 0 ? sum + ch : sum;
+    }, 0);
+    const releaseEffort =
+      r.effortHours != null && Number.isFinite(Number(r.effortHours))
+        ? Number(r.effortHours)
+        : nestedEffort > 0
+          ? Math.round(nestedEffort * 100) / 100
+          : null;
+    const releaseCapacity = nestedCapacity > 0 ? Math.round(nestedCapacity * 100) / 100 : null;
+    const releaseUtil =
+      releaseCapacity != null && releaseEffort != null && releaseCapacity > 0
+        ? Math.round((releaseEffort / releaseCapacity) * 10000) / 100
+        : null;
     rows.push(
       withAiProvenance({
         logicalId: `rel:release:${id}`,
@@ -1076,34 +1599,42 @@ function releaseRows(container, { t } = {}) {
         section: 'releases',
         sectionLabel: SECTION_LABELS.releases,
         title: r.name || id,
-        summary: clip(r.summary || '', 200) || undefined,
+        summary: clip(r.summary || nestedGoals.join(' · ') || '', 200) || undefined,
         kind: 'release',
+        goal: clip(nestedGoals.join(' · '), 200) || undefined,
         startDate: releaseWindowStart(r, sprintById),
         estimatedEnd: r.estimatedEnd || null,
-        effortHours: r.effortHours != null ? Number(r.effortHours) : null,
-        taskCount: r.taskCount != null ? Number(r.taskCount) : null,
-        status: r.estimatedEnd ? 'READY' : 'DRAFT',
+        effortHours: releaseEffort,
+        capacityHours: releaseCapacity,
+        utilizationPct: releaseUtil,
+        taskCount: r.taskCount != null ? Number(r.taskCount) : dedupedTaskIds.length,
+        taskIds: dedupedTaskIds,
+        sprintIds,
+        nestedSprints,
+        storyCount: nestedSprints.reduce((n, s) => n + (s.storyGroups?.length || 0), 0),
+        textSource: sprintTextSource,
+        source: sprintTextSource || undefined,
+        executionStatus: planningMeta.executionStatus || undefined,
+        validationStatus: planningMeta.validationStatus || undefined,
+        sprintPlanningReady: planningMeta.sprintPlanningReady,
+        validationIssues: planningMeta.validationIssues,
+        status: planningMeta.executionStatus
+          ? gate2StatusFromSprintExecution(planningMeta.executionStatus) ||
+            (r.estimatedEnd ? 'READY' : 'DRAFT')
+          : r.estimatedEnd
+            ? 'READY'
+            : 'DRAFT',
       })
     );
-  }
-
-  const taskById = new Map();
-  for (const task of Array.isArray(container?.planning?.tasks) ? container.planning.tasks : []) {
-    const tid = String(task?.id || task?.taskId || '').trim();
-    if (tid) taskById.set(tid, task);
-  }
-  for (const story of Array.isArray(container?.planning?.backlog?.stories)
-    ? container.planning.backlog.stories
-    : []) {
-    const sid = String(story?.id || '').trim();
-    if (sid && !taskById.has(sid)) taskById.set(sid, story);
   }
 
   for (const s of sprints) {
     if (!s || typeof s !== 'object') continue;
     const id = String(s.id || '').trim();
     if (!id) continue;
-    const taskIds = Array.isArray(s.taskIds) ? s.taskIds : [];
+    const taskIds = Array.isArray(s.taskIds) ? s.taskIds.map(String) : [];
+    const pbiIds = Array.isArray(s.pbiIds) ? s.pbiIds.map(String) : [];
+    const storyGroups = buildStoryGroups({ pbiIds, taskIds, taskById, byParent });
     const taskBits = [];
     let summedHours = 0;
     for (const tid of taskIds) {
@@ -1117,7 +1648,7 @@ function releaseRows(container, { t } = {}) {
         taskBits.push(String(name));
       }
     }
-    const pbiNames = (Array.isArray(s.pbiIds) ? s.pbiIds : [])
+    const pbiNames = pbiIds
       .map((pbiId) => {
         const story = taskById.get(String(pbiId));
         return story?.name || story?.title || pbiId;
@@ -1131,6 +1662,18 @@ function releaseRows(container, { t } = {}) {
         : summedHours > 0
           ? Math.round(summedHours * 100) / 100
           : storedHours;
+    const capacityHours =
+      s.capacityHours != null
+        ? Number(s.capacityHours)
+        : plan.meta?.teamCapacityHoursPerSprint != null
+          ? Number(plan.meta.teamCapacityHoursPerSprint)
+          : null;
+    const utilizationPct =
+      s.utilizationPct != null
+        ? Number(s.utilizationPct)
+        : capacityHours != null && Number.isFinite(effortHours) && capacityHours > 0
+          ? Math.round((effortHours / capacityHours) * 10000) / 100
+          : null;
     rows.push(
       withAiProvenance({
         logicalId: `rel:sprint:${id}`,
@@ -1142,12 +1685,107 @@ function releaseRows(container, { t } = {}) {
           clip([goal, pbiNames.join(' · '), taskBits.join(' · '), s.summary || ''].filter(Boolean).join(' — '), 400) ||
           undefined,
         kind: 'sprint',
+        goal: goal || undefined,
         startDate: s.startDate || null,
         estimatedEnd: s.endDate || null,
         effortHours: Number.isFinite(effortHours) ? effortHours : null,
+        capacityHours: Number.isFinite(capacityHours) ? capacityHours : null,
+        utilizationPct: Number.isFinite(utilizationPct) ? utilizationPct : null,
         taskCount: taskIds.length,
+        storyCount: pbiIds.length || storyGroups.filter((g) => g.id !== '_ungrouped').length,
         taskIds,
-        status: taskIds.length ? 'READY' : 'DRAFT',
+        pbiIds,
+        storyGroups,
+        textSource: sprintTextSource,
+        source: sprintTextSource || undefined,
+        executionStatus: planningMeta.executionStatus || undefined,
+        validationStatus: planningMeta.validationStatus || undefined,
+        goalSource: planningMeta.goalSource || undefined,
+        sprintPlanningReady: planningMeta.sprintPlanningReady,
+        validationIssues: planningMeta.validationIssues.filter(
+          (issue) => !issue.sprintId || String(issue.sprintId) === id
+        ),
+        status: planningMeta.executionStatus
+          ? gate2StatusFromSprintExecution(planningMeta.executionStatus) ||
+            (taskIds.length ? 'READY' : 'DRAFT')
+          : taskIds.length
+            ? 'READY'
+            : 'DRAFT',
+      })
+    );
+  }
+
+  const unallocated = Array.isArray(plan.unallocated) ? plan.unallocated : [];
+  const deferred = Array.isArray(plan.deferred) ? plan.deferred : [];
+  if (unallocated.length || deferred.length) {
+    const items = [
+      ...unallocated.map((row) => {
+        const id = String(row.taskId || row.pbiId || '');
+        const task = lookupWbsTask(taskById, id);
+        const title = wbsHumanTitle(task, id);
+        if (!title) return null;
+        return {
+          id,
+          kind: row.taskId ? 'task' : 'pbi',
+          title,
+          reasonCode: row.reasonCode || '',
+          reason: row.reason || '',
+        };
+      }),
+      ...deferred.map((row) => {
+        const id = String(row.pbiId || '');
+        const title = wbsHumanTitle(lookupWbsTask(taskById, id), id);
+        if (!title) return null;
+        return {
+          id,
+          kind: 'pbi',
+          title,
+          reasonCode: row.reasonCode || '',
+          reason: row.reason || '',
+        };
+      }),
+    ].filter(Boolean);
+    rows.push(
+      withAiProvenance({
+        logicalId: 'rel:unallocated',
+        id: 'unallocated',
+        section: 'releases',
+        sectionLabel: SECTION_LABELS.releases,
+        title: tr(t, 'requirements.gate2UnallocatedTitle', 'Chưa phân bổ'),
+        summary: clip(
+          items
+            .slice(0, 8)
+            .map((item) => `${item.title}${item.reasonCode ? ` (${item.reasonCode})` : ''}`)
+            .join(' · '),
+          400
+        ),
+        kind: 'unallocated',
+        taskCount: items.length,
+        unallocatedItems: items,
+        storyGroups: [
+          {
+            id: '_unallocated',
+            title: tr(t, 'requirements.gate2UnallocatedTitle', 'Chưa phân bổ'),
+            tasks: items.map((item) => ({
+              id: item.id,
+              title: item.title,
+              effortHours: null,
+              suggestedRoleKey: '',
+              assignee: '',
+              dueDate: null,
+              reasonCode: item.reasonCode,
+              reason: item.reason,
+            })),
+          },
+        ],
+        executionStatus: planningMeta.executionStatus || undefined,
+        validationIssues: planningMeta.validationIssues,
+        status:
+          planningMeta.executionStatus === 'draft_ready' && !items.length
+            ? 'READY'
+            : items.length
+              ? 'AT_RISK'
+              : gate2StatusFromSprintExecution(planningMeta.executionStatus) || 'READY',
       })
     );
   }
@@ -1285,8 +1923,7 @@ export function buildGate2ProposalItems({
     scope: (_c, p) => scopeRows(p),
     tasks: taskRows,
     dependencies: dependencyRows,
-    assignments: (c) => assignmentRows(c, { nameByUserId, t }),
-    schedule: scheduleRows,
+    assignments: (c, p) => assignmentRows(c, { nameByUserId, t, pack: p }),
     releases: (c) => releaseRows(c, loc),
     risks: (c, p) => riskRows(c, p),
     quality: (c) => qualityRows(c),
@@ -1303,25 +1940,27 @@ export function buildGate2ProposalItems({
   const wbsMeta = readWbsMeta(container);
   const proposalSections = SECTION_ORDER.map((key) => {
     const rows = bySection[key] || [];
-    let conflictCount = rows.filter((r) =>
-      ['BLOCKING', 'OVERLOAD', 'CRITICAL', 'UNASSIGNED', 'HIGH', 'UNRESOLVED', 'NEEDS_SUPPLEMENT'].includes(
-        String(r.status || '').toUpperCase()
-      )
-    ).length;
-    if (key === 'tasks') {
-      const outcome = wbsMeta.decompositionOutcome;
-      if (
-        outcome === 'partial' ||
-        outcome === 'failure' ||
-        (wbsMeta.unresolvedStoryIds || []).length > 0 ||
-        (wbsMeta.uncoveredFrIds || []).length > 0
-      ) {
-        conflictCount = Math.max(
-          conflictCount,
-          (wbsMeta.unresolvedStoryIds || []).length +
-            (wbsMeta.uncoveredFrIds || []).length
-        );
-      }
+    // WBS gaps (NEEDS_STORIES / wbs.meta) and Quality NEEDS_SUPPLEMENT are informational
+    // only — do not badge the tab as conflict (was too noisy for Gate2 review).
+    let conflictCount =
+      key === 'tasks' || key === 'quality'
+        ? 0
+        : rows.filter((r) =>
+            [
+              'BLOCKING',
+              'OVERLOAD',
+              'CRITICAL',
+              'UNASSIGNED',
+              'HIGH',
+              'UNRESOLVED',
+            ].includes(String(r.status || '').toUpperCase())
+          ).length;
+    if (key === 'assignments') {
+      const withCapacityConflicts = rows.filter((r) => Number(r.conflictCount) > 0).length;
+      const provisional = rows.filter((r) =>
+        ['PROVISIONAL', 'UNASSIGNED', 'OVERLOAD'].includes(String(r.status || '').toUpperCase())
+      ).length;
+      conflictCount = Math.max(conflictCount, withCapacityConflicts, provisional);
     }
     return {
       key,
@@ -1358,6 +1997,7 @@ export {
   sortWbsTreeForGate2,
   WBS_LEVEL_ORDER,
   mergeBacklogAndTasks,
+  diagnoseScheduleEmptyReason,
 };
 
 export default buildGate2ProposalItems;

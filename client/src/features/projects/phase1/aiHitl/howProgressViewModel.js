@@ -1,8 +1,7 @@
 /**
  * Single FE selector: liveRun → HOW progress view-model.
- * Agent nodes (understand / select / observe) stay sequential.
- * Planning layers mirror howToolDag soft deps (ReAct selectTools); only tools
- * actually in flight are marked current — siblings in a layer may not co-run.
+ * Catalog mirrors howPhaseGraph nodes + howToolDag soft layers (not legacy ReAct ids).
+ * Planning layers: only tools actually in flight are marked current.
  */
 
 import { formatElapsed, resolveFrozenElapsedMs } from './whatProgressViewModel.js';
@@ -24,15 +23,18 @@ function resolveHowRunErrorMessage(liveRun, phaseMeta) {
   return '';
 }
 
-/** Macro catalog — groups flat HOW agent/tool steps for Monitor UX */
+/**
+ * Macro catalog — keep in sync with howPhaseGraph + jobToToolsMap.HOW_PHASE_TOOL_STEPS.
+ * Soft Kahn layers for engines: see HOW_PLANNING_LAYERS / howToolDag.
+ */
 export const HOW_MACRO_STEPS = Object.freeze([
   {
     step: 1,
     labelKey: 'requirements.aiHitlHowMacro1',
     fallback: 'Prepare',
     descriptionKey: 'requirements.aiHitlHowMacroDesc1',
-    descriptionFallback: 'Understanding scope and selecting planning tools.',
-    substeps: ['understand', 'select'],
+    descriptionFallback: 'Preparing HOW context and selecting planning tools.',
+    substeps: ['prepareHowContext', 'selectTools'],
   },
   {
     step: 2,
@@ -42,13 +44,11 @@ export const HOW_MACRO_STEPS = Object.freeze([
     descriptionFallback:
       'Running planning tools by soft dependency order. Schedule owns timeline (no separate Sequencing/Matching tools).',
     substeps: [
-      'BacklogMapTool',
       'WbsTool',
       'DependencyTool',
       'RiskTool',
       'QualityPlanTool',
       'ScheduleTool',
-      'ProjectPlanTool',
     ],
   },
   {
@@ -56,8 +56,8 @@ export const HOW_MACRO_STEPS = Object.freeze([
     labelKey: 'requirements.aiHitlHowMacro3',
     fallback: 'Wrap-up & Gate 2',
     descriptionKey: 'requirements.aiHitlHowMacroDesc3',
-    descriptionFallback: 'Observing results and checking feasibility before Gate 2.',
-    substeps: ['observe', 'evaluateLocal', 'feasibility'],
+    descriptionFallback: 'Assembling results, scoring completeness, finalizing plan, then feasibility for Gate 2.',
+    substeps: ['assemble', 'scoreCompleteness', 'finalizePlan', 'feasibility'],
   },
 ]);
 
@@ -68,26 +68,39 @@ export const HOW_MONITOR_STEPS = Object.freeze(
       id,
       labelKey: `requirements.aiHitlHowStep_${id}`,
       fallback: id,
-      kind: m.step === 2 || id === 'ProjectPlanTool' ? 'compute' : 'signal',
+      kind: m.step === 2 ? 'compute' : 'signal',
     }))
   )
 );
 
 /**
  * Soft HOW tool layers — same Kahn layers as howToolDag.HOW_TOOL_DEPENDENCIES
- * (Sequencing / EmployeeMatching removed; schedule+sprint live in ScheduleTool).
+ * (Risk ∥ Schedule after Dependency; Quality after Risk).
  * UX checklist only: ReAct may pick a subset; graph does not force whole-layer Send.
  */
 export const HOW_PLANNING_LAYERS = Object.freeze([
-  Object.freeze(['BacklogMapTool', 'WbsTool']),
+  Object.freeze(['WbsTool']),
   Object.freeze(['DependencyTool']),
   Object.freeze(['RiskTool', 'ScheduleTool']),
   Object.freeze(['QualityPlanTool']),
-  Object.freeze(['ProjectPlanTool']),
 ]);
 
+/** Execution status labels for Monitor (BE toolExecutions). */
+export const HOW_EXECUTION_STATUS = Object.freeze({
+  pending: 'queued',
+  running: 'running',
+  waiting_external: 'waiting_external',
+  blocked: 'blocked',
+  retrying: 'retrying',
+  succeeded: 'succeeded',
+  failed: 'failed',
+  skipped: 'skipped',
+});
+
 const PLANNING_TOOL_IDS = new Set(HOW_PLANNING_LAYERS.flat());
+const PLANNING_TOOL_ORDER = Object.freeze(HOW_PLANNING_LAYERS.flat());
 const TOOL_ACTIVITY_NODES = new Set(['call_tool', 'execute', 'execute_how']);
+const SELECT_LOOP_NODES = new Set(['selecttools', 'select', 'plan', 'injectgap']);
 
 const SUBSTEP_TO_MACRO = (() => {
   const map = Object.create(null);
@@ -97,13 +110,31 @@ const SUBSTEP_TO_MACRO = (() => {
   return map;
 })();
 
-/** Agent nodes that are not catalog ids — map to nearest checklist step */
+/**
+ * Graph / legacy progress nodes → catalog checklist id.
+ * Legacy ReAct names (understand/select/observe/evaluateLocal) stay mapped for old runs.
+ */
 const NODE_ALIASES = Object.freeze({
-  plan: 'select',
+  preparehowcontext: 'prepareHowContext',
+  understand: 'prepareHowContext',
+  selecttools: 'selectTools',
+  select: 'selectTools',
+  plan: 'selectTools',
+  injectgap: 'selectTools',
   execute: 'WbsTool',
-  evaluate_local: 'evaluateLocal',
-  evaluate: 'evaluateLocal',
+  execute_how: 'WbsTool',
+  assemble: 'assemble',
+  observe: 'assemble',
+  scorecompleteness: 'scoreCompleteness',
+  evaluate_local: 'scoreCompleteness',
+  evaluatelocal: 'scoreCompleteness',
+  evaluate: 'scoreCompleteness',
+  finalizeplan: 'finalizePlan',
+  projectplantool: 'finalizePlan',
+  feasibility: 'feasibility',
   feasibilitysignal: 'feasibility',
+  emitready: 'feasibility',
+  emitincomplete: 'feasibility',
 });
 
 function norm(value) {
@@ -113,7 +144,14 @@ function norm(value) {
 }
 
 function isInFlightStatus(status) {
-  return ['pending', 'running', 'queued', 'waiting_human', 'stopped'].includes(norm(status));
+  // Do NOT include stopped/incomplete — those are terminal (emitIncomplete).
+  // waiting_human is handled separately in normalizeHowRunStatus.
+  // waiting_external = durable WBS park — still "live" until wall / resume / terminal.
+  return ['pending', 'running', 'queued', 'waiting_external'].includes(norm(status));
+}
+
+function isTerminalFailStatus(status) {
+  return ['failed', 'error', 'stopped', 'incomplete', 'cancelled'].includes(norm(status));
 }
 
 function isCallbackHandoff(liveRun, phaseMeta = null) {
@@ -175,7 +213,46 @@ function earliestCatalogId(ids) {
  * Prefer explicit currentToolNames from BE; otherwise the single currentTool.
  * Do not invent sibling layer tools — ReAct ≠ forced DAG wave.
  */
+/**
+ * Prefer BE toolExecutions in-flight; do not invent Risk∥Schedule from layer alone.
+ */
+export function resolveHowToolExecutions(liveRun = null, phaseMeta = null) {
+  const raw =
+    liveRun?.toolExecutions ||
+    liveRun?.currentExecutions ||
+    phaseMeta?.toolExecutions ||
+    phaseMeta?.currentExecutions ||
+    null;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((row) => row && row.toolName)
+    .map((row) => ({
+      toolName: catalogId(row.toolName) || String(row.toolName),
+      status: HOW_EXECUTION_STATUS[row.status] || row.status || 'pending',
+      attempt: Number(row.attempt) || 1,
+      blockedBy: Array.isArray(row.blockedBy) ? row.blockedBy : [],
+      error: row.error || null,
+      progress: row.progress || null,
+      jobId: row.jobId || null,
+    }));
+}
+
 export function resolveHowRunningToolIds(liveRun = null, phaseMeta = null) {
+  const executions = resolveHowToolExecutions(liveRun, phaseMeta);
+  if (executions.length) {
+    const active = new Set(['running', 'waiting_external', 'pending', 'queued', 'retrying']);
+    const ids = [];
+    const seen = new Set();
+    for (const row of executions) {
+      if (!active.has(norm(row.status))) continue;
+      const id = catalogId(row.toolName) || row.toolName;
+      if (!id || !PLANNING_TOOL_IDS.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+    if (ids.length) return ids;
+  }
+
   const node = norm(liveRun?.currentNode || liveRun?.stage || phaseMeta?.stage || '');
   if (node && !TOOL_ACTIVITY_NODES.has(node)) return [];
 
@@ -209,28 +286,77 @@ export function resolveHowActiveStepIds(liveRun = null, phaseMeta = null) {
   return ids.length ? ids : null;
 }
 
+/** Planning tools that already terminal/in-flight — keep Engines macro across selectTools loops. */
+export function resolveHowTouchedToolIds(liveRun = null, phaseMeta = null) {
+  const executions = resolveHowToolExecutions(liveRun, phaseMeta);
+  const touched = [];
+  const seen = new Set();
+  const touchStatus = new Set([
+    'running',
+    'waiting_external',
+    'pending',
+    'queued',
+    'retrying',
+    'succeeded',
+    'failed',
+    'skipped',
+    'blocked',
+  ]);
+  for (const row of executions) {
+    if (!touchStatus.has(norm(row.status))) continue;
+    const id = catalogId(row.toolName) || row.toolName;
+    if (!id || !PLANNING_TOOL_IDS.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    touched.push(id);
+  }
+  return touched;
+}
+
+function resolveSelectLoopStepId(liveRun, phaseMeta) {
+  const running = resolveHowRunningToolIds(liveRun, phaseMeta);
+  if (running.length) return earliestCatalogId(running);
+
+  const touched = resolveHowTouchedToolIds(liveRun, phaseMeta);
+  if (!touched.length) return 'selectTools';
+
+  const touchedSet = new Set(touched);
+  const nextPending = PLANNING_TOOL_ORDER.find((id) => !touchedSet.has(id));
+  if (nextPending) return nextPending;
+
+  // All catalog tools touched — stay on last in canonical layer order.
+  for (let i = PLANNING_TOOL_ORDER.length - 1; i >= 0; i -= 1) {
+    if (touchedSet.has(PLANNING_TOOL_ORDER[i])) return PLANNING_TOOL_ORDER[i];
+  }
+  return 'selectTools';
+}
+
 export function resolveHowActiveStepId(liveRun = null, phaseMeta = null) {
   const nodeRaw = String(
     liveRun?.currentNode || liveRun?.stage || liveRun?.pipelineSubstep || phaseMeta?.stage || ''
   ).trim();
   const nodeLower = norm(nodeRaw);
 
-  if (!TOOL_ACTIVITY_NODES.has(nodeLower)) {
-    if (!nodeRaw) {
-      const running = resolveHowRunningToolIds(liveRun, phaseMeta);
-      return earliestCatalogId(running);
-    }
-    const aliased = NODE_ALIASES[nodeLower];
-    if (aliased != null && nodeLower !== 'execute') return aliased;
-    const idx = matchHowStepIndex(nodeRaw);
-    if (idx >= 0) return HOW_MONITOR_STEPS[idx].id;
+  const running = resolveHowRunningToolIds(liveRun, phaseMeta);
+  if (running.length) return earliestCatalogId(running);
+
+  if (!nodeRaw) return null;
+
+  if (SELECT_LOOP_NODES.has(nodeLower)) {
+    return resolveSelectLoopStepId(liveRun, phaseMeta);
   }
 
-  const running = resolveHowRunningToolIds(liveRun, phaseMeta);
-  const fromLayer = earliestCatalogId(running);
-  if (fromLayer) return fromLayer;
+  if (TOOL_ACTIVITY_NODES.has(nodeLower)) {
+    if (nodeLower === 'call_tool' || nodeLower === 'execute' || nodeLower === 'execute_how') {
+      return 'WbsTool';
+    }
+    return null;
+  }
 
-  if (nodeLower === 'call_tool' || nodeLower === 'execute') return 'WbsTool';
+  const aliased = NODE_ALIASES[nodeLower];
+  if (aliased != null) return aliased;
+
+  const idx = matchHowStepIndex(nodeRaw);
+  if (idx >= 0) return HOW_MONITOR_STEPS[idx].id;
   return null;
 }
 
@@ -268,7 +394,10 @@ function resolveHowActivity(liveRun, state, runningToolIds = []) {
   const inToolNode = !node || TOOL_ACTIVITY_NODES.has(node);
   const toolNames = runningToolIds.length ? [...runningToolIds] : inToolNode && tool ? [tool] : [];
 
-  if (inToolNode && (toolNames.length || node === 'call_tool' || node === 'execute')) {
+  if (
+    inToolNode &&
+    (toolNames.length || node === 'call_tool' || node === 'execute' || node === 'execute_how')
+  ) {
     return {
       kind: 'call_tool',
       toolName: toolNames[0] || tool,
@@ -276,51 +405,85 @@ function resolveHowActivity(liveRun, state, runningToolIds = []) {
       labelKey: 'requirements.aiHitlMonitorCallingTool',
     };
   }
+  // Sec tool node names (WbsTool, …) also arrive as currentNode while in flight.
+  const nodeAsTool = catalogId(liveRun?.currentNode || liveRun?.stage || '');
+  if (
+    toolNames.length ||
+    (tool && PLANNING_TOOL_IDS.has(catalogId(tool) || tool)) ||
+    (nodeAsTool && PLANNING_TOOL_IDS.has(nodeAsTool))
+  ) {
+    const names = toolNames.length
+      ? toolNames
+      : [catalogId(tool) || tool || nodeAsTool].filter(Boolean);
+    return {
+      kind: 'call_tool',
+      toolName: names[0] || tool || nodeAsTool,
+      toolNames: names,
+      labelKey: 'requirements.aiHitlMonitorCallingTool',
+    };
+  }
   if (node === 'understand' || node === 'preparehowcontext') {
     return {
       kind: 'understand',
       toolName: null,
-      labelKey: 'requirements.aiHitlMonitorActivity_understand',
+      toolNames: [],
+      labelKey: 'requirements.aiHitlMonitorActivity_prepareHowContext',
     };
   }
-  if (
-    node === 'plan' ||
-    node === 'select' ||
-    node === 'selecttools' ||
-    node === 'injectgap'
-  ) {
+  if (SELECT_LOOP_NODES.has(node)) {
     return {
       kind: 'plan',
       toolName: null,
-      labelKey: 'requirements.aiHitlMonitorActivity_plan',
+      toolNames: [],
+      labelKey: 'requirements.aiHitlMonitorActivity_selectTools',
     };
   }
   if (node === 'observe' || node === 'assemble') {
     return {
       kind: 'observe',
       toolName: null,
-      labelKey: 'requirements.aiHitlMonitorActivity_observe',
+      toolNames: [],
+      labelKey: 'requirements.aiHitlMonitorActivity_assemble',
     };
   }
   if (
     node === 'evaluatelocal' ||
     node === 'evaluate_local' ||
     node === 'evaluate' ||
-    node === 'scorecompleteness' ||
-    node === 'feasibility' ||
-    node === 'emitready' ||
-    node === 'emitincomplete'
+    node === 'scorecompleteness'
   ) {
     return {
       kind: 'evaluate',
       toolName: null,
-      labelKey: 'requirements.aiHitlMonitorActivity_evaluate',
+      toolNames: [],
+      labelKey: 'requirements.aiHitlMonitorActivity_scoreCompleteness',
     };
   }
-  return { kind: 'idle', toolName: null, labelKey: null };
+  if (node === 'finalizeplan') {
+    return {
+      kind: 'evaluate',
+      toolName: null,
+      toolNames: [],
+      labelKey: 'requirements.aiHitlMonitorActivity_finalizePlan',
+    };
+  }
+  if (node === 'feasibility' || node === 'emitready' || node === 'emitincomplete') {
+    return {
+      kind: 'evaluate',
+      toolName: null,
+      toolNames: [],
+      labelKey: 'requirements.aiHitlMonitorActivity_feasibility',
+    };
+  }
+  return { kind: 'idle', toolName: null, toolNames: [], labelKey: null };
 }
 
-function normalizeHowRunStatus(liveRun, phaseHow) {
+/**
+ * @param {object|null} liveRun
+ * @param {object|null} phaseHow
+ * @param {number} [now]
+ */
+function normalizeHowRunStatus(liveRun, phaseHow, now = Date.now()) {
   const live = norm(liveRun?.status);
   const phase = norm(phaseHow?.status);
   if (live === 'waiting_human' || phase === 'waiting_human') return 'waiting_human';
@@ -328,8 +491,11 @@ function normalizeHowRunStatus(liveRun, phaseHow) {
       ['ready', 'completed', 'confirmed'].includes(phase)) {
     return 'succeeded';
   }
-  if (live === 'failed' || phase === 'failed') return 'failed';
-  if (live === 'cancelled' || phase === 'cancelled') return 'cancelled';
+  // Prefer phase terminal over a stale liveRun still marked running.
+  if (isTerminalFailStatus(phase) || isTerminalFailStatus(live)) {
+    if (live === 'cancelled' || phase === 'cancelled') return 'cancelled';
+    return 'failed';
+  }
   if (
     isCallbackHandoff(liveRun, phaseHow) &&
     !['ready', 'completed', 'confirmed'].includes(phase)
@@ -337,6 +503,15 @@ function normalizeHowRunStatus(liveRun, phaseHow) {
     return 'finalizing';
   }
   if (isInFlightStatus(live) || isInFlightStatus(phase)) {
+    const maxLive = Number(WHAT_MONITOR_CONFIG.howRunMaxLiveMs) || 0;
+    if (maxLive > 0) {
+      // Wall from startedAt only — progress heartbeats must not keep a zombie clock alive.
+      const startedRaw = liveRun?.startedAt || phaseHow?.startedAt || null;
+      const startedAt = startedRaw ? new Date(startedRaw).getTime() : NaN;
+      if (Number.isFinite(startedAt) && now - startedAt > maxLive) {
+        return 'failed';
+      }
+    }
     return live === 'queued' || phase === 'queued' ? 'queued' : 'running';
   }
   return 'idle';
@@ -354,9 +529,12 @@ export function resolveHowProgressViewModel(
   now = Date.now(),
   hasProposeOutput = false
 ) {
-  const state = normalizeHowRunStatus(liveRun, phaseHow);
+  const state = normalizeHowRunStatus(liveRun, phaseHow, now);
   const phaseDone = state === 'succeeded';
-  const runningToolIds = phaseDone ? [] : resolveHowRunningToolIds(liveRun, phaseHow);
+  const runningToolIds =
+    phaseDone || state === 'failed' || state === 'cancelled'
+      ? []
+      : resolveHowRunningToolIds(liveRun, phaseHow);
   const stepId = phaseDone
     ? HOW_MONITOR_STEPS[HOW_MONITOR_STEPS.length - 1].id
     : resolveHowActiveStepId(liveRun, phaseHow);
@@ -394,11 +572,27 @@ export function resolveHowProgressViewModel(
     state === 'failed' ||
     state === 'cancelled' ||
     state === 'waiting_human';
-  const freezeClock = terminal || state === 'finalizing' || Boolean(hasProposeOutput);
+  // Never freeze while agent is still computing — Gate1 scope rollup / leftover propose
+  // must not pin elapsed to a stale progressUpdatedAt during long tool LLM calls.
+  const activelyComputing = state === 'running' || state === 'queued';
+  const freezeClock =
+    terminal ||
+    state === 'finalizing' ||
+    (Boolean(hasProposeOutput) && !activelyComputing);
   const progressUpdatedAt = liveRun?.progressUpdatedAt
     ? new Date(liveRun.progressUpdatedAt).getTime()
     : null;
-  const elapsedMs = resolveFrozenElapsedMs({
+  const maxLive = Number(WHAT_MONITOR_CONFIG.howRunMaxLiveMs) || 0;
+  const wallTimedOut =
+    state === 'failed' &&
+    maxLive > 0 &&
+    startedAt != null &&
+    Number.isFinite(startedAt) &&
+    now - startedAt > maxLive &&
+    !isTerminalFailStatus(liveRun?.status) &&
+    !isTerminalFailStatus(phaseHow?.status);
+
+  let elapsedMs = resolveFrozenElapsedMs({
     startedAt: startedAt != null && Number.isFinite(startedAt) ? startedAt : null,
     completedAt: completedAt != null && Number.isFinite(completedAt) ? completedAt : null,
     progressUpdatedAt:
@@ -407,6 +601,11 @@ export function resolveHowProgressViewModel(
     freezeClock,
     now,
   });
+  // Zombie / wall-timeout: never show multi-hour "elapsed" when FE forced terminal.
+  if ((wallTimedOut || state === 'failed' || state === 'cancelled') && maxLive > 0) {
+    elapsedMs = Math.min(elapsedMs, maxLive);
+  }
+
   const progressStaleMs =
     progressUpdatedAt != null && Number.isFinite(progressUpdatedAt)
       ? Math.max(0, now - progressUpdatedAt)
@@ -414,6 +613,7 @@ export function resolveHowProgressViewModel(
 
   const activity = resolveHowActivity(liveRun, state, runningToolIds);
   const planningLayers = buildPlanningLayerView(runningToolIds, phaseDone || state === 'finalizing');
+  const toolExecutions = resolveHowToolExecutions(liveRun, phaseHow);
   const showSpinner = state === 'running' || state === 'queued' || state === 'finalizing';
   const waitingHuman = state === 'waiting_human';
   const staleThresholdMs = WHAT_MONITOR_CONFIG.progressStaleMs;
@@ -422,19 +622,36 @@ export function resolveHowProgressViewModel(
     state === 'running' &&
     Number.isFinite(staleThresholdMs) &&
     progressStaleMs >= staleThresholdMs;
-  const errorMessage = resolveHowRunErrorMessage(liveRun, phaseHow);
+  let errorMessage = resolveHowRunErrorMessage(liveRun, phaseHow);
+  if (state === 'failed' && !errorMessage) {
+    if (isTerminalFailStatus(liveRun?.status) || isTerminalFailStatus(phaseHow?.status)) {
+      errorMessage = 'HOW dừng chưa hoàn tất (stopped/incomplete).';
+    } else if (wallTimedOut) {
+      errorMessage =
+        'Phiên HOW quá hạn / mất tín hiệu tiến độ — đã dừng đồng hồ. Chạy lại HOW nếu cần.';
+    }
+  }
+
+  const failedOrCancelled = state === 'failed' || state === 'cancelled';
+  // Don't keep "Chuẩn bị" as current when run already terminal-failed.
+  const displayMacroStep = failedOrCancelled ? 0 : macroStep;
 
   return {
     phase: 'how',
     state,
-    macroStep,
-    activeStepId,
-    activeStepIds: activeStepIds || (activeStepId ? [activeStepId] : []),
-    activeIndex,
-    activeIndices,
+    macroStep: displayMacroStep,
+    activeStepId: failedOrCancelled ? null : activeStepId,
+    activeStepIds: failedOrCancelled
+      ? []
+      : activeStepIds || (activeStepId ? [activeStepId] : []),
+    activeIndex: failedOrCancelled ? -1 : activeIndex,
+    activeIndices: failedOrCancelled ? null : activeIndices,
     planningLayers,
-    showPlanningLayers: !phaseDone && macroStep === 2 && state !== 'finalizing',
-    activeMacroSubsteps: macroDef ? [...macroDef.substeps] : [],
+    toolExecutions,
+    showPlanningLayers:
+      !phaseDone && !failedOrCancelled && macroStep === 2 && state !== 'finalizing',
+    activeMacroSubsteps:
+      failedOrCancelled || !macroDef ? [] : [...macroDef.substeps],
     activity,
     elapsedMs,
     progressStaleMs,
@@ -442,26 +659,45 @@ export function resolveHowProgressViewModel(
     errorMessage,
     showSpinner,
     waitingHuman,
-    titleKey:
-      state === 'finalizing'
+    titleKey: failedOrCancelled
+      ? 'requirements.aiHitlMonitorHowTitle'
+      : state === 'finalizing'
         ? 'requirements.aiHitlHowFinalizing'
         : macroDef?.labelKey || 'requirements.aiHitlMonitorHowTitle',
-    titleFallback: state === 'finalizing' ? 'Saving results' : macroDef?.fallback || 'Phase HOW',
-    descriptionKey:
-      state === 'finalizing'
+    titleFallback: failedOrCancelled
+      ? 'Phase HOW'
+      : state === 'finalizing'
+        ? 'Saving results'
+        : macroDef?.fallback || 'Phase HOW',
+    descriptionKey: failedOrCancelled
+      ? 'requirements.aiHitlMonitorHowFailedHint'
+      : state === 'finalizing'
         ? 'requirements.aiHitlHowFinalizingDesc'
         : macroDef?.descriptionKey || 'requirements.aiHitlMonitorHowHint',
-    descriptionFallback:
-      state === 'finalizing'
+    descriptionFallback: failedOrCancelled
+      ? 'Phiên HOW đã dừng. Bấm Chạy lại HOW để thử lại.'
+      : state === 'finalizing'
         ? 'Analysis finished. Writing each section onto the pack.'
         : macroDef?.descriptionFallback || 'Đang chạy agent + tools. Chỉ hiện phase HOW.',
     runId: liveRun?.runId || phaseHow?.remoteRunId || null,
     progressUpdatedAt: liveRun?.progressUpdatedAt || null,
     startedAt: startedAt != null && Number.isFinite(startedAt) ? startedAt : null,
     completedAt: (() => {
-      if (completedAt != null && Number.isFinite(completedAt)) return completedAt;
+      if (completedAt != null && Number.isFinite(completedAt)) {
+        if (maxLive > 0 && startedAt != null && completedAt - startedAt > maxLive) {
+          return startedAt + maxLive;
+        }
+        return completedAt;
+      }
       if (!freezeClock) return null;
-      if (progressUpdatedAt != null && Number.isFinite(progressUpdatedAt)) return progressUpdatedAt;
+      if (wallTimedOut && startedAt != null) return startedAt + maxLive;
+      if (
+        progressUpdatedAt != null &&
+        Number.isFinite(progressUpdatedAt) &&
+        !(maxLive > 0 && startedAt != null && progressUpdatedAt - startedAt > maxLive)
+      ) {
+        return progressUpdatedAt;
+      }
       if (startedAt != null && Number.isFinite(startedAt)) return startedAt + elapsedMs;
       return null;
     })(),

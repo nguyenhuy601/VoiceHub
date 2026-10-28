@@ -151,6 +151,8 @@ async function chatCompletionsText(opts = {}) {
           stream: false,
           temperature,
           max_tokens: maxTokens,
+          // DashScope qwen3.x defaults thinking on — burns tokens / empty content for JSON jobs.
+          enable_thinking: false,
         },
         {
           timeout,

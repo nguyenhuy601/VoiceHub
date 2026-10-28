@@ -16,13 +16,13 @@ const SCOPE_TO_TOOLS = Object.freeze({
   releases: ['ScheduleTool'],
   sprint: ['ScheduleTool'],
   effort: ['ScheduleTool'],
-  WBS: ['BacklogMapTool', 'WbsTool', 'DependencyTool'],
-  wbs: ['BacklogMapTool', 'WbsTool', 'DependencyTool'],
-  structure: ['BacklogMapTool', 'WbsTool', 'DependencyTool'],
-  backlog: ['BacklogMapTool', 'WbsTool', 'DependencyTool'],
+  WBS: ['WbsTool', 'DependencyTool'],
+  wbs: ['WbsTool', 'DependencyTool'],
+  structure: ['WbsTool', 'DependencyTool'],
+  backlog: ['WbsTool', 'DependencyTool'],
   risk: ['RiskTool'],
   quality: ['QualityPlanTool'],
-  requirement: ['BacklogMapTool', 'WbsTool', 'DependencyTool'],
+  requirement: ['WbsTool', 'DependencyTool'],
 });
 
 /**

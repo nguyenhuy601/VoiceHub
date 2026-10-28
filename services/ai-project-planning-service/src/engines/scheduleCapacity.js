@@ -7,6 +7,9 @@ const { levelScheduleAroundCriticalPath } = require('./scheduleFloatLeveling');
 const { buildSchedulePlan } = require('./sprintReleasePlan');
 
 const DAILY_CAP_HOURS = 8;
+/** Place at least one working day when leaf effort is missing/0 so Gate2 Lịch is not empty. */
+const DEFAULT_LEAF_SCHEDULE_HOURS = DAILY_CAP_HOURS;
+const UNASSIGNED_SCHEDULE_USER_ID = 'UNASSIGNED';
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 function toDateKey(value) {
@@ -18,6 +21,54 @@ function toDateKey(value) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return new Date(date.getTime() + VN_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** Prefer explicit start → calendar → today (VN). Never return null when scheduling. */
+function resolveScheduleProjectStart(projectStart, calendar = null) {
+  const fromProject = toDateKey(projectStart);
+  if (fromProject) return { startKey: fromProject, source: 'project' };
+  const fromCalendar = toDateKey(
+    calendar?.startDate || calendar?.projectStart || calendar?.start || null
+  );
+  if (fromCalendar) return { startKey: fromCalendar, source: 'calendar' };
+  const today = new Date(Date.now() + VN_OFFSET_MS).toISOString().slice(0, 10);
+  return { startKey: today, source: 'today_fallback' };
+}
+
+/**
+ * Pad missing leaf assignments with UNASSIGNED so CPM still stamps dates.
+ * Does not invent people — real assignments stay authoritative for Phân công.
+ */
+function padUnassignedLeafAssignments(tasks = [], assignments = []) {
+  const byTask = new Map(
+    (assignments || [])
+      .map((item) => [String(item?.taskId || '').trim(), item])
+      .filter(([id]) => id)
+  );
+  const padded = [...(assignments || [])];
+  let paddedCount = 0;
+  for (const task of tasks || []) {
+    if (!isLeafTaskForSchedule(task)) continue;
+    const id = String(task?.id || task?.taskId || '').trim();
+    if (!id || byTask.has(id)) continue;
+    const row = {
+      taskId: id,
+      userId: UNASSIGNED_SCHEDULE_USER_ID,
+      displayName: 'Unassigned',
+      unassigned: true,
+      rationale: 'schedule_placeholder_unassigned',
+    };
+    padded.push(row);
+    byTask.set(id, row);
+    paddedCount += 1;
+  }
+  return { assignments: padded, paddedCount };
+}
+
+function effortHoursForSchedule(task) {
+  const raw = Number(task?.effortHours ?? task?.effortSeedHours);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return DEFAULT_LEAF_SCHEDULE_HOURS;
 }
 
 function addDays(dateKey, days) {
@@ -123,9 +174,16 @@ function packScheduleCapacity({
   criticalWorkIds = [],
   theoreticalCpm = null,
 } = {}) {
-  const startKey = toDateKey(projectStart);
+  const { startKey, source: projectStartSource } = resolveScheduleProjectStart(
+    projectStart,
+    calendar
+  );
   const deadlineKey = toDateKey(projectDeadline);
-  const assignmentByTask = new Map(assignments.map((item) => [String(item.taskId), item]));
+  const { assignments: effectiveAssignments, paddedCount: unassignedPadCount } =
+    padUnassignedLeafAssignments(tasks, assignments);
+  const assignmentByTask = new Map(
+    effectiveAssignments.map((item) => [String(item.taskId), item])
+  );
   const schedulableTasks = (tasks || []).filter((task) => {
     const id = String(task.id || task.taskId || '');
     if (!id || !assignmentByTask.has(id)) return false;
@@ -134,52 +192,6 @@ function packScheduleCapacity({
   const taskById = new Map(
     schedulableTasks.map((task) => [String(task.id || task.taskId), task])
   );
-
-  // No invent: missing project start → empty schedule (UI shows empty)
-  if (!startKey) {
-    const milestones = [];
-    for (const task of tasks) {
-      if (!isMilestoneTask(task)) continue;
-      const tid = String(task.id || task.taskId || '');
-      milestones.push({
-        taskId: tid,
-        name: task.name || task.title || tid,
-        dateKey: toDateKey(task.dueDate) || null,
-      });
-    }
-    return {
-      schedule: [],
-      taskDates: {},
-      capacityConflicts: [
-        {
-          type: 'missing_project_start',
-          message: 'No project startDate — schedule left empty',
-        },
-      ],
-      milestones,
-      completion: {
-        projectStart: null,
-        estimatedEnd: null,
-        totalEffortHours:
-          Math.round(
-            tasks.reduce((sum, task) => sum + (Number(task.effortHours) || 0), 0) * 100
-          ) / 100,
-        criticalPath: [],
-        unassignedTaskIds: [...taskById.keys()].filter((id) => !assignmentByTask.has(id)),
-        unresolvedPending: [...taskById.keys()],
-        dailyCapHours: DAILY_CAP_HOURS,
-        deadline: deadlineKey,
-      },
-      meta: {
-        source: 'empty',
-        reason: 'missing_project_start',
-        scheduleRowCount: 0,
-        capacityConflictCount: 1,
-        milestoneCount: milestones.length,
-        criticalTaskCount: 0,
-      },
-    };
-  }
 
   const start = nextWorkingDay(startKey, calendar);
   const criticalIds = resolveCriticalTaskIds({
@@ -205,13 +217,14 @@ function packScheduleCapacity({
     const aLf = lfByTask.has(a) ? lfByTask.get(a) : Number.POSITIVE_INFINITY;
     const bLf = lfByTask.has(b) ? lfByTask.get(b) : Number.POSITIVE_INFINITY;
     if (aLf !== bLf) return aLf - bLf;
-    const aH = Number(taskById.get(a)?.effortHours) || 0;
-    const bH = Number(taskById.get(b)?.effortHours) || 0;
+    const aH = effortHoursForSchedule(taskById.get(a));
+    const bH = effortHoursForSchedule(taskById.get(b));
     if (bH !== aH) return bH - aH;
     return a.localeCompare(b);
   }
 
   let guard = 0;
+  let defaultEffortAppliedCount = 0;
   const maxIterations = pending.size * 40 + 10;
   while (pending.size && guard < maxIterations) {
     guard += 1;
@@ -227,7 +240,10 @@ function packScheduleCapacity({
       if (!pending.has(taskId)) continue;
       const blockingPreds = [...(preds.get(taskId) || [])].filter((id) => taskById.has(id));
       const assignment = assignmentByTask.get(taskId);
-      let remaining = Math.max(0, Number(taskById.get(taskId)?.effortHours) || 0);
+      const taskRow = taskById.get(taskId);
+      const rawEffort = Number(taskRow?.effortHours ?? taskRow?.effortSeedHours);
+      if (!(Number.isFinite(rawEffort) && rawEffort > 0)) defaultEffortAppliedCount += 1;
+      let remaining = effortHoursForSchedule(taskRow);
       let day = start;
       for (const predecessor of blockingPreds) {
         if ((finishByTask.get(predecessor) || '') > day) day = finishByTask.get(predecessor);
@@ -337,7 +353,10 @@ function packScheduleCapacity({
             100
         ) / 100,
       criticalPath,
-      unassignedTaskIds: [...taskById.keys()].filter((id) => !assignmentByTask.has(id)),
+      unassignedTaskIds: [...taskById.keys()].filter((id) => {
+        const row = assignmentByTask.get(id);
+        return !row || row.unassigned === true || row.userId === UNASSIGNED_SCHEDULE_USER_ID;
+      }),
       unresolvedPending: [...pending],
       dailyCapHours: DAILY_CAP_HOURS,
       deadline: deadlineKey,
@@ -349,6 +368,17 @@ function packScheduleCapacity({
       capacityConflictCount: capacityConflicts.length,
       milestoneCount: milestones.length,
       criticalTaskCount: [...criticalIds].filter((id) => taskById.has(id)).length,
+      projectStartSource,
+      unassignedPadCount,
+      defaultEffortAppliedCount,
+      reason:
+        schedule.length === 0
+          ? schedulableTasks.length === 0
+            ? 'no_leaf_tasks'
+            : 'schedule_empty'
+          : unassignedPadCount > 0
+            ? 'partial_unassigned'
+            : null,
     },
   };
 }
@@ -417,7 +447,7 @@ function runScheduleCapacity(container, options = {}) {
     theoreticalCpm?.criticalPath ||
     [];
 
-  const assignments = options.assignments || greedyAssignFromShortlists(
+  const realAssignments = options.assignments || greedyAssignFromShortlists(
     container?.resource?.recommendations || [],
     {
       maxTasksPerUser: options.maxTasksPerUser || 12,
@@ -432,10 +462,11 @@ function runScheduleCapacity(container, options = {}) {
         null,
     }
   );
+  // Pack may pad UNASSIGNED for date stamps; keep resource.assignments people-only.
   const packed = packScheduleCapacity({
     tasks: container?.planning?.tasks || [],
     edges: container?.analyses?.dependency?.edges || [],
-    assignments,
+    assignments: realAssignments,
     projectStart: options.projectStart,
     projectDeadline: options.projectDeadline || options.deadline || null,
     meetingHoursByUserDay:
@@ -463,7 +494,7 @@ function runScheduleCapacity(container, options = {}) {
     status: 'ready',
     model: null,
     generatedAt: new Date().toISOString(),
-    assignments,
+    assignments: realAssignments,
     schedule: leveled.schedule,
     taskDates: leveled.taskDates,
     capacityConflicts: packed.capacityConflicts,
@@ -560,6 +591,7 @@ function applyScheduleCapacityToContainer(container, result) {
     tasks: next.planning.tasks,
     milestones: result.milestones,
     capacityConflicts: result.capacityConflicts,
+    capacityPlan: next.resource.capacityPlan,
   });
   next.planning.schedulePlan = schedulePlan;
   if (Array.isArray(schedulePlan.milestones)) {
@@ -570,8 +602,13 @@ function applyScheduleCapacityToContainer(container, result) {
 
 module.exports = {
   DAILY_CAP_HOURS,
+  DEFAULT_LEAF_SCHEDULE_HOURS,
+  UNASSIGNED_SCHEDULE_USER_ID,
   isLeafTaskForSchedule,
   toDateKey,
+  resolveScheduleProjectStart,
+  padUnassignedLeafAssignments,
+  effortHoursForSchedule,
   packScheduleCapacity,
   longestCalendarPath,
   taskDatesFromSchedule,

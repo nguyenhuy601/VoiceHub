@@ -26,10 +26,16 @@ export const WHAT_MONITOR_STEPS = Object.freeze(
   )
 );
 
-const IN_FLIGHT = new Set(['pending', 'running', 'queued', 'waiting_human', 'stopped']);
+const IN_FLIGHT = new Set(['pending', 'running', 'queued', 'waiting_human']);
 const READY = new Set(['ready', 'completed', 'confirmed']);
 /** Keep Monitor on the phase that just failed — do not drop to idle. */
-const TERMINAL_FAIL = new Set(['failed', 'cancelled', 'error']);
+const TERMINAL_FAIL = new Set([
+  'failed',
+  'cancelled',
+  'error',
+  'stopped',
+  'incomplete',
+]);
 
 function norm(value) {
   return String(value || '')

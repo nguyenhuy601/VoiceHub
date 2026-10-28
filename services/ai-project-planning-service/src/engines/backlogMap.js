@@ -159,13 +159,14 @@ function backlogNodesAsTasks(backlog = {}) {
 }
 
 function applyBacklogToContainer(container, backlogResult) {
-  const next = {
+  // Patch only `backlog` — do not spread planning.tasks/wbs (empty siblings wipe
+  // parallel WbsTool via atomic merge).
+  return {
     ...container,
-    planning: { ...(container?.planning || {}) },
+    planning: {
+      backlog: backlogResult.backlog,
+    },
   };
-  next.planning.backlog = backlogResult.backlog;
-  // WbsTool owns planning.tasks from approved SRS FR/UC/AC — do not seed from backlog.
-  return next;
 }
 
 module.exports = {

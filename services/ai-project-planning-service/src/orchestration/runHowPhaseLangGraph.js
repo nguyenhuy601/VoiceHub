@@ -25,8 +25,13 @@ async function runHowPhaseLangGraph({
   goal: goalOverride = null,
   constraints: constraintsOverride = null,
   decideToolCalls = null,
+  /** PlanningRun.startedAt — keep Monitor wall clock aligned with durationMs */
+  wallStartedAt = null,
 } = {}) {
-  const startedAt = Date.now();
+  const fromWall =
+    wallStartedAt != null ? new Date(wallStartedAt).getTime() : NaN;
+  const startedAt =
+    Number.isFinite(fromWall) && fromWall > 0 ? fromWall : Date.now();
   const prepared = preparePhaseSnapshot({
     snapshotId,
     snapshot,

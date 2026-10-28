@@ -6,6 +6,7 @@
 import { createElement } from 'react';
 import { localizedProjectRoleLabel } from '../../../../utils/projectRoleLocale';
 import { resolveDependencyDecisionStatus } from './dependencyDisplay';
+import { isEmptyScheduleDateValue } from './assignmentScheduleTrust.js';
 
 function tr(t, key, fallback) {
   const value = typeof t === 'function' ? t(key) : '';
@@ -181,18 +182,24 @@ const WBS_LEVEL_LABELS = Object.freeze({
 });
 
 function wbsTitleIndent(row, _t, ctx = {}) {
-  // Hierarchy via Level column only — flat title (no indent / tree glyphs).
+  // Indent by stamped depth; Level column remains the node-type signal.
   const title = clip(row?.title || row?.name || '—', 140);
+  const depth = Math.max(0, Math.min(8, Number(row?.depth) || 0));
   const expandable = Boolean(row?.hasChildren && row?.isWbsContainer);
   const expanded = expandable ? ctx.wbsExpanded !== false : true;
   const onToggle = typeof ctx.onToggleWbs === 'function' ? ctx.onToggleWbs : null;
+  const warn =
+    row?.wbsUnresolved ||
+    row?.missingStories ||
+    String(row?.status || '').toUpperCase() === 'NEEDS_STORIES';
   return createElement(
     expandable ? 'button' : 'span',
     {
       type: expandable ? 'button' : undefined,
       className: `inline-block max-w-full whitespace-pre-wrap break-words text-left ${
         expandable ? 'hover:underline' : ''
-      }`,
+      } ${warn ? 'text-amber-700 dark:text-amber-400' : ''}`,
+      style: depth ? { paddingLeft: `${depth * 12}px` } : undefined,
       onClick: expandable
         ? (e) => {
             e.preventDefault();
@@ -200,11 +207,13 @@ function wbsTitleIndent(row, _t, ctx = {}) {
             onToggle?.(row.id);
           }
         : undefined,
-      title: expandable
-        ? expanded
-          ? 'Thu gọn'
-          : 'Mở các task / dòng con'
-        : undefined,
+      title: warn
+        ? 'Thiếu Story / phân rã chưa đủ — bổ sung ở WHAT hoặc duyệt lại'
+        : expandable
+          ? expanded
+            ? 'Thu gọn'
+            : 'Mở các task / dòng con'
+          : undefined,
     },
     title
   );
@@ -215,6 +224,37 @@ function wbsLevelLabel(row, t) {
   if (!level) return '—';
   const fallback = WBS_LEVEL_LABELS[level] || level;
   return tr(t, `requirements.gate2WbsLevel_${level}`, fallback);
+}
+
+/**
+ * Conflicts is a count column — never use em dash for zero (reads as “missing data”).
+ * @param {number} count
+ * @param {function|undefined} t
+ * @returns {import('react').ReactNode}
+ */
+function renderConflictCountCell(count, t) {
+  const n = Number(count) || 0;
+  if (n > 0) {
+    return createElement(
+      'span',
+      {
+        className: 'font-medium text-amber-800 dark:text-amber-200',
+        title: tr(t, 'requirements.gate2ConflictsHasTitle', '{count} xung đột dung lượng').replace(
+          '{count}',
+          String(n)
+        ),
+      },
+      String(n)
+    );
+  }
+  return createElement(
+    'span',
+    {
+      className: 'text-muted-foreground',
+      title: tr(t, 'requirements.gate2ConflictsNoneTitle', 'Không xung đột dung lượng'),
+    },
+    tr(t, 'requirements.gate2ConflictsNone', 'Không')
+  );
 }
 
 /** ISO date → ngày/tháng/năm. Non-dates stay blank so the cell shows an em dash. */
@@ -287,8 +327,8 @@ const GATE2_SECTION_COLUMNS = {
       headerFallback: 'Quan hệ',
       field: 'relationLabel',
       editable: false,
-      defaultPx: 220,
-      minPx: 140,
+      defaultPx: 200,
+      minPx: 120,
       render: (r) =>
         clip(
           r.relationLabel ||
@@ -302,9 +342,58 @@ const GATE2_SECTION_COLUMNS = {
       headerFallback: 'Lý do',
       field: 'title',
       editable: true,
-      defaultPx: 200,
-      minPx: 120,
+      defaultPx: 160,
+      minPx: 100,
       render: (r) => clip(r.reason || r.title || r.summary || '—', 140),
+    },
+    {
+      key: 'requiredOutput',
+      headerKey: 'requirements.gate2ColDepRequiredOutput',
+      headerFallback: 'Output cần',
+      field: 'requiredOutput',
+      editable: false,
+      defaultPx: 140,
+      minPx: 90,
+      render: (r) => clip(r.requiredOutput || r.requiredOutputLabel || '—', 100),
+    },
+    {
+      key: 'requiredAt',
+      headerKey: 'requirements.gate2ColDepRequiredAt',
+      headerFallback: 'Chặn tại',
+      field: 'requiredAt',
+      editable: false,
+      defaultPx: 100,
+      minPx: 72,
+      render: (r, t) => {
+        const at = String(r.requiredAt || 'FULL').toUpperCase();
+        return tr(t, `requirements.gate2DepRequiredAt_${at}`, at);
+      },
+    },
+    {
+      key: 'basis',
+      headerKey: 'requirements.gate2ColDepBasis',
+      headerFallback: 'Cơ sở',
+      field: 'basis',
+      editable: false,
+      defaultPx: 88,
+      minPx: 64,
+      render: (r, t) => {
+        const basis = String(r.basis || 'INFERRED').toUpperCase();
+        return tr(t, `requirements.gate2DepBasis_${basis}`, basis);
+      },
+    },
+    {
+      key: 'schedulable',
+      headerKey: 'requirements.gate2ColDepSchedulable',
+      headerFallback: 'Lịch',
+      field: 'schedulable',
+      editable: false,
+      defaultPx: 100,
+      minPx: 72,
+      render: (r, t) =>
+        r.schedulable
+          ? tr(t, 'requirements.gate2DepSchedulableYes', 'Đưa vào lịch')
+          : tr(t, 'requirements.gate2DepSchedulableNo', 'Chỉ đề xuất'),
     },
     {
       key: 'blockingScope',
@@ -312,26 +401,11 @@ const GATE2_SECTION_COLUMNS = {
       headerFallback: 'Phạm vi chặn',
       field: 'blockingScope',
       editable: true,
-      defaultPx: 120,
-      minPx: 80,
+      defaultPx: 110,
+      minPx: 72,
       render: (r, t) => {
         const scope = String(r.blockingScope || 'FULL').toUpperCase();
         return tr(t, `requirements.gate2DepScope_${scope}`, scope);
-      },
-    },
-    {
-      key: 'parallel',
-      headerKey: 'requirements.gate2ColDepParallel',
-      headerFallback: 'Song song',
-      field: 'parallelLabel',
-      editable: false,
-      defaultPx: 140,
-      minPx: 90,
-      render: (r) => {
-        if (r.canWorkInParallel) {
-          return clip(r.parallelCondition || r.parallelLabel || 'Có thể song song', 100);
-        }
-        return r.parallelLabel || 'Tuần tự';
       },
     },
     {
@@ -340,7 +414,7 @@ const GATE2_SECTION_COLUMNS = {
       headerFallback: 'Type',
       field: 'depType',
       editable: true,
-      defaultPx: 72,
+      defaultPx: 64,
       minPx: 48,
       render: (r) => r.relationship || r.depType || 'FS',
     },
@@ -349,8 +423,8 @@ const GATE2_SECTION_COLUMNS = {
       headerKey: 'requirements.phase1ColStatus',
       headerFallback: 'Trạng thái',
       editable: false,
-      defaultPx: 110,
-      minPx: 80,
+      defaultPx: 100,
+      minPx: 72,
       render: (r, t, ctx) => {
         const status = resolveDependencyDecisionStatus(r, ctx?.decision);
         return tr(t, `requirements.gate2ItemStatus_${status}`, status);
@@ -397,11 +471,91 @@ const GATE2_SECTION_COLUMNS = {
       render: (r) => r.assignee || '—',
     },
     {
+      key: 'startDate',
+      headerKey: 'requirements.gate2ColStart',
+      headerFallback: 'Bắt đầu',
+      field: 'startDate',
+      editable: true,
+      defaultPx: 110,
+      minPx: 88,
+      render: (r, t, ctx) => {
+        const edited = ctx?.decision?.editedPayload;
+        const editedVal =
+          edited && Object.prototype.hasOwnProperty.call(edited, 'startDate')
+            ? edited.startDate
+            : undefined;
+        const raw = !isEmptyScheduleDateValue(editedVal) ? editedVal : r.startDate;
+        const text = formatGate2CalendarDay(raw) || '—';
+        const stale =
+          Boolean(r.scheduleStale) ||
+          Boolean(r.scheduleDerived) ||
+          String(r.scheduleTrust || '') === 'provisional';
+        if (!stale || text === '—') return text;
+        return createElement(
+          'span',
+          {
+            className: 'text-muted-foreground italic',
+            title: tr(
+              t,
+              'requirements.gate2ScheduleStaleHint',
+              'Lịch tạm / cần Cập nhật lịch (ScheduleTool)'
+            ),
+          },
+          text
+        );
+      },
+    },
+    {
+      key: 'dueDate',
+      headerKey: 'requirements.gate2ColDue',
+      headerFallback: 'Kết thúc',
+      field: 'dueDate',
+      editable: true,
+      defaultPx: 110,
+      minPx: 88,
+      render: (r, t, ctx) => {
+        const edited = ctx?.decision?.editedPayload;
+        const editedVal =
+          edited && Object.prototype.hasOwnProperty.call(edited, 'dueDate')
+            ? edited.dueDate
+            : undefined;
+        const raw = !isEmptyScheduleDateValue(editedVal) ? editedVal : r.dueDate;
+        const text = formatGate2CalendarDay(raw) || '—';
+        const stale =
+          Boolean(r.scheduleStale) ||
+          Boolean(r.scheduleDerived) ||
+          String(r.scheduleTrust || '') === 'provisional';
+        if (!stale || text === '—') return text;
+        return createElement(
+          'span',
+          {
+            className: 'text-muted-foreground italic',
+            title: tr(
+              t,
+              'requirements.gate2ScheduleStaleHint',
+              'Lịch tạm / cần Cập nhật lịch (ScheduleTool)'
+            ),
+          },
+          text
+        );
+      },
+    },
+    {
+      key: 'conflicts',
+      headerKey: 'requirements.gate2ColConflicts',
+      headerFallback: 'Xung đột',
+      field: 'conflictCount',
+      editable: false,
+      defaultPx: 96,
+      minPx: 72,
+      render: (r, t) => renderConflictCountCell(r?.conflictCount, t),
+    },
+    {
       key: 'score',
       headerKey: 'requirements.gate2ColScore',
       headerFallback: 'Score',
       editable: false,
-      defaultPx: 80,
+      defaultPx: 72,
       minPx: 56,
       render: (r, _t, ctx) => {
         const edited = ctx?.decision?.editedPayload;
@@ -425,6 +579,7 @@ const GATE2_SECTION_COLUMNS = {
     },
     COL_AUDIT_SOURCE,
   ],
+  /** @deprecated Lịch folded into assignments — kept for legacy decision keys only. */
   schedule: [
     COL_TITLE,
     {
@@ -507,7 +662,22 @@ const GATE2_SECTION_COLUMNS = {
       editable: true,
       defaultPx: 100,
       minPx: 64,
-      render: (r) => r.kind || '—',
+      render: (r, t) => {
+        if (r.kind === 'sprint_planning_status') {
+          return tr(t, 'requirements.gate2KindSprintPlanningStatus', 'AI status');
+        }
+        return r.kind || '—';
+      },
+    },
+    {
+      key: 'goal',
+      headerKey: 'requirements.gate2ColSprintGoal',
+      headerFallback: 'Sprint Goal',
+      field: 'goal',
+      editable: true,
+      defaultPx: 180,
+      minPx: 100,
+      render: (r) => clip(r.goal, 120) || '—',
     },
     {
       key: 'startDate',
@@ -538,6 +708,22 @@ const GATE2_SECTION_COLUMNS = {
       defaultPx: 90,
       minPx: 64,
       render: (r) => (r.effortHours != null ? String(r.effortHours) : '—'),
+    },
+    {
+      key: 'capacity',
+      headerKey: 'requirements.gate2ColCapacity',
+      headerFallback: 'Capacity (h)',
+      field: 'capacityHours',
+      editable: false,
+      defaultPx: 100,
+      minPx: 72,
+      render: (r) => {
+        if (r.kind !== 'sprint') return '—';
+        if (r.capacityHours == null) return '—';
+        const util =
+          r.utilizationPct != null ? ` · ${r.utilizationPct}%` : '';
+        return `${r.capacityHours}${util}`;
+      },
     },
     {
       key: 'taskCount',
@@ -609,15 +795,112 @@ const GATE2_SECTION_COLUMNS = {
 
 const FALLBACK = GATE2_SECTION_COLUMNS.tasks;
 
-export function getGate2ColumnsForSection(section) {
-  return GATE2_SECTION_COLUMNS[String(section || '')] || FALLBACK;
+export function getGate2ColumnsForSection(section, opts = {}) {
+  const cols = GATE2_SECTION_COLUMNS[String(section || '')] || FALLBACK;
+  const onOpenSprintScope =
+    typeof opts.onOpenSprintScope === 'function' ? opts.onOpenSprintScope : null;
+  const onOpenScheduleDetail =
+    typeof opts.onOpenScheduleDetail === 'function' ? opts.onOpenScheduleDetail : null;
+  const sectionKey = String(section || '');
+
+  if (sectionKey === 'releases' && onOpenSprintScope) {
+    return cols.map((col) => {
+      if (col.key !== 'taskCount') return col;
+      return {
+        ...col,
+        render: (r, t) => {
+          const openable =
+            r.kind === 'sprint' ||
+            r.kind === 'release' ||
+            r.kind === 'unallocated' ||
+            r.kind === 'sprint_planning_status';
+          if (!openable) {
+            return r.taskCount != null ? String(r.taskCount) : '—';
+          }
+          const label =
+            r.kind === 'sprint_planning_status'
+              ? typeof t === 'function'
+                ? t('requirements.gate2OpenSprintPlanningStatus') || 'Chi tiết'
+                : 'Chi tiết'
+              : r.taskCount != null
+                ? String(r.taskCount)
+                : '—';
+          if (r.kind !== 'sprint_planning_status' && r.taskCount == null) return '—';
+          return createElement(
+            'button',
+            {
+              type: 'button',
+              className:
+                'font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              onClick: (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenSprintScope(r);
+              },
+              title: typeof t === 'function'
+                ? t('requirements.gate2OpenSprintScope') || 'Open scope'
+                : 'Open scope',
+            },
+            label
+          );
+        },
+      };
+    });
+  }
+
+  if (sectionKey === 'assignments' && onOpenScheduleDetail) {
+    return cols.map((col) => {
+      if (col.key !== 'conflicts' && col.key !== 'startDate' && col.key !== 'dueDate') {
+        return col;
+      }
+      if (col.key === 'conflicts') {
+        return {
+          ...col,
+          render: (r, t) => {
+            const n = Number(r?.conflictCount) || 0;
+            return createElement(
+              'button',
+              {
+                type: 'button',
+                className:
+                  n > 0
+                    ? 'font-medium text-amber-800 underline-offset-2 hover:underline dark:text-amber-200'
+                    : 'text-muted-foreground underline-offset-2 hover:underline',
+                onClick: (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onOpenScheduleDetail(r);
+                },
+                title: tr(t, 'requirements.gate2OpenScheduleDetail', 'Chi tiết lịch theo ngày'),
+              },
+              n > 0
+                ? String(n)
+                : tr(t, 'requirements.gate2ConflictsNone', 'Không')
+            );
+          },
+        };
+      }
+      return col;
+    });
+  }
+
+  return cols;
 }
 
 export function getGate2FieldValue(row, col, editedPayload) {
   const field = col?.field;
   if (!field) return '';
   if (editedPayload && Object.prototype.hasOwnProperty.call(editedPayload, field)) {
-    return editedPayload[field];
+    const edited = editedPayload[field];
+    // Do not let empty seeded dates mask enriched row start/due.
+    if (
+      (field === 'startDate' || field === 'dueDate') &&
+      isEmptyScheduleDateValue(edited) &&
+      !isEmptyScheduleDateValue(row?.[field])
+    ) {
+      return row[field];
+    }
+    return edited;
   }
   return row?.[field] ?? '';
 }
@@ -626,10 +909,31 @@ export function seedGate2EditedPayload(row, columns) {
   const payload = {};
   for (const col of columns || []) {
     if (!col?.editable || !col.field) continue;
-    payload[col.field] = getGate2FieldValue(row, col, null);
+    const value = getGate2FieldValue(row, col, null);
+    // Omit blank schedule dates so later enrich / SoT can still display.
+    if (
+      (col.field === 'startDate' || col.field === 'dueDate') &&
+      isEmptyScheduleDateValue(value)
+    ) {
+      continue;
+    }
+    payload[col.field] = value;
   }
   if (Array.isArray(row?.taskIds) && row.taskIds.length) {
     payload.taskIds = row.taskIds.map(String);
+  }
+  if (Array.isArray(row?.pbiIds) && row.pbiIds.length) {
+    payload.pbiIds = row.pbiIds.map(String);
+  }
+  if (row?.goal) payload.goal = String(row.goal);
+  if (row?.capacityHours != null && Number.isFinite(Number(row.capacityHours))) {
+    payload.capacityHours = Number(row.capacityHours);
+  }
+  if (row?.utilizationPct != null && Number.isFinite(Number(row.utilizationPct))) {
+    payload.utilizationPct = Number(row.utilizationPct);
+  }
+  if (row?.taskCount != null && Number.isFinite(Number(row.taskCount))) {
+    payload.taskCount = Number(row.taskCount);
   }
   if (row?.assignee && row.assignee !== '—') payload.assignee = String(row.assignee);
   if (row?.score != null && Number.isFinite(Number(row.score))) payload.score = Number(row.score);

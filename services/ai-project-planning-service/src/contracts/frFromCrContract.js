@@ -9,7 +9,8 @@ const { modelOutputCeiling, rowsPerOutputCall } = require('../runtime/modelOutpu
 /** Reserved completion tokens for one proposed FR node. */
 const FR_FROM_CR_TOKENS_PER_FR = 160;
 
-const FR_FROM_CR_SHAPE_VERSION = 'fr-from-cr-v1';
+/** FR + epic catalog in one LLM response; fail-closed without epics/parentEpicId. */
+const FR_FROM_CR_SHAPE_VERSION = 'fr-from-cr-v2';
 const FR_FROM_CR_MAX_CR = 80;
 const FR_FROM_CR_CHUNK = FR_FROM_CR_MAX_CR;
 const FR_FROM_CR_DEFAULT_TIMEOUT_MS = 180000;

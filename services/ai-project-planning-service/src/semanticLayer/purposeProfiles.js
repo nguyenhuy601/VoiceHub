@@ -57,8 +57,9 @@ const PURPOSE_PROFILES = Object.freeze({
   },
   DEPENDENCY: {
     retrievalMode: 'graph',
-    defaultTokenBudget: 6000,
-    maxTokenBudget: 6000,
+    // 114+ WBS leaves need headroom so admission does not keep only Epic/Story.
+    defaultTokenBudget: 24000,
+    maxTokenBudget: 32000,
     defaultHistoricalPolicy: 'NONE',
     forbidSimilarityFill: true,
     requireAny: ['tasks'],

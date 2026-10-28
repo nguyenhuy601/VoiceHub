@@ -1,0 +1,18 @@
+/**
+ * Dependency analysis status enum (HOW DependencyTool).
+ */
+
+const ANALYSIS_STATUS = Object.freeze({
+  COMPLETE_NO_EDGES: 'COMPLETE_NO_EDGES',
+  DEPENDENCIES_FOUND: 'DEPENDENCIES_FOUND',
+  INCOMPLETE: 'INCOMPLETE',
+  SKIPPED: 'SKIPPED',
+  FAILED: 'FAILED',
+  PARTIAL: 'PARTIAL',
+  INVALID: 'INVALID',
+  SEMANTIC_INCOMPLETE: 'SEMANTIC_INCOMPLETE',
+});
+
+const PROMPT_VERSION = 'how-dep-llm-v2';
+
+module.exports = { ANALYSIS_STATUS, PROMPT_VERSION };

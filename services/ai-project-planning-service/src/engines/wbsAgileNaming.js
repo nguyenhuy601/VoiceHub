@@ -1,7 +1,7 @@
 /**
- * Agile WBS display names — Epic → Feature → Story → Work Package → Task.
- * RULE: Feature ≠ FR; Story = FR value once; WP = area package; Task = deliverable.
- * Never promote LLM leaf titles to Story; never double-prefix (UI: UI: …).
+ * Agile WBS display names — Contract HOW:
+ * Epic → Story (Gate1 SoT) → Work Package → Task.
+ * Feature level reserved; do not invent Feature=FR. Never promote LLM leaf titles to Story.
  */
 
 const WBS_CONTAINER_LEVELS = Object.freeze([

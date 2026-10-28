@@ -663,6 +663,10 @@ async function startPhaseAiPlanning(req, res) {
     ).trim();
     const localeRaw = String(req.body?.locale || req.get('X-UI-Locale') || '').trim().toLowerCase();
     const locale = localeRaw === 'en' || localeRaw.startsWith('en') ? 'en' : localeRaw === 'vi' || localeRaw.startsWith('vi') ? 'vi' : '';
+    const impactScopeRaw = req.body?.impactScope;
+    const impactScope = Array.isArray(impactScopeRaw)
+      ? impactScopeRaw.map((s) => String(s || '').trim()).filter(Boolean)
+      : [];
     const data = await startPhaseAiPlanningRun({
       userId,
       organizationId,
@@ -671,6 +675,7 @@ async function startPhaseAiPlanning(req, res) {
       force: Boolean(req.body?.force),
       mode: req.body?.mode || '',
       feedback: req.body?.feedback || '',
+      impactScope,
       action: req.body?.action || '',
       decision: req.body?.decision || '',
       runId: req.body?.runId || '',

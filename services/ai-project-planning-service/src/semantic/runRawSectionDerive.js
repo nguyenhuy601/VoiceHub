@@ -48,6 +48,110 @@ function isBgBrqSeedEnabled(env = process.env) {
   return raw === '1' || raw === 'true' || raw === 'on';
 }
 
+/** Map provider errors to Gate1 coverage reasons (quota vs generic empty). */
+function coverageReasonFromLlmFailure(reason) {
+  const text = String(reason || '').toLowerCase();
+  if (!text) return 'DERIVE_EMPTY';
+  if (text === 'llm_disabled') return 'LLM_DISABLED';
+  if (
+    text.includes('403') ||
+    text.includes('quota') ||
+    text.includes('free tier') ||
+    text.includes('rate_limit') ||
+    text.includes('429')
+  ) {
+    return 'LLM_QUOTA_EXHAUSTED';
+  }
+  if (text.startsWith('openai_') || text.includes('timeout') || text.includes('econn')) {
+    return 'LLM_ERROR';
+  }
+  return 'DERIVE_EMPTY';
+}
+
+/**
+ * Fail-soft BG from BRQ when LLM fails (quota/3B) — same rows as PHASE1_BG_BRQ_SEED path.
+ */
+function tryBgBrqSeedFallback(pack, opts = {}) {
+  const { buildDeterministicBgGoalsFromBrq } = require('./buildBgDeriveInput');
+  const seeded = buildDeterministicBgGoalsFromBrq(pack, { snapshot: opts.snapshot });
+  if (!seeded.items.length) return null;
+  const items = seeded.items.map((row, i) => mapRowToItem('bg', row, i));
+  return {
+    items,
+    reason: 'BRQ_SEED_FALLBACK',
+    sourceRows: seeded.brqWithGoal,
+  };
+}
+
+/**
+ * Fail-soft BR from explicit FR/BRQ rule fields only (no invented policy text).
+ */
+function tryBrFieldSeedFallback(pack, input) {
+  const rows = [];
+  const seen = new Set();
+  const pushRule = (statement, sourceId, sheet) => {
+    const text = String(statement || '').trim();
+    if (text.length < 8) return;
+    const key = text.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push({
+      id: `BR-${rows.length + 1}`,
+      statement: text.slice(0, 400),
+      title: text.slice(0, 120),
+      sourceRefs: sourceId ? [{ externalId: sourceId, sheet: sheet || '03_Requirement' }] : [],
+      relatedFrIds: sourceId ? [sourceId] : [],
+    });
+  };
+
+  const frs = Array.isArray(input?.frFull)
+    ? input.frFull
+    : Array.isArray(pack?.functionalRequirements)
+      ? pack.functionalRequirements
+      : [];
+  for (const fr of frs) {
+    const frId = String(fr?.id || fr?.externalId || fr?.logicalId || '').trim();
+    const fields = [
+      fr?.businessRule,
+      fr?.businessRules,
+      fr?.constraint,
+      fr?.constraints,
+      fr?.rule,
+      fr?.rules,
+    ];
+    for (const field of fields) {
+      if (Array.isArray(field)) {
+        for (const part of field) {
+          pushRule(
+            typeof part === 'string' ? part : part?.statement || part?.text || part?.description,
+            frId
+          );
+        }
+      } else if (field) {
+        pushRule(field, frId);
+      }
+    }
+  }
+
+  const brqs = Array.isArray(input?.brqFull)
+    ? input.brqFull
+    : Array.isArray(pack?.aiAnalysis?.customerRawRows?.businessRequests)
+      ? pack.aiAnalysis.customerRawRows.businessRequests
+      : [];
+  for (const brq of brqs) {
+    const id = String(brq?.id || brq?.requestId || brq?.externalId || '').trim();
+    pushRule(brq?.businessRule || brq?.rule || brq?.constraint, id, '01_BusinessRequest');
+  }
+
+  if (!rows.length) return null;
+  const items = rows.slice(0, 10).map((row, i) => mapRowToItem('br', row, i));
+  return {
+    items,
+    reason: 'FR_FIELD_SEED_FALLBACK',
+    sourceRows: rows.length,
+  };
+}
+
 /**
  * Hard-fail phase_what when an active LLM derive section fails or returns empty.
  * @param {string} engineId
@@ -436,6 +540,7 @@ function prepareSectionDerive(opts = {}) {
       maxTokens,
       timeoutMs,
       numCtx,
+      snapshot: opts.snapshot || null,
     },
   };
 }
@@ -574,13 +679,49 @@ function acceptSectionDerive(bundle, proposed) {
         };
       }
     }
+    // bg/br: fail-soft when DashScope quota/error — UC/BPM/Data already use GROUNDED_FIRST
+    if (reason !== 'LLM_DISABLED') {
+      let soft = null;
+      if (engineId === 'bg') soft = tryBgBrqSeedFallback(pack, { snapshot: bundle.snapshot });
+      else if (engineId === 'br') soft = tryBrFieldSeedFallback(pack, input);
+      if (soft?.items?.length) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[raw_derive] section=%s items=%d llmCalls=%d reason=%s fallback=%s',
+          engineId,
+          soft.items.length,
+          runtime?.skipped ? 0 : 1,
+          reason,
+          soft.reason
+        );
+        return {
+          status: TASK_POLICIES.RUN,
+          reason: soft.reason,
+          items: soft.items,
+          llmCalls: proposed?.llmCalls || (runtime?.skipped ? 0 : 1),
+          generationMs,
+          coverage: {
+            status: 'AVAILABLE',
+            reason: soft.reason,
+            sourceStats: {
+              sourceRows: soft.sourceRows || sourceRowCount(input),
+              mappedRows: soft.items.length,
+              orphanRows: 0,
+            },
+          },
+          section,
+        };
+      }
+    }
+    const coverageReason = coverageReasonFromLlmFailure(reason);
     // eslint-disable-next-line no-console
     console.warn(
-      '[raw_derive] section=%s items=0 llmCalls=%d reason=%s error=%s',
+      '[raw_derive] section=%s items=0 llmCalls=%d reason=%s error=%s coverage=%s',
       engineId,
       runtime?.skipped ? 0 : 1,
       reason,
-      runtime?.error || null
+      runtime?.error || null,
+      coverageReason
     );
     return {
       status: TASK_POLICIES.SKIP,
@@ -590,7 +731,7 @@ function acceptSectionDerive(bundle, proposed) {
       generationMs,
       coverage: {
         status: 'NO_DATA',
-        reason: reason === 'LLM_DISABLED' ? 'LLM_DISABLED' : 'DERIVE_EMPTY',
+        reason: coverageReason,
       },
       section,
     };
@@ -720,4 +861,7 @@ module.exports = {
   resolveBgDeriveTimeoutMs,
   resolveBgDeriveMaxTokens,
   isBgBrqSeedEnabled,
+  coverageReasonFromLlmFailure,
+  tryBgBrqSeedFallback,
+  tryBrFieldSeedFallback,
 };

@@ -17,6 +17,18 @@ function clip(value, max = 120) {
   return `${text.slice(0, max)}…`;
 }
 
+/** Temporary fr-from-cr chunk id: `c0-EPIC-IOT` → `EPIC-IOT` (display only). */
+export function stripChunkIdPrefix(raw) {
+  return String(raw || '').replace(/^c\d+-/i, '');
+}
+
+/** Epic id / title cell — never show `cN-` prefix. */
+export function displayEpicRef(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return '';
+  return stripChunkIdPrefix(text) || text;
+}
+
 /** Audit source codes shown in Gate1 "Nguồn" column. */
 export const GATE1_AUDIT_SOURCE = Object.freeze({
   FILE: 'FILE',
@@ -183,7 +195,26 @@ export const GATE1_SECTION_COLUMNS = {
     COL_TITLE,
     COL_DESCRIPTION,
     COL_PRIORITY,
-    COL_ACTORS,
+    {
+      key: 'parentEpicId',
+      headerKey: 'requirements.phase1ColEpicId',
+      headerFallback: 'Epic id',
+      field: 'parentEpicId',
+      editable: false,
+      defaultPx: 100,
+      minPx: 72,
+      render: (r) => displayEpicRef(r.parentEpicId) || '—',
+    },
+    {
+      key: 'epicTitle',
+      headerKey: 'requirements.phase1ColEpicTitle',
+      headerFallback: 'Tiêu đề Epic',
+      field: 'epicTitle',
+      editable: true,
+      defaultPx: 180,
+      minPx: 100,
+      render: (r) => displayEpicRef(r.epicTitle) || '—',
+    },
     {
       key: 'sourceCrLabel',
       headerKey: 'requirements.phase1ColSourceCr',
@@ -205,6 +236,7 @@ export const GATE1_SECTION_COLUMNS = {
     },
     COL_AUDIT_SOURCE,
   ],
+  /** @deprecated Epic/Story subpanel removed — keep columns for legacy rows only. */
   backlogStructure: [
     COL_ID,
     {
@@ -226,7 +258,8 @@ export const GATE1_SECTION_COLUMNS = {
       editable: false,
       defaultPx: 120,
       minPx: 80,
-      render: (r) => r.parentLabel || r.parentEpicId || '—',
+      render: (r) =>
+        displayEpicRef(r.parentLabel) || displayEpicRef(r.parentEpicId) || '—',
     },
     {
       key: 'frIdsLabel',
@@ -353,19 +386,23 @@ export function getGate1FieldValue(row, col, editedPayload) {
   const field = col?.field;
   if (!field) return '';
   const patch = editedPayload && typeof editedPayload === 'object' ? editedPayload : null;
+  let value = '';
   if (patch && Object.prototype.hasOwnProperty.call(patch, field) && patch[field] != null) {
-    return String(patch[field]);
+    value = String(patch[field]);
+  } else if (field === 'ac') {
+    value = String(row?.ac || row?.acceptanceCriteria || '');
+  } else if (field === 'title') {
+    value = String(row?.title || row?.name || '');
+  } else if (field === 'name') {
+    value = String(row?.name || row?.title || '');
+  } else {
+    value = String(row?.[field] ?? '');
   }
-  if (field === 'ac') {
-    return String(row?.ac || row?.acceptanceCriteria || '');
+  // Accept/edit payload can lock in stale `c0-EPIC-*` from before strip — always display clean.
+  if (field === 'epicTitle' || field === 'parentEpicId') {
+    return displayEpicRef(value);
   }
-  if (field === 'title') {
-    return String(row?.title || row?.name || '');
-  }
-  if (field === 'name') {
-    return String(row?.name || row?.title || '');
-  }
-  return String(row?.[field] ?? '');
+  return value;
 }
 
 /** Seed editedPayload from current row values for all editable columns. */
@@ -410,7 +447,9 @@ const DECISION_ACTIONS = new Set(['accept', 'edit', 'reject', 'create']);
 export function areGate1SectionDecisionsComplete(bySection, decisions = {}) {
   if (!bySection || typeof bySection !== 'object') return false;
   let total = 0;
-  for (const rows of Object.values(bySection)) {
+  // R5: backlogStructure is derived — do not require per-row Epic/Story decisions.
+  for (const [sectionKey, rows] of Object.entries(bySection)) {
+    if (sectionKey === 'backlogStructure') continue;
     if (!Array.isArray(rows)) continue;
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i];
@@ -437,7 +476,8 @@ export function areGate1SectionDecisionsComplete(bySection, decisions = {}) {
 export function countGate1PendingDecisions(bySection, decisions = {}) {
   if (!bySection || typeof bySection !== 'object') return 0;
   let pending = 0;
-  for (const rows of Object.values(bySection)) {
+  for (const [sectionKey, rows] of Object.entries(bySection)) {
+    if (sectionKey === 'backlogStructure') continue;
     if (!Array.isArray(rows)) continue;
     for (let i = 0; i < rows.length; i += 1) {
       const id = getGate1RowId(rows[i], i);

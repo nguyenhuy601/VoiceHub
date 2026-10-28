@@ -1,7 +1,8 @@
 /**
  * Wave L — HOW WBS LLM contract (Step 0).
- * XOR with hierarchy heuristic; flag via HOW_WBS_LLM or HOW_SEMANTIC_LLM master.
- * Fail → hierarchy fallback (HARD-02).
+ * MVP single path: Gate1 Story SoT + LLM task leaves → Epic → Story → Task.
+ * WbsTool never invents/edits Epic/Story. Epic without Stories → fail / report to WHAT.
+ * Flag via HOW_WBS_LLM or HOW_SEMANTIC_LLM master. Fail-closed — no hierarchy heuristic.
  */
 
 const HOW_WBS_LLM_SHAPE_VERSION = 'how-wbs-llm-v3';
@@ -31,6 +32,12 @@ const WBS_LLM_TOKENS_PER_LEAF = 160;
 const WBS_LLM_PREDICT_ENVELOPE = 80;
 /** Cap chunk count so a huge pack still fans out. */
 const WBS_LLM_MAX_CHUNKS = 16;
+/**
+ * Latency-safe FR per LLM call. Output-token fit alone packs ~50 FR and can hang
+ * DashScope for 10–20+ minutes (repair × timeout retries). Override via
+ * HOW_WBS_UNIT_CHUNK or HOW_WBS_LLM_MAX_FR_FOR_CALL.
+ */
+const WBS_LLM_DEFAULT_FR_PER_CALL = 8;
 
 /**
  * @param {NodeJS.ProcessEnv} [env]
@@ -64,7 +71,10 @@ function resolveWbsLlmMaxOutputTokens(env = process.env) {
   });
 }
 
-/** FR rows whose task JSON fits in one qwen-plus completion. */
+/**
+ * FR rows per LLM call: min(output-token fit, operator/latency cap).
+ * Without a cap, fit≈51 FR on qwen-plus and a single chunk stalls HOW for 12m+.
+ */
 function resolveWbsFrPerCall(env = process.env) {
   const maxOut = resolveWbsLlmMaxOutputTokens(env);
   const leaves = resolveWbsLlmMaxLeavesPerFr(env);
@@ -74,7 +84,11 @@ function resolveWbsFrPerCall(env = process.env) {
   if (Number.isFinite(explicit) && explicit >= 1) {
     return Math.max(1, Math.min(fit, Math.round(explicit)));
   }
-  return fit;
+  const maxFrCall = Number(env.HOW_WBS_LLM_MAX_FR_FOR_CALL);
+  if (Number.isFinite(maxFrCall) && maxFrCall >= 1) {
+    return Math.max(1, Math.min(fit, Math.round(maxFrCall)));
+  }
+  return Math.max(1, Math.min(fit, WBS_LLM_DEFAULT_FR_PER_CALL));
 }
 
 /**
@@ -119,14 +133,9 @@ function resolveWbsLlmMaxCaps(env = process.env) {
   return clampInt(env.HOW_WBS_LLM_MAX_CAPS, WBS_LLM_MAX_CAPS, { min: 1, max: 80 });
 }
 
-/** Max FR per single LLM call. Default is the qwen-plus output fit. */
+/** Max FR per single LLM call (alias of resolveWbsFrPerCall for callers). */
 function resolveWbsLlmMaxFrForCall(env = process.env) {
-  const fit = resolveWbsFrPerCall({ ...env, HOW_WBS_UNIT_CHUNK: undefined });
-  const explicit = Number(env.HOW_WBS_LLM_MAX_FR_FOR_CALL);
-  if (Number.isFinite(explicit) && explicit >= 1) {
-    return Math.max(1, Math.min(fit, Math.round(explicit)));
-  }
-  return fit;
+  return resolveWbsFrPerCall(env);
 }
 
 function storyGroupKey(unit) {
@@ -136,7 +145,7 @@ function storyGroupKey(unit) {
 }
 
 /**
- * One LLM call is a run of whole stories that fit the output window.
+ * One LLM call is a run of whole stories that fit FR + output budgets.
  * HOW_WBS_UNIT_CHUNK still forces a fixed FR count for tests and operators.
  * A story is never split across calls. A story that alone exceeds the window
  * stays one call; numPredict clamps to the model max.
@@ -155,6 +164,7 @@ function planWbsCallSlices(frUnits, env = process.env) {
   }
 
   const maxOut = resolveWbsLlmMaxOutputTokens(env);
+  const maxFr = resolveWbsLlmMaxFrForCall(env);
   const perFr = Math.max(1, resolveWbsLlmMaxLeavesPerFr(env) * WBS_LLM_TOKENS_PER_LEAF);
   /** @type {object[][]} */
   const groups = [];
@@ -175,7 +185,9 @@ function planWbsCallSlices(frUnits, env = process.env) {
   let used = WBS_LLM_PREDICT_ENVELOPE;
   for (const group of groups) {
     const cost = group.length * perFr;
-    if (current.length && used + cost > maxOut) {
+    const exceedsFr = current.length > 0 && current.length + group.length > maxFr;
+    const exceedsTok = current.length > 0 && used + cost > maxOut;
+    if (exceedsFr || exceedsTok) {
       slices.push(current);
       current = [];
       used = WBS_LLM_PREDICT_ENVELOPE;
@@ -236,6 +248,7 @@ module.exports = {
   WBS_LLM_TOKENS_PER_LEAF,
   WBS_LLM_PREDICT_ENVELOPE,
   WBS_LLM_MAX_CHUNKS,
+  WBS_LLM_DEFAULT_FR_PER_CALL,
   isHowWbsLlmFlagOn,
   resolveWbsLlmMaxLeavesPerFr,
   resolveWbsLlmMaxOutputTokens,

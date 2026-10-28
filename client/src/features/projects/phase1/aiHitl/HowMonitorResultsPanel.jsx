@@ -3,7 +3,7 @@
  * Reuses buildGate2ProposalItems + Gate2 column config.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildGate2ProposalItems } from '../buildGate2ProposalItems';
 import {
   GATE2_SCROLL_PAGE_SIZE,
@@ -11,6 +11,7 @@ import {
   getGate2ColumnsForSection,
   getGate2RowId,
 } from '../gate2/gate2SectionTableConfig';
+import Gate2SprintScopePanel from '../gate2/Gate2SprintScopePanel';
 import { useProjectMemberNames } from '../planning/useProjectMemberNames';
 import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
 import HowPlanSummaryChips from './HowPlanSummaryChips';
@@ -50,8 +51,11 @@ function sectionHasIssue(tab, bySection) {
   return isMissing || hasConflict;
 }
 
-function ReadOnlyResultsTable({ section, rows, t, headerTone = 'ok' }) {
-  const columns = useMemo(() => getGate2ColumnsForSection(section), [section]);
+function ReadOnlyResultsTable({ section, rows, t, headerTone = 'ok', onOpenSprintScope = null }) {
+  const columns = useMemo(
+    () => getGate2ColumnsForSection(section, { onOpenSprintScope }),
+    [section, onOpenSprintScope]
+  );
   const [visibleCount, setVisibleCount] = useState(GATE2_SCROLL_PAGE_SIZE);
   const sentinelRef = useRef(null);
   const scrollRootRef = useRef(null);
@@ -160,18 +164,88 @@ function ReadOnlyResultsTable({ section, rows, t, headerTone = 'ok' }) {
   );
 }
 
-function EmptySectionPanel({ t }) {
+function emptySectionCopy(section, pack, t) {
+  const container = pack?.aiAnalysis || pack?.container || pack || {};
+  const depSection = container?.analyses?.dependency || {};
+  const depMeta = depSection.meta || {};
+  const depSource = String(depMeta.source || '').trim();
+  const analysisStatus = String(
+    depSection.analysisStatus || depMeta.analysisStatus || ''
+  )
+    .trim()
+    .toUpperCase();
+  if (section === 'dependencies') {
+    if (analysisStatus === 'COMPLETE_NO_EDGES') {
+      return labelOf(
+        t,
+        'requirements.aiHitlMonitorResultsEmptyDepsComplete',
+        'Đã phân tích phụ thuộc: LLM kết luận không có cạnh hỗ trợ (COMPLETE_NO_EDGES). Schedule có thể chạy với DAG rỗng.'
+      );
+    }
+    if (analysisStatus === 'SKIPPED' || depSource === 'llm_skipped') {
+      return labelOf(
+        t,
+        'requirements.aiHitlMonitorResultsEmptyDepsSkipped',
+        'Phụ thuộc: LLM tắt (SKIPPED) — chưa phân tích. Bật LLM và chạy lại HOW; Schedule chưa sẵn sàng.'
+      );
+    }
+    if (analysisStatus === 'FAILED' || depSource === 'llm_failed') {
+      return labelOf(
+        t,
+        'requirements.aiHitlMonitorResultsEmptyDepsFailed',
+        'Phụ thuộc: phân tích thất bại (FAILED / timeout). Không đồng nghĩa “không có phụ thuộc”. Chạy lại HOW.'
+      );
+    }
+    if (
+      analysisStatus === 'SEMANTIC_INCOMPLETE' ||
+      depSource === 'semantic_incomplete'
+    ) {
+      return labelOf(
+        t,
+        'requirements.aiHitlMonitorResultsEmptyDepsSemantic',
+        'Phụ thuộc trống: thiếu WBS leaf (SEMANTIC_INCOMPLETE). Sửa WbsTool rồi chạy lại HOW.'
+      );
+    }
+    if (analysisStatus === 'INCOMPLETE' || analysisStatus === 'PARTIAL' || analysisStatus === 'INVALID') {
+      return labelOf(
+        t,
+        'requirements.aiHitlMonitorResultsEmptyDepsPartial',
+        'Phụ thuộc: phân tích chưa đủ để lên lịch (INCOMPLETE/PARTIAL/INVALID). Xem banner / câu hỏi mở trên tab này.'
+      );
+    }
+    if (Number(depMeta.llmCalls) === 0 && !analysisStatus) {
+      return labelOf(
+        t,
+        'requirements.aiHitlMonitorResultsEmptyDepsSemantic',
+        'Phụ thuộc trống: DependencyTool fail-closed (semantic_incomplete / chưa gọi LLM). Thường do WbsTool lỗi trước đó hoặc chưa có leaf task lúc chạy. Chạy lại HOW sau khi WBS ổn.'
+      );
+    }
+    return labelOf(
+      t,
+      'requirements.aiHitlMonitorResultsEmptyDeps',
+      'Chưa có cạnh phụ thuộc từ lần chạy HOW (LLM không đề xuất hoặc bị reject).'
+    );
+  }
+  if (section === 'assignments') {
+    return labelOf(
+      t,
+      'requirements.aiHitlMonitorResultsEmptyAssignments',
+      'Chưa có phân công/ngày trên leaf. Chạy HOW (ScheduleTool) — ngày bắt đầu/kết thúc nằm trên tab Phân công.'
+    );
+  }
+  return labelOf(
+    t,
+    'requirements.aiHitlMonitorResultsEmptySection',
+    'Section này chưa có dữ liệu (Gate1 rollup hoặc lần chạy HOW).'
+  );
+}
+
+function EmptySectionPanel({ section, pack, t }) {
   return (
     <div
       className={`mt-3 flex ${GATE2_TABLE_BODY_HEIGHT_CLASS} flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/30 px-3 text-center`}
     >
-      <p className="text-xs text-muted-foreground">
-        {labelOf(
-          t,
-          'requirements.aiHitlMonitorResultsEmptySection',
-          'Section này chưa có dữ liệu (Gate1 rollup hoặc lần chạy HOW).'
-        )}
-      </p>
+      <p className="text-xs text-muted-foreground">{emptySectionCopy(section, pack, t)}</p>
     </div>
   );
 }
@@ -191,6 +265,8 @@ export default function HowMonitorResultsPanel({ pack = null, t }) {
   const hasRows = (bundle.items || []).length > 0;
 
   const [activeSection, setActiveSection] = useState('');
+  const [sprintScopeRow, setSprintScopeRow] = useState(null);
+  const openSprintScope = useCallback((row) => setSprintScopeRow(row), []);
 
   useEffect(() => {
     setActiveSection((prev) => {
@@ -252,10 +328,21 @@ export default function HowMonitorResultsPanel({ pack = null, t }) {
             rows={activeRows}
             t={t}
             headerTone={activeHasIssue ? 'warn' : 'ok'}
+            onOpenSprintScope={openSprintScope}
+          />
+          <Gate2SprintScopePanel
+            row={sprintScopeRow}
+            onClose={() => setSprintScopeRow(null)}
+            t={t}
           />
         </>
       ) : activeSection ? (
-        <EmptySectionPanel t={t} />
+        <>
+          {activeSection === 'dependencies' ? (
+            <DependencyFlowPanel pack={pack} rows={[]} t={t} />
+          ) : null}
+          <EmptySectionPanel section={activeSection} pack={pack} t={t} />
+        </>
       ) : null}
     </section>
   );

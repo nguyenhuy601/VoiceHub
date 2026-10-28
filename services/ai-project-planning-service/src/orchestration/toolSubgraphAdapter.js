@@ -50,22 +50,192 @@ function buildSecSharedAnnotations() {
   };
 }
 
+/**
+ * Sec ran but produced no usable artifact (e.g. Dependency before Wbs leaves).
+ * Dependency: empty edges alone are NOT incomplete — status matrix in dependencyValidation.
+ */
+function isHowSecResultIncomplete(toolName, result) {
+  const source = String(result?.meta?.source || result?.meta?.fallbackReason || '');
+  if (source === 'semantic_incomplete') return true;
+  if (toolName === 'DependencyTool') {
+    try {
+      const { assessDependencyResult } = require('../howSecs/dependencies/dependencyValidation');
+      const assessment = assessDependencyResult(result, {
+        container: null,
+        allowTaskIds: null,
+      });
+      return assessment.status === 'incomplete';
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+function resolveDependencyExecutionStatus(result) {
+  try {
+    const { assessDependencyResult } = require('../howSecs/dependencies/dependencyValidation');
+    const assessment = assessDependencyResult(result, {
+      allowTaskIds: result?.meta?.analyzedTaskIds || null,
+    });
+    if (assessment.status === 'incomplete') {
+      return { status: 'blocked', assessment };
+    }
+    if (assessment.status === 'skipped') {
+      return { status: 'skipped', assessment };
+    }
+    // FAILED / INVALID / PARTIAL are terminal analysis outcomes (executionTerminal).
+    // Do NOT emit TOOL_FAILED — that hard-stops HOW and blocks Risk. Schedule still
+    // gates on scheduleReady; analysisStatus stays on the container for Gate2 UI.
+    if (
+      assessment.status === 'failed' ||
+      assessment.status === 'partial' ||
+      assessment.executionTerminal
+    ) {
+      return { status: 'succeeded', assessment };
+    }
+    return { status: 'succeeded', assessment };
+  } catch {
+    return { status: 'failed', assessment: null };
+  }
+}
+
 function makeApplySharedNode(toolName) {
   return async function applyShared(state) {
+    const {
+      createToolExecution,
+      executionToLegacyToolResult,
+      attemptCountForTool,
+      hashToolInput,
+      ERROR_CODES,
+    } = require('./toolExecutionContract');
     const patch = state.containerPatch;
+    const result = state.result;
+    const attempt = attemptCountForTool(state, toolName) + 1;
+    const resultInputHash = result?.inputHash || result?.meta?.inputHash || null;
+    const inputHash =
+      resultInputHash ||
+      hashToolInput(toolName, {
+        snapshotId: state.snapshotId,
+        resultMeta: result?.meta?.source || null,
+        analysisStatus: result?.analysisStatus || result?.meta?.analysisStatus || null,
+        wbsVersion: result?.wbsVersion || result?.meta?.wbsVersion || null,
+      });
+
+    // Stale Dependency patch: container WBS changed under us
+    let applyPatch = patch && typeof patch === 'object' && Object.keys(patch).length > 0;
+    if (toolName === 'DependencyTool' && applyPatch) {
+      const existing = state.container?.analyses?.dependency || {};
+      const incomingWbs = result?.wbsVersion || result?.meta?.wbsVersion;
+      const existingWbs = existing.wbsVersion || existing.meta?.wbsVersion;
+      if (
+        existing.inputHash &&
+        resultInputHash &&
+        existing.inputHash === resultInputHash &&
+        existingWbs &&
+        incomingWbs &&
+        existingWbs === incomingWbs
+      ) {
+        // Idempotent re-apply — still merge (replace same namespace)
+        applyPatch = true;
+      }
+      if (existingWbs && incomingWbs && existingWbs !== incomingWbs && existing.inputHash === resultInputHash) {
+        applyPatch = false;
+      }
+    }
+
+    let execution;
+    if (result == null) {
+      execution = createToolExecution({
+        toolName,
+        status: 'failed',
+        attempt,
+        inputHash,
+        outputValidated: false,
+        error: {
+          code: ERROR_CODES.TOOL_RESULT_MISSING,
+          retryable: true,
+          message: `${toolName} subgraph returned undefined result`,
+        },
+      });
+    } else if (toolName === 'DependencyTool') {
+      const resolved = resolveDependencyExecutionStatus(result);
+      const status = resolved.status;
+      execution = createToolExecution({
+        toolName,
+        status,
+        attempt,
+        inputHash,
+        outputValidated: status === 'succeeded' || status === 'skipped',
+        outputRef: status === 'succeeded' || status === 'skipped' ? `${toolName}:${inputHash}` : undefined,
+        reason: result?.analysisStatus || result?.meta?.analysisStatus || result?.meta?.source,
+        blockedBy:
+          status === 'blocked' ? ['upstream_or_coverage', 'dependency_incomplete'] : undefined,
+        error:
+          status === 'failed'
+            ? {
+                code: ERROR_CODES.TOOL_FAILED,
+                retryable: false,
+                message: String(result?.analysisStatus || result?.meta?.source || 'dependency_failed'),
+              }
+            : undefined,
+        startedAt: new Date().toISOString(),
+      });
+    } else {
+      const incomplete = isHowSecResultIncomplete(toolName, result);
+      if (incomplete) {
+        execution = createToolExecution({
+          toolName,
+          status: 'blocked',
+          attempt,
+          inputHash,
+          outputValidated: false,
+          reason: result?.meta?.source || 'semantic_incomplete',
+          blockedBy: ['upstream_or_coverage'],
+        });
+      } else {
+        execution = createToolExecution({
+          toolName,
+          status: 'succeeded',
+          attempt,
+          inputHash,
+          outputValidated: true,
+          outputRef: `${toolName}:${inputHash}`,
+          startedAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    const legacy = executionToLegacyToolResult(execution);
     const update = {
-      toolResults: [{ toolName, ok: true }],
-      history: [`execute:${toolName}`],
+      toolExecutions: [execution],
+      toolResults: [legacy],
+      history: [`execute:${toolName}:${execution.status}`],
       messages: [
         {
           role: 'tool',
           name: toolName,
-          content: JSON.stringify({ ok: true, path: 'pattern_b_subgraph' }),
+          content: JSON.stringify({
+            ok: execution.status === 'succeeded' || execution.status === 'skipped',
+            status: execution.status,
+            path: 'pattern_b_subgraph',
+            analysisStatus: result?.analysisStatus || result?.meta?.analysisStatus || null,
+            scheduleReady: result?.scheduleReady ?? result?.meta?.scheduleReady ?? null,
+            executionTerminal: result?.executionTerminal ?? result?.meta?.executionTerminal ?? null,
+            ...(execution.reason ? { reason: execution.reason } : {}),
+          }),
         },
       ],
       currentToolName: toolName,
     };
-    if (patch && typeof patch === 'object') {
+    // Apply dependency patch on terminal outcomes so status flags reach container (Risk/Schedule gates).
+    const terminalApply =
+      execution.status === 'succeeded' ||
+      execution.status === 'skipped' ||
+      (toolName === 'DependencyTool' &&
+        (execution.status === 'failed' || execution.status === 'blocked') &&
+        result?.executionTerminal);
+    if (terminalApply && applyPatch) {
       update.container = patch;
     }
     return update;
@@ -500,6 +670,10 @@ function buildWhatSectionToolSubgraph(engineId) {
       env: state.env || process.env,
       proposal: state.srsProposal || null,
       snapshot: state.snapshot || null,
+      frUnderstanding: state.frUnderstanding || null,
+      evidence: state.frUnderstanding?.evidence || null,
+      contextPackage: state.contextPackage || null,
+      locale: state.frOpts?.locale || state.pack?.aiAnalysis?.deriveLocale || null,
     });
     return { prepared, engineId: eid };
   });
@@ -562,6 +736,7 @@ module.exports = {
   HOW_SEC_TOOL_NAMES,
   buildSecSharedAnnotations,
   makeApplySharedNode,
+  isHowSecResultIncomplete,
   buildArchitectureToolSubgraph,
   getHowSecToolSubgraph,
   buildWhatSectionToolSubgraph,

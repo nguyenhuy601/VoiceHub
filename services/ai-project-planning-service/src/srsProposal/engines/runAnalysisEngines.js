@@ -13,6 +13,7 @@ const { applyProposalFragment } = require('../srsProposalReducer');
 const { createEmptySrsProposal, isSrsProposal } = require('../srsProposalSchema');
 const { buildFoundationUnderstanding, applyFoundationToProposal } = require('../foundation');
 const { assertNoSrsDraftInEngineResult } = require('../contracts/analysisEngineContract');
+const { shouldApplyEngineSectionWrite } = require('../preserveDerivedSections');
 
 const ENGINE_MODULES = {
   bg: () => require('./bgEngine'),
@@ -170,7 +171,11 @@ async function runAnalysisEngines(opts = {}) {
     for (const { id, entry, result } of layerOut) {
       resultsById[id] = result;
       executionOrder.push(id);
-      if (result.execution?.status === 'SUCCESS' && entry?.writesSection) {
+      if (
+        result.execution?.status === 'SUCCESS' &&
+        entry?.writesSection &&
+        shouldApplyEngineSectionWrite(proposal, entry.writesSection, result.items)
+      ) {
         proposal = applyProposalFragment(
           proposal,
           {
@@ -188,6 +193,17 @@ async function runAnalysisEngines(opts = {}) {
           { bumpProposalVersion: false }
         );
         // Persist FrDecompose tree for Gate1 / HOW (not a catalog section).
+        const structure =
+          result.backlogStructure ||
+          (id === 'fr' ? opts.proposalFragment?.backlogStructure : null);
+        if (structure && typeof structure === 'object') {
+          proposal.generated = {
+            ...(proposal.generated || {}),
+            backlogStructure: structure,
+          };
+        }
+      } else if (result.execution?.status === 'SUCCESS' && entry?.writesSection) {
+        // Section write skipped (preserve) — still attach FrDecompose when FR.
         const structure =
           result.backlogStructure ||
           (id === 'fr' ? opts.proposalFragment?.backlogStructure : null);

@@ -98,6 +98,22 @@ async function probeRedisJsonSupport(url) {
 }
 
 /**
+ * Normalize accidental misuse: Promise / { checkpointer, kind } / raw saver.
+ * LangGraph requires BaseCheckpointSaver with getTuple — not a Promise wrapper.
+ * @param {unknown} value
+ * @returns {object|null}
+ */
+function unwrapCheckpointer(value) {
+  if (!value || typeof value !== 'object') return null;
+  if (typeof value.then === 'function') return null; // unresolved Promise — caller must await
+  if (typeof value.getTuple === 'function') return value;
+  if (value.checkpointer && typeof value.checkpointer.getTuple === 'function') {
+    return value.checkpointer;
+  }
+  return null;
+}
+
+/**
  * @param {{ env?: NodeJS.ProcessEnv, forceMemory?: boolean }} [opts]
  * @returns {Promise<{ checkpointer: object, kind: 'redis'|'memory' }>}
  */
@@ -149,6 +165,7 @@ function _resetLangGraphCheckpointerCacheForTests() {
 
 module.exports = {
   getLangGraphCheckpointer,
+  unwrapCheckpointer,
   redisUrlFromEnv,
   probeRedisJsonSupport,
   preferMemory,

@@ -137,7 +137,7 @@ async function enqueueWbsLlmAndWait(opts = {}) {
       wbs: done.result.wbs,
       meta: {
         ...(done.result.meta || {}),
-        source: done.result.meta?.source || 'llm_hierarchy',
+        source: done.result.meta?.source || 'llm_failed',
         queue: true,
         jobId: job.id,
         transport: pub?.transport,

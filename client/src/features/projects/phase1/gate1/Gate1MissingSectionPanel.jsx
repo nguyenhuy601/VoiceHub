@@ -35,6 +35,8 @@ const RAW_SOFT_REASONS = new Set([
   'EMPTY',
   'LLM_DISABLED',
   'DERIVE_EMPTY',
+  'LLM_QUOTA_EXHAUSTED',
+  'LLM_ERROR',
   'DERIVE_LOCKED',
   'RAW_DERIVE_NOT_APPLICABLE',
   'HEURISTIC_FROM_FR',
@@ -67,6 +69,14 @@ const REASON_I18N = {
     'requirements.phase1Gate1ReasonDeriveEmpty',
     'Không derive được section từ CR/NFR/context — cần BA bổ sung hoặc chạy lại AI',
   ],
+  LLM_QUOTA_EXHAUSTED: [
+    'requirements.phase1Gate1ReasonLlmQuota',
+    'LLM hết hạn mức (quota) — nạp DashScope / đổi model rồi chạy lại AI',
+  ],
+  LLM_ERROR: [
+    'requirements.phase1Gate1ReasonLlmError',
+    'LLM lỗi khi derive section — kiểm tra API rồi chạy lại AI',
+  ],
   DERIVE_LOCKED: [
     'requirements.phase1Gate1ReasonDeriveLocked',
     'Section tạm khóa — đang chỉ derive BG để test workflow',
@@ -74,6 +84,22 @@ const REASON_I18N = {
   RAW_ANALYSIS_PENDING: [
     'requirements.phase1Gate1ReasonRawAnalysisPending',
     'Chờ phân tích từ CR/NFR/context (không có sheet Analysis trên Customer Raw)',
+  ],
+  MISSING_PROJECT_START: [
+    'requirements.gate2ScheduleReasonMissingStart',
+    'Thiếu ngày bắt đầu dự án — heuristic Lịch không xếp được lịch',
+  ],
+  NO_ASSIGNMENTS: [
+    'requirements.gate2ScheduleReasonNoAssignments',
+    'Chưa gán người (Phân công) — Lịch chỉ xếp task đã gán hoặc placeholder UNASSIGNED',
+  ],
+  NO_LEAF_TASKS: [
+    'requirements.gate2ScheduleReasonNoLeaves',
+    'Chưa có WBS leaf task — chạy HOW / WBS trước khi lập lịch',
+  ],
+  SCHEDULE_EMPTY: [
+    'requirements.gate2ScheduleReasonEmpty',
+    'ScheduleTool chưa sinh dòng lịch — chạy lại HOW (Schedule) trên Monitor',
   ],
 };
 
@@ -107,6 +133,8 @@ export default function Gate1MissingSectionPanel({
   if (isRawDerivedSection && RAW_SOFT_REASONS.has(reasonKey)) {
     if (reasonKey === 'LLM_DISABLED') reasonEntry = REASON_I18N.LLM_DISABLED;
     else if (reasonKey === 'DERIVE_EMPTY') reasonEntry = REASON_I18N.DERIVE_EMPTY;
+    else if (reasonKey === 'LLM_QUOTA_EXHAUSTED') reasonEntry = REASON_I18N.LLM_QUOTA_EXHAUSTED;
+    else if (reasonKey === 'LLM_ERROR') reasonEntry = REASON_I18N.LLM_ERROR;
     else if (reasonKey === 'DERIVE_LOCKED') reasonEntry = REASON_I18N.DERIVE_LOCKED;
     else reasonEntry = REASON_I18N.RAW_ANALYSIS_PENDING;
   }

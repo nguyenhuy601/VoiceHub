@@ -181,7 +181,22 @@ async function runWbsChunkOrchestrator(opts = {}) {
   const frUnits = Array.isArray(opts.frUnits) ? opts.frUnits : [];
   const runId = String(opts.runId || `wbs-${opts.inputSnapshotId || 'local'}`).trim();
   const inputSnapshotId = String(opts.inputSnapshotId || 'snapshot-unbound').trim();
-  const graph = buildWbsChunkGraph({ checkpointer: opts.checkpointer || new MemorySaver() });
+  const {
+    getLangGraphCheckpointer,
+    unwrapCheckpointer,
+  } = require('../orchestration/langGraphCheckpointer');
+  let checkpointer = unwrapCheckpointer(opts.checkpointer);
+  if (!checkpointer && resolveWbsChunkTransport(env) === 'rabbit') {
+    try {
+      // Must await — getLangGraphCheckpointer returns { checkpointer, kind }, not a saver.
+      const resolved = await getLangGraphCheckpointer({ env });
+      checkpointer = unwrapCheckpointer(resolved);
+    } catch {
+      checkpointer = null;
+    }
+  }
+  if (!checkpointer) checkpointer = new MemorySaver();
+  const graph = buildWbsChunkGraph({ checkpointer });
   const config = isolateChunkInvokeConfig({
     configurable: {
       thread_id: `wbs-chunk:${runId}:${inputSnapshotId}`,
@@ -205,7 +220,12 @@ async function runWbsChunkOrchestrator(opts = {}) {
     result: null,
   };
 
-  const maxCycles = resolveWbsChunkMaxAttempts(env) + 2;
+  const transport = resolveWbsChunkTransport(env);
+  // Opt-in only: park without long-poll requires a HOW-phase resume that applies
+  // wave result back into WbsTool. Default false so WbsTool drains rabbit workers
+  // in-process (Dep/Schedule still run in the same HOW pass).
+  const durableRabbit = transport === 'rabbit' && opts.durableAwait === true;
+
   let value = await enrichFanInState(
     graph,
     await invokeChunkGraph(graph, initial, config),
@@ -213,11 +233,49 @@ async function runWbsChunkOrchestrator(opts = {}) {
     runId,
     env
   );
+
+  // Opt-in durable park — worker/resumeWbsWave continues chunk graph (no long-poll).
+  if (durableRabbit && shouldDrainWorkers(value)) {
+    const threadId = `wbs-chunk:${runId}:${inputSnapshotId}`;
+    console.info(
+      `[wbs-chunk] durable_await interrupt run=${runId} thread=${threadId} receipts=${
+        Array.isArray(value.receipts) ? value.receipts.length : 0
+      }`
+    );
+    return {
+      ok: false,
+      waitingExternal: true,
+      meta: {
+        source: 'waiting_external',
+        decompositionOutcome: 'waiting',
+        fallbackReason: 'wbs_chunk_fan_in',
+        reasonCodes: ['wbs_chunk_durable_await'],
+        llmCalls: 0,
+        chunks: Array.isArray(value.chunks) ? value.chunks.length : 0,
+        chunkOrchestrator: 'langgraph',
+        waitingExternal: true,
+        threadId,
+        runId,
+        inputSnapshotId,
+        jobId: threadId,
+      },
+    };
+  }
+
+  if (transport === 'rabbit' && shouldDrainWorkers(value)) {
+    console.info(
+      `[wbs-chunk] rabbit_drain_wait run=${runId} receipts=${
+        Array.isArray(value.receipts) ? value.receipts.length : 0
+      }`
+    );
+  }
+
+  const maxCycles = resolveWbsChunkMaxAttempts(env) + 2;
   let cycles = 0;
   while (shouldDrainWorkers(value) && cycles < maxCycles) {
     cycles += 1;
     console.info(
-      `[wbs-chunk] fan_in_drain run=${runId} cycle=${cycles} transport=${resolveWbsChunkTransport(env)} receipts=${
+      `[wbs-chunk] fan_in_drain run=${runId} cycle=${cycles} transport=${transport} receipts=${
         Array.isArray(value.receipts) ? value.receipts.length : 0
       }`
     );
@@ -330,4 +388,7 @@ module.exports = {
   isolateChunkInvokeConfig,
   shouldDrainWorkers,
   enrichFanInState,
+  invokeChunkGraph,
+  resumeAfterFanIn,
+  snapshotHasInterrupt,
 };

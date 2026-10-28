@@ -3,7 +3,11 @@ const {
   runProjectPlanEngine,
   applyProjectPlanToContainer,
 } = require('../engines/projectPlan');
-const { assembleHowToolContext, contextAllowsWork } = require('../semanticLayer/howToolContext');
+const {
+  assembleHowToolContext,
+  contextAllowsWork,
+  scopeContainerTasksByContext,
+} = require('../semanticLayer/howToolContext');
 
 async function projectPlan(input = {}, context = {}) {
   const snapshotId = input.snapshotId || null;
@@ -17,17 +21,7 @@ async function projectPlan(input = {}, context = {}) {
     snapshotId,
     contextPackage: input.contextPackage || context.contextPackage || null,
   });
-  const allowed = new Set((layer.requiredData?.tasks || []).map((task) => task.id));
-  const sourceTasks = Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [];
-  const scoped = contextAllowsWork(layer)
-    ? {
-        ...container,
-        planning: {
-          ...(container.planning || {}),
-          tasks: sourceTasks.filter((task) => allowed.has(String(task.id || task.taskId || ''))),
-        },
-      }
-    : container;
+  const scoped = scopeContainerTasksByContext(container, layer);
   const result = contextAllowsWork(layer)
     ? runProjectPlanEngine(scoped)
     : { status: layer.status || layer.code, executionPlan: { taskCount: 0 } };

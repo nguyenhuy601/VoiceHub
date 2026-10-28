@@ -1,9 +1,7 @@
 /**
  * Build Gate1 Analysis Review rows from Analysis Proposal (persist: srsProposal).
- * Active Analysis tabs (FR + Epic/Story + …); Interface/Glossary/Assumption/Traceability trimmed.
+ * FR tab = one table with Epic id / Tiêu đề Epic (derived backlog; no Epic/Story subpanel).
  */
-
-import { buildGate1BacklogStructureRows } from './gate1/buildGate1BacklogStructureRows.js';
 
 const SECTION_ORDER = [
   'functionalRequirements',
@@ -19,6 +17,9 @@ const SECTION_ORDER = [
 
 /** Legacy foundation — domain/context not shown; actors are Gate1-sensitive (RULE-03). */
 const LEGACY_EXCLUDED = new Set(['domain', 'context']);
+
+/** backlogStructure is derived SoT catalog — not a Gate1 decision surface. */
+const REVIEW_EXCLUDED = new Set(['backlogStructure']);
 
 const SECTION_LABELS = {
   functionalRequirements: 'FR',
@@ -121,10 +122,45 @@ function actorsLabel(row) {
   return clipReviewText(row?.actor || row?.primaryActor || '');
 }
 
-function mapItem(row, section, index) {
+/** Drop temporary fr-from-cr chunk prefix from epic titles (`c0-EPIC-IOT` → `EPIC-IOT`). */
+function stripChunkIdPrefix(raw) {
+  return String(raw || '').replace(/^c\d+-/i, '');
+}
+
+function cleanEpicTitle(name, id) {
+  const raw = String(name || '').trim();
+  const cleanId = stripChunkIdPrefix(id) || id;
+  if (!raw || raw === id || raw === cleanId) return cleanId;
+  if (/^c\d+-/i.test(raw)) return stripChunkIdPrefix(raw) || raw;
+  return raw;
+}
+
+function epicCatalogById(backlogStructure) {
+  const map = new Map();
+  const epics = Array.isArray(backlogStructure?.epics) ? backlogStructure.epics : [];
+  for (const epic of epics) {
+    const id = String(epic?.id || '').trim();
+    if (!id || map.has(id)) continue;
+    map.set(id, {
+      id,
+      name: cleanEpicTitle(epic?.name || epic?.title, id),
+    });
+  }
+  return map;
+}
+
+function mapItem(row, section, index, epicById = null) {
   const logicalId = String(
     row?.logicalId || row?.id || row?.externalId || row?.frId || `${section}-${index + 1}`
   ).trim();
+  const parentEpicId =
+    row?.parentEpicId === undefined || row?.parentEpicId === null || row?.parentEpicId === ''
+      ? row?.parentEpicId === null
+        ? null
+        : ''
+      : String(row.parentEpicId).trim();
+  const epic =
+    parentEpicId && epicById instanceof Map ? epicById.get(parentEpicId) : null;
   return {
     id: logicalId,
     logicalId,
@@ -139,6 +175,11 @@ function mapItem(row, section, index) {
     ac: clipReviewText(row?.ac || row?.acceptanceCriteria),
     priority: String(row?.priority || '').trim(),
     actorsLabel: actorsLabel(row),
+    parentEpicId: parentEpicId || null,
+    epicTitle: cleanEpicTitle(
+      epic?.name || (row?.epicTitle != null ? String(row.epicTitle) : '') || '',
+      parentEpicId || ''
+    ),
     status: String(row?.status || 'EXTRACTED'),
     origin: row?.origin || null,
     provenance: row?.provenance || null,
@@ -200,25 +241,22 @@ export function buildGate1ProposalItems(opts = {}) {
     reviews.filter((r) => r?.section).map((r) => [r.section, r])
   );
 
+  const epicById = epicCatalogById(generated?.backlogStructure);
+
   if (generated) {
     for (const key of SECTION_ORDER) {
-      if (LEGACY_EXCLUDED.has(key)) continue;
+      if (LEGACY_EXCLUDED.has(key) || REVIEW_EXCLUDED.has(key)) continue;
       const items = Array.isArray(generated[key]?.items) ? generated[key].items : [];
       if (!items.length) continue;
-      bySection[key] = items.map((row, i) => mapItem(row, key, i));
+      bySection[key] = items.map((row, i) =>
+        mapItem(row, key, i, key === 'functionalRequirements' ? epicById : null)
+      );
     }
     enrichFrAcFromPack(bySection, pack);
-
-    // FrDecompose Epic→Story — not a catalog section with .items
-    if (!LEGACY_EXCLUDED.has('backlogStructure')) {
-      const structureRows = buildGate1BacklogStructureRows(generated.backlogStructure);
-      if (structureRows.length) {
-        bySection.backlogStructure = structureRows;
-      }
-    }
   }
 
-  if (!Object.keys(bySection).length) {
+  // FR may be empty while other sections exist (empty fragment wiped FR). Always backfill FR.
+  if (!(bySection.functionalRequirements || []).length) {
     const g4Reqs = Array.isArray(g4?.requirements) ? g4.requirements : [];
     const frs = Array.isArray(pack?.functionalRequirements) ? pack.functionalRequirements : [];
     const gateRows = Array.isArray(pack?.liveRun?.gatePreview?.rows)
@@ -227,8 +265,9 @@ export function buildGate1ProposalItems(opts = {}) {
     const source = g4Reqs.length ? g4Reqs : frs.length ? frs : gateRows;
     if (source.length) {
       bySection.functionalRequirements = source.map((row, i) =>
-        mapItem(row, 'functionalRequirements', i)
+        mapItem(row, 'functionalRequirements', i, epicById)
       );
+      enrichFrAcFromPack(bySection, pack);
     }
   }
 
@@ -276,6 +315,6 @@ export function buildGate1ProposalItems(opts = {}) {
 
 
 
-export { SECTION_ORDER, SECTION_LABELS, LEGACY_EXCLUDED };
+export { SECTION_ORDER, SECTION_LABELS, LEGACY_EXCLUDED, REVIEW_EXCLUDED };
 
 

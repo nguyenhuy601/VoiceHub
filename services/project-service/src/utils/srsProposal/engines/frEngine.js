@@ -25,11 +25,19 @@ function run(input = {}) {
       input.upstreamFragments?.functionalRequirements?.items;
 
     let rawItems = [];
-    if (fragment?.section === 'functionalRequirements' && Array.isArray(fragment.items)) {
+    // Empty fragment.items must not block pack/upstream FR.
+    if (
+      fragment?.section === 'functionalRequirements' &&
+      Array.isArray(fragment.items) &&
+      fragment.items.length
+    ) {
       rawItems = fragment.items;
-    } else if (Array.isArray(existingItems)) {
+    } else if (Array.isArray(existingItems) && existingItems.length) {
       rawItems = existingItems;
-    } else if (Array.isArray(input.ownedSectionProjection?.rows)) {
+    } else if (
+      Array.isArray(input.ownedSectionProjection?.rows) &&
+      input.ownedSectionProjection.rows.length
+    ) {
       rawItems = input.ownedSectionProjection.rows;
     }
 

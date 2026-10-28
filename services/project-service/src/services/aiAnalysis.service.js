@@ -1197,19 +1197,23 @@ async function applyRemotePhaseRunResult({
         result?.result?.feasibility ||
         incoming.analyses?.g13Feasibility ||
         null;
+      const {
+        resolvePhaseRunStampFromIncoming,
+      } = require('../utils/aiAnalysis/resolvePhaseRunStampFromIncoming');
+      // Prefer phase meta already merged from incoming.phaseRuns; fall back to raw incoming.
+      const incomingPhase =
+        (container.phaseRuns && container.phaseRuns[job]) ||
+        (incoming.phaseRuns && incoming.phaseRuns[job]) ||
+        {};
       container.phaseRuns = {
         ...(container.phaseRuns || {}),
-        [job]: {
-          status: 'ready',
-          mode: job === 'phase_what' ? 'requirement' : undefined,
-          remoteRunId: String(runId),
-          snapshotId: String(snapshotId),
-          hitl: result?.result?.hitl || (job === 'phase_how' ? 'gate2' : 'gate1'),
-          durationMs: result?.meta?.durationMs || result?.result?.durationMs || null,
-          completedAt: new Date().toISOString(),
-          error: null,
-          ...(feas && typeof feas === 'object' ? { feasibility: feas } : {}),
-        },
+        [job]: resolvePhaseRunStampFromIncoming(incomingPhase, {
+          job,
+          runId,
+          snapshotId,
+          durationMsFallback: result?.meta?.durationMs || result?.result?.durationMs || null,
+          feasibility: feas && typeof feas === 'object' ? feas : null,
+        }),
       };
       if (job === 'phase_how' && feas && typeof feas === 'object') {
         container.analyses = {
@@ -1534,6 +1538,7 @@ async function startPhaseAiPlanningRun({
   force = false,
   mode = '',
   feedback = '',
+  impactScope = [],
   action = '',
   decision = '',
   runId = '',
@@ -1817,6 +1822,38 @@ async function startPhaseAiPlanningRun({
     console.info('[phase_how] reset Gate2 review state on force re-run', {
       packId: String(packId),
     });
+
+    // Full force (no impactScope): drop prior HOW analysis so tools re-run.
+    // Stale analyses.dependency.executionTerminal made DependencyTool look "done"
+    // and HOW skipped it — pack kept FAILED while wall-clock looked like a new run.
+    const forceScopes = Array.isArray(impactScope)
+      ? impactScope.map((s) => String(s || '').trim()).filter(Boolean)
+      : [];
+    const fullHowRerun = forceScopes.length === 0;
+    const needsDependencyReset =
+      fullHowRerun ||
+      forceScopes.some((s) =>
+        ['WBS', 'wbs', 'structure', 'backlog', 'requirement', 'dependency', 'dependencies'].includes(
+          String(s)
+        )
+      );
+    if (needsDependencyReset) {
+      const analyses = { ...(container.analyses || {}) };
+      delete analyses.dependency;
+      if (fullHowRerun) {
+        delete analyses.assignment;
+        delete analyses.schedule;
+        delete analyses.risk;
+        delete analyses.risks;
+      }
+      container.analyses = analyses;
+      // eslint-disable-next-line no-console
+      console.info('[phase_how] clear HOW analyses on force re-run', {
+        packId: String(packId),
+        fullHowRerun,
+        clearedDependency: true,
+      });
+    }
   }
 
   // WHAT re-run: drop prior Gate1 proposal so Review UI cannot show stale Duyệt data
@@ -1944,6 +1981,12 @@ async function startPhaseAiPlanningRun({
   const loop1Text =
     feedbackClean ||
     (phaseJob === 'phase_what' && force && rejectReason ? rejectReason.slice(0, 2000) : '');
+  const howImpactScope = Array.isArray(impactScope)
+    ? impactScope.map((s) => String(s || '').trim()).filter(Boolean)
+    : [];
+  const howScheduleRefresh =
+    phaseJob === 'phase_how' &&
+    (howImpactScope.includes('resource') || howImpactScope.includes('schedule'));
 
   // RULE-DL-07: new runs forbid embedded input.snapshot / input.pack — APS hydrates via S2S
   const deriveLocale = String(locale || '').trim().toLowerCase() === 'en' ? 'en' : 'vi';
@@ -1958,32 +2001,47 @@ async function startPhaseAiPlanningRun({
     pipelineVersion: snapshotObject?.pipelineVersion ?? PIPELINE_VERSION,
     inputFingerprint:
       toolData.inputFingerprint || `${phaseJob}:${snapshotId}`,
-    ...(loop1Text
-      ? (() => {
-          const {
-            readLoop1ReuseFromPack,
-            toLoop1G4OptsSeed,
-          } = require('../utils/aiAnalysis/loop1ReuseArtifact');
-          const reuse = readLoop1ReuseFromPack(
-            packForPhase.aiAnalysis,
-            snapshotId
-          );
-          const reuseSeed = toLoop1G4OptsSeed(reuse) || {};
-          return {
-            feedback: loop1Text,
-            humanFeedback: {
-              kind: 'requirement_feedback',
-              source: 'gate1',
-              text: loop1Text,
-            },
-            frOpts: {
-              loop1Reenter: true,
-              locale: deriveLocale,
-              ...reuseSeed,
-            },
-          };
-        })()
-      : { frOpts: { locale: deriveLocale } }),
+    ...(howScheduleRefresh
+      ? {
+          feedback:
+            feedbackClean ||
+            'Refresh schedule after Gate2 assignment edits (impactScope resource/schedule)',
+          humanFeedback: {
+            kind: 'planning_feedback',
+            source: 'gate2',
+            text:
+              feedbackClean ||
+              'Refresh schedule after Gate2 assignment edits (impactScope resource/schedule)',
+            impactScope: howImpactScope.length ? howImpactScope : ['resource', 'schedule'],
+          },
+          frOpts: { locale: deriveLocale },
+        }
+      : loop1Text
+        ? (() => {
+            const {
+              readLoop1ReuseFromPack,
+              toLoop1G4OptsSeed,
+            } = require('../utils/aiAnalysis/loop1ReuseArtifact');
+            const reuse = readLoop1ReuseFromPack(
+              packForPhase.aiAnalysis,
+              snapshotId
+            );
+            const reuseSeed = toLoop1G4OptsSeed(reuse) || {};
+            return {
+              feedback: loop1Text,
+              humanFeedback: {
+                kind: 'requirement_feedback',
+                source: 'gate1',
+                text: loop1Text,
+              },
+              frOpts: {
+                loop1Reenter: true,
+                locale: deriveLocale,
+                ...reuseSeed,
+              },
+            };
+          })()
+        : { frOpts: { locale: deriveLocale } }),
   };
   if (slimInput.snapshot != null || slimInput.pack != null) {
     delete slimInput.snapshot;
@@ -2033,6 +2091,31 @@ async function startPhaseAiPlanningRun({
     const err = new Error(s2s.data?.message || 'Phase planning start rejected');
     err.statusCode = s2s.status >= 400 ? s2s.status : 502;
     err.errorCode = s2s.data?.errorCode || 'PHASE_PLANNING_START_FAILED';
+    throw err;
+  }
+
+  // Guard: APS must echo the pre-allocated runId. A stale activeKey "replay" of an
+  // older terminal run used to 202 with a different id → pack pending forever, no graph.
+  const remoteEcho = String(s2s.data?.runId || s2s.data?.data?.runId || '').trim();
+  if (remoteEcho && remoteEcho !== String(expectedRunId)) {
+    container.phaseRuns[phaseJob] = {
+      ...container.phaseRuns[phaseJob],
+      status: 'failed',
+      error: {
+        code: 'REMOTE_RUN_ID_MISMATCH',
+        message: `APS returned runId=${remoteEcho} but facade allocated ${expectedRunId}`,
+        remoteRunId: remoteEcho,
+      },
+    };
+    packForPhase.aiAnalysis = container;
+    packForPhase.aiAnalysisStatus = 'failed';
+    packForPhase.markModified('aiAnalysis');
+    await packForPhase.save();
+    const err = new Error(
+      'Planning start returned a different runId (stale active run / idempotent replay)'
+    );
+    err.statusCode = 409;
+    err.errorCode = 'REMOTE_RUN_ID_MISMATCH';
     throw err;
   }
 

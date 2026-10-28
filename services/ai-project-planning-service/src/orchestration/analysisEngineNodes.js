@@ -13,7 +13,11 @@ const META_GATE_NODE_ID = 'metaGate';
 function ensureProposal(state) {
   if (isSrsProposal(state.srsProposal)) return state.srsProposal;
   let proposal = createEmptySrsProposal({ source: 'analysis_engine_graph' });
-  if (state.proposalFragment?.section === 'functionalRequirements') {
+  if (
+    state.proposalFragment?.section === 'functionalRequirements' &&
+    Array.isArray(state.proposalFragment.items) &&
+    state.proposalFragment.items.length
+  ) {
     proposal = applyProposalFragment(proposal, state.proposalFragment, {
       bumpProposalVersion: true,
       generationId: state.proposalFragment?.meta?.generationId || state.runId,

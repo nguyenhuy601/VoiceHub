@@ -171,22 +171,27 @@ async function runAnalysisEngines(opts = {}) {
       resultsById[id] = result;
       executionOrder.push(id);
       if (result.execution?.status === 'SUCCESS' && entry?.writesSection) {
-        proposal = applyProposalFragment(
-          proposal,
-          {
-            section: entry.writesSection,
-            items: result.items || [],
-            relations: result.relations || [],
-            clarificationQuestions: result.clarificationQuestions || [],
-            meta: {
-              engineId: id,
-              coverage: result.coverage,
-              validation: result.validation,
-              kind: 'analysis_engine',
+        const nextItems = Array.isArray(result.items) ? result.items : [];
+        const existing = proposal.generated?.[entry.writesSection]?.items || [];
+        // Do not wipe a populated section with SUCCESS+empty.
+        if (!(existing.length > 0 && nextItems.length === 0)) {
+          proposal = applyProposalFragment(
+            proposal,
+            {
+              section: entry.writesSection,
+              items: nextItems,
+              relations: result.relations || [],
+              clarificationQuestions: result.clarificationQuestions || [],
+              meta: {
+                engineId: id,
+                coverage: result.coverage,
+                validation: result.validation,
+                kind: 'analysis_engine',
+              },
             },
-          },
-          { bumpProposalVersion: false }
-        );
+            { bumpProposalVersion: false }
+          );
+        }
       }
     }
   }

@@ -29,6 +29,7 @@ import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
 import WhatMonitorResultsPanel from './WhatMonitorResultsPanel';
 import { shouldShowWhatMonitorResults } from './whatMonitorResultsVisibility';
 import { formatMonitorLayerActivity } from './monitorActivityLabels';
+import { isHowRunWallTimedOut } from './WHAT_MONITOR_CONFIG';
 
 /**
  * Prefer last known mid-run macro/substep for same run (fills brief gaps after resume).
@@ -244,9 +245,9 @@ function ActivityLine({ vm, t }) {
     text = formatMonitorLayerActivity(names, t);
   } else if (activity?.labelKey) {
     const fallbacks = {
-      understand: 'Đang hiểu ngữ cảnh…',
-      plan: 'Đang lập kế hoạch…',
-      observe: 'Đang quan sát kết quả…',
+      understand: 'Đang chuẩn bị ngữ cảnh HOW…',
+      plan: 'Đang chọn tools planning…',
+      observe: 'Đang tổng hợp kết quả…',
       evaluate: 'Đang đánh giá…',
     };
     text = labelOf(t, activity.labelKey, fallbacks[activity.kind] || text);
@@ -341,11 +342,8 @@ function WhatMonitorBody({
     hasProposeOutput
   );
   const vm = phaseDone ? rawVm : applyStickyWhatProgress(rawVm, stickyRef);
-  // Live badge + 1s tick only while agent is computing — stop when propose results exist.
-  const clockLive =
-    !phaseDone &&
-    !hasProposeOutput &&
-    (vm.state === 'running' || vm.state === 'queued');
+  // Live badge + 1s tick while agent computes — do not stop for leftover propose rows.
+  const clockLive = !phaseDone && (vm.state === 'running' || vm.state === 'queued');
   const runBusy =
     !phaseDone &&
     (clockLive ||
@@ -482,12 +480,9 @@ function HowMonitorBody({
 }) {
   const [now, setNow] = useState(() => Date.now());
   const vm = resolveHowProgressViewModel(liveRun, phaseHow, now, hasProposeOutput);
-  // Live badge + 1s tick only while agent/tools compute — stop when propose results exist.
+  // Live badge + 1s tick while agent/tools compute — Gate1 rollup ≠ end of run.
   const clockLive =
-    !phaseDone &&
-    !howNotStarted &&
-    !hasProposeOutput &&
-    (vm.state === 'running' || vm.state === 'queued');
+    !phaseDone && !howNotStarted && (vm.state === 'running' || vm.state === 'queued');
   const runBusy =
     !phaseDone &&
     !howNotStarted &&
@@ -501,7 +496,12 @@ function HowMonitorBody({
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [clockLive]);
-  const activeMacro = phaseDone ? 3 : howNotStarted ? 0 : vm.macroStep || 1;
+  const howFailed = vm.state === 'failed' || vm.state === 'cancelled' || vm.state === 'error';
+  const activeMacro = phaseDone
+    ? 3
+    : howNotStarted || howFailed
+      ? 0
+      : vm.macroStep || 1;
 
   return (
     <section className="rounded-xl border border-border/80 bg-card/95 px-3 py-3 shadow-sm sm:px-4 sm:py-4">
@@ -521,7 +521,13 @@ function HowMonitorBody({
                 'requirements.aiHitlMonitorHowReady',
                 'Gate 1 xong — chạy AI Planning (HOW) tại đây.'
               )
-            : labelOf(t, vm.descriptionKey, vm.descriptionFallback)}
+            : howFailed
+              ? labelOf(
+                  t,
+                  'requirements.aiHitlMonitorHowFailedHint',
+                  'Phiên HOW đã dừng. Bấm Chạy lại HOW để thử lại.'
+                )
+              : labelOf(t, vm.descriptionKey, vm.descriptionFallback)}
       </p>
       <ProgressStaleLine show={Boolean(vm.showProgressStale)} t={t} />
       <RunTerminalBanner
@@ -536,15 +542,13 @@ function HowMonitorBody({
       />
       <MacroRow
         macros={HOW_MACRO_STEPS}
-        activeMacro={activeMacro > 0 ? activeMacro : howNotStarted ? 0 : 1}
+        activeMacro={activeMacro}
         srsApproved={phaseDone}
         t={t}
       />
       {!phaseDone &&
       !howNotStarted &&
-      vm.state !== 'failed' &&
-      vm.state !== 'cancelled' &&
-      vm.state !== 'error' &&
+      !howFailed &&
       activeMacro >= 1 &&
       activeMacro <= 3 ? (
         <div className="mt-2">
@@ -579,12 +583,9 @@ function HowMonitorBody({
         </>
       ) : null}
       {howNotStarted ? startHowButton : null}
+      {/* Failed: nút nằm trong RunTerminalBanner (actionSlot) — tránh nhân đôi. */}
       {phaseDone ||
-      (!howNotStarted &&
-        !runBusy &&
-        vm.state !== 'failed' &&
-        vm.state !== 'cancelled' &&
-        vm.state !== 'error')
+      (!howNotStarted && !runBusy && !howFailed)
         ? rerunHowButton
         : null}
       <RunTimingFooter
@@ -640,21 +641,47 @@ export default function AiHitlMonitorPanel({
   const liveStatus = String(liveRun?.status || '').trim().toLowerCase();
   const howNotStarted =
     packNorm === 'approved' &&
-    !['pending', 'running', 'waiting_human', 'ready', 'completed', 'confirmed'].includes(
-      howStatus
-    );
+    ![
+      'pending',
+      'running',
+      'queued',
+      'waiting_human',
+      'waiting_external',
+      'ready',
+      'completed',
+      'confirmed',
+      'failed',
+      'error',
+      'stopped',
+      'incomplete',
+      'cancelled',
+    ].includes(howStatus);
   const showHowReady =
     phase === 'what_done' &&
     packNorm === 'approved' &&
     howNotStarted;
-  const howInFlight = ['pending', 'running', 'queued', 'waiting_human'].includes(howStatus);
+  const howStatusInFlight = ['pending', 'running', 'queued', 'waiting_human'].includes(
+    howStatus
+  );
+  const howWallStale = isHowRunWallTimedOut(liveRun, phaseHow);
+  // Zombie BE "running" past wall → not in-flight for disable / poll UX.
+  const howInFlight = howStatusInFlight && !howWallStale;
   const startBusy = Boolean(whatStartBusy || howStartBusy);
+  const whatPhaseReady = ['ready', 'completed', 'confirmed'].includes(whatStatus);
+  const howPhaseReady = ['ready', 'completed', 'confirmed'].includes(howStatus);
+  // Hide results only while the active phase is truly in-flight. Sticky liveRun
+  // (waiting_human / running) after phase_* already ready must not blank Monitor
+  // while Duyệt already shows the first AI baseline from srsProposal / planning.
   const monitorInFlight =
     Boolean(awaitingFreshRun) ||
     startBusy ||
-    ['pending', 'running', 'queued', 'waiting_human'].includes(whatStatus) ||
+    (!whatPhaseReady &&
+      ['pending', 'running', 'queued', 'waiting_human'].includes(whatStatus)) ||
     howInFlight ||
-    ['pending', 'running', 'queued', 'waiting_human'].includes(liveStatus);
+    (!whatPhaseReady &&
+      !howPhaseReady &&
+      ['pending', 'running', 'queued', 'waiting_human'].includes(liveStatus) &&
+      !howWallStale);
 
   const startWhatButton =
     canStartWhat && typeof onStartWhat === 'function' ? (
@@ -712,8 +739,11 @@ export default function AiHitlMonitorPanel({
       </button>
     ) : null;
 
-  const rerunHowButton =
-    canRerunHow && typeof onRerunHow === 'function' && !howNotStarted ? (
+  const showRerunHow =
+    typeof onRerunHow === 'function' &&
+    !howNotStarted &&
+    (canRerunHow || (howWallStale && canRunHow));
+  const rerunHowButton = showRerunHow ? (
       <button
         type="button"
         disabled={howStartBusy || howInFlight}

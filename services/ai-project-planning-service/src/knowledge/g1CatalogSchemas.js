@@ -78,6 +78,14 @@ const METRIC_CATALOG_SEED = Object.freeze([
     ruleId: 'MATCH-001',
   }),
   Object.freeze({
+    metricId: 'recommendation_count',
+    formula: 'count(matching.recommendations)',
+    unit: 'count',
+    description: 'Assignment recommendations produced (ScheduleTool matching fold)',
+    owners: ['ScheduleTool', 'EmployeeMatchingTool'],
+    ruleId: 'SCH-MATCH-001',
+  }),
+  Object.freeze({
     metricId: 'total_effort_hours',
     formula: 'sum(wbs.estimateHours)',
     unit: 'hours',
@@ -92,6 +100,14 @@ const METRIC_CATALOG_SEED = Object.freeze([
     description: 'Tasks placed on calendar by ScheduleTool',
     owners: ['ScheduleTool'],
     ruleId: 'SCH-001',
+  }),
+  Object.freeze({
+    metricId: 'sprint_count',
+    formula: 'count(schedulePlan.sprints)',
+    unit: 'count',
+    description: 'Sprint windows after ScheduleTool sprint enrich (LLM propose + validate)',
+    owners: ['ScheduleTool'],
+    ruleId: 'SCH-SPRINT-001',
   }),
   Object.freeze({
     metricId: 'feasibility_pass',

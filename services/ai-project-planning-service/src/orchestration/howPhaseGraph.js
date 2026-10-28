@@ -65,6 +65,18 @@ function field() {
   return Annotation({ reducer: preferRight });
 }
 
+/** Wall-clock ms from number or ISO Date — aligns durationMs with PlanningRun.startedAt. */
+function coerceStartedAtMs(startedAt) {
+  if (typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt > 0) {
+    return startedAt;
+  }
+  if (startedAt != null) {
+    const ms = new Date(startedAt).getTime();
+    if (Number.isFinite(ms) && ms > 0) return ms;
+  }
+  return Date.now();
+}
+
 const HowPhaseState = Annotation.Root({
   runId: field(),
   snapshotId: field(),
@@ -87,6 +99,14 @@ const HowPhaseState = Annotation.Root({
     reducer: appendList,
     default: () => [],
   }),
+  toolExecutions: Annotation({
+    reducer: (left, right) => {
+      const { reduceToolExecutions } = require('./toolExecutionContract');
+      return reduceToolExecutions(left, right);
+    },
+    default: () => [],
+  }),
+  planManifest: field(),
   messages: Annotation({
     reducer: appendMessages,
     default: () => [],
@@ -132,6 +152,8 @@ async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
     iteration: Array.isArray(state.history) ? state.history.length : 0,
     history: Array.isArray(state.history) ? [...state.history] : [],
     toolResults: Array.isArray(state.toolResults) ? [...state.toolResults] : [],
+    toolExecutions: Array.isArray(state.toolExecutions) ? [...state.toolExecutions] : [],
+    planManifest: state.planManifest || null,
     contextPackage: state.contextPackage,
     status: 'running',
     hitl: 'gate2',
@@ -150,6 +172,7 @@ async function persistNode(state, currentNode, onCheckpoint, extra = {}) {
 }
 
 function buildHowEmit(state, { ready }) {
+  const { howToolFailure, STOP_TOOL_FAILED, hasPhaseHardToolStop } = require('./howPhaseToolNodes');
   const feasibilitySignal = buildFeasibilitySignal({
     toolResults: state.toolResults,
     container: state.container,
@@ -160,34 +183,51 @@ function buildHowEmit(state, { ready }) {
     runId: state.runId,
     snapshotId: state.snapshotId,
   });
+  const toolFail = howToolFailure(state.toolResults);
+  const hardFail = Boolean(toolFail) || hasPhaseHardToolStop(state);
+  // LangGraph SoT: keep explicit graph stopReason (HOW_*, BUDGET_*, TOOL_FAILED*, …).
   const stopReason = ready
     ? state.stopReason || STOP_REASONS.COMPLETE
-    : state.stopReason && String(state.stopReason).startsWith('BUDGET_')
-      ? state.stopReason
-      : STOP_INCOMPLETE;
-  const durationMs = Math.max(0, Date.now() - (state.startedAt || Date.now()));
+    : toolFail
+      ? `${STOP_TOOL_FAILED}:${toolFail.message}`
+      : (state.stopReason && String(state.stopReason).trim()) || STOP_INCOMPLETE;
+  const startedMs = coerceStartedAtMs(state.startedAt);
+  const completedMs = Date.now();
+  const durationMs = Math.max(0, completedMs - startedMs);
+  const startedAtIso = new Date(startedMs).toISOString();
+  const completedAtIso = new Date(completedMs).toISOString();
   const container =
     state.container && typeof state.container === 'object'
       ? { ...state.container }
       : { planning: {}, resource: {}, analyses: {}, phaseRuns: {} };
   if (container.jobs != null) delete container.jobs;
+  const phaseStatus = ready ? 'ready' : hardFail ? 'failed' : 'stopped';
+  const phaseError = ready
+    ? null
+    : toolFail
+      ? { code: toolFail.code, message: toolFail.message }
+      : { code: hardFail ? STOP_TOOL_FAILED : stopReason, message: String(stopReason) };
   container.phaseRuns = {
     ...(container.phaseRuns || {}),
     phase_how: {
       ...(container.phaseRuns?.phase_how || {}),
-      status: ready ? 'ready' : 'stopped',
+      status: phaseStatus,
       remoteRunId: state.runId || null,
       snapshotId: state.snapshotId || null,
       hitl: 'gate2',
-      generatedAt: new Date().toISOString(),
+      startedAt: startedAtIso,
+      completedAt: completedAtIso,
+      generatedAt: completedAtIso,
       durationMs,
-      error: ready ? null : stopReason,
+      error: phaseError,
       stopReason,
       feasibilitySignal,
       feasibility,
       agentCore: 'langgraph_react',
       readyForGate2: Boolean(ready),
       partial: !ready,
+      toolExecutions: Array.isArray(state.toolExecutions) ? state.toolExecutions : [],
+      planManifest: state.planManifest || null,
     },
   };
 
@@ -195,6 +235,8 @@ function buildHowEmit(state, { ready }) {
     container,
     feasibilitySignal,
     feasibility,
+    toolExecutions: Array.isArray(state.toolExecutions) ? state.toolExecutions : [],
+    planManifest: state.planManifest || null,
     evaluate: {
       kind: 'evaluate_local',
       enoughInfoToContinue: ready,
@@ -305,7 +347,6 @@ function buildHowPhaseGraph(hooks = {}) {
 
   for (const toolName of HOW_SEC_TOOL_NAMES) {
     const secCompiled = getHowSecToolSubgraph(toolName);
-    // Sec subgraphs do not call onProgress internally — emit call_tool so Monitor stays live.
     graph.addNode(toolName, async (state, config) => {
       await onProgress?.({
         node: 'call_tool',
@@ -313,17 +354,66 @@ function buildHowPhaseGraph(hooks = {}) {
         tool: toolName,
         tools: [toolName],
       });
-      return secCompiled.invoke(state, config);
+      const out = await secCompiled.invoke(state, config);
+      const {
+        detectParentResultMiss,
+        executionToLegacyToolResult,
+      } = require('./toolExecutionContract');
+      const merged = {
+        toolExecutions: [
+          ...(Array.isArray(state.toolExecutions) ? state.toolExecutions : []),
+          ...(Array.isArray(out?.toolExecutions) ? out.toolExecutions : []),
+        ],
+        toolResults: [
+          ...(Array.isArray(state.toolResults) ? state.toolResults : []),
+          ...(Array.isArray(out?.toolResults) ? out.toolResults : []),
+        ],
+      };
+      const miss = detectParentResultMiss(merged, toolName);
+      if (!miss) return out || {};
+      return {
+        ...(out || {}),
+        toolExecutions: [miss],
+        toolResults: [executionToLegacyToolResult(miss)],
+        history: [`adapter_miss:${toolName}`],
+      };
     });
   }
 
   graph.addNode(PLAIN_TOOLS_NODE, buildPlainToolsNode({ phase: 'how', onProgress }));
 
+  graph.addNode('finalizePlan', async (state) => {
+    onProgress?.({ node: 'finalizePlan', phase: 'how' });
+    const { finalizePlanNode } = require('./finalizePlanNode');
+    return finalizePlanNode(state);
+  });
+
   function routeAfterSelectToolsHow(state) {
-    if (routeAfterSelectTools(state) === 'assemble') return 'assemble';
+    const {
+      isHowReadyForFinalize,
+      detectHowSelectDeadlock,
+      isHowDeadlockStopReason,
+    } = require('./computeEligibleHowTools');
+    const stop = String(state?.stopReason || '');
+    const budgetOrHardFail =
+      stop.startsWith('BUDGET_') ||
+      stop === 'TOOL_FAILED' ||
+      stop.startsWith('TOOL_FAILED:');
+    if (isHowDeadlockStopReason(stop) || budgetOrHardFail) {
+      return isHowReadyForFinalize(state) ? 'finalizePlan' : 'emitIncomplete';
+    }
+    if (routeAfterSelectTools(state) === 'assemble') {
+      if (isHowReadyForFinalize(state)) return 'finalizePlan';
+      const deadlock = detectHowSelectDeadlock(state);
+      return deadlock.deadlocked ? 'emitIncomplete' : 'assemble';
+    }
     const ai = lastAiMessage(state.messages);
     const calls = toolCallsFromMessage(ai);
-    if (!calls.length) return 'assemble';
+    if (!calls.length) {
+      if (isHowReadyForFinalize(state)) return 'finalizePlan';
+      const deadlock = detectHowSelectDeadlock(state);
+      return deadlock.deadlocked ? 'emitIncomplete' : 'assemble';
+    }
     const sends = [];
     let plainQueued = false;
     for (const call of calls) {
@@ -337,13 +427,15 @@ function buildHowPhaseGraph(hooks = {}) {
       }
       if (howPlainNames.has(toolName) && !plainQueued) {
         plainQueued = true;
-        // Keep messages — ToolNode reads AIMessage.tool_calls
         sends.push(
           new Send(PLAIN_TOOLS_NODE, stateForToolSend(state, { clearMessages: false }))
         );
       }
     }
-    return sends.length ? sends : 'assemble';
+    if (sends.length) return sends;
+    if (isHowReadyForFinalize(state)) return 'finalizePlan';
+    const deadlock = detectHowSelectDeadlock(state);
+    return deadlock.deadlocked ? 'emitIncomplete' : 'assemble';
   }
 
   graph.addNode('assemble', async (state) => {
@@ -361,11 +453,16 @@ function buildHowPhaseGraph(hooks = {}) {
     const score = state.completeness || scoreArtifactCompleteness(state, 'how');
     const gapReport = buildGapReport(score, state);
     const enrichLoop = (Number(state.enrichLoop) || 0) + 1;
+    const gapType =
+      gapReport.gapType ||
+      (Array.isArray(gapReport.missing) && gapReport.missing.includes('startDate')
+        ? 'MISSING_CALENDAR'
+        : 'ENRICH_CONTENT');
     return {
-      gapReport,
+      gapReport: { ...gapReport, gapType },
       enrichLoop,
       messages: [gapReportToMessage(gapReport)],
-      history: [`injectGap:${enrichLoop}`],
+      history: [`injectGap:${enrichLoop}:${gapType}`],
     };
   });
 
@@ -396,18 +493,25 @@ function buildHowPhaseGraph(hooks = {}) {
     graph.addEdge(toolName, 'selectTools');
   }
   graph.addEdge(PLAIN_TOOLS_NODE, 'selectTools');
+  graph.addEdge('finalizePlan', 'emitReady');
   graph.addEdge('assemble', 'scoreCompleteness');
   graph.addConditionalEdges(
     'scoreCompleteness',
-    (state) =>
-      routeAfterCompleteness(state, {
+    (state) => {
+      const { isHowReadyForFinalize } = require('./computeEligibleHowTools');
+      if (isHowReadyForFinalize(state) && state.completeness?.ready) {
+        return 'finalizePlan';
+      }
+      return routeAfterCompleteness(state, {
         maxEnrich: envMaxEnrich(state.env || process.env),
         env: state.env || process.env,
-      }),
+      });
+    },
     {
       injectGap: 'injectGap',
       emitReady: 'emitReady',
       emitIncomplete: 'emitIncomplete',
+      finalizePlan: 'finalizePlan',
     }
   );
   graph.addEdge('injectGap', 'selectTools');
@@ -422,6 +526,7 @@ function buildHowPhaseGraph(hooks = {}) {
 module.exports = {
   HowPhaseState,
   buildHowPhaseGraph,
+  buildHowEmit,
   STOP_REASONS,
   routeAfterSelectTools,
   routeAfterCompleteness,

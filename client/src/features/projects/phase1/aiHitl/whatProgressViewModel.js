@@ -113,7 +113,9 @@ export function isCallbackHandoff(liveRun, phaseMeta = null) {
 
 /**
  * Freeze wall-clock when run is no longer actively computing.
- * Prefer durationMs → completedAt → progressUpdatedAt; never keep using live `now`.
+ * Elapsed must stay continuous with the live ticker (now − startedAt):
+ * prefer completedAt / wall end, never snap down to a shorter graph-only durationMs.
+ * durationMs is only a fallback when startedAt is missing.
  */
 export function resolveFrozenElapsedMs({
   startedAt,
@@ -124,20 +126,29 @@ export function resolveFrozenElapsedMs({
   now,
 }) {
   const duration = Number(durationFromMeta);
-  if (freezeClock && Number.isFinite(duration) && duration > 0) {
-    return Math.max(0, duration);
-  }
-  if (startedAt == null || !Number.isFinite(startedAt)) return 0;
-  let end = now;
-  if (freezeClock) {
-    const candidates = [completedAt, progressUpdatedAt];
-    if (Number.isFinite(duration) && duration > 0) {
-      candidates.push(startedAt + duration);
+  if (startedAt == null || !Number.isFinite(startedAt)) {
+    if (freezeClock && Number.isFinite(duration) && duration > 0) {
+      return Math.max(0, duration);
     }
-    const frozen = candidates.find((ms) => ms != null && Number.isFinite(ms) && ms > 0);
-    // Clamp to `now` so a stale progressUpdatedAt cannot jump past wall clock mid-handoff.
-    end = frozen != null ? Math.min(frozen, now) : now;
+    return 0;
   }
+  if (!freezeClock) {
+    return Math.max(0, now - startedAt);
+  }
+  const candidates = [];
+  if (completedAt != null && Number.isFinite(completedAt) && completedAt > 0) {
+    candidates.push(completedAt);
+  } else {
+    // Finalizing / handoff: keep the live wall — do not shrink to graph durationMs.
+    candidates.push(now);
+  }
+  if (Number.isFinite(duration) && duration > 0) {
+    candidates.push(startedAt + duration);
+  }
+  if (progressUpdatedAt != null && Number.isFinite(progressUpdatedAt) && progressUpdatedAt > 0) {
+    candidates.push(progressUpdatedAt);
+  }
+  const end = Math.min(Math.max(...candidates), now);
   return Math.max(0, end - startedAt);
 }
 
@@ -359,8 +370,13 @@ export function resolveWhatProgressViewModel(
     state === 'failed' ||
     state === 'cancelled' ||
     state === 'waiting_human';
-  // Stop wall-clock when compute ends OR propose results are already on the pack.
-  const freezeClock = terminal || state === 'finalizing' || Boolean(hasProposeOutput);
+  // Never freeze while agent is still computing — leftover propose rows (re-run) or
+  // Gate1 rollup must not pin elapsed to a stale progressUpdatedAt mid-LLM call.
+  const activelyComputing = state === 'running' || state === 'queued';
+  const freezeClock =
+    terminal ||
+    state === 'finalizing' ||
+    (Boolean(hasProposeOutput) && !activelyComputing);
   const progressUpdatedAt = resolveTimestampMs(liveRun?.progressUpdatedAt, phaseWhat?.progressUpdatedAt);
   const elapsedMs = resolveFrozenElapsedMs({
     startedAt,

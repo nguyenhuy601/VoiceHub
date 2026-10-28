@@ -99,11 +99,13 @@ async function proposeRisk({ semantic, facts, env, generateJsonFn }) {
     `ALLOW=${JSON.stringify(facts.allowLists)}`,
     `SHAPE={"risks":[{"title":"","trigger":"","impactDescription":"","relatedFrIds":[],"probability":1,"impact":1,"mitigation":""}]}`,
   ].join('\n');
+  const { resolveHowSecAttemptTimeoutMs } = require('../howSecAttemptTimeout');
   const llm = await invokeHowSemanticLlm({
     system,
     user,
     env,
     generateJsonFn,
+    timeoutMs: resolveHowSecAttemptTimeoutMs(env),
   });
   return llm.ok
     ? { ok: true, data: llm.data, meta: { llmCalls: 1, model: llm.meta?.model } }

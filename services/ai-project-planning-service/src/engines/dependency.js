@@ -274,23 +274,37 @@ function legacyEdgesToDependencies(edges = []) {
 /** Analyses-only — never echo planning.tasks (safe when ∥ ArchitectureTool). */
 function applyDependencyToContainer(container, depResult) {
   void container;
-  const edges = Array.isArray(depResult.edges) ? depResult.edges : [];
+  const edges = Array.isArray(depResult.schedulableEdges)
+    ? depResult.schedulableEdges
+    : Array.isArray(depResult.edges)
+      ? depResult.edges
+      : [];
+  const proposalEdges = Array.isArray(depResult.proposalEdges)
+    ? depResult.proposalEdges
+    : edges;
   const dependencies =
     Array.isArray(depResult.dependencies) && depResult.dependencies.length
       ? depResult.dependencies
       : legacyEdgesToDependencies(edges);
+  const analysisStatus = depResult.analysisStatus || depResult.meta?.analysisStatus || null;
   return {
     analyses: {
       dependency: {
         status: depResult.status || 'ready',
         schemaVersion: depResult.schemaVersion || SCHEMA_VERSION,
-        analysisStatus: depResult.analysisStatus || 'COMPLETED',
+        analysisStatus: analysisStatus || 'INCOMPLETE',
+        executionTerminal: depResult.executionTerminal !== false,
+        analysisComplete: Boolean(depResult.analysisComplete),
+        scheduleReady: Boolean(depResult.scheduleReady),
         model: depResult.model || null,
         generatedAt: depResult.generatedAt || new Date().toISOString(),
         items: [],
         entities: [],
         dependencies,
-        unresolvedQuestions: depResult.unresolvedQuestions || [],
+        proposalEdges,
+        schedulableEdges: edges,
+        unresolvedQuestions: depResult.unresolvedQuestions || depResult.openQuestions || [],
+        openQuestions: depResult.openQuestions || [],
         validation: depResult.validation || {
           missingTaskReferences: [],
           duplicateDependencies: [],
@@ -300,6 +314,11 @@ function applyDependencyToContainer(container, depResult) {
         edges,
         dataFlows: [],
         orderHint: depResult.orderHint || [],
+        inputHash: depResult.inputHash || depResult.meta?.inputHash || null,
+        wbsVersion: depResult.wbsVersion || depResult.meta?.wbsVersion || null,
+        promptVersion: depResult.promptVersion || depResult.meta?.promptVersion || null,
+        runId: depResult.runId || null,
+        attemptId: depResult.attemptId || null,
         meta: depResult.meta || {},
       },
     },

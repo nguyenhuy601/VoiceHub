@@ -85,7 +85,11 @@ function mergeSemanticStatuses(left, right) {
 function ensureProposal(state) {
   if (isSrsProposal(state.srsProposal)) return state.srsProposal;
   let proposal = createEmptySrsProposal({ source: 'what_tool_dag' });
-  if (state.proposalFragment?.section === 'functionalRequirements') {
+  if (
+    state.proposalFragment?.section === 'functionalRequirements' &&
+    Array.isArray(state.proposalFragment.items) &&
+    state.proposalFragment.items.length
+  ) {
     proposal = applyProposalFragment(proposal, state.proposalFragment, {
       bumpProposalVersion: true,
       generationId: state.proposalFragment?.meta?.generationId || state.runId,
@@ -152,11 +156,51 @@ function shouldSkipWhatTool(state, toolName) {
 function applyFrToolToState(state, frSem) {
   const proposalFragment = frSem?.proposalFragment || null;
   let proposal = ensureProposal(state);
-  if (proposalFragment?.section === 'functionalRequirements' && Array.isArray(proposalFragment.items)) {
+  if (
+    proposalFragment?.section === 'functionalRequirements' &&
+    Array.isArray(proposalFragment.items) &&
+    proposalFragment.items.length
+  ) {
     proposal = applyProposalFragment(proposal, proposalFragment, {
       bumpProposalVersion: true,
       generationId: proposalFragment?.meta?.generationId || state.runId || null,
     });
+  } else if (
+    proposalFragment?.section === 'functionalRequirements' &&
+    Array.isArray(proposalFragment.items) &&
+    !proposalFragment.items.length
+  ) {
+    // Empty FR fragment: keep existing proposal FR or seed from pack intake.
+    const existing = proposal.generated?.functionalRequirements?.items || [];
+    const packFr = Array.isArray(state.pack?.functionalRequirements)
+      ? state.pack.functionalRequirements
+      : [];
+    if (!existing.length && packFr.length) {
+      proposal = applyProposalFragment(
+        proposal,
+        {
+          section: 'functionalRequirements',
+          items: packFr,
+          relations: proposalFragment.relations || [],
+          clarificationQuestions: proposalFragment.clarificationQuestions || [],
+          backlogStructure: proposalFragment.backlogStructure || undefined,
+          meta: {
+            ...(proposalFragment.meta || {}),
+            seededFromPack: true,
+            frDecomposeSkipped: proposalFragment.meta?.frDecomposeSkipped,
+          },
+        },
+        {
+          bumpProposalVersion: true,
+          generationId: proposalFragment?.meta?.generationId || state.runId || null,
+        }
+      );
+    } else if (proposalFragment.backlogStructure) {
+      proposal.generated = {
+        ...(proposal.generated || {}),
+        backlogStructure: proposalFragment.backlogStructure,
+      };
+    }
   }
   const resultsById = { ...(state.engineResultsById || {}) };
   resultsById.fr = {

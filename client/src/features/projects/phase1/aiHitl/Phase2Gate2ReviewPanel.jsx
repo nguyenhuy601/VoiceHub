@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Loader2, Send, CheckCircle2, XCircle } from 'lucide-react';
+import { CalendarClock, Loader2, Send, CheckCircle2, XCircle } from 'lucide-react';
 import { projectAPI } from '../../../../services/api/projectAPI';
 import { localizedProjectRoleLabel } from '../../../../utils/projectRoleLocale';
+import { ConfirmDialog } from '../../../../components/Shared';
 import Gate1SectionReviewTable from '../gate1/Gate1SectionReviewTable';
 import Gate1MissingSectionPanel from '../gate1/Gate1MissingSectionPanel';
 import {
@@ -15,11 +16,21 @@ import {
   patchGate2EditedPayload,
   seedGate2EditedPayload,
 } from '../gate2/gate2SectionTableConfig';
+import Gate2SprintScopePanel from '../gate2/Gate2SprintScopePanel';
+import AssignmentScheduleDetailDrawer from '../gate2/AssignmentScheduleDetailDrawer';
+import { withRecalcSprintDecision } from '../gate2/recalcSprintAllocationClient';
+import {
+  assignmentsNeedScheduleRefresh,
+  enrichAssignmentRowsWithSchedule,
+  isScheduleDirtyField,
+} from '../gate2/assignmentScheduleTrust';
 import { buildGate2ProposalItems } from '../buildGate2ProposalItems';
 import { useProjectMemberNames } from '../planning/useProjectMemberNames';
 import HowPlanSummaryChips from './HowPlanSummaryChips';
 import HitlSectionTabList from './HitlSectionTabList';
 import Gate2ConsolidationPanel from './Gate2ConsolidationPanel';
+import HowMonitorResultsPanel from './HowMonitorResultsPanel';
+import { shouldShowHowMonitorResults } from './howMonitorResultsVisibility';
 import DependencyFlowPanel from '../gate2/DependencyFlowPanel';
 import QualityReviewPanel from '../gate2/QualityReviewPanel';
 import {
@@ -27,6 +38,26 @@ import {
   fillUnassignedWithReadyPeople,
   patchAssignmentCatalogValue,
 } from '../gate2/assignmentCatalogEdit';
+
+function resolveAiContainer(pack) {
+  if (pack?.aiAnalysis && typeof pack.aiAnalysis === 'object') return pack.aiAnalysis;
+  return pack && typeof pack === 'object' ? pack : {};
+}
+
+function dependencyEmptySoftHintKey(pack) {
+  const dep = resolveAiContainer(pack)?.analyses?.dependency || {};
+  const st = String(dep.analysisStatus || dep.meta?.analysisStatus || '')
+    .trim()
+    .toUpperCase();
+  if (st === 'COMPLETE_NO_EDGES') return 'requirements.aiHitlMonitorResultsEmptyDepsComplete';
+  if (st === 'SKIPPED') return 'requirements.aiHitlMonitorResultsEmptyDepsSkipped';
+  if (st === 'FAILED') return 'requirements.aiHitlMonitorResultsEmptyDepsFailed';
+  if (st === 'SEMANTIC_INCOMPLETE') return 'requirements.aiHitlMonitorResultsEmptyDepsSemantic';
+  if (st === 'INCOMPLETE' || st === 'PARTIAL' || st === 'INVALID') {
+    return 'requirements.aiHitlMonitorResultsEmptyDepsPartial';
+  }
+  return 'requirements.aiHitlMonitorResultsEmptyDeps';
+}
 
 function unwrapPool(res) {
   return res?.data?.data ?? res?.data ?? res;
@@ -95,6 +126,7 @@ export default function Phase2Gate2ReviewPanel({
   parallelTracks = [],
   proposals = [],
   onTrackSubmit,
+  onRefreshSchedule = null,
   onProposeChange,
   onDecideChange,
   onKeepOriginal,
@@ -116,6 +148,13 @@ export default function Phase2Gate2ReviewPanel({
   const [activeSection, setActiveSection] = useState('');
   const [activeTrack, setActiveTrack] = useState('');
   const [localDecisions, setLocalDecisions] = useState({});
+  const [sprintScopeRow, setSprintScopeRow] = useState(null);
+  const [scheduleDetailRow, setScheduleDetailRow] = useState(null);
+  const [scheduleDirty, setScheduleDirty] = useState(false);
+  const [dirtySubmitOpen, setDirtySubmitOpen] = useState(false);
+  const awaitingScheduleRefreshRef = useRef(false);
+  const openSprintScope = useCallback((row) => setSprintScopeRow(row), []);
+  const openScheduleDetail = useCallback((row) => setScheduleDetailRow(row), []);
   const seededReviewVersionRef = useRef(null);
   const isControlled =
     controlledDecisions != null && typeof controlledSetDecision === 'function';
@@ -145,6 +184,15 @@ export default function Phase2Gate2ReviewPanel({
     seededReviewVersionRef.current = version;
     setLocalDecisions({ ...(bundle.reviewDecisions || {}) });
   }, [bundle.reviewVersion, bundle.reviewDecisions, isControlled]);
+
+  useEffect(() => {
+    const status = String(howStatus || '').toLowerCase();
+    if (!awaitingScheduleRefreshRef.current) return;
+    if (status === 'ready' || status === 'confirmed') {
+      awaitingScheduleRefreshRef.current = false;
+      setScheduleDirty(false);
+    }
+  }, [howStatus]);
 
   const decisionsComplete = useMemo(
     () => areGate2SectionDecisionsComplete(scopedBySection, decisions),
@@ -239,6 +287,11 @@ export default function Phase2Gate2ReviewPanel({
   const assignmentTableConfig = useMemo(
     () => ({
       ...GATE2_TABLE_CONFIG,
+      getColumnsForSection: (section) =>
+        getGate2ColumnsForSection(section, {
+          onOpenSprintScope: openSprintScope,
+          onOpenScheduleDetail: openScheduleDetail,
+        }),
       getSelectOptions: (row, col, payload) =>
         assignmentSelectOptions({
           row,
@@ -250,18 +303,33 @@ export default function Phase2Gate2ReviewPanel({
       patchCatalogValue: (row, col, prev, value) =>
         patchAssignmentCatalogValue(row, col?.field, prev, value, { peopleByRole }),
     }),
-    [roleOptions, peopleByRole]
+    [roleOptions, peopleByRole, openSprintScope, openScheduleDetail]
   );
   const assignmentPoolFailed = peopleQueries.some((query) => query.isError);
 
   const setDecision = (logicalId, patch) => {
+    const row =
+      (bySection.releases || []).find(
+        (item, index) => getGate2RowId(item, index) === String(logicalId)
+      ) ||
+      (bundle.items || []).find(
+        (item, index) => getGate2RowId(item, index) === String(logicalId)
+      );
+    const nextPatch = withRecalcSprintDecision(row, patch, pack);
+    const edited = nextPatch?.editedPayload;
+    if (edited && typeof edited === 'object') {
+      const dirtyHit = Object.keys(edited).some((field) => isScheduleDirtyField(field));
+      if (dirtyHit && String(row?.section || '') === 'assignments') {
+        setScheduleDirty(true);
+      }
+    }
     if (isControlled) {
-      controlledSetDecision(logicalId, patch);
+      controlledSetDecision(logicalId, nextPatch);
       return;
     }
     setLocalDecisions((prev) => ({
       ...prev,
-      [logicalId]: { ...(prev[logicalId] || {}), ...patch },
+      [logicalId]: { ...(prev[logicalId] || {}), ...nextPatch },
     }));
   };
 
@@ -318,7 +386,7 @@ export default function Phase2Gate2ReviewPanel({
     const alreadyLinked = packStatus === 'project_linked';
     const showActivate = !alreadyLinked && typeof onPoApprove === 'function';
     return (
-      <div>
+      <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
           {labelOf(
             t,
@@ -326,6 +394,9 @@ export default function Phase2Gate2ReviewPanel({
             'Gate 2 đã duyệt xong. Có thể kích hoạt / tiếp tục delivery.'
           )}
         </p>
+        {shouldShowHowMonitorResults(pack) ? (
+          <HowMonitorResultsPanel pack={pack} t={t} />
+        ) : null}
         {alreadyLinked ? (
           <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-200">
             {labelOf(
@@ -371,10 +442,15 @@ export default function Phase2Gate2ReviewPanel({
   const decisionsOk = decisionsComplete;
   const activeTab = visibleTabs.find((tab) => tab.key === activeSection) || null;
   const sourceRows = bySection[activeSection] || [];
-  const activeRows =
+  let activeRows =
     activeSection === 'assignments'
       ? fillUnassignedWithReadyPeople(sourceRows, peopleByRole)
       : sourceRows;
+  if (activeSection === 'assignments' && scheduleDirty) {
+    activeRows = enrichAssignmentRowsWithSchedule(activeRows, resolveAiContainer(pack), {
+      scheduleDirty: true,
+    });
+  }
   const activeLabel = activeTab?.label || activeSection || '—';
   const activeMissing = Boolean(activeTab?.missing) || activeRows.length === 0;
   const sectionHasIssue = (tab) => {
@@ -393,15 +469,31 @@ export default function Phase2Gate2ReviewPanel({
   ).length;
   const hasSoftWarnings = missingCount > 0 || conflictSectionCount > 0;
 
-  const handleTrackSubmit = () => {
+  const submitTrack = () => {
     if (typeof onTrackSubmit !== 'function' || !activeTrack) return;
     onTrackSubmit({
       track: activeTrack,
       reviewDecisions: decisions,
       reviewVersion: bundle.reviewVersion,
       decisionsComplete: decisionsOk,
-      hasSoftWarnings: hasSoftWarnings || !decisionsOk,
+      hasSoftWarnings: hasSoftWarnings || !decisionsOk || scheduleDirty,
+      scheduleDirty,
     });
+  };
+
+  const handleTrackSubmit = () => {
+    if (typeof onTrackSubmit !== 'function' || !activeTrack) return;
+    if (scheduleDirty) {
+      setDirtySubmitOpen(true);
+      return;
+    }
+    submitTrack();
+  };
+
+  const handleRefreshSchedule = () => {
+    if (typeof onRefreshSchedule !== 'function') return;
+    awaitingScheduleRefreshRef.current = true;
+    void onRefreshSchedule();
   };
 
   const handlePoApprove = () => {
@@ -522,7 +614,7 @@ export default function Phase2Gate2ReviewPanel({
                 : labelOf(
                     t,
                     'requirements.gate2AssignPickHint',
-                    'Đổi vai trò và nhân sự bằng danh sách của hệ thống. Giá trị gõ tay không được ghi.'
+                    'Đổi vai trò và nhân sự bằng danh sách của hệ thống. Ngày bắt đầu/kết thúc nằm trên cùng bảng (Lịch đã gộp). Giá trị gõ tay không được ghi.'
                   )}
               {assignmentPoolFailed
                 ? ` ${labelOf(
@@ -533,6 +625,41 @@ export default function Phase2Gate2ReviewPanel({
                 : ''}
             </p>
           ) : null}
+          {activeSection === 'assignments' &&
+          (scheduleDirty ||
+            assignmentsNeedScheduleRefresh(resolveAiContainer(pack), sourceRows) ||
+            activeRows.some((r) => r.scheduleDerived)) ? (
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+              <p>
+                {scheduleDirty
+                  ? labelOf(
+                      t,
+                      'requirements.gate2ScheduleDirtyBanner',
+                      'Đã đổi phân công/ngày — lịch có thể lệch. Bấm Cập nhật lịch để chạy lại ScheduleTool.'
+                    )
+                  : labelOf(
+                      t,
+                      'requirements.gate2ScheduleMissingBanner',
+                      'Pack chưa có resource.schedule (chỉ có phân công). Ngày đang hiện tạm từ effort — bấm Cập nhật lịch để ScheduleTool ghi lịch thật.'
+                    )}
+              </p>
+              {typeof onRefreshSchedule === 'function' ? (
+                <button
+                  type="button"
+                  disabled={busy || String(howStatus).toLowerCase() === 'pending'}
+                  onClick={handleRefreshSchedule}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-amber-600/40 bg-background px-2.5 py-1.5 text-xs font-semibold disabled:opacity-40"
+                >
+                  {busy ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <CalendarClock className="h-3.5 w-3.5" />
+                  )}
+                  {labelOf(t, 'requirements.gate2ScheduleRefreshCta', 'Cập nhật lịch')}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <Gate1SectionReviewTable
             section={activeSection}
             rows={activeRows}
@@ -541,21 +668,49 @@ export default function Phase2Gate2ReviewPanel({
             showSubmit={allowDecide}
             busy={busy}
             t={t}
-            headerTone={activeHasIssue ? 'warn' : 'ok'}
+            headerTone={activeHasIssue || scheduleDirty ? 'warn' : 'ok'}
             tableConfig={assignmentTableConfig}
+          />
+          <Gate2SprintScopePanel
+            row={sprintScopeRow}
+            onClose={() => setSprintScopeRow(null)}
+            t={t}
+          />
+          <AssignmentScheduleDetailDrawer
+            row={scheduleDetailRow}
+            pack={pack}
+            onClose={() => setScheduleDetailRow(null)}
+            t={t}
           />
         </>
       ) : activeSection ? (
-        <Gate1MissingSectionPanel
-          sectionLabel={activeLabel}
-          sectionKey={activeSection}
-          status={activeTab?.missing ? 'NO_DATA' : 'EMPTY'}
-          coverageReason={null}
-          isCustomerRawIntake={false}
-          softHintKey="requirements.gate2MissingSoftHint"
-          softHintFallback="Chưa có đề xuất AI cho section này — chạy HOW trên Monitor hoặc bổ sung tay."
-          t={t}
-        />
+        <>
+          {activeSection === 'dependencies' ? (
+            <DependencyFlowPanel pack={pack} rows={[]} t={t} />
+          ) : null}
+          <Gate1MissingSectionPanel
+            sectionLabel={activeLabel}
+            sectionKey={activeSection}
+            status={activeTab?.missing ? 'NO_DATA' : 'EMPTY'}
+            coverageReason={activeTab?.coverageReason || null}
+            isCustomerRawIntake={false}
+            softHintKey={
+              activeSection === 'assignments'
+                ? 'requirements.gate2AssignMissingSoftHint'
+                : activeSection === 'dependencies'
+                  ? dependencyEmptySoftHintKey(pack)
+                  : 'requirements.gate2MissingSoftHint'
+            }
+            softHintFallback={
+              activeSection === 'assignments'
+                ? 'Chưa có phân công/ngày — chạy HOW (ScheduleTool) trên Monitor hoặc bổ sung tay.'
+                : activeSection === 'dependencies'
+                  ? 'Chưa có cạnh phụ thuộc từ lần chạy HOW — xem banner trạng thái phân tích (nếu có).'
+                  : 'Chưa có đề xuất AI cho section này — chạy HOW trên Monitor hoặc bổ sung tay.'
+            }
+            t={t}
+          />
+        </>
       ) : null}
 
       <div className="mt-4 flex flex-wrap justify-end gap-2">
@@ -616,6 +771,24 @@ export default function Phase2Gate2ReviewPanel({
           </>
         ) : null}
       </div>
+
+      <ConfirmDialog
+        isOpen={dirtySubmitOpen}
+        onClose={() => setDirtySubmitOpen(false)}
+        onConfirm={() => {
+          setDirtySubmitOpen(false);
+          submitTrack();
+        }}
+        title={labelOf(t, 'requirements.gate2ScheduleDirtySubmitTitle', 'Lịch chưa cập nhật')}
+        message={labelOf(
+          t,
+          'requirements.gate2ScheduleDirtySubmitMessage',
+          'Bạn đã đổi phân công/ngày nhưng chưa Cập nhật lịch. Vẫn gửi duyệt với lịch có thể lệch?'
+        )}
+        confirmText={labelOf(t, 'requirements.gate2ScheduleDirtySubmitConfirm', 'Vẫn gửi')}
+        cancelText={labelOf(t, 'common.cancel', 'Hủy')}
+        variant="default"
+      />
     </div>
   );
 }

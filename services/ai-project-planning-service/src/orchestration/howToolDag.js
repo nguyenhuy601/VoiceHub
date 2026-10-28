@@ -8,16 +8,15 @@ const { HOW_PHASE_TOOL_STEPS } = require('./jobToToolsMap');
 
 /** @type {Readonly<Record<string, readonly string[]>>} */
 const HOW_TOOL_DEPENDENCIES = Object.freeze({
-  // BacklogMap ∥ Wbs — Wbs input = approved SRS FR/UC/AC + semantic (not backlog)
-  BacklogMapTool: Object.freeze([]),
+  // Wbs đọc Gate1 approvedBacklogStructure (Story = FR); không BacklogMap phase.
   WbsTool: Object.freeze([]),
   DependencyTool: Object.freeze(['WbsTool']),
-  // Architecture, Effort, Deploy, Sequencing, Matching are not phase catalog nodes.
+  // Architecture, Effort, Deploy, Sequencing, Matching / BacklogMap are not phase catalog nodes.
   // Lịch và sprint sống trong ScheduleTool (CPM gọi nội bộ khi đóng gói lịch).
   RiskTool: Object.freeze(['DependencyTool']),
   QualityPlanTool: Object.freeze(['RiskTool']),
   ScheduleTool: Object.freeze(['DependencyTool']),
-  ProjectPlanTool: Object.freeze(['ScheduleTool', 'QualityPlanTool']),
+  // ProjectPlanTool removed from ReAct — finalizePlan graph node after required sections.
 });
 
 const CANONICAL_ORDER = Object.freeze(
@@ -25,18 +24,13 @@ const CANONICAL_ORDER = Object.freeze(
 );
 
 /**
- * Successful HOW tool names from toolResults (error rows ignored).
+ * Successful HOW tools: prefer ToolExecution succeeded+validated; legacy toolResults fallback.
  * @param {object} state
  * @returns {Set<string>}
  */
 function successfulHowTools(state) {
-  const done = new Set();
-  for (const row of Array.isArray(state?.toolResults) ? state.toolResults : []) {
-    if (!row || row.error) continue;
-    const name = String(row.toolName || '').trim();
-    if (name) done.add(name);
-  }
-  return done;
+  const { succeededValidatedTools } = require('./toolExecutionContract');
+  return succeededValidatedTools(state);
 }
 
 /**
@@ -58,8 +52,9 @@ function requiredHowPhaseTools() {
 }
 
 /**
- * If LLM picks Schedule before Dependency, rewrite to the unmet prerequisite
- * instead of dropping the turn (which spun selectTools with remain=0).
+ * If LLM picks Schedule before Dependency (or ProjectPlan before Quality/Schedule),
+ * rewrite to an unmet prerequisite that is itself ready — prefer CANONICAL_ORDER
+ * among unmet deps so Quality is not starved while ProjectPlan→Schedule loops.
  * @param {Set<string>} done
  * @param {string} toolName
  * @returns {string|null} ready tool to run now
@@ -70,15 +65,21 @@ function resolveHowToolOrUnmetDep(done, toolName) {
   if (howToolDepsSatisfied(name, done)) return name;
   if (!(name in HOW_TOOL_DEPENDENCIES)) return name;
 
+  const orderIndex = new Map(CANONICAL_ORDER.map((n, i) => [n, i]));
   let cursor = name;
   const seen = new Set();
   while (cursor && !seen.has(cursor)) {
     seen.add(cursor);
     if (done.has(cursor)) return null;
     if (howToolDepsSatisfied(cursor, done)) return cursor;
-    const unmet = (HOW_TOOL_DEPENDENCIES[cursor] || []).find((dep) => !done.has(dep));
-    if (!unmet) return null;
-    cursor = unmet;
+    const unmet = (HOW_TOOL_DEPENDENCIES[cursor] || []).filter((dep) => !done.has(dep));
+    if (!unmet.length) return null;
+    unmet.sort(
+      (a, b) =>
+        (orderIndex.has(a) ? orderIndex.get(a) : 999) -
+        (orderIndex.has(b) ? orderIndex.get(b) : 999)
+    );
+    cursor = unmet[0];
   }
   return null;
 }

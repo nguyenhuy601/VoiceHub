@@ -3536,12 +3536,13 @@ export const pageStrings = {
       aiHitlHowMacro1: 'Chuẩn bị',
       aiHitlHowMacro2: 'Engines',
       aiHitlHowMacro3: 'Tổng hợp & Gate 2',
-      aiHitlHowMacroDesc1: 'Đang hiểu phạm vi và chọn tools planning.',
+      aiHitlHowMacroDesc1: 'Đang chuẩn bị ngữ cảnh HOW và chọn tools planning.',
       aiHitlHowFinalizing: 'Đang ghi kết quả',
       aiHitlHowFinalizingDesc: 'Phân tích đã xong. Đang ghi từng section lên pack.',
       aiHitlHowMacroDesc2:
         'Đang chạy tools planning theo phụ thuộc mềm. Lịch nằm trong Schedule (không còn Sequencing/Matching riêng).',
-      aiHitlHowMacroDesc3: 'Đang quan sát kết quả và đánh giá feasibility trước Gate 2.',
+      aiHitlHowMacroDesc3:
+        'Đang tổng hợp artifact, chấm đủ section, finalize plan và feasibility trước Gate 2.',
       aiHitlMonitorMacroDesc1: 'Đang nạp SRS pack và chuẩn bị dữ liệu đầu vào.',
       aiHitlMonitorMacroDesc2: 'Đang phân tích và kiểm tra chất lượng yêu cầu.',
       aiHitlMonitorMacroDesc3: 'Đang truy vấn ngữ cảnh semantic.',
@@ -3573,14 +3574,22 @@ export const pageStrings = {
       aiHitlMonitorActivity_BacklogMapTool: 'Đang lập backlog…',
       aiHitlMonitorActivity_ProjectPlanTool: 'Đang tổng hợp project plan…',
       aiHitlMonitorActivity_RequirementAnalysisTool: 'Đang phân tích yêu cầu…',
-      aiHitlMonitorActivity_understand: 'Đang hiểu ngữ cảnh…',
-      aiHitlMonitorActivity_plan: 'Đang lập kế hoạch…',
-      aiHitlMonitorActivity_observe: 'Đang quan sát kết quả…',
+      aiHitlMonitorActivity_understand: 'Đang chuẩn bị ngữ cảnh HOW…',
+      aiHitlMonitorActivity_prepareHowContext: 'Đang chuẩn bị ngữ cảnh HOW…',
+      aiHitlMonitorActivity_plan: 'Đang chọn tools planning…',
+      aiHitlMonitorActivity_selectTools: 'Đang chọn tools planning…',
+      aiHitlMonitorActivity_observe: 'Đang tổng hợp kết quả…',
+      aiHitlMonitorActivity_assemble: 'Đang tổng hợp kết quả…',
       aiHitlMonitorActivity_evaluate: 'Đang đánh giá…',
+      aiHitlMonitorActivity_scoreCompleteness: 'Đang chấm đủ artifact…',
+      aiHitlMonitorActivity_finalizePlan: 'Đang khóa project plan…',
+      aiHitlMonitorActivity_feasibility: 'Đang kiểm tra feasibility…',
       aiHitlMonitorActivityLayer: 'Đang chạy cùng lúc: {labels}',
       aiHitlHowLayer: 'Lớp {n}',
-      aiHitlHowStep_understand: 'Hiểu phạm vi',
+      aiHitlHowStep_understand: 'Chuẩn bị ngữ cảnh',
+      aiHitlHowStep_prepareHowContext: 'Chuẩn bị ngữ cảnh',
       aiHitlHowStep_select: 'Chọn tools',
+      aiHitlHowStep_selectTools: 'Chọn tools',
       aiHitlHowStep_BacklogMapTool: 'Backlog',
       aiHitlHowStep_WbsTool: 'WBS',
       aiHitlHowStep_DependencyTool: 'Dependencies',
@@ -3592,10 +3601,13 @@ export const pageStrings = {
       aiHitlHowStep_EmployeeMatchingTool: 'Ghép nhân sự',
       aiHitlHowStep_ScheduleTool: 'Schedule',
       aiHitlHowStep_DeployPlanTool: 'Deploy plan',
-      aiHitlHowStep_observe: 'Quan sát kết quả',
-      aiHitlHowStep_evaluateLocal: 'Đánh giá cục bộ',
+      aiHitlHowStep_observe: 'Tổng hợp kết quả',
+      aiHitlHowStep_assemble: 'Tổng hợp kết quả',
+      aiHitlHowStep_evaluateLocal: 'Chấm đủ artifact',
+      aiHitlHowStep_scoreCompleteness: 'Chấm đủ artifact',
+      aiHitlHowStep_finalizePlan: 'Finalize plan',
       aiHitlHowStep_feasibility: 'Feasibility',
-      aiHitlHowStep_ProjectPlanTool: 'Project plan (Gate 2)',
+      aiHitlHowStep_ProjectPlanTool: 'Finalize plan',
       aiHitlGate2Title: 'Gate 2 — Kế hoạch (HOW)',
       gate2HowPending:
         'Chờ AI Planning (HOW) xong trên tab Monitor — sau đó PM gửi duyệt Gate 2.',
@@ -3623,6 +3635,34 @@ export const pageStrings = {
       gate2ColRole: 'Role',
       gate2ColEffort: 'Effort (h)',
       gate2ColTaskCount: 'Số task',
+      gate2ColSprintGoal: 'Sprint Goal',
+      gate2ColCapacity: 'Capacity (h)',
+      gate2OpenSprintScope: 'Mở danh sách Story / task',
+      gate2UnallocatedTitle: 'Chưa phân bổ',
+      gate2SprintScopeEmpty: 'Chưa có Story/task trong phạm vi này.',
+      gate2SprintScopeEmptyTasks: 'Không có task trong nhóm này.',
+      gate2SprintPlanningStatusTitle: 'Trạng thái phân bổ Sprint (AI)',
+      gate2OpenSprintPlanningStatus: 'Chi tiết',
+      gate2KindSprintPlanningStatus: 'AI status',
+      gate2SprintExecLabel: 'Phân bổ',
+      gate2SprintValidLabel: 'Validate',
+      gate2SprintGoalSourceLabel: 'Goal',
+      gate2SprintReadyYes: 'Sẵn sàng review',
+      gate2SprintReadyNo: 'Chưa sẵn sàng duyệt',
+      gate2SprintIssueFallback: 'Issue',
+      gate2SprintPlanningStatusEmptyIssues:
+        'Không có issue validate. Mở từng Sprint để xem phạm vi Story/task.',
+      gate2SprintExec_draft_ready: 'Bản nháp sẵn sàng duyệt',
+      gate2SprintExec_blocked: 'Bị chặn — thiếu dữ liệu',
+      gate2SprintExec_incomplete: 'Chưa hoàn tất',
+      gate2SprintExec_failed: 'Lỗi thực thi',
+      gate2SprintExec_cancelled: 'Đã hủy',
+      gate2SprintValid_validated: 'Đã xác nhận',
+      gate2SprintValid_invalid: 'Không hợp lệ',
+      gate2SprintValid_insufficient_data: 'Thiếu dữ liệu xác nhận',
+      gate2SprintGoalSource_llm: 'AI',
+      gate2SprintGoalSource_human: 'Người',
+      gate2SprintGoalSource_none: 'Chưa có',
       gate2ColDeliverable: 'Deliverable',
       gate2ColDoneWhen: 'Done when',
       gate2WbsLevel_epic: 'Epic',
@@ -3635,13 +3675,51 @@ export const pageStrings = {
       gate2ColDepType: 'Type',
       gate2ColDepRelation: 'Quan hệ',
       gate2ColDepReason: 'Lý do',
+      gate2ColDepRequiredOutput: 'Output cần',
+      gate2ColDepRequiredAt: 'Chặn tại',
+      gate2ColDepBasis: 'Cơ sở',
+      gate2ColDepSchedulable: 'Lịch',
       gate2ColDepScope: 'Phạm vi chặn',
       gate2ColDepParallel: 'Song song',
       gate2DepScope_FULL: 'Chặn toàn bộ',
       gate2DepScope_INTEGRATION_ONLY: 'Chỉ tích hợp',
       gate2DepScope_TEST_ONLY: 'Chỉ kiểm thử',
       gate2DepScope_NONE: 'Không chặn',
+      gate2DepRequiredAt_FULL: 'Toàn bộ',
+      gate2DepRequiredAt_INTEGRATION: 'Tích hợp',
+      gate2DepRequiredAt_TEST: 'Kiểm thử',
+      gate2DepRequiredAt_TEST_ONLY: 'Chỉ kiểm thử',
+      gate2DepRequiredAt_START: 'Bắt đầu',
+      gate2DepRequiredAt_NONE: 'Không chặn',
+      gate2DepBasis_EXPLICIT: 'Tường minh',
+      gate2DepBasis_INFERRED: 'Suy luận',
+      gate2DepBasis_ASSUMED: 'Giả định',
+      gate2DepSchedulableYes: 'Đưa vào lịch',
+      gate2DepSchedulableNo: 'Chỉ đề xuất',
       gate2DepParallelBadge: 'Có thể song song',
+      gate2DepStatus_SKIPPED: 'Phụ thuộc: LLM tắt — chưa phân tích',
+      gate2DepStatusHint_SKIPPED:
+        'DependencyTool bị SKIPPED. Schedule không sẵn sàng cho đến khi chạy lại HOW với LLM bật.',
+      gate2DepStatus_FAILED: 'Phụ thuộc: phân tích thất bại',
+      gate2DepStatusHint_FAILED:
+        'LLM provider lỗi (DashScope/timeout/quota). Không coi là “không có phụ thuộc”. Chạy lại HOW sau khi provider ổn.',
+      gate2DepStatusHint_FAILED_detail: 'Chi tiết: {reason}',
+      gate2DepStatus_SEMANTIC_INCOMPLETE: 'Phụ thuộc: thiếu WBS leaf',
+      gate2DepStatusHint_SEMANTIC_INCOMPLETE:
+        'Chưa có task leaf khi chạy DependencyTool. Sửa WBS rồi chạy lại HOW.',
+      gate2DepStatus_INCOMPLETE: 'Phụ thuộc: thiếu thông tin',
+      gate2DepStatusHint_INCOMPLETE:
+        'LLM đã chạy nhưng còn câu hỏi / thiếu bằng chứng. Schedule chưa sẵn sàng.',
+      gate2DepStatus_PARTIAL: 'Phụ thuộc: một phần (proposal ≠ lịch)',
+      gate2DepStatusHint_PARTIAL:
+        'Có cạnh đưa vào lịch hoặc proposal chưa schedulable. Xem banner / bảng.',
+      gate2DepStatus_INVALID: 'Phụ thuộc: không hợp lệ (chu trình)',
+      gate2DepStatusHint_INVALID:
+        'Phát hiện chu trình trên cạnh lịch. Proposal giữ để review — không công bố DAG hoàn chỉnh.',
+      gate2DepStatus_COMPLETE_NO_EDGES: 'Phụ thuộc: đã phân tích — không có cạnh',
+      gate2DepStatusHint_COMPLETE_NO_EDGES:
+        'LLM kết luận không có phụ thuộc hỗ trợ. Schedule có thể chạy với DAG rỗng.',
+      gate2DepStatus_DEPENDENCIES_FOUND: 'Phụ thuộc: đã có cạnh lịch',
       gate2SeqBlocked: 'Chưa tính đường găng',
       gate2SeqBlockedHint:
         'Chưa thể xác định đường găng hợp lệ cho toàn bộ graph. Hãy kiểm tra các dependency trên chu trình.',
@@ -3656,10 +3734,22 @@ export const pageStrings = {
       gate2SeqCycleTitle: 'Chu trình {index} — {count} task',
       gate2DepFlowTitle: 'Sơ đồ phụ thuộc',
       gate2DepFlowHint:
-        'Luồng công việc: task trước → điều kiện → task sau. Badge song song khi có thể phát triển song song.',
+        'Luồng: task trước → điều kiện → task sau. Badge «Đưa vào lịch» vs «Chỉ đề xuất» theo Accept HOW.',
       gate2DepPredRole: 'Task trước',
       gate2DepSuccRole: 'Task sau',
       gate2DepUnresolvedTitle: 'Câu hỏi chưa giải quyết',
+      aiHitlMonitorResultsEmptyDeps:
+        'Chưa có cạnh phụ thuộc từ lần chạy HOW (LLM không đề xuất hoặc bị reject).',
+      aiHitlMonitorResultsEmptyDepsComplete:
+        'Đã phân tích phụ thuộc: LLM kết luận không có cạnh hỗ trợ (COMPLETE_NO_EDGES). Schedule có thể chạy với DAG rỗng.',
+      aiHitlMonitorResultsEmptyDepsSkipped:
+        'Phụ thuộc: LLM tắt (SKIPPED) — chưa phân tích. Bật LLM và chạy lại HOW; Schedule chưa sẵn sàng.',
+      aiHitlMonitorResultsEmptyDepsFailed:
+        'Phụ thuộc: phân tích thất bại (FAILED / timeout). Không đồng nghĩa “không có phụ thuộc”. Chạy lại HOW.',
+      aiHitlMonitorResultsEmptyDepsSemantic:
+        'Phụ thuộc trống: thiếu WBS leaf (SEMANTIC_INCOMPLETE). Sửa WbsTool rồi chạy lại HOW.',
+      aiHitlMonitorResultsEmptyDepsPartial:
+        'Phụ thuộc: phân tích chưa đủ để lên lịch (INCOMPLETE/PARTIAL/INVALID). Xem banner / câu hỏi mở trên tab này.',
       gate2ItemStatus_PROPOSED: 'Đề xuất',
       gate2ItemStatus_CONFIRMED: 'Đã xác nhận',
       gate2ItemStatus_REJECTED: 'Từ chối',
@@ -3741,6 +3831,49 @@ export const pageStrings = {
       gate2PlanIncomplete: 'chưa đủ',
       gate2MissingSoftHint:
         'Chưa có đề xuất AI cho section này — chạy HOW trên Monitor hoặc bổ sung tay.',
+      gate2AssignMissingSoftHint:
+        'Chưa có phân công/ngày — chạy HOW (ScheduleTool) trên Monitor hoặc bổ sung tay.',
+      gate2ScheduleStaleHint: 'Lịch cần cập nhật sau khi đổi phân công',
+      gate2ColConflicts: 'Xung đột',
+      gate2ConflictsNone: 'Không',
+      gate2ConflictsNoneTitle: 'Không xung đột dung lượng',
+      gate2ConflictsHasTitle: '{count} xung đột dung lượng',
+      gate2OpenScheduleDetail: 'Chi tiết lịch theo ngày',
+      gate2ScheduleDrawerTitle: 'Chi tiết lịch',
+      gate2ScheduleDrawerEmpty: 'Chưa có dòng resource.schedule cho task này.',
+      gate2ScheduleDirtyBanner:
+        'Đã đổi phân công/ngày — lịch có thể lệch. Bấm Cập nhật lịch để chạy lại ScheduleTool.',
+      gate2ScheduleMissingBanner:
+        'Pack chưa có resource.schedule (chỉ có phân công). Ngày đang hiện tạm từ effort — bấm Cập nhật lịch để ScheduleTool ghi lịch thật.',
+      gate2ScheduleRefreshCta: 'Cập nhật lịch',
+      gate2ScheduleRefreshStarted: 'Đã gửi cập nhật lịch (ScheduleTool)…',
+      gate2ScheduleDirtySubmitTitle: 'Lịch chưa cập nhật',
+      gate2ScheduleDirtySubmitMessage:
+        'Bạn đã đổi phân công/ngày nhưng chưa Cập nhật lịch. Vẫn gửi duyệt với lịch có thể lệch?',
+      gate2ScheduleDirtySubmitConfirm: 'Vẫn gửi',
+      gate2ItemStatus_PROVISIONAL: 'Tạm',
+      gate2ScheduleMissingSoftHint:
+        'Lịch heuristic cần WBS leaf + (nên có) ngày bắt đầu dự án. Thiếu gán người vẫn có placeholder UNASSIGNED — kiểm tra Phân công rồi chạy lại HOW.',
+      gate2ScheduleReasonMissingStart:
+        'Thiếu ngày bắt đầu dự án — heuristic Lịch không xếp được lịch',
+      gate2ScheduleReasonNoAssignments:
+        'Chưa gán người (Phân công) — Lịch chỉ xếp task đã gán hoặc placeholder UNASSIGNED',
+      gate2ScheduleReasonNoLeaves:
+        'Chưa có WBS leaf task — chạy HOW / WBS trước khi lập lịch',
+      gate2ScheduleReasonEmpty:
+        'ScheduleTool chưa sinh dòng lịch — chạy lại HOW (Schedule) trên Monitor',
+      aiHitlMonitorResultsEmptyAssignments:
+        'Chưa có phân công/ngày trên leaf. Chạy HOW (ScheduleTool) — ngày bắt đầu/kết thúc nằm trên tab Phân công.',
+      aiHitlMonitorResultsEmptySchedule:
+        'Có schedule thô nhưng Gate2 không map được ngày (thiếu startDate/dueDate trên leaf). Chạy lại HOW sau khi WBS ổn.',
+      aiHitlMonitorResultsEmptyScheduleStale:
+        'Lịch chưa có dòng calendar trên pack này (ScheduleTool chưa ghi resource.schedule). Build/update ai-project-planning-service rồi chạy lại HOW — heuristic sẽ xếp leaf (UNASSIGNED nếu chưa gán).',
+      aiHitlMonitorResultsEmptyScheduleNoStart:
+        'Lịch trống: thiếu ngày bắt đầu dự án (overview.startDate / calendar). Bổ sung startDate rồi chạy lại HOW.',
+      aiHitlMonitorResultsEmptyScheduleNoLeaves:
+        'Lịch trống: chưa có WBS leaf — ổn định WbsTool rồi chạy lại Schedule.',
+      aiHitlMonitorResultsEmptyScheduleNoAssign:
+        'Lịch trống hoặc chỉ placeholder UNASSIGNED: chưa gán người. Kiểm tra Phân công (pool / project_cap) rồi chạy lại HOW.',
       gate2QualityPlanCount: 'Kế hoạch kiểm thử',
       gate2DeployPlanCount: 'Kế hoạch deploy',
       gate2ScopeCount: 'Phạm vi',
@@ -3863,6 +3996,10 @@ export const pageStrings = {
       phase1Gate1ReasonLlmDisabled: 'LLM tắt — chưa derive section từ CR/NFR/context',
       phase1Gate1ReasonDeriveEmpty:
         'Không derive được section từ CR/NFR/context — cần BA bổ sung hoặc chạy lại AI',
+      phase1Gate1ReasonLlmQuota:
+        'LLM hết hạn mức (quota) — nạp DashScope / đổi model rồi chạy lại AI',
+      phase1Gate1ReasonLlmError:
+        'LLM lỗi khi derive section — kiểm tra API rồi chạy lại AI',
       phase1Gate1ReasonDeriveLocked:
         'Section tạm khóa — đang chỉ derive BG để test workflow',
       phase1Gate1ReasonSheetEmpty: 'Không đủ dữ liệu để LLM phân tích (sheet trống)',
@@ -10845,12 +10982,13 @@ export const pageStrings = {
       aiHitlHowMacro1: 'Prepare',
       aiHitlHowMacro2: 'Engines',
       aiHitlHowMacro3: 'Wrap-up & Gate 2',
-      aiHitlHowMacroDesc1: 'Understanding scope and selecting planning tools.',
+      aiHitlHowMacroDesc1: 'Preparing HOW context and selecting planning tools.',
       aiHitlHowFinalizing: 'Saving results',
       aiHitlHowFinalizingDesc: 'Analysis finished. Writing each section onto the pack.',
       aiHitlHowMacroDesc2:
         'Running planning tools by soft dependency order. Schedule owns timeline (no separate Sequencing/Matching tools).',
-      aiHitlHowMacroDesc3: 'Observing results and checking feasibility before Gate 2.',
+      aiHitlHowMacroDesc3:
+        'Assembling artifacts, scoring completeness, finalizing the plan, then feasibility before Gate 2.',
       aiHitlMonitorMacroDesc1: 'Loading the SRS pack and preparing input data.',
       aiHitlMonitorMacroDesc2: 'Analyzing requirements and checking data quality.',
       aiHitlMonitorMacroDesc3: 'Fetching semantic context.',
@@ -10881,14 +11019,22 @@ export const pageStrings = {
       aiHitlMonitorActivity_BacklogMapTool: 'Mapping the backlog…',
       aiHitlMonitorActivity_ProjectPlanTool: 'Assembling project plan…',
       aiHitlMonitorActivity_RequirementAnalysisTool: 'Analyzing requirements…',
-      aiHitlMonitorActivity_understand: 'Understanding context…',
-      aiHitlMonitorActivity_plan: 'Planning…',
-      aiHitlMonitorActivity_observe: 'Observing results…',
+      aiHitlMonitorActivity_understand: 'Preparing HOW context…',
+      aiHitlMonitorActivity_prepareHowContext: 'Preparing HOW context…',
+      aiHitlMonitorActivity_plan: 'Selecting planning tools…',
+      aiHitlMonitorActivity_selectTools: 'Selecting planning tools…',
+      aiHitlMonitorActivity_observe: 'Assembling results…',
+      aiHitlMonitorActivity_assemble: 'Assembling results…',
       aiHitlMonitorActivity_evaluate: 'Evaluating…',
+      aiHitlMonitorActivity_scoreCompleteness: 'Scoring artifact completeness…',
+      aiHitlMonitorActivity_finalizePlan: 'Finalizing project plan…',
+      aiHitlMonitorActivity_feasibility: 'Checking feasibility…',
       aiHitlMonitorActivityLayer: 'Running together: {labels}',
       aiHitlHowLayer: 'Layer {n}',
-      aiHitlHowStep_understand: 'Understand scope',
+      aiHitlHowStep_understand: 'Prepare context',
+      aiHitlHowStep_prepareHowContext: 'Prepare context',
       aiHitlHowStep_select: 'Select tools',
+      aiHitlHowStep_selectTools: 'Select tools',
       aiHitlHowStep_BacklogMapTool: 'Backlog',
       aiHitlHowStep_WbsTool: 'WBS',
       aiHitlHowStep_DependencyTool: 'Dependencies',
@@ -10900,10 +11046,13 @@ export const pageStrings = {
       aiHitlHowStep_EmployeeMatchingTool: 'Staff matching',
       aiHitlHowStep_ScheduleTool: 'Schedule',
       aiHitlHowStep_DeployPlanTool: 'Deploy plan',
-      aiHitlHowStep_observe: 'Observe results',
-      aiHitlHowStep_evaluateLocal: 'Local evaluate',
+      aiHitlHowStep_observe: 'Assemble results',
+      aiHitlHowStep_assemble: 'Assemble results',
+      aiHitlHowStep_evaluateLocal: 'Score completeness',
+      aiHitlHowStep_scoreCompleteness: 'Score completeness',
+      aiHitlHowStep_finalizePlan: 'Finalize plan',
       aiHitlHowStep_feasibility: 'Feasibility',
-      aiHitlHowStep_ProjectPlanTool: 'Project plan (Gate 2)',
+      aiHitlHowStep_ProjectPlanTool: 'Finalize plan',
       aiHitlGate2Title: 'Gate 2 — Plan (HOW)',
       gate2HowPending:
         'Wait for AI Planning (HOW) on Monitor — then PM submits Gate 2.',
@@ -10931,6 +11080,34 @@ export const pageStrings = {
       gate2ColRole: 'Role',
       gate2ColEffort: 'Effort (h)',
       gate2ColTaskCount: 'Tasks',
+      gate2ColSprintGoal: 'Sprint Goal',
+      gate2ColCapacity: 'Capacity (h)',
+      gate2OpenSprintScope: 'Open Story / task list',
+      gate2UnallocatedTitle: 'Unallocated',
+      gate2SprintScopeEmpty: 'No stories/tasks in this scope.',
+      gate2SprintScopeEmptyTasks: 'No tasks in this group.',
+      gate2SprintPlanningStatusTitle: 'Sprint allocation status (AI)',
+      gate2OpenSprintPlanningStatus: 'Details',
+      gate2KindSprintPlanningStatus: 'AI status',
+      gate2SprintExecLabel: 'Allocation',
+      gate2SprintValidLabel: 'Validate',
+      gate2SprintGoalSourceLabel: 'Goal',
+      gate2SprintReadyYes: 'Ready for review',
+      gate2SprintReadyNo: 'Not ready to approve',
+      gate2SprintIssueFallback: 'Issue',
+      gate2SprintPlanningStatusEmptyIssues:
+        'No validation issues. Open each Sprint to see Story/task scope.',
+      gate2SprintExec_draft_ready: 'Draft ready for review',
+      gate2SprintExec_blocked: 'Blocked — missing data',
+      gate2SprintExec_incomplete: 'Incomplete',
+      gate2SprintExec_failed: 'Execution failed',
+      gate2SprintExec_cancelled: 'Cancelled',
+      gate2SprintValid_validated: 'Validated',
+      gate2SprintValid_invalid: 'Invalid',
+      gate2SprintValid_insufficient_data: 'Insufficient data',
+      gate2SprintGoalSource_llm: 'AI',
+      gate2SprintGoalSource_human: 'Human',
+      gate2SprintGoalSource_none: 'None',
       gate2ColDeliverable: 'Deliverable',
       gate2ColDoneWhen: 'Done when',
       gate2WbsLevel_epic: 'Epic',
@@ -10943,13 +11120,51 @@ export const pageStrings = {
       gate2ColDepType: 'Type',
       gate2ColDepRelation: 'Relation',
       gate2ColDepReason: 'Reason',
+      gate2ColDepRequiredOutput: 'Required output',
+      gate2ColDepRequiredAt: 'Blocks at',
+      gate2ColDepBasis: 'Basis',
+      gate2ColDepSchedulable: 'Schedule',
       gate2ColDepScope: 'Blocking scope',
       gate2ColDepParallel: 'Parallel',
       gate2DepScope_FULL: 'Full block',
       gate2DepScope_INTEGRATION_ONLY: 'Integration only',
       gate2DepScope_TEST_ONLY: 'Test only',
       gate2DepScope_NONE: 'None',
+      gate2DepRequiredAt_FULL: 'Full',
+      gate2DepRequiredAt_INTEGRATION: 'Integration',
+      gate2DepRequiredAt_TEST: 'Test',
+      gate2DepRequiredAt_TEST_ONLY: 'Test only',
+      gate2DepRequiredAt_START: 'Start',
+      gate2DepRequiredAt_NONE: 'None',
+      gate2DepBasis_EXPLICIT: 'Explicit',
+      gate2DepBasis_INFERRED: 'Inferred',
+      gate2DepBasis_ASSUMED: 'Assumed',
+      gate2DepSchedulableYes: 'On schedule',
+      gate2DepSchedulableNo: 'Proposal only',
       gate2DepParallelBadge: 'Can work in parallel',
+      gate2DepStatus_SKIPPED: 'Dependencies: LLM off — not analyzed',
+      gate2DepStatusHint_SKIPPED:
+        'DependencyTool was SKIPPED. Schedule is not ready until HOW runs again with LLM enabled.',
+      gate2DepStatus_FAILED: 'Dependencies: analysis failed',
+      gate2DepStatusHint_FAILED:
+        'LLM provider error (DashScope/timeout/quota). Do not treat this as “no dependencies”. Re-run HOW after the provider is healthy.',
+      gate2DepStatusHint_FAILED_detail: 'Detail: {reason}',
+      gate2DepStatus_SEMANTIC_INCOMPLETE: 'Dependencies: missing WBS leaves',
+      gate2DepStatusHint_SEMANTIC_INCOMPLETE:
+        'No leaf tasks when DependencyTool ran. Fix WBS, then re-run HOW.',
+      gate2DepStatus_INCOMPLETE: 'Dependencies: missing information',
+      gate2DepStatusHint_INCOMPLETE:
+        'LLM ran but open questions / missing evidence remain. Schedule is not ready.',
+      gate2DepStatus_PARTIAL: 'Dependencies: partial (proposal ≠ schedule)',
+      gate2DepStatusHint_PARTIAL:
+        'Some edges are schedulable and/or proposals are not. See banner / table.',
+      gate2DepStatus_INVALID: 'Dependencies: invalid (cycle)',
+      gate2DepStatusHint_INVALID:
+        'Cycle found on schedule edges. Proposals kept for review — full DAG is not published.',
+      gate2DepStatus_COMPLETE_NO_EDGES: 'Dependencies: analyzed — no edges',
+      gate2DepStatusHint_COMPLETE_NO_EDGES:
+        'LLM concluded there are no supported dependencies. Schedule may run with an empty DAG.',
+      gate2DepStatus_DEPENDENCIES_FOUND: 'Dependencies: schedule edges present',
       gate2SeqBlocked: 'Critical path not computed',
       gate2SeqBlockedHint:
         'A valid critical path cannot be determined for the whole graph. Review the dependencies on the cycle.',
@@ -10964,10 +11179,22 @@ export const pageStrings = {
       gate2SeqCycleTitle: 'Cycle {index} — {count} tasks',
       gate2DepFlowTitle: 'Dependency flow',
       gate2DepFlowHint:
-        'Workflow: predecessor → condition → successor. Parallel badge when work can proceed concurrently.',
+        'Flow: predecessor → condition → successor. «On schedule» vs «Proposal only» badges follow HOW Accept.',
       gate2DepPredRole: 'Predecessor',
       gate2DepSuccRole: 'Successor',
       gate2DepUnresolvedTitle: 'Unresolved questions',
+      aiHitlMonitorResultsEmptyDeps:
+        'No dependency edges from this HOW run (LLM proposed none or all were rejected).',
+      aiHitlMonitorResultsEmptyDepsComplete:
+        'Dependency analysis complete: LLM concluded no supported edges (COMPLETE_NO_EDGES). Schedule may run with an empty DAG.',
+      aiHitlMonitorResultsEmptyDepsSkipped:
+        'Dependencies: LLM off (SKIPPED) — not analyzed. Enable LLM and re-run HOW; Schedule is not ready.',
+      aiHitlMonitorResultsEmptyDepsFailed:
+        'Dependencies: analysis failed (FAILED / timeout). Not the same as “no dependencies”. Re-run HOW.',
+      aiHitlMonitorResultsEmptyDepsSemantic:
+        'Dependencies empty: missing WBS leaves (SEMANTIC_INCOMPLETE). Fix WbsTool, then re-run HOW.',
+      aiHitlMonitorResultsEmptyDepsPartial:
+        'Dependencies: analysis not schedule-ready (INCOMPLETE/PARTIAL/INVALID). See banner / open questions on this tab.',
       gate2ItemStatus_PROPOSED: 'Proposed',
       gate2ItemStatus_CONFIRMED: 'Confirmed',
       gate2ItemStatus_REJECTED: 'Rejected',
@@ -11048,6 +11275,49 @@ export const pageStrings = {
       gate2PlanIncomplete: 'incomplete',
       gate2MissingSoftHint:
         'No AI proposal for this section yet — run HOW on Monitor or add manually.',
+      gate2AssignMissingSoftHint:
+        'No assignments/dates yet — run HOW (ScheduleTool) on Monitor or add manually.',
+      gate2ScheduleStaleHint: 'Schedule needs refresh after assignment changes',
+      gate2ColConflicts: 'Conflicts',
+      gate2ConflictsNone: 'None',
+      gate2ConflictsNoneTitle: 'No capacity conflicts',
+      gate2ConflictsHasTitle: '{count} capacity conflict(s)',
+      gate2OpenScheduleDetail: 'Open day-level schedule detail',
+      gate2ScheduleDrawerTitle: 'Schedule detail',
+      gate2ScheduleDrawerEmpty: 'No resource.schedule rows for this task yet.',
+      gate2ScheduleDirtyBanner:
+        'Assignments/dates changed — schedule may be stale. Click Refresh schedule to re-run ScheduleTool.',
+      gate2ScheduleMissingBanner:
+        'This pack has no resource.schedule yet (assignments only). Dates shown are provisional from effort — click Refresh schedule so ScheduleTool writes real calendar rows.',
+      gate2ScheduleRefreshCta: 'Refresh schedule',
+      gate2ScheduleRefreshStarted: 'Schedule refresh (ScheduleTool) started…',
+      gate2ScheduleDirtySubmitTitle: 'Schedule not refreshed',
+      gate2ScheduleDirtySubmitMessage:
+        'You changed assignments/dates but have not refreshed the schedule. Submit anyway with possibly stale dates?',
+      gate2ScheduleDirtySubmitConfirm: 'Submit anyway',
+      gate2ItemStatus_PROVISIONAL: 'Provisional',
+      gate2ScheduleMissingSoftHint:
+        'Heuristic schedule needs WBS leaves and preferably a project startDate. Unassigned leaves still get UNASSIGNED placeholders — check Assignments, then re-run HOW.',
+      gate2ScheduleReasonMissingStart:
+        'Missing project startDate — schedule heuristic could not place tasks',
+      gate2ScheduleReasonNoAssignments:
+        'No people assigned yet — schedule places assigned tasks or UNASSIGNED placeholders',
+      gate2ScheduleReasonNoLeaves:
+        'No WBS leaf tasks yet — run HOW / WBS before scheduling',
+      gate2ScheduleReasonEmpty:
+        'ScheduleTool produced no calendar rows — re-run HOW (Schedule) on Monitor',
+      aiHitlMonitorResultsEmptyAssignments:
+        'No leaf assignments/dates yet. Run HOW (ScheduleTool) — start/due dates live on the Assignments tab.',
+      aiHitlMonitorResultsEmptySchedule:
+        'Raw schedule exists but Gate2 could not map dates (leaf missing startDate/dueDate). Re-run HOW after WBS is stable.',
+      aiHitlMonitorResultsEmptyScheduleStale:
+        'This pack has no calendar rows yet (ScheduleTool did not write resource.schedule). Build/update ai-project-planning-service, then re-run HOW — heuristic places leaves (UNASSIGNED if unassigned).',
+      aiHitlMonitorResultsEmptyScheduleNoStart:
+        'Schedule empty: missing project startDate (overview / calendar). Add startDate, then re-run HOW.',
+      aiHitlMonitorResultsEmptyScheduleNoLeaves:
+        'Schedule empty: no WBS leaves — stabilize WbsTool, then re-run Schedule.',
+      aiHitlMonitorResultsEmptyScheduleNoAssign:
+        'Schedule empty or UNASSIGNED-only: no people assigned. Check Assignments (pool / project_cap), then re-run HOW.',
       gate2QualityPlanCount: 'Testing plan',
       gate2DeployPlanCount: 'Deploy plan',
       gate2ScopeCount: 'Scope',
@@ -11170,6 +11440,10 @@ export const pageStrings = {
       phase1Gate1ReasonLlmDisabled: 'LLM disabled — section not derived from CR/NFR/context yet',
       phase1Gate1ReasonDeriveEmpty:
         'Could not derive section from CR/NFR/context — BA should fill or re-run AI',
+      phase1Gate1ReasonLlmQuota:
+        'LLM quota exhausted — top up DashScope / switch model, then re-run AI',
+      phase1Gate1ReasonLlmError:
+        'LLM error while deriving section — check the API, then re-run AI',
       phase1Gate1ReasonDeriveLocked:
         'Section temporarily locked — BG derive only (workflow test)',
       phase1Gate1ReasonSheetEmpty: 'Not enough data for LLM analysis (empty sheet)',

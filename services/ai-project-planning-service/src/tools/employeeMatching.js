@@ -3,7 +3,11 @@ const {
   runEmployeeMatching,
   applyMatchingToContainer,
 } = require('../engines/employeeMatching');
-const { assembleHowToolContext, contextAllowsWork } = require('../semanticLayer/howToolContext');
+const {
+  assembleHowToolContext,
+  contextAllowsWork,
+  scopeContainerTasksByContext,
+} = require('../semanticLayer/howToolContext');
 
 /** G9 Employee Matching — Fit → Feasible → featureOwner. */
 async function employeeMatching(input = {}, context = {}) {
@@ -22,17 +26,7 @@ async function employeeMatching(input = {}, context = {}) {
     snapshotId,
     contextPackage: input.contextPackage || context.contextPackage || null,
   });
-  const allowedTaskIds = new Set((layer.requiredData?.tasks || []).map((task) => task.id));
-  const sourceTasks = Array.isArray(container?.planning?.tasks) ? container.planning.tasks : [];
-  const scoped = contextAllowsWork(layer)
-    ? {
-        ...container,
-        planning: {
-          ...(container.planning || {}),
-          tasks: sourceTasks.filter((task) => allowedTaskIds.has(String(task.id || task.taskId || ''))),
-        },
-      }
-    : container;
+  const scoped = scopeContainerTasksByContext(container, layer);
   if (!contextAllowsWork(layer)) {
     return {
       result: { status: layer.status || layer.code, container, assignments: [] },

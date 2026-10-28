@@ -18,8 +18,12 @@ const {
 const SHORTLIST_K = 5;
 const HOURS_PER_FTE = 40;
 const OVERLOAD_CAPACITY_THRESHOLD = 0.15;
-/** Project cap stays exclusive. Role mismatch still ranks lower but keeps a named suggestion. */
-const SUGGESTION_BLOCKING_REASONS = new Set(['project_cap']);
+/**
+ * Soft gates may still produce ranked suggestions (suggestDespiteGate).
+ * project_cap used to hard-block everyone → 101/114 empty shortlists → Schedule only
+ * dated ~12 assigned tasks. Prefer soft suggest + lower score so schedule can fill.
+ */
+const SUGGESTION_BLOCKING_REASONS = new Set();
 
 function skillsFromPoolItem(item) {
   if (Array.isArray(item?.skills) && item.skills.length) return item.skills;
@@ -558,15 +562,12 @@ async function runEmployeeMatching(
       const forecastPct = Number(item.forecastWorkloadPct);
 
       if (policyEnabled) {
+        // Soft project_cap: still rank (penalize) so Schedule can assign; hard skip emptied shortlists.
+        let despiteProjectCap = false;
         if (policy.hardGates.respectProjectCap && isAtProjectCap(item)) {
           filteredProjectCap += 1;
           hardGateSummary.excludedByProjectCap += 1;
-          ineligible.push({
-            userId: item.userId,
-            reasons: ['project_cap'],
-            ...(displayName ? { displayName } : {}),
-          });
-          continue;
+          despiteProjectCap = true;
         }
 
         const hard = evaluateHard(
@@ -585,13 +586,16 @@ async function runEmployeeMatching(
           },
           {
             ...policy.hardGates,
-            // project_cap already handled above to match legacy counter
+            // Cap handled above as soft suggest — avoid double hard-fail in evaluateHard.
             respectProjectCap: false,
           }
         );
 
-        let suggestDespiteGate = false;
-        const gateReasons = hard.pass ? [] : hard.reasons;
+        let suggestDespiteGate = despiteProjectCap;
+        const gateReasons = [
+          ...(despiteProjectCap ? ['project_cap'] : []),
+          ...(hard.pass ? [] : hard.reasons),
+        ];
         if (!hard.pass) {
           if (hard.reasons.includes('soft_overload')) overloadCount += 1;
           bumpHardGateSummary(hardGateSummary, hard.reasons);
@@ -632,6 +636,9 @@ async function runEmployeeMatching(
         if (criticalIds.has(String(task.id))) {
           fitScore = Math.min(1, fitScore + 0.08);
         }
+        if (despiteProjectCap) {
+          fitScore = Math.max(0, Math.round((fitScore - 0.12) * 1000) / 1000);
+        }
         fitScore = Math.max(0, Math.min(1, Math.round(fitScore * 1000) / 1000));
 
         const reasons = [];
@@ -660,9 +667,10 @@ async function runEmployeeMatching(
       }
 
       // ——— Legacy path (ASSIGNMENT_POLICY_V1=0) ———
-      if (isAtProjectCap(item)) {
+      // Soft project_cap (same as policy path) — do not empty shortlist.
+      const legacyAtCap = isAtProjectCap(item);
+      if (legacyAtCap) {
         filteredProjectCap += 1;
-        continue;
       }
       const softOverload = isOverloaded({
         capacityRemaining: item.capacityRemaining,
@@ -671,7 +679,7 @@ async function runEmployeeMatching(
       });
       if (softOverload) overloadCount += 1;
 
-      const fitScore = scorePoolItemForTask({
+      let fitScore = scorePoolItemForTask({
         item,
         task,
         container,
@@ -681,6 +689,9 @@ async function runEmployeeMatching(
         requiredSkillIds: skillIdsForRank,
         planningHints,
       });
+      if (legacyAtCap) {
+        fitScore = Math.max(0, Math.round((fitScore - 0.12) * 1000) / 1000);
+      }
 
       const sim = simulateTaskCapacity({
         userId: item.userId,
@@ -692,6 +703,7 @@ async function runEmployeeMatching(
 
       const reasons = [];
       if (criticalIds.has(String(task.id))) reasons.push('critical_work');
+      if (legacyAtCap) reasons.push('project_cap');
       if (softOverload) reasons.push('overload');
       for (const r of sim.reasons || []) reasons.push(r);
 

@@ -69,10 +69,12 @@ const PLANNING_TOOLS = Object.freeze({
   ScheduleTool: {
     toolName: 'ScheduleTool',
     version: '1.0.0',
-    description: 'Build schedule / capacity timeline (deterministic; no LLM)',
+    description:
+      'Capacity timeline + Sprint HOW (LLM Story→Sprint) + optional release naming',
     allowedContexts: ['planning'],
     requires: ['approvedSrs', 'calendarSnapshot'],
-    timeout: Number(process.env.HOW_SCHEDULE_TOOL_TIMEOUT_MS) || 60_000,
+    // Sprint/Releases LLM can exceed 60s; align with WBS-scale HOW tool budgets.
+    timeout: Number(process.env.HOW_SCHEDULE_TOOL_TIMEOUT_MS) || 600_000,
     inputSchema: ScheduleTool.inputSchema,
     outputSchema: ScheduleTool.outputSchema,
     evidenceSchema: ScheduleTool.evidenceSchema,

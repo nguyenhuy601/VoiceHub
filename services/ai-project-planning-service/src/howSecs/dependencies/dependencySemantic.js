@@ -1,10 +1,75 @@
 /**
- * Dependencies Semantic — real WBS tasks + SRS only.
+ * Dependencies Semantic — real WBS leaf tasks + cited FR only.
+ * Fail-closed when no leaves (no invent / no container bypass).
  */
 
 const { clip } = require('../../engines/howSemanticLlm');
 
-async function buildDependencySemantic({ pack = {}, container = {}, env = process.env, contextPackage = null, snapshot = null, snapshotId = null } = {}) {
+const TASK_DESC_CLIP = 240;
+const FR_STATEMENT_CLIP = 280;
+
+function isLeafTaskLevel(level) {
+  const token = String(level || 'task').toLowerCase();
+  return token === 'task' || token === 'subtask' || !level;
+}
+
+function mapTaskBrief(task) {
+  if (!task?.id) return null;
+  const dependsOn = Array.isArray(task.dependsOn)
+    ? task.dependsOn.map(String).filter(Boolean)
+    : [];
+  const sourceFrIds = Array.isArray(task.sourceFrIds)
+    ? task.sourceFrIds.map(String).filter(Boolean)
+    : [];
+  const description = task.description ? clip(task.description, TASK_DESC_CLIP) : '';
+  const deliverable = task.deliverable ? clip(task.deliverable, 160) : '';
+  const area = task.area ? clip(task.area, 24) : '';
+  const out = {
+    id: String(task.id).trim(),
+    title: clip(task.title || task.name || task.id, 120),
+  };
+  if (description) out.description = description;
+  if (deliverable) out.deliverable = deliverable;
+  if (area) out.area = area;
+  if (dependsOn.length) out.dependsOn = dependsOn;
+  if (sourceFrIds.length) out.sourceFrIds = sourceFrIds;
+  return out;
+}
+
+function mapFrBrief(row) {
+  if (!row?.id) return null;
+  const statement = row.statement ? clip(row.statement, FR_STATEMENT_CLIP) : '';
+  const title = row.title ? clip(row.title, 120) : '';
+  const out = { id: String(row.id).trim() };
+  if (title) out.title = title;
+  if (statement) out.statement = statement;
+  return out;
+}
+
+/**
+ * Prompt-only slice — omit layer.requiredData / supportingContext.
+ */
+function semanticPromptSlice(semantic = {}) {
+  return {
+    business: {
+      locale: semantic.business?.locale || 'vi',
+      projectName: semantic.business?.projectName || '',
+      frBrief: Array.isArray(semantic.business?.frBrief) ? semantic.business.frBrief : [],
+    },
+    upstream: {
+      taskBrief: Array.isArray(semantic.upstream?.taskBrief) ? semantic.upstream.taskBrief : [],
+    },
+  };
+}
+
+async function buildDependencySemantic({
+  pack = {},
+  container = {},
+  env = process.env,
+  contextPackage = null,
+  snapshot = null,
+  snapshotId = null,
+} = {}) {
   const { normalizeDeriveLocale } = require('../../semantic/buildSemanticDeriveContext');
   const {
     assembleHowToolContext,
@@ -13,7 +78,7 @@ async function buildDependencySemantic({ pack = {}, container = {}, env = proces
     missingSlotsFor,
   } = require('../../semanticLayer/howToolContext');
   const locale = normalizeDeriveLocale(
-    pack?.aiAnalysis?.deriveLocale || pack?.locale || env.PHASE1_DERIVE_LOCALE
+    pack?.aiAnalysis?.deriveLocale || pack?.locale || env.PHASE1_DERIVE_LOCALE || 'vi'
   );
   const layer = await assembleHowToolContext({
     purpose: 'DEPENDENCY',
@@ -25,28 +90,41 @@ async function buildDependencySemantic({ pack = {}, container = {}, env = proces
     snapshotId,
   });
   const taskBrief = (layer.requiredData?.tasks || [])
-    .filter((task) => {
-      const level = String(task.level || 'task').toLowerCase();
-      return level === 'task' || level === 'subtask' || !task.level;
-    })
-    .map((task) => ({
-      id: task.id,
-      title: task.title,
-      ...(task.description ? { description: task.description } : {}),
-      ...(task.deliverable ? { deliverable: task.deliverable } : {}),
-      ...(task.area ? { area: task.area } : {}),
-      dependsOn: task.dependsOn || [],
-      sourceFrIds: task.sourceFrIds || [],
-    }));
+    .filter((task) => isLeafTaskLevel(task.level))
+    .map(mapTaskBrief)
+    .filter(Boolean);
+
   const cited = new Set(taskBrief.flatMap((task) => task.sourceFrIds || []));
   const frRows = layer.requiredData?.functionalRequirements || [];
-  const frBrief = (cited.size ? frRows.filter((row) => cited.has(row.id)).concat(frRows.filter((row) => !cited.has(row.id))) : frRows)
-    .map((row) => ({ id: row.id, title: row.title, statement: row.statement }));
+  // Cited-only FR — do not dump full pack into prompt snapshot.
+  const frBrief = (
+    cited.size ? frRows.filter((row) => cited.has(row.id)) : []
+  )
+    .map(mapFrBrief)
+    .filter(Boolean);
+
   const missingSlots = missingSlotsFor('DEPENDENCY', layer);
+  if (!taskBrief.length) missingSlots.push('upstream.taskBrief');
   const openQuestions = taskBrief.length
     ? []
-    : [{ code: 'DEP_NO_TASKS', message: 'Chưa có WBS task thật — không đề xuất phụ thuộc ảo.' }];
-  if (!locale) missingSlots.push('business.locale');
+    : [
+        {
+          code: 'DEP_NO_TASKS',
+          message: 'Chưa có WBS leaf task — chạy WbsTool trước; không đề xuất phụ thuộc ảo.',
+        },
+      ];
+
+  const layerSlim = slimLayer(layer);
+  // Keep gate meta only — strip requiredData so callers never dump it into LLM.
+  const layerMeta = layerSlim
+    ? {
+        status: layerSlim.status,
+        unresolvedIssues: layerSlim.unresolvedIssues,
+        allowedEntityIds: layerSlim.allowedEntityIds,
+        coverage: layerSlim.coverage,
+      }
+    : null;
+
   return {
     ok: contextAllowsWork(layer) && taskBrief.length > 0 && Boolean(locale),
     missingSlots,
@@ -63,9 +141,14 @@ async function buildDependencySemantic({ pack = {}, container = {}, env = proces
       },
       system: {},
       upstream: { taskBrief },
-      layer: slimLayer(layer),
+      layer: layerMeta,
     },
   };
 }
 
-module.exports = { buildDependencySemantic };
+module.exports = {
+  buildDependencySemantic,
+  isLeafTaskLevel,
+  mapTaskBrief,
+  semanticPromptSlice,
+};

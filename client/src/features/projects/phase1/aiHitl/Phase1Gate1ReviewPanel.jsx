@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import Gate1SectionReviewTable from '../gate1/Gate1SectionReviewTable';
-import Gate1FrBacklogSubpanel from '../gate1/Gate1FrBacklogSubpanel';
 import Gate1MissingSectionPanel from '../gate1/Gate1MissingSectionPanel';
 import HitlSectionTabList from './HitlSectionTabList';
 import {
@@ -31,6 +30,26 @@ function labelOf(t, key, fallback, vars) {
     (text, [name, raw]) => text.replace(`{${name}}`, String(raw ?? '')),
     fallback
   );
+}
+
+const EMPTY_COVERAGE_HINT = {
+  LLM_QUOTA_EXHAUSTED: [
+    'requirements.phase1Gate1ReasonLlmQuota',
+    'LLM hết hạn mức (quota) — nạp DashScope / đổi model rồi chạy lại AI',
+  ],
+  LLM_ERROR: [
+    'requirements.phase1Gate1ReasonLlmError',
+    'LLM lỗi khi derive section — kiểm tra API rồi chạy lại AI',
+  ],
+  DERIVE_EMPTY: [
+    'requirements.phase1Gate1ReasonDeriveEmpty',
+    'Không derive được section từ CR/NFR/context — cần BA bổ sung hoặc chạy lại AI',
+  ],
+};
+
+function emptyCoverageHint(coverageReason) {
+  const key = String(coverageReason || '').toUpperCase();
+  return EMPTY_COVERAGE_HINT[key] || EMPTY_COVERAGE_HINT.DERIVE_EMPTY;
 }
 
 function bySectionFromSummary(summary) {
@@ -226,7 +245,30 @@ export default function Phase1Gate1ReviewPanel({
   };
 
   const activeTab = sectionTabs.find((tab) => tab.key === activeSection) || null;
-  const activeRows = bySection[activeSection] || [];
+  // R4/R7: epicTitle edit on one FR updates display for all FR sharing parentEpicId.
+  const activeRows = useMemo(() => {
+    const rows = bySection[activeSection] || [];
+    if (activeSection !== 'functionalRequirements' || !rows.length) return rows;
+    const epicTitleById = new Map();
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      const pid = row?.parentEpicId != null ? String(row.parentEpicId).trim() : '';
+      if (!pid) continue;
+      const id = getGate1RowId(row, i);
+      const edited = decisions[id]?.editedPayload?.epicTitle;
+      if (edited != null && String(edited).trim()) {
+        // Strip temporary fr-from-cr `cN-` so Accept payload cannot re-lock bad titles.
+        const cleaned = String(edited).trim().replace(/^c\d+-/i, '');
+        epicTitleById.set(pid, cleaned || String(edited).trim());
+      }
+    }
+    if (!epicTitleById.size) return rows;
+    return rows.map((row) => {
+      const pid = row?.parentEpicId != null ? String(row.parentEpicId).trim() : '';
+      if (!pid || !epicTitleById.has(pid)) return row;
+      return { ...row, epicTitle: epicTitleById.get(pid) };
+    });
+  }, [activeSection, bySection, decisions]);
   const activeLabel = activeTab?.label || activeSection || '—';
   const sectionAddable = isGate1SectionAddable(activeSection);
   const showAddableTable =
@@ -391,19 +433,26 @@ export default function Phase1Gate1ReviewPanel({
       />
 
       {showAddableTable ? (
-        <Gate1SectionReviewTable
-          section={activeSection}
-          rows={activeRows}
-          decisions={decisions}
-          setDecision={setDecision}
-          showSubmit={allowDecide}
-          busy={busy}
-          t={t}
-          headerTone={activeHasIssue ? 'warn' : 'ok'}
-          canAddRow={allowDecide && sectionAddable}
-          onAddRow={handleAddRow}
-          onRemoveAddedRow={handleRemoveAddedRow}
-        />
+        <>
+          {activeRows.length === 0 && activeTab?.coverageReason ? (
+            <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+              {labelOf(t, ...emptyCoverageHint(activeTab.coverageReason))}
+            </p>
+          ) : null}
+          <Gate1SectionReviewTable
+            section={activeSection}
+            rows={activeRows}
+            decisions={decisions}
+            setDecision={setDecision}
+            showSubmit={allowDecide}
+            busy={busy}
+            t={t}
+            headerTone={activeHasIssue ? 'warn' : 'ok'}
+            canAddRow={allowDecide && sectionAddable}
+            onAddRow={handleAddRow}
+            onRemoveAddedRow={handleRemoveAddedRow}
+          />
+        </>
       ) : summary?.done && activeSection && activeMissing ? (
         <Gate1MissingSectionPanel
           sectionLabel={activeLabel}
@@ -411,17 +460,6 @@ export default function Phase1Gate1ReviewPanel({
           status={activeTab?.status || 'NO_DATA'}
           coverageReason={activeTab?.coverageReason || null}
           isCustomerRawIntake={Boolean(summary?.isCustomerRawIntake)}
-          t={t}
-        />
-      ) : null}
-
-      {activeSection === 'functionalRequirements' ? (
-        <Gate1FrBacklogSubpanel
-          rows={bySection.backlogStructure || []}
-          decisions={decisions}
-          setDecision={setDecision}
-          showSubmit={allowDecide}
-          busy={busy}
           t={t}
         />
       ) : null}

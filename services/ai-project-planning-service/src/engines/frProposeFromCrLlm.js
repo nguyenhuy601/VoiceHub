@@ -1,8 +1,10 @@
 /**
- * Phase WHAT — LLM proposes analyzed FR-* from Customer Raw CR intake.
+ * Phase WHAT — LLM proposes analyzed FR-* from Customer Raw CR intake + Epic map.
  * RULE-FR-01: FR id is never CR-*.
  * RULE-FR-02: each FR cites ≥1 CR in the intake whitelist.
  * RULE-FR-03: flag off / LLM fail → empty, no 1-1 CR dump.
+ * RULE-E6: FR content first; epic = grouping label only — never rewrite FR to fit epic.
+ * Shape: fr-from-cr-v2 (epics[] + parentEpicId required).
  */
 
 const { generateJson, isLlmEnabled } = require('../runtime/ollamaGenerate');
@@ -15,6 +17,10 @@ const {
   resolveFrFromCrTimeoutMs,
   resolveFrFromCrNumPredict,
 } = require('../contracts/frFromCrContract');
+const {
+  reconcileEpicsAcrossChunks,
+  deriveBacklogFromFrEpics,
+} = require('./deriveBacklogFromFrEpics');
 
 const NAME_MAX = 240;
 const DESC_MAX = 800;
@@ -41,6 +47,10 @@ function isCustomerRequirementId(raw) {
 
 function isProposedFrId(raw) {
   return /^FR[-_.]?\d+/i.test(String(raw || '').trim());
+}
+
+function isEpicId(raw) {
+  return /^EPIC[-_.]/i.test(String(raw || '').trim());
 }
 
 function rowId(row) {
@@ -146,15 +156,23 @@ function buildFrFromCrPrompt({ crRows = [], localeInstruction = '' } = {}) {
   }));
   return [
     localeInstruction || 'Respond in the same language as CR titles.',
-    'Propose FR JSON only. No CR ids as FR id.',
-    'Shape:{"nodes":[{"id","name","description?","ac","priority","sourceCrIds"}]}',
-    'Rules: id = FR-n unique within this chunk; sourceCrIds exact CR ids from CR_INTAKE and non-empty; split independent behaviors (do NOT copy 1 CR = 1 FR when one CR states several behaviors); never copy CR id as FR id; no NFR-only items; name = short title; description = fuller behavior (do not set description identical to name).',
+    'Propose FR+Epic JSON only. No prose. No CR ids as FR id.',
+    'Shape:{"epics":[{"id","name"}],"nodes":[{"id","name","description?","ac","priority","sourceCrIds","parentEpicId"}]}',
+    'RULE-E6 (dual-duty): (1) Prioritize correct CR→FR split + AC; keep FR name/description faithful to CR behavior.',
+    '(2) Epic is ONLY a grouping label for shared outcome — do NOT rewrite FR name/AC to fit an epic; do NOT drop an FR because grouping is hard.',
+    'Rules: id = FR-n unique within this chunk; sourceCrIds exact CR ids from CR_INTAKE and non-empty;',
+    'split independent behaviors (do NOT copy 1 CR = 1 FR when one CR states several behaviors); never copy CR id as FR id; no NFR-only items;',
+    'name = short title; description = fuller behavior (do not set description identical to name).',
+    'Epic: use stable epicId when possible (e.g. EPIC-IOT), not only EPIC-1 sequential; parentEpicId must reference epics[].id or null for intentional root Story.',
+    'Every epic must cover ≥1 FR via parentEpicId. Do not invent Story text — Story will be derived from FR.',
     `CR_INTAKE=${JSON.stringify(payload)}`,
   ].join('\n');
 }
 
 /**
- * @returns {{ ok: true, items: object[] } | { ok: false, errors: string[] }}
+ * Accept FR+epic (fr-from-cr-v2). Fail-closed on missing/orphan parentEpicId / empty epic.
+ * RULE-E6: never rewrite FR name from epic.
+ * @returns {{ ok: true, items: object[], epics: object[] } | { ok: false, errors: string[] }}
  */
 function acceptFrFromCr(raw, crWhitelist = []) {
   const whitelist = new Set(
@@ -164,13 +182,43 @@ function acceptFrFromCr(raw, crWhitelist = []) {
   );
   if (!whitelist.size) return { ok: false, errors: ['empty_cr_whitelist'] };
   if (!raw || typeof raw !== 'object') return { ok: false, errors: ['not_object'] };
+
   const list = Array.isArray(raw.nodes)
     ? raw.nodes
     : Array.isArray(raw.items)
       ? raw.items
       : null;
   if (!list) return { ok: false, errors: ['missing_nodes'] };
-  if (!list.length) return { ok: true, items: [] };
+  if (!list.length) return { ok: true, items: [], epics: [] };
+
+  const epicsRaw = Array.isArray(raw.epics) ? raw.epics : null;
+  if (!epicsRaw) {
+    return { ok: false, errors: ['missing_epics', 'fr-from-cr-v2_required'] };
+  }
+
+  const epics = [];
+  const epicIds = new Set();
+  for (let i = 0; i < epicsRaw.length; i += 1) {
+    const row = epicsRaw[i];
+    if (!row || typeof row !== 'object') {
+      return { ok: false, errors: [`epic_${i}_invalid`] };
+    }
+    const id = normalizeRef(row.id || row.epicId);
+    if (!id) return { ok: false, errors: [`epic_${i}_missing_id`] };
+    if (!isEpicId(id)) {
+      return { ok: false, errors: [`invalid_epic_id_${id}`] };
+    }
+    if (epicIds.has(id)) return { ok: false, errors: [`dup_epic_${id}`] };
+    epicIds.add(id);
+    epics.push({
+      id,
+      name: truncate(row.name || row.title || id, NAME_MAX) || id,
+      description: truncate(row.description || row.goal || '', DESC_MAX) || undefined,
+      sourceFrIds: [],
+      storyIds: [],
+    });
+    if (!epics[epics.length - 1].description) delete epics[epics.length - 1].description;
+  }
 
   const items = [];
   const seen = new Set();
@@ -192,14 +240,27 @@ function acceptFrFromCr(raw, crWhitelist = []) {
       return { ok: false, errors: [`missing_sourceCrIds_${id}`] };
     }
     for (const cr of sourceCrIds) {
-      if (isCustomerRequirementId(cr) && !whitelist.has(cr)) {
-        return { ok: false, errors: [`invalid_sourceCrId_${id}`, `received=${cr}`] };
-      }
       if (!whitelist.has(cr)) {
         return { ok: false, errors: [`invalid_sourceCrId_${id}`, `received=${cr}`] };
       }
     }
 
+    // Fail-closed: parentEpicId key required (null = intentional root).
+    if (!Object.prototype.hasOwnProperty.call(row, 'parentEpicId')) {
+      return { ok: false, errors: [`missing_parentEpicId_${id}`] };
+    }
+    let parentEpicId =
+      row.parentEpicId === undefined || row.parentEpicId === null || row.parentEpicId === ''
+        ? null
+        : normalizeRef(row.parentEpicId);
+    if (parentEpicId != null && !epicIds.has(parentEpicId)) {
+      return {
+        ok: false,
+        errors: [`orphan_parentEpicId_${id}`, `received=${parentEpicId}`],
+      };
+    }
+
+    // RULE-E6 / R3: accept FR name as-is — never rewrite from epic.
     const name = truncate(row.name || row.title || id, NAME_MAX);
     let priority = truncate(row.priority || '', 40);
     if (!priority) {
@@ -222,6 +283,7 @@ function acceptFrFromCr(raw, crWhitelist = []) {
       ac: truncate(row.ac || row.acceptanceCriteria || '', AC_CHARS),
       acceptanceCriteria: truncate(row.ac || row.acceptanceCriteria || '', AC_CHARS),
       priority: priority || undefined,
+      parentEpicId,
       sourceCrIds,
       sourceRefs: sourceCrIds.map((cr) => ({ type: 'customer_raw', id: cr })),
       origin: { type: 'AI_SYNTHESIS', engine: 'fr_from_cr', section: 'functionalRequirements' },
@@ -234,7 +296,18 @@ function acceptFrFromCr(raw, crWhitelist = []) {
       status: 'PROPOSED',
     });
   }
-  return { ok: true, items };
+
+  // RULE-E3: every epic must have ≥1 FR
+  for (const epic of epics) {
+    const kids = items.filter((it) => it.parentEpicId === epic.id);
+    if (!kids.length) {
+      return { ok: false, errors: [`epic_without_fr_${epic.id}`] };
+    }
+    epic.sourceFrIds = kids.map((it) => it.id);
+    epic.storyIds = kids.map((it) => it.id);
+  }
+
+  return { ok: true, items, epics };
 }
 
 function renumberProposedFr(items = []) {
@@ -264,7 +337,15 @@ function mergeProposedFrRequirements(proposedItems = [], g4Requirements = []) {
       const sourceCrIds = Array.isArray(src?.sourceCrIds)
         ? src.sourceCrIds.map((x) => String(x || '').trim()).filter(Boolean)
         : [];
-      return {
+      const parentEpicId =
+        src?.parentEpicId === undefined || src?.parentEpicId === null || src?.parentEpicId === ''
+          ? src?.parentEpicId === null
+            ? null
+            : g4.parentEpicId != null
+              ? g4.parentEpicId
+              : undefined
+          : String(src.parentEpicId).trim();
+      const out = {
         ...g4,
         ...src,
         id,
@@ -280,6 +361,8 @@ function mergeProposedFrRequirements(proposedItems = [], g4Requirements = []) {
           ? src.sourceRefs
           : sourceCrIds.map((cr) => ({ type: 'customer_raw', id: cr })),
       };
+      if (parentEpicId !== undefined) out.parentEpicId = parentEpicId;
+      return out;
     })
     .filter(Boolean);
 }
@@ -288,6 +371,8 @@ function failMeta(reason, extra = {}) {
   return {
     ok: false,
     items: [],
+    epics: [],
+    backlogStructure: null,
     meta: {
       source: 'llm_failed',
       fallbackReason: reason,
@@ -339,7 +424,8 @@ async function proposeFrFromCrWithLlm(opts = {}) {
   }
 
   const gen = typeof opts.generateJsonFn === 'function' ? opts.generateJsonFn : generateJson;
-  const all = [];
+  /** @type {{ epics: object[], items: object[] }[]} */
+  const chunkResults = [];
   let llmCalls = 0;
   const t0 = Date.now();
 
@@ -378,28 +464,86 @@ async function proposeFrFromCrWithLlm(opts = {}) {
         llmMs: Date.now() - t0,
       });
     }
-    for (const item of accepted.items) {
-      all.push({ ...item, id: `c${ci}-${item.id}`, logicalId: `c${ci}-${item.id}` });
+    const prefixedItems = accepted.items.map((item) => ({
+      ...item,
+      id: `c${ci}-${item.id}`,
+      logicalId: `c${ci}-${item.id}`,
+    }));
+    // Prefix epic ids per chunk so identical EPIC-1 across chunks stay distinct until reconcile-by-name.
+    const epicIdLocalRemap = {};
+    const prefixedEpics = (accepted.epics || []).map((epic) => {
+      const nextId = `c${ci}-${epic.id}`;
+      epicIdLocalRemap[epic.id] = nextId;
+      return {
+        ...epic,
+        id: nextId,
+        sourceFrIds: (epic.sourceFrIds || []).map((fr) => `c${ci}-${fr}`),
+        storyIds: (epic.storyIds || []).map((fr) => `c${ci}-${fr}`),
+      };
+    });
+    for (const item of prefixedItems) {
+      if (item.parentEpicId && epicIdLocalRemap[item.parentEpicId]) {
+        item.parentEpicId = epicIdLocalRemap[item.parentEpicId];
+      }
     }
+    chunkResults.push({ epics: prefixedEpics, items: prefixedItems });
   }
 
-  const items = renumberProposedFr(all);
+  const reconciled = reconcileEpicsAcrossChunks(chunkResults);
+  const items = renumberProposedFr(reconciled.items);
   if (!items.length) {
-    return failMeta('missing_proposed_fr', { llmCalls, llmMs: Date.now() - t0, crIn: crRows.length });
+    return failMeta('missing_proposed_fr', {
+      llmCalls,
+      llmMs: Date.now() - t0,
+      crIn: crRows.length,
+    });
   }
 
-  console.info(`[fr-from-cr] crIn=${crRows.length} frOut=${items.length} llmCalls=${llmCalls}`);
+  // Remap epic.sourceFrIds / storyIds to renumbered FR ids via old→new from renumber.
+  // renumberProposedFr only changes id; track via index on reconciled.items.
+  const oldToNew = new Map();
+  for (let i = 0; i < reconciled.items.length; i += 1) {
+    oldToNew.set(reconciled.items[i].id, items[i].id);
+  }
+  const epics = reconciled.epics.map((epic) => ({
+    ...epic,
+    sourceFrIds: (epic.sourceFrIds || [])
+      .map((id) => oldToNew.get(id) || id)
+      .filter(Boolean),
+    storyIds: (epic.storyIds || []).map((id) => oldToNew.get(id) || id).filter(Boolean),
+  }));
+
+  const derived = deriveBacklogFromFrEpics(items, epics, {
+    backlogSource: 'derived_from_fr_epic',
+  });
+  if (!derived.ok) {
+    return failMeta((derived.errors || ['derive_fail']).join(','), {
+      reasonCodes: [...(derived.errors || ['derive_fail'])],
+      llmCalls,
+      llmMs: Date.now() - t0,
+      epicReconcileMerged: reconciled.epicReconcileMerged,
+    });
+  }
+
+  console.info(
+    `[fr-from-cr] crIn=${crRows.length} frOut=${items.length} epics=${epics.length} llmCalls=${llmCalls} epicMerged=${reconciled.epicReconcileMerged}`
+  );
   return {
     ok: true,
     items,
+    epics,
+    backlogStructure: derived.backlogStructure,
     meta: {
       source: 'llm_fr_from_cr',
       shapeVersion: FR_FROM_CR_SHAPE_VERSION,
+      backlogSource: 'derived_from_fr_epic',
       crIn: crRows.length,
       frOut: items.length,
+      epicCount: epics.length,
       llmCalls,
       llmMs: Date.now() - t0,
       chunks: chunks.length,
+      epicReconcileMerged: reconciled.epicReconcileMerged,
     },
   };
 }
@@ -428,8 +572,17 @@ function overlayAnalyzedFr(snapshot, pack, items = []) {
     ac: row.ac || row.acceptanceCriteria || '',
     acceptanceCriteria: row.acceptanceCriteria || row.ac || '',
     sourceCrIds: Array.isArray(row.sourceCrIds) ? [...row.sourceCrIds] : [],
+    parentEpicId:
+      row.parentEpicId === undefined || row.parentEpicId === null || row.parentEpicId === ''
+        ? row.parentEpicId === null
+          ? null
+          : undefined
+        : String(row.parentEpicId).trim(),
     level: 'Requirement',
   }));
+  for (const fr of frs) {
+    if (fr.parentEpicId === undefined) delete fr.parentEpicId;
+  }
   const nextSnap = stripCanonicalRaw(snapshot);
   nextSnap.functionalRequirements = frs;
   if (nextSnap.projected?.srs) {
@@ -459,4 +612,5 @@ module.exports = {
   overlayAnalyzedFr,
   renumberProposedFr,
   mergeProposedFrRequirements,
+  reconcileEpicsAcrossChunks,
 };

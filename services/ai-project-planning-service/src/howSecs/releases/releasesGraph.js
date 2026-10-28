@@ -74,8 +74,10 @@ async function proposeReleases({ semantic, facts, env, generateJsonFn }) {
     'Output: {"sprints":[{"id":"...","name":"...","summary":"..."}],"releases":[{"id":"...","name":"...","summary":"..."}],"openQuestions":[]}.',
     languageInstruction(semantic.business?.locale || 'vi'),
   ].join(' ');
+  const { layer: _omitLayer, ...semanticForPrompt } = semantic || {};
+  void _omitLayer;
   const user = [
-    `SEMANTIC=${JSON.stringify(semantic)}`,
+    `SEMANTIC=${JSON.stringify(semanticForPrompt)}`,
     `FACTS=${JSON.stringify(semantic.upstream)}`,
     `ALLOW=${JSON.stringify(facts.allowLists)}`,
     `SHAPE={"sprints":[{"id":"","name":"","summary":""}],"releases":[{"id":"","name":"","summary":""}],"openQuestions":[]}`,

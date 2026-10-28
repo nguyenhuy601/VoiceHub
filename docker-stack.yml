@@ -248,8 +248,8 @@ services:
       - NODE_OPTIONS=--max-old-space-size=1280
       - PROJECT_SERVICE_URL=http://project-service:3009
       - GATEWAY_INTERNAL_TOKEN=${GATEWAY_INTERNAL_TOKEN}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.8-max}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai_compatible}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
@@ -288,6 +288,9 @@ services:
       - HOW_WBS_LLM_CACHE=${HOW_WBS_LLM_CACHE:-1}
       - HOW_WBS_LLM_CACHE_TTL_SEC=${HOW_WBS_LLM_CACHE_TTL_SEC:-604800}
       - HOW_WBS_TOOL_TIMEOUT_MS=${HOW_WBS_TOOL_TIMEOUT_MS:-900000}
+      - HOW_SCHEDULE_TOOL_TIMEOUT_MS=${HOW_SCHEDULE_TOOL_TIMEOUT_MS:-600000}
+      - SPRINT_LLM_TIMEOUT_MS=${SPRINT_LLM_TIMEOUT_MS:-180000}
+      - SPRINT_LLM_DEADLINE_MS=${SPRINT_LLM_DEADLINE_MS:-600000}
       - HOW_WBS_LLM_JOB_TIMEOUT_MS=${HOW_WBS_LLM_JOB_TIMEOUT_MS:-1800000}
       - HOW_WBS_LLM_JOB_STALE_MS=${HOW_WBS_LLM_JOB_STALE_MS:-1900000}
       - RABBITMQ_URL=${RABBITMQ_URL}
@@ -315,54 +318,8 @@ services:
           cpus: "0.25"
           memory: 256M
 
-  ai-project-planning-wbs-worker:
-    image: ${AI_PROJECT_PLANNING_SERVICE_IMAGE}
-    command: ["node", "src/workers/wbsChunk.worker.js"]
-    env_file:
-      - .env
-      - ./services/ai-project-planning-service/.env
-    environment:
-      - WORKER_ROLE=wbs_chunk
-      - HOW_WBS_CHUNK_ORCHESTRATOR=1
-      - ARTIFACT_STORE=${ARTIFACT_STORE:-0}
-      - HOW_WBS_CHUNK_TRANSPORT=rabbit
-      - HOW_WBS_CHUNK_MEMORY=0
-      - HOW_WBS_CHUNK_PREFETCH=${HOW_WBS_CHUNK_PREFETCH:-1}
-      - RABBITMQ_WBS_CHUNK_QUEUE=${RABBITMQ_WBS_CHUNK_QUEUE:-ai.planning.wbs_chunk}
-      - RABBITMQ_WBS_CHUNK_DLQ=${RABBITMQ_WBS_CHUNK_DLQ:-ai.planning.wbs_chunk.dlq}
-      - HOW_WBS_LLM=1
-      - HOW_WBS_LLM_QUEUE=1
-      - HOW_WBS_LLM_JOB_MEMORY=0
-      - AI_PLANNING_LLM=${AI_PLANNING_LLM:-1}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
-      - LLM_PROVIDER=${LLM_PROVIDER:-openai_compatible}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
-      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
-      - LLM_CHAT_MODEL=${LLM_CHAT_MODEL:-}
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - RABBITMQ_WBS_LLM_QUEUE=${RABBITMQ_WBS_LLM_QUEUE:-ai.planning.wbs_llm}
-      - RABBITMQ_QUORUM_QUEUES=${RABBITMQ_QUORUM_QUEUES:-true}
-      - HOW_WBS_LLM_TIMEOUT_MS=${HOW_WBS_LLM_TIMEOUT_MS:-240000}
-      - HOW_WBS_LLM_MAX_LEAVES_PER_FR=${HOW_WBS_LLM_MAX_LEAVES_PER_FR:-4}
-      - HOW_WBS_LLM_MAX_CHUNKS=${HOW_WBS_LLM_MAX_CHUNKS:-16}
-      - HOW_WBS_LLM_CACHE=${HOW_WBS_LLM_CACHE:-1}
-      - HOW_WBS_LLM_CACHE_TTL_SEC=${HOW_WBS_LLM_CACHE_TTL_SEC:-604800}
-      - HOW_WBS_LLM_JOB_TIMEOUT_MS=${HOW_WBS_LLM_JOB_TIMEOUT_MS:-1800000}
-      - HOW_WBS_LLM_JOB_STALE_MS=${HOW_WBS_LLM_JOB_STALE_MS:-1900000}
-    networks:
-      - enterprise-network
-    deploy:
-      replicas: ${AI_PROJECT_PLANNING_WBS_WORKER_REPLICAS:-0}
-      restart_policy:
-        condition: on-failure
-      resources:
-        limits:
-          cpus: "1.00"
-          memory: 512M
-        reservations:
-          cpus: "0.25"
-          memory: 128M
+  # WBS chunks: ai-project-planning-llm-jobs-worker (LLM_JOBS_WBS=1 → ai.planning.llm_jobs).
+  # Legacy wbsChunk.worker / ai.planning.wbs_chunk removed from Swarm.
 
   ai-project-planning-llm-jobs-worker:
     image: ${AI_PROJECT_PLANNING_SERVICE_IMAGE}
@@ -383,8 +340,8 @@ services:
       - LLM_JOBS_PREFETCH=${LLM_JOBS_PREFETCH:-1}
       - ARTIFACT_STORE=${ARTIFACT_STORE:-0}
       - AI_PLANNING_LLM=${AI_PLANNING_LLM:-1}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b-instruct}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai_compatible}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
@@ -723,8 +680,8 @@ services:
       MINIO_REGION: ${MINIO_REGION}
       MINIO_USE_SSL: ${MINIO_USE_SSL}
       VOICE_MEETING_MIN_PERSIST_SEC: ${VOICE_MEETING_MIN_PERSIST_SEC:-60}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.8-max}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
     networks:
       - enterprise-network
     deploy:
@@ -866,6 +823,7 @@ services:
           memory: 96M
 
   # --- Infra / AI (trước đây Compose extra) — DNS: ollama, minio, qdrant ---
+  # Ollama local — mặc định tắt (OLLAMA_REPLICAS=0). Bật lại: OLLAMA_REPLICAS=1 + OLLAMA_BASE_URL.
   ollama:
     image: ollama/ollama:latest
     environment:
@@ -882,7 +840,7 @@ services:
       retries: 5
       start_period: 45s
     deploy:
-      replicas: 1
+      replicas: ${OLLAMA_REPLICAS:-0}
       restart_policy:
         condition: on-failure
       resources:

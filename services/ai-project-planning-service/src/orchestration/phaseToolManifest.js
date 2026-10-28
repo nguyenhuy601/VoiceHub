@@ -9,8 +9,7 @@ const { HOW_SEC_PHASE_ONLY } = require('./phaseGraphOnly');
 const { WHAT_SECTION_TOOLS, WHAT_FR_TOOL } = require('../whatSecs/sectionCatalog');
 
 const TOOL_BLURBS = Object.freeze({
-  BacklogMapTool: 'Map approved SRS to Agile backlog',
-  WbsTool: 'LLM WBS Story SoT → Task leaves',
+  WbsTool: 'LLM WBS from Gate1 Story SoT (approvedBacklogStructure) → Task leaves',
   DependencyTool: 'Task dependency graph (sec subgraph)',
   RiskTool: 'Risk identification (sec subgraph)',
   QualityPlanTool: 'Quality & testing plan (sec subgraph)',
@@ -23,7 +22,10 @@ const TOOL_BLURBS = Object.freeze({
 });
 
 function howPhaseToolNames() {
-  return [...new Set([...HOW_CANONICAL, ...HOW_SEC_PHASE_ONLY])];
+  // ProjectPlanTool is graph finalizePlan — not LLM-selectable.
+  return [...new Set([...HOW_CANONICAL, ...HOW_SEC_PHASE_ONLY])].filter(
+    (name) => name !== 'ProjectPlanTool'
+  );
 }
 
 function whatPhaseToolNames() {

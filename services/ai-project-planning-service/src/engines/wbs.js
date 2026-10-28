@@ -1,6 +1,6 @@
 /**
- * WBS generation — LLM task leaves per approved FR.
- * An FR with 2+ tasks is promoted to a Feature under its Gate1 Story or Epic.
+ * WBS generation — LLM task leaves under Gate1 Stories (MVP HOW).
+ * Materialize: Epic → Story → Task (Story may be root). Never invent Story under Epic.
  */
 
 const { proposeWbsTasksWithLlm, isHowWbsLlmEnabled } = require('./wbsProposeLlm');
@@ -29,6 +29,8 @@ const WBS_META_KEYS = Object.freeze([
   'storyCount',
   'epicCount',
   'featureCount',
+  'workPackageCount',
+  'epicsWithoutStories',
   'unitCount',
   'leafCount',
   'taskCount',
@@ -36,6 +38,11 @@ const WBS_META_KEYS = Object.freeze([
   'chunkOrchestrator',
   'deadLetterIds',
   'rejectedSnapshotIds',
+  'waitingExternal',
+  'threadId',
+  'jobId',
+  'runId',
+  'inputSnapshotId',
 ]);
 
 function sanitizeWbsMeta(meta = {}) {
@@ -48,23 +55,52 @@ function sanitizeWbsMeta(meta = {}) {
   if (out.llmCalls == null) out.llmCalls = 0;
   if (!out.decompositionOutcome) {
     out.decompositionOutcome =
-      out.source === 'llm_story_tasks' ||
-      out.source === 'llm_story_tasks_chunked' ||
-      out.source === 'llm_fr_tasks' ||
-      out.source === 'llm_fr_tasks_chunked'
-        ? 'success'
-        : 'failure';
+      out.source === 'waiting_external'
+        ? 'waiting'
+        : out.source === 'llm_story_tasks' ||
+            out.source === 'llm_story_tasks_chunked' ||
+            out.source === 'llm_fr_tasks' ||
+            out.source === 'llm_fr_tasks_chunked'
+          ? 'success'
+          : 'failure';
   }
   return out;
 }
 
+function isWbsWaitingExternal(result) {
+  if (!result || typeof result !== 'object') return false;
+  if (result.waitingExternal || result.meta?.waitingExternal) return true;
+  const outcome = String(result.meta?.decompositionOutcome || '').toLowerCase();
+  const source = String(result.meta?.source || result.status || '').toLowerCase();
+  return outcome === 'waiting' || source === 'waiting_external';
+}
+
 function wbsDecompositionError(result) {
+  if (isWbsWaitingExternal(result)) return null;
   const outcome = String(result?.meta?.decompositionOutcome || '').toLowerCase();
   if (result?.status !== 'error' && outcome !== 'failure') return null;
   const reason = result?.meta?.fallbackReason || outcome || 'wbs_decomposition_failed';
   const err = new Error(`Phân rã WBS thất bại (${reason}).`);
   err.code = 'WBS_DECOMPOSITION_FAILED';
   return err;
+}
+
+function waitingExternalResult(meta = {}) {
+  return {
+    status: 'waiting_external',
+    waitingExternal: true,
+    model: meta.model || null,
+    generatedAt: new Date().toISOString(),
+    tasks: [],
+    wbs: { roots: [], nodes: [], taskCount: 0 },
+    meta: sanitizeWbsMeta({
+      ...meta,
+      source: 'waiting_external',
+      decompositionOutcome: 'waiting',
+      waitingExternal: true,
+      llmCalls: meta.llmCalls || 0,
+    }),
+  };
 }
 
 function failClosedResult(meta = {}) {
@@ -143,10 +179,17 @@ async function runWbsEngineAsync(container = {}, opts = {}) {
   });
 
   if (!sot.ok || !sot.stories.length) {
-    console.error('[how-wbs] fail-closed missing_approved_backlog_stories');
+    console.error(
+      '[how-wbs] fail-closed',
+      (sot.reasonCodes || []).join(';') || 'missing_approved_backlog_stories'
+    );
     return failClosedResult({
-      fallbackReason: 'missing_approved_backlog_stories',
+      fallbackReason: sot.reasonCodes?.includes('epic_only_backlog_needs_what')
+        ? 'epic_only_backlog_needs_what'
+        : 'missing_approved_backlog_stories',
       reasonCodes: sot.reasonCodes || ['missing_approved_backlog_stories'],
+      epicCount: Array.isArray(sot.epics) ? sot.epics.length : 0,
+      epicsWithoutStories: sot.epicsWithoutStories || [],
     });
   }
 
@@ -194,7 +237,32 @@ async function runWbsEngineAsync(container = {}, opts = {}) {
   });
 
   if (llmOut.ok && Array.isArray(llmOut.tasks) && llmOut.wbs) {
-    return llmSuccessResult(llmOut);
+    const success = llmSuccessResult(llmOut);
+    if (Array.isArray(sot.epicsWithoutStories) && sot.epicsWithoutStories.length) {
+      success.meta.epicsWithoutStories = sot.epicsWithoutStories;
+      success.meta.needsReview = true;
+      if (!Array.isArray(success.meta.reasonCodes)) success.meta.reasonCodes = [];
+      if (!success.meta.reasonCodes.includes('epic_missing_stories')) {
+        success.meta.reasonCodes.push('epic_missing_stories');
+      }
+    }
+    return success;
+  }
+
+  // Durable rabbit park — not a decomposition failure (resume applies leaves later).
+  if (llmOut.waitingExternal || llmOut.meta?.waitingExternal) {
+    console.info(
+      '[how-wbs] waiting_external',
+      llmOut.meta?.fallbackReason || 'wbs_chunk_fan_in',
+      (llmOut.meta?.reasonCodes || []).join(';')
+    );
+    return waitingExternalResult({
+      ...llmOut.meta,
+      llmCalls: llmOut.meta?.llmCalls || 0,
+      model: llmOut.meta?.model || null,
+      storyCount: sot.stories.length,
+      epicCount: sot.epics.length,
+    });
   }
 
   console.error(
@@ -208,36 +276,40 @@ async function runWbsEngineAsync(container = {}, opts = {}) {
     model: llmOut.meta?.model || null,
     storyCount: sot.stories.length,
     epicCount: sot.epics.length,
+    epicsWithoutStories: sot.epicsWithoutStories || [],
   });
 }
 
 function applyWbsToContainer(container, wbsResult) {
-  const next = {
-    ...container,
-    planning: { ...(container?.planning || {}) },
-  };
-  next.planning.tasks = Array.isArray(wbsResult.tasks) ? wbsResult.tasks : [];
+  // Patch only tasks+wbs — avoid spreading other planning atomic keys.
   const baseWbs = wbsResult.wbs || {
     roots: [],
     nodes: [],
     taskCount: 0,
   };
-  next.planning.wbs = {
-    roots: Array.isArray(baseWbs.roots) ? baseWbs.roots : [],
-    nodes: Array.isArray(baseWbs.nodes) ? baseWbs.nodes : [],
-    taskCount: Number(baseWbs.taskCount) || 0,
-    meta: sanitizeWbsMeta(
-      wbsResult.meta && typeof wbsResult.meta === 'object'
-        ? wbsResult.meta
-        : { source: 'llm_failed', llmCalls: 0 }
-    ),
+  return {
+    ...container,
+    planning: {
+      tasks: Array.isArray(wbsResult.tasks) ? wbsResult.tasks : [],
+      wbs: {
+        roots: Array.isArray(baseWbs.roots) ? baseWbs.roots : [],
+        nodes: Array.isArray(baseWbs.nodes) ? baseWbs.nodes : [],
+        taskCount: Number(baseWbs.taskCount) || 0,
+        meta: sanitizeWbsMeta(
+          wbsResult.meta && typeof wbsResult.meta === 'object'
+            ? wbsResult.meta
+            : { source: 'llm_failed', llmCalls: 0 }
+        ),
+      },
+    },
   };
-  return next;
 }
 
 module.exports = {
   sanitizeWbsMeta,
   wbsDecompositionError,
+  isWbsWaitingExternal,
+  waitingExternalResult,
   WBS_META_KEYS,
   runWbsEngine,
   runWbsEngineAsync,

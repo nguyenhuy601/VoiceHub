@@ -40,9 +40,16 @@ function buildToolContext({
   const hasEmployees =
     Array.isArray(toolData?.employees) ||
     Array.isArray(container?.resource?.employees);
-  // Calendar snapshot present when explicit calendar OR project startDate (RULE-AUD-03)
+  // RULE-SCH-01: calendarSnapshot only when real startDate or calendar object exists.
+  const { validateScheduleInputs } = require('./validateScheduleInputs');
+  const scheduleGate =
+    toolName === 'ScheduleTool'
+      ? validateScheduleInputs({ pack, toolData, container })
+      : null;
   const hasCalendar =
-    toolData?.calendar != null || pack?.overview?.startDate != null;
+    scheduleGate?.ok ||
+    toolData?.calendar != null ||
+    pack?.overview?.startDate != null;
 
   return {
     contextName: 'planning',
@@ -53,12 +60,13 @@ function buildToolContext({
     contextPackage: contextPackage || null,
     approvedSrs: true,
     employeeSnapshot: hasEmployees ? toolData?.employees || container?.resource?.employees || {} : undefined,
-    calendarSnapshot: hasCalendar ? toolData?.calendar || true : undefined,
+    calendarSnapshot: hasCalendar ? toolData?.calendar || scheduleGate?.calendar || true : undefined,
     requiresSatisfied: {
       approvedSrs: true,
       employeeSnapshot: hasEmployees,
-      calendarSnapshot: hasCalendar,
+      calendarSnapshot: Boolean(hasCalendar),
     },
+    scheduleInputGate: scheduleGate,
   };
 }
 

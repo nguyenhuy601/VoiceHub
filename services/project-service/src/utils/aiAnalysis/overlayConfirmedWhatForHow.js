@@ -10,13 +10,30 @@ function textOf(value, max = 4000) {
 function acceptedItems(generated, decisions, sectionKey) {
   const items = generated?.[sectionKey]?.items;
   if (!Array.isArray(items)) return [];
-  return items.filter((item) => {
-    if (!item || typeof item !== 'object') return false;
-    if (String(item.status || '').toUpperCase() === 'REJECTED') return false;
-    const id = String(item.logicalId || item.id || '').trim();
-    const action = String(decisions?.[id]?.action || '').toLowerCase();
-    return action !== 'reject' && action !== 'rejected';
-  });
+  return items
+    .filter((item) => {
+      if (!item || typeof item !== 'object') return false;
+      if (String(item.status || '').toUpperCase() === 'REJECTED') return false;
+      const id = String(item.logicalId || item.id || '').trim();
+      const action = String(decisions?.[id]?.action || '').toLowerCase();
+      return action !== 'reject' && action !== 'rejected';
+    })
+    .map((item) => {
+      const id = String(item.logicalId || item.id || '').trim();
+      const d = decisions?.[id];
+      const action = String(d?.action || '').toLowerCase();
+      const payload =
+        d?.editedPayload && typeof d.editedPayload === 'object' ? d.editedPayload : null;
+      if (!payload || !['edit', 'accept', 'create'].includes(action)) return item;
+      // RULE-E7: FR field edits apply; parentEpicId stays on the item (epicTitle is catalog-only).
+      return {
+        ...item,
+        ...payload,
+        parentEpicId: item.parentEpicId,
+        logicalId: item.logicalId || item.id,
+        id: item.id || item.logicalId,
+      };
+    });
 }
 
 function mapFr(item, index) {
@@ -25,8 +42,15 @@ function mapFr(item, index) {
   const ac = Array.isArray(item.acceptanceCriteria)
     ? item.acceptanceCriteria.map((row) => textOf(row, 500)).filter(Boolean).join('\n')
     : textOf(item.acceptanceCriteria || item.ac, 2000);
+  const parentEpicId =
+    item.parentEpicId === undefined || item.parentEpicId === null || item.parentEpicId === ''
+      ? item.parentEpicId === null
+        ? null
+        : undefined
+      : textOf(item.parentEpicId, 64);
   // level phải đúng casing 'Requirement' — listRequirementRows / packContentHash lọc exact.
-  return {
+  // R6: keep parentEpicId so HOW/BacklogMap / Wbs SoT stay aligned with Gate1 FR+epic.
+  const out = {
     externalId: id,
     level: 'Requirement',
     name: title || id,
@@ -38,6 +62,8 @@ function mapFr(item, index) {
     status: 'Draft',
     baNote: 'confirmed:what_proposal',
   };
+  if (parentEpicId !== undefined) out.parentEpicId = parentEpicId;
+  return out;
 }
 
 function mapUc(item, index) {

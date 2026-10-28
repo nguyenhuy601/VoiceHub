@@ -3,7 +3,11 @@ const {
   runSequencingCpm,
   applySequencingCpmToContainer,
 } = require('../engines/sequencingCpm');
-const { assembleHowToolContext, contextAllowsWork } = require('../semanticLayer/howToolContext');
+const {
+  assembleHowToolContext,
+  contextAllowsWork,
+  scopeContainerTasksByContext,
+} = require('../semanticLayer/howToolContext');
 
 /** G10 Sequencing / CPM — hours already on WBS leaves. No effort invent. */
 async function sequencing(input = {}, context = {}) {
@@ -18,18 +22,8 @@ async function sequencing(input = {}, context = {}) {
     snapshotId,
     contextPackage: input.contextPackage || context.contextPackage || null,
   });
-  const allowed = new Set((layer.requiredData?.tasks || []).map((task) => task.id));
-  const sourceTasks = Array.isArray(raw?.planning?.tasks) ? raw.planning.tasks : [];
-  const scoped = contextAllowsWork(layer)
-    ? {
-        ...raw,
-        planning: {
-          ...(raw.planning || {}),
-          tasks: sourceTasks.filter((task) => allowed.has(String(task.id || task.taskId || ''))),
-        },
-      }
-    : raw;
-  const container = contextAllowsWork(layer) ? scoped : raw;
+  const scoped = scopeContainerTasksByContext(raw, layer);
+  const container = scoped;
   const engineResult = contextAllowsWork(layer)
     ? runSequencingCpm(container)
     : { status: layer.status || layer.code || 'INSUFFICIENT' };

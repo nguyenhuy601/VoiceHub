@@ -1,8 +1,10 @@
 /**
  * Phase WHAT — FR Decompose LLM: sizing Epic → Story from analyzed FR/UC/AC.
  * RULE-01: CR-* never Story/Epic sole cite.
- * RULE-02: no 1 FR→1 Story invent; no UC≥2 auto-story (LLM + accept only).
- * RULE-03: Story may have parentEpicId null.
+ * RULE-02: FR with clear AC goal → Story (typical); same-outcome Stories → Epic.
+ *          Never put FRs only on Epic.sourceFrIds without child Stories.
+ *          Do not invent Story solely because UC links ≥2 FR.
+ * RULE-03: Story may have parentEpicId null (root Story).
  */
 
 const { generateJson, isLlmEnabled } = require('../runtime/ollamaGenerate');
@@ -317,13 +319,28 @@ function acceptFrDecomposeStructure(raw, frWhitelist = [], opts = {}) {
     if (!last.sourceUcIds.length) delete last.sourceUcIds;
   }
 
-  // Sync epic.storyIds from stories
+  // LLM often emits Epic + Stories but leaves parentEpicId null, or lists storyIds
+  // without wiring. Repair links before fail-closed — empty epics are dropped.
+  linkStoriesToEpics(epics, stories);
+
+  const keptEpics = [];
   for (const epic of epics) {
-    const kids = stories
-      .filter((s) => s.parentEpicId === epic.id)
-      .map((s) => s.id);
-    epic.storyIds = kids.length ? kids : (epic.storyIds || []).filter((sid) => storyIds.has(sid));
+    const kids = stories.filter((s) => s.parentEpicId === epic.id);
+    epic.storyIds = kids.map((s) => s.id);
+    if (!kids.length) {
+      // Prefer keeping root Stories over rejecting the whole chunk.
+      continue;
+    }
+    const childFr = new Set();
+    for (const kid of kids) {
+      for (const fr of kid.sourceFrIds || []) childFr.add(fr);
+    }
+    // Epic.sourceFrIds is rollup of children only (ignore LLM epic-only FR cites).
+    epic.sourceFrIds = [...childFr];
+    keptEpics.push(epic);
   }
+  epics.length = 0;
+  epics.push(...keptEpics);
 
   const unmappedFromLlm = Array.isArray(raw.unmappedFrIds)
     ? raw.unmappedFrIds.map(normalizeRef).filter((id) => frOk.has(id) && !coveredFr.has(id))
@@ -367,6 +384,122 @@ function acceptFrDecomposeStructure(raw, frWhitelist = [], opts = {}) {
       },
     },
   };
+}
+
+/**
+ * Fail-soft when LLM decompose is unavailable (quota/403/contract) — 1 FR → 1 Story.
+ * Group ≥2 Stories sharing module/capability/feature under one Epic.
+ */
+function buildDeterministicBacklogFromFr(frCandidates = [], metaExtra = {}) {
+  const stories = [];
+  const groups = new Map();
+
+  for (let i = 0; i < frCandidates.length; i += 1) {
+    const fr = frCandidates[i];
+    if (!fr?.id) continue;
+    const story = {
+      id: `STORY-${stories.length + 1}`,
+      name: truncate(fr.name || fr.id, NAME_MAX) || fr.id,
+      description: truncate(fr.description || '', DESC_MAX) || undefined,
+      parentEpicId: null,
+      sourceFrIds: [fr.id],
+      acRefs: Array.isArray(fr.ac) ? fr.ac.slice(0, FR_DECOMPOSE_MAX_AC_PER_STORY) : [],
+      needsDecomposition: true,
+    };
+    if (!story.description) delete story.description;
+    if (!story.acRefs.length) delete story.acRefs;
+    stories.push(story);
+
+    const groupKey =
+      truncate(fr.module || fr.feature || fr.capability || '', 80) || null;
+    if (groupKey) {
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
+      groups.get(groupKey).push(story);
+    }
+  }
+
+  const epics = [];
+  for (const [name, kids] of groups) {
+    if (kids.length < 2) continue;
+    if (epics.length >= FR_DECOMPOSE_MAX_EPICS) break;
+    const id = `EPIC-${epics.length + 1}`;
+    const sourceFrIds = [
+      ...new Set(kids.flatMap((s) => s.sourceFrIds || [])),
+    ];
+    epics.push({
+      id,
+      name,
+      sourceFrIds,
+      storyIds: kids.map((s) => s.id),
+    });
+    for (const kid of kids) kid.parentEpicId = id;
+  }
+
+  return {
+    epics,
+    stories,
+    features: [],
+    unmappedFrIds: [],
+    openQuestions: [],
+    meta: {
+      source: 'deterministic_fr_decompose',
+      shapeVersion: FR_DECOMPOSE_SHAPE_VERSION,
+      epicCount: epics.length,
+      storyCount: stories.length,
+      frCount: frCandidates.length,
+      unmappedCount: 0,
+      fallbackFromLlm: true,
+      ...metaExtra,
+    },
+  };
+}
+
+/**
+ * Wire Story.parentEpicId from epic.storyIds and FR overlap when LLM omits the link.
+ * Mutates stories in place.
+ */
+function linkStoriesToEpics(epics = [], stories = []) {
+  if (!epics.length || !stories.length) return;
+
+  const storyById = new Map(stories.map((s) => [s.id, s]));
+  const epicIds = new Set(epics.map((e) => e.id));
+
+  // 1) Honor epic.storyIds when Story.parentEpicId is missing/wrong.
+  for (const epic of epics) {
+    const listed = Array.isArray(epic.storyIds) ? epic.storyIds : [];
+    for (const sid of listed) {
+      const story = storyById.get(normalizeRef(sid));
+      if (!story) continue;
+      const parent = story.parentEpicId;
+      if (parent == null || parent === '' || !epicIds.has(parent)) {
+        story.parentEpicId = epic.id;
+      }
+    }
+  }
+
+  // 2) Orphan stories → attach to the single Epic that claims overlapping sourceFrIds.
+  for (const story of stories) {
+    if (story.parentEpicId != null && story.parentEpicId !== '') continue;
+    const storyFr = new Set(story.sourceFrIds || []);
+    if (!storyFr.size) continue;
+    const candidates = epics.filter((epic) => {
+      const epicFr = Array.isArray(epic.sourceFrIds) ? epic.sourceFrIds : [];
+      return epicFr.some((fr) => storyFr.has(fr));
+    });
+    if (candidates.length === 1) {
+      story.parentEpicId = candidates[0].id;
+    }
+  }
+
+  // 3) Single-epic pack: attach remaining orphans to that epic.
+  if (epics.length === 1) {
+    const only = epics[0];
+    for (const story of stories) {
+      if (story.parentEpicId == null || story.parentEpicId === '') {
+        story.parentEpicId = only.id;
+      }
+    }
+  }
 }
 
 /** Lift stories nested under epics so a truncated or nested JSON still accepts. */
@@ -448,9 +581,16 @@ function buildFrDecomposePrompt({
   const lines = [
     localeInstruction || 'Respond in the same language as FR titles.',
     'FR backlog structure JSON only. No prose. MVP: Epic → Story (Story may have parentEpicId null). No Feature nodes.',
-    'The stories array is required and must be non-empty. Write stories before long epic text.',
-    'Shape:{"stories":[{"id","name","parentEpicId","sourceFrIds","acRefs"}],"epics":[{"id","name","sourceFrIds"}]}',
-    'Rules: Size by business outcome — clear AC goal → Story; ≥3 independent stories same outcome → Epic candidate; do NOT default 1 FR→1 Story; do NOT auto-create Story only because UC links ≥2 FR; parentEpicId null allowed; sourceFrIds ⊆ APPROVED_FR ids and non-empty; NEVER use CR-* or NFR as Story/Epic/FR cite; acRefs from FR.ac when possible; unmappedFrIds for FR not placed; prefer justified structure over count.',
+    'The stories array is required and must be non-empty. Write stories BEFORE epics.',
+    'Shape:{"stories":[{"id","name","parentEpicId","sourceFrIds","acRefs"}],"epics":[{"id","name","sourceFrIds","storyIds"}]}',
+    'Rules:',
+    '- Each FR with a clear AC goal becomes a Story (typical 1 FR → 1 Story). Story.name = user-value outcome, not a technical task.',
+    '- Stories that share one business outcome → same Epic (parentEpicId = that Epic id). Epic.name = outcome theme.',
+    '- CRITICAL: Every FR under an Epic MUST appear in at least one child Story.sourceFrIds. Do NOT list FRs only on Epic.sourceFrIds without Stories. Epic.sourceFrIds is a rollup of child Stories only.',
+    '- Every Epic MUST have ≥1 child Story. When a Story belongs to an Epic, set parentEpicId to that Epic id (do not leave parentEpicId null while listing the Story only on epic.storyIds).',
+    '- Orphan/root Story: parentEpicId null is allowed only when the Story is not under any Epic.',
+    '- Do NOT invent a Story only because a UC links ≥2 FR; do NOT invent FR ids; NEVER use CR-* or NFR as Story/Epic/FR cite.',
+    '- acRefs from FR.ac when possible; unmappedFrIds for FR not placed.',
     `APPROVED_FR=${JSON.stringify(frPayload)}`,
   ];
   if (useCases.length) {
@@ -463,6 +603,8 @@ function buildFrDecomposePrompt({
 }
 
 /**
+ * @deprecated RULE-E0 — legacy Decompose removed from runtime.
+ * Use FR-from-CR v2 + deriveBacklogFromFrEpics / assignFrEpicsLlm.
  * @param {{
  *   pack?: object,
  *   proposalItems?: object[],
@@ -472,204 +614,26 @@ function buildFrDecomposePrompt({
  *   localeInstruction?: string,
  * }} opts
  */
-async function proposeFrDecomposeWithLlm(opts = {}) {
-  const env = opts.env || process.env;
-  const pack = opts.pack || {};
-
-  if (!isWhatFrDecomposeFlagOn(env)) {
-    return {
-      ok: false,
-      meta: {
-        source: 'llm_failed',
-        fallbackReason: 'WHAT_FR_DECOMPOSE_off',
-        reasonCodes: ['WHAT_FR_DECOMPOSE_off'],
-        llmCalls: 0,
-      },
-    };
-  }
-  if (!isLlmEnabled(env)) {
-    return {
-      ok: false,
-      meta: {
-        source: 'llm_failed',
-        fallbackReason: 'AI_PLANNING_LLM_off',
-        reasonCodes: ['AI_PLANNING_LLM_off'],
-        llmCalls: 0,
-      },
-    };
-  }
-
-  const frCandidates = listFrCandidatesForDecompose(
-    pack,
-    opts.proposalItems || [],
-    env
-  );
-  if (!frCandidates.length) {
-    return {
-      ok: false,
-      meta: {
-        source: 'llm_failed',
-        fallbackReason: 'empty_approved_fr',
-        reasonCodes: ['empty_approved_fr'],
-        llmCalls: 0,
-      },
-    };
-  }
-
-  const useCases = listUcBrief(pack);
-  let localeInstruction = opts.localeInstruction || '';
-  if (!localeInstruction) {
-    try {
-      const {
-        normalizeDeriveLocale,
-        languageInstruction: langFn,
-      } = require('../semantic/buildSemanticDeriveContext');
-      const locale = normalizeDeriveLocale(
-        opts.semantic?.business?.locale ||
-          pack?.aiAnalysis?.deriveLocale ||
-          pack?.locale ||
-          env.PHASE1_DERIVE_LOCALE
-      );
-      localeInstruction = langFn(locale);
-    } catch {
-      localeInstruction = '';
-    }
-  }
-
-  const chunkSize = resolveFrDecomposeChunk(env);
-  const chunks = [];
-  for (let i = 0; i < frCandidates.length; i += chunkSize) {
-    chunks.push(frCandidates.slice(i, i + chunkSize));
-  }
-
-  const gen = typeof opts.generateJsonFn === 'function' ? opts.generateJsonFn : generateJson;
-  const t0 = Date.now();
-  let llmCalls = 0;
-  let lastModel = null;
-  const mergedEpics = [];
-  const mergedStories = [];
-  const openQuestions = [];
-  const failures = [];
-
-  for (let ci = 0; ci < chunks.length; ci += 1) {
-    const slice = chunks[ci];
-    const sliceIds = new Set(slice.map((row) => row.id));
-    const ucSlice = useCases.filter((uc) =>
-      (uc.frIds || []).some((id) => sliceIds.has(id))
-    );
-    const prompt = buildFrDecomposePrompt({
-      frCandidates: slice,
-      useCases: ucSlice,
-      localeInstruction,
-      semantic: null,
-    });
-    let llmResult;
-    try {
-      llmResult = await gen({
-        prompt,
-        numPredict: resolveFrDecomposeNumPredict(env),
-        numCtx: resolveFrDecomposeNumCtx(env),
-        timeoutMs: resolveFrDecomposeTimeoutMs(env),
-        temperature: 0.1,
-        env,
-      });
-    } catch (err) {
-      llmCalls += 1;
-      failures.push(String(err?.message || err || 'llm_throw'));
-      continue;
-    }
-    llmCalls += 1;
-    lastModel = llmResult?.model || lastModel;
-    if (!llmResult?.ok || llmResult.data == null) {
-      failures.push(llmResult?.error || 'llm_failed');
-      continue;
-    }
-    const accepted = acceptFrDecomposeStructure(llmResult.data, slice);
-    if (!accepted.ok) {
-      console.error(
-        '[fr-decompose] contract_fail',
-        `chunk=${ci}`,
-        (accepted.errors || []).join(';'),
-        `keys=${Object.keys(llmResult.data || {}).join(',')}`
-      );
-      failures.push(...(accepted.errors || ['contract_fail']));
-      continue;
-    }
-    const piece =
-      chunks.length > 1
-        ? prefixAcceptedStructure(accepted.backlogStructure, `c${ci}-`)
-        : accepted.backlogStructure;
-    mergedEpics.push(...piece.epics);
-    mergedStories.push(...piece.stories);
-    openQuestions.push(...(accepted.backlogStructure.openQuestions || []));
-  }
-
-  if (!mergedStories.length) {
-    return {
-      ok: false,
-      meta: {
-        source: 'llm_invalid',
-        fallbackReason: failures[0] || 'missing_stories',
-        reasonCodes: failures.slice(0, 8),
-        llmCalls,
-        llmMs: Date.now() - t0,
-        model: lastModel,
-        chunks: chunks.length,
-      },
-    };
-  }
-
-  const numbered =
-    chunks.length > 1
-      ? renumberBacklog(mergedEpics, mergedStories)
-      : { epics: mergedEpics, stories: mergedStories };
-  const covered = new Set();
-  for (const story of numbered.stories) {
-    for (const id of story.sourceFrIds || []) covered.add(id);
-  }
-  const unmappedFrIds = frCandidates.map((row) => row.id).filter((id) => !covered.has(id));
-  for (const epic of numbered.epics) {
-    epic.storyIds = numbered.stories
-      .filter((story) => story.parentEpicId === epic.id)
-      .map((story) => story.id);
-  }
-
-  const backlogStructure = {
-    epics: numbered.epics,
-    stories: numbered.stories,
-    features: [],
-    unmappedFrIds,
-    openQuestions: openQuestions.slice(0, 24),
+async function proposeFrDecomposeWithLlm(_opts = {}) {
+  return {
+    ok: false,
     meta: {
-      source: chunks.length > 1 ? 'llm_fr_decompose_chunked' : 'llm_fr_decompose',
-      shapeVersion: FR_DECOMPOSE_SHAPE_VERSION,
-      epicCount: numbered.epics.length,
-      storyCount: numbered.stories.length,
-      frCount: frCandidates.length,
-      unmappedCount: unmappedFrIds.length,
-      llmCalls,
-      llmMs: Date.now() - t0,
-      model: lastModel,
-      chunks: chunks.length,
+      source: 'removed',
+      fallbackReason: 'legacy_fr_decompose_removed',
+      reasonCodes: ['legacy_fr_decompose_removed'],
+      llmCalls: 0,
     },
   };
-
-  console.info(
-    `[fr_decompose] outcome=ok epics=${backlogStructure.epics.length} stories=${backlogStructure.stories.length} unmapped=${unmappedFrIds.length} chunks=${chunks.length}`
-  );
-
-  return {
-    ok: true,
-    backlogStructure,
-    meta: backlogStructure.meta,
-  };
 }
+
 
 module.exports = {
   isCustomerRequirementId,
   listFrCandidatesForDecompose,
   listUcBrief,
   acceptFrDecomposeStructure,
+  linkStoriesToEpics,
+  buildDeterministicBacklogFromFr,
   buildFrDecomposePrompt,
   proposeFrDecomposeWithLlm,
   extractAcList,

@@ -5,7 +5,12 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { buildTaskNameMap, listDependencyDisplayItems, taskShortName } from './dependencyDisplay';
+import {
+  buildTaskNameMap,
+  describeDependencyAnalysisBanner,
+  listDependencyDisplayItems,
+  taskShortName,
+} from './dependencyDisplay';
 
 const FLOW_BATCH = 3;
 
@@ -158,9 +163,12 @@ export default function DependencyFlowPanel({
     pack?.container ||
     null;
 
-  const { items: fromContainer, unresolvedQuestions } = listDependencyDisplayItems(
-    container || {}
-  );
+  const {
+    items: fromContainer,
+    unresolvedQuestions,
+    section: depSection,
+  } = listDependencyDisplayItems(container || {});
+  const analysisBanner = describeDependencyAnalysisBanner(depSection || {}, t);
   const items =
     Array.isArray(rows) && rows.length
       ? rows.filter((r) => r.predecessorTaskId || r.successorTaskId)
@@ -177,12 +185,25 @@ export default function DependencyFlowPanel({
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [itemKey]);
 
-  if (!items.length && !unresolvedQuestions.length && !sequencingBlocked && !appliedPath.ids.length) {
+  if (
+    !items.length &&
+    !unresolvedQuestions.length &&
+    !sequencingBlocked &&
+    !appliedPath.ids.length &&
+    !analysisBanner
+  ) {
     return null;
   }
 
   const visibleItems = items.slice(0, visibleCount);
   const hasMore = visibleCount < items.length;
+
+  const bannerToneClass =
+    analysisBanner?.tone === 'danger'
+      ? 'border-destructive/40 bg-destructive/5 text-destructive'
+      : analysisBanner?.tone === 'ok'
+        ? 'border-emerald-600/40 bg-emerald-500/5 text-emerald-950 dark:text-emerald-100'
+        : 'border-amber-500/40 bg-amber-500/5 text-amber-950 dark:text-amber-100';
 
   function revealNextBatch(element) {
     if (!hasMore) return;
@@ -194,6 +215,14 @@ export default function DependencyFlowPanel({
 
   return (
     <div className={`mt-3 w-full space-y-3 ${className}`.trim()}>
+      {analysisBanner ? (
+        <div className={`rounded-md border px-3 py-2 ${bannerToneClass}`}>
+          <p className="text-xs font-semibold">{analysisBanner.title}</p>
+          {analysisBanner.body ? (
+            <p className="mt-1 text-xs opacity-90">{analysisBanner.body}</p>
+          ) : null}
+        </div>
+      ) : null}
       <AppliedCriticalPath container={container} blocked={sequencingBlocked} t={t} />
       {items.length ? (
         <>
@@ -205,7 +234,7 @@ export default function DependencyFlowPanel({
               {labelOf(
                 t,
                 'requirements.gate2DepFlowHint',
-                'Luồng công việc: task trước → điều kiện → task sau. Badge song song khi có thể phát triển song song.'
+                'Luồng: task trước → điều kiện → task sau. Badge «Đưa vào lịch» vs «Chỉ đề xuất» theo Accept HOW.'
               )}
             </p>
           </div>
@@ -225,10 +254,14 @@ export default function DependencyFlowPanel({
             {visibleItems.map((item) => {
               const parallel = Boolean(item.canWorkInParallel);
               const condition =
+                item.requiredOutput ||
                 item.requiredInputLabel ||
                 item.parallelCondition ||
                 item.reason ||
                 item.title;
+              const scheduleHint = item.schedulable
+                ? labelOf(t, 'requirements.gate2DepSchedulableYes', 'Đưa vào lịch')
+                : labelOf(t, 'requirements.gate2DepSchedulableNo', 'Chỉ đề xuất');
               return (
                 <div
                   key={item.id || `${item.predecessorTaskId}-${item.successorTaskId}`}
@@ -238,11 +271,19 @@ export default function DependencyFlowPanel({
                     roleLabel={labelOf(t, 'requirements.gate2DepPredRole', 'Task trước')}
                     taskId={item.predecessorTaskId}
                     taskName={item.predecessorName || item.predecessorTaskId}
-                    subtitle={null}
+                    subtitle={
+                      item.basis
+                        ? labelOf(
+                            t,
+                            `requirements.gate2DepBasis_${String(item.basis).toUpperCase()}`,
+                            String(item.basis)
+                          )
+                        : null
+                    }
                     parallel={false}
                     t={t}
                   />
-                  <FlowArrow condition={condition} scope={item.blockingScope} t={t} />
+                  <FlowArrow condition={`${condition} · ${scheduleHint}`} scope={item.blockingScope} t={t} />
                   <FlowCard
                     roleLabel={labelOf(t, 'requirements.gate2DepSuccRole', 'Task sau')}
                     taskId={item.successorTaskId}
@@ -265,9 +306,14 @@ export default function DependencyFlowPanel({
           </p>
           <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
             {unresolvedQuestions.slice(0, 12).map((q, i) => (
-              <li key={`${q.taskId || 'q'}-${i}`}>
+              <li key={`${q.code || 'q'}-${q.taskId || i}`}>
+                {q.code ? (
+                  <span className="mr-1 font-mono text-[10px] text-amber-800 dark:text-amber-200">
+                    {q.code}
+                  </span>
+                ) : null}
                 {q.taskId ? <span className="font-mono">{q.taskId}: </span> : null}
-                {q.question}
+                {q.question || q.message || '—'}
                 {q.whyItMatters ? (
                   <span className="text-muted-foreground"> — {q.whyItMatters}</span>
                 ) : null}

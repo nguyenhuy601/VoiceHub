@@ -9,7 +9,6 @@ export const GATE2_DOMAIN_SECTIONS = Object.freeze({
   po: Object.freeze(['scope']),
   tech: Object.freeze(['tasks', 'risks', 'quality']),
   pm: Object.freeze([
-    'schedule',
     'releases',
     'dependencies',
     'assignments',

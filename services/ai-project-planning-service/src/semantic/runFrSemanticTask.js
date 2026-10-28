@@ -80,6 +80,10 @@ async function prepareFrSnapshotForPipeline(opts = {}) {
   /** @type {Map<string, object>} */
   let proposedById = new Map();
   let frFromCrMeta = null;
+  /** @type {object[]} */
+  let frFromCrEpics = [];
+  /** @type {object|null} */
+  let frFromCrBacklogStructure = null;
 
   const frOpts = { ...(opts.frOpts || {}) };
   const priorPartial = frOpts.priorPartial || frOpts.understandingPartial || null;
@@ -94,6 +98,8 @@ async function prepareFrSnapshotForPipeline(opts = {}) {
         pack,
         proposedById,
         frFromCrMeta,
+        frFromCrEpics,
+        frFromCrBacklogStructure,
         frOpts,
       };
     }
@@ -114,6 +120,8 @@ async function prepareFrSnapshotForPipeline(opts = {}) {
         pack,
         proposedById,
         frFromCrMeta,
+        frFromCrEpics,
+        frFromCrBacklogStructure,
         frOpts,
       };
     }
@@ -121,14 +129,136 @@ async function prepareFrSnapshotForPipeline(opts = {}) {
     snapshot = overlaid.snapshot;
     pack = overlaid.pack;
     proposedById = new Map(proposed.items.map((row) => [String(row.id), row]));
+    frFromCrEpics = Array.isArray(proposed.epics) ? proposed.epics : [];
+    frFromCrBacklogStructure =
+      proposed.backlogStructure && typeof proposed.backlogStructure === 'object'
+        ? proposed.backlogStructure
+        : null;
     delete frOpts.priorPartial;
   }
 
-  return { snapshot, pack, proposedById, frFromCrMeta, frOpts };
+  return {
+    snapshot,
+    pack,
+    proposedById,
+    frFromCrMeta,
+    frFromCrEpics,
+    frFromCrBacklogStructure,
+    frOpts,
+  };
 }
 
 /**
- * Build FR semantic result from pipeline output (proposal + integrity + FrDecompose).
+ * Attach backlogStructure via derive (Story=FR). RULE-E0: never call frDecomposeLlm.
+ * R2: non-CR missing parentEpicId → assignFrEpicsLlm then derive.
+ */
+async function attachDerivedBacklogStructure(proposalFragment, opts = {}, ctx = {}) {
+  const {
+    deriveBacklogFromFrEpics,
+    frItemsHaveEpicMap,
+  } = require('../engines/deriveBacklogFromFrEpics');
+
+  let items = Array.isArray(proposalFragment?.items) ? proposalFragment.items : [];
+  let epics = Array.isArray(ctx.frFromCrEpics) ? ctx.frFromCrEpics : [];
+  let backlogMeta = null;
+  let assignCalls = 0;
+
+  // Prefer backlog already derived on CR path.
+  if (ctx.frFromCrBacklogStructure && typeof ctx.frFromCrBacklogStructure === 'object') {
+    proposalFragment.backlogStructure = ctx.frFromCrBacklogStructure;
+    // Keep parentEpicId on FR items when CR path already stamped them.
+    if (epics.length && items.length) {
+      const byId = new Map(
+        (ctx.frFromCrBacklogStructure.stories || []).map((s) => [String(s.id), s])
+      );
+      proposalFragment.items = items.map((row) => {
+        const id = String(row?.id || row?.logicalId || '');
+        const story = byId.get(id);
+        if (!story) return row;
+        return {
+          ...row,
+          parentEpicId:
+            row.parentEpicId !== undefined
+              ? row.parentEpicId
+              : story.parentEpicId ?? null,
+        };
+      });
+    }
+    backlogMeta = {
+      backlogSource: ctx.frFromCrMeta?.backlogSource || 'derived_from_fr_epic',
+      llmCalls: 0,
+      fromFrFromCr: true,
+    };
+    return { backlogMeta, assignCalls };
+  }
+
+  if (frItemsHaveEpicMap(items) && epics.length) {
+    const derived = deriveBacklogFromFrEpics(items, epics, {
+      backlogSource: 'derived_from_fr_epic',
+    });
+    if (derived.ok) {
+      proposalFragment.backlogStructure = derived.backlogStructure;
+      backlogMeta = { backlogSource: 'derived_from_fr_epic', llmCalls: 0 };
+      return { backlogMeta, assignCalls };
+    }
+    proposalFragment.meta = {
+      ...(proposalFragment.meta || {}),
+      frEpicDeriveFailed: true,
+      frEpicDeriveReason: (derived.errors || []).join(','),
+    };
+    return { backlogMeta: { ok: false, errors: derived.errors }, assignCalls };
+  }
+
+  // Items already have parentEpicId but epics catalog missing — rebuild catalog from ids.
+  if (frItemsHaveEpicMap(items) && !epics.length) {
+    const catalog = [];
+    const seen = new Set();
+    for (const row of items) {
+      const pid =
+        row.parentEpicId === undefined || row.parentEpicId === null || row.parentEpicId === ''
+          ? null
+          : String(row.parentEpicId).trim();
+      if (!pid || seen.has(pid)) continue;
+      seen.add(pid);
+      catalog.push({ id: pid, name: pid });
+    }
+    if (catalog.length || items.every((r) => r.parentEpicId == null)) {
+      const derived = deriveBacklogFromFrEpics(items, catalog, {
+        backlogSource: 'derived_from_fr_epic',
+      });
+      if (derived.ok) {
+        proposalFragment.backlogStructure = derived.backlogStructure;
+        backlogMeta = { backlogSource: 'derived_from_fr_epic', llmCalls: 0 };
+        return { backlogMeta, assignCalls };
+      }
+    }
+  }
+
+  // R2: non-CR / legacy FR missing epic map → assignFrEpicsLlm (structure-only).
+  const { assignFrEpicsWithLlm } = require('../engines/assignFrEpicsLlm');
+  const assigned = await assignFrEpicsWithLlm({
+    proposalItems: items,
+    env: opts.env || process.env,
+    generateJsonFn: opts.generateJsonFn,
+  });
+  assignCalls = Number(assigned.meta?.llmCalls) || 0;
+  backlogMeta = assigned.meta || null;
+  if (assigned.ok && assigned.backlogStructure) {
+    proposalFragment.items = assigned.items;
+    proposalFragment.backlogStructure = assigned.backlogStructure;
+    return { backlogMeta, assignCalls };
+  }
+
+  proposalFragment.meta = {
+    ...(proposalFragment.meta || {}),
+    frEpicAssignFailed: true,
+    frEpicAssignReason: assigned.meta?.fallbackReason || 'assign_fr_epics_failed',
+  };
+  return { backlogMeta, assignCalls };
+}
+
+/**
+ * Build FR semantic result from pipeline output (proposal + integrity + FR+epic derive).
  */
 async function finalizeFrSemanticFromPipeline(g4Out, opts = {}, ctx = {}) {
   const proposedById = ctx.proposedById instanceof Map ? ctx.proposedById : new Map();
@@ -203,64 +333,18 @@ async function finalizeFrSemanticFromPipeline(g4Out, opts = {}, ctx = {}) {
     generationId: opts.runId || null,
   });
 
-  let frDecomposeMeta = null;
-  try {
-    const { proposeFrDecomposeWithLlm } = require('../engines/frDecomposeLlm');
-    const semanticBrief = {
-      business: {
-        locale: opts.pack?.aiAnalysis?.deriveLocale || opts.pack?.locale || null,
-      },
-      ambiguities: Array.isArray(sem.ambiguities) ? sem.ambiguities.slice(0, 12) : [],
-    };
-    const dec = await proposeFrDecomposeWithLlm({
-      pack: opts.pack || {},
-      proposalItems: proposalFragment?.items || [],
-      semantic: semanticBrief,
-      env: opts.env || process.env,
-      generateJsonFn: opts.generateJsonFn,
-    });
-    frDecomposeMeta = dec.meta || null;
-    if (dec.ok && dec.backlogStructure) {
-      proposalFragment.backlogStructure = dec.backlogStructure;
-      const cqFromDecompose = (dec.backlogStructure.openQuestions || []).map((q, i) => ({
-        logicalId: q.code || `CQ-DECOMPOSE-${i + 1}`,
-        requirementId: Array.isArray(q.frIds) ? q.frIds[0] || null : null,
-        kind: 'decompose',
-        message: q.message || '',
-        status: 'NEEDS_CONFIRMATION',
-      }));
-      if (cqFromDecompose.length) {
-        proposalFragment.clarificationQuestions = [
-          ...(proposalFragment.clarificationQuestions || []),
-          ...cqFromDecompose,
-        ];
-      }
-    } else if (dec.meta?.reasonCodes) {
-      proposalFragment.meta = {
-        ...(proposalFragment.meta || {}),
-        frDecomposeSkipped: true,
-        frDecomposeReason: dec.meta.fallbackReason || dec.meta.reasonCodes.join(','),
-      };
-    }
-  } catch (err) {
-    console.warn(
-      '[runFrSemanticTask] frDecompose fail-soft',
-      String(err?.message || err)
-    );
-    proposalFragment.meta = {
-      ...(proposalFragment.meta || {}),
-      frDecomposeSkipped: true,
-      frDecomposeReason: String(err?.message || err || 'fr_decompose_throw'),
-    };
-  }
+  const { backlogMeta, assignCalls } = await attachDerivedBacklogStructure(
+    proposalFragment,
+    opts,
+    ctx
+  );
 
-  const decompCalls = Number(frDecomposeMeta?.llmCalls) || 0;
   const g4Calls =
     Number(frUnderstanding?.meta?.llm?.calls) || (frUnderstanding?.meta?.llm ? 1 : 0);
 
   return {
     items: proposalFragment?.items || [],
-    llmCalls: g4Calls + decompCalls,
+    llmCalls: g4Calls + assignCalls,
     semanticOutput: frUnderstanding,
     proposalFragment,
     coverage: { status: 'AVAILABLE' },
@@ -268,7 +352,7 @@ async function finalizeFrSemanticFromPipeline(g4Out, opts = {}, ctx = {}) {
       conflictAmbiguityGate,
       requirementIntegrityGate,
       g4Out,
-      frDecompose: frDecomposeMeta,
+      frEpicBacklog: backlogMeta,
       frFromCr: frFromCrMeta,
     },
     frUnderstanding,
@@ -301,7 +385,15 @@ async function runFrSemanticTask(opts = {}) {
   const prepared = await prepareFrSnapshotForPipeline(opts);
   if (prepared.failClosed) return prepared.failClosed;
 
-  const { snapshot, pack, proposedById, frFromCrMeta, frOpts } = prepared;
+  const {
+    snapshot,
+    pack,
+    proposedById,
+    frFromCrMeta,
+    frFromCrEpics,
+    frFromCrBacklogStructure,
+    frOpts,
+  } = prepared;
 
   return runSemanticTask({
     taskId: 'fr',
@@ -322,6 +414,8 @@ async function runFrSemanticTask(opts = {}) {
       return finalizeFrSemanticFromPipeline(g4Out, { ...opts, pack, env }, {
         proposedById,
         frFromCrMeta,
+        frFromCrEpics,
+        frFromCrBacklogStructure,
       });
     },
   }).then((sem) => {
@@ -345,5 +439,6 @@ module.exports = {
   runFrSemanticTask,
   prepareFrSnapshotForPipeline,
   finalizeFrSemanticFromPipeline,
+  attachDerivedBacklogStructure,
   failClosedProposedFr,
 };

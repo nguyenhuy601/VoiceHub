@@ -78,7 +78,7 @@ Chi tiết: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/MIGRATION.md`
 | Chat / realtime | `chat-service`, `socket-service` |
 | Work | `project-service`, `project-worker` |
 | Voice | `voice-service` (mediasoup; UDP media publish ra host) |
-| AI | `ai-project-planning-service`, `ai-project-planning-wbs-worker` |
+| AI | `ai-project-planning-service`, `ai-project-planning-llm-jobs-worker` |
 | Notify / webhook | `notification-service`, `notification-dispatch-worker`, `webhook-service`, `webhook-delivery-worker` |
 
 ### Compose extra (AI / storage)

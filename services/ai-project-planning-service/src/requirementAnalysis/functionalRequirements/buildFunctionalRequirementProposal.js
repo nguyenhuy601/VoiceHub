@@ -32,6 +32,12 @@ function buildFunctionalRequirementProposal(opts = {}) {
       : [];
     const proposedFromCr = sourceCrIds.length > 0 && !derived;
     const acText = String(r.ac || r.acceptanceCriteria || '').trim();
+    const parentEpicId =
+      r.parentEpicId === undefined || r.parentEpicId === null || r.parentEpicId === ''
+        ? r.parentEpicId === null
+          ? null
+          : undefined
+        : String(r.parentEpicId).trim();
     const base = {
       logicalId: id,
       id,
@@ -43,6 +49,8 @@ function buildFunctionalRequirementProposal(opts = {}) {
       status: mapRequirementStatus(r),
       priority: r.priority || null,
       actors: Array.isArray(r.actors) ? r.actors : [],
+      // FR+epic one-shot: keep parentEpicId for Gate1 Epic column + derive
+      ...(parentEpicId !== undefined ? { parentEpicId } : {}),
       sourceCrIds,
       sourceRefs: Array.isArray(r.sourceRefs)
         ? r.sourceRefs
@@ -118,7 +126,7 @@ function buildFunctionalRequirementProposal(opts = {}) {
       hasSynthesis: false,
     },
   };
-  // Optional: attached later by runFrSemanticTask after FrDecompose LLM.
+  // Optional: attached later by runFrSemanticTask via deriveBacklogFromFrEpics.
   if (opts.backlogStructure && typeof opts.backlogStructure === 'object') {
     out.backlogStructure = opts.backlogStructure;
   }

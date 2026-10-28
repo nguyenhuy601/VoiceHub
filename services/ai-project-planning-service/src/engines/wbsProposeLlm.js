@@ -13,7 +13,12 @@ const {
   resolveWbsLlmMaxRepair,
   planWbsCallSlices,
 } = require('../contracts/howWbsLlmContract');
-const { roleKeyForArea } = require('./wbsAgileNaming');
+const {
+  roleKeyForArea,
+  resolveTaskDisplayName,
+  applyContainerEffortRollup,
+  dedupeChildTitlesAgainstParents,
+} = require('./wbsAgileNaming');
 const {
   isKnownProjectRole,
   resolveAllowedProjectRoleKey,
@@ -55,6 +60,15 @@ function truncate(text, max) {
 
 function normalizeRef(raw) {
   return String(raw || '').trim();
+}
+
+/** Drop temporary fr-from-cr chunk prefix from epic titles (`c0-EPIC-IOT` → `EPIC-IOT`). */
+function cleanEpicTitle(name, id) {
+  const raw = String(name || '').trim();
+  const cleanId = String(id || '').replace(/^c\d+-/i, '') || id;
+  if (!raw || raw === id || raw === cleanId) return cleanId;
+  if (/^c\d+-/i.test(raw)) return raw.replace(/^c\d+-/i, '') || raw;
+  return raw;
 }
 
 function unitWhitelist(units = []) {
@@ -179,6 +193,23 @@ function parseAcIndexCitation(raw, frId = null) {
   return null;
 }
 
+function acRefTokens(raw) {
+  return normalizeAcKey(raw)
+    .split(/[\s/|,;·•\-–—]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2);
+}
+
+/** True when most tokens of received appear in whitelist item (LLM paraphrase). */
+function acRefTokenOverlap(received, whitelistItem) {
+  const rTok = acRefTokens(received);
+  if (rTok.length < 2) return false;
+  const wSet = new Set(acRefTokens(whitelistItem));
+  if (!wSet.size) return false;
+  const hit = rTok.filter((t) => wSet.has(t)).length;
+  return hit >= 2 && hit / rTok.length >= 0.75;
+}
+
 function acRefAllowed(received, whitelist) {
   const r = normalizeAcKey(received);
   if (!r || r.length < 4) return false;
@@ -190,6 +221,8 @@ function acRefAllowed(received, whitelist) {
     if (n.startsWith(r) && r.length >= 8) return true;
     if (r.startsWith(n) && n.length >= 8) return true;
     if (n.includes(r) && r.length >= 12) return true;
+    // qwen3.8-flash often shortens AC ("KPI theo 7 ngày" vs full whitelist line)
+    if (acRefTokenOverlap(r, n)) return true;
   }
   return false;
 }
@@ -845,8 +878,8 @@ function buildWbsStoryLlmPrompt({
 }
 
 /**
- * Hang task leaves on the Gate1 anchor of their FR.
- * An FR with 2+ tasks becomes a Feature under that Story, or under the Epic when no Story cites it.
+ * MVP: hang task leaves directly under Gate1 Story (Epic → Story → Task).
+ * No Feature=FR invent; no Work Package invent; no Story=FR invent.
  */
 function placeLeavesOnFrAnchors({ epics = [], stories = [], leaves = [], frUnits = null } = {}) {
   const units =
@@ -854,64 +887,71 @@ function placeLeavesOnFrAnchors({ epics = [], stories = [], leaves = [], frUnits
       ? frUnits
       : collectFrUnits(stories, epics, null);
   const byFr = new Map(units.filter((unit) => unit?.id).map((unit) => [unit.id, unit]));
-  const groups = new Map();
+  const storyById = new Map(
+    (Array.isArray(stories) ? stories : [])
+      .map((s) => [normalizeRef(s?.id), s])
+      .filter(([id]) => id)
+  );
+
+  const placed = [];
+  const indexByStory = new Map();
   for (const leaf of leaves) {
     const frId = normalizeRef(leaf?.sourceFrIds?.[0]);
-    const key = frId || `__orphan__${leaf?.id || groups.size}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(leaf);
+    const unit = frId ? byFr.get(frId) : null;
+    const storyId =
+      normalizeRef(leaf?.parentStoryId) ||
+      unit?.storyId ||
+      normalizeRef(leaf?.parentId) ||
+      null;
+    const epicId = unit?.epicId || normalizeRef(leaf?.parentEpicId) || null;
+    const area = String(leaf?.area || 'backend').toLowerCase() || 'backend';
+    const story = storyId ? storyById.get(storyId) : null;
+    const idx = indexByStory.get(storyId || '__orphan__') || 0;
+    indexByStory.set(storyId || '__orphan__', idx + 1);
+    const taskName = resolveTaskDisplayName({
+      leafName: leaf.name,
+      storyName: story?.name || storyId || '',
+      area,
+      index: idx,
+    });
+    placed.push({
+      ...leaf,
+      name: taskName,
+      parentId: storyId || null,
+      parentStoryId: storyId || leaf.parentStoryId || null,
+      parentEpicId: epicId || leaf.parentEpicId || null,
+      level: 'task',
+      area,
+    });
   }
+  return { features: [], workPackages: [], leaves: placed };
+}
 
-  const features = [];
-  const placed = [];
-  for (const [key, group] of groups) {
-    const unit = byFr.get(key) || null;
-    const storyId = unit?.storyId || null;
-    const epicId = unit?.epicId || null;
-    const anchor = storyId || epicId || normalizeRef(group[0]?.parentStoryId) || null;
-    if (unit && group.length >= 2) {
-      features.push({
-        id: unit.id,
-        name: unit.name || unit.id,
-        description: unit.statement || unit.description || '',
-        parentId: anchor,
-        level: 'feature',
-        sourceFrIds: [unit.id],
-        sourceUcIds: [],
-        sourceNfrIds: [],
-        acRefs: Array.isArray(unit.ac) ? [...unit.ac] : [],
-        suggestedRoleKey: 'technical_lead',
-        effortSeedHours: 0,
-        effortHours: 0,
-        needsDecomposition: false,
-      });
-      for (const leaf of group) {
-        placed.push({
-          ...leaf,
-          parentId: unit.id,
-          parentFeatureId: unit.id,
-          parentStoryId: storyId,
-          parentEpicId: epicId,
-          level: 'task',
-        });
-      }
-      continue;
-    }
-    for (const leaf of group) {
-      placed.push({
-        ...leaf,
-        parentId: anchor || leaf.parentId || null,
-        parentStoryId: storyId || leaf.parentStoryId || null,
-        parentEpicId: epicId || leaf.parentEpicId || null,
-        level: 'task',
-      });
-    }
+/** Stamp depth from parentId chain. LLM must not invent depth. */
+function stampWbsDepth(nodes = []) {
+  const list = Array.isArray(nodes) ? nodes.map((n) => ({ ...n })) : [];
+  const byId = new Map(list.map((n) => [String(n.id), n]));
+  const memo = new Map();
+  function depthOf(id, stack = new Set()) {
+    const key = String(id || '');
+    if (!key || !byId.has(key)) return 0;
+    if (memo.has(key)) return memo.get(key);
+    if (stack.has(key)) return 0;
+    stack.add(key);
+    const node = byId.get(key);
+    const parentId = node.parentId != null && node.parentId !== '' ? String(node.parentId) : null;
+    const d = parentId && byId.has(parentId) ? depthOf(parentId, stack) + 1 : 0;
+    memo.set(key, d);
+    node.depth = d;
+    return d;
   }
-  return { features, leaves: placed };
+  for (const n of list) depthOf(n.id);
+  return list;
 }
 
 /**
- * Materialize epic + story from SoT, then Feature when one FR has 2+ tasks.
+ * Materialize MVP tree from Gate1 SoT + LLM task leaves:
+ * Epic → Story → Task (Story may be root when parentEpicId null).
  */
 function materializeWbsFromSotAndLeaves({
   epics = [],
@@ -922,11 +962,12 @@ function materializeWbsFromSotAndLeaves({
   const storyList = normalizeStoriesForWbs(stories);
   const epicContainers = (Array.isArray(epics) ? epics : [])
     .map((e) => {
-      const id = normalizeRef(e?.id);
-      if (!id) return null;
+      const rawId = normalizeRef(e?.id);
+      if (!rawId) return null;
+      const id = rawId.replace(/^c\d+-/i, '') || rawId;
       return {
         id,
-        name: e.name || id,
+        name: cleanEpicTitle(e.name || e.title, rawId),
         description: e.description || '',
         parentId: null,
         level: 'epic',
@@ -949,7 +990,13 @@ function materializeWbsFromSotAndLeaves({
   const epicIds = new Set(epicContainers.map((e) => e.id));
   const storyContainers = storyList.map((s) => {
     const parentRaw = normalizeRef(s.parentId);
-    const parentId = parentRaw && epicIds.has(parentRaw) ? parentRaw : null;
+    const parentClean = parentRaw ? parentRaw.replace(/^c\d+-/i, '') || parentRaw : '';
+    const parentId =
+      parentClean && epicIds.has(parentClean)
+        ? parentClean
+        : parentRaw && epicIds.has(parentRaw)
+          ? parentRaw
+          : null;
     return {
       id: s.id,
       name: s.name || s.id,
@@ -986,20 +1033,23 @@ function materializeWbsFromSotAndLeaves({
     leaves: enrichedLeaves,
     frUnits,
   });
-  const tasks = [
-    ...epicContainers,
-    ...storyContainers,
-    ...placed.features,
-    ...placed.leaves,
-  ];
+  const rawTasks = [...epicContainers, ...storyContainers, ...placed.leaves];
+  const tasks = stampWbsDepth(
+    applyContainerEffortRollup(dedupeChildTitlesAgainstParents(rawTasks))
+  );
   const roots = tasks.filter((t) => !t.parentId).map((t) => t.id);
+  const epicsWithoutStories = epicContainers
+    .filter((e) => !storyContainers.some((s) => s.parentId === e.id))
+    .map((e) => e.id);
   return {
     tasks,
     wbs: {
       roots,
       nodes: tasks,
       taskCount: placed.leaves.length,
-      featureCount: placed.features.length,
+      featureCount: 0,
+      workPackageCount: 0,
+      epicsWithoutStories,
     },
   };
 }
@@ -1448,7 +1498,9 @@ async function proposeWbsTasksWithLlm(opts = {}) {
       unresolvedStoryIds,
       storyCount: stories.length,
       epicCount: epics.length,
-      featureCount: materialized.wbs?.featureCount || 0,
+      featureCount: 0,
+      workPackageCount: 0,
+      epicsWithoutStories: materialized.wbs?.epicsWithoutStories || [],
       uncoveredFrIds,
       isolatedFrIds,
       uncoveredAcKeys,
@@ -1485,6 +1537,7 @@ module.exports = {
   resolveDecompositionOutcome,
   buildWbsStoryLlmPrompt,
   materializeWbsFromSotAndLeaves,
+  stampWbsDepth,
   resolveLeafSuggestedRole,
   resolveLeafDeliverable,
   dedupeWbsLeaves,

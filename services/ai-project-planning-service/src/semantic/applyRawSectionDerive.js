@@ -256,14 +256,14 @@ async function applyRawSectionDerive(opts = {}) {
   }
 
   const deriveStartedAt = Date.now();
-  // Epic→Story is proposeFrDecomposeWithLlm inside runFrSemanticTask.
+  // Epic→Story derive lives in runFrSemanticTask (deriveBacklogFromFrEpics / assignFrEpicsLlm).
   const frDecomposeSpan = {
     ms: 0,
     llmCalls: 0,
     heuristic: 0,
     skipped: 0,
     concurrency: null,
-    reason: 'fr_decompose_llm',
+    reason: 'fr_epic_derive',
   };
 
   const sectionStartedAt = Date.now();

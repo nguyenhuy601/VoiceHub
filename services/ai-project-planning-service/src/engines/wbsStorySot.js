@@ -1,5 +1,6 @@
 /**
  * Resolve Gate1-approved stories for WbsTool (SoT) — no FR→Story invent.
+ * WbsTool decomposes Stories only; Epics without Stories are reported, not invented.
  */
 
 const { resolveApprovedBacklogStructure } = require('./backlogStructureMap');
@@ -12,25 +13,24 @@ const { isExcludedFromWbsDecomposition } = require('./backlogMap');
  *   toolData?: object,
  *   approvedBacklogStructure?: object,
  * }} opts
- * @returns {{ ok: boolean, stories: object[], epics: object[], reasonCodes: string[] }}
+ * @returns {{
+ *   ok: boolean,
+ *   stories: object[],
+ *   epics: object[],
+ *   epicsWithoutStories: string[],
+ *   reasonCodes: string[],
+ * }}
  */
 function resolveWbsStoriesFromSot(opts = {}) {
   const structure = resolveApprovedBacklogStructure(opts);
   const reasonCodes = [];
 
-  // Prefer planning.backlog after BacklogMap map-only (same SoT content).
-  const backlogStories = opts.container?.planning?.backlog?.stories;
-  const fromBacklog = Array.isArray(backlogStories) ? backlogStories : null;
-
+  // Prefer Gate1 approvedBacklogStructure (FR+Epic one-shot stamp). Legacy
+  // planning.backlog only if SoT missing (old runs that still had BacklogMap).
   let stories = [];
   let epics = [];
 
-  if (fromBacklog?.length) {
-    stories = fromBacklog.filter((s) => s && !isExcludedFromWbsDecomposition(s));
-    epics = Array.isArray(opts.container?.planning?.backlog?.epics)
-      ? opts.container.planning.backlog.epics
-      : [];
-  } else if (structure && Array.isArray(structure.stories)) {
+  if (structure && Array.isArray(structure.stories) && structure.stories.length) {
     stories = structure.stories
       .filter((s) => s && Array.isArray(s.sourceFrIds) && s.sourceFrIds.length)
       .map((s) => ({
@@ -46,14 +46,44 @@ function resolveWbsStoriesFromSot(opts = {}) {
       }))
       .filter((s) => !isExcludedFromWbsDecomposition(s));
     epics = Array.isArray(structure.epics) ? structure.epics : [];
+  } else {
+    const backlogStories = opts.container?.planning?.backlog?.stories;
+    const fromBacklog = Array.isArray(backlogStories) ? backlogStories : null;
+    if (fromBacklog?.length) {
+      stories = fromBacklog.filter((s) => s && !isExcludedFromWbsDecomposition(s));
+      epics = Array.isArray(opts.container?.planning?.backlog?.epics)
+        ? opts.container.planning.backlog.epics
+        : [];
+    }
+  }
+
+  const storyParentIds = new Set(
+    stories
+      .map((s) => String(s.parentId || s.parentEpicId || '').trim())
+      .filter(Boolean)
+  );
+  const epicsWithoutStories = (Array.isArray(epics) ? epics : [])
+    .map((e) => String(e?.id || '').trim())
+    .filter((id) => id && !storyParentIds.has(id));
+
+  if (epicsWithoutStories.length) {
+    reasonCodes.push('epic_missing_stories');
   }
 
   if (!stories.length) {
     reasonCodes.push('missing_approved_backlog_stories');
-    return { ok: false, stories: [], epics: [], reasonCodes };
+    // Epic-only SoT cannot be decomposed — fix at WHAT, do not invent Stories here.
+    if (epics.length) reasonCodes.push('epic_only_backlog_needs_what');
+    return {
+      ok: false,
+      stories: [],
+      epics,
+      epicsWithoutStories,
+      reasonCodes,
+    };
   }
 
-  return { ok: true, stories, epics, reasonCodes };
+  return { ok: true, stories, epics, epicsWithoutStories, reasonCodes };
 }
 
 /** Map SoT stories → WBS LLM unit shape (id = story id). */

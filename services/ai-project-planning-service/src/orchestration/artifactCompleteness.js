@@ -113,13 +113,15 @@ function scoreHowCompleteness(state) {
       typeof wbs === 'object' &&
       ((Array.isArray(wbs.nodes) && wbs.nodes.length > 0) ||
         (Number.isFinite(wbsLeafCount) && wbsLeafCount > 0)));
-  const results = Array.isArray(state?.toolResults) ? state.toolResults : [];
-  const toolOk = (name) => results.some((r) => r?.toolName === name && !r?.error);
-  const wbsFailed = results.some((r) => r?.toolName === 'WbsTool' && r?.error);
+  const { succeededValidatedTools, failedTools } = require('./toolExecutionContract');
+  const succeeded = succeededValidatedTools(state);
+  const failed = failedTools(state);
+  const toolOk = (name) => succeeded.has(name);
+  const wbsFailed = failed.has('WbsTool');
   const wbsOk = toolOk('WbsTool');
   const dependencyOk = toolOk('DependencyTool');
   const scheduleOk = toolOk('ScheduleTool');
-  const planOk = toolOk('ProjectPlanTool');
+  const planOk = Boolean(state?.planManifest?.status === 'ready_for_review');
 
   const missing = [];
   if (!hasLeafTasks) missing.push('wbs_task_leaves');
@@ -191,9 +193,40 @@ function routeAfterCompleteness(state, opts = {}) {
   const enrichLoop = Number(state.enrichLoop) || 0;
   const stop = String(state.stopReason || '');
   const budgetStop = stop.startsWith('BUDGET_');
+  let deadlockStop = false;
+  try {
+    const {
+      isHowDeadlockStopReason,
+      detectHowSelectDeadlock,
+    } = require('./computeEligibleHowTools');
+    deadlockStop = isHowDeadlockStopReason(stop);
+    // Defense: assemble path without stopReason still must not injectGap on deadlock.
+    if (!deadlockStop && score.phase === 'how') {
+      deadlockStop = Boolean(detectHowSelectDeadlock(state).deadlocked);
+    }
+  } catch {
+    deadlockStop =
+      stop === 'HOW_NO_ELIGIBLE_PROGRESS' ||
+      stop === 'HOW_DEPENDENCY_NOT_SCHEDULE_READY' ||
+      stop.startsWith('HOW_NO_ELIGIBLE');
+  }
+  let hardToolStop = stop === 'TOOL_FAILED' || stop.startsWith('TOOL_FAILED:');
+  if (!hardToolStop) {
+    try {
+      const { hasPhaseHardToolStop } = require('./howPhaseToolNodes');
+      hardToolStop = hasPhaseHardToolStop(state);
+    } catch {
+      hardToolStop = (Array.isArray(state.toolResults) ? state.toolResults : []).some(
+        (row) => row?.error
+      );
+    }
+  }
 
-  if (score.ready) return 'emitReady';
-  if (budgetStop || enrichLoop >= maxEnrich) return 'emitIncomplete';
+  if (score.ready && !hardToolStop) return 'emitReady';
+  // Fail-fast: do not injectGap / retry after hard tool failure, budget, or HOW deadlock.
+  if (hardToolStop || budgetStop || deadlockStop || enrichLoop >= maxEnrich) {
+    return 'emitIncomplete';
+  }
   return 'injectGap';
 }
 

@@ -101,16 +101,24 @@ const TOOL_ACTIVITY = Object.freeze({
     fallback: 'Đang chọn tool…',
   },
   selectTools: {
-    key: 'requirements.aiHitlMonitorActivity_select',
-    fallback: 'Đang chọn tool…',
+    key: 'requirements.aiHitlMonitorActivity_selectTools',
+    fallback: 'Đang chọn tools planning…',
   },
   prepareWhat: {
     key: 'requirements.aiHitlMonitorActivity_understand',
     fallback: 'Đang chuẩn bị ngữ cảnh WHAT…',
   },
   prepareHowContext: {
-    key: 'requirements.aiHitlMonitorActivity_understand',
+    key: 'requirements.aiHitlMonitorActivity_prepareHowContext',
     fallback: 'Đang chuẩn bị ngữ cảnh HOW…',
+  },
+  finalizePlan: {
+    key: 'requirements.aiHitlMonitorActivity_finalizePlan',
+    fallback: 'Đang khóa project plan…',
+  },
+  feasibility: {
+    key: 'requirements.aiHitlMonitorActivity_feasibility',
+    fallback: 'Đang kiểm tra feasibility…',
   },
   runFrUnderstanding: {
     key: 'requirements.aiHitlMonitorActivity_RequirementAnalysisTool',
@@ -129,7 +137,7 @@ const TOOL_ACTIVITY = Object.freeze({
     fallback: 'Đang quan sát kết quả tool…',
   },
   assemble: {
-    key: 'requirements.aiHitlMonitorActivity_observe',
+    key: 'requirements.aiHitlMonitorActivity_assemble',
     fallback: 'Đang tổng hợp kết quả…',
   },
   evaluateLocal: {
@@ -141,8 +149,8 @@ const TOOL_ACTIVITY = Object.freeze({
     fallback: 'Đang kiểm tra sẵn sàng Gate 1…',
   },
   scoreCompleteness: {
-    key: 'requirements.aiHitlMonitorActivity_evaluateLocal',
-    fallback: 'Đang đánh giá đủ artifact…',
+    key: 'requirements.aiHitlMonitorActivity_scoreCompleteness',
+    fallback: 'Đang chấm đủ artifact…',
   },
   metaGate: {
     key: 'requirements.aiHitlMonitorActivity_metaGate',

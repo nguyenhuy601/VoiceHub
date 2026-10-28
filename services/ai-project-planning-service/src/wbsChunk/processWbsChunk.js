@@ -62,6 +62,23 @@ async function processWbsChunk(workUnitId, opts = {}) {
         },
         env
       );
+      // Persist first, then wake durable await (idempotent).
+      try {
+        const { maybeResumeWbsWaveAfterChunk } = require('./resumeWbsWave');
+        const wake = await maybeResumeWbsWaveAfterChunk({
+          runId: claimed.runId,
+          inputSnapshotId: claimed.inputSnapshotId,
+          env,
+          generateJsonFn: opts.generateJsonFn,
+        });
+        if (wake && wake.ok) {
+          console.info(
+            `[wbs-chunk] wave_resumed run=${claimed.runId} ok=${wake.ok} reused=${Boolean(wake.reused)}`
+          );
+        }
+      } catch (wakeErr) {
+        console.warn('[wbs-chunk] wave_resume_soft', wakeErr?.message || wakeErr);
+      }
       return { ok: true, unit };
     }
     // Exhausted repair with clarifications/needsReview and no usable tasks → dead-letter (not infinite retry).

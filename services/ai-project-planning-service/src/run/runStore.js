@@ -6,10 +6,46 @@ const {
   deriveStage,
 } = require('./runStatusDerive');
 
-const TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'expired']);
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'expired']);
 
 function buildActiveKey(packId, job) {
   return `${String(packId || '').trim()}|${String(job || '').trim()}`;
+}
+
+function isTerminalRunStatus(status) {
+  return TERMINAL_STATUSES.has(String(status || '').trim());
+}
+
+/** Fields shared by createQueuedRun insert / conflict retry. */
+function queuedRunCreateDoc(input, { packId, organizationId, snapshotId, job, idempotencyKey }) {
+  const parentRunId =
+    input.parentRunId != null && String(input.parentRunId).trim()
+      ? String(input.parentRunId).trim()
+      : null;
+  const runIdForGen = input.runId != null ? String(input.runId).trim() : null;
+  return {
+    ...(input.runId ? { _id: input.runId } : {}),
+    projectId: input.projectId != null ? String(input.projectId) : null,
+    packId,
+    organizationId,
+    snapshotId,
+    parentRunId,
+    generationId: runIdForGen || null,
+    approvedSrsVersion:
+      input.approvedSrsVersion != null ? String(input.approvedSrsVersion) : null,
+    snapshotPayloadRef:
+      input.snapshotPayloadRef != null ? String(input.snapshotPayloadRef) : null,
+    trigger: input.trigger || 'manual',
+    initiatedBy: input.initiatedBy != null ? String(input.initiatedBy) : null,
+    job,
+    activeKey: buildActiveKey(packId, job),
+    idempotencyKey,
+    input: input.input || null,
+    status: 'queued',
+    currentNode: null,
+    iteration: 0,
+    attempt: 0,
+  };
 }
 
 /**
@@ -32,8 +68,10 @@ async function findByIdempotencyKey({ packId, job, idempotencyKey }) {
 }
 
 async function findActiveRun({ packId, job }) {
+  // Terminal docs must not block new runs (stale activeKey after fail paths that skipped unset).
   return PlanningRun.findOne({
     activeKey: buildActiveKey(packId, job),
+    status: { $nin: [...TERMINAL_STATUSES] },
   }).exec();
 }
 
@@ -66,39 +104,25 @@ async function createQueuedRun(input = {}) {
     }
   }
 
-  try {
-    const parentRunId =
-      input.parentRunId != null && String(input.parentRunId).trim()
-        ? String(input.parentRunId).trim()
-        : null;
-    const runIdForGen = input.runId != null ? String(input.runId).trim() : null;
-    const generationId = runIdForGen || null;
+  const createDoc = () =>
+    queuedRunCreateDoc(input, { packId, organizationId, snapshotId, job, idempotencyKey });
 
-    return await PlanningRun.create({
-    ...(input.runId ? { _id: input.runId } : {}),
-    projectId: input.projectId != null ? String(input.projectId) : null,
-    packId,
-    organizationId,
-    snapshotId,
-    parentRunId,
-    generationId,
-    approvedSrsVersion:
-      input.approvedSrsVersion != null ? String(input.approvedSrsVersion) : null,
-    snapshotPayloadRef:
-      input.snapshotPayloadRef != null ? String(input.snapshotPayloadRef) : null,
-    trigger: input.trigger || 'manual',
-    initiatedBy: input.initiatedBy != null ? String(input.initiatedBy) : null,
-    job,
-    activeKey: buildActiveKey(packId, job),
-    idempotencyKey,
-    input: input.input || null,
-    status: 'queued',
-    currentNode: null,
-    iteration: 0,
-    attempt: 0,
-  });
+  try {
+    return await PlanningRun.create(createDoc());
   } catch (error) {
     if (error?.code === 11000 && error?.keyPattern?.activeKey) {
+      const key = buildActiveKey(packId, job);
+      // Any doc still holding the unique key (including terminal leftovers).
+      const holder = await PlanningRun.findOne({ activeKey: key }).exec();
+      if (holder && isTerminalRunStatus(holder.status)) {
+        await PlanningRun.updateOne({ _id: holder._id }, { $unset: { activeKey: 1 } });
+        console.warn(
+          '[runStore] released stale activeKey on terminal run',
+          String(holder._id),
+          holder.status
+        );
+        return PlanningRun.create(createDoc());
+      }
       const active = await findActiveRun({ packId, job });
       // RULE-R07: legacy Data Gate pause must not block new WHAT runs.
       if (
@@ -107,34 +131,7 @@ async function createQueuedRun(input = {}) {
         String(active.gate || '') === 'data_review'
       ) {
         await cancelRun(String(active._id));
-        const parentRunIdRetry =
-          input.parentRunId != null && String(input.parentRunId).trim()
-            ? String(input.parentRunId).trim()
-            : null;
-        const runIdRetry = input.runId != null ? String(input.runId).trim() : null;
-        return PlanningRun.create({
-          ...(input.runId ? { _id: input.runId } : {}),
-          projectId: input.projectId != null ? String(input.projectId) : null,
-          packId,
-          organizationId,
-          snapshotId,
-          parentRunId: parentRunIdRetry,
-          generationId: runIdRetry || null,
-          approvedSrsVersion:
-            input.approvedSrsVersion != null ? String(input.approvedSrsVersion) : null,
-          snapshotPayloadRef:
-            input.snapshotPayloadRef != null ? String(input.snapshotPayloadRef) : null,
-          trigger: input.trigger || 'manual',
-          initiatedBy: input.initiatedBy != null ? String(input.initiatedBy) : null,
-          job,
-          activeKey: buildActiveKey(packId, job),
-          idempotencyKey,
-          input: input.input || null,
-          status: 'queued',
-          currentNode: null,
-          iteration: 0,
-          attempt: 0,
-        });
+        return PlanningRun.create(createDoc());
       }
       if (active) {
         active.__idempotentReplay = true;
@@ -271,6 +268,7 @@ function toPublicRun(doc, page) {
 
 module.exports = {
   buildActiveKey,
+  isTerminalRunStatus,
   createQueuedRun,
   findByIdempotencyKey,
   findActiveRun,
@@ -280,4 +278,5 @@ module.exports = {
   resumeRun,
   toPublicRun,
   RUN_STATUSES,
+  TERMINAL_STATUSES,
 };

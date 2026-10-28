@@ -1,12 +1,14 @@
 /**
- * Sprint / Release plan from packed schedule (Step 6).
- * Deterministic bucket — no LLM, does not invent WBS tasks.
+ * Sprint / Release windows for Schedule Step 6.
+ * Creates empty sprint windows (dates + capacity only).
+ * Does NOT assign leaves/PBIs — Sprint HOW LangGraph (LLM propose + validate) owns allocation.
+ * Leaves stay in unallocated with reason awaiting_llm_allocation.
  */
 
 const DEFAULT_SPRINT_LENGTH_DAYS = 14;
 const DEFAULT_RELEASE_EVERY_N_SPRINTS = 2;
 const MAX_SPRINTS = 48;
-const MAX_TASKS_PER_SPRINT = 200;
+const HOURS_PER_WORKING_DAY = 8;
 
 function toDateKey(value) {
   if (value == null || value === '') return null;
@@ -29,7 +31,41 @@ function roundHours(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-function buildSprintWindows(start, end, sprintLengthDays) {
+function workingDaysInSprint(sprintLengthDays) {
+  return Math.max(1, Math.round((Number(sprintLengthDays) || 14) * 5 / 7));
+}
+
+/** One-person sprint capacity (window sizing only — not validated team SoT). */
+function onePersonSprintCapacityHours(sprintLengthDays) {
+  return workingDaysInSprint(sprintLengthDays) * HOURS_PER_WORKING_DAY;
+}
+
+/**
+ * Resolve team FTE for sprint capacity.
+ * Prefer explicit opts; else count roles/members with supply; else null → capacity_unverified.
+ */
+function resolveTeamFteCount(capacityPlan, opts = {}) {
+  if (Number(opts.teamFteCount) > 0) return Math.max(1, Math.floor(Number(opts.teamFteCount)));
+  if (Number(opts.teamMemberCount) > 0) {
+    return Math.max(1, Math.floor(Number(opts.teamMemberCount)));
+  }
+  const byRole = Array.isArray(capacityPlan?.byRole) ? capacityPlan.byRole : [];
+  if (byRole.length) {
+    const rolesWithSupply = byRole.filter((row) => Number(row?.supplyHours) > 0).length;
+    if (rolesWithSupply > 0) return rolesWithSupply;
+  }
+  if (Number(capacityPlan?.teamMemberCount) > 0) {
+    return Math.max(1, Math.floor(Number(capacityPlan.teamMemberCount)));
+  }
+  return null;
+}
+
+function teamSprintCapacityHours(sprintLengthDays, teamFteCount) {
+  if (teamFteCount == null || !(Number(teamFteCount) > 0)) return null;
+  return roundHours(onePersonSprintCapacityHours(sprintLengthDays) * Number(teamFteCount));
+}
+
+function buildSprintWindows(start, end, sprintLengthDays, capacityHours = null) {
   const windows = [];
   let cursor = start;
   let index = 1;
@@ -43,6 +79,8 @@ function buildSprintWindows(start, end, sprintLengthDays) {
       endDate: cappedEnd,
       taskIds: [],
       effortHours: 0,
+      capacityHours: capacityHours == null ? null : capacityHours,
+      utilizationPct: 0,
     });
     if (cappedEnd >= end) break;
     cursor = addDays(cappedEnd, 1);
@@ -61,66 +99,99 @@ function taskEffortHours(task) {
   return Number.isFinite(hours) && hours > 0 ? hours : 0;
 }
 
-function findSprintIndex(windows, dateKey) {
-  if (!dateKey || !windows.length) return -1;
-  for (let i = 0; i < windows.length; i += 1) {
-    if (dateKey >= windows[i].startDate && dateKey <= windows[i].endDate) return i;
-  }
-  if (dateKey < windows[0].startDate) return 0;
-  return windows.length - 1;
+function utilizationPct(effortHours, capacityHours) {
+  if (capacityHours == null || !(Number(capacityHours) > 0)) return null;
+  return Math.round((Number(effortHours) / Number(capacityHours)) * 10000) / 100;
 }
 
-const HOURS_PER_WORKING_DAY = 8;
+function refreshSprintUtilization(sprint) {
+  sprint.utilizationPct = utilizationPct(sprint.effortHours, sprint.capacityHours);
+  return sprint;
+}
 
-function sprintCapacityHours(sprintLengthDays) {
-  const workingDays = Math.max(1, Math.round((Number(sprintLengthDays) || 14) * 5 / 7));
-  return workingDays * HOURS_PER_WORKING_DAY;
+function pushUnallocated(unallocated, entry) {
+  if (!entry || (!entry.taskId && !entry.pbiId)) return;
+  unallocated.push({
+    taskId: entry.taskId ? String(entry.taskId) : null,
+    pbiId: entry.pbiId ? String(entry.pbiId) : null,
+    reasonCode: String(entry.reasonCode || 'not_ready'),
+    reason: String(entry.reason || '').trim() || String(entry.reasonCode || 'not_ready'),
+  });
 }
 
 /**
- * Place leaves into sprint windows by cumulative effort when calendar bounds are missing.
- * A sprint holds about one person's capacity for the sprint length.
+ * Pre-LLM: do not flood unallocated (looks like a hard failure on Gate2).
+ * Count is tracked on schedulePlan.meta.awaitingLlmTaskCount instead.
  */
-function packLeavesIntoSprints(leaves, start, sprintLengthDays) {
-  const capacity = sprintCapacityHours(sprintLengthDays);
+function leavesAwaitingLlm(_leaves) {
+  return [];
+}
+
+function countLeafTasks(leaves) {
+  let n = 0;
+  for (const task of leaves || []) {
+    if (String(task?.id || task?.taskId || '').trim()) n += 1;
+  }
+  return n;
+}
+
+/**
+ * Empty sprint windows sized from total leaf effort (no task assignment).
+ * Used when project calendar bounds are missing.
+ */
+function estimateEmptySprintWindows(leaves, start, sprintLengthDays, opts = {}) {
+  const teamFte = resolveTeamFteCount(opts.capacityPlan, opts);
+  const capacityUnverified = teamFte == null;
+  const capacity = capacityUnverified
+    ? onePersonSprintCapacityHours(sprintLengthDays)
+    : teamSprintCapacityHours(sprintLengthDays, teamFte);
+  const totalEffort = leaves.reduce((sum, task) => {
+    const hours = taskEffortHours(task) || HOURS_PER_WORKING_DAY;
+    return sum + hours;
+  }, 0);
+  const perSprint = capacity > 0 ? capacity : onePersonSprintCapacityHours(sprintLengthDays);
+  const needed = Math.max(1, Math.min(MAX_SPRINTS, Math.ceil(totalEffort / perSprint) || 1));
   const sprints = [];
   let cursor = start;
-  let bucket = null;
-
-  function openSprint() {
-    const index = sprints.length + 1;
+  for (let i = 0; i < needed; i += 1) {
     const sprintEnd = addDays(cursor, sprintLengthDays - 1);
-    bucket = {
-      id: `S${index}`,
-      name: `Sprint ${index}`,
+    sprints.push({
+      id: `S${i + 1}`,
+      name: `Sprint ${i + 1}`,
       startDate: cursor,
       endDate: sprintEnd,
       taskIds: [],
+      pbiIds: [],
       effortHours: 0,
-    };
-    sprints.push(bucket);
+      capacityHours: capacityUnverified ? null : capacity,
+      utilizationPct: capacityUnverified ? null : 0,
+      goal: '',
+    });
     cursor = addDays(sprintEnd, 1);
   }
+  return {
+    sprints,
+    estimatedEnd: sprints.length ? sprints[sprints.length - 1].endDate : start,
+    unallocated: leavesAwaitingLlm(leaves),
+    awaitingLlmTaskCount: countLeafTasks(leaves),
+    capacityUnverified,
+    teamFteCount: teamFte,
+    teamCapacityHoursPerSprint: capacityUnverified ? null : capacity,
+  };
+}
 
-  for (const task of leaves) {
-    const tid = String(task.id || task.taskId || '').trim();
-    if (!tid) continue;
-    const hours = taskEffortHours(task) || HOURS_PER_WORKING_DAY;
-    if (
-      !bucket ||
-      (bucket.taskIds.length > 0 &&
-        bucket.effortHours + hours > capacity &&
-        sprints.length < MAX_SPRINTS)
-    ) {
-      openSprint();
+function uniqueTaskIdsFromSprints(sprintChunk) {
+  const seen = new Set();
+  const ids = [];
+  for (const sprint of sprintChunk) {
+    for (const tid of Array.isArray(sprint?.taskIds) ? sprint.taskIds : []) {
+      const id = String(tid || '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
     }
-    if (!bucket || bucket.taskIds.length >= MAX_TASKS_PER_SPRINT) continue;
-    bucket.taskIds.push(tid);
-    bucket.effortHours = roundHours(bucket.effortHours + hours);
   }
-
-  const estimatedEnd = sprints.length ? sprints[sprints.length - 1].endDate : start;
-  return { sprints, estimatedEnd };
+  return ids;
 }
 
 function finishPlan(sprints, estimatedEnd, opts) {
@@ -132,7 +203,17 @@ function finishPlan(sprints, estimatedEnd, opts) {
     deadlineConflict = false,
     projectStart = null,
     sourceNote = null,
+    unallocated = [],
+    capacityUnverified = false,
+    teamFteCount = null,
+    teamCapacityHoursPerSprint = null,
+    awaitingLlmTaskCount = null,
   } = opts || {};
+
+  for (const sprint of sprints) {
+    refreshSprintUtilization(sprint);
+  }
+
   const releases = [];
   for (let i = 0; i < sprints.length; i += releaseEvery) {
     const chunk = sprints.slice(i, i + releaseEvery);
@@ -145,6 +226,10 @@ function finishPlan(sprints, estimatedEnd, opts) {
         m.estimatedEnd >= first.startDate &&
         m.estimatedEnd <= last.endDate
     );
+    const dedupedTaskIds = uniqueTaskIdsFromSprints(chunk);
+    const effortHours = roundHours(
+      chunk.reduce((n, s) => n + (Number(s.effortHours) || 0), 0)
+    );
     releases.push({
       id: `R${rIndex}`,
       name: `Release ${rIndex}`,
@@ -152,11 +237,13 @@ function finishPlan(sprints, estimatedEnd, opts) {
       estimatedEnd: last.endDate,
       sprintIds: chunk.map((s) => s.id),
       milestoneIds: msInWindow.map((m) => m.id),
-      taskCount: chunk.reduce((n, s) => n + s.taskIds.length, 0),
-      effortHours: roundHours(chunk.reduce((n, s) => n + (Number(s.effortHours) || 0), 0)),
+      taskIds: dedupedTaskIds,
+      taskCount: dedupedTaskIds.length,
+      effortHours,
     });
   }
   if (!releases.length && !deadlineConflict && estimatedEnd) {
+    const dedupedTaskIds = uniqueTaskIdsFromSprints(sprints);
     releases.push({
       id: 'R1',
       name: 'Release 1',
@@ -164,7 +251,8 @@ function finishPlan(sprints, estimatedEnd, opts) {
       estimatedEnd,
       sprintIds: sprints.map((s) => s.id),
       milestoneIds: milestones.map((m) => m.id),
-      taskCount: sprints.reduce((n, s) => n + s.taskIds.length, 0),
+      taskIds: dedupedTaskIds,
+      taskCount: dedupedTaskIds.length,
       effortHours: roundHours(sprints.reduce((n, s) => n + (Number(s.effortHours) || 0), 0)),
     });
   }
@@ -175,6 +263,9 @@ function finishPlan(sprints, estimatedEnd, opts) {
     sprints,
     releases,
     milestones,
+    unallocated: Array.isArray(unallocated) ? unallocated : [],
+    deferred: [],
+    conflicts: [],
     meta: {
       source: 'engine',
       sprintLengthDays,
@@ -185,7 +276,14 @@ function finishPlan(sprints, estimatedEnd, opts) {
       deadline: deadline || null,
       sprintCount: sprints.length,
       releaseCount: releases.length,
+      unallocatedCount: Array.isArray(unallocated) ? unallocated.length : 0,
+      capacityUnverified: Boolean(capacityUnverified),
+      teamFteCount: teamFteCount == null ? null : teamFteCount,
+      teamCapacityHoursPerSprint:
+        teamCapacityHoursPerSprint == null ? null : teamCapacityHoursPerSprint,
       ...(sourceNote ? { packMode: sourceNote } : {}),
+      allocationOwner: 'sprint_how_llm',
+      ...(awaitingLlmTaskCount != null ? { awaitingLlmTaskCount } : {}),
     },
   };
 }
@@ -217,8 +315,9 @@ function normalizeMilestones(raw, fallbackEnd) {
  * @param {object[]} [input.tasks]
  * @param {object[]} [input.milestones]
  * @param {object[]} [input.capacityConflicts]
+ * @param {object} [input.capacityPlan]
  * @param {object} [opts]
- * @returns {{ sprints: object[], releases: object[], milestones: object[], meta: object }}
+ * @returns {object}
  */
 function buildSchedulePlan(input = {}, opts = {}) {
   const completion = input.completion && typeof input.completion === 'object' ? input.completion : {};
@@ -239,10 +338,14 @@ function buildSchedulePlan(input = {}, opts = {}) {
       ? Math.min(12, Math.floor(Number(opts.releaseEveryNSprints)))
       : DEFAULT_RELEASE_EVERY_N_SPRINTS;
 
-  const taskDates =
-    input.taskDates && typeof input.taskDates === 'object' && !Array.isArray(input.taskDates)
-      ? input.taskDates
-      : {};
+  const capacityPlan =
+    input.capacityPlan && typeof input.capacityPlan === 'object' ? input.capacityPlan : opts.capacityPlan || null;
+  const teamFte = resolveTeamFteCount(capacityPlan, opts);
+  const capacityUnverified = teamFte == null;
+  const teamCapacityHoursPerSprint = teamSprintCapacityHours(sprintLengthDays, teamFte);
+
+  // taskDates retained for callers / future validators — windows are calendar-only here.
+  void input.taskDates;
   const tasks = Array.isArray(input.tasks) ? input.tasks : [];
   const milestones = normalizeMilestones(input.milestones, estimatedEnd);
 
@@ -251,15 +354,24 @@ function buildSchedulePlan(input = {}, opts = {}) {
   if (!projectStart || !estimatedEnd) {
     if (leaves.length) {
       const start = toDateKey(new Date().toISOString());
-      const packed = packLeavesIntoSprints(leaves, start, sprintLengthDays);
-      return finishPlan(packed.sprints, packed.estimatedEnd, {
+      const estimated = estimateEmptySprintWindows(leaves, start, sprintLengthDays, {
+        capacityPlan,
+        teamFteCount: opts.teamFteCount,
+        teamMemberCount: opts.teamMemberCount,
+      });
+      return finishPlan(estimated.sprints, estimated.estimatedEnd, {
         milestones,
         releaseEvery,
         sprintLengthDays,
         deadline,
         deadlineConflict,
         projectStart: start,
-        sourceNote: 'effort_packed',
+        sourceNote: 'windows_only_no_heuristic_assign',
+        unallocated: estimated.unallocated,
+        awaitingLlmTaskCount: estimated.awaitingLlmTaskCount,
+        capacityUnverified: estimated.capacityUnverified,
+        teamFteCount: estimated.teamFteCount,
+        teamCapacityHoursPerSprint: estimated.teamCapacityHoursPerSprint,
       });
     }
     const releases = [];
@@ -272,6 +384,7 @@ function buildSchedulePlan(input = {}, opts = {}) {
           estimatedEnd: endFromMs,
           sprintIds: [],
           milestoneIds: milestones.map((m) => m.id),
+          taskIds: [],
           taskCount: 0,
           effortHours: 0,
         });
@@ -281,6 +394,9 @@ function buildSchedulePlan(input = {}, opts = {}) {
       sprints: [],
       releases,
       milestones,
+      unallocated: [],
+      deferred: [],
+      conflicts: [],
       meta: {
         source: 'engine',
         sprintLengthDays,
@@ -290,39 +406,26 @@ function buildSchedulePlan(input = {}, opts = {}) {
         projectStart: projectStart || null,
         estimatedEnd: estimatedEnd || null,
         deadline: deadline || null,
+        unallocatedCount: 0,
+        capacityUnverified,
+        teamFteCount: teamFte,
+        teamCapacityHoursPerSprint,
+        allocationOwner: 'sprint_how_llm',
       },
     };
   }
 
-  const sprints = buildSprintWindows(projectStart, estimatedEnd, sprintLengthDays);
-
-  for (const task of leaves) {
-    const tid = String(task.id || task.taskId || '').trim();
-    const dates = taskDates[tid] || {};
-    const anchor = toDateKey(
-      dates.dueDate || task.dueDate || dates.startDate || task.startDate
-    );
-    if (!anchor) continue;
-    const idx = findSprintIndex(sprints, anchor);
-    if (idx < 0) continue;
-    const sprint = sprints[idx];
-    if (sprint.taskIds.length >= MAX_TASKS_PER_SPRINT) continue;
-    if (sprint.taskIds.includes(tid)) continue;
-    sprint.taskIds.push(tid);
-    sprint.effortHours = roundHours(sprint.effortHours + taskEffortHours(task));
-  }
-
-  const placed = new Set(sprints.flatMap((s) => s.taskIds));
-  const unplaced = leaves.filter((task) => !placed.has(String(task.id || task.taskId || '').trim()));
-  if (unplaced.length && sprints.length) {
-    for (const task of unplaced) {
-      const tid = String(task.id || task.taskId || '').trim();
-      const sprint = sprints[sprints.length - 1];
-      if (sprint.taskIds.length >= MAX_TASKS_PER_SPRINT) break;
-      sprint.taskIds.push(tid);
-      sprint.effortHours = roundHours(sprint.effortHours + taskEffortHours(task));
-    }
-  }
+  const sprints = buildSprintWindows(
+    projectStart,
+    estimatedEnd,
+    sprintLengthDays,
+    teamCapacityHoursPerSprint
+  ).map((sprint) => ({
+    ...sprint,
+    pbiIds: [],
+    goal: '',
+  }));
+  const unallocated = leavesAwaitingLlm(leaves);
 
   return finishPlan(sprints, estimatedEnd, {
     milestones,
@@ -331,6 +434,12 @@ function buildSchedulePlan(input = {}, opts = {}) {
     deadline,
     deadlineConflict,
     projectStart,
+    sourceNote: 'windows_only_no_heuristic_assign',
+    unallocated,
+    awaitingLlmTaskCount: countLeafTasks(leaves),
+    capacityUnverified,
+    teamFteCount: teamFte,
+    teamCapacityHoursPerSprint,
   });
 }
 
@@ -351,10 +460,18 @@ function applySchedulePlanToContainer(container, schedulePlan) {
 module.exports = {
   DEFAULT_SPRINT_LENGTH_DAYS,
   DEFAULT_RELEASE_EVERY_N_SPRINTS,
+  HOURS_PER_WORKING_DAY,
   toDateKey,
   addDays,
   buildSprintWindows,
   buildSchedulePlan,
   applySchedulePlanToContainer,
   normalizeMilestones,
+  resolveTeamFteCount,
+  teamSprintCapacityHours,
+  onePersonSprintCapacityHours,
+  estimateEmptySprintWindows,
+  leavesAwaitingLlm,
+  isScheduleLeaf,
+  taskEffortHours,
 };

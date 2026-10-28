@@ -196,7 +196,17 @@ function buildCatalog(opts, scope) {
     })
   );
 
-  const tasks = asList(container?.planning?.tasks).map((task, index) =>
+  // Leaf tasks first so DEPENDENCY admission under budget keeps endpoints, not only Epic/Story.
+  const tasksRaw = asList(container?.planning?.tasks);
+  const isLeafLevel = (level) => {
+    const token = String(level || 'task').toLowerCase();
+    return token === 'task' || token === 'subtask' || !level;
+  };
+  const tasksOrdered = [
+    ...tasksRaw.filter((task) => isLeafLevel(task?.level)),
+    ...tasksRaw.filter((task) => !isLeafLevel(task?.level)),
+  ];
+  const tasks = tasksOrdered.map((task, index) =>
     stamp(scope, {
       id: rowId(task, ['id', 'taskId'], `TASK-${index + 1}`),
       reviewStatus: 'RUN',
@@ -377,6 +387,47 @@ function contextAllowsWork(layer) {
   return Boolean(layer?.ok && (layer.status === 'READY' || layer.status === 'OVER_BUDGET'));
 }
 
+/**
+ * Narrow planning.tasks to semantic-layer admission ids — never wipe a non-empty
+ * WBS when the layer admitted zero ids or id mismatch filtered everything out
+ * (Schedule/ProjectPlan previously wrote tasks:[] → Gate2 empty after good WbsTool).
+ * @param {object} container
+ * @param {object} layer — assembleHowToolContext result
+ * @returns {object}
+ */
+function scopeContainerTasksByContext(container, layer) {
+  const sourceTasks = Array.isArray(container?.planning?.tasks)
+    ? container.planning.tasks
+    : [];
+  if (!sourceTasks.length || !contextAllowsWork(layer)) return container;
+
+  const allowed = new Set(
+    (layer?.requiredData?.tasks || [])
+      .map((task) => String(task?.id || task?.taskId || '').trim())
+      .filter(Boolean)
+  );
+  if (allowed.size === 0) return container;
+
+  const filtered = sourceTasks.filter((task) =>
+    allowed.has(String(task?.id || task?.taskId || ''))
+  );
+  if (!filtered.length) {
+    console.warn(
+      '[how-scope] allowed filter emptied tasks — keeping source WBS',
+      `source=${sourceTasks.length}`,
+      `allowed=${allowed.size}`
+    );
+    return container;
+  }
+  return {
+    ...container,
+    planning: {
+      ...(container.planning || {}),
+      tasks: filtered,
+    },
+  };
+}
+
 async function assembleHowToolContext(opts = {}) {
   const pack = opts.pack || {};
   const snapshot = opts.snapshot || null;
@@ -410,7 +461,15 @@ async function assembleHowToolContext(opts = {}) {
       walkRequired: async ({ request }) => {
         const sections = {};
         for (const name of request.profile.required.sections) {
-          sections[name] = catalog[name] || [];
+          let rows = catalog[name] || [];
+          // DEPENDENCY endpoints are leaf tasks only — do not admit Epic/Story as "tasks".
+          if (request.purpose === 'DEPENDENCY' && name === 'tasks') {
+            rows = rows.filter((row) => {
+              const level = String(row?.level || 'task').toLowerCase();
+              return level === 'task' || level === 'subtask' || !row?.level;
+            });
+          }
+          sections[name] = rows;
         }
         const expectedIds = [];
         for (const items of Object.values(sections)) {
@@ -460,6 +519,7 @@ module.exports = {
   assembleHowToolContext,
   slimLayer,
   contextAllowsWork,
+  scopeContainerTasksByContext,
   layerAllows,
   missingSlotsFor,
   buildCatalog,

@@ -1,5 +1,10 @@
 const { createEvidence } = require('../evidence/evidence');
-const { runWbsEngineAsync, applyWbsToContainer, wbsDecompositionError } = require('../engines/wbs');
+const {
+  runWbsEngineAsync,
+  applyWbsToContainer,
+  wbsDecompositionError,
+  isWbsWaitingExternal,
+} = require('../engines/wbs');
 const { resolveWbsStoriesFromSot } = require('../engines/wbsStorySot');
 const { buildWbsSemanticFromStories } = require('../engines/wbsSemantic');
 
@@ -74,6 +79,29 @@ async function wbs(input = {}, context = {}) {
   console.info(
     `[WbsTool] storiesIn=${storyCount} leaves=${leafCount} source=${source} outcome=${outcome} unresolved=${unresolvedN} reason=${result.meta?.fallbackReason || '-'}`
   );
+
+  // Durable rabbit fan-in: park without treating as decomposition failure.
+  if (isWbsWaitingExternal(result)) {
+    return {
+      result: {
+        ...result,
+        waitingExternal: true,
+        container,
+      },
+      evidence: [
+        createEvidence({
+          sourceType: 'wbs_model',
+          sourceId: 'waiting_external',
+          snapshotId,
+          metric: 'wbs_task_count',
+          value: 0,
+          unit: 'count',
+          calculatedBy: 'WbsTool',
+          ruleId: 'WBS-ENGINE-WAIT',
+        }),
+      ],
+    };
+  }
 
   const decompositionError = wbsDecompositionError(result);
   if (decompositionError) throw decompositionError;

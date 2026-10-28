@@ -698,6 +698,7 @@ async function processRunAsync(runId) {
           ...commonPhaseOpts,
           toolData: cpState?.toolData || toolData,
           resumeState: cpState,
+          wallStartedAt: run.startedAt || null,
         });
       }
       if (phaseOut?.paused) {
@@ -736,9 +737,27 @@ async function processRunAsync(runId) {
           promptVersion: phaseOut.frUnderstanding?.meta?.promptVersion || null,
         },
       };
+      // Fail-fast: tool hard-fail → callback failed + error message (không báo completed).
+      const { howToolFailure, hasPhaseHardToolStop } = require('../orchestration/howPhaseToolNodes');
+      const toolFail = howToolFailure(phaseOut.toolResults);
+      const hardStop =
+        Boolean(toolFail) ||
+        hasPhaseHardToolStop(phaseOut) ||
+        String(phaseOut.stopReason || '').startsWith('TOOL_FAILED') ||
+        phaseOut.container?.phaseRuns?.phase_how?.status === 'failed' ||
+        phaseOut.container?.phaseRuns?.phase_what?.status === 'failed';
+      const phaseError = hardStop
+        ? {
+            code: toolFail?.code || phaseOut.container?.phaseRuns?.phase_how?.error?.code || 'HOW_TOOL_FAILED',
+            message:
+              toolFail?.message ||
+              phaseOut.container?.phaseRuns?.phase_how?.error?.message ||
+              String(phaseOut.stopReason || 'Phase dừng do tool thất bại.'),
+          }
+        : null;
       const callbackPayload = {
         runId,
-        status: 'completed',
+        status: hardStop ? 'failed' : 'completed',
         job: run.job,
         projectId: run.projectId,
         packId: run.packId,
@@ -748,6 +767,7 @@ async function processRunAsync(runId) {
         frUnderstanding: phaseOut.frUnderstanding || null,
         proposalFragment: phaseOut.proposalFragment || null,
         loop1Reuse,
+        ...(phaseError ? { error: phaseError } : {}),
       };
       await saveCheckpoint(runId, {
         job: run.job,
@@ -767,11 +787,12 @@ async function processRunAsync(runId) {
         iteration: Array.isArray(phaseOut.history) ? phaseOut.history.length : 0,
         hitl: phaseOut.hitl,
         selectiveReplanSteps: null,
+        ...(phaseError ? { error: phaseError } : {}),
       });
       await stageCallback(run, executionLeaseOwner, callbackPayload, {
         result: output,
         evidence: phaseOut.frUnderstanding?.evidence || [],
-        error: null,
+        error: phaseError,
       });
     } catch (error) {
       const callbackError = {
