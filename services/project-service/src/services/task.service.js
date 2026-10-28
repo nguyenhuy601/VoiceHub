@@ -472,6 +472,8 @@ class TaskService {
         updateFields.assigneeId !== undefined &&
         String(updateFields.assigneeId || '') !== String(task.assigneeId || '')
       ) {
+        const fromUserId = task.assigneeId ? String(task.assigneeId) : null;
+        const toUserId = updateFields.assigneeId ? String(updateFields.assigneeId) : null;
         try {
           const { recordSelectiveMutationAudit } = require('./audit.service');
           await recordSelectiveMutationAudit({
@@ -480,12 +482,24 @@ class TaskService {
             action: 'task_reassign',
             resourceType: 'task',
             resourceId: taskId,
-            beforeDoc: { assigneeId: task.assigneeId ? String(task.assigneeId) : null },
-            afterDoc: {
-              assigneeId: updateFields.assigneeId ? String(updateFields.assigneeId) : null,
-            },
+            beforeDoc: { assigneeId: fromUserId },
+            afterDoc: { assigneeId: toUserId },
             keys: ['assigneeId'],
             meta: { projectId: task.projectId ? String(task.projectId) : null },
+          });
+        } catch {
+          /* best-effort */
+        }
+        try {
+          const { appendProjectOperationalLog } = require('./staffingFallback.service');
+          await appendProjectOperationalLog(task.projectId, {
+            type: 'reassignment',
+            source: 'task_reassign',
+            taskId: String(taskId),
+            fromUserId,
+            toUserId,
+            actorUserId: String(userId),
+            reason: null,
           });
         } catch {
           /* best-effort */

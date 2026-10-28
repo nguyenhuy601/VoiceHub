@@ -481,6 +481,25 @@ function deriveReassignmentHistory(activities) {
   return out.slice(0, 200);
 }
 
+/** Dedupe key: taskId|from|to|at — keep first occurrence. */
+function dedupeReassignmentHistory(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows || []) {
+    if (!row) continue;
+    const key = [
+      row.taskId || '',
+      row.fromUserId || '',
+      row.toUserId || '',
+      row.at || '',
+    ].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
 function buildResources({ tasks, worklogs, project, activities, listsById } = {}) {
   const plannedHours = (tasks || []).reduce((sum, t) => sum + normalizeEstimateHours(t?.estimateHours), 0);
   const actualHours = (worklogs || []).reduce((sum, w) => sum + normalizeEstimateHours(w?.hours), 0);
@@ -586,7 +605,13 @@ function buildProcess({ approvals, sprints, project, activities }) {
   const derivedReassignment = deriveReassignmentHistory(activities);
   const opLog = Array.isArray(project?.operationalLog) ? project.operationalLog : [];
   const opReassign = opLog
-    .filter((e) => e && (e.type === 'reassignment' || e.source === 'fallback_override'))
+    .filter(
+      (e) =>
+        e &&
+        (e.type === 'reassignment' ||
+          e.source === 'fallback_override' ||
+          e.source === 'task_reassign')
+    )
     .map((e) => ({
       taskId: asStringOid(e.taskId),
       fromUserId: asStringOid(e.fromUserId) || null,
@@ -595,7 +620,10 @@ function buildProcess({ approvals, sprints, project, activities }) {
       reason: e.reason || null,
       source: e.source || e.type || 'operational_log',
     }));
-  const mergedReassign = [...derivedReassignment, ...opReassign].slice(0, 200);
+  const mergedReassign = dedupeReassignmentHistory([
+    ...derivedReassignment,
+    ...opReassign,
+  ]).slice(0, 200);
   const failedRows = opLog
     .filter((e) => e && e.type === 'failed_short_horizon')
     .map((e) => ({
@@ -693,5 +721,6 @@ module.exports = {
   fieldChangesFromActivity,
   countReopenFromActivities,
   buildByTask,
+  dedupeReassignmentHistory,
   buildProjectCloseSnapshot,
 };

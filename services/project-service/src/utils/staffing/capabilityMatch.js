@@ -124,10 +124,87 @@ function scoreVerifiedCapability({
   };
 }
 
+/**
+ * Collect skill/tech/tag tokens from a profile capability (verified or not).
+ */
+function collectCapabilityTechTokens(capability) {
+  const out = [];
+  if (!capability || typeof capability !== 'object') return out;
+  for (const s of Array.isArray(capability.skills) ? capability.skills : []) {
+    const n = String(s?.name || s || '').trim();
+    if (n) out.push(n);
+  }
+  for (const e of Array.isArray(capability.projectExperiences) ? capability.projectExperiences : []) {
+    for (const t of e?.technologies || e?.technologiesHandled || []) {
+      const n = String(t || '').trim();
+      if (n) out.push(n);
+    }
+    for (const h of Array.isArray(e?.taskHighlights) ? e.taskHighlights : []) {
+      for (const tag of Array.isArray(h?.tags) ? h.tags : []) {
+        const n = String(tag || '').trim();
+        if (n) out.push(n);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Score a staffing-fallback candidate against task tags (pure).
+ * Uses verified capability boost when available, else loose tech/tag overlap.
+ * @returns {{ score: number, reasons: string[], matched: string[] }}
+ */
+function scoreFallbackCandidateAgainstTags({ capability, verifiedCapability, taskTags = [] } = {}) {
+  const need = [...new Set((taskTags || []).map(normalizeKey).filter(Boolean))];
+  if (!need.length) {
+    return { score: 0, reasons: [], matched: [] };
+  }
+
+  const cap = verifiedCapability || capability || null;
+  const skillPart = scoreCapabilitySkills(cap || { skills: [] }, need);
+  const techTokens = collectCapabilityTechTokens(cap);
+  const matchedTech = [];
+  let techBoost = 0;
+  for (const token of techTokens) {
+    const t = normalizeKey(token);
+    if (!t || t.length < 2) continue;
+    for (const n of need) {
+      if (t === n || t.includes(n) || n.includes(t)) {
+        if (!matchedTech.includes(token)) matchedTech.push(token);
+        techBoost += 3;
+        break;
+      }
+    }
+  }
+
+  let verifiedBoost = 0;
+  const reasons = [...skillPart.reasons];
+  if (verifiedCapability && String(verifiedCapability.verificationStatus || '') === 'verified') {
+    const full = scoreVerifiedCapability({
+      verifiedCapability,
+      requiredSkills: need,
+      requiredDomains: [],
+    });
+    verifiedBoost = full.boost;
+    for (const r of full.reasons || []) {
+      if (!reasons.includes(r)) reasons.push(r);
+    }
+  }
+
+  if (matchedTech.length) reasons.push(`tags_tech_match:${matchedTech.length}`);
+
+  const matched = [...new Set([...(skillPart.matched || []), ...matchedTech])];
+  // Prefer verified boost when present; else skills + loose tech
+  const score = verifiedBoost > 0 ? verifiedBoost + Math.min(9, techBoost) : skillPart.boost + Math.min(12, techBoost);
+  return { score, reasons, matched };
+}
+
 module.exports = {
   scoreCapabilitySkills,
   scoreBusinessDomains,
   scoreVerifiedCapability,
+  scoreFallbackCandidateAgainstTags,
+  collectCapabilityTechTokens,
   inferRequirementsFromProjectRole,
   buildSkillRankMap,
   buildDomainRankMap,

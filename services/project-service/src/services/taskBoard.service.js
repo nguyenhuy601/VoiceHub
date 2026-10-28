@@ -2591,6 +2591,8 @@ async function updateCard({
       Object.prototype.hasOwnProperty.call(next, 'assigneeId') &&
       String(next.assigneeId || '') !== String(card.assigneeId || '')
     ) {
+      const fromUserId = card.assigneeId ? String(card.assigneeId) : null;
+      const toUserId = next.assigneeId ? String(next.assigneeId) : null;
       void require('./audit.service')
         .recordSelectiveMutationAudit({
           organizationId: board.organizationId,
@@ -2598,12 +2600,25 @@ async function updateCard({
           action: 'task_reassign',
           resourceType: 'task',
           resourceId: String(cardId),
-          beforeDoc: { assigneeId: card.assigneeId ? String(card.assigneeId) : null },
-          afterDoc: { assigneeId: next.assigneeId ? String(next.assigneeId) : null },
+          beforeDoc: { assigneeId: fromUserId },
+          afterDoc: { assigneeId: toUserId },
           keys: ['assigneeId'],
           meta: { projectId: String(board.projectId), boardId: String(board._id) },
         })
         .catch((err) => logger.warn('[task-board] task_reassign audit failed: %s', err.message));
+      void require('./staffingFallback.service')
+        .appendProjectOperationalLog(board.projectId, {
+          type: 'reassignment',
+          source: 'task_reassign',
+          taskId: String(cardId),
+          fromUserId,
+          toUserId,
+          actorUserId: String(userId),
+          reason: null,
+        })
+        .catch((err) =>
+          logger.warn('[task-board] reassignment operationalLog failed: %s', err.message)
+        );
     }
     const keys = Object.keys(next);
     const beforeDoc = card.toObject ? card.toObject() : card;

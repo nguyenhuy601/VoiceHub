@@ -11,6 +11,8 @@ const {
   classifyStaffingFallback,
   remainingCalendarDays,
 } = require('../utils/task/staffingFallback');
+const { scoreFallbackCandidateAgainstTags } = require('../utils/staffing/capabilityMatch');
+const { fetchProfilesByUserIds } = require('../clients/userProfilesBatch.client');
 const { assertUserProjectPermission } = require('./projectAccess.service');
 const { recordSelectiveMutationAudit } = require('./audit.service');
 const { collectTaskAssigneeIds } = require('../utils/task/taskAssignee');
@@ -41,7 +43,8 @@ async function appendProjectOperationalLog(projectId, entry) {
 }
 
 /**
- * Suggest other project members as replace candidates (MVP — no AI call).
+ * Suggest other project members as replace candidates (ranked by tag/skill overlap).
+ * HITL only — does not mutate assignee.
  */
 async function suggestReplaceCandidates({ taskId, actorUserId, limit = 5 } = {}) {
   const tid = asOid(taskId);
@@ -71,17 +74,54 @@ async function suggestReplaceCandidates({ taskId, actorUserId, limit = 5 } = {})
 
   const kind = classifyStaffingFallback(task);
   const currentAssignees = new Set(collectTaskAssigneeIds(task).map(String));
+  const taskTags = Array.isArray(task.tags)
+    ? task.tags.map((t) => String(t || '').trim()).filter(Boolean)
+    : [];
   const memberships = await ProjectMembership.find({ projectId })
     .select('userId')
     .lean()
     .limit(80);
-  const candidates = [];
+  const memberIds = [];
   for (const m of memberships || []) {
     const uid = String(m.userId || '').trim();
     if (!uid || currentAssignees.has(uid)) continue;
-    candidates.push({ userId: uid, source: 'project_membership' });
-    if (candidates.length >= Math.min(20, Math.max(1, Number(limit) || 5))) break;
+    memberIds.push(uid);
   }
+
+  let profileMap = new Map();
+  try {
+    profileMap = await fetchProfilesByUserIds(memberIds);
+  } catch (err) {
+    logger.warn('[staffing-fallback] profile batch failed: %s', err?.message || err);
+  }
+
+  const ranked = [];
+  for (const uid of memberIds) {
+    const profile = profileMap.get(uid) || null;
+    const cap = profile?.capability || null;
+    const verifiedCapability =
+      cap && String(cap.verificationStatus || '') === 'verified' ? cap : null;
+    const scored = scoreFallbackCandidateAgainstTags({
+      capability: cap,
+      verifiedCapability,
+      taskTags,
+    });
+    const row = {
+      userId: uid,
+      source: 'project_membership',
+      score: scored.score || 0,
+      reasons: scored.reasons || [],
+    };
+    if (scored.matched?.length) row.matched = scored.matched.slice(0, 12);
+    const displayName =
+      profile?.displayName || profile?.fullName || profile?.username || null;
+    if (displayName) row.displayName = String(displayName).trim().slice(0, 120);
+    ranked.push(row);
+  }
+
+  ranked.sort((a, b) => b.score - a.score || String(a.userId).localeCompare(String(b.userId)));
+  const topN = Math.min(20, Math.max(1, Number(limit) || 5));
+  const candidates = ranked.slice(0, topN);
 
   return {
     taskId: tid,
@@ -89,6 +129,7 @@ async function suggestReplaceCandidates({ taskId, actorUserId, limit = 5 } = {})
     kind,
     remainingCalendarDays: remainingCalendarDays(task),
     currentAssigneeIds: [...currentAssignees],
+    taskTags,
     candidates,
   };
 }
