@@ -11,6 +11,7 @@ test('department manager has invite and create project, not policy or delete', (
   assert.equal(hasCode('DEPARTMENT_MANAGER', 'project.project.create'), true);
   assert.equal(hasCode('DEPARTMENT_MANAGER', 'organization.employee.view'), true);
   assert.equal(hasCode('DEPARTMENT_MANAGER', 'communication.chat.send'), true);
+  assert.equal(hasCode('DEPARTMENT_MANAGER', 'project.report.view'), true);
   assert.equal(hasCode('DEPARTMENT_MANAGER', 'organization.policy.update'), false);
   assert.equal(hasCode('DEPARTMENT_MANAGER', 'organization.employee.delete'), false);
   assert.equal(hasCode('department_manager', 'organization.employee.invite'), true);
@@ -43,6 +44,7 @@ test('engineering manager maps to department manager; director is not a shared p
   );
   assert.equal(hasCode('DIRECTOR', 'organization.organization_role.update'), false);
   assert.equal(hasCode('DIRECTOR', 'organization.policy.update'), true);
+  assert.equal(hasCode('DIRECTOR', 'project.report.view'), true);
   assert.equal(hasCode('IT_ADMIN', 'organization.organization_role.update'), true);
   assert.equal(hasCode('IT_ADMIN', 'organization.employee.invite'), true);
   assert.equal(hasCode('IT_ADMIN', 'organization.employee.disable'), true);

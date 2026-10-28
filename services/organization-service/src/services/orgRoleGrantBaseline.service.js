@@ -44,6 +44,8 @@ const ROLE_GRANTS = Object.freeze({
     ['organization.employee.update', 'DEPARTMENT'],
     ['organization.structure.view', 'DEPARTMENT'],
     ['project.project.create', 'ORGANIZATION'],
+    /** Admin Performance UI (`adminDomains` requiredGrant). */
+    ['project.report.view', 'DEPARTMENT'],
     ...CHAT,
   ],
   DIRECTOR: [
@@ -61,6 +63,8 @@ const ROLE_GRANTS = Object.freeze({
     ['organization.policy.update', 'ORGANIZATION'],
     ['system.audit.view', 'ORGANIZATION'],
     ['project.project.create', 'ORGANIZATION'],
+    /** Admin Performance UI (`adminDomains` requiredGrant). */
+    ['project.report.view', 'ORGANIZATION'],
   ],
   IT_ADMIN: [
     ['organization.employee.view', 'ORGANIZATION'],
